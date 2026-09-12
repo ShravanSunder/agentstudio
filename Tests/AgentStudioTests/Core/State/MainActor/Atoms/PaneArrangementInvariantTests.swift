@@ -14,7 +14,7 @@ final class PaneArrangementInvariantTests {
     }
 
     @Test
-    func insertPaneFromDefaultPreservesEveryCustomArrangement() throws {
+    func genericInsertPaneFromDefaultPlacesExistingIdentityInEveryArrangement() throws {
         let firstPane = store.createPane()
         let tab = Tab(paneId: firstPane.id)
         store.appendTab(tab)
@@ -30,8 +30,6 @@ final class PaneArrangementInvariantTests {
         let firstCustomArrangementID = try #require(store.createArrangement(name: "First", inTab: tab.id))
         let secondCustomArrangementID = try #require(store.createArrangement(name: "Second", inTab: tab.id))
         store.switchArrangement(to: tab.defaultArrangement.id, inTab: tab.id)
-        let customArrangementsBeforeInsertion = try #require(store.tab(tab.id)?.arrangements.filter { !$0.isDefault })
-
         let thirdPane = store.createPane()
         store.insertPane(
             thirdPane.id,
@@ -44,14 +42,15 @@ final class PaneArrangementInvariantTests {
 
         let updatedTab = try #require(store.tab(tab.id))
         #expect(updatedTab.defaultArrangement.layout.contains(thirdPane.id))
-        #expect(updatedTab.arrangements.filter { !$0.isDefault } == customArrangementsBeforeInsertion)
-        #expect(updatedTab.arrangements.contains { $0.id == firstCustomArrangementID })
-        #expect(updatedTab.arrangements.contains { $0.id == secondCustomArrangementID })
+        #expect(
+            updatedTab.arrangements.first { $0.id == firstCustomArrangementID }?.layout.contains(thirdPane.id) == true)
+        #expect(
+            updatedTab.arrangements.first { $0.id == secondCustomArrangementID }?.layout.contains(thirdPane.id) == true)
         #expect(updatedTab.allPaneIds.filter { $0 == thirdPane.id }.count == 1)
     }
 
     @Test
-    func insertPaneFromCustomChangesOnlyCurrentAndDefault() throws {
+    func genericInsertPaneFromCustomPlacesExistingIdentityInEveryArrangement() throws {
         let firstPane = store.createPane()
         let tab = Tab(paneId: firstPane.id)
         store.appendTab(tab)
@@ -66,10 +65,6 @@ final class PaneArrangementInvariantTests {
         )
         let untouchedArrangementID = try #require(store.createArrangement(name: "Untouched", inTab: tab.id))
         let activeArrangementID = try #require(store.createArrangement(name: "Active", inTab: tab.id))
-        let untouchedBeforeInsertion = try #require(
-            store.tab(tab.id)?.arrangements.first { $0.id == untouchedArrangementID }
-        )
-
         let thirdPane = store.createPane()
         store.insertPane(
             thirdPane.id,
@@ -83,12 +78,13 @@ final class PaneArrangementInvariantTests {
         let updatedTab = try #require(store.tab(tab.id))
         #expect(updatedTab.defaultArrangement.layout.contains(thirdPane.id))
         #expect(updatedTab.arrangements.first { $0.id == activeArrangementID }?.layout.contains(thirdPane.id) == true)
-        #expect(updatedTab.arrangements.first { $0.id == untouchedArrangementID } == untouchedBeforeInsertion)
+        #expect(
+            updatedTab.arrangements.first { $0.id == untouchedArrangementID }?.layout.contains(thirdPane.id) == true)
         #expect(updatedTab.allPaneIds.filter { $0 == thirdPane.id }.count == 1)
     }
 
     @Test
-    func insertDrawerPaneFromDefaultPreservesEveryCustomArrangement() throws {
+    func genericInsertDrawerPaneFromDefaultPlacesExistingIdentityInEveryArrangement() throws {
         let parentPane = store.createPane()
         let tab = Tab(paneId: parentPane.id)
         store.appendTab(tab)
@@ -96,31 +92,27 @@ final class PaneArrangementInvariantTests {
         _ = try #require(store.createArrangement(name: "First", inTab: tab.id))
         _ = try #require(store.createArrangement(name: "Second", inTab: tab.id))
         store.switchArrangement(to: tab.defaultArrangement.id, inTab: tab.id)
-        let customArrangementsBeforeInsertion = try #require(
-            store.tab(tab.id)?.arrangements.filter { !$0.isDefault }
-        )
-
         let insertedDrawerPane = try #require(store.addDrawerPane(to: parentPane.id))
 
         let updatedTab = try #require(store.tab(tab.id))
         let drawerID = try #require(store.pane(parentPane.id)?.drawer?.drawerId)
         #expect(updatedTab.defaultArrangement.drawerViews[drawerID]?.layout.contains(insertedDrawerPane.id) == true)
-        #expect(updatedTab.arrangements.filter { !$0.isDefault } == customArrangementsBeforeInsertion)
+        #expect(
+            updatedTab.arrangements
+                .filter { !$0.isDefault }
+                .allSatisfy { $0.drawerViews[drawerID]?.layout.contains(insertedDrawerPane.id) == true }
+        )
         #expect(updatedTab.allPaneIds.filter { $0 == insertedDrawerPane.id }.count == 1)
     }
 
     @Test
-    func insertDrawerPaneFromCustomChangesOnlyCurrentAndDefault() throws {
+    func genericInsertDrawerPaneFromCustomPlacesExistingIdentityInEveryArrangement() throws {
         let parentPane = store.createPane()
         let tab = Tab(paneId: parentPane.id)
         store.appendTab(tab)
         _ = try #require(store.addDrawerPane(to: parentPane.id))
         let untouchedArrangementID = try #require(store.createArrangement(name: "Untouched", inTab: tab.id))
         let activeArrangementID = try #require(store.createArrangement(name: "Active", inTab: tab.id))
-        let untouchedBeforeInsertion = try #require(
-            store.tab(tab.id)?.arrangements.first { $0.id == untouchedArrangementID }
-        )
-
         let insertedDrawerPane = try #require(store.addDrawerPane(to: parentPane.id))
 
         let updatedTab = try #require(store.tab(tab.id))
@@ -130,7 +122,10 @@ final class PaneArrangementInvariantTests {
             updatedTab.arrangements.first { $0.id == activeArrangementID }?
                 .drawerViews[drawerID]?.layout.contains(insertedDrawerPane.id) == true
         )
-        #expect(updatedTab.arrangements.first { $0.id == untouchedArrangementID } == untouchedBeforeInsertion)
+        #expect(
+            updatedTab.arrangements.first { $0.id == untouchedArrangementID }?
+                .drawerViews[drawerID]?.layout.contains(insertedDrawerPane.id) == true
+        )
         #expect(updatedTab.allPaneIds.filter { $0 == insertedDrawerPane.id }.count == 1)
     }
 

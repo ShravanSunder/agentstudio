@@ -159,6 +159,13 @@ struct WorkspacePaneAssociationCreationPathTests {
         let targetTab = Tab(paneId: targetPane.id)
         harness.store.appendTab(sourceTab)
         harness.store.appendTab(targetTab)
+        let firstTargetArrangementID = try #require(
+            harness.store.createArrangement(name: "First target", inTab: targetTab.id)
+        )
+        let secondTargetArrangementID = try #require(
+            harness.store.createArrangement(name: "Second target", inTab: targetTab.id)
+        )
+        harness.store.switchArrangement(to: targetTab.defaultArrangement.id, inTab: targetTab.id)
 
         try await harness.coordinator.executeInsertPane(
             source: .existingPane(paneId: movingPane.id, sourceTabId: sourceTab.id),
@@ -169,6 +176,13 @@ struct WorkspacePaneAssociationCreationPathTests {
         )
 
         #expect(harness.store.tab(targetTab.id)?.paneIds.contains(movingPane.id) == true)
+        let movedTargetTab = try #require(harness.store.tab(targetTab.id))
+        #expect(
+            movedTargetTab.arrangements.first { $0.id == firstTargetArrangementID }?.layout.contains(movingPane.id)
+                == true)
+        #expect(
+            movedTargetTab.arrangements.first { $0.id == secondTargetArrangementID }?.layout.contains(movingPane.id)
+                == true)
         expectDurableAssociation(movingPane.id, repo: repo, worktree: worktree, store: harness.store)
     }
 }

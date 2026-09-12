@@ -205,9 +205,10 @@ focus its parent. Preview is temporary and must not silently change this committ
 policy. Pane click, keyboard activation and direct pinned-pane commands share the
 committed reveal rule; preview is a distinct operation.
 
-Open visibility edges: child minimized while parent visible, target/parent closing,
-Default with drawer children, and preview interacting with zoom or another window.
-These require explicit resolution, not removal of the agreed fallback behavior.
+The [arrangement specification](../../specs/2026-09-12-arrangement-visibility/specification.md)
+now resolves minimized children, Default fallback and target/parent closing.
+Its design review is complete and implementation is in validation. Preview
+interacting with zoom or another window remains open in the sidebar design.
 
 ## 8. Review questions and evidence
 
@@ -226,10 +227,12 @@ and focus the sidebar, or leave Management unchanged? Neither behavior is select
 | [Focus bridge](../../../Sources/AgentStudio/Features/RepoExplorer/RepoExplorerView+VisibleRows.swift) | Current bridge primarily covers filter focus; cancellation/return not complete |
 | [Sidebar view](../../../Sources/AgentStudio/Features/RepoExplorer/RepoExplorerView.swift) and [search field](../../../Sources/AgentStudio/SharedComponents/SidebarSearchField.swift) | Live filter exists; sidebar must wire onSubmit for Enter-to-table |
 | [Pane focus/reveal](../../../Sources/AgentStudio/App/Panes/PaneTabViewController.swift) | Committed activation mutates visibility/focus; not a reversible preview API |
-| [Arrangement insertion](../../../Sources/AgentStudio/Core/State/MainActor/Atoms/TabLayoutRules/TabArrangementMutationRules.swift) | Currently unminimizes new panes in all arrangements |
+| [Arrangement insertion](../../../Sources/AgentStudio/Core/State/MainActor/Atoms/TabLayoutRules/TabArrangementMutationRules.swift) | Creation-specific current+Default insertion is implemented and under validation; existing identity placement preserves its original behavior |
 | [Row actions](../../../Sources/AgentStudio/Features/RepoExplorer/RepoExplorerMaterializedRowView.swift) | Pane focus and worktree open are separate primary actions |
 
 Proof needed later: real list/filter/pane focus, anchored hint rendering, correct
 number-to-row mapping during updates, preview dismissal versus Enter commit, and
 creation/reveal through terminal, Bridge and drawer targets. No native proof or
-complete independent three-artifact review is claimed by this discussion map.
+complete sidebar three-artifact review is claimed by this discussion map. The
+separate arrangement capability has its own bounded design review; focused tests
+are not native proof or full delivery readiness.

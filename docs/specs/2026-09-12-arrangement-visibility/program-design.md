@@ -43,27 +43,58 @@ representations. Omitting the pane from unrelated custom arrangements is support
 by existing validation and persistence, whose completeness rule is union-of-all-
 arrangements plus Default, not completeness of every custom layout.
 
-## Creation delta
+## Creation delta and existing-identity placement
 
-Current: `WorkspaceActionCommand.insertPane` →
-`WorkspaceSurfaceCoordinator.executeInsertPane` → existing arrangement atom →
-`TabArrangementMutationRules.insertingPane` inserts/appends and unminimizes in every
-arrangement. Drawer creation reaches `insertingDrawerPane` for each arrangement
-containing the parent.
+The current generic insertion methods also serve existing-pane moves, drawer
+detach/rollback, reactivation and undo. The creation-only U6 rule must not change
+those consumers. Distinguish lifecycle meaning with named entry points, not a
+legacy flag or a second version of the behavior.
 
-Changed: both pure value transformations apply placement only to the active and
-Default arrangement indices (once when equal). Keep active placement direction and
-sizing exactly as requested. Default receives the existing append behavior when
-different. Other custom arrangement values are untouched. Append membership once.
+```text
+New terminal identity (Core creation composition)
+New webview identity (App creation branch)
+           |
+           v
+creation-specific insertion entry → current + Default
+           |
+           v
+shared private placement mechanics → existing atomic publication/persistence
+           ^
+           |
+existing placement entry → all arrangements (unchanged)
+           ^
+           |
+move / detach rollback / reactivate / restore existing identity
+```
 
-For drawers, mutate/install the existing physical drawer's view only at those two
-indices, provided its parent belongs there; do not allocate a second drawer or
-insert the child into the main layout. Reuse current child placement policy.
+Core `TabArrangementMutationRules.insertingNewPane` and `insertingNewDrawerPane`
+apply only at current and Default indices, once when equal. The existing
+`insertingPane`/`insertingDrawerPane` placement entries retain all-arrangement
+behavior for existing identities. Both call shared private placement mechanics;
+this is two legitimate operations, not compatibility staging. Keep creation
+placement direction/sizing; append Default when different; unrelated custom values
+stay untouched. Membership is appended once.
 
-Intentionally unchanged: mutation admission, equal-write publication, storage
-schema, persistence serialization, Default repair, pane runtime construction,
-and close/removal propagation. New custom arrangements retain existing explicit
-creation behavior; this change governs insertion into already-existing arrangements.
+Expose matching narrow creation-specific forwarding entries in the existing
+arrangement/tab-layout owners. Do not change old existing-placement callers to
+creation merely because their names include “insert.” Physical drawer identity and
+child-parent relationship remain with their existing owner.
+
+| Caller | Entry / preserved meaning |
+| --- | --- |
+| WorkspaceTerminalCreationComposition split/drawer after new UUIDv7 Pane preparation | New-identity placement, current+Default |
+| WorkspaceSurfaceCoordinator newWebview split/drawer after successful pane creation | New-identity placement, current+Default |
+| PaneSource.existingPane | Existing placement across arrangements, unchanged |
+| Drawer detach promotion/rollback | Existing placement, unchanged |
+| WorkspaceMutationCoordinator reactivation / restoreFromPaneSnapshot | Existing placement, unchanged |
+| WorkspaceUndoRestoreComposition | Existing restoration/recorded drawer views, unchanged |
+| Cross-tab pane move / merge dedicated path | Unchanged |
+
+Intentionally unchanged: admission, existing-placement behavior, equal-write
+publication, schema, persistence, Default repair, runtime construction, and close/
+removal propagation. New custom arrangement creation also keeps its current explicit
+behavior. Proof must exercise both new-identity production entries and existing
+identity preservation; changing a generic test helper's behavior is not that proof.
 
 ## Visibility policy interface
 
@@ -158,6 +189,45 @@ that target, parent relationship, tab and selected arrangement still exist. A
 failed step stops the remaining sequence; do not restore a stale whole-tab snapshot.
 Preserve the existing gesture execution owner and command failure result path.
 
+## Synchronous callers and dependent effects
+
+The async decision must not let existing follow-on effects outrun focus. Use an
+inner async `prepareAndApplyTargetFocus` operation accepting the already-admitted
+workspace `execute` closure; it does not submit another gesture. An outer wrapper
+submits one whole user operation and returns its `Task<Bool, Never>`. Callers already
+inside a submitted operation invoke the inner helper directly. Never await a new
+submission behind the gesture currently executing; that would await its own tail.
+
+| Existing consumer | Whole-operation ordering after cutover |
+| --- | --- |
+| Explicit focusPane | Prepare/apply focus, then complete the submitted task |
+| editPaneNote | Await exact focus, then present the note; failure presents nothing |
+| retained pane-inbox targeted path | Await focus, then its existing presentation; do not reconnect dormant Inbox wiring |
+| executeZoomCommand requiring another tab | Resolve capability inside admitted operation, await target focus, then reattach/enter/retarget/reconcile zoom |
+| enterZoomAndShowViewer | Await zoom application in the same operation, then inspect presentation and request/show viewer |
+| focusMainPaneOrdinal when zoom retargets | Resolve ordinal, await zoom effect when required, then apply exact focus trigger; no immediate post-submit continuation |
+| Bridge surface reuse | Set scoped pending attendance event immediately before focus, await successful focus, verify attendance, then request surface; clear scoped intent on failure |
+| pane.focus IPC adapter | Await the exact submitted focus task before returning focused:true; failure uses existing layout error cases |
+
+Private synchronous dispatch handlers may report *handled/admitted*, as their
+routing purpose requires, but must not report operation completion or inspect
+post-focus state until the task finishes. Split pure capability checks from async
+effect functions so canExecute remains synchronous and side-effect free. All private
+callers of zoom/viewer effect functions follow the same async composition; there is
+no legacy synchronous focus fallback.
+
+For IPC, change App-local `PaneFocusAppControlling.focusPane` and the matching
+`AppIPCLayoutPort.focusPane` to async throws. The JSON method/parameters/result shape
+remain unchanged. `AgentStudioIPCLayoutAdapter` awaits the control result; the
+already-async server layout route awaits it just as it awaits split/close. Existing
+sync protocol fakes may satisfy an async requirement, but tests invoking the port
+must await completion. This preserves the meaning of focused:true instead of
+turning it into an unlabelled admission receipt.
+
+Extend the integration proof to cover focus→zoom/viewer, focus→Bridge reuse, and
+focus→note ordering with a controlled predecessor/decision suspension. Use the
+existing executor submission result/barrier seam; no sleeps or DEBUG-only hooks.
+
 ## Threading, state and interleavings
 
 No new persistent or observed state is needed. Pure insertion remains within the
@@ -168,7 +238,9 @@ derivation onto MainActor. AppKit and atom application remain MainActor-owned.
 Core captures the target tab's immutable graph value using the existing keyed
 `WorkspaceTabGraphAtom.tabState` access, plus its existing accepted graph revision
 and current arrangement ID. Keep graph types internal by exposing one narrow
-package snapshot/resolve API from the owning Core boundary; the snapshot may wrap
+package snapshot-capture API at the owning Core boundary; raw capture reads existing
+atom values only. Visibility decisions live in the separate pure policy, never
+in an atom method. The snapshot may wrap
 internal Sendable graph data without making the entire graph public. Do not rebuild
 all tabs or join pane fleets on MainActor for this query.
 
@@ -209,7 +281,8 @@ treat a broad pane-count snapshot as proof of arrangement visibility.
 
 Architecture boundaries are enforced by package imports, narrow visibility, existing
 architecture lint, and behavior tests. No new permission, secret, network, telemetry
-payload or runtime ownership boundary is introduced. No migration or dual path is
+payload or runtime ownership boundary is introduced. The focus port becomes async
+at source level to preserve completion semantics; its wire schema is unchanged. No migration or dual path is
 needed: replace the old insertion/reveal behavior in place.
 
 ## Source anchors

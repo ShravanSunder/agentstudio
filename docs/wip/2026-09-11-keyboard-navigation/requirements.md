@@ -92,8 +92,9 @@ data; their existence is not permission to duplicate keyboard ownership.
 The native table currently rejects/deselects row selection. Filter onSubmit exists
 in the shared field but is not wired by the sidebar. Pane activation mutates tab,
 arrangement/minimization and focus; it is not an established reversible preview.
-Current insertion unminimizes new panes in all arrangements; current reveal tests
-membership before visibility. Source pointers live in the map.
+The pre-change arrangement baseline inserted into all arrangements and revealed by
+membership before visibility. Its separate reviewed correction is now implemented
+and under validation. Source pointers live in the map.
 
 Current review should evaluate the coherent journey and the explicitly open choices,
 not treat this as an implementation-ready Specification. Preview activation/dismissal,
@@ -104,5 +105,6 @@ questions. Review can proceed while those questions are discussed.
 
 Proof expectation: native keyboard journeys through list/filter/pane focus and
 real terminal/Bridge/drawer destinations, state inspection for arrangement visibility,
-and preview cancellation/commit evidence. Current documents have only source and
-Markdown checks; no implementation, native proof, or independent design acceptance.
+and preview cancellation/commit evidence. Sidebar implementation and native proof
+remain outstanding. The separate U6/U7 arrangement capability has bounded design
+review and focused implementation checks; its full validation remains in progress.

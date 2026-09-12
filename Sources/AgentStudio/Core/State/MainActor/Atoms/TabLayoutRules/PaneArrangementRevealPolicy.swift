@@ -24,7 +24,7 @@ package struct PaneArrangementRevealSelection: Equatable, Sendable {
 package struct PaneArrangementRevealSnapshot: Sendable {
     package let tabID: UUID
     let graphRevision: Int
-    let activeArrangementID: UUID
+    package let activeArrangementID: UUID
     let allPaneIDs: [UUID]
     let arrangements: [PaneArrangementGraphState]
 

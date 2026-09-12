@@ -15,7 +15,7 @@ struct AgentStudioIPCLayoutAdapterTests {
         let harness = LayoutAdapterHarness(windowSnapshot: .empty)
 
         do {
-            _ = try harness.adapter.focusPane(IPCHandle(kind: .pane, reference: .friendlyOrdinal(1)))
+            _ = try await harness.adapter.focusPane(IPCHandle(kind: .pane, reference: .friendlyOrdinal(1)))
             Issue.record("focusPane unexpectedly succeeded without an active window")
         } catch let error as AppIPCLayoutError {
             #expect(error.reason == .noActiveWindow)
@@ -33,10 +33,39 @@ struct AgentStudioIPCLayoutAdapterTests {
         let focusControl = RecordingPaneFocusAppControl()
         let harness = LayoutAdapterHarness(store: store, focusControl: focusControl)
 
-        let result = try harness.adapter.focusPane(IPCHandle(kind: .pane, reference: .friendlyOrdinal(2)))
+        let result = try await harness.adapter.focusPane(IPCHandle(kind: .pane, reference: .friendlyOrdinal(2)))
 
         #expect(result == IPCPaneFocusResult(paneId: secondPane.id, focused: true))
         #expect(focusControl.focusedPaneIds == [secondPane.id])
+    }
+
+    @Test("pane focus result waits for the focus owner to complete")
+    func paneFocusResultWaitsForFocusOwnerCompletion() async throws {
+        let store = makeIPCLayoutWorkspaceStore()
+        let pane = store.createPane(title: "Target")
+        let tab = Tab(paneId: pane.id)
+        store.appendTab(tab)
+        store.setActiveTab(tab.id)
+        let focusControl = SuspendingPaneFocusAppControl()
+        let harness = LayoutAdapterHarness(store: store, focusControl: focusControl)
+        var completed = false
+        let resultTask = Task { @MainActor in
+            let result = try await harness.adapter.focusPane(
+                IPCHandle(kind: .pane, reference: .friendlyOrdinal(1))
+            )
+            completed = true
+            return result
+        }
+        await eventually("the focus owner should receive the IPC target") {
+            focusControl.focusedPaneIDs == [pane.id]
+        }
+        #expect(!completed)
+
+        focusControl.complete()
+        let result = try await resultTask.value
+
+        #expect(completed)
+        #expect(result == IPCPaneFocusResult(paneId: pane.id, focused: true))
     }
 
     @Test("pane focus reports target not found for missing pane handle")
@@ -44,7 +73,7 @@ struct AgentStudioIPCLayoutAdapterTests {
         let harness = LayoutAdapterHarness()
 
         do {
-            _ = try harness.adapter.focusPane(IPCHandle(kind: .pane, reference: .canonicalUUID(UUID())))
+            _ = try await harness.adapter.focusPane(IPCHandle(kind: .pane, reference: .canonicalUUID(UUID())))
             Issue.record("focusPane unexpectedly succeeded for a missing pane")
         } catch let error as AppIPCLayoutError {
             #expect(error.reason == .targetNotFound)
@@ -56,7 +85,7 @@ struct AgentStudioIPCLayoutAdapterTests {
         let harness = LayoutAdapterHarness()
 
         do {
-            _ = try harness.adapter.focusPane(IPCHandle(kind: .workspace, reference: .friendlyOrdinal(1)))
+            _ = try await harness.adapter.focusPane(IPCHandle(kind: .workspace, reference: .friendlyOrdinal(1)))
             Issue.record("focusPane unexpectedly accepted a workspace handle")
         } catch let error as AppIPCLayoutError {
             #expect(error.reason == .validationRejected)
@@ -205,10 +234,37 @@ struct AgentStudioIPCLayoutAdapterTests {
                 workspaceStore: harness.store
             )
 
-            try focusControl.focusPane(secondPane.id)
+            let focusWindow = makePaneTabViewControllerCommandWindow(for: harness.controller)
+            focusWindow.isReleasedWhenClosed = false
+            defer { focusWindow.close() }
+            try attachPaneHost(paneId: secondPane.id, in: harness, to: focusWindow)
+
+            try await focusControl.focusPane(secondPane.id)
 
             #expect(harness.store.activeTabId == tab.id)
             #expect(harness.store.tab(tab.id)?.activePaneId == secondPane.id)
+        }
+    }
+
+    @Test("concrete pane focus control rejects completion when no native host can focus")
+    func concretePaneFocusControlRejectsMissingNativeHost() async throws {
+        try await withAsyncTestCoreAtoms { _ in
+            let harness = makeHarness()
+            let pane = harness.store.createPane(title: "Target")
+            let tab = Tab(paneId: pane.id)
+            harness.store.appendTab(tab)
+            harness.store.setActiveTab(tab.id)
+            let focusControl = PaneTabViewControllerPaneFocusAppControl(
+                paneTabViewController: harness.controller,
+                workspaceStore: harness.store
+            )
+
+            do {
+                try await focusControl.focusPane(pane.id)
+                Issue.record("focusPane unexpectedly succeeded without a native pane host")
+            } catch let error as PaneFocusAppControlError {
+                #expect(error == .validationRejected)
+            }
         }
     }
 
@@ -291,11 +347,27 @@ private final class RecordingPaneFocusAppControl: PaneFocusAppControlling, @unch
     private(set) var focusedPaneIds: [UUID] = []
     var error: PaneFocusAppControlError?
 
-    func focusPane(_ paneId: UUID) throws {
+    func focusPane(_ paneId: UUID) async throws {
         if let error {
             throw error
         }
         focusedPaneIds.append(paneId)
+    }
+}
+
+@MainActor
+private final class SuspendingPaneFocusAppControl: PaneFocusAppControlling, @unchecked Sendable {
+    private let completion = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+    private(set) var focusedPaneIDs: [UUID] = []
+
+    func focusPane(_ paneId: UUID) async throws {
+        focusedPaneIDs.append(paneId)
+        for await _ in completion.stream { break }
+    }
+
+    func complete() {
+        completion.continuation.yield(())
+        completion.continuation.finish()
     }
 }
 

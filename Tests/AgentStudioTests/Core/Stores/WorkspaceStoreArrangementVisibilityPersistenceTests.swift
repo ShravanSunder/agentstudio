@@ -37,7 +37,7 @@ struct WorkspaceStoreArrangementTestsSQLite {
         let parentPane = originalStore.createPane(title: "Parent")
         let tab = Tab(paneId: parentPane.id)
         originalStore.appendTab(tab)
-        _ = try #require(originalStore.addDrawerPane(to: parentPane.id))
+        let firstDrawerPane = try #require(originalStore.addDrawerPane(to: parentPane.id))
         let untouchedArrangementID = try #require(
             originalStore.createArrangement(name: "Untouched", inTab: tab.id)
         )
@@ -47,16 +47,34 @@ struct WorkspaceStoreArrangementTestsSQLite {
         let untouchedBeforeInsertion = try #require(
             originalStore.tab(tab.id)?.arrangements.first { $0.id == untouchedArrangementID }
         )
-        let insertedMainPane = originalStore.createPane(title: "Inserted main")
-        originalStore.insertPane(
-            insertedMainPane.id,
-            inTab: tab.id,
-            at: parentPane.id,
-            direction: .horizontal,
-            position: .after,
-            sizingMode: .halveTarget
+        let insertedMainPane = try await originalStore.createTerminalPane(
+            metadata: PaneMetadata(title: "Inserted main"),
+            placement: .split(
+                .init(
+                    tabID: tab.id,
+                    anchorID: parentPane.id,
+                    direction: .horizontal,
+                    position: .after,
+                    sizingMode: .halveTarget
+                )
+            ),
+            nameForPane: { _ in "Arrangement visibility persistence" },
+            willPublish: { _ in }
         )
-        let insertedDrawerPane = try #require(originalStore.addDrawerPane(to: parentPane.id))
+        let insertedDrawerPane = try await originalStore.createTerminalPane(
+            metadata: PaneMetadata(title: "Inserted drawer"),
+            placement: .drawer(
+                .init(
+                    tabID: tab.id,
+                    parentID: parentPane.id,
+                    anchorID: firstDrawerPane.id,
+                    direction: .right,
+                    sizingMode: .halveTarget
+                )
+            ),
+            nameForPane: { _ in "Arrangement visibility persistence" },
+            willPublish: { _ in }
+        )
         let expectedTab = try #require(originalStore.tab(tab.id))
         let drawerID = try #require(originalStore.pane(parentPane.id)?.drawer?.drawerId)
 
