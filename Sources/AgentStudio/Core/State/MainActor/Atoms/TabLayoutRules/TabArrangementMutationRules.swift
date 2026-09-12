@@ -117,12 +117,22 @@ enum TabArrangementMutationRules {
         let defaultIndex = defaultArrangementIndex(in: state)
         let insertionArrangementIndices =
             activeIndex == defaultIndex ? [activeIndex] : [activeIndex, defaultIndex]
-        return insertingDrawerPane(
-            drawerPaneId,
-            in: state,
-            insertion: insertion,
-            arrangementIndices: insertionArrangementIndices
-        )
+        guard
+            var updated = insertingDrawerPane(
+                drawerPaneId,
+                in: state,
+                insertion: insertion,
+                arrangementIndices: insertionArrangementIndices
+            )
+        else { return nil }
+        for arrangementIndex in insertionArrangementIndices {
+            guard var drawerView = updated.arrangements[arrangementIndex].drawerViews[insertion.drawerId] else {
+                continue
+            }
+            drawerView.minimizedPaneIds.remove(drawerPaneId)
+            updated.arrangements[arrangementIndex].drawerViews[insertion.drawerId] = drawerView
+        }
+        return updated
     }
 
     private static func insertingDrawerPane(
@@ -170,7 +180,6 @@ enum TabArrangementMutationRules {
                 }
             }
 
-            drawerView.minimizedPaneIds.remove(drawerPaneId)
             updated.arrangements[arrangementIndex].drawerViews[drawerId] = drawerView
         }
 

@@ -22,6 +22,13 @@ the current MainActor correction at 15:20 UTC. Pending wake
 `01a09636-1359-7481-9034-cd8467906c3c` is saved, due
 `2026-09-12T15:49:01.432Z`; saving it is not a future ping receipt.
 
+Latest ping supersedes the above: 2026-09-12 about 15:42 UTC, same session,
+completed exit 0/end_turn in `tmp/sidebar-keyboard-design/opus-keepalive-1542.jsonl`.
+App sidekick was also pinged. Prior reminder was cancelled; one replacement
+`01a09648-f2f8-7873-8d5e-b47622ece662` is due `2026-09-12T16:09:38.328Z`.
+Current arrangement checkpoint is `ad92f6495`; focused Core/App/WebKit checks pass,
+and the aggregate gate is running. No native or PR readiness claimed.
+
 Job graph: read-only sidebar-source lane and arrangement/preview-source lane run
 alongside this read-only sidekick and parent-owned documents. Their inputs are
 current source; none consumes another lane's unverified output. Parent verifies
