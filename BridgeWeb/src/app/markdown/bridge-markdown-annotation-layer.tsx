@@ -83,10 +83,35 @@ export function BridgeMarkdownAnnotationLayer(props: {
 			request.phase !== 'ready' ||
 			navigation?.activeSurface !== 'file' ||
 			request.destination !== 'file' ||
-			!props.canAnnotate ||
-			interaction.activeThreadId !== request.threadId
+			!props.canAnnotate
 		)
 			return undefined;
+		const requestedThread = projection.threads.find(
+			(thread): boolean =>
+				thread.context.threadId === request.threadId &&
+				thread.messages.some((message): boolean => message.sessionId === request.sessionId),
+		);
+		if (
+			requestedThread === undefined ||
+			source === null ||
+			requestedThread.context.path !== source.bridgeMetadata.displayPath ||
+			requestedThread.context.sourceIdentity !== source.bridgeMetadata.sourceDescriptorId
+		)
+			return undefined;
+		const { startLine, endLine } = requestedThread.context;
+		if (startLine === null || endLine === null) return undefined;
+		if (
+			!props.targets.some(
+				(target): boolean => target.startLine <= endLine && target.endLine >= startLine,
+			)
+		) {
+			navigation.finish(
+				request.requestId,
+				"This comment is attached to Markdown lines that aren't rendered. You can still read it in Annotations.",
+			);
+			return undefined;
+		}
+		if (interaction.activeThreadId !== request.threadId) return undefined;
 		const frame = requestAnimationFrame((): void => {
 			const thread = props.articleRef.current?.querySelector<HTMLElement>(
 				`[data-annotation-thread-id="${CSS.escape(request.threadId)}"]`,
@@ -96,7 +121,16 @@ export function BridgeMarkdownAnnotationLayer(props: {
 			navigation.finish(request.requestId);
 		});
 		return (): void => cancelAnimationFrame(frame);
-	}, [interaction.activeThreadId, layout, navigation, props.articleRef, props.canAnnotate]);
+	}, [
+		interaction.activeThreadId,
+		layout,
+		navigation,
+		projection.threads,
+		props.articleRef,
+		props.canAnnotate,
+		props.targets,
+		source,
+	]);
 	const presentation = interaction.pierreRangePresentation;
 	const composeRange = useCallback(
 		(range: WorktreeAnnotationRange): void => {
