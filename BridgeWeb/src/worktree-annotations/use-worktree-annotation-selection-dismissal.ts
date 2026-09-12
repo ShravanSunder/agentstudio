@@ -29,6 +29,7 @@ function eventPathContainsAnnotationInteraction(path: readonly EventTarget[]): b
 		(target): boolean =>
 			target instanceof Element &&
 			(target.matches('[data-column-number]') ||
+				target.matches('[data-bridge-markdown-gutter]') ||
 				target.matches('[data-utility-button]') ||
 				target.matches('[data-annotation-content]') ||
 				target.matches('[data-testid="worktree-annotation-conversation-frame"]')),

@@ -42,6 +42,7 @@ import {
 } from '../foundation/telemetry/bridge-telemetry-recorder.js';
 import { recordBridgeViewerActivationRequestedTelemetrySample } from '../foundation/telemetry/bridge-viewer-activation-telemetry.js';
 import { setBridgeViewerNativeOpenAnchor } from '../foundation/telemetry/bridge-viewer-first-interaction.js';
+import { WorktreeAnnotationNavigationProvider } from '../worktree-annotations/worktree-annotation-navigation.js';
 import type { BridgeAppControlProbe } from './bridge-app-control.js';
 import { BridgeFileViewerMode } from './bridge-app-file-viewer-mode.js';
 import {
@@ -61,6 +62,7 @@ import {
 	disposeBridgeMarkdownRuntimeHost,
 	type BridgeMarkdownRuntimeHost,
 } from './markdown/bridge-markdown-runtime-host.js';
+import { useBridgeAnnotationNavigation } from './use-bridge-annotation-navigation.js';
 export type { BridgeReviewFrameAuthority } from './bridge-app-review-frame-authority.js';
 import {
 	bridgeViewerActivationPrewarm,
@@ -280,6 +282,15 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 		},
 		[activateViewerMode],
 	);
+	const activateAnnotationDestination = useCallback(
+		(destination: BridgeViewerMode): boolean =>
+			activateViewerMode(destination, 'context_switcher') !== null,
+		[activateViewerMode],
+	);
+	const annotationNavigation = useBridgeAnnotationNavigation({
+		activeSurface: activeViewerMode,
+		activateDestination: activateAnnotationDestination,
+	});
 	const applyNativeSurfaceSelectionRequest = useCallback(
 		(request: BridgeNativeSurfaceSelectionRequest): void => {
 			const currentState = navigationAdmissionStateRef.current;
@@ -814,98 +825,100 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 
 	return (
 		<BridgeViewerAppShell appOwner="BridgeApp" mode={activeViewerMode}>
-			{mountedViewerModes.has('file') ? (
-				<div
-					aria-hidden={activeViewerMode !== 'file'}
-					className={
-						activeViewerMode === 'file'
-							? 'absolute inset-0 h-full min-h-0'
-							: 'invisible pointer-events-none absolute inset-0 h-full min-h-0'
-					}
-					data-bridge-viewer-mode-active={activeViewerMode === 'file' ? 'true' : 'false'}
-					data-bridge-viewer-mode-host="file"
-					data-testid="bridge-viewer-mode-host-file"
-					inert={activeViewerMode !== 'file' || undefined}
-				>
-					<BridgeFileViewerMode
-						{...props}
-						fileViewerProps={{
-							...props.fileViewerProps,
-							...(viewerActivation?.viewer === 'file'
+			<WorktreeAnnotationNavigationProvider controller={annotationNavigation}>
+				{mountedViewerModes.has('file') ? (
+					<div
+						aria-hidden={activeViewerMode !== 'file'}
+						className={
+							activeViewerMode === 'file'
+								? 'absolute inset-0 h-full min-h-0'
+								: 'invisible pointer-events-none absolute inset-0 h-full min-h-0'
+						}
+						data-bridge-viewer-mode-active={activeViewerMode === 'file' ? 'true' : 'false'}
+						data-bridge-viewer-mode-host="file"
+						data-testid="bridge-viewer-mode-host-file"
+						inert={activeViewerMode !== 'file' || undefined}
+					>
+						<BridgeFileViewerMode
+							{...props}
+							fileViewerProps={{
+								...props.fileViewerProps,
+								...(viewerActivation?.viewer === 'file'
+									? {
+											activationCause: viewerActivation.cause,
+											activationSequence: viewerActivation.sequence,
+											activationStartedAtPerfNow: viewerActivation.startedAtPerfNow,
+										}
+									: {}),
+								...(openFileFromReviewCommand === null
+									? {}
+									: { openPathCommand: openFileFromReviewCommand }),
+							}}
+							fileViewClient={paneRuntimeHost.fileViewClient}
+							isNavigationCommandStillEligible={isNavigationCommandStillEligible}
+							isActive={activeViewerMode === 'file'}
+							markdownWorkerClient={markdownRuntimeHost.runtime.workerClient}
+							mermaidRenderer={markdownRuntimeHost.runtime.mermaidRenderer}
+							controlTarget={target}
+							onActiveSourceChange={reportFileActiveSource}
+							onNavigationSourceChange={reportFileNavigationSource}
+							requiresNavigationSourceDiscovery={requiresFileNavigationSourceDiscovery}
+							telemetryRecorder={telemetryRecorder}
+							viewerContextSwitcher={
+								<BridgeViewerContextSwitcher
+									mode={activeViewerMode}
+									onModeChange={activateViewerModeFromContextSwitcher}
+								/>
+							}
+							{...(rememberedFileNavigationCommand === undefined
+								? {}
+								: { navigationCommand: rememberedFileNavigationCommand })}
+						/>
+					</div>
+				) : null}
+				{mountedViewerModes.has('review') ? (
+					<div
+						aria-hidden={activeViewerMode !== 'review'}
+						className={
+							activeViewerMode === 'review'
+								? 'absolute inset-0 h-full min-h-0'
+								: 'invisible pointer-events-none absolute inset-0 h-full min-h-0'
+						}
+						data-bridge-viewer-mode-active={activeViewerMode === 'review' ? 'true' : 'false'}
+						data-bridge-viewer-mode-host="review"
+						data-testid="bridge-viewer-mode-host-review"
+						inert={activeViewerMode !== 'review' || undefined}
+					>
+						<BridgeReviewViewerMode
+							{...props}
+							{...(viewerActivation?.viewer === 'review'
 								? {
 										activationCause: viewerActivation.cause,
 										activationSequence: viewerActivation.sequence,
 										activationStartedAtPerfNow: viewerActivation.startedAtPerfNow,
 									}
-								: {}),
-							...(openFileFromReviewCommand === null
+								: {})}
+							isActive={activeViewerMode === 'review'}
+							isNavigationCommandStillEligible={isNavigationCommandStillEligible}
+							target={target}
+							onActiveSourceChange={reportReviewActiveSource}
+							onNavigationSourceChange={reportReviewNavigationSource}
+							onOpenFile={openReviewFileInFileViewer}
+							reviewClient={paneRuntimeHost.reviewClient}
+							telemetryRecorderRef={telemetryRecorderRef}
+							viewerContextSwitcher={
+								<BridgeViewerContextSwitcher
+									mode={activeViewerMode}
+									onModeChange={activateViewerModeFromContextSwitcher}
+								/>
+							}
+							{...(rememberedReviewNavigationCommand === undefined
 								? {}
-								: { openPathCommand: openFileFromReviewCommand }),
-						}}
-						fileViewClient={paneRuntimeHost.fileViewClient}
-						isNavigationCommandStillEligible={isNavigationCommandStillEligible}
-						isActive={activeViewerMode === 'file'}
-						markdownWorkerClient={markdownRuntimeHost.runtime.workerClient}
-						mermaidRenderer={markdownRuntimeHost.runtime.mermaidRenderer}
-						controlTarget={target}
-						onActiveSourceChange={reportFileActiveSource}
-						onNavigationSourceChange={reportFileNavigationSource}
-						requiresNavigationSourceDiscovery={requiresFileNavigationSourceDiscovery}
-						telemetryRecorder={telemetryRecorder}
-						viewerContextSwitcher={
-							<BridgeViewerContextSwitcher
-								mode={activeViewerMode}
-								onModeChange={activateViewerModeFromContextSwitcher}
-							/>
-						}
-						{...(rememberedFileNavigationCommand === undefined
-							? {}
-							: { navigationCommand: rememberedFileNavigationCommand })}
-					/>
-				</div>
-			) : null}
-			{mountedViewerModes.has('review') ? (
-				<div
-					aria-hidden={activeViewerMode !== 'review'}
-					className={
-						activeViewerMode === 'review'
-							? 'absolute inset-0 h-full min-h-0'
-							: 'invisible pointer-events-none absolute inset-0 h-full min-h-0'
-					}
-					data-bridge-viewer-mode-active={activeViewerMode === 'review' ? 'true' : 'false'}
-					data-bridge-viewer-mode-host="review"
-					data-testid="bridge-viewer-mode-host-review"
-					inert={activeViewerMode !== 'review' || undefined}
-				>
-					<BridgeReviewViewerMode
-						{...props}
-						{...(viewerActivation?.viewer === 'review'
-							? {
-									activationCause: viewerActivation.cause,
-									activationSequence: viewerActivation.sequence,
-									activationStartedAtPerfNow: viewerActivation.startedAtPerfNow,
-								}
-							: {})}
-						isActive={activeViewerMode === 'review'}
-						isNavigationCommandStillEligible={isNavigationCommandStillEligible}
-						target={target}
-						onActiveSourceChange={reportReviewActiveSource}
-						onNavigationSourceChange={reportReviewNavigationSource}
-						onOpenFile={openReviewFileInFileViewer}
-						reviewClient={paneRuntimeHost.reviewClient}
-						telemetryRecorderRef={telemetryRecorderRef}
-						viewerContextSwitcher={
-							<BridgeViewerContextSwitcher
-								mode={activeViewerMode}
-								onModeChange={activateViewerModeFromContextSwitcher}
-							/>
-						}
-						{...(rememberedReviewNavigationCommand === undefined
-							? {}
-							: { navigationCommand: rememberedReviewNavigationCommand })}
-					/>
-				</div>
-			) : null}
+								: { navigationCommand: rememberedReviewNavigationCommand })}
+						/>
+					</div>
+				) : null}
+			</WorktreeAnnotationNavigationProvider>
 		</BridgeViewerAppShell>
 	);
 }

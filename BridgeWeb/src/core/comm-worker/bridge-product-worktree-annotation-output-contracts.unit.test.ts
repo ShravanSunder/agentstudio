@@ -83,10 +83,25 @@ describe('Bridge product annotation output contracts', () => {
 		expect(bridgeProductSurfaceForContentKind('annotation.output', identity)).toBe('file');
 	});
 
+	test.each([1, 2])('accepts persisted native output format %s', (formatVersion) => {
+		const descriptor = { ...markdownDescriptor, formatVersion };
+		expect(bridgeProductAnnotationOutputContentDescriptorSchema.parse(descriptor)).toEqual(
+			descriptor,
+		);
+		const {
+			contentType: _contentType,
+			declaredByteLength: _declaredByteLength,
+			encoding: _encoding,
+			expectedSha256: _expectedSha256,
+			...identity
+		} = descriptor;
+		expect(bridgeProductAnnotationOutputContentIdentitySchema.parse(identity)).toEqual(identity);
+	});
+
 	test('rejects unknown fields, unsupported versions, and inconsistent exact-byte metadata', () => {
 		for (const invalidDescriptor of [
 			{ ...markdownDescriptor, unexpected: true },
-			{ ...markdownDescriptor, formatVersion: 2 },
+			{ ...markdownDescriptor, formatVersion: 3 },
 			{ ...markdownDescriptor, declaredByteLength: 4 },
 			{ ...markdownDescriptor, contentType: 'application/json; charset=utf-8' },
 			{ ...markdownDescriptor, expectedSha256: 'not-a-digest' },

@@ -1,7 +1,12 @@
-import { act, type ReactElement } from 'react';
+import { act, createRef, type ReactElement, type Ref } from 'react';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 import { cleanup, render } from 'vitest-browser-react';
 import { page, userEvent } from 'vitest/browser';
+
+import {
+	ViewedCommandTestControl,
+	type ViewedCommandTestHandle,
+} from './worktree-annotation-viewed-command.test-support.js';
 
 const toastSpies = vi.hoisted(() => ({
 	default: vi.fn<(message: string) => void>(),
@@ -24,7 +29,6 @@ import {
 	BridgeViewerContextPanelProvider,
 	BridgeViewerContextPanelViewport,
 } from '../app/bridge-viewer-context-panel-host.js';
-import type { BridgeProductWorktreeAnnotationOperation } from '../core/comm-worker/bridge-product-call-contracts.js';
 import {
 	annotationHeadThreadId,
 	annotationMessage,
@@ -34,15 +38,26 @@ import {
 	RecordingAnnotationBrowserSurface,
 } from './worktree-annotation-browser-test-support.js';
 import { WorktreeAnnotationShareHeaderControl } from './worktree-annotation-output-controls.js';
+import {
+	findLastOperation,
+	requireShareScopeButton,
+	outputHandledClearOperations,
+	isToastAction,
+	performBrowserAction,
+	settleInteraction,
+	waitForShareShelfOpeningMotion,
+	finishShareShelfMotion,
+	requireHtmlElement,
+	clickHtmlButton,
+	requireHtmlButton,
+} from './worktree-annotation-share-browser-test-support.js';
 import type {
 	WorktreeAnnotationMessageEntry,
 	WorktreeAnnotationOutputHistorySummary,
 	WorktreeAnnotationThreadContext,
 } from './worktree-annotation-surface-client.js';
 import {
-	useWorktreeAnnotationProjection,
 	useWorktreeAnnotationSurfaceClient,
-	useWorktreeAnnotationViewedController,
 	WorktreeAnnotationSurfaceProvider,
 } from './worktree-annotation-surface-provider.js';
 
@@ -52,7 +67,7 @@ const unavailableMessageId = '00000000-0000-7000-8000-000000000083';
 const unavailableThreadId = '00000000-0000-7000-8000-000000000084';
 const successfulAttemptId = '00000000-0000-7000-8000-000000000085';
 
-describe('worktree annotation Share comments integrated surface', () => {
+describe('worktree annotation Annotations integrated surface', () => {
 	afterEach(async (): Promise<void> => {
 		await act(async (): Promise<void> => {
 			await cleanup();
@@ -89,7 +104,7 @@ describe('worktree annotation Share comments integrated surface', () => {
 		const contextPanelViewportBounds = contextPanelViewport.getBoundingClientRect();
 		const shelfBounds = shelf.getBoundingClientRect();
 		expect(codeCanvas.getBoundingClientRect().top).toBe(codeCanvasTopBeforeOpen);
-		expect(shelfBounds.width).toBeCloseTo(384, 0);
+		expect(shelfBounds.width).toBeCloseTo(480, 0);
 		expect(shelfBounds.top).toBeCloseTo(contextPanelViewportBounds.top + 8, 0);
 		expect(contextPanelViewportBounds.right - shelfBounds.right).toBeCloseTo(8, 0);
 		expect(shelfBounds.bottom).toBeCloseTo(contextPanelViewportBounds.bottom - 8, 0);
@@ -118,7 +133,7 @@ describe('worktree annotation Share comments integrated surface', () => {
 		});
 
 		await expect
-			.element(rendered.getByRole('region', { name: 'Share comments' }))
+			.element(rendered.getByRole('region', { name: 'Annotations' }))
 			.not.toBeInTheDocument();
 		expect(document.activeElement).toBe(outsideTarget.element());
 	});
@@ -133,7 +148,7 @@ describe('worktree annotation Share comments integrated surface', () => {
 		await performBrowserAction(() =>
 			rendered.getByRole('button', { name: 'Annotations', exact: true }).click(),
 		);
-		await expect.element(rendered.getByRole('region', { name: 'Share comments' })).toBeVisible();
+		await expect.element(rendered.getByRole('region', { name: 'Annotations' })).toBeVisible();
 		await expect.element(rendered.getByText('Pending —')).toBeVisible();
 		await expect.element(rendered.getByText('All —')).toBeVisible();
 		await expect.element(rendered.getByRole('button', { name: 'Copy Markdown' })).toBeDisabled();
@@ -200,7 +215,10 @@ describe('worktree annotation Share comments integrated surface', () => {
 
 	test('preserves All membership but disables output until viewed projection convergence', async () => {
 		const surface = new RecordingAnnotationBrowserSurface('review');
-		const rendered = await render(<ShareSurfaceFixture includeViewedControl surface={surface} />);
+		const viewedControl = createRef<ViewedCommandTestHandle>();
+		const rendered = await render(
+			<ShareSurfaceFixture viewedControlRef={viewedControl} surface={surface} />,
+		);
 		const agentMessage = {
 			...annotationMessage({ messageId: newMessageId, threadId: annotationHeadThreadId }),
 			attentionState: 'new' as const,
@@ -224,10 +242,12 @@ describe('worktree annotation Share comments integrated surface', () => {
 		);
 		await expect.element(rendered.getByRole('button', { name: 'Copy Markdown' })).toBeEnabled();
 
-		await performBrowserAction(() =>
-			clickHtmlButton(rendered.getByTestId('mark-agent-viewed-control').element()),
+		await waitForShareShelfOpeningMotion(
+			requireHtmlElement(rendered.getByTestId('worktree-annotation-share-shelf').element()),
 		);
-		await settleInteraction();
+		expect(viewedControl.current).not.toBeNull();
+		await performBrowserAction(() => viewedControl.current?.markViewed());
+		await expect.element(rendered.getByRole('region', { name: 'Annotations' })).toBeVisible();
 		await act(async (): Promise<void> => {
 			surface.settleMostRecentViewed(5);
 			await settleInteraction();
@@ -312,7 +332,7 @@ describe('worktree annotation Share comments integrated surface', () => {
 			});
 			await act(async (): Promise<void> => finishShareShelfMotion(closingShelf));
 			await expect
-				.element(rendered.getByRole('region', { name: 'Share comments' }))
+				.element(rendered.getByRole('region', { name: 'Annotations' }))
 				.not.toBeInTheDocument();
 			expect(toastSpies.success).toHaveBeenCalledWith(
 				'Copied 3 annotations',
@@ -347,9 +367,13 @@ describe('worktree annotation Share comments integrated surface', () => {
 		await expect
 			.element(rendered.getByText('Unavailable saved comment', { exact: false }))
 			.toBeVisible();
-		await expect.element(rendered.getByText('Sources/App/Unavailable.swift')).toBeVisible();
-		expect(rendered.getByText('Lines 4–7').all()).toHaveLength(2);
-		await expect.element(rendered.getByText('Source unavailable')).toBeVisible();
+		const unavailableFile = rendered.getByText('Unavailable.swift', { exact: true });
+		await expect.element(unavailableFile).toBeVisible();
+		expect(unavailableFile.element().getAttribute('title')).toBe('Sources/App/Unavailable.swift');
+		expect(rendered.getByText('4–7').all()).toHaveLength(2);
+		await expect
+			.element(rendered.getByRole('img', { name: 'Source unavailable in this viewer' }))
+			.toBeVisible();
 		await expect.element(rendered.getByRole('button', { name: 'All comments, 3' })).toBeVisible();
 	});
 
@@ -391,7 +415,7 @@ describe('worktree annotation Share comments integrated surface', () => {
 			surface.settleMostRecentOutput({ kind: 'destination_cancelled' });
 			await settleInteraction();
 		});
-		await expect.element(rendered.getByRole('region', { name: 'Share comments' })).toBeVisible();
+		await expect.element(rendered.getByRole('region', { name: 'Annotations' })).toBeVisible();
 
 		await performBrowserAction(() => {
 			clickHtmlButton(rendered.getByRole('button', { name: 'Export JSON' }).element());
@@ -423,7 +447,7 @@ describe('worktree annotation Share comments integrated surface', () => {
 		});
 		await act(async (): Promise<void> => finishShareShelfMotion(closingShelf));
 		await expect
-			.element(rendered.getByRole('region', { name: 'Share comments' }))
+			.element(rendered.getByRole('region', { name: 'Annotations' }))
 			.not.toBeInTheDocument();
 		expect(toastSpies.warning).toHaveBeenCalledWith(
 			'Clipboard contains 2 annotations, but durable history was not recorded.',
@@ -444,7 +468,8 @@ describe('worktree annotation Share comments integrated surface', () => {
 		const embeddedHistory = rendered.getByRole('region', { name: 'Output history' }).element();
 		expect(embeddedHistory.classList).not.toContain('border-t');
 		await performBrowserAction(() => rendered.getByRole('button', { name: 'History (1)' }).click());
-		await expect.element(rendered.getByText('Clipboard Markdown · 3 annotations')).toBeVisible();
+		await expect.element(rendered.getByText('Clipboard Markdown', { exact: true })).toBeVisible();
+		await expect.element(rendered.getByText('3 annotations', { exact: true })).toBeVisible();
 		await performBrowserAction(() =>
 			rendered.getByRole('button', { name: 'Mark as not handled' }).click(),
 		);
@@ -468,10 +493,10 @@ describe('worktree annotation Share comments integrated surface', () => {
 		);
 
 		await expect
-			.element(rendered.getByRole('button', { name: 'Close Share comments' }))
+			.element(rendered.getByRole('button', { name: 'Close Annotations' }))
 			.toBeDisabled();
 		await performBrowserAction(() => userEvent.keyboard('{Escape}'));
-		await expect.element(rendered.getByRole('region', { name: 'Share comments' })).toBeVisible();
+		await expect.element(rendered.getByRole('region', { name: 'Annotations' })).toBeVisible();
 		expect(
 			rendered
 				.getByTestId('worktree-annotation-share-shelf')
@@ -487,7 +512,7 @@ describe('worktree annotation Share comments integrated surface', () => {
 			});
 			await settleInteraction();
 		});
-		await expect.element(rendered.getByRole('region', { name: 'Share comments' })).toBeVisible();
+		await expect.element(rendered.getByRole('region', { name: 'Annotations' })).toBeVisible();
 	});
 
 	test('uses one output lease across Share commands and History Repeat', async () => {
@@ -506,7 +531,7 @@ describe('worktree annotation Share comments integrated surface', () => {
 			.element(rendered.getByRole('button', { name: 'Repeat output attempt 1' }))
 			.toBeDisabled();
 		await expect
-			.element(rendered.getByRole('button', { name: 'Close Share comments' }))
+			.element(rendered.getByRole('button', { name: 'Close Annotations' }))
 			.toBeDisabled();
 		expect(
 			surface.sentOperations.filter((operation) => operation.kind === 'output.repeat'),
@@ -630,12 +655,14 @@ describe('worktree annotation Share comments integrated surface', () => {
 });
 
 function ShareSurfaceFixture(props: {
-	readonly includeViewedControl?: boolean;
+	readonly viewedControlRef?: Ref<ViewedCommandTestHandle>;
 	readonly surface: RecordingAnnotationBrowserSurface;
 }): ReactElement {
 	return (
 		<WorktreeAnnotationSurfaceProvider surfaceClient={props.surface.client}>
-			{props.includeViewedControl === true ? <ViewedCommandTestControl /> : null}
+			{props.viewedControlRef === undefined ? null : (
+				<ViewedCommandTestControl controlRef={props.viewedControlRef} />
+			)}
 			<OverlayCommandTestControl />
 			<BridgeViewerContextPanelProvider>
 				<div
@@ -745,24 +772,6 @@ function assertElementOwnsItsCenterHitTarget(element: Element): void {
 		bounds.top + bounds.height / 2,
 	);
 	expect(element.contains(hitTarget)).toBe(true);
-}
-
-function ViewedCommandTestControl(): ReactElement {
-	const projection = useWorktreeAnnotationProjection();
-	const viewedController = useWorktreeAnnotationViewedController();
-	return (
-		<button
-			hidden
-			data-testid="mark-agent-viewed-control"
-			type="button"
-			onClick={() => {
-				const messages = projection.threads.flatMap((thread) => thread.messages);
-				void viewedController.markMessagesViewed(annotationSessionId, messages);
-			}}
-		>
-			Mark agent viewed
-		</button>
-	);
 }
 
 async function publishShareProjection(
@@ -875,106 +884,6 @@ function outputSummary(
 		outputKind,
 		sessionId: annotationSessionId,
 	} as const;
-}
-
-function findLastOperation(
-	surface: RecordingAnnotationBrowserSurface,
-	kind: 'output.handled.clear' | 'output.scope.commit',
-): BridgeProductWorktreeAnnotationOperation | undefined {
-	return surface.sentOperations.findLast((operation): boolean => operation.kind === kind);
-}
-
-function requireShareScopeButton(
-	labelPrefix: 'All comments' | 'Pending comments',
-): HTMLButtonElement {
-	const button = document.querySelector<HTMLButtonElement>(`button[aria-label^="${labelPrefix},"]`);
-	if (button !== null) return button;
-	const availableLabels = [...document.querySelectorAll<HTMLElement>('button[aria-label]')].map(
-		(candidate) => candidate.getAttribute('aria-label'),
-	);
-	throw new Error(
-		`Expected ${labelPrefix} scope button. Available button labels: ${JSON.stringify(availableLabels)}.`,
-	);
-}
-
-function outputHandledClearOperations(
-	surface: RecordingAnnotationBrowserSurface,
-): readonly Extract<
-	BridgeProductWorktreeAnnotationOperation,
-	{ readonly kind: 'output.handled.clear' }
->[] {
-	return surface.sentOperations.filter(
-		(
-			operation,
-		): operation is Extract<
-			BridgeProductWorktreeAnnotationOperation,
-			{ readonly kind: 'output.handled.clear' }
-		> => operation.kind === 'output.handled.clear',
-	);
-}
-
-function isToastAction(value: unknown): value is {
-	readonly action: { readonly onClick: () => void };
-} {
-	if (typeof value !== 'object' || value === null || !('action' in value)) return false;
-	const action = value.action;
-	return (
-		typeof action === 'object' &&
-		action !== null &&
-		'onClick' in action &&
-		typeof action.onClick === 'function'
-	);
-}
-
-async function performBrowserAction(action: () => Promise<void> | void): Promise<void> {
-	await act(async (): Promise<void> => {
-		await action();
-		await settleInteraction();
-	});
-}
-
-async function settleInteraction(): Promise<void> {
-	await Promise.resolve();
-	await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
-	await Promise.resolve();
-}
-
-async function waitForShareShelfOpeningMotion(shelf: HTMLElement): Promise<void> {
-	await expect.poll(() => shelf.hasAttribute('data-starting-style')).toBe(false);
-	await Promise.all(shelf.getAnimations().map((animation) => animation.finished));
-}
-
-async function finishShareShelfMotion(shelf: HTMLElement): Promise<void> {
-	await waitForShareShelfEndingStyle(shelf);
-	const animations = shelf.getAnimations({ subtree: true });
-	for (const animation of animations) animation.finish();
-	await Promise.all(animations.map((animation) => animation.finished.catch((): void => {})));
-	await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
-	await Promise.resolve();
-}
-
-async function waitForShareShelfEndingStyle(
-	shelf: HTMLElement,
-	remainingFrames = 10,
-): Promise<void> {
-	if (!shelf.isConnected || shelf.hasAttribute('data-ending-style')) return;
-	if (remainingFrames <= 0) throw new Error('Share shelf did not enter its closing transition.');
-	await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
-	await waitForShareShelfEndingStyle(shelf, remainingFrames - 1);
-}
-
-function requireHtmlElement(element: HTMLElement | SVGElement): HTMLElement {
-	if (!(element instanceof HTMLElement)) throw new Error('Expected an HTML element.');
-	return element;
-}
-
-function clickHtmlButton(element: HTMLElement | SVGElement): void {
-	requireHtmlButton(element).click();
-}
-
-function requireHtmlButton(element: HTMLElement | SVGElement): HTMLButtonElement {
-	if (!(element instanceof HTMLButtonElement)) throw new Error('Expected an HTML button.');
-	return element;
 }
 
 const locatedContext: WorktreeAnnotationThreadContext = {

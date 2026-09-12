@@ -116,15 +116,13 @@ jobs:
       - name: Build zmx
         if: steps.cache-zmx.outputs.cache-hit != 'true'
         run: |
-          cd vendor/zmx
-          zig build -Doptimize=ReleaseFast
+          mise run --skip-deps build-zmx
 
       # --- Always: copy framework, setup resources, build Swift, bundle ---
 
       - name: Copy XCFramework
         run: |
-          mkdir -p Frameworks
-          cp -R vendor/ghostty/macos/GhosttyKit.xcframework Frameworks/
+          mise run --skip-deps copy-xcframework
 
       - name: Setup dev resources
         run: |

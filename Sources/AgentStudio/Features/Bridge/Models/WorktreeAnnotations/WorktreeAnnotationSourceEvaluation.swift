@@ -9,11 +9,17 @@ struct WorktreeAnnotationCurrentSourceFile: Equatable, Sendable {
 
 enum WorktreeAnnotationSourceMaterial: Equatable, Sendable {
     case available([WorktreeAnnotationCurrentSourceFile])
+    case availableWithReadFailures([WorktreeAnnotationCurrentSourceFile])
     case availableWithThreadFailures(
         files: [WorktreeAnnotationCurrentSourceFile],
         unavailableThreadIDs: Set<WorktreeAnnotationThreadID>
     )
     case unavailable
+
+    var hasUnscopedReadFailures: Bool {
+        if case .availableWithReadFailures = self { return true }
+        return false
+    }
 }
 
 struct WorktreeAnnotationThreadPlacementProjection: Equatable, Sendable {
@@ -137,7 +143,9 @@ enum WorktreeAnnotationSourceEvaluator {
                     $0.path == originalPath && $0.sourceRole == sourceRole
                 })
             else {
-                return projection(placement: .outdated)
+                return projection(
+                    placement: material.hasUnscopedReadFailures ? .unavailable : .outdated
+                )
             }
             return projection(
                 placement: .exact,
@@ -148,7 +156,12 @@ enum WorktreeAnnotationSourceEvaluator {
             guard let files = availableFiles(for: thread.id, material: material) else {
                 return projection(placement: .unavailable)
             }
-            return locatedPlacement(for: locatedOrigin, surface: surface, files: files)
+            return locatedPlacement(
+                for: locatedOrigin,
+                surface: surface,
+                files: files,
+                sourceSearchIsComplete: !material.hasUnscopedReadFailures
+            )
         }
     }
 
@@ -157,7 +170,7 @@ enum WorktreeAnnotationSourceEvaluator {
         material: WorktreeAnnotationSourceMaterial
     ) -> [WorktreeAnnotationCurrentSourceFile]? {
         switch material {
-        case .available(let files):
+        case .available(let files), .availableWithReadFailures(let files):
             return files
         case .availableWithThreadFailures(let files, let unavailableThreadIDs):
             return unavailableThreadIDs.contains(threadID) ? nil : files
@@ -169,7 +182,8 @@ enum WorktreeAnnotationSourceEvaluator {
     private static func locatedPlacement(
         for origin: WorktreeAnnotationLocatedOrigin,
         surface: BridgeProductSurface,
-        files: [WorktreeAnnotationCurrentSourceFile]
+        files: [WorktreeAnnotationCurrentSourceFile],
+        sourceSearchIsComplete: Bool
     ) -> WorktreeAnnotationThreadPlacementProjection {
         let roleFiles = files.filter {
             currentSourceRoleIsCompatible($0.sourceRole, with: origin.sourceRole, on: surface)
@@ -189,6 +203,9 @@ enum WorktreeAnnotationSourceEvaluator {
                 currentSourceIdentity: exactFile.sourceIdentity
             )
         }
+        // Exact source evidence is sufficient on its own; a unique relocation is not
+        // proven when an unreadable candidate could contain another matching excerpt.
+        guard sourceSearchIsComplete else { return projection(placement: .unavailable) }
         let matches = roleFiles.flatMap { file in
             contextMatches(origin: origin, file: file)
         }

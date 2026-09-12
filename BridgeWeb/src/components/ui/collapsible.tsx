@@ -26,11 +26,7 @@ function CollapsibleHeading({
 			<CollapsibleTrigger
 				{...props}
 				render={
-					<Button
-						size="sm"
-						variant="ghost"
-						className="group w-full justify-between px-0 text-base"
-					/>
+					<Button size="sm" variant="ghost" className="group w-full justify-between text-base" />
 				}
 			>
 				{children}

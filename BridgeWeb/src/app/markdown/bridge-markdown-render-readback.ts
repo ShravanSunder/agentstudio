@@ -16,6 +16,20 @@ export interface BridgeMarkdownRenderBinding {
 	readonly selectedItem: BridgeMainRenderPublicationItem;
 }
 
+export function bridgeMarkdownBindingMatchesCurrentSource(
+	binding: BridgeMarkdownRenderBinding,
+): boolean {
+	const presentation = binding.presentation;
+	return (
+		binding.isActive &&
+		presentation.status === 'ready' &&
+		presentation.sourcePath === binding.intent.sourcePath &&
+		markdownRenderIdentitiesMatch(presentation.identity, presentation.renderResult) &&
+		bridgeMarkdownIdentityMatchesIntent(presentation.identity, binding.intent) &&
+		bridgeMarkdownItemMatchesIntent(binding.selectedItem, binding.intent)
+	);
+}
+
 export interface BridgeMarkdownRenderedArticle extends HTMLElement {
 	readonly dataset: DOMStringMap & {
 		readonly bridgeMarkdownContentCacheKey?: string;

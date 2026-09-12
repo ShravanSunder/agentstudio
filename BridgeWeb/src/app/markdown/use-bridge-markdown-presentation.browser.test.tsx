@@ -20,6 +20,48 @@ interface PendingRender {
 	readonly resolve: (value: unknown) => void;
 }
 
+test('retains readable content when a same-file successor render fails', async () => {
+	const pending: PendingRender[] = [];
+	const client = createBridgeMarkdownRenderWorkerClient({
+		transport: {
+			send: (request): Promise<unknown> =>
+				new Promise((resolve): void => {
+					pending.push({ request, resolve });
+				}),
+		},
+	});
+	try {
+		const view = (version: string): ReactElement => (
+			<PresentationProbe
+				client={client}
+				isActive
+				intent={intent('guide.md', version)}
+				selectedPath="guide.md"
+			/>
+		);
+		const screen = await render(view('v1'));
+		await act(async (): Promise<void> => {
+			complete(pending, 0);
+		});
+		await expect.element(screen.getByTestId('presentation')).toHaveTextContent('ready:guide.md:v1');
+		await screen.rerender(view('v2'));
+		await act(async (): Promise<void> => {
+			const request = pending[1];
+			if (request === undefined) throw new Error('Missing successor request');
+			request.resolve({
+				...identityFromMarkdownRenderWorkerRequest(request.request),
+				schemaVersion: 1,
+				method: 'markdown.render',
+				ok: false,
+				error: { code: 'renderFailed', message: 'Render failed' },
+			});
+		});
+		await expect.element(screen.getByTestId('presentation')).toHaveTextContent('ready:guide.md:v1');
+	} finally {
+		await renderedCleanup(client);
+	}
+});
+
 test('keeps the completed document through inactivity and a pending same-file refresh', async () => {
 	// Arrange — real client identity checks, manually controlled render completion.
 	const pending: PendingRender[] = [];
@@ -161,6 +203,7 @@ function complete(pending: readonly PendingRender[], index: number): void {
 		...identityFromMarkdownRenderWorkerRequest(task.request),
 		htmlCandidate: '<h1>Guide</h1>',
 		mermaidDiagrams: [],
+		annotationTargets: [],
 		metrics: { durationMilliseconds: 0, inputBytes: 7, outputBytes: 14, mermaidDiagramCount: 0 },
 	});
 }

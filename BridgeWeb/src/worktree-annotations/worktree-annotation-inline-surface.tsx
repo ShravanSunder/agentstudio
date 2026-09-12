@@ -14,6 +14,16 @@ import {
 const annotationEditingSurfaceClassName =
 	'ring-inset focus-within:border-ring focus-within:ring-2 focus-within:ring-ring/30';
 
+export function WorktreeAnnotationAuthorLabel(props: {
+	readonly authorKind: 'agent' | 'human';
+}): ReactElement {
+	return (
+		<span data-slot="item-metadata" className="font-medium text-annotation-foreground">
+			{props.authorKind === 'agent' ? 'Agent' : 'You'}
+		</span>
+	);
+}
+
 export function WorktreeAnnotationPendingStatus(): ReactElement {
 	return (
 		<span

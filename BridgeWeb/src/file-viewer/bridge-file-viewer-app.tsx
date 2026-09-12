@@ -21,6 +21,8 @@ import { Button } from '../components/ui/button.js';
 import { bridgeWorkerFileQueryKey } from '../core/comm-worker/bridge-worker-file-query-contracts.js';
 import { recordBridgeFileSelectionCommitTelemetrySample } from '../foundation/telemetry/bridge-viewer-activation-telemetry.js';
 import { recordBridgeViewerFileOpenReadyTelemetrySample } from '../foundation/telemetry/bridge-viewer-telemetry-adapter.js';
+import { useWorktreeAnnotationNavigationTarget } from '../worktree-annotations/use-worktree-annotation-navigation-target.js';
+import { useWorktreeAnnotationNavigation } from '../worktree-annotations/worktree-annotation-navigation.js';
 import { WorktreeAnnotationShareHeaderControl } from '../worktree-annotations/worktree-annotation-output-controls.js';
 import type { BridgeFileViewerAppProps } from './bridge-file-viewer-app-props.js';
 import {
@@ -94,6 +96,9 @@ export function BridgeFileViewerAppImplementation(
 		shellComponent: FileViewerShell,
 	} = props;
 	const [selection, setSelection] = useState<BridgeFileViewerSelection | null>(null);
+	const annotationNavigation = useWorktreeAnnotationNavigation();
+	const annotationTarget = useWorktreeAnnotationNavigationTarget('file', isActive);
+	const appliedAnnotationRequestRef = useRef<number | null>(null);
 	const [isFilterMenuOpen, setIsFilterMenuOpen] = useState(false);
 	const [searchRejectionMessage, setSearchRejectionMessage] = useState<string | null>(null);
 	const [viewSettings, setViewSettings] = useState<BridgeFilesViewSettings>(
@@ -132,7 +137,6 @@ export function BridgeFileViewerAppImplementation(
 	const renderSnapshotController = useBridgeFileViewerRenderSnapshotController({ selection });
 	const contentHeaderControls = (
 		<>
-			<WorktreeAnnotationShareHeaderControl />
 			{isActive &&
 			renderSnapshotController.panelChromeSlice.fileRefreshFailure !== undefined &&
 			renderSnapshotController.panelChromeSlice.fileRefreshFailure !== null ? (
@@ -146,6 +150,7 @@ export function BridgeFileViewerAppImplementation(
 					Retry
 				</Button>
 			) : null}
+			<WorktreeAnnotationShareHeaderControl />
 			{isActive ? (
 				<BridgeViewerViewSettingsMenu
 					defaultSettings={bridgeFilesDefaultViewSettings}
@@ -232,10 +237,19 @@ export function BridgeFileViewerAppImplementation(
 		displayedItemId: displayedMarkdownItemId,
 	});
 	const selectFile = useCallback(
-		(nextSelection: BridgeFileViewerSelection, source: 'programmatic' | 'user'): void => {
+		(
+			nextSelection: BridgeFileViewerSelection,
+			source: 'programmatic' | 'user',
+			annotationRequestId?: number,
+		): void => {
 			if (!isActiveRef.current) {
 				return;
 			}
+			if (
+				annotationNavigation?.request != null &&
+				annotationNavigation.request.requestId !== annotationRequestId
+			)
+				annotationNavigation.finish(annotationNavigation.request.requestId);
 			projectionExclusionClearedSelectionRef.current = false;
 			selectionQueryKeyRef.current = queryKey;
 			setSelection(nextSelection);
@@ -260,6 +274,7 @@ export function BridgeFileViewerAppImplementation(
 			}
 		},
 		[
+			annotationNavigation,
 			activationCause,
 			activationSequence,
 			displayModel.source,
@@ -300,10 +315,50 @@ export function BridgeFileViewerAppImplementation(
 	]);
 	const selectFileFromTree = useCallback(
 		(nextSelection: BridgeFileViewerSelection): void => {
+			if (annotationNavigation?.request !== null && annotationNavigation?.request !== undefined)
+				annotationNavigation.finish(annotationNavigation.request.requestId);
 			selectFile(nextSelection, 'user');
 		},
-		[selectFile],
+		[annotationNavigation, selectFile],
 	);
+	useEffect((): void => {
+		if (
+			annotationTarget === null ||
+			appliedAnnotationRequestRef.current === annotationTarget.request.requestId
+		)
+			return;
+		const path = annotationTarget.thread.context.path;
+		if (path === null) return;
+		if (filterMode !== 'all' || search.enteredCriteria.query !== '') {
+			viewerActions.setFilterMode('all');
+			viewerActions.transitionSearch({ type: 'reset' });
+			return;
+		}
+		if (displayModel.acceptedQueryKey !== queryKey || displayModel.source === null) return;
+		const row = displayModel.treeRowByPath.get(path);
+		if (row?.fileId == null || row.isDirectory) {
+			annotationNavigation?.finish(
+				annotationTarget.request.requestId,
+				'This file is not available in Files.',
+			);
+			return;
+		}
+		appliedAnnotationRequestRef.current = annotationTarget.request.requestId;
+		selectFile(
+			{ fileId: row.fileId, path: row.path },
+			'programmatic',
+			annotationTarget.request.requestId,
+		);
+	}, [
+		annotationNavigation,
+		annotationTarget,
+		displayModel,
+		filterMode,
+		queryKey,
+		search.enteredCriteria.query,
+		selectFile,
+		viewerActions,
+	]);
 	useBridgeFileViewerControlEventListeners({
 		controlProbeSequenceRef,
 		displayModel,
@@ -352,6 +407,7 @@ export function BridgeFileViewerAppImplementation(
 			return;
 		}
 		if (
+			annotationNavigation?.request != null ||
 			!autoOpenInitialFile ||
 			selection !== null ||
 			projectionExclusionClearedSelectionRef.current
@@ -363,6 +419,7 @@ export function BridgeFileViewerAppImplementation(
 			selectFile({ fileId: firstFileRow.fileId, path: firstFileRow.path }, 'programmatic');
 		}
 	}, [
+		annotationNavigation,
 		autoOpenInitialFile,
 		displayModel.treeRowByPath,
 		displayModel.firstFileRow,

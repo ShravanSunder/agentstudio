@@ -92,6 +92,7 @@ export {
 	type BridgeSelectedContentPaintedProbe,
 } from './bridge-code-view-painted-telemetry.js';
 export type {
+	BridgeCodeViewAnnotationReveal,
 	BridgeCodeViewControlHandle,
 	BridgeCodeViewPanelProps,
 } from './bridge-code-view-panel-types.js';
@@ -99,6 +100,12 @@ export type { BridgeCodeViewScrollToItemOptions } from './bridge-code-view-panel
 
 export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactElement {
 	const sourceKey = makeBridgeCodeViewSourceKey(props);
+	const annotationRevealSourceIdentity = [
+		sourceKey,
+		props.reviewPackage.packageId,
+		props.reviewPackage.reviewGeneration,
+		props.projection.projectionId,
+	].join(':');
 	const { selectedContentDiagnostics, selectedDisplayPath, selectedReviewItem } =
 		selectedBridgeCodeViewPanelContext(props);
 	const reviewItemsById = props.reviewPackage.itemsById;
@@ -109,6 +116,30 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 		projectionRef.current = props.projection;
 	}, [props.projection, props.reviewPackage]);
 	const codeViewHandleRef = useRef<CodeViewHandle<undefined> | null>(null);
+	const onAnnotationRevealCompleteRef = useRef(props.onAnnotationRevealComplete);
+	onAnnotationRevealCompleteRef.current = props.onAnnotationRevealComplete;
+	const annotationRevealSourceRef = useRef<{
+		readonly requestId: number;
+		readonly sourceIdentity: string;
+	} | null>(null);
+	if (
+		props.annotationReveal !== null &&
+		props.annotationReveal !== undefined &&
+		(annotationRevealSourceRef.current === null ||
+			annotationRevealSourceRef.current.requestId < props.annotationReveal.requestId)
+	) {
+		annotationRevealSourceRef.current = {
+			requestId: props.annotationReveal.requestId,
+			sourceIdentity: annotationRevealSourceIdentity,
+		};
+	}
+	const annotationReveal =
+		props.annotationReveal !== null &&
+		props.annotationReveal !== undefined &&
+		annotationRevealSourceRef.current?.requestId === props.annotationReveal.requestId &&
+		annotationRevealSourceRef.current.sourceIdentity === annotationRevealSourceIdentity
+			? props.annotationReveal
+			: null;
 	const annotationPresentation = useBridgeCodeViewWorktreeAnnotations({
 		codeViewHandleRef,
 		codeViewOptions: props.codeViewOptions ?? bridgeCodeViewOptions,
@@ -337,7 +368,7 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 		setCollapsedItemIds,
 		settledInstantSelectionRevealKeyRef,
 	});
-	const { scheduleInstantSelectionRevealRetarget, scrollToItem } =
+	const { scheduleInstantSelectionRevealRetarget, scrollToAnnotation, scrollToItem } =
 		useBridgeCodeViewProgrammaticScroll({
 			codeViewHandleRef,
 			codeViewMountVersion,
@@ -346,6 +377,8 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 			currentCodeViewItemsRef,
 			lastProgrammaticRevealItemIdRef,
 			lastSelectionScrollKeyRef,
+			onAnnotationRevealCompleteRef,
+			pendingPreHydrationSelectionScrollKeyRef,
 			pendingSelectionRevealBehaviorRef,
 			pendingSelectionScrollFrameRef,
 			pendingSmoothSelectionScrollKeyRef,
@@ -607,7 +640,11 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 				};
 				const selectedItemId = selectedItemIdForMetadataReconcileRef.current;
 				if (selectedItemId !== null) {
-					const selectionScrollKey = `${sourceKey}:${codeViewMountVersion}:${selectedItemId}`;
+					const recentReveal = recentInstantSelectionRevealRef.current;
+					const selectionScrollKey =
+						recentReveal?.itemId === selectedItemId
+							? recentReveal.selectionScrollKey
+							: `${sourceKey}:${codeViewMountVersion}:${selectedItemId}`;
 					const didConsumeHydrationAnchor = consumeBridgeCodeViewPendingHydrationAnchor({
 						codeViewHandle,
 						completedSelectionScrollKeyRef,
@@ -619,6 +656,9 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 						recentInstantSelectionRevealRef,
 						scheduleRetarget: (): void => {
 							scheduleInstantSelectionRevealRetarget({
+								...(recentReveal?.annotationReveal === undefined
+									? {}
+									: { annotationReveal: recentReveal.annotationReveal }),
 								codeViewHandle,
 								itemId: selectedItemId,
 								selectionScrollKey,
@@ -730,6 +770,7 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 	]);
 
 	useBridgeCodeViewSelectionScroll({
+		annotationReveal,
 		codeViewHandleRef,
 		codeViewMountVersion,
 		completedSelectionScrollKeyRef,
@@ -742,6 +783,7 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 		pendingSmoothSelectionScrollKeyRef,
 		programmaticRevealGate,
 		reviewPackage: props.reviewPackage,
+		scrollToAnnotation,
 		scrollToItem,
 		selectedItemId: props.selectedItemId,
 		setSelectionScrollDiagnostic,
@@ -850,7 +892,11 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 					return;
 				}
 				if (props.selectedItemId !== null) {
-					const selectionScrollKey = `${sourceKey}:${codeViewMountVersion}:${props.selectedItemId}`;
+					const recentReveal = recentInstantSelectionRevealRef.current;
+					const selectionScrollKey =
+						recentReveal?.itemId === props.selectedItemId
+							? recentReveal.selectionScrollKey
+							: `${sourceKey}:${codeViewMountVersion}:${props.selectedItemId}`;
 					if (
 						shouldRearmCodeViewInstantRevealForMaterialization({
 							isSelectedRevealSettled:
@@ -866,6 +912,9 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 						})
 					) {
 						scheduleInstantSelectionRevealRetarget({
+							...(recentReveal?.annotationReveal === undefined
+								? {}
+								: { annotationReveal: recentReveal.annotationReveal }),
 							codeViewHandle,
 							itemId: props.selectedItemId,
 							selectionScrollKey,

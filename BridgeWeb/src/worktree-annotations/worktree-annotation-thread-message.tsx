@@ -19,6 +19,7 @@ import {
 import { WorktreeAnnotationEditOwnershipController } from './worktree-annotation-edit-ownership.js';
 import { createWorktreeAnnotationEditToken } from './worktree-annotation-edit-token.js';
 import {
+	WorktreeAnnotationAuthorLabel,
 	WorktreeAnnotationCommandButton,
 	WorktreeAnnotationInlineSurface,
 	WorktreeAnnotationLockedStatus,
@@ -88,9 +89,7 @@ export function WorktreeAnnotationThreadSummary(
 			draft={props.message.draft !== null}
 			metadata={
 				<>
-					<span className="font-medium text-annotation-foreground">
-						{props.message.authorKind === 'agent' ? 'Agent' : 'You'}
-					</span>
+					<WorktreeAnnotationAuthorLabel authorKind={props.message.authorKind} />
 					<span aria-hidden="true">·</span>
 					<span>{annotationRelativeTime(props.message.createdAt)}</span>
 					<span aria-hidden="true">·</span>
@@ -362,9 +361,7 @@ export function WorktreeAnnotationMessageEditor(
 			messageId={props.message.messageId}
 			metadata={
 				<>
-					<span className="font-medium text-annotation-foreground">
-						{props.message.authorKind === 'agent' ? 'Agent' : 'You'}
-					</span>
+					<WorktreeAnnotationAuthorLabel authorKind={props.message.authorKind} />
 					{props.message.status === 'locked' ? (
 						<WorktreeAnnotationLockedStatus />
 					) : annotationMessageHasExceptionalState(props.message) ? (

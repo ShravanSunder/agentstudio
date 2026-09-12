@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+	useCallback,
+	useEffect,
+	useMemo,
+	useRef,
+	useState,
+	type Dispatch,
+	type SetStateAction,
+} from 'react';
 
 import type {
 	BridgeMarkdownRenderWorkerClient,
@@ -26,6 +34,10 @@ export type BridgeMarkdownPresentationState =
 			readonly sourcePath: string;
 			readonly identity: BridgeMarkdownRenderRequestIdentity;
 			readonly renderResult: BridgeMarkdownRenderWorkerSuccessResponse;
+			readonly refresh:
+				| { readonly kind: 'current' }
+				| { readonly kind: 'pending' }
+				| { readonly kind: 'failed' };
 	  }
 	| { readonly status: 'failed'; readonly sourcePath: string };
 
@@ -64,20 +76,25 @@ export function useBridgeMarkdownPresentation(props: {
 				completedIntentKeyRef.current = null;
 			setPresentationState((current) =>
 				current.status === 'ready' && current.sourcePath === props.selectedPath
-					? current
+					? { ...current, refresh: { kind: 'pending' } }
 					: { status: 'idle' },
 			);
 			return;
 		}
-		if (completedIntentKeyRef.current === intentKey) return;
+		if (completedIntentKeyRef.current === intentKey) {
+			setPresentationState((current) =>
+				current.status === 'ready' ? { ...current, refresh: { kind: 'current' } } : current,
+			);
+			return;
+		}
 		completedIntentKeyRef.current = null;
 		setPresentationState((current) =>
 			current.status === 'ready' && current.sourcePath === intent.sourcePath
-				? current
+				? { ...current, refresh: { kind: 'pending' } }
 				: { status: 'loading', sourcePath: intent.sourcePath },
 		);
 		if (props.workerClient === null) {
-			setPresentationState({ status: 'failed', sourcePath: intent.sourcePath });
+			setPresentationState((current) => failedMarkdownPresentation(current, intent.sourcePath));
 			return;
 		}
 		const workerClient = props.workerClient;
@@ -120,21 +137,33 @@ export function useBridgeMarkdownPresentation(props: {
 function applyBridgeMarkdownCompletion(props: {
 	readonly completion: BridgeMarkdownRenderWorkerClientCompletion;
 	readonly intent: BridgeMarkdownRenderIntent;
-	readonly setPresentationState: (state: BridgeMarkdownPresentationState) => void;
+	readonly setPresentationState: Dispatch<SetStateAction<BridgeMarkdownPresentationState>>;
 }): void {
 	if (props.completion.status === 'stale') {
 		return;
 	}
 	if (props.completion.status === 'failure') {
-		props.setPresentationState({ status: 'failed', sourcePath: props.intent.sourcePath });
+		props.setPresentationState((current) =>
+			failedMarkdownPresentation(current, props.intent.sourcePath),
+		);
 		return;
 	}
 	props.setPresentationState({
 		status: 'ready',
+		refresh: { kind: 'current' },
 		sourcePath: props.intent.sourcePath,
 		identity: props.completion.identity,
 		renderResult: props.completion.response,
 	});
+}
+
+function failedMarkdownPresentation(
+	current: BridgeMarkdownPresentationState,
+	sourcePath: string,
+): BridgeMarkdownPresentationState {
+	return current.status === 'ready' && current.sourcePath === sourcePath
+		? { ...current, refresh: { kind: 'failed' } }
+		: { status: 'failed', sourcePath };
 }
 
 function bridgeMarkdownIntentKey(intent: BridgeMarkdownRenderIntent): string {

@@ -58,6 +58,36 @@ describe('Bridge CodeView hydration anchor', () => {
 		expect(scheduleRetarget).not.toHaveBeenCalled();
 	});
 
+	test('retains an annotation target after content hydration until its thread is visible', () => {
+		const fixture = hydrationAnchorFixture();
+		const scheduleRetarget = vi.fn();
+		const props = hydrationAnchorProps({ contentState: 'hydrated', fixture, scheduleRetarget });
+		const annotationReveal = {
+			itemId: fixture.itemId,
+			range: { end: 8, side: 'additions' as const, start: 4 },
+			requestId: 7,
+			threadId: 'thread-7',
+		};
+		props.recentInstantSelectionRevealRef.current = {
+			annotationReveal,
+			itemId: fixture.itemId,
+			revealedAtMilliseconds: 1_000,
+			selectionScrollKey: fixture.selectionScrollKey,
+		};
+
+		const didConsume = consumeBridgeCodeViewPendingHydrationAnchor(props);
+
+		expect(didConsume).toBe(true);
+		expect(props.completedSelectionScrollKeyRef.current).toBeNull();
+		expect(props.recentInstantSelectionRevealRef.current).toEqual({
+			annotationReveal,
+			itemId: fixture.itemId,
+			revealedAtMilliseconds: 1_500,
+			selectionScrollKey: fixture.selectionScrollKey,
+		});
+		expect(scheduleRetarget).toHaveBeenCalledTimes(1);
+	});
+
 	test('does not consume an obligation from another source, mount, or selection', () => {
 		// Arrange
 		const fixture = hydrationAnchorFixture();

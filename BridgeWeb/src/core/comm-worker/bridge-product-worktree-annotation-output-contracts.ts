@@ -17,7 +17,7 @@ const bridgeProductAnnotationOutputDescriptorBaseShape = {
 	descriptorId: bridgeProductIdentifierSchema,
 	encoding: z.literal('utf-8'),
 	expectedSha256: bridgeProductSha256Schema,
-	formatVersion: z.literal(1),
+	formatVersion: z.union([z.literal(1), z.literal(2)]),
 	maximumBytes: bridgeProductPositiveSequenceSchema.max(
 		BRIDGE_PRODUCT_MAXIMUM_CONTENT_STREAM_BYTES,
 	),
@@ -51,7 +51,7 @@ export const bridgeProductAnnotationOutputContentIdentitySchema = z
 		attemptId: bridgeProductReviewPublicationIdSchema,
 		contentKind: z.literal('annotation.output'),
 		descriptorId: bridgeProductIdentifierSchema,
-		formatVersion: z.literal(1),
+		formatVersion: z.union([z.literal(1), z.literal(2)]),
 		maximumBytes: bridgeProductPositiveSequenceSchema.max(
 			BRIDGE_PRODUCT_MAXIMUM_CONTENT_STREAM_BYTES,
 		),

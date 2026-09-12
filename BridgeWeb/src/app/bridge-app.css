@@ -275,6 +275,17 @@
 	--scrollbar-thumb-hover: color-mix(in srgb, var(--foreground) 36%, transparent);
 	--scrollbar-track: transparent;
 
+	/* Pierre's dark source/gutter selection ratios, distinct from the comment lane. */
+	--annotation-source-selection-background: color-mix(
+		in lab,
+		var(--background) 75%,
+		var(--warning)
+	);
+	--annotation-source-gutter-selection-background: color-mix(
+		in lab,
+		var(--background) 60%,
+		var(--warning)
+	);
 	/* Annotation lane: subtle white wash over the code canvas. */
 	--annotation-lane-background: color-mix(
 		in srgb,
@@ -437,74 +448,193 @@ button:disabled,
 	--diffs-scrollbar-gutter-override: 0px;
 }
 
-.bridge-markdown-document :where(h1, h2, h3, h4, h5, h6) {
+.bridge-markdown-document-frame {
+	--markdown-document-max-width: 920px;
+	position: relative;
+	isolation: isolate;
+	width: 100%;
+}
+
+.bridge-markdown-document-frame > .bridge-markdown-document {
+	max-width: var(--markdown-document-max-width);
+}
+
+.bridge-markdown-gutter {
+	left: max(0px, calc((100% - var(--markdown-document-max-width)) / 2));
+}
+
+.bridge-markdown-row-backgrounds {
+	position: absolute;
+	inset: 0;
+	z-index: -1;
+	pointer-events: none;
+}
+
+.bridge-markdown-source-selection,
+.bridge-markdown-comment-lane {
+	position: absolute;
+	left: 0;
+	right: 0;
+}
+
+.bridge-markdown-source-selection {
+	background: var(--annotation-source-selection-background);
+}
+
+.bridge-markdown-comment-lane {
+	background: var(--annotation-lane-background);
+}
+
+.bridge-markdown-comment-lane[data-active='true'],
+.bridge-markdown-annotation-host[data-annotation-active='true'] {
+	background: var(--annotation-lane-active-background);
+}
+
+.bridge-markdown-document[data-bridge-markdown-annotated='true'] {
+	padding-left: 58px;
+}
+
+.bridge-markdown-document [data-bridge-markdown-target][data-annotation-active='true'] {
+	background: var(--annotation-source-selection-background);
+}
+
+.bridge-markdown-code-block {
+	min-height: 36px;
+	border: 1px solid var(--border);
+	border-radius: var(--radius-md);
+	overflow-x: auto;
+	margin-block: 1em;
+	padding-block: 8px;
+	background: var(--background);
+	color: var(--code-foreground);
+}
+
+.bridge-markdown-code-lines {
+	width: max-content;
+	min-width: 100%;
+	font-family: var(--font-mono);
+	font-size: 12px;
+}
+
+.bridge-markdown-code-lines > .line {
+	min-height: 20px;
+	line-height: 20px;
+	padding-inline: 8px;
+	white-space: pre;
+}
+
+.bridge-markdown-document .bridge-markdown-list-text {
+	margin-block: 0;
+}
+
+.bridge-markdown-document li > :where(ul, ol) {
+	margin-block: 4px;
+}
+
+.bridge-markdown-task-item {
+	list-style: none;
+}
+
+.bridge-markdown-task-check {
+	color: var(--muted-foreground);
+}
+
+.bridge-markdown-table-scroll {
+	overflow-x: auto;
+}
+
+.bridge-markdown-annotation-host {
+	padding: 8px;
+	background: var(--annotation-lane-background);
+	font-family: var(--font-sans);
+	font-size: 12px;
+	line-height: 16px;
+	white-space: normal;
+}
+
+.bridge-markdown-annotation-host:empty,
+.bridge-markdown-annotation-row:has(.bridge-markdown-annotation-host:empty) {
+	display: none;
+}
+
+.bridge-markdown-document .bridge-markdown-annotation-row > td {
+	padding: 0;
+}
+
+.bridge-markdown-document
+	:where(h1, h2, h3, h4, h5, h6):not(:where(.bridge-markdown-annotation-host *)) {
 	margin-block: 1.5em 0.55em;
 	font-weight: 650;
 	line-height: 1.25;
 }
 
-.bridge-markdown-document h1 {
+.bridge-markdown-document h1:not(:where(.bridge-markdown-annotation-host *)) {
 	padding-bottom: 0.35em;
 	border-bottom: 1px solid var(--border);
 	font-size: 2em;
 }
 
-.bridge-markdown-document h2 {
+.bridge-markdown-document h2:not(:where(.bridge-markdown-annotation-host *)) {
 	font-size: 1.55em;
 }
 
-.bridge-markdown-document h3 {
+.bridge-markdown-document h3:not(:where(.bridge-markdown-annotation-host *)) {
 	font-size: 1.25em;
 }
 
-.bridge-markdown-document :where(h4, h5, h6) {
+.bridge-markdown-document :where(h4, h5, h6):not(:where(.bridge-markdown-annotation-host *)) {
 	font-size: 1em;
 }
 
-.bridge-markdown-document :where(p, ul, ol, blockquote, table, pre, hr) {
+.bridge-markdown-document
+	:where(p, ul, ol, blockquote, table, pre, hr):not(:where(.bridge-markdown-annotation-host *)) {
 	margin-block: 0.85em;
 }
 
-.bridge-markdown-document :where(ul, ol) {
+.bridge-markdown-document :where(ul, ol):not(:where(.bridge-markdown-annotation-host *)) {
 	padding-left: 1.75em;
 }
 
-.bridge-markdown-document ul {
+.bridge-markdown-document ul:not(:where(.bridge-markdown-annotation-host *)) {
 	list-style: disc;
 }
 
-.bridge-markdown-document ol {
+.bridge-markdown-document ol:not(:where(.bridge-markdown-annotation-host *)) {
 	list-style: decimal;
 }
 
-.bridge-markdown-document blockquote {
+.bridge-markdown-document blockquote:not(:where(.bridge-markdown-annotation-host *)) {
 	border-left: 3px solid var(--input);
 	padding-left: 1em;
 	color: var(--muted-foreground);
 }
 
-.bridge-markdown-document table {
+.bridge-markdown-document blockquote [data-bridge-markdown-target][data-annotation-active='true'] {
+	color: var(--foreground);
+}
+
+.bridge-markdown-document table:not(:where(.bridge-markdown-annotation-host *)) {
 	width: 100%;
 	border-collapse: collapse;
 }
 
-.bridge-markdown-document :where(th, td) {
+.bridge-markdown-document :where(th, td):not(:where(.bridge-markdown-annotation-host *)) {
 	border: 1px solid var(--border);
 	padding: 0.4em 0.65em;
 	text-align: left;
 }
 
-.bridge-markdown-document :where(code, pre) {
+.bridge-markdown-document :where(code, pre):not(:where(.bridge-markdown-annotation-host *)) {
 	font-family: var(--font-mono);
 }
 
-.bridge-markdown-document :not(pre) > code {
+.bridge-markdown-document :not(pre) > code:not(:where(.bridge-markdown-annotation-host *)) {
 	border-radius: 4px;
 	padding: 0.12em 0.3em;
 	background: var(--surface);
 }
 
-.bridge-markdown-document pre {
+.bridge-markdown-document pre:not(:where(.bridge-markdown-annotation-host *)) {
 	max-width: 100%;
 	overflow-x: auto;
 	border: 1px solid var(--border);

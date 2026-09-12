@@ -1,3 +1,4 @@
+import type { CodeViewScrollBehavior } from '@pierre/diffs';
 import type { CodeViewHandle } from '@pierre/diffs/react';
 import type { MutableRefObject } from 'react';
 
@@ -12,6 +13,7 @@ import {
 import {
 	bridgeCodeViewInstantRevealPolicy,
 	codeViewSelectionScrollRetryFrameBudget,
+	type BridgeCodeViewAnnotationReveal,
 } from './bridge-code-view-panel-types.js';
 import {
 	skipBridgeCodeViewProgrammaticRevealIfNeeded,
@@ -19,12 +21,20 @@ import {
 } from './bridge-code-view-programmatic-reveal-gate.js';
 
 export interface ScheduleBridgeCodeViewInstantRevealRetargetProps {
+	readonly annotationReveal?: BridgeCodeViewAnnotationReveal;
 	readonly codeViewHandle: CodeViewHandle<undefined>;
 	readonly codeViewHandleRef: MutableRefObject<CodeViewHandle<undefined> | null>;
+	readonly completedSelectionScrollKeyRef: MutableRefObject<string | null>;
 	readonly itemId: string;
 	readonly lastSelectionScrollKeyRef: MutableRefObject<string | null>;
 	readonly pendingSelectionScrollFrameRef: MutableRefObject<number | null>;
+	readonly pendingPreHydrationSelectionScrollKeyRef: MutableRefObject<string | null>;
+	readonly pendingSelectionRevealBehaviorRef: MutableRefObject<CodeViewScrollBehavior | null>;
+	readonly pendingSmoothSelectionScrollKeyRef: MutableRefObject<string | null>;
 	readonly programmaticRevealGate: BridgeCodeViewProgrammaticRevealGate;
+	readonly onAnnotationRevealCompleteRef: MutableRefObject<
+		((requestId: number) => void) | undefined
+	>;
 	readonly recentInstantSelectionRevealRef: MutableRefObject<BridgeCodeViewInstantRevealRearmCandidate | null>;
 	readonly remainingFrameBudget: number;
 	readonly selectionScrollKey: string;
@@ -33,12 +43,20 @@ export interface ScheduleBridgeCodeViewInstantRevealRetargetProps {
 }
 
 export interface ScheduleBridgeCodeViewInstantRevealRetargetForPanelProps {
+	readonly annotationReveal?: BridgeCodeViewAnnotationReveal;
 	readonly codeViewHandle: CodeViewHandle<undefined>;
 	readonly codeViewHandleRef: MutableRefObject<CodeViewHandle<undefined> | null>;
+	readonly completedSelectionScrollKeyRef: MutableRefObject<string | null>;
 	readonly itemId: string;
 	readonly lastSelectionScrollKeyRef: MutableRefObject<string | null>;
 	readonly pendingSelectionScrollFrameRef: MutableRefObject<number | null>;
+	readonly pendingPreHydrationSelectionScrollKeyRef: MutableRefObject<string | null>;
+	readonly pendingSelectionRevealBehaviorRef: MutableRefObject<CodeViewScrollBehavior | null>;
+	readonly pendingSmoothSelectionScrollKeyRef: MutableRefObject<string | null>;
 	readonly programmaticRevealGate: BridgeCodeViewProgrammaticRevealGate;
+	readonly onAnnotationRevealCompleteRef: MutableRefObject<
+		((requestId: number) => void) | undefined
+	>;
 	readonly recentInstantSelectionRevealRef: MutableRefObject<BridgeCodeViewInstantRevealRearmCandidate | null>;
 	readonly selectionScrollKey: string;
 	readonly settledInstantSelectionRevealKeyRef: MutableRefObject<string | null>;
@@ -120,6 +138,56 @@ export function scheduleBridgeCodeViewInstantRevealRetarget(
 					phase: 'cancelled',
 					selectionScrollKey: props.selectionScrollKey,
 				});
+				return;
+			}
+			const currentItem = props.codeViewHandle.getItem(props.itemId);
+			const isCurrentItemMaterialized =
+				isBridgeCodeViewItem(currentItem) &&
+				isMaterializedBridgeCodeViewContentState(currentItem.bridgeMetadata.contentState);
+			if (props.annotationReveal !== undefined && isCurrentItemMaterialized) {
+				const scrollOwner = codeViewInstance.getContainerElement();
+				if (scrollOwner === undefined) {
+					if (remainingFrameBudget > 0) scheduleRetargetFrame(remainingFrameBudget - 1);
+					return;
+				}
+				const threadElement = annotationThreadElement(scrollOwner, props.annotationReveal.threadId);
+				if (threadElement === null) {
+					props.codeViewHandle.scrollTo({
+						align: 'center',
+						behavior: 'instant',
+						id: props.annotationReveal.itemId,
+						range: props.annotationReveal.range,
+						type: 'range',
+					});
+				} else if (annotationThreadIsVisible({ scrollOwner, threadElement })) {
+					props.completedSelectionScrollKeyRef.current = props.selectionScrollKey;
+					props.pendingPreHydrationSelectionScrollKeyRef.current = null;
+					props.pendingSelectionRevealBehaviorRef.current = null;
+					props.pendingSmoothSelectionScrollKeyRef.current = null;
+					props.recentInstantSelectionRevealRef.current = null;
+					props.settledInstantSelectionRevealKeyRef.current = props.selectionScrollKey;
+					props.programmaticRevealGate.transitionSelectionReveal({
+						phase: 'settled',
+						selectionScrollKey: props.selectionScrollKey,
+					});
+					props.onAnnotationRevealCompleteRef.current?.(props.annotationReveal.requestId);
+					return;
+				} else {
+					props.codeViewHandle.scrollTo({
+						behavior: 'instant',
+						position: annotationThreadScrollPosition({ scrollOwner, threadElement }),
+						type: 'position',
+					});
+				}
+				committedRevealScrollTop = codeViewInstance.getScrollTop();
+				if (remainingFrameBudget > 0) {
+					scheduleRetargetFrame(remainingFrameBudget - 1);
+				} else {
+					props.programmaticRevealGate.transitionSelectionReveal({
+						phase: 'awaiting-hydration',
+						selectionScrollKey: props.selectionScrollKey,
+					});
+				}
 				return;
 			}
 			const resolvedItemTop = codeViewInstance.getTopForItem(props.itemId);
@@ -207,4 +275,35 @@ export function scheduleBridgeCodeViewInstantRevealRetarget(
 		});
 	};
 	scheduleRetargetFrame(props.remainingFrameBudget);
+}
+
+function annotationThreadElement(scrollOwner: HTMLElement, threadId: string): HTMLElement | null {
+	for (const element of scrollOwner.querySelectorAll<HTMLElement>('[data-annotation-thread-id]')) {
+		if (element.dataset['annotationThreadId'] === threadId) return element;
+	}
+	return null;
+}
+
+function annotationThreadIsVisible(props: {
+	readonly scrollOwner: HTMLElement;
+	readonly threadElement: HTMLElement;
+}): boolean {
+	const viewportBounds = props.scrollOwner.getBoundingClientRect();
+	const threadBounds = props.threadElement.getBoundingClientRect();
+	return threadBounds.height <= viewportBounds.height
+		? threadBounds.top >= viewportBounds.top && threadBounds.bottom <= viewportBounds.bottom
+		: threadBounds.top >= viewportBounds.top && threadBounds.top < viewportBounds.bottom;
+}
+
+function annotationThreadScrollPosition(props: {
+	readonly scrollOwner: HTMLElement;
+	readonly threadElement: HTMLElement;
+}): number {
+	const viewportBounds = props.scrollOwner.getBoundingClientRect();
+	const threadBounds = props.threadElement.getBoundingClientRect();
+	const centeringOffset = Math.max(0, (props.scrollOwner.clientHeight - threadBounds.height) / 2);
+	return Math.max(
+		0,
+		props.scrollOwner.scrollTop + threadBounds.top - viewportBounds.top - centeringOffset,
+	);
 }

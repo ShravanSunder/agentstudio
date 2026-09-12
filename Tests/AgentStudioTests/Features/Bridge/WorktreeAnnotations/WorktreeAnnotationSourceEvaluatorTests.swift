@@ -282,6 +282,62 @@ struct WorktreeAnnotationSourceEvaluatorTests {
         #expect(ambiguous.placements[thread.id]?.currentPath == nil)
     }
 
+    @Test("partial reads preserve exact targets without claiming a unique relocation")
+    func partialReadsPreserveExactTargetsWithoutClaimingRelocation() throws {
+        let session = makeSourceEvaluationSession()
+        let locatedThread = makeLocatedEvaluationThread(sessionID: session.id)
+        let wholeFileThread = WorktreeAnnotationThread(
+            id: .generate(),
+            sessionID: session.id,
+            origin: .wholeFile(repositoryRelativePath: "Sources/Feature.swift", sourceRole: .file),
+            resolution: .open,
+            createdOrdinal: 1,
+            semanticRevision: 0,
+            createdAt: .distantPast,
+            updatedAt: .distantPast,
+            resolvedAt: nil
+        )
+        struct PartialReadScenario {
+            let path: String
+            let body: String
+            let locatedPlacement: WorktreeAnnotationPlacement
+            let wholeFilePlacement: WorktreeAnnotationPlacement
+        }
+        let scenarios: [PartialReadScenario] = [
+            .init(
+                path: "Sources/Feature.swift", body: "before\nselected line\nafter\n",
+                locatedPlacement: .exact, wholeFilePlacement: .exact
+            ),
+            .init(
+                path: "Sources/Feature.swift", body: "added\nbefore\nselected line\nafter\n",
+                locatedPlacement: .unavailable, wholeFilePlacement: .exact
+            ),
+            .init(
+                path: "Sources/Renamed.swift", body: "before\nselected line\nafter\n",
+                locatedPlacement: .unavailable, wholeFilePlacement: .unavailable
+            ),
+        ]
+        for scenario in scenarios {
+            let result = try WorktreeAnnotationSourceEvaluator.evaluate(
+                .init(
+                    session: session,
+                    threads: [locatedThread, wholeFileThread],
+                    surface: .file,
+                    sourceEpoch: "partial-read",
+                    currentFingerprint: session.acceptedSourceFingerprint,
+                    material: .availableWithReadFailures([
+                        .init(
+                            path: scenario.path, sourceRole: .file, sourceIdentity: "current",
+                            body: scenario.body
+                        )
+                    ])
+                )
+            )
+            #expect(result.placements[locatedThread.id]?.placement == scenario.locatedPlacement)
+            #expect(result.placements[wholeFileThread.id]?.placement == scenario.wholeFilePlacement)
+        }
+    }
+
     @Test("missing evidence is uncertain, different lineage detaches, and read failure is unavailable")
     func continuityAndUnavailablePlacementRemainIndependent() throws {
         let session = makeSourceEvaluationSession()

@@ -89,6 +89,8 @@ Use one footer separator only where fixed actions meet scrolling content.
 DrawerHeader owns its 8px inset and no-divider default. DrawerBody owns 8px inset,
 shrinking and scrolling. DrawerFooter owns 8px inset and action gap. Card slots
 own 8px padding; a following content/footer slot avoids duplicate top padding.
+The optional `CardHeader variant="divided"` adds an inset bottom `separator`
+rule without changing the card background or spacing. Its default variant has no divider.
 CardFooter wraps actions with an 8px gap. Controls own their own icon geometry;
 headers must not reach into nested controls with blanket SVG selectors.
 

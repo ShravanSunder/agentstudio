@@ -1,4 +1,4 @@
-import { useRef, useState, type ReactElement } from 'react';
+import { useRef, useState, type ReactElement, type ReactNode } from 'react';
 
 import { WorktreeAnnotationSharePanelControl } from '../worktree-annotations/worktree-annotation-output-controls.js';
 import { useWorktreeAnnotationOutputPendingController } from '../worktree-annotations/worktree-annotation-output-pending-controller.js';
@@ -12,9 +12,10 @@ import { requireBridgeViewerContextPanelPortalContainer } from './bridge-viewer-
 type BridgeReviewHeaderPanelsProps = Omit<
 	BridgeReviewComparisonControlProps,
 	'finalFocus' | 'onOpenChange' | 'open'
->;
+> & { readonly children?: ReactNode };
 
 export function BridgeReviewHeaderPanels(props: BridgeReviewHeaderPanelsProps): ReactElement {
+	const { children, ...comparisonProps } = props;
 	const interaction = useWorktreeAnnotationInteraction();
 	const outputPendingController = useWorktreeAnnotationOutputPendingController();
 	const viewportRef = requireBridgeViewerContextPanelPortalContainer();
@@ -25,26 +26,8 @@ export function BridgeReviewHeaderPanels(props: BridgeReviewHeaderPanelsProps): 
 
 	return (
 		<>
-			<WorktreeAnnotationSharePanelControl
-				finalFocus={({ closeReason, trigger }): false | HTMLElement | null => {
-					if (sharePeerCloseRef.current) {
-						sharePeerCloseRef.current = false;
-						return false;
-					}
-					if (!isActive || closeReason === 'outside-press') return false;
-					return trigger;
-				}}
-				onOpenRequest={(): boolean => {
-					if (comparisonOpen) {
-						comparePeerCloseRef.current = true;
-						setComparisonOpen(false);
-					}
-					return true;
-				}}
-				outputPendingController={outputPendingController}
-			/>
 			<BridgeReviewComparisonControl
-				{...props}
+				{...comparisonProps}
 				finalFocus={({ closeReason, trigger }): false | HTMLElement | null => {
 					if (comparePeerCloseRef.current) {
 						comparePeerCloseRef.current = false;
@@ -70,6 +53,25 @@ export function BridgeReviewHeaderPanels(props: BridgeReviewHeaderPanelsProps): 
 					return true;
 				}}
 				open={comparisonOpen}
+			/>
+			{children}
+			<WorktreeAnnotationSharePanelControl
+				finalFocus={({ closeReason, trigger }): false | HTMLElement | null => {
+					if (sharePeerCloseRef.current) {
+						sharePeerCloseRef.current = false;
+						return false;
+					}
+					if (!isActive || closeReason === 'outside-press') return false;
+					return trigger;
+				}}
+				onOpenRequest={(): boolean => {
+					if (comparisonOpen) {
+						comparePeerCloseRef.current = true;
+						setComparisonOpen(false);
+					}
+					return true;
+				}}
+				outputPendingController={outputPendingController}
 			/>
 		</>
 	);

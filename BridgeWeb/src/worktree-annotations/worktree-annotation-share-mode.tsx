@@ -10,7 +10,7 @@ import {
 	DrawerTitle,
 	DrawerTrigger,
 } from '@/components/ui/drawer.js';
-import { Field, FieldTitle } from '@/components/ui/field.js';
+import { Field } from '@/components/ui/field.js';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group.js';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip.js';
 
@@ -84,19 +84,19 @@ export function WorktreeAnnotationShareModeRow(props: {
 		props.membership.kind === 'unknown' ? 'unknown' : String(props.membership.allCount);
 	return (
 		<section
-			aria-label="Share comments"
+			aria-label="Annotations"
 			className="flex h-full min-h-0 flex-col"
 			data-testid="worktree-annotation-share-mode"
 		>
 			<DrawerHeader>
 				<div className="flex items-center justify-between gap-2">
-					<DrawerTitle>Share annotations</DrawerTitle>
+					<DrawerTitle>Annotations</DrawerTitle>
 					<WorktreeAnnotationShareActionButton
-						ariaLabel="Close Share comments"
+						ariaLabel="Close Annotations"
 						size="icon-sm"
 						disabled={props.isOutputPending}
 						onClick={props.onDone}
-						tooltip="Close Share comments (Esc)"
+						tooltip="Close Annotations (Esc)"
 					>
 						<BridgeViewerIcon>
 							<X aria-hidden="true" />
@@ -106,9 +106,8 @@ export function WorktreeAnnotationShareModeRow(props: {
 			</DrawerHeader>
 			<DrawerBody>
 				<Field>
-					<FieldTitle>Include</FieldTitle>
 					<ToggleGroup
-						aria-label="Comments to share"
+						aria-label="Annotation list"
 						onValueChange={(scopes): void => {
 							const nextScope = scopes[0];
 							if (nextScope === 'pending' || nextScope === 'all') props.onScopeChange(nextScope);

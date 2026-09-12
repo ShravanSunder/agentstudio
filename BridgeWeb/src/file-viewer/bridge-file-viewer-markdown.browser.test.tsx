@@ -106,10 +106,14 @@ describe('BridgeFileViewerApp Markdown Browser Mode', () => {
 				document.querySelector('[data-testid="bridge-markdown-canvas"]'),
 			);
 			const inertLink = requireHTMLElement(markdownCanvas.querySelector('a'));
-			const codeBlock = requireHTMLElement(markdownCanvas.querySelector('pre'));
-			const swiftCode = requireHTMLElement(codeBlock.querySelector('code'));
+			const codeBlock = requireHTMLElement(
+				markdownCanvas.querySelector('.bridge-markdown-code-block'),
+			);
+			const swiftCode = requireHTMLElement(codeBlock.querySelector('.bridge-markdown-code-lines'));
 			const highlightedTokens = Array.from(
-				markdownCanvas.querySelectorAll<HTMLElement>('pre code span[style*="color"]'),
+				markdownCanvas.querySelectorAll<HTMLElement>(
+					'.bridge-markdown-code-lines span[style*="color"]',
+				),
 			);
 			const highlightedColors = new Set(
 				highlightedTokens
@@ -123,7 +127,9 @@ describe('BridgeFileViewerApp Markdown Browser Mode', () => {
 			expect(markdownCanvas.querySelector('ul')).not.toBeNull();
 			expect(markdownCanvas.querySelector('table')).not.toBeNull();
 			expect(markdownCanvas.querySelector('th')?.textContent).toBe('Surface');
-			expect(markdownCanvas.querySelector('td')?.textContent).toBe('File');
+			expect(markdownCanvas.querySelector('tr[data-bridge-markdown-target] td')?.textContent).toBe(
+				'File',
+			);
 			expect(inertLink.hasAttribute('href')).toBe(false);
 			expect(swiftCode.textContent).toContain('let markdownProof: String');
 			expect(highlightedColors.size).toBeGreaterThan(1);
@@ -261,6 +267,7 @@ describe('BridgeFileViewerApp Markdown Browser Mode', () => {
 					...identityFromMarkdownRenderWorkerRequest(request),
 					htmlCandidate: '<h1>Recovered Markdown</h1>',
 					mermaidDiagrams: [],
+					annotationTargets: [],
 					metrics: {
 						durationMilliseconds: 1,
 						inputBytes: markdownContent.length,

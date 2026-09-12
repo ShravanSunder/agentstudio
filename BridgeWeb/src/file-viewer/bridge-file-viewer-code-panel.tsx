@@ -4,6 +4,7 @@ import { useCallback, useLayoutEffect, useMemo, useRef, useState, type ReactElem
 
 import { Alert, AlertDescription } from '../components/ui/alert.js';
 import type { BridgeMainRenderFulfillmentCoordinator } from '../core/comm-worker/bridge-main-render-fulfillment-coordinator.js';
+import { codeViewSelectionScrollRetryFrameBudget } from '../review-viewer/code-view/bridge-code-view-panel-types.js';
 import {
 	bridgeCodeViewPresentationItemWithExactSource,
 	observeBridgeCodeViewRenderFulfillment,
@@ -22,6 +23,7 @@ import { BridgePierreWorkerPoolProvider } from '../review-viewer/workers/pierre/
 import { useWorktreeAnnotationSelectionDismissal } from '../worktree-annotations/use-worktree-annotation-selection-dismissal.js';
 import { mergeWorktreeAnnotationCommandConfirmedThreads } from '../worktree-annotations/worktree-annotation-command-confirmed-presentation.js';
 import { createWorktreeAnnotationEditToken } from '../worktree-annotations/worktree-annotation-edit-token.js';
+import { useWorktreeAnnotationNavigation } from '../worktree-annotations/worktree-annotation-navigation.js';
 import { deriveWorktreeAnnotationShareProjection } from '../worktree-annotations/worktree-annotation-share-projection.js';
 import {
 	useWorktreeAnnotationActiveEditTokens,
@@ -78,6 +80,27 @@ export function BridgeFileViewerCodePanel(props: BridgeFileViewerCodePanelProps)
 	const annotationProjection = useWorktreeAnnotationProjection();
 	const annotationSessionSelection = useWorktreeAnnotationSessionSelection();
 	const annotationInteraction = useWorktreeAnnotationInteraction();
+	const navigation = useWorktreeAnnotationNavigation();
+	const navigationRequest =
+		navigation?.activeSurface === 'file' &&
+		navigation.request?.destination === 'file' &&
+		navigation.request.phase === 'ready'
+			? navigation.request
+			: null;
+	const navigationThread =
+		navigationRequest === null
+			? undefined
+			: annotationProjection.threads.find(
+					(thread): boolean => thread.context.threadId === navigationRequest.threadId,
+				);
+	const navigationTarget = useMemo(
+		() =>
+			navigationRequest !== null && navigationThread !== undefined
+				? { request: navigationRequest, thread: navigationThread }
+				: null,
+		[navigationRequest, navigationThread],
+	);
+	const [navigationPaintRevision, setNavigationPaintRevision] = useState(0);
 	const activeEditTokens = useWorktreeAnnotationActiveEditTokens();
 	const activeNewMessageEditTokens = useWorktreeAnnotationActiveNewMessageEditTokens();
 	const activeAnnotationSessionId = annotationSessionSelection.activeSessionId;
@@ -216,6 +239,8 @@ export function BridgeFileViewerCodePanel(props: BridgeFileViewerCodePanelProps)
 		NonNullable<CodeViewOptions<undefined>['onPostRender']>
 	>(
 		(node, _instance, phase, context): void => {
+			if (navigationRequest !== null)
+				setNavigationPaintRevision((revision): number => revision + 1);
 			observeBridgeCodeViewRenderFulfillment({
 				contextItem: context.item,
 				getCodeViewHandle: (): CodeViewHandle<undefined> | null => codeViewHandleRef.current,
@@ -227,7 +252,7 @@ export function BridgeFileViewerCodePanel(props: BridgeFileViewerCodePanelProps)
 				visibleCodeViewItems: undefined,
 			});
 		},
-		[props.renderFulfillmentCoordinator, displayedCodeViewItem],
+		[props.renderFulfillmentCoordinator, displayedCodeViewItem, navigationRequest],
 	);
 	const admitSelectedRange = useCallback(
 		(range: SelectedLineRange | null, itemId: string): void => {
@@ -371,7 +396,7 @@ export function BridgeFileViewerCodePanel(props: BridgeFileViewerCodePanelProps)
 		pendingAnnotationComposer,
 		displayedCodeViewItem,
 	]);
-	useLayoutEffect((): void => {
+	useLayoutEffect((): (() => void) | void => {
 		const selectedItem = displayedCodeViewItem;
 		if (selectedItem === null) return;
 		const currentIdentity = {
@@ -380,7 +405,11 @@ export function BridgeFileViewerCodePanel(props: BridgeFileViewerCodePanelProps)
 		};
 		const previousIdentity = previousRenderedIdentityRef.current;
 		previousRenderedIdentityRef.current = currentIdentity;
+		const requestedThread = navigationTarget?.thread;
+		const revealRequest =
+			requestedThread?.context.path === currentIdentity.path ? navigationTarget : null;
 		if (
+			revealRequest === null &&
 			previousIdentity !== null &&
 			previousIdentity.fileId === currentIdentity.fileId &&
 			previousIdentity.path === currentIdentity.path
@@ -389,15 +418,72 @@ export function BridgeFileViewerCodePanel(props: BridgeFileViewerCodePanelProps)
 		}
 		const effectVersion = scrollEffectVersionRef.current + 1;
 		scrollEffectVersionRef.current = effectVersion;
-		requestAnimationFrame((): void => {
-			if (scrollEffectVersionRef.current !== effectVersion) return;
-			codeViewHandleRef.current?.scrollTo({
-				behavior: 'instant',
-				position: 0,
-				type: 'position',
+		let scheduledFrame = 0;
+		const reveal = (remainingFrames: number): void => {
+			scheduledFrame = requestAnimationFrame((): void => {
+				if (scrollEffectVersionRef.current !== effectVersion) return;
+				const handle = codeViewHandleRef.current;
+				const instance = handle?.getInstance();
+				if (revealRequest !== null && revealRequest !== undefined) {
+					const owner = instance?.getContainerElement();
+					const frame = owner?.querySelector<HTMLElement>(
+						`[data-annotation-thread-id="${CSS.escape(revealRequest.request.threadId)}"]`,
+					);
+					if (
+						frame !== null &&
+						frame !== undefined &&
+						owner !== null &&
+						owner !== undefined &&
+						instance !== undefined
+					) {
+						handle?.scrollTo({
+							type: 'position',
+							position:
+								instance.getScrollTop() +
+								frame.getBoundingClientRect().top -
+								owner.getBoundingClientRect().top -
+								8,
+							behavior: 'instant',
+						});
+						navigation?.finish(revealRequest.request.requestId);
+						return;
+					}
+					const endLine = revealRequest.thread.context.endLine;
+					if (endLine !== null)
+						handle?.scrollTo({
+							type: 'line',
+							id: selectedItem.id,
+							lineNumber: endLine,
+							align: 'start',
+							behavior: 'instant',
+						});
+					if (remainingFrames > 0) reveal(remainingFrames - 1);
+					return;
+				}
+				handle?.scrollTo({
+					behavior: 'instant',
+					position: 0,
+					type: 'position',
+				});
 			});
-		});
-	}, [displayedCodeViewItem]);
+		};
+		reveal(codeViewSelectionScrollRetryFrameBudget);
+		const scrollOwner = codeViewHandleRef.current?.getInstance()?.getContainerElement();
+		const cancelByUser = (): void => {
+			scrollEffectVersionRef.current += 1;
+			cancelAnimationFrame(scheduledFrame);
+			if (revealRequest != null) navigation?.finish(revealRequest.request.requestId);
+		};
+		if (revealRequest != null) {
+			scrollOwner?.addEventListener('wheel', cancelByUser, { passive: true });
+			scrollOwner?.addEventListener('pointerdown', cancelByUser);
+		}
+		return (): void => {
+			cancelAnimationFrame(scheduledFrame);
+			scrollOwner?.removeEventListener('wheel', cancelByUser);
+			scrollOwner?.removeEventListener('pointerdown', cancelByUser);
+		};
+	}, [displayedCodeViewItem, navigation, navigationTarget, navigationPaintRevision]);
 	return (
 		<section
 			aria-label="Selected file"

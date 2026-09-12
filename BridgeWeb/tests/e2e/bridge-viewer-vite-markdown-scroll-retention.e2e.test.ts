@@ -38,7 +38,7 @@ test.each(['mode round-trip', 'content refresh'] as const)(
 			const initialScrollTop = await page
 				.getByTestId('bridge-markdown-canvas')
 				.evaluate((article): number => {
-					const owner = article.parentElement;
+					const owner = article.closest('.bridge-scrollbar');
 					if (!(owner instanceof HTMLElement)) throw new Error('Markdown scroll owner missing.');
 					owner.scrollTop = Math.min(900, owner.scrollHeight - owner.clientHeight);
 					owner.dispatchEvent(new Event('scroll', { bubbles: true }));
@@ -68,7 +68,9 @@ test.each(['mode round-trip', 'content refresh'] as const)(
 			await waitForGuideRevision(page, transition === 'content refresh' ? 2 : 1);
 			const finalScrollTop = await page
 				.getByTestId('bridge-markdown-canvas')
-				.evaluate((article): number | null => article.parentElement?.scrollTop ?? null);
+				.evaluate(
+					(article): number | null => article.closest('.bridge-scrollbar')?.scrollTop ?? null,
+				);
 			expect(finalScrollTop).not.toBeNull();
 			expect(
 				Math.abs((finalScrollTop ?? -1) - initialScrollTop),

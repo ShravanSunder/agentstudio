@@ -7,6 +7,48 @@ import Testing
 
 @Suite("Worktree annotation agentstudio-git source material")
 struct WorktreeAnnotationGitSourceMaterialProviderTests {
+    @Test("an unrelated symlink read failure preserves an exact annotation")
+    func unrelatedSymlinkReadFailurePreservesExactAnnotation() async throws {
+        let repositoryURL = try makeGitSourceFixture()
+        defer { WorktreeAnnotationGitFixture.destroy(repositoryURL) }
+        try FileManager.default.createSymbolicLink(
+            atPath: repositoryURL.appending(path: "Instructions.md").path,
+            withDestinationPath: "Sources/Feature.swift"
+        )
+        let provider = GitWorktreeAnnotationSourceMaterialProvider(
+            client: LibGit2AgentStudioGitLocalClient()
+        )
+        let session = makeGitSourceSession()
+        let thread = makeGitSourceThread(sessionID: session.id)
+
+        let material = await provider.material(
+            .init(
+                repositoryPath: repositoryURL,
+                candidates: ["Instructions.md", "Sources/Feature.swift"].map { path in
+                    .init(
+                        path: path,
+                        sourceRole: .file,
+                        sourceIdentity: .currentFileDescriptor,
+                        target: .workingTree
+                    )
+                }
+            )
+        )
+        let result = try WorktreeAnnotationSourceEvaluator.evaluate(
+            .init(
+                session: session,
+                threads: [thread],
+                surface: .file,
+                sourceEpoch: "unrelated-symlink",
+                currentFingerprint: makeGitSourceFingerprint(),
+                material: material
+            )
+        )
+
+        #expect(result.placements[thread.id]?.placement == .exact)
+        #expect(result.placements[thread.id]?.currentPath == "Sources/Feature.swift")
+    }
+
     @Test("working-tree material drives exact relocation and ambiguous placement")
     func workingTreeMaterialDrivesPlacement() async throws {
         let repositoryURL = try makeGitSourceFixture()

@@ -430,6 +430,7 @@ export function createWorktreeAnnotationSurfaceClient(
 			const currentDemandCount = demandCountBySessionId.get(sessionId) ?? 0;
 			demandCountBySessionId.set(sessionId, currentDemandCount + 1);
 			if (currentDemandCount === 0) {
+				projectionStore.markSessionDemanded(sessionId);
 				void execute({ kind: 'demand.acquire', sessionId }).catch((): void => {});
 				refreshDemandedSession(sessionId);
 				void execute({ kind: 'output.history', sessionId }).catch((): void => {});

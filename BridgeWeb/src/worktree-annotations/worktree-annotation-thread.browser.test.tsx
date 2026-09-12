@@ -70,6 +70,7 @@ describe('worktree annotation inline thread', () => {
 			annotationMessage.querySelector('[data-slot="avatar"][aria-label="You"]'),
 		).not.toBeNull();
 		expect(annotationMessage.getAttribute('aria-label')).toBe('Root annotation by You');
+		expect(annotationMessage.querySelector('[data-message-number]')).toBeNull();
 		expect(annotationMessage.textContent).not.toContain('Root annotation');
 		expect(annotationMessage.textContent).not.toContain('Saved');
 		expect(document.querySelector('[aria-label="Expand 1 annotation"]')).toBeNull();
@@ -640,6 +641,7 @@ describe('worktree annotation inline thread', () => {
 						await buildBridgeMarkdownRenderWorkerSuccessResponse({
 							renderMarkdown: async () => ({
 								htmlCandidate: `<p>${request.requestId}</p>`,
+								annotationTargets: [],
 								mermaidDiagrams: [],
 							}),
 							request,

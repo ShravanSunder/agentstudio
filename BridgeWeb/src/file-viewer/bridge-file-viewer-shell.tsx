@@ -168,6 +168,7 @@ export function BridgeFileViewerShell(props: BridgeFileViewerShellProps): ReactE
 									/>
 								) : (
 									<BridgeMarkdownCanvas
+										annotationSource={{ item: props.selectedCodeViewItem }}
 										isActive={props.isActive}
 										presentationState={props.markdownPresentation.presentationState}
 										{...(props.markdownPresentation.intent === null ||

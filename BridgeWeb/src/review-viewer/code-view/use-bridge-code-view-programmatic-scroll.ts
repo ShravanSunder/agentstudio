@@ -17,6 +17,7 @@ import {
 } from './bridge-code-view-panel-support.js';
 import {
 	bridgeCodeViewInstantRevealPolicy,
+	type BridgeCodeViewAnnotationReveal,
 	type BridgeCodeViewScrollToItemOptions,
 } from './bridge-code-view-panel-types.js';
 import type { BridgeCodeViewProgrammaticRevealGate } from './bridge-code-view-programmatic-reveal-gate.js';
@@ -29,6 +30,10 @@ interface UseBridgeCodeViewProgrammaticScrollProps {
 	readonly currentCodeViewItemsRef: MutableRefObject<readonly BridgeCodeViewItem[]>;
 	readonly lastProgrammaticRevealItemIdRef: MutableRefObject<string | null>;
 	readonly lastSelectionScrollKeyRef: MutableRefObject<string | null>;
+	readonly onAnnotationRevealCompleteRef: MutableRefObject<
+		((requestId: number) => void) | undefined
+	>;
+	readonly pendingPreHydrationSelectionScrollKeyRef: MutableRefObject<string | null>;
 	readonly pendingSelectionRevealBehaviorRef: MutableRefObject<CodeViewScrollBehavior | null>;
 	readonly pendingSelectionScrollFrameRef: MutableRefObject<number | null>;
 	readonly pendingSmoothSelectionScrollKeyRef: MutableRefObject<string | null>;
@@ -44,11 +49,16 @@ interface UseBridgeCodeViewProgrammaticScrollProps {
 
 export interface BridgeCodeViewProgrammaticScrollController {
 	readonly scheduleInstantSelectionRevealRetarget: (params: {
+		readonly annotationReveal?: BridgeCodeViewAnnotationReveal;
 		readonly codeViewHandle: CodeViewHandle<undefined>;
 		readonly itemId: string;
 		readonly selectionScrollKey: string;
 		readonly viewportOffsetTolerancePixels: number;
 	}) => void;
+	readonly scrollToAnnotation: (
+		reveal: BridgeCodeViewAnnotationReveal,
+		options: BridgeCodeViewScrollToItemOptions,
+	) => boolean;
 	readonly scrollToItem: (itemId: string, options?: BridgeCodeViewScrollToItemOptions) => boolean;
 }
 
@@ -63,6 +73,8 @@ export function useBridgeCodeViewProgrammaticScroll(
 		currentCodeViewItemsRef,
 		lastProgrammaticRevealItemIdRef,
 		lastSelectionScrollKeyRef,
+		onAnnotationRevealCompleteRef,
+		pendingPreHydrationSelectionScrollKeyRef,
 		pendingSelectionRevealBehaviorRef,
 		pendingSelectionScrollFrameRef,
 		pendingSmoothSelectionScrollKeyRef,
@@ -75,6 +87,7 @@ export function useBridgeCodeViewProgrammaticScroll(
 	} = props;
 	const scheduleInstantSelectionRevealRetarget = useCallback(
 		(params: {
+			readonly annotationReveal?: BridgeCodeViewAnnotationReveal;
 			readonly codeViewHandle: CodeViewHandle<undefined>;
 			readonly itemId: string;
 			readonly selectionScrollKey: string;
@@ -87,20 +100,33 @@ export function useBridgeCodeViewProgrammaticScroll(
 			scheduleBridgeCodeViewInstantRevealRetargetForPanel({
 				codeViewHandle: params.codeViewHandle,
 				codeViewHandleRef: codeViewHandleRef,
+				completedSelectionScrollKeyRef,
 				itemId: params.itemId,
 				lastSelectionScrollKeyRef: lastSelectionScrollKeyRef,
 				pendingSelectionScrollFrameRef: pendingSelectionScrollFrameRef,
 				programmaticRevealGate: programmaticRevealGate,
 				recentInstantSelectionRevealRef: recentInstantSelectionRevealRef,
+				onAnnotationRevealCompleteRef,
+				pendingPreHydrationSelectionScrollKeyRef,
+				pendingSelectionRevealBehaviorRef,
 				selectionScrollKey: params.selectionScrollKey,
+				pendingSmoothSelectionScrollKeyRef,
 				settledInstantSelectionRevealKeyRef: settledInstantSelectionRevealKeyRef,
 				viewportOffsetTolerancePixels: params.viewportOffsetTolerancePixels,
+				...(params.annotationReveal === undefined
+					? {}
+					: { annotationReveal: params.annotationReveal }),
 			});
 		},
 		[
 			codeViewHandleRef,
+			completedSelectionScrollKeyRef,
 			lastSelectionScrollKeyRef,
+			onAnnotationRevealCompleteRef,
+			pendingPreHydrationSelectionScrollKeyRef,
 			pendingSelectionScrollFrameRef,
+			pendingSelectionRevealBehaviorRef,
+			pendingSmoothSelectionScrollKeyRef,
 			programmaticRevealGate,
 			recentInstantSelectionRevealRef,
 			settledInstantSelectionRevealKeyRef,
@@ -219,6 +245,55 @@ export function useBridgeCodeViewProgrammaticScroll(
 			sourceKey,
 		],
 	);
+	const scrollToAnnotation = useCallback(
+		(
+			reveal: BridgeCodeViewAnnotationReveal,
+			options: BridgeCodeViewScrollToItemOptions,
+		): boolean => {
+			const selectionScrollKey = options.selectionScrollKey;
+			if (selectionScrollKey === undefined) return false;
+			if (
+				!scrollToItem(reveal.itemId, {
+					...options,
+					expandIfCollapsed: true,
+					selectionScrollKey,
+				})
+			)
+				return false;
+			const codeViewHandle = codeViewHandleRef.current;
+			if (codeViewHandle === null || !codeViewHandleHasInstance(codeViewHandle)) return false;
+			codeViewHandle.scrollTo({
+				align: 'center',
+				behavior: options.behavior ?? 'instant',
+				id: reveal.itemId,
+				range: reveal.range,
+				type: 'range',
+			});
+			completedSelectionScrollKeyRef.current = null;
+			recentInstantSelectionRevealRef.current = {
+				annotationReveal: reveal,
+				itemId: reveal.itemId,
+				revealedAtMilliseconds: performance.now(),
+				selectionScrollKey,
+			};
+			scheduleInstantSelectionRevealRetarget({
+				annotationReveal: reveal,
+				codeViewHandle,
+				itemId: reveal.itemId,
+				selectionScrollKey,
+				viewportOffsetTolerancePixels:
+					bridgeCodeViewInstantRevealPolicy.viewportOffsetTolerancePixels,
+			});
+			return true;
+		},
+		[
+			codeViewHandleRef,
+			completedSelectionScrollKeyRef,
+			recentInstantSelectionRevealRef,
+			scheduleInstantSelectionRevealRetarget,
+			scrollToItem,
+		],
+	);
 
-	return { scheduleInstantSelectionRevealRetarget, scrollToItem };
+	return { scheduleInstantSelectionRevealRetarget, scrollToAnnotation, scrollToItem };
 }

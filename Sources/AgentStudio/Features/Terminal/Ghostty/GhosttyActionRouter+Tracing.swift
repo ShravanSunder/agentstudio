@@ -159,6 +159,8 @@ extension Ghostty.ActionRouter {
             .reloadConfig, .configChange, .undo, .redo, .startSearch, .endSearch, .searchTotal,
             .searchSelected, .copyTitleToClipboard:
             return .context
+        case .exportTerminalIO, .setWindowTitle, .selectionChanged, .moveTabToNewWindow:
+            return .deferred
         }
     }
 

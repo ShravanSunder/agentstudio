@@ -50,55 +50,62 @@ struct GitWorktreeAnnotationSourceMaterialProvider<LocalClient: AgentStudioGitLo
         }
 
         var files: [WorktreeAnnotationCurrentSourceFile] = []
+        var hadReadFailure = false
         files.reserveCapacity(request.candidates.count)
         for candidate in request.candidates {
-            guard !candidate.path.isEmpty else {
-                return .unavailable
+            if let file = await readSourceFile(candidate, repositoryPath: request.repositoryPath) {
+                files.append(file)
+            } else {
+                hadReadFailure = true
             }
-            let payload: GitContentPayload
-            do {
-                payload = try await client.content(
-                    GitContentRequest(
-                        repositoryPath: request.repositoryPath,
-                        target: candidate.target,
-                        path: candidate.path,
-                        maxSizeBytes: Int64(maximumFileByteCount)
-                    )
-                )
-            } catch {
-                return .unavailable
-            }
-            guard !payload.isBinary,
-                payload.data.count <= maximumFileByteCount,
-                let body = String(data: payload.data, encoding: .utf8)
-            else {
-                return .unavailable
-            }
-            let sourceIdentity: String
-            switch candidate.sourceIdentity {
-            case .provided(let providedIdentity):
-                guard !providedIdentity.isEmpty else { return .unavailable }
-                sourceIdentity = providedIdentity
-            case .currentFileDescriptor:
-                guard candidate.target == .workingTree else { return .unavailable }
-                let sourceSHA256 = SHA256.hash(data: payload.data)
-                    .map { String(format: "%02x", $0) }
-                    .joined()
-                sourceIdentity = BridgePaneProductFileContentSource.stableDescriptorId(
-                    relativePath: candidate.path,
-                    sourceSHA256: sourceSHA256
-                )
-            }
-            files.append(
-                WorktreeAnnotationCurrentSourceFile(
+        }
+        guard !files.isEmpty else { return .unavailable }
+        return hadReadFailure ? .availableWithReadFailures(files) : .available(files)
+    }
+
+    private func readSourceFile(
+        _ candidate: WorktreeAnnotationSourceMaterialCandidate,
+        repositoryPath: URL
+    ) async -> WorktreeAnnotationCurrentSourceFile? {
+        guard !candidate.path.isEmpty else { return nil }
+        let payload: GitContentPayload
+        do {
+            payload = try await client.content(
+                GitContentRequest(
+                    repositoryPath: repositoryPath,
+                    target: candidate.target,
                     path: candidate.path,
-                    sourceRole: candidate.sourceRole,
-                    sourceIdentity: sourceIdentity,
-                    body: body
+                    maxSizeBytes: Int64(maximumFileByteCount)
                 )
             )
+        } catch {
+            return nil
         }
-        return .available(files)
+        guard !payload.isBinary,
+            payload.data.count <= maximumFileByteCount,
+            let body = String(data: payload.data, encoding: .utf8)
+        else { return nil }
+        let sourceIdentity: String
+        switch candidate.sourceIdentity {
+        case .provided(let providedIdentity):
+            guard !providedIdentity.isEmpty else { return nil }
+            sourceIdentity = providedIdentity
+        case .currentFileDescriptor:
+            guard candidate.target == .workingTree else { return nil }
+            let sourceSHA256 = SHA256.hash(data: payload.data)
+                .map { String(format: "%02x", $0) }
+                .joined()
+            sourceIdentity = BridgePaneProductFileContentSource.stableDescriptorId(
+                relativePath: candidate.path,
+                sourceSHA256: sourceSHA256
+            )
+        }
+        return WorktreeAnnotationCurrentSourceFile(
+            path: candidate.path,
+            sourceRole: candidate.sourceRole,
+            sourceIdentity: sourceIdentity,
+            body: body
+        )
     }
 
     private func containsDuplicateCandidate(

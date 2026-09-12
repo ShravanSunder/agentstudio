@@ -17,12 +17,17 @@ import {
 	createBridgeReviewViewSettingsDefaults,
 	deriveBridgeReviewCodeViewOptions,
 } from '../review-viewer/code-view/bridge-code-view-options.js';
+import type { BridgeCodeViewAnnotationReveal } from '../review-viewer/code-view/bridge-code-view-panel-types.js';
 import type { BridgeCodeViewControlHandle } from '../review-viewer/code-view/bridge-code-view-panel.js';
+import { reviewItemIdForAnnotationThread } from '../review-viewer/code-view/use-bridge-code-view-worktree-annotations.js';
+import { reviewPierreAnnotationsForItem } from '../review-viewer/code-view/worktree-annotation-pierre-adapter.js';
 import type {
 	BridgeReviewProjectionMode,
 	BridgeReviewSearchMode,
 } from '../review-viewer/models/review-projection-models.js';
 import type { BridgeReviewTreeSelectionRevealRequest } from '../review-viewer/trees/bridge-trees-panel.js';
+import { useWorktreeAnnotationNavigationTarget } from '../worktree-annotations/use-worktree-annotation-navigation-target.js';
+import { useWorktreeAnnotationNavigation } from '../worktree-annotations/worktree-annotation-navigation.js';
 import {
 	WorktreeAnnotationSurfaceProvider,
 	useWorktreeAnnotationPrepareActiveEditorsForInstallation,
@@ -134,6 +139,9 @@ function BridgeReviewViewerModeContent(props: BridgeReviewViewerModeProps): Reac
 		viewerContextSwitcher,
 	} = props;
 	const pierreCourier = useMemo(() => createBridgeReviewWorkerPierreCourier(), []);
+	const annotationNavigation = useWorktreeAnnotationNavigation();
+	const annotationTarget = useWorktreeAnnotationNavigationTarget('review', isActive);
+	const appliedAnnotationRequest = useRef<number | null>(null);
 	const presentationPositionKey = useId();
 	const prepareActiveEditorsForInstallation =
 		useWorktreeAnnotationPrepareActiveEditorsForInstallation();
@@ -421,12 +429,13 @@ function BridgeReviewViewerModeContent(props: BridgeReviewViewerModeProps): Reac
 				onCancelTargetQuery={cancelReviewComparisonTargetsQuery}
 				onQueryTargets={queryReviewComparisonTargets}
 				targetQueryState={comparisonTargetsQueryState}
-			/>
-			<BridgeReviewProjectionMenu
-				disabled={comparisonIsLoading}
-				onProjectionModeChange={setProjectionMode}
-				projectionMode={projectionMode}
-			/>
+			>
+				<BridgeReviewProjectionMenu
+					disabled={comparisonIsLoading}
+					onProjectionModeChange={setProjectionMode}
+					projectionMode={projectionMode}
+				/>
+			</BridgeReviewHeaderPanels>
 			{isActive ? (
 				<BridgeViewerViewSettingsMenu
 					defaultSettings={bridgeReviewDefaultViewSettings}
@@ -452,15 +461,34 @@ function BridgeReviewViewerModeContent(props: BridgeReviewViewerModeProps): Reac
 		selectedItemId,
 		telemetryRecorderRef,
 	});
-	const selectReviewItem = selectionController.selectReviewItem;
+	const commitReviewSelection = selectionController.selectReviewItem;
+	const selectReviewItem = useCallback(
+		(
+			itemId: string,
+			selectedSource: Parameters<typeof selectionController.selectReviewItem>[1] = 'user',
+			annotationRequestId?: number,
+		): boolean => {
+			if (
+				annotationNavigation?.request != null &&
+				annotationNavigation.request.requestId !== annotationRequestId
+			)
+				annotationNavigation.finish(annotationNavigation.request.requestId);
+			return commitReviewSelection(itemId, selectedSource);
+		},
+		[annotationNavigation, commitReviewSelection],
+	);
 	const clearReviewSelection = useCallback((): void => {
 		clearSelectedReviewItemId();
 		const treeFallback = document.querySelector('[data-testid="bridge-review-trees-panel"]');
 		if (treeFallback instanceof HTMLElement) treeFallback.focus({ preventScroll: true });
 	}, [clearSelectedReviewItemId]);
 	const selectReviewItemAndRevealTree = useCallback(
-		(itemId: string, selectedSource: Parameters<typeof selectReviewItem>[1] = 'user'): boolean => {
-			if (!selectReviewItem(itemId, selectedSource)) {
+		(
+			itemId: string,
+			selectedSource: Parameters<typeof selectReviewItem>[1] = 'user',
+			annotationRequestId?: number,
+		): boolean => {
+			if (!selectReviewItem(itemId, selectedSource, annotationRequestId)) {
 				return false;
 			}
 			if (reviewGeneration === null || reviewPackageId === null) {
@@ -478,6 +506,81 @@ function BridgeReviewViewerModeContent(props: BridgeReviewViewerModeProps): Reac
 		[reviewGeneration, reviewPackageId, selectReviewItem],
 	);
 	const onTargetOutsideAcceptedProjection = useCallback((): void => {}, []);
+	useEffect((): void => {
+		if (
+			annotationTarget === null ||
+			presentationSnapshot === null ||
+			appliedAnnotationRequest.current === annotationTarget.request.requestId
+		)
+			return;
+		if (
+			categoryFilter !== 'all' ||
+			gitStatusFilter !== 'all' ||
+			treeSearchState.enteredCriteria.query !== ''
+		) {
+			setReviewFilter((current) => ({ ...current, categoryFilter: 'all', gitStatusFilter: 'all' }));
+			applyTreeSearchActions([{ type: 'reset' }]);
+			return;
+		}
+		const itemId = reviewItemIdForAnnotationThread({
+			context: annotationTarget.thread.context,
+			reviewPackage: presentationSnapshot.reviewPackage,
+		});
+		if (itemId === null) {
+			annotationNavigation?.finish(
+				annotationTarget.request.requestId,
+				'This comment is not in the current Review.',
+			);
+			return;
+		}
+		if (selectReviewItemAndRevealTree(itemId, 'programmatic', annotationTarget.request.requestId))
+			appliedAnnotationRequest.current = annotationTarget.request.requestId;
+	}, [
+		annotationNavigation,
+		annotationTarget,
+		applyTreeSearchActions,
+		categoryFilter,
+		gitStatusFilter,
+		presentationSnapshot,
+		selectReviewItemAndRevealTree,
+		treeSearchState.enteredCriteria.query,
+	]);
+	const annotationReveal = useMemo((): BridgeCodeViewAnnotationReveal | null => {
+		if (
+			annotationTarget === null ||
+			presentationSnapshot === null ||
+			selectedCodeViewItem === null ||
+			selectedItemId === null
+		)
+			return null;
+		const itemId = reviewItemIdForAnnotationThread({
+			context: annotationTarget.thread.context,
+			reviewPackage: presentationSnapshot.reviewPackage,
+		});
+		const item = itemId === null ? undefined : presentationSnapshot.reviewPackage.itemsById[itemId];
+		if (item === undefined || itemId !== selectedItemId) return null;
+		const annotations =
+			selectedCodeViewItem.type === 'diff'
+				? reviewPierreAnnotationsForItem({
+						item,
+						itemType: 'diff',
+						threads: [annotationTarget.thread],
+					})
+				: reviewPierreAnnotationsForItem({
+						item,
+						itemType: 'file',
+						threads: [annotationTarget.thread],
+					});
+		const metadata = annotations[0]?.metadata;
+		return metadata?.kind === 'thread'
+			? {
+					itemId: selectedItemId,
+					threadId: annotationTarget.request.threadId,
+					requestId: annotationTarget.request.requestId,
+					range: metadata.range,
+				}
+			: null;
+	}, [annotationTarget, presentationSnapshot, selectedCodeViewItem, selectedItemId]);
 	useBridgeReviewControlEventListeners({
 		codeViewControlHandleRef,
 		controlProbeSequenceRef,
@@ -507,10 +610,13 @@ function BridgeReviewViewerModeContent(props: BridgeReviewViewerModeProps): Reac
 		onTargetOutsideAcceptedProjection,
 		orderedItemIds,
 		selectedItemId,
-		selectInitialReviewItem: selectReviewItem,
+		selectInitialReviewItem: (itemId, selectedSource): boolean =>
+			annotationNavigation?.request != null ? false : selectReviewItem(itemId, selectedSource),
 		selectReviewItem: selectReviewItemAndRevealTree,
 	});
 	const presentationState = reviewPresentationState({
+		annotationReveal,
+		onAnnotationRevealComplete: annotationNavigation?.finish,
 		activationCause,
 		activationSequence,
 		activationStartedAtPerfNow,
@@ -618,6 +724,8 @@ export function reviewComparisonPaneStateForRefreshPresentation(props: {
 }
 
 function reviewPresentationState(props: {
+	readonly annotationReveal: BridgeCodeViewAnnotationReveal | null;
+	readonly onAnnotationRevealComplete: ((requestId: number) => void) | undefined;
 	readonly activationCause: BridgeReviewViewerModeProps['activationCause'];
 	readonly activationSequence: number | undefined;
 	readonly activationStartedAtPerfNow: number | undefined;
@@ -683,6 +791,10 @@ function reviewPresentationState(props: {
 	return {
 		presentationKey: props.presentationSnapshot.presentationKey,
 		shellProps: {
+			annotationReveal: props.annotationReveal,
+			...(props.onAnnotationRevealComplete === undefined
+				? {}
+				: { onAnnotationRevealComplete: props.onAnnotationRevealComplete }),
 			...(props.activationCause === undefined ? {} : { activationCause: props.activationCause }),
 			...(props.activationSequence === undefined
 				? {}

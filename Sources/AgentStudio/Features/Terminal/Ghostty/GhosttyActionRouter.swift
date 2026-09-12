@@ -83,6 +83,9 @@ extension Ghostty {
             .copyTitleToClipboard,
         ]
         static let deferredTags: Set<GhosttyActionTag> = []
+        static let unsupportedTags: Set<GhosttyActionTag> = [
+            .exportTerminalIO, .setWindowTitle, .selectionChanged, .moveTabToNewWindow,
+        ]
         static let interceptedTags: Set<GhosttyActionTag> = [
             .quit,
             .newWindow,
@@ -174,6 +177,16 @@ extension Ghostty {
                     target: target,
                     routingLookupProvider: routingLookupProvider
                 )
+            }
+            if unsupportedTags.contains(actionTag) {
+                traceGhosttyAction(
+                    body: "ghostty.action.received",
+                    actionTag: rawActionTag,
+                    signalClass: .unhandled,
+                    routeResult: false,
+                    reason: "unsupported_action"
+                )
+                return false
             }
             if let workspaceActionResult = handleWorkspaceAction(
                 actionTag,
