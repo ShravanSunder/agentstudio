@@ -913,3 +913,40 @@ private struct ExactBarrierFixture {
         )
     }
 }
+
+extension GhosttyActionRouterTests {
+    @Test("known unsupported actions retain diagnostics without resolving a surface")
+    func unsupportedActionsRetainDiagnostics() async throws {
+        let fixture = makeTraceRuntime(
+            traceName: "unsupported-actions", traceTags: "terminal.signal",
+            processIdentifier: 253, flushMode: "immediate"
+        )
+        Ghostty.ActionRouter.bindTraceRuntime(fixture.runtime)
+        defer { Ghostty.ActionRouter.bindTraceRuntime(nil) }
+        let appHandle = try #require(UnsafeMutableRawPointer(bitPattern: 1))
+        for tag in Ghostty.ActionRouter.unsupportedTags {
+            let handled = Ghostty.ActionRouter.handleAction(
+                appHandle,
+                target: ghostty_target_s(tag: GHOSTTY_TARGET_APP, target: ghostty_target_u(surface: nil)),
+                action: ghostty_action_s(tag: ghostty_action_tag_e(rawValue: tag.rawValue), action: ghostty_action_u()),
+                routingLookupProvider: {
+                    Issue.record("Unsupported action must not resolve a surface")
+                    return SurfaceManager.shared
+                },
+                metadataActionRouter: { _, _, _, _ in
+                    Issue.record("Unsupported action must not publish metadata")
+                    return true
+                }
+            )
+            #expect(!handled)
+        }
+        await Ghostty.ActionRouter.drainTraceRuntimeForActionRouting()
+        let contents = try String(contentsOf: fixture.outputFileURL, encoding: .utf8)
+        for tag in Ghostty.ActionRouter.unsupportedTags {
+            #expect(contents.contains("\"agentstudio.ghostty.action.name\":\"\(tag)\""))
+        }
+        #expect(contents.contains("\"agentstudio.ghostty.route.reason\":\"unsupported_action\""))
+        #expect(contents.contains("\"agentstudio.ghostty.route.result\":false"))
+    }
+
+}
