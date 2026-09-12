@@ -456,14 +456,15 @@ package final class WorkspacePaneGraphAtom {
     }
 
     func updatePaneTitle(_ paneId: UUID, title: String) {
-        guard let currentState = paneStateMap.snapshotValue(for: paneId) else {
+        guard var currentState = paneStateMap.snapshotValue(for: paneId) else {
             workspacePaneLogger.warning("updatePaneTitle: pane \(paneId) not found")
             return
         }
         guard currentState.metadata.title != title else { return }
-        mutatePaneStates { paneStates in
-            paneStates[paneId]?.metadata.title = title
-        }
+        currentState.metadata.title = title
+        let mutation = AtomMutationContext(aggregateRevision: acceptedCommitRevision)
+        paneStateMap.setValue(currentState, for: paneId, mutation: mutation)
+        mutation.commit()
     }
 
     func updatePaneCWD(_ paneId: UUID, cwd: URL?) {

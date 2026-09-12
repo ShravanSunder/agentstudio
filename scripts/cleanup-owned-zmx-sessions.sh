@@ -74,7 +74,7 @@ list_sessions_with_deadline() {
 }
 
 inventory_session_names() {
-  sed -n -E 's/^(session_name|name)=([^[:space:]]+).*/\2/p' "$INVENTORY_FILE"
+  sed -n -E 's/^[[:space:]]*(session_name|name)=([^[:space:]]+).*/\2/p' "$INVENTORY_FILE"
 }
 
 session_is_listed_exactly() {

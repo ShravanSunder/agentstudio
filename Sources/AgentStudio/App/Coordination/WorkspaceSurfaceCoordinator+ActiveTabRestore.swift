@@ -48,6 +48,17 @@ extension WorkspaceSurfaceCoordinator {
         RestoreTrace.log(
             "restoreViewsForActiveTabIfNeeded signalledPreparedOwners activeTab=\(activeTab.id) visiblePaneCount=\(visiblePaneIDs.count) handledPaneCount=\(preparedHandledPaneIDs.count)"
         )
+        if let generation = acceptedPreparedContentMountGeneration {
+            let visibleDeferredPaneIDs = preparedHandledPaneIDs.filter { paneID in
+                viewRegistry.preparedContentMountState(for: paneID, generation: generation)
+                    == .deferredGeometry(owner: .terminal)
+            }
+            schedulePreparedTerminalGeometryReevaluation(
+                forSelectedTabID: activeTab.id,
+                generation: generation,
+                paneIDs: visibleDeferredPaneIDs
+            )
+        }
         let paneIDsToRestore = visiblePaneIDs.filter {
             !preparedHandledPaneIDs.contains(PaneId(existingUUID: $0))
         }
