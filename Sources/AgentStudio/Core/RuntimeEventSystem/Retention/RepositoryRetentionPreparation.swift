@@ -88,6 +88,8 @@ package enum RepositoryRetentionPreparation {
                     + observation.otherObservedPaths.map(StableKey.fromPath)
             }
         )
+        let positiveRepositoryKeys = Set(
+            observations.flatMap(RepositoryLifecycleReconciliation.repositoryProtectionKeys))
         var worktreeAbsences: [UUID: RepositoryLocationAbsence] = [:]
         var repositoryAbsences: [UUID: RepositoryLocationAbsence] = [:]
         for repository in input.repositories {
@@ -116,7 +118,7 @@ package enum RepositoryRetentionPreparation {
                     < AppPolicies.RepositoryRetention.collectionBatchLimit,
                 let absence = input.absenceRecords.repositories[repository.id],
                 RepositoryRetentionPolicy.isDue(absence, at: time),
-                !positiveKeys.contains(
+                !positiveRepositoryKeys.contains(
                     input.stableIdentity.repositoryStableKeysByID[repository.id] ?? repository.stableKey),
                 repository.worktrees.allSatisfy({ worktreeAbsences[$0.id] != nil }),
                 !repository.worktrees.isEmpty

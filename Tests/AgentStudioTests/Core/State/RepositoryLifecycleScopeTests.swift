@@ -7,6 +7,44 @@ import Testing
 @MainActor
 @Suite("Repository lifecycle scope", .serialized)
 struct RepositoryLifecycleScopeTests {
+    @Test("an unrelated authoritative scan preserves repository-only legacy absence", arguments: [true, false])
+    func unrelatedScanPreservesLegacyAbsence(otherRootIsWatched: Bool) async throws {
+        let atom = RepositoryTopologyAtom()
+        let coordinator = makeTopologyMutationCoordinator(atom: atom)
+        let scannedRoot = URL(fileURLWithPath: "/tmp/lifecycle-legacy-scanned")
+        let hiddenRoot = URL(fileURLWithPath: "/tmp/lifecycle-legacy-hidden")
+        let watch = try #require(coordinator.addWatchedPath(scannedRoot))
+        if otherRootIsWatched { _ = coordinator.addWatchedPath(hiddenRoot) }
+        let hiddenRepository = coordinator.addRepo(at: hiddenRoot.appending(path: "repository"))
+        coordinator.markRepoUnavailable(hiddenRepository.id)
+        let originalAbsence = try #require(atom.absenceRecords.repositories[hiddenRepository.id])
+        #expect(atom.absenceRecords.worktrees.isEmpty)
+        let observation = WatchedFolderTopologyObservation(
+            root: scannedRoot,
+            registration: .init(
+                sourceID: .init(kind: .watchedParentMembership, rootID: watch.id),
+                registrationGeneration: 1, rootGeneration: 1),
+            entries: [], otherObservedPaths: [],
+            coverage: .authoritative(
+                .init(utc: Date(timeIntervalSince1970: 1_700_000_000), bootID: "fixture", uptimeNanoseconds: 1)),
+            baselineMembershipRevision: atom.worktreePathIndexGeneration,
+            incompleteOtherScopes: otherRootIsWatched ? [hiddenRoot] : []
+        )
+
+        guard
+            case .prepared(let change) = await RepositoryLifecycleReconciliation.prepare(
+                coordinator.captureRepositoryLifecycleInput(), observation: observation)
+        else {
+            Issue.record("expected unrelated authoritative reconciliation")
+            return
+        }
+        #expect(coordinator.applyRepositoryLifecycleChange(change))
+        #expect(atom.absenceRecords.repositories[hiddenRepository.id] == originalAbsence)
+        #expect(atom.isRepoUnavailable(hiddenRepository.id))
+        #expect(change.deltas.isEmpty)
+        #expect(atom.activationWorktree(for: .repository(repositoryStableKey: hiddenRepository.stableKey)) == nil)
+    }
+
     @Test("family conflicts outside an observation do not block its unrelated discoveries")
     func unrelatedFamilyConflictDoesNotBlockDiscovery() async throws {
         let atom = RepositoryTopologyAtom()

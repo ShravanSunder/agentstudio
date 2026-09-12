@@ -190,6 +190,7 @@ package enum RepositoryLifecycleReconciliation {
         let positivePaths = Set(observation.entries.map { $0.path.standardizedFileURL })
         let protectedPaths = observation.otherObservedPaths.union(positivePaths)
         let protectedStableKeys = Set(protectedPaths.map(StableKey.fromPath))
+        let protectedRepositoryKeys = repositoryProtectionKeys(in: observation)
         if case .authoritative(let observedAt) = observation.coverage {
             for repository in repositories {
                 for worktree in repository.worktrees {
@@ -209,8 +210,7 @@ package enum RepositoryLifecycleReconciliation {
                 if allHidden {
                     if coveredRoots.contains(where: { covered(repository.repoPath, by: $0) }),
                         !observation.incompleteOtherScopes.contains(where: { covered(repository.repoPath, by: $0) }),
-                        !protectedPaths.contains(repository.repoPath),
-                        !protectedStableKeys.contains(
+                        !protectedRepositoryKeys.contains(
                             input.stableIdentity.repositoryStableKeysByID[repository.id] ?? repository.stableKey)
                     {
                         absences.repositories[repository.id] =
@@ -220,12 +220,21 @@ package enum RepositoryLifecycleReconciliation {
                     } else if absences.repositories[repository.id] == nil {
                         absences.repositories[repository.id] = .unconfirmed
                     }
-                } else {
-                    absences.repositories.removeValue(forKey: repository.id)
                 }
             }
         }
 
+    }
+
+    /// A checkout at a former root can belong to another family after same-path reparenting.
+    static func repositoryProtectionKeys(in observation: WatchedFolderTopologyObservation) -> Set<String> {
+        let resolvedEntries = observation.entries + observation.otherObservedEntries
+        let resolvedPathKeys = Set(resolvedEntries.map { StableKey.fromPath($0.path) })
+        let familyKeys = RepoScanner.groupResolvedEntries(resolvedEntries).map { StableKey.fromPath($0.clonePath) }
+        // Path-only evidence cannot identify a family, so retain its conservative protection.
+        let unresolvedPathKeys = Set(observation.otherObservedPaths.map(StableKey.fromPath))
+            .subtracting(resolvedPathKeys)
+        return Set(familyKeys).union(unresolvedPathKeys)
     }
 
     private static func covered(_ path: URL, by root: URL) -> Bool {
