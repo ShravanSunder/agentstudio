@@ -9,7 +9,9 @@ import Testing
 struct GhosttyEventRoutingCoverageTests {
     @Test("upstream action vocabulary has no unmapped values")
     func upstreamActionVocabularyHasNoUnmappedValues() throws {
-        let header = try String(contentsOfFile: "vendor/ghostty/include/ghostty.h", encoding: .utf8)
+        let header = try String(
+            contentsOfFile: "Frameworks/GhosttyKit.xcframework/macos-arm64_x86_64/Headers/ghostty.h",
+            encoding: .utf8)
         let enumEnd = try #require(header.range(of: "} ghostty_action_tag_e;"))
         let enumStart = try #require(header[..<enumEnd.lowerBound].range(of: "typedef enum {", options: .backwards))
         let entries = header[enumStart.upperBound..<enumEnd.lowerBound]

@@ -15,15 +15,15 @@ private struct DarwinSharedLocalFSEventRegistrationKey: Hashable, Sendable {
 }
 
 private struct DarwinSharedLocalFSEventRegistration: @unchecked Sendable {
-    let watchedPaths: [String]
-    let privateStagingExclusionPaths: [String]
+    let watchedPaths: [DarwinSharedLocalFSEventPreparedPath]
+    let privateStagingExclusionPaths: [DarwinSharedLocalFSEventPreparedPath]
     let eventHandler: @Sendable ([DarwinLocalFSEventRawEvent]) -> Void
 }
 
 private struct DarwinSharedLocalFSEventObserver: @unchecked Sendable {
     let generation: UInt64
-    let watchedPaths: [String]
-    var privateStagingExclusionPaths: [String]
+    let watchedPaths: [DarwinSharedLocalFSEventPreparedPath]
+    var privateStagingExclusionPaths: [DarwinSharedLocalFSEventPreparedPath]
     let streamLifetime: any DarwinLocalFSEventStreamLifetime
     var registrationKeys: Set<DarwinSharedLocalFSEventRegistrationKey>
 }
@@ -37,8 +37,8 @@ private struct DarwinSharedLocalFSEventBindingPlan: @unchecked Sendable {
     let volumeSystemNumber: UInt64
     let existingObserver: DarwinSharedLocalFSEventObserver?
     let replacedRegistrationKeys: Set<DarwinSharedLocalFSEventRegistrationKey>
-    let desiredWatchedPaths: [String]
-    let desiredExclusionPaths: [String]
+    let desiredWatchedPaths: [DarwinSharedLocalFSEventPreparedPath]
+    let desiredExclusionPaths: [DarwinSharedLocalFSEventPreparedPath]
 }
 
 private struct DarwinSharedLocalFSEventBindingState: @unchecked Sendable {
@@ -55,6 +55,7 @@ package final class DarwinSharedLocalFSEventObserverRegistry: @unchecked Sendabl
     private let stateLock = NSLock()
     private let streamFactory: DarwinLocalFSEventStreamFactory
     private let recordPhysicalRawCallback: @Sendable (Int) -> Void
+    private let normalizePath: @Sendable (String) -> String
 
     private var hasShutdown = false
     private var nextPhysicalGeneration: UInt64 = 0
@@ -66,10 +67,13 @@ package final class DarwinSharedLocalFSEventObserverRegistry: @unchecked Sendabl
 
     package init(
         streamFactory: @escaping DarwinLocalFSEventStreamFactory,
-        recordPhysicalRawCallback: @escaping @Sendable (Int) -> Void
+        recordPhysicalRawCallback: @escaping @Sendable (Int) -> Void,
+        normalizePath: @escaping @Sendable (String) -> String =
+            DarwinFSEventPathNormalizer.lexicallyNormalizedAbsolutePath
     ) {
         self.streamFactory = streamFactory
         self.recordPhysicalRawCallback = recordPhysicalRawCallback
+        self.normalizePath = normalizePath
     }
 
     deinit {
@@ -95,8 +99,14 @@ package final class DarwinSharedLocalFSEventObserverRegistry: @unchecked Sendabl
             lifecycleGeneration: request.lifecycleGeneration
         )
         let registration = DarwinSharedLocalFSEventRegistration(
-            watchedPaths: Self.distinctWatchedPaths(request.watchedPaths),
-            privateStagingExclusionPaths: request.privateStagingExclusionPaths,
+            watchedPaths: DarwinSharedLocalFSEventPreparedPath.prepareDistinct(
+                request.watchedPaths,
+                normalizePath: normalizePath
+            ),
+            privateStagingExclusionPaths: DarwinSharedLocalFSEventPreparedPath.prepareDistinct(
+                request.privateStagingExclusionPaths,
+                normalizePath: normalizePath
+            ),
             eventHandler: request.eventHandler
         )
 
@@ -129,13 +139,13 @@ package final class DarwinSharedLocalFSEventObserverRegistry: @unchecked Sendabl
         let replacedRegistrationKeys = Set(existingObserver?.registrationKeys ?? [])
             .subtracting(bindingState.retainedRegistrationKeys)
 
-        let desiredWatchedPaths = Self.distinctWatchedPaths(
+        let desiredWatchedPaths = DarwinSharedLocalFSEventPreparedPath.distinct(
             bindingState.retainedRegistrations.flatMap(\.watchedPaths) + registration.watchedPaths
         )
         let desiredExclusionPaths = Array(
             Set(bindingState.retainedRegistrations.flatMap(\.privateStagingExclusionPaths))
                 .union(registration.privateStagingExclusionPaths)
-        ).sorted()
+        ).sorted { $0.normalizedPath < $1.normalizedPath }
 
         let bindingPlan = DarwinSharedLocalFSEventBindingPlan(
             request: request,
@@ -198,7 +208,7 @@ package final class DarwinSharedLocalFSEventObserverRegistry: @unchecked Sendabl
         let physicalRequest = DarwinLocalFSEventStreamRequest(
             worktreeId: plan.request.worktreeId,
             lifecycleGeneration: physicalGeneration,
-            watchedPaths: plan.desiredWatchedPaths,
+            watchedPaths: plan.desiredWatchedPaths.map(\.normalizedPath),
             // A physical stream can cover more than eight repositories, while
             // FSEventStreamSetExclusionPaths accepts at most eight paths.
             // Contract Agent Studio's private staged refs once in `receive`
@@ -455,7 +465,10 @@ package final class DarwinSharedLocalFSEventObserverRegistry: @unchecked Sendabl
         rawEvents: [DarwinLocalFSEventRawEvent]
     ) {
         let routingState = stateLock.withLock {
-            () -> ([DarwinSharedLocalFSEventRegistration], [String])? in
+            () -> (
+                [DarwinSharedLocalFSEventRegistration],
+                [DarwinSharedLocalFSEventPreparedPath]
+            )? in
             guard !hasShutdown,
                 let observer = observerByVolume[volumeSystemNumber],
                 observer.generation == physicalGeneration
@@ -468,23 +481,28 @@ package final class DarwinSharedLocalFSEventObserverRegistry: @unchecked Sendabl
             )
         }
         guard let (registrations, privateStagingExclusionPaths) = routingState else { return }
-        let admittedRawEvents = rawEvents.filter { event in
-            if Self.bypassesPrivateStagingFilter(event) {
+        let preparedRawEvents = rawEvents.map { rawEvent in
+            DarwinSharedLocalFSEventPreparedRawEvent(
+                rawEvent: rawEvent,
+                path: DarwinSharedLocalFSEventPreparedPath(rawEvent.path, normalizePath: normalizePath)
+            )
+        }
+        let admittedRawEvents = preparedRawEvents.filter { preparedEvent in
+            if Self.bypassesPrivateStagingFilter(preparedEvent.rawEvent) {
                 return true
             }
-            let eventPath = DarwinFSEventPathNormalizer.lexicallyNormalizedAbsolutePath(event.path)
             return !privateStagingExclusionPaths.contains { exclusionPath in
-                Self.containsPath(eventPath, root: exclusionPath)
+                exclusionPath.contains(preparedEvent.path.normalizedPath)
             }
         }
         guard !admittedRawEvents.isEmpty else { return }
 
         for registration in registrations {
-            let matchingEvents = admittedRawEvents.filter { event in
-                Self.requiresDelivery(
-                    event,
+            let matchingEvents = admittedRawEvents.compactMap { preparedEvent in
+                requiresDelivery(
+                    preparedEvent,
                     watchedPaths: registration.watchedPaths
-                )
+                ) ? preparedEvent.rawEvent : nil
             }
             if !matchingEvents.isEmpty {
                 registration.eventHandler(matchingEvents)
@@ -492,21 +510,21 @@ package final class DarwinSharedLocalFSEventObserverRegistry: @unchecked Sendabl
         }
     }
 
-    private static func requiresDelivery(
-        _ event: DarwinLocalFSEventRawEvent,
-        watchedPaths: [String]
+    private func requiresDelivery(
+        _ preparedEvent: DarwinSharedLocalFSEventPreparedRawEvent,
+        watchedPaths: [DarwinSharedLocalFSEventPreparedPath]
     ) -> Bool {
-        if isStreamGlobalUncertainty(event) {
+        let event = preparedEvent.rawEvent
+        if Self.isStreamGlobalUncertainty(event) {
             return true
         }
-        let eventPath = DarwinFSEventPathNormalizer.lexicallyNormalizedAbsolutePath(event.path)
         if event.flags & FSEventStreamEventFlags(kFSEventStreamEventFlagRootChanged) != 0 {
             return watchedPaths.contains { watchedPath in
-                containsPath(watchedPath, root: eventPath)
+                preparedEvent.path.contains(watchedPath.normalizedPath)
             }
         }
         return watchedPaths.contains { watchedPath in
-            pathsIntersect(eventPath, watchedPath)
+            Self.pathsIntersect(preparedEvent.path, watchedPath)
         }
     }
 
@@ -522,22 +540,11 @@ package final class DarwinSharedLocalFSEventObserverRegistry: @unchecked Sendabl
         event.flags & controlEventFlags != 0
     }
 
-    private static func pathsIntersect(_ lhs: String, _ rhs: String) -> Bool {
-        containsPath(lhs, root: rhs)
-            || containsPath(rhs, root: lhs)
-    }
-
-    private static func containsPath(
-        _ candidate: String,
-        root: String
+    private static func pathsIntersect(
+        _ lhs: DarwinSharedLocalFSEventPreparedPath,
+        _ rhs: DarwinSharedLocalFSEventPreparedPath
     ) -> Bool {
-        candidate == root || (root == "/" ? candidate.hasPrefix("/") : candidate.hasPrefix(root + "/"))
-    }
-
-    private static func distinctWatchedPaths(_ paths: [String]) -> [String] {
-        Array(
-            Set(paths.map(DarwinFSEventPathNormalizer.lexicallyNormalizedAbsolutePath))
-        ).sorted()
+        lhs.contains(rhs.normalizedPath) || rhs.contains(lhs.normalizedPath)
     }
 
     private func removeRegistrationsAssumingStateLock(

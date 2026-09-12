@@ -140,7 +140,7 @@ struct FlatTabStripContainer: View {
 
     var body: some View {
         let minimizedPaneBarPresentation = minimizedPaneBarPresentation
-        let renderedLayout = atom(\.arrangementView).activeLayout(forTab: tabId) ?? layout
+        let renderedLayout = layout
 
         GeometryReader { tabGeometry in
             let containerBounds = CGRect(origin: .zero, size: tabGeometry.size)

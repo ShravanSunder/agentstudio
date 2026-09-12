@@ -207,7 +207,8 @@ package final class WorkspaceTabArrangementAtom {
     }
 
     func tabContaining(paneId: UUID) -> TabArrangementState? {
-        arrangementStates.first { $0.allPaneIds.contains(paneId) }
+        guard let tabId = graphAtom.tabID(containingPane: paneId) else { return nil }
+        return composedArrangementState(tabId: tabId)
     }
 
     func appendState(_ state: TabArrangementState) {

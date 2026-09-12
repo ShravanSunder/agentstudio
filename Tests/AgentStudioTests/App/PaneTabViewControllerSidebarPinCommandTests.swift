@@ -1,5 +1,7 @@
 import Foundation
+import Observation
 import Testing
+import os
 
 @testable import AgentStudio
 @testable import AgentStudioCore
@@ -10,6 +12,58 @@ import Testing
 struct PaneTabViewControllerSidebarPinCommandTests {
     init() {
         installTestCoreAtomsIfNeeded()
+    }
+
+    @Test(
+        "pane pin capability does not observe unrelated repository topology",
+        arguments: [AppCommand.pinPane, .unpinPane])
+    func panePinCapabilityIgnoresRepositoryTopology(command: AppCommand) async {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+        await withWorkspaceCommandHarness(harness) {
+            let pane = harness.store.createPane()
+            let tab = Tab(paneId: pane.id)
+            harness.store.appendTab(tab)
+            let invalidated = OSAllocatedUnfairLock(initialState: false)
+
+            let enabled = withObservationTracking {
+                harness.controller.canExecute(command, target: pane.id, targetType: .pane)
+            } onChange: {
+                invalidated.withLock { $0 = true }
+            }
+            #expect(enabled)
+
+            _ = harness.store.addRepo(at: harness.tempDir.appending(path: "unrelated-repository"))
+
+            #expect(!invalidated.withLock { $0 })
+
+            harness.store.tabLayoutAtom.removeTab(tab.id)
+            #expect(invalidated.withLock { $0 })
+        }
+    }
+
+    @Test(
+        "pin capability follows tab ownership for layout and drawer panes", arguments: [AppCommand.pinPane, .unpinPane])
+    func panePinCapabilityFollowsOwnership(command: AppCommand) async throws {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+        try await withWorkspaceCommandHarness(harness) {
+            let parent = harness.store.createPane()
+            let unattached = harness.store.createPane()
+            let tab = Tab(paneId: parent.id)
+            harness.store.appendTab(tab)
+            let child = try #require(harness.store.addDrawerPane(to: parent.id))
+
+            #expect(harness.controller.canExecute(command, target: parent.id, targetType: .pane))
+            #expect(harness.controller.canExecute(command, target: child.id, targetType: .pane))
+            #expect(!harness.controller.canExecute(command, target: unattached.id, targetType: .pane))
+            #expect(!harness.controller.canExecute(command, target: parent.id, targetType: .repo))
+
+            harness.store.tabLayoutAtom.removeTab(tab.id)
+
+            #expect(!harness.controller.canExecute(command, target: parent.id, targetType: .pane))
+            #expect(!harness.controller.canExecute(command, target: child.id, targetType: .pane))
+        }
     }
 
     @Test("targeted repository pin commands mutate only repository pin state")
