@@ -119,6 +119,27 @@ package final class RepositoryTopologyAtom {
     package private(set) var worktreePathIndexGeneration: UInt64 = 0
     package private(set) var stableIdentityRevision = 0
     package private(set) var lifecycleRevision: UInt64 = 0
+    @ObservationIgnored private var observationIndex = RepositoryObservationIndex()
+
+    package var repositoryObservationLifetimes: [UUID: RepositoryObservationLifetime] {
+        observationIndex.repositoryLifetimes
+    }
+    package var worktreeObservationLifetimes: [UUID: WorktreeObservationLifetime] { observationIndex.worktreeLifetimes }
+
+    package func acceptsObservation(
+        _ lifetime: RepositoryFactObservationLifetime, repositoryID: UUID, worktreeID: UUID?
+    ) -> Bool {
+        guard !isRepoUnavailable(repositoryID), repo(repositoryID) != nil else { return false }
+        switch lifetime {
+        case .unscoped: return false
+        case .repository(let expected): return observationIndex.repositoryLifetimes[repositoryID] == expected
+        case .worktree(let expected):
+            guard let worktreeID, validatedAssociation(repoId: repositoryID, worktreeId: worktreeID) != nil else {
+                return false
+            }
+            return observationIndex.worktreeLifetimes[worktreeID] == expected
+        }
+    }
 
     @ObservationIgnored private let repositoryFamily = AtomFamily<UUID, Repo>(
         telemetryLabel: "repository_topology_repository",
@@ -215,6 +236,7 @@ package final class RepositoryTopologyAtom {
         }
 
         lifecycleRevision &+= 1
+        observationIndex.replace(repositories: replacement.repositories, absences: replacement.absenceRecords)
         if repositoriesChanged {
             let previousRepositoryIDs = orderedRepositoryIDs
             let previousWorktreeIDs = orderedWorktreeIDs
@@ -295,6 +317,15 @@ package final class RepositoryTopologyAtom {
         _ = watchedPaths
         guard let watchedPathID = watchedPathIDsByStableKey[stableKey] else { return nil }
         return watchedPathsByID[watchedPathID]
+    }
+
+    package func containsCanonicalLocation(for recentEntity: ApplicationRecentEntity) -> Bool {
+        switch recentEntity {
+        case .repository(let stableKey):
+            repo(stableKey: stableKey) != nil
+        case .worktree(let stableKey):
+            worktree(stableKey: stableKey) != nil
+        }
     }
 
     package func activationWorktree(for recentEntity: ApplicationRecentEntity) -> Worktree? {

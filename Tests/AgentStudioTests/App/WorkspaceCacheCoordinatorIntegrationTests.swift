@@ -75,7 +75,17 @@ final class WorkspaceCacheCoordinatorIntegrationTests {
         await withStartedCoordinatorAndProjector(bus: bus, coordinator: coordinator, projector: projector) {
             let repoPath = URL(fileURLWithPath: "/tmp/luna-converge-remote")
             let repo = workspaceStore.addRepo(at: repoPath)
-            let worktreeId = UUID()
+            let worktreeId = repo.worktrees[0].id
+            await projector.assertTopology(
+                FilesystemTopologyAssertion(
+                    generation: workspaceStore.repositoryTopologyAtom.worktreePathIndexGeneration,
+                    contextsByWorktreeId: Dictionary(
+                        uniqueKeysWithValues: repo.worktrees.map {
+                            ($0.id, WorktreeFilesystemContext(repoId: repo.id, rootPath: $0.path))
+                        }),
+                    repositoryLifetimes: workspaceStore.repositoryTopologyAtom.repositoryObservationLifetimes,
+                    worktreeLifetimes: workspaceStore.repositoryTopologyAtom.worktreeObservationLifetimes
+                ))
             let posted = await bus.post(
                 .system(
                     SystemEnvelope.test(
@@ -142,7 +152,17 @@ final class WorkspaceCacheCoordinatorIntegrationTests {
         await withStartedCoordinatorAndProjector(bus: bus, coordinator: coordinator, projector: projector) {
             let repoPath = URL(fileURLWithPath: "/tmp/luna-converge-local")
             let repo = workspaceStore.addRepo(at: repoPath)
-            let worktreeId = UUID()
+            let worktreeId = repo.worktrees[0].id
+            await projector.assertTopology(
+                FilesystemTopologyAssertion(
+                    generation: workspaceStore.repositoryTopologyAtom.worktreePathIndexGeneration,
+                    contextsByWorktreeId: Dictionary(
+                        uniqueKeysWithValues: repo.worktrees.map {
+                            ($0.id, WorktreeFilesystemContext(repoId: repo.id, rootPath: $0.path))
+                        }),
+                    repositoryLifetimes: workspaceStore.repositoryTopologyAtom.repositoryObservationLifetimes,
+                    worktreeLifetimes: workspaceStore.repositoryTopologyAtom.worktreeObservationLifetimes
+                ))
             _ = await bus.post(
                 .system(
                     SystemEnvelope.test(
@@ -223,7 +243,7 @@ final class WorkspaceCacheCoordinatorIntegrationTests {
         let converged = await eventually("forge unregister should fire") {
             let changes = await recordedScopeChanges.values
             return changes.contains {
-                if case .unregisterForgeRepo(let id) = $0 { return id == repo.id }
+                if case .unregisterForgeRepo(let id, _) = $0 { return id == repo.id }
                 return false
             }
         }
@@ -273,7 +293,17 @@ final class WorkspaceCacheCoordinatorIntegrationTests {
             let repo = workspaceStore.repos[0]
 
             // Phase 2: Register worktree -> triggers enrichment via projector
-            let worktreeId = UUID()
+            let worktreeId = repo.worktrees[0].id
+            await projector.assertTopology(
+                FilesystemTopologyAssertion(
+                    generation: workspaceStore.repositoryTopologyAtom.worktreePathIndexGeneration,
+                    contextsByWorktreeId: Dictionary(
+                        uniqueKeysWithValues: repo.worktrees.map {
+                            ($0.id, WorktreeFilesystemContext(repoId: repo.id, rootPath: $0.path))
+                        }),
+                    repositoryLifetimes: workspaceStore.repositoryTopologyAtom.repositoryObservationLifetimes,
+                    worktreeLifetimes: workspaceStore.repositoryTopologyAtom.worktreeObservationLifetimes
+                ))
             await projector.setRepositoryFactAttention(
                 activePaneWorktreeId: worktreeId,
                 sidebarAttendedWorktreeIds: [worktreeId],
@@ -316,7 +346,7 @@ final class WorkspaceCacheCoordinatorIntegrationTests {
             let unregistered = await eventually("forge unregister should fire") {
                 let changes = await recordedScopeChanges.values
                 return changes.contains {
-                    if case .unregisterForgeRepo(let id) = $0 { return id == repo.id }
+                    if case .unregisterForgeRepo(let id, _) = $0 { return id == repo.id }
                     return false
                 }
             }

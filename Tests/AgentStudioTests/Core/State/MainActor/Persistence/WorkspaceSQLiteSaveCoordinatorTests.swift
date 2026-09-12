@@ -54,6 +54,10 @@ struct WorkspaceSQLiteSaveCoordinatorTests {
         )
         #expect(prepared.workspace.panes.count == 1)
         #expect(prepared.workspace.tabs == expectedTabs)
+        #expect(
+            prepared.captureRevision?.topologyContextRevision
+                == fixture.repositoryTopologyAtom.lifecycleRevision
+        )
     }
 
     @Test("valid save writes the exact current composition bundle")
@@ -171,7 +175,14 @@ struct WorkspaceSQLiteSaveCoordinatorTests {
         )
 
         // Assert
-        #expect(afterTopologyChange == beforeTopologyChange)
+        #expect(afterTopologyChange.workspace == beforeTopologyChange.workspace)
+        #expect(afterTopologyChange.captureRevision?.panes == beforeTopologyChange.captureRevision?.panes)
+        #expect(afterTopologyChange.captureRevision?.tabShells == beforeTopologyChange.captureRevision?.tabShells)
+        #expect(afterTopologyChange.captureRevision?.tabGraphs == beforeTopologyChange.captureRevision?.tabGraphs)
+        #expect(
+            afterTopologyChange.captureRevision?.topologyContextRevision
+                == beforeTopologyChange.captureRevision?.topologyContextRevision.map { $0 + 1 }
+        )
     }
 
     @Test("invalid current composition is rejected before datastore write")
@@ -342,7 +353,10 @@ private func unregisterLinkedWorktree(in scenario: DirectWorktreeUnregistrationS
             watchedPaths: fixture.repositoryTopologyAtom.watchedPaths,
             persistedAt: Date(timeIntervalSince1970: 1_784_000_102)
         )
-    try await fixture.datastore.saveRepositoryTopologySnapshot(topologyAfterUnregistration, captureRevision: 2)
+    try await fixture.datastore.saveRepositoryTopologySnapshot(
+        topologyAfterUnregistration,
+        captureRevision: fixture.repositoryTopologyAtom.lifecycleRevision
+    )
 }
 
 @MainActor
@@ -377,7 +391,10 @@ private func reconcileScannedWorktreeRemoval(in scenario: DirectWorktreeUnregist
             watchedPaths: fixture.repositoryTopologyAtom.watchedPaths,
             persistedAt: Date(timeIntervalSince1970: 1_784_000_102)
         )
-    try await fixture.datastore.saveRepositoryTopologySnapshot(topologyAfterScan, captureRevision: 3)
+    try await fixture.datastore.saveRepositoryTopologySnapshot(
+        topologyAfterScan,
+        captureRevision: fixture.repositoryTopologyAtom.lifecycleRevision
+    )
 }
 
 @MainActor
@@ -569,6 +586,7 @@ private func makeFixture(
             windowMemoryAtom: windowMemoryAtom,
             workspacePaneAtom: workspacePaneAtom,
             workspaceTabLayoutAtom: tabLayoutAtom,
+            repositoryTopologyAtom: repositoryTopologyAtom,
             sqliteDatastore: datastore
         ),
         probe: probe

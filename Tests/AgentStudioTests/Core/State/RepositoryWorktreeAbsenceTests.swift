@@ -7,6 +7,44 @@ import Testing
 @MainActor
 @Suite("Individual checkout absence", .serialized)
 struct RepositoryWorktreeAbsenceTests {
+    @Test("existing-directory URL hints cannot discard package-validated main and linked checkouts")
+    func directoryURLHintsPreserveValidatedCheckouts() async throws {
+        let root = FileManager.default.temporaryDirectory.appending(
+            path: "lifecycle-directory-hint-\(UUIDv7.generate())")
+        let main = root.appending(path: "main")
+        let linked = root.appending(path: "linked")
+        try FileManager.default.createDirectory(at: main, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: linked, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        // The package's canonicalWorktreeURL intentionally constructs these URLs with isDirectory: false.
+        let mainEvidence = URL(fileURLWithPath: main.resolvingSymlinksInPath().path, isDirectory: false)
+        let linkedEvidence = URL(fileURLWithPath: linked.resolvingSymlinksInPath().path, isDirectory: false)
+        let entries: [RepoScanner.ResolvedGitEntry] = [
+            .init(path: mainEvidence, kind: .cloneRoot, repositoryKey: "fixture-family"),
+            .init(
+                path: linkedEvidence, kind: .linkedWorktree(parentClonePath: mainEvidence),
+                repositoryKey: "fixture-family"),
+        ]
+        let atom = RepositoryTopologyAtom()
+        let coordinator = makeTopologyMutationCoordinator(atom: atom)
+        let watched = try #require(coordinator.addWatchedPath(root))
+
+        guard
+            case .prepared(let change) = await RepositoryLifecycleReconciliation.prepare(
+                coordinator.captureRepositoryLifecycleInput(),
+                observation: observation(watched: watched, atom: atom, entries: entries))
+        else {
+            Issue.record("expected package-validated directory evidence to reconcile")
+            return
+        }
+        #expect(coordinator.applyRepositoryLifecycleChange(change))
+        let repository = try #require(atom.repos.first)
+        #expect(!atom.isRepoUnavailable(repository.id))
+        #expect(Set(repository.worktrees.map { $0.path.path }) == Set([mainEvidence.path, linkedEvidence.path]))
+        #expect(repository.worktrees.filter(\.isMainWorktree).count == 1)
+        #expect(atom.absenceRecords.worktrees.isEmpty)
+    }
+
     @Test("one missing checkout is not launchable while its sibling remains available")
     func hiddenCheckoutLeavesActivePathIndex() throws {
         let atom = RepositoryTopologyAtom()

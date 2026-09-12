@@ -115,14 +115,14 @@ struct Worktree: Codable, Identifiable, Hashable {
 
 Two identity types serve different purposes:
 
-- **UUID** is the primary identity for all runtime references: pane links, event envelopes, cache keys, actor scope. UUIDs never change, even on repo/worktree move.
+- **UUID** is the primary identity for runtime references: pane links, event envelopes, cache keys, and actor scope. Rediscovery at the same canonical path reuses a retained record's UUID; discovery after collection creates a new UUID.
 - **stableKey** (SHA-256 of path) is a secondary index for rebuild/re-association. If workspace config is wiped and regenerated, re-adding the same path produces the same stableKey, enabling matching against previous canonical entries.
 
-On repo move: UUID preserved. Path updated. stableKey recomputed from new path. Pane links use UUID and survive moves. stableKey changing is correct — the path IS different.
+Different canonical paths are independent locations. Current package discovery does not prove a cross-path move, so a new path receives a new record while the missing old path remains hidden for its retention interval. Equal common Git directories establish current family membership, not checkout identity. A same-path family change preserves that checkout's UUID and updates its membership under validated package evidence.
 
-Duplicate prevention on discovery: coordinator checks UUID first (existing canonical), then stableKey (re-association after config rebuild). Never creates a duplicate entry.
+Discovery reconciles against the global canonical path index and persisted stable keys. One canonical location has one checkout record; distinct linked checkouts remain distinct. Conflicting current family claims defer membership changes instead of creating a duplicate.
 
-Pane references: `Pane.metadata.facets.worktreeId` references `CanonicalWorktree.id` (UUID). Since canonical worktrees have stable UUIDs, pane references survive cache rebuilds and repo moves.
+Pane references: `Pane.metadata.facets.worktreeId` references `CanonicalWorktree.id` (UUID). Cache rebuilds do not change that identity. Accepted unavailability clears invalid optional facets immediately while preserving the pane, terminal, and Undo lifecycle; current CWD resolution may associate the pane again after a return.
 
 Pane metadata has two identity channels:
 
@@ -256,17 +256,18 @@ rebuild the full projection.
 APPLICATION TOPOLOGY + WORKSPACE STATE
 (global repos/worktrees/watched paths + workspace panes/tabs)
       │
-      │ restored at boot → topology events replayed on bus (.notScanned)
+      │ restored at boot → canonical baseline seeds discovery before its first scan
+      │                    topology events also replayed on bus (.notScanned)
       ▼
 FilesystemActor (raw filesystem I/O)
   watched folder scan via RepoScanner:
     - classifies .git directory (clone root) vs .git file (linked worktree)
     - groups linked worktrees under parent clones into ScannedRepoGroup
-    - diffs grouped state per watched folder, global dedup for removes
+    - reconciles source inventories with complete/additive coverage and registration receipts
   worktree roots → logical deep watches multiplexed onto one local FSEvents
                    stream per filesystem volume (DarwinFSEventStreamClient)
-  emits: SystemEnvelope(.topology(.repoDiscovered(linkedWorktrees: .scanned([...]))))
-         SystemEnvelope(.topology(.repoRemoved))
+  emits: SystemEnvelope(.topology(.watchedFolderReconciled(observation)))
+         physical worktreeRegistered/worktreeUnregistered facts (effects only)
          WorktreeEnvelope(.filesystem(.filesChanged))
       │
       │ posts to EventBus<RuntimeEnvelope>
@@ -286,7 +287,13 @@ ForgeActor (remote forge enrichment)
       │
       │ all three post to EventBus, fan-out to:
       ▼
-WorkspaceCacheCoordinator (@MainActor, topology accumulator)
+WorkspaceCacheCoordinator (App sequencing and collection admission)
+  .topology(.watchedFolderReconciled):
+    → validate current registration and baseline revision
+    → RepositoryLifecycleReconciliation.prepare off MainActor
+    → revision-guarded publication, cache/facet invalidation, ordered topology effects
+    → durable acknowledgement through RepositoryTopologyStore
+  Legacy explicit/boot discovery ingress:
   .topology(.repoDiscovered, linkedWorktrees: .scanned):
     → WorkspaceMutationCoordinator.reconcileDiscoveredWorktrees → WorktreeTopologyDelta
     → cache prune for delta.removedWorktrees
@@ -295,9 +302,9 @@ WorkspaceCacheCoordinator (@MainActor, topology accumulator)
     → register/reassociate repo only, skip worktree reconciliation (boot replay)
   .topology(.repoRemoved) → mark unavailable → clear invalid pane associations
                            → preserve pane residency/tab membership → prune cache
-  .snapshotChanged → write to cache store
-  .branchChanged → write to cache store (ForgeActor gets its own copy via bus fan-out)
-  .pullRequestsChanged → map branch→worktreeId → write to cache
+  .snapshotChanged/.branchChanged → lifetime-validated keyed cache publication
+  Forge repository projections → lifetime-validated family PR cache publication
+  Physical watcher registration facts never create or delete canonical topology
       │
       │ topology effects via TopologyEffectHandler (NOT bus):
       ▼
@@ -320,6 +327,94 @@ WorkspaceEntityRecencyAtom (@Observable, direct owners)
 SIDEBAR (pure reader of canonical atoms + RepoCacheAtom read surface + WorkspaceSidebarState)
 ```
 
+### Repository location lifecycle
+
+A repository family and each checkout have separate availability. Canonical
+location keys reuse retained application IDs when the same validated path
+returns. Distinct paths remain distinct, including independent clones of one
+remote. Current common-directory evidence determines family membership; it
+does not prove a cross-path move. A same-path family change re-parents the
+checkout with an explicit expected-old-owner SQL transition.
+Current complete sources also contribute their checkout-family claims. An
+incoming path with contradictory current family claims defers re-parenting until
+the sources agree; a conflict at an unrelated path does not block discovery.
+
+[Watched-folder admission](../../../Sources/AgentStudio/Core/RuntimeEventSystem/Filesystem/WatchedFolderTopologyAdmission.swift)
+accepts Git-marker changes and structural directory events that can change
+repository membership: a known checkout or its ancestor moving/disappearing,
+or a candidate directory appearing outside known checkouts. Ordinary files,
+directory metadata changes and directory changes inside a known checkout do not
+request a full scan. Coverage loss and overflow retain bounded rescan intent;
+losing detailed event flags cannot silently discard a directory move.
+
+Observations also capture the registrations and authoritative scan versions of
+overlapping watched roots. Before publication, the filesystem actor validates
+these dependencies together with the source's own receipt. A new demand on a
+previously complete covering root invalidates the old negative authority;
+unrelated roots do not. Regions captured as incomplete remain protected when
+their pending scans finish, so completion alone does not discard safe evidence
+for the rest of the source's scope.
+
+```text
+available location
+  ├─ complete current absence ──> hidden record + first-absence clock
+  │                                ├─ same-path return ──> available, same ID
+  │                                └─ 30 elapsed days + fresh complete absence
+  │                                     └─ bounded core commit ──> collected
+  └─ incomplete/stale/inaccessible scan ──> preserve negative space
+
+unproven different path ──> independent validated location
+pane on unavailable checkout ──> same pane, optional topology facets cleared
+```
+
+`unavailable_repo` and `unavailable_worktree` retain typed absence records in
+core.sqlite. Repeated scans and saves preserve the first timestamp. Legacy
+unknown age stays untimed until authoritative absence; incomplete overlapping
+coverage cannot start its clock. Empty families left by positive reparenting
+remain unavailable with unknown age until that validation. Available linked
+checkouts can outlive the main location; launch targets must select an available
+checkout. Repos/search omit unavailable locations; pane membership is independent.
+
+[RepositoryRetentionScheduler](../../../Sources/AgentStudio/Core/RuntimeEventSystem/Retention/RepositoryRetentionScheduler.swift)
+owns one injected-clock deadline and joins admitted validation on shutdown.
+[WorkspaceCacheCoordinator](../../../Sources/AgentStudio/App/Coordination/WorkspaceCacheCoordinator+Retention.swift)
+awaits current applied scan receipts, excludes unsettled owned operations, and
+selects the watched scopes covering due or unknown-age hidden locations, and
+reserves at most 64 combined family/checkout records while SQL commits. Selective
+scan demand preserves the complete authorized watch registration set. After
+preparation and reservation, one filesystem-actor operation revalidates every
+candidate observation and its covering dependencies before SQL admission. A
+superseded receipt releases the reservation without deletion. The committed
+result publishes before queued topology mutations resume. Removing a watch is
+not absence evidence and cannot authorize collection.
+Boot's delayed exact-root reassociation uses the same admission wait, so it
+cannot change the topology revision while a collection is awaiting persistence.
+
+[Core collection](../../../Sources/AgentStudio/Core/State/MainActor/Persistence/WorkspaceCoreRepository+Retention.swift)
+revalidates exact absence and elapsed age transactionally. It removes eligible
+topology and owned metadata, and clears invalid optional pane facets across
+workspaces. Panes, sessions, undo and annotation history keep their own lifecycle.
+[Local cleanup](../../../Sources/AgentStudio/Core/State/MainActor/Persistence/WorkspaceLocalRepository+RepositoryRetention.swift)
+then prunes orphan enrichment, repository/worktree recency and settled activity
+in bounded transactions, preserving shared keys and volume cursors. Startup
+repeats this reconstructible sweep after a crash between databases. Local
+read/write fences reject retired keys and mismatched checkout-family ownership
+before deferred cleanup finishes; stale topology captures are revision-rejected.
+
+Git/Forge requests capture launch-scoped observation lifetimes. Hide, return,
+reparenting and replacement invalidate the relevant lifetime; queued/coalesced
+facts revalidate it at publication and never borrow values from another lifetime.
+The pipeline orders physical scope mutations across awaits. A stale unregister
+cannot remove a newer registered lifetime. Reparenting invalidates the moved
+checkout's enrichment and both families' PR projections while preserving
+unchanged checkouts' Git metadata.
+
+Marker-scoped `performance.repository_lifecycle.preparation` and `.publication`
+separate worker preparation from synchronous MainActor publication. Retention
+uses `performance.repository_retention.preparation` and `.commit`, with combined
+location counts and separate `mainactor_held_ms`. These measurements export
+bounded numeric values; filesystem I/O, SQL and deadlines remain off MainActor.
+
 ### Actor Responsibilities
 
 #### FilesystemActor
@@ -329,7 +424,7 @@ SIDEBAR (pure reader of canonical atoms + RepoCacheAtom read surface + Workspace
 | **Owns** | FSEvents ingestion via DarwinFSEventStreamClient, path filtering, debounce, batching |
 | **Scope** | Logical worktree and watched-folder roots, multiplexed onto one physical local FSEvents stream per filesystem volume; external exact-item parents remain separately shared by parent identity |
 | **Reads** | Registered worktree paths from WorkspaceSurfaceCoordinator sync |
-| **Produces** | `SystemEnvelope(.topology(.repoDiscovered/.repoRemoved))` — discovery events |
+| **Produces** | `SystemEnvelope(.topology(.watchedFolderReconciled))` — scoped validated positives and complete/additive coverage |
 | | `WorktreeEnvelope(.filesystem(.filesChanged))` — file change facts |
 | **Does not** | Run git commands, access network, mutate canonical store |
 
@@ -725,12 +820,15 @@ Boot replay uses the same `.repoDiscovered` event and same coordinator code path
 
 Note: ForgeActor gets `.branchChanged` directly from the bus fan-out. The coordinator does NOT additionally trigger ForgeActor — this prevents duplicate network refreshes.
 
-### Repo Moved (proposed, not implemented)
+### Repo Moved
 
-When a repo directory moves on disk:
-1. FilesystemActor detects repo gone on rescan → emits `.repoRemoved`
-2. Coordinator clears stale pane repo/worktree associations, preserves pane residency and tab membership, and prunes cache
-3. A future Locate/Repair action would associate a selected new path with a retained repository. There is currently no user-facing repository Repair command; the proposed lifecycle is defined separately in the repository lifecycle design.
+A current authoritative watched-folder observation hides the missing old
+location and admits a validated different path independently. Pane context
+clears while pane identity, terminal ownership and membership remain intact.
+Same-path return before collection reuses the retained identity. No Locate or
+Repair action participates; current package discovery does not prove a unique
+cross-path move. See [Repository location lifecycle](#repository-location-lifecycle)
+for retention, separate checkout membership and collection.
 
 ### Deferred Launch Restore
 

@@ -5,6 +5,10 @@ import os
 
 extension WorkspaceCacheCoordinator {
     func handleTopology(_ envelope: SystemEnvelope) {
+        if isCollectingRetainedLocations {
+            deferredTopologyActions.append { [weak self] in self?.handleTopology(envelope) }
+            return
+        }
         guard case .topology(let topologyEvent) = envelope.event else { return }
 
         switch topologyEvent {
@@ -24,10 +28,9 @@ extension WorkspaceCacheCoordinator {
             )
         case .repoRemoved(let repoPath):
             handleRepoRemoved(repoPath: repoPath)
-        case .worktreeRegistered(let worktreeId, let repoId, let rootPath):
-            handleWorktreeRegistered(worktreeId: worktreeId, repoId: repoId, rootPath: rootPath)
-        case .worktreeUnregistered(let worktreeId, let repoId):
-            handleWorktreeUnregistered(worktreeId: worktreeId, repoId: repoId)
+        case .worktreeRegistered, .worktreeUnregistered:
+            // Physical watcher facts describe effects of topology, not authority to mutate it.
+            break
         }
     }
 
@@ -223,6 +226,7 @@ extension WorkspaceCacheCoordinator {
             })
         else { return }
 
+        let removedLifetime = repositoryTopology.repositoryObservationLifetimes[repo.id]
         workspaceStore.mutationCoordinator.markRepoUnavailable(repo.id)
         let clearedPaneIds = Set(
             repo.worktrees.flatMap { worktree in
@@ -252,62 +256,7 @@ extension WorkspaceCacheCoordinator {
         )
         refreshTraceIdentity()
         Task { [weak self] in
-            await self?.syncScope(.unregisterForgeRepo(repoId: repo.id))
-        }
-    }
-
-    private func handleWorktreeRegistered(worktreeId: UUID, repoId: UUID, rootPath: URL) {
-        let repositoryTopology = workspaceStore.repositoryTopologyAtom
-        guard let repo = repositoryTopology.repos.first(where: { $0.id == repoId }) else {
-            Self.logger.debug(
-                "Ignoring worktree registration for unknown repoId=\(repoId.uuidString, privacy: .public)"
-            )
-            return
-        }
-
-        var worktrees = repo.worktrees
-        if !worktrees.contains(where: { $0.id == worktreeId }) {
-            worktrees.append(
-                Worktree(
-                    id: worktreeId,
-                    repoId: repoId,
-                    name: rootPath.lastPathComponent,
-                    path: rootPath,
-                    isMainWorktree: false
-                )
-            )
-            let reconciliation = workspaceStore.mutationCoordinator.reconcileDiscoveredWorktrees(
-                repo.id,
-                worktrees: worktrees
-            )
-            switch reconciliation {
-            case .accepted(let acceptance):
-                topologyEffectHandler?.topologyDidChange(acceptance.delta)
-                refreshTraceIdentity()
-            case .rejected(let rejection):
-                Self.logger.error(
-                    "Rejecting worktree registration for repoId=\(repo.id.uuidString, privacy: .public): \(String(describing: rejection), privacy: .public)"
-                )
-            }
-        }
-    }
-
-    private func handleWorktreeUnregistered(worktreeId: UUID, repoId: UUID) {
-        let unregistration = workspaceStore.mutationCoordinator.unregisterWorktree(
-            worktreeId,
-            from: repoId
-        )
-        switch unregistration {
-        case .accepted(let acceptance):
-            for entry in acceptance.delta.removedWorktrees {
-                repoCache.removeWorktree(entry.id)
-            }
-            topologyEffectHandler?.topologyDidChange(acceptance.delta)
-            refreshTraceIdentity()
-        case .rejected(let rejection):
-            Self.logger.error(
-                "Rejecting worktree unregistration for repoId=\(repoId.uuidString, privacy: .public): \(String(describing: rejection), privacy: .public)"
-            )
+            await self?.syncScope(.unregisterForgeRepo(repoId: repo.id, expectedLifetime: removedLifetime))
         }
     }
 

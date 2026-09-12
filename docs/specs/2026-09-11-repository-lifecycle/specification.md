@@ -38,7 +38,7 @@ manual Repair UI, terminating panes because a repository disappeared.
 
 **R1.** Same-canonical-path rediscovery before collection MUST reuse the retained application identity and clear hidden state. This is a location identity policy, not a claim that the files could not have been replaced while absent. After collection, discovery creates a new identity.
 
-All Git validation and checkout-family facts MUST come through `agentstudio-git` and its libgit2-backed discovery boundary. Its currently pinned revision is `c8dbd7ef0f344293160b8f7d72d93931328761fd`.
+All Git validation and checkout-family facts MUST come through `agentstudio-git` and its libgit2-backed discovery boundary. Its currently pinned revision is `20d38d42f36ce0de73e366a3784dba8f5a745e5f`, owned by `Package.swift` and `Package.resolved`.
 
 The evidence admitted by this scope is:
 

@@ -23,7 +23,8 @@ extension WatchedFolderScanScheduler {
                         in: URL(
                             fileURLWithPath:
                                 request.canonicalRoot.aliases.onceResolvedCanonical.path
-                        )
+                        ),
+                        retainedCheckoutPaths: request.retainedCheckoutPaths
                     )
                     return WatchedFolderScannerSessionPort(
                         id: session.id,

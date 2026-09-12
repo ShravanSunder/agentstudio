@@ -82,6 +82,7 @@ extension WorkspaceSurfaceCoordinator {
         guard Self.shouldProjectPaneFilesystemEnvelope(envelope) else {
             return false
         }
+        guard acceptsFilesystemProjectionSource(envelope) else { return true }
 
         let clock = ContinuousClock()
         let totalStart = clock.now
@@ -100,6 +101,7 @@ extension WorkspaceSurfaceCoordinator {
             )
         )
         let indexDuration = indexStart.duration(to: clock.now)
+        guard acceptsFilesystemProjectionSource(envelope) else { return true }
 
         let affectedKeys = Self.affectedKeys(
             from: projectionResult.intents,
@@ -112,6 +114,7 @@ extension WorkspaceSurfaceCoordinator {
         )
 
         guard
+            acceptsFilesystemProjectionSource(envelope),
             projectionResult.paneContextGeneration == paneContextGeneration,
             projectionResult.topologyGeneration == filesystemAppliedTopologyGeneration
         else {
@@ -150,14 +153,40 @@ extension WorkspaceSurfaceCoordinator {
         )
         if !derivedEnvelopes.isEmpty {
             guard
+                acceptsFilesystemProjectionSource(envelope),
                 projectionResult.paneContextGeneration == paneContextGeneration,
                 projectionResult.topologyGeneration == filesystemAppliedTopologyGeneration
             else {
                 return true
             }
-            await publishCurrentDerivedFilesystemEnvelopes(derivedEnvelopes)
+            await publishCurrentDerivedFilesystemEnvelopes(derivedEnvelopes, source: envelope)
         }
         return true
+    }
+
+    private func acceptsFilesystemProjectionSource(_ envelope: RuntimeEnvelope) -> Bool {
+        guard case .worktree(let worktreeEnvelope) = envelope else { return false }
+        switch PaneFilesystemProjectionAdmission.classify(worktreeEnvelope.event) {
+        case .gitSnapshot:
+            let accepted = store.repositoryTopologyAtom.acceptsObservation(
+                worktreeEnvelope.observationLifetime,
+                repositoryID: worktreeEnvelope.repoId,
+                worktreeID: worktreeEnvelope.worktreeId
+            )
+            if !accepted {
+                performanceTraceRecorder?.record(
+                    .filesystemStageOutcome,
+                    attributes: [
+                        "agentstudio.performance.filesystem.stage": .string("git_surface_publication"),
+                        "agentstudio.performance.filesystem.outcome": .string("rejected"),
+                    ])
+            }
+            return accepted
+        case .filesystemChanges:
+            return true
+        case .ignored:
+            return false
+        }
     }
 
     nonisolated private static func shouldProjectPaneFilesystemEnvelope(_ envelope: RuntimeEnvelope) -> Bool {
@@ -197,6 +226,7 @@ extension WorkspaceSurfaceCoordinator {
         _ envelope: RuntimeEnvelope,
         affectedKeys: FilesystemProjectionAffectedKeys
     ) async {
+        guard acceptsFilesystemProjectionSource(envelope) else { return }
         guard case .worktree(let worktreeEnvelope) = envelope else { return }
         guard let worktreeId = worktreeEnvelope.worktreeId else { return }
         let admitsCrossWorktreeGitInternalInvalidation: Bool
@@ -226,6 +256,7 @@ extension WorkspaceSurfaceCoordinator {
         }
 
         for bridgeView in viewRegistry.allBridgeViews.values {
+            guard acceptsFilesystemProjectionSource(envelope) else { return }
             let controller = bridgeView.controller
             guard controller.runtime.metadata.repoId == worktreeEnvelope.repoId else {
                 continue
@@ -564,7 +595,9 @@ extension WorkspaceSurfaceCoordinator {
                 FilesystemTopologyAssertion(
                     generation: filesystemTopologyAssertionGeneration,
                     contextsByWorktreeId: syncDiff.contextsByWorktreeId,
-                    repositoryStableKeysByWorktreeId: syncDiff.repositoryStableKeysByWorktreeId
+                    repositoryStableKeysByWorktreeId: syncDiff.repositoryStableKeysByWorktreeId,
+                    repositoryLifetimes: store.repositoryTopologyAtom.repositoryObservationLifetimes,
+                    worktreeLifetimes: store.repositoryTopologyAtom.worktreeObservationLifetimes
                 )
             )
             recordAppliedFilesystemTopologyAssertion(syncDiff.contextsByWorktreeId)
@@ -721,9 +754,12 @@ extension WorkspaceSurfaceCoordinator {
         )
     }
 
-    func publishCurrentDerivedFilesystemEnvelopes(_ envelopes: [RuntimeEnvelope]) async {
+    func publishCurrentDerivedFilesystemEnvelopes(
+        _ envelopes: [RuntimeEnvelope], source: RuntimeEnvelope
+    ) async {
         let logger = Logger(subsystem: "com.agentstudio", category: "WorkspaceSurfaceCoordinator")
         for envelope in envelopes {
+            guard acceptsFilesystemProjectionSource(source) else { return }
             guard isCurrentDerivedFilesystemEnvelope(envelope) else { continue }
             let result = await paneEventBus.post(envelope)
             if result.droppedCount > 0 {

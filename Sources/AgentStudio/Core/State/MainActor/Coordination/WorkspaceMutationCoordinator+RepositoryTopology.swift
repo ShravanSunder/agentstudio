@@ -533,6 +533,10 @@ extension WorkspaceMutationCoordinator {
         worktreeStableKeyOverrides: [UUID: String] = [:],
         watchedPathStableKeyOverrides: [UUID: String] = [:]
     ) {
+        let retainedAbsenceRecords = repositoryTopologyAtom.absenceRecords.retaining(
+            unavailableRepositoryIDs: unavailableRepositoryIDs,
+            existingWorktreeIDs: Set(repositories.flatMap(\.worktrees).map(\.id))
+        )
         switch RepositoryTopologyReplacement.prepare(
             repositories: repositories,
             watchedPaths: watchedPaths,
@@ -544,7 +548,7 @@ extension WorkspaceMutationCoordinator {
                 worktreeStableKeyOverrides: worktreeStableKeyOverrides,
                 watchedPathStableKeyOverrides: watchedPathStableKeyOverrides
             ),
-            absenceRecords: repositoryTopologyAtom.absenceRecords
+            absenceRecords: retainedAbsenceRecords
         ) {
         case .prepared(let replacement):
             repositoryTopologyAtom.replaceTopology(replacement)

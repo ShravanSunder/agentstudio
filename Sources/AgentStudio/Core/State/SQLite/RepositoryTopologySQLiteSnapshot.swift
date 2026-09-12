@@ -20,10 +20,7 @@ struct RepositoryTopologySQLiteSnapshot: Equatable, Sendable {
     ) {
         self.repos = repos
         self.worktrees = worktrees
-        self.absenceRecords = absenceRecords.retaining(
-            unavailableRepositoryIDs: unavailableRepoIds,
-            existingWorktreeIDs: Set(worktrees.map(\.id))
-        )
+        self.absenceRecords = absenceRecords.addingLegacyUnavailableRepositories(unavailableRepoIds)
         self.watchedPaths = watchedPaths
         self.watchedPathStableKeysByID =
             watchedPathStableKeysByID

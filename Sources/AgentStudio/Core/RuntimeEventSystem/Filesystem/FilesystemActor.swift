@@ -455,7 +455,7 @@ extension FilesystemActor {
             let isWatchedFolderRecovery = isWatchedFolderBatch(recovery.worktreeId)
             let preservesWatchedFolderScope =
                 isWatchedFolderRecovery
-                && recovery.containsGitTopologyPath == false
+                && recovery.requiresWatchedFolderScan == false
             performanceTraceRecorder?.record(
                 .filesystemStageOutcome,
                 attributes: [
@@ -465,31 +465,28 @@ extension FilesystemActor {
                             ? "overflow_coarse" : "overflow_scoped"),
                 ]
             )
+            if isWatchedFolderRecovery {
+                let retainedBatch = FSEventBatch(
+                    worktreeId: recovery.worktreeId, paths: recovery.paths?.sorted() ?? [],
+                    requiresFullGitRefresh: recovery.requiresFullGitRefresh)
+                guard
+                    recovery.requiresWatchedFolderScan
+                        || WatchedFolderTopologyAdmission.mayAffectTopology(retainedBatch)
+                else { continue }
+                await handleCoarseWatchedFolderFSEvent(
+                    worktreeId: recovery.worktreeId, shouldRecordLogicalDebt: false)
+                continue
+            }
             if let paths = recovery.paths {
                 let batch = FSEventBatch(
                     worktreeId: recovery.worktreeId,
                     paths: paths.sorted()
                 )
-                if isWatchedFolderRecovery {
-                    await handleWatchedFolderFSEvent(
-                        batch,
-                        shouldRecordLogicalDebt: false
-                    )
-                } else {
-                    await ingestRawPaths(
-                        worktreeId: recovery.worktreeId,
-                        paths: batch.paths,
-                        requiresFullGitRefresh: recovery.requiresFullGitRefresh,
-                        shouldScheduleAndRecord: false
-                    )
-                }
-                continue
-            }
-            if isWatchedFolderRecovery {
-                guard recovery.containsGitTopologyPath else { continue }
-                await handleCoarseWatchedFolderFSEvent(
+                await ingestRawPaths(
                     worktreeId: recovery.worktreeId,
-                    shouldRecordLogicalDebt: false
+                    paths: batch.paths,
+                    requiresFullGitRefresh: recovery.requiresFullGitRefresh,
+                    shouldScheduleAndRecord: false
                 )
                 continue
             }

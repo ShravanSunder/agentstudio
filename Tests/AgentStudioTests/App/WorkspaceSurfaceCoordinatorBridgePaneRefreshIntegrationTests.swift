@@ -87,7 +87,9 @@ extension WebKitSerializedTests {
                         )
                     ),
                     repoId: repoId,
-                    worktreeId: worktree.id
+                    worktreeId: worktree.id,
+                    observationLifetime: .worktree(
+                        try #require(harness.store.repositoryTopologyAtom.worktreeObservationLifetimes[worktree.id]))
                 )
             )
 
@@ -383,7 +385,7 @@ extension WebKitSerializedTests {
     }
 }
 
-private struct WorkspaceRefreshTestSetup {
+struct WorkspaceRefreshTestSetup {
     let harness: BridgePaneActivityTestHarness
     let repoId: UUID
     let worktree: Worktree
@@ -393,7 +395,7 @@ private struct WorkspaceRefreshTestSetup {
 }
 
 @MainActor
-private func makeWorkspaceRefreshTestSetup(
+func makeWorkspaceRefreshTestSetup(
     projectionIndex: (any WorkspaceFilesystemProjectionIndexing)? = nil,
     bridgeCwdRelativePath: String? = nil,
     baseline: WorkspaceBaseline = .ref(name: "HEAD~1"),
@@ -512,7 +514,7 @@ private func crossWorktreeFilesystemEnvelope(
     )
 }
 
-private actor RefreshGateableFilesystemProjectionIndex: WorkspaceFilesystemProjectionIndexing {
+actor RefreshGateableFilesystemProjectionIndex: WorkspaceFilesystemProjectionIndexing {
     private let base = FilesystemProjectionIndex()
     private var shouldPauseNextProjection = false
     private var pausedProjectionWaiters: [CheckedContinuation<Void, Never>] = []

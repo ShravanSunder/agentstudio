@@ -27,7 +27,8 @@ package struct RepositoryRetentionTime: Equatable, Sendable {
     }
 
     package init(utc: Date, bootID: String, uptimeNanoseconds: Int64) {
-        self.utc = utc
+        // SQLite stores Unix-epoch doubles; normalize once so exact commit preconditions survive that round trip.
+        self.utc = Date(timeIntervalSince1970: utc.timeIntervalSince1970)
         self.bootID = bootID
         self.uptimeNanoseconds = uptimeNanoseconds
     }

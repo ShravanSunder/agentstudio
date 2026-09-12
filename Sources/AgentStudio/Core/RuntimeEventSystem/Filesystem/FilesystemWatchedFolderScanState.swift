@@ -11,6 +11,11 @@ struct FilesystemWatchedFolderInventory: Sendable {
     let repoGroups: [RepoScanner.RepoScanGroup]
 }
 
+struct WatchedFolderScanBaseline: Sendable {
+    let membershipRevision: UInt64
+    let checkoutPaths: [URL]
+}
+
 struct FilesystemManualWatchedFolderRefreshWait: Sendable {
     let receiptsBySourceID: [FilesystemSourceID: WatchedFolderScanDemandReceipt]
     let continuation: CheckedContinuation<WatchedFolderRefreshSummary, Never>
@@ -56,7 +61,8 @@ enum FilesystemWatchedFolderResultDrainState: Sendable {
 struct FilesystemWatchedFolderScanState: Sendable {
     let resultConsumer = WatchedFolderScanResultConsumerToken.make()
     var isShuttingDown = false
-    var baselineMembershipRevision: UInt64 = 0
+    var repositoryScanBaseline = WatchedFolderScanBaseline(membershipRevision: 0, checkoutPaths: [])
+    var latestObservationReceipts: [FilesystemSourceID: WatchedFolderTopologyReceipt] = [:]
     var validatedPathsBySourceID: [FilesystemSourceID: Set<URL>] = [:]
     var registrationsBySourceID: [FilesystemSourceID: FilesystemWatchedFolderRegistration] = [:]
     var sourceIDByLegacyCallbackRoutingID: [UUID: FilesystemSourceID] = [:]

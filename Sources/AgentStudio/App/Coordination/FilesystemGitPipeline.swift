@@ -78,6 +78,7 @@ protocol WatchedFolderCommandHandling: AnyObject, Sendable {
 final class FilesystemGitPipeline: WorkspaceFilesystemSourceManaging, WatchedFolderCommandHandling,
     RepositoryFactUpdateStarting, Sendable
 {
+    private let scopeMutationOrder = FilesystemPipelineScopeOrder()
     private let filesystemActor: FilesystemActor
     private let gitWorkingDirectoryProjector: GitWorkingDirectoryProjector
     private let remoteReferenceRefreshActor: RemoteReferenceRefreshActor
@@ -135,8 +136,9 @@ final class FilesystemGitPipeline: WorkspaceFilesystemSourceManaging, WatchedFol
             sleepClock: gitSleepClock,
             refreshPolicy: gitRefreshPolicy,
             performanceTraceRecorder: performanceTraceRecorder,
-            remoteReferenceOriginHandler: { repoId, expectedOrigin in
-                await remoteReferenceRefreshActor.setOrigin(repoId: repoId, expectedOrigin: expectedOrigin)
+            remoteReferenceOriginHandler: { repoId, expectedOrigin, expectedLifetime in
+                await remoteReferenceRefreshActor.setOrigin(
+                    repoId: repoId, expectedOrigin: expectedOrigin, expectedLifetime: expectedLifetime)
             },
             pathExistenceProbe: GitWorkingDirectoryProjector.liveRootPathProbe
         )
@@ -187,6 +189,12 @@ final class FilesystemGitPipeline: WorkspaceFilesystemSourceManaging, WatchedFol
     }
 
     func register(worktreeId: UUID, repoId: UUID, rootPath: URL) async {
+        await scopeMutationOrder.perform { [self] in
+            await performRegister(worktreeId: worktreeId, repoId: repoId, rootPath: rootPath)
+        }
+    }
+
+    private func performRegister(worktreeId: UUID, repoId: UUID, rootPath: URL) async {
         // Ensure projector subscription is active before lifecycle facts are posted.
         await startGitProjector()
         await startForgeActor()
@@ -212,15 +220,30 @@ final class FilesystemGitPipeline: WorkspaceFilesystemSourceManaging, WatchedFol
     }
 
     func unregister(worktreeId: UUID) async {
+        await scopeMutationOrder.perform { [self] in
+            await performUnregister(worktreeId: worktreeId)
+        }
+    }
+
+    private func performUnregister(worktreeId: UUID) async {
         await forgeActor.unregister(worktreeId: worktreeId)
         await remoteReferenceRefreshActor.unregister(worktreeId: worktreeId)
         await filesystemActor.unregister(worktreeId: worktreeId)
     }
 
     func assertTopology(_ assertion: FilesystemTopologyAssertion) async {
+        await scopeMutationOrder.perform(topologyGeneration: assertion.generation) { [self] in
+            await performTopologyAssertion(assertion)
+        }
+    }
+
+    func scopeMutationSubmissionCount() async -> UInt64 { await scopeMutationOrder.submissionCount }
+
+    private func performTopologyAssertion(_ assertion: FilesystemTopologyAssertion) async {
         await startGitProjector()
         await filesystemActor.assertTopology(assertion)
-        await remoteReferenceRefreshActor.assertTopology(assertion.contextsByWorktreeId)
+        await remoteReferenceRefreshActor.assertTopology(assertion)
+        await forgeActor.assertObservationLifetimes(assertion)
         await gitWorkingDirectoryProjector.assertTopology(assertion)
     }
 
@@ -339,8 +362,16 @@ final class FilesystemGitPipeline: WorkspaceFilesystemSourceManaging, WatchedFol
         return summary
     }
 
-    func isCurrentWatchedFolderObservation(_ observation: WatchedFolderTopologyObservation) async -> Bool {
-        await filesystemActor.isCurrentWatchedFolderObservation(observation)
+    func refreshForRepositoryRetention(
+        watchedPaths: [WatchedPath], repositories: [Repo], membershipRevision: UInt64, scanning scopeIDs: Set<UUID>
+    ) async -> [WatchedFolderTopologyReceipt] {
+        _ = await filesystemActor.refreshWatchedFolders(
+            watchedPaths, restoring: repositories, membershipRevision: membershipRevision, scanning: scopeIDs)
+        return await filesystemActor.currentWatchedFolderObservationReceipts()
+    }
+
+    func areCurrentWatchedFolderObservations(_ observations: [WatchedFolderTopologyObservation]) async -> Bool {
+        await filesystemActor.areCurrentWatchedFolderObservations(observations)
     }
 
     func filesystemLogicalDebtCount() async -> Int {
@@ -361,17 +392,26 @@ final class FilesystemGitPipeline: WorkspaceFilesystemSourceManaging, WatchedFol
 
     func applyScopeChange(_ change: ScopeChange) async {
         switch change {
-        case .registerForgeRepo(let repoId, let remote):
-            await remoteReferenceRefreshActor.setOrigin(repoId: repoId, expectedOrigin: remote)
+        case .registerForgeRepo(let repoId, let remote, let expectedLifetime):
+            guard
+                await remoteReferenceRefreshActor.setOrigin(
+                    repoId: repoId, expectedOrigin: remote, expectedLifetime: expectedLifetime
+                )
+            else { return }
             await forgeActor.setOrigin(repo: repoId, remote: remote)
-        case .unregisterForgeRepo(let repoId):
-            await remoteReferenceRefreshActor.setOrigin(repoId: repoId, expectedOrigin: nil)
-            await forgeActor.removeRepository(repo: repoId)
+        case .unregisterForgeRepo(let repoId, let expectedLifetime):
+            await scopeMutationOrder.perform { [self] in
+                guard await forgeActor.removeRepository(repo: repoId, expectedLifetime: expectedLifetime) else {
+                    return
+                }
+                await remoteReferenceRefreshActor.setOrigin(
+                    repoId: repoId, expectedOrigin: nil, expectedLifetime: expectedLifetime)
+            }
         case .refreshForgeRepo(let repoId, let correlationId):
             await remoteReferenceRefreshActor.refresh(repoId: repoId)
             await forgeActor.refresh(repo: repoId, correlationId: correlationId)
-        case .updateTopologyMembershipRevision(let revision):
-            await filesystemActor.updateTopologyMembershipRevision(revision)
+        case .updateRepositoryScanBaseline(let repositories, let revision):
+            await filesystemActor.updateRepositoryScanBaseline(repositories, membershipRevision: revision)
         case .updateWatchedFolders(let watchedPaths, let repositories, let revision):
             _ = await filesystemActor.refreshWatchedFolders(
                 watchedPaths, restoring: repositories, membershipRevision: revision)

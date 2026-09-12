@@ -152,6 +152,7 @@ extension FilesystemActor {
         watchedFolderScanState.appliedDemandCoverageBySourceID[sourceID] = result.demandCoverage
         watchedFolderScanState.lastAppliedResultIDBySourceID[sourceID] = result.resultID
         var otherPaths = Set<URL>()
+        var otherEntries: [RepoScanner.ResolvedGitEntry] = []
         var incompleteScopes: [URL] = []
         for (otherID, otherRegistration) in watchedFolderScanState.registrationsBySourceID where otherID != sourceID {
             if watchedFolderScanState.authoritativeSourceIDs.contains(otherID),
@@ -159,6 +160,8 @@ extension FilesystemActor {
                 applied == watchedFolderScanState.latestDemandCoverageBySourceID[otherID]
             {
                 otherPaths.formUnion(watchedFolderScanState.validatedPathsBySourceID[otherID] ?? [])
+                otherEntries.append(
+                    contentsOf: watchedFolderScanState.latestObservationReceipts[otherID]?.observation.entries ?? [])
             } else {
                 incompleteScopes.append(otherRegistration.watchedPath.path.standardizedFileURL)
                 incompleteScopes.append(
@@ -166,26 +169,37 @@ extension FilesystemActor {
             }
         }
         nextEnvelopeSequence += 1
+        let observation = WatchedFolderTopologyObservation(
+            root: registration.watchedPath.path, registration: registration.registeredRoot.registration,
+            entries: entries, otherObservedPaths: otherPaths, coverage: coverage,
+            baselineMembershipRevision: result.request.baselineMembershipRevision,
+            incompleteOtherScopes: incompleteScopes, demandCoverage: result.demandCoverage,
+            canonicalRoot: URL(fileURLWithPath: registration.registeredRoot.aliases.onceResolvedCanonical.path),
+            overlappingSourceVersions: overlappingSourceVersions(for: registration.registeredRoot),
+            otherObservedEntries: otherEntries
+        )
+        watchedFolderScanState.latestObservationReceipts[sourceID] = .init(
+            sequence: nextEnvelopeSequence, observation: observation)
         _ = await runtimeBus.post(
             .system(
                 SystemEnvelope(
                     source: .builtin(.filesystemWatcher), seq: nextEnvelopeSequence, timestamp: envelopeClock.now,
-                    event: .topology(
-                        .watchedFolderReconciled(
-                            WatchedFolderTopologyObservation(
-                                root: registration.watchedPath.path,
-                                registration: registration.registeredRoot.registration,
-                                entries: entries, otherObservedPaths: otherPaths, coverage: coverage,
-                                baselineMembershipRevision: result.request.baselineMembershipRevision,
-                                incompleteOtherScopes: incompleteScopes, demandCoverage: result.demandCoverage,
-                                canonicalRoot: URL(
-                                    fileURLWithPath: registration.registeredRoot.aliases.onceResolvedCanonical.path)
-                            )))
+                    event: .topology(.watchedFolderReconciled(observation))
                 )))
         completeManualRefreshIfSatisfied()
     }
 
-    package func isCurrentWatchedFolderObservation(_ observation: WatchedFolderTopologyObservation) -> Bool {
+    package func currentWatchedFolderObservationReceipts() -> [WatchedFolderTopologyReceipt] {
+        watchedFolderScanState.latestObservationReceipts.values.filter {
+            isCurrentWatchedFolderObservation($0.observation)
+        }
+    }
+
+    package func areCurrentWatchedFolderObservations(_ observations: [WatchedFolderTopologyObservation]) -> Bool {
+        observations.allSatisfy(isCurrentWatchedFolderObservation)
+    }
+
+    private func isCurrentWatchedFolderObservation(_ observation: WatchedFolderTopologyObservation) -> Bool {
         let sourceID = observation.registration.sourceID
         guard let registration = watchedFolderScanState.registrationsBySourceID[sourceID],
             registration.registeredRoot.registration == observation.registration,
@@ -195,7 +209,49 @@ extension FilesystemActor {
             watchedFolderScanState.latestDemandCoverageBySourceID[sourceID] == coverage,
             watchedFolderScanState.appliedDemandCoverageBySourceID[sourceID] == coverage
         else { return false }
-        return true
+        let currentOverlaps = overlappingSourceVersions(for: registration.registeredRoot)
+        guard Set(currentOverlaps.keys) == Set(observation.overlappingSourceVersions.keys) else { return false }
+        return observation.overlappingSourceVersions.allSatisfy { sourceID, expected in
+            guard let current = currentOverlaps[sourceID], current.registration == expected.registration else {
+                return false
+            }
+            // A region captured as incomplete remains protected even if its scan subsequently finishes.
+            guard let authoritativeCoverage = expected.authoritativeCoverage else { return true }
+            return current.authoritativeCoverage == authoritativeCoverage
+        }
+    }
+
+    private func overlappingSourceVersions(
+        for root: RegisteredRootDescriptor
+    ) -> [FilesystemSourceID: WatchedFolderTopologySourceVersion] {
+        var versions: [FilesystemSourceID: WatchedFolderTopologySourceVersion] = [:]
+        for (sourceID, other) in watchedFolderScanState.registrationsBySourceID
+        where sourceID != root.sourceID && Self.watchedRootsOverlap(root, other.registeredRoot) {
+            let applied = watchedFolderScanState.appliedDemandCoverageBySourceID[sourceID]
+            let isComplete =
+                watchedFolderScanState.authoritativeSourceIDs.contains(sourceID)
+                && applied == watchedFolderScanState.latestDemandCoverageBySourceID[sourceID]
+            versions[sourceID] = .init(
+                registration: other.registeredRoot.registration, authoritativeCoverage: isComplete ? applied : nil)
+        }
+        return versions
+    }
+
+    private static func watchedRootsOverlap(_ first: RegisteredRootDescriptor, _ second: RegisteredRootDescriptor)
+        -> Bool
+    {
+        let isCaseInsensitive =
+            first.volumeSemantics.casePolicy == .caseInsensitive
+            || second.volumeSemantics.casePolicy == .caseInsensitive
+        func normalizedPath(_ root: RegisteredRootDescriptor) -> String {
+            let path = FilesystemRootOwnership.canonicalizeKernelPath(root.aliases.onceResolvedCanonical.path)
+                .precomposedStringWithCanonicalMapping
+            return isCaseInsensitive ? path.lowercased() : path
+        }
+        let firstPath = normalizedPath(first)
+        let secondPath = normalizedPath(second)
+        return firstPath == "/" || secondPath == "/" || firstPath == secondPath
+            || firstPath.hasPrefix(secondPath + "/") || secondPath.hasPrefix(firstPath + "/")
     }
 
     private static func validatedEntries(in result: RepoScannerResult) -> [RepoScanner.ResolvedGitEntry] {

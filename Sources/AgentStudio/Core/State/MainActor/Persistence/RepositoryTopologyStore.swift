@@ -54,6 +54,44 @@ package final class RepositoryTopologyStore {
         try await persistNow()
     }
 
+    package func collect(
+        _ candidates: RepositoryRetentionCandidates,
+        expectedRevision: UInt64,
+        at time: RepositoryRetentionTime
+    ) async throws -> RepositoryLifecycleChange {
+        guard let sqliteDatastore, atom.lifecycleRevision == expectedRevision else {
+            throw RepositoryRetentionCollectionError.staleTopology
+        }
+        try await flushAsync()
+        guard atom.lifecycleRevision == expectedRevision else { throw RepositoryRetentionCollectionError.staleTopology }
+        let snapshot = try await sqliteDatastore.collectRetainedRepositoryLocations(
+            candidates, expectedRevision: expectedRevision, at: time
+        )
+        guard
+            case .prepared(let replacement) = await WorkspacePersistenceTransformer.prepareRepositoryTopologyOffMain(
+                snapshot)
+        else {
+            preconditionFailure("Committed retention topology must satisfy canonical validation")
+        }
+        return RepositoryLifecycleChange(
+            expectedRevision: expectedRevision, replacement: replacement, deltas: [], reparenting: [])
+    }
+
+    package func hasPendingLocalCleanup() async -> Bool {
+        guard let sqliteDatastore else { return false }
+        return await sqliteDatastore.repositoryLocalCleanupPending
+    }
+
+    package func unsettledRepositoryRetentionKeys() async throws -> Set<String> {
+        guard let sqliteDatastore else { return [] }
+        return try await sqliteDatastore.unsettledRepositoryRetentionKeys()
+    }
+
+    package func reconcileLocalOrphans() async -> RepositoryRetentionLocalCleanupResult {
+        guard let sqliteDatastore else { return .complete }
+        return await sqliteDatastore.reconcileRepositoryLocalOrphans()
+    }
+
     private func observeTopology() {
         guard !isObservingTopology else { return }
         isObservingTopology = true

@@ -158,6 +158,11 @@ enum WorkspacePersistenceTransformer {
             let rootWorktrees = repositoryWorktrees.filter {
                 canonicalRecoveryPath($0.path) == canonicalRepositoryPath
             }
+            if rootWorktrees.isEmpty, !repositoryWorktrees.isEmpty,
+                repositoryWorktrees.allSatisfy({ !$0.isMainWorktree })
+            {
+                continue
+            }
             guard rootWorktrees.count == 1, let rootWorktree = rootWorktrees.first else {
                 reasons.insert(.topologyRestoreMissingMainDegraded)
                 if rootWorktrees.count > 1 {
@@ -305,6 +310,11 @@ enum WorkspacePersistenceTransformer {
         let normalizedRepositories = repositories.map { repository in
             let rootWorktreeIndexes = repository.worktrees.indices.filter { index in
                 repository.worktrees[index].stableKey == repository.stableKey
+            }
+            if rootWorktreeIndexes.isEmpty, !repository.worktrees.isEmpty,
+                repository.worktrees.allSatisfy({ !$0.isMainWorktree })
+            {
+                return repository
             }
             guard rootWorktreeIndexes.count == 1, let rootWorktreeIndex = rootWorktreeIndexes.first else {
                 normalizedUnavailableRepositoryIDs.insert(repository.id)

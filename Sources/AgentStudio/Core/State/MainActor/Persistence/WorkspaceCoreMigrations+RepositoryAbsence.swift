@@ -4,6 +4,12 @@ extension WorkspaceCoreMigrations {
     static let repositoryLocationAbsenceStatements: [String] = [
         absenceTable(name: "unavailable_repo_retention", ownerColumn: "repo_id", ownerTable: "repo"),
         "INSERT INTO unavailable_repo_retention(repo_id) SELECT repo_id FROM unavailable_repo",
+        """
+        INSERT OR IGNORE INTO unavailable_repo_retention(repo_id)
+        SELECT repo.id FROM repo WHERE NOT EXISTS (
+            SELECT 1 FROM worktree WHERE worktree.repo_id = repo.id AND worktree.stable_key = repo.stable_key
+        )
+        """,
         "DROP TABLE unavailable_repo",
         "ALTER TABLE unavailable_repo_retention RENAME TO unavailable_repo",
         absenceTable(name: "unavailable_worktree", ownerColumn: "worktree_id", ownerTable: "worktree"),

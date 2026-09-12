@@ -206,7 +206,8 @@ extension WorkspaceSurfaceCoordinator {
         if let worktreeId {
             guard
                 let worktree = store.repositoryTopologyAtom.worktree(worktreeId),
-                let repo = store.repositoryTopologyAtom.repo(containing: worktreeId)
+                let repo = store.repositoryTopologyAtom.repo(containing: worktreeId),
+                store.repositoryTopologyAtom.validatedAssociation(repoId: repo.id, worktreeId: worktreeId) != nil
             else {
                 return nil
             }
@@ -230,8 +231,12 @@ extension WorkspaceSurfaceCoordinator {
     }
 
     private func onlyRegisteredWorktreeContext() -> (repo: Repo, worktree: Worktree)? {
-        let contexts = store.repositoryTopologyAtom.repos.flatMap { repo in
-            repo.worktrees.map { worktree in
+        let contexts = store.repositoryTopologyAtom.repos.filter {
+            !store.repositoryTopologyAtom.isRepoUnavailable($0.id)
+        }.flatMap { repo in
+            repo.worktrees.filter {
+                !store.repositoryTopologyAtom.isWorktreeUnavailable($0.id)
+            }.map { worktree in
                 (repo: repo, worktree: worktree)
             }
         }

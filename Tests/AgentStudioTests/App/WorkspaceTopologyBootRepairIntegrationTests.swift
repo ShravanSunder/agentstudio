@@ -182,9 +182,9 @@ struct WorkspaceTopologyBootRepairIntegrationTests {
         )
     }
 
-    @Test("exact-root repair persists and heals CWD-derived pane association after degraded boot")
+    @Test("exact-root repair persists and heals CWD-derived association after migrated unavailable boot")
     func exactRootRepairPersistsAndHealsDerivedAssociation() async throws {
-        // Arrange: persist a production-shaped workspace whose repository has no root worktree.
+        // Arrange: persist the unconfirmed unavailable state produced by the legacy missing-main migration.
         let fixture = try await WorkspaceTopologyBootRepairFixture.make()
         defer { fixture.removeTemporaryFiles() }
         var bootReasons: [PaneTopologyPersistenceReason] = []
@@ -219,7 +219,8 @@ struct WorkspaceTopologyBootRepairIntegrationTests {
         #expect(topologyAtom.repoAndWorktree(containing: fixture.paneCWD) == nil)
         #expect(workspaceStore.pane(fixture.paneID)?.repoId == nil)
         #expect(workspaceStore.pane(fixture.paneID)?.worktreeId == nil)
-        #expect(bootReasons.count(where: { $0 == .topologyRestoreMissingMainDegraded }) == 1)
+        #expect(topologyAtom.absenceRecords.repositories[fixture.repositoryID] == .unconfirmed)
+        #expect(!bootReasons.contains(.topologyRestoreMissingMainDegraded))
         try await fixture.assertPersistedTopologyIsDegraded()
 
         // Act: validate the exact root and compose repair through the production owners.
@@ -247,7 +248,7 @@ struct WorkspaceTopologyBootRepairIntegrationTests {
             scopeSyncHandler: { _ in }
         )
         guard
-            case .accepted = cacheCoordinator.reassociateRepo(
+            case .accepted = await cacheCoordinator.reassociateRepo(
                 repoId: fixture.repositoryID,
                 to: RepoScanner.canonicalURL(fixture.repositoryPath),
                 discoveredWorktrees: repairedWorktrees
@@ -698,7 +699,9 @@ private struct WorkspaceTopologyBootRepairFixture {
                         note: "linked worktree survives repair"
                     )
                 ],
-                unavailableRepoIds: [],
+                // A linked-only family is valid after main-location collection. Legacy degradation
+                // is represented by its migrated unavailable marker, not inferred from this shape.
+                unavailableRepoIds: [repositoryID],
                 updatedAt: Date(timeIntervalSince1970: 1_700_300_002)
             ), captureRevision: 1)
     }

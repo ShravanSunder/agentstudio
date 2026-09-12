@@ -247,8 +247,9 @@ package enum AppPolicies {
     }
 
     package enum RepositoryRetention {
+        package static let collectionBatchLimit = 64
+        package static let retryDelay: Duration = .seconds(60)
         package static let durationSeconds: TimeInterval = 30 * 24 * 60 * 60
-        package static let collectionBatchSize: Int = 64
         package static let reconciliationRetryLimit: Int = 2
     }
 

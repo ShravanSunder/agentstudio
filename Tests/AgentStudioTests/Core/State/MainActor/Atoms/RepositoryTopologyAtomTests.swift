@@ -537,6 +537,13 @@ struct RepositoryTopologyAtomTests {
         #expect(zeroMainRejection == .availableRepositoryMainWorktreeMissing(repositoryID))
         #expect(multipleMainRejection == .availableRepositoryHasMultipleMainWorktrees(repositoryID))
         #expect(wrongPathMainRejection == .availableRepositoryMainWorktreePathMismatch(repositoryID))
+        #expect(
+            topologyRejection(
+                repositories: [
+                    Repo(
+                        id: repositoryID, name: "linked-only", repoPath: repositoryPath,
+                        worktrees: [linkedWorktree])
+                ], watchedPaths: []) == nil)
     }
 
     @Test("worktree reconciliation preserves existing notes for matched worktrees")
@@ -720,7 +727,7 @@ struct RepositoryTopologyAtomTests {
         #expect(atom.worktreePathIndexGeneration == generationBeforeRejection)
     }
 
-    @Test("repo reassociation atomically applies topology with one path index generation")
+    @Test("repo reassociation assigns a distinct checkout location with one path index generation")
     func repoReassociationAppliesTopologyWithOnePathIndexGeneration() throws {
         let atom = RepositoryTopologyAtom()
         let coordinator = makeTopologyMutationCoordinator(atom: atom)
@@ -730,12 +737,14 @@ struct RepositoryTopologyAtomTests {
         let existingWorktree = try #require(atom.repo(repo.id)?.worktrees.single)
         coordinator.markRepoUnavailable(repo.id)
         let generationBeforeReassociation = atom.worktreePathIndexGeneration
+        let relocatedWorktreeID = UUIDv7.generate()
 
         let result = coordinator.reassociateRepo(
             repo.id,
             to: relocatedPath,
             discoveredWorktrees: [
                 Worktree(
+                    id: relocatedWorktreeID,
                     repoId: repo.id,
                     name: "relocated-main",
                     path: relocatedPath,
@@ -752,15 +761,17 @@ struct RepositoryTopologyAtomTests {
         let reassociatedWorktree = try #require(reassociatedRepo.worktrees.single)
         #expect(reassociatedRepo.name == relocatedPath.lastPathComponent)
         #expect(reassociatedRepo.repoPath == relocatedPath)
-        #expect(reassociatedWorktree.id == existingWorktree.id)
+        #expect(reassociatedWorktree.id == relocatedWorktreeID)
+        #expect(reassociatedWorktree.id != existingWorktree.id)
         #expect(reassociatedWorktree.name == "relocated-main")
         #expect(reassociatedWorktree.path == relocatedPath)
         #expect(atom.isRepoUnavailable(repo.id) == false)
         #expect(atom.worktreePathIndexGeneration == generationBeforeReassociation + 1)
-        #expect(acceptance.worktreeIds == [existingWorktree.id])
-        #expect(acceptance.delta.preservedWorktreeIds == [existingWorktree.id])
-        #expect(acceptance.delta.addedWorktreeIds.isEmpty)
-        #expect(acceptance.delta.removedWorktrees.isEmpty)
+        #expect(acceptance.worktreeIds == [relocatedWorktreeID])
+        #expect(acceptance.delta.preservedWorktreeIds.isEmpty)
+        #expect(acceptance.delta.addedWorktreeIds == [relocatedWorktreeID])
+        #expect(acceptance.delta.removedWorktrees.map(\.id) == [existingWorktree.id])
+        #expect(acceptance.delta.removedWorktrees.map(\.path) == [oldPath])
         #expect(acceptance.delta.didChange)
     }
 

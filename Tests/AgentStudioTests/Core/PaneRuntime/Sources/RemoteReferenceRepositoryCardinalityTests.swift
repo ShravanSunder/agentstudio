@@ -42,10 +42,13 @@ struct RemoteReferenceRepositoryCardinalityTests {
             remoteName: "origin",
             expectedOrigin: origin
         )
-        await actor.assertTopology([
-            primaryWorktreeId: primaryContext,
-            linkedWorktreeId: linkedContext,
-        ])
+        await actor.assertTopology(
+            .init(
+                generation: 0,
+                contextsByWorktreeId: [
+                    primaryWorktreeId: primaryContext,
+                    linkedWorktreeId: linkedContext,
+                ]))
         await actor.setDemand(repositoryIds: [repoId])
         await actor.waitUntilIdle()
 
@@ -58,10 +61,13 @@ struct RemoteReferenceRepositoryCardinalityTests {
         #expect(promotedUpdate.acceptance.expectedOrigin == origin)
         #expect(promotedUpdate.representedWorktreeIds == [primaryWorktreeId, linkedWorktreeId])
 
-        await actor.assertTopology([
-            linkedWorktreeId: linkedContext,
-            primaryWorktreeId: primaryContext,
-        ])
+        await actor.assertTopology(
+            .init(
+                generation: 0,
+                contextsByWorktreeId: [
+                    linkedWorktreeId: linkedContext,
+                    primaryWorktreeId: primaryContext,
+                ]))
         await actor.waitUntilIdle()
 
         #expect(await provider.stageCount == 1)

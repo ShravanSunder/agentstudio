@@ -16,10 +16,7 @@ extension WorkspaceCoreRepository {
         ) {
             self.watchedPaths = watchedPaths
             self.repos = repos
-            self.absenceRecords = absenceRecords.retaining(
-                unavailableRepositoryIDs: unavailableRepoIds,
-                existingWorktreeIDs: Set(repos.flatMap(\.worktrees).map(\.id))
-            )
+            self.absenceRecords = absenceRecords.addingLegacyUnavailableRepositories(unavailableRepoIds)
         }
     }
 
@@ -170,6 +167,7 @@ func validateTopology(
     _ topology: WorkspaceCoreRepository.RepositoryTopologyRecord
 ) throws {
     let repoIds = Set(topology.repos.map(\.id))
+    let worktreeIDs = Set(topology.repos.flatMap(\.worktrees).map(\.id))
     try validateUniqueStableKeys(
         topology.watchedPaths.map(\.stableKey),
         duplicateError: WorkspaceCoreRepositoryError.duplicateWatchedPathStableKey
@@ -189,6 +187,13 @@ func validateTopology(
     )
     for repoId in topology.unavailableRepoIds where !repoIds.contains(repoId) {
         throw WorkspaceCoreRepositoryError.unavailableRepoNotInTopology(repoId)
+    }
+    if let absenceError = topology.absenceRecords.validationError(
+        repositoryIDs: repoIds,
+        unavailableRepositoryIDs: topology.unavailableRepoIds,
+        worktreeIDs: worktreeIDs
+    ) {
+        throw absenceError
     }
     for repo in topology.repos {
         try validateRepositoryTags(repo.tags)

@@ -5,6 +5,9 @@ import os
 
 @MainActor
 final class WorkspaceCacheCoordinator {
+    typealias RetentionScopeRefresh =
+        @Sendable ([WatchedPath], [Repo], UInt64, Set<UUID>) async -> [WatchedFolderTopologyReceipt]
+
     static let logger = Logger(subsystem: "com.agentstudio", category: "WorkspaceCacheCoordinator")
 
     private struct PendingWorktreeEnrichment: Sendable {
@@ -13,6 +16,7 @@ final class WorkspaceCacheCoordinator {
             case branch
         }
 
+        var observationLifetime: RepositoryFactObservationLifetime
         var enrichment: WorktreeEnrichment
         var shouldRefreshTraceIdentity: Bool
         var updateKind: UpdateKind
@@ -20,7 +24,19 @@ final class WorkspaceCacheCoordinator {
 
     private struct PendingRepositoryProjection: Sendable {
         let envelopeSequence: UInt64
+        let observationLifetime: RepositoryFactObservationLifetime
         let projection: PullRequestRepositoryProjection
+    }
+
+    var isCollectingRetainedLocations = false
+    var retentionValidationInFlight = false
+    var retentionIsShuttingDown = false
+    var retentionMutationWaiters: [CheckedContinuation<Void, Never>] = []
+    var deferredTopologyActions: [@MainActor () -> Void] = []
+    let retentionNow: @Sendable () async throws -> RepositoryRetentionTime
+    let refreshRetentionScopes: RetentionScopeRefresh
+    lazy var retentionScheduler = RepositoryRetentionScheduler(clock: ContinuousClock()) { [weak self] in
+        await self?.collectRetainedRepositories()
     }
 
     private let bus: EventBus<RuntimeEnvelope>
@@ -29,7 +45,7 @@ final class WorkspaceCacheCoordinator {
     private let welcomeAtom: WelcomeAtom
     let topologyEffectHandler: (any TopologyEffectHandler)?
     let topologyPersistence: RepositoryTopologyStore?
-    let validateSourceObservation: @Sendable (WatchedFolderTopologyObservation) async -> Bool
+    let validateSourceObservations: @Sendable ([WatchedFolderTopologyObservation]) async -> Bool
     private let scopeSyncHandler: @Sendable (ScopeChange) async -> Void
     private let traceIdentityRefreshHandler: (@MainActor @Sendable () -> Void)?
     private let enrichmentApplyTickCadence: Duration
@@ -61,7 +77,12 @@ final class WorkspaceCacheCoordinator {
         welcomeAtom: WelcomeAtom = .init(),
         topologyEffectHandler: (any TopologyEffectHandler)? = nil,
         topologyPersistence: RepositoryTopologyStore? = nil,
-        validateSourceObservation: @escaping @Sendable (WatchedFolderTopologyObservation) async -> Bool = { _ in false
+        retentionNow: @escaping @Sendable () async throws -> RepositoryRetentionTime = {
+            try await RepositoryRetentionTime.current()
+        },
+        refreshRetentionScopes: @escaping RetentionScopeRefresh = { _, _, _, _ in [] },
+        validateSourceObservations: @escaping @Sendable ([WatchedFolderTopologyObservation]) async -> Bool = { _ in
+            false
         },
         scopeSyncHandler: @escaping @Sendable (ScopeChange) async -> Void,
         traceIdentityRefreshHandler: (@MainActor @Sendable () -> Void)? = nil,
@@ -76,7 +97,9 @@ final class WorkspaceCacheCoordinator {
         self.welcomeAtom = welcomeAtom
         self.topologyEffectHandler = topologyEffectHandler
         self.topologyPersistence = topologyPersistence
-        self.validateSourceObservation = validateSourceObservation
+        self.retentionNow = retentionNow
+        self.refreshRetentionScopes = refreshRetentionScopes
+        self.validateSourceObservations = validateSourceObservations
         self.scopeSyncHandler = scopeSyncHandler
         self.traceIdentityRefreshHandler = traceIdentityRefreshHandler
         self.enrichmentApplyTickCadence = enrichmentApplyTickCadence
@@ -124,6 +147,12 @@ final class WorkspaceCacheCoordinator {
         consumeTask = Task.detached {
             for await envelope in subscription {
                 if Task.isCancelled { break }
+                if case .system(let system) = envelope, case .topology(let topology) = system.event {
+                    switch topology {
+                    case .worktreeRegistered, .worktreeUnregistered: continue
+                    default: break
+                    }
+                }
                 if Self.isCoalescableEnrichment(envelope) {
                     Self.enqueueCoalescedEnrichment(envelope, on: enrichmentApplyGovernor)
                 } else if Self.isRepositoryProjection(envelope) {
@@ -150,6 +179,8 @@ final class WorkspaceCacheCoordinator {
     }
 
     func shutdown() async {
+        retentionIsShuttingDown = true
+        if topologyPersistence != nil { await retentionScheduler.shutdown() }
         pendingConsumeStartGeneration = nil
         let activeTask = consumeTask
         consumeTask?.cancel()
@@ -249,6 +280,7 @@ final class WorkspaceCacheCoordinator {
         switch gitEvent {
         case .snapshotChanged(let snapshot):
             let pending = PendingWorktreeEnrichment(
+                observationLifetime: worktreeEnvelope.observationLifetime,
                 enrichment: WorktreeEnrichment(
                     worktreeId: snapshot.worktreeId,
                     repoId: snapshot.repoId,
@@ -261,6 +293,7 @@ final class WorkspaceCacheCoordinator {
             _ = governor.enqueue(pending, for: snapshot.worktreeId)
         case .branchChanged(let worktreeId, let repoId, _, let to):
             let pending = PendingWorktreeEnrichment(
+                observationLifetime: worktreeEnvelope.observationLifetime,
                 enrichment: WorktreeEnrichment(
                     worktreeId: worktreeId,
                     repoId: repoId,
@@ -279,6 +312,7 @@ final class WorkspaceCacheCoordinator {
         _ older: PendingWorktreeEnrichment,
         _ newer: PendingWorktreeEnrichment
     ) -> PendingWorktreeEnrichment {
+        guard older.observationLifetime == newer.observationLifetime else { return newer }
         guard case .branch = newer.updateKind else {
             guard case .branch = older.updateKind, newer.enrichment.branch.isEmpty else {
                 return newer
@@ -286,6 +320,7 @@ final class WorkspaceCacheCoordinator {
             var enrichment = newer.enrichment
             enrichment.updateBranch(older.enrichment.branch)
             return PendingWorktreeEnrichment(
+                observationLifetime: newer.observationLifetime,
                 enrichment: enrichment,
                 shouldRefreshTraceIdentity: older.shouldRefreshTraceIdentity || newer.shouldRefreshTraceIdentity,
                 updateKind: .snapshot
@@ -294,6 +329,7 @@ final class WorkspaceCacheCoordinator {
         var enrichment = older.enrichment
         enrichment.updateBranch(newer.enrichment.branch)
         return PendingWorktreeEnrichment(
+            observationLifetime: newer.observationLifetime,
             enrichment: enrichment,
             shouldRefreshTraceIdentity: older.shouldRefreshTraceIdentity || newer.shouldRefreshTraceIdentity,
             updateKind: .branch
@@ -312,6 +348,7 @@ final class WorkspaceCacheCoordinator {
         _ = governor.enqueue(
             PendingRepositoryProjection(
                 envelopeSequence: worktreeEnvelope.seq,
+                observationLifetime: worktreeEnvelope.observationLifetime,
                 projection: projection
             ),
             for: repoId
@@ -326,6 +363,11 @@ final class WorkspaceCacheCoordinator {
     }
 
     private func applyCoalescedEnrichment(for worktreeId: UUID, pending: PendingWorktreeEnrichment) {
+        guard
+            workspaceStore.repositoryTopologyAtom.acceptsObservation(
+                pending.observationLifetime, repositoryID: pending.enrichment.repoId, worktreeID: worktreeId
+            )
+        else { return }
         let enrichment: WorktreeEnrichment
         switch pending.updateKind {
         case .snapshot:
@@ -347,6 +389,11 @@ final class WorkspaceCacheCoordinator {
         for repoId: UUID,
         pending: PendingRepositoryProjection
     ) {
+        guard
+            workspaceStore.repositoryTopologyAtom.acceptsObservation(
+                pending.observationLifetime, repositoryID: repoId, worktreeID: nil
+            )
+        else { return }
         guard
             pending.envelopeSequence
                 > (lastAppliedForgeProjectionSequenceByRepoId[repoId] ?? 0)
@@ -371,29 +418,16 @@ final class WorkspaceCacheCoordinator {
     }
 
     func handleEnrichment(_ envelope: WorktreeEnvelope) {
+        guard
+            workspaceStore.repositoryTopologyAtom.acceptsObservation(
+                envelope.observationLifetime, repositoryID: envelope.repoId, worktreeID: envelope.worktreeId
+            )
+        else { return }
         switch envelope.event {
         case .gitWorkingDirectory(let gitEvent):
             switch gitEvent {
             case .statusOutcome(let statusOutcome):
-                switch statusOutcome.outcome {
-                case .completed:
-                    if case .statusUnavailable = repoCache.repoEnrichment(for: statusOutcome.repoId) {
-                        repoCache.setRepoEnrichment(.awaitingOrigin(repoId: statusOutcome.repoId))
-                    }
-                case .timeout, .unavailable:
-                    guard let reason = statusOutcome.reason,
-                        statusOutcome.consecutiveFailureCount
-                            >= AppPolicies.GitRefresh.statusUnavailableConsecutiveFailureThreshold
-                    else { break }
-                    switch repoCache.repoEnrichment(for: statusOutcome.repoId) {
-                    case .none, .some(.awaitingOrigin):
-                        repoCache.setRepoEnrichment(
-                            .statusUnavailable(repoId: statusOutcome.repoId, reason: reason.rawValue)
-                        )
-                    case .some(.statusUnavailable), .some(.resolvedLocal), .some(.resolvedRemote):
-                        break
-                    }
-                }
+                handleGitStatusOutcome(statusOutcome)
             case .snapshotChanged(let snapshot):
                 let enrichment = WorktreeEnrichment(
                     worktreeId: snapshot.worktreeId,
@@ -465,15 +499,39 @@ final class WorkspaceCacheCoordinator {
                 break
             }
         case .forge(let forgeEvent):
-            handleForgeEnrichment(forgeEvent, envelopeSequence: envelope.seq)
+            handleForgeEnrichment(
+                forgeEvent, envelopeSequence: envelope.seq, observationLifetime: envelope.observationLifetime)
         case .filesystem, .security:
             break
         }
     }
 
+    private func handleGitStatusOutcome(_ statusOutcome: GitStatusOutcomeFact) {
+        switch statusOutcome.outcome {
+        case .completed:
+            if case .statusUnavailable = repoCache.repoEnrichment(for: statusOutcome.repoId) {
+                repoCache.setRepoEnrichment(.awaitingOrigin(repoId: statusOutcome.repoId))
+            }
+        case .timeout, .unavailable:
+            guard let reason = statusOutcome.reason,
+                statusOutcome.consecutiveFailureCount
+                    >= AppPolicies.GitRefresh.statusUnavailableConsecutiveFailureThreshold
+            else { break }
+            switch repoCache.repoEnrichment(for: statusOutcome.repoId) {
+            case .none, .some(.awaitingOrigin):
+                repoCache.setRepoEnrichment(
+                    .statusUnavailable(repoId: statusOutcome.repoId, reason: reason.rawValue)
+                )
+            case .some(.statusUnavailable), .some(.resolvedLocal), .some(.resolvedRemote):
+                break
+            }
+        }
+    }
+
     private func handleForgeEnrichment(
         _ forgeEvent: ForgeEvent,
-        envelopeSequence: UInt64
+        envelopeSequence: UInt64,
+        observationLifetime: RepositoryFactObservationLifetime
     ) {
         switch forgeEvent {
         case .pullRequestRepositoryProjectionChanged(let repoId, let projection, _):
@@ -481,6 +539,7 @@ final class WorkspaceCacheCoordinator {
                 for: repoId,
                 pending: PendingRepositoryProjection(
                     envelopeSequence: envelopeSequence,
+                    observationLifetime: observationLifetime,
                     projection: projection
                 )
             )
@@ -502,6 +561,10 @@ final class WorkspaceCacheCoordinator {
     /// Hard-deletes a repo and all associated cache/forge state.
     /// Called for user-initiated removal (not filesystem disappearance).
     func handleRepoRemoval(repoId: UUID) {
+        if isCollectingRetainedLocations {
+            deferredTopologyActions.append { [weak self] in self?.handleRepoRemoval(repoId: repoId) }
+            return
+        }
         guard let repo = workspaceStore.repositoryTopologyAtom.repos.first(where: { $0.id == repoId }) else { return }
         let removalDelta = WorktreeTopologyDelta(
             repoId: repo.id,
@@ -521,9 +584,10 @@ final class WorkspaceCacheCoordinator {
         repoCache.removeRepo(repoId)
         lastAppliedForgeProjectionSequenceByRepoId.removeValue(forKey: repoId)
 
-        // 3. Unregister from forge scope
+        // 3. Unregister only the captured observation lifetime.
+        let removedLifetime = workspaceStore.repositoryTopologyAtom.repositoryObservationLifetimes[repoId]
         Task { [weak self] in
-            await self?.syncScope(.unregisterForgeRepo(repoId: repoId))
+            await self?.syncScope(.unregisterForgeRepo(repoId: repoId, expectedLifetime: removedLifetime))
         }
 
         // 4. Hard-delete from store (removes from repos array + persistence)
@@ -541,7 +605,8 @@ final class WorkspaceCacheCoordinator {
         repoId: UUID,
         to newPath: URL,
         discoveredWorktrees: [Worktree]
-    ) -> RepositoryReassociationResult {
+    ) async -> RepositoryReassociationResult {
+        await waitForRetentionCommit()
         let result = workspaceStore.mutationCoordinator.reassociateRepo(
             repoId,
             to: newPath,

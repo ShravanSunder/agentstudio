@@ -112,8 +112,11 @@ struct FilesystemSourceHarnessSnapshot: Sendable {
 
 final class ControllableWatchedFolderScanSchedulerResults: @unchecked Sendable {
     private let lock = NSLock()
+    private var requestedPathIDs: [UUID] = []
     private var returnsPartialResults = false
     private var resultsByWatchedPathID: [UUID: [RepoScanner.RepoScanGroup]] = [:]
+
+    var requestedWatchedPathIDs: [UUID] { lock.withLock { requestedPathIDs } }
 
     func setResults(_ resultsByWatchedPath: [WatchedPath: [RepoScanner.RepoScanGroup]], partial: Bool = false) {
         lock.withLock {
@@ -154,6 +157,7 @@ final class ControllableWatchedFolderScanSchedulerResults: @unchecked Sendable {
     private func makeSession(
         for request: WatchedFolderScanRequest
     ) -> WatchedFolderScannerSessionPort {
+        lock.withLock { requestedPathIDs.append(request.sourceID.rootID) }
         let result = authoritativeResult(for: request.sourceID.rootID)
         return WatchedFolderScannerSessionPort(
             id: RepoScannerSessionID(rawValue: UUIDv7.generate()),
@@ -285,13 +289,13 @@ struct GitTopologyPipelineHarness {
             workspaceStore: workspaceStore,
             repoCache: repoCache,
             topologyEffectHandler: workspaceSurfaceCoordinator,
-            validateSourceObservation: { observation in
-                await discoveryActor.isCurrentWatchedFolderObservation(observation)
+            validateSourceObservations: { observation in
+                await discoveryActor.areCurrentWatchedFolderObservations(observation)
             },
             scopeSyncHandler: { change in
                 switch change {
-                case .updateTopologyMembershipRevision(let revision):
-                    await discoveryActor.updateTopologyMembershipRevision(revision)
+                case .updateRepositoryScanBaseline(let repositories, let revision):
+                    await discoveryActor.updateRepositoryScanBaseline(repositories, membershipRevision: revision)
                 case .updateWatchedFolders(let paths, let repositories, let revision):
                     _ = await discoveryActor.refreshWatchedFolders(
                         paths, restoring: repositories, membershipRevision: revision)
@@ -434,6 +438,29 @@ struct GitEnrichmentPipelineHarness {
         await forgeActor.start()
     }
 
+    @discardableResult
+    func assertCanonicalProducerTopology() async -> FilesystemTopologyAssertion {
+        let topology = workspaceStore.repositoryTopologyAtom
+        let assertion = FilesystemTopologyAssertion(
+            generation: topology.worktreePathIndexGeneration,
+            contextsByWorktreeId: Dictionary(
+                uniqueKeysWithValues: topology.repos.flatMap { repository in
+                    repository.worktrees.map { worktree in
+                        (
+                            worktree.id,
+                            WorktreeFilesystemContext(repoId: repository.id, rootPath: worktree.path)
+                        )
+                    }
+                }
+            ),
+            repositoryLifetimes: topology.repositoryObservationLifetimes,
+            worktreeLifetimes: topology.worktreeObservationLifetimes
+        )
+        await projector.assertTopology(assertion)
+        await forgeActor.assertObservationLifetimes(assertion)
+        return assertion
+    }
+
     func advanceCacheApplyTick() async {
         await cacheApplyClock.waitForPendingSleepCount(atLeast: 1)
         cacheApplyClock.advance(by: Self.cacheApplyTickCadence)
@@ -457,19 +484,30 @@ struct GitEnrichmentPipelineHarness {
     }
 
     func synchronizeCacheCoordinator(repoId: UUID, worktreeId: UUID) async {
+        guard let observationLifetime = workspaceStore.repositoryTopologyAtom.worktreeObservationLifetimes[worktreeId]
+        else {
+            Issue.record("cache ordering barrier requires a canonical worktree lifetime")
+            return
+        }
         _ = await bus.post(
-            RuntimeEnvelopeHarness.gitEnvelope(
-                event: .statusOutcome(
-                    GitStatusOutcomeFact(
-                        worktreeId: worktreeId,
-                        repoId: repoId,
-                        outcome: .completed,
-                        reason: nil,
-                        consecutiveFailureCount: 0
-                    )
-                ),
-                repoId: repoId,
-                worktreeId: worktreeId
+            .worktree(
+                WorktreeEnvelope.test(
+                    event: .gitWorkingDirectory(
+                        .statusOutcome(
+                            GitStatusOutcomeFact(
+                                worktreeId: worktreeId,
+                                repoId: repoId,
+                                outcome: .completed,
+                                reason: nil,
+                                consecutiveFailureCount: 0
+                            )
+                        )
+                    ),
+                    repoId: repoId,
+                    worktreeId: worktreeId,
+                    source: .system(.builtin(.gitWorkingDirectoryProjector)),
+                    observationLifetime: .worktree(observationLifetime)
+                )
             )
         )
         await assertEventuallyAsync("cache coordinator should consume its ordering barrier") {
