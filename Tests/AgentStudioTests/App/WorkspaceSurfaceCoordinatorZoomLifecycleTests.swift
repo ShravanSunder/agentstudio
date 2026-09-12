@@ -43,7 +43,7 @@ extension WebKitSerializedTests {
             let runtimeCountBeforeZoom = harness.runtimeRegistry.count
             let slotPaneIdsBeforeZoom = harness.viewRegistry.slotPaneIdsForTesting
 
-            harness.controller.execute(.zoomPane)
+            await harness.executeCommand(.zoomPane)
 
             let companionPaneId = try #require(
                 harness.store.panePresentationAtom.zoomCompanion(
@@ -144,7 +144,7 @@ extension WebKitSerializedTests {
                 owningWindowId: owningWindowId
             )
 
-            harness.controller.execute(.zoomPane)
+            await harness.executeCommand(.zoomPane)
 
             let companionPaneId = try #require(
                 harness.store.panePresentationAtom.zoomCompanion(
@@ -157,7 +157,7 @@ extension WebKitSerializedTests {
                 )
             )
 
-            harness.controller.execute(.zoomPane)
+            await harness.executeCommand(.zoomPane)
 
             #expect(
                 harness.store.panePresentationAtom.zoomPresentation(
@@ -223,7 +223,7 @@ extension WebKitSerializedTests {
                 owningWindowId: owningWindowId
             )
 
-            harness.controller.execute(.zoomPane)
+            await harness.executeCommand(.zoomPane)
 
             let companionPaneId = try #require(
                 harness.store.panePresentationAtom.zoomCompanion(
@@ -236,7 +236,7 @@ extension WebKitSerializedTests {
                 )
             )
 
-            harness.controller.execute(.zoomPane)
+            await harness.executeCommand(.zoomPane)
             #expect(
                 harness.coordinator.bridgePaneActivity(for: companionPaneId)
                     == .loadedHidden
@@ -303,7 +303,7 @@ extension WebKitSerializedTests {
             )
             let runtimeCountBeforeZoom = harness.runtimeRegistry.count
             let slotPaneIdsBeforeZoom = harness.viewRegistry.slotPaneIdsForTesting
-            harness.controller.execute(.zoomPane)
+            await harness.executeCommand(.zoomPane)
             let companionPaneId = try #require(
                 harness.store.panePresentationAtom.zoomCompanion(
                     forSourcePane: sourcePane.id
@@ -367,13 +367,13 @@ extension WebKitSerializedTests {
             )
             let runtimeCountBeforeZoom = harness.runtimeRegistry.count
             let slotPaneIdsBeforeZoom = harness.viewRegistry.slotPaneIdsForTesting
-            harness.controller.execute(.zoomPane)
+            await harness.executeCommand(.zoomPane)
             let companionPaneId = try #require(
                 harness.store.panePresentationAtom.zoomCompanion(
                     forSourcePane: sourcePane.id
                 )?.companionPaneId
             )
-            harness.controller.execute(.zoomPane)
+            await harness.executeCommand(.zoomPane)
             #expect(harness.store.mutationCoordinator.backgroundPane(sourcePane.id))
             #expect(harness.store.pane(sourcePane.id)?.residency == .backgrounded)
             #expect(
