@@ -192,6 +192,8 @@ package actor BridgeDevelopmentProductHost {
     ) async throws -> Data {
         guard !isShutdown else { throw BridgeDevelopmentProductHostError.shutdown }
         try await validateBootstrapTransition(request)
+        try Task.checkCancellation()
+        guard !isShutdown else { throw BridgeDevelopmentProductHostError.shutdown }
         let candidate = try await productSessionOwner.prepareCandidate(
             productAdmission: productAdmission
         )
@@ -300,26 +302,6 @@ package actor BridgeDevelopmentProductHost {
             worktreeIdentity: worktreeId.uuidString,
             stableRootIdentity: StableKey.fromPath(worktreeRoot)
         )
-    }
-
-    private func validateBootstrapTransition(
-        _ request: BridgeDevelopmentProductBootstrapRequest
-    ) async throws {
-        switch request.reason {
-        case .initial:
-            if let installation = await productSessionOwner.activeInstallation,
-                !(await installation.session.producerRegistry.metadataProducerLeases.isEmpty)
-            {
-                throw BridgeDevelopmentProductHostError.sessionAlreadyOpen
-            }
-        case .workerReplacement:
-            guard request.paneSessionId == paneSessionId else {
-                throw BridgeDevelopmentProductHostError.replacementPaneNotFound
-            }
-            guard request.navigationIntent == navigationIntent else {
-                throw BridgeDevelopmentProductHostError.replacementNavigationChanged
-            }
-        }
     }
 
     private func publishNavigation(
@@ -853,6 +835,41 @@ final class BridgeDevelopmentProductCommittedCallTarget {
 }
 
 extension BridgeDevelopmentProductHost {
+    private func validateBootstrapTransition(
+        _ request: BridgeDevelopmentProductBootstrapRequest
+    ) async throws {
+        switch request.reason {
+        case .initial:
+            if let installation = await productSessionOwner.activeInstallation {
+                guard
+                    let retirementBarriers = await installation.session
+                        .metadataRetirementBarriersForReload()
+                else {
+                    throw BridgeDevelopmentProductHostError.sessionAlreadyOpen
+                }
+                for retirementBarrier in retirementBarriers {
+                    guard await retirementBarrier.wait() else {
+                        throw BridgeDevelopmentProductHostError.sessionAlreadyOpen
+                    }
+                    try Task.checkCancellation()
+                }
+                guard
+                    await installation.session.metadataRetirementBarriersForReload()?.isEmpty
+                        == true
+                else {
+                    throw BridgeDevelopmentProductHostError.sessionAlreadyOpen
+                }
+            }
+        case .workerReplacement:
+            guard request.paneSessionId == paneSessionId else {
+                throw BridgeDevelopmentProductHostError.replacementPaneNotFound
+            }
+            guard request.navigationIntent == navigationIntent else {
+                throw BridgeDevelopmentProductHostError.replacementNavigationChanged
+            }
+        }
+    }
+
     func retryUnavailableFileRefresh() async {
         guard !isShutdown else { return }
         await MainActor.run {

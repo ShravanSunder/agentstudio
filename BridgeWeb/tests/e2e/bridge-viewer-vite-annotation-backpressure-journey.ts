@@ -49,6 +49,7 @@ import {
 import {
 	installReviewRenderObservation,
 	readReviewRenderObservation,
+	readSelectedReviewReadinessDOMSnapshot,
 	requireReviewRenderObservationStarted,
 } from './bridge-viewer-vite-review-render-observation.ts';
 import { observeSelectedItemApplies } from './bridge-viewer-vite-selected-item-apply-observation.ts';
@@ -689,13 +690,29 @@ async function runAnnotationBackpressureJourney(props: {
 		});
 		expect(bootstrapRequestCount).toBe(2);
 		await selectReviewFile({ page: createdPage, path: reviewFile.path });
-		await runMilestone({
-			after: 'review.selected.ready',
-			before: 'review.selected.waiting',
-			milestones: props.milestones,
-			operation: async () =>
-				waitForSelectedReviewReady({ itemId: reviewFile.itemId, page: createdPage }),
-		});
+		try {
+			await runMilestone({
+				after: 'review.selected.ready',
+				before: 'review.selected.waiting',
+				milestones: props.milestones,
+				operation: async () =>
+					waitForSelectedReviewReady({ itemId: reviewFile.itemId, page: createdPage }),
+			});
+		} catch (error: unknown) {
+			const [readinessDOM, renderObservation] = await Promise.all([
+				readBrowserDiagnosticWithinDeadline(
+					readSelectedReviewReadinessDOMSnapshot({
+						expectedItemId: reviewFile.itemId,
+						page: createdPage,
+					}),
+				),
+				readBrowserDiagnosticWithinDeadline(readReviewRenderObservation(createdPage)),
+			]);
+			throw new Error(
+				`Post-reload selected Review readiness failed: dom=${JSON.stringify(readinessDOM)} publications=${JSON.stringify(renderObservation)}`,
+				{ cause: error },
+			);
+		}
 		const exactBodyCountAfterReload = await runMilestone({
 			after: 'review.bodies.verified',
 			before: 'review.bodies.verifying',

@@ -443,21 +443,49 @@ final class WorkspaceCacheCoordinatorTests {
             )
         )
 
-        let didScheduleFlush = await waitUntilYielding {
+        // Dequeuing this no-op physical fact proves both preceding snapshots reached the
+        // coalescer before the test advances its clock. EventBus records consumption before
+        // returning an envelope, while the coordinator processes envelopes serially.
+        await bus.post(
+            .system(
+                SystemEnvelope.test(
+                    event: .topology(
+                        .worktreeRegistered(
+                            worktreeId: worktreeId,
+                            repoId: repoId,
+                            rootPath: URL(fileURLWithPath: "/tmp/repo")
+                        )
+                    ),
+                    source: .builtin(.filesystemWatcher),
+                    seq: 3
+                )
+            )
+        )
+        await assertEventuallyAsync("cache coordinator should consume the coalescing barrier") {
+            let diagnostics = await bus.diagnosticsSnapshot()
+            return diagnostics.activeSubscribers.contains {
+                $0.subscriberName == "WorkspaceCacheCoordinator"
+                    && $0.consumedCount == 3
+                    && $0.pendingDeliveryCount == 0
+            }
+        }
+        await assertEventuallyAsync("coalesced enrichment flush should be scheduled") {
             clock.pendingSleepCount == 1
         }
-        #expect(didScheduleFlush)
+        #expect(clock.pendingSleepCount == 1)
+        #expect(repoCache.cacheRevision == 0)
         #expect(repoCache.worktreeEnrichmentByWorktreeId[worktreeId] == nil)
 
         clock.advance(by: .milliseconds(25))
-        let didApplyNewestSnapshot = await eventually("newest snapshot should apply after coalesced flush") {
+        await assertEventuallyMain("newest snapshot should apply after coalesced flush") {
             repoCache.worktreeEnrichmentByWorktreeId[worktreeId]?.branch == "new"
         }
 
         await coordinator.shutdown()
 
-        #expect(didApplyNewestSnapshot)
+        #expect(repoCache.worktreeEnrichmentByWorktreeId[worktreeId]?.branch == "new")
         #expect(repoCache.worktreeEnrichmentByWorktreeId[worktreeId]?.snapshot?.summary.changed == 2)
+        #expect(repoCache.cacheRevision == 1)
     }
 
     @Test("concurrent consumer starts create one bus subscription")
