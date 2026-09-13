@@ -4,6 +4,13 @@ import AgentStudioRepoExplorer
 import Foundation
 
 extension AppDelegate: ShellCommandHandling {
+    func ownsWorkspaceWindow(_ workspaceWindowId: UUID) -> Bool {
+        guard let controller = mainWindowController, controller.acceptsIPCCommands else {
+            return false
+        }
+        return controller.workspaceWindowId == workspaceWindowId
+    }
+
     func canExecute(_ request: AppCommandExecutionRequest) -> Bool {
         guard request.arguments == .noArguments else { return false }
         return canExecute(request.command)

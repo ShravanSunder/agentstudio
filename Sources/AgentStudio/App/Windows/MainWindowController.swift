@@ -21,6 +21,7 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
     private var windowId = UUID()
 
     var workspaceWindowId: UUID { windowId }
+    var acceptsIPCCommands: Bool { !hasShutdown && window != nil }
 
     private static let estimatedTitlebarHeight: CGFloat = 40
 

@@ -512,85 +512,105 @@ struct FakeBridgePort: AppIPCBridgePort {
 }
 
 final class FakeCommandPort: AppIPCCommandPort, @unchecked Sendable {
-    let workspaceWindowId: UUID?
-    let activeScope: IPCCommandBarScope?
-    let successfulCommandId: String?
-    let stateUnavailableCommandId: String?
-    let commands: [IPCCommandListEntry]
+    let commands: [IPCCommandDescriptor]
+    let executionResultsByCommandId: [String: IPCCommandExecutionResult]
     let requiredPermissionTargetByPrivilege: [IPCPrivilegeClass: IPCTargetScope]
     private let lock = NSLock()
-    nonisolated(unsafe) private var receivedExecuteParamsStorage: [IPCCommandExecuteParams] = []
+    nonisolated(unsafe) private var receivedExecutionRequestsStorage: [IPCCommandExecutionRequest] = []
 
     nonisolated init(
-        workspaceWindowId: UUID? = nil,
-        activeScope: IPCCommandBarScope? = nil,
-        successfulCommandId: String? = nil,
-        stateUnavailableCommandId: String? = nil,
-        commands: [IPCCommandListEntry] = [],
+        commands: [IPCCommandDescriptor] = [],
+        executionResultsByCommandId: [String: IPCCommandExecutionResult] = [:],
         requiredPermissionTargetByPrivilege: [IPCPrivilegeClass: IPCTargetScope] = [:]
     ) {
-        self.workspaceWindowId = workspaceWindowId
-        self.activeScope = activeScope
-        self.successfulCommandId = successfulCommandId
-        self.stateUnavailableCommandId = stateUnavailableCommandId
         self.commands = commands
+        self.executionResultsByCommandId = executionResultsByCommandId
         self.requiredPermissionTargetByPrivilege = requiredPermissionTargetByPrivilege
     }
 
-    nonisolated var receivedExecuteParams: [IPCCommandExecuteParams] {
+    nonisolated var receivedExecutionRequests: [IPCCommandExecutionRequest] {
         lock.withLock {
-            receivedExecuteParamsStorage
+            receivedExecutionRequestsStorage
         }
     }
 
-    func listCommands() throws -> IPCCommandListResult {
-        IPCCommandListResult(commands: commands)
+    func listCommands() throws -> IPCCommandCatalogResult {
+        IPCCommandCatalogResult(compatibility: .current, commands: commands)
     }
 
-    func requiredPermissionScopes(for command: IPCCommandListEntry) throws -> [IPCPermissionScope] {
-        command.requiredPrivileges.map { privilege in
+    func prepareCommand(
+        _ request: IPCCommandExecutionRequest,
+        principal _: IPCPrincipal,
+        tools _: AppIPCTargetResolutionTools
+    ) async throws -> AppIPCPreparedCommand {
+        guard let command = commands.first(where: { $0.id == request.commandId }) else {
+            throw AppIPCCommandError(reason: .unsupportedCommand)
+        }
+        guard command.argumentVariants.contains(request.arguments.variant) else {
+            throw AppIPCCommandError(reason: .validationRejected)
+        }
+        let requiredScopes = command.requiredPrivileges.map { privilege in
             IPCPermissionScope(
                 privilege: privilege,
                 target: requiredPermissionTargetByPrivilege[privilege] ?? .app,
-                dataScope: PermissionScopeCanonicalizer.dataScope(for: privilege)
+                dataScope: command.dataScope
             )
         }
+        return AppIPCPreparedCommand(
+            request: request,
+            canonicalHandle: nil,
+            target: requiredScopes.first?.target ?? .app,
+            requiredScopes: requiredScopes
+        )
     }
 
-    func executeCommand(_ params: IPCCommandExecuteParams) throws -> IPCCommandExecuteResult {
+    func executeCommand(_ request: IPCCommandExecutionRequest) async throws -> IPCCommandExecutionResult {
         lock.withLock {
-            receivedExecuteParamsStorage.append(params)
+            receivedExecutionRequestsStorage.append(request)
         }
-        guard params.argumentsContainOnlyStrings else {
-            throw AppIPCCommandError(reason: .validationRejected)
-        }
-        if let rawTargetHandle = params.targetHandle {
-            let handle = try IPCHandle.parse(rawTargetHandle)
-            guard
-                let command = commands.first(where: { $0.id == params.commandId }),
-                command.targetKinds.contains(handle.kind)
-            else {
-                throw AppIPCCommandError(reason: .targetNotFound)
-            }
-        }
-        guard params.commandId.rawValue != "futureCommand" else {
-            throw AppIPCCommandError(reason: .unsupportedCommand)
-        }
-        guard workspaceWindowId != nil, activeScope != nil else {
-            throw AppIPCCommandError(reason: .noActiveWindow)
-        }
-        if params.commandId.rawValue == stateUnavailableCommandId {
+        guard let result = executionResultsByCommandId[request.commandId.rawValue] else {
             throw AppIPCCommandError(reason: .stateUnavailable)
         }
-        if params.commandId.rawValue == successfulCommandId {
-            return IPCCommandExecuteResult(
-                commandId: params.commandId,
-                applied: true,
-                targetHandle: params.targetHandle
-            )
-        }
-        throw AppIPCCommandError(reason: .requiresPresentation)
+        return result
     }
+}
+
+struct FakeCommandDescriptorInput {
+    let id: IPCCommandIdentifier
+    let executionMode: IPCCommandExecutionMode
+    let arguments: IPCCommandArguments
+    let requiredPrivileges: Set<IPCPrivilegeClass>
+    let dataScope: IPCDataScope
+    let allowedTargetKinds: Set<IPCHandleKind>
+    let result: IPCCommandExecutionResult
+}
+
+func makeFakeCommandDescriptor(_ input: FakeCommandDescriptorInput) throws -> IPCCommandDescriptor {
+    try IPCCommandDescriptorFactory.make(
+        IPCCommandDescriptorInput(
+            id: input.id,
+            title: "Fixture \(input.id.rawValue)",
+            description: "Exercise one typed command fixture.",
+            exposure: .debugTesting,
+            executionMode: input.executionMode,
+            argumentVariants: [input.arguments.variant],
+            requiredPrivileges: input.requiredPrivileges,
+            dataScope: input.dataScope,
+            allowedTargetKinds: input.allowedTargetKinds,
+            resultVariants: [input.result.variant],
+            examples: [
+                IPCCommandExample(
+                    description: "Typed command fixture",
+                    request: IPCCommandExecutionRequest(
+                        commandId: input.id,
+                        correlationId: input.result.correlationId,
+                        arguments: input.arguments
+                    ),
+                    result: input.result
+                )
+            ]
+        )
+    )
 }
 
 struct FakeUIPresentationPort: AppIPCUIPresentationPort {

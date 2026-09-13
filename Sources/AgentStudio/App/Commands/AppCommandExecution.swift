@@ -1,15 +1,15 @@
 import AgentStudioCommandBar
 import AgentStudioCore
-import AgentStudioInboxNotification
-import AgentStudioProgrammaticControl
 import AgentStudioRepoExplorer
 import Foundation
 
 /// Protocol for objects that execute commands against the active workspace.
 @MainActor
 protocol WorkspaceCommandHandling: AnyObject {
+    func ownsWorkspaceWindow(_ workspaceWindowId: UUID) -> Bool
     func execute(_ command: AppCommand)
     func execute(_ command: AppCommand, target: UUID, targetType: SearchItemType)
+    func executeHeadlessIPC(_ command: AppCommand, target: UUID, targetType: SearchItemType) async -> Bool
     func canExecute(_ command: AppCommand) -> Bool
     func canExecute(_ command: AppCommand, target: UUID, targetType: SearchItemType) -> Bool
     func bridgePaneCommandTarget(worktreeId: UUID) -> BridgePaneCommandTarget?
@@ -24,6 +24,7 @@ protocol WorkspaceCommandHandling: AnyObject {
 /// Routes app-level commands that do not belong to the workspace command handler.
 @MainActor
 protocol ShellCommandHandling: AnyObject {
+    func ownsWorkspaceWindow(_ workspaceWindowId: UUID) -> Bool
     func canExecute(_ command: AppCommand) -> Bool
     func canExecute(_ command: AppCommand, target: UUID, targetType: SearchItemType) -> Bool
     func canExecute(_ request: AppCommandExecutionRequest) -> Bool
@@ -65,76 +66,6 @@ enum AppCommandExecutionContext: Equatable, Sendable {
 
 enum AppCommandExecutionArguments: Equatable, Sendable {
     case noArguments
-    case inboxRowStateFilter(InboxNotificationRowStateFilter)
-    case inboxContentMode(InboxNotificationContentMode)
-
-    static func commandOwnedArguments(
-        contract: AppCommandIPCArgumentContract,
-        rawArguments: [String: String],
-        argumentsContainOnlyStrings: Bool
-    ) throws -> Self {
-        try validate(
-            rawArguments: rawArguments,
-            argumentsContainOnlyStrings: argumentsContainOnlyStrings,
-            against: contract.argumentSchema
-        )
-        switch contract {
-        case .noArguments:
-            return .noArguments
-        case .inboxRowStateFilter:
-            guard
-                let rawFilter = rawArguments["filter"],
-                let filter = InboxNotificationRowStateFilter(rawValue: rawFilter)
-            else {
-                throw AppCommandArgumentDecodingError.validationRejected
-            }
-            return .inboxRowStateFilter(filter)
-        case .inboxContentMode:
-            guard
-                let rawMode = rawArguments["mode"],
-                let mode = InboxNotificationContentMode(rawValue: rawMode)
-            else {
-                throw AppCommandArgumentDecodingError.validationRejected
-            }
-            return .inboxContentMode(mode)
-        }
-    }
-
-    private static func validate(
-        rawArguments: [String: String],
-        argumentsContainOnlyStrings: Bool,
-        against argumentSchema: [IPCCommandArgumentSchema]
-    ) throws {
-        guard argumentsContainOnlyStrings else {
-            throw AppCommandArgumentDecodingError.validationRejected
-        }
-        let schemaByName = Dictionary(uniqueKeysWithValues: argumentSchema.map { ($0.name, $0) })
-        guard Set(rawArguments.keys).isSubset(of: Set(schemaByName.keys)) else {
-            throw AppCommandArgumentDecodingError.validationRejected
-        }
-
-        for argument in argumentSchema where argument.isRequired {
-            guard rawArguments[argument.name] != nil else {
-                throw AppCommandArgumentDecodingError.validationRejected
-            }
-        }
-
-        for (name, value) in rawArguments {
-            guard let schema = schemaByName[name] else {
-                throw AppCommandArgumentDecodingError.validationRejected
-            }
-            switch schema.kind {
-            case .stringEnum(let values):
-                guard values.contains(value) else {
-                    throw AppCommandArgumentDecodingError.validationRejected
-                }
-            }
-        }
-    }
-}
-
-enum AppCommandArgumentDecodingError: Error, Equatable {
-    case validationRejected
 }
 
 enum AppCommandExecutionOutcome: Equatable, Sendable {
@@ -145,6 +76,12 @@ enum AppCommandExecutionOutcome: Equatable, Sendable {
 
 @MainActor
 extension WorkspaceCommandHandling {
+    func ownsWorkspaceWindow(_: UUID) -> Bool { false }
+
+    func executeHeadlessIPC(_ command: AppCommand, target: UUID, targetType: SearchItemType) async -> Bool {
+        false
+    }
+
     func repoExplorerCommandCapabilities(
         _ requests: Set<RepoExplorerCommandPresentationRequest>
     ) -> [RepoExplorerCommandPresentationRequest: Bool] {
@@ -173,6 +110,8 @@ extension WorkspaceCommandHandling {
 
 @MainActor
 extension ShellCommandHandling {
+    func ownsWorkspaceWindow(_: UUID) -> Bool { false }
+
     func canExecute(_ command: AppCommand, target _: UUID, targetType _: SearchItemType) -> Bool {
         canExecute(command)
     }
@@ -181,8 +120,6 @@ extension ShellCommandHandling {
         switch request.arguments {
         case .noArguments:
             return execute(request.command) ? .applied : .unsupportedCommand
-        case .inboxRowStateFilter, .inboxContentMode:
-            return .unsupportedCommand
         }
     }
 }

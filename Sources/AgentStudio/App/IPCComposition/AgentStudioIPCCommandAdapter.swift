@@ -14,190 +14,227 @@ protocol WorkspaceDurableTargetAuthorizing: AnyObject {
 struct AgentStudioIPCCommandAdapter: AppIPCCommandPort, @unchecked Sendable {
     private let workspaceId: UUID
     private let targetAuthorizer: any WorkspaceDurableTargetAuthorizing
-    private let windowLifecycleReader: any WorkspaceWindowLifecycleReading
     private weak var shellCommandHandler: (any ShellCommandHandling)?
 
     init(
         workspaceId: UUID,
         targetAuthorizer: any WorkspaceDurableTargetAuthorizing,
-        windowLifecycleReader: any WorkspaceWindowLifecycleReading,
         shellCommandHandler: any ShellCommandHandling
     ) {
         self.workspaceId = workspaceId
         self.targetAuthorizer = targetAuthorizer
-        self.windowLifecycleReader = windowLifecycleReader
         self.shellCommandHandler = shellCommandHandler
     }
 
-    func listCommands() throws -> IPCCommandListResult {
-        let commands = AppCommand.allCases
-            .map(\.definition)
-            .map(\.ipcCommandListEntry)
-            .sorted { left, right in
-                left.id.rawValue < right.id.rawValue
-            }
-        return IPCCommandListResult(commands: commands)
+    func listCommands() throws -> IPCCommandCatalogResult {
+        let commands = try AppCommand.allCases
+            .filter { $0.ipcSpec.exposure == .allChannels }
+            .map(makeDescriptor)
+            .sorted { $0.id.rawValue < $1.id.rawValue }
+        return IPCCommandCatalogResult(compatibility: .current, commands: commands)
     }
 
-    func requiredPermissionScopes(for command: IPCCommandListEntry) throws -> [IPCPermissionScope] {
-        guard let appCommand = AppCommand(rawValue: command.id.rawValue) else {
-            throw AppIPCCommandError(reason: .unsupportedCommand)
-        }
-        return appCommand.definition.ipcExposure.requiredPrivileges.map { privilege in
-            IPCPermissionScope(
-                privilege: privilege,
-                target: permissionTarget(for: privilege),
-                dataScope: PermissionScopeCanonicalizer.dataScope(for: privilege)
-            )
-        }
-    }
-
-    func executeCommand(_ params: IPCCommandExecuteParams) throws -> IPCCommandExecuteResult {
-        guard let command = AppCommand(rawValue: params.commandId.rawValue) else {
-            throw AppIPCCommandError(reason: .unsupportedCommand)
-        }
-        let definition = command.definition
-        let exposure = definition.ipcExposure
-        switch exposure {
-        case .headless, .headlessAndInteractive:
-            break
-        case .uiPresentation:
-            throw AppIPCCommandError(reason: .requiresPresentation)
-        case .notExposed, .interactive:
-            throw AppIPCCommandError(reason: .requiresParameters)
-        }
-        let executionArguments: AppCommandExecutionArguments
-        do {
-            executionArguments = try AppCommandExecutionArguments.commandOwnedArguments(
-                contract: command.ipcSpec.argumentContract,
-                rawArguments: params.arguments,
-                argumentsContainOnlyStrings: params.argumentsContainOnlyStrings
-            )
-        } catch AppCommandArgumentDecodingError.validationRejected {
+    func prepareCommand(
+        _ request: IPCCommandExecutionRequest,
+        principal _: IPCPrincipal,
+        tools: AppIPCTargetResolutionTools
+    ) async throws -> AppIPCPreparedCommand {
+        let command = try activeCommand(for: request)
+        guard command.ipcSpec.argumentVariants.contains(request.arguments.variant) else {
             throw AppIPCCommandError(reason: .validationRejected)
         }
-        let durableTarget = exposure.durableTarget
-        switch durableTarget {
-        case .targetless:
-            break
-        case .required:
-            guard params.targetHandle != nil else {
-                throw AppIPCCommandError(reason: .requiresTarget)
-            }
-        }
-
-        let lifecycle = windowLifecycleReader.snapshot()
-        guard
-            let workspaceWindowId = lifecycle.preferredWorkspaceWindowId,
-            lifecycle.registeredWindowIds.contains(workspaceWindowId)
-        else {
-            throw AppIPCCommandError(reason: .noActiveWindow)
-        }
-        switch durableTarget {
-        case .targetless:
-            guard params.targetHandle == nil else {
-                throw AppIPCCommandError(reason: .targetNotFound)
-            }
-        case .required(let primary, let additional):
-            guard let targetHandle = params.targetHandle else {
-                throw AppIPCCommandError(reason: .requiresTarget)
-            }
-            let target = try targetedCommandTarget(
-                rawHandle: targetHandle,
-                primaryKind: primary,
-                additionalKinds: additional
-            )
-            guard
-                AppCommandDispatcher.shared.dispatch(
-                    command,
-                    target: target.id,
-                    targetType: target.type,
-                    executionContext: .headlessIPC
+        let resolved = try await resolve(request.arguments, tools: tools)
+        let privilege = command.ipcSpec.requiredPrivilege
+        return AppIPCPreparedCommand(
+            request: IPCCommandExecutionRequest(
+                commandId: request.commandId,
+                correlationId: request.correlationId,
+                arguments: resolved.arguments
+            ),
+            canonicalHandle: resolved.handle,
+            target: resolved.target,
+            requiredScopes: [
+                IPCPermissionScope(
+                    privilege: privilege,
+                    target: resolved.target,
+                    dataScope: PermissionScopeCanonicalizer.dataScope(for: privilege)
                 )
-            else {
+            ]
+        )
+    }
+
+    func executeCommand(_ request: IPCCommandExecutionRequest) async throws -> IPCCommandExecutionResult {
+        let command = try activeCommand(for: request)
+        switch request.arguments {
+        case .workspaceWindow(let value):
+            try validateWindow(value.workspaceWindowId)
+            return try executeShell(command, request: request)
+        case .repository(let value):
+            guard targetAuthorizer.containsRepository(id: value.repoId) else {
                 throw AppIPCCommandError(reason: .targetNotFound)
             }
-            return IPCCommandExecuteResult(
-                commandId: params.commandId,
-                applied: true,
-                targetHandle: targetHandle
+            return try await executeTargeted(
+                command,
+                id: value.repoId,
+                type: .repo,
+                workspaceWindowId: nil,
+                request: request
             )
-        }
-
-        guard let shellCommandHandler else {
-            throw AppIPCCommandError(reason: .stateUnavailable)
-        }
-
-        let outcome = shellCommandHandler.execute(
-            AppCommandExecutionRequest(
-                command: command,
-                arguments: executionArguments,
-                executionContext: .headlessIPC
+        case .standalonePane(let value):
+            return try await executeTargeted(
+                command,
+                id: try canonicalPaneId(value.paneSelector),
+                type: .pane,
+                workspaceWindowId: nil,
+                request: request
             )
-        )
-        switch outcome {
-        case .applied:
-            return IPCCommandExecuteResult(
-                commandId: params.commandId,
-                applied: true,
-                targetHandle: params.targetHandle
+        case .pane(let value):
+            try validateWindow(value.workspaceWindowId)
+            return try await executeTargeted(
+                command,
+                id: try canonicalPaneId(value.paneSelector),
+                type: .pane,
+                workspaceWindowId: value.workspaceWindowId,
+                request: request
             )
-        case .stateUnavailable:
-            throw AppIPCCommandError(reason: .stateUnavailable)
-        case .unsupportedCommand:
-            throw AppIPCCommandError(reason: .unsupportedCommand)
+        default:
+            throw AppIPCCommandError(reason: .validationRejected)
         }
     }
 
-    private func targetedCommandTarget(
-        rawHandle: String,
-        primaryKind: IPCHandleKind,
-        additionalKinds: [IPCHandleKind]
-    ) throws -> (id: UUID, type: SearchItemType) {
-        let handle: IPCHandle
-        do {
-            handle = try IPCHandle.parse(rawHandle)
-        } catch {
-            throw AppIPCCommandError(reason: .targetNotFound)
+    private func activeCommand(for request: IPCCommandExecutionRequest) throws -> AppCommand {
+        guard let command = AppCommand(rawValue: request.commandId.rawValue),
+            command.ipcSpec.exposure == .allChannels,
+            command.ipcSpec.argumentVariants.contains(request.arguments.variant)
+        else { throw AppIPCCommandError(reason: .unsupportedCommand) }
+        return command
+    }
+
+    private func makeDescriptor(_ command: AppCommand) throws -> IPCCommandDescriptor {
+        let example = try exampleRequest(for: command)
+        let result: IPCCommandExecutionResult =
+            command == .reloadBridgeWebView
+            ? .accepted(
+                IPCCommandAcceptedResult(
+                    commandId: example.commandId, correlationId: example.correlationId, operationId: nil))
+            : .applied(IPCCommandAppliedResult(commandId: example.commandId, correlationId: example.correlationId))
+        return try IPCCommandDescriptorFactory.make(
+            command.ipcSpec.descriptorInput(
+                definition: command.definition,
+                examples: [
+                    IPCCommandExample(
+                        description: "Execute with explicit typed context.", request: example, result: result)
+                ]
+            ))
+    }
+
+    private func exampleRequest(for command: AppCommand) throws -> IPCCommandExecutionRequest {
+        let window = Self.exampleUUID("01994abc-4000-7000-8000-000000000001")
+        let target = Self.exampleUUID("01994abc-4000-7000-8000-000000000002")
+        let arguments: IPCCommandArguments =
+            switch command.ipcSpec.argumentVariants.first {
+            case .workspaceWindow: .workspaceWindow(.init(workspaceWindowId: window))
+            case .repository: .repository(.init(repoId: target))
+            case .standalonePane: .standalonePane(.init(paneSelector: try .init(rawValue: target.uuidString)))
+            case .pane: .pane(.init(workspaceWindowId: window, paneSelector: try .init(rawValue: target.uuidString)))
+            default: throw AppIPCCommandError(reason: .validationRejected)
+            }
+        return IPCCommandExecutionRequest(
+            commandId: .init(rawValue: command.rawValue),
+            correlationId: Self.exampleUUID("01994abc-4000-7000-8000-000000000003"),
+            arguments: arguments)
+    }
+
+    private func resolve(
+        _ arguments: IPCCommandArguments,
+        tools: AppIPCTargetResolutionTools
+    ) async throws -> (arguments: IPCCommandArguments, handle: IPCHandle?, target: IPCTargetScope) {
+        switch arguments {
+        case .workspaceWindow(let value):
+            try validateWindow(value.workspaceWindowId)
+            return (
+                arguments, .init(kind: .window, reference: .canonicalUUID(value.workspaceWindowId)),
+                .workspace(workspaceId)
+            )
+        case .repository(let value):
+            guard targetAuthorizer.containsRepository(id: value.repoId) else {
+                throw AppIPCCommandError(reason: .targetNotFound)
+            }
+            return (arguments, .init(kind: .repo, reference: .canonicalUUID(value.repoId)), .workspace(workspaceId))
+        case .standalonePane(let value):
+            let resolved = try await resolvePane(value.paneSelector, tools: tools)
+            return (.standalonePane(.init(paneSelector: resolved.selector)), resolved.handle, resolved.target)
+        case .pane(let value):
+            try validateWindow(value.workspaceWindowId)
+            let resolved = try await resolvePane(value.paneSelector, tools: tools)
+            return (
+                .pane(.init(workspaceWindowId: value.workspaceWindowId, paneSelector: resolved.selector)),
+                resolved.handle, resolved.target
+            )
+        default: throw AppIPCCommandError(reason: .validationRejected)
         }
+    }
+
+    private func resolvePane(
+        _ selector: IPCPaneSelector,
+        tools: AppIPCTargetResolutionTools
+    ) async throws -> (selector: IPCPaneSelector, handle: IPCHandle, target: IPCTargetScope) {
+        let handle = try await tools.canonicalizePaneHandle(selector.rawValue)
+        guard case (.pane, .canonicalUUID(let paneId)) = (handle.kind, handle.reference),
+            targetAuthorizer.containsPane(id: paneId)
+        else { throw AppIPCCommandError(reason: .targetNotFound) }
+        return (try .init(rawValue: paneId.uuidString), handle, .pane(paneId.uuidString))
+    }
+
+    private func executeShell(_ command: AppCommand, request: IPCCommandExecutionRequest) throws
+        -> IPCCommandExecutionResult
+    {
+        guard let shellCommandHandler else { throw AppIPCCommandError(reason: .stateUnavailable) }
+        let outcome = shellCommandHandler.execute(.init(command: command, executionContext: .headlessIPC))
+        guard outcome == .applied else {
+            throw AppIPCCommandError(reason: outcome == .stateUnavailable ? .stateUnavailable : .unsupportedCommand)
+        }
+        return .applied(.init(commandId: request.commandId, correlationId: request.correlationId))
+    }
+
+    private func executeTargeted(
+        _ command: AppCommand,
+        id: UUID,
+        type: SearchItemType,
+        workspaceWindowId: UUID?,
+        request: IPCCommandExecutionRequest
+    ) async throws -> IPCCommandExecutionResult {
         guard
-            handle.kind == primaryKind || additionalKinds.contains(handle.kind),
-            case .canonicalUUID(let targetId) = handle.reference
+            await AppCommandDispatcher.shared.dispatchHeadlessIPC(
+                command,
+                target: id,
+                targetType: type,
+                workspaceWindowId: workspaceWindowId
+            )
         else {
             throw AppIPCCommandError(reason: .targetNotFound)
         }
-        switch handle.kind {
-        case .repo:
-            guard targetAuthorizer.containsRepository(id: targetId) else {
-                throw AppIPCCommandError(reason: .targetNotFound)
-            }
-            return (targetId, .repo)
-        case .tab:
-            guard targetAuthorizer.containsTab(id: targetId) else {
-                throw AppIPCCommandError(reason: .targetNotFound)
-            }
-            return (targetId, .tab)
-        case .pane:
-            guard targetAuthorizer.containsPane(id: targetId) else {
-                throw AppIPCCommandError(reason: .targetNotFound)
-            }
-            return (targetId, .pane)
-        case .window, .workspace:
+        return command == .reloadBridgeWebView
+            ? .accepted(.init(commandId: request.commandId, correlationId: request.correlationId, operationId: nil))
+            : .applied(.init(commandId: request.commandId, correlationId: request.correlationId))
+    }
+
+    private func validateWindow(_ id: UUID) throws {
+        guard let shellCommandHandler, shellCommandHandler.ownsWorkspaceWindow(id) else {
             throw AppIPCCommandError(reason: .targetNotFound)
         }
     }
 
-    private func permissionTarget(for privilege: IPCPrivilegeClass) -> IPCTargetScope {
-        switch privilege {
-        case .sidebarStateMutate:
-            .workspace(workspaceId)
-        case .systemRead, .workspaceRead, .paneContextRead, .layoutMutate,
-            .bridgeRead, .bridgeContentRead, .bridgeControl, .bridgeTelemetryRead,
-            .bridgeTelemetryFlush, .terminalRead, .terminalWrite, .terminalStatusRead,
-            .terminalSnapshotRead, .terminalInputWrite, .terminalWait, .eventsRead,
-            .uiPresent, .permissionRequest, .permissionRead, .grantApprove,
-            .appCommandExecute, .debugUnsafe:
-            .app
-        }
+    private func canonicalPaneId(_ selector: IPCPaneSelector) throws -> UUID {
+        guard case .canonical(kind: .pane, id: let id) = selector.parsed,
+            targetAuthorizer.containsPane(id: id)
+        else { throw AppIPCCommandError(reason: .targetNotFound) }
+        return id
     }
+
+    private static func exampleUUID(_ raw: String) -> UUID {
+        guard let value = UUID(uuidString: raw) else { preconditionFailure("Invalid command example UUID") }
+        return value
+    }
+
 }

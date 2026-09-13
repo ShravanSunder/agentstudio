@@ -353,6 +353,39 @@ struct AppIPCTypedMethodRegistrationTests {
         #expect(await recorder.snapshot() == [.resolveTarget, .authorize])
     }
 
+    @Test("resolved additional authority is checked before any command effect")
+    func additionalAuthorityPrecedesHandler() async throws {
+        let fixture = TypedRegistrationFixture()
+        let recorder = TypedRegistrationRecorder()
+        let paneId = UUIDv7.generate()
+        let additionalScope = IPCPermissionScope(
+            privilege: .sidebarStateMutate, target: .workspace(UUIDv7.generate()), dataScope: .sidebarState)
+        let registration = try makeRegistration(
+            recorder: recorder,
+            resolveTarget: { parameters, _, _ in
+                await recorder.record(.resolveTarget)
+                return AppIPCTargetResolution(
+                    parameters: parameters,
+                    canonicalHandle: IPCHandle(kind: .pane, reference: .canonicalUUID(paneId)),
+                    target: .pane(paneId.uuidString), requiredScopes: [additionalScope])
+            }
+        ).erase()
+
+        await #expect(throws: TypedRegistrationAuthorizationDenied.self) {
+            try await registration.invoke(
+                parameters: fixture.parameters(handle: "pane:1", correlationId: UUIDv7.generate()),
+                connectionContext: fixture.connectionContext,
+                targetResolutionTools: fixture.unusedTargetResolutionTools,
+                authorize: { _, request in
+                    await recorder.record(.authorize)
+                    #expect(request.requiredPrivileges == [.layoutMutate])
+                    #expect(request.additionalScopes == [additionalScope])
+                    throw TypedRegistrationAuthorizationDenied()
+                })
+        }
+        #expect(await recorder.snapshot() == [.resolveTarget, .authorize])
+    }
+
     @Test("a typed result that violates the descriptor schema is never returned")
     func invalidTypedResultIsRejected() async throws {
         let fixture = TypedRegistrationFixture()

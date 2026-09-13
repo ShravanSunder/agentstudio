@@ -118,7 +118,7 @@ func decodeJSONValue<T: Decodable>(_ type: T.Type, from value: JSONValue) throws
 }
 
 struct TestFrameReader {
-    var decoder = NDJSONFrameDecoder(maxFrameBytes: 65_536)
+    var decoder = NDJSONFrameDecoder(maxFrameBytes: 1_048_576)
     var queuedFrames: [String] = []
 
     mutating func receiveResponse(connection: UnixSocketConnection) throws -> JSONRPCResponseMessage {

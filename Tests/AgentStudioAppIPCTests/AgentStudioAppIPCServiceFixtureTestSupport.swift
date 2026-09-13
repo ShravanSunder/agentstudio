@@ -1,5 +1,6 @@
 import AgentStudioAppIPC
 import AgentStudioIPCTransport
+import AgentStudioInfrastructure
 import AgentStudioProgrammaticControl
 import Foundation
 import Testing
@@ -34,8 +35,7 @@ struct LiveServerFixture {
         uiPresentationPort: any AppIPCUIPresentationPort = FakeUIPresentationPort(),
         sidebarPort: any AppIPCSidebarPort = FakeSidebarPort(),
         debugTokenEscrowEnabled: Bool = false,
-        debugTokenEscrowPermissionScopes: [IPCPermissionScope] = [],
-        methodContributions: [AppIPCMethodContribution] = []
+        debugTokenEscrowPermissionScopes: [IPCPermissionScope] = []
     ) throws {
         rootURL = URL(
             fileURLWithPath: "/tmp/asipc-\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))",
@@ -46,26 +46,8 @@ struct LiveServerFixture {
             _ = chmod(rootURL.path, 0o700)
         #endif
         paths = AgentStudioIPCPathResolver().paths(rootDirectory: rootURL)
-        let methodRegistry = try AppIPCMethodRegistry.phaseOne()
-        let contributedMethodNames = Set(methodContributions.map(\.definition.name))
-        let baseDefinitions = methodRegistry.definitions
-            .filter { !contributedMethodNames.contains($0.name) }
-        let mergedMethodRegistry = try AppIPCMethodRegistry(
-            baseDefinitions: baseDefinitions,
-            contributions: methodContributions
-        )
         let ports = AgentStudioAppIPCPorts(
-            queryPort: queryPort.map {
-                MethodCapabilitiesQueryPort(
-                    base: $0,
-                    methodDefinitions: mergedMethodRegistry.definitions
-                )
-            }
-                ?? FakeQueryPort(
-                    runtimeId: runtimeId,
-                    panes: panes,
-                    methodDefinitions: mergedMethodRegistry.definitions
-                ),
+            queryPort: queryPort ?? FakeQueryPort(runtimeId: runtimeId, panes: panes),
             layoutPort: FakeLayoutPort(),
             runtimePort: runtimePort,
             bridgePort: bridgePort ?? FakeBridgePort(paneId: panes.first?.id ?? boundPaneId),
@@ -74,16 +56,30 @@ struct LiveServerFixture {
             sidebarPort: sidebarPort,
             permissionApprovalPort: FakePermissionApprovalPort()
         )
-        let service = try AgentStudioAppIPCService(
+        let eventBroker = IPCEventBroker()
+        let catalog = try makeLiveServerBuiltInCatalog(
+            runtimeId: runtimeId,
+            paneId: panes.first?.id ?? boundPaneId
+        )
+        let registrations = try AppIPCBuiltInMethodRegistrations.make(
+            inputs: AppIPCBuiltInRegistrationInputs(
+                catalog: catalog,
+                runtimeId: runtimeId,
+                ports: ports,
+                eventBroker: eventBroker
+            )
+        )
+        let methodRegistry = try AppIPCMethodRegistry(registrations: registrations, channel: channel)
+        let service = AgentStudioAppIPCService(
             configuration: AgentStudioAppIPCConfiguration(
                 runtimeId: runtimeId,
                 accessMode: accessMode,
-                methodDefinitions: baseDefinitions,
                 debugTokenEscrowEnabled: debugTokenEscrowEnabled,
                 debugTokenEscrowPermissionScopes: debugTokenEscrowPermissionScopes
             ),
             ports: ports,
-            methodContributions: methodContributions
+            methodRegistry: methodRegistry,
+            eventBroker: eventBroker
         )
         server = AgentStudioAppIPCServer(service: service, paths: paths, channel: channel)
     }
@@ -112,59 +108,6 @@ func makePaneSummary(
     )
 }
 
-func makePaneSnapshotTestContribution() throws -> AppIPCMethodContribution {
-    try AppIPCMethodContribution(
-        definition: IPCMethodDefinition(
-            name: "pane.snapshot",
-            paramsSchema: IPCSchemaDescription(name: "pane.snapshot.params"),
-            resultSchema: IPCSchemaDescription(name: "pane.snapshot.result"),
-            privilegeClasses: [.paneContextRead],
-            executionOwner: .queryReader,
-            resultSemantics: .applied
-        ),
-        securityContract: AppIPCContributionSecurityContract(
-            targetVocabulary: [.pane],
-            dataScopes: [.paneContext],
-            sensitiveDataExclusions: [
-                "cwd",
-                "paneTitle",
-                "rawTerminalOutput",
-                "rawRuntimePayload",
-                "tabTitle",
-                "url",
-                "zmxSessionIdentifier",
-            ]
-        ),
-        authorizationContext: { request, _, tools in
-            let params = try decodeContributionHandleParams(from: request.params)
-            let canonicalHandle = try await tools.canonicalizePaneHandle(params.handle)
-            guard case .canonicalUUID(let paneId) = canonicalHandle.reference else {
-                throw AppIPCQueryError(reason: .targetNotFound)
-            }
-            return try AppIPCAuthorizedRequestContext(
-                request: request.replacingHandle(canonicalHandle.rawIPCHandleString),
-                target: .pane(paneId.uuidString)
-            )
-        },
-        dispatch: { request, _, context in
-            let params = try decodeContributionHandleParams(from: request.params)
-            let paneId = try context.uuidFromPaneHandle(params.handle)
-            let snapshot = try await context.snapshotPane(paneId)
-            return try JSONRPCCodec.encodeJSONValue(snapshot)
-        }
-    )
-}
-
-struct ContributionHandleParams: Decodable {
-    let handle: String
-}
-
-private func decodeContributionHandleParams(from params: JSONValue?) throws -> ContributionHandleParams {
-    let value = params ?? .object([:])
-    let data = try JSONEncoder().encode(value)
-    return try JSONDecoder().decode(ContributionHandleParams.self, from: data)
-}
-
 func makePaneSnapshotResult(pane: IPCPaneSummary, paneCount: Int) -> IPCPaneSnapshotResult {
     IPCPaneSnapshotResult(
         pane: pane,
@@ -180,146 +123,34 @@ func makePaneSnapshotResult(pane: IPCPaneSummary, paneCount: Int) -> IPCPaneSnap
     )
 }
 
-struct DelegatedApprovalSocketScenario {
-    let requestedScope: IPCPermissionScope
-    let approverPrincipalId: UUID
-    let requesterToken: AgentStudioIPCSubjectToken
-    let approverToken: AgentStudioIPCSubjectToken
-}
-
-func makeDelegatedApprovalSocketScenario(fixture: LiveServerFixture) throws -> DelegatedApprovalSocketScenario {
-    let requestedScope = IPCPermissionScope(
-        privilege: .terminalInputWrite,
-        target: .pane(UUID().uuidString),
-        dataScope: .terminalInput
-    )
-    let requester = IPCPrincipal(
-        principalId: UUID(),
-        runtimeId: fixture.runtimeId,
-        accessMode: .agentStudioOnly,
-        kind: .spawnedPaneAgent(boundPaneId: fixture.boundPaneId.uuidString, boundWorkspaceId: nil),
-        approvalAuthority: .noApprovalAuthority
-    )
-    let approver = IPCPrincipal(
-        principalId: UUID(),
-        runtimeId: fixture.runtimeId,
-        accessMode: .agentStudioOnly,
-        kind: .spawnedPaneAgent(boundPaneId: UUID().uuidString, boundWorkspaceId: nil),
-        approvalAuthority: .delegatedApprover(
-            scopes: [
-                IPCApprovalScope(
-                    privilege: requestedScope.privilege,
-                    target: requestedScope.target,
-                    dataScope: requestedScope.dataScope
-                )
-            ]
+private func makeLiveServerBuiltInCatalog(
+    runtimeId: UUID,
+    paneId: UUID
+) throws -> IPCBuiltInMethodCatalog {
+    let illustrativeId = UUIDv7.generate()
+    return try IPCBuiltInMethodCatalog(
+        inputs: IPCBuiltInMethodCatalogInputs(
+            terminalWaitMaximumSeconds: 86_400,
+            relationships: IPCBuiltInMethodRelationshipInputs(
+                paneFocus: .noInteractiveIdentity,
+                paneClose: .noInteractiveIdentity,
+                drawerToggle: .noInteractiveIdentity,
+                drawerAddPane: .noInteractiveIdentity,
+                bridgeDiffLoad: .noInteractiveIdentity,
+                bridgeFileViewOpen: .noInteractiveIdentity
+            ),
+            examples: IPCBuiltInMethodExampleContext(
+                runtimeId: runtimeId,
+                windowId: illustrativeId,
+                workspaceId: illustrativeId,
+                repositoryId: illustrativeId,
+                worktreeId: illustrativeId,
+                tabId: illustrativeId,
+                paneId: paneId,
+                commandId: illustrativeId,
+                correlationId: illustrativeId,
+                subscriptionId: illustrativeId
+            )
         )
     )
-
-    return try DelegatedApprovalSocketScenario(
-        requestedScope: requestedScope,
-        approverPrincipalId: approver.principalId,
-        requesterToken: fixture.server.principalRegistry.issueSubjectToken(for: requester),
-        approverToken: fixture.server.principalRegistry.issueSubjectToken(for: approver)
-    )
-}
-
-func requestDelegatedPermission(
-    connection: UnixSocketConnection,
-    reader: inout TestFrameReader,
-    scenario: DelegatedApprovalSocketScenario
-) throws -> IPCPermissionRequestResult {
-    let requestParams = IPCPermissionRequestParams(
-        scope: scenario.requestedScope,
-        reason: "paired pane",
-        approvalRoute: .delegatedPrincipal(scenario.approverPrincipalId)
-    )
-    try sendRequest(
-        connection: connection,
-        request: JSONRPCClientRequest(
-            id: .number(21),
-            method: "permission.request",
-            params: try JSONRPCCodec.encodeJSONValue(requestParams)
-        )
-    )
-    let permissionRequest = try reader.receiveResponse(connection: connection)
-    #expect(permissionRequest.error == nil)
-    let permissionResult = try decodeResponseResult(
-        IPCPermissionRequestResult.self,
-        from: permissionRequest
-    )
-    #expect(permissionResult.state == .pending)
-    return permissionResult
-}
-
-func resolveDelegatedPermission(
-    connection: UnixSocketConnection,
-    reader: inout TestFrameReader,
-    permissionResult: IPCPermissionRequestResult
-) throws {
-    try assertPendingApprovalVisible(
-        connection: connection,
-        reader: &reader,
-        permissionResult: permissionResult
-    )
-    try sendRequest(
-        connection: connection,
-        request: JSONRPCClientRequest(
-            id: .number(32),
-            method: "permission.resolveRequest",
-            params: .object([
-                "requestId": .string(permissionResult.requestId.uuidString),
-                "decision": .string(ApprovalPolicyDecision.approve.rawValue),
-            ])
-        )
-    )
-    let resolvedApproval = try reader.receiveResponse(connection: connection)
-    #expect(resolvedApproval.error == nil)
-    let resolvedResult = try decodeResponseResult(
-        IPCPermissionRequestResult.self,
-        from: resolvedApproval
-    )
-    #expect(resolvedResult.state == .granted)
-}
-
-func assertPendingApprovalVisible(
-    connection: UnixSocketConnection,
-    reader: inout TestFrameReader,
-    permissionResult: IPCPermissionRequestResult
-) throws {
-    try sendRequest(
-        connection: connection,
-        request: JSONRPCClientRequest(id: .number(31), method: "permission.pendingApprovals", params: .object([:]))
-    )
-    let pendingApprovals = try reader.receiveResponse(connection: connection)
-    #expect(pendingApprovals.error == nil)
-    guard
-        case .object(let pendingResult)? = pendingApprovals.result,
-        case .array(let requests)? = pendingResult["requests"]
-    else {
-        Issue.record("expected pending approval requests array")
-        return
-    }
-    #expect(requests.count == 1)
-    let pendingResultValue = try decodeJSONValue(IPCPermissionRequestResult.self, from: requests[0])
-    #expect(pendingResultValue.requestId == permissionResult.requestId)
-}
-
-func assertGrantIsActive(
-    connection: UnixSocketConnection,
-    reader: inout TestFrameReader,
-    permissionResult: IPCPermissionRequestResult
-) throws {
-    try sendRequest(
-        connection: connection,
-        request: JSONRPCClientRequest(
-            id: .number(22),
-            method: "permission.grantStatus",
-            params: .object(["requestId": .string(permissionResult.requestId.uuidString)])
-        )
-    )
-    let grantStatus = try reader.receiveResponse(connection: connection)
-    let grantStatusResult = try decodeResponseResult(IPCPermissionGrantStatusResult.self, from: grantStatus)
-    #expect(grantStatusResult.state == .granted)
-    #expect(grantStatusResult.active)
 }

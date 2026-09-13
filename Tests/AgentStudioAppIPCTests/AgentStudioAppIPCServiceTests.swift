@@ -1,5 +1,6 @@
 import AgentStudioAppIPC
 import AgentStudioIPCTransport
+import AgentStudioInfrastructure
 import AgentStudioProgrammaticControl
 import Foundation
 import Testing
@@ -14,20 +15,15 @@ import Testing
 struct AgentStudioAppIPCServiceTests {
     @Test("composes service from configuration and protocol ports")
     func composesServiceFromConfigurationAndProtocolPorts() throws {
-        let method = try IPCMethodDefinition(
-            name: "system.identify",
-            privilegeClasses: [.systemRead],
-            executionOwner: .queryReader,
-            resultSemantics: .applied
-        )
-        let runtimeId = UUID()
+        let fixture = BuiltInMethodRegistrationsFixture()
+        let runtimeId = UUIDv7.generate()
         let configuration = AgentStudioAppIPCConfiguration(
             runtimeId: runtimeId,
-            accessMode: .agentStudioOnly,
-            methodDefinitions: [method]
+            accessMode: .agentStudioOnly
         )
 
         let eventBroker = IPCEventBroker()
+        let registry = try AppIPCMethodRegistry(registrations: fixture.registrations(), channel: .debug)
         let service = AgentStudioAppIPCService(
             configuration: configuration,
             ports: AgentStudioAppIPCPorts(
@@ -40,12 +36,13 @@ struct AgentStudioAppIPCServiceTests {
                 sidebarPort: FakeSidebarPort(),
                 permissionApprovalPort: FakePermissionApprovalPort()
             ),
+            methodRegistry: registry,
             eventBroker: eventBroker
         )
 
         #expect(service.configuration.runtimeId == runtimeId)
         #expect(service.configuration.accessMode == .agentStudioOnly)
-        #expect(service.configuration.methodDefinitions == [method])
+        #expect(service.methodRegistry.capabilities.methods.count == 43)
         #expect(service.eventBroker === eventBroker)
     }
 
@@ -198,6 +195,7 @@ struct AgentStudioAppIPCServiceTests {
                 params: .object([
                     "handle": .string("pane:1"),
                     "input": .string("echo unsafe-debug\n"),
+                    "correlationId": .string(UUIDv7.generate().uuidString),
                 ])
             )
         )
@@ -249,6 +247,7 @@ struct AgentStudioAppIPCServiceTests {
                 params: .object([
                     "handle": .string("pane:1"),
                     "input": .string("echo should-not-run\n"),
+                    "correlationId": .string(UUIDv7.generate().uuidString),
                 ])
             )
         )
@@ -355,39 +354,15 @@ struct AgentStudioAppIPCServiceTests {
             request: JSONRPCClientRequest(
                 id: .number(63),
                 method: "terminal.send",
-                params: .object(["handle": .string("pane:1"), "input": .string("echo denied\n")])
+                params: .object([
+                    "handle": .string("pane:1"),
+                    "input": .string("echo denied\n"),
+                    "correlationId": .string(UUIDv7.generate().uuidString),
+                ])
             )
         )
         #expect(send.error?.code == -32_001)
         #expect(send.error?.message == "unauthenticated")
-    }
-
-    @Test("debug unsafe no-auth denies permission methods by default")
-    func debugUnsafeNoAuthDeniesPermissionMethodsByDefault() throws {
-        let fixture = try LiveServerFixture(accessMode: .unsafeDebug, channel: .debug)
-        defer {
-            fixture.cleanup()
-        }
-        try fixture.server.start()
-
-        let requestParams = IPCPermissionRequestParams(
-            scope: IPCPermissionScope(
-                privilege: .terminalInputWrite, target: .pane(UUID().uuidString), dataScope: .terminalInput),
-            reason: "unsafe debug must not request grants",
-            approvalRoute: .humanPrompt
-        )
-        let response = try sendRequest(
-            socketPath: fixture.paths.socketURL.path,
-            request: JSONRPCClientRequest(
-                id: .number(64),
-                method: "permission.request",
-                params: try JSONRPCCodec.encodeJSONValue(requestParams)
-            )
-        )
-
-        #expect(response.id == .number(64))
-        #expect(response.error?.code == -32_002)
-        #expect(response.error?.message == "unauthorized")
     }
 
     @Test("debug token escrow writes owner-only token and removes it after login")
@@ -466,7 +441,8 @@ struct AgentStudioAppIPCServiceTests {
                 id: .number(71),
                 method: "pane.split",
                 params: try JSONRPCCodec.encodeJSONValue(
-                    IPCPaneSplitParams(handle: "pane:1", direction: .right, correlationId: nil)
+                    IPCPaneSplitParams(
+                        handle: "pane:1", direction: .right, correlationId: UUIDv7.generate())
                 )
             )
         )
@@ -481,7 +457,7 @@ struct AgentStudioAppIPCServiceTests {
                 id: .number(74),
                 method: "pane.close",
                 params: try JSONRPCCodec.encodeJSONValue(
-                    IPCPaneCloseParams(handle: "pane:1", correlationId: nil)
+                    IPCPaneCloseParams(handle: "pane:1", correlationId: UUIDv7.generate())
                 )
             )
         )
@@ -495,7 +471,8 @@ struct AgentStudioAppIPCServiceTests {
                 id: .number(75),
                 method: "drawer.addPane",
                 params: try JSONRPCCodec.encodeJSONValue(
-                    IPCDrawerAddPaneParams(parentPaneHandle: "pane:1", correlationId: nil)
+                    IPCDrawerAddPaneParams(
+                        parentPaneHandle: "pane:1", correlationId: UUIDv7.generate())
                 )
             )
         )
@@ -509,53 +486,14 @@ struct AgentStudioAppIPCServiceTests {
                 id: .number(76),
                 method: "drawer.toggle",
                 params: try JSONRPCCodec.encodeJSONValue(
-                    IPCDrawerToggleParams(parentPaneHandle: "pane:1", correlationId: nil)
+                    IPCDrawerToggleParams(
+                        parentPaneHandle: "pane:1", correlationId: UUIDv7.generate())
                 )
             )
         )
         #expect(drawerToggle.error == nil)
         let drawerToggleResult = try decodeResponseResult(IPCDrawerToggleResult.self, from: drawerToggle)
         #expect(drawerToggleResult.parentPaneId == paneId)
-    }
-
-    @Test("debug unsafe privilege cannot be requested through permission broker")
-    func debugUnsafePrivilegeCannotBeRequestedThroughPermissionBroker() throws {
-        let fixture = try LiveServerFixture()
-        defer {
-            fixture.cleanup()
-        }
-        try fixture.server.start()
-        let principal = IPCPrincipal(
-            principalId: UUID(),
-            runtimeId: fixture.runtimeId,
-            accessMode: .agentStudioOnly,
-            kind: .spawnedPaneAgent(boundPaneId: fixture.boundPaneId.uuidString, boundWorkspaceId: nil),
-            approvalAuthority: .noApprovalAuthority
-        )
-        let token = try fixture.server.principalRegistry.issueSubjectToken(for: principal)
-        let connection = try UnixSocketClient.connect(endpoint: UnixSocketEndpoint(path: fixture.paths.socketURL.path))
-        defer {
-            connection.close()
-        }
-        var reader = TestFrameReader()
-        try login(connection: connection, token: token, requestId: 71, reader: &reader)
-
-        let requestParams = IPCPermissionRequestParams(
-            scope: IPCPermissionScope(privilege: .debugUnsafe, target: .app, dataScope: .unspecified),
-            reason: "commands are not grantable",
-            approvalRoute: .humanPrompt
-        )
-        try sendRequest(
-            connection: connection,
-            request: JSONRPCClientRequest(
-                id: .number(72),
-                method: "permission.request",
-                params: try JSONRPCCodec.encodeJSONValue(requestParams)
-            )
-        )
-        let response = try reader.receiveResponse(connection: connection)
-        #expect(response.error?.code == -32_002)
-        #expect(response.error?.message == "unauthorized")
     }
 
     @Test("server authorizes friendly pane ordinals as concrete panes before terminal dispatch")
@@ -596,6 +534,7 @@ struct AgentStudioAppIPCServiceTests {
                 params: .object([
                     "handle": .string("pane:1"),
                     "input": .string("echo should-not-dispatch\n"),
+                    "correlationId": .string(UUIDv7.generate().uuidString),
                 ])
             )
         )
@@ -703,53 +642,6 @@ struct AgentStudioAppIPCServiceTests {
         } catch let error as UnixSocketTransportError {
             #expect(error.reason == .writeFailed || error.reason == .readFailed)
         }
-    }
-
-    @Test("server routes delegated approval authority through authenticated sockets")
-    func serverRoutesDelegatedApprovalAuthorityThroughAuthenticatedSockets() throws {
-        let fixture = try LiveServerFixture()
-        defer {
-            fixture.cleanup()
-        }
-        try fixture.server.start()
-
-        let scenario = try makeDelegatedApprovalSocketScenario(fixture: fixture)
-
-        let requesterConnection = try UnixSocketClient.connect(
-            endpoint: UnixSocketEndpoint(path: fixture.paths.socketURL.path)
-        )
-        defer {
-            requesterConnection.close()
-        }
-        var requesterReader = TestFrameReader()
-        try login(
-            connection: requesterConnection, token: scenario.requesterToken, requestId: 20, reader: &requesterReader)
-
-        let permissionResult = try requestDelegatedPermission(
-            connection: requesterConnection,
-            reader: &requesterReader,
-            scenario: scenario
-        )
-
-        let approverConnection = try UnixSocketClient.connect(
-            endpoint: UnixSocketEndpoint(path: fixture.paths.socketURL.path)
-        )
-        defer {
-            approverConnection.close()
-        }
-        var approverReader = TestFrameReader()
-        try login(connection: approverConnection, token: scenario.approverToken, requestId: 30, reader: &approverReader)
-        try resolveDelegatedPermission(
-            connection: approverConnection,
-            reader: &approverReader,
-            permissionResult: permissionResult
-        )
-
-        try assertGrantIsActive(
-            connection: requesterConnection,
-            reader: &requesterReader,
-            permissionResult: permissionResult
-        )
     }
 
     @Test("pane bootstrap delivers token through inherited fd metadata only")

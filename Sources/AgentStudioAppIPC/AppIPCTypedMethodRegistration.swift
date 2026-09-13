@@ -21,15 +21,18 @@ package struct AppIPCTargetResolution<Parameters: Sendable>: Sendable {
     package let parameters: Parameters
     package let canonicalHandle: IPCHandle?
     package let target: IPCTargetScope
+    package let requiredScopes: [IPCPermissionScope]
 
     package init(
         parameters: Parameters,
         canonicalHandle: IPCHandle?,
-        target: IPCTargetScope
+        target: IPCTargetScope,
+        requiredScopes: [IPCPermissionScope] = []
     ) {
         self.parameters = parameters
         self.canonicalHandle = canonicalHandle
         self.target = target
+        self.requiredScopes = requiredScopes
     }
 }
 
@@ -52,6 +55,18 @@ package struct AppIPCMethodAuthorizationRequest: Equatable, Sendable {
     package let requiredPrivileges: Set<IPCPrivilegeClass>
     package let dataScope: IPCDataScope
     package let target: IPCTargetScope
+    package let additionalScopes: [IPCPermissionScope]
+
+    package init(
+        methodName: String, requiredPrivileges: Set<IPCPrivilegeClass>, dataScope: IPCDataScope, target: IPCTargetScope,
+        additionalScopes: [IPCPermissionScope] = []
+    ) {
+        self.methodName = methodName
+        self.requiredPrivileges = requiredPrivileges
+        self.dataScope = dataScope
+        self.target = target
+        self.additionalScopes = additionalScopes
+    }
 }
 
 package struct AppIPCTypedMethodRegistration<
@@ -134,7 +149,8 @@ package struct AppIPCTypedMethodRegistration<
                             methodName: descriptor.name,
                             requiredPrivileges: descriptor.requiredPrivileges,
                             dataScope: descriptor.dataScope,
-                            target: resolution.target
+                            target: resolution.target,
+                            additionalScopes: resolution.requiredScopes
                         )
                     )
                 }

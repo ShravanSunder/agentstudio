@@ -1,304 +1,124 @@
 import AgentStudioAppIPC
-import AgentStudioIPCTransport
+import AgentStudioInfrastructure
 import AgentStudioProgrammaticControl
 import Foundation
 import Testing
 
-@Suite("AgentStudio App IPC service command methods")
+@Suite("AgentStudio App IPC typed command port")
 struct AgentStudioAppIPCServiceCommandTests {
-    @Test("Arrangements presentation requires an explicit app UI grant")
-    func arrangementsPresentationRequiresExplicitAppUIGrant() async throws {
-        let windowId = UUID()
-        let tabId = UUID()
-        let paneId = UUID()
-        let correlationId = UUID()
-        let fixture = try LiveServerFixture(
-            accessMode: .unsafeDebug,
-            channel: .debug,
-            uiPresentationPort: FakeUIPresentationPort(
-                workspaceWindowId: windowId,
-                arrangementTabId: tabId,
-                arrangementContextPaneId: paneId
-            )
+    @Test("typed command preparation rejects unknown command identity without execution")
+    @MainActor
+    func preparationRejectsUnknownIdentityWithoutExecution() async throws {
+        let port = FakeCommandPort()
+        let request = IPCCommandExecutionRequest(
+            commandId: IPCCommandIdentifier(rawValue: "futureCommand"),
+            correlationId: UUIDv7.generate(),
+            arguments: .noArguments
         )
-        defer {
-            fixture.cleanup()
-        }
-        try fixture.server.start()
 
-        let unsafeConnection = try await authenticatedConnection(
-            fixture: fixture,
-            kind: .unsafeDebugClient,
-            requestId: 80
-        )
-        defer {
-            unsafeConnection.connection.close()
-        }
-        try sendRequest(
-            connection: unsafeConnection.connection,
-            request: JSONRPCClientRequest(
-                id: .number(81),
-                method: "ui.arrangements.open",
-                params: try JSONRPCCodec.encodeJSONValue(
-                    IPCArrangementsOpenParams(
-                        workspaceWindowId: windowId,
-                        targetPaneHandle: "pane:\(paneId.uuidString)",
-                        correlationId: correlationId
-                    )
-                )
+        await #expect(throws: AppIPCCommandError.self) {
+            try await port.prepareCommand(
+                request,
+                principal: diagnosticCommandPrincipal(),
+                tools: unusedCommandTargetTools()
             )
-        )
-        let unsafeResponse = try await unsafeConnection.receiveResponse(expectedRequestId: 81)
-        #expect(unsafeResponse.error?.code == -32_002)
-        #expect(unsafeResponse.error?.message == "unauthorized")
+        }
+        #expect(port.receivedExecutionRequests.isEmpty)
+    }
 
-        let automationConnection = try await authenticatedConnection(
-            fixture: fixture,
-            kind: .automationClient,
-            requestId: 82,
-            grantedScopes: [
-                IPCPermissionScope(privilege: .uiPresent, target: .app, dataScope: .uiSurface)
-            ]
-        )
-        defer {
-            automationConnection.connection.close()
-        }
-        try sendRequest(
-            connection: automationConnection.connection,
-            request: JSONRPCClientRequest(
-                id: .number(83),
-                method: "ui.arrangements.open",
-                params: try JSONRPCCodec.encodeJSONValue(
-                    IPCArrangementsOpenParams(
-                        workspaceWindowId: windowId,
-                        targetPaneHandle: "pane:\(paneId.uuidString)",
-                        correlationId: correlationId
-                    )
-                )
+    @Test("typed command preparation rejects a wrong argument variant without execution")
+    @MainActor
+    func preparationRejectsWrongVariantWithoutExecution() async throws {
+        let commandId = IPCCommandIdentifier(rawValue: "fixtureCommand")
+        let correlationId = UUIDv7.generate()
+        let result = IPCCommandExecutionResult.applied(
+            IPCCommandAppliedResult(commandId: commandId, correlationId: correlationId))
+        let descriptor = try makeFakeCommandDescriptor(
+            FakeCommandDescriptorInput(
+                id: commandId,
+                executionMode: .headless,
+                arguments: .noArguments,
+                requiredPrivileges: [.appCommandExecute],
+                dataScope: .unspecified,
+                allowedTargetKinds: [],
+                result: result
             )
         )
-        let openResponse = try await automationConnection.receiveResponse(expectedRequestId: 83)
-        #expect(openResponse.error == nil)
+        let port = FakeCommandPort(commands: [descriptor])
+        let request = IPCCommandExecutionRequest(
+            commandId: commandId,
+            correlationId: correlationId,
+            arguments: .repository(IPCRepositoryCommandArguments(repoId: UUIDv7.generate()))
+        )
+
+        await #expect(throws: AppIPCCommandError.self) {
+            try await port.prepareCommand(
+                request,
+                principal: diagnosticCommandPrincipal(),
+                tools: unusedCommandTargetTools()
+            )
+        }
+        #expect(port.receivedExecutionRequests.isEmpty)
+    }
+
+    @Test("typed command preparation preserves descriptor scopes and execution result")
+    @MainActor
+    func preparationPreservesScopesAndExecutionResult() async throws {
+        let commandId = IPCCommandIdentifier(rawValue: "fixtureCommand")
+        let correlationId = UUIDv7.generate()
+        let result = IPCCommandExecutionResult.presented(
+            IPCCommandPresentedResult(commandId: commandId, correlationId: correlationId))
+        let descriptor = try makeFakeCommandDescriptor(
+            FakeCommandDescriptorInput(
+                id: commandId,
+                executionMode: .uiPresentation,
+                arguments: .noArguments,
+                requiredPrivileges: [.uiPresent],
+                dataScope: .uiSurface,
+                allowedTargetKinds: [],
+                result: result
+            )
+        )
+        let port = FakeCommandPort(
+            commands: [descriptor],
+            executionResultsByCommandId: [commandId.rawValue: result],
+            requiredPermissionTargetByPrivilege: [.uiPresent: .app]
+        )
+        let request = IPCCommandExecutionRequest(
+            commandId: commandId,
+            correlationId: correlationId,
+            arguments: .noArguments
+        )
+
+        let prepared = try await port.prepareCommand(
+            request,
+            principal: diagnosticCommandPrincipal(),
+            tools: unusedCommandTargetTools()
+        )
+        let executed = try await port.executeCommand(prepared.request)
+
+        #expect(prepared.target == .app)
         #expect(
-            try decodeResponseResult(IPCArrangementsOpenResult.self, from: openResponse)
-                == IPCArrangementsOpenResult(
-                    workspaceWindowId: windowId,
-                    tabId: tabId,
-                    contextPaneId: paneId,
-                    correlationId: correlationId
-                )
+            prepared.requiredScopes
+                == [IPCPermissionScope(privilege: .uiPresent, target: .app, dataScope: .uiSurface)]
         )
-    }
-
-    @Test("command execution auth separates unsafe debug from automation and explicit UI presentation")
-    func commandExecutionAuthSeparatesUnsafeDebugFromAutomationAndExplicitUIPresentation() async throws {
-        let windowId = UUID()
-        let commandId = IPCCommandIdentifier(rawValue: "showCommandBarCommands")
-        let fixture = try LiveServerFixture(
-            accessMode: .unsafeDebug,
-            channel: .debug,
-            commandPort: FakeCommandPort(
-                workspaceWindowId: windowId,
-                activeScope: .commands,
-                commands: [
-                    IPCCommandListEntry(
-                        id: commandId,
-                        title: "Show Commands",
-                        executionModes: [.uiPresentation],
-                        targetKinds: [],
-                        requiredPrivileges: [.uiPresent]
-                    )
-                ]
-            ),
-            uiPresentationPort: FakeUIPresentationPort(workspaceWindowId: windowId)
-        )
-        defer {
-            fixture.cleanup()
-        }
-        try fixture.server.start()
-
-        let list = try await sendRequestWithoutBlockingMainActor(
-            socketPath: fixture.paths.socketURL.path,
-            request: JSONRPCClientRequest(id: .number(67), method: "command.list", params: .object([:]))
-        )
-        #expect(list.error == nil)
-        let listResult = try decodeResponseResult(IPCCommandListResult.self, from: list)
-        #expect(listResult.commands.map(\.id) == [commandId])
-        #expect(listResult.commands.first?.executionModes == [.uiPresentation])
-        #expect(listResult.commands.first?.requiredPrivileges == [.uiPresent])
-
-        let unsafeConnection = try await authenticatedConnection(
-            fixture: fixture,
-            kind: .unsafeDebugClient,
-            requestId: 68
-        )
-        defer {
-            unsafeConnection.connection.close()
-        }
-        let unsafeExecute = try await executeCommand(
-            connection: unsafeConnection.connection,
-            reader: unsafeConnection,
-            requestId: 69,
-            commandId: commandId
-        )
-        #expect(unsafeExecute.error?.code == -32_002)
-        #expect(unsafeExecute.error?.message == "unauthorized")
-
-        let automationConnection = try await authenticatedConnection(
-            fixture: fixture,
-            kind: .automationClient,
-            requestId: 70
-        )
-        defer {
-            automationConnection.connection.close()
-        }
-        let automationWithoutUIPresentExecute = try await executeCommand(
-            connection: automationConnection.connection,
-            reader: automationConnection,
-            requestId: 71,
-            commandId: commandId
-        )
-        #expect(automationWithoutUIPresentExecute.error?.code == -32_002)
-        #expect(automationWithoutUIPresentExecute.error?.message == "unauthorized")
-
-        let presentationConnection = try await authenticatedConnection(
-            fixture: fixture,
-            kind: .automationClient,
-            requestId: 72,
-            grantedScopes: [
-                IPCPermissionScope(privilege: .appCommandExecute, target: .app, dataScope: .unspecified),
-                IPCPermissionScope(privilege: .uiPresent, target: .app, dataScope: .uiSurface),
-            ]
-        )
-        defer {
-            presentationConnection.connection.close()
-        }
-        let presentationExecute = try await executeCommand(
-            connection: presentationConnection.connection,
-            reader: presentationConnection,
-            requestId: 73,
-            commandId: commandId
-        )
-        #expect(presentationExecute.error?.code == -32_003)
-        #expect(presentationExecute.error?.message == "requires presentation")
-
-        try sendRequest(
-            connection: unsafeConnection.connection,
-            request: JSONRPCClientRequest(
-                id: .number(74),
-                method: "ui.commandBar.open",
-                params: try JSONRPCCodec.encodeJSONValue(
-                    IPCCommandBarOpenParams(workspaceWindowId: windowId, scope: .commands, correlationId: nil)
-                )
-            )
-        )
-        let open = try await unsafeConnection.receiveResponse(expectedRequestId: 74)
-        #expect(open.error == nil)
-        let openResult = try decodeResponseResult(IPCCommandBarOpenResult.self, from: open)
-        #expect(openResult.workspaceWindowId == windowId)
-        #expect(openResult.scope == IPCCommandBarScope.commands)
-    }
-
-    @Test("spawned pane agents cannot execute command methods")
-    func spawnedPaneAgentsCannotExecuteCommandMethods() async throws {
-        let fixture = try LiveServerFixture(
-            commandPort: FakeCommandPort(workspaceWindowId: UUID(), activeScope: .commands)
-        )
-        defer {
-            fixture.cleanup()
-        }
-        try fixture.server.start()
-        let principal = IPCPrincipal(
-            principalId: UUID(),
-            runtimeId: fixture.runtimeId,
-            accessMode: .agentStudioOnly,
-            kind: .spawnedPaneAgent(boundPaneId: fixture.boundPaneId.uuidString, boundWorkspaceId: nil),
-            approvalAuthority: .noApprovalAuthority
-        )
-        let token = try fixture.server.principalRegistry.issueSubjectToken(for: principal)
-        let connection = try UnixSocketClient.connect(endpoint: UnixSocketEndpoint(path: fixture.paths.socketURL.path))
-        defer {
-            connection.close()
-        }
-        var reader = TestFrameReader()
-        try await loginWithoutBlockingMainActor(connection: connection, token: token, requestId: 69, reader: &reader)
-
-        try sendRequest(
-            connection: connection,
-            request: JSONRPCClientRequest(
-                id: .number(70),
-                method: "command.execute",
-                params: try JSONRPCCodec.encodeJSONValue(
-                    IPCCommandExecuteParams(
-                        commandId: IPCCommandIdentifier(rawValue: "showCommandBarCommands"),
-                        targetHandle: nil
-                    )
-                )
-            )
-        )
-        let execute = try await reader.receiveResponseWithoutBlockingMainActor(connection: connection)
-        #expect(execute.error?.code == -32_002)
-        #expect(execute.error?.message == "unauthorized")
+        #expect(executed == result)
+        #expect(port.receivedExecutionRequests == [request])
     }
 }
 
-private final class AuthenticatedIPCConnection {
-    let connection: UnixSocketConnection
-    var reader: TestFrameReader
-
-    init(connection: UnixSocketConnection, reader: TestFrameReader) {
-        self.connection = connection
-        self.reader = reader
-    }
-
-    func receiveResponse(expectedRequestId: Int) async throws -> JSONRPCResponseMessage {
-        let response = try await reader.receiveResponseWithoutBlockingMainActor(connection: connection)
-        #expect(response.id == .number(expectedRequestId))
-        return response
-    }
-}
-
-private func authenticatedConnection(
-    fixture: LiveServerFixture,
-    kind: IPCPrincipalKind,
-    requestId: Int,
-    grantedScopes: [IPCPermissionScope] = []
-) async throws -> AuthenticatedIPCConnection {
-    let principal = IPCPrincipal(
-        principalId: UUID(),
-        runtimeId: fixture.runtimeId,
+private func diagnosticCommandPrincipal() -> IPCPrincipal {
+    IPCPrincipal(
+        principalId: UUIDv7.generate(),
+        runtimeId: UUIDv7.generate(),
         accessMode: .unsafeDebug,
-        kind: kind,
+        kind: .automationClient,
         approvalAuthority: .noApprovalAuthority
     )
-    for scope in grantedScopes {
-        fixture.server.grantLedger.grant(scope, to: principal.principalId)
-    }
-    let token = try fixture.server.principalRegistry.issueSubjectToken(for: principal)
-    let connection = try UnixSocketClient.connect(endpoint: UnixSocketEndpoint(path: fixture.paths.socketURL.path))
-    var reader = TestFrameReader()
-    try await loginWithoutBlockingMainActor(connection: connection, token: token, requestId: requestId, reader: &reader)
-    return AuthenticatedIPCConnection(connection: connection, reader: reader)
 }
 
-private func executeCommand(
-    connection: UnixSocketConnection,
-    reader: AuthenticatedIPCConnection,
-    requestId: Int,
-    commandId: IPCCommandIdentifier
-) async throws -> JSONRPCResponseMessage {
-    try sendRequest(
-        connection: connection,
-        request: JSONRPCClientRequest(
-            id: .number(requestId),
-            method: "command.execute",
-            params: try JSONRPCCodec.encodeJSONValue(
-                IPCCommandExecuteParams(
-                    commandId: commandId,
-                    targetHandle: nil
-                )
-            )
-        )
-    )
-    return try await reader.receiveResponse(expectedRequestId: requestId)
+private func unusedCommandTargetTools() -> AppIPCTargetResolutionTools {
+    AppIPCTargetResolutionTools(canonicalizePaneHandle: { _ in
+        throw AppIPCCommandError(reason: .targetNotFound)
+    })
 }

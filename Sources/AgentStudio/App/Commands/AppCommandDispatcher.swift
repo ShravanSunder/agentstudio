@@ -1,6 +1,7 @@
 import AgentStudioCommandBar
 import AgentStudioCore
 import AgentStudioInfrastructure
+import AgentStudioProgrammaticControl
 import AgentStudioRepoExplorer
 import Foundation
 import Observation
@@ -59,13 +60,7 @@ final class AppCommandDispatcher: AppCommandDispatching {
             Self.logger.warning("Command request rejected: \(request.command.rawValue, privacy: .public)")
             return .unsupportedCommand
         }
-        switch request.arguments {
-        case .noArguments:
-            break
-        case .inboxRowStateFilter, .inboxContentMode:
-            guard let appCommandRouter else { return .unsupportedCommand }
-            return appCommandRouter.execute(request)
-        }
+        guard request.arguments == .noArguments else { return .unsupportedCommand }
 
         if let appCommandRouter {
             let outcome = appCommandRouter.execute(request)
@@ -121,6 +116,29 @@ final class AppCommandDispatcher: AppCommandDispatching {
         }
         handler.execute(command, target: target, targetType: targetType)
         return true
+    }
+
+    func dispatchHeadlessIPC(
+        _ command: AppCommand,
+        target: UUID,
+        targetType: SearchItemType,
+        workspaceWindowId: UUID?
+    ) async -> Bool {
+        guard
+            canDispatch(
+                command,
+                target: target,
+                targetType: targetType,
+                executionContext: .headlessIPC
+            ),
+            let handler
+        else {
+            return false
+        }
+        if let workspaceWindowId, !handler.ownsWorkspaceWindow(workspaceWindowId) {
+            return false
+        }
+        return await handler.executeHeadlessIPC(command, target: target, targetType: targetType)
     }
 
     func dispatchExtractPaneToTab(tabId: UUID, paneId: UUID, targetTabInsertionIndex: Int?) {
@@ -223,15 +241,27 @@ final class AppCommandDispatcher: AppCommandDispatching {
     ) -> Bool {
         switch executionContext {
         case .interactive:
-            definition.targeting.supports(targetType: targetType)
+            return definition.targeting.supports(targetType: targetType)
         case .headlessIPC:
-            switch definition.command.ipcSpec.exposure {
-            case .headless(let durableTarget, _),
-                .headlessAndInteractive(let durableTarget, _):
-                durableTarget.supports(targetType: targetType)
-            case .notExposed, .interactive, .uiPresentation:
-                false
-            }
+            let ipcSpec = definition.command.ipcSpec
+            guard ipcSpec.exposure == .allChannels,
+                ipcSpec.executionMode == .headless,
+                let targetKind = ipcHandleKind(for: targetType)
+            else { return false }
+            return ipcSpec.allowedTargetKinds.contains(targetKind)
+        }
+    }
+
+    private static func ipcHandleKind(for targetType: SearchItemType) -> IPCHandleKind? {
+        switch targetType {
+        case .repo:
+            .repo
+        case .tab:
+            .tab
+        case .pane:
+            .pane
+        case .worktree, .floatingTerminal:
+            nil
         }
     }
 

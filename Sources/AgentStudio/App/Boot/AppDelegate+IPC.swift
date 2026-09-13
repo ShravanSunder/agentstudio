@@ -1,4 +1,5 @@
 import AgentStudioAppIPC
+import AgentStudioCore
 import AgentStudioInfrastructure
 import AgentStudioProgrammaticControl
 import Foundation
@@ -8,8 +9,7 @@ extension AppDelegate {
         guard appIPCServer == nil else { return }
 
         do {
-            let ipcComposition = try AgentStudioIPCContributionRegistry.phaseAComposition()
-            let runtimeId = UUID()
+            let runtimeId = UUIDv7.generate()
             let accessMode = Self.appIPCAccessMode()
             let rootDirectory = AppDataPaths.rootDirectory()
             let paths = AgentStudioIPCPathResolver().paths(
@@ -17,63 +17,80 @@ extension AppDelegate {
                 socketDirectory: Self.appIPCSocketDirectory()
             )
             let windowLifecycleReader = WorkspaceWindowLifecycleReader(lifecycleStore: windowLifecycleStore)
-            guard let paneFocusControl = mainWindowController?.makePaneFocusAppControl(store: store) else {
+            guard mainWindowController?.acceptsIPCCommands == true else {
                 appLogger.warning("App IPC server skipped: pane focus control is unavailable")
                 return
             }
 
-            let service = try AgentStudioAppIPCService(
-                configuration: AgentStudioAppIPCConfiguration(
+            let ports = AgentStudioAppIPCPorts(
+                queryPort: AgentStudioIPCQueryAdapter(
                     runtimeId: runtimeId,
                     accessMode: accessMode,
-                    methodDefinitions: ipcComposition.baseDefinitions,
+                    appVersion: Self.appIPCAppVersion(),
+                    workspaceStore: store,
+                    windowLifecycleReader: windowLifecycleReader
+                ),
+                layoutPort: AgentStudioIPCLayoutAdapter(
+                    workspaceStore: store,
+                    windowLifecycleReader: windowLifecycleReader,
+                    paneFocusControl: self,
+                    workspaceActionExecutor: executor
+                ),
+                runtimePort: AgentStudioIPCRuntimeAdapter(
+                    workspaceStore: store,
+                    runtimeRegistry: workspaceSurfaceCoordinator.runtimeRegistry,
+                    commandDispatcher: workspaceSurfaceCoordinator
+                ),
+                bridgePort: AgentStudioIPCBridgeAdapter(
+                    workspaceStore: store,
+                    viewRegistry: viewRegistry,
+                    actionExecutor: executor
+                ),
+                commandPort: AgentStudioIPCCommandAdapter(
+                    workspaceId: store.identityAtom.workspaceId,
+                    targetAuthorizer: WorkspaceDurableTargetAuthorizationPort(workspaceStore: store),
+                    shellCommandHandler: self
+                ),
+                uiPresentationPort: AgentStudioIPCUIPresentationAdapter(
+                    presenter: self,
+                    targetAuthorizer: WorkspaceDurableTargetAuthorizationPort(workspaceStore: store)
+                ),
+                sidebarPort: AgentStudioIPCSidebarAdapter(
+                    repoPrefs: atomStore.repoExplorerSidebarPrefs,
+                    sidebarState: atomStore.core.workspaceSidebarState
+                ),
+                permissionApprovalPort: AgentStudioIPCHumanApprovalPort()
+            )
+            let eventBroker = IPCEventBroker()
+            let catalog = try IPCBuiltInMethodCatalog(
+                inputs: .init(
+                    terminalWaitMaximumSeconds: AppPolicies.IPC.maximumTerminalWaitSeconds,
+                    relationships: .init(
+                        paneFocus: .appCommand(identifier: AppCommand.focusPane.rawValue),
+                        paneClose: .appCommand(identifier: AppCommand.closePane.rawValue),
+                        drawerToggle: .appCommand(identifier: AppCommand.toggleDrawer.rawValue),
+                        drawerAddPane: .appCommand(identifier: AppCommand.addDrawerPane.rawValue),
+                        bridgeDiffLoad: .appCommand(identifier: AppCommand.showBridgeReview.rawValue),
+                        bridgeFileViewOpen: .appCommand(identifier: AppCommand.showBridgeFiles.rawValue)
+                    ), examples: .init(illustrativeIdentifier: UUIDv7.generate())
+                ))
+            var registrations = try AppIPCBuiltInMethodRegistrations.make(
+                inputs: .init(
+                    catalog: catalog, runtimeId: runtimeId, ports: ports, eventBroker: eventBroker
+                ))
+            let commandComposition = try IPCCommandMethodComposition(
+                compatibility: .current, commands: ports.commandPort.listCommands().commands
+            )
+            registrations += try AppIPCCommandMethodRegistrations.make(
+                composition: commandComposition, port: ports.commandPort)
+            let registry = try AppIPCMethodRegistry(registrations: registrations, channel: Self.appIPCChannel())
+            let service = AgentStudioAppIPCService(
+                configuration: AgentStudioAppIPCConfiguration(
+                    runtimeId: runtimeId, accessMode: accessMode,
                     debugTokenEscrowEnabled: Self.appIPCDebugTokenEscrowEnabled(),
                     debugTokenEscrowPermissionScopes: Self.debugAutomationIPCPermissionScopes(
-                        workspaceId: store.identityAtom.workspaceId
-                    )
-                ),
-                ports: AgentStudioAppIPCPorts(
-                    queryPort: AgentStudioIPCQueryAdapter(
-                        runtimeId: runtimeId,
-                        accessMode: accessMode,
-                        appVersion: Self.appIPCAppVersion(),
-                        methodRegistry: ipcComposition.methodRegistry,
-                        workspaceStore: store,
-                        windowLifecycleReader: windowLifecycleReader
-                    ),
-                    layoutPort: AgentStudioIPCLayoutAdapter(
-                        workspaceStore: store,
-                        windowLifecycleReader: windowLifecycleReader,
-                        paneFocusControl: paneFocusControl,
-                        workspaceActionExecutor: executor
-                    ),
-                    runtimePort: AgentStudioIPCRuntimeAdapter(
-                        workspaceStore: store,
-                        runtimeRegistry: workspaceSurfaceCoordinator.runtimeRegistry,
-                        commandDispatcher: workspaceSurfaceCoordinator
-                    ),
-                    bridgePort: AgentStudioIPCBridgeAdapter(
-                        workspaceStore: store,
-                        viewRegistry: viewRegistry,
-                        actionExecutor: executor
-                    ),
-                    commandPort: AgentStudioIPCCommandAdapter(
-                        workspaceId: store.identityAtom.workspaceId,
-                        targetAuthorizer: WorkspaceDurableTargetAuthorizationPort(workspaceStore: store),
-                        windowLifecycleReader: windowLifecycleReader,
-                        shellCommandHandler: self
-                    ),
-                    uiPresentationPort: AgentStudioIPCUIPresentationAdapter(
-                        presenter: self,
-                        targetAuthorizer: WorkspaceDurableTargetAuthorizationPort(workspaceStore: store)
-                    ),
-                    sidebarPort: AgentStudioIPCSidebarAdapter(
-                        repoPrefs: atomStore.repoExplorerSidebarPrefs,
-                        sidebarState: atomStore.core.workspaceSidebarState
-                    ),
-                    permissionApprovalPort: AgentStudioIPCHumanApprovalPort()
-                ),
-                methodContributions: ipcComposition.methodContributions
+                        workspaceId: store.identityAtom.workspaceId)
+                ), ports: ports, methodRegistry: registry, eventBroker: eventBroker
             )
             let server = AgentStudioAppIPCServer(
                 service: service,
@@ -172,5 +189,16 @@ extension AppDelegate {
         #else
             return nil
         #endif
+    }
+}
+
+extension AppDelegate: PaneFocusAppControlling {
+    func focusPane(_ paneId: UUID) throws {
+        guard let controller = mainWindowController, controller.acceptsIPCCommands,
+            let focusControl = controller.makePaneFocusAppControl(store: store)
+        else {
+            throw AppIPCLayoutError(reason: .noActiveWindow)
+        }
+        try focusControl.focusPane(paneId)
     }
 }

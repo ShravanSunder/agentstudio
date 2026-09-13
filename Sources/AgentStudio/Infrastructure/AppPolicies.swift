@@ -2,6 +2,9 @@ import CoreGraphics
 import Foundation
 
 package enum AppPolicies {
+    package enum IPC {
+        package static let maximumTerminalWaitSeconds: Double = 86_400
+    }
     package enum BackgroundFactApplyGovernor {
         package static let tickCadence: Duration = .milliseconds(16)
         package static let drainBudget: Duration = .milliseconds(4)

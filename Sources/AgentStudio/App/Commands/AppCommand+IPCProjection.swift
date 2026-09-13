@@ -1,323 +1,80 @@
 import AgentStudioCore
-import AgentStudioInboxNotification
 import AgentStudioProgrammaticControl
-import AgentStudioRepoExplorer
 import Foundation
 
-struct AppCommandIPCSpec: Equatable, Sendable {
-    let exposure: AppCommandIPCExposure
-    let argumentContract: AppCommandIPCArgumentContract
+struct AppCommandIPCSpec: Sendable {
+    let exposure: IPCMethodExposure
+    let executionMode: IPCCommandExecutionMode
+    let argumentVariants: [IPCCommandArgumentVariant]
+    let requiredPrivilege: IPCPrivilegeClass
+    let allowedTargetKinds: Set<IPCHandleKind>
+    let resultVariants: [IPCCommandResultVariant]
 
-    var argumentSchema: [IPCCommandArgumentSchema] {
-        argumentContract.argumentSchema
-    }
-}
-
-enum AppCommandIPCExposure: Equatable, Sendable {
-    case notExposed
-    case interactive(
-        durableTarget: AppCommandIPCDurableTargetContract,
-        requiredPrivilege: IPCPrivilegeClass
-    )
-    case uiPresentation
-    case headless(
-        durableTarget: AppCommandIPCDurableTargetContract,
-        requiredPrivilege: IPCPrivilegeClass
-    )
-    case headlessAndInteractive(
-        durableTarget: AppCommandIPCDurableTargetContract,
-        requiredPrivilege: IPCPrivilegeClass
-    )
-
-    var executionModes: [IPCCommandExecutionMode] {
-        switch self {
-        case .notExposed:
-            []
-        case .interactive:
-            [.requiresInteractiveInput]
-        case .uiPresentation:
-            [.uiPresentation]
-        case .headless:
-            [.headless]
-        case .headlessAndInteractive:
-            [.headless, .requiresInteractiveInput]
-        }
+    func descriptorInput(
+        definition: AppCommandSpec,
+        examples: [IPCCommandExample]
+    ) -> IPCCommandDescriptorInput {
+        IPCCommandDescriptorInput(
+            id: IPCCommandIdentifier(rawValue: definition.command.rawValue),
+            title: definition.label,
+            description: definition.helpText,
+            exposure: exposure,
+            executionMode: executionMode,
+            argumentVariants: argumentVariants,
+            requiredPrivileges: [.appCommandExecute, requiredPrivilege],
+            dataScope: Self.dataScope(for: requiredPrivilege),
+            allowedTargetKinds: allowedTargetKinds,
+            resultVariants: resultVariants,
+            examples: examples
+        )
     }
 
-    var durableTarget: AppCommandIPCDurableTargetContract {
-        switch self {
-        case .notExposed, .uiPresentation:
-            .targetless
-        case .interactive(let durableTarget, _),
-            .headless(let durableTarget, _),
-            .headlessAndInteractive(let durableTarget, _):
-            durableTarget
-        }
-    }
-
-    var requiredPrivileges: [IPCPrivilegeClass] {
-        switch self {
-        case .notExposed:
-            []
-        case .uiPresentation:
-            [.uiPresent]
-        case .interactive(_, let requiredPrivilege),
-            .headless(_, let requiredPrivilege),
-            .headlessAndInteractive(_, let requiredPrivilege):
-            [requiredPrivilege]
-        }
-    }
-}
-
-enum AppCommandIPCDurableTargetContract: Equatable, Sendable {
-    case targetless
-    case required(
-        primary: IPCHandleKind,
-        additional: [IPCHandleKind]
-    )
-
-    func supports(targetType: SearchItemType) -> Bool {
-        guard
-            case .required(let primary, let additional) = self,
-            let targetKind = targetType.ipcHandleKind
-        else {
-            return false
-        }
-        return targetKind == primary || additional.contains(targetKind)
-    }
-}
-
-enum AppCommandIPCArgumentContract: Equatable, Sendable {
-    case noArguments
-    case inboxRowStateFilter
-    case inboxContentMode
-
-    var argumentSchema: [IPCCommandArgumentSchema] {
-        switch self {
-        case .noArguments:
-            []
-        case .inboxRowStateFilter:
-            [
-                IPCCommandArgumentSchema(
-                    name: "filter",
-                    kind: .stringEnum(values: InboxNotificationRowStateFilter.allCases.map(\.rawValue)),
-                    isRequired: true
-                )
-            ]
-        case .inboxContentMode:
-            [
-                IPCCommandArgumentSchema(
-                    name: "mode",
-                    kind: .stringEnum(values: InboxNotificationContentMode.allCases.map(\.rawValue)),
-                    isRequired: true
-                )
-            ]
-        }
-    }
-}
-
-extension SearchItemType {
-    fileprivate var ipcHandleKind: IPCHandleKind? {
-        switch self {
-        case .repo:
-            .repo
-        case .tab:
-            .tab
-        case .pane:
-            .pane
-        case .worktree, .floatingTerminal:
-            nil
+    private static func dataScope(for privilege: IPCPrivilegeClass) -> IPCDataScope {
+        switch privilege {
+        case .systemRead, .workspaceRead, .appCommandExecute, .debugUnsafe:
+            .unspecified
+        case .paneContextRead, .layoutMutate:
+            .paneContext
+        case .bridgeRead, .bridgeControl:
+            .bridgeReviewPackage
+        case .bridgeContentRead:
+            .bridgeContent
+        case .bridgeTelemetryRead, .bridgeTelemetryFlush:
+            .bridgeTelemetry
+        case .uiPresent:
+            .uiSurface
+        case .terminalRead, .terminalSnapshotRead:
+            .terminalSnapshot
+        case .terminalWrite, .terminalInputWrite:
+            .terminalInput
+        case .terminalStatusRead:
+            .terminalStatus
+        case .terminalWait:
+            .terminalWait
+        case .eventsRead, .permissionRequest, .permissionRead, .grantApprove:
+            .permissionState
+        case .sidebarStateMutate:
+            .sidebarState
         }
     }
 }
 
 extension AppCommand {
-    var ipcSpec: AppCommandIPCSpec {
-        let argumentContract: AppCommandIPCArgumentContract =
-            switch self {
-            case .setInboxRowStateFilter:
-                .inboxRowStateFilter
-            case .setInboxContentMode:
-                .inboxContentMode
-            case .closeTab, .breakUpTab, .renameTab, .newTerminalInTab, .newTab, .undoCloseTab,
-                .selectTab, .nextTab, .prevTab, .selectTab1, .selectTab2, .selectTab3, .selectTab4,
-                .selectTab5, .selectTab6, .selectTab7, .selectTab8, .selectTab9,
-                .closePane, .extractPaneToTab, .movePaneToTab, .focusPane,
-                .scrollToBottom, .scrollPageUp, .jumpToPreviousPrompt, .jumpToNextPrompt,
-                .splitRight, .splitLeft, .equalizePanes,
-                .focusPaneLeft, .focusPaneRight, .focusPaneUp, .focusPaneDown,
-                .focusNextPane, .focusPrevPane,
-                .focusPane1, .focusPane2, .focusPane3, .focusPane4, .focusPane5,
-                .focusPane6, .focusPane7, .focusPane8, .focusPane9,
-                .zoomPane, .minimizePane, .expandPane,
-                .switchArrangement, .previousArrangement, .nextArrangement, .cycleArrangement,
-                .saveArrangement, .deleteArrangement, .renameArrangement,
-                .enterDrawer, .focusDrawerPaneUp, .focusDrawerPaneLeft,
-                .focusDrawerPaneDown, .focusDrawerPaneRight,
-                .focusDrawerPane1, .focusDrawerPane2, .focusDrawerPane3, .focusDrawerPane4,
-                .focusDrawerPane5, .focusDrawerPane6, .focusDrawerPane7, .focusDrawerPane8,
-                .focusDrawerPane9, .detachDrawerPane, .addDrawerPane, .toggleDrawer,
-                .navigateDrawerPane, .closeDrawerPane,
-                .openPaneLocationInBookmarkedEditor, .openPaneLocationInFinder,
-                .openPaneLocationInEditorMenu, .editPaneNote, .copyCurrentPanePath,
-                .openPullRequest,
-                .watchFolder, .updateRepositoryFacts, .removeRepo, .pinRepo, .unpinRepo, .pinPane, .unpinPane,
-                .openWorktree, .openWorktreeInPane,
-                .toggleManagementLayer, .managementLayerFocusLeft, .managementLayerFocusRight,
-                .managementLayerEnterDrawer, .managementLayerExitDrawer,
-                .managementLayerOpenDrawer, .managementLayerCreateTerminal,
-                .managementLayerCreateBrowser, .managementLayerExit,
-                .toggleSidebar, .showInboxNotifications, .toggleInboxNotificationSort,
-                .clearReadInboxNotifications, .clearAllInboxNotifications,
-                .showPaneInboxNotifications, .clearPaneInboxNotifications, .showReposSidebar, .showPanesSidebar,
-                .setReposGroupingRepo, .setReposGroupingActivity,
-                .setPanesGroupingRepo, .setPanesGroupingTab, .setPanesGroupingActivity,
-                .setPanesSubgroupNone, .setPanesSubgroupActivity,
-                .setReposSortFieldName, .setReposSortFieldActivity,
-                .setPanesSortFieldName, .setPanesSortFieldActivity,
-                .toggleReposSortDirection, .togglePanesSortDirection,
-                .toggleReposShowsPinned, .togglePanesShowsPinned,
-                .setInboxGroupingTab, .setInboxGroupingRepo, .setInboxGroupingPane,
-                .setInboxGroupingNone,
-                .newFloatingTerminal, .newWindow, .closeWindow,
-                .showCommandBarEverything, .showCommandBarQuickOpen,
-                .showCommandBarCommands, .showCommandBarPanes, .showCommandBarRepos,
-                .openWebview, .reloadBridgeWebView, .showViewer, .showBridgeReview, .showBridgeFiles,
-                .openBridgeReviewInNewTab, .openBridgeFilesInNewTab,
-                .signInGitHub, .signInGoogle, .filterSidebar, .openNewTerminalInTab:
-                .noArguments
-            }
-
-        let exposure: AppCommandIPCExposure =
-            switch self {
-            case .showCommandBarEverything, .showCommandBarCommands, .showCommandBarPanes, .showCommandBarRepos:
-                .uiPresentation
-            case .zoomPane:
-                .headless(
-                    durableTarget: ipcDurableTargetContract,
-                    requiredPrivilege: ipcRequiredPrivilege
-                )
-            case .showViewer, .updateRepositoryFacts:
-                .notExposed
-            case .openPullRequest:
-                .notExposed
-            case .showInboxNotifications, .toggleInboxNotificationSort,
-                .clearReadInboxNotifications, .clearAllInboxNotifications,
-                .showPaneInboxNotifications, .clearPaneInboxNotifications,
-                .setInboxGroupingTab, .setInboxGroupingRepo, .setInboxGroupingPane,
-                .setInboxGroupingNone, .setInboxRowStateFilter, .setInboxContentMode:
-                .notExposed
-            case .reloadBridgeWebView:
-                .headless(
-                    durableTarget: ipcDurableTargetContract,
-                    requiredPrivilege: ipcRequiredPrivilege
-                )
-            case .showReposSidebar, .showPanesSidebar:
-                .headlessAndInteractive(
-                    durableTarget: ipcDurableTargetContract,
-                    requiredPrivilege: ipcRequiredPrivilege
-                )
-            case .setReposGroupingRepo, .setReposGroupingActivity,
-                .setPanesGroupingRepo, .setPanesGroupingTab, .setPanesGroupingActivity,
-                .setPanesSubgroupNone, .setPanesSubgroupActivity,
-                .setReposSortFieldName, .setReposSortFieldActivity,
-                .setPanesSortFieldName, .setPanesSortFieldActivity,
-                .toggleReposSortDirection, .togglePanesSortDirection,
-                .toggleReposShowsPinned, .togglePanesShowsPinned:
-                .headless(
-                    durableTarget: ipcDurableTargetContract,
-                    requiredPrivilege: ipcRequiredPrivilege
-                )
-            case .pinRepo, .unpinRepo, .pinPane, .unpinPane:
-                .headless(
-                    durableTarget: ipcDurableTargetContract,
-                    requiredPrivilege: ipcRequiredPrivilege
-                )
-            case .closeTab, .breakUpTab, .renameTab, .newTerminalInTab, .newTab, .undoCloseTab,
-                .selectTab, .nextTab, .prevTab, .selectTab1, .selectTab2, .selectTab3, .selectTab4,
-                .selectTab5, .selectTab6, .selectTab7, .selectTab8, .selectTab9,
-                .closePane, .extractPaneToTab, .movePaneToTab, .focusPane,
-                .scrollToBottom, .scrollPageUp, .jumpToPreviousPrompt, .jumpToNextPrompt,
-                .splitRight, .splitLeft, .equalizePanes,
-                .focusPaneLeft, .focusPaneRight, .focusPaneUp, .focusPaneDown,
-                .focusNextPane, .focusPrevPane,
-                .focusPane1, .focusPane2, .focusPane3, .focusPane4, .focusPane5,
-                .focusPane6, .focusPane7, .focusPane8, .focusPane9,
-                .minimizePane, .expandPane,
-                .switchArrangement, .previousArrangement, .nextArrangement, .cycleArrangement,
-                .saveArrangement, .deleteArrangement, .renameArrangement,
-                .enterDrawer, .focusDrawerPaneUp, .focusDrawerPaneLeft,
-                .focusDrawerPaneDown, .focusDrawerPaneRight,
-                .focusDrawerPane1, .focusDrawerPane2, .focusDrawerPane3, .focusDrawerPane4,
-                .focusDrawerPane5, .focusDrawerPane6, .focusDrawerPane7, .focusDrawerPane8,
-                .focusDrawerPane9, .detachDrawerPane, .addDrawerPane, .toggleDrawer,
-                .navigateDrawerPane, .closeDrawerPane,
-                .openPaneLocationInBookmarkedEditor, .openPaneLocationInFinder,
-                .openPaneLocationInEditorMenu, .editPaneNote, .copyCurrentPanePath,
-                .watchFolder, .removeRepo, .openWorktree, .openWorktreeInPane,
-                .toggleManagementLayer, .managementLayerFocusLeft, .managementLayerFocusRight,
-                .managementLayerEnterDrawer, .managementLayerExitDrawer,
-                .managementLayerOpenDrawer, .managementLayerCreateTerminal,
-                .managementLayerCreateBrowser, .managementLayerExit,
-                .toggleSidebar,
-                .newFloatingTerminal, .newWindow, .closeWindow,
-                .showCommandBarQuickOpen, .openWebview,
-                .showBridgeReview, .showBridgeFiles,
-                .openBridgeReviewInNewTab, .openBridgeFilesInNewTab,
-                .signInGitHub, .signInGoogle, .filterSidebar, .openNewTerminalInTab:
-                .interactive(
-                    durableTarget: ipcDurableTargetContract,
-                    requiredPrivilege: ipcRequiredPrivilege
-                )
-            }
-
-        return AppCommandIPCSpec(
-            exposure: exposure,
-            argumentContract: argumentContract
-        )
-    }
-
-    /// Declares the durable handle kinds accepted by the IPC command plane.
-    ///
-    /// Interactive targeting answers where an in-process UI may attach a command.
-    /// It is intentionally not an IPC authorization or discovery source.
-    private var ipcDurableTargetContract: AppCommandIPCDurableTargetContract {
+    private var ipcArgumentVariants: [IPCCommandArgumentVariant] {
         switch self {
-        case .closeTab, .breakUpTab, .renameTab, .newTerminalInTab, .selectTab,
-            .equalizePanes, .switchArrangement, .saveArrangement, .deleteArrangement,
-            .renameArrangement:
-            return .required(primary: .tab, additional: [])
-        case .splitRight, .splitLeft:
-            return .required(primary: .tab, additional: [.pane])
-        case .updateRepositoryFacts, .removeRepo, .pinRepo, .unpinRepo:
-            return .required(primary: .repo, additional: [])
-        case .closePane, .extractPaneToTab, .movePaneToTab, .focusPane,
-            .scrollToBottom, .scrollPageUp, .jumpToPreviousPrompt, .jumpToNextPrompt,
-            .zoomPane, .minimizePane, .expandPane, .enterDrawer,
-            .focusDrawerPaneUp, .focusDrawerPaneLeft, .focusDrawerPaneDown,
-            .focusDrawerPaneRight, .detachDrawerPane, .addDrawerPane, .toggleDrawer,
-            .navigateDrawerPane, .closeDrawerPane, .openPaneLocationInBookmarkedEditor,
-            .openPaneLocationInFinder, .openPaneLocationInEditorMenu, .editPaneNote,
-            .copyCurrentPanePath, .openPullRequest, .reloadBridgeWebView, .pinPane, .unpinPane,
-            .showPaneInboxNotifications, .clearPaneInboxNotifications:
-            return .required(primary: .pane, additional: [])
-        case .newTab, .undoCloseTab, .nextTab, .prevTab,
+        case .newWindow,
+            .showInboxNotifications, .toggleInboxNotificationSort,
+            .clearReadInboxNotifications, .clearAllInboxNotifications,
+            .showPaneInboxNotifications, .clearPaneInboxNotifications,
+            .setInboxGroupingTab, .setInboxGroupingRepo, .setInboxGroupingPane,
+            .setInboxGroupingNone, .setInboxRowStateFilter, .setInboxContentMode:
+            [.noArguments]
+
+        case .undoCloseTab,
             .selectTab1, .selectTab2, .selectTab3, .selectTab4, .selectTab5,
             .selectTab6, .selectTab7, .selectTab8, .selectTab9,
-            .focusPaneLeft, .focusPaneRight, .focusPaneUp, .focusPaneDown,
-            .focusNextPane, .focusPrevPane,
-            .focusPane1, .focusPane2, .focusPane3, .focusPane4, .focusPane5,
-            .focusPane6, .focusPane7, .focusPane8, .focusPane9,
-            .previousArrangement, .nextArrangement, .cycleArrangement,
-            .focusDrawerPane1, .focusDrawerPane2, .focusDrawerPane3, .focusDrawerPane4,
-            .focusDrawerPane5, .focusDrawerPane6, .focusDrawerPane7, .focusDrawerPane8,
-            .focusDrawerPane9, .watchFolder, .openWorktree, .openWorktreeInPane,
-            .toggleManagementLayer, .managementLayerFocusLeft, .managementLayerFocusRight,
-            .managementLayerEnterDrawer, .managementLayerExitDrawer,
-            .managementLayerOpenDrawer, .managementLayerCreateTerminal,
-            .managementLayerCreateBrowser, .managementLayerExit, .toggleSidebar,
-            .showInboxNotifications, .toggleInboxNotificationSort,
-            .clearReadInboxNotifications, .clearAllInboxNotifications, .showReposSidebar, .showPanesSidebar,
+            .toggleManagementLayer, .managementLayerExit,
+            .toggleSidebar, .showReposSidebar, .showPanesSidebar,
             .setReposGroupingRepo, .setReposGroupingActivity,
             .setPanesGroupingRepo, .setPanesGroupingTab, .setPanesGroupingActivity,
             .setPanesSubgroupNone, .setPanesSubgroupActivity,
@@ -325,25 +82,218 @@ extension AppCommand {
             .setPanesSortFieldName, .setPanesSortFieldActivity,
             .toggleReposSortDirection, .togglePanesSortDirection,
             .toggleReposShowsPinned, .togglePanesShowsPinned,
-            .setInboxGroupingTab, .setInboxGroupingRepo,
-            .setInboxGroupingPane, .setInboxGroupingNone, .setInboxRowStateFilter,
-            .setInboxContentMode, .newFloatingTerminal, .newWindow, .closeWindow,
-            .showCommandBarEverything, .showCommandBarQuickOpen, .showCommandBarCommands,
-            .showCommandBarPanes, .showCommandBarRepos, .openWebview, .showViewer,
-            .showBridgeReview, .showBridgeFiles, .openBridgeReviewInNewTab,
-            .openBridgeFilesInNewTab, .signInGitHub, .signInGoogle, .filterSidebar,
-            .openNewTerminalInTab:
-            return .targetless
+            .closeWindow,
+            .showCommandBarEverything, .showCommandBarQuickOpen,
+            .showCommandBarCommands, .showCommandBarPanes, .showCommandBarRepos,
+            .filterSidebar, .signInGitHub, .signInGoogle:
+            [.workspaceWindow]
+
+        case .closeTab, .breakUpTab, .equalizePanes, .newTerminalInTab, .selectTab,
+            .focusPane1, .focusPane2, .focusPane3, .focusPane4, .focusPane5,
+            .focusPane6, .focusPane7, .focusPane8, .focusPane9,
+            .previousArrangement, .nextArrangement, .cycleArrangement:
+            [.tab]
+
+        case .renameTab:
+            [.renamedTab]
+        case .newTab:
+            [.newTab]
+        case .nextTab, .prevTab:
+            [.tabAnchor]
+
+        case .closePane, .extractPaneToTab, .splitRight, .splitLeft,
+            .minimizePane, .expandPane, .focusPane, .zoomPane,
+            .scrollToBottom, .scrollPageUp, .jumpToPreviousPrompt, .jumpToNextPrompt,
+            .openPaneLocationInBookmarkedEditor, .openPaneLocationInFinder,
+            .openPaneLocationInEditorMenu, .editPaneNote, .copyCurrentPanePath,
+            .openPullRequest, .reloadBridgeWebView, .showViewer:
+            [.pane]
+
+        case .focusPaneLeft, .focusPaneRight, .focusPaneUp, .focusPaneDown,
+            .focusNextPane, .focusPrevPane:
+            [.sourcePane]
+        case .movePaneToTab:
+            [.movePaneToTab]
+        case .switchArrangement, .deleteArrangement:
+            [.arrangement]
+        case .saveArrangement:
+            [.newArrangement]
+        case .renameArrangement:
+            [.renamedArrangement]
+
+        case .enterDrawer,
+            .focusDrawerPane1, .focusDrawerPane2, .focusDrawerPane3,
+            .focusDrawerPane4, .focusDrawerPane5, .focusDrawerPane6,
+            .focusDrawerPane7, .focusDrawerPane8, .focusDrawerPane9,
+            .addDrawerPane, .toggleDrawer:
+            [.drawerParent]
+        case .focusDrawerPaneUp, .focusDrawerPaneLeft,
+            .focusDrawerPaneDown, .focusDrawerPaneRight:
+            [.drawerSourcePane]
+        case .navigateDrawerPane, .closeDrawerPane:
+            [.drawerPane]
+        case .detachDrawerPane:
+            [.detachedDrawerPane]
+
+        case .watchFolder:
+            [.directory]
+        case .updateRepositoryFacts, .removeRepo, .pinRepo, .unpinRepo:
+            [.repository]
+        case .pinPane, .unpinPane:
+            [.standalonePane]
+        case .openWorktree,
+            .showBridgeReview, .showBridgeFiles,
+            .openBridgeReviewInNewTab, .openBridgeFilesInNewTab:
+            [.worktree]
+        case .openWorktreeInPane:
+            [.worktreeInPane]
+        case .openNewTerminalInTab:
+            [.terminalFromWorktree, .terminalFromPane]
+
+        case .managementLayerFocusLeft, .managementLayerFocusRight,
+            .managementLayerEnterDrawer, .managementLayerExitDrawer,
+            .managementLayerOpenDrawer, .managementLayerCreateTerminal,
+            .managementLayerCreateBrowser:
+            [.managementFromMainPane, .managementFromDrawerPane]
+
+        case .newFloatingTerminal:
+            [.floatingTerminal]
+        case .openWebview:
+            [.webview]
         }
     }
+    private var ipcExposure: IPCMethodExposure {
+        switch self {
+        case .zoomPane, .reloadBridgeWebView,
+            .showReposSidebar, .showPanesSidebar,
+            .setReposGroupingRepo, .setReposGroupingActivity,
+            .setPanesGroupingRepo, .setPanesGroupingTab, .setPanesGroupingActivity,
+            .setPanesSubgroupNone, .setPanesSubgroupActivity,
+            .setReposSortFieldName, .setReposSortFieldActivity,
+            .setPanesSortFieldName, .setPanesSortFieldActivity,
+            .toggleReposSortDirection, .togglePanesSortDirection,
+            .toggleReposShowsPinned, .togglePanesShowsPinned,
+            .pinRepo, .unpinRepo, .pinPane, .unpinPane:
+            .allChannels
 
+        case .closeTab, .breakUpTab, .renameTab, .newTerminalInTab, .newTab,
+            .undoCloseTab, .selectTab, .nextTab, .prevTab,
+            .selectTab1, .selectTab2, .selectTab3, .selectTab4, .selectTab5,
+            .selectTab6, .selectTab7, .selectTab8, .selectTab9,
+            .closePane, .extractPaneToTab, .movePaneToTab, .focusPane,
+            .scrollToBottom, .scrollPageUp, .jumpToPreviousPrompt, .jumpToNextPrompt,
+            .splitRight, .splitLeft, .equalizePanes,
+            .focusPaneLeft, .focusPaneRight, .focusPaneUp, .focusPaneDown,
+            .focusNextPane, .focusPrevPane,
+            .focusPane1, .focusPane2, .focusPane3, .focusPane4, .focusPane5,
+            .focusPane6, .focusPane7, .focusPane8, .focusPane9,
+            .minimizePane, .expandPane,
+            .switchArrangement, .previousArrangement, .nextArrangement,
+            .cycleArrangement, .saveArrangement, .deleteArrangement,
+            .renameArrangement, .enterDrawer,
+            .focusDrawerPaneUp, .focusDrawerPaneLeft,
+            .focusDrawerPaneDown, .focusDrawerPaneRight,
+            .focusDrawerPane1, .focusDrawerPane2, .focusDrawerPane3,
+            .focusDrawerPane4, .focusDrawerPane5, .focusDrawerPane6,
+            .focusDrawerPane7, .focusDrawerPane8, .focusDrawerPane9,
+            .detachDrawerPane, .addDrawerPane, .toggleDrawer,
+            .navigateDrawerPane, .closeDrawerPane,
+            .openPaneLocationInBookmarkedEditor, .openPaneLocationInFinder,
+            .openPaneLocationInEditorMenu, .editPaneNote, .copyCurrentPanePath,
+            .openPullRequest, .watchFolder, .updateRepositoryFacts, .removeRepo,
+            .openWorktree, .openWorktreeInPane,
+            .toggleManagementLayer, .managementLayerFocusLeft,
+            .managementLayerFocusRight, .managementLayerEnterDrawer,
+            .managementLayerExitDrawer, .managementLayerOpenDrawer,
+            .managementLayerCreateTerminal, .managementLayerCreateBrowser,
+            .managementLayerExit, .toggleSidebar,
+            .showInboxNotifications, .toggleInboxNotificationSort,
+            .clearReadInboxNotifications, .clearAllInboxNotifications,
+            .showPaneInboxNotifications, .clearPaneInboxNotifications,
+            .setInboxGroupingTab, .setInboxGroupingRepo, .setInboxGroupingPane,
+            .setInboxGroupingNone, .setInboxRowStateFilter, .setInboxContentMode,
+            .newFloatingTerminal, .newWindow, .closeWindow,
+            .showCommandBarEverything, .showCommandBarQuickOpen,
+            .showCommandBarCommands, .showCommandBarPanes, .showCommandBarRepos,
+            .openWebview, .showViewer,
+            .showBridgeReview, .showBridgeFiles,
+            .openBridgeReviewInNewTab, .openBridgeFilesInNewTab,
+            .signInGitHub, .signInGoogle, .filterSidebar,
+            .openNewTerminalInTab:
+            .debugTesting
+        }
+    }
+    private var ipcExecutionMode: IPCCommandExecutionMode {
+        switch self {
+        case .openPaneLocationInEditorMenu, .editPaneNote,
+            .showCommandBarEverything, .showCommandBarQuickOpen,
+            .showCommandBarCommands, .showCommandBarPanes, .showCommandBarRepos,
+            .signInGitHub, .signInGoogle, .filterSidebar:
+            .uiPresentation
+
+        case .closeTab, .breakUpTab, .renameTab, .newTerminalInTab, .newTab,
+            .undoCloseTab, .selectTab, .nextTab, .prevTab,
+            .selectTab1, .selectTab2, .selectTab3, .selectTab4, .selectTab5,
+            .selectTab6, .selectTab7, .selectTab8, .selectTab9,
+            .closePane, .extractPaneToTab, .movePaneToTab, .focusPane,
+            .scrollToBottom, .scrollPageUp, .jumpToPreviousPrompt, .jumpToNextPrompt,
+            .splitRight, .splitLeft, .equalizePanes,
+            .focusPaneLeft, .focusPaneRight, .focusPaneUp, .focusPaneDown,
+            .focusNextPane, .focusPrevPane,
+            .focusPane1, .focusPane2, .focusPane3, .focusPane4, .focusPane5,
+            .focusPane6, .focusPane7, .focusPane8, .focusPane9,
+            .zoomPane, .minimizePane, .expandPane,
+            .switchArrangement, .previousArrangement, .nextArrangement,
+            .cycleArrangement, .saveArrangement, .deleteArrangement,
+            .renameArrangement, .enterDrawer,
+            .focusDrawerPaneUp, .focusDrawerPaneLeft,
+            .focusDrawerPaneDown, .focusDrawerPaneRight,
+            .focusDrawerPane1, .focusDrawerPane2, .focusDrawerPane3,
+            .focusDrawerPane4, .focusDrawerPane5, .focusDrawerPane6,
+            .focusDrawerPane7, .focusDrawerPane8, .focusDrawerPane9,
+            .detachDrawerPane, .addDrawerPane, .toggleDrawer,
+            .navigateDrawerPane, .closeDrawerPane,
+            .openPaneLocationInBookmarkedEditor, .openPaneLocationInFinder,
+            .copyCurrentPanePath, .openPullRequest,
+            .watchFolder, .updateRepositoryFacts, .removeRepo,
+            .pinRepo, .unpinRepo, .pinPane, .unpinPane,
+            .openWorktree, .openWorktreeInPane,
+            .toggleManagementLayer, .managementLayerFocusLeft,
+            .managementLayerFocusRight, .managementLayerEnterDrawer,
+            .managementLayerExitDrawer, .managementLayerOpenDrawer,
+            .managementLayerCreateTerminal, .managementLayerCreateBrowser,
+            .managementLayerExit, .toggleSidebar,
+            .showInboxNotifications, .toggleInboxNotificationSort,
+            .clearReadInboxNotifications, .clearAllInboxNotifications,
+            .showPaneInboxNotifications, .clearPaneInboxNotifications,
+            .showReposSidebar, .showPanesSidebar,
+            .setReposGroupingRepo, .setReposGroupingActivity,
+            .setPanesGroupingRepo, .setPanesGroupingTab, .setPanesGroupingActivity,
+            .setPanesSubgroupNone, .setPanesSubgroupActivity,
+            .setReposSortFieldName, .setReposSortFieldActivity,
+            .setPanesSortFieldName, .setPanesSortFieldActivity,
+            .toggleReposSortDirection, .togglePanesSortDirection,
+            .toggleReposShowsPinned, .togglePanesShowsPinned,
+            .setInboxGroupingTab, .setInboxGroupingRepo, .setInboxGroupingPane,
+            .setInboxGroupingNone, .setInboxRowStateFilter, .setInboxContentMode,
+            .newFloatingTerminal, .newWindow, .closeWindow,
+            .openWebview, .reloadBridgeWebView, .showViewer,
+            .showBridgeReview, .showBridgeFiles,
+            .openBridgeReviewInNewTab, .openBridgeFilesInNewTab,
+            .openNewTerminalInTab:
+            .headless
+        }
+    }
     private var ipcRequiredPrivilege: IPCPrivilegeClass {
         switch self {
         case .showCommandBarEverything, .showCommandBarCommands,
             .showCommandBarPanes, .showCommandBarRepos:
-            return .uiPresent
-        case .scrollToBottom, .scrollPageUp, .jumpToPreviousPrompt, .jumpToNextPrompt:
-            return .terminalInputWrite
+            .uiPresent
+
+        case .scrollToBottom, .scrollPageUp,
+            .jumpToPreviousPrompt, .jumpToNextPrompt:
+            .terminalInputWrite
+
         case .showInboxNotifications, .showReposSidebar, .showPanesSidebar,
             .setReposGroupingRepo, .setReposGroupingActivity,
             .setPanesGroupingRepo, .setPanesGroupingTab, .setPanesGroupingActivity,
@@ -353,17 +303,21 @@ extension AppCommand {
             .toggleReposSortDirection, .togglePanesSortDirection,
             .toggleReposShowsPinned, .togglePanesShowsPinned,
             .setInboxGroupingTab, .setInboxGroupingRepo,
-            .setInboxGroupingPane, .setInboxGroupingNone, .setInboxRowStateFilter,
-            .setInboxContentMode, .pinRepo, .unpinRepo, .pinPane, .unpinPane:
-            return .sidebarStateMutate
+            .setInboxGroupingPane, .setInboxGroupingNone,
+            .setInboxRowStateFilter, .setInboxContentMode,
+            .pinRepo, .unpinRepo, .pinPane, .unpinPane:
+            .sidebarStateMutate
+
         case .openPaneLocationInBookmarkedEditor, .openPaneLocationInFinder,
             .openPaneLocationInEditorMenu, .copyCurrentPanePath, .openPullRequest,
-            .reloadBridgeWebView,
-            .showCommandBarQuickOpen, .signInGitHub, .signInGoogle, .filterSidebar:
-            return .workspaceRead
-        case .closeTab, .breakUpTab, .renameTab, .newTerminalInTab, .newTab, .undoCloseTab,
-            .selectTab, .nextTab, .prevTab, .selectTab1, .selectTab2, .selectTab3, .selectTab4,
-            .selectTab5, .selectTab6, .selectTab7, .selectTab8, .selectTab9,
+            .reloadBridgeWebView, .showCommandBarQuickOpen,
+            .signInGitHub, .signInGoogle, .filterSidebar:
+            .workspaceRead
+
+        case .closeTab, .breakUpTab, .renameTab, .newTerminalInTab, .newTab,
+            .undoCloseTab, .selectTab, .nextTab, .prevTab,
+            .selectTab1, .selectTab2, .selectTab3, .selectTab4, .selectTab5,
+            .selectTab6, .selectTab7, .selectTab8, .selectTab9,
             .closePane, .extractPaneToTab, .movePaneToTab, .focusPane,
             .splitRight, .splitLeft, .equalizePanes,
             .focusPaneLeft, .focusPaneRight, .focusPaneUp, .focusPaneDown,
@@ -371,56 +325,180 @@ extension AppCommand {
             .focusPane1, .focusPane2, .focusPane3, .focusPane4, .focusPane5,
             .focusPane6, .focusPane7, .focusPane8, .focusPane9,
             .zoomPane, .minimizePane, .expandPane,
-            .switchArrangement, .previousArrangement, .nextArrangement, .cycleArrangement,
-            .saveArrangement, .deleteArrangement, .renameArrangement,
-            .enterDrawer, .focusDrawerPaneUp, .focusDrawerPaneLeft,
+            .switchArrangement, .previousArrangement, .nextArrangement,
+            .cycleArrangement, .saveArrangement, .deleteArrangement,
+            .renameArrangement, .enterDrawer,
+            .focusDrawerPaneUp, .focusDrawerPaneLeft,
             .focusDrawerPaneDown, .focusDrawerPaneRight,
-            .focusDrawerPane1, .focusDrawerPane2, .focusDrawerPane3, .focusDrawerPane4,
-            .focusDrawerPane5, .focusDrawerPane6, .focusDrawerPane7, .focusDrawerPane8,
-            .focusDrawerPane9, .detachDrawerPane, .addDrawerPane, .toggleDrawer,
+            .focusDrawerPane1, .focusDrawerPane2, .focusDrawerPane3,
+            .focusDrawerPane4, .focusDrawerPane5, .focusDrawerPane6,
+            .focusDrawerPane7, .focusDrawerPane8, .focusDrawerPane9,
+            .detachDrawerPane, .addDrawerPane, .toggleDrawer,
             .navigateDrawerPane, .closeDrawerPane, .editPaneNote,
-            .watchFolder, .updateRepositoryFacts, .removeRepo, .openWorktree, .openWorktreeInPane,
-            .toggleManagementLayer, .managementLayerFocusLeft, .managementLayerFocusRight,
-            .managementLayerEnterDrawer, .managementLayerExitDrawer,
-            .managementLayerOpenDrawer, .managementLayerCreateTerminal,
-            .managementLayerCreateBrowser, .managementLayerExit,
-            .toggleSidebar, .toggleInboxNotificationSort,
+            .watchFolder, .updateRepositoryFacts, .removeRepo,
+            .openWorktree, .openWorktreeInPane,
+            .toggleManagementLayer, .managementLayerFocusLeft,
+            .managementLayerFocusRight, .managementLayerEnterDrawer,
+            .managementLayerExitDrawer, .managementLayerOpenDrawer,
+            .managementLayerCreateTerminal, .managementLayerCreateBrowser,
+            .managementLayerExit, .toggleSidebar,
+            .toggleInboxNotificationSort,
             .clearReadInboxNotifications, .clearAllInboxNotifications,
             .showPaneInboxNotifications, .clearPaneInboxNotifications,
             .newFloatingTerminal, .newWindow, .closeWindow,
-            .openWebview, .showViewer, .showBridgeReview, .showBridgeFiles,
+            .openWebview, .showViewer,
+            .showBridgeReview, .showBridgeFiles,
             .openBridgeReviewInNewTab, .openBridgeFilesInNewTab,
             .openNewTerminalInTab:
-            return .layoutMutate
+            .layoutMutate
         }
     }
-}
+    private var ipcAllowedTargetKinds: Set<IPCHandleKind> {
+        switch self {
+        case .newWindow,
+            .showInboxNotifications, .toggleInboxNotificationSort,
+            .clearReadInboxNotifications, .clearAllInboxNotifications,
+            .showPaneInboxNotifications, .clearPaneInboxNotifications,
+            .setInboxGroupingTab, .setInboxGroupingRepo, .setInboxGroupingPane,
+            .setInboxGroupingNone, .setInboxRowStateFilter, .setInboxContentMode:
+            []
 
-extension AppCommandSpec {
-    var ipcExposure: AppCommandIPCExposure {
-        command.ipcSpec.exposure
+        case .undoCloseTab, .newTab,
+            .toggleManagementLayer, .managementLayerExit,
+            .toggleSidebar, .showReposSidebar, .showPanesSidebar,
+            .setReposGroupingRepo, .setReposGroupingActivity,
+            .setPanesGroupingRepo, .setPanesGroupingTab, .setPanesGroupingActivity,
+            .setPanesSubgroupNone, .setPanesSubgroupActivity,
+            .setReposSortFieldName, .setReposSortFieldActivity,
+            .setPanesSortFieldName, .setPanesSortFieldActivity,
+            .toggleReposSortDirection, .togglePanesSortDirection,
+            .toggleReposShowsPinned, .togglePanesShowsPinned,
+            .closeWindow,
+            .showCommandBarEverything, .showCommandBarQuickOpen,
+            .showCommandBarCommands, .showCommandBarPanes, .showCommandBarRepos,
+            .filterSidebar, .signInGitHub, .signInGoogle,
+            .watchFolder, .openWorktree,
+            .showBridgeReview, .showBridgeFiles,
+            .openBridgeReviewInNewTab, .openBridgeFilesInNewTab,
+            .newFloatingTerminal, .openWebview:
+            [.window]
+
+        case .closeTab, .breakUpTab, .equalizePanes, .newTerminalInTab, .selectTab,
+            .nextTab, .prevTab,
+            .selectTab1, .selectTab2, .selectTab3, .selectTab4, .selectTab5,
+            .selectTab6, .selectTab7, .selectTab8, .selectTab9,
+            .focusPane1, .focusPane2, .focusPane3, .focusPane4, .focusPane5,
+            .focusPane6, .focusPane7, .focusPane8, .focusPane9,
+            .switchArrangement, .previousArrangement, .nextArrangement,
+            .cycleArrangement, .saveArrangement, .deleteArrangement,
+            .renameArrangement, .renameTab:
+            [.window, .tab]
+
+        case .closePane, .extractPaneToTab, .focusPane,
+            .scrollToBottom, .scrollPageUp, .jumpToPreviousPrompt, .jumpToNextPrompt,
+            .splitRight, .splitLeft, .minimizePane, .expandPane, .zoomPane,
+            .focusPaneLeft, .focusPaneRight, .focusPaneUp, .focusPaneDown,
+            .focusNextPane, .focusPrevPane,
+            .enterDrawer,
+            .focusDrawerPaneUp, .focusDrawerPaneLeft,
+            .focusDrawerPaneDown, .focusDrawerPaneRight,
+            .focusDrawerPane1, .focusDrawerPane2, .focusDrawerPane3,
+            .focusDrawerPane4, .focusDrawerPane5, .focusDrawerPane6,
+            .focusDrawerPane7, .focusDrawerPane8, .focusDrawerPane9,
+            .detachDrawerPane, .addDrawerPane, .toggleDrawer,
+            .navigateDrawerPane, .closeDrawerPane,
+            .openPaneLocationInBookmarkedEditor, .openPaneLocationInFinder,
+            .openPaneLocationInEditorMenu, .editPaneNote, .copyCurrentPanePath,
+            .openPullRequest, .reloadBridgeWebView, .showViewer,
+            .managementLayerFocusLeft, .managementLayerFocusRight,
+            .managementLayerEnterDrawer, .managementLayerExitDrawer,
+            .managementLayerOpenDrawer, .managementLayerCreateTerminal,
+            .managementLayerCreateBrowser, .openWorktreeInPane,
+            .openNewTerminalInTab:
+            [.window, .pane]
+
+        case .movePaneToTab:
+            [.window, .tab, .pane]
+        case .updateRepositoryFacts, .removeRepo, .pinRepo, .unpinRepo:
+            [.repo]
+        case .pinPane, .unpinPane:
+            [.pane]
+        }
     }
+    private var ipcResultVariants: [IPCCommandResultVariant] {
+        switch self {
+        case .showInboxNotifications, .toggleInboxNotificationSort,
+            .clearReadInboxNotifications, .clearAllInboxNotifications,
+            .showPaneInboxNotifications, .clearPaneInboxNotifications,
+            .setInboxGroupingTab, .setInboxGroupingRepo, .setInboxGroupingPane,
+            .setInboxGroupingNone, .setInboxRowStateFilter, .setInboxContentMode:
+            [.unavailable]
 
-    var argumentSchema: [IPCCommandArgumentSchema] {
-        command.ipcSpec.argumentSchema
+        case .openPaneLocationInEditorMenu, .editPaneNote,
+            .showCommandBarEverything, .showCommandBarQuickOpen,
+            .showCommandBarCommands, .showCommandBarPanes, .showCommandBarRepos,
+            .signInGitHub, .signInGoogle, .filterSidebar:
+            [.presented]
+
+        case .watchFolder, .updateRepositoryFacts, .reloadBridgeWebView,
+            .showBridgeReview, .showBridgeFiles,
+            .openBridgeReviewInNewTab, .openBridgeFilesInNewTab:
+            [.accepted]
+
+        case .selectTab1, .selectTab2, .selectTab3, .selectTab4, .selectTab5,
+            .selectTab6, .selectTab7, .selectTab8, .selectTab9,
+            .scrollToBottom, .scrollPageUp, .jumpToPreviousPrompt, .jumpToNextPrompt,
+            .focusPaneLeft, .focusPaneRight, .focusPaneUp, .focusPaneDown,
+            .focusNextPane, .focusPrevPane,
+            .focusPane1, .focusPane2, .focusPane3, .focusPane4, .focusPane5,
+            .focusPane6, .focusPane7, .focusPane8, .focusPane9,
+            .previousArrangement, .nextArrangement, .cycleArrangement,
+            .deleteArrangement,
+            .focusDrawerPaneUp, .focusDrawerPaneLeft,
+            .focusDrawerPaneDown, .focusDrawerPaneRight,
+            .focusDrawerPane1, .focusDrawerPane2, .focusDrawerPane3,
+            .focusDrawerPane4, .focusDrawerPane5, .focusDrawerPane6,
+            .focusDrawerPane7, .focusDrawerPane8, .focusDrawerPane9,
+            .openPaneLocationInBookmarkedEditor,
+            .managementLayerFocusLeft, .managementLayerFocusRight,
+            .managementLayerEnterDrawer, .managementLayerExitDrawer,
+            .managementLayerOpenDrawer, .managementLayerCreateTerminal,
+            .managementLayerCreateBrowser, .showViewer:
+            [.applied, .unavailable]
+
+        case .closeTab, .breakUpTab, .renameTab, .newTerminalInTab, .newTab,
+            .undoCloseTab, .selectTab, .nextTab, .prevTab,
+            .closePane, .extractPaneToTab, .movePaneToTab, .focusPane,
+            .splitRight, .splitLeft, .equalizePanes,
+            .zoomPane, .minimizePane, .expandPane,
+            .switchArrangement, .saveArrangement, .renameArrangement,
+            .enterDrawer, .detachDrawerPane, .addDrawerPane, .toggleDrawer,
+            .navigateDrawerPane, .closeDrawerPane,
+            .openPaneLocationInFinder, .copyCurrentPanePath, .openPullRequest,
+            .removeRepo, .pinRepo, .unpinRepo, .pinPane, .unpinPane,
+            .openWorktree, .openWorktreeInPane,
+            .toggleManagementLayer, .managementLayerExit,
+            .toggleSidebar, .showReposSidebar, .showPanesSidebar,
+            .setReposGroupingRepo, .setReposGroupingActivity,
+            .setPanesGroupingRepo, .setPanesGroupingTab, .setPanesGroupingActivity,
+            .setPanesSubgroupNone, .setPanesSubgroupActivity,
+            .setReposSortFieldName, .setReposSortFieldActivity,
+            .setPanesSortFieldName, .setPanesSortFieldActivity,
+            .toggleReposSortDirection, .togglePanesSortDirection,
+            .toggleReposShowsPinned, .togglePanesShowsPinned,
+            .newFloatingTerminal, .newWindow, .closeWindow,
+            .openWebview, .openNewTerminalInTab:
+            [.applied]
+        }
     }
-
-    var ipcCommandListEntry: IPCCommandListEntry {
-        let targetKinds: [IPCHandleKind] =
-            switch ipcExposure.durableTarget {
-            case .targetless:
-                []
-            case .required(let primary, let additional):
-                [primary] + additional
-            }
-
-        return IPCCommandListEntry(
-            id: IPCCommandIdentifier(rawValue: command.rawValue),
-            title: label,
-            executionModes: ipcExposure.executionModes,
-            targetKinds: targetKinds,
-            requiredPrivileges: ipcExposure.requiredPrivileges,
-            argumentSchema: argumentSchema
+    var ipcSpec: AppCommandIPCSpec {
+        AppCommandIPCSpec(
+            exposure: ipcExposure,
+            executionMode: ipcExecutionMode,
+            argumentVariants: ipcArgumentVariants,
+            requiredPrivilege: ipcRequiredPrivilege,
+            allowedTargetKinds: ipcAllowedTargetKinds,
+            resultVariants: ipcResultVariants
         )
     }
 }

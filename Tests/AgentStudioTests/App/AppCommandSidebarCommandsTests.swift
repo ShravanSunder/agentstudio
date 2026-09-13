@@ -35,13 +35,9 @@ struct AppCommandSidebarCommandsTests {
             #expect(definition.icon == icon)
             #expect(definition.surfacePolicy.exposes(.inlineControl))
             #expect(definition.targeting == .contextual)
-            let expectedExecutionModes: [IPCCommandExecutionMode] =
-                command == .showReposSidebar || command == .showPanesSidebar
-                ? [.headless, .requiresInteractiveInput]
-                : [.headless]
-            #expect(definition.ipcExposure.executionModes == expectedExecutionModes)
-            #expect(definition.ipcExposure.requiredPrivileges == [.sidebarStateMutate])
-            #expect(definition.argumentSchema.isEmpty)
+            #expect(command.ipcSpec.executionMode == .headless)
+            #expect(command.ipcSpec.requiredPrivilege == .sidebarStateMutate)
+            #expect(command.ipcSpec.argumentVariants == [.workspaceWindow])
         }
     }
 
@@ -50,14 +46,16 @@ struct AppCommandSidebarCommandsTests {
         for command in [AppCommand.pinRepo, .unpinRepo] {
             let definition = AppCommandDispatcher.shared.definition(for: command)
             #expect(definition.targeting == .targeted([.repo]))
-            #expect(definition.ipcExposure.executionModes == [.headless])
-            #expect(definition.ipcExposure.requiredPrivileges == [.sidebarStateMutate])
+            #expect(command.ipcSpec.executionMode == .headless)
+            #expect(command.ipcSpec.requiredPrivilege == .sidebarStateMutate)
+            #expect(command.ipcSpec.argumentVariants == [.repository])
         }
         for command in [AppCommand.pinPane, .unpinPane] {
             let definition = AppCommandDispatcher.shared.definition(for: command)
             #expect(definition.targeting == .targeted([.pane]))
-            #expect(definition.ipcExposure.executionModes == [.headless])
-            #expect(definition.ipcExposure.requiredPrivileges == [.sidebarStateMutate])
+            #expect(command.ipcSpec.executionMode == .headless)
+            #expect(command.ipcSpec.requiredPrivilege == .sidebarStateMutate)
+            #expect(command.ipcSpec.argumentVariants == [.standalonePane])
         }
     }
 
@@ -81,8 +79,9 @@ struct AppCommandSidebarCommandsTests {
         for command in commands {
             let definition = AppCommandDispatcher.shared.definition(for: command)
             #expect(definition.surfacePolicy == .notPresented)
-            #expect(definition.ipcExposure.requiredPrivileges.isEmpty)
-            #expect(definition.ipcExposure.executionModes.isEmpty)
+            #expect(command.ipcSpec.exposure == .debugTesting)
+            #expect(command.ipcSpec.resultVariants == [.unavailable])
+            #expect(command.ipcSpec.argumentVariants == [.noArguments])
         }
     }
 }

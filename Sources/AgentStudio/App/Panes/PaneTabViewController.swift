@@ -633,6 +633,8 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         notificationTasks.removeAll()
     }
 
+    var acceptsIPCCommands: Bool { !hasShutdown }
+
     isolated deinit {
         let monitor = arrangementBarEventMonitor
         let tasks = notificationTasks
@@ -4266,6 +4268,26 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         default:
             return nil
         }
+    }
+
+    func executeHeadlessIPC(_ command: AppCommand, target: UUID, targetType: SearchItemType) async -> Bool {
+        switch command {
+        case .pinRepo, .unpinRepo, .pinPane, .unpinPane:
+            guard let action = targetedSidebarAction(command: command, target: target, targetType: targetType) else {
+                return false
+            }
+            return await executor.execute(action)
+        case .zoomPane, .reloadBridgeWebView:
+            guard acceptsIPCCommands, canExecute(command, target: target, targetType: targetType) else { return false }
+            execute(command, target: target, targetType: targetType)
+            return true
+        default:
+            return false
+        }
+    }
+
+    func ownsWorkspaceWindow(_ workspaceWindowId: UUID) -> Bool {
+        acceptsIPCCommands && self.workspaceWindowId == workspaceWindowId
     }
 
     private func targetedSidebarAction(
