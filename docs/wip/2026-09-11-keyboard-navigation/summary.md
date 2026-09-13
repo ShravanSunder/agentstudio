@@ -1,6 +1,6 @@
 # Keyboard Navigation Work Trail
 
-Source: [events.jsonl](./events.jsonl). **Covers events.jsonl through line 22.**
+Source: [events.jsonl](./events.jsonl). **Covers events.jsonl through line 27.**
 This view renders the bounded prefix only; event evidence pointers are recorded
 claims, not independent verification.
 
@@ -96,9 +96,9 @@ claims, not independent verification.
   A minimal generic-minimization preservation correction was granted to Core,
   while native proof and independent review remained open.
 
-## Current blocked outcome
+## Historical checkpoint at line 22
 
-The current implementation checkpoint is `0e17351e1`. The latest recorded Core
+At line 22, the implementation checkpoint was `0e17351e1`. The latest recorded Core
 focused proof is 82 tests / 8 suites green; prior App 150 / 40 and Bridge 8 / 2
 results plus webview creation 15 remain recorded, and fresh lint and isolated
 debug startup/telemetry passed. The full aggregate is still blocked by the
@@ -126,3 +126,58 @@ prefix. The recorded normal main-to-branch merge remains part of the history.
 The permitted session detail is [agent-session.md](./agent-session.md); other
 evidence paths named by the events were not opened while rendering this bounded
 view.
+
+## Subsequent decisions and validation — lines 23–26
+
+- **Line 23:** The owner selected hold/release preview, immediate digit activation,
+  and Cmd-Shift-S no-op during Management. The general drawer attachment invariant
+  was deferred to a separate discussion/PR after this PR. The approved Ghostty
+  header lookup fix was committed with focused proof. Ancestry, vendor pins and
+  shared links matched main. A Bridge bootstrap failure passed unchanged on retry.
+- **Line 24:** The direct Swift invocation timed out at its60-second inactivity
+  default; post-termination status15 assertions were not independent failures.
+  The canonical aggregate already uses600seconds. The unchanged large-group
+  reproduction passed; no runner or vendor repair was justified.
+- **Line 25:** The canonical aggregate passed the former timeout point but failed
+  the real FSEvents test's initial authority renewal, before deletion. That test
+  passed unchanged in isolation; no concrete fix was established. Native main-pane
+  creation, custom reveal and Default fallback were demonstrated with input markers.
+- **Line 26:** `MISE_RAW=1 mise run test` passed at `94e85dd5f`, exit0:8338Swift
+  tests plus35architecture-tool tests, with web/lint gates passing. The earlier
+  failures remain recorded and are not claimed fixed. Native collapsed-drawer
+  reveal and exact-child input delivery also passed.
+
+## Current outcome
+
+The required suite is green. Native proof covers new main panes appearing in
+current+Default while another custom remains unchanged, sidebar activation into
+a visible custom, Default fallback, and expansion/focus of a collapsed drawer child.
+Unexecuted markers provided observable destination-terminal input evidence.
+
+Bridge native proof remains incomplete: background Return dispatch did not execute
+the displayed directory-change command. No foreground activation was attempted;
+the repository requires preserving the user's foreground. A narrow foreground
+permission is the next owner question. This is not evidence of a Bridge defect.
+
+The detached-child cross-arrangement invariant remains an accepted, unfixed issue
+explicitly deferred to a separate PR. Ordinary collapsed-drawer proof does not
+establish that invariant. Sidebar source implementation remains outstanding.
+No push, PR publication, merge into main or release is claimed.
+
+Details: [native interaction proof](../../../tmp/sidebar-keyboard-design/arrangement-native-interaction-proof.md)
+and [timeout investigation](../../../tmp/debug-workflows/2026-09-12-arrangement-suite-timeout/debug-investigation.md).
+These summarize parent-recorded evidence; this reading view does not independently
+rerun or verify it. All26JSONL records parse. No malformed record or invalid
+correction pointer was found. The delegated view assignment returned no receipt
+within the bounded wait and was interrupted; the parent updated this view directly.
+
+## Line27 — foreground Bridge proof and continued delivery
+
+Owner approved foreground input for the isolated debug app and asked to continue
+and finish. Watch Folder registered the checkout; Files loaded5016items. Minimizing
+Files inLayout2 then activating its sidebar row selectedLayout1 and restored the
+same viewer. Clicking Search and typingREADME produced11matches. The foreground
+permission/native reveal blocker is resolved. Baseline native-container-to-DOM
+shortcut focus remains a separate sidebar-keyboard design issue. Supplemental
+8-test-file spec compliance passed; code/proof review is still running. No PR-ready
+claim, publication or merge. The general detached-drawer invariant stays deferred.

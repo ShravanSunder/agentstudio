@@ -52,7 +52,7 @@ are not promoted by appearing beside an authorized need.
 | U12 | A coherent command/shortcut system. | Current sidebar/arrangement slice; broad restructuring deferred |
 | U13 | General visible follow-up action families. | Earlier assistant advisory proposal; not an app-wide requirement |
 | U14 | Option-Shift-Up/Down from terminal switches previous/next pinned pane. | Authorized; current; exact order/reach/wrap open |
-| U15 | Temporarily show a selected pane in Preview; Enter takes the user there. | Owner's latest request; current; hold versus toggle and commit details open |
+| U15 | Temporarily show a selected pane in Preview; Enter takes the user there. | Owner's latest request; current; hold-to-preview and release-to-cancel selected; detailed placement open |
 | U16 | Show sidebar keyboard ownership and contextual floating key hints within existing UI. | Authorized; current; exact visual/reveal details proposed |
 
 Retired identity U2 is not reused: the owner removed activity/history traversal.
@@ -70,16 +70,16 @@ thresholds or input-event telemetry.
 | Decision | Meaning |
 | --- | --- |
 | Command-S | Show/hide sidebar; preserve selected surface |
-| Command-Shift-S | Reveal sidebar if hidden and give it keyboard focus |
+| Command-Shift-S | Reveal sidebar if hidden and give it keyboard focus; do nothing while Management is active |
 | P / R with list focus | Select Panes / Repos |
 | F | Enter search/filter; proposal is the existing current-list filter |
 | Filter Enter | Keep query/results and focus table; do not open a result |
-| Digits 1–9 | Address first nine list results; direct activation versus select/preview reopened by U15 |
+| Digits 1–9 | Address first nine list results; open the numbered result immediately |
 | Option-Shift-Up/Down from terminal | Direct previous/next pinned-pane navigation |
 | Creation | Current arrangement plus Default visible; unrelated custom arrangements do not reveal new pane |
 | Committed reveal | Current if visible; otherwise first visible custom in arrangement order; otherwise Default |
 | Drawer destination | Reveal parent, expand drawer and reach child |
-| Preview versus commit | Temporary preview and Enter-to-destination are distinct; detailed preview behavior is being designed |
+| Preview versus commit | Hold a preview key to inspect; release cancels uncommitted preview; Enter commits |
 
 ## Source constraints and review gaps
 
@@ -97,10 +97,9 @@ membership before visibility. Its separate reviewed correction is now implemente
 and under validation. Source pointers live in the map.
 
 Current review should evaluate the coherent journey and the explicitly open choices,
-not treat this as an implementation-ready Specification. Preview activation/dismissal,
-placement across windows, numeric selection/activation, selection fallback, group
-keys, filter Escape, whether sidebar activation leaves an active Management layer,
-and pinned order/reach remain visible
+not treat this as an implementation-ready Specification. Exact preview key and presentation placement,
+placement across windows, selection fallback, group
+keys, filter Escape, and pinned order/reach remain visible
 questions. Review can proceed while those questions are discussed.
 
 Proof expectation: native keyboard journeys through list/filter/pane focus and

@@ -1,5 +1,13 @@
 # Drawer reveal: missing renderer reattachment
 
+## Owner disposition
+
+The owner stated that navigation should never leave a drawer pane detached, but
+directed that this invariant be discussed in detail and addressed in a separate
+PR **after the current PR is done**. Do not implement the proposed invariant repair
+or run its requested third design review in this PR. Preserve the finding and its
+proof gap as the explicit follow-up; do not claim the invariant is already fixed.
+
 Review boundary: `96e7dbb..0e17351e1`. No correction is applied in this record.
 
 **Assumed:** choosing an eligible arrangement through the existing switch action,

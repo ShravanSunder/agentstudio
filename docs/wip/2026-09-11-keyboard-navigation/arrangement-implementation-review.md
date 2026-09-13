@@ -1,5 +1,34 @@
 # Arrangement implementation review
 
+## Subsequent owner decisions
+
+The owner deferred the drawer attachment invariant to a detailed discussion and a
+separate PR **after this PR is done**. Q1 remains an accepted known issue, but its
+repair and requested third design review are not part of the current PR. Preserve
+the evidence and disclose the limitation; do not silently claim it was fixed.
+
+The owner approved the test-only Ghostty header lookup fix. It is committed in
+`1c73f89d3`, with 3 focused tests passing and all vocabulary assertions unchanged.
+Vendor pins, shared symlinks and both main ancestries were freshly verified.
+At `94e85dd5f`, `MISE_RAW=1 mise run test` exited 0: 8,338 Swift tests plus
+35 architecture-tool tests; lint and all web gates passed. Earlier bootstrap409,
+direct-Swift timeout and real-FSEvents baseline failures remain documented, not
+claimed fixed. The confirmation aggregate passed both latter failure points unchanged.
+
+Native isolated debug proof now demonstrates main-pane creation in current+Default,
+preservation of another custom, sidebar reveal to a visible custom, Default fallback,
+and collapsed-drawer child expansion. Unexecuted markers establish actual input delivery
+to each revealed terminal. Evidence: `tmp/sidebar-keyboard-design/arrangement-native-interaction-proof.md`.
+Owner subsequently authorized foreground proof. Bridge native reveal now passes:
+minimized Files in Layout2 → sidebar activation selects Layout1 → same5016-file
+viewer returns → search acceptsREADME and filters to11items. Immediate DOM-local
+CmdShiftF is not proved by native host focus; the baseline Bridge mount does not
+forward focus into nested WebKit. Track that in the remaining keyboard design.
+
+The review result below records the earlier boundary and must be read with these
+owner decisions and subsequent proof. The general detached-drawer invariant remains
+unfixed and deferred. PR readiness is not claimed.
+
 Reviewed `96e7dbb..0e17351e1` against the unchanged
 `tmp/plan-workflows/2026-09-12-arrangement-visibility-v2.md` and its separate
 Requirements, Specification and Program Design. Scope is U6/U7 inside the larger

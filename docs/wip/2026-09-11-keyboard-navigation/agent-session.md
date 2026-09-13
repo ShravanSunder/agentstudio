@@ -55,6 +55,15 @@ all findings before selecting structure. Arrangement design review and parent co
 
 ## Current stop
 
+Latest steering supersedes the approval blockers below: hold/release preview,
+immediate 1–9 activation and Command-Shift-S no-op during Management are selected.
+The header lookup fix is approved and committed at `1c73f89d3`; focused proof passes.
+The owner deferred drawer-invariant repair and its detailed discussion to another
+PR after this PR. No third design review or invariant source change is authorized
+for this PR. Full aggregate retry is active; broader sidebar design/native proof
+still need completion. Existing sessions remain retained, without a resumed
+persistent advisory assignment during this bounded header validation.
+
 Implementation is blocked pending owner reconvergence for the drawer reattachment
 assumption, permission for targeted third design review, and the unrelated header
 lookup correction. Native proof also needs an unlocked GUI. See
@@ -64,3 +73,23 @@ No code writes are active. Existing sessions are retained; latest Opus recovery 
 `01a0969c-121e-7ab2-8fd2-3cce993c1b75` was cancelled at about17:30UTC, with no pending
 fire. Do not restart incomplete implementation from the old ready label: the v2
 plan remains immutable but its R-A4 assumption is now known incomplete.
+
+## Validation diagnosis resume — 2026-09-12T21:10:48.148069+00:00
+
+HEAD `94e85dd5f`. Existing App sidekick resumed for bounded read-only script-timeout diagnosis (`2026-09-12-script-timeout-cause`); earlier write grants are closed. No tests or Operator control granted. Existing Mini Operator has one unchanged large-lane reproduction (`2026-09-12-large-timeout-reproduction`). Root alone controls execution and verifies both receipts. Cache warmth is not asserted; no Opus advisory assignment resumed. Drawer invariant remains deferred. Full aggregate remains unproven.
+
+## Current delivery checkpoint
+
+Canonical `MISE_RAW=1 mise run test` passed at94e85dd5f, exit0. Root counted8338Swift
+and35architecture tests separately; web/lint gates passed. No active test command.
+Main custom/default-fallback and ordinary collapsed-drawer native reveal/input proved.
+Bridge native proof remains incomplete because background Return dispatch has not
+executed the displayed command. No foreground activation attempted; explicit owner
+permission is needed to cross the documented foreground boundary. No new source changes,
+push, PR publication or merge. General detached-drawer invariant remains deferred.
+App sidekick continuity ping acknowledged during this turn; remains idle with no
+execution authority. Opus was not resumed; no cache warmth or wake claimed.
+
+Receipt timing: native App-sidekick acknowledgement was observed before the22:01UTC keyboard probe; the native message does not expose an exact timestamp. No exact ping time or cache-hit receipt is invented.
+
+Foreground permission approved by owner. CUA resumed successfully and Bridge native reveal/retention/interaction proved. Existing App sidekick source lookup confirmed Bridge DOM shortcuts have a preexisting inner-responder gap; keep it with broader keyboard design. No new source edits or active tests. Current aggregate94e85dd5f remains green.

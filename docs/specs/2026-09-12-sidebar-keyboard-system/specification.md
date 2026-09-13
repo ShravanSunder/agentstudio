@@ -25,7 +25,8 @@ ordering/reach is not defined by sidebar result numbering.
 
 **R-S1.** Command-S MUST toggle sidebar visibility while retaining its selected
 surface. Command-Shift-S MUST reveal the sidebar if hidden and move actual keyboard
-focus into its list. Merely showing the sidebar MUST NOT select Repos. Basis U3/U4.
+focus into its list. While Management is active, Command-Shift-S MUST do nothing
+and MUST NOT exit Management. Merely showing the sidebar MUST NOT select Repos. Basis U3/U4.
 
 **R-S2.** With sidebar list focus, P and R MUST select Panes and Repos respectively.
 F MUST enter the existing current-list filter. In an editable field those letters
@@ -39,8 +40,8 @@ result. Basis U5 and owner Enter-to-table request.
 **R-S4.** The list MUST expose a visible keyboard selection independent from the
 active pane. The first-nine result capability MUST address current actionable rows
 by the same identity shown by its badges, never an obsolete numeric row index.
-Headings are not pane/worktree destinations. Exact digit selection-versus-activation
-and selection fallback remain open below. Basis U5.
+Headings are not pane/worktree destinations. Digits 1–9 MUST immediately activate the corresponding result; they do not merely
+select or preview it. Selection fallback remains open below. Basis U5.
 
 **R-S5.** Enter on a pane destination MUST commit navigation through the shared
 arrangement-reveal path and focus the actual pane. A worktree row's primary action
@@ -72,8 +73,10 @@ Basis U1, explicit performance instruction and existing derived-state architectu
 **R-S9.** Temporary preview MUST remain distinct from committed navigation: the
 user can inspect a selected existing pane and use Enter to go there. It MUST NOT
 be implemented as committed focus followed by a blind restoration of durable state.
-Preview trigger, presentation placement and finish behavior require the owner choices
-below before a complete observable preview contract is claimed. Basis U15.
+Preview MUST last only while its key is held; releasing the key MUST cancel
+uncommitted preview. Enter commits the selected pane, and numeric activation commits
+its addressed result; later key release MUST NOT undo that committed navigation.
+The exact preview key and presentation placement remain open. Basis U15.
 
 ## Choices still to settle
 
@@ -82,11 +85,9 @@ work. They are not silently resolved by choosing an implementation mechanism.
 
 | Choice | Candidate default | Consequence |
 | --- | --- | --- |
-| Preview hold versus toggle | Hold a dedicated key/control | Release can restore without a sticky toggle, but sustained hold has ergonomic cost |
-| Digits select/preview versus directly activate | Select; Enter commits | Extra Enter versus instant activation; owner has not selected between them |
+| Exact preview key | Space remains proposed | Hold/release behavior is settled; choose an available list-context binding |
 | Preview target in another tab | Temporary presentation with no durable tab switch | Requires explicit mount/visibility participation, not just showing a hidden view |
 | Escape/filter cancellation and vanished origin | Return to list, then existing origin | Query preservation and fallback destination need exact contract |
-| Management active at sidebar-entry shortcut | No selected default | Existing owner precedence must not be bypassed silently |
 | Pinned-pane ordering/reach/wrap | No selected default | Separate U14 behavior; do not inherit discarded history semantics |
 
 Current row/group arrow behavior can be evaluated as normal focused-list interaction;

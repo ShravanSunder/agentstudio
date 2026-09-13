@@ -50,3 +50,15 @@ No new atom, store, event, observer, or projection-on-keypress is selected here.
 Native proof must cover content→no-results→content focus continuity, filter typing,
 Enter back to the list, hidden-sidebar entry and effective hint suppression.
 No sidebar runtime proof or independent review is claimed yet.
+
+## Native Bridge focus boundary observed during arrangement proof
+
+The existing PaneFocusExecutor chooses BridgePaneMountView because it accepts first
+responder. Its nested NSHostingView/WebView receives no explicit inner focus transfer.
+BridgeWeb CmdShiftF listens on DOM document. Native sidebar activation can reveal and
+focus the outer host while that shortcut remains unavailable until web interaction.
+Native proof: Files reveal retained5016items; clicking search then typingREADME
+filtered11items. Source: App/Panes/Hosting/PaneHostView.swift:134;
+App/Panes/PaneFocusExecutor.swift:284; Features/Bridge/Views/BridgePaneMountView.swift:32.
+This is a baseline keyboard-boundary gap for the sidebar design to resolve explicitly,
+not an arrangement policy failure. No new source change approved or implemented here.

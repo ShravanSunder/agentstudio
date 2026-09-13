@@ -65,7 +65,7 @@ temporary; exact activation and placement remain open in section 5.
 | Focus | Keys | Meaning | Status |
 | --- | --- | --- | --- |
 | Pane / app workspace | Command-S | Show/hide sidebar; keep surface | Selected |
-| Pane / app workspace | Command-Shift-S | Show sidebar if hidden; focus its navigation list | Selected |
+| Pane / app workspace | Command-Shift-S | Show sidebar if hidden; focus its navigation list; no-op during Management | Selected |
 | Sidebar list | P / R | Panes / Repos | Selected |
 | Sidebar list | F | Focus existing current-list filter | Entry selected; filter meaning recommended |
 | Filter | Plain letters/digits | Type query; live results update | Existing text behavior retained |
@@ -73,8 +73,8 @@ temporary; exact activation and placement remain open in section 5.
 | Sidebar list | Up/Down | Move keyboard selection | Proposed |
 | Sidebar list | Left/Right | Expand/collapse groups or parent | Proposed |
 | Sidebar list | G / Shift-G | Next/previous group | Optional proposal |
-| Sidebar list | 1–9 | Address first nine results | Selected capability; select/preview versus activate open |
-| Sidebar list | Preview control/key | Show selected pane temporarily | Requested; trigger open |
+| Sidebar list | 1–9 | Open the corresponding first-nine result immediately | Selected |
+| Sidebar list | Preview control/key | Hold to show the selected pane; release cancels | Selected behavior; exact key open |
 | Sidebar list | Enter | Commit selected destination | Selected direction |
 | Sidebar list | Escape | End preview if needed; return to origin, leave sidebar shown | Proposed |
 | Filter | Escape / Down | Return to table | Proposed; preserve/clear policy open |
@@ -99,10 +99,8 @@ Pane rows target existing panes; worktree rows use their existing openWorktree
 operation. They are not interchangeable with pinned repositories. A missing or
 nonactionable number must not trigger an unrelated command.
 
-With Preview, the owner is choosing between:
-
-- 1–9 selects the numbered result (and previews it if preview is active); Enter commits.
-- 1–9 remains a direct activation shortcut; ordinary selection uses arrows.
+The owner selected direct activation: 1–9 opens the corresponding result immediately.
+Ordinary row selection and held preview remain separate from this committed action.
 
 Keyboard-selected row, currently active pane, and temporarily previewed pane are
 three different facts. Their visual treatments must not imply that preview already
@@ -110,18 +108,17 @@ committed navigation. Live-update number/selection fallback rules remain review 
 
 ## 5. Temporary preview, not accidental activation
 
-The owner requested a Preview button that shows a pane only while picked, with
-Enter taking the user there. Two concrete triggers are under discussion:
+The owner selected holding a key to preview and releasing it to cancel.
 
 ```text
-Hold-to-preview:  select B → hold Preview/Space → see B → release → restore
-Toggle-preview:  Preview on → select B/C/D → see selected pane → off → restore
-Both:            Enter → commit to selected pane; no restoration over that commit
+select B → hold Preview key → see B → release → restore
+                       |
+                       +→ Enter commits B; later release does not undo it
+1–9 → open the corresponding result immediately
 ```
 
-Space is a proposed keyboard equivalent, not an assigned shortcut. Review should
-settle which trigger “picked” means. Selecting a row alone must not silently become
-a committed focus operation just because preview is visible.
+Space remains a proposed key, not an assigned shortcut. Selecting a row alone does
+not commit navigation. Numeric activation commits independently of held preview.
 
 Recommended observable boundary:
 
@@ -133,8 +130,7 @@ Recommended observable boundary:
 - If the target closes or becomes invalid, remove its preview; never recreate it.
 - Text entered while the filter owns focus never goes to a previewed terminal.
 
-Not yet decided: preview location for targets in another window, whether preview
-follows selection or lasts only during a press, behavior on a non-pane Repos row,
+Not yet decided: preview location for targets in another window, behavior on a non-pane Repos row,
 and exact cancellation/closed-origin behavior. A pane preview is not a worktree
 preview or permission to open a new pane merely to fill the preview area.
 
@@ -217,9 +213,8 @@ Review current needs, focus ownership, preview versus commit, numbered results,
 visibility rules, and visual restraint. Do not review discarded activity/history
 families or require their old questions to be answered.
 
-One remaining focus decision: Management currently has priority over sidebar
-focus. When Command-Shift-S is invoked during Management, should it leave Management
-and focus the sidebar, or leave Management unchanged? Neither behavior is selected.
+Management keeps its current precedence. The owner selected Command-Shift-S as a
+no-op while Management is active: it does not leave Management or claim sidebar focus.
 
 | Current source | Consequence for the design |
 | --- | --- |
