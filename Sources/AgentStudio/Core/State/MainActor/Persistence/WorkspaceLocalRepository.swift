@@ -46,6 +46,17 @@ package struct WorkspaceLocalRepository: Sendable {
         var sourceRevision: UInt64
         var lastRebuiltAt: Date?
 
+        func retaining(_ surviving: RepositoryRetentionSurvivingIdentity) -> Self {
+            var filtered = self
+            filtered.repoEnrichmentByRepoId = repoEnrichmentByRepoId.filter {
+                surviving.repositoryIDs.contains($0.key)
+            }
+            filtered.worktreeEnrichmentByWorktreeId = worktreeEnrichmentByWorktreeId.filter {
+                surviving.worktreeRepositoryIDs[$0.key] == $0.value.repoId
+            }
+            return filtered
+        }
+
         static let empty = Self(
             repoEnrichmentByRepoId: [:],
             worktreeEnrichmentByWorktreeId: [:],

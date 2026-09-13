@@ -112,10 +112,15 @@ struct FilesystemSourceHarnessSnapshot: Sendable {
 
 final class ControllableWatchedFolderScanSchedulerResults: @unchecked Sendable {
     private let lock = NSLock()
+    private var requestedPathIDs: [UUID] = []
+    private var returnsPartialResults = false
     private var resultsByWatchedPathID: [UUID: [RepoScanner.RepoScanGroup]] = [:]
 
-    func setResults(_ resultsByWatchedPath: [WatchedPath: [RepoScanner.RepoScanGroup]]) {
+    var requestedWatchedPathIDs: [UUID] { lock.withLock { requestedPathIDs } }
+
+    func setResults(_ resultsByWatchedPath: [WatchedPath: [RepoScanner.RepoScanGroup]], partial: Bool = false) {
         lock.withLock {
+            returnsPartialResults = partial
             resultsByWatchedPathID = Dictionary(
                 uniqueKeysWithValues: resultsByWatchedPath.map { watchedPath, groups in
                     (
@@ -152,6 +157,7 @@ final class ControllableWatchedFolderScanSchedulerResults: @unchecked Sendable {
     private func makeSession(
         for request: WatchedFolderScanRequest
     ) -> WatchedFolderScannerSessionPort {
+        lock.withLock { requestedPathIDs.append(request.sourceID.rootID) }
         let result = authoritativeResult(for: request.sourceID.rootID)
         return WatchedFolderScannerSessionPort(
             id: RepoScannerSessionID(rawValue: UUIDv7.generate()),
@@ -162,7 +168,10 @@ final class ControllableWatchedFolderScanSchedulerResults: @unchecked Sendable {
     }
 
     private func authoritativeResult(for watchedPathID: UUID) -> RepoScannerResult {
-        guard let groups = lock.withLock({ resultsByWatchedPathID[watchedPathID] }) else {
+        let (configuredGroups, partial) = lock.withLock {
+            (resultsByWatchedPathID[watchedPathID], returnsPartialResults)
+        }
+        guard let groups = configuredGroups else {
             Issue.record(
                 "topology harness has no configured result for watched path \(watchedPathID)"
             )
@@ -204,24 +213,24 @@ final class ControllableWatchedFolderScanSchedulerResults: @unchecked Sendable {
                     )
                 }
         }
+        let counts = RepoScannerEvidenceCounts(
+            directoryVisitCount: 0, directoryTraversalFailureCount: 0, entryMetadataFailureCount: 0,
+            gitCandidateCount: verifiedEntries.count, validationSuccessCount: verifiedEntries.count,
+            validationAuthoritativeNegativeCount: 0, validationTimeoutCount: 0,
+            validationCancellationCount: 0, validationFailureCount: partial ? 1 : 0, scannerServiceInvocationCount: 1
+        )
+        if partial {
+            return .partial(
+                PartialRepoScan(
+                    verifiedEntries: verifiedEntries,
+                    failures: .init(first: .scannerServiceFailed(detail: "controlled partial scan"), remaining: []),
+                    counts: counts, serviceMetrics: .zero
+                ))
+        }
         return .completeAuthoritative(
             CompleteRepoScan(
-                verifiedEntries: verifiedEntries,
-                counts: RepoScannerEvidenceCounts(
-                    directoryVisitCount: 0,
-                    directoryTraversalFailureCount: 0,
-                    entryMetadataFailureCount: 0,
-                    gitCandidateCount: verifiedEntries.count,
-                    validationSuccessCount: verifiedEntries.count,
-                    validationAuthoritativeNegativeCount: 0,
-                    validationTimeoutCount: 0,
-                    validationCancellationCount: 0,
-                    validationFailureCount: 0,
-                    scannerServiceInvocationCount: 1
-                ),
-                serviceMetrics: .zero
-            )
-        )
+                verifiedEntries: verifiedEntries, counts: counts, serviceMetrics: .zero
+            ))
     }
 
 }
@@ -280,7 +289,20 @@ struct GitTopologyPipelineHarness {
             workspaceStore: workspaceStore,
             repoCache: repoCache,
             topologyEffectHandler: workspaceSurfaceCoordinator,
-            scopeSyncHandler: { _ in }
+            validateSourceObservations: { observation in
+                await discoveryActor.areCurrentWatchedFolderObservations(observation)
+            },
+            scopeSyncHandler: { change in
+                switch change {
+                case .updateRepositoryScanBaseline(let repositories, let revision):
+                    await discoveryActor.updateRepositoryScanBaseline(repositories, membershipRevision: revision)
+                case .updateWatchedFolders(let paths, let repositories, let revision):
+                    _ = await discoveryActor.refreshWatchedFolders(
+                        paths, restoring: repositories, membershipRevision: revision)
+                case .registerForgeRepo, .unregisterForgeRepo, .refreshForgeRepo:
+                    break
+                }
+            }
         )
         await coordinator.startConsuming()
 
@@ -319,7 +341,19 @@ struct GitTopologyPipelineHarness {
                 )
             }
         }
-        return await discoveryActor.refreshWatchedFolders(watchedPaths)
+        let topology = workspaceStore.repositoryTopologyAtom
+        if case .prepared(let replacement) = RepositoryTopologyReplacement.prepare(
+            repositories: topology.repos,
+            watchedPaths: watchedPaths,
+            unavailableRepositoryIDs: topology.unavailableRepoIds,
+            stableIdentity: .derived(repositories: topology.repos, watchedPaths: watchedPaths),
+            absenceRecords: topology.absenceRecords
+        ) {
+            topology.replaceTopology(replacement)
+        }
+        return await discoveryActor.refreshWatchedFolders(
+            watchedPaths, restoring: workspaceStore.repos, membershipRevision: topology.worktreePathIndexGeneration
+        )
     }
 
     func postTopology(_ event: TopologyEvent, source: SystemSource = .builtin(.filesystemWatcher)) async {
@@ -404,6 +438,29 @@ struct GitEnrichmentPipelineHarness {
         await forgeActor.start()
     }
 
+    @discardableResult
+    func assertCanonicalProducerTopology() async -> FilesystemTopologyAssertion {
+        let topology = workspaceStore.repositoryTopologyAtom
+        let assertion = FilesystemTopologyAssertion(
+            generation: topology.worktreePathIndexGeneration,
+            contextsByWorktreeId: Dictionary(
+                uniqueKeysWithValues: topology.repos.flatMap { repository in
+                    repository.worktrees.map { worktree in
+                        (
+                            worktree.id,
+                            WorktreeFilesystemContext(repoId: repository.id, rootPath: worktree.path)
+                        )
+                    }
+                }
+            ),
+            repositoryLifetimes: topology.repositoryObservationLifetimes,
+            worktreeLifetimes: topology.worktreeObservationLifetimes
+        )
+        await projector.assertTopology(assertion)
+        await forgeActor.assertObservationLifetimes(assertion)
+        return assertion
+    }
+
     func advanceCacheApplyTick() async {
         await cacheApplyClock.waitForPendingSleepCount(atLeast: 1)
         cacheApplyClock.advance(by: Self.cacheApplyTickCadence)
@@ -427,19 +484,30 @@ struct GitEnrichmentPipelineHarness {
     }
 
     func synchronizeCacheCoordinator(repoId: UUID, worktreeId: UUID) async {
+        guard let observationLifetime = workspaceStore.repositoryTopologyAtom.worktreeObservationLifetimes[worktreeId]
+        else {
+            Issue.record("cache ordering barrier requires a canonical worktree lifetime")
+            return
+        }
         _ = await bus.post(
-            RuntimeEnvelopeHarness.gitEnvelope(
-                event: .statusOutcome(
-                    GitStatusOutcomeFact(
-                        worktreeId: worktreeId,
-                        repoId: repoId,
-                        outcome: .completed,
-                        reason: nil,
-                        consecutiveFailureCount: 0
-                    )
-                ),
-                repoId: repoId,
-                worktreeId: worktreeId
+            .worktree(
+                WorktreeEnvelope.test(
+                    event: .gitWorkingDirectory(
+                        .statusOutcome(
+                            GitStatusOutcomeFact(
+                                worktreeId: worktreeId,
+                                repoId: repoId,
+                                outcome: .completed,
+                                reason: nil,
+                                consecutiveFailureCount: 0
+                            )
+                        )
+                    ),
+                    repoId: repoId,
+                    worktreeId: worktreeId,
+                    source: .system(.builtin(.gitWorkingDirectoryProjector)),
+                    observationLifetime: .worktree(observationLifetime)
+                )
             )
         )
         await assertEventuallyAsync("cache coordinator should consume its ordering barrier") {

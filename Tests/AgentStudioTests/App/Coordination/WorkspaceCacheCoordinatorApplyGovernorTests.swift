@@ -10,17 +10,22 @@ import Testing
 @Suite("Workspace cache apply governor", .serialized)
 struct WorkspaceCacheCoordinatorApplyGovernorTests {
     @Test("repository projections coalesce by repository and apply latest sequence atomically")
-    func repositoryProjectionsCoalesceAndApplyAtomically() async {
+    func repositoryProjectionsCoalesceAndApplyAtomically() async throws {
         let bus = EventBus<RuntimeEnvelope>()
+        let workspaceStore = WorkspaceStore()
         let repoCache = RepoCacheAtom()
         let clock = TestPushClock()
-        let repoId = UUIDv7.generate()
+        let repo = workspaceStore.addRepo(at: URL(fileURLWithPath: "/tmp/apply-governor-projection-repo"))
+        let repoId = repo.id
+        let observationLifetime = try #require(
+            workspaceStore.repositoryTopologyAtom.repositoryObservationLifetimes[repoId]
+        )
         let branch = "feature/coalesced"
         let branchKey = RepoBranchKey(repoId: repoId, branch: branch)!
         let facts = PullRequestFacts(openCount: 1, exactOpenURL: nil)
         let coordinator = WorkspaceCacheCoordinator(
             bus: bus,
-            workspaceStore: WorkspaceStore(),
+            workspaceStore: workspaceStore,
             repoCache: repoCache,
             scopeSyncHandler: { _ in },
             enrichmentApplyTickCadence: .milliseconds(25),
@@ -44,7 +49,8 @@ struct WorkspaceCacheCoordinatorApplyGovernorTests {
                     repoId: repoId,
                     worktreeId: nil,
                     source: .system(.service(.gitForge(provider: "github"))),
-                    seq: 1
+                    seq: 1,
+                    observationLifetime: .repository(observationLifetime)
                 )
             )
         )
@@ -63,7 +69,8 @@ struct WorkspaceCacheCoordinatorApplyGovernorTests {
                     repoId: repoId,
                     worktreeId: nil,
                     source: .system(.service(.gitForge(provider: "github"))),
-                    seq: 2
+                    seq: 2,
+                    observationLifetime: .repository(observationLifetime)
                 )
             )
         )
@@ -105,8 +112,10 @@ struct WorkspaceCacheCoordinatorApplyGovernorTests {
         let workspaceStore = WorkspaceStore()
         let repoCache = RepoCacheAtom()
         let clock = TestPushClock()
-        let repo = workspaceStore.addRepo(at: URL(fileURLWithPath: "/tmp/apply-governor-repo"))
-        let worktreeIds = (0..<3).map { _ in UUIDv7.generate() }
+        let fixture = try makeThreeWorktreeFixture(in: workspaceStore)
+        let repo = fixture.repository
+        let registeredWorktrees = fixture.worktrees
+        let worktreeIds = registeredWorktrees.map(\.id)
         let coordinator = WorkspaceCacheCoordinator(
             bus: bus,
             workspaceStore: workspaceStore,
@@ -119,16 +128,17 @@ struct WorkspaceCacheCoordinatorApplyGovernorTests {
         await coordinator.startConsuming()
 
         for sequence in 0..<12 {
-            let worktreeId = worktreeIds[sequence % worktreeIds.count]
+            let worktree = registeredWorktrees[sequence % registeredWorktrees.count]
+            let worktreeLifetime = try #require(fixture.worktreeLifetimes[worktree.id])
             await bus.post(
                 .worktree(
                     WorktreeEnvelope.test(
                         event: .gitWorkingDirectory(
                             .snapshotChanged(
                                 snapshot: GitWorkingTreeSnapshot(
-                                    worktreeId: worktreeId,
+                                    worktreeId: worktree.id,
                                     repoId: repo.id,
-                                    rootPath: URL(fileURLWithPath: "/tmp/apply-governor-\(worktreeId)"),
+                                    rootPath: worktree.path,
                                     summary: GitWorkingTreeSummary(
                                         changed: sequence,
                                         staged: 0,
@@ -139,9 +149,10 @@ struct WorkspaceCacheCoordinatorApplyGovernorTests {
                             )
                         ),
                         repoId: repo.id,
-                        worktreeId: worktreeId,
+                        worktreeId: worktree.id,
                         source: .system(.builtin(.gitWorkingDirectoryProjector)),
-                        seq: UInt64(sequence)
+                        seq: UInt64(sequence),
+                        observationLifetime: .worktree(worktreeLifetime)
                     )
                 )
             )
@@ -157,7 +168,10 @@ struct WorkspaceCacheCoordinatorApplyGovernorTests {
                         )
                     ),
                     repoId: repo.id,
-                    source: .system(.builtin(.gitWorkingDirectoryProjector))
+                    worktreeId: registeredWorktrees[0].id,
+                    source: .system(.builtin(.gitWorkingDirectoryProjector)),
+                    observationLifetime: .worktree(
+                        try #require(fixture.worktreeLifetimes[registeredWorktrees[0].id]))
                 )
             )
         )
@@ -182,7 +196,7 @@ struct WorkspaceCacheCoordinatorApplyGovernorTests {
     }
 
     @Test
-    func branchChangedAfterCachedSnapshotPreservesSnapshot() async {
+    func branchChangedAfterCachedSnapshotPreservesSnapshot() async throws {
         let bus = EventBus<RuntimeEnvelope>()
         let workspaceStore = WorkspaceStore()
         let repoCache = RepoCacheAtom()
@@ -195,12 +209,17 @@ struct WorkspaceCacheCoordinatorApplyGovernorTests {
             enrichmentApplyTickCadence: .milliseconds(25),
             enrichmentApplyClock: clock
         )
-        let repoId = UUIDv7.generate()
-        let worktreeId = UUIDv7.generate()
+        let repo = workspaceStore.addRepo(at: URL(fileURLWithPath: "/tmp/apply-governor-branch-repo"))
+        let worktree = try #require(repo.worktrees.first { $0.isMainWorktree })
+        let repoId = repo.id
+        let worktreeId = worktree.id
+        let observationLifetime = try #require(
+            workspaceStore.repositoryTopologyAtom.worktreeObservationLifetimes[worktreeId]
+        )
         let snapshot = GitWorkingTreeSnapshot(
             worktreeId: worktreeId,
             repoId: repoId,
-            rootPath: URL(fileURLWithPath: "/tmp/repo"),
+            rootPath: worktree.path,
             summary: GitWorkingTreeSummary(changed: 2, staged: 1, untracked: 3),
             branch: "main"
         )
@@ -212,7 +231,8 @@ struct WorkspaceCacheCoordinatorApplyGovernorTests {
                     event: .gitWorkingDirectory(.snapshotChanged(snapshot: snapshot)),
                     repoId: repoId,
                     worktreeId: worktreeId,
-                    source: .system(.builtin(.gitWorkingDirectoryProjector))
+                    source: .system(.builtin(.gitWorkingDirectoryProjector)),
+                    observationLifetime: .worktree(observationLifetime)
                 )))
         await eventually("snapshot flush should be scheduled") {
             clock.pendingSleepCount == 1
@@ -237,7 +257,8 @@ struct WorkspaceCacheCoordinatorApplyGovernorTests {
                     ),
                     repoId: repoId,
                     worktreeId: worktreeId,
-                    source: .system(.builtin(.gitWorkingDirectoryProjector))
+                    source: .system(.builtin(.gitWorkingDirectoryProjector)),
+                    observationLifetime: .worktree(observationLifetime)
                 )))
         await eventually("branch flush should be scheduled") {
             clock.pendingSleepCount == 1
@@ -252,5 +273,39 @@ struct WorkspaceCacheCoordinatorApplyGovernorTests {
 
         #expect(repoCache.worktreeEnrichment(for: worktreeId)?.branch == "feature/new")
         #expect(repoCache.worktreeEnrichment(for: worktreeId)?.snapshot == snapshot)
+    }
+
+    private func makeThreeWorktreeFixture(in workspaceStore: WorkspaceStore) throws -> ThreeWorktreeFixture {
+        let repository = workspaceStore.addRepo(at: URL(fileURLWithPath: "/tmp/apply-governor-repo"))
+        let mainWorktree = try #require(repository.worktrees.first { $0.isMainWorktree })
+        let linkedWorktrees = (0..<2).map { index in
+            Worktree(
+                repoId: repository.id,
+                name: "linked-\(index)",
+                path: URL(fileURLWithPath: "/tmp/apply-governor-linked-\(index)")
+            )
+        }
+        workspaceStore.reconcileDiscoveredWorktrees(
+            repository.id,
+            worktrees: [mainWorktree] + linkedWorktrees
+        )
+
+        let registeredRepository = try #require(
+            workspaceStore.repositoryTopologyAtom.repo(repository.id)
+        )
+        let registeredWorktrees = try #require(
+            registeredRepository.worktrees.count == 3 ? registeredRepository.worktrees : nil
+        )
+        return ThreeWorktreeFixture(
+            repository: registeredRepository,
+            worktrees: registeredWorktrees,
+            worktreeLifetimes: workspaceStore.repositoryTopologyAtom.worktreeObservationLifetimes
+        )
+    }
+
+    private struct ThreeWorktreeFixture {
+        let repository: Repo
+        let worktrees: [Worktree]
+        let worktreeLifetimes: [UUID: WorktreeObservationLifetime]
     }
 }

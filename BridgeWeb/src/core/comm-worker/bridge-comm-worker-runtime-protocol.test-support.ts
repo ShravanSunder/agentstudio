@@ -5,12 +5,17 @@ import { encodeBridgeWorkerActiveViewerModeUpdateCommand } from './bridge-comm-w
 import type { BridgeCommWorkerReviewRuntimeSource } from './bridge-comm-worker-review-source-diff.js';
 import type { BridgeCommWorkerPreparationDrain } from './bridge-comm-worker-runtime-protocol.js';
 import {
+	completedReviewContentTerminal,
+	createIdleWorktreeAnnotationSubscription,
+	emptyReviewContentFrames,
+	makeImmediateReviewContentStream,
+} from './bridge-comm-worker-runtime-protocol.worker-test-support.js';
+import {
 	BridgeProductBoundedAsyncQueue,
 	createBridgeProductDeferred,
 } from './bridge-product-async-queue.js';
 import type {
 	BridgeProductMetadataApplicationEvent,
-	BridgeProductMetadataApplicationProtocolIdentity,
 	BridgeProductMetadataDataFrame,
 } from './bridge-product-metadata-application-protocol.js';
 import {
@@ -34,6 +39,11 @@ import type {
 	BridgeWorkerServerToMainMessage,
 } from './bridge-worker-contracts.js';
 import type { BridgeWorkerReviewContentOpen } from './bridge-worker-review-content-fetch.js';
+
+export {
+	createIdleWorktreeAnnotationSubscription,
+	makeImmediateReviewContentStream,
+} from './bridge-comm-worker-runtime-protocol.worker-test-support.js';
 
 export interface PostedBridgeWorkerRuntimeMessage {
 	readonly message: BridgeWorkerServerToMainMessage;
@@ -202,27 +212,6 @@ export async function flushBridgeWorkerRuntimeContinuations(): Promise<void> {
 		(previousFlush) => previousFlush.then(() => Promise.resolve()),
 		Promise.resolve(),
 	);
-}
-
-export function createIdleWorktreeAnnotationSubscription(
-	protocol: BridgeProductMetadataApplicationProtocolIdentity,
-): {
-	readonly events: AsyncIterable<never>;
-	readonly subscriptionId: string;
-	readonly subscriptionKind: string;
-	cancel(): Promise<void>;
-	update(): Promise<void>;
-} {
-	const events = new BridgeProductBoundedAsyncQueue<never>(1);
-	return {
-		cancel: async (): Promise<void> => {
-			events.close(true);
-		},
-		events,
-		subscriptionId: `${protocol.kind}-idle-test-subscription`,
-		subscriptionKind: protocol.kind,
-		update: async (): Promise<void> => {},
-	};
 }
 
 export interface BridgeCommWorkerReviewProductTestSource {
@@ -740,18 +729,6 @@ export function createDeferredReviewContentStream(
 	};
 }
 
-export function makeImmediateReviewContentStream(
-	descriptor: BridgeWorkerReviewContentRequestDescriptor,
-	text: string,
-): BridgeProductContentStream<'review.content'> {
-	return {
-		contentKind: 'review.content',
-		contentRequestId: `content-request-${descriptor.descriptorId}`,
-		frames: emptyReviewContentFrames(),
-		terminal: Promise.resolve(completedReviewContentTerminal(descriptor, text)),
-	};
-}
-
 export const openReviewContentFromDescriptorMap: BridgeWorkerReviewContentOpen = (descriptor) => {
 	const fixture = reviewContentFixtureByDescriptorId.get(descriptor.descriptorId);
 	if (fixture === undefined) {
@@ -759,24 +736,6 @@ export const openReviewContentFromDescriptorMap: BridgeWorkerReviewContentOpen =
 	}
 	return makeImmediateReviewContentStream(descriptor, fixture.text);
 };
-
-function completedReviewContentTerminal(
-	descriptor: BridgeWorkerReviewContentRequestDescriptor,
-	text: string,
-): Awaited<BridgeProductContentStream<'review.content'>['terminal']> {
-	const bytes = new TextEncoder().encode(text);
-	return {
-		bytes: bytes.buffer,
-		contentKind: 'review.content',
-		descriptorId: descriptor.descriptorId,
-		endOfSource: true,
-		kind: 'complete',
-		observedByteLength: bytes.byteLength,
-		observedSha256: 'a'.repeat(64),
-	};
-}
-
-async function* emptyReviewContentFrames(): AsyncIterable<never> {}
 
 export function makeWorkerReviewContentMetadata(
 	props: { readonly itemId?: string } = {},

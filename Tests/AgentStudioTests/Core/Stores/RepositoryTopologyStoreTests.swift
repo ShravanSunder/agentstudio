@@ -7,6 +7,53 @@ import Testing
 @MainActor
 @Suite("Repository topology store", .serialized)
 struct RepositoryTopologyStoreTests {
+    @Test("timed absence survives unrelated topology saves and restore")
+    func timedAbsenceSurvivesTopologyRoundTrip() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appending(path: "topology-absence-roundtrip-\(UUIDv7.generate().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let datastore = WorkspaceSQLiteDatastoreFactory(
+            coreDatabaseURL: directory.appending(path: "core.sqlite"),
+            localDatabaseURL: directory.appending(path: "local.sqlite")
+        ).makeDatastore()
+        guard case .prepared = await datastore.prepareDatabasesForBoot() else {
+            Issue.record("expected prepared databases")
+            return
+        }
+        let atom = RepositoryTopologyAtom()
+        let coordinator = makeTopologyMutationCoordinator(atom: atom)
+        let repository = coordinator.addRepo(at: directory.appending(path: "repository"))
+        let start = RepositoryRetentionTime(
+            utc: Date(timeIntervalSince1970: 1_700_000_000), bootID: "fixture", uptimeNanoseconds: 1
+        )
+        #expect(coordinator.recordRepositoryAbsence(repository.id, at: start))
+        let original = atom.absenceRecords
+        let store = RepositoryTopologyStore(atom: atom, sqliteDatastore: datastore)
+        try await store.flushAsync()
+        coordinator.setRepoPinned(repository.id, isPinned: true)
+        #expect(
+            !coordinator.recordRepositoryAbsence(
+                repository.id,
+                at: RepositoryRetentionTime(
+                    utc: start.utc.addingTimeInterval(86_400), bootID: start.bootID,
+                    uptimeNanoseconds: start.uptimeNanoseconds + 86_400_000_000_000
+                )))
+        try await store.flushAsync()
+
+        guard case .loaded(let snapshot) = await datastore.loadRepositoryTopologySnapshot() else {
+            Issue.record("expected saved absence records")
+            return
+        }
+        #expect(snapshot.absenceRecords == original)
+        guard case .prepared(let restored) = WorkspacePersistenceTransformer.prepareRepositoryTopology(snapshot) else {
+            Issue.record("expected valid restored topology")
+            return
+        }
+        #expect(restored.absenceRecords == original)
+        #expect(snapshot.repos.first?.isPinned == true)
+    }
+
     @Test("failed flush keeps observation armed and a later retry persists current topology")
     func failedFlushRetainsObservationAndRetryEligibility() async throws {
         // Arrange

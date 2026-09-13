@@ -132,6 +132,7 @@ package struct DiscoveredRepoTopologyInfo: Sendable, Equatable {
 }
 
 package enum TopologyEvent: Sendable {
+    case watchedFolderReconciled(WatchedFolderTopologyObservation)
     case repoDiscovered(
         repoPath: URL,
         parentPath: URL,
@@ -286,6 +287,7 @@ package struct WorktreeEnvelope: Sendable {
     package let commandId: UUID?
     package let repoId: UUID
     package let worktreeId: UUID?
+    package let observationLifetime: RepositoryFactObservationLifetime
     package let event: WorktreeScopedEvent
 
     package init(
@@ -299,7 +301,8 @@ package struct WorktreeEnvelope: Sendable {
         commandId: UUID? = nil,
         repoId: UUID,
         worktreeId: UUID? = nil,
-        event: WorktreeScopedEvent
+        event: WorktreeScopedEvent,
+        observationLifetime: RepositoryFactObservationLifetime = .unscoped
     ) {
         self.eventId = eventId
         self.source = source
@@ -311,6 +314,7 @@ package struct WorktreeEnvelope: Sendable {
         self.commandId = commandId
         self.repoId = repoId
         self.worktreeId = worktreeId
+        self.observationLifetime = observationLifetime
         self.event = event
     }
 }

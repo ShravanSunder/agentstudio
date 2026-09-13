@@ -26,7 +26,7 @@ package actor GitWorkingDirectoryProjector {
     let refreshPolicy: AppPolicies.GitRefresh.Policy
     private let subscriptionBufferLimit: Int
     let performanceTraceRecorder: (any GitProjectorPerformanceRecording)?
-    let remoteReferenceOriginHandler: (@Sendable (UUID, String?) async -> Void)?
+    let remoteReferenceOriginHandler: (@Sendable (UUID, String?, RepositoryObservationLifetime?) async -> Void)?
     /// Cheap filesystem existence check used to quarantine dead-path worktrees at
     /// admission (see `GitWorkingDirectoryProjector+PathQuarantine`). Injected so
     /// the projector stays inert in unit tests that register synthetic paths; the
@@ -62,7 +62,8 @@ package actor GitWorkingDirectoryProjector {
     var suppressedWorktreeIds: Set<UUID> = []
     private var suppressedWorktreeOrder: [UUID] = []
     var rootPathByWorktreeId: [UUID: URL] = [:]
-    private var latestTopologyAssertion: FilesystemTopologyAssertion?
+    var observationLifetimesByWorktreeID: [UUID: WorktreeObservationLifetime] = [:]
+    private(set) var latestTopologyAssertion: FilesystemTopologyAssertion?
     var activeWorktreeIds: Set<UUID> = []
     var activePaneWorktreeId: UUID?
     var sidebarVisibleWorktreeIds: Set<UUID> = []
@@ -71,7 +72,7 @@ package actor GitWorkingDirectoryProjector {
     var inactiveAutomaticSourceStartCount: UInt64 = 0
     var repoIdByWorktreeId: [UUID: UUID] = [:]
     var lastKnownOriginByRepoId: [UUID: String] = [:]
-    private var originResolutionByRepoId: [UUID: GitOriginResolution] = [:]
+    var originResolutionByRepoId: [UUID: GitOriginResolution] = [:]
     var remoteReferenceAcceptanceByRepoId: [UUID: RemoteReferenceAcceptance] = [:]
     var remoteReferenceAuthorityRevisionByRepoId: [UUID: UInt64] = [:]
     var lastEmittedSnapshotByWorktreeId: [UUID: GitWorkingTreeSnapshot] = [:]
@@ -136,7 +137,7 @@ package actor GitWorkingDirectoryProjector {
         refreshPolicy: AppPolicies.GitRefresh.Policy = AppPolicies.GitRefresh.defaultPolicy,
         subscriptionBufferLimit: Int = 256,
         performanceTraceRecorder: (any GitProjectorPerformanceRecording)? = nil,
-        remoteReferenceOriginHandler: (@Sendable (UUID, String?) async -> Void)? = nil,
+        remoteReferenceOriginHandler: (@Sendable (UUID, String?, RepositoryObservationLifetime?) async -> Void)? = nil,
         pathExistenceProbe: @escaping @Sendable (URL) -> Bool = { _ in true }
     ) {
         self.runtimeBus = bus
@@ -302,8 +303,9 @@ package actor GitWorkingDirectoryProjector {
                     timestamp: systemEnvelope.timestamp
                 )
             case .worktreeUnregistered(let worktreeId, let repoId):
+                guard latestTopologyAssertion == nil else { return }
                 applyUnregistration(worktreeId: worktreeId, repoId: repoId)
-            case .repoDiscovered, .reposDiscovered, .repoRemoved:
+            case .repoDiscovered, .reposDiscovered, .repoRemoved, .watchedFolderReconciled:
                 return
             }
         case .worktree(let worktreeEnvelope):
@@ -360,7 +362,16 @@ package actor GitWorkingDirectoryProjector {
     package func assertTopology(_ assertion: FilesystemTopologyAssertion) {
         guard shouldApplyTopologyAssertion(assertion) else { return }
 
+        let changedLifetimes = Set(
+            assertion.worktreeLifetimes.keys.filter {
+                observationLifetimesByWorktreeID[$0] != assertion.worktreeLifetimes[$0]
+            })
+        observationLifetimesByWorktreeID = assertion.worktreeLifetimes
         latestTopologyAssertion = assertion
+        for worktreeID in changedLifetimes {
+            guard let context = assertion.contextsByWorktreeId[worktreeID] else { continue }
+            originResolutionByRepoId[context.repoId] = .awaitingResolution
+        }
 
         let desiredWorktreeIds = Set(assertion.contextsByWorktreeId.keys)
         let removedWorktreeIds = Set(rootPathByWorktreeId.keys).subtracting(desiredWorktreeIds)
@@ -375,11 +386,13 @@ package actor GitWorkingDirectoryProjector {
             lhs.key.uuidString < rhs.key.uuidString
         }) {
             let currentContext = registeredContext(for: worktreeId)
-            guard currentContext != context else { continue }
+            let lifetimeChanged = changedLifetimes.contains(worktreeId)
+            guard currentContext != context || lifetimeChanged else { continue }
             applyRegistration(
                 worktreeId: worktreeId,
                 context: context,
-                timestamp: envelopeClock.now
+                timestamp: envelopeClock.now,
+                forceRefresh: lifetimeChanged
             )
         }
     }
@@ -421,9 +434,12 @@ package actor GitWorkingDirectoryProjector {
         nextWorktreeTaskGeneration &+= 1
         let taskGeneration = nextWorktreeTaskGeneration
         worktreeTaskGenerationByWorktreeId[worktreeId] = taskGeneration
+        let lifetime = observationLifetimesByWorktreeID[worktreeId]
         worktreeTasks[worktreeId] = Task { [weak self] in
             guard let self else { return }
-            await self.drainWorktree(worktreeId: worktreeId, taskGeneration: taskGeneration)
+            await RepositoryObservationRequestContext.$worktree.withValue(lifetime) {
+                await self.drainWorktree(worktreeId: worktreeId, taskGeneration: taskGeneration)
+            }
         }
         recordLogicalDebtSnapshotIfChanged()
     }
@@ -457,15 +473,16 @@ package actor GitWorkingDirectoryProjector {
     private func applyRegistration(
         worktreeId: UUID,
         context: WorktreeFilesystemContext,
-        timestamp: ContinuousClock.Instant
+        timestamp: ContinuousClock.Instant,
+        forceRefresh: Bool = false
     ) {
         let previousContext = registeredContext(for: worktreeId)
         var endedGlobalCapacityPause = false
-        guard previousContext != context else {
+        guard previousContext != context || forceRefresh else {
             removeSuppressedWorktree(worktreeId)
             return
         }
-        if previousContext != nil, previousContext != context {
+        if previousContext != nil, previousContext != context || forceRefresh {
             settleRepositoryRecomputationTarget(
                 worktreeId: worktreeId,
                 requiredIntentGeneration: nil,
@@ -712,51 +729,6 @@ package actor GitWorkingDirectoryProjector {
             scope: resolved.scope,
             pathspecCount: resolved.pathspecCount
         )
-    }
-
-    func emitOriginResolutionIfChanged(
-        changeset: FileChangeset,
-        statusSnapshot: GitWorkingTreeStatus
-    ) async {
-        let nextOriginResolution = statusSnapshot.originResolution
-        let previousOriginResolution = originResolutionByRepoId[changeset.repoId]
-
-        switch nextOriginResolution {
-        case .awaitingResolution:
-            originResolutionByRepoId[changeset.repoId] = .awaitingResolution
-            return
-        case .confirmedAbsent:
-            guard previousOriginResolution != .confirmedAbsent else { return }
-            originResolutionByRepoId[changeset.repoId] = .confirmedAbsent
-            lastKnownOriginByRepoId.removeValue(forKey: changeset.repoId)
-            remoteReferenceAcceptanceByRepoId.removeValue(forKey: changeset.repoId)
-            await remoteReferenceOriginHandler?(changeset.repoId, nil)
-            await emitGitWorkingDirectoryEvent(
-                worktreeId: changeset.worktreeId,
-                repoId: changeset.repoId,
-                event: .originUnavailable(repoId: changeset.repoId)
-            )
-        case .resolved(let currentOrigin):
-            let trimmedOrigin = currentOrigin.trimmingCharacters(in: .whitespacesAndNewlines)
-            let previousOrigin = lastKnownOriginByRepoId[changeset.repoId]
-            guard previousOrigin != trimmedOrigin else {
-                originResolutionByRepoId[changeset.repoId] = .resolved(trimmedOrigin)
-                return
-            }
-            originResolutionByRepoId[changeset.repoId] = .resolved(trimmedOrigin)
-            lastKnownOriginByRepoId[changeset.repoId] = trimmedOrigin
-            remoteReferenceAcceptanceByRepoId.removeValue(forKey: changeset.repoId)
-            await remoteReferenceOriginHandler?(changeset.repoId, trimmedOrigin)
-            await emitGitWorkingDirectoryEvent(
-                worktreeId: changeset.worktreeId,
-                repoId: changeset.repoId,
-                event: .originChanged(
-                    repoId: changeset.repoId,
-                    from: previousOrigin ?? "",
-                    to: trimmedOrigin
-                )
-            )
-        }
     }
 
     private func handleUnavailableStatusResult(

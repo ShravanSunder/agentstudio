@@ -48,12 +48,19 @@ final class BackgroundFactApplyGovernor<Key: Hashable & Sendable, Fact: Sendable
         let maxSingleFact: Duration
     }
 
+    private struct FactApplyTiming: Sendable {
+        let awaited: Duration
+        let queueWait: Duration
+        let mainActorHeld: Duration
+    }
+
     private let lock = NSLock()
     private var state = State()
     private let tickCadence: Duration
     private let drainBudget: Duration
     private let delay: AsyncDelay
     private let elapsedSinceOrigin: @Sendable () -> Duration
+    private let mainActorElapsedSinceOrigin: @MainActor @Sendable () -> Duration
     private let performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
     private let mergeFacts: @Sendable (Fact, Fact) -> Fact
     private let prepareApply: @Sendable (Key, Fact) async -> MainActorCommit
@@ -101,6 +108,9 @@ final class BackgroundFactApplyGovernor<Key: Hashable & Sendable, Fact: Sendable
         tickCadence: Duration,
         drainBudget: Duration,
         clock: ApplyClock,
+        readMainActorInstant: @escaping @MainActor @Sendable (ApplyClock) -> ApplyClock.Instant = { clock in
+            clock.now
+        },
         performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = nil,
         mergeFacts: @escaping @Sendable (Fact, Fact) -> Fact = { _, newerFact in newerFact },
         prepareApply: @escaping @Sendable (Key, Fact) async -> MainActorCommit
@@ -112,6 +122,9 @@ final class BackgroundFactApplyGovernor<Key: Hashable & Sendable, Fact: Sendable
         self.drainBudget = drainBudget
         self.delay = .clock(clock)
         self.elapsedSinceOrigin = { clockOrigin.duration(to: clock.now) }
+        self.mainActorElapsedSinceOrigin = { @MainActor in
+            clockOrigin.duration(to: readMainActorInstant(clock))
+        }
         self.performanceTraceRecorder = performanceTraceRecorder
         self.mergeFacts = mergeFacts
         self.prepareApply = prepareApply
@@ -227,20 +240,11 @@ final class BackgroundFactApplyGovernor<Key: Hashable & Sendable, Fact: Sendable
         var mainActorHeld = Duration.zero
         var maxSingleFact = Duration.zero
         for pending in snapshot.pendingFacts {
-            let awaitStart = elapsedSinceOrigin()
-            let commit = await prepareApply(pending.key, pending.fact)
-            let factAwaited = elapsedSinceOrigin() - awaitStart
-            let mainActorEnqueueStart = elapsedSinceOrigin()
-            let (factQueueWait, factMainActorHeld) = await MainActor.run {
-                let mainActorStart = elapsedSinceOrigin()
-                let factQueueWait = mainActorStart - mainActorEnqueueStart
-                commit()
-                return (factQueueWait, elapsedSinceOrigin() - mainActorStart)
-            }
-            awaited += factAwaited
-            queueWait += factQueueWait
-            mainActorHeld += factMainActorHeld
-            maxSingleFact = max(maxSingleFact, factMainActorHeld)
+            let factTiming = await applyPendingFactAndMeasureTiming(pending)
+            awaited += factTiming.awaited
+            queueWait += factTiming.queueWait
+            mainActorHeld += factTiming.mainActorHeld
+            maxSingleFact = max(maxSingleFact, factTiming.mainActorHeld)
             pending.acknowledgement.yield(.applied)
             pending.acknowledgement.finish()
             appliedCount += 1
@@ -294,6 +298,24 @@ final class BackgroundFactApplyGovernor<Key: Hashable & Sendable, Fact: Sendable
         }
     }
 
+    private func applyPendingFactAndMeasureTiming(_ pending: PendingFact) async -> FactApplyTiming {
+        let awaitStart = elapsedSinceOrigin()
+        let commit = await prepareApply(pending.key, pending.fact)
+        let factAwaited = elapsedSinceOrigin() - awaitStart
+        let mainActorEnqueueStart = elapsedSinceOrigin()
+        let (factQueueWait, factMainActorHeld) = await MainActor.run {
+            let mainActorStart = mainActorElapsedSinceOrigin()
+            let factQueueWait = mainActorStart - mainActorEnqueueStart
+            commit()
+            return (factQueueWait, mainActorElapsedSinceOrigin() - mainActorStart)
+        }
+        return FactApplyTiming(
+            awaited: factAwaited,
+            queueWait: factQueueWait,
+            mainActorHeld: factMainActorHeld
+        )
+    }
+
     private func requeueCarriedFacts(_ carriedFacts: [PendingFact]) -> Int {
         var supersededContinuations: [AsyncStream<AcknowledgementResult>.Continuation] = []
         let carriedOverCount = lock.withLock {
@@ -339,20 +361,11 @@ final class BackgroundFactApplyGovernor<Key: Hashable & Sendable, Fact: Sendable
         var mainActorHeld = Duration.zero
         var maxSingleFact = Duration.zero
         for pending in snapshot.pendingFacts {
-            let awaitStart = elapsedSinceOrigin()
-            let commit = await prepareApply(pending.key, pending.fact)
-            let factAwaited = elapsedSinceOrigin() - awaitStart
-            let mainActorEnqueueStart = elapsedSinceOrigin()
-            let (factQueueWait, factMainActorHeld) = await MainActor.run {
-                let mainActorStart = elapsedSinceOrigin()
-                let factQueueWait = mainActorStart - mainActorEnqueueStart
-                commit()
-                return (factQueueWait, elapsedSinceOrigin() - mainActorStart)
-            }
-            awaited += factAwaited
-            queueWait += factQueueWait
-            mainActorHeld += factMainActorHeld
-            maxSingleFact = max(maxSingleFact, factMainActorHeld)
+            let factTiming = await applyPendingFactAndMeasureTiming(pending)
+            awaited += factTiming.awaited
+            queueWait += factTiming.queueWait
+            mainActorHeld += factTiming.mainActorHeld
+            maxSingleFact = max(maxSingleFact, factTiming.mainActorHeld)
             pending.acknowledgement.yield(.applied)
             pending.acknowledgement.finish()
         }

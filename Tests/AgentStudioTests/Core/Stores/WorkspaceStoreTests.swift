@@ -1130,17 +1130,16 @@ final class WorkspaceStoreTests {
         #expect(topologyStore.isDirty)
         clock.advance(by: .milliseconds(10))
 
-        var restoredRepositoryIds: [UUID] = []
-        for _ in 0..<80 where restoredRepositoryIds != [repositoryID] {
-            if case .loaded(let snapshot) = await sqliteDatastore.loadRepositoryTopologySnapshot() {
-                restoredRepositoryIds = snapshot.repos.map(\.id)
-            }
-            if restoredRepositoryIds != [repositoryID] {
-                await Task.yield()
-            }
+        // SQL visibility can precede the MainActor completion of the autosave.
+        await assertEventuallyMain("topology autosave acknowledges its committed capture") {
+            !topologyStore.isDirty
+        }
+        guard case .loaded(let snapshot) = await sqliteDatastore.loadRepositoryTopologySnapshot() else {
+            Issue.record("expected autosaved repository topology")
+            return
         }
 
-        #expect(restoredRepositoryIds == [repositoryID])
+        #expect(snapshot.repos.map(\.id) == [repositoryID])
         #expect(!topologyStore.isDirty)
     }
 
