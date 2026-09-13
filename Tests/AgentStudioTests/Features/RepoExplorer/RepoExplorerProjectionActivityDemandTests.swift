@@ -425,7 +425,7 @@ extension RepoExplorerProjectionDemandTests {
     }
 
     @MainActor
-    @Test("repository reassociation retargets activity facts, deadline, and observation")
+    @Test("new checkout membership rebuilds once and retargets activity facts, deadline, and observation")
     func repositoryReassociationRetargetsActivityIdentity() async throws {
         try await withAsyncTestCoreAtoms { atoms in
             let fixture = try RepoExplorerLocalActivityProjectionFixture(atoms: atoms)
@@ -459,7 +459,11 @@ extension RepoExplorerProjectionDemandTests {
 
             await fixture.waitForStableKey(relocatedStableKey, disposition: .warm)
 
-            #expect(fixture.capture.fullCaptureCount == fullCaptureCount)
+            let relocatedWorktree = try #require(fixture.store.repo(fixture.repo.id)?.worktrees.first)
+            #expect(relocatedWorktree.id != fixture.worktree.id)
+            // A different canonical location creates new checkout membership; later activity stays scoped.
+
+            #expect(fixture.capture.fullCaptureCount == fullCaptureCount + 1)
             let expectedExpiration = relocatedLastActivityAt.addingTimeInterval(
                 AppPolicies.EntityRecency.applicationActivityHorizon
             )
@@ -528,7 +532,7 @@ extension RepoExplorerProjectionDemandTests {
                 fixture.executionRecorder.deltaExecutionCount
                     == deltaExecutionCountAfterReassociation + 1
             )
-            #expect(fixture.capture.fullCaptureCount == fullCaptureCount)
+            #expect(fixture.capture.fullCaptureCount == fullCaptureCount + 1)
         }
     }
 

@@ -339,6 +339,7 @@ enum BridgeProductWebKitTwoPaneJourneyTestSupport {
 
         let hiddenTransition = input.paneOne.applyBridgePaneActivity(.loadedHidden)
         await hiddenTransition?.value
+        try await requireHiddenFileRetirementBoundary(input.paneOne)
         let hiddenStatus = try await requireNoUpdatingStatus(input.paneOne.page)
         let staleForegroundAdmissionWasRejected =
             preparation.staleForegroundAdmission?.withValidAdmission { true } == nil
@@ -405,7 +406,7 @@ enum BridgeProductWebKitTwoPaneJourneyTestSupport {
             dormantDefaults: preparation.dormantDefaults,
             fileStateAfterReturn: fileStateAfterReturn,
             hiddenDirtyGeneration: hiddenAfterStorm.dirtyFact?.generation,
-            hiddenMetadataStormDiagnostic: metadataStormDiagnostic(
+            hiddenMetadataStormDiagnostic: BridgeProductWebKitMetadataStormDiagnostic.message(
                 nativeBefore: hiddenNativeBeforeStorm,
                 nativeAfter: hiddenNativeAfterStorm,
                 traceBefore: hiddenTraceBeforeLateRelease,
@@ -437,54 +438,6 @@ enum BridgeProductWebKitTwoPaneJourneyTestSupport {
             updatingFileStatus: updatingState.fileStatus,
             updatingReviewStatus: updatingState.reviewStatus
         )
-    }
-
-    private static func metadataStormDiagnostic(
-        nativeBefore: BridgeProductWebKitCarrierNativeSnapshot,
-        nativeAfter: BridgeProductWebKitCarrierNativeSnapshot,
-        traceBefore: BridgeProductWebKitCarrierTrace,
-        traceAfter: BridgeProductWebKitCarrierTrace
-    ) -> String {
-        let paneEvents = appendedValues(
-            traceAfter.panePresentationEvents,
-            after: traceBefore.panePresentationEvents
-        )
-        let filePhases = appendedValues(
-            traceAfter.fileMetadataPhases,
-            after: traceBefore.fileMetadataPhases
-        )
-        let reviewPhases = appendedValues(
-            traceAfter.reviewMetadataPhases,
-            after: traceBefore.reviewMetadataPhases
-        )
-        return "hidden metadata storm: sequence=\(nativeBefore.nextMetadataStreamSequence)"
-            + "->\(nativeAfter.nextMetadataStreamSequence), "
-            + "control=next:\(nativeBefore.nextControlRequestSequence)"
-            + "->\(nativeAfter.nextControlRequestSequence)"
-            + "/inFlight:\(String(describing: nativeBefore.inFlightControlRequestSequence))"
-            + "->\(String(describing: nativeAfter.inFlightControlRequestSequence)), "
-            + "frames=queued:\(nativeBefore.queuedFrameCount)->\(nativeAfter.queuedFrameCount)"
-            + "/inFlight:\(nativeBefore.inFlightFrameReceiptCount)"
-            + "->\(nativeAfter.inFlightFrameReceiptCount), "
-            + "pane=\(boundedDescription(paneEvents)), "
-            + "file=\(boundedDescription(filePhases)), "
-            + "review=\(boundedDescription(reviewPhases))"
-    }
-
-    private static func appendedValues<Element>(
-        _ values: [Element],
-        after baseline: [Element]
-    ) -> ArraySlice<Element> {
-        values.dropFirst(min(values.count, baseline.count))
-    }
-
-    private static func boundedDescription<Element>(
-        _ values: ArraySlice<Element>
-    ) -> String {
-        let visibleValues = values.prefix(8).map { String(describing: $0) }
-        let omittedCount = values.count - visibleValues.count
-        let suffix = omittedCount == 0 ? "" : ",+\(omittedCount) more"
-        return "+\(values.count)[\(visibleValues.joined(separator: ","))\(suffix)]"
     }
 
     private static func beginBlockedRefresh(
@@ -757,6 +710,19 @@ enum BridgeProductWebKitTwoPaneJourneyTestSupport {
                 && controller.activeReviewRefreshTask == nil
         }
         guard settled else { throw JourneyError.conditionFailed("hidden refresh did not settle") }
+    }
+
+    private static func requireHiddenFileRetirementBoundary(
+        _ controller: BridgePaneController
+    ) async throws {
+        guard await waitForRetiringFileRefreshTasksToDrain(controller) else {
+            throw JourneyError.conditionFailed("hidden File refresh did not retire")
+        }
+        // File retirement drops its custody after scheduling its terminal presentation.
+        // Chain behind that presentation before sampling the hidden invalidation boundary.
+        let presentationBarrier =
+            controller.worktreeRefreshDriver.schedulePresentationTransition { _ in }
+        await presentationBarrier?.value
     }
 
     private static func requireRefreshIdle(_ controller: BridgePaneController) async throws {

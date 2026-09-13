@@ -68,7 +68,8 @@ package enum RuntimeEnvelopeHarness {
         worktreeId: UUID? = UUID(),
         source: EventSource = .system(.builtin(.gitWorkingDirectoryProjector)),
         seq: UInt64 = 1,
-        eventId: UUID = UUID()
+        eventId: UUID = UUID(),
+        observationLifetime: RepositoryFactObservationLifetime = .unscoped
     ) -> RuntimeEnvelope {
         .worktree(
             WorktreeEnvelope.test(
@@ -77,7 +78,8 @@ package enum RuntimeEnvelopeHarness {
                 worktreeId: worktreeId,
                 source: source,
                 seq: seq,
-                eventId: eventId
+                eventId: eventId,
+                observationLifetime: observationLifetime
             )
         )
     }

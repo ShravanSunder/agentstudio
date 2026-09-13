@@ -38,6 +38,7 @@ extension ForgeActor {
         let trigger: RefreshTrigger
         let correlationId: UUID?
         let explicitAttemptIds: Set<UUID>
+        var observationLifetime: RepositoryObservationLifetime?
 
         var signature: ProviderRequestSignature {
             ProviderRequestSignature(origin: origin, demandedBranches: demandedBranches)
