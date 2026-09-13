@@ -280,6 +280,16 @@ package actor BridgeDevelopmentProductHost {
         self.retiringReviewComparisonTasks.removeAll()
         reviewGitRefreshSeedHolder.retire()
         await MainActor.run {
+            // Drained cancelled tasks cannot publish over a successor; shutdown settles its own pending state.
+            if let comparison = refreshAdmissionCoordinator.productPresentationSnapshot.reviewComparison,
+                case .pending(let generation) = comparison.attempt
+            {
+                refreshAdmissionCoordinator.failReviewComparisonAttempt(
+                    reviewGeneration: generation,
+                    failureKind: "publication_failed",
+                    retryable: true
+                )
+            }
             refreshAdmissionCoordinator.close()
             productAdmissionGate.close()
         }

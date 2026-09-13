@@ -248,7 +248,6 @@ describe('worktree annotation Annotations integrated surface', () => {
 		expect(viewedControl.current).not.toBeNull();
 		await performBrowserAction(() => viewedControl.current?.markViewed());
 		await expect.element(rendered.getByRole('region', { name: 'Annotations' })).toBeVisible();
-		await settleInteraction();
 		await act(async (): Promise<void> => {
 			surface.settleMostRecentViewed(5);
 			await settleInteraction();

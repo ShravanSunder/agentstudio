@@ -23,12 +23,33 @@ package struct WorkspaceArrangementViewDerived {
     }
 
     package func activeVisiblePaneIds(forTab tabId: UUID) -> [UUID] {
-        guard let activeLayout = activeLayout(forTab: tabId) else {
+        guard let tab = resolvedTab(forTab: tabId, logsMissing: true) else {
             return []
         }
-        return visiblePaneIds(
+        return activeVisiblePaneIds(forTab: tab)
+    }
+
+    package func activeVisiblePaneIds(forTab tab: Tab) -> [UUID] {
+        guard let activeLayout = activeLayout(forTab: tab) else {
+            return []
+        }
+        let minimizedPaneIds = activeMinimizedPaneIds(
+            forTab: tab,
+            activeLayout: activeLayout
+        )
+        return activeVisiblePaneIds(
+            activeLayout: activeLayout,
+            minimizedPaneIds: minimizedPaneIds
+        )
+    }
+
+    package func activeVisiblePaneIds(
+        activeLayout: Layout,
+        minimizedPaneIds: Set<UUID>
+    ) -> [UUID] {
+        visiblePaneIds(
             layoutPaneIds: activeLayout.paneIds,
-            minimizedPaneIds: activeMinimizedPaneIds(forTab: tabId)
+            minimizedPaneIds: minimizedPaneIds
         )
     }
 
@@ -36,10 +57,12 @@ package struct WorkspaceArrangementViewDerived {
     /// backgrounded pane references so their arrangement survives a restart;
     /// rendering must not give those deferred panes a visual slot.
     package func activeLayout(forTab tabId: UUID) -> Layout? {
-        guard let canonicalLayout = tabLayoutAtom.tab(tabId)?.activeArrangement.layout else {
-            workspaceArrangementViewLogger.warning("activeLayout: tab \(tabId) not found")
-            return nil
-        }
+        guard let tab = resolvedTab(forTab: tabId, logsMissing: true) else { return nil }
+        return activeLayout(forTab: tab)
+    }
+
+    package func activeLayout(forTab tab: Tab) -> Layout? {
+        let canonicalLayout = tab.activeArrangement.layout
 
         let activePaneIds = Set(paneAtom.activeResidencyPaneIds(in: canonicalLayout.paneIds))
         let activePaneIndexes = canonicalLayout.panes.indices.filter { index in
@@ -78,9 +101,12 @@ package struct WorkspaceArrangementViewDerived {
     }
 
     package func activePaneId(forTab tabId: UUID) -> UUID? {
-        guard let activeArrangement = tabLayoutAtom.tab(tabId)?.activeArrangement else {
-            return nil
-        }
+        guard let tab = resolvedTab(forTab: tabId, logsMissing: false) else { return nil }
+        return activePaneId(forTab: tab)
+    }
+
+    package func activePaneId(forTab tab: Tab) -> UUID? {
+        let activeArrangement = tab.activeArrangement
         return paneAtom.activeResidencyPaneId(
             preferred: activeArrangement.activePaneId,
             in: activeArrangement.layout.paneIds
@@ -88,9 +114,13 @@ package struct WorkspaceArrangementViewDerived {
     }
 
     package func activeMinimizedPaneIds(forTab tabId: UUID) -> Set<UUID> {
-        let minimizedPaneIds = tabLayoutAtom.tab(tabId)?.activeArrangement.minimizedPaneIds ?? []
-        guard let activeLayout = activeLayout(forTab: tabId) else { return [] }
-        return minimizedPaneIds.intersection(Set(activeLayout.paneIds))
+        guard let tab = resolvedTab(forTab: tabId, logsMissing: true) else { return [] }
+        return activeMinimizedPaneIds(forTab: tab)
+    }
+
+    package func activeMinimizedPaneIds(forTab tab: Tab) -> Set<UUID> {
+        guard let activeLayout = activeLayout(forTab: tab) else { return [] }
+        return activeMinimizedPaneIds(forTab: tab, activeLayout: activeLayout)
     }
 
     private func visiblePaneIds(
@@ -103,5 +133,22 @@ package struct WorkspaceArrangementViewDerived {
 
     private func isActivePane(_ paneID: UUID) -> Bool {
         paneAtom.graphAtom.paneStructuralFacts(paneID)?.residency.isActive == true
+    }
+
+    package func activeMinimizedPaneIds(
+        forTab tab: Tab,
+        activeLayout: Layout
+    ) -> Set<UUID> {
+        tab.activeArrangement.minimizedPaneIds.intersection(Set(activeLayout.paneIds))
+    }
+
+    private func resolvedTab(forTab tabId: UUID, logsMissing: Bool) -> Tab? {
+        guard let tab = tabLayoutAtom.tab(tabId) else {
+            if logsMissing {
+                workspaceArrangementViewLogger.warning("activeLayout: tab \(tabId) not found")
+            }
+            return nil
+        }
+        return tab
     }
 }

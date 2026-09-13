@@ -270,7 +270,7 @@ struct GitWorkingDirectoryProjectorVisibleTierTests {
         let rootPath = URL(fileURLWithPath: "/tmp/covered-visibility-\(UUID().uuidString)")
         await actor.setActivity(worktreeId: worktreeId, isActiveInApp: true)
         await bus.post(visibleTierRegistrationEnvelope(seq: 1, worktreeId: worktreeId, rootPath: rootPath))
-        #expect(await visibleTierWaitUntil { await calls.count == 1 })
+        await assertEventuallyAsync("active registration starts its first read") { await calls.count == 1 }
         #expect(await visibleTierWaitUntil { await actor.worktreeTasks[worktreeId] == nil })
         await actor.setActivity(worktreeId: worktreeId, isActiveInApp: false)
 

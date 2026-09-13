@@ -772,8 +772,12 @@ async function waitForReviewItemCount(props: {
 			{ timeout: stressDiagnosticTimeoutMilliseconds },
 		);
 	} catch (error: unknown) {
+		const [browserDiagnostic, publicationDiagnostic] = await Promise.all([
+			props.diagnostics.describe(),
+			readBrowserDiagnosticWithinDeadline(readReviewRenderObservation(props.page)),
+		]);
 		throw new Error(
-			`Review item count did not settle: browser=${await props.diagnostics.describe()} server=${props.failureContext()}`,
+			`Review item count did not settle: browser=${browserDiagnostic} publications=${JSON.stringify(publicationDiagnostic)} server=${props.failureContext()}`,
 			{ cause: error },
 		);
 	}
