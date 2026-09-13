@@ -424,8 +424,7 @@ parsing lives in `scripts/release-tag-metadata.sh`.
 - Stable: `vX.Y.Z` → `AgentStudio.app`, `com.agentstudio.app`, `~/.agentstudio`, `agentstudio://oauth/callback`, Homebrew `agent-studio`.
 - Beta: `vX.Y.Z-beta.N` → `AgentStudio Beta.app`, `com.agentstudio.app.beta`, `~/.agent-studio-b`, `agentstudio-beta://oauth/callback`, Homebrew `agent-studio@beta`.
 
-Before pushing a release tag from merged `main`: `mise run lint`, `mise run test`,
-`bash scripts/verify-release-scripts.sh`. Then smoke the downloaded `.app`
+After the tag workflow completes, smoke the downloaded `.app`
 plist/signature/notarization and confirm the Homebrew cask SHA.
 
 ## Linear Work
