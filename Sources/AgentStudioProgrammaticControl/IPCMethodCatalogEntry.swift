@@ -1,0 +1,207 @@
+import Foundation
+
+extension IPCMethodExposure: IPCSchemaProviding {}
+extension IPCHandleKind: IPCSchemaProviding {}
+extension IPCExecutionOwner: IPCSchemaProviding {}
+extension IPCPrincipalAvailability: IPCSchemaProviding {}
+extension IPCResultSemantics: IPCSchemaProviding {}
+extension IPCCorrelationPolicy: IPCSchemaProviding {}
+extension IPCModelCallVariant: IPCSchemaProviding {}
+
+package struct IPCMethodExampleDocument: Codable, Equatable, Sendable {
+    package let description: String
+    let parameters: IPCSchemaValue
+    let result: IPCSchemaValue
+
+    init(description: String, parameters: Data, result: Data) throws {
+        self.description = description
+        self.parameters = try JSONDecoder().decode(IPCSchemaValue.self, from: parameters)
+        self.result = try JSONDecoder().decode(IPCSchemaValue.self, from: result)
+    }
+}
+
+package struct IPCMethodCatalogEntry: Codable, Equatable, Sendable {
+    package let name: String
+    package let description: String
+    package let parameterSchema: IPCJSONSchema
+    package let resultSchema: IPCJSONSchema
+    package let examples: [IPCMethodExampleDocument]
+    package let exposure: IPCMethodExposure
+    package let requiredPrivileges: [IPCPrivilegeClass]
+    package let dataScope: IPCDataScope
+    package let allowedTargetKinds: [IPCHandleKind]
+    package let commandRelationship: IPCCommandRelationship
+    package let executionOwner: IPCExecutionOwner
+    package let principalAvailability: IPCPrincipalAvailability
+    package let resultSemantics: IPCResultSemantics
+    package let documentedErrors: [IPCMethodErrorCase]
+    package let isMutating: Bool
+    package let correlationPolicy: IPCCorrelationPolicy
+    package let offlineEligibility: IPCMethodOfflineEligibility
+    package let modelCalls: [IPCModelCallProjection]
+}
+
+extension IPCMethodCatalogEntry {
+    package static func schemaForExamples<Parameters, Result>(
+        methodName: String,
+        examples: [IPCMethodExample<Parameters, Result>]
+    ) throws -> IPCJSONSchema where Parameters: Codable & Sendable, Result: Codable & Sendable {
+        let examplesSchema: IPCJSONSchema
+        if examples.isEmpty {
+            examplesSchema = .array(items: .null, maximumCount: 0)
+        } else {
+            let literalSchemas = try examples.map { try IPCJSONSchema.literal($0) }
+            let itemSchema = literalSchemas.count == 1 ? literalSchemas[0] : .oneOf(literalSchemas)
+            examplesSchema = .array(items: itemSchema)
+        }
+
+        return try metadataSchema(
+            methodName: methodName,
+            examplesSchema: examplesSchema
+        )
+    }
+
+    private static func metadataSchema(
+        methodName: String,
+        examplesSchema: IPCJSONSchema
+    ) throws -> IPCJSONSchema {
+        .object(fields: [
+            .init(name: "name", description: "Open method name", schema: .string(allowedValues: [methodName])),
+            .init(
+                name: "description", description: "Agent-facing method description", schema: .string(minimumLength: 1)),
+            .init(name: "parameterSchema", description: "Complete parameter JSON Schema", schema: .schemaDocument),
+            .init(name: "resultSchema", description: "Complete result JSON Schema", schema: .schemaDocument),
+            .init(
+                name: "examples", description: "Typed executable method examples",
+                schema: examplesSchema),
+            .init(
+                name: "exposure", description: "Application channel exposure", schema: try IPCMethodExposure.ipcSchema()
+            ),
+            .init(
+                name: "requiredPrivileges", description: "Privileges required for admission",
+                schema: .array(items: try IPCPrivilegeClass.ipcSchema(), minimumCount: 1)),
+            .init(
+                name: "dataScope", description: "Data category accessed by the method",
+                schema: try IPCDataScope.ipcSchema()),
+            .init(
+                name: "allowedTargetKinds", description: "Durable target handle kinds accepted by the method",
+                schema: .array(items: try IPCHandleKind.ipcSchema())),
+            .init(
+                name: "commandRelationship", description: "Relationship to interactive AppCommand identity",
+                schema: try IPCCommandRelationship.ipcSchema()),
+            .init(
+                name: "executionOwner", description: "Owner that applies or reads the request",
+                schema: try IPCExecutionOwner.ipcSchema()),
+            .init(
+                name: "principalAvailability", description: "Authentication state required for invocation",
+                schema: try IPCPrincipalAvailability.ipcSchema()),
+            .init(
+                name: "resultSemantics", description: "Boundary established by a successful result",
+                schema: try IPCResultSemantics.ipcSchema()),
+            .init(
+                name: "documentedErrors", description: "Stable method-specific failure cases",
+                schema: .array(items: try IPCMethodErrorCase.ipcSchema())),
+            .init(name: "isMutating", description: "Whether the method may change application state", schema: .boolean),
+            .init(
+                name: "correlationPolicy", description: "Logical request correlation requirement",
+                schema: try IPCCorrelationPolicy.ipcSchema()),
+            .init(
+                name: "offlineEligibility", description: "Notification variants eligible for offline collection",
+                schema: try IPCMethodOfflineEligibility.ipcSchema()),
+            .init(
+                name: "modelCalls", description: "Small model-facing scalar projections",
+                schema: .array(items: try IPCModelCallProjection.ipcSchema())),
+        ])
+    }
+}
+
+extension IPCCommandRelationship: IPCSchemaProviding {
+    package static func ipcSchema() throws -> IPCJSONSchema {
+        .oneOf([
+            .object(fields: [
+                .init(
+                    name: "kind", description: "No interactive command identity",
+                    schema: .string(allowedValues: ["noInteractiveIdentity"]))
+            ]),
+            .object(fields: [
+                .init(
+                    name: "kind", description: "Reuses one AppCommand identity",
+                    schema: .string(allowedValues: ["appCommand"])),
+                .init(name: "identifier", description: "Open AppCommand identifier", schema: .string(minimumLength: 1)),
+            ]),
+        ])
+    }
+}
+
+extension IPCMethodOfflineEligibility: IPCSchemaProviding {
+    package static func ipcSchema() throws -> IPCJSONSchema {
+        .oneOf([
+            .object(fields: [
+                .init(
+                    name: "kind", description: "No offline collection",
+                    schema: .string(allowedValues: ["never"]))
+            ]),
+            .object(fields: [
+                .init(
+                    name: "kind", description: "Selected model-call variants may collect offline",
+                    schema: .string(allowedValues: ["modelCallVariants"])),
+                .init(
+                    name: "variants", description: "Offline-eligible model-call variants",
+                    schema: .array(items: try IPCModelCallVariant.ipcSchema(), minimumCount: 1)),
+            ]),
+        ])
+    }
+}
+
+extension IPCMethodErrorCase: IPCSchemaProviding {
+    package static func ipcSchema() throws -> IPCJSONSchema {
+        .object(fields: [
+            .init(name: "reason", description: "Stable open error reason", schema: .string(minimumLength: 1)),
+            .init(name: "description", description: "Caller-facing failure meaning", schema: .string(minimumLength: 1)),
+        ])
+    }
+}
+
+extension IPCModelCallSelector: IPCSchemaProviding {
+    package static func ipcSchema() throws -> IPCJSONSchema {
+        .object(fields: [
+            .init(
+                name: "parameterField", description: "Declared selector parameter field",
+                schema: .string(minimumLength: 1)),
+            .init(name: "equals", description: "Declared selector value", schema: .string()),
+        ])
+    }
+}
+
+extension IPCModelScalarArgument: IPCSchemaProviding {
+    package static func ipcSchema() throws -> IPCJSONSchema {
+        .object(fields: [
+            .init(name: "name", description: "Scalar CLI argument name", schema: .string(minimumLength: 1)),
+            .init(
+                name: "parameterField", description: "Declared parameter field receiving the scalar",
+                schema: .string(minimumLength: 1)),
+            .init(name: "description", description: "Scalar argument meaning", schema: .string(minimumLength: 1)),
+            .init(name: "isRequired", description: "Whether the scalar must be supplied", schema: .boolean),
+        ])
+    }
+}
+
+extension IPCModelCallProjection: IPCSchemaProviding {
+    package static func ipcSchema() throws -> IPCJSONSchema {
+        .object(fields: [
+            .init(
+                name: "variant", description: "Closed model-facing invocation",
+                schema: try IPCModelCallVariant.ipcSchema()),
+            .init(
+                name: "selectors", description: "Fixed fields selecting the typed alternative",
+                schema: .array(items: try IPCModelCallSelector.ipcSchema())),
+            .init(
+                name: "scalarArguments", description: "Plain scalar argument mappings",
+                schema: .array(items: try IPCModelScalarArgument.ipcSchema())),
+            .init(name: "successReply", description: "Short successful reply", schema: .string(minimumLength: 1)),
+            .optional(
+                "queuedReply", description: "Short durable-queue reply when eligible", schema: .string(minimumLength: 1)
+            ),
+        ])
+    }
+}

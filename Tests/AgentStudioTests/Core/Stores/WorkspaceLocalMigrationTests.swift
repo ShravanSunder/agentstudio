@@ -53,6 +53,15 @@ struct WorkspaceLocalMigrationTests {
             "annotation_output_attempt_message",
             "annotation_output_event",
             "local_recovery_provenance",
+            "sessions_conversation",
+            "sessions_pane_binding",
+            "sessions_source",
+            "sessions_evidence",
+            "sessions_message",
+            "sessions_attention",
+            "sessions_result",
+            "sessions_operation",
+            "sessions_loss",
         ]
 
         #expect(tableNames == expectedTableNames)
@@ -87,6 +96,7 @@ struct WorkspaceLocalMigrationTests {
                     "009_add_worktree_annotation_reviewed_subject_evidence",
                     "010_remove_worktree_annotation_workspace_provenance",
                     "007_add_per_screen_sidebar_organization",
+                    "011_create_sessions_ingestion_schema",
                 ]
         )
     }

@@ -1,0 +1,461 @@
+import AgentStudioInfrastructure
+import Foundation
+import GRDB
+import Testing
+
+@testable import AgentStudioSessions
+
+@Suite("Sessions remaining S2 contracts")
+struct SessionsRemainingContractTests {
+    @Test("scalar replay ignores later server receipt metadata and returns its original occurrence")
+    func scalarReplayUsesCallerIntentFingerprint() async throws {
+        let fixture = try SessionsDatabaseFixture()
+        try await withSessionsIngestion(repository: fixture.makeRepository()) { ingestion in
+            let paneId = UUIDv7.generate()
+            _ = try await ingestion.submit(
+                correlationId: UUIDv7.generate(),
+                mutation: .bind(
+                    makeQualifiedBindMutation(
+                        paneId: paneId,
+                        providerConversationId: "conversation-scalar-replay",
+                        sourceGenerationId: UUIDv7.generate(),
+                        reportedAt: 1
+                    )
+                )
+            )
+            let correlationId = UUIDv7.generate()
+            let firstOutcome = try await ingestion.submit(
+                correlationId: correlationId,
+                mutation: .message(
+                    SessionsMessageMutation(
+                        context: .currentPaneBinding(paneId: paneId),
+                        text: "same scalar intent",
+                        receivedAt: Date(timeIntervalSince1970: 2)
+                    )
+                )
+            )
+            let replayOutcome = try await ingestion.submit(
+                correlationId: correlationId,
+                mutation: .message(
+                    SessionsMessageMutation(
+                        context: .currentPaneBinding(paneId: paneId),
+                        text: "same scalar intent",
+                        receivedAt: Date(timeIntervalSince1970: 20)
+                    )
+                )
+            )
+
+            #expect(replayOutcome == firstOutcome)
+            guard case .messageSaved(let occurrenceId, .attributed) = firstOutcome else {
+                Issue.record("Expected one attributed saved-message outcome, got \(firstOutcome)")
+                return
+            }
+            let snapshot = try await ingestion.snapshot(makeSessionsSnapshotQuery(paneId: paneId))
+            #expect(snapshot.messages.count == 1)
+            #expect(snapshot.messages.first?.occurrenceId == occurrenceId)
+            #expect(snapshot.messages.first?.text == "same scalar intent")
+        }
+    }
+
+    @Test("delayed bind and original replay never retarget a newer current binding")
+    func delayedBindAndOriginalReplayPreserveCurrentBinding() async throws {
+        let fixture = try SessionsDatabaseFixture()
+        try await withSessionsIngestion(repository: fixture.makeRepository()) { ingestion in
+            let paneId = UUIDv7.generate()
+            let sourceGenerationA = UUIDv7.generate()
+            let sourceGenerationB = UUIDv7.generate()
+            let bindA = makeQualifiedBindMutation(
+                paneId: paneId,
+                providerConversationId: "conversation-A",
+                sourceGenerationId: sourceGenerationA,
+                reportedAt: 1
+            )
+            let correlationA = UUIDv7.generate()
+            let establishedA = try await ingestion.submit(
+                correlationId: correlationA,
+                mutation: .bind(bindA)
+            )
+            _ = try await ingestion.submit(
+                correlationId: UUIDv7.generate(),
+                mutation: .bind(
+                    makeQualifiedBindMutation(
+                        paneId: paneId,
+                        providerConversationId: "conversation-B",
+                        sourceGenerationId: sourceGenerationB,
+                        reportedAt: 2
+                    )
+                )
+            )
+
+            let delayedBindOccurrenceId = UUIDv7.generate()
+            let delayedBind = try await ingestion.submit(
+                correlationId: UUIDv7.generate(),
+                mutation: .bind(
+                    makeQualifiedBindMutation(
+                        paneId: paneId,
+                        providerConversationId: "conversation-A",
+                        sourceGenerationId: sourceGenerationA,
+                        occurrenceId: delayedBindOccurrenceId,
+                        reportedAt: 3
+                    )
+                )
+            )
+            #expect(delayedBind == .historical(occurrenceId: delayedBindOccurrenceId))
+
+            let replayedA = try await ingestion.submit(
+                correlationId: correlationA,
+                mutation: .bind(bindA)
+            )
+            #expect(replayedA == establishedA)
+            let snapshot = try await ingestion.snapshot(makeSessionsSnapshotQuery(paneId: paneId))
+            #expect(snapshot.currentBinding?.providerConversationId == "conversation-B")
+            #expect(snapshot.currentBinding?.sourceGenerationId == sourceGenerationB)
+        }
+    }
+
+    @Test("competing identity without a qualified transition returns binding conflict")
+    func competingUnqualifiedBindReturnsConflict() async throws {
+        let fixture = try SessionsDatabaseFixture()
+        try await withSessionsIngestion(repository: fixture.makeRepository()) { ingestion in
+            let paneId = UUIDv7.generate()
+            _ = try await ingestion.submit(
+                correlationId: UUIDv7.generate(),
+                mutation: .bind(
+                    makeQualifiedBindMutation(
+                        paneId: paneId,
+                        providerConversationId: "conversation-current",
+                        sourceGenerationId: UUIDv7.generate(),
+                        reportedAt: 1
+                    )
+                )
+            )
+            let unqualifiedBind = SessionsBindMutation(
+                paneId: paneId,
+                providerIdentifier: "unqualified-provider",
+                providerVersion: "unknown",
+                providerMode: "unknown",
+                providerConversationId: "conversation-competing",
+                sourceId: "unqualified-source",
+                sourceGenerationId: UUIDv7.generate(),
+                transition: .unqualified(occurrenceId: UUIDv7.generate()),
+                freshness: .live,
+                reportedAt: Date(timeIntervalSince1970: 2)
+            )
+
+            await #expect(throws: SessionsRepositoryError.bindingConflict(paneId)) {
+                try await ingestion.submit(
+                    correlationId: UUIDv7.generate(),
+                    mutation: .bind(unqualifiedBind)
+                )
+            }
+            let snapshot = try await ingestion.snapshot(makeSessionsSnapshotQuery(paneId: paneId))
+            #expect(snapshot.currentBinding?.providerConversationId == "conversation-current")
+        }
+    }
+
+    @Test("source cursor and evidence roll back together then advance together")
+    func sourceCursorSharesEvidenceTransaction() async throws {
+        let fixture = try SessionsDatabaseFixture()
+        let paneId = UUIDv7.generate()
+        let sourceGenerationId = UUIDv7.generate()
+        try await withSessionsIngestion(repository: fixture.makeRepository()) { ingestion in
+            _ = try await ingestion.submit(
+                correlationId: UUIDv7.generate(),
+                mutation: .bind(
+                    makeQualifiedBindMutation(
+                        paneId: paneId,
+                        providerConversationId: "conversation-cursor",
+                        sourceGenerationId: sourceGenerationId,
+                        reportedAt: 1
+                    )
+                )
+            )
+            let rejectedOccurrenceId = UUIDv7.generate()
+            try await fixture.sqliteAccess.write { database in
+                try database.execute(
+                    sql: """
+                        CREATE TRIGGER reject_cursor_evidence
+                        BEFORE INSERT ON sessions_evidence
+                        WHEN NEW.occurrence_id = '\(rejectedOccurrenceId.uuidString)'
+                        BEGIN
+                            SELECT RAISE(ABORT, 'forced cursor rollback');
+                        END
+                        """
+                )
+            }
+            await #expect(throws: DatabaseError.self) {
+                try await ingestion.submit(
+                    correlationId: UUIDv7.generate(),
+                    mutation: .recordEvidence(
+                        SessionsEvidenceMutation(
+                            context: .sourceGeneration(
+                                paneId: paneId,
+                                sourceGenerationId: sourceGenerationId
+                            ),
+                            occurrenceId: rejectedOccurrenceId,
+                            turnId: "turn-cursor",
+                            subject: .root,
+                            kind: .activityStarted,
+                            origin: .reported,
+                            freshness: .live,
+                            occurredAt: Date(timeIntervalSince1970: 2),
+                            sourceCursor: "cursor-rejected"
+                        )
+                    )
+                )
+            }
+            let cursorAfterFailure = try await loadSourceCursor(
+                fixture.sqliteAccess,
+                sourceGenerationId: sourceGenerationId
+            )
+            #expect(cursorAfterFailure == nil)
+
+            let acceptedOccurrenceId = UUIDv7.generate()
+            _ = try await ingestion.submit(
+                correlationId: UUIDv7.generate(),
+                mutation: .recordEvidence(
+                    SessionsEvidenceMutation(
+                        context: .sourceGeneration(
+                            paneId: paneId,
+                            sourceGenerationId: sourceGenerationId
+                        ),
+                        occurrenceId: acceptedOccurrenceId,
+                        turnId: "turn-cursor",
+                        subject: .root,
+                        kind: .activityStarted,
+                        origin: .reported,
+                        freshness: .live,
+                        occurredAt: Date(timeIntervalSince1970: 3),
+                        sourceCursor: "cursor-accepted"
+                    )
+                )
+            )
+            let cursorAfterCommit = try await loadSourceCursor(
+                fixture.sqliteAccess,
+                sourceGenerationId: sourceGenerationId
+            )
+            #expect(cursorAfterCommit == "cursor-accepted")
+        }
+    }
+
+    @Test("stronger matching completion upgrades one seen result")
+    func strongerCompletionPreservesSeenResultDisposition() async throws {
+        let fixture = try SessionsDatabaseFixture()
+        let paneId = UUIDv7.generate()
+        let sourceGenerationId = UUIDv7.generate()
+        try await withSessionsIngestion(repository: fixture.makeRepository()) { ingestion in
+            _ = try await ingestion.submit(
+                correlationId: UUIDv7.generate(),
+                mutation: .bind(
+                    makeQualifiedBindMutation(
+                        paneId: paneId,
+                        providerConversationId: "conversation-result-upgrade",
+                        sourceGenerationId: sourceGenerationId,
+                        reportedAt: 1
+                    )
+                )
+            )
+            _ = try await ingestion.submit(
+                correlationId: UUIDv7.generate(),
+                mutation: .recordEvidence(
+                    SessionsEvidenceMutation(
+                        context: .sourceGeneration(
+                            paneId: paneId,
+                            sourceGenerationId: sourceGenerationId
+                        ),
+                        occurrenceId: UUIDv7.generate(),
+                        turnId: "turn-result",
+                        subject: .root,
+                        kind: .completed,
+                        origin: .agentReported,
+                        freshness: .live,
+                        occurredAt: Date(timeIntervalSince1970: 2),
+                        sourceCursor: "cursor-agent"
+                    )
+                )
+            )
+            try await fixture.sqliteAccess.write { database in
+                try database.execute(
+                    sql: "UPDATE sessions_result SET is_seen = 1, seen_at = 2 WHERE turn_id = 'turn-result'"
+                )
+            }
+            _ = try await ingestion.submit(
+                correlationId: UUIDv7.generate(),
+                mutation: .recordEvidence(
+                    SessionsEvidenceMutation(
+                        context: .sourceGeneration(
+                            paneId: paneId,
+                            sourceGenerationId: sourceGenerationId
+                        ),
+                        occurrenceId: UUIDv7.generate(),
+                        turnId: "turn-result",
+                        subject: .root,
+                        kind: .completed,
+                        origin: .reported,
+                        freshness: .live,
+                        occurredAt: Date(timeIntervalSince1970: 3),
+                        sourceCursor: "cursor-provider"
+                    )
+                )
+            )
+
+            let snapshot = try await ingestion.snapshot(makeSessionsSnapshotQuery(paneId: paneId))
+            #expect(snapshot.results.count == 1)
+            #expect(snapshot.results.first?.origin == .reported)
+            #expect(snapshot.results.first?.disposition == .seen)
+            #expect(snapshot.results.first?.seenAt == Date(timeIntervalSince1970: 2))
+        }
+    }
+
+    @Test("message pages retain one snapshot revision and reject a stale cursor")
+    func snapshotPaginationAndStaleCursor() async throws {
+        let fixture = try SessionsDatabaseFixture()
+        try await withSessionsIngestion(repository: fixture.makeRepository()) { ingestion in
+            let paneId = UUIDv7.generate()
+            _ = try await ingestion.submit(
+                correlationId: UUIDv7.generate(),
+                mutation: .bind(
+                    makeQualifiedBindMutation(
+                        paneId: paneId,
+                        providerConversationId: "conversation-pages",
+                        sourceGenerationId: UUIDv7.generate(),
+                        reportedAt: 1
+                    )
+                )
+            )
+            for ordinal in 1...3 {
+                _ = try await ingestion.submit(
+                    correlationId: UUIDv7.generate(),
+                    mutation: .message(
+                        SessionsMessageMutation(
+                            context: .currentPaneBinding(paneId: paneId),
+                            text: "message-\(ordinal)",
+                            freshness: .live,
+                            receivedAt: Date(timeIntervalSince1970: TimeInterval(ordinal + 1))
+                        )
+                    )
+                )
+            }
+            let firstPage = try await ingestion.snapshot(
+                SessionsSnapshotQuery(
+                    paneId: paneId,
+                    page: SessionsSnapshotPage(limit: 2, after: nil)
+                )
+            )
+            let cursor = try #require(firstPage.nextCursor)
+            let secondPage = try await ingestion.snapshot(
+                SessionsSnapshotQuery(
+                    paneId: paneId,
+                    page: SessionsSnapshotPage(limit: 2, after: cursor)
+                )
+            )
+            #expect(firstPage.messages.map(\.text) == ["message-1", "message-2"])
+            #expect(secondPage.messages.map(\.text) == ["message-3"])
+            #expect(secondPage.revision == firstPage.revision)
+
+            _ = try await ingestion.submit(
+                correlationId: UUIDv7.generate(),
+                mutation: .message(
+                    SessionsMessageMutation(
+                        context: .currentPaneBinding(paneId: paneId),
+                        text: "message-4",
+                        freshness: .live,
+                        receivedAt: Date(timeIntervalSince1970: 5)
+                    )
+                )
+            )
+            let currentSnapshot = try await ingestion.snapshot(
+                SessionsSnapshotQuery(
+                    paneId: paneId,
+                    page: SessionsSnapshotPage(limit: 1, after: nil)
+                )
+            )
+            await #expect(
+                throws: SessionsRepositoryError.staleSnapshotCursor(
+                    expectedRevision: firstPage.revision,
+                    actualRevision: currentSnapshot.revision
+                )
+            ) {
+                try await ingestion.snapshot(
+                    SessionsSnapshotQuery(
+                        paneId: paneId,
+                        page: SessionsSnapshotPage(limit: 2, after: cursor)
+                    )
+                )
+            }
+        }
+    }
+
+    @Test("only an exact profile capability can create reported authority")
+    func exactProfileQualificationIsRequired() throws {
+        let profile = SessionsProviderProfile(
+            providerIdentifier: "provider",
+            exactVersion: "1.2.3",
+            operatingMode: "interactive",
+            qualifiedCapabilities: [.sessionStart]
+        )
+        let registry = SessionsProviderAdapterRegistry(profiles: [profile])
+        let paneId = UUIDv7.generate()
+        let sourceGenerationId = UUIDv7.generate()
+
+        #expect(
+            registry.qualification(
+                providerIdentifier: "provider",
+                exactVersion: "1.2.4",
+                operatingMode: "interactive",
+                capability: .sessionStart
+            ) == .unverified
+        )
+        #expect(
+            registry.qualification(
+                providerIdentifier: "provider",
+                exactVersion: "1.2.3",
+                operatingMode: "interactive",
+                capability: .turnDone
+            ) == .unavailable
+        )
+        #expect(
+            registry.admitProviderEvidence(
+                SessionsProviderEvidenceAdmission(
+                    provider: SessionsProviderIdentity(
+                        providerIdentifier: "provider",
+                        exactVersion: "1.2.4",
+                        operatingMode: "interactive"
+                    ),
+                    capability: .sessionStart,
+                    paneId: paneId,
+                    sourceGenerationId: sourceGenerationId,
+                    freshness: .live
+                )
+            ) == nil
+        )
+        #expect(
+            registry.admitProviderEvidence(
+                SessionsProviderEvidenceAdmission(
+                    provider: SessionsProviderIdentity(
+                        providerIdentifier: "provider",
+                        exactVersion: "1.2.3",
+                        operatingMode: "interactive"
+                    ),
+                    capability: .turnDone,
+                    paneId: paneId,
+                    sourceGenerationId: sourceGenerationId,
+                    freshness: .live
+                )
+            ) == nil
+        )
+    }
+}
+
+private func loadSourceCursor(
+    _ sqliteAccess: TestSessionsSQLiteAccess,
+    sourceGenerationId: UUID
+) async throws -> String? {
+    try await sqliteAccess.read { database in
+        try String.fetchOne(
+            database,
+            sql: "SELECT last_cursor FROM sessions_source WHERE source_generation_id = ?",
+            arguments: [sourceGenerationId.uuidString]
+        )
+    }
+}

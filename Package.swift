@@ -46,10 +46,13 @@ let package = Package(
                 "AgentStudioInboxNotification",
                 "AgentStudioInfrastructure",
                 "AgentStudioRepoExplorer",
+                "AgentStudioSessions",
                 "AgentStudioSharedComponents",
                 "AgentStudioTerminal",
                 "AgentStudioWebview",
                 "GhosttyKit",
+                "AgentStudioIPCTransport",
+                .product(name: "GRDB", package: "GRDB.swift"),
             ],
             path: "Sources/AgentStudio",
             exclude: [
@@ -230,6 +233,16 @@ let package = Package(
             swiftSettings: [
                 .swiftLanguageMode(.v6)
             ]
+        ),
+        .target(
+            name: "AgentStudioSessions",
+            dependencies: [
+                "AgentStudioCore",
+                "AgentStudioInfrastructure",
+                .product(name: "GRDB", package: "GRDB.swift"),
+            ],
+            path: "Sources/AgentStudio/Features/Sessions",
+            swiftSettings: [.swiftLanguageMode(.v6)]
         ),
         .target(
             name: "AgentStudioIPCTransport",
@@ -503,7 +516,8 @@ let package = Package(
         .testTarget(
             name: "AgentStudioProgrammaticControlTests",
             dependencies: [
-                "AgentStudioProgrammaticControl"
+                "AgentStudioProgrammaticControl",
+                "AgentStudioInfrastructure",
             ],
             path: "Tests/AgentStudioProgrammaticControlTests",
             swiftSettings: [
@@ -517,11 +531,23 @@ let package = Package(
                 "AgentStudioAppIPC",
                 "AgentStudioIPCTransport",
                 "AgentStudioProgrammaticControl",
+                "AgentStudioInfrastructure",
             ],
             path: "Tests/AgentStudioAppIPCTests",
             swiftSettings: [
                 .swiftLanguageMode(.v6)
             ]
+        ),
+        .testTarget(
+            name: "AgentStudioSessionsTests",
+            dependencies: [
+                "AgentStudioSessions",
+                "AgentStudioCore",
+                "AgentStudioInfrastructure",
+                .product(name: "GRDB", package: "GRDB.swift"),
+            ],
+            path: "Tests/AgentStudioTests/Features/Sessions",
+            swiftSettings: [.swiftLanguageMode(.v6)]
         ),
         .testTarget(
             name: "AgentStudioIPCClientTests",

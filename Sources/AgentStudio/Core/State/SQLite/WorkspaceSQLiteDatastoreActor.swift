@@ -975,7 +975,7 @@ extension WorkspaceSQLiteDatastoreActor {
         }
     }
 
-    private func preparedApplicationLocalRepository() throws -> WorkspaceLocalRepository {
+    func preparedApplicationLocalRepository() throws -> WorkspaceLocalRepository {
         guard case .prepared(let receipt) = databasePreparationState else {
             throw WorkspaceSQLiteDatastoreError.databasesNotPrepared
         }

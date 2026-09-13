@@ -22,7 +22,7 @@ public struct IPCPrincipal: Equatable, Sendable {
     }
 }
 
-public enum IPCAccessMode: String, Codable, Equatable, Sendable {
+public enum IPCAccessMode: String, CaseIterable, Codable, Equatable, Sendable {
     case off
     case agentStudioOnly
     case automationSameUser
@@ -145,7 +145,7 @@ public enum IPCPrivilegeClass: String, Codable, CaseIterable, Hashable, Sendable
     case debugUnsafe
 }
 
-public enum IPCExecutionOwner: String, Codable, Equatable, Sendable {
+public enum IPCExecutionOwner: String, CaseIterable, Codable, Equatable, Sendable {
     case appCommand
     case uiPresentation
     case workspaceAction
@@ -156,12 +156,16 @@ public enum IPCExecutionOwner: String, Codable, Equatable, Sendable {
     case permissionBroker
 }
 
-public enum IPCResultSemantics: String, Codable, Equatable, Sendable {
+public enum IPCResultSemantics: String, CaseIterable, Codable, Equatable, Sendable {
     case applied
     case accepted
+    case durable
+    case presented
+    case partial
+    case uncertain
 }
 
-public enum IPCPrincipalAvailability: String, Codable, Equatable, Sendable {
+public enum IPCPrincipalAvailability: String, CaseIterable, Codable, Equatable, Sendable {
     case preAuthentication
     case authenticated
 }
@@ -319,7 +323,7 @@ public enum IPCPermissionApprovalRoute: Hashable, Sendable, Codable {
     }
 }
 
-public enum IPCPermissionRequestState: String, Codable, Equatable, Sendable {
+public enum IPCPermissionRequestState: String, CaseIterable, Codable, Equatable, Sendable {
     case pending
     case granted
     case denied

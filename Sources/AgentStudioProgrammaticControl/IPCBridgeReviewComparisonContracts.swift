@@ -1,9 +1,9 @@
-public enum IPCBridgeReviewComparisonBasis: String, Codable, Equatable, Sendable {
+public enum IPCBridgeReviewComparisonBasis: String, CaseIterable, Codable, Equatable, Sendable {
     case commonCommit
     case branchTip
 }
 
-public enum IPCBridgeReviewComparisonBaseRole: String, Codable, Equatable, Sendable {
+public enum IPCBridgeReviewComparisonBaseRole: String, CaseIterable, Codable, Equatable, Sendable {
     case commonCommit
     case selectedTarget
 }
