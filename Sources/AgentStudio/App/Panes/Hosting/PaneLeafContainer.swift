@@ -61,6 +61,7 @@ struct PaneLeafContainer: View {
     @State private var isDetachHovered: Bool = false
     @State private var movePaneMenuAnchorView: NSView?
     @State private var movePaneMenuPresenter = PaneMoveDestinationMenuPresenter()
+    @State private var contextMenuPresenter: PaneManagementContextMenuPresenter
 
     init(
         paneHost: PaneHostView,
@@ -108,6 +109,9 @@ struct PaneLeafContainer: View {
         self.workspaceWindowId = workspaceWindowId
         self.toolbarPresentation = toolbarPresentation
         self.managementChromePresentation = managementChromePresentation
+        _contextMenuPresenter = State(
+            initialValue: PaneManagementContextMenuPresenter(octiconLoader: octiconLoader)
+        )
     }
 
     /// Whether this pane is a drawer child (no drag, no drop, no sub-drawer).
@@ -247,14 +251,6 @@ struct PaneLeafContainer: View {
             let inlineMovePresentation = commandPresentation(
                 .movePaneToTab,
                 surface: .inlineControl
-            )
-            let extractContextMenuPresentation = commandPresentation(
-                .extractPaneToTab,
-                surface: .contextMenu
-            )
-            let moveContextMenuPresentation = commandPresentation(
-                .movePaneToTab,
-                surface: .contextMenu
             )
             ZStack(alignment: .topTrailing) {
                 VStack(spacing: 0) {
@@ -512,6 +508,19 @@ struct PaneLeafContainer: View {
                     .transition(.opacity)
                 }
 
+                PaneManagementContextMenuCaptureBridge(
+                    isEnabled: managementLayer.isActive
+                        && managementChromePresentation == .ordinary
+                        && !isDrawerChild
+                        && !isClosing
+                        && !suppressMainPaneManagementInteraction()
+                ) { event, captureView in
+                    presentPaneManagementContextMenu(event: event, in: captureView)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+
             }
             .overlayPreferenceValue(ManagementPaneIdentityCardBoundsPreferenceKey.self) { identityCardBounds in
                 GeometryReader { overlayGeometry in
@@ -566,30 +575,6 @@ struct PaneLeafContainer: View {
             .zIndex(isClosing ? 1 : 0)
             .animation(.easeOut(duration: AppStyles.General.Animation.fast), value: isClosing)
             .allowsHitTesting(!isClosing)
-            .contextMenu {
-                if managementLayer.isActive
-                    && managementChromePresentation == .ordinary
-                    && !isDrawerChild
-                {
-                    if let extractContextMenuPresentation {
-                        Button {
-                            extractContextMenuPresentation.perform()
-                        } label: {
-                            commandMenuLabel(extractContextMenuPresentation.spec)
-                        }
-                        .disabled(!extractContextMenuPresentation.isEnabled)
-                    }
-
-                    if let moveContextMenuPresentation {
-                        Menu {
-                            movePaneDestinationMenuItems(moveContextMenuPresentation)
-                        } label: {
-                            commandMenuLabel(moveContextMenuPresentation.spec)
-                        }
-                        .disabled(!moveContextMenuPresentation.isEnabled)
-                    }
-                }
-            }
         }
         .clipShape(RoundedRectangle(cornerRadius: AppStyles.General.CornerRadius.panel))
         .padding(AppStyles.General.Layout.paneGap)
@@ -803,17 +788,6 @@ extension PaneLeafContainer {
         }
     }
 
-    @ViewBuilder
-    private func movePaneDestinationMenuItems(
-        _ presentation: PaneLeafCommandPresentation
-    ) -> some View {
-        ForEach(movePaneDestinations) { destination in
-            Button(destination.title) {
-                movePane(to: destination, presentation: presentation)
-            }
-        }
-    }
-
     private func presentMovePaneDestinationMenu(
         _ presentation: PaneLeafCommandPresentation
     ) {
@@ -833,6 +807,47 @@ extension PaneLeafContainer {
                 )
             },
             from: movePaneMenuAnchorView
+        )
+    }
+
+    private func presentPaneManagementContextMenu(
+        event: NSEvent,
+        in captureView: NSView
+    ) -> Bool {
+        guard
+            managementLayer.isActive,
+            managementChromePresentation == .ordinary,
+            !isDrawerChild,
+            !isClosing,
+            !suppressMainPaneManagementInteraction
+        else {
+            return false
+        }
+
+        let extractPresentation = commandPresentation(
+            .extractPaneToTab,
+            surface: .contextMenu
+        )
+        let movePresentation = commandPresentation(
+            .movePaneToTab,
+            surface: .contextMenu
+        )
+        return contextMenuPresenter.present(
+            extractPresentation: extractPresentation,
+            movePresentation: movePresentation,
+            destinationProvider: {
+                movePaneDestinations.map { destination in
+                    PaneMoveDestinationMenuPresenter.Destination(
+                        title: destination.title,
+                        perform: {
+                            guard let movePresentation else { return }
+                            movePane(to: destination, presentation: movePresentation)
+                        }
+                    )
+                }
+            },
+            event: event,
+            in: captureView
         )
     }
 
@@ -867,14 +882,6 @@ extension PaneLeafContainer {
             sourceTabId: tabId,
             targetTabId: destination.tabId
         )
-    }
-
-    private func commandMenuLabel(_ spec: AppCommandSpec) -> some View {
-        Label {
-            Text(spec.label)
-        } icon: {
-            spec.icon.swiftUIImage(loader: octiconLoader)
-        }
     }
 
     private func paneEdgeCommandButtonLabel(

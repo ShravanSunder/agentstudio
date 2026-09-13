@@ -65,6 +65,33 @@ struct PaneTabManagementHotPathTests {
         #expect(!source.contains("movePaneDestinations.isEmpty"))
     }
 
+    @Test("pane context menu does not materialize destinations during SwiftUI layout")
+    func paneContextMenuDefersDestinationProjectionToNativeMenuOpen() throws {
+        let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
+        let source = try String(
+            contentsOf: projectRoot.appending(path: "Sources/AgentStudio/App/Panes/Hosting/PaneLeafContainer.swift"),
+            encoding: .utf8
+        )
+        let body = try #require(
+            source.architectureSlice(from: "var body: some View {", to: "extension PaneLeafContainer {")
+        )
+
+        #expect(!body.contains(".contextMenu {"))
+        #expect(!body.contains("movePaneDestinationMenuItems"))
+
+        let captureBridge = try #require(
+            body.architectureSlice(
+                from: "PaneManagementContextMenuCaptureBridge(",
+                to: ".accessibilityHidden(true)"
+            )
+        )
+        #expect(captureBridge.contains("managementLayer.isActive"))
+        #expect(captureBridge.contains("managementChromePresentation == .ordinary"))
+        #expect(captureBridge.contains("!isDrawerChild"))
+        #expect(captureBridge.contains("!isClosing"))
+        #expect(captureBridge.contains("!suppressMainPaneManagementInteraction()"))
+    }
+
     @Test("management diagnostics count shells without reconstructing tab layouts")
     func managementDiagnosticsDoNotReconstructTabLayouts() throws {
         let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
