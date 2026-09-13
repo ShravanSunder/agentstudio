@@ -35,6 +35,7 @@ import {
 	compactTelemetryDiagnostic,
 	waitForBackpressureTelemetry,
 } from './bridge-viewer-vite-backpressure-telemetry.ts';
+import { observeFrameAcknowledgementQuiescence } from './bridge-viewer-vite-frame-acknowledgement-quiescence.ts';
 import {
 	createBridgeViewerViteProductFixture,
 	startBridgeViewerOwnedViteProductServer,
@@ -433,7 +434,10 @@ async function runAnnotationBackpressureJourney(props: {
 	try {
 		const createdPage = await browser.newPage({ viewport: { height: 980, width: 1728 } });
 		page = createdPage;
-		const frameAcknowledgementQuiescence = observeFrameAcknowledgementQuiescence(createdPage);
+		const frameAcknowledgementQuiescence = observeFrameAcknowledgementQuiescence(
+			createdPage,
+			stressOperationTimeoutMilliseconds,
+		);
 		const selectedItemApplyObservation = observeSelectedItemApplies(createdPage);
 		const observedReviewFile = props.oracle.reviewFiles[0];
 		if (observedReviewFile === undefined)
@@ -778,47 +782,6 @@ async function runAnnotationBackpressureJourney(props: {
 		await page?.close();
 		await browser.close();
 	}
-}
-
-function observeFrameAcknowledgementQuiescence(page: Page): { readonly wait: () => Promise<void> } {
-	const pendingRequests = new Set<Request>();
-	const isFrameAcknowledgement = (request: Request): boolean => {
-		if (new URL(request.url()).pathname !== '/__bridge-product/command') return false;
-		try {
-			const body: unknown = request.postDataJSON();
-			return (
-				typeof body === 'object' &&
-				body !== null &&
-				Reflect.get(body, 'kind') === 'stream.frameObserved'
-			);
-		} catch {
-			return false;
-		}
-	};
-	page.on('request', (request): void => {
-		if (isFrameAcknowledgement(request)) pendingRequests.add(request);
-	});
-	const settleRequest = (request: Request): void => {
-		pendingRequests.delete(request);
-	};
-	page.on('requestfinished', settleRequest);
-	page.on('requestfailed', settleRequest);
-
-	return {
-		wait: async (): Promise<void> => {
-			await expect
-				.poll((): number => pendingRequests.size, {
-					timeout: stressOperationTimeoutMilliseconds,
-				})
-				.toBe(0);
-			await settleBrowserFrames(page, 2);
-			await expect
-				.poll((): number => pendingRequests.size, {
-					timeout: stressOperationTimeoutMilliseconds,
-				})
-				.toBe(0);
-		},
-	};
 }
 
 async function waitForReviewItemCount(props: {
