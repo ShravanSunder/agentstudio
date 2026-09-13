@@ -5,6 +5,25 @@ import Testing
 
 @Suite("IPC typed method descriptor")
 struct IPCMethodDescriptorTests {
+    @Test("dynamic command relationship must name a declared required string field")
+    func dynamicCommandRelationshipValidatesParameterField() throws {
+        for field in ["", "undeclared", "explanation"] {
+            #expect(throws: IPCMethodDescriptorError.invalidCommandIdentifier) {
+                try makeDescriptor(
+                    correlationId: UUIDv7.generate(),
+                    commandRelationship: .appCommandParameter(field: field)
+                )
+            }
+        }
+        let descriptor = try makeDescriptor(
+            correlationId: UUIDv7.generate(), commandRelationship: .appCommandParameter(field: "operation")
+        )
+        let encoded = try JSONEncoder().encode(descriptor.metadata.commandRelationship)
+        #expect(
+            try JSONDecoder().decode(IPCCommandRelationship.self, from: encoded)
+                == .appCommandParameter(field: "operation"))
+    }
+
     @Test("descriptor uses one typed contract for examples, admission, and results")
     func descriptorUsesOneTypedContract() throws {
         let correlationId = UUIDv7.generate()

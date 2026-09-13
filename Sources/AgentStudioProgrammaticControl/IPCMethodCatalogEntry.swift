@@ -191,6 +191,14 @@ extension IPCCommandRelationship: IPCSchemaProviding {
                     schema: .string(allowedValues: ["appCommand"])),
                 .init(name: "identifier", description: "Open AppCommand identifier", schema: .string(minimumLength: 1)),
             ]),
+            .object(fields: [
+                .init(
+                    name: "kind", description: "AppCommand selected by a typed parameter",
+                    schema: .string(allowedValues: ["appCommandParameter"])),
+                .init(
+                    name: "field", description: "Declared parameter carrying the open command identity",
+                    schema: .string(minimumLength: 1)),
+            ]),
         ])
     }
 }

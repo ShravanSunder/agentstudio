@@ -157,6 +157,7 @@ public enum IPCExecutionOwner: String, CaseIterable, Codable, Equatable, Sendabl
 }
 
 public enum IPCResultSemantics: String, CaseIterable, Codable, Equatable, Sendable {
+    case discriminated
     case applied
     case accepted
     case durable

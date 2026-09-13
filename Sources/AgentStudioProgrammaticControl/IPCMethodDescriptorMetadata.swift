@@ -26,15 +26,18 @@ package enum IPCModelCallVariant: String, Codable, CaseIterable, Equatable, Hash
 package enum IPCCommandRelationship: Codable, Equatable, Sendable {
     case noInteractiveIdentity
     case appCommand(identifier: String)
+    case appCommandParameter(field: String)
 
     private enum CodingKeys: String, CodingKey {
         case kind
         case identifier
+        case field
     }
 
     private enum Kind: String, Codable {
         case noInteractiveIdentity
         case appCommand
+        case appCommandParameter
     }
 
     package init(from decoder: any Decoder) throws {
@@ -46,6 +49,8 @@ package enum IPCCommandRelationship: Codable, Equatable, Sendable {
             self = .appCommand(
                 identifier: try container.decode(String.self, forKey: .identifier)
             )
+        case .appCommandParameter:
+            self = .appCommandParameter(field: try container.decode(String.self, forKey: .field))
         }
     }
 
@@ -57,6 +62,9 @@ package enum IPCCommandRelationship: Codable, Equatable, Sendable {
         case .appCommand(let identifier):
             try container.encode(Kind.appCommand, forKey: .kind)
             try container.encode(identifier, forKey: .identifier)
+        case .appCommandParameter(let field):
+            try container.encode(Kind.appCommandParameter, forKey: .kind)
+            try container.encode(field, forKey: .field)
         }
     }
 }

@@ -29,7 +29,7 @@ enum IPCMethodMetadataValidator {
         guard input.allowedTargetKinds == sortedUnique(input.allowedTargetKinds) else {
             throw IPCMethodDescriptorError.invalidModelCallMetadata
         }
-        try validateCommandRelationship(input.commandRelationship)
+        try validateCommandRelationship(input.commandRelationship, parameterSchema: input.parameterSchema)
         try validateDocumentedErrors(input.documentedErrors)
         if input.isMutating {
             guard input.correlationPolicy == .required else {
@@ -57,11 +57,27 @@ enum IPCMethodMetadataValidator {
     }
 
     private static func validateCommandRelationship(
-        _ relationship: IPCCommandRelationship
+        _ relationship: IPCCommandRelationship,
+        parameterSchema: IPCJSONSchema
     ) throws {
-        guard case .appCommand(let identifier) = relationship else { return }
-        guard !identifier.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            throw IPCMethodDescriptorError.invalidCommandIdentifier
+        switch relationship {
+        case .noInteractiveIdentity:
+            return
+        case .appCommand(let identifier):
+            guard !identifier.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                throw IPCMethodDescriptorError.invalidCommandIdentifier
+            }
+        case .appCommandParameter(let field):
+            let alternatives = try rootObjectAlternatives(
+                in: parameterSchema, invalidShapeError: .invalidCommandIdentifier)
+            guard !field.isEmpty,
+                alternatives.allSatisfy({ fields in
+                    guard let definition = fields.first(where: { $0.name == field }),
+                        case .required = definition.presence, case .string = definition.schema
+                    else { return false }
+                    return true
+                })
+            else { throw IPCMethodDescriptorError.invalidCommandIdentifier }
         }
     }
 

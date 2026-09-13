@@ -6,6 +6,16 @@ import Testing
 
 @Suite("AgentStudio IPC registry and authorization")
 struct AgentStudioIPCRegistryAuthorizationTests {
+    @Test("scope canonicalization preserves descriptor-owned data category")
+    func canonicalizationPreservesExplicitDataScope() throws {
+        let principal = makeAuthorizationPrincipal(boundPaneId: "pane-1")
+        let scope = IPCPermissionScope(privilege: .workspaceRead, target: .selfPane, dataScope: .sidebarState)
+        let canonical = try PermissionScopeCanonicalizer().canonicalize(scope, for: principal)
+        #expect(canonical.target == .pane("pane-1"))
+        #expect(canonical.privilege == .workspaceRead)
+        #expect(canonical.dataScope == .sidebarState)
+    }
+
     @Test("phase-one registry has complete metadata and no deferred namespaces")
     func phaseOneRegistryHasCompleteMetadataAndNoDeferredNamespaces() throws {
         let registry = try AppIPCMethodRegistry.phaseOne()
