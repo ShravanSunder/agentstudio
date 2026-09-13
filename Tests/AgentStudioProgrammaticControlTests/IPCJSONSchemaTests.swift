@@ -4,6 +4,21 @@ import Testing
 
 @Suite("IPC typed JSON schema")
 struct IPCJSONSchemaTests {
+    @Test("object field order survives discovery without hiding contract differences")
+    func objectFieldOrderIsNotContractMeaning() throws {
+        let title = IPCObjectField(name: "title", description: "Title", schema: .string())
+        let count = IPCObjectField(name: "count", description: "Count", schema: .integer(minimum: 1))
+        let schema = IPCJSONSchema.object(fields: [title, count])
+        #expect(schema == .object(fields: [count, title]))
+        #expect(try JSONDecoder().decode(IPCJSONSchema.self, from: schema.jsonSchemaData()) == schema)
+        #expect(schema != .object(fields: [title]))
+        #expect(
+            schema
+                != .object(fields: [title, .init(name: "count", description: "Count", schema: .integer(minimum: 2))]))
+        #expect(
+            schema != .object(fields: [title, .optional("count", description: "Count", schema: .integer(minimum: 1))]))
+    }
+
     @Test("boolean discriminators enforce their literal value in discovery and admission")
     func booleanDiscriminatorsUseLiteralValues() throws {
         for expected in [true, false] {

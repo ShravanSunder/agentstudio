@@ -63,6 +63,63 @@ extension IPCMethodCatalogEntry {
         )
     }
 
+    package static func schemaForReceivedEntry(
+        _ entry: IPCMethodCatalogEntry
+    ) throws -> IPCJSONSchema {
+        try entry.validateReceivedMetadataAndExamples()
+        let examplesSchema: IPCJSONSchema
+        if entry.examples.isEmpty {
+            examplesSchema = .array(items: .null, maximumCount: 0)
+        } else {
+            let literalSchemas = try entry.examples.map { try IPCJSONSchema.literal($0) }
+            let itemSchema = literalSchemas.count == 1 ? literalSchemas[0] : .oneOf(literalSchemas)
+            examplesSchema = .array(items: itemSchema)
+        }
+        return try metadataSchema(
+            methodName: entry.name,
+            examplesSchema: examplesSchema
+        )
+    }
+
+    private func validateReceivedMetadataAndExamples() throws {
+        _ = try parameterSchema.jsonSchemaData()
+        _ = try resultSchema.jsonSchemaData()
+        do {
+            try IPCMethodMetadataValidator.validate(
+                IPCMethodMetadataValidationInput(
+                    name: name,
+                    description: description,
+                    parameterSchema: parameterSchema,
+                    requiredPrivileges: requiredPrivileges,
+                    allowedTargetKinds: allowedTargetKinds,
+                    commandRelationship: commandRelationship,
+                    documentedErrors: documentedErrors,
+                    isMutating: isMutating,
+                    correlationPolicy: correlationPolicy,
+                    offlineEligibility: offlineEligibility,
+                    modelCalls: modelCalls
+                )
+            )
+        } catch {
+            throw IPCSchemaValidationError(
+                fieldPath: "$",
+                reason: .invalidDefinition,
+                expected: "consistent typed method metadata"
+            )
+        }
+        for example in examples {
+            guard !example.description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                throw IPCSchemaValidationError(
+                    fieldPath: "$.examples",
+                    reason: .invalidDefinition,
+                    expected: "a described typed method example"
+                )
+            }
+            _ = try parameterSchema.normalize(example.parameters.encoded())
+            _ = try resultSchema.normalize(example.result.encoded())
+        }
+    }
+
     private static func metadataSchema(
         methodName: String,
         examplesSchema: IPCJSONSchema

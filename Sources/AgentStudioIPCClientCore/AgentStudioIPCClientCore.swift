@@ -2,431 +2,247 @@ import AgentStudioIPCTransport
 import AgentStudioProgrammaticControl
 import Foundation
 
-public struct AgentStudioIPCClientConfiguration: Equatable, Sendable {
-    public let socketPath: String
-    public let authToken: String?
-    public let maxFrameBytes: Int
+package struct AgentStudioIPCClient: Sendable {
+    package let configuration: AgentStudioIPCClientConfiguration
+    private let descriptors: [IPCAnyMethodDescriptor]
 
-    public init(socketPath: String, authToken: String? = nil, maxFrameBytes: Int = 1_048_576) {
-        self.socketPath = socketPath
-        self.authToken = authToken
-        self.maxFrameBytes = maxFrameBytes
-    }
-
-    public func withAuthToken(_ authToken: String?) -> Self {
-        Self(socketPath: socketPath, authToken: authToken, maxFrameBytes: maxFrameBytes)
-    }
-}
-
-public struct AgentStudioIPCClientRuntimeMetadata: Decodable, Equatable, Sendable {
-    public let socketPath: String
-    public let `protocol`: String
-
-    public init(socketPath: String, protocol: String) {
-        self.socketPath = socketPath
-        self.protocol = `protocol`
-    }
-}
-
-public enum AgentStudioIPCClientDiscovery {
-    public static func socketPath(
-        explicitSocketPath: String?,
-        environment: [String: String],
-        metadataURL: URL?
-    ) throws -> String {
-        if let explicitSocketPath, !explicitSocketPath.isEmpty {
-            return explicitSocketPath
-        }
-        if let environmentSocketPath = environment["AGENTSTUDIO_IPC_SOCKET"], !environmentSocketPath.isEmpty {
-            return environmentSocketPath
-        }
-        if let legacyEnvironmentSocketPath = environment["AGENTSTUDIO_IPC_SOCKET_PATH"],
-            !legacyEnvironmentSocketPath.isEmpty
-        {
-            return legacyEnvironmentSocketPath
-        }
-        if let metadataURL {
-            let data = try Data(contentsOf: metadataURL)
-            let metadata = try JSONDecoder().decode(AgentStudioIPCClientRuntimeMetadata.self, from: data)
-            return metadata.socketPath
-        }
-
-        throw AgentStudioIPCClientError(reason: .socketNotFound)
-    }
-}
-
-public struct AgentStudioIPCClientError: Error, Equatable, Sendable {
-    public enum Reason: String, Equatable, Sendable {
-        case socketNotFound
-        case invalidArguments
-        case emptyResponse
-        case responseIdMismatch
-        case authenticationFailed
-    }
-
-    public let reason: Reason
-
-    public init(reason: Reason) {
-        self.reason = reason
-    }
-}
-
-public enum AgentStudioIPCClientCommand: Equatable, Sendable {
-    case authLogin
-    case authStatus
-    case identify
-    case capabilities
-    case listWindows
-    case listWorkspaces
-    case listPanes
-    case currentPane
-    case paneSnapshot(handle: String)
-    case paneFocus(handle: String)
-    case commandList
-    case commandExecute(IPCCommandExecuteParams)
-    case terminalStatus(handle: String)
-    case terminalSend(handle: String, input: String, correlationId: UUID?)
-    case terminalWait(
-        handle: String, condition: IPCTerminalWaitCondition, timeoutSeconds: Double, afterSequence: UInt64?)
-    case bridgeDiffLoad(IPCBridgeReviewOpenParams)
-    case bridgeFileViewOpen(IPCBridgeFileViewOpenParams)
-    case bridgeDiffRefresh(IPCBridgeReviewRefreshParams)
-    case bridgeDiffGetPackage(handle: String)
-    case bridgeDiffRenderState(handle: String)
-    case bridgeDiffSelectFile(IPCBridgeReviewSelectFileParams)
-    case bridgeDiffScrollToFile(IPCBridgeDiffScrollToFileParams)
-    case bridgeDiffExpandFile(IPCBridgeDiffExpandFileParams)
-    case bridgeDiffCollapseFile(IPCBridgeDiffCollapseFileParams)
-    case bridgeFileTreeSearch(IPCBridgeFileTreeSearchParams)
-    case bridgeFileTreeSetFilter(IPCBridgeFileTreeSetFilterParams)
-    case bridgeFileTreeRevealPath(IPCBridgeFileTreeRevealPathParams)
-    case bridgeFileViewGetContent(IPCBridgeContentGetParams)
-    case bridgeFileViewShowMarkdownPreview(IPCBridgeFileViewShowMarkdownPreviewParams)
-    case bridgeTelemetrySnapshot(handle: String)
-    case bridgeTelemetryFlush(handle: String)
-    case eventsSubscribe(eventNames: [IPCEventName])
-    case eventsUnsubscribe(subscriptionId: UUID)
-
-    public var methodName: String {
-        switch self {
-        case .authLogin:
-            "auth.login"
-        case .authStatus:
-            "auth.status"
-        case .identify:
-            "system.identify"
-        case .capabilities:
-            "system.capabilities"
-        case .listWindows:
-            "window.list"
-        case .listWorkspaces:
-            "workspace.list"
-        case .listPanes:
-            "pane.list"
-        case .currentPane:
-            "pane.current"
-        case .paneSnapshot:
-            "pane.snapshot"
-        case .paneFocus:
-            "pane.focus"
-        case .commandList:
-            "command.list"
-        case .commandExecute:
-            "command.execute"
-        case .terminalStatus:
-            "terminal.status"
-        case .terminalSend:
-            "terminal.send"
-        case .terminalWait:
-            "terminal.wait"
-        case .bridgeDiffLoad:
-            "bridge.diff.load"
-        case .bridgeFileViewOpen:
-            "bridge.fileView.open"
-        case .bridgeDiffRefresh:
-            "bridge.diff.refresh"
-        case .bridgeDiffGetPackage:
-            "bridge.diff.getPackage"
-        case .bridgeDiffRenderState:
-            "bridge.diff.renderState"
-        case .bridgeDiffSelectFile:
-            "bridge.diff.selectFile"
-        case .bridgeDiffScrollToFile:
-            "bridge.diff.scrollToFile"
-        case .bridgeDiffExpandFile:
-            "bridge.diff.expandFile"
-        case .bridgeDiffCollapseFile:
-            "bridge.diff.collapseFile"
-        case .bridgeFileTreeSearch:
-            "bridge.fileTree.search"
-        case .bridgeFileTreeSetFilter:
-            "bridge.fileTree.setFilter"
-        case .bridgeFileTreeRevealPath:
-            "bridge.fileTree.revealPath"
-        case .bridgeFileViewGetContent:
-            "bridge.fileView.getContent"
-        case .bridgeFileViewShowMarkdownPreview:
-            "bridge.fileView.showMarkdownPreview"
-        case .bridgeTelemetrySnapshot:
-            "bridge.telemetry.snapshot"
-        case .bridgeTelemetryFlush:
-            "bridge.telemetry.flush"
-        case .eventsSubscribe:
-            "events.subscribe"
-        case .eventsUnsubscribe:
-            "events.unsubscribe"
-        }
-    }
-
-    public var requiresStreamingResponse: Bool {
-        switch self {
-        case .eventsSubscribe:
-            true
-        case .authLogin, .authStatus, .identify, .capabilities, .listWindows, .listWorkspaces, .listPanes,
-            .currentPane, .paneSnapshot, .paneFocus, .commandList, .commandExecute, .terminalStatus, .terminalSend,
-            .terminalWait,
-            .bridgeDiffLoad, .bridgeFileViewOpen, .bridgeDiffRefresh, .bridgeDiffGetPackage, .bridgeDiffRenderState,
-            .bridgeDiffSelectFile, .bridgeDiffScrollToFile, .bridgeDiffExpandFile, .bridgeDiffCollapseFile,
-            .bridgeFileTreeSearch, .bridgeFileTreeSetFilter, .bridgeFileTreeRevealPath, .bridgeFileViewGetContent,
-            .bridgeFileViewShowMarkdownPreview, .bridgeTelemetrySnapshot, .bridgeTelemetryFlush, .eventsUnsubscribe:
-            false
-        }
-    }
-
-    public func params(authToken: String?) throws -> JSONValue {
-        switch self {
-        case .authLogin:
-            guard let authToken, !authToken.isEmpty else {
-                throw AgentStudioIPCClientError(reason: .invalidArguments)
-            }
-            return .object(["token": .string(authToken)])
-        case .authStatus, .identify, .capabilities, .listWindows, .listWorkspaces, .listPanes, .currentPane,
-            .commandList:
-            return .object([:])
-        case .paneSnapshot(let handle):
-            return .object(["handle": .string(handle)])
-        case .paneFocus(let handle):
-            return .object(["handle": .string(handle)])
-        case .commandExecute(let params):
-            return try JSONRPCCodec.encodeJSONValue(params)
-        case .terminalStatus(let handle):
-            return .object(["handle": .string(handle)])
-        case .terminalSend(let handle, let input, let correlationId):
-            var params: [String: JSONValue] = [
-                "handle": .string(handle),
-                "input": .string(input),
-            ]
-            if let correlationId {
-                params["correlationId"] = .string(correlationId.uuidString)
-            }
-            return .object(params)
-        case .terminalWait(let handle, let condition, let timeoutSeconds, let afterSequence):
-            var params: [String: JSONValue] = [
-                "handle": .string(handle),
-                "condition": .string(condition.rawValue),
-                "timeoutSeconds": .number(timeoutSeconds),
-            ]
-            if let afterSequence {
-                params["afterSequence"] = .number(Double(afterSequence))
-            }
-            return .object(params)
-        case .bridgeDiffLoad, .bridgeFileViewOpen, .bridgeDiffRefresh, .bridgeDiffGetPackage, .bridgeDiffRenderState,
-            .bridgeDiffSelectFile, .bridgeDiffScrollToFile, .bridgeDiffExpandFile, .bridgeDiffCollapseFile,
-            .bridgeFileTreeSearch, .bridgeFileTreeSetFilter, .bridgeFileTreeRevealPath, .bridgeFileViewGetContent,
-            .bridgeFileViewShowMarkdownPreview, .bridgeTelemetrySnapshot, .bridgeTelemetryFlush:
-            return try bridgeParams()
-        case .eventsSubscribe(let eventNames):
-            return .object([
-                "eventNames": .array(eventNames.map { .string($0.rawValue) })
-            ])
-        case .eventsUnsubscribe(let subscriptionId):
-            return .object(["subscriptionId": .string(subscriptionId.uuidString)])
-        }
-    }
-
-    private func bridgeParams() throws -> JSONValue {
-        switch self {
-        case .bridgeDiffLoad(let params):
-            return try JSONRPCCodec.encodeJSONValue(params)
-        case .bridgeFileViewOpen(let params):
-            return try JSONRPCCodec.encodeJSONValue(params)
-        case .bridgeDiffRefresh(let params):
-            return try JSONRPCCodec.encodeJSONValue(params)
-        case .bridgeDiffGetPackage(let handle), .bridgeDiffRenderState(let handle),
-            .bridgeTelemetrySnapshot(let handle), .bridgeTelemetryFlush(let handle):
-            return .object(["handle": .string(handle)])
-        case .bridgeDiffSelectFile(let params):
-            return try JSONRPCCodec.encodeJSONValue(params)
-        case .bridgeDiffScrollToFile(let params):
-            return try JSONRPCCodec.encodeJSONValue(params)
-        case .bridgeDiffExpandFile(let params):
-            return try JSONRPCCodec.encodeJSONValue(params)
-        case .bridgeDiffCollapseFile(let params):
-            return try JSONRPCCodec.encodeJSONValue(params)
-        case .bridgeFileTreeSearch(let params):
-            return try JSONRPCCodec.encodeJSONValue(params)
-        case .bridgeFileTreeSetFilter(let params):
-            return try JSONRPCCodec.encodeJSONValue(params)
-        case .bridgeFileTreeRevealPath(let params):
-            return try JSONRPCCodec.encodeJSONValue(params)
-        case .bridgeFileViewGetContent(let params):
-            return try JSONRPCCodec.encodeJSONValue(params)
-        case .bridgeFileViewShowMarkdownPreview(let params):
-            return try JSONRPCCodec.encodeJSONValue(params)
-        case .authLogin, .authStatus, .identify, .capabilities, .listWindows, .listWorkspaces, .listPanes,
-            .currentPane, .paneSnapshot, .paneFocus, .commandList, .commandExecute, .terminalStatus, .terminalSend,
-            .terminalWait, .eventsSubscribe, .eventsUnsubscribe:
-            throw AgentStudioIPCClientError(reason: .invalidArguments)
-        }
-    }
-}
-
-public struct AgentStudioIPCClient: Sendable {
-    public let configuration: AgentStudioIPCClientConfiguration
-
-    public init(configuration: AgentStudioIPCClientConfiguration) {
+    package init(configuration: AgentStudioIPCClientConfiguration, descriptors: [IPCAnyMethodDescriptor]) {
         self.configuration = configuration
+        self.descriptors = descriptors
     }
 
-    public func login(requestId: Int = 1) throws -> JSONRPCResponseMessage {
-        guard let authToken = configuration.authToken, !authToken.isEmpty else {
-            throw AgentStudioIPCClientError(reason: .invalidArguments)
+    package func requestFrame(_ invocation: IPCDescriptorInvocation, requestID: Int = 1) throws -> String {
+        do {
+            let parameters = try invocation.descriptor.normalizeParameters(invocation.normalizedParameters)
+            return try JSONRPCCodec.encodeRequest(
+                JSONRPCClientRequest(
+                    id: .number(requestID),
+                    method: invocation.descriptor.metadata.name,
+                    params: JSONDecoder().decode(JSONValue.self, from: parameters)
+                )
+            )
+        } catch {
+            throw failure(.notSubmitted, .localRequestEncoding)
         }
-        _ = authToken
-        return try call(.authLogin, requestId: requestId)
     }
 
-    public func call(_ command: AgentStudioIPCClientCommand, requestId: Int = 1) throws -> JSONRPCResponseMessage {
-        let connection = try UnixSocketClient.connect(
-            endpoint: UnixSocketEndpoint(path: configuration.socketPath)
-        )
-        defer {
-            connection.close()
+    package func call(_ invocation: IPCDescriptorInvocation, requestID: Int = 1) throws
+        -> IPCDescriptorClientCallResult
+    {
+        guard invocation.descriptor.metadata.responseDelivery == .single else {
+            throw failure(.notSubmitted, .localRequestEncoding)
         }
-
-        var frameReader = AgentStudioIPCClientFrameReader(maxFrameBytes: configuration.maxFrameBytes)
-        let commandRequestId = try sendAuthenticatedCommand(
-            command,
-            requestId: requestId,
-            connection: connection,
-            frameReader: &frameReader
-        )
-        return try receiveResponse(id: commandRequestId, connection: connection, frameReader: &frameReader)
+        let exchange = try prepareExchange(invocation, requestID: requestID)
+        let connection = try connect()
+        defer { connection.close() }
+        var reader = AgentStudioIPCClientFrameReader(maxFrameBytes: configuration.maxFrameBytes)
+        try authenticateIfNeeded(exchange, connection: connection, reader: &reader)
+        try submit(exchange.commandFrame, connection: connection)
+        let response = try receiveResponse(id: exchange.commandRequestID, connection: connection, reader: &reader)
+        return try normalizedResponse(response, descriptor: invocation.descriptor, requestID: exchange.commandRequestID)
     }
 
-    public func stream(
-        _ command: AgentStudioIPCClientCommand,
-        requestId: Int = 1,
-        onFrame: (String) throws -> Void
+    package func stream(
+        _ invocation: IPCDescriptorInvocation,
+        requestID: Int = 1,
+        onFrame: (IPCDescriptorClientStreamFrame) throws -> Void
     ) throws {
-        guard command.requiresStreamingResponse else {
-            let response = try call(command, requestId: requestId)
-            try onFrame(try JSONRPCCodec.encodeResponse(JSONRPCResponse.message(response)))
+        guard invocation.descriptor.metadata.responseDelivery == .subscription else {
+            throw failure(.notSubmitted, .localRequestEncoding)
+        }
+        let exchange = try prepareExchange(invocation, requestID: requestID)
+        let connection = try connect()
+        defer { connection.close() }
+        var reader = AgentStudioIPCClientFrameReader(maxFrameBytes: configuration.maxFrameBytes)
+        try authenticateIfNeeded(exchange, connection: connection, reader: &reader)
+        try submit(exchange.commandFrame, connection: connection)
+        let initial = try receiveResponse(id: exchange.commandRequestID, connection: connection, reader: &reader)
+        switch try normalizedResponse(initial, descriptor: invocation.descriptor, requestID: exchange.commandRequestID)
+        {
+        case .success(let response):
+            try onFrame(.initialResponse(response))
+        case .remoteFailure(let remoteFailure):
+            try onFrame(.remoteFailure(remoteFailure))
             return
         }
-
-        let connection = try UnixSocketClient.connect(
-            endpoint: UnixSocketEndpoint(path: configuration.socketPath)
-        )
-        defer {
-            connection.close()
-        }
-
-        var frameReader = AgentStudioIPCClientFrameReader(maxFrameBytes: configuration.maxFrameBytes)
-        let commandRequestId = try sendAuthenticatedCommand(
-            command,
-            requestId: requestId,
-            connection: connection,
-            frameReader: &frameReader
-        )
-
-        var sawSubscriptionResponse = false
         while true {
             let frame: String
             do {
-                frame = try frameReader.receiveFrame(connection: connection)
-            } catch let error as AgentStudioIPCClientError
-                where error.reason == .emptyResponse && sawSubscriptionResponse
-            {
+                frame = try reader.receiveFrame(connection: connection)
+            } catch let error as AgentStudioIPCClientError where error.reason == .emptyResponse {
                 return
+            } catch {
+                throw failure(.deliveryUncertain, .invalidResponse)
             }
-            if let response = try? JSONRPCCodec.decodeResponse(frame) {
-                guard response.id == .number(commandRequestId) else {
-                    if sawSubscriptionResponse {
-                        try onFrame(frame)
-                        continue
-                    }
-                    throw AgentStudioIPCClientError(reason: .responseIdMismatch)
-                }
-                sawSubscriptionResponse = true
-                try onFrame(frame)
-                continue
+            if (try? JSONRPCCodec.decodeResponse(frame)) != nil {
+                throw failure(.deliveryUncertain, .responseIDMismatch)
             }
-
-            guard sawSubscriptionResponse else {
-                throw AgentStudioIPCClientError(reason: .responseIdMismatch)
+            do {
+                let notification = try JSONRPCCodec.decodeRequest(frame)
+                guard notification.id == nil else { throw failure(.deliveryUncertain, .responseIDMismatch) }
+            } catch let error as IPCDescriptorClientFailure {
+                throw error
+            } catch {
+                throw failure(.deliveryUncertain, .invalidResponse)
             }
-            try onFrame(frame)
+            try onFrame(.notification(frame))
         }
     }
 
-    public func requestFrame(_ command: AgentStudioIPCClientCommand, requestId: Int = 1) throws -> String {
-        let request = try JSONRPCClientRequest(
-            id: .number(requestId),
-            method: command.methodName,
-            params: command.params(authToken: configuration.authToken)
+    /// Discovery has a concrete metadata decoder; received metadata never creates an invocable descriptor.
+    package func discoverCatalog(requestID: Int = 1) throws -> IPCMethodCatalogResult {
+        let authentication = try authenticationExchange(requestID: requestID, forMethod: "system.capabilities")
+        let commandID = authentication == nil ? requestID : requestID + 1
+        let frame: Data
+        do {
+            frame = try NDJSONFrameEncoder.encode(
+                JSONRPCCodec.encodeRequest(
+                    JSONRPCClientRequest(id: .number(commandID), method: "system.capabilities", params: .object([:]))
+                ), maxFrameBytes: configuration.maxFrameBytes
+            )
+        } catch { throw failure(.notSubmitted, .localRequestEncoding) }
+        let exchange = PreparedDescriptorExchange(
+            commandFrame: frame, commandRequestID: commandID, authentication: authentication
         )
-        return try JSONRPCCodec.encodeRequest(request)
-    }
-
-    private func sendAuthenticatedCommand(
-        _ command: AgentStudioIPCClientCommand,
-        requestId: Int,
-        connection: UnixSocketConnection,
-        frameReader: inout AgentStudioIPCClientFrameReader
-    ) throws -> Int {
-        if configuration.authToken != nil, command != .authLogin {
-            try send(.authLogin, requestId: requestId, connection: connection)
-            let loginResponse = try receiveResponse(id: requestId, connection: connection, frameReader: &frameReader)
-            guard loginResponse.error == nil else {
-                throw AgentStudioIPCClientError(reason: .authenticationFailed)
-            }
-            let commandRequestId = requestId + 1
-            try send(command, requestId: commandRequestId, connection: connection)
-            return commandRequestId
+        let connection = try connect()
+        defer { connection.close() }
+        var reader = AgentStudioIPCClientFrameReader(maxFrameBytes: configuration.maxFrameBytes)
+        try authenticateIfNeeded(exchange, connection: connection, reader: &reader)
+        try submit(frame, connection: connection)
+        let response = try receiveResponse(id: commandID, connection: connection, reader: &reader)
+        if let error = response.error {
+            throw IPCDescriptorRemoteFailure(code: error.code, documentedReason: nil, correction: nil)
         }
-
-        try send(command, requestId: requestId, connection: connection)
-        return requestId
+        guard let result = response.result else {
+            throw failure(.deliveryUncertain, .invalidResponse)
+        }
+        do {
+            return try IPCMethodCatalogDecoder.decode(JSONEncoder().encode(result))
+        } catch {
+            throw failure(.deliveryUncertain, .invalidTypedResult)
+        }
     }
 
-    private func send(
-        _ command: AgentStudioIPCClientCommand,
-        requestId: Int,
-        connection: UnixSocketConnection
+    private func prepareExchange(_ invocation: IPCDescriptorInvocation, requestID: Int) throws
+        -> PreparedDescriptorExchange
+    {
+        let authentication = try authenticationExchange(
+            requestID: requestID, forMethod: invocation.descriptor.metadata.name)
+        let commandID = authentication == nil ? requestID : requestID + 1
+        do {
+            return try PreparedDescriptorExchange(
+                commandFrame: NDJSONFrameEncoder.encode(
+                    requestFrame(invocation, requestID: commandID), maxFrameBytes: configuration.maxFrameBytes
+                ), commandRequestID: commandID, authentication: authentication
+            )
+        } catch { throw failure(.notSubmitted, .localRequestEncoding) }
+    }
+
+    private func authenticationExchange(requestID: Int, forMethod method: String) throws -> DescriptorAuthentication? {
+        guard requestID > 0, requestID < Int.max else { throw failure(.notSubmitted, .localRequestEncoding) }
+        guard let token = configuration.authToken, method != "auth.login" else { return nil }
+        let matches = descriptors.filter { $0.metadata.name == "auth.login" }
+        guard matches.count == 1, let descriptor = matches.first else {
+            throw failure(.notSubmitted, .authenticationResponse)
+        }
+        do {
+            let parameters = try descriptor.normalizeParameters(JSONEncoder().encode(IPCAuthLoginParams(token: token)))
+            let invocation = IPCDescriptorInvocation(
+                descriptor: descriptor, normalizedParameters: parameters, presentation: .tooling)
+            return try DescriptorAuthentication(
+                descriptor: descriptor,
+                requestID: requestID,
+                frame: NDJSONFrameEncoder.encode(
+                    requestFrame(invocation, requestID: requestID), maxFrameBytes: configuration.maxFrameBytes
+                )
+            )
+        } catch { throw failure(.notSubmitted, .authenticationResponse) }
+    }
+
+    private func authenticateIfNeeded(
+        _ exchange: PreparedDescriptorExchange,
+        connection: UnixSocketConnection,
+        reader: inout AgentStudioIPCClientFrameReader
     ) throws {
-        try connection.send(
-            try NDJSONFrameEncoder.encode(
-                requestFrame(command, requestId: requestId),
-                maxFrameBytes: configuration.maxFrameBytes
-            ))
+        guard let authentication = exchange.authentication else { return }
+        let response: JSONRPCResponseMessage
+        do {
+            try connection.send(authentication.frame)
+            response = try receiveResponse(id: authentication.requestID, connection: connection, reader: &reader)
+        } catch { throw failure(.notSubmitted, .authenticationTransport) }
+        guard response.error == nil else { throw failure(.authenticationRejected, .authenticationResponse) }
+        let status: IPCAuthStatusResult
+        do {
+            guard let result = response.result else { throw failure(.notSubmitted, .authenticationResponse) }
+            let data = try authentication.descriptor.normalizeResult(JSONEncoder().encode(result))
+            status = try JSONDecoder().decode(IPCAuthStatusResult.self, from: data)
+        } catch { throw failure(.notSubmitted, .authenticationResponse) }
+        guard case .authenticated = status else { throw failure(.authenticationRejected, .authenticationResponse) }
+    }
+
+    private func normalizedResponse(
+        _ response: JSONRPCResponseMessage, descriptor: IPCAnyMethodDescriptor, requestID: Int
+    ) throws -> IPCDescriptorClientCallResult {
+        if let error = response.error {
+            // Remote prose/data is untrusted; structured correction is admitted separately by its shared contract.
+            return .remoteFailure(IPCDescriptorRemoteFailure(code: error.code, documentedReason: nil, correction: nil))
+        }
+        do {
+            guard let result = response.result else { throw failure(.deliveryUncertain, .invalidResponse) }
+            return try .success(
+                IPCDescriptorClientResponse(
+                    descriptor: descriptor, requestID: requestID,
+                    normalizedResult: descriptor.normalizeResult(JSONEncoder().encode(result))
+                ))
+        } catch { throw failure(.deliveryUncertain, .invalidTypedResult) }
+    }
+
+    private func connect() throws -> UnixSocketConnection {
+        do {
+            return try UnixSocketClient.connect(endpoint: UnixSocketEndpoint(path: configuration.socketPath))
+        } catch let error as UnixSocketTransportError where error.reason == .connectFailed {
+            throw failure(.endpointUnavailableBeforeSubmission, .endpointConnectFailed(errnoCode: error.errnoCode))
+        } catch { throw failure(.notSubmitted, .localRequestEncoding) }
+    }
+
+    private func submit(_ frame: Data, connection: UnixSocketConnection) throws {
+        do { try connection.send(frame) } catch { throw failure(.deliveryUncertain, .commandWrite) }
     }
 
     private func receiveResponse(
-        id: Int,
-        connection: UnixSocketConnection,
-        frameReader: inout AgentStudioIPCClientFrameReader
+        id: Int, connection: UnixSocketConnection, reader: inout AgentStudioIPCClientFrameReader
     ) throws -> JSONRPCResponseMessage {
-        while true {
-            let frame = try frameReader.receiveFrame(connection: connection)
-            let response = try JSONRPCCodec.decodeResponse(frame)
-            guard response.id == .number(id) else {
-                throw AgentStudioIPCClientError(reason: .responseIdMismatch)
-            }
-            return response
+        let frame: String
+        do { frame = try reader.receiveFrame(connection: connection) } catch {
+            throw failure(.deliveryUncertain, .commandResponseMissing)
         }
+        let response: JSONRPCResponseMessage
+        do { response = try JSONRPCCodec.decodeResponse(frame) } catch {
+            throw failure(.deliveryUncertain, .invalidResponse)
+        }
+        guard response.id == .number(id) else { throw failure(.deliveryUncertain, .responseIDMismatch) }
+        return response
     }
 
+    private func failure(
+        _ disposition: IPCDescriptorClientFailure.Disposition, _ reason: IPCDescriptorClientFailure.Reason
+    )
+        -> IPCDescriptorClientFailure
+    {
+        IPCDescriptorClientFailure(disposition: disposition, reason: reason)
+    }
+}
+
+private struct DescriptorAuthentication {
+    let descriptor: IPCAnyMethodDescriptor
+    let requestID: Int
+    let frame: Data
+}
+
+private struct PreparedDescriptorExchange {
+    let commandFrame: Data
+    let commandRequestID: Int
+    let authentication: DescriptorAuthentication?
 }
 
 private struct AgentStudioIPCClientFrameReader {
@@ -440,31 +256,11 @@ private struct AgentStudioIPCClientFrameReader {
     }
 
     mutating func receiveFrame(connection: UnixSocketConnection) throws -> String {
-        if !queuedFrames.isEmpty {
-            return queuedFrames.removeFirst()
-        }
-
-        while true {
+        while queuedFrames.isEmpty {
             let data = try connection.receive(maxBytes: min(maxFrameBytes, 16_384))
-            guard !data.isEmpty else {
-                throw AgentStudioIPCClientError(reason: .emptyResponse)
-            }
+            guard !data.isEmpty else { throw AgentStudioIPCClientError(reason: .emptyResponse) }
             queuedFrames.append(contentsOf: try decoder.append(data))
-            if !queuedFrames.isEmpty {
-                return queuedFrames.removeFirst()
-            }
         }
-    }
-}
-
-extension JSONRPCResponse {
-    fileprivate static func message(_ message: JSONRPCResponseMessage) throws -> Self {
-        if let result = message.result {
-            return .success(id: message.id, result: result)
-        }
-        if let error = message.error {
-            return .failure(id: message.id, error: error)
-        }
-        throw JSONRPCError(reason: .invalidResponse, message: "Response message had neither result nor error")
+        return queuedFrames.removeFirst()
     }
 }

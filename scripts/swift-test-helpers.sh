@@ -42,7 +42,6 @@ large_serial_non_webkit_filter_pattern() {
     BridgePackagedProductJourneyScriptTests
     SidebarPerformanceWorkloadScriptTests
     SidebarPerformanceWorkloadSettlementScriptTests
-    PaneAgentLaunchOwnerTests
   )
   local IFS="|"
   echo "${patterns[*]}"

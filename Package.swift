@@ -13,7 +13,6 @@ let package = Package(
             targets: ["AgentStudioBridgeDevelopmentServer"]
         ),
         .executable(name: "agentstudio-ipc", targets: ["AgentStudioIPCClient"]),
-        .executable(name: "agentstudio-pane-agent", targets: ["AgentStudioPaneAgent"]),
         .executable(
             name: "agentstudio-sqlite-crash-fixture",
             targets: ["AgentStudioSQLiteCrashFixture"]
@@ -296,19 +295,11 @@ let package = Package(
         .executableTarget(
             name: "AgentStudioIPCClient",
             dependencies: [
-                "AgentStudioIPCClientCore"
+                "AgentStudioIPCClientCore",
+                "AgentStudioInfrastructure",
+                "AgentStudioProgrammaticControl",
             ],
             path: "Sources/AgentStudioIPCClient",
-            swiftSettings: [
-                .swiftLanguageMode(.v6)
-            ]
-        ),
-        .executableTarget(
-            name: "AgentStudioPaneAgent",
-            dependencies: [
-                "AgentStudioIPCClientCore"
-            ],
-            path: "Sources/AgentStudioPaneAgent",
             swiftSettings: [
                 .swiftLanguageMode(.v6)
             ]

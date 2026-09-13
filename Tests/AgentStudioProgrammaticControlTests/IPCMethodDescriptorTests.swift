@@ -293,16 +293,40 @@ struct IPCMethodDescriptorTests {
         ]
     }
 
+    @Test("schema definitions are checked before model metadata indexes fields")
+    func duplicateSchemaFieldsAreRejectedBeforeModelIndexing() throws {
+        let operation = IPCObjectField(
+            name: "operation", description: "Report operation",
+            schema: .string(allowedValues: ["needsYou", "clear", "done"])
+        )
+        let schema = IPCJSONSchema.object(fields: [
+            operation,
+            operation,
+            .init(name: "correlationId", description: "Logical mutation", schema: IPCSchemaScalars.uuid),
+            .optional("explanation", description: "Report explanation", schema: .string()),
+        ])
+        #expect(throws: IPCSchemaValidationError.self) {
+            try makeDescriptor(
+                correlationId: UUIDv7.generate(),
+                modelCalls: reportModelCalls,
+                parameterSchema: schema
+            )
+        }
+    }
+
     private func makeDescriptor(
         correlationId: UUID,
         commandRelationship: IPCCommandRelationship = .noInteractiveIdentity,
         correlationPolicy: IPCCorrelationPolicy = .required,
         offlineEligibility: IPCMethodOfflineEligibility = .never,
-        modelCalls: [IPCModelCallProjection] = []
+        modelCalls: [IPCModelCallProjection] = [],
+        parameterSchema: IPCJSONSchema? = nil
     ) throws -> IPCMethodDescriptor<DescriptorFixtureParameters, DescriptorFixtureResult> {
         try IPCMethodDescriptor(
             name: "example.mutation",
             description: "Perform a fixture mutation with typed input and output.",
+            parameterSchema: try parameterSchema ?? DescriptorFixtureParameters.ipcSchema(),
+            resultSchema: try DescriptorFixtureResult.ipcSchema(),
             examples: [
                 IPCMethodExample(
                     description: "Accepted fixture mutation",

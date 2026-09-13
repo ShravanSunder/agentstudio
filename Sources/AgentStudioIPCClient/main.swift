@@ -1,48 +1,70 @@
 import AgentStudioIPCClientCore
+import AgentStudioInfrastructure
+import AgentStudioProgrammaticControl
 import Foundation
 
 @main
 struct AgentStudioIPCClientMain {
-    static func main() throws {
+    static func main() {
         do {
-            let invocation = try AgentStudioIPCClientArguments.parse(Array(CommandLine.arguments.dropFirst()))
-            let configuration =
-                if invocation.readsAuthTokenFromStandardInput {
-                    invocation.configuration.withAuthToken(try readStandardInputToken())
-                } else {
-                    invocation.configuration
-                }
-            let client = AgentStudioIPCClient(configuration: configuration)
-            let encoder = JSONEncoder()
-            encoder.outputFormatting = [.sortedKeys]
-
-            if invocation.command.requiresStreamingResponse {
-                try client.stream(invocation.command) { frame in
-                    print(frame)
+            let readInput = { FileHandle.standardInput.readDataToEndOfFile() }
+            let global = try AgentStudioIPCClientArguments.parseGlobal(
+                Array(CommandLine.arguments.dropFirst()), environment: ProcessInfo.processInfo.environment,
+                standardInputProvider: readInput
+            )
+            let examples = IPCBuiltInMethodExampleContext(illustrativeIdentifier: UUIDv7.generate())
+            let bootstrap = try IPCBuiltInMethodCatalog.bootstrapDescriptors(examples: examples)
+            let discoveryClient = AgentStudioIPCClient(configuration: global.configuration, descriptors: bootstrap)
+            if global.methodArguments == ["system.capabilities"] {
+                try write(JSONEncoder().encode(discoveryClient.discoverCatalog()))
+                return
+            }
+            let descriptors: [IPCAnyMethodDescriptor]
+            if bootstrap.contains(where: { $0.metadata.name == global.methodArguments.first }) {
+                descriptors = bootstrap
+            } else {
+                descriptors = try IPCBuiltInMethodCatalog.matchingDiscoveredMethods(
+                    discoveryClient.discoverCatalog(), examples: examples
+                )
+            }
+            let invocation = try AgentStudioIPCClientArguments.parseMethod(
+                global, descriptors: descriptors, correlationIDGenerator: { UUIDv7.generate() },
+                standardInputProvider: readInput
+            ).descriptorInvocation
+            let client = AgentStudioIPCClient(configuration: global.configuration, descriptors: descriptors)
+            if invocation.descriptor.metadata.responseDelivery == .subscription {
+                try client.stream(invocation) { frame in
+                    switch frame {
+                    case .initialResponse(let response): try write(response.normalizedResult)
+                    case .notification(let notification): print(notification)
+                    case .remoteFailure: throw CLIExit.rejected
+                    }
                 }
             } else {
-                let response = try client.call(invocation.command)
-                let data = try encoder.encode(response)
-                guard let output = String(data: data, encoding: .utf8) else {
-                    throw AgentStudioIPCClientError(reason: .emptyResponse)
+                switch try client.call(invocation) {
+                case .success(let response):
+                    if case .model(let presentation) = invocation.presentation, !presentation.showsDetail {
+                        print(presentation.successReply)
+                    } else {
+                        try write(response.normalizedResult)
+                    }
+                case .remoteFailure:
+                    throw CLIExit.rejected
                 }
-                print(output)
             }
+        } catch let failure as IPCDescriptorClientFailure where failure.disposition == .deliveryUncertain {
+            fputs("Delivery uncertain.\n", stderr)
+            exit(1)
         } catch {
-            fputs("agentstudio-ipc: \(error)\n", stderr)
-            throw error
+            fputs("Agent Studio request rejected or unavailable.\n", stderr)
+            exit(1)
         }
     }
 
-    private static func readStandardInputToken() throws -> String {
-        let data = FileHandle.standardInput.readDataToEndOfFile()
-        guard
-            let token = String(data: data, encoding: .utf8)?
-                .trimmingCharacters(in: .whitespacesAndNewlines),
-            !token.isEmpty
-        else {
-            throw AgentStudioIPCClientError(reason: .invalidArguments)
-        }
-        return token
+    private static func write(_ data: Data) throws {
+        guard let output = String(data: data, encoding: .utf8) else { throw CLIExit.rejected }
+        print(output)
     }
 }
+
+private enum CLIExit: Error { case rejected }
