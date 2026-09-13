@@ -6,6 +6,57 @@ import Testing
 @testable import AgentStudioRepoExplorer
 
 extension RepoExplorerReadModelTests {
+    @MainActor
+    @Test("fixed Panes policy orders both pinned and ordinary panes by newest activity")
+    func fixedPanesPolicyOrdersBothSectionsByNewestActivity() throws {
+        let now = Date(timeIntervalSince1970: 1_788_804_000)
+        let repoID = UUIDv7.generate()
+        let checkout = worktree(repoId: repoID)
+        let repository = repo(id: repoID, name: "repository", worktrees: [checkout])
+        let tabID = UUIDv7.generate()
+        let olderPinned = UUIDv7.generate()
+        let newerPinned = UUIDv7.generate()
+        let olderOrdinary = UUIDv7.generate()
+        let newerOrdinary = UUIDv7.generate()
+        let paneIDs = [olderPinned, newerPinned, olderOrdinary, newerOrdinary]
+        let preferences = RepoExplorerSidebarPrefsAtom()
+        preferences.setGroupingMode(.tab, for: .panes)
+        preferences.setSortField(.name, for: .panes)
+        preferences.setSortDirection(.ascending, for: .panes)
+        let projection = RepoExplorerProjection.project(
+            RepoExplorerSnapshot(
+                repos: [repository],
+                repoEnrichmentByRepoId: [repoID: resolvedRemote(repoId: repoID, displayName: repository.name)],
+                surface: .panes,
+                groupingMode: preferences.groupingMode(for: .panes),
+                subgroupMode: preferences.subgroupMode(for: .panes),
+                sortField: preferences.sortField(for: .panes),
+                showsPinned: true,
+                referenceDate: now,
+                calendar: organizationCalendar,
+                sortOrder: preferences.sortDirection(for: .panes),
+                query: "",
+                paneLocationsByWorktreeId: [
+                    checkout.id: paneIDs.enumerated().map {
+                        paneLocation(paneID: $0.element, tabID: tabID, paneIndex: $0.offset)
+                    }
+                ]
+            ),
+            paneRowFactsByPaneId: [
+                olderPinned: paneFacts(title: "A pinned", activityAt: now.addingTimeInterval(-40), isPinned: true),
+                newerPinned: paneFacts(title: "Z pinned", activityAt: now.addingTimeInterval(-10), isPinned: true),
+                olderOrdinary: paneFacts(title: "A ordinary", activityAt: now.addingTimeInterval(-40)),
+                newerOrdinary: paneFacts(title: "Z ordinary", activityAt: now.addingTimeInterval(-10)),
+            ]
+        )
+
+        #expect(projection.sections.map(\.kind) == [.pinnedPanes, .panes])
+        let pinnedSection = try #require(projection.sections.first)
+        let ordinarySection = try #require(projection.sections.last)
+        #expect(self.paneIDs(in: pinnedSection, projection: projection) == [newerPinned, olderPinned])
+        #expect(self.paneIDs(in: ordinarySection, projection: projection) == [newerOrdinary, olderOrdinary])
+    }
+
     @Test("Repos activity sections keep checkouts together and pinned repos exclusive")
     func reposActivitySectionsKeepRepositoriesTogether() {
         let now = Date(timeIntervalSince1970: 1_788_804_000)

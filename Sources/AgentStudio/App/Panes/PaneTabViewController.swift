@@ -3004,7 +3004,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
                     "agentstudio.performance.management_layer.command": .string(command.rawValue),
                     "agentstudio.performance.management_layer.is_active": .bool(atom(\.managementLayer).isActive),
                     "agentstudio.performance.management_layer.pane.count": .int(store.paneAtom.graphAtom.paneIDs.count),
-                    "agentstudio.performance.management_layer.tab.count": .int(store.tabLayoutAtom.tabs.count),
+                    "agentstudio.performance.management_layer.tab.count": .int(store.tabShellAtom.orderedTabIds.count),
                 ]
             )
         }
@@ -4650,6 +4650,8 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
 
     private func workspacePresentationCommandAvailability(_ command: AppCommand) -> Bool? {
         switch command {
+        case .toggleManagementLayer:
+            return true
         case .zoomPane:
             return zoomCommandCapability(explicitPaneId: nil) != nil
         case .showViewer:

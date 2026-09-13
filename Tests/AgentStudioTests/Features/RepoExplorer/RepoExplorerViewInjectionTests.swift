@@ -47,17 +47,17 @@ struct RepoExplorerViewInjectionTests {
         let view = makeRepoExplorerView(repoExplorerPrefs: preferences)
         let invalidationRecorder = RepoExplorerObservationInvalidationRecorder()
         withObservationTracking {
-            _ = view.repoExplorerPrefs.groupingMode(for: .panes)
+            _ = view.repoExplorerPrefs.groupingMode(for: .repos)
         } onChange: {
             invalidationRecorder.recordInvalidation()
         }
 
         // Act
-        preferences.setGroupingMode(.tab, for: .panes)
+        preferences.setGroupingMode(.activity, for: .repos)
 
         // Assert
         #expect(invalidationRecorder.invalidationCount == 1)
-        #expect(view.repoExplorerPrefs.groupingMode(for: .panes) == .tab)
+        #expect(view.repoExplorerPrefs.groupingMode(for: .repos) == .activity)
     }
 
     private func makeRepoExplorerView(

@@ -167,10 +167,7 @@ struct PaneSurfaceToolbarHost: View {
             actionResolver: targetedCommandActionResolver,
             isOwnerPinned: store.paneAtom.pane(anchorPaneId)?.metadata.isPinned ?? false
         )
-        let locationContext = PaneManagementContext.project(
-            paneId: locationTargetPaneId,
-            store: store
-        )
+        let locationTargetPath = store.paneAtom.graphAtom.paneStructuralFacts(locationTargetPaneId)?.cwd
         let pullRequestPresentation = PanePullRequestToolbarActionFactory.make(
             paneId: locationTargetPaneId,
             store: store,
@@ -217,7 +214,7 @@ struct PaneSurfaceToolbarHost: View {
                 ExternalEditorTarget.refreshInstalledTargets()
             },
             onOpenEditor: { editorId in
-                guard let targetPath = locationContext.targetPath else { return }
+                guard let targetPath = locationTargetPath else { return }
                 _ = ExternalWorkspaceOpener.openInEditor(id: editorId, path: targetPath)
             },
             gitStatusPresentation: gitStatusPresentation,

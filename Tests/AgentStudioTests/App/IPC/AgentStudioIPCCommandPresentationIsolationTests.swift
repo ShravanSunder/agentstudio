@@ -19,10 +19,10 @@ struct AgentStudioIPCCommandPresentationIsolationTests {
             .map { String(format: "%02x", $0) }
             .joined()
 
-        // Repo Activity replaces the retired Repo subgroup commands in the public catalog.
+        // Fixed Panes organization retains inert full-catalog identities with no IPC authority.
         #expect(
             encodedCommandListSHA256
-                == "472b4544c63e4f64a00d260b60ad33b6510334570d63895b1cbb2bc637f09600"
+                == "09726d7b705a5e20e8ad98624e7901a94372324dd996f06b6a1740b99ac66328"
         )
     }
 

@@ -396,7 +396,8 @@ struct TerminalRuntimeTests {
         let runtime = TerminalRuntime(
             paneId: PaneId.generateUUIDv7(),
             metadata: PaneMetadata(title: "Runtime"),
-            paneEventBus: harness.bus
+            paneEventBus: harness.bus,
+            openExternalURL: { _ in }
         )
         runtime.transitionToReady()
 

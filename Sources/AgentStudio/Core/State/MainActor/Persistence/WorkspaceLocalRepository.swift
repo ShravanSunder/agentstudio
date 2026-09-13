@@ -84,9 +84,9 @@ package struct WorkspaceLocalRepository: Sendable {
 
         package static let `default` = Self(
             reposSortField: .name,
-            panesSortField: .name,
+            panesSortField: .activity,
             reposSortDirection: .ascending,
-            panesSortDirection: .ascending
+            panesSortDirection: .descending
         )
 
         package static func validated(
