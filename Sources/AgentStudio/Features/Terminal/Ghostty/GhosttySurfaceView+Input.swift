@@ -94,6 +94,12 @@ extension Ghostty.SurfaceView {
             return .notHandled
         }
 
+        // A missing Ghostty source must not turn terminal input into a contextual
+        // command for whichever pane happens to be selected now.
+        if AppShortcutDispatchPolicy.isTerminalRuntimeCommand(shortcut.command), sourcePaneId == nil {
+            return .swallowed
+        }
+
         let targetPaneId = AppShortcutDispatchPolicy.sourcePaneTarget(
             for: shortcut.command,
             sourcePaneId: sourcePaneId

@@ -242,18 +242,34 @@ package struct Layout: Codable, Hashable, Sendable {
         panes.first { $0.paneId == paneId }?.ratio
     }
 
-    func neighbor(of paneId: UUID, direction: FocusDirection) -> UUID? {
-        guard let paneIndex = panes.firstIndex(where: { $0.paneId == paneId }) else { return nil }
+    package func neighbor(
+        of paneId: UUID,
+        direction: FocusDirection,
+        among eligiblePaneIds: Set<UUID>? = nil
+    ) -> UUID? {
+        guard eligiblePaneIds?.contains(paneId) != false,
+            let paneIndex = panes.firstIndex(where: { $0.paneId == paneId })
+        else { return nil }
+        let indexOffset: Int
         switch direction {
         case .left:
-            guard paneIndex > 0 else { return nil }
-            return panes[paneIndex - 1].paneId
+            indexOffset = -1
         case .right:
-            guard paneIndex < panes.index(before: panes.endIndex) else { return nil }
-            return panes[paneIndex + 1].paneId
+            indexOffset = 1
         case .up, .down:
             return nil
         }
+
+        // Hidden entries retain their canonical position but do not receive focus.
+        var candidateIndex = paneIndex + indexOffset
+        while panes.indices.contains(candidateIndex) {
+            let candidatePaneId = panes[candidateIndex].paneId
+            if eligiblePaneIds?.contains(candidatePaneId) != false {
+                return candidatePaneId
+            }
+            candidateIndex += indexOffset
+        }
+        return nil
     }
 
     func next(after paneId: UUID) -> UUID? {

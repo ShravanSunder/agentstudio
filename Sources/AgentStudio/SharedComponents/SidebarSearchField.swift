@@ -8,6 +8,7 @@ package struct SidebarSearchField<FocusValue: Hashable>: View {
     let focusedField: FocusState<FocusValue?>.Binding
     let focusValue: FocusValue
     let clearHelp: String?
+    let shortcutDisplay: ShortcutDisplayText?
     let onSubmit: () -> Void
     let onExit: () -> Void
     let onDownArrow: (() -> KeyPress.Result)?
@@ -18,6 +19,7 @@ package struct SidebarSearchField<FocusValue: Hashable>: View {
         focusedField: FocusState<FocusValue?>.Binding,
         focusValue: FocusValue,
         clearHelp: String? = nil,
+        shortcutDisplay: ShortcutDisplayText? = nil,
         onSubmit: @escaping () -> Void = {},
         onExit: @escaping () -> Void = {},
         onDownArrow: (() -> KeyPress.Result)? = nil
@@ -27,6 +29,7 @@ package struct SidebarSearchField<FocusValue: Hashable>: View {
         self.focusedField = focusedField
         self.focusValue = focusValue
         self.clearHelp = clearHelp
+        self.shortcutDisplay = shortcutDisplay
         self.onSubmit = onSubmit
         self.onExit = onExit
         self.onDownArrow = onDownArrow
@@ -37,6 +40,7 @@ package struct SidebarSearchField<FocusValue: Hashable>: View {
             Image(systemName: "magnifyingglass")
                 .font(.system(size: AppStyles.Shell.Sidebar.SearchField.iconSize))
                 .foregroundStyle(.tertiary)
+                .sidebarShortcutHint(shortcutDisplay)
 
             TextField(placeholder, text: $text)
                 .textFieldStyle(.plain)

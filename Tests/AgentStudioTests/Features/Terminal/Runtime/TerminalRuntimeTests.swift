@@ -8,7 +8,7 @@ import Testing
 @testable import AgentStudioTerminal
 
 @MainActor
-@Suite("TerminalRuntime lifecycle")
+@Suite("TerminalRuntime lifecycle", .serialized)
 struct TerminalRuntimeTests {
     @Test("handleCommand rejects when lifecycle not ready")
     func rejectWhenNotReady() async {
@@ -65,18 +65,38 @@ struct TerminalRuntimeTests {
         #expect(result == .failure(.backendUnavailable(backend: "SurfaceManager")))
     }
 
-    @Test("scrollPageUp terminal command fails without surface")
-    func scrollPageUpTerminalCommandFailsWithoutSurface() async {
+    @Test("fractional scroll fails without surface", arguments: [-0.9, 0.9, -0.33, 0.33])
+    func fractionalScrollFailsWithoutSurface(fraction: Double) async {
         let runtime = TerminalRuntime(
             paneId: PaneId.generateUUIDv7(),
             metadata: PaneMetadata(title: "Runtime")
         )
         runtime.transitionToReady()
 
-        let commandEnvelope = makeEnvelope(command: .terminal(.scrollPageUp), paneId: runtime.paneId)
+        let commandEnvelope = makeEnvelope(
+            command: .terminal(.scrollPageFractional(fraction: fraction)), paneId: runtime.paneId)
         let result = await runtime.handleCommand(commandEnvelope)
 
         #expect(result == .failure(.backendUnavailable(backend: "SurfaceManager")))
+    }
+
+    @Test("fractional scroll reaches the exact terminal with its signed amount", arguments: [-0.9, 0.9, -0.33, 0.33])
+    func fractionalScrollPreservesTargetAndAmount(fraction: Double) async {
+        let surfaceDispatcher = RecordingTerminalSurfaceCommandDispatcher()
+        let runtime = TerminalRuntime(
+            paneId: PaneId.generateUUIDv7(),
+            metadata: PaneMetadata(title: "Runtime"),
+            surfaceCommandDispatcher: surfaceDispatcher
+        )
+        runtime.transitionToReady()
+        let commandEnvelope = makeEnvelope(
+            command: .terminal(.scrollPageFractional(fraction: fraction)), paneId: runtime.paneId
+        )
+
+        let result = await runtime.handleCommand(commandEnvelope)
+
+        #expect(result == .success(commandId: commandEnvelope.commandId))
+        #expect(surfaceDispatcher.recordedOperations == [.scrollPageFractional(runtime.paneId.uuid, fraction)])
     }
 
     @Test("jumpToPrompt terminal command fails without surface")
@@ -655,7 +675,7 @@ private final class RecordingTerminalSurfaceCommandDispatcher: TerminalSurfaceCo
         case sendInput(UUID, String)
         case clearScrollback(UUID)
         case scrollToBottom(UUID)
-        case scrollPageUp(UUID)
+        case scrollPageFractional(UUID, Double)
         case jumpToPrompt(UUID, Int)
     }
 
@@ -676,8 +696,8 @@ private final class RecordingTerminalSurfaceCommandDispatcher: TerminalSurfaceCo
         return .success(())
     }
 
-    func scrollPageUp(forPaneId paneId: UUID) -> Result<Void, SurfaceError> {
-        recordedOperations.append(.scrollPageUp(paneId))
+    func scrollPageFractional(fraction: Double, forPaneId paneId: UUID) -> Result<Void, SurfaceError> {
+        recordedOperations.append(.scrollPageFractional(paneId, fraction))
         return .success(())
     }
 

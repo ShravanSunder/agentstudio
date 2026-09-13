@@ -9,6 +9,7 @@ import Testing
 @testable import AgentStudioCore
 @testable import AgentStudioInboxNotification
 @testable import AgentStudioInfrastructure
+@testable import AgentStudioRepoExplorer
 @testable import AgentStudioTerminal
 @testable import AgentStudioTestSupport
 
@@ -173,6 +174,7 @@ func makePaneTabViewControllerCommandHarness(
         bridgePaneAttendance: atomRegistry.bridgePaneAttendance,
         editorChooser: atomRegistry.editorChooser,
         paneInboxPresentation: paneInboxPresentation,
+        pinnedPanePreferences: RepoExplorerSidebarPrefsAtom(sidebarState: CoreAtomScope.store.workspaceSidebarState),
         installedEditorTargetsProvider: { [.cursor, .vscode] },
         openEditorHandler: { editorId, path, _ in
             launchRecorder.openedEditors.append((id: editorId, path: path))

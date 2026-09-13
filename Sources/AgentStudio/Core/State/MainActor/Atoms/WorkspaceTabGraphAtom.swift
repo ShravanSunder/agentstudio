@@ -52,10 +52,14 @@ struct PaneArrangementGraphState: Equatable, Hashable, Identifiable, Sendable {
     }
 }
 
-struct TabGraphState: Equatable, Hashable, Sendable {
+package struct TabGraphState: Equatable, Hashable, Sendable {
     let tabId: UUID
     var allPaneIds: [UUID]
     var arrangements: [PaneArrangementGraphState]
+
+    package var tabID: UUID { tabId }
+
+    package var paneIDs: [UUID] { allPaneIds }
 
     init(tabId: UUID, allPaneIds: [UUID], arrangements: [PaneArrangementGraphState]) {
         self.tabId = tabId
@@ -90,6 +94,13 @@ package final class WorkspaceTabGraphAtom {
     var tabStates: [TabGraphState] {
         tabOrder.compactMap { tabStateFamily.value(for: $0) }
     }
+
+    /// Raw COW capture for detached readers; no ordered-array reconstruction.
+    package func tabStateSnapshot() -> [UUID: TabGraphState] {
+        tabStateFamily.snapshot()
+    }
+
+    package var tabIDsInOrder: [UUID] { tabOrder }
 
     var tabCount: Int {
         tabOrder.count

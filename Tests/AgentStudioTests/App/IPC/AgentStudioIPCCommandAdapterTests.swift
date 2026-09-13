@@ -26,6 +26,12 @@ struct AgentStudioIPCCommandAdapterTests {
         #expect(commandBar.targetKinds.isEmpty)
         #expect(commandBar.requiredPrivileges == [.uiPresent])
 
+        let focusSidebar = try #require(
+            commandsById[IPCCommandIdentifier(rawValue: AppCommand.focusSidebar.rawValue)])
+        #expect(focusSidebar.executionModes == [.uiPresentation])
+        #expect(focusSidebar.targetKinds.isEmpty)
+        #expect(focusSidebar.requiredPrivileges == [.uiPresent])
+
         let closePane = try #require(commandsById[IPCCommandIdentifier(rawValue: AppCommand.closePane.rawValue)])
         #expect(closePane.title == AppCommand.closePane.definition.label)
         #expect(closePane.executionModes == [.requiresInteractiveInput])
@@ -37,6 +43,19 @@ struct AgentStudioIPCCommandAdapterTests {
         #expect(copyCurrentPanePath.executionModes == [.requiresInteractiveInput])
         #expect(copyCurrentPanePath.targetKinds == [.pane])
         #expect(copyCurrentPanePath.requiredPrivileges == [.workspaceRead])
+
+        for command in [
+            AppCommand.scrollPageUp, .scrollPageDown, .scrollSmallStepUp,
+            .scrollSmallStepDown, .scrollToBottom, .jumpToPreviousPrompt, .jumpToNextPrompt,
+        ] {
+            let entry = try #require(
+                commandsById[IPCCommandIdentifier(rawValue: command.rawValue)]
+            )
+            #expect(entry.executionModes == [.requiresInteractiveInput])
+            #expect(entry.targetKinds == [.pane])
+            #expect(entry.requiredPrivileges == [.terminalInputWrite])
+            #expect(entry.argumentSchema.isEmpty)
+        }
 
         let zoomPane = try #require(
             commandsById[IPCCommandIdentifier(rawValue: AppCommand.zoomPane.rawValue)])
@@ -129,6 +148,18 @@ struct AgentStudioIPCCommandAdapterTests {
                 )
             )
             Issue.record("command bar command unexpectedly executed through command.execute")
+        } catch let error as AppIPCCommandError {
+            #expect(error.reason == .requiresPresentation)
+        }
+
+        do {
+            _ = try harness.adapter.executeCommand(
+                IPCCommandExecuteParams(
+                    commandId: IPCCommandIdentifier(rawValue: AppCommand.focusSidebar.rawValue),
+                    targetHandle: nil
+                )
+            )
+            Issue.record("focus sidebar unexpectedly executed through command.execute")
         } catch let error as AppIPCCommandError {
             #expect(error.reason == .requiresPresentation)
         }

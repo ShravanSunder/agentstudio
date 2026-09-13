@@ -5,7 +5,7 @@ import Testing
 @testable import AgentStudioRepoExplorer
 
 @MainActor
-@Suite("AppDelegate sidebar commands")
+@Suite("AppDelegate sidebar commands", .serialized)
 struct AppDelegateRepoSidebarCommandsTests {
     @Test("screen and setting commands mutate only their declared sidebar surface")
     func screenAndSettingCommandsMutateOnlyTheirDeclaredSidebarSurface() {
@@ -80,5 +80,20 @@ struct AppDelegateRepoSidebarCommandsTests {
         #expect(!delegate.execute(.showReposSidebar))
         #expect(!delegate.canExecute(.setReposSortFieldName))
         #expect(!delegate.execute(.setReposSortFieldName))
+    }
+
+    @Test("focus sidebar capability and execution reject Management mode")
+    func focusSidebarRejectsManagementMode() {
+        let delegate = AppDelegate()
+        let atoms = AtomRegistry()
+        delegate.atomStore = atoms
+
+        #expect(delegate.canExecute(.focusSidebar))
+        #expect(delegate.execute(.focusSidebar))
+
+        atoms.core.managementLayer.toggle()
+
+        #expect(!delegate.canExecute(.focusSidebar))
+        #expect(!delegate.execute(.focusSidebar))
     }
 }

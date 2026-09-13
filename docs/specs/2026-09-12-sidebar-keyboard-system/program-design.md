@@ -219,6 +219,41 @@ from the preceding successful result rather than concurrently from the same old 
 Empty set is no-op; wrap and absent-origin first/last behavior follow the Specification.
 No hidden sidebar adapter demand, activity/history stack or extra persistent cache.
 
+## Visible horizontal pane movement
+
+Normal Option-J/L retains the existing synchronous command and focus path. The
+App controller obtains eligibility from WorkspaceArrangementViewDerived, which
+already owns active residency, arrangement minimization and Management visibility.
+Main-pane movement uses activeVisiblePaneIds; drawer movement uses drawerVisiblePaneIds.
+Layout's neighbor lookup accepts that eligibility set and scans in the requested
+direction to the first eligible pane. DrawerGridLayout passes eligibility through
+to the containing row for horizontal movement; rows are never collapsed or re-paired.
+
+    Option-J/L -> current main/drawer scope -> existing visible-pane projection
+               -> eligible neighbor in canonical row -> existing focus trigger
+               -> selection + existing content-specific responder policy
+    no eligible neighbor -> no trigger -> unchanged focus and visibility
+
+This replaces canonical immediate-neighbor targeting for normal horizontal commands.
+It does not enter PaneCommittedFocusOperation or its explicit arrangement reveal.
+Existing next/previous cycling, ordinal reveal, drawer Up/Down and Management commands
+retain their policies. Eligibility is content-kind independent, including Bridge.
+Existing main-row keyboard focus selects nonterminal destinations while preserving
+their native responder policy; this visibility correction does not redefine it.
+Native responder assertions cover terminal main panes and drawer hosts. Explicit
+sidebar activation continues through its separate committed-focus path.
+
+No state, observer, cache, bus signal or async hop is introduced. Reuse the existing
+projection rather than duplicating residency/minimization rules in App or deriving
+a new renderer grid. The remaining bounded row scan belongs to direct key/focus
+dispatch, permitted by the existing EventBus admission table; it neither captures
+nor projects the sidebar. The tradeoff is one current local visible-set capture per
+capability/execution query rather than a new invalidation-sensitive navigation cache.
+
+Proof covers skipped intervening minimized/backgrounded panes in both directions,
+no-neighbor no-op, actual native focus, unchanged arrangement/drawer expansion and
+preserved explicit reveal. General detached-drawer renderer repair remains deferred.
+
 ## Quality and proof boundaries
 
 All input is local keyboard/UI identity; no new external transport or persisted format.
@@ -232,7 +267,7 @@ and existing bounded identifiers under the current scrub rules.
 | R-S1/R-S2/R-S3 | Real MainSplitViewController window + stable host + shared field; observe actual responder through empty/filter/hidden/Management transitions and origin-control reuse |
 | R-S4/R-S5 | Pure snapshot/update policy plus real host/materializer/dispatcher integration; accepted-generation digits, destination continuity across regroup/pin/activity/association changes, true removal fallback, offscreen ninth result, group moves and exact pane/worktree actions |
 | R-S6 | Native shared controls/hosted rows at narrow and ordinary widths; inspect selection, icon-column overlays, no reflow/click interception, accessible selected row |
-| R-S7 | Exhaustive catalog/context/menu/display tests and existing terminal/empty-drawer regressions |
+| R-S7 | Exhaustive catalog/context/menu/display and terminal/empty-drawer regressions; main/drawer Option-J/L skip minimized/backgrounded neighbors, retain row scope and native focus at edges, preserve arrangement/visibility and explicit reveal |
 | R-S8 | Existing performance probe: separate raw capture, detached navigation projection, native selection/apply; demonstrate no full-capture increment on row motion |
 | R-S10 | Pure focused/full ordering equivalence and real gesture/reveal integration with hidden sidebar, mixed panes, stale pins and sequential commands; capture/derive timing proof |
 
@@ -250,8 +285,8 @@ branch and sidebar retaining first responder. Never mount the same stable contai
 twice or use durable focus-and-rollback. Hold state needs generation-bound cancellation;
 Enter/digits invalidate preview before committing so late key-up cannot undo commit.
 Renderer preparation must preserve existing custody and exact zmx sessions, bound pending
-work, and share the authoritative geometry/visibility path. Cold content restoration
-and live full-canvas resize effects remain the open owner/design boundary. No general
+work, and share the authoritative geometry/visibility path. Loading existing cold content is owner-confirmed. The renderer preparation and
+geometry design must account for live full-pane-area resize effects. No general
 detached-drawer invariant repair is introduced through preview.
 
 ## Source map

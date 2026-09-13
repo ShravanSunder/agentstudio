@@ -116,17 +116,23 @@ package struct RepoExplorerView: View {
     @State private var hasReportedInitialProjection = false
     @FocusState private var focusedField: RepoExplorerFocus?
     @State private var projectionAdapter: RepoExplorerProjectionAdapter
+    @State private var keyboardInteraction = RepoExplorerKeyboardInteraction()
 
     var commandPresentationSnapshot: RepoExplorerCommandPresentationSnapshot {
         commandPresentationDelta?.snapshot ?? .empty
     }
 
+    var showsListKeyboardHints: Bool {
+        keyboardInteraction.isListKeyboardActive
+    }
+
+    func sidebarShortcutDisplay(for command: AppCommand) -> ShortcutDisplayText? {
+        guard showsListKeyboardHints else { return nil }
+        return command.definition.shortcut?.spec.displayTrigger(in: .sidebarList)?.displayText
+    }
+
     package var body: some View {
         VStack(spacing: 0) {
-            RepoExplorerFocusBridge(uiState: uiState, onFilterFocusRequest: { focusedField = .filter })
-                .frame(width: 1, height: 1)
-                .opacity(0.001)
-
             filterBar
 
             RepoExplorerPresentationHostView(
@@ -135,6 +141,9 @@ package struct RepoExplorerView: View {
                 commandPresentationDelta: commandPresentationDelta,
                 visibleSnapshotConsumerToken: visibleSnapshotConsumerToken,
                 interactions: tableInteractions,
+                keyboardInteraction: keyboardInteraction,
+                keyboardCallbacks: keyboardCallbacks,
+                showsKeyboardHints: showsListKeyboardHints,
                 onVisibleWorktreeSnapshotChange: updateSidebarVisibleWorktrees,
                 observeCurrentVisibleTarget: onVisibleWorktreeSnapshotChanged
             )
@@ -155,15 +164,7 @@ package struct RepoExplorerView: View {
             removeSystemTimeInvalidationHandler()
             projectionAdapter.stop()
             clearSidebarVisibleWorktrees()
-            RepoExplorerFocusPublisher.publish(focusedField: nil, into: uiState)
-        }
-        .onChange(of: uiState.isFilterVisible) { _, isVisible in
-            if isVisible {
-                Task { @MainActor in
-                    await Task.yield()
-                    focusedField = .filter
-                }
-            }
+            keyboardInteraction.clearFocusReporting()
         }
 
         .onChange(of: filterText) { _, newValue in
@@ -179,6 +180,10 @@ package struct RepoExplorerView: View {
             recordProjectionResult(result)
         }
         .onChange(of: isProjectionDemanded) { _, isDemanded in
+            if !isDemanded {
+                focusedField = nil
+                keyboardInteraction.clearFocusReporting()
+            }
             projectionAdapter.updateDemand(
                 isVisible: isDemanded,
                 query: filterText
@@ -186,7 +191,8 @@ package struct RepoExplorerView: View {
             recordPerformanceProofReadback()
         }
         .onChange(of: focusedField) { _, newValue in
-            RepoExplorerFocusPublisher.publish(focusedField: newValue, into: uiState)
+            guard newValue == focusedField else { return }
+            keyboardInteraction.filterFocusDidChange(isFocused: newValue == .filter)
             recordPerformanceProofReadback()
         }
     }
@@ -202,9 +208,11 @@ package struct RepoExplorerView: View {
                     focusedField: $focusedField,
                     focusValue: .filter,
                     clearHelp: LocalActionSpec.clearFilter.actionSpec.helpText,
-                    onExit: hideFilter,
+                    shortcutDisplay: sidebarShortcutDisplay(for: .filterSidebar),
+                    onSubmit: focusListAfterFilter,
+                    onExit: focusListAfterFilter,
                     onDownArrow: {
-                        focusedField = nil
+                        focusListAfterFilter()
                         return .handled
                     }
                 )
@@ -221,6 +229,7 @@ package struct RepoExplorerView: View {
             onCommandRequest: dispatchTableCommand,
             onToggleGroup: toggleGroupExpansion,
             onFocusPane: focusPane,
+            onSetGroupExpanded: setGroupExpansion,
             onOpenPaneInEditor: { paneId, editorId in
                 guard let directory = store.paneAtom.pane(paneId)?.metadata.cwd else { return }
                 _ = ExternalWorkspaceOpener.openInEditor(id: editorId, path: directory)
@@ -240,20 +249,43 @@ package struct RepoExplorerView: View {
     }
 
     private func toggleGroupExpansion(_ groupID: String) {
-        guard projectionAdapter.publishedResult?.rowIndex.isFiltering != true else { return }
         let key = SidebarGroupKey(groupID)
-        sidebarCache.setGroupExpanded(
-            key,
-            isExpanded: sidebarCache.collapsedGroups.contains(key)
-        )
+        setGroupExpansion(groupID, isExpanded: sidebarCache.collapsedGroups.contains(key))
     }
 
-    private func hideFilter() {
-        filterText = ""
-        focusedField = nil
-        uiState.setFilterText("")
-        uiState.setFilterVisible(false)
-        onRefocusActivePane()
+    private func setGroupExpansion(_ groupID: String, isExpanded: Bool) {
+        guard projectionAdapter.publishedResult?.rowIndex.isFiltering != true else { return }
+        sidebarCache.setGroupExpanded(SidebarGroupKey(groupID), isExpanded: isExpanded)
+    }
+
+    private func focusListAfterFilter() {
+        keyboardInteraction.requestListFocus()
+    }
+
+    private var keyboardCallbacks: RepoExplorerKeyboardCallbacks {
+        RepoExplorerKeyboardCallbacks(
+            canInterpretListInput: {
+                let coreAtoms = CoreAtomScope.store
+                let context = KeyboardRoutingContext.current(
+                    windowLifecycle: coreAtoms.windowLifecycle,
+                    managementLayer: coreAtoms.managementLayer,
+                    uiState: uiState,
+                    commandBarSurface: coreAtoms.commandBarSurface,
+                    transientKeyboardSurface: coreAtoms.transientKeyboardSurface
+                )
+                return isProjectionDemanded && openOrganizationSelector == nil && context.isStableSidebar
+            },
+            onFilterFocusRequest: { focusedField = .filter },
+            onReturnFocusRequest: onRefocusActivePane,
+            onSidebarFocusChange: { hasFocus in
+                guard uiState.sidebarHasFocus != hasFocus else { return }
+                uiState.setSidebarHasFocus(hasFocus)
+            },
+            onCommandRequest: { command in
+                guard commandDispatcher.canDispatch(command) else { return }
+                commandDispatcher.dispatch(command)
+            }
+        )
     }
 
     private func recordProjectionResult(_ result: RepoExplorerProjectionResult) {

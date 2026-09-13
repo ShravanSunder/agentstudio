@@ -255,7 +255,9 @@ struct RepoExplorerHotPathArchitectureTests {
             encoding: .utf8
         )
 
-        #expect(materializer.contains("private let tableView = RepoExplorerTableView()"))
+        #expect(materializer.contains("let tableView = RepoExplorerTableView()"))
+        #expect(!materializer.contains("package let tableView"))
+        #expect(!materializer.contains("public let tableView"))
         #expect(materializer.contains("contextMenuPresenter?.makeMenu("))
         #expect(presenter.contains("override func menu(for event: NSEvent) -> NSMenu?"))
         #expect(presenter.contains("isRowCurrent(rowID)"))

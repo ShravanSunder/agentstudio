@@ -58,16 +58,16 @@ final class RepoExplorerTableMaterializer: NSObject,
         let height: CGFloat
     }
 
-    private let tableView = RepoExplorerTableView()
+    let tableView = RepoExplorerTableView()
     private let scrollView: NSScrollView
     private let materializationHostLifetimeID: RepoExplorerMaterializationHostLifetimeID
     private let octiconLoader: OcticonLoader
-    private let interactions: RepoExplorerTableInteractions
+    let interactions: RepoExplorerTableInteractions
     private let measureVisibleRowHeight: VisibleRowHeightMeasurer
     private let onVisibleWorktreeSnapshotChange: @MainActor (RepoExplorerVisibleWorktreeSnapshot) -> Void
     private let observeCurrentVisibleTarget: @MainActor (RepoExplorerVisibleWorktreeSnapshot) -> Void
     private var contextMenuPresenter: RepoExplorerContextMenuPresenter?
-    private var snapshot: RepoExplorerMaterializationSnapshot?
+    private(set) var snapshot: RepoExplorerMaterializationSnapshot?
     private var visibleGeneration: UInt64?
     private var viewportTask: Task<Void, Never>?
     private var viewportSequence: UInt64 = 0
@@ -81,8 +81,11 @@ final class RepoExplorerTableMaterializer: NSObject,
     private var pendingReloadRows = IndexSet()
     private var pendingHeightRows = IndexSet()
     private var pendingApplicationRequiresGeometryUpdate = false
+    var isApplyingProgrammaticSelection = false
+    // Render-only input; key routing always checks the actual responder and current owner.
+    var showsKeyboardHints = false
     private var boundsObserver: NSObjectProtocol?
-    private var isDetached = false
+    private(set) var isDetached = false
     private var isDemandActive = true
 
     init(
@@ -129,6 +132,7 @@ final class RepoExplorerTableMaterializer: NSObject,
         tableView.headerView = nil
         tableView.backgroundColor = .clear
         tableView.style = .plain
+        tableView.selectionHighlightStyle = .none
         tableView.intercellSpacing = .zero
         tableView.usesAutomaticRowHeights = false
         tableView.addTableColumn(
@@ -202,14 +206,19 @@ final class RepoExplorerTableMaterializer: NSObject,
             visibleGeneration: visibleGeneration,
             commandPresentationSnapshot: acceptedCommandPresentationSnapshot
         )
+        cell.applyKeyboardPresentation(keyboardPresentation(for: row.id))
         return cell
     }
 
     func tableView(_ tableView: NSTableView, shouldSelectRow row: Int) -> Bool {
-        false
+        guard isApplyingProgrammaticSelection,
+            let rowID = snapshot?.rows[safe: row]?.id
+        else { return false }
+        return snapshot?.navigationIndex.containsSelectableRow(rowID) == true
     }
 
     func tableViewSelectionDidChange(_ notification: Notification) {
+        guard !isApplyingProgrammaticSelection else { return }
         guard let tableView = notification.object as? NSTableView else { return }
         tableView.deselectAll(nil)
     }
@@ -251,6 +260,12 @@ final class RepoExplorerTableMaterializer: NSObject,
         completion: @escaping (RepoExplorerMaterializationChildDisposition) -> Void
     ) {
         guard !isDetached else {
+            completion(.rejected)
+            return
+        }
+        if let selectedRowID = candidate.selectedRowID,
+            !candidate.snapshot.navigationIndex.containsSelectableRow(selectedRowID)
+        {
             completion(.rejected)
             return
         }
@@ -306,6 +321,10 @@ final class RepoExplorerTableMaterializer: NSObject,
             )
         }
         pendingApplicationRequiresGeometryUpdate = false
+        precondition(
+            applySelection(rowID: candidate.selectedRowID, scrollIntoView: false),
+            "Validated Repo Explorer selection must apply after its native table transaction"
+        )
         scheduleViewportPublication()
         completion(.accepted)
     }
@@ -446,6 +465,7 @@ final class RepoExplorerTableMaterializer: NSObject,
                 visibleGeneration: visibleGeneration,
                 commandPresentationSnapshot: acceptedCommandPresentationSnapshot
             )
+            cell.applyKeyboardPresentation(keyboardPresentation(for: row.id))
             reboundRowCount += 1
         }
         return .accepted(reboundRowCount: reboundRowCount)
@@ -572,7 +592,7 @@ final class RepoExplorerTableMaterializer: NSObject,
         scheduleViewportPublication()
     }
 
-    private func scheduleViewportPublication() {
+    func scheduleViewportPublication() {
         guard !isDetached, let visibleGeneration else { return }
         viewportSequence &+= 1
         let scheduledSequence = viewportSequence
@@ -703,7 +723,7 @@ final class RepoExplorerTableMaterializer: NSObject,
         )
     }
 
-    private func representedRowIndexes() -> IndexSet {
+    func representedRowIndexes() -> IndexSet {
         let range = tableView.rows(in: scrollView.contentView.documentVisibleRect)
         guard range.location != NSNotFound, range.length > 0 else { return [] }
         let upperBound = min(NSMaxRange(range), numberOfRows)
@@ -732,6 +752,7 @@ final class RepoExplorerTableMaterializer: NSObject,
                 visibleGeneration: visibleGeneration,
                 commandPresentationSnapshot: acceptedCommandPresentationSnapshot
             )
+            cell.applyKeyboardPresentation(keyboardPresentation(for: snapshot.rows[rowIndex].id))
         }
         RepoExplorerNativeVisibleProjectionReadback.stampExpectedVisibleProjection(
             in: tableView,

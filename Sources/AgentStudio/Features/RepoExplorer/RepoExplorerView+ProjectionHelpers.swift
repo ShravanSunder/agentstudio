@@ -23,33 +23,6 @@ struct RepoExplorerProjectionRequestKey: Equatable {
 }
 
 extension RepoExplorerView {
-    static func paneSecondaryText(
-        liveTitle: String,
-        cwd: URL?,
-        shellExecutablePath: String?
-    ) -> String {
-        let normalizedTitle = liveTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-        let cwdPath = cwd?.standardizedFileURL.path
-        let titleIsPathShaped =
-            normalizedTitle.hasPrefix("/")
-            || normalizedTitle.hasPrefix("~")
-            || normalizedTitle.hasPrefix("…/")
-            || normalizedTitle.hasPrefix(".../")
-        let titleMatchesCWD =
-            cwdPath.map { cwdPath in
-                normalizedTitle == cwdPath || normalizedTitle.hasPrefix("\(cwdPath)/")
-            } ?? false
-        guard normalizedTitle.isEmpty || titleIsPathShaped || titleMatchesCWD else {
-            return normalizedTitle
-        }
-
-        let shellName = shellExecutablePath.flatMap { shellExecutablePath -> String? in
-            let lastPathComponent = URL(fileURLWithPath: shellExecutablePath).lastPathComponent
-            return lastPathComponent.isEmpty ? nil : lastPathComponent
-        }
-        return shellName ?? "zsh"
-    }
-
     static func projectionRequestKey(
         for request: RepoExplorerProjectionRequest
     ) -> RepoExplorerProjectionRequestKey {

@@ -63,6 +63,7 @@ class MainSplitViewController: NSSplitViewController {
     private var paneTabViewController: PaneTabViewController?
     private var sidebarFocusTask: Task<Void, Never>?
     private var sidebarWidthRestoreTask: Task<Void, Never>?
+    private let sidebarReturnFocusOrigin = SidebarReturnFocusOrigin()
     private var shouldExpandSidebarOnLoad = false
     private var shouldFocusSidebarWhenVisible = false
     private var didApplySidebarWidthAfterLayout = false
@@ -203,6 +204,7 @@ class MainSplitViewController: NSSplitViewController {
             bridgePaneAttendance: bridgePaneAttendance,
             editorChooser: editorChooser,
             paneInboxPresentation: nil,
+            pinnedPanePreferences: repoExplorerSidebarPrefs,
             closeTransitionCoordinator: closeTransitionCoordinator,
             performanceTraceRecorder: performanceTraceRecorder,
             registersAsCommandHandler: paneTabRegistersAsCommandHandler,
@@ -230,8 +232,8 @@ class MainSplitViewController: NSSplitViewController {
                 repoExplorerSidebarPrefs: repoExplorerSidebarPrefs,
                 bridgeAttendanceSnapshot: bridgeAttendanceSnapshot,
                 performanceTraceRecorder: performanceTraceRecorder,
-                onRefocusActivePane: { [weak paneTabVC] in
-                    paneTabVC?.refocusActivePane()
+                onRefocusActivePane: { [weak self] in
+                    self?.restoreSidebarReturnFocusOrigin()
                 },
                 onSidebarVisibleWorktreesChanged: onSidebarVisibleWorktreesChanged,
                 onPerformanceProofReadback: onPerformanceProofReadback,
@@ -490,6 +492,8 @@ class MainSplitViewController: NSSplitViewController {
     }
 
     func collapseSidebar() {
+        sidebarFocusTask?.cancel()
+        shouldFocusSidebarWhenVisible = false
         guard isViewLoaded else {
             // Contract: restore and composite commands may ask for collapse before
             // splitViewItems exist. Clear the pending expansion bit here so the
@@ -497,19 +501,30 @@ class MainSplitViewController: NSSplitViewController {
             shouldExpandSidebarOnLoad = false
             uiState.setSidebarCollapsed(true)
             uiState.setSidebarHasFocus(false)
+            sidebarReturnFocusOrigin.clear()
             return
         }
         guard let sidebarItem = splitViewItems.first, !sidebarItem.isCollapsed else { return }
+        let shouldRestoreFocus =
+            view.window.map {
+                sidebarReturnFocusOrigin.currentResponderBelongsToSidebar(
+                    in: $0,
+                    sidebarRoot: sidebarHostingController?.view
+                )
+            } ?? false
         sidebarItem.isCollapsed = true
         splitView.adjustSubviews()
         splitView.layoutSubtreeIfNeeded()
         uiState.setSidebarCollapsed(true)
         uiState.setSidebarHasFocus(false)
         scheduleSaveSidebarState()
+        if shouldRestoreFocus {
+            restoreSidebarReturnFocusOrigin()
+        }
     }
 
     @discardableResult
-    func focusSidebar() -> Bool {
+    func focusSidebarHostIfReady() -> Bool {
         guard isViewLoaded else { return false }
         guard let window = view.window else { return false }
         window.makeKey()
@@ -521,7 +536,7 @@ class MainSplitViewController: NSSplitViewController {
         else {
             return false
         }
-        return window.makeFirstResponder(focusTarget)
+        return RepoExplorerView.requestListFocus(on: focusTarget)
     }
 
     private func scheduleSidebarFocus() {
@@ -530,7 +545,7 @@ class MainSplitViewController: NSSplitViewController {
             guard let self else { return }
             for _ in 0..<Self.sidebarFocusRetryTurns {
                 guard !Task.isCancelled else { return }
-                if self.focusSidebar() {
+                if self.focusSidebarHostIfReady() {
                     return
                 }
                 await Task.yield()
@@ -542,9 +557,29 @@ class MainSplitViewController: NSSplitViewController {
         handleToggleSidebar()
     }
 
+    func focusSidebarFromCommand() {
+        guard isViewLoaded, let window = view.window else {
+            shouldFocusSidebarWhenVisible = true
+            ensureSidebarVisible()
+            return
+        }
+        sidebarReturnFocusOrigin.captureCurrentResponder(
+            in: window,
+            sidebarRoot: sidebarHostingController?.view
+        )
+        ensureSidebarVisible()
+        scheduleSidebarFocus()
+    }
+
     func showSidebarFilter() {
         // Focus the current screen's always-visible filter, including repeat requests.
         guard uiState.sidebarSurface != .inbox else { return }
+        if let window = view.window {
+            sidebarReturnFocusOrigin.captureCurrentResponder(
+                in: window,
+                sidebarRoot: sidebarHostingController?.view
+            )
+        }
         expandSidebar()
         uiState.setFilterVisible(true)
         if let target = sidebarHostingController?.view.descendantView(
@@ -555,8 +590,7 @@ class MainSplitViewController: NSSplitViewController {
     }
 
     func showWorktreeSidebar() {
-        // Contract: keep ⌘S symmetric with ⌘I. A second press on the visible
-        // requested surface closes the sidebar instead of reasserting state.
+        // Preserve the legacy toolbar toggle behavior for this surface-specific entry point.
         if !isSidebarCollapsed && uiState.sidebarSurface == .repos {
             collapseSidebar()
             return
@@ -571,12 +605,19 @@ class MainSplitViewController: NSSplitViewController {
         paneTabViewController?.refocusActivePane()
     }
 
+    private func restoreSidebarReturnFocusOrigin() {
+        sidebarReturnFocusOrigin.restore(in: view.window) { [weak self] in
+            self?.paneTabViewController?.refocusActivePane()
+        }
+    }
+
     func shutdown() {
         guard !hasShutdown else { return }
         hasShutdown = true
         sidebarFocusTask?.cancel()
         sidebarWidthRestoreTask?.cancel()
         shouldFocusSidebarWhenVisible = false
+        sidebarReturnFocusOrigin.clear()
         paneTabViewController?.shutdown()
     }
 

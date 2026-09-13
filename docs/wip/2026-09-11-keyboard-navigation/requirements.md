@@ -51,9 +51,11 @@ are not promoted by appearing beside an authorized need.
 | U11 | Reach repository file finder. | Authorized broader need; deferred; do not reinterpret F silently |
 | U12 | A coherent command/shortcut system. | Current sidebar/arrangement slice; broad restructuring deferred |
 | U13 | General visible follow-up action families. | Earlier assistant advisory proposal; not an app-wide requirement |
-| U14 | Option-Shift-Up/Down from terminal switches previous/next pinned pane. | Authorized; current; ordering defaults in Specification |
-| U15 | Temporarily show a selected pane in Preview; Enter takes the user there. | Owner's latest request; current; hold-to-preview and release-to-cancel selected; detailed placement open |
+| U14 | Option-Shift-Up/Down from terminal switches previous/next pinned pane. | Authorized; current; sidebar pinned order and wrap confirmed |
+| U15 | Temporarily show a selected pane in Preview; Enter takes the user there. | Authorized; Space-held, full pane area, follows selection; load existing panes as needed |
 | U16 | Show sidebar keyboard ownership and contextual floating key hints within existing UI. | Authorized; current; exact visual/reveal details proposed |
+| U17 | Navigate terminal content with a coherent shortcut family. | Owner-revised design: Command-Shift-I/K scrolls up/down 90%; Command-Shift-J/L scrolls up/down 33%; Option-Shift-J/L moves previous/next shell prompt; Command-Option-K jumps to bottom. Option-Shift-I/K is reserved for later agent-TUI navigation and unassigned now. |
+| U18 | Spatial Option-J/L navigation stays among visible panes without revealing hidden/minimized panes. | Authorized correction; supersedes the existing expand-minimized spatial behavior |
 
 Retired identity U2 is not reused: the owner removed activity/history traversal.
 Its historical wording is outside this current needs table.
@@ -75,11 +77,12 @@ thresholds or input-event telemetry.
 | F | Enter the existing current-list filter; viewer search stays separate |
 | Filter Enter | Keep query/results and focus table; do not open a result |
 | Digits 1–9 | Address first nine list results; open the numbered result immediately |
-| Option-Shift-Up/Down from terminal | Direct previous/next pinned-pane navigation |
+| Option-Shift-Up/Down from terminal | Direct previous/next pinned-pane navigation in sidebar pinned order, wrapping at ends |
 | Creation | Current arrangement plus Default visible; unrelated custom arrangements do not reveal new pane |
 | Committed reveal | Current if visible; otherwise first visible custom in arrangement order; otherwise Default |
 | Drawer destination | Reveal parent, expand drawer and reach child |
-| Preview versus commit | Hold a preview key to inspect; release cancels uncommitted preview; Enter commits |
+| Preview versus commit | Hold Space: full pane area, follows selection; release cancels, Enter commits |
+| Unloaded preview target | Restore/load the existing pane as needed; it may remain warm after release; no replacement terminal session |
 
 ## Source constraints and review gaps
 
@@ -89,8 +92,9 @@ must inspect actual responder context. No independent navigation-owner Boolean.
 Selected row, return target and temporary preview state are distinct interaction
 data; their existence is not permission to duplicate keyboard ownership.
 
-The native table currently rejects/deselects row selection. Filter onSubmit exists
-in the shared field but is not wired by the sidebar. Pane activation mutates tab,
+The pre-change native table rejected/deselected all row selection and filter
+onSubmit was unwired. Current core implementation permits validated programmatic
+selection and wires filter return through the actual list responder. Pane activation mutates tab,
 arrangement/minimization and focus; it is not an established reversible preview.
 The pre-change arrangement baseline inserted into all arrangements and revealed by
 membership before visibility. Its separate reviewed correction is now implemented
@@ -98,9 +102,9 @@ with full aggregate and native reveal proof. Source pointers live in the map.
 
 The core Specification now makes ordinary selection/group/return/pinned defaults
 concrete; [provenance](core-design-decisions.md) distinguishes those decisions from
-explicit owner answers. Preview cold-content restoration remains the material open
-question. Core review and implementation may progress independently, while U15
-remains in the delivery goal.
+explicit owner answers. Preview cold-content restoration is now owner-confirmed. Its renderer, geometry
+and cancellation realization still needs completed design and proof. U15 remains
+in the delivery goal alongside the ongoing core implementation.
 
 Proof expectation: native keyboard journeys through list/filter/pane focus and
 real terminal/Bridge/drawer destinations, state inspection for arrangement visibility,

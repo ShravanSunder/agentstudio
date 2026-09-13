@@ -77,6 +77,10 @@ package final class PaneActivityStatusAtom {
         statusFamily.value(for: paneId)
     }
 
+    package func statusSnapshot() -> [UUID: PaneActivityStatusFact] {
+        statusFamily.snapshot()
+    }
+
     /// Publishes `lastOutputLine` for `paneId` at every settled terminal activity outcome,
     /// regardless of whether `InboxPromoter` suppresses the corresponding notification. Subject to
     /// a latest-value deferral gate: a settle within `minimumPublishInterval` of the pane's last

@@ -23,12 +23,6 @@ struct RepoExplorerOrganizationInput {
     let branchFacts: RepoExplorerPaneBranchProjectionFacts
 }
 
-private struct RepoExplorerLeafSortKey {
-    let name: String
-    let activityAt: Date?
-    let identity: UUID
-}
-
 extension RepoExplorerProjection {
     static func organizedContent(_ input: RepoExplorerOrganizationInput) -> RepoExplorerOrganizedContent {
         let snapshot = input.snapshot
@@ -48,80 +42,64 @@ extension RepoExplorerProjection {
                 return isPinned == (sectionKind == .pinnedPanes)
             }
             guard !members.isEmpty else { continue }
-            let grouped = Dictionary(grouping: members) { destination in
-                switch snapshot.groupingMode {
-                case .repo: destination.repoId?.uuidString ?? "unassociated"
-                case .tab: destination.tabId.uuidString
-                case .activity:
-                    String(activityBucket(destination.paneId, snapshot: snapshot, facts: paneFacts).rawValue)
-                }
-            }
-            let orderedKeys = grouped.keys.sorted { lhs, rhs in
-                switch snapshot.groupingMode {
-                case .repo:
-                    let leftName = grouped[lhs]?.first?.repoId.flatMap { reposById[$0]?.name } ?? "No Repository"
-                    let rightName = grouped[rhs]?.first?.repoId.flatMap { reposById[$0]?.name } ?? "No Repository"
-                    let comparison = leftName.localizedCaseInsensitiveCompare(rightName)
-                    return comparison == .orderedSame ? lhs < rhs : comparison == .orderedAscending
-                case .tab:
-                    let leftIndex = grouped[lhs]?.first?.tabIndex ?? .max
-                    let rightIndex = grouped[rhs]?.first?.tabIndex ?? .max
-                    return leftIndex == rightIndex ? lhs < rhs : leftIndex < rightIndex
-                case .activity: return (Int(lhs) ?? .max) < (Int(rhs) ?? .max)
-                }
-            }
+            let destinationsByID = Dictionary(uniqueKeysWithValues: members.map { ($0.paneId, $0) })
+            let organizationInput = RepoExplorerPaneOrganizationInput(
+                members: members.map { destination in
+                    let title =
+                        paneFacts[destination.paneId]?.sidebarTerminalTitle
+                        .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                    return RepoExplorerPaneOrganizationMember(
+                        paneID: destination.paneId,
+                        repositoryID: destination.repoId,
+                        repositoryName: destination.repoId.flatMap { reposById[$0]?.name },
+                        tabID: destination.tabId,
+                        tabOrder: destination.tabIndex,
+                        normalizedTitle: title.isEmpty ? "zsh" : title,
+                        isPinned: paneFacts[destination.paneId]?.isPinned == true,
+                        activityAt: paneFacts[destination.paneId]?.activityAt
+                    )
+                },
+                preferences: .init(
+                    groupingMode: snapshot.groupingMode, subgroupMode: snapshot.subgroupMode,
+                    sortField: snapshot.sortField, sortOrder: snapshot.sortOrder,
+                    referenceDate: snapshot.referenceDate, calendar: snapshot.calendar
+                )
+            )
             var groups: [RepoPresentationGroup] = []
-            for key in orderedKeys {
-                guard let members = grouped[key], let first = members.first else { continue }
-                let groupId = "panes:\(sectionKind.rawValue):\(snapshot.groupingMode.rawValue):\(key)"
+            for group in RepoExplorerPaneOrganizationPolicy.orderedGroups(organizationInput) {
+                let key: String
                 let title: String
-                switch snapshot.groupingMode {
-                case .repo: title = first.repoId.flatMap { reposById[$0]?.name } ?? "No Repository"
-                case .tab: title = tabFacts[first.tabId]?.displayTitle ?? "Tab \(first.tabIndex + 1)"
-                case .activity: title = activityBucket(first.paneId, snapshot: snapshot, facts: paneFacts).title
+                switch group.identity {
+                case .repository(let repositoryID, let repositoryName):
+                    key = repositoryID?.uuidString ?? "unassociated"
+                    title = repositoryName
+                case .tab(let tabID, let tabOrder):
+                    key = tabID.uuidString
+                    title = tabFacts[tabID]?.displayTitle ?? "Tab \(tabOrder + 1)"
+                case .activity(let bucket):
+                    key = String(bucket.rawValue)
+                    title = bucket.title
                 }
-                let memberRepoIds = Set(members.compactMap(\.repoId))
+                let groupId = "panes:\(sectionKind.rawValue):\(snapshot.groupingMode.rawValue):\(key)"
+                let memberRepoIds = Set(group.members.compactMap(\.repositoryID))
                 groups.append(
                     RepoPresentationGroup(
                         id: groupId, repoTitle: title, organizationName: nil,
                         repos: eligibleRepositories.filter { memberRepoIds.contains($0.id) }
                     ))
-                let sortNamesByPaneId = Dictionary(
-                    uniqueKeysWithValues: members.map { destination in
-                        let title =
-                            paneFacts[destination.paneId]?.sidebarTerminalTitle
-                            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-                        return (destination.paneId, title.isEmpty ? "zsh" : title)
-                    })
-                var rows = members.map { destination in
+                result.paneRows[groupId] = group.members.compactMap { member in
+                    guard let destination = destinationsByID[member.paneID] else { return nil }
                     var row = tabPaneRow(
                         groupId: groupId, destination: destination, reposById: reposById,
                         paneFacts: paneFacts[destination.paneId], branchFacts: branchFacts,
                         showsPaneNumber: snapshot.groupingMode == .tab
                     )
-                    row.isPinned = paneFacts[destination.paneId]?.isPinned ?? false
+                    row.isPinned = member.isPinned
                     if snapshot.subgroupMode == .activity && snapshot.groupingMode != .activity {
                         row.activitySubgroup = activityBucket(destination.paneId, snapshot: snapshot, facts: paneFacts)
                     }
                     return row
                 }
-                rows.sort { lhs, rhs in
-                    if lhs.activitySubgroup != rhs.activitySubgroup {
-                        return (lhs.activitySubgroup?.rawValue ?? 0) < (rhs.activitySubgroup?.rawValue ?? 0)
-                    }
-                    return leafPrecedes(
-                        .init(
-                            name: sortNamesByPaneId[lhs.destination.paneId] ?? "",
-                            activityAt: paneFacts[lhs.destination.paneId]?.activityAt,
-                            identity: lhs.destination.paneId),
-                        .init(
-                            name: sortNamesByPaneId[rhs.destination.paneId] ?? "",
-                            activityAt: paneFacts[rhs.destination.paneId]?.activityAt,
-                            identity: rhs.destination.paneId),
-                        snapshot: snapshot
-                    )
-                }
-                result.paneRows[groupId] = rows
             }
             result.sections.append(.init(kind: sectionKind, resolvedGroups: groups, loadingRepos: []))
         }
@@ -197,14 +175,16 @@ extension RepoExplorerProjection {
             for (groupId, unsortedRows) in rowsByGroup {
                 var rows = unsortedRows
                 rows.sort { lhs, rhs in
-                    leafPrecedes(
+                    RepoExplorerLeafOrdering.precedes(
                         .init(
                             name: lhs.worktree.name, activityAt: activityByWorktreeId[lhs.worktree.id],
                             identity: lhs.worktree.id),
                         .init(
                             name: rhs.worktree.name, activityAt: activityByWorktreeId[rhs.worktree.id],
                             identity: rhs.worktree.id),
-                        snapshot: snapshot
+                        sortField: snapshot.sortField,
+                        sortOrder: snapshot.sortOrder,
+                        referenceDate: snapshot.referenceDate
                     )
                 }
                 result.worktreeRows[groupId] = rows
@@ -229,22 +209,4 @@ extension RepoExplorerProjection {
         return date
     }
 
-    private static func leafPrecedes(
-        _ lhs: RepoExplorerLeafSortKey, _ rhs: RepoExplorerLeafSortKey, snapshot: RepoExplorerSnapshot
-    ) -> Bool {
-        if snapshot.sortField == .activity {
-            let left = validActivity(lhs.activityAt, snapshot: snapshot)
-            let right = validActivity(rhs.activityAt, snapshot: snapshot)
-            // Unknown evidence is always last, including descending order.
-            if (left == nil) != (right == nil) { return left != nil }
-            if let left, let right, left != right {
-                return snapshot.sortOrder == .ascending ? left < right : left > right
-            }
-        }
-        let comparison = lhs.name.localizedCaseInsensitiveCompare(rhs.name)
-        if comparison != .orderedSame {
-            return comparison == (snapshot.sortOrder == .ascending ? .orderedAscending : .orderedDescending)
-        }
-        return lhs.identity.uuidString < rhs.identity.uuidString
-    }
 }

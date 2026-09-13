@@ -50,6 +50,7 @@ package enum SystemSymbol: String, CaseIterable, Equatable, Sendable {
     case folderFillBadgePlus = "folder.fill.badge.plus"
     case globe = "globe"
     case house = "house"
+    case keyboard = "keyboard"
     case line3Horizontal = "line.3.horizontal"
     case longTextPageAndPencil = "long.text.page.and.pencil"
     case macwindowBadgePlus = "macwindow.badge.plus"

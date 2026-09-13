@@ -264,6 +264,11 @@ package enum AppPolicies {
         package static let restoreMaximumConcurrentAdmissions: Int = 1
     }
 
+    package enum TerminalNavigation {
+        package static let pageFraction: Double = 0.9
+        package static let smallStepFraction: Double = 0.33
+    }
+
     package enum TerminalProcessTermination {
         package static let acknowledgementTimeout: Duration = .seconds(2)
     }
@@ -615,6 +620,10 @@ package enum AppPolicies {
         /// worker-pool readiness, and tree/click convergence. It is a heavier
         /// proof path than the IPC terminal and File View smokes.
         package static let bridgeReviewSmokeReadinessTimeout: Duration = .seconds(20)
+    }
+
+    package enum SidebarNavigation {
+        package static let maximumNumberedDestinations: Int = 9
     }
 
     package enum SelectablePopover {

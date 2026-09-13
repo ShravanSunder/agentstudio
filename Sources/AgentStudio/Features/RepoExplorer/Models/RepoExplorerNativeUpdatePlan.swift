@@ -7,6 +7,7 @@ struct RepoExplorerNativePlanPreflight: Equatable, Sendable {
     let oldRevision: UInt64
     let oldCount: Int
     let oldFingerprint: RepoExplorerMaterializationFingerprint
+    let oldNavigationFingerprint: RepoExplorerNavigationFingerprint
 }
 
 struct RepoExplorerNativeEqualPlan: Equatable, Sendable {
@@ -14,6 +15,7 @@ struct RepoExplorerNativeEqualPlan: Equatable, Sendable {
     let newRevision: UInt64
     let rowCount: Int
     let membershipFingerprint: RepoExplorerMaterializationFingerprint
+    let navigationFingerprint: RepoExplorerNavigationFingerprint
 }
 
 struct RepoExplorerNativeChangedPlan: Equatable, Sendable {
@@ -21,7 +23,9 @@ struct RepoExplorerNativeChangedPlan: Equatable, Sendable {
     let proposedRevision: UInt64
     let newCount: Int
     let newFingerprint: RepoExplorerMaterializationFingerprint
+    let newNavigationFingerprint: RepoExplorerNavigationFingerprint
     let presentation: RepoExplorerNativePresentationUpdate
+    let selectionReconciliation: RepoExplorerSelectionReconciliation
 }
 
 enum RepoExplorerNativePresentationUpdate: Equatable, Sendable {
@@ -34,16 +38,22 @@ enum RepoExplorerNativePresentationUpdate: Equatable, Sendable {
 struct RepoExplorerNativeChangedPlanTemplatePayload: Equatable, Sendable {
     let newCount: Int
     let newFingerprint: RepoExplorerMaterializationFingerprint
+    let newNavigationFingerprint: RepoExplorerNavigationFingerprint
     let presentation: RepoExplorerNativePresentationUpdate
+    let selectionReconciliation: RepoExplorerSelectionReconciliation
 
     fileprivate init(
         newCount: Int,
         newFingerprint: RepoExplorerMaterializationFingerprint,
-        presentation: RepoExplorerNativePresentationUpdate
+        newNavigationFingerprint: RepoExplorerNavigationFingerprint,
+        presentation: RepoExplorerNativePresentationUpdate,
+        selectionReconciliation: RepoExplorerSelectionReconciliation
     ) {
         self.newCount = newCount
         self.newFingerprint = newFingerprint
+        self.newNavigationFingerprint = newNavigationFingerprint
         self.presentation = presentation
+        self.selectionReconciliation = selectionReconciliation
     }
 }
 
@@ -139,31 +149,20 @@ struct RepoExplorerNativeUpdatePlan: Equatable, Sendable {
             return .failure(.duplicateCandidateRowID)
         }
 
-        let preflight = RepoExplorerNativePlanPreflight(
-            lifetimeID: baseline.lifetimeID,
-            demandEpoch: baseline.demandEpoch,
-            requestGeneration: requestGeneration,
-            oldRevision: baseline.revision,
-            oldCount: baseline.rowCount,
-            oldFingerprint: baseline.fingerprint
+        let preflight = makePreflight(
+            baseline: baseline,
+            requestGeneration: requestGeneration
         )
         if baseline.presentation == candidate {
-            return .success(
-                Self(
-                    kind: .equal(
-                        RepoExplorerNativeEqualPlan(
-                            preflight: preflight,
-                            newRevision: baseline.revision,
-                            rowCount: baseline.rowCount,
-                            membershipFingerprint: baseline.fingerprint
-                        )
-                    )
-                )
-            )
+            return .success(equalPlan(preflight: preflight, baseline: baseline))
         }
 
         let (proposedRevision, overflow) = baseline.revision.addingReportingOverflow(1)
         guard !overflow else { return .failure(.revisionOverflow) }
+        let selectionReconciliation = makeSelectionReconciliation(
+            baseline: baseline.presentation,
+            candidate: candidate
+        )
 
         let presentationUpdate: RepoExplorerNativePresentationUpdate
         switch (baseline.presentation, candidate) {
@@ -209,7 +208,9 @@ struct RepoExplorerNativeUpdatePlan: Equatable, Sendable {
                         proposedRevision: proposedRevision,
                         newCount: candidate.rowCount,
                         newFingerprint: candidate.fingerprint,
-                        presentation: presentationUpdate
+                        newNavigationFingerprint: candidate.navigationFingerprint,
+                        presentation: presentationUpdate,
+                        selectionReconciliation: selectionReconciliation
                     )
                 )
             )
@@ -231,6 +232,7 @@ struct RepoExplorerNativeUpdatePlan: Equatable, Sendable {
             && preflight.oldRevision == baseline.revision
             && preflight.oldCount == baseline.rowCount
             && preflight.oldFingerprint == baseline.fingerprint
+            && preflight.oldNavigationFingerprint == baseline.navigationFingerprint
     }
 
     func matchesDelivery(
@@ -258,11 +260,13 @@ struct RepoExplorerNativeUpdatePlan: Equatable, Sendable {
                 && equal.newRevision == baseline.revision
                 && equal.rowCount == presentation.rowCount
                 && equal.membershipFingerprint == presentation.fingerprint
+                && equal.navigationFingerprint == presentation.navigationFingerprint
                 && presentation.hasSameVisibleIdentity(as: baseline.presentation)
         case .changed(let changed):
             guard proposedRevision == changed.proposedRevision,
                 changed.newCount == presentation.rowCount,
-                changed.newFingerprint == presentation.fingerprint
+                changed.newFingerprint == presentation.fingerprint,
+                changed.newNavigationFingerprint == presentation.navigationFingerprint
             else {
                 return false
             }
@@ -284,12 +288,23 @@ struct RepoExplorerNativeUpdatePlan: Equatable, Sendable {
         }
     }
 
+    func reconciledSelectionRowID(for priorRowID: RepoExplorerRowID?) -> RepoExplorerRowID? {
+        switch kind {
+        case .equal:
+            priorRowID
+        case .changed(let changed):
+            changed.selectionReconciliation.targetRowID(for: priorRowID)
+        }
+    }
+
     func sealedChangedTemplatePayload() -> RepoExplorerNativeChangedPlanTemplatePayload? {
         guard case .changed(let changed) = kind else { return nil }
         return RepoExplorerNativeChangedPlanTemplatePayload(
             newCount: changed.newCount,
             newFingerprint: changed.newFingerprint,
-            presentation: changed.presentation
+            newNavigationFingerprint: changed.newNavigationFingerprint,
+            presentation: changed.presentation,
+            selectionReconciliation: changed.selectionReconciliation
         )
     }
 
@@ -304,18 +319,16 @@ struct RepoExplorerNativeUpdatePlan: Equatable, Sendable {
             Self(
                 kind: .changed(
                     RepoExplorerNativeChangedPlan(
-                        preflight: RepoExplorerNativePlanPreflight(
-                            lifetimeID: baseline.lifetimeID,
-                            demandEpoch: baseline.demandEpoch,
-                            requestGeneration: requestGeneration,
-                            oldRevision: baseline.revision,
-                            oldCount: baseline.rowCount,
-                            oldFingerprint: baseline.fingerprint
+                        preflight: makePreflight(
+                            baseline: baseline,
+                            requestGeneration: requestGeneration
                         ),
                         proposedRevision: proposedRevision,
                         newCount: payload.newCount,
                         newFingerprint: payload.newFingerprint,
-                        presentation: payload.presentation
+                        newNavigationFingerprint: payload.newNavigationFingerprint,
+                        presentation: payload.presentation,
+                        selectionReconciliation: payload.selectionReconciliation
                     )
                 )
             )
@@ -360,6 +373,50 @@ struct RepoExplorerNativeUpdatePlan: Equatable, Sendable {
     ) -> Bool {
         guard case .content(let snapshot, let fingerprint) = presentation else { return true }
         return fingerprint == .make(snapshot: snapshot)
+    }
+
+    private static func makePreflight(
+        baseline: RepoExplorerMaterializationBaseline,
+        requestGeneration: UInt64
+    ) -> RepoExplorerNativePlanPreflight {
+        RepoExplorerNativePlanPreflight(
+            lifetimeID: baseline.lifetimeID,
+            demandEpoch: baseline.demandEpoch,
+            requestGeneration: requestGeneration,
+            oldRevision: baseline.revision,
+            oldCount: baseline.rowCount,
+            oldFingerprint: baseline.fingerprint,
+            oldNavigationFingerprint: baseline.navigationFingerprint
+        )
+    }
+
+    private static func equalPlan(
+        preflight: RepoExplorerNativePlanPreflight,
+        baseline: RepoExplorerMaterializationBaseline
+    ) -> Self {
+        Self(
+            kind: .equal(
+                RepoExplorerNativeEqualPlan(
+                    preflight: preflight,
+                    newRevision: baseline.revision,
+                    rowCount: baseline.rowCount,
+                    membershipFingerprint: baseline.fingerprint,
+                    navigationFingerprint: baseline.navigationFingerprint
+                )
+            )
+        )
+    }
+
+    private static func makeSelectionReconciliation(
+        baseline: RepoExplorerMaterializationPresentation,
+        candidate: RepoExplorerMaterializationPresentation
+    ) -> RepoExplorerSelectionReconciliation {
+        RepoExplorerSelectionReconciliation(
+            previous: baseline.contentSnapshot?.navigationIndex
+                ?? RepoExplorerMaterializationSnapshot.empty.navigationIndex,
+            current: candidate.contentSnapshot?.navigationIndex
+                ?? RepoExplorerMaterializationSnapshot.empty.navigationIndex
+        )
     }
 
     private static func hasUniqueRowIDs(

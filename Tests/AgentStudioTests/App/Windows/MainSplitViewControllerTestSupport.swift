@@ -1,3 +1,4 @@
+import AgentStudioInfrastructure
 import AppKit
 import Foundation
 import GhosttyKit
@@ -6,6 +7,7 @@ import SwiftUI
 @testable import AgentStudio
 @testable import AgentStudioCore
 @testable import AgentStudioInboxNotification
+@testable import AgentStudioRepoExplorer
 @testable import AgentStudioTerminal
 @testable import AgentStudioTestSupport
 
@@ -20,7 +22,7 @@ struct MainSplitViewControllerHarness {
 }
 
 typealias MainSplitViewControllerTestSidebarBuilder =
-    @MainActor (WorkspaceSidebarState, @escaping @MainActor @Sendable () -> Void) -> AnyView
+    @MainActor (WorkspaceSidebarState, @escaping () -> Void) -> AnyView
 
 @MainActor
 private func makeMainSplitViewControllerHarness(
@@ -85,8 +87,11 @@ private func makeMainSplitViewControllerHarness(
         },
         bridgePaneAttendance: atoms.bridgePaneAttendance,
         editorChooser: atoms.editorChooser,
-        sidebarRootViewBuilder: { _ in
-            sidebarRootViewBuilder(atoms.core.workspaceSidebarState, {})
+        sidebarRootViewBuilder: { dependencies in
+            sidebarRootViewBuilder(
+                atoms.core.workspaceSidebarState,
+                dependencies.onRefocusActivePane
+            )
         },
         paneTabRegistersAsCommandHandler: paneTabRegistersAsCommandHandler
     )
@@ -176,13 +181,16 @@ func withUnloadedMainSplitViewControllerHarness<T>(
 
 struct MainSplitViewControllerTestSidebarView: View {
     let uiState: WorkspaceSidebarState
-    let onEscape: @MainActor @Sendable () -> Void
+    let onEscape: () -> Void
 
     var body: some View {
         Group {
             switch uiState.sidebarSurface {
             case .repos, .panes:
-                Color.clear
+                MainSplitViewControllerTestRepoFocusableView(
+                    uiState: uiState,
+                    onEscape: onEscape
+                )
             case .inbox:
                 MainSplitViewControllerTestInboxView(
                     uiState: uiState,
@@ -194,9 +202,55 @@ struct MainSplitViewControllerTestSidebarView: View {
     }
 }
 
+struct MainSplitViewControllerTestRepoFocusableView: NSViewRepresentable {
+    let uiState: WorkspaceSidebarState
+    let onEscape: () -> Void
+
+    func makeCoordinator() -> RepoExplorerKeyboardInteraction {
+        RepoExplorerKeyboardInteraction()
+    }
+
+    func makeNSView(context: Context) -> RepoExplorerMaterializationHost {
+        let view = RepoExplorerMaterializationHost(
+            lifetimeID: RepoExplorerMaterializationHostLifetimeID(rawValue: UUIDv7.generate()),
+            initialDemandEpoch: 1,
+            initialPresentation: .noRepositories,
+            makeContentChild: { preconditionFailure("Shell focus fixture remains rowless") },
+            onFeedback: { _ in }
+        )
+        view.identifier = RepoExplorerView.focusTargetIdentifier
+        configure(context.coordinator)
+        view.installKeyboardInteraction(context.coordinator)
+        return view
+    }
+
+    func updateNSView(_ nsView: RepoExplorerMaterializationHost, context: Context) {
+        configure(context.coordinator)
+    }
+
+    static func dismantleNSView(
+        _ nsView: RepoExplorerMaterializationHost,
+        coordinator: RepoExplorerKeyboardInteraction
+    ) {
+        MainActor.assumeIsolated {
+            nsView.detach()
+        }
+    }
+
+    private func configure(_ interaction: RepoExplorerKeyboardInteraction) {
+        interaction.configure(
+            RepoExplorerKeyboardCallbacks(
+                canInterpretListInput: { true },
+                onReturnFocusRequest: onEscape,
+                onSidebarFocusChange: { uiState.setSidebarHasFocus($0) }
+            )
+        )
+    }
+}
+
 final class MainSplitViewControllerTestInboxFocusableView: NSView {
     var onFocusChange: @MainActor (Bool) -> Void = { _ in }
-    var onEscape: @MainActor @Sendable () -> Void = {}
+    var onEscape: () -> Void = {}
 
     override var acceptsFirstResponder: Bool { true }
 
@@ -224,7 +278,7 @@ final class MainSplitViewControllerTestInboxFocusableView: NSView {
 
 struct MainSplitViewControllerTestInboxView: NSViewRepresentable {
     let uiState: WorkspaceSidebarState
-    let onEscape: @MainActor @Sendable () -> Void
+    let onEscape: () -> Void
 
     func makeNSView(context: Context) -> MainSplitViewControllerTestInboxFocusableView {
         let view = MainSplitViewControllerTestInboxFocusableView()

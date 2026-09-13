@@ -404,21 +404,25 @@ final class WorkspaceCommandResolverTests {
     }
 
     @Test
-    func test_resolve_scrollToBottom_returnsNilBecauseTerminalRuntimeOwnsIt() {
+    func test_resolve_terminalNavigationCommands_returnNilBecauseTerminalRuntimeOwnsThem() {
         // Arrange
         let tabId = UUID()
         let paneId = UUIDv7.generate()
         let tab = MockTab(id: tabId, activePaneId: paneId, allPaneIds: [paneId])
 
         // Act
-        let result = WorkspaceCommandResolver.resolve(
-            command: .scrollToBottom,
-            tabs: [tab],
-            activeTabId: tabId
-        )
+        for command in [
+            AppCommand.scrollPageUp, .scrollPageDown, .scrollSmallStepUp,
+            .scrollSmallStepDown, .scrollToBottom, .jumpToPreviousPrompt, .jumpToNextPrompt,
+        ] {
+            let result = WorkspaceCommandResolver.resolve(
+                command: command,
+                tabs: [tab],
+                activeTabId: tabId
+            )
 
-        // Assert
-        #expect(result == nil)
+            #expect(result == nil)
+        }
     }
 
     // MARK: - resolve(command:) — Pane Focus

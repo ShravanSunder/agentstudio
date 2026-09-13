@@ -85,7 +85,7 @@ final class FakePaneRuntime: PaneRuntime {
             switch terminalCommand {
             case .sendInput, .clearScrollback:
                 return .input
-            case .scrollToBottom, .scrollPageUp, .jumpToPrompt:
+            case .scrollToBottom, .scrollPageFractional, .jumpToPrompt:
                 return nil
             case .resize:
                 return .resize

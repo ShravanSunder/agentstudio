@@ -24,12 +24,16 @@ package enum AppCommand: String, CaseIterable {
     case focusPane
     case scrollToBottom
     case scrollPageUp
+    case scrollPageDown
+    case scrollSmallStepUp
+    case scrollSmallStepDown
     case jumpToPreviousPrompt
     case jumpToNextPrompt
     case splitRight, splitLeft
     case equalizePanes
     case focusPaneLeft, focusPaneRight, focusPaneUp, focusPaneDown
     case focusNextPane, focusPrevPane
+    case focusPreviousPinnedPane, focusNextPinnedPane
     case focusPane1, focusPane2, focusPane3, focusPane4, focusPane5
     case focusPane6, focusPane7, focusPane8, focusPane9
     case zoomPane
@@ -80,6 +84,7 @@ package enum AppCommand: String, CaseIterable {
     case managementLayerExit
     // Workspace commands
     case toggleSidebar
+    case focusSidebar
     case showInboxNotifications
     case toggleInboxNotificationSort
     case clearReadInboxNotifications
@@ -221,8 +226,10 @@ package struct AppCommandSpec {
         self.commandBarGroupPriority = commandBarGroupPriority
     }
 
-    package var keyBinding: KeyBinding? { shortcut?.keyBinding }
-    package var commandBarShortcutTrigger: ShortcutTrigger? { displayShortcutTrigger ?? shortcut?.trigger }
+    package var globalKeyBinding: KeyBinding? { shortcut?.displayKeyBinding(in: .global) }
+    package var commandBarShortcutTrigger: ShortcutTrigger? {
+        displayShortcutTrigger ?? shortcut?.spec.displayTrigger(in: .global)
+    }
 }
 
 /// Feature-facing access to App-owned command execution.

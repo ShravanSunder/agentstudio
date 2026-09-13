@@ -253,6 +253,10 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
         splitViewController?.toggleSidebarFromCommand()
     }
 
+    func focusSidebarFromCommand() {
+        splitViewController?.focusSidebarFromCommand()
+    }
+
     func showSidebarFilter() {
         splitViewController?.showSidebarFilter()
     }

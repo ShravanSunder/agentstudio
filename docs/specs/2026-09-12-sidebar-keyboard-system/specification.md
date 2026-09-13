@@ -71,8 +71,13 @@ Management and transient keyboard owners suppress list-command hints. Selection 
 active-pane appearance remain distinguishable. Native visual proof determines fit at
 narrow and ordinary sidebar widths. Basis: U1/U16.
 
-R-S7. Preserve existing Option-I/J/K/L spatial navigation, CmdShift-I/J/K/L terminal
-scroll/prompt navigation, Commands/Panes search and viewer bindings. Commands, shortcut
+R-S7. Preserve existing Option-I/J/K/L bindings. Normal Option-J/L moves left/right
+only among visible panes in the current arrangement and current main/drawer row.
+Skip minimized and backgrounded panes without revealing them. At an edge, retain
+focus. Do not switch arrangements, unminimize panes or open drawers. Explicit
+sidebar/pinned activation retains intentional reveal; Management keeps its own policy.
+Basis: U18. Preserve CmdShift-I/J/K/L terminal bindings pending the separate U17 design,
+Commands/Panes search and viewer bindings. Commands, shortcut
 glyphs, help and icons have one catalog source. Contextual P/R/F cannot become global menu
 key equivalents. No general chord engine or new sticky keyboard-owner state. Basis U12.
 
@@ -93,14 +98,17 @@ and Up at last. Empty set does nothing; a stale/unpinned candidate does not subs
 another target. Repeated presses execute in order, advancing from the result of the
 preceding successful navigation. Basis U14. Default-selection provenance is recorded in the [work record](../../wip/2026-09-11-keyboard-navigation/core-design-decisions.md).
 
-## Temporary preview and its open boundary
+## Temporary preview
 
-R-S9. Holding a preview key temporarily displays the selected existing pane; releasing
-cancels uncommitted preview. Enter commits selection, digits commit their target; later
-key-up never undoes commitment. Preview cannot mutate durable layout then blindly roll
-it back. Proposed presentation defaults are Space, full canvas, and following selection. The owner question still open is whether an unloaded
-existing renderer/content may be restored during preview or only loaded content shown.
-Do not silently exclude cold panes or create a new shell/session. U15 stays in scope; the cold-content behavior remains unspecified until that boundary is settled.
+R-S9. Holding Space while the sidebar list has focus temporarily displays the
+selected existing pane in the full pane area. Preview follows selection while Space
+remains held. Releasing Space cancels uncommitted preview. Enter commits selection;
+digits commit their target. Later key-up never undoes commitment.
+
+Load or restore the existing pane's renderer/content when needed, including Bridge
+content. The renderer may remain warm after release. Preview MUST NOT start a
+replacement terminal session or create a substitute pane. Cancellation restores the
+prior presentation without blindly rolling back durable layout mutations. Basis U15.
 
 ## Proof coverage
 
@@ -109,9 +117,9 @@ Do not silently exclude cold panes or create a new shell/session. U15 stays in s
 | U1/U3/U4 | R-S1/R-S2/R-S3 | Native visibility/surface/focus, empty states, return origin, Management and editable exclusions |
 | U5/U7 | R-S4/R-S5 | Real list/filter/dispatcher journey; group moves, updates, first-nine identity, stale targets and arrangement reveal |
 | U1/U16 | R-S6 | Native overlays and selection at practical widths, no reflow or pointer interception |
-| U1/U12 | R-S7/R-S8 | Binding/catalog regressions and marker-scoped MainActor versus detached work |
+| U1/U12/U18 | R-S7/R-S8 | Binding/catalog regressions; Option-J/L skips minimized/backgrounded neighbors, native focus and unchanged visibility; marker-scoped MainActor versus detached work |
 | U14 | R-S10 | Hidden sidebar, each grouping/sort, mixed pane kinds, wrapping and repeated/stale navigation |
-| U15 | R-S9 | Pending renderer decision; later native hold/release/commit/loss-of-focus proof |
+| U15 | R-S9 | Native hold/release/commit/loss-of-focus proof with loaded and initially unloaded existing panes |
 
 U8/U9 broader pin/rename bindings, U10 viewer redesign, U11 repository finder and
 broad chord restructuring remain deferred by the owner's prior scope. U2 activity/history

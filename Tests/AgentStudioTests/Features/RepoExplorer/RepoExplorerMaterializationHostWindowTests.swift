@@ -1,3 +1,4 @@
+import AgentStudioInfrastructure
 import AppKit
 import Testing
 
@@ -21,6 +22,16 @@ private final class RowlessWindowContentChild: RepoExplorerMaterializationConten
         completion(.accepted)
     }
 
+    func applySelection(rowID: RepoExplorerRowID?, scrollIntoView: Bool) -> Bool {
+        _ = rowID
+        _ = scrollIntoView
+        return true
+    }
+
+    func performListKeyboardEffect(_ effect: RepoExplorerListKeyboardEffect) {
+        _ = effect
+    }
+
     func suspendDemand() {}
 
     func resumeDemand(visibleGeneration: UInt64) {
@@ -31,8 +42,66 @@ private final class RowlessWindowContentChild: RepoExplorerMaterializationConten
 }
 
 @MainActor
+private final class ExternalSidebarTestResponder: NSView {
+    override var acceptsFirstResponder: Bool { true }
+}
+
+@MainActor
 @Suite("Repo Explorer materialization host window", .serialized)
 struct RepoExplorerMaterializationHostWindowTests {
+    @Test("rowless sidebar host owns keyboard focus across empty result changes")
+    func rowlessHostRetainsKeyboardFocusAcrossPresentationChanges() throws {
+        let host = RepoExplorerMaterializationHost(
+            lifetimeID: RepoExplorerMaterializationHostLifetimeID(rawValue: UUIDv7.generate()),
+            initialDemandEpoch: 1,
+            initialPresentation: .noRepositories,
+            makeContentChild: { RowlessWindowContentChild() },
+            onFeedback: { _ in }
+        )
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 480),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        defer {
+            host.detach()
+            window.close()
+        }
+
+        #expect(host.acceptsFirstResponder)
+        #expect(window.makeFirstResponder(host))
+        #expect(window.firstResponder === host)
+
+        let baseline = try #require(host.acceptedBaseline)
+        let presentation = RepoExplorerMaterializationPresentation.rowless(.noTabs)
+        let plan = try RepoExplorerNativeUpdatePlan.validating(
+            baseline: baseline,
+            candidate: presentation,
+            requestGeneration: 1
+        ).get()
+        let candidate = RepoExplorerMaterializationCandidate(
+            id: RepoExplorerMaterializationCandidateID(rawValue: 1),
+            lifetimeID: host.lifetimeID,
+            demandEpoch: 1,
+            requestGeneration: 1,
+            visibleGeneration: 1,
+            expectedRevision: 0,
+            proposedRevision: 1,
+            presentation: presentation,
+            nativeUpdatePlan: plan
+        )
+
+        guard case .accepted = host.apply(candidate) else {
+            Issue.record("The empty presentation update must be accepted")
+            return
+        }
+        #expect(window.firstResponder === host)
+        #expect(host.presentedChildView?.accessibilityLabel() == "No tabs")
+    }
+
     @Test(
         "rowless presentation fills a real window and exposes its accessibility label",
         arguments: RepoExplorerRowlessPresentation.allCases
@@ -82,7 +151,7 @@ struct RepoExplorerMaterializationHostWindowTests {
             makeContentChild: { RowlessWindowContentChild() },
             onFeedback: { _ in }
         )
-        let focusView = RepoExplorerFocusableView()
+        let focusView = ExternalSidebarTestResponder()
         let container = NSView(frame: NSRect(x: 0, y: 0, width: 320, height: 480))
         container.addSubview(host)
         container.addSubview(focusView)

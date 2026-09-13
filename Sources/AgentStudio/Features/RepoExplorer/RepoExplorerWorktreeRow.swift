@@ -31,6 +31,7 @@ struct RepoExplorerWorktreeRowContent: View {
     var isPinned = false
     var pinnedCommandPresentation: RepoExplorerPresentedCommand?
     var onTogglePinned: () -> Void = {}
+    var shortcutDisplay: ShortcutDisplayText?
 
     static func pinnedAccessibilityLabel(isPinned: Bool) -> String {
         pinnedActionSpec(isPinned: isPinned).label
@@ -70,6 +71,7 @@ struct RepoExplorerWorktreeRowContent: View {
             HStack(spacing: AppStyles.Shell.Sidebar.groupIconTitleSpacing) {
                 checkoutTypeIcon
                     .frame(width: AppStyles.Shell.Sidebar.rowLeadingIconColumnWidth, alignment: .leading)
+                    .sidebarShortcutHint(shortcutDisplay)
 
                 Text(checkoutTitle)
                     .font(
@@ -173,6 +175,8 @@ package struct RepoExplorerWorktreeRow: View {
     var bridgeCommandResolution: BridgePaneCommandResolution = .create
     var isPinned = false
     let commandPresentation: RepoExplorerWorktreeCommandPresentation
+    let isSelected: Bool
+    let shortcutDisplay: ShortcutDisplayText?
     var onTogglePinned: () -> Void = {}
     let onOpen: () -> Void
     static let rowChromePolicy = SidebarRowShell<RepoExplorerWorktreeRowContent>.chromePolicy
@@ -192,6 +196,8 @@ package struct RepoExplorerWorktreeRow: View {
         bridgeCommandResolution: BridgePaneCommandResolution = .create,
         isPinned: Bool = false,
         commandPresentation: RepoExplorerWorktreeCommandPresentation,
+        isSelected: Bool = false,
+        shortcutDisplay: ShortcutDisplayText? = nil,
         onTogglePinned: @escaping () -> Void = {},
         onOpen: @escaping () -> Void
     ) {
@@ -207,6 +213,8 @@ package struct RepoExplorerWorktreeRow: View {
         self.bridgeCommandResolution = bridgeCommandResolution
         self.isPinned = isPinned
         self.commandPresentation = commandPresentation
+        self.isSelected = isSelected
+        self.shortcutDisplay = shortcutDisplay
         self.onTogglePinned = onTogglePinned
         self.onOpen = onOpen
     }
@@ -219,7 +227,7 @@ package struct RepoExplorerWorktreeRow: View {
         let inlineOpenWorktree = commandPresentation.inlineCommand(.openWorktree)
         let inlinePinned = commandPresentation.inlineCommand(pinnedCommand)
 
-        SidebarRowShell(isHovering: isHovering) {
+        SidebarRowShell(isSelected: isSelected, isHovering: isHovering) {
             RepoExplorerWorktreeRowContent(
                 octiconLoader: octiconLoader,
                 checkoutTitle: checkoutTitle,
@@ -232,7 +240,8 @@ package struct RepoExplorerWorktreeRow: View {
                 showsPinnedControl: pinnedControlVisibility.showsInlineButton,
                 isPinned: isPinned,
                 pinnedCommandPresentation: inlinePinned,
-                onTogglePinned: onTogglePinned
+                onTogglePinned: onTogglePinned,
+                shortcutDisplay: shortcutDisplay
             )
         }
         .onHover { isHovering = $0 }

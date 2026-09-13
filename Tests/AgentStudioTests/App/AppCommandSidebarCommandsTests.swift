@@ -5,8 +5,21 @@ import Testing
 @testable import AgentStudioCore
 
 @MainActor
-@Suite("AppCommand sidebar commands")
+@Suite("AppCommand sidebar commands", .serialized)
 struct AppCommandSidebarCommandsTests {
+    @Test("focus sidebar is an interactive UI-presentation command")
+    func focusSidebarIsInteractiveUIPresentationCommand() {
+        let definition = AppCommandDispatcher.shared.definition(for: .focusSidebar)
+
+        #expect(definition.label == "Focus Sidebar")
+        #expect(definition.icon == .system(.keyboard))
+        #expect(definition.shortcut == .focusSidebar)
+        #expect(definition.surfacePolicy == .exposed([.commandBar, .inlineControl]))
+        #expect(definition.targeting == .contextual)
+        #expect(definition.ipcExposure == .uiPresentation)
+        #expect(definition.argumentSchema.isEmpty)
+    }
+
     @Test("sidebar settings expose compact surface-specific command specs")
     func sidebarSettingsExposeCompactSurfaceSpecificCommandSpecs() {
         let expectedCommands: [(AppCommand, String, CommandIcon)] = [
