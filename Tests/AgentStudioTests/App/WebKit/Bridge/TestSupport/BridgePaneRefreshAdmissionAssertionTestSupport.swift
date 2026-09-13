@@ -64,16 +64,10 @@ func waitForRetiringReviewRefreshTasksToDrain(
 
 @MainActor
 func waitForRetiringFileRefreshTasksToDrain(
-    _ controller: BridgePaneController,
-    maxTurns: Int = 2000
+    _ controller: BridgePaneController
 ) async -> Bool {
-    for _ in 0..<maxTurns {
-        if !controller.worktreeRefreshDriver.hasRetiringFileOperations {
-            return true
-        }
-        await Task.yield()
-    }
-    return false
+    await controller.worktreeRefreshDriver.awaitRetiringFileOperations()
+    return !controller.worktreeRefreshDriver.hasRetiringFileOperations
 }
 
 @MainActor
