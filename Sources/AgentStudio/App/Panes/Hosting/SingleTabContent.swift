@@ -91,14 +91,22 @@ struct SingleTabContent: View {
                     )
                     .background(AppStyles.Shell.PaneChrome.background)
                     .transition(.identity)
-                } else if let activeLayout = arrangementView.activeLayout(forTab: tabId) {
+                } else if let activeLayout = arrangementView.activeLayout(forTab: tab) {
+                    let activeMinimizedPaneIds = arrangementView.activeMinimizedPaneIds(
+                        forTab: tab,
+                        activeLayout: activeLayout
+                    )
+                    let activeVisiblePaneIds = arrangementView.activeVisiblePaneIds(
+                        activeLayout: activeLayout,
+                        minimizedPaneIds: activeMinimizedPaneIds
+                    )
                     FlatTabStripContainer(
                         layout: activeLayout,
                         octiconLoader: octiconLoader,
                         tabId: tabId,
-                        activePaneId: arrangementView.activePaneId(forTab: tabId),
-                        minimizedPaneIds: arrangementView.activeMinimizedPaneIds(forTab: tabId),
-                        visiblePaneIds: arrangementView.activeVisiblePaneIds(forTab: tabId),
+                        activePaneId: arrangementView.activePaneId(forTab: tab),
+                        minimizedPaneIds: activeMinimizedPaneIds,
+                        visiblePaneIds: activeVisiblePaneIds,
                         arrangementInlineRenameState: arrangementInlineRenameState,
                         closeTransitionCoordinator: closeTransitionCoordinator,
                         actionDispatcher: actionDispatcher,

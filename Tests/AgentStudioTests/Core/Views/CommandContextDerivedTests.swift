@@ -1,6 +1,8 @@
 import AgentStudioTestSupport
 import Foundation
+import Observation
 import Testing
+import os
 
 @testable import AgentStudioCore
 
@@ -9,6 +11,56 @@ import Testing
 struct CommandContextDerivedTests {
     init() {
         installTestCoreAtomsIfNeeded()
+    }
+
+    @Test("command context observes tab membership without inactive-tab cursor changes")
+    func contextIgnoresInactiveTabCursor() {
+        withTestCoreAtoms { atoms in
+            let store = WorkspaceStore(
+                catalogAtom: atoms.workspaceRepositoryTopology,
+                graphAtom: atoms.workspacePane,
+                interactionAtom: atoms.workspaceTabLayout
+            )
+            let activePane = store.createPane()
+            let inactivePane = store.createPane()
+            let inactiveSibling = store.createPane()
+            let activeTab = Tab(paneId: activePane.id)
+            let inactiveTab = Tab(paneId: inactivePane.id)
+            store.appendTab(activeTab)
+            store.appendTab(inactiveTab)
+            #expect(
+                store.insertPane(
+                    inactiveSibling.id, inTab: inactiveTab.id, at: inactivePane.id,
+                    direction: .horizontal, position: .after, sizingMode: .halveTarget
+                )
+            )
+            store.tabArrangementAtom.setActivePane(inactivePane.id, inTab: inactiveTab.id)
+            store.setActiveTab(activeTab.id)
+            let invalidated = OSAllocatedUnfairLock(initialState: false)
+
+            @MainActor
+            func currentContext() -> CommandContext {
+                CommandContextDerived().currentContext(
+                    workspaceTab: atom(\.workspaceTab),
+                    workspacePane: atoms.workspacePane,
+                    focusedPane: nil,
+                    workspacePanePresentation: atoms.workspacePanePresentation
+                )
+            }
+            let context = withObservationTracking {
+                currentContext()
+            } onChange: {
+                invalidated.withLock { $0 = true }
+            }
+            #expect(context.satisfiedRequirements.contains(.hasMultipleTabs))
+
+            store.tabArrangementAtom.setActivePane(inactiveSibling.id, inTab: inactiveTab.id)
+            #expect(!invalidated.withLock { $0 })
+
+            store.tabLayoutAtom.removeTab(inactiveTab.id)
+            #expect(invalidated.withLock { $0 })
+            #expect(!currentContext().satisfiedRequirements.contains(.hasMultipleTabs))
+        }
     }
 
     @Test

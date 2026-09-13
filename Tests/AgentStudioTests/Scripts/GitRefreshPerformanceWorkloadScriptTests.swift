@@ -72,6 +72,52 @@ struct GitRefreshPerformanceWorkloadScriptTests {
         #expect(cleanupArtifact.contains("unresolved_session_id=owned"))
     }
 
+    @Test("owned zmx cleanup recognizes padded inventory names and verifies exact IDs are absent")
+    func ownedZmxCleanupRecognizesPaddedInventoryNames() throws {
+        let fixtureRoot = URL(fileURLWithPath: "/tmp/asw.padded-\(UUIDv7.generate().uuidString)")
+        let fakeZmx = fixtureRoot.appendingPathComponent("zmx")
+        let inventory = fixtureRoot.appendingPathComponent("inventory")
+        let calls = fixtureRoot.appendingPathComponent("calls")
+        let artifact = fixtureRoot.appendingPathComponent("cleanup.env")
+        try FileManager.default.createDirectory(at: fixtureRoot, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: fixtureRoot) }
+        try "owned\nindependent\n".write(to: inventory, atomically: true, encoding: .utf8)
+        try "".write(to: calls, atomically: true, encoding: .utf8)
+        try """
+        #!/bin/bash
+        set -euo pipefail
+        case "$1" in
+          list)
+            while IFS= read -r session_name; do
+              printf '  name=%s\\tpid=1\\n' "$session_name"
+            done <"$FAKE_ZMX_INVENTORY"
+            ;;
+          kill)
+            printf '%s\\n' "$2" >>"$FAKE_ZMX_CALLS"
+            grep -vxF "$2" "$FAKE_ZMX_INVENTORY" >"$FAKE_ZMX_INVENTORY.next" || true
+            mv "$FAKE_ZMX_INVENTORY.next" "$FAKE_ZMX_INVENTORY"
+            ;;
+        esac
+        """.write(to: fakeZmx, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeZmx.path)
+
+        let result = try runScript(
+            arguments: [cleanupScriptPath, fakeZmx.path, fixtureRoot.path, artifact.path, "owned", "independent"],
+            environment: [
+                "FAKE_ZMX_INVENTORY": inventory.path,
+                "FAKE_ZMX_CALLS": calls.path,
+            ]
+        )
+
+        #expect(result.exitCode == 0, Comment(rawValue: result.stderr))
+        #expect(try String(contentsOf: calls, encoding: .utf8) == "owned\nindependent\n")
+        #expect(try String(contentsOf: inventory, encoding: .utf8).isEmpty)
+        let cleanupArtifact = try String(contentsOf: artifact, encoding: .utf8)
+        #expect(cleanupArtifact.contains("attempted_session_id=owned"))
+        #expect(cleanupArtifact.contains("attempted_session_id=independent"))
+        #expect(cleanupArtifact.contains("cleanup_status=verified_clean"))
+    }
+
     @Test("owned zmx cleanup rejects production beta and ordinary debug roots before inspection")
     func ownedZmxCleanupRejectsProtectedRootsBeforeInspection() throws {
         for protectedRoot in [
@@ -141,6 +187,7 @@ struct GitRefreshPerformanceWorkloadScriptTests {
         #expect(source.contains("DEBUG_IDENTITY_DATA_DIR=\"$(decode_env_file_value"))
         #expect(source.contains("RUNTIME_DATA_ROOT=\"$(mktemp -d /tmp/asw.XXXXXX)\""))
         #expect(source.contains("WORKLOAD_ZMX_DIR=\"$RUNTIME_DATA_ROOT/z\""))
+        #expect(source.contains("WORKLOAD_ZMX_EXECUTABLE=\"$RUNTIME_DATA_ROOT/bin/zmx\""))
         #expect(source.contains("TRACE_DIR=\"$ARTIFACT/traces\""))
         #expect(source.contains("launch_debug_observability_app()"))
         #expect(source.contains("\"$PROJECT_ROOT/scripts/run-debug-observability.sh\" --detach"))

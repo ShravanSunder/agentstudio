@@ -284,6 +284,107 @@ struct DarwinSharedLocalFSEventObserverTests {
         #expect(streamFactory.flushCountSnapshot == 1)
     }
 
+    @Test("binding prepares only the incoming registration paths")
+    func bindingPreparesOnlyIncomingRegistrationPaths() throws {
+        // Arrange
+        let fixtureRoot = FileManager.default.temporaryDirectory.appending(
+            path: "darwin-fsevents-shared-path-preparation-\(UUIDv7.generate().uuidString)",
+            directoryHint: .isDirectory
+        )
+        let firstRoot = fixtureRoot.appending(path: "first", directoryHint: .isDirectory)
+        let secondRoot = fixtureRoot.appending(path: "second", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: firstRoot, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: secondRoot, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: fixtureRoot) }
+        let streamFactory = CountingLocalFSEventStreamFactory()
+        let normalizationRecorder = SharedLocalPathNormalizationRecorder()
+        let registry = DarwinSharedLocalFSEventObserverRegistry(
+            streamFactory: streamFactory.makeStream,
+            recordPhysicalRawCallback: { _ in },
+            normalizePath: normalizationRecorder.normalize
+        )
+        defer { registry.shutdown() }
+
+        // Act / Assert
+        let firstLease = try #require(
+            registry.bind(request: Self.request(root: firstRoot, generation: 1))
+        )
+        #expect(normalizationRecorder.callCount == 2)
+
+        normalizationRecorder.reset()
+        let secondLease = try #require(
+            registry.bind(request: Self.request(root: secondRoot, generation: 2))
+        )
+        #expect(normalizationRecorder.callCount == 2)
+        _ = firstLease
+        _ = secondLease
+    }
+
+    @Test("logical fan-out normalizes each physical raw path once")
+    func logicalFanOutNormalizesEachPhysicalRawPathOnce() throws {
+        // Arrange
+        let fixtureRoot = FileManager.default.temporaryDirectory.appending(
+            path: "darwin-fsevents-shared-raw-path-preparation-\(UUIDv7.generate().uuidString)",
+            directoryHint: .isDirectory
+        )
+        try FileManager.default.createDirectory(at: fixtureRoot, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: fixtureRoot) }
+        let streamFactory = CountingLocalFSEventStreamFactory()
+        let normalizationRecorder = SharedLocalPathNormalizationRecorder()
+        let registry = DarwinSharedLocalFSEventObserverRegistry(
+            streamFactory: streamFactory.makeStream,
+            recordPhysicalRawCallback: { _ in },
+            normalizePath: normalizationRecorder.normalize
+        )
+        defer { registry.shutdown() }
+        let deliveryRecorder = SharedLocalPreparedPathDeliveryRecorder()
+        let worktreeIds = (0..<174).map { _ in UUIDv7.generate() }
+        var leases: [any DarwinLocalFSEventStreamLifetime] = []
+        for (index, worktreeId) in worktreeIds.enumerated() {
+            let root = fixtureRoot.appending(path: "worktree-\(index)", directoryHint: .isDirectory)
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            leases.append(
+                try #require(
+                    registry.bind(
+                        request: Self.request(
+                            root: root,
+                            worktreeId: worktreeId,
+                            generation: UInt64(index + 1),
+                            eventHandler: { events in
+                                deliveryRecorder.record(worktreeId: worktreeId, events: events)
+                            }
+                        )
+                    )
+                )
+            )
+        }
+        normalizationRecorder.reset()
+
+        // Act
+        #expect(
+            streamFactory.sendToCurrentStream([
+                DarwinLocalFSEventRawEvent(
+                    path: "\(fixtureRoot.path)/worktree-0/./Changed.swift",
+                    eventId: 103,
+                    flags: FSEventStreamEventFlags(kFSEventStreamEventFlagItemModified)
+                ),
+                DarwinLocalFSEventRawEvent(
+                    path: "\(fixtureRoot.path)/descendant/..",
+                    eventId: 104,
+                    flags: FSEventStreamEventFlags(kFSEventStreamEventFlagRootChanged)
+                ),
+            ])
+        )
+
+        // Assert
+        #expect(normalizationRecorder.callCount == 2)
+        #expect(leases.count == 174)
+        #expect(deliveryRecorder.eventIds(for: worktreeIds[0]) == [103, 104])
+        for worktreeId in worktreeIds.dropFirst() {
+            #expect(deliveryRecorder.eventIds(for: worktreeId) == [104])
+        }
+    }
+
     @Test("shared local stream routes ordinary paths only to intersecting registrations")
     func sharedLocalStreamRoutesOrdinaryPathsToIntersectingRegistrations() async throws {
         // Arrange
@@ -444,6 +545,60 @@ struct DarwinSharedLocalFSEventObserverTests {
             group.cancelAll()
             return result
         }
+    }
+
+    private static func request(
+        root: URL,
+        worktreeId: UUID = UUIDv7.generate(),
+        generation: UInt64,
+        eventHandler: @escaping @Sendable ([DarwinLocalFSEventRawEvent]) -> Void = { _ in }
+    ) -> DarwinLocalFSEventStreamRequest {
+        DarwinLocalFSEventStreamRequest(
+            worktreeId: worktreeId,
+            lifecycleGeneration: generation,
+            watchedPaths: [root.path],
+            privateStagingExclusionPaths: [
+                root.appending(path: ".git/refs/agentstudio/staged", directoryHint: .isDirectory).path
+            ],
+            eventHandler: eventHandler
+        )
+    }
+}
+
+private final class SharedLocalPathNormalizationRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var recordedCallCount = 0
+
+    var callCount: Int {
+        lock.withLock { recordedCallCount }
+    }
+
+    func normalize(_ path: String) -> String {
+        lock.withLock {
+            recordedCallCount += 1
+        }
+        return DarwinFSEventPathNormalizer.lexicallyNormalizedAbsolutePath(path)
+    }
+
+    func reset() {
+        lock.withLock {
+            recordedCallCount = 0
+        }
+    }
+}
+
+private final class SharedLocalPreparedPathDeliveryRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var eventIdsByWorktreeId: [UUID: [FSEventStreamEventId]] = [:]
+
+    func record(worktreeId: UUID, events: [DarwinLocalFSEventRawEvent]) {
+        lock.withLock {
+            eventIdsByWorktreeId[worktreeId, default: []].append(contentsOf: events.map(\.eventId))
+        }
+    }
+
+    func eventIds(for worktreeId: UUID) -> [FSEventStreamEventId] {
+        lock.withLock { eventIdsByWorktreeId[worktreeId, default: []] }
     }
 }
 
