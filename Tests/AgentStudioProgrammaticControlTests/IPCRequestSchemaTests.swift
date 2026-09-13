@@ -5,6 +5,37 @@ import Testing
 
 @Suite("IPC request schemas")
 struct IPCRequestSchemaTests {
+    @Test("UI presentation names its owning window instead of borrowing focus")
+    func presentationRequiresExplicitWindowAndCorrelation() throws {
+        let windowId = UUIDv7.generate()
+        let correlationId = UUIDv7.generate()
+        let commandBarData = Data(
+            """
+            {"workspaceWindowId":"\(windowId.uuidString)","scope":"commands","correlationId":"\(correlationId.uuidString)"}
+            """.utf8
+        )
+        let commandBar = try IPCCommandBarOpenParams.ipcSchema().decode(
+            IPCCommandBarOpenParams.self, from: commandBarData
+        )
+        #expect(commandBar.workspaceWindowId == windowId)
+        #expect(commandBar.correlationId == correlationId)
+        let arrangementsData = Data(
+            """
+            {"workspaceWindowId":"\(windowId.uuidString)","targetPaneHandle":"self","correlationId":"\(correlationId.uuidString)"}
+            """.utf8
+        )
+        let arrangements = try IPCArrangementsOpenParams.ipcSchema().decode(
+            IPCArrangementsOpenParams.self, from: arrangementsData
+        )
+        #expect(arrangements.workspaceWindowId == windowId)
+        #expect(arrangements.targetPaneHandle == "self")
+        #expect(throws: IPCSchemaValidationError.self) {
+            try IPCCommandBarOpenParams.ipcSchema().normalize(
+                Data(#"{"scope":"commands","correlationId":"01941f29-7c00-7000-8000-000000000001"}"#.utf8)
+            )
+        }
+    }
+
     @Test("Bridge search schema preserves the existing UTF-16 bound and default mode")
     func bridgeSearchBoundAndDefault() throws {
         let schema = try IPCBridgeFileTreeSearchParams.ipcSchema()

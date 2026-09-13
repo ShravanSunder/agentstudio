@@ -232,7 +232,42 @@ struct IPCAnyMethodDescriptorTests {
         }
     }
 
-    private func textDescriptor() throws -> IPCMethodDescriptor<TextParameters, TextResult> {
+    @Test("erased results decode through the captured concrete result contract")
+    func erasedResultsUseConcreteResultDecoder() throws {
+        let descriptor = try IPCAnyMethodDescriptor(erasing: textDescriptor())
+        let normalized = try descriptor.normalizeResult(Data(#"{"echoed":"hello"}"#.utf8))
+        #expect(try JSONDecoder().decode(TextResult.self, from: normalized).echoed == "hello")
+        #expect(throws: IPCSchemaValidationError.self) {
+            try descriptor.normalizeResult(Data(#"{"echoed":"hello","privateField":"private-value"}"#.utf8))
+        }
+
+        let resultSchema = IPCJSONSchema.object(fields: [
+            .init(name: "echoed", description: "Echoed text", schema: .string()),
+            .init(name: "requiredContext", description: "Context retained by the typed result", schema: .string()),
+        ])
+        let contract = try IPCMethodContract<TextParameters, TextResult>(
+            parameterSchema: TextParameters.ipcSchema(), resultSchema: resultSchema
+        )
+        let payload = Data(#"{"echoed":"hello","requiredContext":"present on wire"}"#.utf8)
+        _ = try resultSchema.normalize(payload)
+        #expect(throws: IPCSchemaValidationError.self) {
+            try contract.decodeResult(from: payload)
+        }
+    }
+
+    @Test("subscription response delivery survives erasure and schema projection")
+    func subscriptionDeliveryIsDescriptorOwned() throws {
+        let descriptor = try IPCAnyMethodDescriptor(erasing: textDescriptor(responseDelivery: .subscription))
+        #expect(descriptor.metadata.responseDelivery == .subscription)
+        _ = try descriptor.catalogEntrySchema.decode(
+            IPCMethodCatalogEntry.self, from: JSONEncoder().encode(descriptor.metadata)
+        )
+        #expect(try IPCAnyMethodDescriptor(erasing: textDescriptor()).metadata.responseDelivery == .single)
+    }
+
+    private func textDescriptor(
+        responseDelivery: IPCMethodResponseDelivery = .single
+    ) throws -> IPCMethodDescriptor<TextParameters, TextResult> {
         try IPCMethodDescriptor(
             name: "example.text",
             description: "Echo one exact text value.",
@@ -255,7 +290,8 @@ struct IPCAnyMethodDescriptorTests {
                 .init(reason: "invalidParams", description: "Text does not satisfy the declared contract.")
             ],
             isMutating: false,
-            correlationPolicy: .notAccepted
+            correlationPolicy: .notAccepted,
+            responseDelivery: responseDelivery
         )
     }
 

@@ -1,4 +1,5 @@
 import AgentStudioAppIPC
+import AgentStudioInfrastructure
 import AgentStudioProgrammaticControl
 import Foundation
 import Testing
@@ -6,7 +7,7 @@ import Testing
 @testable import AgentStudio
 
 @MainActor
-@Suite("AgentStudio IPC UI presentation adapter")
+@Suite("AgentStudio IPC UI presentation adapter", .serialized)
 struct AgentStudioIPCUIPresentationAdapterTests {
     @Test("opens command bar through presenter-owned result for every scope")
     func opensCommandBarThroughPresenterOwnedResultForEveryScope() throws {
@@ -20,7 +21,7 @@ struct AgentStudioIPCUIPresentationAdapterTests {
 
         for scope in [IPCCommandBarScope.everything, .commands, .panes, .repos] {
             let result = try adapter.openCommandBar(
-                IPCCommandBarOpenParams(scope: scope, correlationId: correlationId)
+                IPCCommandBarOpenParams(workspaceWindowId: windowId, scope: scope, correlationId: correlationId)
             )
 
             #expect(
@@ -32,6 +33,7 @@ struct AgentStudioIPCUIPresentationAdapterTests {
                     ))
         }
         #expect(presenter.presentedScopes == [.everything, .commands, .panes, .repos])
+        #expect(presenter.presentedWindowIds == Array(repeating: windowId, count: 4))
     }
 
     @Test("propagates no active window from presenter")
@@ -43,7 +45,8 @@ struct AgentStudioIPCUIPresentationAdapterTests {
         )
 
         do {
-            _ = try adapter.openCommandBar(IPCCommandBarOpenParams(scope: .repos, correlationId: nil))
+            _ = try adapter.openCommandBar(
+                IPCCommandBarOpenParams(workspaceWindowId: UUIDv7.generate(), scope: .repos, correlationId: nil))
             Issue.record("command bar unexpectedly opened without an active window")
         } catch let error as AppIPCUIPresentationError {
             #expect(error.reason == .noActiveWindow)
@@ -51,7 +54,8 @@ struct AgentStudioIPCUIPresentationAdapterTests {
 
         do {
             _ = try adapter.openArrangements(
-                IPCArrangementsOpenParams(targetPaneHandle: nil, correlationId: nil)
+                IPCArrangementsOpenParams(
+                    workspaceWindowId: UUIDv7.generate(), targetPaneHandle: nil, correlationId: nil)
             )
             Issue.record("Arrangements unexpectedly opened without an active window")
         } catch let error as AppIPCUIPresentationError {
@@ -76,6 +80,7 @@ struct AgentStudioIPCUIPresentationAdapterTests {
 
         let result = try adapter.openArrangements(
             IPCArrangementsOpenParams(
+                workspaceWindowId: windowId,
                 targetPaneHandle: "pane:\(paneId.uuidString)",
                 correlationId: correlationId
             )
@@ -91,6 +96,7 @@ struct AgentStudioIPCUIPresentationAdapterTests {
                 )
         )
         #expect(presenter.presentedArrangementPaneIds == [paneId])
+        #expect(presenter.presentedArrangementWindowIds == [windowId])
     }
 
     @Test("rejects stale companion and non-pane Arrangements targets before presentation")
@@ -112,6 +118,7 @@ struct AgentStudioIPCUIPresentationAdapterTests {
             #expect(throws: AppIPCUIPresentationError.self) {
                 try adapter.openArrangements(
                     IPCArrangementsOpenParams(
+                        workspaceWindowId: UUIDv7.generate(),
                         targetPaneHandle: targetHandle,
                         correlationId: nil
                     )
@@ -127,6 +134,8 @@ private final class RecordingIPCUIPresenter: AgentStudioIPCUIPresenting {
     private let resultWindowId: UUID
     private let resultTabId: UUID
     private let error: AppIPCUIPresentationError?
+    private(set) var presentedWindowIds: [UUID] = []
+    private(set) var presentedArrangementWindowIds: [UUID] = []
     private(set) var presentedScopes: [IPCCommandBarScope] = []
     private(set) var presentedArrangementPaneIds: [UUID?] = []
 
@@ -140,18 +149,20 @@ private final class RecordingIPCUIPresenter: AgentStudioIPCUIPresenting {
         self.error = error
     }
 
-    func presentCommandBar(scope: IPCCommandBarScope) throws -> IPCCommandBarOpenResult {
+    func presentCommandBar(workspaceWindowId: UUID, scope: IPCCommandBarScope) throws -> IPCCommandBarOpenResult {
         if let error {
             throw error
         }
+        presentedWindowIds.append(workspaceWindowId)
         presentedScopes.append(scope)
         return IPCCommandBarOpenResult(workspaceWindowId: resultWindowId, scope: scope, correlationId: nil)
     }
 
-    func presentArrangements(contextPaneId: UUID?) throws -> IPCArrangementsOpenResult {
+    func presentArrangements(workspaceWindowId: UUID, contextPaneId: UUID?) throws -> IPCArrangementsOpenResult {
         if let error {
             throw error
         }
+        presentedArrangementWindowIds.append(workspaceWindowId)
         presentedArrangementPaneIds.append(contextPaneId)
         return IPCArrangementsOpenResult(
             workspaceWindowId: resultWindowId,

@@ -5,6 +5,11 @@ package enum IPCMethodExposure: String, Codable, CaseIterable, Equatable, Sendab
     case debugTesting
 }
 
+package enum IPCMethodResponseDelivery: String, Codable, CaseIterable, Equatable, Sendable {
+    case single
+    case subscription
+}
+
 package enum IPCCorrelationPolicy: String, Codable, CaseIterable, Equatable, Sendable {
     case notAccepted
     case optional
@@ -196,6 +201,7 @@ package struct IPCMethodDescriptorMetadata<
     package let documentedErrors: [IPCMethodErrorCase]
     package let isMutating: Bool
     package let correlationPolicy: IPCCorrelationPolicy
+    package let responseDelivery: IPCMethodResponseDelivery
     package let offlineEligibility: IPCMethodOfflineEligibility
     package let modelCalls: [IPCModelCallProjection]
 }

@@ -6,6 +6,7 @@ extension IPCExecutionOwner: IPCSchemaProviding {}
 extension IPCPrincipalAvailability: IPCSchemaProviding {}
 extension IPCResultSemantics: IPCSchemaProviding {}
 extension IPCCorrelationPolicy: IPCSchemaProviding {}
+extension IPCMethodResponseDelivery: IPCSchemaProviding {}
 extension IPCModelCallVariant: IPCSchemaProviding {}
 
 package struct IPCMethodExampleDocument: Codable, Equatable, Sendable {
@@ -37,6 +38,7 @@ package struct IPCMethodCatalogEntry: Codable, Equatable, Sendable {
     package let documentedErrors: [IPCMethodErrorCase]
     package let isMutating: Bool
     package let correlationPolicy: IPCCorrelationPolicy
+    package let responseDelivery: IPCMethodResponseDelivery
     package let offlineEligibility: IPCMethodOfflineEligibility
     package let modelCalls: [IPCModelCallProjection]
 }
@@ -105,6 +107,9 @@ extension IPCMethodCatalogEntry {
             .init(
                 name: "correlationPolicy", description: "Logical request correlation requirement",
                 schema: try IPCCorrelationPolicy.ipcSchema()),
+            .init(
+                name: "responseDelivery", description: "Single response or subscription stream consumption",
+                schema: try IPCMethodResponseDelivery.ipcSchema()),
             .init(
                 name: "offlineEligibility", description: "Notification variants eligible for offline collection",
                 schema: try IPCMethodOfflineEligibility.ipcSchema()),

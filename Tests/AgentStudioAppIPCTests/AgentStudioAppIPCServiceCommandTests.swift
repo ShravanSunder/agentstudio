@@ -41,6 +41,7 @@ struct AgentStudioAppIPCServiceCommandTests {
                 method: "ui.arrangements.open",
                 params: try JSONRPCCodec.encodeJSONValue(
                     IPCArrangementsOpenParams(
+                        workspaceWindowId: windowId,
                         targetPaneHandle: "pane:\(paneId.uuidString)",
                         correlationId: correlationId
                     )
@@ -69,6 +70,7 @@ struct AgentStudioAppIPCServiceCommandTests {
                 method: "ui.arrangements.open",
                 params: try JSONRPCCodec.encodeJSONValue(
                     IPCArrangementsOpenParams(
+                        workspaceWindowId: windowId,
                         targetPaneHandle: "pane:\(paneId.uuidString)",
                         correlationId: correlationId
                     )
@@ -186,7 +188,7 @@ struct AgentStudioAppIPCServiceCommandTests {
                 id: .number(74),
                 method: "ui.commandBar.open",
                 params: try JSONRPCCodec.encodeJSONValue(
-                    IPCCommandBarOpenParams(scope: .commands, correlationId: nil)
+                    IPCCommandBarOpenParams(workspaceWindowId: windowId, scope: .commands, correlationId: nil)
                 )
             )
         )

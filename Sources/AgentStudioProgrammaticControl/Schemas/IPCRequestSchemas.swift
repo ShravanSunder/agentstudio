@@ -211,3 +211,29 @@ extension IPCSidebarGroupingGetParams: IPCSchemaProviding {
 extension IPCSidebarSurfaceGetParams: IPCSchemaProviding {
     package static func ipcSchema() throws -> IPCJSONSchema { .object(fields: []) }
 }
+
+extension IPCCommandBarOpenParams: IPCSchemaProviding {
+    package static func ipcSchema() throws -> IPCJSONSchema {
+        .object(fields: [
+            .init(
+                name: "workspaceWindowId", description: "Explicit owning workspace window UUID",
+                schema: IPCSchemaScalars.uuid),
+            .init(name: "scope", description: "Command-bar root scope", schema: try IPCCommandBarScope.ipcSchema()),
+            IPCRequestSchemaFields.correlation,
+        ])
+    }
+}
+
+extension IPCArrangementsOpenParams: IPCSchemaProviding {
+    package static func ipcSchema() throws -> IPCJSONSchema {
+        .object(fields: [
+            .init(
+                name: "workspaceWindowId", description: "Explicit owning workspace window UUID",
+                schema: IPCSchemaScalars.uuid),
+            .optional(
+                "targetPaneHandle", description: "Pane context within the selected window",
+                schema: IPCRequestSchemaFields.paneSelector),
+            IPCRequestSchemaFields.correlation,
+        ])
+    }
+}

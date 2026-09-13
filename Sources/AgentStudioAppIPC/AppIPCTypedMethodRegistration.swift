@@ -12,7 +12,7 @@ package enum AppIPCTypedMethodRegistrationError: Error, Equatable, Sendable {
 
 package enum AppIPCCorrelation<Parameters: Sendable>: Sendable {
     case notRequired
-    case required(@Sendable (Parameters) -> UUID)
+    case required(@Sendable (Parameters) throws -> UUID)
 }
 
 package struct AppIPCTargetResolution<Parameters: Sendable>: Sendable {
@@ -172,7 +172,7 @@ package struct AppIPCTypedMethodRegistration<
         case .notRequired:
             return
         case .required(let extractCorrelation):
-            guard extractCorrelation(parameters) == normalizedWireCorrelation else {
+            guard try extractCorrelation(parameters) == normalizedWireCorrelation else {
                 throw AppIPCTypedMethodRegistrationError.correlationMismatch
             }
         }

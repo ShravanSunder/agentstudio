@@ -37,6 +37,7 @@ package struct IPCMethodDescriptor<
     package let documentedErrors: [IPCMethodErrorCase]
     package let isMutating: Bool
     package let correlationPolicy: IPCCorrelationPolicy
+    package let responseDelivery: IPCMethodResponseDelivery
     package let offlineEligibility: IPCMethodOfflineEligibility
     package let modelCalls: [IPCModelCallProjection]
 
@@ -55,6 +56,7 @@ package struct IPCMethodDescriptor<
         documentedErrors: [IPCMethodErrorCase],
         isMutating: Bool,
         correlationPolicy: IPCCorrelationPolicy,
+        responseDelivery: IPCMethodResponseDelivery = .single,
         offlineEligibility: IPCMethodOfflineEligibility = .never,
         modelCalls: [IPCModelCallProjection] = []
     ) throws where Parameters: IPCSchemaProviding, Result: IPCSchemaProviding {
@@ -75,6 +77,7 @@ package struct IPCMethodDescriptor<
             documentedErrors: documentedErrors,
             isMutating: isMutating,
             correlationPolicy: correlationPolicy,
+            responseDelivery: responseDelivery,
             offlineEligibility: offlineEligibility,
             modelCalls: modelCalls
         )
@@ -97,6 +100,7 @@ package struct IPCMethodDescriptor<
         documentedErrors: [IPCMethodErrorCase],
         isMutating: Bool,
         correlationPolicy: IPCCorrelationPolicy,
+        responseDelivery: IPCMethodResponseDelivery = .single,
         offlineEligibility: IPCMethodOfflineEligibility = .never,
         modelCalls: [IPCModelCallProjection] = []
     ) throws {
@@ -144,6 +148,7 @@ package struct IPCMethodDescriptor<
         self.documentedErrors = documentedErrors
         self.isMutating = isMutating
         self.correlationPolicy = correlationPolicy
+        self.responseDelivery = responseDelivery
         self.offlineEligibility = offlineEligibility
         self.modelCalls = modelCalls
     }
@@ -174,6 +179,7 @@ package struct IPCMethodDescriptor<
             documentedErrors: documentedErrors,
             isMutating: isMutating,
             correlationPolicy: correlationPolicy,
+            responseDelivery: responseDelivery,
             offlineEligibility: offlineEligibility,
             modelCalls: modelCalls
         )

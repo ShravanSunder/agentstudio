@@ -555,6 +555,7 @@ let package = Package(
                 "AgentStudioIPCClientCore",
                 "AgentStudioIPCTransport",
                 "AgentStudioProgrammaticControl",
+                "AgentStudioInfrastructure",
             ],
             path: "Tests/AgentStudioIPCClientTests",
             swiftSettings: [

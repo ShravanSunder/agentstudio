@@ -118,6 +118,29 @@ struct AppIPCTypedMethodRegistrationTests {
         #expect(await recorder.snapshot().isEmpty)
     }
 
+    @Test("checked correlation extraction can reject without downstream effects")
+    func checkedCorrelationExtractionCanRejectWithoutEffects() async throws {
+        let fixture = TypedRegistrationFixture()
+        let recorder = TypedRegistrationRecorder()
+        let registration = try makeRegistration(
+            recorder: recorder,
+            correlation: .required { _ in
+                throw AppIPCTypedMethodRegistrationError.correlationMismatch
+            }
+        )
+        let erasedRegistration = try registration.erase()
+
+        await #expect(throws: AppIPCTypedMethodRegistrationError.correlationMismatch) {
+            try await erasedRegistration.invoke(
+                parameters: fixture.parameters(handle: "pane:1", correlationId: UUIDv7.generate()),
+                principal: fixture.principal,
+                targetResolutionTools: fixture.targetResolutionTools,
+                authorize: { _, _ in await recorder.record(.authorize) }
+            )
+        }
+        #expect(await recorder.snapshot().isEmpty)
+    }
+
     @Test("target canonicalization cannot replace the normalized wire correlation")
     func targetCanonicalizationCannotReplaceCorrelation() async throws {
         let fixture = TypedRegistrationFixture()

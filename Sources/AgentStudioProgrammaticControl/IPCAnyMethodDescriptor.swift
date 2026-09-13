@@ -4,6 +4,7 @@ package struct IPCAnyMethodDescriptor: Sendable {
     package let metadata: IPCMethodCatalogEntry
     package let catalogEntrySchema: IPCJSONSchema
     private let parameterNormalizer: @Sendable (Data) throws -> Data
+    private let resultNormalizer: @Sendable (Data) throws -> Data
 
     package init<Parameters, Result>(
         erasing descriptor: IPCMethodDescriptor<Parameters, Result>
@@ -40,6 +41,7 @@ package struct IPCAnyMethodDescriptor: Sendable {
             documentedErrors: descriptor.documentedErrors,
             isMutating: descriptor.isMutating,
             correlationPolicy: descriptor.correlationPolicy,
+            responseDelivery: descriptor.responseDelivery,
             offlineEligibility: descriptor.offlineEligibility,
             modelCalls: descriptor.modelCalls
         )
@@ -51,10 +53,18 @@ package struct IPCAnyMethodDescriptor: Sendable {
             let parameters = try descriptor.decodeParameters(from: data)
             return try parameterSchema.normalize(JSONEncoder().encode(parameters))
         }
+        resultNormalizer = { data in
+            let result = try descriptor.contract.decodeResult(from: data)
+            return try descriptor.encodeResult(result)
+        }
         _ = try catalogEntrySchema.decode(
             IPCMethodCatalogEntry.self,
             from: JSONEncoder().encode(metadata)
         )
+    }
+
+    package func normalizeResult(_ data: Data) throws -> Data {
+        try resultNormalizer(data)
     }
 
     package func normalizeParameters(_ data: Data) throws -> Data {

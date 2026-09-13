@@ -23,6 +23,15 @@ package struct IPCMethodContract<Parameters: Codable & Sendable, Result: Codable
         return parameters
     }
 
+    package func decodeResult(from data: Data) throws -> Result {
+        let normalized = try resultSchema.normalize(data)
+        let result = try resultSchema.decode(Result.self, from: normalized)
+        try resultSchema.validateTypedEncoding(
+            normalized: normalized, encoded: encodedValue(result)
+        )
+        return result
+    }
+
     package func encodeResult(_ result: Result) throws -> Data {
         let encoded = try encodedValue(result)
         let normalized = try resultSchema.normalize(encoded)

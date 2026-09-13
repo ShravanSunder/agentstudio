@@ -20,6 +20,8 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
     private var workspaceWindowMemoryAtom: WorkspaceWindowMemoryAtom!
     private var windowId = UUID()
 
+    var workspaceWindowId: UUID { windowId }
+
     private static let estimatedTitlebarHeight: CGFloat = 40
 
     convenience init(
