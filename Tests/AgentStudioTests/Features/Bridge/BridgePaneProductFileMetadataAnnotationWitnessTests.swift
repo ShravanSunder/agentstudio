@@ -1,10 +1,55 @@
 import AgentStudioTestSupport
+import Foundation
 import Testing
 
 @testable import AgentStudioBridge
 
 @Suite("Bridge pane product File annotation source witnesses")
 struct FileAnnotationSourceWitnessTests {
+    @Test(arguments: ["xxxx\nxxxx\n", "The file changed size too.\n"])
+    func changedFileRejectsAnnotationWithTypedSourceFailure(replacement: String) async throws {
+        let fixture = try ProductFileSourceFixture(fileCount: 1)
+        defer { fixture.remove() }
+        let source = fixture.makeSource()
+        let snapshot = try fixture.openSnapshot()
+        let collector = ProductFileMetadataEventCollector()
+        try await source.open(subscription: snapshot, productAdmission: fixture.productAdmission.context) { _ in }
+        do {
+            try await source.update(
+                subscription: fixture.updatedSnapshot(from: snapshot),
+                productAdmission: fixture.productAdmission.context
+            ) { await collector.append($0) }
+            let payload = try #require(
+                (await collector.events).compactMap { event -> BridgeProductFileDescriptorReadyPayload? in
+                    guard case .descriptorReady(let ready) = event else { return nil }
+                    return ready.payload
+                }.first)
+            guard case .available(let descriptor) = payload.availability else {
+                Issue.record("Expected available file descriptor")
+                await source.cancel(subscriptionId: snapshot.subscriptionId)
+                return
+            }
+            try Data(replacement.utf8).write(to: fixture.demandedFileURL)
+            var failure: WorktreeAnnotationSourceResolutionError?
+            do {
+                _ = try await source.captureWorktreeAnnotationSource(
+                    origin: .init(
+                        path: fixture.demandedPath, startLine: 1, endLine: 1,
+                        sourceRole: .file, diffSide: nil, sourceIdentity: descriptor.descriptorId
+                    ),
+                    productAdmission: fixture.productAdmission.context
+                )
+            } catch {
+                failure = error as? WorktreeAnnotationSourceResolutionError
+            }
+            #expect(failure == .invalidSource)
+        } catch {
+            await source.cancel(subscriptionId: snapshot.subscriptionId)
+            throw error
+        }
+        await source.cancel(subscriptionId: snapshot.subscriptionId)
+    }
+
     @Test("annotation source requirements dispatch through the production File source witness")
     func annotationSourceRequirementsUseProductionWitness() async throws {
         // Arrange

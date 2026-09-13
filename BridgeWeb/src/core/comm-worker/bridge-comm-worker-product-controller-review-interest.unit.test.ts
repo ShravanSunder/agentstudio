@@ -156,6 +156,7 @@ describe('Bridge comm worker product controller Review interests', () => {
 		const firstEvents = new BridgeProductBoundedAsyncQueue<ReviewMetadataFrame>(1);
 		const secondEvents = new BridgeProductBoundedAsyncQueue<ReviewMetadataFrame>(1);
 		const firstUpdate = createBridgeProductDeferred<void>();
+		const firstUpdateStarted = createBridgeProductDeferred<void>();
 		const secondSubscriptionUpdates: Array<Parameters<ReviewMetadataSubscription['update']>[0]> =
 			[];
 		let reviewEpoch = 0;
@@ -166,7 +167,10 @@ describe('Bridge comm worker product controller Review interests', () => {
 				events: firstEvents,
 				subscriptionId: 'review-queued-interest-failure-1',
 				subscriptionKind: 'review.metadata',
-				update: async (): Promise<void> => await firstUpdate.promise,
+				update: async (): Promise<void> => {
+					firstUpdateStarted.resolve();
+					await firstUpdate.promise;
+				},
 			},
 			{
 				cancel: async (): Promise<void> => {},
@@ -198,6 +202,7 @@ describe('Bridge comm worker product controller Review interests', () => {
 			activeDemand: [{ itemId: 'selected-before-failure', role: 'selected' }],
 			workerDerivationEpoch: 1,
 		});
+		await firstUpdateStarted.promise;
 		const queuedCommit = controller.replaceReviewMetadataInterestsFromActiveDemand({
 			activeDemand: [{ itemId: 'visible-before-failure', role: 'visible' }],
 			workerDerivationEpoch: 1,

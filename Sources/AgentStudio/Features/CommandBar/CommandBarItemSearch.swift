@@ -4,7 +4,7 @@ import Foundation
 /// Command-bar-specific scoring, filtering, ranking, recency, and tracing.
 enum CommandBarSearch {
     /// Score a `CommandBarItem` against a query using weighted multi-field matching.
-    /// Returns nil if no field matches above threshold.
+    /// Contiguous matches remain eligible even when fuzzy ranking penalizes a long field.
     static func scoreItem(
         _ item: CommandBarItem,
         query: String,
@@ -31,7 +31,11 @@ enum CommandBarSearch {
             bestScore = min(bestScore, result.score * 0.8 + 0.2)
         }
 
-        guard bestScore < threshold else { return nil }
+        let hasContiguousMatch =
+            item.title.localizedCaseInsensitiveContains(query)
+            || item.keywords.contains { $0.localizedCaseInsensitiveContains(query) }
+            || item.subtitle?.localizedCaseInsensitiveContains(query) == true
+        guard hasContiguousMatch || bestScore < threshold else { return nil }
 
         if let recentIndex = recentIds.firstIndex(of: item.id) {
             let boost = 0.1 * (1.0 - Double(recentIndex) / 8.0)

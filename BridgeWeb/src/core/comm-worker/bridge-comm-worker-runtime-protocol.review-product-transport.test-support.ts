@@ -53,10 +53,13 @@ export function makeReviewProductTransport(props: {
 	readonly onCall?: ((method: string, request: unknown) => unknown) | undefined;
 	readonly openedContentKinds?: string[];
 	readonly reviewSubscription: ReviewMetadataSubscription;
-	readonly reviewAnnotationSubscription?: ReviewAnnotationMetadataSubscription;
+	readonly reviewAnnotationSubscriptionFactory?: (
+		subscriptionOrdinal: number,
+	) => ReviewAnnotationMetadataSubscription;
 	readonly subscribedKinds: string[];
 }): BridgeProductTransportSession {
 	let reviewEpoch = props.initialReviewEpoch ?? 0;
+	let reviewAnnotationSubscriptionCount = 0;
 	return {
 		bumpWorkerDerivationEpoch: (surface): number => {
 			if (surface === 'review') reviewEpoch += 1;
@@ -86,9 +89,12 @@ export function makeReviewProductTransport(props: {
 		subscribe: (...arguments_): never => {
 			const [{ kind: subscriptionKind }] = arguments_;
 			props.subscribedKinds.push(subscriptionKind);
-			if (subscriptionKind === 'review.annotations' && props.reviewAnnotationSubscription) {
+			if (subscriptionKind === 'review.annotations' && props.reviewAnnotationSubscriptionFactory) {
+				reviewAnnotationSubscriptionCount += 1;
 				// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- The optional Review annotation fixture matches the narrowed subscription branch.
-				return props.reviewAnnotationSubscription as never;
+				return props.reviewAnnotationSubscriptionFactory(
+					reviewAnnotationSubscriptionCount,
+				) as never;
 			}
 			if (subscriptionKind === 'file.annotations' || subscriptionKind === 'review.annotations') {
 				// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- Generic transport fixtures close over the requested annotation subscription kind.

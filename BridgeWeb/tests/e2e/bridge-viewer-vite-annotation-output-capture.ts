@@ -10,7 +10,11 @@ import {
 	type AnnotationPreviewEntryCapture,
 } from './bridge-viewer-vite-annotation-preview-capture.ts';
 
-interface AnnotationOutputCaptureJourneyProps {
+export interface AnnotationOutputCopyHooks {
+	readonly beforeCopy?: () => Promise<void>;
+}
+
+interface AnnotationOutputCaptureJourneyProps extends AnnotationOutputCopyHooks {
 	readonly dataRootPath: string;
 	readonly page: Page;
 	readonly savedBody: string;
@@ -48,6 +52,7 @@ export async function verifyAnnotationOutputCaptures(
 	await waitForEnabledOutputButton(copyButton, props.timeoutMilliseconds);
 	const copiedPreview = await captureSharePreview(props.page);
 	expect(copiedPreview.map((message) => message.body)).toContain(props.savedBody);
+	await props.beforeCopy?.();
 	const copyResponseObservation = waitForOutputCommandResponse(
 		props.page,
 		'clipboardMarkdown',

@@ -137,6 +137,9 @@ export class BridgeCommWorkerAnnotationProjectionQueryController {
 	#stageAttemptOperationCorrelationId: string | null = null;
 	#nextStageAttempt = 0;
 	#subscription: AnnotationMetadataSubscription | null = null;
+	#subscriptionRequested = false;
+	#surfaceEpochChangeInProgress = false;
+	#retiringSurfaceSubscription: AnnotationMetadataSubscription | null = null;
 
 	constructor(props: CreateBridgeCommWorkerAnnotationProjectionQueryControllerProps) {
 		this.#onCatalog = props.onCatalog;
@@ -148,7 +151,14 @@ export class BridgeCommWorkerAnnotationProjectionQueryController {
 	}
 
 	ensureSubscription(): void {
-		if (this.#disposed || this.#subscription !== null) return;
+		this.#subscriptionRequested = true;
+		if (
+			this.#disposed ||
+			this.#surfaceEpochChangeInProgress ||
+			this.#retiringSurfaceSubscription !== null ||
+			this.#subscription !== null
+		)
+			return;
 		let subscription: AnnotationMetadataSubscription;
 		try {
 			subscription = this.#transport.subscribe(this.#surface);
@@ -161,6 +171,40 @@ export class BridgeCommWorkerAnnotationProjectionQueryController {
 			if (this.#subscription !== subscription || this.#disposed) return;
 			this.#handleSubscriptionFailure(error);
 		});
+	}
+
+	prepareForSurfaceEpochChange(): Promise<void> | undefined {
+		this.#surfaceEpochChangeInProgress = true;
+		const subscription = this.#retiringSurfaceSubscription ?? this.#subscription;
+		this.#retiringSurfaceSubscription = subscription;
+		this.#subscription = null;
+		this.#controlReady = false;
+		this.#metadataApplication.retireAuthority();
+		const operationCorrelationId = this.#invalidation?.operationCorrelationId ?? null;
+		this.#invalidation = null;
+		this.#invalidationGeneration += 1;
+		this.#abortController?.abort();
+		if (subscription !== null) {
+			this.#onConvergence({
+				operationCorrelationId,
+				state: {
+					catalogAuthorityRetired: true,
+					error: new Error('Annotation source is being refreshed.'),
+					kind: 'unavailable',
+				},
+				surface: this.#surface,
+			});
+			return subscription.cancel().then((): void => {
+				this.#retiringSurfaceSubscription = null;
+			});
+		}
+		return undefined;
+	}
+
+	finishSurfaceEpochChange(succeeded: boolean): void {
+		this.#surfaceEpochChangeInProgress = false;
+		this.#automaticSubscriptionReopenConsumed = false;
+		if (succeeded && this.#subscriptionRequested && !this.#disposed) this.ensureSubscription();
 	}
 
 	setDemand(demand: BridgeCommWorkerAnnotationProjectionDemand): void {
@@ -256,6 +300,9 @@ export class BridgeCommWorkerAnnotationProjectionQueryController {
 		this.#subscription = null;
 		await Promise.allSettled([
 			...(subscription === null ? [] : [subscription.cancel()]),
+			...(this.#retiringSurfaceSubscription === null
+				? []
+				: [this.#retiringSurfaceSubscription.cancel()]),
 			...(this.#scheduledQueryStart === null ? [] : [this.#scheduledQueryStart]),
 			...(this.#scheduledSubscriptionReopen === null ? [] : [this.#scheduledSubscriptionReopen]),
 			...this.#queryAttempts,
@@ -285,7 +332,8 @@ export class BridgeCommWorkerAnnotationProjectionQueryController {
 
 	async #consumeSubscription(subscription: AnnotationMetadataSubscription): Promise<void> {
 		for await (const frame of subscription.events) {
-			if (this.#disposed || this.#subscription !== subscription) return;
+			if (this.#disposed) return;
+			if (this.#subscription !== subscription) continue;
 			const event = bridgeProductWorktreeAnnotationEventSchema.parse(frame.data);
 			if (frame.operationCorrelationId === null) {
 				throw new Error('Annotation metadata event requires lifecycle correlation.');

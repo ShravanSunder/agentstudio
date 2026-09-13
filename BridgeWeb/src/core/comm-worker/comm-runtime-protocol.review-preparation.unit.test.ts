@@ -801,6 +801,7 @@ describe('Bridge comm worker runtime protocol Review preparation', () => {
 			},
 		});
 		activateBridgeCommWorkerReviewViewerMode(dispatch, 'empty-runtime-source-update');
+		await flushBridgeWorkerRuntimeContinuations();
 		postedMessages.length = 0;
 
 		reviewProductSource.publishSource(
@@ -831,11 +832,10 @@ describe('Bridge comm worker runtime protocol Review preparation', () => {
 			'reviewCandidateStarted',
 			'reviewDisplayPatch',
 			'reviewCandidateReady',
-			'health',
 			'slicePatch',
 			'health',
 		]);
-		expect(postedMessages[4]?.message).toMatchObject({
+		expect(postedMessages[3]?.message).toMatchObject({
 			kind: 'slicePatch',
 			epoch: 2,
 			sequence: 11,

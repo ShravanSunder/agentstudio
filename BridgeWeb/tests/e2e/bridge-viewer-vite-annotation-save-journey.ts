@@ -17,6 +17,7 @@ import {
 } from './bridge-viewer-vite-annotation-main-projection-observation.ts';
 import {
 	type AnnotationOutputIdentityCapture,
+	type AnnotationOutputCopyHooks,
 	verifyAnnotationOutputCaptures,
 } from './bridge-viewer-vite-annotation-output-capture.ts';
 import {
@@ -55,6 +56,26 @@ export interface AnnotationSaveJourneyObservations {
 	readonly savingControlCountAfterCommit: number;
 	readonly committedBodyCountWhileProjectionGated: number;
 	readonly outputIdentity: AnnotationOutputIdentityCapture;
+}
+
+export interface AnnotationSaveJourneyHookContext {
+	readonly page: Page;
+	readonly savedBody: string;
+}
+
+export interface AnnotationSaveJourneyPostSaveResult {
+	readonly savedBody?: string;
+	readonly selectedFileReadiness?: {
+		readonly lineCount: number;
+		readonly path: string;
+		readonly sha256: string;
+	};
+}
+
+export interface AnnotationSaveJourneyOutputContext extends AnnotationSaveJourneyHookContext {
+	readonly captureDefaultOutput: (
+		hooks?: AnnotationOutputCopyHooks,
+	) => Promise<AnnotationOutputIdentityCapture>;
 }
 
 interface ReleasedDraftReloadJourneyObservations {
@@ -169,20 +190,29 @@ async function runReleasedDraftReloadJourney(props: {
 }
 
 export async function runAnnotationSaveJourney(props: {
+	readonly afterProjectedSave?: (
+		context: AnnotationSaveJourneyHookContext,
+	) => Promise<AnnotationSaveJourneyPostSaveResult | undefined>;
+	readonly captureOutput?: (
+		context: AnnotationSaveJourneyOutputContext,
+	) => Promise<AnnotationOutputIdentityCapture>;
 	readonly oracle: BridgeViewerViteProductFixtureOracle;
 	readonly server: BridgeViewerOwnedViteProductServer;
+	readonly setupPage?: (page: Page) => Promise<void>;
 	readonly surface: 'file' | 'review';
 }): Promise<AnnotationSaveJourneyObservations> {
 	const browser = await chromium.launch({ channel: 'chrome', headless: true });
 	const diagnostics: string[] = [];
 	let page: Page | null = null;
 	let expectedSavedBody: string | null = null;
+	let selectedFileReadiness: AnnotationSaveJourneyPostSaveResult['selectedFileReadiness'];
 	let transportFailures: Awaited<ReturnType<typeof observeInteractionProfileFailures>> | null =
 		null;
 	try {
 		page = await browser.newPage({ viewport: { height: 980, width: 1728 } });
 		transportFailures = await observeInteractionProfileFailures(page);
 		observeAnnotationJourneyDiagnostics(page, diagnostics);
+		await props.setupPage?.(page);
 		const reviewFile = props.oracle.reviewFiles[0];
 		if (props.surface === 'review' && reviewFile === undefined) {
 			throw new Error('Review annotation Save journey requires a changed review file.');
@@ -331,6 +361,12 @@ export async function runAnnotationSaveJourney(props: {
 			page,
 		});
 		await drainAnnotationLifecycleTelemetry(page);
+		const postSaveResult = await props.afterProjectedSave?.({
+			page,
+			savedBody,
+		});
+		if (postSaveResult?.savedBody !== undefined) expectedSavedBody = postSaveResult.savedBody;
+		selectedFileReadiness = postSaveResult?.selectedFileReadiness;
 
 		const reloadedItemApplies =
 			props.surface === 'review' ? observeSelectedItemApplies(page) : null;
@@ -341,27 +377,45 @@ export async function runAnnotationSaveJourney(props: {
 			waitUntil: 'domcontentloaded',
 		});
 		if (props.surface === 'file') {
-			await waitForSelectedFileReady({ oracle: props.oracle, page });
+			await waitForSelectedFileReady({
+				...(selectedFileReadiness === undefined ? {} : { expected: selectedFileReadiness }),
+				oracle: props.oracle,
+				page,
+			});
 		} else {
 			await waitForSelectedReviewReady({ itemId: reviewFile?.itemId ?? '', page });
 			await reloadedItemApplies?.install(reviewFile?.itemId ?? '');
 			await reloadedMainProjection?.install();
 		}
+		const currentSavedBody = expectedSavedBody ?? savedBody;
 		const reloadedSavedThreadBody = page
 			.getByTestId('worktree-annotation-thread')
-			.getByText(savedBody, { exact: true });
+			.getByText(currentSavedBody, { exact: true });
 		await reloadedSavedThreadBody.waitFor({
 			state: 'visible',
 			timeout: annotationProjectionResponseTimeoutMilliseconds,
 		});
 		const reloadedSavedMessageCount = await reloadedSavedThreadBody.count();
-		const outputIdentity = await verifyAnnotationOutputCaptures({
-			dataRootPath: props.oracle.dataRootPath,
-			page,
-			savedBody,
-			timeoutMilliseconds: annotationProjectionResponseTimeoutMilliseconds,
-			worktreeRoot: props.oracle.worktreeRoot,
-		});
+		const outputPage = page;
+		const captureDefaultOutput = async (
+			hooks: AnnotationOutputCopyHooks = {},
+		): Promise<AnnotationOutputIdentityCapture> =>
+			await verifyAnnotationOutputCaptures({
+				...hooks,
+				dataRootPath: props.oracle.dataRootPath,
+				page: outputPage,
+				savedBody: currentSavedBody,
+				timeoutMilliseconds: annotationProjectionResponseTimeoutMilliseconds,
+				worktreeRoot: props.oracle.worktreeRoot,
+			});
+		const outputIdentity =
+			props.captureOutput === undefined
+				? await captureDefaultOutput()
+				: await props.captureOutput({
+						captureDefaultOutput,
+						page,
+						savedBody: currentSavedBody,
+					});
 
 		return {
 			committedBodyCountWhileProjectionGated,
@@ -797,9 +851,19 @@ function isAnnotationCommandResponse(
 }
 
 export async function waitForSelectedFileReady(props: {
+	readonly expected?: {
+		readonly lineCount: number;
+		readonly path: string;
+		readonly sha256: string;
+	};
 	readonly oracle: BridgeViewerViteProductFixtureOracle;
 	readonly page: Page;
 }): Promise<void> {
+	const expected = props.expected ?? {
+		lineCount: props.oracle.fileContent.lineCount,
+		path: props.oracle.largeFilePath,
+		sha256: props.oracle.fileContent.sha256,
+	};
 	await props.page.waitForFunction(
 		({ expectedLineCount, expectedSha256, path }): boolean => {
 			const canvas = document.querySelector('[data-testid="bridge-file-viewer-code-canvas"]');
@@ -825,9 +889,9 @@ export async function waitForSelectedFileReady(props: {
 			);
 		},
 		{
-			expectedLineCount: props.oracle.fileContent.lineCount,
-			expectedSha256: props.oracle.fileContent.sha256,
-			path: props.oracle.largeFilePath,
+			expectedLineCount: expected.lineCount,
+			expectedSha256: expected.sha256,
+			path: expected.path,
 		},
 		{ timeout: annotationSaveJourneyTimeoutMilliseconds },
 	);

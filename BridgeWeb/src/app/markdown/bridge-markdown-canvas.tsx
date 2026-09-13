@@ -1,4 +1,5 @@
 import DOMPurify from 'dompurify';
+import { FileClockIcon, RefreshCwIcon } from 'lucide-react';
 import {
 	memo,
 	useCallback,
@@ -11,7 +12,9 @@ import {
 } from 'react';
 import { createPortal } from 'react-dom';
 
+import { Alert, AlertAction, AlertTitle } from '@/components/ui/alert.js';
 import { Button } from '@/components/ui/button.js';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip.js';
 
 import type {
 	BridgeMainRenderFulfillmentCoordinator,
@@ -107,7 +110,15 @@ const BridgeMarkdownReadyDocument = memo(function BridgeMarkdownReadyDocument(pr
 }): ReactElement {
 	const [presentation, setPresentation] = useState(props.presentation);
 	const [installationFailure, setInstallationFailure] = useState(false);
-	const [installationAttempt, setInstallationAttempt] = useState(0);
+	const [failedInstallationRequestId, setFailedInstallationRequestId] = useState<string | null>(
+		null,
+	);
+	const explicitInstallationFailure =
+		failedInstallationRequestId === props.presentation.identity.requestId;
+	const [installationPending, setInstallationPending] = useState(false);
+	const installationRequestRef = useRef(0);
+	const isActiveRef = useRef(props.isActive);
+	isActiveRef.current = props.isActive;
 	const editTokens = useWorktreeAnnotationActiveEditTokens();
 	const editTokensRef = useRef(editTokens);
 	editTokensRef.current = editTokens;
@@ -116,6 +127,17 @@ const BridgeMarkdownReadyDocument = memo(function BridgeMarkdownReadyDocument(pr
 	const displayedSourceRef = useRef<BridgeFileViewerSelectedCodeViewItem | null>(null);
 	const candidateRef = useRef(props.presentation);
 	candidateRef.current = props.presentation;
+	useEffect(
+		(): (() => void) => (): void => {
+			installationRequestRef.current += 1;
+		},
+		[],
+	);
+	useEffect((): void => {
+		if (props.isActive) return;
+		installationRequestRef.current += 1;
+		setInstallationPending(false);
+	}, [props.isActive]);
 	const keepsConfirmedSource =
 		displayedSourceRef.current !== null &&
 		props.annotationSource?.item !== null &&
@@ -152,14 +174,40 @@ const BridgeMarkdownReadyDocument = memo(function BridgeMarkdownReadyDocument(pr
 		return (): void => {
 			current = false;
 		};
-	}, [
-		editTokens,
-		installationAttempt,
-		keepsConfirmedSource,
-		prepareEditors,
-		presentation,
-		props.presentation,
-	]);
+	}, [editTokens, keepsConfirmedSource, prepareEditors, presentation, props.presentation]);
+	const installLatestCandidate = useCallback(async (): Promise<void> => {
+		installationRequestRef.current += 1;
+		const installationRequest = installationRequestRef.current;
+		const candidate = candidateRef.current;
+		setInstallationPending(true);
+		setInstallationFailure(false);
+		setFailedInstallationRequestId(null);
+		try {
+			const prepared = await prepareEditors();
+			if (
+				installationRequestRef.current !== installationRequest ||
+				candidateRef.current !== candidate ||
+				!isActiveRef.current
+			)
+				return;
+			if (!prepared) {
+				setInstallationFailure(true);
+				setFailedInstallationRequestId(candidate.identity.requestId);
+				return;
+			}
+			setPresentation(candidate);
+		} catch {
+			if (
+				installationRequestRef.current === installationRequest &&
+				candidateRef.current === candidate
+			) {
+				setInstallationFailure(true);
+				setFailedInstallationRequestId(candidate.identity.requestId);
+			}
+		} finally {
+			if (installationRequestRef.current === installationRequest) setInstallationPending(false);
+		}
+	}, [prepareEditors]);
 	const articleRef = useRef<BridgeMarkdownRenderedArticle>(null);
 	const renderBindingRef = useRef<BridgeMarkdownRenderBinding | null>(null);
 	renderBindingRef.current =
@@ -235,23 +283,62 @@ const BridgeMarkdownReadyDocument = memo(function BridgeMarkdownReadyDocument(pr
 	}, [diagramRetryRevision, props.isActive, props.mermaidRenderer, presentation]);
 
 	return (
-		<div className="bridge-scrollbar h-full min-h-0 overflow-auto bg-background">
+		<div
+			className="bridge-scrollbar relative h-full min-h-0 overflow-auto bg-background"
+			data-markdown-scroll-viewport
+		>
+			{installationFailure ||
+			(presentation.sourcePath === props.presentation.sourcePath &&
+				presentation.identity.requestId !== props.presentation.identity.requestId) ? (
+				<div className="pointer-events-none sticky top-2 z-20 ml-auto h-0 w-fit pr-2">
+					<Alert
+						aria-label={explicitInstallationFailure ? 'Update failed' : 'File changed'}
+						className="pointer-events-auto items-center"
+						layout="floating"
+						role="status"
+						variant="floating"
+					>
+						<FileClockIcon aria-hidden="true" />
+						<AlertTitle>
+							{explicitInstallationFailure ? 'Update failed' : 'File changed'}
+						</AlertTitle>
+						<AlertAction className="self-center">
+							<Tooltip>
+								<TooltipTrigger
+									render={
+										<Button
+											aria-label="Update Markdown file"
+											disabled={installationPending}
+											size="sm"
+											type="button"
+											variant="outline"
+										/>
+									}
+									onClick={(): void => {
+										void installLatestCandidate();
+									}}
+								>
+									<RefreshCwIcon
+										aria-hidden="true"
+										data-busy={installationPending}
+										data-icon="inline-start"
+									/>
+									Update
+								</TooltipTrigger>
+								<TooltipContent side="bottom">
+									{explicitInstallationFailure
+										? 'Finish or cancel the open annotation, then retry.'
+										: 'Keep the draft and load the latest file.'}
+								</TooltipContent>
+							</Tooltip>
+						</AlertAction>
+					</Alert>
+				</div>
+			) : null}
 			{props.presentation.refresh.kind === 'failed' ? (
 				<div role="status" className="flex items-center gap-2 p-2 text-sm text-muted-foreground">
 					Markdown refresh failed. Showing the previous document.
 					<Button variant="outline" size="sm" onClick={props.retry}>
-						Retry
-					</Button>
-				</div>
-			) : null}
-			{installationFailure ? (
-				<div role="status" className="flex items-center gap-2 p-2 text-sm text-muted-foreground">
-					Your editor is retained. Finish editing or retry the refresh.
-					<Button
-						variant="outline"
-						size="sm"
-						onClick={(): void => setInstallationAttempt((attempt): number => attempt + 1)}
-					>
 						Retry
 					</Button>
 				</div>

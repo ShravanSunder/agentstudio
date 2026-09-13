@@ -5,6 +5,21 @@ import Testing
 
 @Suite(.serialized)
 struct CommandBarItemSearchTests {
+    @Test(arguments: ["ipc", "IPC"])
+    func contiguousWorktreeNameRemainsSearchable(query: String) {
+        let items = [
+            makeCommandBarItem(id: "worktree", title: "agent-studio.ipc-improvements"),
+            makeCommandBarItem(
+                id: "repository", title: "agent-studio", keywords: ["agent-studio.ipc-improvements"]),
+            makeCommandBarItem(id: "pane", title: "Terminal", subtitle: "agent-studio.ipc-improvements"),
+            makeCommandBarItem(id: "unrelated", title: "Close Tab"),
+        ]
+
+        let matches = CommandBarSearch.filter(items: items, query: query)
+
+        #expect(Set(matches.map(\.id)) == ["worktree", "repository", "pane"])
+    }
+
     @Test
     func test_scoreItem_emptyQuery_returnsZero() {
         // Arrange
