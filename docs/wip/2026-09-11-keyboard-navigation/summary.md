@@ -1,6 +1,6 @@
 # Keyboard Navigation Work Trail
 
-Source: [events.jsonl](./events.jsonl). **Covers events.jsonl through line 46.**
+Source: [events.jsonl](./events.jsonl). **Covers events.jsonl through line 50.**
 This is a bounded Markdown view. Event evidence pointers and the four permitted
 detail records are rendered as recorded claims, not independently verified
 external evidence.
@@ -172,8 +172,9 @@ external evidence.
   handshake and no persistence, atom, mode, or preview change. Shared Panes and
   pinned ordering extraction then recorded Safe RED 8 / 17 issues, GREEN 73 / 7
   suites, and corrected actual-suite integration 50 / 3 suites; initial fixture
-  failures were corrected without a product-contract change, but the pinned raw
-  projector and App shortcut consumer were still incomplete.
+  failures were corrected without a product-contract change. This was an
+  interim checkpoint before line 46 connected the shared-order/raw-capture path
+  through composed pinned projection, App, and regression lanes.
   Finally, line 46 recorded composed pinned projection/App/regression lanes
   green (2 / 2 / 31), while the App RED remained 2 tests with 1 pass, 1 fail /
   6 issues. Availability complexity, stale/native-text tests, IPC fingerprint
@@ -181,15 +182,42 @@ external evidence.
   incomplete. The controlled-domain annotation diagnostic was applied under the
   updated scope gate; it changed no behavior or assertions.
 
+- **Lines 47–50 — pinned native proof, diagnosis, alignment, and current
+  boundary:** Native pinned effects were observed across terminal, drawer, and
+  Bridge routes. App/IPC focused proof recorded 9 tests / 2 suites with quality
+  and diff clean. A full aggregate attempt recorded 4863 Swift / 715 suites
+  with one stale private-property spelling issue, while web lanes passed and
+  telemetry initially failed 25 tests / 6 issues because the requested labels
+  were outside the closed taxonomy. The exact two-phase/one-trigger admission
+  and complete dimensions were corrected; the taxonomy reproof passed 29 tests
+  / 3 suites with quality clean, but live timing remained unproven. A subsequent
+  aggregate rerun failed before Copy at Review metadata readiness and annotation
+  save; no timeout, retry, or assertion weakening was introduced, and the cause
+  was not established. The temporary diagnostic was removed before the clean
+  merge checkpoint.
+- **Lines 49–50 — main alignment and delivery boundary:** Two signing attempts
+  failed, so unsigned checkpoint `2c58e3484` was recorded with hooks passing,
+  followed by clean merge `990c947db` and main alignment. At committed
+  main-aligned head `10383d28f`, the full `mise run test` passed, and native
+  sidebar, terminal, and pinned effects were recorded. The latest result is
+  explicitly **partial/blocked**: fresh live telemetry was unavailable through
+  CUA (`cgWindowNotFound`), independent final implementation review and
+  publication were incomplete, and no PR-ready claim was made. The updated scope
+  gate permitted and line 46 applied the controlled annotation diagnostic; the
+  earlier approval-pending stop is historical. No new atoms, stores, events, or
+  vendor changes were recorded.
+
 ## Current outcome and unresolved work
 
 The bounded trail ends with work ongoing and no terminal-wide completion claim.
-Terminal v2 has implementation and native movement evidence, while sidebar
-index/reconciliation, overlay, focus, and partial pinned behavior have focused
-or native evidence. The latest explicit aggregate failure in the prefix is the
-external Bridge annotation stress failure; later records do not claim a current
-aggregate completion for the ongoing sidebar/pinned work. No PR-ready claim is
-made.
+Terminal v2 has implementation and native movement evidence, and the sidebar
+index/reconciliation, overlay, focus, and composed pinned paths have focused or
+native evidence. The committed main-aligned head `10383d28f` has a recorded full
+`mise run test` exit 0. Earlier external Bridge annotation stress failures and
+the later annotation rerun failure remain historical/current proof-boundary
+records; the latest result still says whole delivery is partial/blocked because
+fresh telemetry, independent final review, and publication are incomplete. No
+PR-ready claim is made.
 
 Preview remains pending at the safe implementation boundary. The confirmed rule
 is to load an existing pane's renderer as needed without starting a replacement
@@ -202,13 +230,13 @@ authorized by that detail. The detached-drawer invariant is separately
 deferred and unfixed.
 
 The navigation index/reconciliation work has recorded focused proof. Line 46
-also records composed pinned projection, App, and regression lanes green (2 / 2 /
-31), while retaining an App RED of 2 tests (1 pass, 1 fail / 6 issues). Final
-availability-complexity and stale/native-text guards, the readable IPC
-fingerprint delta, native pinned proof, the aggregate for the current head, and
-independent review remain open. Rapid initial filter typing remains bounded by
-its proof record. No claim is made that sidebar or terminal delivery is
-complete.
+records composed pinned projection, App, and regression lanes green (2 / 2 / 31)
+while retaining an App RED at that checkpoint; line 47 then records App/IPC
+focused proof and native pinned effects. The committed line-50 result leaves
+fresh live telemetry, final guards/catalog review, independent final review,
+publication, and the preview scope decision open. Rapid initial filter typing
+remains bounded by its proof record. No claim is made that sidebar or terminal
+delivery is complete.
 
 Source gaps in this bounded render: no malformed event lines, missing permitted
 detail files, or invalid in-range correction links were found. Other paths named

@@ -243,11 +243,11 @@ P/R/F surface/filter routing and filter-to-list/terminal return have
 [native activation and overlay proof](sidebar-overlay-native-proof.md), including Bridge/custom
 arrangement, drawer reveal and offscreen result 9. The late-restore focus handshake has regression
 and rebuilt native proof. Direct pinned navigation is implemented with [mixed-pane native proof](pinned-navigation-native-proof.md);
-its final telemetry/aggregate/review gates remain in progress. Held preview remains unfinished. Preview's cold-terminal attach-only
+its full aggregate passed; live telemetry reproof and independent final review remain. Held preview remains unfinished. Preview's cold-terminal attach-only
 prerequisite awaits an owner scope decision; it has not been removed from the goal.
 
 Arrangement creation/reveal has separate native terminal, Bridge and ordinary drawer
 proof. The revised terminal map has [fresh native evidence](terminal-native-v2-proof.md).
-The latest full aggregate failed the existing Bridge annotation stress journey;
-focused terminal checks and lint passed. Neither this map nor those focused results
+The current-head full aggregate passed at `10383d28f` after merging `origin/main`
+and correcting an upstream test to await queued zoom creation. Neither this map nor those focused results
 claim sidebar completion or PR readiness.
