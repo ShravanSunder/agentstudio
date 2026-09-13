@@ -20,17 +20,42 @@ struct AgentStudioIPCClientMain {
                 return
             }
             let descriptors: [IPCAnyMethodDescriptor]
+            var commandCatalog: IPCDiscoveredCommandCatalog?
             if bootstrap.contains(where: { $0.metadata.name == global.methodArguments.first }) {
                 descriptors = bootstrap
             } else {
-                descriptors = try IPCBuiltInMethodCatalog.matchingDiscoveredMethods(
-                    discoveryClient.discoverCatalog(), examples: examples
-                )
+                let catalog = try discoveryClient.discoverCatalog()
+                if global.methodArguments.first == "command.list" || global.methodArguments.first == "command.execute" {
+                    let discovery = try IPCCommandDiscovery(methodCatalog: catalog)
+                    let listClient = AgentStudioIPCClient(
+                        configuration: global.configuration, descriptors: [discovery.commandListInvocation.descriptor])
+                    guard case .success(let response) = try listClient.call(discovery.commandListInvocation) else {
+                        throw CLIExit.rejected
+                    }
+                    let commands = try discovery.decodeCommandCatalog(from: response.normalizedResult)
+                    if global.methodArguments.first == "command.list" {
+                        _ = try AgentStudioIPCClientArguments.parseMethod(
+                            global, descriptors: [discovery.commandListInvocation.descriptor],
+                            correlationIDGenerator: { UUIDv7.generate() }, standardInputProvider: readInput)
+                        try write(response.normalizedResult)
+                        return
+                    }
+                    commandCatalog = commands
+                    descriptors = [commands.executeDescriptor]
+                } else {
+                    descriptors = try IPCBuiltInMethodCatalog.matchingDiscoveredMethods(catalog, examples: examples)
+                }
             }
-            let invocation = try AgentStudioIPCClientArguments.parseMethod(
+            var invocation = try AgentStudioIPCClientArguments.parseMethod(
                 global, descriptors: descriptors, correlationIDGenerator: { UUIDv7.generate() },
                 standardInputProvider: readInput
             ).descriptorInvocation
+            if let commandCatalog {
+                let request = try JSONDecoder().decode(
+                    IPCCommandExecutionRequest.self, from: invocation.normalizedParameters)
+                invocation = try commandCatalog.makeInvocation(
+                    commandId: request.commandId, correlationId: request.correlationId, arguments: request.arguments)
+            }
             let client = AgentStudioIPCClient(configuration: global.configuration, descriptors: descriptors)
             if invocation.descriptor.metadata.responseDelivery == .subscription {
                 try client.stream(invocation) { frame in
@@ -43,6 +68,9 @@ struct AgentStudioIPCClientMain {
             } else {
                 switch try client.call(invocation) {
                 case .success(let response):
+                    if let commandCatalog {
+                        _ = try commandCatalog.decodeResult(response.normalizedResult, for: invocation)
+                    }
                     if case .model(let presentation) = invocation.presentation, !presentation.showsDetail {
                         print(presentation.successReply)
                     } else {

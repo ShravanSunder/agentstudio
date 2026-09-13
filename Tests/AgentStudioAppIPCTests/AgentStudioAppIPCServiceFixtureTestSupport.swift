@@ -34,6 +34,7 @@ struct LiveServerFixture {
         commandPort: any AppIPCCommandPort = FakeCommandPort(),
         uiPresentationPort: any AppIPCUIPresentationPort = FakeUIPresentationPort(),
         sidebarPort: any AppIPCSidebarPort = FakeSidebarPort(),
+        commandComposition: IPCCommandMethodComposition? = nil,
         debugTokenEscrowEnabled: Bool = false,
         debugTokenEscrowPermissionScopes: [IPCPermissionScope] = []
     ) throws {
@@ -61,7 +62,7 @@ struct LiveServerFixture {
             runtimeId: runtimeId,
             paneId: panes.first?.id ?? boundPaneId
         )
-        let registrations = try AppIPCBuiltInMethodRegistrations.make(
+        var registrations = try AppIPCBuiltInMethodRegistrations.make(
             inputs: AppIPCBuiltInRegistrationInputs(
                 catalog: catalog,
                 runtimeId: runtimeId,
@@ -69,6 +70,12 @@ struct LiveServerFixture {
                 eventBroker: eventBroker
             )
         )
+        if let commandComposition {
+            registrations += try AppIPCCommandMethodRegistrations.make(
+                composition: commandComposition,
+                port: commandPort
+            )
+        }
         let methodRegistry = try AppIPCMethodRegistry(registrations: registrations, channel: channel)
         let service = AgentStudioAppIPCService(
             configuration: AgentStudioAppIPCConfiguration(

@@ -521,6 +521,7 @@ let package = Package(
             dependencies: [
                 "AgentStudio",
                 "AgentStudioAppIPC",
+                "AgentStudioIPCClientCore",
                 "AgentStudioIPCTransport",
                 "AgentStudioProgrammaticControl",
                 "AgentStudioInfrastructure",
