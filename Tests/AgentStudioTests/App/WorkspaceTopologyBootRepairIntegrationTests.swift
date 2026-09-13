@@ -90,8 +90,8 @@ struct WorkspaceTopologyBootRepairIntegrationTests {
         #expect(reloadedStore.pane(fixture.danglingPaneID)?.residency == .active)
     }
 
-    @Test("boot association sweep retains a known pair while its repository is unavailable")
-    func bootAssociationSweepRetainsKnownPairDuringTemporaryUnavailability() async throws {
+    @Test("boot association sweep clears optional facets while its repository is unavailable")
+    func bootAssociationSweepClearsKnownPairDuringTemporaryUnavailability() async throws {
         let fixture = try await WorkspacePaneAssociationBootFixture.make(
             unavailableKnownAssociation: true
         )
@@ -104,24 +104,24 @@ struct WorkspaceTopologyBootRepairIntegrationTests {
 
         let retainedFacets = store.paneAtom.graphAtom
             .paneState(fixture.legacyPaneID)?.durableContextFacets
-        #expect(retainedFacets?.repoId == fixture.repositoryID)
-        #expect(retainedFacets?.worktreeId == fixture.worktreeID)
+        #expect(retainedFacets?.repoId == nil)
+        #expect(retainedFacets?.worktreeId == nil)
         #expect(
             summaries == [
                 PaneAssociationBootReconciliationSummary(
                     paneCount: 2,
-                    retainedKnownCount: 1,
+                    retainedKnownCount: 0,
                     backfilledCount: 0,
-                    danglingClearedCount: 1,
+                    danglingClearedCount: 2,
                     freeNilCount: 0,
-                    changedCount: 1
+                    changedCount: 2
                 )
             ]
         )
     }
 
-    @Test("boot association sweep retains a known pair when unavailable topology omits its worktree")
-    func bootAssociationSweepRetainsKnownPairWhenUnavailableWorktreeIsOmitted() async throws {
+    @Test("boot association sweep clears optional facets when unavailable topology omits its worktree")
+    func bootAssociationSweepClearsKnownPairWhenUnavailableWorktreeIsOmitted() async throws {
         let fixture = try await WorkspacePaneAssociationBootFixture.make(
             unavailableKnownAssociation: true,
             omitUnavailableWorktree: true
@@ -135,17 +135,17 @@ struct WorkspaceTopologyBootRepairIntegrationTests {
 
         let retainedFacets = store.paneAtom.graphAtom
             .paneState(fixture.legacyPaneID)?.durableContextFacets
-        #expect(retainedFacets?.repoId == fixture.repositoryID)
-        #expect(retainedFacets?.worktreeId == fixture.worktreeID)
+        #expect(retainedFacets?.repoId == nil)
+        #expect(retainedFacets?.worktreeId == nil)
         #expect(
             summaries == [
                 PaneAssociationBootReconciliationSummary(
                     paneCount: 2,
-                    retainedKnownCount: 1,
+                    retainedKnownCount: 0,
                     backfilledCount: 0,
-                    danglingClearedCount: 1,
+                    danglingClearedCount: 2,
                     freeNilCount: 0,
-                    changedCount: 1
+                    changedCount: 2
                 )
             ]
         )
@@ -182,9 +182,9 @@ struct WorkspaceTopologyBootRepairIntegrationTests {
         )
     }
 
-    @Test("exact-root repair persists and heals CWD-derived pane association after degraded boot")
+    @Test("exact-root repair persists and heals CWD-derived association after migrated unavailable boot")
     func exactRootRepairPersistsAndHealsDerivedAssociation() async throws {
-        // Arrange: persist a production-shaped workspace whose repository has no root worktree.
+        // Arrange: persist the unconfirmed unavailable state produced by the legacy missing-main migration.
         let fixture = try await WorkspaceTopologyBootRepairFixture.make()
         defer { fixture.removeTemporaryFiles() }
         var bootReasons: [PaneTopologyPersistenceReason] = []
@@ -219,7 +219,8 @@ struct WorkspaceTopologyBootRepairIntegrationTests {
         #expect(topologyAtom.repoAndWorktree(containing: fixture.paneCWD) == nil)
         #expect(workspaceStore.pane(fixture.paneID)?.repoId == nil)
         #expect(workspaceStore.pane(fixture.paneID)?.worktreeId == nil)
-        #expect(bootReasons.count(where: { $0 == .topologyRestoreMissingMainDegraded }) == 1)
+        #expect(topologyAtom.absenceRecords.repositories[fixture.repositoryID] == .unconfirmed)
+        #expect(!bootReasons.contains(.topologyRestoreMissingMainDegraded))
         try await fixture.assertPersistedTopologyIsDegraded()
 
         // Act: validate the exact root and compose repair through the production owners.
@@ -247,7 +248,7 @@ struct WorkspaceTopologyBootRepairIntegrationTests {
             scopeSyncHandler: { _ in }
         )
         guard
-            case .accepted = cacheCoordinator.reassociateRepo(
+            case .accepted = await cacheCoordinator.reassociateRepo(
                 repoId: fixture.repositoryID,
                 to: RepoScanner.canonicalURL(fixture.repositoryPath),
                 discoveredWorktrees: repairedWorktrees
@@ -518,8 +519,25 @@ private struct WorkspacePaneAssociationBootFixture {
                     ],
                 unavailableRepoIds: unavailableKnownAssociation ? [repositoryID] : [],
                 updatedAt: Date(timeIntervalSince1970: 1_700_400_002)
-            )
+            ), captureRevision: 1)
+        // Seed legacy disk state directly: current writes deliberately reject these stale facets.
+        let legacyDatabase = try SQLiteDatabaseFactory.makeFileBackedPool(
+            at: coreDatabaseURL, label: "AgentStudio.sqlite.legacy-pane-facet-fixture"
         )
+        defer { try? legacyDatabase.close() }
+        try await legacyDatabase.write { database in
+            for pane in [legacyPane, danglingPane] {
+                try database.execute(
+                    sql: "UPDATE pane SET facet_repo_id = ?, facet_worktree_id = ? WHERE id = ?",
+                    arguments: [
+                        pane.metadata.facets.repoId?.uuidString,
+                        pane.metadata.facets.worktreeId?.uuidString,
+                        pane.id.uuidString,
+                    ]
+                )
+            }
+        }
+
     }
 }
 
@@ -681,10 +699,11 @@ private struct WorkspaceTopologyBootRepairFixture {
                         note: "linked worktree survives repair"
                     )
                 ],
-                unavailableRepoIds: [],
+                // A linked-only family is valid after main-location collection. Legacy degradation
+                // is represented by its migrated unavailable marker, not inferred from this shape.
+                unavailableRepoIds: [repositoryID],
                 updatedAt: Date(timeIntervalSince1970: 1_700_300_002)
-            )
-        )
+            ), captureRevision: 1)
     }
 
     private func makeWorkspaceSnapshot() -> WorkspaceSQLiteSnapshot {

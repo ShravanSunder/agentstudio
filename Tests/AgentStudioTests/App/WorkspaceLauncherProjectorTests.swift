@@ -4,11 +4,48 @@ import Testing
 @testable import AgentStudio
 @testable import AgentStudioCore
 @testable import AgentStudioInboxNotification
+@testable import AgentStudioInfrastructure
 @testable import AgentStudioTestSupport
 
 @Suite(.serialized)
 @MainActor
 struct WorkspaceLauncherProjectorTests {
+    @Test(
+        "recent cards omit hidden checkouts and use the same available default as activation", arguments: [true, false])
+    func recentCardsRespectCheckoutAvailability(hideMain: Bool) throws {
+        try withWorkspaceLauncherAtomRegistry { atoms in
+            let store = makeStore(atoms: atoms)
+            let repo = store.addRepo(at: URL(fileURLWithPath: "/tmp/launcher-checkout-availability"))
+            let main = try #require(repo.worktrees.first)
+            let linked = Worktree(
+                id: UUIDv7.generate(), repoId: repo.id, name: "linked", path: repo.repoPath.appending(path: "linked"))
+            _ = store.mutationCoordinator.reconcileDiscoveredWorktrees(repo.id, worktrees: [main, linked])
+            try atoms.core.applicationEntityRecency.recordOpened(
+                repositoryStableKey: repo.stableKey, worktreeStableKey: main.stableKey,
+                at: Date(timeIntervalSince1970: 800))
+            try recordWorktreeRecency(atoms: atoms, worktree: linked)
+            let hidden = hideMain ? main : linked
+            #expect(
+                store.mutationCoordinator.recordWorktreeAbsence(
+                    hidden.id,
+                    at: .init(utc: Date(timeIntervalSince1970: 1000), bootID: "fixture", uptimeNanoseconds: 1)))
+
+            let result = WorkspaceLauncherProjector.project(store: store)
+
+            #expect(result.recentCards.count == 2)
+            #expect(!result.recentEntities.contains(.worktree(worktreeStableKey: hidden.stableKey)))
+            let repositoryCard = try #require(
+                result.recentCards.first {
+                    $0.target == .repository(repositoryStableKey: repo.stableKey)
+                })
+            #expect(repositoryCard.icon == (hideMain ? .gitWorktree : .mainWorktree))
+            #expect(
+                WorkspaceLauncherProjector.resolveActivationWorktree(
+                    target: repositoryCard.target, repositoryTopology: store.repositoryTopologyAtom)?.id
+                    == (hideMain ? linked.id : main.id))
+        }
+    }
+
     init() {
         installTestCoreAtomsIfNeeded()
     }
@@ -397,6 +434,7 @@ struct WorkspaceLauncherProjectorTests {
             let recencyCountBeforePrune = atoms.core.applicationEntityRecency.recentEntities.count
             WorkspaceLauncherProjector.pruneStaleTarget(
                 staleTarget,
+                repositoryTopology: store.repositoryTopologyAtom,
                 applicationRecency: atoms.core.applicationEntityRecency
             )
 
@@ -415,8 +453,9 @@ struct WorkspaceLauncherProjectorTests {
             try atoms.core.applicationEntityRecency.recordOpened(
                 repositoryStableKey: repository.stableKey,
                 worktreeStableKey: worktree.stableKey,
-                at: Date(timeIntervalSince1970: 800)
+                at: Date()
             )
+            let retainedRecency = atoms.core.applicationEntityRecency.recentEntities
             store.markRepoUnavailable(repository.id)
 
             let result = WorkspaceLauncherProjector.project(
@@ -434,6 +473,14 @@ struct WorkspaceLauncherProjectorTests {
             #expect(result.recentCards.isEmpty)
             #expect(repositoryActivation == nil)
             #expect(worktreeActivation == nil)
+            for record in retainedRecency {
+                WorkspaceLauncherProjector.pruneStaleTarget(
+                    record.entity, repositoryTopology: store.repositoryTopologyAtom,
+                    applicationRecency: atoms.core.applicationEntityRecency)
+            }
+            #expect(atoms.core.applicationEntityRecency.recentEntities == retainedRecency)
+            #expect(store.mutationCoordinator.restoreObservedWorktrees([worktree.id]))
+            #expect(!WorkspaceLauncherProjector.project(store: store).recentCards.isEmpty)
         }
     }
 }

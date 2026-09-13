@@ -79,11 +79,7 @@ struct FilesystemGitPipelineDemandIntegrationTests {
         await gitClock.waitForPendingSleepCount(atLeast: 1)
         gitClock.advance(by: AppPolicies.GitRefresh.visibilityChangeCoalescingWindow)
         await pipeline.waitForRepositoryFactDemandAdmission()
-        await pipeline.register(
-            worktreeId: worktree.id,
-            repoId: repository.id,
-            rootPath: rootPath
-        )
+        await registerAndAssertCanonicalTopology(workspaceStore: workspaceStore, pipeline: pipeline)
         await gitClock.waitForPendingSleepCount(atLeast: 1)
         gitClock.advance(by: refreshPolicy.backgroundCadence)
 
@@ -192,9 +188,9 @@ struct FilesystemGitPipelineDemandIntegrationTests {
 
         await cacheCoordinator.startConsuming()
         await pipeline.start()
+        await registerAndAssertCanonicalTopology(workspaceStore: workspaceStore, pipeline: pipeline)
         demandCoordinator.accept(initialDemand)
         await demandCoordinator.waitUntilIdle()
-        await pipeline.register(worktreeId: worktreeId, repoId: repository.id, rootPath: rootPath)
 
         let allFactsArrived = await eventually("local, remote-reference, and Forge facts should settle") {
             let remoteFetchCallCount = await remoteReferenceProvider.currentStageFetchCallCount()
@@ -292,6 +288,47 @@ struct FilesystemGitPipelineDemandIntegrationTests {
         #expect(context.repoCache.worktreeEnrichment(for: context.worktreeId)?.branch == "main")
         #expect(context.repoCache.pullRequestFactsForTest(worktreeId: context.worktreeId)?.openCount == 1)
         return sourceCallsAfterAttentionChange
+    }
+
+    private func registerAndAssertCanonicalTopology(
+        workspaceStore: WorkspaceStore,
+        pipeline: FilesystemGitPipeline
+    ) async {
+        let topology = workspaceStore.repositoryTopologyAtom
+        let canonicalRepositories = topology.repos
+        for repository in canonicalRepositories {
+            for worktree in repository.worktrees {
+                await pipeline.register(
+                    worktreeId: worktree.id,
+                    repoId: repository.id,
+                    rootPath: worktree.path
+                )
+            }
+        }
+        await pipeline.assertTopology(
+            FilesystemTopologyAssertion(
+                generation: topology.worktreePathIndexGeneration,
+                contextsByWorktreeId: Dictionary(
+                    uniqueKeysWithValues: canonicalRepositories.flatMap { repository in
+                        repository.worktrees.map { worktree in
+                            (
+                                worktree.id,
+                                WorktreeFilesystemContext(repoId: repository.id, rootPath: worktree.path)
+                            )
+                        }
+                    }
+                ),
+                repositoryStableKeysByWorktreeId: Dictionary(
+                    uniqueKeysWithValues: canonicalRepositories.flatMap { repository in
+                        repository.worktrees.map { worktree in
+                            (worktree.id, repository.stableKey)
+                        }
+                    }
+                ),
+                repositoryLifetimes: topology.repositoryObservationLifetimes,
+                worktreeLifetimes: topology.worktreeObservationLifetimes
+            )
+        )
     }
 
     private func expectCompleteSidebarBaseline(

@@ -5,6 +5,7 @@ import Foundation
 /// Tracks registrations/unregistrations and lets tests inject batches explicitly.
 package final class ControllableFSEventStreamClient: FSEventStreamClient, @unchecked Sendable {
     private let lock = NSLock()
+    private var activeIds = Set<UUID>()
     private var registeredIds: [UUID] = []
     private var unregisteredIds: [UUID] = []
     private var continuation: AsyncStream<FSEventIngressItem>.Continuation?
@@ -22,6 +23,8 @@ package final class ControllableFSEventStreamClient: FSEventStreamClient, @unche
         self.stream = stream
         self.continuation = continuation
     }
+
+    package var activeWorktreeIds: Set<UUID> { lock.withLock { activeIds } }
 
     package var registeredWorktreeIds: [UUID] {
         lock.withLock { registeredIds }
@@ -63,7 +66,7 @@ package final class ControllableFSEventStreamClient: FSEventStreamClient, @unche
     package func sendOverflowRecovery(
         worktreeId: UUID,
         paths: Set<String>? = nil,
-        containsGitTopologyPath: Bool = false,
+        requiresWatchedFolderScan: Bool = false,
         requiresFullGitRefresh: Bool = false
     ) {
         lock.withLock {
@@ -74,8 +77,8 @@ package final class ControllableFSEventStreamClient: FSEventStreamClient, @unche
             overflowRecoveryByWorktreeId[worktreeId] = FSEventOverflowRecovery(
                 worktreeId: worktreeId,
                 paths: existing?.paths == nil && existing != nil ? nil : mergedPaths,
-                containsGitTopologyPath: existing?.containsGitTopologyPath == true
-                    || containsGitTopologyPath,
+                requiresWatchedFolderScan: existing?.requiresWatchedFolderScan == true
+                    || requiresWatchedFolderScan,
                 requiresFullGitRefresh: existing?.requiresFullGitRefresh == true
                     || requiresFullGitRefresh
             )
@@ -115,13 +118,17 @@ package final class ControllableFSEventStreamClient: FSEventStreamClient, @unche
             nextRegistrationOutcome = .observing
             if outcome == .observing {
                 registeredIds.append(worktreeId)
+                activeIds.insert(worktreeId)
             }
             return outcome
         }
     }
 
     package func unregister(worktreeId: UUID) {
-        lock.withLock { unregisteredIds.append(worktreeId) }
+        lock.withLock {
+            unregisteredIds.append(worktreeId)
+            activeIds.remove(worktreeId)
+        }
     }
 
     package func shutdown() {

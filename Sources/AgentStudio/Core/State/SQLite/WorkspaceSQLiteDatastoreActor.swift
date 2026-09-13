@@ -37,6 +37,9 @@ package actor WorkspaceSQLiteDatastoreActor {
     // Accessed by the datastore persistence-order extension; never exposed outside Core.
     var workspaceSaveTail: Task<Void, Error>?
     var workspaceSaveTailGeneration: UInt64 = 0
+    var repositoryLocalCleanupPending = true
+    var retentionSurvivingIdentity: RepositoryRetentionSurvivingIdentity?
+    var acceptedRepositoryTopologyCaptureRevision: UInt64?
     var acceptedWorkspaceCaptureRevisions: [UUID: WorkspaceCompositionRevision] = [:]
     var failedStructuralWorkspaceIDs = Set<UUID>()
 
@@ -146,8 +149,8 @@ package actor WorkspaceSQLiteDatastoreActor {
         _ bundle: WorkspaceSQLiteSaveBundle,
         undoChange: WorkspaceUndoJournalChange?
     ) async throws -> WorkspaceUndoJournalReceipt? {
-        let snapshot = bundle.workspace
-        try validateWorkspaceCapture(bundle)
+        let admittedBundle = try workspaceBundleAdmittedForCurrentTopologyContext(bundle)
+        let snapshot = admittedBundle.workspace
         await recordProbe(.saveWorkspaceSnapshot)
         var failurePhase = WorkspaceSQLiteTracePhase.openCore
         var failureDatabase: WorkspaceSQLiteTraceDatabase? = .core
@@ -178,8 +181,8 @@ package actor WorkspaceSQLiteDatastoreActor {
                 try requireJournalMutationAdmission(reconciling: snapshot.id)
             }
             journalReceipt = try backend.replaceWorkspaceSnapshot(
-                bundle, updatesActiveSelection: true, undoChange: undoChange)
-            if let revision = bundle.captureRevision {
+                admittedBundle, updatesActiveSelection: true, undoChange: undoChange)
+            if let revision = admittedBundle.captureRevision {
                 acceptedWorkspaceCaptureRevisions[snapshot.id] = revision
             }
             failedStructuralWorkspaceIDs.remove(snapshot.id)
@@ -409,10 +412,6 @@ package actor WorkspaceSQLiteDatastoreActor {
         }
     }
 
-    func saveRepositoryTopologySnapshot(_ snapshot: RepositoryTopologySQLiteSnapshot) async throws {
-        try resolvedBackend().replaceRepositoryTopologySnapshot(snapshot)
-    }
-
     func selectActiveWorkspace(_ workspaceId: UUID, updatedAt: Date) async throws {
         try resolvedBackend().selectActiveWorkspace(workspaceId, updatedAt: updatedAt)
     }
@@ -420,7 +419,7 @@ package actor WorkspaceSQLiteDatastoreActor {
     func loadRepoCacheState() async -> LocalCacheLoadResult {
         do {
             let repository = try preparedApplicationLocalRepository()
-            return .loaded(try repository.fetchCacheState())
+            return .loaded(filterRetiredCacheState(try repository.fetchCacheState()))
         } catch {
             return .unavailable(.init(error))
         }
@@ -437,10 +436,21 @@ package actor WorkspaceSQLiteDatastoreActor {
             workspaceId: nil,
             database: .local
         )
+        guard !Task.isCancelled else {
+            await traceRecorder.recordOperation(
+                .repoCacheSave,
+                phase: .writeLocal,
+                lane: .repoCache,
+                outcome: .skipped,
+                workspaceId: nil,
+                database: .local
+            )
+            throw CancellationError()
+        }
         let repository = try preparedApplicationLocalRepository()
         do {
             let updatedAt = Date()
-            try repository.replaceCacheState(cacheState: cacheState, updatedAt: updatedAt)
+            try repository.replaceCacheState(cacheState: filterRetiredCacheState(cacheState), updatedAt: updatedAt)
             await traceRecorder.recordOperation(
                 .repoCacheSave,
                 phase: .writeLocal,
@@ -589,36 +599,6 @@ package actor WorkspaceSQLiteDatastoreActor {
         } catch {
             return .defaulted(.init(error))
         }
-    }
-
-    func loadApplicationEntityRecency() async -> ApplicationEntityRecencyLoadResult {
-        do {
-            let repository = try preparedApplicationLocalRepository()
-            return .loaded(try repository.fetchApplicationEntityRecency())
-        } catch {
-            return .unavailable(.init(error))
-        }
-    }
-
-    func saveApplicationEntityRecency(_ recentEntities: [ApplicationEntityRecency]) async throws {
-        let repository = try preparedApplicationLocalRepository()
-        try repository.replaceApplicationEntityRecency(recentEntities)
-    }
-
-    func loadRepositoryLocalActivity() async -> RepositoryLocalActivityLoadResult {
-        do {
-            let repository = try preparedApplicationLocalRepository()
-            return .loaded(try repository.fetchRepositoryLocalActivitySnapshot())
-        } catch {
-            return .unavailable(.init(error))
-        }
-    }
-
-    func commitRepositoryLocalActivity(
-        _ commit: RepositoryLocalActivityCommit
-    ) async throws -> RepositoryLocalActivitySnapshot {
-        let repository = try preparedApplicationLocalRepository()
-        return try repository.commitRepositoryLocalActivity(commit)
     }
 
     func loadWorkspaceEntityRecency(workspaceId: UUID) async -> WorkspaceEntityRecencyLoadResult {
@@ -975,7 +955,7 @@ extension WorkspaceSQLiteDatastoreActor {
         }
     }
 
-    private func preparedApplicationLocalRepository() throws -> WorkspaceLocalRepository {
+    func preparedApplicationLocalRepository() throws -> WorkspaceLocalRepository {
         guard case .prepared(let receipt) = databasePreparationState else {
             throw WorkspaceSQLiteDatastoreError.databasesNotPrepared
         }

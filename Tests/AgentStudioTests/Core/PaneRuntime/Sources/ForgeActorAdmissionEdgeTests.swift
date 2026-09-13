@@ -194,18 +194,24 @@ struct ForgeActorAdmissionEdgeTests {
                 )
             )
         )
-        await Task.yield()
+        #expect(await fixture.events.waitForBranchInvalidation(repoId: repoId, branch: "main"))
+        await fixture.clock.waitForPendingSleepCount(exactly: 0)
+        let hasNoDeadlineCandidates = await fixture.actor.deadlineCandidates().isEmpty
+        #expect(hasNoDeadlineCandidates)
+        guard hasNoDeadlineCandidates else {
+            await fixture.actor.shutdown()
+            await fixture.stopObserving()
+            return
+        }
         let scheduledSleepGeneration = fixture.clock.scheduledSleepGeneration
 
         fixture.advance(by: AppPolicies.Forge.automaticRefreshMinimumInterval)
-        for _ in 0..<1000 where fixture.clock.scheduledSleepGeneration == scheduledSleepGeneration {
-            await Task.yield()
-        }
 
         #expect(fixture.clock.scheduledSleepGeneration == scheduledSleepGeneration)
         #expect(fixture.clock.pendingSleepCount == 0)
         #expect(await fixture.provider.callCount == 1)
 
+        await fixture.provider.resolveIfPresent(callAt: 1, with: .failed(message: "test cleanup"))
         await fixture.actor.shutdown()
         await fixture.stopObserving()
     }

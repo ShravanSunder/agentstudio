@@ -149,8 +149,8 @@ struct WorkspacePersistenceTransformerTests {
         #expect(reasons == [.topologyRestoreMainRoleRepaired])
     }
 
-    @Test("topology restore marks a repository without a root worktree unavailable")
-    func topologyRestoreMarksMissingRootWorktreeUnavailable() async {
+    @Test("topology restore preserves a valid linked-only family after its main location is collected")
+    func topologyRestorePreservesLinkedOnlyFamily() async {
         let repositoryID = UUIDv7.generate()
         let repositoryPath = URL(filePath: "/tmp/agent-studio-missing-main")
         let snapshot = RepositoryTopologySQLiteSnapshot(
@@ -176,8 +176,12 @@ struct WorkspacePersistenceTransformerTests {
             Issue.record("Expected degraded stored topology to remain loadable")
             return
         }
-        #expect(replacement.unavailableRepositoryIDs.contains(repositoryID))
-        #expect(reasons == [.topologyRestoreMissingMainDegraded])
+        #expect(!replacement.unavailableRepositoryIDs.contains(repositoryID))
+        #expect(reasons.isEmpty)
+        #expect(replacement.repositories.first?.repoPath == repositoryPath)
+        let topology = RepositoryTopologyReadSnapshot(replacement: replacement)
+        #expect(topology.repoAndWorktree(containing: URL(filePath: "/tmp/agent-studio-missing-main-linked")) != nil)
+        #expect(topology.repoAndWorktree(containing: repositoryPath) == nil)
     }
 
     @Test("topology restore discards every ambiguous root while preserving linked worktrees")

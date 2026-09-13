@@ -6,6 +6,70 @@ import Testing
 
 @Suite("Development Review refresh supersession", .timeLimit(.minutes(1)))
 struct BridgeDevelopmentReviewRefreshSupersessionTests {
+    @Test("cancelled unreserved failure cannot overwrite a pending Review attempt")
+    func cancelledUnreservedFailureCannotOverwritePendingReviewAttempt() async throws {
+        // Arrange — the current generation is pending before stale unreserved work finishes.
+        let repositoryURL = try FilesystemTestGitRepo.create(
+            named: "development-review-cancelled-unreserved-failure"
+        )
+        defer { FilesystemTestGitRepo.destroy(repositoryURL) }
+        let host = try await BridgeDevelopmentProductHost(
+            source: makeDevelopmentProductSource(worktreeRoot: repositoryURL),
+            contributionTargetCommit: developmentContributionTargetCommit(
+                worktreeRoot: repositoryURL
+            ),
+            makeReviewProvider: { _, _ in BridgeDevelopmentSharedConstructionReviewProvider() }
+        )
+
+        try await withShutdownDevelopmentProductHost(host) {
+            let reviewGeneration = await host.nextReviewGeneration
+            let refreshAdmissionCoordinator = await host.refreshAdmissionCoordinator
+            await MainActor.run {
+                refreshAdmissionCoordinator.beginReviewComparisonAttempt(
+                    activeTarget: .ref(name: "HEAD"),
+                    reviewGeneration: reviewGeneration.rawValue
+                )
+            }
+            #expect(
+                await host.diagnosticPanePresentation().reviewComparison?.attempt
+                    == .pending(reviewGeneration: reviewGeneration.rawValue)
+            )
+
+            // Act — reproduce stale unreserved preparation failure with cancellation already set.
+            let cancelledFailure = Task {
+                withUnsafeCurrentTask { task in
+                    task?.cancel()
+                }
+                return await host.failReviewComparisonAttempt(
+                    reviewGeneration,
+                    failureKind: "publication_failed",
+                    refreshReservation: nil
+                )
+            }
+            let didPublishFailure = await cancelledFailure.value
+
+            // Assert — cancelled work cannot publish failure over the current pending generation.
+            #expect(!didPublishFailure)
+            #expect(
+                await host.diagnosticPanePresentation().reviewComparison?.attempt
+                    == .pending(reviewGeneration: reviewGeneration.rawValue)
+            )
+
+            // A current, uncancelled failure must still reach the presentation owner.
+            #expect(
+                await host.failReviewComparisonAttempt(
+                    reviewGeneration,
+                    failureKind: "publication_failed",
+                    refreshReservation: nil
+                )
+            )
+            #expect(
+                await host.diagnosticPanePresentation().reviewComparison?.attempt
+                    == .unavailable(failureKind: "publication_failed", retryable: true)
+            )
+        }
+    }
+
     @Test("cancelled same-lineage refresh cannot fail its pending successor")
     func cancelledSameLineageRefreshCannotFailPendingSuccessor() async throws {
         // Arrange — an installed, nonempty Review takes the same-lineage refresh path.
