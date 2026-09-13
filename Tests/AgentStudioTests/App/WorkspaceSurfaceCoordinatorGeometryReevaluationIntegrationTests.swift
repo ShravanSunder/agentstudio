@@ -76,6 +76,21 @@ struct WorkspaceGeometryReevaluationIntegrationTests {
         )
     }
 
+    private func withGeometryReevaluationHarness<TResult>(
+        _ operation: @MainActor (Harness) async throws -> TResult
+    ) async throws -> TResult {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+        do {
+            let result = try await operation(harness)
+            await harness.coordinator.shutdown()
+            return result
+        } catch {
+            await harness.coordinator.shutdown()
+            throw error
+        }
+    }
+
     /// Bounded state wait for the scheduler's supplemental drain — spawned by
     /// `TerminalActivationScheduler.acceptLaterGeometry` as an unstructured
     /// `Task` the reevaluation tail never awaits — to reach the effect under
@@ -147,6 +162,90 @@ struct WorkspaceGeometryReevaluationIntegrationTests {
             harness.viewRegistry.preparedContentMountState(for: hiddenPaneID, generation: mounted.generation)
                 == .completed(owner: .terminal, disposition: .failed)
         )
+    }
+
+    @Test
+    func revealingADeferredTabHydratesFromExistingSafeGeometryWithoutAWindowLayoutCallback() async throws {
+        let mounted = try await withGeometryReevaluationHarness { harness in
+            let repo = harness.store.addRepo(at: harness.tempDir)
+            let worktree = try #require(repo.worktrees.first)
+            let activePane = harness.store.createPane(
+                launchDirectory: worktree.path,
+                provider: .zmx,
+                facets: PaneContextFacets(repoId: repo.id, worktreeId: worktree.id, cwd: worktree.path)
+            )
+            let deferredPane = harness.store.createPane(
+                launchDirectory: worktree.path,
+                provider: .zmx,
+                facets: PaneContextFacets(repoId: repo.id, worktreeId: worktree.id, cwd: worktree.path)
+            )
+            let unrelatedDeferredPane = harness.store.createPane(
+                launchDirectory: worktree.path,
+                provider: .zmx,
+                facets: PaneContextFacets(repoId: repo.id, worktreeId: worktree.id, cwd: worktree.path)
+            )
+            let activeTab = Tab(paneId: activePane.id, name: "Active")
+            let deferredTab = Tab(paneId: deferredPane.id, name: "Deferred")
+            let unrelatedTab = Tab(paneId: unrelatedDeferredPane.id, name: "Unrelated")
+            harness.store.appendTab(activeTab)
+            harness.store.appendTab(deferredTab)
+            harness.store.appendTab(unrelatedTab)
+            harness.store.setActiveTab(activeTab.id)
+            harness.windowLifecycleStore.recordTerminalContainerBounds(trustedBounds)
+
+            let mounted = try await mountGeometryReevaluationCohort(
+                coordinator: harness.coordinator,
+                viewRegistry: harness.viewRegistry,
+                entries: [
+                    (activePane, .activeVisible, .tab(tabID: activeTab.id)),
+                    (deferredPane, .hidden, .tab(tabID: deferredTab.id)),
+                    (unrelatedDeferredPane, .hidden, .tab(tabID: unrelatedTab.id)),
+                ],
+                eligiblePaneIDs: [PaneId(existingUUID: activePane.id)],
+                trustedBounds: trustedBounds
+            )
+            let deferredPaneID = PaneId(existingUUID: deferredPane.id)
+            let unrelatedDeferredPaneID = PaneId(existingUUID: unrelatedDeferredPane.id)
+            #expect(
+                harness.viewRegistry.preparedContentMountState(for: deferredPaneID, generation: mounted.generation)
+                    == .deferredGeometry(owner: .terminal)
+            )
+            #expect(
+                harness.viewRegistry.preparedContentMountState(
+                    for: unrelatedDeferredPaneID,
+                    generation: mounted.generation
+                ) == .deferredGeometry(owner: .terminal)
+            )
+            #expect(harness.surfaceManager.createdPaneIds.contains(deferredPane.id) == false)
+            #expect(harness.surfaceManager.createdPaneIds.contains(unrelatedDeferredPane.id) == false)
+
+            let originalGeometryReevaluationHandler = harness.coordinator.preparedTerminalGeometryReevaluationHandler
+            var reevaluatedPaneIDs: Set<PaneId> = []
+            harness.coordinator.preparedTerminalGeometryReevaluationHandler = { framesByPaneID in
+                reevaluatedPaneIDs.formUnion(framesByPaneID.keys)
+                await originalGeometryReevaluationHandler(framesByPaneID)
+            }
+
+            harness.store.setActiveTab(deferredTab.id)
+            harness.coordinator.restoreViewsForActiveTabIfNeeded(forceWhenBoundsExist: true)
+            await waitUntil { harness.surfaceManager.createdPaneIds.filter { $0 == deferredPane.id }.count == 2 }
+
+            #expect(harness.surfaceManager.createdPaneIds.filter { $0 == deferredPane.id }.count == 2)
+            #expect(
+                harness.viewRegistry.preparedContentMountState(for: deferredPaneID, generation: mounted.generation)
+                    == .completed(owner: .terminal, disposition: .failed)
+            )
+            #expect(reevaluatedPaneIDs == [deferredPaneID])
+            #expect(harness.surfaceManager.createdPaneIds.contains(unrelatedDeferredPane.id) == false)
+            #expect(
+                harness.viewRegistry.preparedContentMountState(
+                    for: unrelatedDeferredPaneID,
+                    generation: mounted.generation
+                ) == .deferredGeometry(owner: .terminal)
+            )
+            return mounted
+        }
+        withExtendedLifetime(mounted) {}
     }
 
     @Test

@@ -4332,6 +4332,10 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
     }
 
     func canExecute(_ command: AppCommand, target: UUID, targetType: SearchItemType) -> Bool {
+        if command == .pinPane || command == .unpinPane {
+            return canPinTargetedPane(paneId: target, targetType: targetType)
+        }
+
         if targetType == .tab {
             switch command {
             case .renameTab, .closeTab, .saveArrangement, .newFloatingTerminal:
@@ -4432,6 +4436,24 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         default:
             return false
         }
+    }
+
+    private func canPinTargetedPane(paneId: UUID, targetType: SearchItemType) -> Bool {
+        guard targetType == .pane else { return false }
+        // Pin validation needs owned-pane membership, not a workspace-wide snapshot.
+        // Retain the same tab-owned layout and drawer-child membership as knownPaneIds.
+        if let tabId = store.tabLayoutAtom.tabID(containingPane: paneId),
+            store.tabShellAtom.orderedTabIds.contains(tabId)
+        {
+            return true
+        }
+        guard
+            let parentPaneId = store.paneAtom.graphAtom.paneStructuralFacts(paneId)?.parentPaneID,
+            let tabId = store.tabLayoutAtom.tabID(containingPane: parentPaneId)
+        else {
+            return false
+        }
+        return store.tabShellAtom.orderedTabIds.contains(tabId)
     }
 
     func repoExplorerCommandCapabilities(
