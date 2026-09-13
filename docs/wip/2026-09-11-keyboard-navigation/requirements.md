@@ -26,7 +26,7 @@ proven fix or a definition of keyboard order.
 
 The owner subsequently authorized Program Design and independent review, then
 implementation of clear scope; independent settled sections may progress while
-questions are collected. No unresolved preview or numeric policy is silently
+questions are collected. Numeric activation is settled. Preview restoration is not silently
 selected by that delivery authority. New persistence,
 new pane sessions, or app-wide state machinery are not automatically authorized by
 preview. Existing command authority, focus ownership and feature boundaries apply.
@@ -41,8 +41,8 @@ are not promoted by appearing beside an authorized need.
 | --- | --- | --- |
 | U1 | Navigate with less hand effort and predictable feedback. | Authorized; current |
 | U3 | Separate sidebar visibility from choosing its Repos/Panes surface. | Authorized; current |
-| U4 | Enter sidebar keyboard navigation, reveal if hidden, and return to work. | Authorized; current; exact return edges proposed |
-| U5 | Navigate/filter rows and groups, including first-nine result shortcuts. | Authorized; current; row counting/live-update semantics proposed |
+| U4 | Enter sidebar keyboard navigation, reveal if hidden, and return to work. | Authorized; current; return defaults in Specification |
+| U5 | Navigate/filter rows and groups, including first-nine result shortcuts. | Authorized; current; counting/live-update defaults in Specification |
 | U6 | New panes appear in current arrangement and Default, without disturbing other custom arrangements. | Authorized; current |
 | U7 | Reach a visible target through current/custom/Default fallback and parent/drawer reveal. | Authorized; current |
 | U8 | Pin/unpin action by keyboard. | Authorized need; deferred action binding, distinct from U14 |
@@ -51,7 +51,7 @@ are not promoted by appearing beside an authorized need.
 | U11 | Reach repository file finder. | Authorized broader need; deferred; do not reinterpret F silently |
 | U12 | A coherent command/shortcut system. | Current sidebar/arrangement slice; broad restructuring deferred |
 | U13 | General visible follow-up action families. | Earlier assistant advisory proposal; not an app-wide requirement |
-| U14 | Option-Shift-Up/Down from terminal switches previous/next pinned pane. | Authorized; current; exact order/reach/wrap open |
+| U14 | Option-Shift-Up/Down from terminal switches previous/next pinned pane. | Authorized; current; ordering defaults in Specification |
 | U15 | Temporarily show a selected pane in Preview; Enter takes the user there. | Owner's latest request; current; hold-to-preview and release-to-cancel selected; detailed placement open |
 | U16 | Show sidebar keyboard ownership and contextual floating key hints within existing UI. | Authorized; current; exact visual/reveal details proposed |
 
@@ -72,7 +72,7 @@ thresholds or input-event telemetry.
 | Command-S | Show/hide sidebar; preserve selected surface |
 | Command-Shift-S | Reveal sidebar if hidden and give it keyboard focus; do nothing while Management is active |
 | P / R with list focus | Select Panes / Repos |
-| F | Enter search/filter; proposal is the existing current-list filter |
+| F | Enter the existing current-list filter; viewer search stays separate |
 | Filter Enter | Keep query/results and focus table; do not open a result |
 | Digits 1–9 | Address first nine list results; open the numbered result immediately |
 | Option-Shift-Up/Down from terminal | Direct previous/next pinned-pane navigation |
@@ -96,11 +96,11 @@ The pre-change arrangement baseline inserted into all arrangements and revealed 
 membership before visibility. Its separate reviewed correction is now implemented
 with full aggregate and native reveal proof. Source pointers live in the map.
 
-Current review should evaluate the coherent journey and the explicitly open choices,
-not treat this as an implementation-ready Specification. Exact preview key and presentation placement,
-placement across windows, selection fallback, group
-keys, filter Escape, and pinned order/reach remain visible
-questions. Review can proceed while those questions are discussed.
+The core Specification now makes ordinary selection/group/return/pinned defaults
+concrete; [provenance](core-design-decisions.md) distinguishes those decisions from
+explicit owner answers. Preview cold-content restoration remains the material open
+question. Core review and implementation may progress independently, while U15
+remains in the delivery goal.
 
 Proof expectation: native keyboard journeys through list/filter/pane focus and
 real terminal/Bridge/drawer destinations, state inspection for arrangement visibility,

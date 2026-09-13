@@ -1,11 +1,10 @@
 # Keyboard sidebar and arrangement visibility — review map
 
-**Current discussion-review draft.** This contains the current direction only.
-Selected owner decisions and proposed details are distinguished below. It is not
-an implementation-ready Specification or a claim of independent design acceptance.
+**Current core design-review map.** Sidebar source implementation has not started.
+Explicit owner choices and implementation defaults are distinguished in the
+[decision record](core-design-decisions.md). Preview retains its open boundary.
 
-Authority: [Requirements](requirements.md). These two documents are the current
-review input; historical discussion and the retired traversal draft are excluded.
+Authority: [Requirements](requirements.md) → [Specification](../../specs/2026-09-12-sidebar-keyboard-system/specification.md) → [Program Design](../../specs/2026-09-12-sidebar-keyboard-system/program-design.md). Historical discussion and retired traversal drafts are excluded.
 
 ## 1. What we are building
 
@@ -53,12 +52,12 @@ Sidebar list owns focus
        |
        +→ Enter ──→ reveal B permanently for navigation; focus B
        |
-       +→ Escape ──→ return to A (proposed return behavior)
+       +→ Escape ──→ return to A (active-pane fallback if origin is gone)
 ```
 
 Preview/Enter distinction is owner-requested. Keeping focus in the sidebar and
 restoring the prior presentation are the recommended behavior needed to make preview
-temporary; exact activation and placement remain open in section 5.
+temporary; hold/release behavior is settled; cold content and its renderer path remain open in section 5.
 
 ## 3. Keys by focus location
 
@@ -67,18 +66,17 @@ temporary; exact activation and placement remain open in section 5.
 | Pane / app workspace | Command-S | Show/hide sidebar; keep surface | Selected |
 | Pane / app workspace | Command-Shift-S | Show sidebar if hidden; focus its navigation list; no-op during Management | Selected |
 | Sidebar list | P / R | Panes / Repos | Selected |
-| Sidebar list | F | Focus existing current-list filter | Entry selected; filter meaning recommended |
+| Sidebar list | F | Focus existing current-list filter | Current design |
 | Filter | Plain letters/digits | Type query; live results update | Existing text behavior retained |
 | Filter | Enter | Keep query/results; focus table, not a result | Selected |
-| Sidebar list | Up/Down | Move keyboard selection | Proposed |
-| Sidebar list | Left/Right | Expand/collapse groups or parent | Proposed |
-| Sidebar list | G / Shift-G | Next/previous group | Optional proposal |
+| Sidebar list | Up/Down | Move selection; stop at edges | Implementation default |
+| Sidebar list | Left/Right | Expand/collapse or move between group and child | Implementation default |
 | Sidebar list | 1–9 | Open the corresponding first-nine result immediately | Selected |
-| Sidebar list | Preview control/key | Hold to show the selected pane; release cancels | Selected behavior; exact key open |
+| Sidebar list | Hold Space (proposed key) | Show selected pane temporarily; release cancels | Hold/release selected; renderer boundary open |
 | Sidebar list | Enter | Commit selected destination | Selected direction |
-| Sidebar list | Escape | End preview if needed; return to origin, leave sidebar shown | Proposed |
-| Filter | Escape / Down | Return to table | Proposed; preserve/clear policy open |
-| Terminal | Option-Shift-Up/Down | Direct previous/next pinned pane | Selected; ordering/reach/wrap open |
+| Sidebar list | Escape | Cancel preview if present and return to origin; sidebar stays shown | Core return default; preview pending |
+| Filter | Escape / Down | Preserve query and return to list | Implementation default |
+| Terminal | Option-Shift-Up/Down | Previous/next pinned pane; Panes order with wrap | Binding selected; ordering is implementation default |
 
 Existing arrangement navigation remains Command-Option-J/L and the
 Command-Option-I picker. Existing Option-I/J/K/L spatial navigation and
@@ -90,7 +88,7 @@ already opens Commands and is not a substitute surface shortcut.
 
 ## 4. Numbered results and selection
 
-Recommended: number the first nine actionable rows of the current filtered,
+Number the first nine destination rows of the current filtered,
 expanded list. Skip headings and diagnostic rows; scrolling alone does not change
 numbers. The hint and the action must always refer to the same current row identity.
 Do not activate a different row after a stale index survives filtering or regrouping.
@@ -104,7 +102,9 @@ Ordinary row selection and held preview remain separate from this committed acti
 
 Keyboard-selected row, currently active pane, and temporarily previewed pane are
 three different facts. Their visual treatments must not imply that preview already
-committed navigation. Live-update number/selection fallback rules remain review items.
+committed navigation. Selection follows its pane/worktree identity even if its group and row ID change.
+If the destination vanishes, prefer a surviving successor,
+then predecessor, then the new first result; this never activates the fallback.
 
 ## 5. Temporary preview, not accidental activation
 
@@ -130,9 +130,10 @@ Recommended observable boundary:
 - If the target closes or becomes invalid, remove its preview; never recreate it.
 - Text entered while the filter owns focus never goes to a previewed terminal.
 
-Not yet decided: preview location for targets in another window, behavior on a non-pane Repos row,
-and exact cancellation/closed-origin behavior. A pane preview is not a worktree
-preview or permission to open a new pane merely to fill the preview area.
+Working presentation defaults are full canvas and following selection while held.
+The material unanswered question is whether unloaded existing renderer/content may
+restore during preview and remain warm. A worktree row does not create a pane for
+preview. The renderer/geometry design must preserve the existing session identity.
 
 **Source constraint:** current focusPane changes active tab/arrangement, may expand
 minimized panes/drawers, and transfers focus. Calling it for preview then blindly
@@ -156,11 +157,13 @@ location and floating keycaps anchored to their existing controls/rows. No separ
 help panel, extra header row, reflow, backdrop or click interception. The icon shows
 keyboard ownership; badges show available keys; row selection identifies the target.
 
-Recommended reveal: show hints with effective list focus. Modifier-peek is an
-alternative reveal trigger, not a new navigator. Cursor's video shows compact pills
+Show hints with effective list focus; suppress them while filtering or another
+surface owns input. Cursor's video shows compact pills
 replacing trailing metadata; its exact keys, timing and nine-row working-set assumption
 are not our contract. First-nine list shortcuts here come from the owner's separate
-request. The final icon/anchor treatment still needs visual review in the actual UI.
+request. Result keycaps overlay the existing leading identity-icon column, leaving titles
+and pin controls readable. Selection uses existing shared row paint. Actual native
+fit still requires visual proof.
 
 ## 7. Arrangement creation and committed reveal
 
@@ -203,9 +206,10 @@ committed reveal rule; preview is a distinct operation.
 
 The [arrangement specification](../../specs/2026-09-12-arrangement-visibility/specification.md)
 now resolves minimized children, Default fallback and target/parent closing.
-Implementation review found a [drawer renderer reattachment gap](drawer-reveal-design-gap.md)
-that needs a design correction before readiness. Preview
-interacting with zoom or another window remains open in the sidebar design.
+The owner explicitly deferred the general [drawer renderer reattachment invariant](drawer-reveal-design-gap.md)
+to another PR after the arrangement PR. It is not being repaired here. Arrangement
+PR #345 is unmerged; latest main is incorporated and the full local aggregate passed
+at `1a467a120`. New CI is being checked separately.
 
 ## 8. Review questions and evidence
 
@@ -219,16 +223,15 @@ no-op while Management is active: it does not leave Management or claim sidebar 
 | Current source | Consequence for the design |
 | --- | --- |
 | [KeyboardOwner](../../../Sources/AgentStudio/Core/Models/KeyboardOwner.swift) and [routing context](../../../Sources/AgentStudio/Core/Models/KeyboardRoutingContext.swift) | Derive command/hint availability from effective focus; transients take precedence |
-| [Table materializer](../../../Sources/AgentStudio/Features/RepoExplorer/RepoExplorerTableMaterializer.swift) | It rejects and clears selection; keyboard selection is actual implementation work |
-| [Focus bridge](../../../Sources/AgentStudio/Features/RepoExplorer/RepoExplorerView+VisibleRows.swift) | Current bridge primarily covers filter focus; cancellation/return not complete |
+| [Stable host](../../../Sources/AgentStudio/Features/RepoExplorer/RepoExplorerMaterializationHost.swift) / [table materializer](../../../Sources/AgentStudio/Features/RepoExplorer/RepoExplorerTableMaterializer.swift) | Host survives empty results and will own focus; table renders selection/scroll |
+| [Focus bridge](../../../Sources/AgentStudio/Features/RepoExplorer/RepoExplorerView+VisibleRows.swift) | Replace invisible list proxy with actual host; retain existing filter focus callback |
 | [Sidebar view](../../../Sources/AgentStudio/Features/RepoExplorer/RepoExplorerView.swift) and [search field](../../../Sources/AgentStudio/SharedComponents/SidebarSearchField.swift) | Live filter exists; sidebar must wire onSubmit for Enter-to-table |
 | [Pane focus/reveal](../../../Sources/AgentStudio/App/Panes/PaneTabViewController.swift) | Committed activation mutates visibility/focus; not a reversible preview API |
-| [Arrangement insertion](../../../Sources/AgentStudio/Core/State/MainActor/Atoms/TabLayoutRules/TabArrangementMutationRules.swift) | Creation-specific current+Default insertion is implemented and under validation; existing identity placement preserves its original behavior |
+| [Arrangement insertion](../../../Sources/AgentStudio/Core/State/MainActor/Atoms/TabLayoutRules/TabArrangementMutationRules.swift) | Creation-specific current+Default insertion is implemented and locally validated; existing identity placement preserves its original behavior |
 | [Row actions](../../../Sources/AgentStudio/Features/RepoExplorer/RepoExplorerMaterializedRowView.swift) | Pane focus and worktree open are separate primary actions |
 
-Proof needed later: real list/filter/pane focus, anchored hint rendering, correct
-number-to-row mapping during updates, preview dismissal versus Enter commit, and
-creation/reveal through terminal, Bridge and drawer targets. No native proof or
-complete sidebar three-artifact review is claimed by this discussion map. The
-separate arrangement capability has its own bounded design review; focused tests
-are not native proof or full delivery readiness.
+Sidebar proof still needed: real list/filter/pane focus, anchored hints at practical
+widths, number-to-row mapping during updates, direct pinned navigation, and preview
+hold/release/commit after its design is settled. Arrangement creation/reveal already
+has separate native terminal, Bridge and ordinary drawer proof. Core design review
+and implementation are next; this map does not claim the whole sidebar is done.

@@ -1,0 +1,11 @@
+# Sidebar core design decisions
+
+User-authorized scope: finish design and implement clear independent sections while collecting material questions. Core covers focus, surface/filter, row/group/digit navigation, overlays and direct pinned navigation. Preview remains part of the full goal and is not silently removed. General detached-drawer invariant remains deferred to a separate PR.
+
+Explicit user decisions remain in requirements.md. The following ordinary defaults were chosen by the implementing agent, not submitted questionnaire answers: Up/Down stop at edges; Left/Right follows existing group expansion; filter Escape retains query and returns list; selection removal chooses surviving successor, then predecessor, then new initial selection; pinned order follows Panes preferences with wrap and first/last when origin is absent. These make the already-authorized navigation behavior concrete without new persistent or domain machinery.
+
+Space/full-canvas/follow-selection preview remains proposed. The unanswered material question is whether unloaded existing content may restore during preview and remain warm. No loaded-only exclusion or new session creation is authorized by silence. Renderer custody, transient visibility and geometry must be settled before preview implementation.
+
+Structural realization for core reuses App shell, derived KeyboardOwner, the stable full-size materialization host, existing worker/update handshake, table interactions, shared UI and command catalog. New pieces are local UI selection/focus data, immutable worker navigation metadata, stateless keycap paint, a focused pinned projection sharing the existing order policy, and narrow read-only raw-state accessors. No atom/store/domain event/coordinator is added. MainActor captures raw values and applies UI; all list-sized derivation is detached.
+
+Latest source basis inherits main+arrangement merge1a467a120; full local aggregate passed and PR345 updated. Candidate source refinement is in tmp/sidebar-keyboard-design/sidebar-core-realization.md. Opus advice is being resumed; independent core design review and a ready implementation plan are still required. No sidebar source implementation is claimed.
