@@ -1,4 +1,5 @@
 import AgentStudioIPCTransport
+import AgentStudioInfrastructure
 import AgentStudioProgrammaticControl
 import Foundation
 
@@ -191,6 +192,13 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
             connection.close()
         }
 
+        let connectionId = UUIDv7.generate()
+        await handleConnectionRequests(connection, connectionId: connectionId)
+        await service.eventBroker.removeSubscriptions(connectionId: connectionId)
+    }
+
+    private func handleConnectionRequests(_ connection: UnixSocketConnection, connectionId: UUID) async {
+
         do {
             let credentials = try connection.peerCredentials(using: peerCredentialProvider)
             try peerCredentialGate.validate(credentials)
@@ -230,6 +238,7 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
                         let result = try await process(
                             request,
                             connection: connection,
+                            connectionId: connectionId,
                             connectionState: &connectionState,
                             socketSubscriber: socketSubscriber
                         )
@@ -250,6 +259,7 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
     private func process(
         _ request: JSONRPCRequest,
         connection: UnixSocketConnection,
+        connectionId: UUID,
         connectionState: inout AgentStudioAppIPCConnectionState,
         socketSubscriber: any IPCEventSubscriber
     ) async throws -> JSONValue {
@@ -325,6 +335,7 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
                 context.request,
                 principal: principal,
                 socketSubscriber: socketSubscriber,
+                connectionId: connectionId,
                 authorizedTarget: context.target
             )
         }

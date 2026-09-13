@@ -3,6 +3,8 @@ import AgentStudioProgrammaticControl
 import Foundation
 
 package enum AppIPCTypedMethodRegistrationError: Error, Equatable, Sendable {
+    case authenticationRequired
+    case methodNotExposed
     case correlationPolicyMismatch
     case correlationMismatch
     case targetKindNotAllowed
@@ -61,10 +63,11 @@ package struct AppIPCTypedMethodRegistration<
     private let resolveTarget:
         @Sendable (
             Parameters,
-            IPCPrincipal,
+            AppIPCConnectionContext,
             AppIPCTargetResolutionTools
         ) async throws -> AppIPCTargetResolution<Parameters>
-    private let handler: @Sendable (Parameters, IPCPrincipal, IPCTargetScope) async throws -> Result
+    private let connectionHandler:
+        @Sendable (Parameters, AppIPCConnectionContext, IPCTargetScope) async throws -> Result
 
     package init(
         descriptor: IPCMethodDescriptor<Parameters, Result>,
@@ -72,20 +75,20 @@ package struct AppIPCTypedMethodRegistration<
         resolveTarget:
             @escaping @Sendable (
                 Parameters,
-                IPCPrincipal,
+                AppIPCConnectionContext,
                 AppIPCTargetResolutionTools
             ) async throws -> AppIPCTargetResolution<Parameters>,
-        handler:
+        connectionHandler:
             @escaping @Sendable (
                 Parameters,
-                IPCPrincipal,
+                AppIPCConnectionContext,
                 IPCTargetScope
             ) async throws -> Result
     ) {
         self.descriptor = descriptor
         self.correlation = correlation
         self.resolveTarget = resolveTarget
-        self.handler = handler
+        self.connectionHandler = connectionHandler
     }
 
     package func erase() throws -> AnyAppIPCMethodRegistration {
@@ -94,7 +97,9 @@ package struct AppIPCTypedMethodRegistration<
 
         return AnyAppIPCMethodRegistration(
             descriptor: erasedDescriptor,
-            invocation: { parameters, principal, tools, authorization in
+            invocation: { parameters, connectionContext, tools, authorization in
+                try validateConnectionAccess(connectionContext)
+
                 let parameterData: Data
                 do {
                     parameterData = try JSONEncoder().encode(parameters)
@@ -112,26 +117,31 @@ package struct AppIPCTypedMethodRegistration<
                     matches: normalizedWireCorrelation
                 )
 
-                let resolution = try await resolveTarget(typedParameters, principal, tools)
+                let resolution = try await resolveTarget(typedParameters, connectionContext, tools)
                 try validateCorrelation(
                     in: resolution.parameters,
                     matches: normalizedWireCorrelation
                 )
                 try validateTarget(resolution.canonicalHandle)
 
-                try await authorization.authorize(
-                    principal,
-                    request: AppIPCMethodAuthorizationRequest(
-                        methodName: descriptor.name,
-                        requiredPrivileges: descriptor.requiredPrivileges,
-                        dataScope: descriptor.dataScope,
-                        target: resolution.target
+                if descriptor.principalAvailability == .authenticated {
+                    guard let principal = connectionContext.principal else {
+                        throw AppIPCTypedMethodRegistrationError.authenticationRequired
+                    }
+                    try await authorization.authorize(
+                        principal,
+                        request: AppIPCMethodAuthorizationRequest(
+                            methodName: descriptor.name,
+                            requiredPrivileges: descriptor.requiredPrivileges,
+                            dataScope: descriptor.dataScope,
+                            target: resolution.target
+                        )
                     )
-                )
+                }
 
-                let typedResult = try await handler(
+                let typedResult = try await connectionHandler(
                     resolution.parameters,
-                    principal,
+                    connectionContext,
                     resolution.target
                 )
                 let resultData = try descriptor.encodeResult(typedResult)
@@ -141,6 +151,28 @@ package struct AppIPCTypedMethodRegistration<
                     throw AppIPCTypedMethodRegistrationError.resultTransportDecodingFailed
                 }
             })
+    }
+
+    private func validateConnectionAccess(_ context: AppIPCConnectionContext) throws {
+        if descriptor.principalAvailability == .authenticated, context.principal == nil {
+            throw AppIPCTypedMethodRegistrationError.authenticationRequired
+        }
+
+        guard descriptor.exposure == .debugTesting else {
+            return
+        }
+        guard context.channel == .debug,
+            let principal = context.principal,
+            principal.accessMode == .unsafeDebug
+        else {
+            throw AppIPCTypedMethodRegistrationError.methodNotExposed
+        }
+        switch principal.kind {
+        case .automationClient, .unsafeDebugClient:
+            return
+        case .spawnedPaneAgent, .futureMCPClient:
+            throw AppIPCTypedMethodRegistrationError.methodNotExposed
+        }
     }
 
     private func validateCorrelationPolicy() throws {
@@ -199,7 +231,7 @@ package struct AnyAppIPCMethodRegistration: Sendable {
     private let invocation:
         @Sendable (
             JSONValue,
-            IPCPrincipal,
+            AppIPCConnectionContext,
             AppIPCTargetResolutionTools,
             AppIPCTypedMethodAuthorization
         ) async throws -> JSONValue
@@ -209,7 +241,7 @@ package struct AnyAppIPCMethodRegistration: Sendable {
         invocation:
             @escaping @Sendable (
                 JSONValue,
-                IPCPrincipal,
+                AppIPCConnectionContext,
                 AppIPCTargetResolutionTools,
                 AppIPCTypedMethodAuthorization
             ) async throws -> JSONValue
@@ -220,7 +252,7 @@ package struct AnyAppIPCMethodRegistration: Sendable {
 
     package func invoke(
         parameters: JSONValue,
-        principal: IPCPrincipal,
+        connectionContext: AppIPCConnectionContext,
         targetResolutionTools: AppIPCTargetResolutionTools,
         authorize:
             @escaping @Sendable (
@@ -230,7 +262,7 @@ package struct AnyAppIPCMethodRegistration: Sendable {
     ) async throws -> JSONValue {
         try await invocation(
             parameters,
-            principal,
+            connectionContext,
             targetResolutionTools,
             AppIPCTypedMethodAuthorization(authorize: authorize)
         )

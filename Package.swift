@@ -262,6 +262,7 @@ let package = Package(
             dependencies: [
                 "AgentStudioIPCTransport",
                 "AgentStudioProgrammaticControl",
+                "AgentStudioInfrastructure",
             ],
             path: "Sources/AgentStudioAppIPC",
             swiftSettings: [

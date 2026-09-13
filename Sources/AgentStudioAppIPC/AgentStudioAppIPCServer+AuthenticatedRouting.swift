@@ -7,6 +7,7 @@ extension AgentStudioAppIPCServer {
         _ request: JSONRPCRequest,
         principal: IPCPrincipal,
         socketSubscriber: any IPCEventSubscriber,
+        connectionId: UUID,
         authorizedTarget: IPCTargetScope? = nil
     ) async throws -> JSONValue {
         if let contribution = service.methodRegistry.contribution(named: request.method) {
@@ -51,7 +52,8 @@ extension AgentStudioAppIPCServer {
             return try await processEventRequest(
                 request,
                 principal: principal,
-                socketSubscriber: socketSubscriber
+                socketSubscriber: socketSubscriber,
+                connectionId: connectionId
             )
         default:
             throw AgentStudioAppIPCRequestError.methodNotFound
@@ -422,7 +424,8 @@ extension AgentStudioAppIPCServer {
     private func processEventRequest(
         _ request: JSONRPCRequest,
         principal: IPCPrincipal,
-        socketSubscriber: any IPCEventSubscriber
+        socketSubscriber: any IPCEventSubscriber,
+        connectionId: UUID
     ) async throws -> JSONValue {
         switch request.method {
         case "events.subscribe":
@@ -430,12 +433,14 @@ extension AgentStudioAppIPCServer {
             let result = try await service.eventBroker.subscribe(
                 eventNames: Set(params.eventNames),
                 principal: principal,
+                connectionId: connectionId,
                 subscriber: socketSubscriber
             )
             return try encodeResult(result)
         case "events.unsubscribe":
             let params = try decodeParams(SubscriptionIdParams.self, from: request.params)
-            try await service.eventBroker.unsubscribe(params.subscriptionId, principal: principal)
+            try await service.eventBroker.unsubscribe(
+                params.subscriptionId, principal: principal, connectionId: connectionId)
             return .object(["unsubscribed": .bool(true), "subscriptionId": .string(params.subscriptionId.uuidString)])
         default:
             throw AgentStudioAppIPCRequestError.methodNotFound

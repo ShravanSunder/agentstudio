@@ -22,7 +22,7 @@ struct AppIPCTypedMethodRegistrationTests {
 
         let result = try await erasedRegistration.invoke(
             parameters: fixture.parameters(handle: "pane:1", correlationId: correlationId),
-            principal: fixture.principal,
+            connectionContext: fixture.connectionContext,
             targetResolutionTools: .init(canonicalizePaneHandle: { rawHandle in
                 #expect(rawHandle == "pane:1")
                 await recorder.record(.canonicalizeTarget)
@@ -87,7 +87,7 @@ struct AppIPCTypedMethodRegistrationTests {
             await #expect(throws: IPCSchemaValidationError.self) {
                 try await erasedRegistration.invoke(
                     parameters: parameters,
-                    principal: fixture.principal,
+                    connectionContext: fixture.connectionContext,
                     targetResolutionTools: fixture.unusedTargetResolutionTools,
                     authorize: { _, _ in await recorder.record(.authorize) }
                 )
@@ -110,7 +110,7 @@ struct AppIPCTypedMethodRegistrationTests {
         await #expect(throws: AppIPCTypedMethodRegistrationError.self) {
             try await erasedRegistration.invoke(
                 parameters: fixture.parameters(handle: "pane:1", correlationId: correlationId),
-                principal: fixture.principal,
+                connectionContext: fixture.connectionContext,
                 targetResolutionTools: fixture.targetResolutionTools,
                 authorize: { _, _ in await recorder.record(.authorize) }
             )
@@ -133,7 +133,7 @@ struct AppIPCTypedMethodRegistrationTests {
         await #expect(throws: AppIPCTypedMethodRegistrationError.correlationMismatch) {
             try await erasedRegistration.invoke(
                 parameters: fixture.parameters(handle: "pane:1", correlationId: UUIDv7.generate()),
-                principal: fixture.principal,
+                connectionContext: fixture.connectionContext,
                 targetResolutionTools: fixture.targetResolutionTools,
                 authorize: { _, _ in await recorder.record(.authorize) }
             )
@@ -169,7 +169,7 @@ struct AppIPCTypedMethodRegistrationTests {
             try await erasedRegistration.invoke(
                 parameters: fixture.parameters(
                     handle: "pane:1", correlationId: UUIDv7.generate()),
-                principal: fixture.principal,
+                connectionContext: fixture.connectionContext,
                 targetResolutionTools: fixture.targetResolutionTools,
                 authorize: { _, _ in await recorder.record(.authorize) }
             )
@@ -203,7 +203,7 @@ struct AppIPCTypedMethodRegistrationTests {
             try await erasedRegistration.invoke(
                 parameters: fixture.parameters(
                     handle: "pane:1", correlationId: UUIDv7.generate()),
-                principal: fixture.principal,
+                connectionContext: fixture.connectionContext,
                 targetResolutionTools: fixture.targetResolutionTools,
                 authorize: { _, _ in await recorder.record(.authorize) }
             )
@@ -241,7 +241,7 @@ struct AppIPCTypedMethodRegistrationTests {
 
         let result = try await erasedRegistration.invoke(
             parameters: fixture.parameters(handle: "repo:1", correlationId: correlationId),
-            principal: fixture.principal,
+            connectionContext: fixture.connectionContext,
             targetResolutionTools: fixture.unusedTargetResolutionTools,
             authorize: { _, authorization in
                 await recorder.record(.authorize)
@@ -303,7 +303,7 @@ struct AppIPCTypedMethodRegistrationTests {
             await #expect(throws: AppIPCTypedMethodRegistrationError.self) {
                 try await erasedRegistration.invoke(
                     parameters: fixture.parameters(handle: "pane:1", correlationId: correlationId),
-                    principal: fixture.principal,
+                    connectionContext: fixture.connectionContext,
                     targetResolutionTools: fixture.unusedTargetResolutionTools,
                     authorize: { _, _ in await recorder.record(.authorize) }
                 )
@@ -342,7 +342,7 @@ struct AppIPCTypedMethodRegistrationTests {
             try await erasedRegistration.invoke(
                 parameters: fixture.parameters(
                     handle: "pane:1", correlationId: UUIDv7.generate()),
-                principal: fixture.principal,
+                connectionContext: fixture.connectionContext,
                 targetResolutionTools: fixture.targetResolutionTools,
                 authorize: { _, _ in
                     await recorder.record(.authorize)
@@ -367,7 +367,7 @@ struct AppIPCTypedMethodRegistrationTests {
             try await erasedRegistration.invoke(
                 parameters: fixture.parameters(
                     handle: "pane:1", correlationId: UUIDv7.generate()),
-                principal: fixture.principal,
+                connectionContext: fixture.connectionContext,
                 targetResolutionTools: fixture.targetResolutionTools,
                 authorize: { _, _ in await recorder.record(.authorize) }
             )
@@ -389,7 +389,7 @@ struct AppIPCTypedMethodRegistrationTests {
         resolveTarget: (
             @Sendable (
                 TypedRegistrationParameters,
-                IPCPrincipal,
+                AppIPCConnectionContext,
                 AppIPCTargetResolutionTools
             ) async throws -> AppIPCTargetResolution<TypedRegistrationParameters>
         )? = nil,
@@ -417,7 +417,10 @@ struct AppIPCTypedMethodRegistrationTests {
             descriptor: try descriptor ?? TypedRegistrationFixture.descriptor(),
             correlation: correlation,
             resolveTarget: resolvedTarget,
-            handler: { parameters, principal, target in
+            connectionHandler: { parameters, context, target in
+                guard let principal = context.principal else {
+                    throw AppIPCTypedMethodRegistrationError.authenticationRequired
+                }
                 await recorder.record(
                     .handler(parameters: parameters, principal: principal, target: target)
                 )
@@ -438,6 +441,17 @@ private struct TypedRegistrationFixture {
         kind: .spawnedPaneAgent(boundPaneId: "fixture-pane", boundWorkspaceId: nil),
         approvalAuthority: .noApprovalAuthority
     )
+
+    var connectionContext: AppIPCConnectionContext {
+        AppIPCConnectionContext(
+            contextId: UUIDv7.generate(),
+            channel: .stable,
+            principal: principal,
+            authenticate: { _ in .unauthenticated },
+            authenticationStatus: { .unauthenticated },
+            eventSubscriber: TypedConnectionRecordingEventSubscriber()
+        )
+    }
 
     static func descriptor(
         allowedTargetKinds: Set<IPCHandleKind> = [.pane]

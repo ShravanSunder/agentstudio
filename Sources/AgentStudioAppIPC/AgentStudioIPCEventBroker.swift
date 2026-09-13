@@ -1,4 +1,5 @@
 import AgentStudioIPCTransport
+import AgentStudioInfrastructure
 import AgentStudioProgrammaticControl
 import Foundation
 
@@ -45,6 +46,7 @@ public actor IPCEventBroker {
     private struct Subscription: Sendable {
         let id: UUID
         let principal: IPCPrincipal
+        let connectionId: UUID
         let eventNames: Set<IPCEventName>
         let subscriber: any IPCEventSubscriber
     }
@@ -55,15 +57,16 @@ public actor IPCEventBroker {
 
     public init(
         allowedEventNames: Set<IPCEventName> = Set(IPCEventName.allCases),
-        makeSubscriptionId: @escaping @Sendable () -> UUID = { UUID() }
+        makeSubscriptionId: (@Sendable () -> UUID)? = nil
     ) {
         self.allowedEventNames = allowedEventNames
-        self.makeSubscriptionId = makeSubscriptionId
+        self.makeSubscriptionId = makeSubscriptionId ?? { UUIDv7.generate() }
     }
 
     public func subscribe(
         eventNames requestedEventNames: Set<IPCEventName>,
         principal: IPCPrincipal,
+        connectionId: UUID,
         subscriber: any IPCEventSubscriber
     ) throws -> IPCEventSubscriptionResult {
         guard !requestedEventNames.isEmpty else {
@@ -77,6 +80,7 @@ public actor IPCEventBroker {
         subscriptionsById[subscriptionId] = Subscription(
             id: subscriptionId,
             principal: principal,
+            connectionId: connectionId,
             eventNames: requestedEventNames,
             subscriber: subscriber
         )
@@ -86,14 +90,19 @@ public actor IPCEventBroker {
         )
     }
 
-    public func unsubscribe(_ subscriptionId: UUID, principal: IPCPrincipal) throws {
+    public func unsubscribe(_ subscriptionId: UUID, principal: IPCPrincipal, connectionId: UUID) throws {
         guard let subscription = subscriptionsById[subscriptionId],
-            subscription.principal.principalId == principal.principalId
+            subscription.principal.principalId == principal.principalId,
+            subscription.connectionId == connectionId
         else {
             throw IPCEventBrokerError(reason: .subscriptionNotFound)
         }
 
         subscriptionsById.removeValue(forKey: subscriptionId)
+    }
+
+    package func removeSubscriptions(connectionId: UUID) {
+        subscriptionsById = subscriptionsById.filter { $0.value.connectionId != connectionId }
     }
 
     public func publish(
