@@ -31,7 +31,7 @@ struct FilesystemActorWatchedFolderTests {
             fixture.fseventClient.sendOverflowRecovery(
                 worktreeId: callbackRoutingID,
                 paths: nil,
-                containsGitTopologyPath: true
+                requiresWatchedFolderScan: true
             )
         }
         fixture.fseventClient.send(
@@ -385,8 +385,8 @@ struct FilesystemActorWatchedFolderTests {
         await fixture.actor.shutdown()
     }
 
-    @Test("only git topology callbacks submit a follow-up scan")
-    func onlyGitTopologyCallbacksSubmitFollowUpScan() async throws {
+    @Test("ordinary file callbacks preserve scope while Git topology requests a scan")
+    func ordinaryFileCallbacksPreserveScopeWhileGitRequestsScan() async throws {
         let fixture = try await WatchedFolderActorFixture()
         defer { fixture.removeTemporaryRoot() }
         _ = await fixture.performInitialRefresh(result: completeResult(entries: []))
@@ -405,7 +405,7 @@ struct FilesystemActorWatchedFolderTests {
         fixture.fseventClient.sendOverflowRecovery(
             worktreeId: callbackRoutingID,
             paths: nil,
-            containsGitTopologyPath: false
+            requiresWatchedFolderScan: false
         )
         fixture.fseventClient.send(
             FSEventBatch(
@@ -459,7 +459,7 @@ struct FilesystemActorWatchedFolderTests {
         fixture.fseventClient.sendOverflowRecovery(
             worktreeId: callbackRoutingID,
             paths: nil,
-            containsGitTopologyPath: true
+            requiresWatchedFolderScan: true
         )
         fixture.fseventClient.send(
             FSEventBatch(

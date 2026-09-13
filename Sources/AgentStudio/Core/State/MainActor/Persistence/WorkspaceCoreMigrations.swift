@@ -35,6 +35,7 @@ enum WorkspaceCoreMigrations {
         // Both identifiers have already been applied by separate branches. Keep their full names stable.
         ("017_add_independent_sidebar_pins", addIndependentSidebarPinsStatements),
         ("017_create_session_ownership_journal", createSessionOwnershipJournalStatements),
+        ("018_repository_location_absence", repositoryLocationAbsenceStatements),
     ]
 
     private static func execute(_ statements: [String], on database: Database) throws {

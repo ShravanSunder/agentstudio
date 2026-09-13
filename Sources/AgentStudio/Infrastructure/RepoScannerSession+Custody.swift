@@ -100,17 +100,21 @@ extension RepoScannerTraversalSession {
         case enumerating(EnumerationCursor)
         case pendingEntry(PendingEnumerationEntry, cursor: EnumerationCursor)
         case pendingValidation(URL, continuation: PostValidationContinuation)
+        case retainedTargets(nextIndex: Int)
         case exhausted
     }
 
     enum PostValidationContinuation {
         case enumerating(EnumerationCursor)
+        case retainedTargets(nextIndex: Int)
         case exhausted
 
         var position: TraversalPosition {
             switch self {
             case .enumerating(let cursor):
                 return .enumerating(cursor)
+            case .retainedTargets(let nextIndex):
+                return .retainedTargets(nextIndex: nextIndex)
             case .exhausted:
                 return .exhausted
             }
@@ -141,9 +145,11 @@ extension RepoScannerTraversalSession {
     struct TraversalState {
         let rootURL: URL
         let maxDepth: Int
+        let retainedCheckoutPaths: [URL]
         var position: TraversalPosition
+        var remainingRetainedPathKeys: Set<String>
         var verifiedEntries: [ResolvedGitEntry] = []
-        var failures: [ScanFailureReason] = []
+        var failures: [ScanFailureReason]
         var directoryVisitCount = 0
         var directoryTraversalFailureCount = 0
         var entryMetadataFailureCount = 0
@@ -160,9 +166,20 @@ extension RepoScannerTraversalSession {
         var enumeratedPathByteCount = 0
         var retainedVerifiedEntryByteCount = 0
 
-        init(rootURL: URL, maxDepth: Int, position: TraversalPosition) {
+        init(
+            rootURL: URL,
+            maxDepth: Int,
+            retainedCheckoutPaths: [URL],
+            retainedTargetPreparationFailure: ScanFailureReason?,
+            position: TraversalPosition
+        ) {
             self.rootURL = rootURL
             self.maxDepth = maxDepth
+            self.retainedCheckoutPaths = retainedCheckoutPaths
+            remainingRetainedPathKeys = Set(
+                retainedCheckoutPaths.map { $0.standardizedFileURL.path }
+            )
+            failures = retainedTargetPreparationFailure.map { [$0] } ?? []
             self.position = position
         }
 

@@ -217,7 +217,7 @@ final class WorkspaceCacheCoordinatorTests {
     }
 
     @Test
-    func topology_worktreeUnregistered_prunesWorktreeCaches() {
+    func topology_worktreeUnregisteredDoesNotMutateCanonicalState() {
         let workspaceStore = makeWorkspaceStore()
         let repoCache = RepoCacheAtom()
         let effectRecorder = RejectedReconciliationTopologyEffectRecorder()
@@ -255,15 +255,14 @@ final class WorkspaceCacheCoordinatorTests {
             )
         )
 
-        #expect(repoCache.worktreeEnrichmentByWorktreeId[worktreeId] == nil)
+        #expect(repoCache.worktreeEnrichmentByWorktreeId[worktreeId] != nil)
         #expect(repoCache.pullRequestFacts(for: mainBranchKey)?.openCount == 5)
-        #expect(workspaceStore.repositoryTopologyAtom.isRepoUnavailable(repo.id))
-        #expect(effectRecorder.deltas.count == 1)
-        #expect(effectRecorder.deltas.single?.removedWorktrees.single?.id == worktreeId)
+        #expect(!workspaceStore.repositoryTopologyAtom.isRepoUnavailable(repo.id))
+        #expect(effectRecorder.deltas.isEmpty)
     }
 
-    @Test("direct worktree registration forwards its accepted topology delta")
-    func directWorktreeRegistrationForwardsAcceptedTopologyDelta() throws {
+    @Test("physical worktree registration cannot create canonical topology")
+    func physicalWorktreeRegistrationCannotCreateTopology() throws {
         let workspaceStore = makeWorkspaceStore()
         let repoCache = RepoCacheAtom()
         let effectRecorder = RejectedReconciliationTopologyEffectRecorder()
@@ -290,9 +289,8 @@ final class WorkspaceCacheCoordinatorTests {
             )
         )
 
-        #expect(try #require(workspaceStore.repositoryTopologyAtom.repo(repo.id)).worktrees.count == 2)
-        #expect(effectRecorder.deltas.count == 1)
-        #expect(effectRecorder.deltas.single?.addedWorktreeIds == [linkedWorktreeID])
+        #expect(try #require(workspaceStore.repositoryTopologyAtom.repo(repo.id)).worktrees.count == 1)
+        #expect(effectRecorder.deltas.isEmpty)
     }
 
     @Test
@@ -368,12 +366,13 @@ final class WorkspaceCacheCoordinatorTests {
             branch: "main"
         )
 
-        let envelope = WorktreeEnvelope.test(
-            event: .gitWorkingDirectory(.snapshotChanged(snapshot: snapshot)),
-            repoId: repoId,
-            worktreeId: worktreeId,
-            source: .system(.builtin(.gitWorkingDirectoryProjector))
-        )
+        let envelope = scopedTestEnvelope(
+            WorktreeEnvelope.test(
+                event: .gitWorkingDirectory(.snapshotChanged(snapshot: snapshot)),
+                repoId: repoId,
+                worktreeId: worktreeId,
+                source: .system(.builtin(.gitWorkingDirectoryProjector))
+            ), store: workspaceStore)
 
         coordinator.handleEnrichment(envelope)
 
@@ -401,44 +400,46 @@ final class WorkspaceCacheCoordinatorTests {
         await coordinator.startConsuming()
         await bus.post(
             .worktree(
-                WorktreeEnvelope.test(
-                    event: .gitWorkingDirectory(
-                        .snapshotChanged(
-                            snapshot: GitWorkingTreeSnapshot(
-                                worktreeId: worktreeId,
-                                repoId: repoId,
-                                rootPath: URL(fileURLWithPath: "/tmp/repo"),
-                                summary: GitWorkingTreeSummary(changed: 1, staged: 0, untracked: 0),
-                                branch: "old"
+                scopedTestEnvelope(
+                    WorktreeEnvelope.test(
+                        event: .gitWorkingDirectory(
+                            .snapshotChanged(
+                                snapshot: GitWorkingTreeSnapshot(
+                                    worktreeId: worktreeId,
+                                    repoId: repoId,
+                                    rootPath: URL(fileURLWithPath: "/tmp/repo"),
+                                    summary: GitWorkingTreeSummary(changed: 1, staged: 0, untracked: 0),
+                                    branch: "old"
+                                )
                             )
-                        )
-                    ),
-                    repoId: repoId,
-                    worktreeId: worktreeId,
-                    source: .system(.builtin(.gitWorkingDirectoryProjector)),
-                    seq: 1
-                )
+                        ),
+                        repoId: repoId,
+                        worktreeId: worktreeId,
+                        source: .system(.builtin(.gitWorkingDirectoryProjector)),
+                        seq: 1
+                    ), store: workspaceStore)
             )
         )
         await bus.post(
             .worktree(
-                WorktreeEnvelope.test(
-                    event: .gitWorkingDirectory(
-                        .snapshotChanged(
-                            snapshot: GitWorkingTreeSnapshot(
-                                worktreeId: worktreeId,
-                                repoId: repoId,
-                                rootPath: URL(fileURLWithPath: "/tmp/repo"),
-                                summary: GitWorkingTreeSummary(changed: 2, staged: 0, untracked: 0),
-                                branch: "new"
+                scopedTestEnvelope(
+                    WorktreeEnvelope.test(
+                        event: .gitWorkingDirectory(
+                            .snapshotChanged(
+                                snapshot: GitWorkingTreeSnapshot(
+                                    worktreeId: worktreeId,
+                                    repoId: repoId,
+                                    rootPath: URL(fileURLWithPath: "/tmp/repo"),
+                                    summary: GitWorkingTreeSummary(changed: 2, staged: 0, untracked: 0),
+                                    branch: "new"
+                                )
                             )
-                        )
-                    ),
-                    repoId: repoId,
-                    worktreeId: worktreeId,
-                    source: .system(.builtin(.gitWorkingDirectoryProjector)),
-                    seq: 2
-                )
+                        ),
+                        repoId: repoId,
+                        worktreeId: worktreeId,
+                        source: .system(.builtin(.gitWorkingDirectoryProjector)),
+                        seq: 2
+                    ), store: workspaceStore)
             )
         )
 
@@ -498,19 +499,20 @@ final class WorkspaceCacheCoordinatorTests {
         await coordinator.startConsuming()
         await bus.post(
             .worktree(
-                WorktreeEnvelope.test(
-                    event: .gitWorkingDirectory(
-                        .branchChanged(
-                            worktreeId: worktreeId,
-                            repoId: repoId,
-                            from: "main",
-                            to: "termination-branch"
-                        )
-                    ),
-                    repoId: repoId,
-                    worktreeId: worktreeId,
-                    source: .system(.builtin(.gitWorkingDirectoryProjector))
-                )
+                scopedTestEnvelope(
+                    WorktreeEnvelope.test(
+                        event: .gitWorkingDirectory(
+                            .branchChanged(
+                                worktreeId: worktreeId,
+                                repoId: repoId,
+                                from: "main",
+                                to: "termination-branch"
+                            )
+                        ),
+                        repoId: repoId,
+                        worktreeId: worktreeId,
+                        source: .system(.builtin(.gitWorkingDirectoryProjector))
+                    ), store: workspaceStore)
             )
         )
 
@@ -568,14 +570,15 @@ final class WorkspaceCacheCoordinatorTests {
         )
 
         coordinator.handleEnrichment(
-            WorktreeEnvelope.test(
-                event: .gitWorkingDirectory(
-                    .branchChanged(worktreeId: worktreeId, repoId: repoId, from: "main", to: "feature/new")
-                ),
-                repoId: repoId,
-                worktreeId: worktreeId,
-                source: .system(.builtin(.gitWorkingDirectoryProjector))
-            )
+            scopedTestEnvelope(
+                WorktreeEnvelope.test(
+                    event: .gitWorkingDirectory(
+                        .branchChanged(worktreeId: worktreeId, repoId: repoId, from: "main", to: "feature/new")
+                    ),
+                    repoId: repoId,
+                    worktreeId: worktreeId,
+                    source: .system(.builtin(.gitWorkingDirectoryProjector))
+                ), store: workspaceStore)
         )
 
         #expect(repoCache.worktreeEnrichmentByWorktreeId[worktreeId]?.branch == "feature/new")
@@ -612,24 +615,25 @@ final class WorkspaceCacheCoordinatorTests {
             )
         )
 
-        let envelope = WorktreeEnvelope.test(
-            event: .forge(
-                .pullRequestRepositoryProjectionChanged(
-                    repoId: repoId,
-                    projection: .stable(
-                        .ready(
-                            confirmedFactsByBranch: [
-                                "feature/runtime": PullRequestFacts(openCount: 3, exactOpenURL: nil)
-                            ]
-                        )
-                    ),
-                    invalidatedBranches: []
-                )
-            ),
-            repoId: repoId,
-            worktreeId: nil,
-            source: .system(.service(.gitForge(provider: "github")))
-        )
+        let envelope = scopedTestEnvelope(
+            WorktreeEnvelope.test(
+                event: .forge(
+                    .pullRequestRepositoryProjectionChanged(
+                        repoId: repoId,
+                        projection: .stable(
+                            .ready(
+                                confirmedFactsByBranch: [
+                                    "feature/runtime": PullRequestFacts(openCount: 3, exactOpenURL: nil)
+                                ]
+                            )
+                        ),
+                        invalidatedBranches: []
+                    )
+                ),
+                repoId: repoId,
+                worktreeId: nil,
+                source: .system(.service(.gitForge(provider: "github")))
+            ), store: workspaceStore)
 
         coordinator.handleEnrichment(envelope)
 
@@ -659,17 +663,18 @@ final class WorkspaceCacheCoordinatorTests {
         let repo = workspaceStore.addRepo(at: URL(fileURLWithPath: "/tmp/luna-origin-identity"))
 
         coordinator.handleEnrichment(
-            WorktreeEnvelope.test(
-                event: .gitWorkingDirectory(
-                    .originChanged(
-                        repoId: repo.id,
-                        from: "",
-                        to: "git@github.com:askluna/agent-studio.git"
-                    )
-                ),
-                repoId: repo.id,
-                source: .system(.builtin(.gitWorkingDirectoryProjector))
-            )
+            scopedTestEnvelope(
+                WorktreeEnvelope.test(
+                    event: .gitWorkingDirectory(
+                        .originChanged(
+                            repoId: repo.id,
+                            from: "",
+                            to: "git@github.com:askluna/agent-studio.git"
+                        )
+                    ),
+                    repoId: repo.id,
+                    source: .system(.builtin(.gitWorkingDirectoryProjector))
+                ), store: workspaceStore)
         )
 
         guard case .some(.resolvedRemote(_, let raw, let identity, _)) = repoCache.repoEnrichmentByRepoId[repo.id]
@@ -699,17 +704,18 @@ final class WorkspaceCacheCoordinatorTests {
         repoCache.setRepoEnrichment(.awaitingOrigin(repoId: repo.id))
 
         coordinator.handleEnrichment(
-            WorktreeEnvelope.test(
-                event: .gitWorkingDirectory(
-                    .originChanged(
-                        repoId: repo.id,
-                        from: "",
-                        to: ""
-                    )
-                ),
-                repoId: repo.id,
-                source: .system(.builtin(.gitWorkingDirectoryProjector))
-            )
+            scopedTestEnvelope(
+                WorktreeEnvelope.test(
+                    event: .gitWorkingDirectory(
+                        .originChanged(
+                            repoId: repo.id,
+                            from: "",
+                            to: ""
+                        )
+                    ),
+                    repoId: repo.id,
+                    source: .system(.builtin(.gitWorkingDirectoryProjector))
+                ), store: workspaceStore)
         )
 
         #expect(repoCache.repoEnrichmentByRepoId[repo.id] == .awaitingOrigin(repoId: repo.id))
@@ -729,13 +735,14 @@ final class WorkspaceCacheCoordinatorTests {
         let repo = workspaceStore.addRepo(at: URL(fileURLWithPath: "/tmp/MyProject"))
 
         coordinator.handleEnrichment(
-            WorktreeEnvelope.test(
-                event: .gitWorkingDirectory(
-                    .originUnavailable(repoId: repo.id)
-                ),
-                repoId: repo.id,
-                source: .system(.builtin(.gitWorkingDirectoryProjector))
-            )
+            scopedTestEnvelope(
+                WorktreeEnvelope.test(
+                    event: .gitWorkingDirectory(
+                        .originUnavailable(repoId: repo.id)
+                    ),
+                    repoId: repo.id,
+                    source: .system(.builtin(.gitWorkingDirectoryProjector))
+                ), store: workspaceStore)
         )
 
         guard case .some(.resolvedLocal(_, let identity, _)) = repoCache.repoEnrichmentByRepoId[repo.id] else {
@@ -767,34 +774,36 @@ final class WorkspaceCacheCoordinatorTests {
         workspaceStore.reconcileDiscoveredWorktrees(repo.id, worktrees: [worktree])
 
         coordinator.handleEnrichment(
-            WorktreeEnvelope.test(
-                event: .gitWorkingDirectory(
-                    .originChanged(
-                        repoId: repo.id,
-                        from: "",
-                        to: "git@github.com:askluna/agent-studio.git"
-                    )
-                ),
-                repoId: repo.id,
-                worktreeId: worktree.id,
-                source: .system(.builtin(.gitWorkingDirectoryProjector))
-            )
+            scopedTestEnvelope(
+                WorktreeEnvelope.test(
+                    event: .gitWorkingDirectory(
+                        .originChanged(
+                            repoId: repo.id,
+                            from: "",
+                            to: "git@github.com:askluna/agent-studio.git"
+                        )
+                    ),
+                    repoId: repo.id,
+                    worktreeId: worktree.id,
+                    source: .system(.builtin(.gitWorkingDirectoryProjector))
+                ), store: workspaceStore)
         )
 
         coordinator.handleEnrichment(
-            WorktreeEnvelope.test(
-                event: .gitWorkingDirectory(
-                    .branchChanged(
-                        worktreeId: worktree.id,
-                        repoId: repo.id,
-                        from: "main",
-                        to: "feature/runtime"
-                    )
-                ),
-                repoId: repo.id,
-                worktreeId: worktree.id,
-                source: .system(.builtin(.gitWorkingDirectoryProjector))
-            )
+            scopedTestEnvelope(
+                WorktreeEnvelope.test(
+                    event: .gitWorkingDirectory(
+                        .branchChanged(
+                            worktreeId: worktree.id,
+                            repoId: repo.id,
+                            from: "main",
+                            to: "feature/runtime"
+                        )
+                    ),
+                    repoId: repo.id,
+                    worktreeId: worktree.id,
+                    source: .system(.builtin(.gitWorkingDirectoryProjector))
+                ), store: workspaceStore)
         )
 
         coordinator.handleTopology(
@@ -812,7 +821,7 @@ final class WorkspaceCacheCoordinatorTests {
         let changes = await recordedScopeChanges.values
         #expect(
             changes.contains {
-                if case .unregisterForgeRepo(let repoId) = $0 {
+                if case .unregisterForgeRepo(let repoId, _) = $0 {
                     return repoId == repo.id
                 }
                 return false
@@ -830,6 +839,54 @@ final class WorkspaceCacheCoordinatorTests {
                 return false
             } == false
         )
+    }
+
+    /// Transform tests supply a canonical fixture and capture its authority when producing the test fact.
+}
+
+extension WorkspaceCacheCoordinatorTests {
+    private func scopedTestEnvelope(_ envelope: WorktreeEnvelope, store: WorkspaceStore) -> WorktreeEnvelope {
+        let topology = store.repositoryTopologyAtom
+        var repositories = topology.repos
+        if !repositories.contains(where: { $0.id == envelope.repoId }) {
+            let path = URL(fileURLWithPath: "/tmp/enrichment-fixture-" + envelope.repoId.uuidString)
+            repositories.append(
+                Repo(
+                    id: envelope.repoId, name: "fixture", repoPath: path,
+                    worktrees: [
+                        Worktree(
+                            id: envelope.worktreeId ?? UUIDv7.generate(), repoId: envelope.repoId, name: "main",
+                            path: path, isMainWorktree: true)
+                    ]))
+        } else if let worktreeID = envelope.worktreeId,
+            !repositories.flatMap(\.worktrees).contains(where: { $0.id == worktreeID }),
+            let index = repositories.firstIndex(where: { $0.id == envelope.repoId })
+        {
+            repositories[index].worktrees.append(
+                Worktree(
+                    id: worktreeID, repoId: envelope.repoId, name: "linked",
+                    path: URL(fileURLWithPath: "/tmp/enrichment-fixture-" + worktreeID.uuidString)))
+        }
+        if case .prepared(let replacement) = RepositoryTopologyReplacement.prepare(
+            repositories: repositories, watchedPaths: topology.watchedPaths,
+            unavailableRepositoryIDs: topology.unavailableRepoIds,
+            stableIdentity: .derived(repositories: repositories, watchedPaths: topology.watchedPaths),
+            absenceRecords: topology.absenceRecords
+        ) {
+            topology.replaceTopology(replacement)
+        }
+        let lifetime: RepositoryFactObservationLifetime
+        if let worktreeID = envelope.worktreeId, let captured = topology.worktreeObservationLifetimes[worktreeID] {
+            lifetime = .worktree(captured)
+        } else if let captured = topology.repositoryObservationLifetimes[envelope.repoId] {
+            lifetime = .repository(captured)
+        } else {
+            lifetime = .unscoped
+        }
+        return WorktreeEnvelope(
+            eventId: envelope.eventId, source: envelope.source, seq: envelope.seq,
+            timestamp: envelope.timestamp, repoId: envelope.repoId, worktreeId: envelope.worktreeId,
+            event: envelope.event, observationLifetime: lifetime)
     }
 
     private func eventually(

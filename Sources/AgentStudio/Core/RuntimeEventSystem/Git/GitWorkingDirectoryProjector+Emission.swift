@@ -9,6 +9,8 @@ extension GitWorkingDirectoryProjector {
         repoId: UUID,
         event: GitWorkingDirectoryEvent
     ) async {
+        let capturedLifetime = RepositoryObservationRequestContext.worktree
+        guard capturedLifetime == observationLifetimesByWorktreeID[worktreeId] else { return }
         nextEnvelopeSequence += 1
         let envelope = RuntimeEnvelope.worktree(
             WorktreeEnvelope(
@@ -17,7 +19,8 @@ extension GitWorkingDirectoryProjector {
                 timestamp: envelopeClock.now,
                 repoId: repoId,
                 worktreeId: worktreeId,
-                event: .gitWorkingDirectory(event)
+                event: .gitWorkingDirectory(event),
+                observationLifetime: capturedLifetime.map(RepositoryFactObservationLifetime.worktree) ?? .unscoped
             )
         )
 

@@ -211,8 +211,7 @@ extension CommandBarDataSource {
             }
             guard
                 let defaultWorktree =
-                    repository.worktrees.first(where: \.isMainWorktree)
-                    ?? repository.worktrees.first
+                    store.repositoryTopologyAtom.activationWorktree(for: recency.entity)
             else {
                 return nil
             }
@@ -230,7 +229,8 @@ extension CommandBarDataSource {
             guard
                 let worktree = store.repositoryTopologyAtom.worktree(stableKey: stableKey),
                 let repository = store.repositoryTopologyAtom.repo(containing: worktree.id),
-                !store.repositoryTopologyAtom.isRepoUnavailable(repository.id)
+                !store.repositoryTopologyAtom.isRepoUnavailable(repository.id),
+                !store.repositoryTopologyAtom.isWorktreeUnavailable(worktree.id)
             else {
                 return nil
             }

@@ -195,6 +195,7 @@ extension WorkspaceSurfaceCoordinator {
             removeRepoHandler(repoId)
 
         case .setRepoPinned(let repoId, let isPinned):
+            await awaitTopologyMutationAdmission()
             store.mutationCoordinator.setRepoPinned(repoId, isPinned: isPinned)
 
         case .setPanePinned(let paneId, let isPinned):

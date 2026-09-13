@@ -114,7 +114,7 @@ struct CommandBarResultSessionTests {
 
         store.reconcileDiscoveredWorktrees(
             changedRepository.id,
-            worktrees: [
+            worktrees: changedRepository.worktrees + [
                 makeWorktree(
                     repoId: changedRepository.id,
                     name: "feature-cache-identity",
@@ -123,6 +123,7 @@ struct CommandBarResultSessionTests {
                 )
             ]
         )
+        #expect(!store.repositoryTopologyAtom.isRepoUnavailable(changedRepository.id))
         _ = session.snapshot(state: state)
         #expect(session.repoScopeItemBuildCount == 3)
 

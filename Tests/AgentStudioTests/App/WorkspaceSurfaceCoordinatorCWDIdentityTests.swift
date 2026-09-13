@@ -142,8 +142,8 @@ struct WorkspaceSurfaceCoordinatorCWDIdentityTests {
         try? FileManager.default.removeItem(at: tempDir)
     }
 
-    @Test("temporary repo unavailability retains association when worktrees are omitted and heals moved CWD")
-    func temporaryRepoUnavailabilityWithOmittedWorktreesRetainsAndHealsAssociation() async throws {
+    @Test("temporary repo unavailability clears optional association and resolves CWD on return")
+    func temporaryRepoUnavailabilityClearsAndLaterResolvesAssociation() async throws {
         let bus = makeTestPaneRuntimeEventBus()
         let store = WorkspaceStore()
         let coordinator = makeTestWorkspaceSurfaceCoordinator(
@@ -196,20 +196,20 @@ struct WorkspaceSurfaceCoordinatorCWDIdentityTests {
                 paneId: PaneId(existingUUID: pane.id)
             )
         )
-        await eventually("uncertain CWD update should retain the known association") {
+        await eventually("CWD update should clear unavailable optional associations") {
             let facets = store.paneAtom.graphAtom.paneState(pane.id)?.durableContextFacets
             return facets?.cwd?.standardizedFileURL.path
                 == secondWorktree.path.standardizedFileURL.path
-                && facets?.repoId == repository.id
-                && facets?.worktreeId == firstWorktree.id
+                && facets?.repoId == nil
+                && facets?.worktreeId == nil
         }
         let unavailableFacets = store.paneAtom.graphAtom.paneState(pane.id)?.durableContextFacets
         #expect(
             unavailableFacets?.cwd?.standardizedFileURL.path
                 == secondWorktree.path.standardizedFileURL.path
         )
-        #expect(unavailableFacets?.repoId == repository.id)
-        #expect(unavailableFacets?.worktreeId == firstWorktree.id)
+        #expect(unavailableFacets?.repoId == nil)
+        #expect(unavailableFacets?.worktreeId == nil)
 
         let reconciliation = store.mutationCoordinator.reconcileDiscoveredWorktrees(
             repository.id,

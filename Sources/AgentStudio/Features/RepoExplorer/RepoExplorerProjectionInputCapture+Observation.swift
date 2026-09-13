@@ -65,6 +65,7 @@ extension RepoExplorerProjectionInputCapture {
             _ = sidebarCache.collapsedGroups
         case .membership:
             _ = store.repositoryTopologyAtom.repositoryIdsInOrder
+            _ = store.repositoryTopologyAtom.worktreePathIndexGeneration
             _ = store.paneAtom.graphAtom.paneIDs
             _ = store.tabShellAtom.orderedTabIds
         case .stableIdentity:

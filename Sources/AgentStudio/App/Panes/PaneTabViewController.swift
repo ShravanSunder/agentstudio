@@ -1677,7 +1677,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
                 \.sourcePaneId
             ),
             knownRepoIds: Set(store.repositoryTopologyAtom.repos.map(\.id)),
-            knownWorktreeIds: Set(store.repositoryTopologyAtom.repos.flatMap(\.worktrees).map(\.id)),
+            knownWorktreeIds: store.repositoryTopologyAtom.availableWorktreeIDs,
             knownPaneIds: store.paneAtom.graphAtom.paneIDs,
             drawerParentByPaneId: drawerParentByPaneId(),
             drawerLayoutByParentPaneId: drawerLayoutByParentPaneId(),
@@ -1822,10 +1822,11 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
                 repositoryTopology: store.repositoryTopologyAtom
             )
         else {
-            Self.logger.warning("Recent launcher entity removed because live topology is missing")
+            Self.logger.debug("Recent launcher target is not currently available")
             let applicationRecency = atom(\.applicationEntityRecency)
             WorkspaceLauncherProjector.pruneStaleTarget(
                 target,
+                repositoryTopology: store.repositoryTopologyAtom,
                 applicationRecency: applicationRecency
             )
             return
@@ -2547,7 +2548,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
                 \.sourcePaneId
             ),
             knownRepoIds: Set(store.repositoryTopologyAtom.repos.map(\.id)),
-            knownWorktreeIds: Set(store.repositoryTopologyAtom.repos.flatMap(\.worktrees).map(\.id)),
+            knownWorktreeIds: store.repositoryTopologyAtom.availableWorktreeIDs,
             drawerParentByPaneId: drawerParentByPaneId(),
             drawerLayoutByParentPaneId: drawerLayoutByParentPaneId(),
             visiblePaneIds: { [arrangementView] tab in
@@ -4405,7 +4406,9 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         }
 
         if Self.isTargetedBridgeCommand(command), targetType == .worktree {
-            return store.repositoryTopologyAtom.worktree(target) != nil
+            return store.repositoryTopologyAtom.validatedAssociation(
+                repoId: store.repositoryTopologyAtom.repositoryId(containing: target), worktreeId: target
+            ) != nil
         }
 
         if isTargetedPaneExternalCommand(command) {

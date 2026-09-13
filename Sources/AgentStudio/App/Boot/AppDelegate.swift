@@ -541,6 +541,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         }
 
         // 1. Persist the watched path through the topology mutation owner.
+        await workspaceCacheCoordinator.waitForRetentionCommit()
         _ = store.mutationCoordinator.addWatchedPath(rootURL)
 
         // 2. Signal scanning state for UI. Sidebar stays collapsed until
@@ -562,6 +563,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                     return nil
                 }
                 switch topologyEvent {
+                case .watchedFolderReconciled(let observation):
+                    guard observation.root.standardizedFileURL.path == normalizedRoot,
+                        !observation.entries.isEmpty
+                    else { return nil }
+                    return ()
                 case .repoDiscovered(let repoPath, let parentPath, _, _):
                     guard
                         parentPath.standardizedFileURL.path == normalizedRoot

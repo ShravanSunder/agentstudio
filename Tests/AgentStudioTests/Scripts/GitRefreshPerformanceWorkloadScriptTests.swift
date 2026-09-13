@@ -526,7 +526,7 @@ struct GitRefreshPerformanceWorkloadScriptTests {
             return
         }
 
-        try await writer.saveRepositoryTopologySnapshot(fixture.repositoryTopologySnapshot)
+        try await writer.saveRepositoryTopologySnapshot(fixture.repositoryTopologySnapshot, captureRevision: 1)
         try await writer.saveWorkspaceSnapshotBundle(saveBundle)
         let reader = datastoreFactory.makeDatastore()
         guard case .prepared = await reader.prepareDatabasesForBoot() else {

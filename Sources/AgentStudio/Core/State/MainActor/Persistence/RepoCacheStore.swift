@@ -104,6 +104,8 @@ package final class RepoCacheStore {
     private let delay: AsyncDelay
     private let recoveryReporter: PersistenceRecoveryReporter?
     private var debouncedSaveTask: Task<Void, Never>?
+    private var activeSaveTask: Task<Void, Error>?
+    private var saveGeneration: UInt64 = 0
     private var isObservingCacheState = false
     private var isRestoringState = false
     private var activeWorkspaceId: UUID?
@@ -154,6 +156,7 @@ package final class RepoCacheStore {
 
     package func restoreAsync(for workspaceId: UUID) async {
         debouncedSaveTask?.cancel()
+        activeSaveTask?.cancel()
         debouncedSaveTask = nil
         activeWorkspaceId = workspaceId
         switch await sqliteDatastore.loadRepoCacheState() {
@@ -216,6 +219,7 @@ package final class RepoCacheStore {
     private func schedulePersist() {
         guard let workspaceId = activeWorkspaceId else { return }
         debouncedSaveTask?.cancel()
+        activeSaveTask?.cancel()
         let delay = self.delay
         let persistDebounceDuration = self.persistDebounceDuration
         debouncedSaveTask = Task { @MainActor [weak self, delay, persistDebounceDuration, workspaceId] in
@@ -224,6 +228,8 @@ package final class RepoCacheStore {
             guard let self else { return }
             do {
                 try await self.persistNow(for: workspaceId, force: false)
+            } catch is CancellationError {
+                return
             } catch {
                 repoCacheStoreLogger.warning("Repo cache autosave failed: \(error.localizedDescription)")
             }
@@ -231,18 +237,44 @@ package final class RepoCacheStore {
     }
 
     private func persistNow(for workspaceId: UUID, force: Bool = true) async throws {
+        try Task.checkCancellation()
+        activeSaveTask?.cancel()
+        saveGeneration &+= 1
+        let generation = saveGeneration
+        let operation = Task { @MainActor [self] in
+            try await persistCurrentCapture(for: workspaceId, force: force)
+        }
+        activeSaveTask = operation
+        defer { if generation == saveGeneration { activeSaveTask = nil } }
+        try await withTaskCancellationHandler {
+            try await operation.value
+        } onCancel: {
+            operation.cancel()
+        }
+    }
+
+    private func persistCurrentCapture(for workspaceId: UUID, force: Bool) async throws {
+        try Task.checkCancellation()
+        let captureRevision = cacheAtom.cacheRevision
         let capture = captureCurrentSaveState()
         let preparedSave = await RepoCacheSavePreparer.prepareOffMain(
             capture: capture,
             previousProjection: lastPersistedProjection,
             force: force
         )
+        try Task.checkCancellation()
+        guard cacheAtom.cacheRevision == captureRevision else { throw CancellationError() }
         guard preparedSave.shouldPersist else { return }
         do {
+            // Cancellation may arrive after SQL commits but before its acknowledgement returns.
+            lastPersistedProjection = nil
             try await sqliteDatastore.saveRepoCacheState(
                 cacheState: preparedSave.cacheState
             )
+            try Task.checkCancellation()
             lastPersistedProjection = preparedSave.projection
+        } catch let error as CancellationError {
+            throw error
         } catch {
             recoveryReporter?(
                 .init(store: .repoCache, workspaceId: workspaceId, recovery: .saveFailed)

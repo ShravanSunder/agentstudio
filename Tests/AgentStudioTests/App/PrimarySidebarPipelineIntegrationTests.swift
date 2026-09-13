@@ -35,46 +35,27 @@ struct PrimarySidebarPipelineIntegrationTests {
                 Issue.record("Expected each repository to have its primary worktree")
                 return
             }
-            let repoARefreshSubscription = await bus.subscribe(
-                policy: .lossyNewest(BusSubscriberPolicy.standardLossyBufferLimit),
+            let topologyAssertion = await assertCanonicalProducerTopology(
+                workspaceStore: workspaceStore,
+                projector: projector,
+                forgeActor: forgeActor
+            )
+            guard let worktreeALifetime = topologyAssertion.worktreeLifetimes[worktreeA],
+                let worktreeBLifetime = topologyAssertion.worktreeLifetimes[worktreeB]
+            else {
+                Issue.record("Expected canonical observation lifetimes for both primary worktrees")
+                return
+            }
+            let repoARefresh = await observeReadyPullRequestFacts(
+                bus: bus,
+                repositoryID: repoA.id,
                 subscriberName: "PrimarySidebarPipeline.repoARefresh"
             )
-            let repoBRefreshSubscription = await bus.subscribe(
-                policy: .lossyNewest(BusSubscriberPolicy.standardLossyBufferLimit),
+            let repoBRefresh = await observeReadyPullRequestFacts(
+                bus: bus,
+                repositoryID: repoB.id,
                 subscriberName: "PrimarySidebarPipeline.repoBRefresh"
             )
-            let repoARefresh = Task<[String: PullRequestFacts]?, Never> {
-                for await envelope in repoARefreshSubscription {
-                    guard case .worktree(let worktreeEnvelope) = envelope,
-                        case .forge(
-                            .pullRequestRepositoryProjectionChanged(
-                                let repoId,
-                                .stable(.ready(let factsByBranch)),
-                                _
-                            )
-                        ) = worktreeEnvelope.event,
-                        repoId == repoA.id
-                    else { continue }
-                    return factsByBranch
-                }
-                return nil
-            }
-            let repoBRefresh = Task<[String: PullRequestFacts]?, Never> {
-                for await envelope in repoBRefreshSubscription {
-                    guard case .worktree(let worktreeEnvelope) = envelope,
-                        case .forge(
-                            .pullRequestRepositoryProjectionChanged(
-                                let repoId,
-                                .stable(.ready(let factsByBranch)),
-                                _
-                            )
-                        ) = worktreeEnvelope.event,
-                        repoId == repoB.id
-                    else { continue }
-                    return factsByBranch
-                }
-                return nil
-            }
 
             await registerForgeWorktree(worktreeA, repository: repoA, forgeActor: forgeActor)
             await registerForgeWorktree(worktreeB, repository: repoB, forgeActor: forgeActor)
@@ -87,8 +68,22 @@ struct PrimarySidebarPipelineIntegrationTests {
             await postWorktreeRegistered(bus: bus, worktreeId: worktreeA, repoId: repoA.id, rootPath: repoA.repoPath)
             await postWorktreeRegistered(bus: bus, worktreeId: worktreeB, repoId: repoB.id, rootPath: repoB.repoPath)
 
-            await postBranchChanged(bus: bus, worktreeId: worktreeA, repoId: repoA.id, from: "seed", to: "main")
-            await postBranchChanged(bus: bus, worktreeId: worktreeB, repoId: repoB.id, from: "seed", to: "main")
+            await postBranchChanged(
+                bus: bus,
+                worktreeId: worktreeA,
+                repoId: repoA.id,
+                from: "seed",
+                to: "main",
+                observationLifetime: worktreeALifetime
+            )
+            await postBranchChanged(
+                bus: bus,
+                worktreeId: worktreeB,
+                repoId: repoB.id,
+                from: "seed",
+                to: "main",
+                observationLifetime: worktreeBLifetime
+            )
 
             #expect(await repoARefresh.value?["main"]?.openCount == 1)
             #expect(await repoBRefresh.value?["main"]?.openCount == 1)
@@ -150,6 +145,12 @@ struct PrimarySidebarPipelineIntegrationTests {
                 return
             }
 
+            await assertCanonicalProducerTopology(
+                workspaceStore: workspaceStore,
+                projector: projector,
+                forgeActor: forgeActor
+            )
+
             await attendRepositoryFacts(
                 worktreeIds: [worktreeId],
                 activePaneWorktreeId: worktreeId,
@@ -205,13 +206,16 @@ struct PrimarySidebarPipelineIntegrationTests {
             repoCache: repoCache,
             scopeSyncHandler: { change in
                 switch change {
-                case .registerForgeRepo(let repoId, let remote):
+                case .registerForgeRepo(let repoId, let remote, let expectedLifetime):
+                    let currentLifetime = await workspaceStore.repositoryTopologyAtom.repositoryObservationLifetimes[
+                        repoId]
+                    guard expectedLifetime == currentLifetime else { return }
                     await forgeActor.setOrigin(repo: repoId, remote: remote)
-                case .unregisterForgeRepo(let repoId):
-                    await forgeActor.removeRepository(repo: repoId)
+                case .unregisterForgeRepo(let repoId, let expectedLifetime):
+                    await forgeActor.removeRepository(repo: repoId, expectedLifetime: expectedLifetime)
                 case .refreshForgeRepo(let repoId, let correlationId):
                     await forgeActor.refresh(repo: repoId, correlationId: correlationId)
-                case .updateWatchedFolders:
+                case .updateWatchedFolders, .updateRepositoryScanBaseline:
                     break
                 }
             },
@@ -220,7 +224,16 @@ struct PrimarySidebarPipelineIntegrationTests {
 
         await withStartedForgeScopeCoordinator(bus: bus, coordinator: coordinator, forgeActor: forgeActor) {
             let repo = workspaceStore.addRepo(at: URL(fileURLWithPath: "/tmp/pipeline-forge-dedupe"))
-            let worktreeId = UUID()
+            guard let worktreeId = repo.worktrees.first?.id,
+                let observationLifetime = workspaceStore.repositoryTopologyAtom.worktreeObservationLifetimes[
+                    worktreeId]
+            else {
+                Issue.record("Expected canonical worktree and observation lifetime")
+                return
+            }
+            await forgeActor.assertObservationLifetimes(
+                makeCanonicalTopologyAssertion(workspaceStore: workspaceStore)
+            )
             await forgeActor.register(
                 worktreeId: worktreeId,
                 repoId: repo.id,
@@ -232,9 +245,17 @@ struct PrimarySidebarPipelineIntegrationTests {
                 repoId: repo.id,
                 worktreeId: worktreeId,
                 from: "",
-                to: "git@github.com:askluna/agent-studio.git"
+                to: "git@github.com:askluna/agent-studio.git",
+                observationLifetime: observationLifetime
             )
-            await postBranchChanged(bus: bus, worktreeId: worktreeId, repoId: repo.id, from: "seed", to: "main")
+            await postBranchChanged(
+                bus: bus,
+                worktreeId: worktreeId,
+                repoId: repo.id,
+                from: "seed",
+                to: "main",
+                observationLifetime: observationLifetime
+            )
 
             let reachedExpectedCalls = await eventually(
                 "forge provider should be invoked once after origin and branch resolve"
@@ -259,6 +280,12 @@ struct PrimarySidebarPipelineIntegrationTests {
         )
 
         let repo = workspaceStore.addRepo(at: URL(fileURLWithPath: "/tmp/pipeline-origin-change"))
+        guard let worktreeId = repo.worktrees.first?.id,
+            let observationLifetime = workspaceStore.repositoryTopologyAtom.worktreeObservationLifetimes[worktreeId]
+        else {
+            Issue.record("Expected canonical worktree and observation lifetime")
+            return
+        }
 
         coordinator.handleEnrichment(
             WorktreeEnvelope.test(
@@ -266,7 +293,9 @@ struct PrimarySidebarPipelineIntegrationTests {
                     .originChanged(repoId: repo.id, from: "", to: "git@github.com:org-a/repo.git")
                 ),
                 repoId: repo.id,
-                source: .system(.builtin(.gitWorkingDirectoryProjector))
+                worktreeId: worktreeId,
+                source: .system(.builtin(.gitWorkingDirectoryProjector)),
+                observationLifetime: .worktree(observationLifetime)
             )
         )
         coordinator.handleEnrichment(
@@ -279,7 +308,9 @@ struct PrimarySidebarPipelineIntegrationTests {
                     )
                 ),
                 repoId: repo.id,
-                source: .system(.builtin(.gitWorkingDirectoryProjector))
+                worktreeId: worktreeId,
+                source: .system(.builtin(.gitWorkingDirectoryProjector)),
+                observationLifetime: .worktree(observationLifetime)
             )
         )
 
@@ -334,33 +365,21 @@ struct PrimarySidebarPipelineIntegrationTests {
             projector: projector,
             forgeActor: forgeActor
         ) {
-            var financeWorktreeIdByBranch: [String: UUID] = [:]
-            var financeRepoIds: [UUID] = []
-            var registeredWorktreeIds: Set<UUID> = []
-            for repoPath in discoveredRepoPaths {
-                let repo = workspaceStore.addRepo(at: repoPath)
-                guard let worktree = repo.worktrees.first else { continue }
-                let normalizedPath = repoPath.standardizedFileURL.path
-                if pathStatusByRootPath[normalizedPath]?.origin == financeRemote {
-                    financeRepoIds.append(repo.id)
-                    if let branch = pathStatusByRootPath[normalizedPath]?.branch {
-                        financeWorktreeIdByBranch[branch] = worktree.id
-                    }
-                }
-                await forgeActor.register(
-                    worktreeId: worktree.id,
-                    repoId: repo.id,
-                    rootPath: repoPath
+            let fixture = await prepareProjectDevPipelineFixture(
+                inputs: ProjectDevPipelineFixtureInputs(
+                    discoveredRepoPaths: discoveredRepoPaths,
+                    pathStatusByRootPath: pathStatusByRootPath,
+                    financeRemote: financeRemote,
+                    workspaceStore: workspaceStore,
+                    bus: bus,
+                    projector: projector,
+                    forgeActor: forgeActor
                 )
-                registeredWorktreeIds.insert(worktree.id)
-                await postWorktreeRegistered(bus: bus, worktreeId: worktree.id, repoId: repo.id, rootPath: repoPath)
-            }
-            await attendRepositoryFacts(worktreeIds: registeredWorktreeIds, projector: projector)
-            await forgeActor.setDemand(worktreeIds: registeredWorktreeIds)
+            )
 
             let identityConverged = await eventually("all finance repos should share one remote group key") {
-                guard !financeRepoIds.isEmpty else { return false }
-                for repoId in financeRepoIds {
+                guard !fixture.financeRepositoryIDs.isEmpty else { return false }
+                for repoId in fixture.financeRepositoryIDs {
                     guard case .some(.resolvedRemote(_, _, let identity, _)) = repoCache.repoEnrichmentByRepoId[repoId]
                     else {
                         return false
@@ -372,9 +391,9 @@ struct PrimarySidebarPipelineIntegrationTests {
             #expect(identityConverged)
 
             let pullRequestCountsConverged = await eventually("finance branches should receive forge PR counts") {
-                guard let primaryBranchId = financeWorktreeIdByBranch["master"],
-                    let transactionTableId = financeWorktreeIdByBranch["transaction-table-3"],
-                    let rlvrForkingId = financeWorktreeIdByBranch["rlvr-forking"]
+                guard let primaryBranchId = fixture.financeWorktreeIDByBranch["master"],
+                    let transactionTableId = fixture.financeWorktreeIDByBranch["transaction-table-3"],
+                    let rlvrForkingId = fixture.financeWorktreeIDByBranch["rlvr-forking"]
                 else {
                     return false
                 }
@@ -438,6 +457,39 @@ struct PrimarySidebarPipelineIntegrationTests {
         )
     }
 
+    private func makeCanonicalTopologyAssertion(
+        workspaceStore: WorkspaceStore
+    ) -> FilesystemTopologyAssertion {
+        let topology = workspaceStore.repositoryTopologyAtom
+        return FilesystemTopologyAssertion(
+            generation: topology.worktreePathIndexGeneration,
+            contextsByWorktreeId: Dictionary(
+                uniqueKeysWithValues: topology.repos.flatMap { repository in
+                    repository.worktrees.map { worktree in
+                        (
+                            worktree.id,
+                            WorktreeFilesystemContext(repoId: repository.id, rootPath: worktree.path)
+                        )
+                    }
+                }
+            ),
+            repositoryLifetimes: topology.repositoryObservationLifetimes,
+            worktreeLifetimes: topology.worktreeObservationLifetimes
+        )
+    }
+
+    @discardableResult
+    private func assertCanonicalProducerTopology(
+        workspaceStore: WorkspaceStore,
+        projector: GitWorkingDirectoryProjector,
+        forgeActor: ForgeActor
+    ) async -> FilesystemTopologyAssertion {
+        let assertion = makeCanonicalTopologyAssertion(workspaceStore: workspaceStore)
+        await projector.assertTopology(assertion)
+        await forgeActor.assertObservationLifetimes(assertion)
+        return assertion
+    }
+
     private func makeWorkspaceStore() -> WorkspaceStore {
         WorkspaceStore()
     }
@@ -491,13 +543,16 @@ struct PrimarySidebarPipelineIntegrationTests {
             repoCache: repoCache,
             scopeSyncHandler: { change in
                 switch change {
-                case .registerForgeRepo(let repoId, let remote):
+                case .registerForgeRepo(let repoId, let remote, let expectedLifetime):
+                    let currentLifetime = await workspaceStore.repositoryTopologyAtom.repositoryObservationLifetimes[
+                        repoId]
+                    guard expectedLifetime == currentLifetime else { return }
                     await forgeActor.setOrigin(repo: repoId, remote: remote)
-                case .unregisterForgeRepo(let repoId):
-                    await forgeActor.removeRepository(repo: repoId)
+                case .unregisterForgeRepo(let repoId, let expectedLifetime):
+                    await forgeActor.removeRepository(repo: repoId, expectedLifetime: expectedLifetime)
                 case .refreshForgeRepo(let repoId, let correlationId):
                     await forgeActor.refresh(repo: repoId, correlationId: correlationId)
-                case .updateWatchedFolders:
+                case .updateWatchedFolders, .updateRepositoryScanBaseline:
                     break
                 }
             },
@@ -625,7 +680,8 @@ struct PrimarySidebarPipelineIntegrationTests {
         worktreeId: UUID,
         repoId: UUID,
         from: String,
-        to: String
+        to: String,
+        observationLifetime: WorktreeObservationLifetime
     ) async {
         _ = await bus.post(
             .worktree(
@@ -640,7 +696,8 @@ struct PrimarySidebarPipelineIntegrationTests {
                     ),
                     repoId: repoId,
                     worktreeId: worktreeId,
-                    source: .system(.builtin(.gitWorkingDirectoryProjector))
+                    source: .system(.builtin(.gitWorkingDirectoryProjector)),
+                    observationLifetime: .worktree(observationLifetime)
                 )
             )
         )
@@ -651,7 +708,8 @@ struct PrimarySidebarPipelineIntegrationTests {
         repoId: UUID,
         worktreeId: UUID,
         from: String,
-        to: String
+        to: String,
+        observationLifetime: WorktreeObservationLifetime
     ) async {
         _ = await bus.post(
             .worktree(
@@ -661,7 +719,8 @@ struct PrimarySidebarPipelineIntegrationTests {
                     ),
                     repoId: repoId,
                     worktreeId: worktreeId,
-                    source: .system(.builtin(.gitWorkingDirectoryProjector))
+                    source: .system(.builtin(.gitWorkingDirectoryProjector)),
+                    observationLifetime: .worktree(observationLifetime)
                 )
             )
         )
@@ -730,6 +789,96 @@ struct PrimarySidebarPipelineIntegrationTests {
             await coordinator.shutdown()
             throw error
         }
+    }
+}
+
+extension PrimarySidebarPipelineIntegrationTests {
+    fileprivate struct ProjectDevPipelineFixtureInputs {
+        let discoveredRepoPaths: [URL]
+        let pathStatusByRootPath: [String: GitWorkingTreeStatus]
+        let financeRemote: String
+        let workspaceStore: WorkspaceStore
+        let bus: EventBus<RuntimeEnvelope>
+        let projector: GitWorkingDirectoryProjector
+        let forgeActor: ForgeActor
+    }
+
+    fileprivate struct ProjectDevPipelineFixture {
+        let financeWorktreeIDByBranch: [String: UUID]
+        let financeRepositoryIDs: [UUID]
+    }
+
+    fileprivate func observeReadyPullRequestFacts(
+        bus: EventBus<RuntimeEnvelope>,
+        repositoryID: UUID,
+        subscriberName: String
+    ) async -> Task<[String: PullRequestFacts]?, Never> {
+        let subscription = await bus.subscribe(
+            policy: .lossyNewest(BusSubscriberPolicy.standardLossyBufferLimit),
+            subscriberName: subscriberName
+        )
+        return Task {
+            for await envelope in subscription {
+                guard case .worktree(let worktreeEnvelope) = envelope,
+                    case .forge(
+                        .pullRequestRepositoryProjectionChanged(
+                            let eventRepositoryID,
+                            .stable(.ready(let factsByBranch)),
+                            _
+                        )
+                    ) = worktreeEnvelope.event,
+                    eventRepositoryID == repositoryID
+                else { continue }
+                return factsByBranch
+            }
+            return nil
+        }
+    }
+
+    fileprivate func prepareProjectDevPipelineFixture(
+        inputs: ProjectDevPipelineFixtureInputs
+    ) async -> ProjectDevPipelineFixture {
+        var financeWorktreeIDByBranch: [String: UUID] = [:]
+        var financeRepositoryIDs: [UUID] = []
+        var registeredWorktreeIDs: Set<UUID> = []
+        var registrations: [(repository: Repo, worktree: Worktree, rootPath: URL)] = []
+        for repoPath in inputs.discoveredRepoPaths {
+            let repository = inputs.workspaceStore.addRepo(at: repoPath)
+            guard let worktree = repository.worktrees.first else { continue }
+            let normalizedPath = repoPath.standardizedFileURL.path
+            if inputs.pathStatusByRootPath[normalizedPath]?.origin == inputs.financeRemote {
+                financeRepositoryIDs.append(repository.id)
+                if let branch = inputs.pathStatusByRootPath[normalizedPath]?.branch {
+                    financeWorktreeIDByBranch[branch] = worktree.id
+                }
+            }
+            registrations.append((repository: repository, worktree: worktree, rootPath: repoPath))
+            registeredWorktreeIDs.insert(worktree.id)
+        }
+        await assertCanonicalProducerTopology(
+            workspaceStore: inputs.workspaceStore,
+            projector: inputs.projector,
+            forgeActor: inputs.forgeActor
+        )
+        for registration in registrations {
+            await inputs.forgeActor.register(
+                worktreeId: registration.worktree.id,
+                repoId: registration.repository.id,
+                rootPath: registration.rootPath
+            )
+            await postWorktreeRegistered(
+                bus: inputs.bus,
+                worktreeId: registration.worktree.id,
+                repoId: registration.repository.id,
+                rootPath: registration.rootPath
+            )
+        }
+        await attendRepositoryFacts(worktreeIds: registeredWorktreeIDs, projector: inputs.projector)
+        await inputs.forgeActor.setDemand(worktreeIds: registeredWorktreeIDs)
+        return ProjectDevPipelineFixture(
+            financeWorktreeIDByBranch: financeWorktreeIDByBranch,
+            financeRepositoryIDs: financeRepositoryIDs
+        )
     }
 }
 

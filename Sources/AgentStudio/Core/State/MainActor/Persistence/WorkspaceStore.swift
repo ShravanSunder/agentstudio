@@ -149,6 +149,7 @@ package final class WorkspaceStore {
                     windowMemoryAtom: windowMemoryAtom,
                     workspacePaneAtom: resolvedPaneAtom,
                     workspaceTabLayoutAtom: tabLayoutAtom,
+                    repositoryTopologyAtom: repositoryTopologyAtom,
                     sqliteDatastore: datastore
                 )
             }

@@ -159,18 +159,18 @@ package enum FSEventStreamRuntimeTerminal: Sendable, Equatable {
 package struct FSEventOverflowRecovery: Equatable, Sendable {
     package let worktreeId: UUID
     package let paths: Set<String>?
-    package let containsGitTopologyPath: Bool
+    package let requiresWatchedFolderScan: Bool
     package let requiresFullGitRefresh: Bool
 
     package init(
         worktreeId: UUID,
         paths: Set<String>?,
-        containsGitTopologyPath: Bool = false,
+        requiresWatchedFolderScan: Bool = false,
         requiresFullGitRefresh: Bool = false
     ) {
         self.worktreeId = worktreeId
         self.paths = paths
-        self.containsGitTopologyPath = containsGitTopologyPath
+        self.requiresWatchedFolderScan = requiresWatchedFolderScan
         self.requiresFullGitRefresh = requiresFullGitRefresh
     }
 }

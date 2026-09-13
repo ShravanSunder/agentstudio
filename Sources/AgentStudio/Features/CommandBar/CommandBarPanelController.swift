@@ -424,6 +424,11 @@ package final class CommandBarPanelController {
             dismiss(measureNonExecutingClose: false)
             closure()
         case .worktreeAction(let presence):
+            guard
+                store.repositoryTopologyAtom.validatedAssociation(
+                    repoId: presence.repoId, worktreeId: presence.worktreeId
+                ) != nil
+            else { return }
             let canOpenWorktreeInCurrentTab = resultSession.snapshot(state: state).canOpenWorktreeInCurrentTab
             executeResolvedWorktreeAction(
                 resolution: CommandBarWorktreeActionResolver.resolve(
@@ -469,7 +474,8 @@ package final class CommandBarPanelController {
             guard
                 let worktree = store.repositoryTopologyAtom.worktree(stableKey: worktreeStableKey),
                 let repository = store.repositoryTopologyAtom.repo(containing: worktree.id),
-                !store.repositoryTopologyAtom.isRepoUnavailable(repository.id)
+                !store.repositoryTopologyAtom.isRepoUnavailable(repository.id),
+                !store.repositoryTopologyAtom.isWorktreeUnavailable(worktree.id)
             else {
                 return
             }
@@ -561,12 +567,14 @@ package final class CommandBarPanelController {
             else {
                 return nil
             }
-            return CommandBarDataSource.quickOpenDefaultWorktree(for: repository)
+            return store.repositoryTopologyAtom.activationWorktree(
+                for: .repository(repositoryStableKey: repositoryStableKey))
         case .worktree(let worktreeStableKey):
             guard
                 let worktree = store.repositoryTopologyAtom.worktree(stableKey: worktreeStableKey),
                 let repository = store.repositoryTopologyAtom.repo(containing: worktree.id),
-                !store.repositoryTopologyAtom.isRepoUnavailable(repository.id)
+                !store.repositoryTopologyAtom.isRepoUnavailable(repository.id),
+                !store.repositoryTopologyAtom.isWorktreeUnavailable(worktree.id)
             else {
                 return nil
             }
@@ -680,7 +688,9 @@ package final class CommandBarPanelController {
     }
 
     private func rejectStaleApplicationActivation(_ entity: ApplicationRecentEntity) {
-        atom(\.applicationEntityRecency).remove(entity)
+        if !store.repositoryTopologyAtom.containsCanonicalLocation(for: entity) {
+            atom(\.applicationEntityRecency).remove(entity)
+        }
         state.selectedIndex = 0
     }
 

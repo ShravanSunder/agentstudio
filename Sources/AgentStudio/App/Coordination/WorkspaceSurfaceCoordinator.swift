@@ -88,6 +88,7 @@ final class WorkspaceSurfaceCoordinator {
     #if DEBUG
         var bridgeReviewSourceProviderOverridesByPaneId: [UUID: any BridgeReviewSourceProvider] = [:]
     #endif
+    var awaitTopologyMutationAdmission: @MainActor () async -> Void = {}
     var removeRepoHandler: @MainActor (UUID) -> Void = { _ in }
     var preparedContentVisibilitySignalHandler: @MainActor (PreparedContentVisibleQueuedSet) -> Set<PaneId> = { _ in
         []
@@ -434,26 +435,10 @@ final class WorkspaceSurfaceCoordinator {
             Self.logger.warning("cwd update ignored for missing pane \(paneId.uuidString, privacy: .public)")
             return
         }
-        let currentFacets = store.paneAtom.graphAtom.paneState(paneId)?.durableContextFacets
         let lookupClock = ContinuousClock()
         let lookupStartedAt = lookupClock.now
         let topologySnapshot = store.repositoryTopologyAtom.captureReadSnapshot()
         let resolvedContext = topologySnapshot.repoAndWorktree(containing: cwd)
-        let currentAssociationIsValid =
-            topologySnapshot.validatedAssociation(
-                repoId: currentFacets?.repoId,
-                worktreeId: currentFacets?.worktreeId
-            ) != nil
-        let currentAssociationIsTemporarilyUnavailable =
-            topologySnapshot.isKnownAssociationTemporarilyUnavailable(
-                repoId: currentFacets?.repoId,
-                worktreeId: currentFacets?.worktreeId
-            )
-        let currentAssociationIsKnownInvalid =
-            currentFacets?.repoId != nil
-            && currentFacets?.worktreeId != nil
-            && !currentAssociationIsValid
-            && !currentAssociationIsTemporarilyUnavailable
         if let cwd {
             performanceTraceRecorder?.recordRepoAndWorktreeLookup(
                 duration: lookupStartedAt.duration(to: lookupClock.now),
@@ -473,12 +458,6 @@ final class WorkspaceSurfaceCoordinator {
                 repoId: resolvedContext.repo.id,
                 worktreeId: resolvedContext.worktree.id
             )
-        } else if cwd != nil,
-            !currentAssociationIsKnownInvalid,
-            topologySnapshot.hasUnavailableWorktree(containing: cwd)
-                || currentAssociationIsTemporarilyUnavailable
-        {
-            associationResolution = .uncertain
         } else {
             associationResolution = .confidentNoMatch
         }
@@ -877,30 +856,21 @@ extension WorkspaceSurfaceCoordinator: TopologyEffectHandler {
     }
 
     private func applyTopologyRemovals(from deltas: [WorktreeTopologyDelta]) {
+        var removedWorktreeIDs = Set<UUID>()
         for delta in deltas {
-            applyTopologyRemovals(from: delta)
-        }
-    }
-
-    private func applyTopologyRemovals(from delta: WorktreeTopologyDelta) {
-        for entry in delta.removedWorktrees {
-            let clearedPaneIDs = store.mutationCoordinator.clearPaneAssociations(
-                forRemovedWorktreeID: entry.id
-            )
-            for sourcePaneID in clearedPaneIDs {
-                performanceTraceRecorder?.recordPaneAssociationOutcome(.topologyRemoved)
-                guard
-                    let companion = store.panePresentationAtom.zoomCompanion(
-                        forSourcePane: sourcePaneID
-                    )
-                else {
-                    continue
+            for entry in delta.removedWorktrees {
+                removedWorktreeIDs.insert(entry.id)
+                for _ in store.mutationCoordinator.clearPaneAssociations(forRemovedWorktreeID: entry.id) {
+                    performanceTraceRecorder?.recordPaneAssociationOutcome(.topologyRemoved)
                 }
-                _ = reconcileZoomCompanion(
-                    sourcePaneId: sourcePaneID,
-                    owningTabId: companion.owningTabId
-                )
             }
+        }
+        guard !removedWorktreeIDs.isEmpty else { return }
+        // Scoped topology may already have cleared the source pane's optional facets.
+        // The retained companion still carries the checkout whose authority must retire.
+        for (sourcePaneID, companion) in store.panePresentationAtom.zoomCompanionsBySourcePaneId
+        where removedWorktreeIDs.contains(companion.resolvedWorktreeId) {
+            _ = reconcileZoomCompanion(sourcePaneId: sourcePaneID, owningTabId: companion.owningTabId)
         }
     }
 

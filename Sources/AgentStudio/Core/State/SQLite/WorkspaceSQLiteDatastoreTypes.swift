@@ -29,6 +29,7 @@ enum WorkspaceSQLiteDatastoreError: Error, Equatable, Sendable {
     case applicationLocalRepositoryUnavailable
     case useDatastoreApplicationLocalRepositoryBundle
     case unreconciledStructuralSave
+    case staleRepositoryTopologyCapture
     case staleWorkspaceCapture
     case missingWorkspaceCaptureRevision
     case missingWorkspacePublication

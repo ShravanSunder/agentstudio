@@ -2,14 +2,64 @@ import AgentStudioInfrastructure
 import Foundation
 
 extension FilesystemActor {
+    @discardableResult
+    package func updateRepositoryScanBaseline(_ repositories: [Repo], membershipRevision: UInt64) -> Bool {
+        guard membershipRevision >= watchedFolderScanState.repositoryScanBaseline.membershipRevision else {
+            return false
+        }
+        watchedFolderScanState.repositoryScanBaseline = WatchedFolderScanBaseline(
+            membershipRevision: membershipRevision,
+            checkoutPaths: repositories.flatMap(\.worktrees).map(\.path)
+        )
+        return true
+    }
+
+    /// Restored topology is previous knowledge, never positive evidence from this scan.
+    package func refreshWatchedFolders(
+        _ watchedPaths: [WatchedPath],
+        restoring repositories: [Repo],
+        membershipRevision: UInt64 = 0,
+        scanning selectedPathIDs: Set<UUID>? = nil
+    ) async -> WatchedFolderRefreshSummary {
+        guard updateRepositoryScanBaseline(repositories, membershipRevision: membershipRevision) else {
+            return watchedFolderRefreshSummary()
+        }
+        _ = await reconcileWatchedFolderRegistrations(watchedPaths)
+        for (sourceID, registration) in watchedFolderScanState.registrationsBySourceID
+        where watchedFolderScanState.inventoryBySourceID[sourceID] == nil {
+            let root = registration.watchedPath.path.standardizedFileURL.path
+            func covered(_ path: URL) -> Bool {
+                let candidate = path.standardizedFileURL.path
+                return candidate == root || candidate.hasPrefix(root + "/")
+            }
+            let groups = repositories.compactMap { repository -> RepoScanner.RepoScanGroup? in
+                let linkedPaths = repository.worktrees
+                    .filter { $0.path.standardizedFileURL != repository.repoPath.standardizedFileURL }
+                    .map(\.path)
+                    .filter(covered)
+                guard covered(repository.repoPath) || !linkedPaths.isEmpty else { return nil }
+                return RepoScanner.RepoScanGroup(
+                    clonePath: repository.repoPath.standardizedFileURL,
+                    linkedWorktreePaths: linkedPaths
+                )
+            }
+            watchedFolderScanState.inventoryBySourceID[sourceID] = FilesystemWatchedFolderInventory(
+                repoGroups: groups
+            )
+        }
+        return await refreshWatchedFolders(watchedPaths, scanning: selectedPathIDs)
+    }
+
     func updateWatchedFolders(_ watchedPaths: [WatchedPath]) async {
         _ = await refreshWatchedFolders(watchedPaths)
     }
 
-    package func refreshWatchedFolders(_ watchedPaths: [WatchedPath]) async -> WatchedFolderRefreshSummary {
+    package func refreshWatchedFolders(
+        _ watchedPaths: [WatchedPath], scanning selectedPathIDs: Set<UUID>? = nil
+    ) async -> WatchedFolderRefreshSummary {
         if let activeRefresh = watchedFolderScanState.manualRefreshState.task {
             _ = await activeRefresh.value
-            return await refreshWatchedFolders(watchedPaths)
+            return await refreshWatchedFolders(watchedPaths, scanning: selectedPathIDs)
         }
         let refreshID = UUIDv7.generate()
         let refreshTask = Task { [weak self] in
@@ -18,7 +68,8 @@ extension FilesystemActor {
             }
             let summary = await self.performManualWatchedFolderRefresh(
                 watchedPaths,
-                refreshID: refreshID
+                refreshID: refreshID,
+                scanning: selectedPathIDs
             )
             await self.finishManualWatchedFolderRefreshTask(refreshID: refreshID)
             return summary
@@ -29,7 +80,8 @@ extension FilesystemActor {
 
     private func performManualWatchedFolderRefresh(
         _ watchedPaths: [WatchedPath],
-        refreshID: UUID
+        refreshID: UUID,
+        scanning selectedPathIDs: Set<UUID>?
     ) async -> WatchedFolderRefreshSummary {
         guard !watchedFolderScanState.isShuttingDown else {
             return watchedFolderRefreshSummary()
@@ -39,9 +91,10 @@ extension FilesystemActor {
         ensureWatchedFolderResultDrainStarted()
 
         var receiptsBySourceID: [FilesystemSourceID: WatchedFolderScanDemandReceipt] = [:]
-        for registration in watchedFolderScanState.registrationsBySourceID.values {
-            let request = WatchedFolderScanRequest(
-                canonicalRoot: registration.registeredRoot,
+        for registration in watchedFolderScanState.registrationsBySourceID.values
+        where selectedPathIDs?.contains(registration.watchedPath.id) ?? true {
+            let request = watchedFolderScanRequest(
+                for: registration,
                 cause: newlyRegisteredSourceIDs.contains(registration.registeredRoot.sourceID)
                     ? .initialAdd : .manual
             )
@@ -109,11 +162,16 @@ extension FilesystemActor {
         _ batch: FSEventBatch,
         shouldRecordLogicalDebt: Bool = true
     ) async {
-        guard batch.paths.contains(where: Self.isGitTopologyPath) else { return }
         guard
             let sourceID = watchedFolderScanState.sourceIDByLegacyCallbackRoutingID[
                 batch.worktreeId
-            ]
+            ],
+            let registration = watchedFolderScanState.registrationsBySourceID[sourceID]
+        else { return }
+        let knownGroups = watchedFolderScanState.inventoryBySourceID[sourceID]?.repoGroups ?? []
+        guard
+            WatchedFolderTopologyAdmission.shouldScan(
+                batch, root: registration.registeredRoot, knownGroups: knownGroups)
         else { return }
         await submitWatchedFolderScan(
             sourceID: sourceID,
@@ -174,6 +232,9 @@ extension FilesystemActor {
             watchedFolderScanState.latestDemandCoverageBySourceID.removeValue(forKey: sourceID)
             watchedFolderScanState.appliedDemandCoverageBySourceID.removeValue(forKey: sourceID)
             watchedFolderScanState.lastAppliedResultIDBySourceID.removeValue(forKey: sourceID)
+            watchedFolderScanState.authoritativeSourceIDs.remove(sourceID)
+            watchedFolderScanState.validatedPathsBySourceID.removeValue(forKey: sourceID)
+            watchedFolderScanState.latestObservationReceipts.removeValue(forKey: sourceID)
         }
 
         for (sourceID, watchedPath) in desiredBySourceID {
@@ -259,10 +320,7 @@ extension FilesystemActor {
         guard let registration = watchedFolderScanState.registrationsBySourceID[sourceID] else {
             return
         }
-        let request = WatchedFolderScanRequest(
-            canonicalRoot: registration.registeredRoot,
-            cause: cause
-        )
+        let request = watchedFolderScanRequest(for: registration, cause: cause)
         switch await watchedFolderScanScheduler.submit(request) {
         case .accepted(let acceptance):
             watchedFolderScanState.latestDemandCoverageBySourceID[sourceID] = acceptance.coverage
@@ -273,6 +331,27 @@ extension FilesystemActor {
         case .rejected:
             return
         }
+    }
+
+    private func watchedFolderScanRequest(
+        for registration: FilesystemWatchedFolderRegistration,
+        cause: WatchedFolderScanCause
+    ) -> WatchedFolderScanRequest {
+        let baseline = watchedFolderScanState.repositoryScanBaseline
+        let rootAliases = [
+            registration.watchedPath.path.standardizedFileURL,
+            URL(fileURLWithPath: registration.registeredRoot.aliases.onceResolvedCanonical.path).standardizedFileURL,
+        ]
+        let retainedPaths = baseline.checkoutPaths.filter { path in
+            let components = path.standardizedFileURL.pathComponents
+            return rootAliases.contains { components.starts(with: $0.pathComponents) }
+        }
+        return WatchedFolderScanRequest(
+            canonicalRoot: registration.registeredRoot,
+            cause: cause,
+            baselineMembershipRevision: baseline.membershipRevision,
+            retainedCheckoutPaths: retainedPaths
+        )
     }
 
     private func startFallbackRescan() {
@@ -301,7 +380,4 @@ extension FilesystemActor {
         }
     }
 
-    private static func isGitTopologyPath(_ path: String) -> Bool {
-        path.contains("/.git/") || path.hasSuffix("/.git")
-    }
 }

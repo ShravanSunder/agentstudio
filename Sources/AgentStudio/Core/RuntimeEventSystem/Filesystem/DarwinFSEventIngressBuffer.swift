@@ -210,13 +210,13 @@ package final class DarwinFSEventIngressBuffer: @unchecked Sendable {
                 )
             )
         }
-        let batchContainsGitTopologyPath = batch.paths.contains(where: Self.isGitTopologyPath)
+        let batchRequiresWatchedFolderScan = WatchedFolderTopologyAdmission.mayAffectTopology(batch)
         if let existing = overflowRecoveryByWorktreeId[batch.worktreeId], existing.paths == nil {
             overflowRecoveryByWorktreeId[batch.worktreeId] = FSEventOverflowRecovery(
                 worktreeId: batch.worktreeId,
                 paths: nil,
-                containsGitTopologyPath: existing.containsGitTopologyPath
-                    || batchContainsGitTopologyPath,
+                requiresWatchedFolderScan: existing.requiresWatchedFolderScan
+                    || batchRequiresWatchedFolderScan,
                 requiresFullGitRefresh: existing.requiresFullGitRefresh
                     || batch.requiresFullGitRefresh
             )
@@ -224,9 +224,9 @@ package final class DarwinFSEventIngressBuffer: @unchecked Sendable {
         }
         let existing = overflowRecoveryByWorktreeId[batch.worktreeId]
         var retainedPaths = existing?.paths ?? Set<String>()
-        let containsGitTopologyPath =
-            existing?.containsGitTopologyPath == true
-            || batchContainsGitTopologyPath
+        let requiresWatchedFolderScan =
+            existing?.requiresWatchedFolderScan == true
+            || batchRequiresWatchedFolderScan
         let requiresFullGitRefresh =
             existing?.requiresFullGitRefresh == true
             || batch.requiresFullGitRefresh
@@ -237,7 +237,7 @@ package final class DarwinFSEventIngressBuffer: @unchecked Sendable {
                 overflowRecoveryByWorktreeId[batch.worktreeId] = FSEventOverflowRecovery(
                     worktreeId: batch.worktreeId,
                     paths: nil,
-                    containsGitTopologyPath: containsGitTopologyPath,
+                    requiresWatchedFolderScan: requiresWatchedFolderScan,
                     requiresFullGitRefresh: requiresFullGitRefresh
                 )
                 return
@@ -247,7 +247,7 @@ package final class DarwinFSEventIngressBuffer: @unchecked Sendable {
         overflowRecoveryByWorktreeId[batch.worktreeId] = FSEventOverflowRecovery(
             worktreeId: batch.worktreeId,
             paths: retainedPaths,
-            containsGitTopologyPath: containsGitTopologyPath,
+            requiresWatchedFolderScan: requiresWatchedFolderScan,
             requiresFullGitRefresh: requiresFullGitRefresh
         )
     }
@@ -290,10 +290,6 @@ package final class DarwinFSEventIngressBuffer: @unchecked Sendable {
             coverageLostWorktreeIds: (existing?.coverageLostWorktreeIds ?? [])
                 .union(batch.participantWorktreeIds)
         )
-    }
-
-    private static func isGitTopologyPath(_ path: String) -> Bool {
-        path.contains("/.git/") || path.hasSuffix("/.git")
     }
 
     package func finish() {

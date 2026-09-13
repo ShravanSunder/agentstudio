@@ -58,13 +58,6 @@ enum WorkspacePersistenceTransformer {
                     retainedKnownCount += 1
                     return pane
                 }
-                if topologySnapshot.isKnownAssociationTemporarilyUnavailable(
-                    repoId: repoID,
-                    worktreeId: worktreeID
-                ) {
-                    retainedKnownCount += 1
-                    return pane
-                }
                 danglingClearedCount += 1
                 changedCount += 1
                 reconciledPane.metadata.updateFacets(PaneContextFacets(cwd: durableFacets.cwd))
@@ -143,7 +136,8 @@ enum WorkspacePersistenceTransformer {
                     }
                 ),
                 watchedPathStableKeysByID: snapshot.watchedPathStableKeysByID
-            )
+            ),
+            absenceRecords: snapshot.absenceRecords
         )
     }
 
@@ -163,6 +157,11 @@ enum WorkspacePersistenceTransformer {
             let canonicalRepositoryPath = canonicalRecoveryPath(repository.repoPath)
             let rootWorktrees = repositoryWorktrees.filter {
                 canonicalRecoveryPath($0.path) == canonicalRepositoryPath
+            }
+            if rootWorktrees.isEmpty, !repositoryWorktrees.isEmpty,
+                repositoryWorktrees.allSatisfy({ !$0.isMainWorktree })
+            {
+                continue
             }
             guard rootWorktrees.count == 1, let rootWorktree = rootWorktrees.first else {
                 reasons.insert(.topologyRestoreMissingMainDegraded)
@@ -198,7 +197,8 @@ enum WorkspacePersistenceTransformer {
         stableIdentity: RepositoryTopologyStableIdentity,
         unavailableRepositoryIDs: Set<UUID>,
         watchedPaths: [WatchedPath],
-        persistedAt: Date
+        persistedAt: Date,
+        absenceRecords: RepositoryTopologyAbsenceRecords = .init()
     ) async -> RepositoryTopologySQLiteSnapshot {
         RepositoryTopologySQLiteSnapshot(
             repos: canonicalRepos(
@@ -212,7 +212,8 @@ enum WorkspacePersistenceTransformer {
             unavailableRepoIds: unavailableRepositoryIDs,
             watchedPaths: watchedPaths,
             watchedPathStableKeysByID: stableIdentity.watchedPathStableKeysByID,
-            updatedAt: persistedAt
+            updatedAt: persistedAt,
+            absenceRecords: absenceRecords
         )
     }
 
@@ -309,6 +310,11 @@ enum WorkspacePersistenceTransformer {
         let normalizedRepositories = repositories.map { repository in
             let rootWorktreeIndexes = repository.worktrees.indices.filter { index in
                 repository.worktrees[index].stableKey == repository.stableKey
+            }
+            if rootWorktreeIndexes.isEmpty, !repository.worktrees.isEmpty,
+                repository.worktrees.allSatisfy({ !$0.isMainWorktree })
+            {
+                return repository
             }
             guard rootWorktreeIndexes.count == 1, let rootWorktreeIndex = rootWorktreeIndexes.first else {
                 normalizedUnavailableRepositoryIDs.insert(repository.id)

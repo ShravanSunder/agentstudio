@@ -10,7 +10,7 @@ import Testing
 @MainActor
 struct WorkspaceCacheCoordinatorStatusOutcomeTests {
     @Test
-    func timeoutThresholdTransitionsMissingEnrichmentToUnavailable() {
+    func timeoutThresholdTransitionsMissingEnrichmentToUnavailable() throws {
         let workspaceStore = WorkspaceStore()
         let repoCache = RepoCacheAtom()
         let coordinator = WorkspaceCacheCoordinator(
@@ -20,7 +20,10 @@ struct WorkspaceCacheCoordinatorStatusOutcomeTests {
             scopeSyncHandler: { _ in }
         )
         let repo = workspaceStore.addRepo(at: URL(fileURLWithPath: "/tmp/status-unavailable-missing-repo"))
-        let worktree = Worktree(repoId: repo.id, name: "main", path: repo.repoPath, isMainWorktree: true)
+        let worktree = try #require(repo.worktrees.first { $0.isMainWorktree })
+        let observationLifetime = try #require(
+            workspaceStore.repositoryTopologyAtom.worktreeObservationLifetimes[worktree.id]
+        )
 
         coordinator.handleEnrichment(
             WorktreeEnvelope.test(
@@ -36,7 +39,8 @@ struct WorkspaceCacheCoordinatorStatusOutcomeTests {
                 ),
                 repoId: repo.id,
                 worktreeId: worktree.id,
-                source: .system(.builtin(.gitWorkingDirectoryProjector))
+                source: .system(.builtin(.gitWorkingDirectoryProjector)),
+                observationLifetime: .worktree(observationLifetime)
             )
         )
 
@@ -44,7 +48,7 @@ struct WorkspaceCacheCoordinatorStatusOutcomeTests {
     }
 
     @Test
-    func repeatedStatusTimeoutBecomesUnavailableAndCompletedStatusClearsIt() {
+    func repeatedStatusTimeoutBecomesUnavailableAndCompletedStatusClearsIt() throws {
         let workspaceStore = WorkspaceStore()
         let repoCache = RepoCacheAtom()
         let coordinator = WorkspaceCacheCoordinator(
@@ -55,13 +59,10 @@ struct WorkspaceCacheCoordinatorStatusOutcomeTests {
         )
         let repo = workspaceStore.addRepo(at: URL(fileURLWithPath: "/tmp/status-unavailable-repo"))
         repoCache.setRepoEnrichment(.awaitingOrigin(repoId: repo.id))
-        let worktree = Worktree(
-            repoId: repo.id,
-            name: "main",
-            path: repo.repoPath,
-            isMainWorktree: true
+        let worktree = try #require(repo.worktrees.first { $0.isMainWorktree })
+        let observationLifetime = try #require(
+            workspaceStore.repositoryTopologyAtom.worktreeObservationLifetimes[worktree.id]
         )
-        workspaceStore.reconcileDiscoveredWorktrees(repo.id, worktrees: [worktree])
 
         for consecutiveFailureCount in 1...AppPolicies.GitRefresh.statusUnavailableConsecutiveFailureThreshold {
             coordinator.handleEnrichment(
@@ -78,7 +79,8 @@ struct WorkspaceCacheCoordinatorStatusOutcomeTests {
                     ),
                     repoId: repo.id,
                     worktreeId: worktree.id,
-                    source: .system(.builtin(.gitWorkingDirectoryProjector))
+                    source: .system(.builtin(.gitWorkingDirectoryProjector)),
+                    observationLifetime: .worktree(observationLifetime)
                 )
             )
         }
@@ -99,7 +101,8 @@ struct WorkspaceCacheCoordinatorStatusOutcomeTests {
                 ),
                 repoId: repo.id,
                 worktreeId: worktree.id,
-                source: .system(.builtin(.gitWorkingDirectoryProjector))
+                source: .system(.builtin(.gitWorkingDirectoryProjector)),
+                observationLifetime: .worktree(observationLifetime)
             )
         )
 
@@ -107,7 +110,7 @@ struct WorkspaceCacheCoordinatorStatusOutcomeTests {
     }
 
     @Test
-    func repeatedSDKErrorBecomesUnavailableWithTypedReason() {
+    func repeatedSDKErrorBecomesUnavailableWithTypedReason() throws {
         let workspaceStore = WorkspaceStore()
         let repoCache = RepoCacheAtom()
         let coordinator = WorkspaceCacheCoordinator(
@@ -118,7 +121,10 @@ struct WorkspaceCacheCoordinatorStatusOutcomeTests {
         )
         let repo = workspaceStore.addRepo(at: URL(fileURLWithPath: "/tmp/status-unavailable-sdk-error"))
         repoCache.setRepoEnrichment(.awaitingOrigin(repoId: repo.id))
-        let worktree = Worktree(repoId: repo.id, name: "main", path: repo.repoPath, isMainWorktree: true)
+        let worktree = try #require(repo.worktrees.first { $0.isMainWorktree })
+        let observationLifetime = try #require(
+            workspaceStore.repositoryTopologyAtom.worktreeObservationLifetimes[worktree.id]
+        )
 
         for consecutiveFailureCount in 1...AppPolicies.GitRefresh.statusUnavailableConsecutiveFailureThreshold {
             coordinator.handleEnrichment(
@@ -135,7 +141,8 @@ struct WorkspaceCacheCoordinatorStatusOutcomeTests {
                     ),
                     repoId: repo.id,
                     worktreeId: worktree.id,
-                    source: .system(.builtin(.gitWorkingDirectoryProjector))
+                    source: .system(.builtin(.gitWorkingDirectoryProjector)),
+                    observationLifetime: .worktree(observationLifetime)
                 )
             )
         }

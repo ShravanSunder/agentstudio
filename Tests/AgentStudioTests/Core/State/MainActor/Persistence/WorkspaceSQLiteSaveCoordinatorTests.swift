@@ -54,6 +54,10 @@ struct WorkspaceSQLiteSaveCoordinatorTests {
         )
         #expect(prepared.workspace.panes.count == 1)
         #expect(prepared.workspace.tabs == expectedTabs)
+        #expect(
+            prepared.captureRevision?.topologyContextRevision
+                == fixture.repositoryTopologyAtom.lifecycleRevision
+        )
     }
 
     @Test("valid save writes the exact current composition bundle")
@@ -103,7 +107,7 @@ struct WorkspaceSQLiteSaveCoordinatorTests {
             Issue.record("Expected latest workspace snapshot to reload")
             return
         }
-        expectEquivalentSavedWorkspace(
+        expectSavedWorkspaceWithRemovedContextCleared(
             workspace,
             saved: saved.workspace,
             scenario: scenario,
@@ -133,7 +137,7 @@ struct WorkspaceSQLiteSaveCoordinatorTests {
             Issue.record("Expected post-scan workspace snapshot to reload")
             return
         }
-        expectEquivalentSavedWorkspace(
+        expectSavedWorkspaceWithRemovedContextCleared(
             workspace,
             saved: saved.workspace,
             scenario: scenario,
@@ -171,7 +175,14 @@ struct WorkspaceSQLiteSaveCoordinatorTests {
         )
 
         // Assert
-        #expect(afterTopologyChange == beforeTopologyChange)
+        #expect(afterTopologyChange.workspace == beforeTopologyChange.workspace)
+        #expect(afterTopologyChange.captureRevision?.panes == beforeTopologyChange.captureRevision?.panes)
+        #expect(afterTopologyChange.captureRevision?.tabShells == beforeTopologyChange.captureRevision?.tabShells)
+        #expect(afterTopologyChange.captureRevision?.tabGraphs == beforeTopologyChange.captureRevision?.tabGraphs)
+        #expect(
+            afterTopologyChange.captureRevision?.topologyContextRevision
+                == beforeTopologyChange.captureRevision?.topologyContextRevision.map { $0 + 1 }
+        )
     }
 
     @Test("invalid current composition is rejected before datastore write")
@@ -342,7 +353,10 @@ private func unregisterLinkedWorktree(in scenario: DirectWorktreeUnregistrationS
             watchedPaths: fixture.repositoryTopologyAtom.watchedPaths,
             persistedAt: Date(timeIntervalSince1970: 1_784_000_102)
         )
-    try await fixture.datastore.saveRepositoryTopologySnapshot(topologyAfterUnregistration)
+    try await fixture.datastore.saveRepositoryTopologySnapshot(
+        topologyAfterUnregistration,
+        captureRevision: fixture.repositoryTopologyAtom.lifecycleRevision
+    )
 }
 
 @MainActor
@@ -377,7 +391,10 @@ private func reconcileScannedWorktreeRemoval(in scenario: DirectWorktreeUnregist
             watchedPaths: fixture.repositoryTopologyAtom.watchedPaths,
             persistedAt: Date(timeIntervalSince1970: 1_784_000_102)
         )
-    try await fixture.datastore.saveRepositoryTopologySnapshot(topologyAfterScan)
+    try await fixture.datastore.saveRepositoryTopologySnapshot(
+        topologyAfterScan,
+        captureRevision: fixture.repositoryTopologyAtom.lifecycleRevision
+    )
 }
 
 @MainActor
@@ -415,7 +432,7 @@ private func addLaterDrawerPanes(in scenario: DirectWorktreeUnregistrationScenar
     return [firstDrawerPane.id, secondDrawerPane.id]
 }
 
-private func expectEquivalentSavedWorkspace(
+private func expectSavedWorkspaceWithRemovedContextCleared(
     _ loaded: WorkspaceSQLiteSnapshot,
     saved: WorkspaceSQLiteSnapshot,
     scenario: DirectWorktreeUnregistrationScenario,
@@ -435,7 +452,11 @@ private func expectEquivalentSavedWorkspace(
         #expect(loadedPane.metadata.launchDirectory == savedPane.metadata.launchDirectory)
         #expect(loadedPane.metadata.executionBackend == savedPane.metadata.executionBackend)
         #expect(loadedPane.metadata.title == savedPane.metadata.title)
-        #expect(loadedPane.metadata.facets == savedPane.metadata.facets)
+        if let worktreeID = savedPane.metadata.facets.worktreeId, worktreeID != scenario.mainWorktreeID {
+            #expect(loadedPane.metadata.facets == PaneContextFacets(cwd: savedPane.metadata.facets.cwd))
+        } else {
+            #expect(loadedPane.metadata.facets == savedPane.metadata.facets)
+        }
         #expect(loadedPane.metadata.checkoutRef == savedPane.metadata.checkoutRef)
         #expect(loadedPane.metadata.note == savedPane.metadata.note)
         #expect(loadedPane.residency == savedPane.residency)
@@ -549,7 +570,7 @@ private func makeFixture(
         probe: { event in await probe.record(event) }
     )
     if let topologySnapshot {
-        try await datastore.saveRepositoryTopologySnapshot(topologySnapshot)
+        try await datastore.saveRepositoryTopologySnapshot(topologySnapshot, captureRevision: 1)
     }
     return WorkspaceSQLiteSaveCoordinatorFixture(
         rootPaneID: paneID,
@@ -565,6 +586,7 @@ private func makeFixture(
             windowMemoryAtom: windowMemoryAtom,
             workspacePaneAtom: workspacePaneAtom,
             workspaceTabLayoutAtom: tabLayoutAtom,
+            repositoryTopologyAtom: repositoryTopologyAtom,
             sqliteDatastore: datastore
         ),
         probe: probe
