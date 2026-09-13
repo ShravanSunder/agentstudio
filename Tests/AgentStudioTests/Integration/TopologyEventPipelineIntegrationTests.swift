@@ -445,6 +445,20 @@ struct TopologyEventPipelineIntegrationTests {
                 watchedPaths[1]: [RepoScanner.RepoScanGroup(clonePath: sharedClone, linkedWorktreePaths: [])],
             ])
             _ = await harness.refreshWatchedFolders(watchedPaths)
+            await assertEventuallyMain("shared clone discovery is applied before the next scan") {
+                harness.workspaceStore.repos.contains {
+                    $0.repoPath.standardizedFileURL == sharedClone.standardizedFileURL
+                }
+            }
+            guard
+                let repository = harness.workspaceStore.repos.first(where: {
+                    $0.repoPath.standardizedFileURL == sharedClone.standardizedFileURL
+                })
+            else {
+                Issue.record("shared clone must exist before absence reconciliation")
+                await recorder.shutdown()
+                return
+            }
             let initialEventCount = await recorder.snapshot().count
 
             harness.scanResults.setResults([
@@ -453,8 +467,35 @@ struct TopologyEventPipelineIntegrationTests {
             ])
             _ = await harness.refreshWatchedFolders(watchedPaths)
 
-            for _ in 0..<50 {
-                await Task.yield()
+            let receipts = await harness.discoveryActor.currentWatchedFolderObservationReceipts()
+            #expect(receipts.count == watchedPaths.count)
+            for receipt in receipts {
+                _ = await recorder.firstEvent { envelope in
+                    guard case .system(let system) = envelope,
+                        case .topology(.watchedFolderReconciled(let observation)) = system.event
+                    else { return false }
+                    return system.seq == receipt.sequence
+                        && observation.registration.sourceID == receipt.observation.registration.sourceID
+                }
+            }
+            // Dequeuing this no-op physical fact proves the preceding async reconciliation finished.
+            guard let worktree = repository.worktrees.first else {
+                Issue.record("shared clone must have a canonical checkout")
+                await recorder.shutdown()
+                return
+            }
+            await harness.bus.post(
+                .system(
+                    SystemEnvelope(
+                        source: .builtin(.filesystemWatcher), seq: 0, timestamp: ContinuousClock().now,
+                        event: .topology(
+                            .worktreeRegistered(
+                                worktreeId: worktree.id, repoId: repository.id, rootPath: sharedClone)))))
+            await assertEventuallyAsync("cache coordinator consumes deduplicated scan delivery") {
+                let diagnostics = await harness.bus.diagnosticsSnapshot()
+                return diagnostics.activeSubscribers.contains {
+                    $0.subscriberName == "WorkspaceCacheCoordinator" && $0.pendingDeliveryCount == 0
+                }
             }
 
             let envelopes = await recorder.snapshot()
@@ -466,7 +507,8 @@ struct TopologyEventPipelineIntegrationTests {
                 return false
             }
             #expect(repoRemovedEvents.isEmpty)
-            #expect(harness.workspaceStore.isRepoUnavailable(harness.workspaceStore.repos[0].id) == false)
+            #expect(harness.workspaceStore.repos.contains { $0.id == repository.id })
+            #expect(harness.workspaceStore.isRepoUnavailable(repository.id) == false)
             await recorder.shutdown()
         }
     }
