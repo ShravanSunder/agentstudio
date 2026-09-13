@@ -14,6 +14,7 @@ export async function installReviewRenderObservation(props: {
 			let discardedPublicationCount = 0;
 			const recentReceipts: Readonly<Record<string, unknown>>[] = [];
 			const healthEvents: Readonly<Record<string, unknown>>[] = [];
+			const presentationEvents: Readonly<Record<string, unknown>>[] = [];
 			let observedEventCount = 0;
 			let previousContentFacts: string | null = null;
 			let previousDescriptors: string | null = null;
@@ -90,6 +91,7 @@ export async function installReviewRenderObservation(props: {
 					healthEvents.push({
 						status: message['status'],
 						requestId: message['requestId'],
+						diagnostic: message['diagnostic'],
 						atMilliseconds: Math.round(performance.now()),
 					});
 					if (healthEvents.length > 16) healthEvents.shift();
@@ -183,9 +185,24 @@ export async function installReviewRenderObservation(props: {
 				for (const patch of message['patches']) {
 					if (!isRecord(patch)) continue;
 					const patchCommon = { ...common, operation: patch['operation'], slice: patch['slice'] };
+					const payload = patch['payload'];
+					const comparison =
+						patch['slice'] === 'reviewComparison'
+							? payload
+							: patch['slice'] === 'panelChrome' && isRecord(payload)
+								? payload['reviewComparison']
+								: null;
+					if (isRecord(comparison)) {
+						presentationEvents.push({
+							...patchCommon,
+							attempt: comparison['attempt'],
+							displayedSnapshot: comparison['displayedSnapshot'],
+							atMilliseconds: Math.round(performance.now()),
+						});
+						if (presentationEvents.length > 24) presentationEvents.shift();
+					}
 					if (message['kind'] === 'reviewRenderPatch') {
 						if (patch['itemId'] !== itemId && patch['operation'] !== 'reset') continue;
-						const payload = patch['payload'];
 						record({
 							...patchCommon,
 							reason: isRecord(payload) ? payload['reason'] : null,
@@ -198,7 +215,6 @@ export async function installReviewRenderObservation(props: {
 						record(patchCommon);
 						continue;
 					}
-					const payload = patch['payload'];
 					if (!isRecord(payload)) continue;
 					if (payload['reset'] === true) record({ ...patchCommon, reset: true });
 					if (Array.isArray(payload['items'])) {
@@ -244,6 +260,7 @@ export async function installReviewRenderObservation(props: {
 					annotationEvents,
 					discardedPublicationCount,
 					healthEvents,
+					presentationEvents,
 					pendingPublications: [...pendingPublications.values()],
 					recentReceipts,
 					firstEvents,

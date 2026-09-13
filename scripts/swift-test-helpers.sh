@@ -40,6 +40,7 @@ large_non_webkit_filter_pattern() {
 large_serial_non_webkit_filter_pattern() {
   local patterns=(
     BridgePackagedProductJourneyScriptTests
+    GitRefreshPerformanceWorkloadScriptTests
     SidebarPerformanceWorkloadScriptTests
     SidebarPerformanceWorkloadSettlementScriptTests
     PaneAgentLaunchOwnerTests

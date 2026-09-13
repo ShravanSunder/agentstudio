@@ -10,6 +10,7 @@ import {
 	markAnnotationCatalogLongTaskPhase,
 	observeAnnotationProjectionQueries,
 	settleBrowserFrames,
+	type AnnotationCatalogLongTaskEntry,
 	type AnnotationCatalogLongTaskObservation,
 	type AnnotationCatalogTransferTelemetryObservation,
 	waitForAnnotationCatalogCommit,
@@ -116,6 +117,7 @@ interface JourneyMilestoneDuration {
 }
 
 interface JourneyFailureDiagnostic {
+	readonly catalogTelemetry?: AnnotationCatalogTelemetryObservation;
 	readonly currentElapsedMilliseconds: number;
 	readonly currentMilestone: JourneyMilestone;
 	readonly errorKind: string;
@@ -125,6 +127,7 @@ interface JourneyFailureDiagnostic {
 }
 
 class AnnotationBackpressureMilestones {
+	private catalogTelemetryDiagnostic: AnnotationCatalogTelemetryObservation | null = null;
 	private currentMilestone: JourneyMilestone = 'test.start';
 	private currentMilestoneStartedAt = performance.now();
 	private readonly executionStartedAt = this.currentMilestoneStartedAt;
@@ -153,6 +156,10 @@ class AnnotationBackpressureMilestones {
 		];
 	}
 
+	recordCatalogTelemetry(observation: AnnotationCatalogTelemetryObservation): void {
+		this.catalogTelemetryDiagnostic = observation;
+	}
+
 	currentTelemetryDiagnostic(): readonly Readonly<Record<string, unknown>>[] {
 		return this.telemetryDiagnostic ?? [];
 	}
@@ -170,6 +177,9 @@ class AnnotationBackpressureMilestones {
 
 	failureDiagnostic(error: unknown): JourneyFailureDiagnostic {
 		return {
+			...(this.catalogTelemetryDiagnostic === null
+				? {}
+				: { catalogTelemetry: this.catalogTelemetryDiagnostic }),
 			currentElapsedMilliseconds: Math.round(performance.now() - this.currentMilestoneStartedAt),
 			currentMilestone: this.currentMilestone,
 			errorKind: error instanceof Error ? error.name : typeof error,
@@ -273,9 +283,17 @@ export function registerBridgeViewerViteAnnotationBackpressureJourneyTests(): vo
 				);
 				expect(
 					observations.catalogTelemetry.longTaskCountDelta,
-					`catalog-scoped long-task count: ${JSON.stringify(
-						observations.catalogTelemetry.longTaskObservation,
-					)}`,
+					`catalog-scoped long-task count: ${JSON.stringify({
+						continuousBounds: {
+							mainBeginStartTimeMilliseconds:
+								observations.catalogTelemetry.mainBeginStartTimeMilliseconds,
+							mainCommitStartTimeMilliseconds:
+								observations.catalogTelemetry.mainCommitStartTimeMilliseconds,
+						},
+						mainStagingSamples: observations.catalogTelemetry.mainStagingSamples,
+						matchedEntries: observations.catalogTelemetry.longTasksOverlappingMainStaging,
+						observation: observations.catalogTelemetry.longTaskObservation,
+					})}`,
 				).toBe(0);
 				expect(
 					observations.catalogTelemetry.undemandedSessionRichFetchCount,
@@ -385,6 +403,10 @@ interface AnnotationBackpressureJourneyObservations {
 interface AnnotationCatalogTelemetryObservation {
 	readonly longTaskCountDelta: number;
 	readonly longTaskObservation: AnnotationCatalogLongTaskObservation;
+	readonly longTasksOverlappingMainStaging: readonly AnnotationCatalogLongTaskEntry[];
+	readonly mainBeginStartTimeMilliseconds: number;
+	readonly mainCommitStartTimeMilliseconds: number;
+	readonly mainStagingSamples: AnnotationCatalogTransferTelemetryObservation['mainStagingSamples'];
 	readonly maximumUnitByteCount: number;
 	readonly presentationRevisionAfter: number;
 	readonly presentationRevisionBefore: number;
@@ -552,13 +574,15 @@ async function runAnnotationBackpressureJourney(props: {
 			await finishAnnotationCatalogLongTaskObservation(createdPage).catch((): void => {});
 			throw error;
 		}
+		const longTasksOverlappingMainStaging = annotationCatalogLongTasksOverlappingMainStaging(
+			catalogLongTaskObservation,
+			catalogTransferTelemetry,
+		);
 		const catalogTelemetry: AnnotationCatalogTelemetryObservation = {
 			...catalogTransferTelemetry,
-			longTaskCountDelta: annotationCatalogLongTasksOverlappingMainStaging(
-				catalogLongTaskObservation,
-				catalogTransferTelemetry,
-			).length,
+			longTaskCountDelta: longTasksOverlappingMainStaging.length,
 			longTaskObservation: catalogLongTaskObservation,
+			longTasksOverlappingMainStaging,
 			undemandedSessionAcquireCount: projectionQueries
 				.acquiredSessionIds()
 				.filter((sessionId) => sessionId.toLowerCase() === props.undemandedSessionId.toLowerCase())
@@ -568,6 +592,7 @@ async function runAnnotationBackpressureJourney(props: {
 				.filter((sessionId) => sessionId.toLowerCase() === props.undemandedSessionId.toLowerCase())
 				.length,
 		};
+		props.milestones.recordCatalogTelemetry(catalogTelemetry);
 		await props.releaseLargeCatalogFixture();
 		exactSavedBodies.push(rootBody);
 		for (const { body, replyOrdinal } of replies) {
