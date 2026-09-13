@@ -79,8 +79,10 @@ struct RepositoryNestedDiscoveryContinuityTests {
 
         try fileManager.createDirectory(at: ancestorURL, withIntermediateDirectories: true)
         do {
+            // Discovery needs real Git metadata, not hydrated LFS assets from the source checkout.
             let remoteClient = SystemGitRemoteClient(
-                configuration: .init(allowedProtocols: [.file]))
+                configuration: .init(
+                    allowedProtocols: [.file], additionalEnvironment: ["GIT_LFS_SKIP_SMUDGE": "1"]))
             _ = try await remoteClient.clone(
                 GitCloneRequest(
                     remoteURL: sourceCheckout.path,
