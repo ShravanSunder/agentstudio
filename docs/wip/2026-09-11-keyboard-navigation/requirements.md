@@ -94,7 +94,7 @@ in the shared field but is not wired by the sidebar. Pane activation mutates tab
 arrangement/minimization and focus; it is not an established reversible preview.
 The pre-change arrangement baseline inserted into all arrangements and revealed by
 membership before visibility. Its separate reviewed correction is now implemented
-and under validation. Source pointers live in the map.
+with full aggregate and native reveal proof. Source pointers live in the map.
 
 Current review should evaluate the coherent journey and the explicitly open choices,
 not treat this as an implementation-ready Specification. Exact preview key and presentation placement,
@@ -107,4 +107,4 @@ real terminal/Bridge/drawer destinations, state inspection for arrangement visib
 and preview cancellation/commit evidence. Sidebar implementation and native proof
 remain outstanding. The separate U6/U7 arrangement capability has bounded design
 review and focused implementation checks; [implementation review](arrangement-implementation-review.md)
-found an R-A4 renderer-reattachment gap. Full validation and owner reconvergence remain open.
+found an R-A4 renderer-reattachment gap. The owner explicitly deferred that general invariant to a separate discussion and PR after this arrangement PR. Full aggregate validation and native main/Bridge/ordinary drawer reveal have now passed; the deferred invariant is not claimed fixed.

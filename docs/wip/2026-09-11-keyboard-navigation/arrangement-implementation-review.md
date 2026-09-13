@@ -29,6 +29,8 @@ The review result below records the earlier boundary and must be read with these
 owner decisions and subsequent proof. The general detached-drawer invariant remains
 unfixed and deferred. PR readiness is not claimed.
 
+## Historical independent review at 0e17351e1
+
 Reviewed `96e7dbb..0e17351e1` against the unchanged
 `tmp/plan-workflows/2026-09-12-arrangement-visibility-v2.md` and its separate
 Requirements, Specification and Program Design. Scope is U6/U7 inside the larger
@@ -106,3 +108,21 @@ R-A3/R-A5 have policy/integration evidence but no launched native interaction pr
 Evidence logs live under `tmp/sidebar-keyboard-design/`; the event trail records
 their names and observed exits. Source corrections, full-suite success and native
 proof are still required before another readiness claim or PR publication.
+
+## Supplemental test and proof review at94e85dd5f
+
+Scope: eight test files in0e17351e1..94e85dd5f, no production changes. Original
+production review remains the basis, with owner-authorized drawer deferral above.
+Fresh spec-compliance, Frontier whole-chunk and dispel reviewers completed with no
+findings, no scope expansion and no removed assertions. Completion waits follow the
+real submitted command; fixtures establish native responder prerequisites and retain
+resource/ownership assertions. No implementation-remediation pass was required.
+
+Independent proof challenge reran the granted command/header suites: managed sandbox
+attempt stopped before tests at nested sandbox_apply; same command under approved
+elevation passed47tests/2suites, exit0. No tracked source/test mutation. Aggregate
+exit0 is backed by the root Operator's terminal tool receipt. Root counted356Swift
+run summaries/8338tests plus35architecture-tool tests separately; singular and plural
+summary forms must both be counted. Native CUA Bridge observations remain parent live
+proof, not a reviewer rerun. General detached-drawer and native-to-DOM forwarding
+remain explicitly outside proven behavior.
