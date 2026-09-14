@@ -26,10 +26,12 @@ proven fix or a definition of keyboard order.
 
 The owner subsequently authorized Program Design and independent review, then
 implementation of clear scope; independent settled sections may progress while
-questions are collected. Numeric activation is settled. Preview restoration is not silently
-selected by that delivery authority. New persistence,
-new pane sessions, or app-wide state machinery are not automatically authorized by
-preview. Existing command authority, focus ownership and feature boundaries apply.
+questions are collected. Numeric activation is settled. Preview restoration for
+an existing pane is owner-confirmed: normal restore is allowed, including a fresh
+shell when the old session endpoint has ended, while the pane identity remains the
+same. New persistence, substitute pane identities, or app-wide state machinery
+are not authorized by preview. Existing command authority, focus ownership and
+feature boundaries apply.
 
 ## Needs and authority
 
@@ -81,8 +83,8 @@ thresholds or input-event telemetry.
 | Creation | Current arrangement plus Default visible; unrelated custom arrangements do not reveal new pane |
 | Committed reveal | Current if visible; otherwise first visible custom in arrangement order; otherwise Default |
 | Drawer destination | Reveal parent, expand drawer and reach child |
-| Preview versus commit | Hold Space: full pane area, follows selection; release cancels, Enter commits |
-| Unloaded preview target | Restore/load the existing pane as needed; it may remain warm after release; no replacement terminal session |
+| Preview versus commit | Hold Space: full pane area, follows selected pane; non-pane rows keep canonical presentation; release cancels, Enter commits |
+| Unloaded preview target | Restore/load the existing pane as needed; if its old session ended, normal restore may start a fresh shell under the same pane identity; it may remain warm after release; no substitute pane |
 
 ## Source constraints and review gaps
 
@@ -90,7 +92,10 @@ Effective keyboard ownership is derived from real focus, key window and active
 surface. Sidebar focus also covers filter input today, so list command handling
 must inspect actual responder context. No independent navigation-owner Boolean.
 Selected row, return target and temporary preview state are distinct interaction
-data; their existence is not permission to duplicate keyboard ownership.
+data; their existence is not permission to duplicate keyboard ownership. The
+current composition has one workspace window at a time; cross-window preview is
+not established by this Requirements record and must not be inferred from the
+pane identity.
 
 The pre-change native table rejected/deselected all row selection and filter
 onSubmit was unwired. Current core implementation permits validated programmatic
@@ -102,9 +107,11 @@ with full aggregate and native reveal proof. Source pointers live in the map.
 
 The core Specification now makes ordinary selection/group/return/pinned defaults
 concrete; [provenance](core-design-decisions.md) distinguishes those decisions from
-explicit owner answers. Preview cold-content restoration is now owner-confirmed. Its renderer, geometry
-and cancellation realization still needs completed design and proof. U15 remains
-in the delivery goal alongside the ongoing core implementation.
+explicit owner answers. Preview cold-content restoration is now owner-confirmed,
+including normal same-identity fresh-shell restore after an ended session. U15's
+observable cancellation, commit, and loaded-target behavior remains in scope, with
+native proof still required. U15 remains in the delivery goal alongside the ongoing
+core implementation.
 
 Proof expectation: native keyboard journeys through list/filter/pane focus and
 real terminal/Bridge/drawer destinations, state inspection for arrangement visibility,

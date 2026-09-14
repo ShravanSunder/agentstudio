@@ -1,8 +1,11 @@
-# Preview prerequisite awaiting owner decision
+# Historical preview boundary — superseded
 
-The confirmed preview rule remains: load an existing pane's renderer as needed,
-but never start a replacement terminal session. Preview has not been removed
-from this delivery. No preview or vendor implementation is authorized by this note.
+Status: this WIP records an obsolete prohibition and is retained only as historical
+evidence. The owner has since authorized held preview in this delivery and explicitly
+allows normal restore for an existing pane. If the old zmx endpoint has ended, normal
+restore may start a fresh shell under the same existing pane identity. The prohibition
+against a fresh shell and the resulting attach-only/vendor decision are superseded.
+No substitute pane identity, vendor change, or attach-only zmx path is required.
 
 The initial assumption was that restoring the exact saved zmx identity also
 guaranteed reuse of the existing process. Current source disproves that assumption:
@@ -16,7 +19,7 @@ Saved pane -> exact session ID -> zmx attach
                         |                  |
                      attach           create daemon + shell
                                            ^
-                                  forbidden for preview
+                                  previously forbidden; superseded
 ```
 
 Parent-verified source:
@@ -31,15 +34,16 @@ Parent-verified source:
   `src/loop.zig:695` creates on absence or connection refusal. DeepWiki supplied
   the source pointers; the pinned code was read directly to verify the claim.
 
-A preflight inventory or socket-existence check cannot guarantee this rule:
-the daemon could exit between that check and attachment. A safe path must
-connect to an existing session and fail if it is absent, without a create fallback.
+A preflight inventory or socket-existence check cannot guarantee the old
+attach-only rule: the daemon could exit between that check and attachment. That
+conclusion is retained as historical reasoning only; the current owner decision
+allows the standard attach path and its same-identity fresh-shell behavior.
 
-The owner was asked whether to include an attach-only prerequisite in delivery,
-or move held preview to a follow-up while completing sidebar navigation and
-arrangements. No answer has been received. AGENTS.md's scope gate requires
-agreement before expanding into the vendor layer; the existing sidebar core plan
-explicitly excludes vendor changes and leaves preview structurally unfinished.
+The owner decision closes the prior blocker: preview may use the existing normal
+restore path and any same-identity fresh-shell behavior it entails. The existing
+sidebar plan still excludes vendor changes. The current held-preview structural
+realization is documented in the [Program Design](../../specs/2026-09-12-sidebar-keyboard-system/program-design.md)
+and keeps the renderer/activity/geometry owners on their existing paths.
 
 The related hidden-renderer visibility and Bridge foreground-admission paths also
 need explicit preview inputs through their existing owners. Reparenting a native

@@ -277,17 +277,312 @@ exercise the actual app after source passes, including editor text isolation and
 marked overlay placement. Existing architecture lint enforces module boundaries;
 Sendable DTOs and concurrent worker entry enforce derivation separation.
 
-## Preview boundary
+## Held preview composition and ownership
 
-R-S9 is still in the delivery scope but not structurally ready. Working direction is a
-window-local transient presentation in the existing tab host, with one selected pane
-branch and sidebar retaining first responder. Never mount the same stable container
-twice or use durable focus-and-rollback. Hold state needs generation-bound cancellation;
-Enter/digits invalidate preview before committing so late key-up cannot undo commit.
-Renderer preparation must preserve existing custody and exact zmx sessions, bound pending
-work, and share the authoritative geometry/visibility path. Loading existing cold content is owner-confirmed. The renderer preparation and
-geometry design must account for live full-pane-area resize effects. No general
-detached-drawer invariant repair is introduced through preview.
+R-S9 is realized as one window-local transient presentation value owned by
+`MainSplitViewController` in the existing App composition. The controller already
+constructs the sidebar and one
+`PaneTabViewController` for the window (`MainSplitViewController.swift:76-199`). The
+value is an `@MainActor @Observable` local UI owner, injected into that controller's
+existing persistent tab-content roots. It is not an atom, store, workspace mutation,
+domain event, or durable focus target.
+
+`MainSplitViewController` passes the same reference to `PaneTabViewController`; the
+tab controller passes it from `buildTabContentHost` into every `SingleTabContent`.
+The App composition also supplies that reference to the existing
+`WorkspaceSurfaceCoordinator` renderer-visibility binding and Bridge-activity
+observation. `PaneTabViewController.observeForTabSelectionState` reads the reference
+alongside its existing tab facts and re-runs `updateVisibleTabHost` through the same
+observation rearm. `observeRendererVisibility` and
+`observeBridgePaneActivityInputs` read it inside their existing
+`withObservationTracking` closures, so each transition re-arms those loops. No new
+coordinator, event, poll, timer, or observation family is introduced.
+
+The sidebar remains the input owner. `RepoExplorerMaterializationHost` is the native
+list responder and owns the accepted selected row (`RepoExplorerMaterializationHost.swift:6-72,
+408-508`). Its existing `RepoExplorerKeyboardInteraction` callback seam reports
+Space down/up, selected pane target changes, focus loss, and pre-commit invalidation
+through `RepoExplorerView` and `SidebarSurfaceHost`; App composition owns the
+presentation transition. Space is a transient gesture and does not become an
+`AppCommand`. Enter and digits continue through the existing activation callbacks.
+
+The presentation owner carries only the transient session and validated target:
+
+```text
+HeldPanePreviewState
+  idle(nextGeneration)
+  held(generation, requestedTarget: optional ValidatedPanePreviewTarget)
+  suppressedUntilSpaceRelease(generation)
+
+ValidatedPanePreviewTarget
+  paneID, owningTabID, provider/session identity captured for validation
+
+HeldPanePreviewPresentation (same owner)
+  requestedTarget: optional ValidatedPanePreviewTarget
+  presentedTarget: optional target whose presentation mount is ready
+```
+
+`held.requestedTarget` and `held.presentedTarget` are separate values in that same
+window-local owner. The requested target follows the selected row immediately;
+the presented target is set only after its existing presentation mount is ready.
+
+`target == nil` is meaningful while held: a selected group or worktree keeps the
+canonical presentation visible. A requested pane target is validated against current
+workspace membership, owning tab, and provider/session identity before preparation.
+Its presentation is consumed by the initiating window's matching tab host only when
+the presentation mount is ready; the host may be absent while existing preparation
+runs. Terminal readiness means an attached usable terminal mount; Bridge and other
+nonterminal readiness means an installed mount/controller, after which product
+content may continue loading through its normal owner.
+Each preparation or host callback carries the held generation and exact requested
+target identity; late callbacks can remain warm but cannot publish an older or
+different target.
+
+The current application has one `AppDelegate.mainWindowController` at a time and
+replaces/shuts the old controller when recreating the main window (`AppDelegate.swift:198-205,
+491-500`). Each controller has a `workspaceWindowId` and a per-window persistent
+tab-host tree (`MainWindowController.swift:20-105`; `PersistentTabHostView.swift:6-31`),
+while `ViewRegistry` slots are pane keyed. The supported current path therefore has
+one initiating workspace window and one matching `PaneTabViewController`; U15's
+all-pane scope is not narrowed by a hypothetical second window.
+
+Current source has no simultaneous main-window path or pane-to-window owner for a
+cross-window target. The current one-window composition therefore supplies the only
+source/target window path in this slice; no second host or shared-slot reparenting is
+introduced.
+
+## State transitions and the sole presentation branch
+
+The held-session lifecycle is:
+
+| State/transition | Guard and owner action | Resulting presentation |
+| --- | --- | --- |
+| `idle` → `held(g, requestedTarget?)` | Space down while the actual first responder is the eligible list; mint one generation and resolve the current selected row | Canonical set until the requested pane's presentation mount is ready; a non-pane request stays `nil` |
+| `held(g, requestedTarget?)` → `held(g, requestedTarget?)` | Accepted selection or snapshot reconciliation replaces the requested target; clear the presented target until the new presentation mount is ready; Space autorepeat does not mint `g+1` | The requested target with a ready mount replaces the presented set; `nil` returns to canonical presentation |
+| `held(g, requestedTarget)` → `suppressedUntilSpaceRelease(g)` | Enter or digit invalidates the requested and presented targets synchronously before invoking its existing activation effect | Canonical presentation while `PaneCommittedFocusOperation` owns committed reveal/focus |
+| `held`/`suppressed` → `idle` | Matching Space key-up, list focus loss, host detach, sidebar hide, Management/transient takeover, window resign, or window close | Current canonical presentation; no durable rollback |
+| any held target → canonical | Pane removal, stale generation, provider/session mismatch, missing bounds, or preparation failure | No substitute row/pane; the canonical set remains visible |
+
+`SingleTabContent` currently selects exactly one Zoom or ordinary arrangement branch
+(`SingleTabContent.swift:75-129`). Add the preview branch before those branches only
+for the presentation's `owningTabID` and only when the presented target's mount is
+ready. It
+reads the target's existing `viewRegistry.slot(for:).host`; a missing or unusable
+mount keeps canonical content visible until the existing owner registers an actual
+mounted host. Once the mount is ready, the branch renders that host's one stable
+`swiftUIContainer` through `PaneViewRepresentable`, preserving the existing slot/host/container custody
+(`ViewRegistry.swift:68-90, 240-289`; `PaneViewRepresentable.swift:16-42`). Preview
+does not become a keyboard owner; existing pane hit behavior remains unchanged. If
+an existing pointer interaction changes the first responder, the same responder-loss
+cancellation path invalidates preview. There is no click-to-commit behavior.
+The held-state indication reuses the existing compact overlay/keycap presentation
+and the deliberate non-reflowing Space hint; it adds no header row, help panel, or
+workspace dimming.
+
+The Space keycap comes from one UI-only local action descriptor,
+`LocalActionSpec.previewPane`, so its label/help copy has one owner and no row-local
+string. Its Space `ShortcutDisplayText` is carried by the keyboard presentation value
+independently from the existing digit display. `RepoExplorerPaneRowContent` keeps
+the numbered keycap on its leading
+identity icon (`RepoExplorerPaneNavigation.swift:63-74`); the Space keycap is a
+trailing overlay in the existing status metadata/icon line supplied by
+`SidebarStatusChipRow` (`SidebarChips.swift:108-143`). It is emitted only for the
+selected pane row while list hints are eligible, uses `SidebarShortcutHint`
+(`SidebarShortcutHint.swift:5-43`), and therefore remains fixed-size,
+accessibility-hidden, and non-pointer-interactive. The overlay does not claim row
+width or height and never displaces the leading digit. If the actual trailing slot
+cannot fit beside the existing chips at a supported width, native proof records the
+width, chip set, and collision as a concrete layout issue; it does not overlap title
+or chips, move the digit, add a row, or expand the UI.
+
+The preview branch also participates in the existing rendered-surface union. It
+registers a stable preview surface identity with
+`viewRegistry.surfaceRenderedIds(_:ids:)`, reports the current presented target, and
+updates that set on target replacement. When the branch leaves, it calls
+`unregisterSurface(_:)`; stale or removed targets therefore leave the union before
+their slot can be retired. This reuses the existing tab, drawer, and Zoom
+registration pattern and adds no parallel custody ledger
+(`ViewRegistry.swift:290-341,403-413`).
+
+The custody invariant remains one pane identity → one `PaneViewSlot` → at most one
+`PaneHostView`/stable container and one live branch; an overlay or second representable
+is not permitted.
+
+## Existing-pane preparation and trusted full-area geometry
+
+Preview preparation adds one narrow App-facing entry at the existing
+`WorkspaceActionExecutor` → `WorkspaceSurfaceCoordinator` mount owner. It validates
+the pane, provider/session identity, and owning tab. A slot is usable for a terminal
+only when it contains a `TerminalPaneMountView` with a surface that is actually
+attached to `SurfaceManager`; `slot.host` alone is insufficient because a host can
+refer to a surface in `hiddenSurfaces` (`SurfaceManager.swift:321-360`;
+`SurfaceManager+RendererState.swift:84-107`). It does not mutate the workspace graph
+or claim prepared custody. `ViewRegistry` remains the sole
+`pending`/`deferredGeometry`/`mounting`/`completed` ledger.
+
+For a cold or released target, capture only the current requested target's pane,
+owning tab, provider/session identity, held generation, and trusted non-empty
+`terminalContainerBounds` on MainActor. That bounds value is the real full-area
+`initialFrame`; preview initialization performs no active-arrangement, drawer-layout,
+or all-tab frame derivation. A pane that is absent from the active custom layout,
+including a drawer child whose parent is absent from that layout, receives the same
+full-area frame. The result is accepted only when the exact current pane,
+owning tab, generation, provider/session identity, and captured bounds still match;
+a non-empty check or hold generation alone is insufficient because selection changes
+share the hold generation.
+
+Cold targets enter `createViewForContent(pane:initialFrame:)` directly through the
+existing surface coordinator, without relying on `restoreVisiblePaneIfNeeded` or its
+durable active-tab gate (`WorkspaceSurfaceCoordinator+ViewLifecycle.swift:55-118`;
+`WorkspaceSurfaceCoordinator+ViewHelpers.swift:128-174`). The existing prepared
+visibility signal is recorded with `currentVisibleQueuedSet(includingAtLeast:)`
+before any deferred geometry requeue, preserving the revision-before-await ordering
+in `reevaluatePreparedTerminalGeometry()` (`WorkspaceSurfaceCoordinator+ViewLifecycle.swift:755-803`).
+The current requested target, rather than the currently presented target, remains in
+that existing `preparedContentVisibilitySignalHandler` input while it is preparing;
+canonical presentation remains visible until the presented target's mount is ready. A
+selection replacement updates the requested target in the same held generation and
+refreshes that existing `currentVisibleQueuedSet(includingAtLeast:)` input. No new
+queue or cache is introduced.
+
+For an already-created terminal whose surface is hidden, the same coordinator's
+existing reattachment owner performs `surfaceManager.attach(surfaceId, to: paneId)`
+and `terminal.displaySurface(surfaceView, geometryVerificationReason:)` as in
+`reattachForViewSwitch` (`WorkspaceSurfaceCoordinator+ViewLifecycle.swift:534-560`),
+but preview does not first invoke the active-tab-only restore step. Reattachment is
+the only transient change; there is no preview-acquired attachment rollback ledger.
+The attached resource may remain warm after release while canonical visibility hides
+it as needed. General detached-drawer renderer repair remains deferred.
+
+Released terminal content uses normal restore with `treatAsRestoredSessionStart: true`;
+if the old zmx endpoint has ended, the standard attach command may create a fresh
+shell under the same durable pane/session identity (`TerminalRestoreRuntime.swift:25-42`;
+`ZmxBackend.swift:177-204`). No attach-only zmx operation, vendor change,
+or new pane identity is required; a fresh shell under the same identity is allowed.
+Bridge, Webview, and CodeViewer
+targets use their existing nonterminal mount owners. A late mount after release may
+remain registered and warm, but only the current presented target can render it.
+
+After the stable host enters the preview branch, the persistent tab host fills the
+full `terminalContainer` by the same fill pattern as the canonical
+`PaneLeafContainer`: `PaneViewRepresentable` receives
+`.frame(maxWidth: .infinity, maxHeight: .infinity)` before the host's normal layout
+(`PaneLeafContainer.swift:238-248`; `PaneHostView.swift:72-91`).
+`TerminalPaneMountView.layout` and `forceGeometrySync` remain the native allocation
+and report/verify seams (`TerminalPaneMountView.swift:192-228`). The full-area result
+is a proof obligation, not a claim of current native proof. Bridge remains edge-pinned
+through its existing mount view and needs no second geometry model.
+
+## Presentation, renderer, and Bridge call-path delta
+
+The preview behavior has no current end-to-end predecessor. The following compact
+delta pairs each source-anchored current path with the proposed path and names the
+preserved owners:
+
+| Behavior | Current source path | Proposed path and delta |
+| --- | --- | --- |
+| Space/selection input | `RepoExplorerMaterializationHost.keyDown` → `handleListKeyboardAction` → selection/activation; no Space key-up or semantic target callback (`RepoExplorerMaterializationHost.swift:57-72, 408-508`) | **Added:** host key-down/up and selection reconciliation → existing keyboard callback chain → window-local requested target. The current requested target keeps the existing prepared visibility signal while the presented target waits for a ready mount. **Changed:** Enter/digits invalidate preview before the unchanged activation effect. Sync callbacks; exact target and generation checks reject stale results. |
+| Pane presentation | `PaneTabViewController.buildTabContentHost` → `SingleTabContent` → Zoom or ordinary arrangement (`PaneTabViewController.swift:1241-1284`; `SingleTabContent.swift:75-129`) | **Added:** injected presentation → owning-tab preview branch → slot host → one stable representable. **Changed:** `updateVisibleTabHost` selects the preview owning tab while its mount is ready. **Unchanged/preservation-critical:** Zoom/ordinary mutual exclusion and `ViewRegistry` slot custody. |
+| Cold existing pane | `restoreVisiblePaneIfNeeded` requires durable active tab, resolves all-tab frames, then `createViewForContent` (`WorkspaceSurfaceCoordinator+ViewHelpers.swift:128-174`) | **Added:** target/provider/session validation → trusted bounds and identity capture → existing full-area preparation/custody owner → slot registration. **Changed:** preview uses the current full `terminalContainerBounds` directly and does not use active-tab restore or per-layout frame derivation; the requested target remains in the existing prepared visibility signal while pending. **Unchanged:** `createViewForContent` terminal/nonterminal authority and error return. |
+| Hidden terminal surface | `reattachForViewSwitch` restores through the active-tab helper before calling `SurfaceManager.attach` and `TerminalPaneMountView.displaySurface` (`WorkspaceSurfaceCoordinator+ViewLifecycle.swift:534-560`) | **Added/changed:** preview's existing-pane preparation calls the same attach/display owner for a validated hidden surface without the active-tab restore step. **Unchanged/preservation-critical:** `SurfaceManager.attach` moves the surface to `activeSurfaces`; release leaves the attached resource warm and canonical visibility controls delivery. |
+| Terminal visibility | `bindRendererVisibility` → observation-tracked canonical visibility tier → `SurfaceManager.reconcileAttachedVisibility` (`WorkspaceSurfaceCoordinator+RendererVisibility.swift:30-69`) | **Changed:** same observer reads the presentation and chooses canonical visibility while the requested mount is preparing, then the exact ready-target replacement, never their union. **Unchanged/preservation-critical:** owning-window visible/non-miniaturized/non-occluded guard, reconciliation owner, equality suppression, and `effectiveRendererVisibility`. |
+| Bridge activity | `captureBridgePaneActivityInputs` → `BridgePaneActivityCoordinator.update` → controller activity (`WorkspaceSurfaceCoordinator+BridgePaneActivity.swift:90-190`; `BridgePaneActivityCoordinator.swift:63-102`) | **Changed:** add the explicit transient structural presentation input through the existing owner; a ready, installed, active-residency target uses normal foreground admission, covered installed peers become `loadedHidden` like Zoom, and closed/dormant/no-controller/inactive authorities retain their stronger guards. **Unchanged:** activity coordinator, existing work-admission token, and controller application owners; no privilege bypass or new refresh mechanism. |
+| Uncommitted release | No preview lifecycle exists | **Added:** matching key-up or existing responder/demand/sidebar/Management/window lifecycle ingress → one local generation invalidation → current canonical presentation → renderer/Bridge canonical projections. Warm completion is retained but cannot publish. |
+
+The target presentation precedence is exact:
+
+```text
+idle / held(requested=nil) / suppressedUntilSpaceRelease -> canonical presented set
+held(requested=P, presented-ready=P)                      -> presented set exactly {P}
+held(requested=P, presented-ready=nil while preparing)    -> canonical set until P's mount is ready
+```
+
+For terminals, the owning-window gate is evaluated first; an occluded,
+miniaturized, or hidden window remains renderer-hidden even when a preview target is
+held. `SurfaceManager.reconcileAttachedVisibility` remains the only Ghostty
+visibility delivery owner (`WorkspaceSurfaceCoordinator+RendererVisibility.swift:31-53`).
+For Bridge, the transient fact is an explicit input to the existing activity
+projection. While a target with an installed mount is presented, that target is foreground and every
+other Bridge pane is `loadedHidden`; held-without-target, preparation, suppression,
+and release use canonical facts. The input does not falsify residency, active-tab,
+arrangement, drawer, or minimization facts and does not add window occlusion to
+Bridge's established activity contract. Keeping a covered canonical foreground
+peer foreground would contradict the existing Zoom-style structural exclusion:
+content that no longer occupies the presented place must not continue foreground
+refresh work. The preview input therefore uses the same existing activity/admission
+owner, with no focus-, browser-, or window-based foreground bypass. The existing
+`isAuthorityClosed`/closed and dormant latches, controller-installed check, and
+active-residency guard run before the transient presentation branch; a missing or
+inactive authority is never promoted merely because it is selected.
+
+## One local cancellation transition
+
+`MainSplitViewController` owns the window-local `cancelIfHeld` transition beside
+sidebar composition. Existing ingress owners call that one transition: the
+materialization host's `RepoExplorerKeyboardInteraction.listDidResignFirstResponder`
+and `detach`, `RepoExplorerView`'s `isProjectionDemanded` loss callback,
+`MainSplitViewController.collapseSidebar`, `PaneTabViewController`'s existing
+Management/transient-surface observation plus the `canInterpretListInput` routing
+gate, and `MainWindowController.windowDidResignKey`.
+The callback chain passes no new event; each path synchronously invalidates the held
+generation and clears the presented target. `windowWillClose` already invokes
+`shutdown`; teardown of the local owner is sufficient and does not need a second
+close callback. The next window receives a fresh local presentation value.
+
+## Failure, ordering, and custody rules
+
+- **Generation wins.** One Space hold mints one generation. Autorepeat is consumed;
+  selection replacements and all preparation, host, renderer, Bridge, and geometry
+  callbacks compare that generation before publishing.
+- **Current structure wins.** Before preparation and before presentation, validate
+  pane membership, provider/session identity, owning tab, and non-retired slot.
+  Removed or stale targets are rejected without selecting a successor or opening a
+  substitute pane; the preview surface registration is cleared before the slot can
+  retire.
+- **Commit wins before key-up.** Enter/digit first transitions to
+  `suppressedUntilSpaceRelease` and clears the transient presentation, then invokes
+  the existing `activateSelectedRow`/`activateNumberedDestination` effect and its
+  `PaneCommittedFocusOperation`. A later key-up is idempotent.
+- **Focus loss cancels.** List resign, host detach, sidebar collapse or surface loss,
+  Management/transient takeover, window resign, and window close all use the same
+  generation invalidation and canonical-presented transition. The sidebar remains
+  first responder while preview is shown.
+- **Preparation failure is contained.** Missing trusted bounds, failed restore, a
+  missing host, or a replaced provider leaves canonical presentation visible. The
+  existing prepared scheduler may finish or remain warm; preview never cancels,
+  settles, or steals its custody ledger.
+- **No durable rollback.** Release does not restore a captured layout or focus owner.
+  It re-reads canonical state at release time, so concurrent arrangement, drawer,
+  minimization, or active-tab changes remain authoritative.
+- **Current window boundary.** The current source has one workspace window at a time,
+  so source and target windows cannot diverge in this slice. No shared `PaneViewSlot`
+  is mounted into a second visible host and no native view is reparented across
+  windows.
+
+These rules make overlap deterministic: selection callbacks may arrive while target
+preparation is awaiting existing mount or scheduler work, and
+late completions may only warm the slot. Renderer and Bridge observers are
+observation-tracked existing loops; preview adds no poll, timer, debounce, event bus
+case, or detached-drawer invariant repair.
+
+## Preview proof seams and remaining boundary
+
+The design's proof map extends the existing quality table as follows:
+
+| Contract | Structural proof seam |
+| --- | --- |
+| R-S9 held lifecycle | Pure transition coverage for begin/repeat/replace/release, optional non-pane target, stale generation, invalid target, commit-before-key-up, and canonical-on-release. |
+| R-S9 sidebar boundary | Real AppKit window and materialization host: Space down/up, selection follow, accepted snapshot replacement/removal, Enter/digit ordering, list focus retention, and cancellation on detach/focus loss. |
+| R-S9 single mount | Existing composition harness with loaded and late-registered hosts: preview/Zoom/ordinary mutual exclusion, target replacement, same stable container identity, and no second rendered host. |
+| R-S9 existing-pane restore | Real mounted terminal, hidden attached terminal, prepared cold terminal absent from the active custom layout, drawer child whose parent is absent from that layout, ended-session normal restore, and cold Bridge; inspect pane/provider/session identity, slot custody, existing attach/display path, durable arrangement, and warm completion after release. |
+| R-S9 visibility/activity | Recording renderer reconciliation plus Bridge activity projection: canonical while the requested mount prepares, exact ready-mount target replacement, covered installed peers `loadedHidden`, closed/dormant/no-controller/inactive guards, canonical restoration on release, equality suppression, and terminal window occlusion/miniaturization. |
+| R-S9 geometry | Real allocation and `forceGeometrySync` for the trusted full-pane-area frame and release resize, including background-tab and drawer targets; keep frame proof separate from renderer visibility proof. |
+| R-S6/U16 Space overlay | Native narrow and ordinary widths with the selected pane's trailing metadata/icon keycap and simultaneous digit keycap; inspect no row reflow, no title/chip overlap, no pointer interception, and report any insufficient trailing slot as a concrete layout issue. |
+
+Mocks may replace external filesystem/runtime dependencies at pure policy seams;
+native responder, custody, renderer, Bridge, and allocation proof remains real. The
+supported current composition has one workspace window and no cross-window preview
+path; preview adds no second host or shared-slot reparenting.
 
 ## Source map
 
@@ -296,4 +591,10 @@ detached-drawer invariant repair is introduced through preview.
 - [Snapshot construction](../../../Sources/AgentStudio/Features/RepoExplorer/Models/RepoExplorerMaterializationSnapshot.swift), [update planning](../../../Sources/AgentStudio/Features/RepoExplorer/Models/RepoExplorerNativeUpdatePlan.swift) and [pane organization](../../../Sources/AgentStudio/Features/RepoExplorer/Models/RepoExplorerProjection+Organization.swift).
 - [Shortcut context/display](../../../Sources/AgentStudio/Core/Actions/Commands/AppShortcut.swift) and [dispatch policy](../../../Sources/AgentStudio/Core/Actions/Commands/AppShortcutDispatchPolicy.swift).
 - [Row shell](../../../Sources/AgentStudio/SharedComponents/SidebarRowShell.swift), [surface toggle](../../../Sources/AgentStudio/SharedComponents/SidebarEntityToggle.swift) and [toolbar](../../../Sources/AgentStudio/Features/RepoExplorer/RepoExplorerView+CommandToolbar.swift).
+- [Pane row](../../../Sources/AgentStudio/Features/RepoExplorer/RepoExplorerPaneNavigation.swift), [sidebar chips](../../../Sources/AgentStudio/Core/Views/SidebarChips.swift), and [shortcut hint](../../../Sources/AgentStudio/SharedComponents/SidebarShortcutHint.swift): existing leading digit and trailing metadata overlay anchors.
 - [Committed focus](../../../Sources/AgentStudio/App/Panes/PaneCommittedFocusOperation.swift) remains the arrangement effect owner.
+- [Persistent tab host](../../../Sources/AgentStudio/App/Panes/PersistentTabHostView.swift), [view registry](../../../Sources/AgentStudio/App/Panes/ViewRegistry.swift) and [pane representable](../../../Sources/AgentStudio/App/Panes/Hosting/PaneViewRepresentable.swift) preserve pane-lifetime host/container custody.
+- [Terminal geometry](../../../Sources/AgentStudio/Features/Terminal/Restore/TerminalPaneGeometryResolver.swift), [terminal restore](../../../Sources/AgentStudio/Features/Terminal/Restore/TerminalRestoreRuntime.swift) and [zmx backend](../../../Sources/AgentStudio/Core/RuntimeEventSystem/Runtime/ZmxBackend.swift) provide the canonical geometry foundation and same-identity normal restore/fresh-shell behavior.
+- [Renderer visibility](../../../Sources/AgentStudio/App/Coordination/WorkspaceSurfaceCoordinator+RendererVisibility.swift) and [Bridge activity](../../../Sources/AgentStudio/App/Coordination/WorkspaceSurfaceCoordinator+BridgePaneActivity.swift) remain the existing replacement owners for terminal visibility and Bridge activity.
+- [Surface manager](../../../Sources/AgentStudio/Features/Terminal/Ghostty/SurfaceManager.swift) and [renderer state](../../../Sources/AgentStudio/Features/Terminal/Ghostty/SurfaceManager+RendererState.swift) own hidden-surface reattachment and attached-surface visibility reconciliation.
+- [Main window](../../../Sources/AgentStudio/App/Windows/MainWindowController.swift), [main split](../../../Sources/AgentStudio/App/Windows/MainSplitViewController.swift) and [window creation](../../../Sources/AgentStudio/App/Boot/AppDelegate+MainWindowCreation.swift) establish per-window composition and the current one-main-window lifecycle.

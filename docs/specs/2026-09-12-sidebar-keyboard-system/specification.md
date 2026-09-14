@@ -102,13 +102,16 @@ preceding successful navigation. Basis U14. Default-selection provenance is reco
 
 R-S9. Holding Space while the sidebar list has focus temporarily displays the
 selected existing pane in the full pane area. Preview follows selection while Space
-remains held. Releasing Space cancels uncommitted preview. Enter commits selection;
-digits commit their target. Later key-up never undoes commitment.
+remains held. A non-pane selection leaves the canonical presentation in place until
+a pane is selected again. Releasing Space cancels uncommitted preview. Enter commits
+selection; digits commit their target. Later key-up never undoes commitment.
 
 Load or restore the existing pane's renderer/content when needed, including Bridge
-content. The renderer may remain warm after release. Preview MUST NOT start a
-replacement terminal session or create a substitute pane. Cancellation restores the
-prior presentation without blindly rolling back durable layout mutations. Basis U15.
+content. For a terminal whose prior session endpoint has ended, normal restore may
+start a fresh shell under the same existing pane identity. The renderer/content may
+remain warm after release. Preview MUST NOT create a substitute pane or pane
+identity. Cancellation restores the current canonical presentation without blindly
+rolling back durable layout mutations. Basis U15.
 
 ## Proof coverage
 
@@ -119,7 +122,7 @@ prior presentation without blindly rolling back durable layout mutations. Basis 
 | U1/U16 | R-S6 | Native overlays and selection at practical widths, no reflow or pointer interception |
 | U1/U12/U18 | R-S7/R-S8 | Binding/catalog regressions; Option-J/L skips minimized/backgrounded neighbors, native focus and unchanged visibility; marker-scoped MainActor versus detached work |
 | U14 | R-S10 | Hidden sidebar, each grouping/sort, mixed pane kinds, wrapping and repeated/stale navigation |
-| U15 | R-S9 | Native hold/release/commit/loss-of-focus proof with loaded and initially unloaded existing panes |
+| U15 | R-S9 | Native hold/release/commit/loss-of-focus proof with loaded and initially unloaded existing panes, including same-identity fresh-shell restore, full-pane-area allocation, and pane identity preservation |
 
 U8/U9 broader pin/rename bindings, U10 viewer redesign, U11 repository finder and
 broad chord restructuring remain deferred by the owner's prior scope. U2 activity/history

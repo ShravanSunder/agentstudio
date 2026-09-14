@@ -2,9 +2,9 @@
 
 **Current implementation review map.** Sidebar core and terminal navigation are implemented.
 The reviewed MainActor snapshot-capture regression is corrected; focused tests and lint pass.
-Fresh aggregate, correction review and pinned timing proof remain before readiness. Held preview remains pending.
+The corrected-head aggregate, capture correction review and pinned timing proof are complete at `41c427781`; held preview remains unimplemented and its current Program Design correction is underway, so this map does not claim whole-PR readiness.
 Explicit owner choices and implementation defaults are distinguished in the
-[decision record](core-design-decisions.md). Preview behavior is confirmed; its internal realization and proof remain to do.
+[decision record](core-design-decisions.md). Preview behavior is confirmed; its internal realization and proof remain to do under the current correction pass.
 
 Authority: [Requirements](requirements.md) → [Specification](../../specs/2026-09-12-sidebar-keyboard-system/specification.md) → [Program Design](../../specs/2026-09-12-sidebar-keyboard-system/program-design.md). Historical discussion and retired traversal drafts are excluded.
 
@@ -59,7 +59,7 @@ Sidebar list owns focus
 
 Preview/Enter distinction is owner-requested. Keeping focus in the sidebar and
 restoring the prior presentation are the recommended behavior needed to make preview
-temporary; hold/release behavior is settled; loading existing content is confirmed; its renderer path still needs completion in section 5.
+temporary; hold/release behavior is settled; loading existing content is confirmed; its renderer path is being completed through the current Program Design correction in section 5.
 
 ## 3. Keys by focus location
 
@@ -131,17 +131,18 @@ not commit navigation. Numeric activation commits independently of held preview.
 Recommended observable boundary:
 
 - Show the existing selected pane while sidebar navigation keeps keyboard focus.
-- Preview does not create another terminal/Bridge session or perform openWorktree.
+- Preview keeps the existing target pane and its terminal/Bridge renderer; it does not create a substitute pane or perform openWorktree. If an existing terminal pane's session has ended, normal restore may start a fresh shell in that same existing pane.
 - End uncommitted preview by restoring the prior presentation, not leaving another
   tab selected or a pane/drawer permanently expanded as a side effect.
 - Enter converts the chosen target into committed navigation using section 7.
-- If the target closes or becomes invalid, remove its preview; never recreate it.
+- If the target pane closes or becomes invalid, remove its preview; never recreate or substitute the pane.
 - Text entered while the filter owns focus never goes to a previewed terminal.
 
 Confirmed: preview fills the pane area and follows selection while Space is held.
 Load existing panes as needed, including Bridge content; a renderer may remain warm
 after release. A worktree row does not create a pane for preview. The renderer/geometry
-design must preserve the existing session identity and never start a replacement terminal.
+design must preserve the existing pane identity; normal restore may start a fresh shell
+in that same existing pane when its prior session has ended, without substituting another pane.
 
 **Source constraint:** current focusPane changes active tab/arrangement, may expand
 minimized panes/drawers, and transfers focus. Calling it for preview then blindly
@@ -239,17 +240,14 @@ no-op while Management is active: it does not leave Management or claim sidebar 
 | [Arrangement insertion](../../../Sources/AgentStudio/Core/State/MainActor/Atoms/TabLayoutRules/TabArrangementMutationRules.swift) | Creation-specific current+Default insertion is implemented and locally validated; existing identity placement preserves its original behavior |
 | [Row actions](../../../Sources/AgentStudio/Features/RepoExplorer/RepoExplorerMaterializedRowView.swift) | Pane focus and worktree open are separate primary actions |
 
-Sidebar core design is reviewed and implementation is in progress. Native entry,
+Sidebar core design and implementation review are complete for corrected HEAD `41c427781`. Native entry,
 P/R/F surface/filter routing and filter-to-list/terminal return have
 [current proof](sidebar-focus-native-proof.md). Row/group/digit navigation and anchored hints now have
 [native activation and overlay proof](sidebar-overlay-native-proof.md), including Bridge/custom
 arrangement, drawer reveal and offscreen result 9. The late-restore focus handshake has regression
 and rebuilt native proof. Direct pinned navigation is implemented with [mixed-pane native proof](pinned-navigation-native-proof.md);
-its full aggregate passed; live telemetry reproof and independent final review remain. Held preview remains unfinished. Preview's cold-terminal attach-only
-prerequisite awaits an owner scope decision; it has not been removed from the goal.
+its full aggregate and corrected marker-scoped timing proof passed; the independent capture correction review is complete. The timing sample is 28 operations represented by 56 phase records, with capture median/max `0.010500`/`0.017875 ms` and worker median/max `0.123208`/`0.225750 ms`; this is an observed sample only. Held preview remains unfinished, and its current Program Design correction is underway. No nested Bridge WebKit DOM-focus claim is made.
 
 Arrangement creation/reveal has separate native terminal, Bridge and ordinary drawer
 proof. The revised terminal map has [fresh native evidence](terminal-native-v2-proof.md).
-The current-head full aggregate passed at `10383d28f` after merging `origin/main`
-and correcting an upstream test to await queued zoom creation. Neither this map nor those focused results
-claim sidebar completion or PR readiness.
+The historical arrangement entry above preserves its PR #345/main-alignment context. The current corrected-head full aggregate passed at `41c427781` after the capture correction; the receipt is retained in `tmp/sidebar-keyboard-design/capture-current-head-aggregate.result.json`. This map records the corrected implementation and proof state, while held preview and its Program Design correction keep the overall change short of whole-PR readiness.
