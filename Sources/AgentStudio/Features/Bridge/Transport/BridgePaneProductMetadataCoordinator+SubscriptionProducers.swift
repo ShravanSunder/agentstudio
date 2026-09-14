@@ -215,7 +215,8 @@ extension BridgePaneProductMetadataCoordinator {
                     await request.activeStream.session.waitUntilProducerFrameSequenceObserved(
                         for: request.activeStream.lease,
                         sequence: sequence,
-                        productAdmission: request.productAdmission
+                        productAdmission: request.productAdmission,
+                        foregroundWorkAdmission: request.foregroundWorkAdmission
                     )
                 }
             )
@@ -386,7 +387,8 @@ extension BridgePaneProductMetadataCoordinator {
                 await context.activeStream.session.waitUntilProducerFrameSequenceObserved(
                     for: context.activeStream.lease,
                     sequence: frame.sequence,
-                    productAdmission: emittedAdmission
+                    productAdmission: emittedAdmission,
+                    foregroundWorkAdmission: context.foregroundWorkAdmission
                 )
             else {
                 throw CancellationError()

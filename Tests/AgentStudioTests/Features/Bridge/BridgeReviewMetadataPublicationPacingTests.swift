@@ -33,6 +33,19 @@ struct BridgeReviewMetadataPublicationPacingTests {
             throw error
         }
     }
+
+    @Test("foreground invalidation before waiter registration defers without a late waiter")
+    func foregroundInvalidationBeforeWaiterRegistrationDefersWithoutLateWaiter() async throws {
+        let pause = PausingReviewLifecycleRecorder.make()
+        let fixture = try await ReviewMetadataPacingFixture.make(lifecycleTraceRecorder: pause.recorder)
+        do {
+            try await fixture.requireInvalidationBeforeRegistrationDefers(pause: pause)
+            await fixture.shutdown()
+        } catch {
+            await fixture.shutdown()
+            throw error
+        }
+    }
 }
 
 private struct ReviewMetadataPacingFixture {
@@ -50,7 +63,9 @@ private struct ReviewMetadataPacingFixture {
     let reservation: BridgeReviewMetadataPublicationReservation
 
     @MainActor
-    static func make() async throws -> Self {
+    static func make(
+        lifecycleTraceRecorder: (any BridgeProductMetadataLifecycleTraceRecording)? = nil
+    ) async throws -> Self {
         let (deliveryEvents, deliveryEventContinuation) =
             AsyncStream<ReviewMetadataDeliveryEvent>.makeStream()
         let harness = try await BridgeProductSessionLifecycleHarness.opened(
@@ -80,7 +95,8 @@ private struct ReviewMetadataPacingFixture {
             fileMetadataSource: BridgeUnavailablePaneProductFileMetadataSource(),
             reviewMetadataSource: reviewSource,
             reviewPublicationReplay: { _ in replayProvider.publication },
-            refreshWorkAdmissionSource: activityCoordinator.workAdmissionSource
+            refreshWorkAdmissionSource: activityCoordinator.workAdmissionSource,
+            lifecycleTraceRecorder: lifecycleTraceRecorder
         )
         await coordinator.install(
             request: try coordinatorMetadataStreamRequest(),
@@ -153,6 +169,7 @@ private struct ReviewMetadataPacingFixture {
             #expect(received.sourceAccepted)
             #expect(received.finalWindow)
             #expect(received.itemCount == publication.package.orderedItemIds.count)
+            #expect(received.orderedItemIds == publication.package.orderedItemIds)
             #expect(await deliveryTask.value == .transportAcknowledged)
             let producerSnapshot = await harness.session.producerSnapshot()
             #expect(producerSnapshot.queuedFrameCount == 0)
@@ -215,7 +232,80 @@ private struct ReviewMetadataPacingFixture {
         }
         #expect(replayed.sourceAccepted)
         #expect(replayed.itemCount == publication.package.orderedItemIds.count)
+        #expect(replayed.orderedItemIds == publication.package.orderedItemIds)
         #expect((await harness.session.producerSnapshot()).pendingProducerObservationPacingWaiterCount == 0)
+    }
+
+    @MainActor
+    func requireInvalidationBeforeRegistrationDefers(
+        pause: PausingReviewLifecycleRecorder.Fixture
+    ) async throws {
+        #expect(await pump.acknowledgeFrameConsumed(heldPresentation.receipt))
+        let deliveryTask = Task {
+            let disposition = await coordinator.deliverReviewPublication(
+                publication,
+                reservation: reservation,
+                productAdmission: harness.productAdmission.context,
+                foregroundWorkAdmission: foregroundAdmission
+            )
+            deliveryEventContinuation.yield(.deliveryCompleted(disposition))
+            return disposition
+        }
+        do {
+            var deliveryIterator = deliveryEvents.makeAsyncIterator()
+            let sourceRegistration = try await requireObservationRequest(from: &deliveryIterator)
+            let sourceDelivery = try await requireMetadataFrameDelivery(from: pump)
+            #expect(sourceRegistration.sequence == sourceDelivery.receipt.sequence)
+            #expect(await pump.acknowledgeFrameConsumed(sourceDelivery.receipt))
+
+            var pauseIterator = pause.pausedEvents.makeAsyncIterator()
+            guard await pauseIterator.next(isolation: #isolation) != nil else {
+                throw ReviewMetadataPacingTestError.lifecyclePauseDidNotStart
+            }
+            activityCoordinator.applyActivity(.loadedHidden)
+            await coordinator.suspendForegroundWork()
+            pause.releaseContinuation.yield()
+
+            guard let terminalEvent = await deliveryIterator.next(isolation: #isolation) else {
+                throw ReviewMetadataPacingTestError.deliveryEventStreamEnded
+            }
+            guard case .deliveryCompleted(let disposition) = terminalEvent else {
+                throw ReviewMetadataPacingTestError.lateObservationRegistration(terminalEvent)
+            }
+            #expect(disposition == .deferred)
+            #expect((await harness.session.producerSnapshot()).pendingProducerObservationPacingWaiterCount == 0)
+            let nonfinalDelivery = try await requireMetadataFrameDelivery(from: pump)
+            try requireNonfinalSnapshot(try decodeMetadataFrame(nonfinalDelivery))
+            #expect(await pump.acknowledgeFrameConsumed(nonfinalDelivery.receipt))
+
+            activityCoordinator.applyActivity(.foreground)
+            await coordinator.resumeForegroundWork()
+            let replayed = try await consumeReplayFrames(iterator: &deliveryIterator)
+            #expect(replayed.sourceAccepted)
+            #expect(replayed.orderedItemIds == publication.package.orderedItemIds)
+            #expect(await deliveryTask.value == .deferred)
+        } catch {
+            pause.releaseContinuation.yield()
+            deliveryTask.cancel()
+            _ = await deliveryTask.value
+            throw error
+        }
+    }
+
+    @MainActor
+    private func consumeReplayFrames(
+        iterator: inout AsyncStream<ReviewMetadataDeliveryEvent>.Iterator
+    ) async throws -> ReceivedReviewMetadata {
+        var received = ReceivedReviewMetadata()
+        while !received.finalWindow {
+            let registration = try await requireObservationRequest(from: &iterator)
+            let delivery = try await requireMetadataFrameDelivery(from: pump)
+            #expect(registration.lease == lease)
+            #expect(registration.sequence == delivery.receipt.sequence)
+            received.accept(try decodeMetadataFrame(delivery))
+            #expect(await pump.acknowledgeFrameConsumed(delivery.receipt))
+        }
+        return received
     }
 
     @MainActor
@@ -336,6 +426,7 @@ private enum ReviewMetadataDeliveryEvent: Sendable {
 private struct ReceivedReviewMetadata {
     var finalWindow = false
     var itemCount = 0
+    var orderedItemIds: [String] = []
     var sourceAccepted = false
 
     mutating func accept(_ frame: BridgeProductMetadataFrame) {
@@ -347,9 +438,11 @@ private struct ReceivedReviewMetadata {
             sourceAccepted = true
         case .snapshot(let snapshot):
             itemCount += snapshot.itemMetadata.count
+            orderedItemIds.append(contentsOf: snapshot.itemMetadata.map(\.itemId))
             finalWindow = snapshot.itemWindow.finalWindow && snapshot.treeWindow.finalWindow
         case .window(let window):
             itemCount += window.itemMetadata.count
+            orderedItemIds.append(contentsOf: window.itemMetadata.map(\.itemId))
             finalWindow = window.itemWindow.finalWindow && window.treeWindow.finalWindow
         case .delta, .invalidated, .reset:
             Issue.record("Unexpected Review event while delivering the initial publication")
@@ -365,7 +458,19 @@ private enum ReviewMetadataPacingTestError: Error {
     case expectedNonfinalWindow
     case expectedObservationRequest
     case expectedPanePresentation
+    case lateObservationRegistration(ReviewMetadataDeliveryEvent)
+    case lifecyclePauseDidNotStart
     case sourceDidNotOpen
+}
+
+private func requireNonfinalSnapshot(_ frame: BridgeProductMetadataFrame) throws {
+    guard case .subscriptionData(let data) = frame,
+        case .snapshot(let window)? = data.data.reviewMetadataEvent,
+        !window.itemWindow.finalWindow,
+        !window.treeWindow.finalWindow
+    else {
+        throw ReviewMetadataPacingTestError.expectedNonfinalWindow
+    }
 }
 
 @MainActor

@@ -226,7 +226,8 @@ extension BridgeProductSession {
     func waitUntilProducerFrameSequenceObserved(
         for lease: BridgeProductProducerLease,
         sequence: Int,
-        productAdmission: BridgeProductAdmissionContext
+        productAdmission: BridgeProductAdmissionContext,
+        foregroundWorkAdmission: BridgePaneRefreshWorkAdmission
     ) async -> Bool {
         let waiterToken = UUID()
         return await withTaskCancellationHandler {
@@ -236,30 +237,32 @@ extension BridgeProductSession {
                     return
                 }
                 let pacingWaiterRegistration =
-                    productAdmission.withValidAdmission {
-                        guard producerAdmissionMatches(productAdmission, for: lease) else {
-                            continuation.resume(returning: false)
+                    foregroundWorkAdmission.withValidAdmission {
+                        productAdmission.withValidAdmission {
+                            guard producerAdmissionMatches(productAdmission, for: lease) else {
+                                continuation.resume(returning: false)
+                                return false
+                            }
+                            switch producerRegistry.prepareProducerObservationPacing(
+                                for: lease,
+                                sequence: sequence,
+                                waiterToken: waiterToken
+                            ) {
+                            case .observed:
+                                continuation.resume(returning: true)
+                            case .rejected:
+                                continuation.resume(returning: false)
+                            case .wait:
+                                producerObservationPacingWaitersByLease[lease, default: [:]][
+                                    waiterToken
+                                ] = .init(
+                                    continuation: continuation,
+                                    token: waiterToken
+                                )
+                                return true
+                            }
                             return false
                         }
-                        switch producerRegistry.prepareProducerObservationPacing(
-                            for: lease,
-                            sequence: sequence,
-                            waiterToken: waiterToken
-                        ) {
-                        case .observed:
-                            continuation.resume(returning: true)
-                        case .rejected:
-                            continuation.resume(returning: false)
-                        case .wait:
-                            producerObservationPacingWaitersByLease[lease, default: [:]][
-                                waiterToken
-                            ] = .init(
-                                continuation: continuation,
-                                token: waiterToken
-                            )
-                            return true
-                        }
-                        return false
                     }
                 if pacingWaiterRegistration == true {
                     producerObservationPacingRegistrationObserver?(lease, sequence)

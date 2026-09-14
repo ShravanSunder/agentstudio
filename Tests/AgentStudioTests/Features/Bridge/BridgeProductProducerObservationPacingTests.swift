@@ -27,12 +27,14 @@ struct BridgeProductProducerObservationPacingTests {
         let firstReplay = await fixture.harness.session.waitUntilProducerFrameSequenceObserved(
             for: fixture.lease,
             sequence: fixture.opening.sequence,
-            productAdmission: fixture.harness.productAdmission.context
+            productAdmission: fixture.harness.productAdmission.context,
+            foregroundWorkAdmission: fixture.foregroundWorkAdmission
         )
         let secondReplay = await fixture.harness.session.waitUntilProducerFrameSequenceObserved(
             for: fixture.lease,
             sequence: fixture.opening.sequence,
-            productAdmission: fixture.harness.productAdmission.context
+            productAdmission: fixture.harness.productAdmission.context,
+            foregroundWorkAdmission: fixture.foregroundWorkAdmission
         )
 
         // Assert
@@ -337,6 +339,7 @@ struct BridgeProductProducerObservationPacingTests {
 
 private struct ProducerObservationPacingFixture {
     let delivery: BridgeProductProducerFrameDelivery
+    let foregroundWorkAdmission: BridgePaneRefreshWorkAdmission
     let harness: BridgeProductSessionLifecycleHarness
     let lease: BridgeProductProducerLease
     let opening: BridgeProductQueuedProducerFrame
@@ -380,6 +383,7 @@ private struct ProducerObservationPacingFixture {
         )
         return Self(
             delivery: delivery,
+            foregroundWorkAdmission: await BridgePaneRefreshWorkAdmissionTestContext.foreground().admission,
             harness: resolvedHarness,
             lease: lease,
             opening: opening,
@@ -396,7 +400,8 @@ private struct ProducerObservationPacingFixture {
             await harness.session.waitUntilProducerFrameSequenceObserved(
                 for: lease,
                 sequence: sequence,
-                productAdmission: harness.productAdmission.context
+                productAdmission: harness.productAdmission.context,
+                foregroundWorkAdmission: foregroundWorkAdmission
             )
         }
     }
