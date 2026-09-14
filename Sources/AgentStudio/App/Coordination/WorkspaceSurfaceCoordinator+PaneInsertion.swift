@@ -163,7 +163,7 @@ extension WorkspaceSurfaceCoordinator {
         let layoutDirection = bridgeDirection(direction)
         let position: Layout.Position = (direction == .left || direction == .up) ? .before : .after
         guard
-            store.tabLayoutAtom.insertPane(
+            store.tabLayoutAtom.insertNewPane(
                 pane.id,
                 inTab: targetTabId,
                 at: targetPaneId,
@@ -220,7 +220,7 @@ extension WorkspaceSurfaceCoordinator {
             viewRegistry.removeSlot(for: pane.id)
             return
         }
-        store.tabArrangementAtom.addDrawerPaneView(
+        store.tabArrangementAtom.addNewDrawerPaneView(
             drawerId: drawerId,
             parentPaneId: parentPaneId,
             drawerPaneId: pane.id,

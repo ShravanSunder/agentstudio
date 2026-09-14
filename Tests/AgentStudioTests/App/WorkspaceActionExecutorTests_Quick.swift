@@ -478,6 +478,15 @@ extension WebKitSerializedTests {
             let tab = Tab(paneId: sourcePane.id)
             store.appendTab(tab)
             store.setActiveTab(tab.id)
+            let untouchedArrangementID = try #require(
+                store.createArrangement(name: "Untouched", inTab: tab.id)
+            )
+            let activeArrangementID = try #require(
+                store.createArrangement(name: "Active", inTab: tab.id)
+            )
+            let untouchedBeforeCreation = try #require(
+                store.tab(tab.id)?.arrangements.first { $0.id == untouchedArrangementID }
+            )
             let paneIdsBefore = store.paneAtom.graphAtom.paneIDs
             let url = URL(string: "https://github.com/ShravanSunder/agentstudio/pulls")!
 
@@ -498,6 +507,10 @@ extension WebKitSerializedTests {
             #expect(didExecute)
             #expect(store.tab(tab.id)?.paneIds.count == 2)
             #expect(store.tab(tab.id)?.activePaneId == pane.id)
+            let updatedTab = try #require(store.tab(tab.id))
+            #expect(updatedTab.defaultArrangement.layout.contains(pane.id))
+            #expect(updatedTab.arrangements.first { $0.id == activeArrangementID }?.layout.contains(pane.id) == true)
+            #expect(updatedTab.arrangements.first { $0.id == untouchedArrangementID } == untouchedBeforeCreation)
             #expect(pane.webviewState?.url == url)
             #expect(pane.repoId == repo.id)
             #expect(pane.worktreeId == worktree.id)
@@ -524,6 +537,15 @@ extension WebKitSerializedTests {
             )
             let tab = Tab(paneId: parentPane.id)
             store.appendTab(tab)
+            let untouchedArrangementID = try #require(
+                store.createArrangement(name: "Untouched", inTab: tab.id)
+            )
+            let activeArrangementID = try #require(
+                store.createArrangement(name: "Active", inTab: tab.id)
+            )
+            let untouchedBeforeCreation = try #require(
+                store.tab(tab.id)?.arrangements.first { $0.id == untouchedArrangementID }
+            )
             let paneIdsBefore = store.paneAtom.graphAtom.paneIDs
 
             coordinator.executeAddWebviewDrawerPane(
@@ -535,6 +557,14 @@ extension WebKitSerializedTests {
                 store.paneAtom.graphAtom.paneIDs.subtracting(paneIdsBefore).first
             )
             #expect(store.pane(parentPane.id)?.drawer?.paneIds.contains(drawerPaneId) == true)
+            let updatedTab = try #require(store.tab(tab.id))
+            let drawerID = try #require(store.pane(parentPane.id)?.drawer?.drawerId)
+            #expect(updatedTab.defaultArrangement.drawerViews[drawerID]?.layout.contains(drawerPaneId) == true)
+            #expect(
+                updatedTab.arrangements.first { $0.id == activeArrangementID }?
+                    .drawerViews[drawerID]?.layout.contains(drawerPaneId) == true
+            )
+            #expect(updatedTab.arrangements.first { $0.id == untouchedArrangementID } == untouchedBeforeCreation)
             assertDurablePaneAssociation(drawerPaneId, repo: repo, worktree: worktree, store: store)
         }
 

@@ -29,7 +29,7 @@ struct AgentStudioIPCLayoutAdapter: AppIPCLayoutPort, @unchecked Sendable {
         self.workspaceActionExecutor = workspaceActionExecutor
     }
 
-    func focusPane(_ handle: IPCHandle) throws -> IPCPaneFocusResult {
+    func focusPane(_ handle: IPCHandle) async throws -> IPCPaneFocusResult {
         guard hasActiveWindow() else {
             throw AppIPCLayoutError(reason: .noActiveWindow)
         }
@@ -41,7 +41,7 @@ struct AgentStudioIPCLayoutAdapter: AppIPCLayoutPort, @unchecked Sendable {
         let paneId = try resolvePaneId(handle, in: snapshot)
 
         do {
-            try paneFocusControl.focusPane(paneId)
+            try await paneFocusControl.focusPane(paneId)
         } catch PaneFocusAppControlError.targetNotFound {
             throw AppIPCLayoutError(reason: .targetNotFound)
         } catch PaneFocusAppControlError.validationRejected {

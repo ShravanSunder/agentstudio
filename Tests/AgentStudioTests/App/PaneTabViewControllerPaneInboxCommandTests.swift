@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Testing
 
@@ -142,7 +143,7 @@ struct PaneTabViewControllerPaneInboxCommandTests {
     }
 
     @Test("targeted showPaneInboxNotifications opens requested inactive pane scope")
-    func executeShowPaneInboxNotificationsTargetedOpensRequestedInactivePaneScope() throws {
+    func executeShowPaneInboxNotificationsTargetedOpensRequestedInactivePaneScope() async throws {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
@@ -156,7 +157,11 @@ struct PaneTabViewControllerPaneInboxCommandTests {
         let drawerPane = try #require(harness.store.addDrawerPane(to: parentPane.id))
 
         #expect(harness.store.activeTabId == unrelatedTab.id)
-        harness.controller.execute(.showPaneInboxNotifications, target: parentPane.id, targetType: .pane)
+        let window = makePaneTabViewControllerCommandWindow(for: harness.controller)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        try attachPaneHost(paneId: parentPane.id, in: harness, to: window)
+        await harness.executeCommand(.showPaneInboxNotifications, target: parentPane.id, targetType: .pane)
 
         #expect(harness.store.activeTabId == parentTab.id)
         #expect(harness.store.tab(parentTab.id)?.activePaneId == parentPane.id)
@@ -212,12 +217,19 @@ struct PaneTabViewControllerPaneInboxCommandTests {
         harness.controller.execute(.clearPaneInboxNotifications, target: hiddenPane.id, targetType: .pane)
         #expect(harness.store.tab(tab.id)?.activeArrangementId == visibleArrangementId)
 
+        let window = makePaneTabViewControllerCommandWindow(for: harness.controller)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        let hiddenHost = try attachPaneHost(paneId: hiddenPane.id, in: harness, to: window)
+
         await harness.executeCommand(.showPaneInboxNotifications, target: hiddenPane.id, targetType: .pane)
 
         let focusedTab = try #require(harness.store.tab(tab.id))
-        #expect(focusedTab.activeArrangementId == visibleArrangementId)
+        #expect(focusedTab.activeArrangementId == tab.defaultArrangement.id)
+        #expect(focusedTab.arrangements.first { $0.id == visibleArrangementId }?.minimizedPaneIds == [hiddenPane.id])
         #expect(focusedTab.activePaneIds.contains(hiddenPane.id))
         #expect(focusedTab.activePaneId == hiddenPane.id)
+        #expect(window.firstResponder === hiddenHost)
         #expect(harness.launchRecorder.clearedPaneInboxRequests.count == 1)
         #expect(harness.launchRecorder.clearedPaneInboxRequests.first?.parentPaneId == hiddenPane.id)
         #expect(harness.launchRecorder.clearedPaneInboxRequests.first?.paneIds == [hiddenPane.id])
@@ -241,6 +253,12 @@ struct PaneTabViewControllerPaneInboxCommandTests {
         harness.store.toggleDrawer(for: parentPane.id)
         #expect(harness.store.pane(parentPane.id)?.drawer?.isExpanded == false)
 
+        let window = makePaneTabViewControllerCommandWindow(for: harness.controller)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        try attachPaneHost(paneId: parentPane.id, in: harness, to: window)
+        let childHost = try attachPaneHost(paneId: drawerPane.id, in: harness, to: window)
+
         #expect(
             harness.controller.canExecute(
                 .showPaneInboxNotifications,
@@ -256,6 +274,7 @@ struct PaneTabViewControllerPaneInboxCommandTests {
         #expect(harness.store.drawerView(forParent: parentPane.id)?.activeChildId == drawerPane.id)
         #expect(harness.paneInboxPresenter.request?.parentPaneId == parentPane.id)
         #expect(harness.paneInboxPresenter.request?.paneIds == [parentPane.id, drawerPane.id])
+        #expect(window.firstResponder === childHost)
     }
 
     @Test("targeted pane inbox commands reject unattached pane objects")

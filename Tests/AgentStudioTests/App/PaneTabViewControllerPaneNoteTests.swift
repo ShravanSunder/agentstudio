@@ -25,14 +25,18 @@ struct PaneTabViewControllerPaneNoteTests {
     }
 
     @Test("targeted editPaneNote presents note editor for the requested main pane")
-    func targetedEditPaneNote_targetsRequestedMainPane() {
+    func targetedEditPaneNote_targetsRequestedMainPane() async throws {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
         let pane = makeMainPane(in: harness)
 
         #expect(harness.controller.canExecute(.editPaneNote, target: pane.id, targetType: .pane))
-        harness.controller.execute(.editPaneNote, target: pane.id, targetType: .pane)
+        let window = makePaneTabViewControllerCommandWindow(for: harness.controller)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        try attachPaneHost(paneId: pane.id, in: harness, to: window)
+        await harness.executeCommand(.editPaneNote, target: pane.id, targetType: .pane)
 
         #expect(harness.launchRecorder.paneNoteRequests == [pane.id])
     }
@@ -44,12 +48,58 @@ struct PaneTabViewControllerPaneNoteTests {
         try await withWorkspaceCommandHarness(harness) {
             let parent = makeMainPane(in: harness)
             let child = try #require(harness.store.addDrawerPane(to: parent.id))
+            let window = makePaneTabViewControllerCommandWindow(for: harness.controller)
+            window.isReleasedWhenClosed = false
+            defer { window.close() }
+            try attachPaneHost(paneId: parent.id, in: harness, to: window)
+            try attachPaneHost(paneId: child.id, in: harness, to: window)
             #expect(harness.controller.canExecute(.editPaneNote, target: child.id, targetType: .pane))
             harness.controller.execute(.editPaneNote, target: child.id, targetType: .pane)
             _ = await harness.executor.submitGesture { _ in true }.value
             #expect(harness.launchRecorder.paneNoteRequests == [child.id])
             #expect(harness.store.paneAtom.pane(parent.id)?.metadata.note == nil)
         }
+    }
+
+    @Test("targeted note waits for queued focus completion before presentation")
+    func targetedEditPaneNoteWaitsForFocusCompletion() async throws {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+        let pane = makeMainPane(in: harness)
+        let window = makePaneTabViewControllerCommandWindow(for: harness.controller)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        try attachPaneHost(paneId: pane.id, in: harness, to: window)
+        let release = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        var predecessorStarted = false
+        let predecessor = harness.executor.submitGesture { _ in
+            predecessorStarted = true
+            for await _ in release.stream { break }
+            return true
+        }
+        await eventually("the predecessor should suspend before targeted note focus") {
+            predecessorStarted
+        }
+
+        harness.controller.execute(.editPaneNote, target: pane.id, targetType: .pane)
+        #expect(harness.launchRecorder.paneNoteRequests.isEmpty)
+        release.continuation.yield(())
+        release.continuation.finish()
+        #expect(await predecessor.value)
+        _ = await harness.executor.submitGesture { _ in true }.value
+
+        #expect(harness.launchRecorder.paneNoteRequests == [pane.id])
+    }
+
+    @Test("targeted note does not present when native focus cannot be applied")
+    func targetedEditPaneNoteStopsAfterFocusFailure() async {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+        let pane = makeMainPane(in: harness)
+
+        await harness.executeCommand(.editPaneNote, target: pane.id, targetType: .pane)
+
+        #expect(harness.launchRecorder.paneNoteRequests.isEmpty)
     }
 
     @Test("copyCurrentPanePath copies active main pane cwd")

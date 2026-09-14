@@ -48,6 +48,66 @@ struct WorkspaceTerminalCreationDurabilityTests {
     init() { installTestCoreAtomsIfNeeded() }
 
     @Test(
+        "new terminal split and drawer creation changes only active and Default arrangements",
+        arguments: [TerminalDurabilityCreationPath.floatingSplit, .drawerAppend]
+    )
+    func newTerminalCreationUsesCreationArrangementScope(path: TerminalDurabilityCreationPath) async throws {
+        let workspaceID = UUIDv7.generate()
+        let fixture = try makeWorkspaceSQLiteBridgeFixture(workspaceId: workspaceID)
+        let datastore = try preparedWorkspaceSQLiteDatastore(from: fixture.backend)
+        let store = WorkspaceStore(
+            identityAtom: WorkspaceIdentityAtom(workspaceId: workspaceID),
+            sqliteDatastore: datastore,
+            startsObserving: false
+        )
+        let action = try path.action(in: store)
+        let tab = try #require(store.tabs.single)
+        let defaultArrangementID = tab.defaultArrangement.id
+        let untouchedArrangementID = try #require(store.createArrangement(name: "Untouched", inTab: tab.id))
+        let activeArrangementID = try #require(store.createArrangement(name: "Active", inTab: tab.id))
+        let untouchedBeforeCreation = try #require(
+            store.tab(tab.id)?.arrangements.first { $0.id == untouchedArrangementID }
+        )
+        let paneIDsBeforeCreation = store.paneAtom.graphAtom.paneIDs
+        let manager = HardeningSurfaceManager(createSurfaceResult: .failure(.ghosttyNotInitialized))
+        let coordinator = WorkspaceSurfaceCoordinator(
+            store: store,
+            viewRegistry: ViewRegistry(),
+            runtime: SessionRuntime(store: store),
+            surfaceManager: manager,
+            runtimeRegistry: RuntimeRegistry(),
+            windowLifecycleStore: WindowLifecycleAtom(),
+            bridgePaneAttendance: BridgePaneAttendanceAtom()
+        )
+        coordinator.windowLifecycleStore.recordTerminalContainerBounds(
+            CGRect(x: 0, y: 0, width: 1000, height: 600)
+        )
+
+        try await coordinator.execute(action)
+
+        let insertedPaneID = try #require(
+            store.paneAtom.graphAtom.paneIDs.subtracting(paneIDsBeforeCreation).first
+        )
+        let updatedTab = try #require(store.tab(tab.id))
+        let defaultArrangement = try #require(updatedTab.arrangements.first { $0.id == defaultArrangementID })
+        let activeArrangement = try #require(updatedTab.arrangements.first { $0.id == activeArrangementID })
+        #expect(updatedTab.arrangements.first { $0.id == untouchedArrangementID } == untouchedBeforeCreation)
+        switch path {
+        case .floatingSplit:
+            #expect(defaultArrangement.layout.contains(insertedPaneID))
+            #expect(activeArrangement.layout.contains(insertedPaneID))
+        case .drawerAppend:
+            let parentPaneID = try #require(store.pane(insertedPaneID)?.parentPaneId)
+            let drawerID = try #require(store.pane(parentPaneID)?.drawer?.drawerId)
+            #expect(defaultArrangement.drawerViews[drawerID]?.layout.contains(insertedPaneID) == true)
+            #expect(activeArrangement.drawerViews[drawerID]?.layout.contains(insertedPaneID) == true)
+        default:
+            Issue.record("Unexpected creation path")
+        }
+        await coordinator.shutdown()
+    }
+
+    @Test(
         "new terminal ownership commits before surface launch", arguments: [false, true],
         TerminalDurabilityCreationPath.allCases)
     func createRequiresDurability(rejectWrite: Bool, path: TerminalDurabilityCreationPath) async throws {
