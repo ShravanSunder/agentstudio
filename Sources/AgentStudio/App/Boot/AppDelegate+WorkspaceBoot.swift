@@ -171,6 +171,7 @@ extension AppDelegate {
             windowMemoryAtom: atomStore.core.workspaceWindowMemory,
             workspacePaneAtom: atomStore.core.workspacePane,
             workspaceTabLayoutAtom: atomStore.core.workspaceTabLayout,
+            repositoryTopologyAtom: atomStore.core.workspaceRepositoryTopology,
             sqliteDatastore: sqliteDatastore
         )
         let topologyStore = RepositoryTopologyStore(
@@ -247,6 +248,7 @@ extension AppDelegate {
     }
 
     private func finishCanonicalStoreBoot(sqliteDatastore: WorkspaceSQLiteDatastoreActor) async {
+        while await sqliteDatastore.reconcileRepositoryLocalOrphans() == .progress { await Task.yield() }
         await bootWorktreeAnnotations(sqliteDatastore: sqliteDatastore)
         configureInteractionPerformanceProbeOwners()
         appLifecycleStore = AppLifecycleAtom()
@@ -466,6 +468,17 @@ extension AppDelegate {
             repoCache: repoCache,
             welcomeAtom: atomStore.core.welcome,
             topologyEffectHandler: workspaceSurfaceCoordinator,
+            topologyPersistence: repositoryTopologyStore,
+            refreshRetentionScopes: { [weak pipeline] paths, repositories, revision, scopeIDs in
+                guard let pipeline else { return [] }
+                return await pipeline.refreshForRepositoryRetention(
+                    watchedPaths: paths, repositories: repositories, membershipRevision: revision, scanning: scopeIDs
+                )
+            },
+            validateSourceObservations: { [weak pipeline] observation in
+                guard let pipeline else { return false }
+                return await pipeline.areCurrentWatchedFolderObservations(observation)
+            },
             scopeSyncHandler: { [weak pipeline] change in
                 guard let pipeline else { return }
                 await pipeline.applyScopeChange(change)
@@ -475,6 +488,9 @@ extension AppDelegate {
             },
             performanceTraceRecorder: performanceTraceRecorder
         )
+        workspaceSurfaceCoordinator.awaitTopologyMutationAdmission = { [weak self] in
+            await self?.workspaceCacheCoordinator.waitForRetentionCommit()
+        }
         workspaceSurfaceCoordinator.removeRepoHandler = { [weak self] repoId in
             self?.cancelRepositoryFactUpdate(repoId: repoId)
             self?.workspaceCacheCoordinator.handleRepoRemoval(repoId: repoId)
@@ -742,7 +758,7 @@ extension AppDelegate {
             let normalizedRepositoryPath = RepoScanner.canonicalURL(repository.repoPath)
             guard let repairedWorktrees = Self.repairedWorktrees(for: repository, from: result) else { continue }
 
-            switch workspaceCacheCoordinator.reassociateRepo(
+            switch await workspaceCacheCoordinator.reassociateRepo(
                 repoId: repository.id,
                 to: normalizedRepositoryPath,
                 discoveredWorktrees: repairedWorktrees
@@ -863,11 +879,16 @@ extension AppDelegate {
         return didPrune
     }
 
-    private func replayBootTopology(store: WorkspaceStore, coordinator: WorkspaceCacheCoordinator) async {
+    func replayBootTopology(
+        store: WorkspaceStore,
+        coordinator: WorkspaceCacheCoordinator,
+        postTopologyEnvelope: @escaping @Sendable (RuntimeEnvelope) async -> Void = { envelope in
+            _ = await PaneRuntimeEventBus.shared.post(envelope)
+        }
+    ) async {
         let tabLayout = store.tabLayoutAtom
         let workspacePane = store.paneAtom
         let repos = store.repositoryTopologyAtom.repos
-        let watchedPaths = store.repositoryTopologyAtom.watchedPaths
         let activePaneRepoIds: Set<UUID> = {
             guard let activeTab = tabLayout.activeTab else { return [] }
             let repoIds = activeTab.activePaneIds.compactMap { workspacePane.pane($0)?.repoId }
@@ -879,9 +900,8 @@ extension AppDelegate {
             if aActive != bActive { return aActive }
             return false
         }
-        let bus = PaneRuntimeEventBus.shared
         for repo in prioritizedRepos {
-            await bus.post(
+            await postTopologyEnvelope(
                 Self.makeTopologyEnvelope(
                     repoPath: repo.repoPath,
                     source: .builtin(.coordinator)
@@ -889,9 +909,16 @@ extension AppDelegate {
             )
         }
 
-        if !watchedPaths.isEmpty {
+        // Replay suspends; the initial scan must use one current post-replay capture.
+        let topology = store.repositoryTopologyAtom
+        let currentRepositories = topology.repos
+        let currentWatchedPaths = topology.watchedPaths
+        let membershipRevision = topology.worktreePathIndexGeneration
+        if !currentWatchedPaths.isEmpty {
             await coordinator.syncScope(
-                .updateWatchedFolders(watchedPaths: watchedPaths)
+                .updateWatchedFolders(
+                    watchedPaths: currentWatchedPaths, restoringRepositories: currentRepositories,
+                    membershipRevision: membershipRevision)
             )
         }
     }

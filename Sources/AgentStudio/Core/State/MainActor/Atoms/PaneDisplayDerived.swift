@@ -247,7 +247,8 @@ package struct PaneDisplayDerived {
             return [CollapsedBarLabelPart(icon: .system("terminal"), text: "Terminal", weight: .regular)]
         }
 
-        let parts = displayParts(for: pane)
+        let workspaceContext = resolvedWorkspaceContext(for: pane)
+        let parts = Self.displayParts(for: pane, workspaceContext: workspaceContext)
         let notePart = parts.note.map {
             CollapsedBarLabelPart(
                 icon: .system("long.text.page.and.pencil"),
@@ -257,7 +258,7 @@ package struct PaneDisplayDerived {
             )
         }
 
-        if let workspaceContext = resolvedWorkspaceContext(for: pane) {
+        if let workspaceContext {
             var labelParts = [
                 CollapsedBarLabelPart(
                     icon: .octicon("octicon-repo"),

@@ -6,6 +6,26 @@ import Testing
 
 @Suite("Bridge product producer observation pacing")
 struct BridgeProductProducerObservationPacingTests {
+    @Test("closed product admission refuses an observation wait", .timeLimit(.minutes(1)))
+    func closedProductAdmissionRefusesObservationWait() async throws {
+        let fixture = try await ProducerObservationPacingFixture.opened(
+            identifier: "closed-product-admission",
+            sourceByte: 0x61
+        )
+        try await fixture.close()
+        fixture.harness.productAdmission.close()
+
+        let observed = await fixture.harness.session.waitUntilProducerFrameSequenceObserved(
+            for: fixture.lease,
+            sequence: fixture.opening.sequence,
+            productAdmission: fixture.harness.productAdmission.context,
+            foregroundWorkAdmission: fixture.foregroundWorkAdmission
+        )
+
+        #expect(!observed)
+        #expect((await fixture.harness.session.producerSnapshot()).hasZeroResidue)
+    }
+
     @Test("an acknowledgement observed before waiter registration remains monotonic proof")
     func earlyObservationRemainsMonotonicProof() async throws {
         // Arrange
@@ -27,12 +47,14 @@ struct BridgeProductProducerObservationPacingTests {
         let firstReplay = await fixture.harness.session.waitUntilProducerFrameSequenceObserved(
             for: fixture.lease,
             sequence: fixture.opening.sequence,
-            productAdmission: fixture.harness.productAdmission.context
+            productAdmission: fixture.harness.productAdmission.context,
+            foregroundWorkAdmission: fixture.foregroundWorkAdmission
         )
         let secondReplay = await fixture.harness.session.waitUntilProducerFrameSequenceObserved(
             for: fixture.lease,
             sequence: fixture.opening.sequence,
-            productAdmission: fixture.harness.productAdmission.context
+            productAdmission: fixture.harness.productAdmission.context,
+            foregroundWorkAdmission: fixture.foregroundWorkAdmission
         )
 
         // Assert
@@ -337,6 +359,7 @@ struct BridgeProductProducerObservationPacingTests {
 
 private struct ProducerObservationPacingFixture {
     let delivery: BridgeProductProducerFrameDelivery
+    let foregroundWorkAdmission: BridgePaneRefreshWorkAdmission
     let harness: BridgeProductSessionLifecycleHarness
     let lease: BridgeProductProducerLease
     let opening: BridgeProductQueuedProducerFrame
@@ -380,6 +403,7 @@ private struct ProducerObservationPacingFixture {
         )
         return Self(
             delivery: delivery,
+            foregroundWorkAdmission: await BridgePaneRefreshWorkAdmissionTestContext.foreground().admission,
             harness: resolvedHarness,
             lease: lease,
             opening: opening,
@@ -396,7 +420,8 @@ private struct ProducerObservationPacingFixture {
             await harness.session.waitUntilProducerFrameSequenceObserved(
                 for: lease,
                 sequence: sequence,
-                productAdmission: harness.productAdmission.context
+                productAdmission: harness.productAdmission.context,
+                foregroundWorkAdmission: foregroundWorkAdmission
             )
         }
     }

@@ -3685,7 +3685,9 @@ struct GitWorkingDirectoryProjectorTests {
                 event: .worktreeRegistered(worktreeId: worktreeId, repoId: worktreeId, rootPath: rootPath)
             )
         )
-        #expect(await waitUntil { await recorder.callCount == 1 })
+        // Provider entry precedes cache publication. The scoped refresh needs
+        // the accepted initial snapshot, not merely a started provider call.
+        #expect(await waitUntil { await observed.snapshotCount(for: worktreeId) == 1 })
 
         await actor.grantDemandEligibility(worktreeId: worktreeId)
         await bus.post(
@@ -3695,8 +3697,7 @@ struct GitWorkingDirectoryProjectorTests {
         // The batch triggers a scoped call, then a full recompute: scoped ["new.txt"] then nil.
         #expect(await waitUntil { await recorder.callCount == 3 })
         let calls = await recorder.calls
-        #expect(calls[1] == ["new.txt"])
-        #expect(calls[2] == .some(nil))
+        #expect(calls == [nil, ["new.txt"], nil])
 
         await actor.shutdown()
         collectionTask.cancel()

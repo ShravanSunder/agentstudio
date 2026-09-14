@@ -29,6 +29,7 @@ struct BridgeProductWebKitTwoPaneJourneyProof: Sendable {
     let dormantDefaults: BridgeProductWebKitTwoPanePositionSnapshot
     let fileStateAfterReturn: BridgeProductWebKitTwoPanePositionSnapshot
     let hiddenDirtyGeneration: UInt64?
+    let hiddenMetadataStormDiagnostic: String
     let hiddenMetadataSequenceAfterStorm: Int
     let hiddenMetadataSequenceBeforeStorm: Int
     let hiddenRefreshPassCountAfterStorm: Int
@@ -338,6 +339,7 @@ enum BridgeProductWebKitTwoPaneJourneyTestSupport {
 
         let hiddenTransition = input.paneOne.applyBridgePaneActivity(.loadedHidden)
         await hiddenTransition?.value
+        try await requireHiddenFileRetirementBoundary(input.paneOne)
         let hiddenStatus = try await requireNoUpdatingStatus(input.paneOne.page)
         let staleForegroundAdmissionWasRejected =
             preparation.staleForegroundAdmission?.withValidAdmission { true } == nil
@@ -369,6 +371,7 @@ enum BridgeProductWebKitTwoPaneJourneyTestSupport {
         let hiddenAfterStorm = input.paneOne.refreshAdmissionCoordinator.diagnosticSnapshot
         let hiddenNativeAfterStorm =
             await BridgeProductWebKitCarrierTestSupport.nativeSnapshot(input.paneOne)
+        let hiddenTraceAfterStorm = await input.paneOneTrace.scrubbedTrace()
         guard
             await input.paneOneReviewProvider.snapshot().comparisonCount
                 == hiddenComparisonCountBeforeStorm
@@ -403,6 +406,12 @@ enum BridgeProductWebKitTwoPaneJourneyTestSupport {
             dormantDefaults: preparation.dormantDefaults,
             fileStateAfterReturn: fileStateAfterReturn,
             hiddenDirtyGeneration: hiddenAfterStorm.dirtyFact?.generation,
+            hiddenMetadataStormDiagnostic: BridgeProductWebKitMetadataStormDiagnostic.message(
+                nativeBefore: hiddenNativeBeforeStorm,
+                nativeAfter: hiddenNativeAfterStorm,
+                traceBefore: hiddenTraceBeforeLateRelease,
+                traceAfter: hiddenTraceAfterStorm
+            ),
             hiddenMetadataSequenceAfterStorm: hiddenNativeAfterStorm.nextMetadataStreamSequence,
             hiddenMetadataSequenceBeforeStorm: hiddenNativeBeforeStorm.nextMetadataStreamSequence,
             hiddenRefreshPassCountAfterStorm: hiddenAfterStorm.refreshPassCount,
@@ -701,6 +710,19 @@ enum BridgeProductWebKitTwoPaneJourneyTestSupport {
                 && controller.activeReviewRefreshTask == nil
         }
         guard settled else { throw JourneyError.conditionFailed("hidden refresh did not settle") }
+    }
+
+    private static func requireHiddenFileRetirementBoundary(
+        _ controller: BridgePaneController
+    ) async throws {
+        guard await waitForRetiringFileRefreshTasksToDrain(controller) else {
+            throw JourneyError.conditionFailed("hidden File refresh did not retire")
+        }
+        // File retirement drops its custody after scheduling its terminal presentation.
+        // Chain behind that presentation before sampling the hidden invalidation boundary.
+        let presentationBarrier =
+            controller.worktreeRefreshDriver.schedulePresentationTransition { _ in }
+        await presentationBarrier?.value
     }
 
     private static func requireRefreshIdle(_ controller: BridgePaneController) async throws {

@@ -38,7 +38,8 @@ extension WorktreeEnvelope {
         eventId: UUID = UUID(),
         correlationId: UUID? = nil,
         causationId: UUID? = nil,
-        commandId: UUID? = nil
+        commandId: UUID? = nil,
+        observationLifetime: RepositoryFactObservationLifetime = .unscoped
     ) -> Self {
         let resolvedSource = source ?? .worktree(worktreeId ?? repoId)
         return Self(
@@ -52,7 +53,7 @@ extension WorktreeEnvelope {
             commandId: commandId,
             repoId: repoId,
             worktreeId: worktreeId,
-            event: event
+            event: event, observationLifetime: observationLifetime
         )
     }
 }

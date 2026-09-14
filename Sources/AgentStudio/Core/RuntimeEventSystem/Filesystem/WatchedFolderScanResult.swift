@@ -4,6 +4,20 @@ import Foundation
 struct WatchedFolderScanRequest: Equatable, Sendable {
     let canonicalRoot: RegisteredRootDescriptor
     let cause: WatchedFolderScanCause
+    let baselineMembershipRevision: UInt64
+    let retainedCheckoutPaths: [URL]
+
+    init(
+        canonicalRoot: RegisteredRootDescriptor,
+        cause: WatchedFolderScanCause,
+        baselineMembershipRevision: UInt64 = 0,
+        retainedCheckoutPaths: [URL] = []
+    ) {
+        self.canonicalRoot = canonicalRoot
+        self.cause = cause
+        self.baselineMembershipRevision = baselineMembershipRevision
+        self.retainedCheckoutPaths = retainedCheckoutPaths
+    }
 
     var sourceID: FilesystemSourceID { canonicalRoot.sourceID }
 }

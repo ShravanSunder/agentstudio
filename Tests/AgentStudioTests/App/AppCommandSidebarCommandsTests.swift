@@ -14,17 +14,9 @@ struct AppCommandSidebarCommandsTests {
             (.showPanesSidebar, "Panes", .system(.squareSplit2x1)),
             (.setReposGroupingRepo, "Repo", .octicon(.repo)),
             (.setReposGroupingActivity, "Activity", .system(.clock)),
-            (.setPanesGroupingRepo, "Repo", .octicon(.repo)),
-            (.setPanesGroupingTab, "Tab", .system(.squareStackFill)),
-            (.setPanesGroupingActivity, "Activity", .system(.clock)),
-            (.setPanesSubgroupNone, "None", .system(.circle)),
-            (.setPanesSubgroupActivity, "Activity", .system(.clock)),
             (.setReposSortFieldName, "Name", .system(.line3Horizontal)),
             (.setReposSortFieldActivity, "Activity", .system(.clock)),
-            (.setPanesSortFieldName, "Name", .system(.line3Horizontal)),
-            (.setPanesSortFieldActivity, "Activity", .system(.clock)),
             (.toggleReposSortDirection, "Direction", .system(.arrowUpArrowDown)),
-            (.togglePanesSortDirection, "Direction", .system(.arrowUpArrowDown)),
             (.toggleReposShowsPinned, "Show Pinned", .system(.pin)),
             (.togglePanesShowsPinned, "Show Pinned", .system(.pin)),
         ]
@@ -42,6 +34,20 @@ struct AppCommandSidebarCommandsTests {
             #expect(definition.ipcExposure.executionModes == expectedExecutionModes)
             #expect(definition.ipcExposure.requiredPrivileges == [.sidebarStateMutate])
             #expect(definition.argumentSchema.isEmpty)
+        }
+    }
+
+    @Test("fixed Panes organization has no interactive or IPC setting commands")
+    func fixedPanesOrganizationHasNoSettingCommands() {
+        for command in [
+            AppCommand.setPanesGroupingRepo, .setPanesGroupingTab, .setPanesGroupingActivity,
+            .setPanesSubgroupNone, .setPanesSubgroupActivity,
+            .setPanesSortFieldName, .setPanesSortFieldActivity, .togglePanesSortDirection,
+        ] {
+            let definition = AppCommandDispatcher.shared.definition(for: command)
+            #expect(definition.surfacePolicy == .notPresented)
+            #expect(definition.ipcExposure.requiredPrivileges.isEmpty)
+            #expect(definition.ipcExposure.executionModes.isEmpty)
         }
     }
 

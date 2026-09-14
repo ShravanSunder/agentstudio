@@ -144,12 +144,12 @@ package final class WorkspaceMutationCoordinator {
 
     func applyCommittedRestore(_ proposal: WorkspaceUndoRestoreProposal) {
         for pane in proposal.close.snapshot.panes {
-            _ = workspacePaneAtom.insertRestoredPane(pane)
+            _ = workspacePaneAtom.insertRestoredPane(paneWithCurrentTopologyFacets(pane))
         }
         if case .pane(let snapshot) = proposal.close.snapshot,
             let parentID = snapshot.pane.parentPaneId
         {
-            _ = workspacePaneAtom.restoreDrawerPane(snapshot.pane, to: parentID)
+            _ = workspacePaneAtom.restoreDrawerPane(paneWithCurrentTopologyFacets(snapshot.pane), to: parentID)
         }
         guard let tab = proposal.bundle.workspace.tabs.first(where: { $0.id == proposal.tabID }) else {
             preconditionFailure("Committed restore must include its target tab")
@@ -296,8 +296,6 @@ package final class WorkspaceMutationCoordinator {
                         repoId: resolvedContext.repo.id,
                         worktreeId: resolvedContext.worktree.id
                     )
-                } else if topologySnapshot.hasUnavailableWorktree(containing: facets.cwd) {
-                    resolution = .uncertain
                 } else {
                     resolution = .confidentNoMatch
                 }
@@ -381,7 +379,7 @@ package final class WorkspaceMutationCoordinator {
 
     package func restoreFromSnapshot(_ snapshot: TabCloseSnapshot) {
         for pane in snapshot.panes {
-            _ = workspacePaneAtom.insertRestoredPane(pane)
+            _ = workspacePaneAtom.insertRestoredPane(paneWithCurrentTopologyFacets(pane))
         }
         workspaceTabShellAtom.insertTabShell(
             TabShell(id: snapshot.tab.id, name: snapshot.tab.name, colorHex: snapshot.tab.colorHex),
@@ -399,14 +397,15 @@ package final class WorkspaceMutationCoordinator {
 
     @discardableResult
     package func restoreFromPaneSnapshot(_ snapshot: PaneCloseSnapshot) -> RestorePaneResult {
-        _ = workspacePaneAtom.insertRestoredPane(snapshot.pane)
+        _ = workspacePaneAtom.insertRestoredPane(paneWithCurrentTopologyFacets(snapshot.pane))
         for child in snapshot.drawerChildPanes {
-            _ = workspacePaneAtom.insertRestoredPane(child)
+            _ = workspacePaneAtom.insertRestoredPane(paneWithCurrentTopologyFacets(child))
         }
 
         if snapshot.pane.isDrawerChild {
             if let parentId = snapshot.anchorPaneId {
-                guard workspacePaneAtom.restoreDrawerPane(snapshot.pane, to: parentId) else {
+                guard workspacePaneAtom.restoreDrawerPane(paneWithCurrentTopologyFacets(snapshot.pane), to: parentId)
+                else {
                     _ = workspacePaneAtom.deletePaneAndOwnedDrawerChildren(snapshot.pane.id)
                     return .failedMissingDrawerParent(parentId)
                 }
@@ -442,6 +441,18 @@ package final class WorkspaceMutationCoordinator {
         }
         _ = workspacePaneAtom.deletePaneAndOwnedDrawerChildren(snapshot.pane.id)
         return .failedLayoutInsertion(tabId: snapshot.tabId, anchorPaneId: snapshot.anchorPaneId)
+    }
+
+    private func paneWithCurrentTopologyFacets(_ pane: Pane) -> Pane {
+        let facets = pane.metadata.facets
+        guard facets.repoId != nil || facets.worktreeId != nil else { return pane }
+        guard repositoryTopologyAtom.validatedAssociation(repoId: facets.repoId, worktreeId: facets.worktreeId) == nil
+        else {
+            return pane
+        }
+        var restored = pane
+        restored.metadata.updateFacets(PaneContextFacets(cwd: facets.cwd))
+        return restored
     }
 
     private static func arrangementState(from tab: Tab) -> TabArrangementState {

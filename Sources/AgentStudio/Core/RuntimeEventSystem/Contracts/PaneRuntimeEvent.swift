@@ -404,6 +404,7 @@ package enum OpenURLKind: Sendable, Equatable {
     case unknown
     case text
     case html
+    case osc8
 }
 
 package enum SecureInputMode: Sendable, Equatable {

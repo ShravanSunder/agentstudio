@@ -422,7 +422,8 @@ struct CommandBarUnifiedWorktreeDataSourceTests {
             name: "feature",
             path: URL(filePath: "/tmp/everything-wt-id/feature")
         )
-        store.reconcileDiscoveredWorktrees(repo.id, worktrees: [worktree])
+        store.reconcileDiscoveredWorktrees(repo.id, worktrees: repo.worktrees + [worktree])
+        #expect(CommandBarDataSource.availableRepository(repo, store: store) != nil)
 
         let items = CommandBarDataSource.items(
             scope: .everything, store: store, repoCache: RepoCacheAtom(), dispatcher: dispatcher)

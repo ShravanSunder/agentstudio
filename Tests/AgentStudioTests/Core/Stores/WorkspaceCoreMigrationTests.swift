@@ -159,6 +159,7 @@ struct WorkspaceCoreMigrationTests {
                 "016_add_pane_association_facets",
                 "017_add_independent_sidebar_pins",
                 "017_create_session_ownership_journal",
+                "018_repository_location_absence",
             ]
         )
     }

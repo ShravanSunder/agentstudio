@@ -237,7 +237,7 @@ struct WorkspaceSurfaceCoordinatorUndoRestoreTests {
         let harness = try makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
-        let (repo, worktree) = makeRepoAndWorktree(harness.store, root: harness.tempDir)
+        let (repo, worktree) = makeAdmittedRepoAndWorktree(harness.store, root: harness.tempDir)
         let parentPane = makeWorktreePane(harness.store, repo: repo, worktree: worktree, title: "Parent")
         let tab = Tab(paneId: parentPane.id)
         harness.store.appendTab(tab)

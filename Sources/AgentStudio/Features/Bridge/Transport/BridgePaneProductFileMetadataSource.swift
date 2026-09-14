@@ -162,12 +162,14 @@ actor BridgePaneProductFileMetadataSource: BridgePaneProductFileMetadataProducin
         foregroundWorkAdmission: BridgePaneRefreshWorkAdmission,
         emit: @escaping BridgePaneProductFileMetadataEventSink
     ) async throws {
+        try Task.checkCancellation()
         guard let sourceSpec = subscription.subscription.fileMetadataSource,
             let interestState = subscription.interestState.fileMetadataState
         else {
             return
         }
         await cancel(subscriptionId: subscription.subscriptionId)
+        try Task.checkCancellation()
         guard
             let context = try installContext(
                 subscription: subscription,
