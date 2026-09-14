@@ -5,6 +5,127 @@ import Testing
 
 @Suite("Bridge product session producer lifecycle")
 struct BridgeProductSessionProducerRegistryLifecycleTests {
+    @Test("live metadata prevents reload admission")
+    func liveMetadataPreventsReloadAdmission() async throws {
+        // Arrange
+        let harness = try await BridgeProductSessionProducerHarness.opened()
+        let operation = BridgeProductSessionProducerOperationGate()
+        let registration = await harness.session.registerMetadataProducer(
+            request: try bridgeProductMetadataStreamRequest(
+                metadataStreamId: "metadata-live-reload-admission",
+                resumeFromStreamSequence: nil
+            ),
+            productAdmission: harness.productAdmission
+        ) { lease in
+            await operation.run(lease)
+        }
+        let lease = try #require(registration.lease)
+        _ = await operation.waitUntilStarted()
+
+        // Act
+        let retirementBarriers = await harness.session.metadataRetirementBarriersForReload()
+
+        // Assert
+        #expect(retirementBarriers == nil)
+        let retirement = await harness.session.beginProducerRetirement(
+            lease,
+            acknowledgeLifecycle: { _ in true },
+            stopRequest: nil,
+            abandonOutstandingDelivery: true
+        )
+        #expect(await retirement.wait())
+    }
+
+    @Test("reload admission joins metadata retirement already in flight")
+    func reloadAdmissionJoinsMetadataRetirementAlreadyInFlight() async throws {
+        // Arrange
+        let harness = try await BridgeProductSessionProducerHarness.opened()
+        let operation = BridgeProductSessionProducerOperationGate()
+        let acknowledgementGate = BridgeProductProducerLifecycleAcknowledgementGate()
+        let registration = await harness.session.registerMetadataProducer(
+            request: try bridgeProductMetadataStreamRequest(
+                metadataStreamId: "metadata-retiring-reload-admission",
+                resumeFromStreamSequence: nil
+            ),
+            productAdmission: harness.productAdmission
+        ) { lease in
+            await operation.run(lease)
+        }
+        let lease = try #require(registration.lease)
+        _ = await operation.waitUntilStarted()
+        let retirement = await harness.session.beginProducerRetirement(
+            lease,
+            acknowledgeLifecycle: { acknowledgement in
+                await acknowledgementGate.acknowledge(acknowledgement)
+            },
+            stopRequest: nil,
+            abandonOutstandingDelivery: true
+        )
+        _ = await acknowledgementGate.waitUntilInvoked()
+
+        // Act
+        let retirementBarriers = await harness.session.metadataRetirementBarriersForReload()
+        await acknowledgementGate.release(result: true)
+
+        // Assert
+        var barrierResults: [Bool] = []
+        for barrier in retirementBarriers ?? [] {
+            barrierResults.append(await barrier.wait())
+        }
+        #expect(retirementBarriers?.count == 1)
+        #expect(barrierResults == [true])
+        #expect(await retirement.wait())
+        #expect(await harness.session.producerSnapshot().hasZeroResidue)
+    }
+
+    @Test("failed metadata retirement prevents reload admission")
+    func failedMetadataRetirementPreventsReloadAdmission() async throws {
+        // Arrange
+        let harness = try await BridgeProductSessionProducerHarness.opened()
+        let operation = BridgeProductSessionProducerOperationGate()
+        let acknowledgementGate = BridgeProductProducerLifecycleAcknowledgementGate()
+        let registration = await harness.session.registerMetadataProducer(
+            request: try bridgeProductMetadataStreamRequest(
+                metadataStreamId: "metadata-failed-reload-admission",
+                resumeFromStreamSequence: nil
+            ),
+            productAdmission: harness.productAdmission
+        ) { lease in
+            await operation.run(lease)
+        }
+        let lease = try #require(registration.lease)
+        _ = await operation.waitUntilStarted()
+        let retirement = await harness.session.beginProducerRetirement(
+            lease,
+            acknowledgeLifecycle: { acknowledgement in
+                await acknowledgementGate.acknowledge(acknowledgement)
+            },
+            stopRequest: nil,
+            abandonOutstandingDelivery: true
+        )
+        _ = await acknowledgementGate.waitUntilInvoked()
+
+        // Act
+        let retirementBarriers = await harness.session.metadataRetirementBarriersForReload()
+        await acknowledgementGate.release(result: false)
+
+        // Assert
+        var barrierResults: [Bool] = []
+        for barrier in retirementBarriers ?? [] {
+            barrierResults.append(await barrier.wait())
+        }
+        #expect(retirementBarriers?.count == 1)
+        #expect(barrierResults == [false])
+        #expect(!(await retirement.wait()))
+        let cleanup = await harness.session.beginProducerRetirement(
+            lease,
+            acknowledgeLifecycle: { _ in true },
+            stopRequest: nil,
+            abandonOutstandingDelivery: true
+        )
+        #expect(await cleanup.wait())
+    }
+
     @Test("exact scoped stop preserves other producers and old-epoch cleanup")
     func exactScopedStopAllowsOldEpochCleanup() async throws {
         // Arrange

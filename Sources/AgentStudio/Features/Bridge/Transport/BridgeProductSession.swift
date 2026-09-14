@@ -301,6 +301,21 @@ actor BridgeProductSession {
         )
     }
 
+    // Nil means live or unowned residue, empty means clear, and nonempty contains only
+    // the existing barriers for metadata producers whose retirement is already in flight.
+    func metadataRetirementBarriersForReload() -> [BridgeProductProducerRetirementBarrier]? {
+        let metadataProducerLeases = producerRegistry.metadataProducerLeases
+        guard !metadataProducerLeases.isEmpty else { return [] }
+        var retirementBarriers: [BridgeProductProducerRetirementBarrier] = []
+        for lease in metadataProducerLeases {
+            guard let retirementBarrier = producerRetirementStateByLease[lease]?.barrier else {
+                return nil
+            }
+            retirementBarriers.append(retirementBarrier)
+        }
+        return retirementBarriers
+    }
+
     func subscriptionSnapshots() -> [BridgeProductSubscriptionSnapshot] {
         subscriptionState.snapshots()
     }

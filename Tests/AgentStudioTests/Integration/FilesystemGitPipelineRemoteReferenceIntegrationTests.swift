@@ -10,6 +10,45 @@ import Testing
 @MainActor
 @Suite("FilesystemGitPipeline remote references", .serialized)
 struct FilesystemGitRemoteReferenceTests {
+    @Test("stale repository removal cannot disable a newer remote-reference lifetime")
+    func staleRemovalPreservesCurrentRemoteReferenceAdmission() async throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: "pipeline-stale-removal-\(UUIDv7.generate())")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let repositoryID = UUIDv7.generate()
+        let worktreeID = UUIDv7.generate()
+        let epoch = UUIDv7.generate()
+        let oldLifetime = RepositoryObservationLifetime(launchEpoch: epoch, revision: 1)
+        let currentLifetime = RepositoryObservationLifetime(launchEpoch: epoch, revision: 2)
+        let origin = "https://example.com/org/current-lifetime.git"
+        let remoteProvider = PipelineRemoteReferenceProviderFake()
+        await remoteProvider.configure(origin: origin)
+        let pipeline = FilesystemGitPipeline(
+            bus: EventBus<RuntimeEnvelope>(),
+            registrationDiscoveryProvider: PipelineAcceptingRegistrationDiscoveryProvider(),
+            gitWorkingTreeProvider: .stub { _ in nil },
+            remoteReferenceRefreshProvider: remoteProvider,
+            fseventStreamClient: PipelineSilentFSEventStreamClient(), gitCoalescingWindow: .zero
+        )
+        await pipeline.start()
+        await pipeline.register(worktreeId: worktreeID, repoId: repositoryID, rootPath: root)
+        await pipeline.assertTopology(
+            .init(
+                generation: 2, contextsByWorktreeId: [worktreeID: .init(repoId: repositoryID, rootPath: root)],
+                repositoryLifetimes: [repositoryID: currentLifetime],
+                worktreeLifetimes: [worktreeID: .init(launchEpoch: epoch, revision: 2)]
+            ))
+        await pipeline.applyScopeChange(
+            .registerForgeRepo(repoId: repositoryID, remote: origin, expectedLifetime: currentLifetime))
+
+        await pipeline.applyScopeChange(.unregisterForgeRepo(repoId: repositoryID, expectedLifetime: oldLifetime))
+        let admission = await pipeline.startRepositoryFactUpdate(repoId: repositoryID, attemptId: UUIDv7.generate())
+
+        #expect(admission.acceptedSources.contains(.remoteReferences))
+        _ = await admission.settlement()
+        await pipeline.shutdown()
+    }
+
     @Test("failed promotion rereads every represented worktree before failed settlement")
     func failedPromotionAwaitsFreshRepresentedWorktreeStatuses() async throws {
         let origin = "https://example.com/org/failed-promotion.git"
@@ -430,7 +469,11 @@ private actor DisposableRemoteAuthorityRecorder {
     }
 }
 
-private actor PipelineRemoteReferenceProviderFake: RemoteReferenceRefreshProviding {
+actor PipelineRemoteReferenceProviderFake: RemoteReferenceRefreshProviding {
+    private var shouldSuspendStage = false
+    private var stageContinuation: CheckedContinuation<Void, Never>?
+    private(set) var stageIsSuspended = false
+    nonisolated let stageCancellation = PipelineStageCancellationFlag()
     private var origin = "https://example.com/unconfigured.git"
     private var stageCountWaiters: [(Int, CheckedContinuation<Void, Never>)] = []
     private var cleanupCountWaiters: [(Int, CheckedContinuation<Void, Never>)] = []
@@ -443,6 +486,14 @@ private actor PipelineRemoteReferenceProviderFake: RemoteReferenceRefreshProvidi
 
     func configure(origin: String) {
         self.origin = origin
+    }
+
+    func suspendNextStage() { shouldSuspendStage = true }
+
+    func releaseStage() {
+        stageContinuation?.resume()
+        stageContinuation = nil
+        stageIsSuspended = false
     }
 
     func configurePromotionFailure() {
@@ -469,6 +520,17 @@ private actor PipelineRemoteReferenceProviderFake: RemoteReferenceRefreshProvidi
     ) async throws -> GitStagedFetchResult {
         stageCount += 1
         resumeStageWaiters()
+        if shouldSuspendStage {
+            shouldSuspendStage = false
+            await withTaskCancellationHandler {
+                await withCheckedContinuation {
+                    stageContinuation = $0
+                    stageIsSuspended = true
+                }
+            } onCancel: {
+                self.stageCancellation.record()
+            }
+        }
         return GitStagedFetchResult(
             snapshot: snapshot,
             handle: GitStagedFetchHandle(
@@ -689,7 +751,7 @@ private actor FailedPromotionInitialSnapshotRecorder {
     }
 }
 
-private struct PipelineAcceptingRegistrationDiscoveryProvider: RepoScanner.GitRepositoryDiscoveryProvider {
+struct PipelineAcceptingRegistrationDiscoveryProvider: RepoScanner.GitRepositoryDiscoveryProvider {
     func discoveryOutcome(for url: URL) async -> GitRepositoryDiscoveryOutcome {
         .validated(
             RepoScanner.ResolvedGitEntry(
@@ -701,7 +763,7 @@ private struct PipelineAcceptingRegistrationDiscoveryProvider: RepoScanner.GitRe
     }
 }
 
-private final class PipelineSilentFSEventStreamClient: FSEventStreamClient, @unchecked Sendable {
+final class PipelineSilentFSEventStreamClient: FSEventStreamClient, @unchecked Sendable {
     private let stream: AsyncStream<FSEventIngressItem>
     private let continuation: AsyncStream<FSEventIngressItem>.Continuation
 

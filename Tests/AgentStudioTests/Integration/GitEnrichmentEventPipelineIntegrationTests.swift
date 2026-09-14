@@ -29,8 +29,6 @@ struct GitEnrichmentEventPipelineIntegrationTests {
 
     @Test("worktree registration and filesChanged converge snapshot and branch enrichment")
     func worktreeRegistrationAndFilesChangedConvergeSnapshotAndBranchEnrichment() async {
-        let repoId = UUID()
-        let worktreeId = UUID()
         let rootPath = URL(fileURLWithPath: "/tmp/enrichment-\(UUID().uuidString)")
 
         await withEnrichmentHarness(
@@ -52,7 +50,13 @@ struct GitEnrichmentEventPipelineIntegrationTests {
         ) { harness in
             await waitForBusSubscriberCount(harness.bus, atLeast: 3)
 
-            _ = harness.workspaceStore.addRepo(at: rootPath)
+            let repository = harness.workspaceStore.addRepo(at: rootPath)
+            guard let worktreeId = repository.worktrees.first?.id else {
+                Issue.record("canonical repository should include its primary worktree")
+                return
+            }
+            let repoId = repository.id
+            await harness.assertCanonicalProducerTopology()
 
             _ = await harness.bus.post(
                 RuntimeEnvelopeHarness.topologyEnvelope(
@@ -90,11 +94,6 @@ struct GitEnrichmentEventPipelineIntegrationTests {
 
     @Test("forge counts stay isolated by repo even with the same branch name")
     func forgeCountsStayIsolatedByRepo() async {
-        let repoA = UUID()
-        let repoB = UUID()
-        let worktreeA = UUID()
-        let worktreeB = UUID()
-
         await withEnrichmentHarness(
             gitProvider: StubGitWorkingTreeStatusProvider.stub { _ in nil },
             forgeProvider: StubForgeStatusProvider.stub { origin in
@@ -110,6 +109,24 @@ struct GitEnrichmentEventPipelineIntegrationTests {
             }
         ) { harness in
             await waitForBusSubscriberCount(harness.bus, atLeast: 3)
+
+            let repositoryA = harness.workspaceStore.addRepo(at: URL(fileURLWithPath: "/tmp/repo-a"))
+            let repositoryB = harness.workspaceStore.addRepo(at: URL(fileURLWithPath: "/tmp/repo-b"))
+            guard let worktreeA = repositoryA.worktrees.first?.id,
+                let worktreeB = repositoryB.worktrees.first?.id
+            else {
+                Issue.record("canonical repositories should include their primary worktrees")
+                return
+            }
+            let repoA = repositoryA.id
+            let repoB = repositoryB.id
+            let topologyAssertion = await harness.assertCanonicalProducerTopology()
+            guard let lifetimeA = topologyAssertion.worktreeLifetimes[worktreeA],
+                let lifetimeB = topologyAssertion.worktreeLifetimes[worktreeB]
+            else {
+                Issue.record("canonical worktrees should have observation lifetimes")
+                return
+            }
 
             await harness.forgeActor.register(
                 worktreeId: worktreeA,
@@ -131,31 +148,35 @@ struct GitEnrichmentEventPipelineIntegrationTests {
             )
 
             _ = await harness.bus.post(
-                RuntimeEnvelopeHarness.gitEnvelope(
+                gitEnvelope(
                     event: .originChanged(repoId: repoA, from: "", to: "git@github.com:org/repo-a.git"),
                     repoId: repoA,
-                    worktreeId: worktreeA
+                    worktreeId: worktreeA,
+                    observationLifetime: lifetimeA
                 )
             )
             _ = await harness.bus.post(
-                RuntimeEnvelopeHarness.gitEnvelope(
+                gitEnvelope(
                     event: .originChanged(repoId: repoB, from: "", to: "git@github.com:org/repo-b.git"),
                     repoId: repoB,
-                    worktreeId: worktreeB
+                    worktreeId: worktreeB,
+                    observationLifetime: lifetimeB
                 )
             )
             _ = await harness.bus.post(
-                RuntimeEnvelopeHarness.gitEnvelope(
+                gitEnvelope(
                     event: .branchChanged(worktreeId: worktreeA, repoId: repoA, from: "seed", to: "main"),
                     repoId: repoA,
-                    worktreeId: worktreeA
+                    worktreeId: worktreeA,
+                    observationLifetime: lifetimeA
                 )
             )
             _ = await harness.bus.post(
-                RuntimeEnvelopeHarness.gitEnvelope(
+                gitEnvelope(
                     event: .branchChanged(worktreeId: worktreeB, repoId: repoB, from: "seed", to: "main"),
                     repoId: repoB,
-                    worktreeId: worktreeB
+                    worktreeId: worktreeB,
+                    observationLifetime: lifetimeB
                 )
             )
 
@@ -168,5 +189,22 @@ struct GitEnrichmentEventPipelineIntegrationTests {
                     && harness.repoCache.pullRequestFactsForTest(worktreeId: worktreeB)?.openCount == 2
             }
         }
+    }
+
+    private func gitEnvelope(
+        event: GitWorkingDirectoryEvent,
+        repoId: UUID,
+        worktreeId: UUID,
+        observationLifetime: WorktreeObservationLifetime
+    ) -> RuntimeEnvelope {
+        .worktree(
+            WorktreeEnvelope.test(
+                event: .gitWorkingDirectory(event),
+                repoId: repoId,
+                worktreeId: worktreeId,
+                source: .system(.builtin(.gitWorkingDirectoryProjector)),
+                observationLifetime: .worktree(observationLifetime)
+            )
+        )
     }
 }

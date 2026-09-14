@@ -16,17 +16,16 @@ import {
 } from '../../src/core/comm-worker/bridge-product-frame-acknowledgement-contracts.js';
 import type { BridgeProductMetadataApplicationEvent } from '../../src/core/comm-worker/bridge-product-metadata-application-protocol.js';
 import { bridgeProductFileMetadataApplicationProtocol } from '../../src/core/comm-worker/bridge-product-metadata-application-registry.js';
-import { BridgeProductMetadataFrameDecoder } from '../../src/core/comm-worker/bridge-product-metadata-frame-codec.js';
 import {
 	bridgeProductControlRequestSchema,
 	bridgeProductControlResponseSchema,
 	bridgeProductMetadataStreamRequestSchema,
 	encodeBridgeProductCapabilityHeader,
 	type BridgeProductControlResponse,
-	type BridgeProductMetadataFrame,
 } from '../../src/core/comm-worker/bridge-product-session-contracts.js';
 import { type BridgeProductSubscriptionInterestState } from '../../src/core/comm-worker/bridge-product-subscription-contracts.js';
 import { encodeBridgeProductSubscriptionInterestState } from '../../src/core/comm-worker/bridge-product-subscription-interest-state-codec.js';
+import { BridgeVerifierMetadataFrames } from './product-file-session-metadata-frames.js';
 
 export type BridgeVerifierProductFileSessionState =
 	| 'idle'
@@ -108,12 +107,15 @@ export class BridgeVerifierProductFileSession {
 	async open(): Promise<BridgeVerifierProductFileSource> {
 		this.#requireState('idle');
 		this.#state = 'opening';
+		process.stderr.write('[product-file-source-open] waiting=authority\n');
 		await this.#installServerAuthority();
 
+		process.stderr.write('[product-file-source-open] waiting=workerSession.open\n');
 		const opened = await this.#postControl({ kind: 'workerSession.open', request: null });
 		if (opened.kind !== 'workerSession.accepted') {
 			throw new Error(`Expected workerSession.accepted, received ${opened.kind}.`);
 		}
+		process.stderr.write('[product-file-source-open] waiting=file.source.current\n');
 		const sourceResponse = await this.#postControl({
 			call: { method: 'file.source.current', request: {} },
 			kind: 'product.call',
@@ -127,7 +129,9 @@ export class BridgeVerifierProductFileSession {
 			throw new Error('Expected an available file.source.current product result.');
 		}
 
+		process.stderr.write('[product-file-source-open] waiting=metadataStream.open\n');
 		this.#metadataStream = await this.#openMetadataStream();
+		process.stderr.write('[product-file-source-open] waiting=metadataStream.accepted\n');
 		const streamAccepted = await this.#metadataStream.frames.waitFor(
 			(frame) => frame.kind === 'metadataStream.accepted',
 		);
@@ -135,6 +139,7 @@ export class BridgeVerifierProductFileSession {
 			throw new Error('Expected metadataStream.accepted.');
 		}
 
+		process.stderr.write('[product-file-source-open] waiting=subscription.open\n');
 		const subscriptionResponse = await this.#postControl({
 			kind: 'subscription.open',
 			subscription: {
@@ -149,11 +154,13 @@ export class BridgeVerifierProductFileSession {
 		}
 		this.#interestSha256 = subscriptionResponse.interestSha256;
 
+		process.stderr.write('[product-file-source-open] waiting=file.sourceAccepted\n');
 		const sourceAccepted = await this.#waitForFileEvent(
 			(event): event is FileSourceAcceptedEvent => event.eventKind === 'file.sourceAccepted',
 		);
 		const treeWindows: FileTreeWindowEvent[] = [];
 		for (;;) {
+			process.stderr.write('[product-file-source-open] waiting=file.treeWindow\n');
 			// oxlint-disable-next-line no-await-in-loop -- Tree snapshots are an ordered metadata sequence.
 			const treeWindow = await this.#waitForFileEvent(
 				(event): event is FileTreeWindowEvent => event.eventKind === 'file.treeWindow',
@@ -515,17 +522,21 @@ export class BridgeVerifierProductFileSession {
 				abortController.abort();
 				await reader.cancel().catch((): void => undefined);
 			},
-			frames: new BridgeVerifierMetadataFrames(reader, async (frame): Promise<void> => {
-				await this.#postFrameObservation({
-					kind: 'stream.frameObserved',
-					metadataStreamId: frame.metadataStreamId,
-					paneSessionId: frame.paneSessionId,
-					streamKind: 'metadata',
-					streamSequence: frame.streamSequence,
-					wireVersion: frame.wireVersion,
-					workerInstanceId: frame.workerInstanceId,
-				});
-			}),
+			frames: new BridgeVerifierMetadataFrames(
+				reader,
+				async (frame): Promise<void> => {
+					await this.#postFrameObservation({
+						kind: 'stream.frameObserved',
+						metadataStreamId: frame.metadataStreamId,
+						paneSessionId: frame.paneSessionId,
+						streamKind: 'metadata',
+						streamSequence: frame.streamSequence,
+						wireVersion: frame.wireVersion,
+						workerInstanceId: frame.workerInstanceId,
+					});
+				},
+				this.#subscriptionId,
+			),
 		};
 	}
 
@@ -607,42 +618,6 @@ export class BridgeVerifierProductFileSession {
 			throw new Error(
 				`Expected Bridge product File session state ${expectedState}, received ${this.#state}.`,
 			);
-		}
-	}
-}
-
-class BridgeVerifierMetadataFrames {
-	readonly #decoder = new BridgeProductMetadataFrameDecoder();
-	readonly #frames: BridgeProductMetadataFrame[] = [];
-	readonly #observe: (frame: BridgeProductMetadataFrame) => Promise<void>;
-	readonly #reader: ReadableStreamDefaultReader<Uint8Array>;
-
-	constructor(
-		reader: ReadableStreamDefaultReader<Uint8Array>,
-		observe: (frame: BridgeProductMetadataFrame) => Promise<void>,
-	) {
-		this.#reader = reader;
-		this.#observe = observe;
-	}
-
-	async waitFor(
-		predicate: (frame: BridgeProductMetadataFrame) => boolean,
-	): Promise<BridgeProductMetadataFrame> {
-		for (;;) {
-			const frameIndex = this.#frames.findIndex(predicate);
-			if (frameIndex >= 0) {
-				const [frame] = this.#frames.splice(frameIndex, 1);
-				if (frame !== undefined) return frame;
-			}
-			// oxlint-disable-next-line no-await-in-loop -- Metadata frames must be decoded in stream order.
-			const chunk = await this.#reader.read();
-			if (chunk.done) throw new Error('Bridge product metadata stream ended early.');
-			const frames = this.#decoder.push(chunk.value);
-			for (const frame of frames) {
-				// oxlint-disable-next-line no-await-in-loop -- Physical observations preserve stream order.
-				await this.#observe(frame);
-			}
-			this.#frames.push(...frames);
 		}
 	}
 }

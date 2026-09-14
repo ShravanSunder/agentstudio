@@ -31,6 +31,10 @@ struct FilesystemToPrimarySidebarIntegrationTests {
                 statusByRootPath: statusByRootPath,
                 financeRemote: financeRemote
             )
+            await assertCanonicalTopology(
+                workspaceStore: testSystem.workspaceStore,
+                pipeline: testSystem.pipeline
+            )
             await publishFinanceRepositoryFactDemand(
                 intake: intake,
                 workspaceStore: testSystem.workspaceStore,
@@ -217,6 +221,38 @@ struct FilesystemToPrimarySidebarIntegrationTests {
         return FinanceIntake(
             financeRepoIds: financeRepoIds,
             financeWorktreeIdByBranch: financeWorktreeIdByBranch
+        )
+    }
+
+    private func assertCanonicalTopology(
+        workspaceStore: WorkspaceStore,
+        pipeline: FilesystemGitPipeline
+    ) async {
+        let topology = workspaceStore.repositoryTopologyAtom
+        let canonicalRepositories = topology.repos
+        await pipeline.assertTopology(
+            FilesystemTopologyAssertion(
+                generation: topology.worktreePathIndexGeneration,
+                contextsByWorktreeId: Dictionary(
+                    uniqueKeysWithValues: canonicalRepositories.flatMap { repository in
+                        repository.worktrees.map { worktree in
+                            (
+                                worktree.id,
+                                WorktreeFilesystemContext(repoId: repository.id, rootPath: worktree.path)
+                            )
+                        }
+                    }
+                ),
+                repositoryStableKeysByWorktreeId: Dictionary(
+                    uniqueKeysWithValues: canonicalRepositories.flatMap { repository in
+                        repository.worktrees.map { worktree in
+                            (worktree.id, repository.stableKey)
+                        }
+                    }
+                ),
+                repositoryLifetimes: topology.repositoryObservationLifetimes,
+                worktreeLifetimes: topology.worktreeObservationLifetimes
+            )
         )
     }
 

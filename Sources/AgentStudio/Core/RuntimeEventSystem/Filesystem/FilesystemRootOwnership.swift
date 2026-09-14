@@ -146,7 +146,7 @@ struct FilesystemRootOwnership: Sendable {
             .path
     }
 
-    private static func canonicalizeKernelPath(_ path: String) -> String {
+    static func canonicalizeKernelPath(_ path: String) -> String {
         let normalizedPath = DarwinFSEventPathNormalizer.lexicallyNormalizedAbsolutePath(path)
         if let privateAlias = privateAliasPath(
             normalizedPath,

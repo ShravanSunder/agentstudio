@@ -3,10 +3,39 @@ import AgentStudioInfrastructure
 import Foundation
 import os
 
-@MainActor
 extension WorkspaceCacheCoordinator {
+    func handleTopology(_ envelope: SystemEnvelope) {
+        if isCollectingRetainedLocations {
+            deferredTopologyActions.append { [weak self] in self?.handleTopology(envelope) }
+            return
+        }
+        guard case .topology(let topologyEvent) = envelope.event else { return }
+
+        switch topologyEvent {
+        case .watchedFolderReconciled:
+            preconditionFailure("scoped reconciliation requires async admission")
+        case .repoDiscovered(let repoPath, _, let linkedWorktrees, let stableIdentity):
+            handleRepoDiscovered(
+                repoPath: repoPath,
+                linkedWorktrees: linkedWorktrees,
+                stableIdentity: stableIdentity,
+                eventId: envelope.eventId
+            )
+        case .reposDiscovered(_, let repositories):
+            handleReposDiscovered(
+                repositories: repositories,
+                eventId: envelope.eventId
+            )
+        case .repoRemoved(let repoPath):
+            handleRepoRemoved(repoPath: repoPath)
+        case .worktreeRegistered, .worktreeUnregistered:
+            // Physical watcher facts describe effects of topology, not authority to mutate it.
+            break
+        }
+    }
+
     @discardableResult
-    func handleRepoDiscovered(
+    private func handleRepoDiscovered(
         repoPath: URL,
         linkedWorktrees: LinkedWorktreeInfo,
         stableIdentity: DiscoveredRepoStableIdentity?,
@@ -38,15 +67,18 @@ extension WorkspaceCacheCoordinator {
         }
 
         guard case .scanned(let linkedPaths) = linkedWorktrees else {
+            let initialDelta =
+                existingRepo == nil
+                ? initialDiscoveryDelta(repoId: repoId, eventId: eventId)
+                : nil
             if shouldInitializeRepoEnrichment {
                 repoCache.setRepoEnrichment(.awaitingOrigin(repoId: repoId))
             }
-            if shouldRefreshTraceIdentity {
-                refreshTraceIdentity()
-            }
-            let initialDelta = existingRepo == nil ? initialDiscoveryDelta(repoId: repoId, eventId: eventId) : nil
             if shouldApplyTopologyEffects, let initialDelta {
                 topologyEffectHandler?.topologyDidChange(initialDelta)
+            }
+            if shouldRefreshTraceIdentity {
+                refreshTraceIdentity()
             }
             return initialDelta
         }
@@ -66,7 +98,10 @@ extension WorkspaceCacheCoordinator {
             eventId: eventId
         ) {
         case .accepted(let acceptedDelta):
-            delta = existingRepo == nil ? initialDiscoveryDelta(repoId: repoId, eventId: eventId) : acceptedDelta
+            delta =
+                existingRepo == nil
+                ? initialDiscoveryDelta(repoId: repoId, eventId: eventId)
+                : acceptedDelta
         case .rejected(let rejection):
             Self.logger.error(
                 "Rejecting scanned repo discovery for repoId=\(repo.id.uuidString, privacy: .public): \(String(describing: rejection), privacy: .public)"
@@ -165,7 +200,7 @@ extension WorkspaceCacheCoordinator {
         }
     }
 
-    func handleReposDiscovered(
+    private func handleReposDiscovered(
         repositories: [DiscoveredRepoTopologyInfo],
         eventId: UUID
     ) {
@@ -191,32 +226,48 @@ extension WorkspaceCacheCoordinator {
         refreshTraceIdentity()
     }
 
-    private static func buildDiscoveredWorktreeList(
-        clonePath: URL,
-        linkedPaths: [URL],
-        stableIdentity: DiscoveredRepoStableIdentity
-    ) -> RepositoryScannedWorktrees {
-        let normalizedClonePath = clonePath.standardizedFileURL
-        let normalizedLinkedPaths = Array(Set(linkedPaths.map(\.standardizedFileURL)))
-            .filter { $0 != normalizedClonePath }
-            .sorted(by: sortPaths)
+    private func handleRepoRemoved(repoPath: URL) {
+        let repositoryTopology = workspaceStore.repositoryTopologyAtom
+        let normalizedRepoPath = repoPath.standardizedFileURL
+        let removedStableKey = StableKey.fromPath(normalizedRepoPath)
+        guard
+            let repo = repositoryTopology.repos.first(where: {
+                $0.repoPath.standardizedFileURL == normalizedRepoPath || $0.stableKey == removedStableKey
+            })
+        else { return }
 
-        let mainWorktree = RepositoryScannedMainWorktree(
-            name: normalizedClonePath.lastPathComponent,
-            path: normalizedClonePath,
-            stableKey: stableIdentity.worktreeStableKeysByPath[normalizedClonePath]
+        let removedLifetime = repositoryTopology.repositoryObservationLifetimes[repo.id]
+        workspaceStore.mutationCoordinator.markRepoUnavailable(repo.id)
+        let clearedPaneIds = Set(
+            repo.worktrees.flatMap { worktree in
+                workspaceStore.mutationCoordinator.clearPaneAssociations(
+                    forRemovedWorktreeID: worktree.id
+                )
+            }
         )
-        let linkedWorktrees = normalizedLinkedPaths.map { linkedPath in
-            RepositoryScannedLinkedWorktree(
-                name: linkedPath.lastPathComponent,
-                path: linkedPath,
-                stableKey: stableIdentity.worktreeStableKeysByPath[linkedPath]
+        for _ in clearedPaneIds {
+            performanceTraceRecorder?.recordPaneAssociationOutcome(.topologyRemoved)
+        }
+        if !clearedPaneIds.isEmpty {
+            Self.logger.info(
+                "Repo removed at path=\(repoPath.path, privacy: .public); cleared \(clearedPaneIds.count, privacy: .public) pane association(s)"
             )
         }
-        return RepositoryScannedWorktrees(main: mainWorktree, linked: linkedWorktrees)
+        repoCache.removeRepo(repo.id)
+        topologyEffectHandler?.topologyDidChange(
+            WorktreeTopologyDelta(
+                repoId: repo.id,
+                addedWorktreeIds: [],
+                removedWorktrees: repo.worktrees.map { RemovedWorktreeEntry(id: $0.id, path: $0.path) },
+                preservedWorktreeIds: [],
+                didChange: true,
+                traceId: nil
+            )
+        )
+        refreshTraceIdentity()
+        Task { [weak self] in
+            await self?.syncScope(.unregisterForgeRepo(repoId: repo.id, expectedLifetime: removedLifetime))
+        }
     }
 
-    private static func sortPaths(_ lhs: URL, _ rhs: URL) -> Bool {
-        lhs.path.localizedCaseInsensitiveCompare(rhs.path) == .orderedAscending
-    }
 }

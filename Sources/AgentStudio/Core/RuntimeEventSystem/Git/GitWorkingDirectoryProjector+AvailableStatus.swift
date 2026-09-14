@@ -36,6 +36,9 @@ extension GitWorkingDirectoryProjector {
             statusSnapshot,
             changeset: changeset
         )
+        guard !Task.isCancelled, !isShuttingDown, isCurrentForPublication(changeset),
+            RepositoryObservationRequestContext.worktree == observationLifetimesByWorktreeID[changeset.worktreeId]
+        else { return }
         admissionStartedAtByWorktreeId.removeValue(forKey: changeset.worktreeId)
         clearCapacityRetryState(worktreeId: changeset.worktreeId)
         resetStatusBackoff(worktreeId: changeset.worktreeId)
@@ -78,18 +81,7 @@ extension GitWorkingDirectoryProjector {
         completeAdmittedRequiredIntent(worktreeId: changeset.worktreeId)
         recordAutomaticCompletion(worktreeId: changeset.worktreeId, duty: statusDuration)
 
-        await emitGitWorkingDirectoryEvent(
-            worktreeId: changeset.worktreeId,
-            repoId: changeset.repoId,
-            event: .statusOutcome(
-                GitStatusOutcomeFact(
-                    worktreeId: changeset.worktreeId,
-                    repoId: changeset.repoId,
-                    outcome: .completed,
-                    reason: nil,
-                    consecutiveFailureCount: 0
-                ))
-        )
+        await emitCompletedStatusOutcome(for: changeset)
         if snapshotChanged {
             await emitGitWorkingDirectoryEvent(
                 worktreeId: changeset.worktreeId,
@@ -113,6 +105,21 @@ extension GitWorkingDirectoryProjector {
                 )
             )
         }
+    }
+
+    private func emitCompletedStatusOutcome(for changeset: FileChangeset) async {
+        await emitGitWorkingDirectoryEvent(
+            worktreeId: changeset.worktreeId,
+            repoId: changeset.repoId,
+            event: .statusOutcome(
+                GitStatusOutcomeFact(
+                    worktreeId: changeset.worktreeId,
+                    repoId: changeset.repoId,
+                    outcome: .completed,
+                    reason: nil,
+                    consecutiveFailureCount: 0
+                ))
+        )
     }
 
     private func acceptExactCleanAuthority(

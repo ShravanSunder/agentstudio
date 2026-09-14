@@ -14,6 +14,7 @@ export async function installReviewRenderObservation(props: {
 			let discardedPublicationCount = 0;
 			const recentReceipts: Readonly<Record<string, unknown>>[] = [];
 			const healthEvents: Readonly<Record<string, unknown>>[] = [];
+			const presentationEvents: Readonly<Record<string, unknown>>[] = [];
 			let observedEventCount = 0;
 			let previousContentFacts: string | null = null;
 			let previousDescriptors: string | null = null;
@@ -90,6 +91,7 @@ export async function installReviewRenderObservation(props: {
 					healthEvents.push({
 						status: message['status'],
 						requestId: message['requestId'],
+						diagnostic: message['diagnostic'],
 						atMilliseconds: Math.round(performance.now()),
 					});
 					if (healthEvents.length > 16) healthEvents.shift();
@@ -183,9 +185,24 @@ export async function installReviewRenderObservation(props: {
 				for (const patch of message['patches']) {
 					if (!isRecord(patch)) continue;
 					const patchCommon = { ...common, operation: patch['operation'], slice: patch['slice'] };
+					const payload = patch['payload'];
+					const comparison =
+						patch['slice'] === 'reviewComparison'
+							? payload
+							: patch['slice'] === 'panelChrome' && isRecord(payload)
+								? payload['reviewComparison']
+								: null;
+					if (isRecord(comparison)) {
+						presentationEvents.push({
+							...patchCommon,
+							attempt: comparison['attempt'],
+							displayedSnapshot: comparison['displayedSnapshot'],
+							atMilliseconds: Math.round(performance.now()),
+						});
+						if (presentationEvents.length > 24) presentationEvents.shift();
+					}
 					if (message['kind'] === 'reviewRenderPatch') {
 						if (patch['itemId'] !== itemId && patch['operation'] !== 'reset') continue;
-						const payload = patch['payload'];
 						record({
 							...patchCommon,
 							reason: isRecord(payload) ? payload['reason'] : null,
@@ -198,7 +215,6 @@ export async function installReviewRenderObservation(props: {
 						record(patchCommon);
 						continue;
 					}
-					const payload = patch['payload'];
 					if (!isRecord(payload)) continue;
 					if (payload['reset'] === true) record({ ...patchCommon, reset: true });
 					if (Array.isArray(payload['items'])) {
@@ -244,6 +260,7 @@ export async function installReviewRenderObservation(props: {
 					annotationEvents,
 					discardedPublicationCount,
 					healthEvents,
+					presentationEvents,
 					pendingPublications: [...pendingPublications.values()],
 					recentReceipts,
 					firstEvents,
@@ -261,6 +278,68 @@ export async function readReviewRenderObservation(page: Page): Promise<unknown> 
 	return await page.evaluate((): unknown =>
 		Reflect.get(globalThis, '__bridgeReviewRenderObservation'),
 	);
+}
+
+export async function readSelectedReviewReadinessDOMSnapshot(props: {
+	readonly expectedItemId: string;
+	readonly page: Page;
+}): Promise<unknown> {
+	return await props.page.evaluate((expectedItemId: string): unknown => {
+		const panel = document.querySelector('[data-testid="bridge-code-view-panel"]');
+		const shell = document.querySelector('[data-testid="review-viewer-shell"]');
+		const pending: Array<Element | ShadowRoot> = panel === null ? [] : [panel];
+		let additionRowCount = 0;
+		let visibleAdditionRowCount = 0;
+		const additionRowSamples: Readonly<Record<string, unknown>>[] = [];
+		const paintedSourceCorrelations: string[] = [];
+		while (pending.length > 0) {
+			const current = pending.shift();
+			if (current === undefined) break;
+			for (const row of current.querySelectorAll('[data-column-number]')) {
+				if (row.closest('[data-additions]') === null) continue;
+				additionRowCount += 1;
+				const bounds = row.getBoundingClientRect();
+				const visible = bounds.width > 0 && bounds.height > 0;
+				if (visible) visibleAdditionRowCount += 1;
+				if (additionRowSamples.length < 4) {
+					additionRowSamples.push({
+						columnNumber: row.getAttribute('data-column-number'),
+						line: row.getAttribute('data-line'),
+						lineIndex: row.getAttribute('data-line-index'),
+						visible,
+					});
+				}
+			}
+			for (const descendant of current.querySelectorAll('*')) {
+				const paintedCorrelation = descendant.getAttribute(
+					'data-bridge-painted-source-correlations',
+				);
+				if (paintedCorrelation !== null && paintedSourceCorrelations.length < 4) {
+					paintedSourceCorrelations.push(paintedCorrelation);
+				}
+				if (descendant.shadowRoot !== null) pending.push(descendant.shadowRoot);
+			}
+		}
+		return {
+			expectedItemId,
+			selectedItemId: panel?.getAttribute('data-selected-item-id') ?? null,
+			shellSelectedContentState: shell?.getAttribute('data-selected-content-state') ?? null,
+			panelSelectedContentState: panel?.getAttribute('data-selected-content-state') ?? null,
+			canvasBranch: shell?.getAttribute('data-review-canvas-branch') ?? null,
+			selectedDemandItemId: shell?.getAttribute('data-review-selected-demand-item-id') ?? null,
+			selectedDemandResultStatus:
+				shell?.getAttribute('data-review-selected-demand-result-status') ?? null,
+			materializedItemType: panel?.getAttribute('data-selected-materialized-item-type') ?? null,
+			materializedModelContentState:
+				panel?.getAttribute('data-selected-materialized-model-content-state') ?? null,
+			materializedUpdateResult:
+				panel?.getAttribute('data-selected-materialized-update-result') ?? null,
+			additionRowCount,
+			visibleAdditionRowCount,
+			additionRowSamples,
+			paintedSourceCorrelations,
+		};
+	}, props.expectedItemId);
 }
 
 export async function requireReviewRenderObservationStarted(page: Page): Promise<void> {

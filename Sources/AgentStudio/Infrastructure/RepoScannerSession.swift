@@ -6,13 +6,15 @@ final class RepoScannerTraversalSession: Sendable {
 
     let id = RepoScannerSessionID(rawValue: UUIDv7.generate())
 
-    private let quantumBudget: RepoScannerQuantumBudget
+    let quantumBudget: RepoScannerQuantumBudget
     private let capacity: RepoScannerSessionCapacity
     private let lifecycle: Mutex<Lifecycle>
 
     init(
         rootURL: URL,
         maxDepth: Int,
+        retainedCheckoutPaths: [URL],
+        retainedTargetPreparationFailure: ScanFailureReason?,
         quantumBudget: RepoScannerQuantumBudget,
         capacity: RepoScannerSessionCapacity
     ) {
@@ -25,6 +27,8 @@ final class RepoScannerTraversalSession: Sendable {
                         state: TraversalState(
                             rootURL: rootURL,
                             maxDepth: maxDepth,
+                            retainedCheckoutPaths: retainedCheckoutPaths,
+                            retainedTargetPreparationFailure: retainedTargetPreparationFailure,
                             position: .inspectRoot
                         )
                     ),
@@ -287,6 +291,14 @@ extension RepoScannerTraversalSession {
                     serviceClock: serviceClock,
                     serviceStartedAt: serviceStartedAt
                 )
+            case .retainedTargets(let nextIndex):
+                disposition = inspectNextRetainedTarget(
+                    at: nextIndex,
+                    traversalLease: traversalLease,
+                    usage: &usage,
+                    serviceClock: serviceClock,
+                    serviceStartedAt: serviceStartedAt
+                )
             case .exhausted:
                 disposition = .exhausted
             }
@@ -327,6 +339,11 @@ extension RepoScannerTraversalSession {
         }
 
         traversalLease.state.directoryVisitCount += 1
+        if !traversalLease.state.remainingRetainedPathKeys.isEmpty {
+            traversalLease.state.remainingRetainedPathKeys.remove(
+                traversalLease.state.rootURL.standardizedFileURL.path
+            )
+        }
         switch inspectGitMarker(at: traversalLease.state.rootURL) {
         case .candidate:
             return inspectRootCandidate(
@@ -366,13 +383,13 @@ extension RepoScannerTraversalSession {
         ) {
             traversalLease.state.position = .pendingValidation(
                 traversalLease.state.rootURL,
-                continuation: .exhausted
+                continuation: .retainedTargets(nextIndex: 0)
             )
             return .suspended
         }
         return requestValidation(
             traversalLease.state.rootURL,
-            continuation: .exhausted,
+            continuation: .retainedTargets(nextIndex: 0),
             traversalLease: traversalLease,
             usage: &usage
         )
@@ -382,8 +399,8 @@ extension RepoScannerTraversalSession {
         traversalLease: TraversalLease
     ) -> QuantumDisposition? {
         guard traversalLease.state.maxDepth > 0 else {
-            traversalLease.state.position = .exhausted
-            return .exhausted
+            traversalLease.state.position = .retainedTargets(nextIndex: 0)
+            return nil
         }
         switch makeEnumerationCursor(
             rootURL: traversalLease.state.rootURL,
@@ -434,13 +451,16 @@ extension RepoScannerTraversalSession {
         )
         guard let nextURL = cursor.enumerator.nextObject() as? URL else {
             let recordedErrors = cursor.errorBuffer.drain()
-            _ = recordEnumerationErrors(
+            if recordEnumerationErrors(
                 recordedErrors,
                 state: &traversalLease.state,
                 usage: &usage
-            )
-            traversalLease.state.position = .exhausted
-            return .exhausted
+            ) {
+                traversalLease.state.position = .exhausted
+                return .exhausted
+            }
+            traversalLease.state.position = .retainedTargets(nextIndex: 0)
+            return nil
         }
 
         let depth = cursor.enumerator.level
@@ -453,10 +473,7 @@ extension RepoScannerTraversalSession {
             return .exhausted
         }
         let pendingEntry = PendingEnumerationEntry(url: nextURL, depth: depth)
-        let pathByteCount = nextURL.path.utf8.count
-        if usage.enumeratedItemCount > 0,
-            pathByteCount > quantumBudget.maximumPathBytes - usage.enumeratedPathByteCount
-        {
+        if shouldSuspendBeforeConsumingPath(nextURL, usage: usage) {
             traversalLease.state.position = .pendingEntry(pendingEntry, cursor: cursor)
             return .suspended
         }
@@ -494,6 +511,11 @@ extension RepoScannerTraversalSession {
                 forKeys: [.isDirectoryKey, .isSymbolicLinkKey]
             )
         } catch {
+            removeRetainedTargetExaminedByTraversal(
+                entry,
+                isSymbolicLink: false,
+                state: &traversalLease.state
+            )
             traversalLease.state.entryMetadataFailureCount += 1
             cursor.enumerator.skipDescendants()
             if recordFailure(
@@ -509,6 +531,16 @@ extension RepoScannerTraversalSession {
             traversalLease.state.position = .enumerating(cursor)
             return nil
         }
+        guard entry.depth <= traversalLease.state.maxDepth else {
+            cursor.enumerator.skipDescendants()
+            traversalLease.state.position = .enumerating(cursor)
+            return nil
+        }
+        removeRetainedTargetExaminedByTraversal(
+            entry,
+            isSymbolicLink: values.isSymbolicLink == true,
+            state: &traversalLease.state
+        )
         guard values.isDirectory == true, values.isSymbolicLink != true else {
             if values.isSymbolicLink == true {
                 cursor.enumerator.skipDescendants()
@@ -516,13 +548,26 @@ extension RepoScannerTraversalSession {
             traversalLease.state.position = .enumerating(cursor)
             return nil
         }
-        guard entry.depth <= traversalLease.state.maxDepth else {
-            cursor.enumerator.skipDescendants()
-            traversalLease.state.position = .enumerating(cursor)
-            return nil
-        }
 
         traversalLease.state.directoryVisitCount += 1
+        return inspectEnumeratedDirectoryGitMarker(
+            entry,
+            cursor: cursor,
+            traversalLease: traversalLease,
+            usage: &usage,
+            serviceClock: serviceClock,
+            serviceStartedAt: serviceStartedAt
+        )
+    }
+
+    private func inspectEnumeratedDirectoryGitMarker(
+        _ entry: PendingEnumerationEntry,
+        cursor: EnumerationCursor,
+        traversalLease: TraversalLease,
+        usage: inout MutableQuantumUsage,
+        serviceClock: ContinuousClock,
+        serviceStartedAt: ContinuousClock.Instant
+    ) -> QuantumDisposition? {
         switch inspectGitMarker(at: entry.url) {
         case .candidate:
             cursor.enumerator.skipDescendants()
@@ -569,7 +614,7 @@ extension RepoScannerTraversalSession {
         }
     }
 
-    private func requestValidation(
+    func requestValidation(
         _ candidateURL: URL,
         continuation: PostValidationContinuation,
         traversalLease: TraversalLease,
@@ -633,7 +678,7 @@ extension RepoScannerTraversalSession {
         return .resumeTraversal
     }
 
-    private func consumeEnumeratedItem(
+    func consumeEnumeratedItem(
         _ url: URL,
         state: inout TraversalState,
         usage: inout MutableQuantumUsage
@@ -737,7 +782,7 @@ extension RepoScannerTraversalSession {
         return false
     }
 
-    private func recordFailure(
+    func recordFailure(
         _ failure: ScanFailureReason,
         state: inout TraversalState,
         usage: inout MutableQuantumUsage
@@ -771,7 +816,7 @@ extension RepoScannerTraversalSession {
         )
     }
 
-    private func shouldSuspendBeforeValidation(
+    func shouldSuspendBeforeValidation(
         usage: MutableQuantumUsage,
         serviceClock: ContinuousClock,
         serviceStartedAt: ContinuousClock.Instant
@@ -801,7 +846,7 @@ extension RepoScannerTraversalSession {
         }
     }
 
-    private static func isMissingFileError(_ error: CocoaError) -> Bool {
+    static func isMissingFileError(_ error: CocoaError) -> Bool {
         error.code == .fileNoSuchFile || error.code == .fileReadNoSuchFile
     }
 
@@ -829,7 +874,7 @@ extension RepoScannerTraversalSession {
         )
     }
 
-    private func inspectGitMarker(at directoryURL: URL) -> GitMarkerInspection {
+    func inspectGitMarker(at directoryURL: URL) -> GitMarkerInspection {
         let gitMarkerURL = directoryURL.appending(path: ".git")
         do {
             _ = try gitMarkerURL.resourceValues(forKeys: [.isDirectoryKey])

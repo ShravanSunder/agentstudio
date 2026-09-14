@@ -21,6 +21,12 @@ describe('annotation catalog Long Task attribution', () => {
 		const transfer = {
 			mainBeginStartTimeMilliseconds: 50,
 			mainCommitStartTimeMilliseconds: 200,
+			mainStagingSamples: [
+				{ kind: 'begin', startTimeMilliseconds: 50 },
+				{ kind: 'window', startTimeMilliseconds: 100, windowOrdinal: 0 },
+				{ kind: 'window', startTimeMilliseconds: 150, windowOrdinal: 1 },
+				{ kind: 'commit', startTimeMilliseconds: 200 },
+			],
 			maximumUnitByteCount: 128,
 			operationCorrelationId: 'a'.repeat(64),
 			presentationRevisionAfter: 2,

@@ -136,7 +136,7 @@ enum WorkspaceLauncherProjector {
             guard
                 let repo = store.repositoryTopologyAtom.repo(stableKey: repositoryStableKey),
                 !store.repositoryTopologyAtom.isRepoUnavailable(repo.id),
-                let worktree = canonicalDefaultWorktree(in: repo)
+                let worktree = store.repositoryTopologyAtom.activationWorktree(for: target)
             else {
                 return nil
             }
@@ -154,7 +154,8 @@ enum WorkspaceLauncherProjector {
             guard
                 let worktree = store.repositoryTopologyAtom.worktree(stableKey: worktreeStableKey),
                 let repo = store.repositoryTopologyAtom.repo(containing: worktree.id),
-                !store.repositoryTopologyAtom.isRepoUnavailable(repo.id)
+                !store.repositoryTopologyAtom.isRepoUnavailable(repo.id),
+                !store.repositoryTopologyAtom.isWorktreeUnavailable(worktree.id)
             else {
                 return nil
             }
@@ -227,13 +228,11 @@ enum WorkspaceLauncherProjector {
 
     static func pruneStaleTarget(
         _ target: ApplicationRecentEntity,
+        repositoryTopology: RepositoryTopologyAtom,
         applicationRecency: ApplicationEntityRecencyAtom
     ) {
+        guard !repositoryTopology.containsCanonicalLocation(for: target) else { return }
         applicationRecency.remove(target)
-    }
-
-    private static func canonicalDefaultWorktree(in repo: Repo) -> Worktree? {
-        repo.worktrees.first(where: \.isMainWorktree) ?? repo.worktrees.first
     }
 
     private static func cardTitle(

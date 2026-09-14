@@ -301,6 +301,108 @@ struct RepoScannerSessionTests {
         #expect(outcomeAfterStaleCompletion == .validationRequired(pendingRequest))
     }
 
+    @Test("retained cursor skips already-examined targets within the quantum item budget")
+    func retainedCursorSkipPrefixRemainsQuantumBounded() async throws {
+        // Arrange
+        let fixture = try ScannerSessionFixture(candidateNames: ["alpha", "beta"])
+        defer { fixture.remove() }
+        let retainedBeyondDepth = fixture.root.appending(path: "group/retained")
+        try FileManager.default.createDirectory(
+            at: retainedBeyondDepth.appending(path: ".git"),
+            withIntermediateDirectories: true
+        )
+        let candidatePaths = fixture.candidatePaths + [retainedBeyondDepth]
+        let expectedEntries = candidatePaths.map { candidatePath in
+            RepoScanner.ResolvedGitEntry(
+                path: RepoScanner.canonicalURL(candidatePath),
+                kind: .cloneRoot,
+                repositoryKey: candidatePath.lastPathComponent
+            )
+        }
+        let session = RepoScanner().makeSession(
+            in: fixture.root,
+            maxDepth: 1,
+            retainedCheckoutPaths: candidatePaths,
+            quantumBudget: try oneItemQuantumBudget()
+        )
+
+        // Act
+        var suspendedUsages: [RepoScannerQuantumUsage] = []
+        let result = await finish(
+            session: session,
+            outcomesByCanonicalPath: Dictionary(
+                uniqueKeysWithValues: expectedEntries.map { entry in
+                    (canonicalSessionPath(entry.path), .validated(entry))
+                }
+            ),
+            suspendedUsages: &suspendedUsages
+        )
+
+        // Assert
+        guard case .completeAuthoritative(let completeScan) = result else {
+            Issue.record("expected complete scanner evidence, got \(result)")
+            return
+        }
+        #expect(completeScan.verifiedEntries.count == expectedEntries.count)
+        #expect(suspendedUsages.count == 4)
+        #expect(suspendedUsages.allSatisfy { $0.enumeratedItemCount <= 1 })
+    }
+
+    @Test("retained targets suspend before exceeding cumulative quantum path bytes")
+    func retainedTargetsRespectCumulativeQuantumPathByteBudget() async throws {
+        // Arrange
+        let fixture = try ScannerSessionFixture(candidateNames: [])
+        defer { fixture.remove() }
+        let retainedTargets = [
+            fixture.root.appending(path: "plain-retained-alpha"),
+            fixture.root.appending(path: "plain-retained-beta"),
+        ]
+        for retainedTarget in retainedTargets {
+            try FileManager.default.createDirectory(
+                at: retainedTarget,
+                withIntermediateDirectories: true
+            )
+        }
+        let maximumQuantumPathBytes =
+            fixture.root.path.utf8.count + retainedTargets[0].path.utf8.count - 1
+        let quantumBudget = try RepoScannerQuantumBudget(
+            maximumEnumeratedItems: 100,
+            maximumPathBytes: maximumQuantumPathBytes,
+            maximumCandidateValidations: 10,
+            maximumFailures: 10,
+            maximumActiveServiceDuration: .seconds(60)
+        )
+        let session = RepoScanner().makeSession(
+            in: fixture.root,
+            maxDepth: 0,
+            retainedCheckoutPaths: retainedTargets,
+            quantumBudget: quantumBudget
+        )
+
+        // Act
+        var suspendedUsages: [RepoScannerQuantumUsage] = []
+        let result = await finish(
+            session: session,
+            outcomesByCanonicalPath: [:],
+            suspendedUsages: &suspendedUsages
+        )
+
+        // Assert
+        guard case .completeAuthoritative(let completeScan) = result else {
+            Issue.record("expected complete scanner evidence, got \(result)")
+            return
+        }
+        #expect(completeScan.counts.directoryVisitCount == retainedTargets.count + 1)
+        #expect(completeScan.counts.gitCandidateCount == 0)
+        #expect(!suspendedUsages.isEmpty)
+        #expect(suspendedUsages.allSatisfy { $0.enumeratedItemCount <= 100 })
+        #expect(
+            suspendedUsages.allSatisfy {
+                $0.enumeratedPathByteCount <= maximumQuantumPathBytes
+            }
+        )
+    }
+
     @Test("enumeration capacity exhaustion cannot authorize absence")
     func enumerationCapacityProducesPartialEvidence() async throws {
         // Arrange

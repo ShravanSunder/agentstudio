@@ -5,6 +5,10 @@ extension ForgeActor {
     func validatedStateForProviderCompletion(
         _ request: ProviderRequest
     ) async -> RepositoryRefreshState? {
+        guard request.observationLifetime == observationLifetimesByRepositoryID[request.repoId] else {
+            await rejectObsoleteProviderCompletion(request, validation: .staleGeneration)
+            return nil
+        }
         guard let state = refreshStateByRepoId[request.repoId] else {
             await rejectObsoleteProviderCompletion(request, validation: .staleGeneration)
             return nil

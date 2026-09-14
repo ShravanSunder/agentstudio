@@ -74,7 +74,8 @@ struct WorkspaceDuplicateRootBootContinuityTests {
         try fixture.assertLoadedComposition(in: reloadedStore)
         try fixture.assertCleanedDegradedTopology(in: reloadedTopologyAtom)
         #expect(!reloadReasons.contains(.paneTopologyAssociationAmbiguous))
-        #expect(reloadReasons.count(where: { $0 == .topologyRestoreMissingMainDegraded }) == 1)
+        // The retained absence is already durable; a linked-only family is not a new missing-main degradation.
+        #expect(!reloadReasons.contains(.topologyRestoreMissingMainDegraded))
     }
 }
 

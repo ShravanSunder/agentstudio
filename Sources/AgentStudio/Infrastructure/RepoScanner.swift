@@ -283,12 +283,23 @@ extension RepoScanner {
     package func makeSession(
         in rootURL: URL,
         maxDepth: Int = Self.defaultMaxDepth,
+        retainedCheckoutPaths: [URL] = [],
         quantumBudget: RepoScannerQuantumBudget = .productionDefault,
         capacity: RepoScannerSessionCapacity = .productionDefault
     ) -> RepoScannerSessionPort {
+        let standardizedRootURL = rootURL.standardizedFileURL
+        let canonicalRootURL = Self.canonicalURL(rootURL)
+        let retainedTargets = Self.prepareRetainedTargets(
+            retainedCheckoutPaths,
+            standardizedRootURL: standardizedRootURL,
+            canonicalRootURL: canonicalRootURL,
+            capacity: capacity
+        )
         let storage = RepoScannerTraversalSession(
-            rootURL: Self.canonicalURL(rootURL),
+            rootURL: canonicalRootURL,
             maxDepth: maxDepth,
+            retainedCheckoutPaths: retainedTargets.paths,
+            retainedTargetPreparationFailure: retainedTargets.failure,
             quantumBudget: quantumBudget,
             capacity: capacity
         )
@@ -298,6 +309,69 @@ extension RepoScanner {
             validationCompletionOperation: storage.consumeValidationCompletion,
             cancellationOperation: storage.cancel
         )
+    }
+
+    private struct PreparedRetainedTargets {
+        let paths: [URL]
+        let failure: ScanFailureReason?
+    }
+
+    private static func prepareRetainedTargets(
+        _ paths: [URL],
+        standardizedRootURL: URL,
+        canonicalRootURL: URL,
+        capacity: RepoScannerSessionCapacity
+    ) -> PreparedRetainedTargets {
+        var retainedPaths: [URL] = []
+        var retainedPathKeys: Set<String> = []
+        var retainedPathByteCount = 0
+        for path in paths.prefix(capacity.maximumEnumeratedItems) {
+            guard path.isFileURL, path.path.hasPrefix("/") else { continue }
+            guard
+                let sourceContainedPath = sourceContainedStandardizedPath(
+                    path,
+                    standardizedRootURL: standardizedRootURL,
+                    canonicalRootURL: canonicalRootURL
+                )
+            else { continue }
+            guard retainedPathKeys.insert(sourceContainedPath.path).inserted else { continue }
+            let pathByteCount = sourceContainedPath.path.utf8.count
+            guard pathByteCount <= capacity.maximumPathBytes - retainedPathByteCount else {
+                return PreparedRetainedTargets(
+                    paths: retainedPaths,
+                    failure: .sessionCapacityExceeded(
+                        .enumeratedPathBytes(maximum: capacity.maximumPathBytes)
+                    )
+                )
+            }
+            retainedPaths.append(sourceContainedPath)
+            retainedPathByteCount += pathByteCount
+        }
+        let preparationFailure: ScanFailureReason? =
+            paths.count > capacity.maximumEnumeratedItems
+            ? .sessionCapacityExceeded(
+                .enumeratedItemCount(maximum: capacity.maximumEnumeratedItems)
+            )
+            : nil
+        return PreparedRetainedTargets(paths: retainedPaths, failure: preparationFailure)
+    }
+
+    private static func sourceContainedStandardizedPath(
+        _ path: URL,
+        standardizedRootURL: URL,
+        canonicalRootURL: URL
+    ) -> URL? {
+        let standardizedPath = path.standardizedFileURL
+        for rootAlias in [standardizedRootURL, canonicalRootURL] {
+            let rootComponents = rootAlias.pathComponents
+            guard standardizedPath.pathComponents.starts(with: rootComponents) else { continue }
+            return standardizedPath.pathComponents.dropFirst(rootComponents.count).reduce(
+                canonicalRootURL
+            ) { partialPath, component in
+                partialPath.appending(path: component)
+            }
+        }
+        return nil
     }
 }
 

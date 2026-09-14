@@ -20,6 +20,7 @@ import {
 	useWorktreeAnnotationProjection,
 	WorktreeAnnotationSurfaceProvider,
 } from './worktree-annotation-surface-provider.js';
+import { settleThreadMotion } from './worktree-annotation-thread.browser.test-support.js';
 import { WorktreeAnnotationThread } from './worktree-annotation-thread.js';
 
 describe('worktree annotation inline shell', () => {
@@ -737,23 +738,4 @@ async function settleBrowserCondition(
 	if (predicate()) return;
 	if (remainingFrames <= 0) throw new Error(failureMessage);
 	await settleBrowserCondition(predicate, failureMessage, remainingFrames - 1);
-}
-
-async function settleThreadMotion(panel: Element, failureMessage: string): Promise<void> {
-	await settleBrowserCondition(
-		(): boolean => !panel.hasAttribute('data-starting-style'),
-		failureMessage,
-	);
-	await act(async (): Promise<void> => {
-		await Promise.all(
-			panel.getAnimations({ subtree: true }).map(async (animation): Promise<void> => {
-				try {
-					await animation.finished;
-				} catch {
-					// Reversing an in-flight transition cancels its predecessor.
-				}
-			}),
-		);
-		await Promise.resolve();
-	});
 }

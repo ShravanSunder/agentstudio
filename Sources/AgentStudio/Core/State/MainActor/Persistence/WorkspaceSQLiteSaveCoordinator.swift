@@ -116,6 +116,7 @@ package final class WorkspaceSQLiteSaveCoordinator {
     private let windowMemoryAtom: WorkspaceWindowMemoryAtom
     private let workspacePaneAtom: WorkspacePaneAtom
     private let workspaceTabLayoutAtom: WorkspaceTabLayoutAtom
+    private let repositoryTopologyAtom: RepositoryTopologyAtom?
     private let sqliteDatastore: WorkspaceSQLiteDatastoreActor
 
     package init(
@@ -123,12 +124,14 @@ package final class WorkspaceSQLiteSaveCoordinator {
         windowMemoryAtom: WorkspaceWindowMemoryAtom,
         workspacePaneAtom: WorkspacePaneAtom,
         workspaceTabLayoutAtom: WorkspaceTabLayoutAtom,
+        repositoryTopologyAtom: RepositoryTopologyAtom? = nil,
         sqliteDatastore: WorkspaceSQLiteDatastoreActor
     ) {
         self.identityAtom = identityAtom
         self.windowMemoryAtom = windowMemoryAtom
         self.workspacePaneAtom = workspacePaneAtom
         self.workspaceTabLayoutAtom = workspaceTabLayoutAtom
+        self.repositoryTopologyAtom = repositoryTopologyAtom
         self.sqliteDatastore = sqliteDatastore
     }
 
@@ -136,7 +139,8 @@ package final class WorkspaceSQLiteSaveCoordinator {
         .init(
             panes: workspacePaneAtom.graphAtom.paneAcceptedCommitRevision,
             tabShells: workspaceTabLayoutAtom.shellAtom.tabShellAcceptedCommitRevision,
-            tabGraphs: workspaceTabLayoutAtom.arrangementAtom.graphAtom.tabGraphAcceptedCommitRevision
+            tabGraphs: workspaceTabLayoutAtom.arrangementAtom.graphAtom.tabGraphAcceptedCommitRevision,
+            topologyContextRevision: repositoryTopologyAtom?.lifecycleRevision
         )
     }
 

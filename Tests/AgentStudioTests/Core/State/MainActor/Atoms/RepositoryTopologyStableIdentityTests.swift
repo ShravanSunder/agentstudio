@@ -116,6 +116,55 @@ struct RepositoryTopologyStableIdentityTests {
         #expect(topologyPreparationRejection(unrelatedWorktree) == .unexpectedWorktreeStableKey(unrelatedID))
     }
 
+    @Test(
+        "sealed topology rejects malformed absence ownership instead of discarding it",
+        arguments: MalformedAbsenceOwnership.allCases
+    )
+    func sealedTopologyRejectsMalformedAbsenceOwnership(
+        _ malformedOwnership: MalformedAbsenceOwnership
+    ) {
+        let repositoryID = UUIDv7.generate()
+        let worktreeID = UUIDv7.generate()
+        let orphanID = UUIDv7.generate()
+        let repositoryPath = URL(filePath: "/tmp/agentstudio-invalid-absence-owner")
+        let repository = Repo(
+            id: repositoryID,
+            name: "invalid-absence-owner",
+            repoPath: repositoryPath,
+            worktrees: [
+                Worktree(
+                    id: worktreeID,
+                    repoId: repositoryID,
+                    name: "main",
+                    path: repositoryPath,
+                    isMainWorktree: true
+                )
+            ]
+        )
+        let absenceRecords: RepositoryTopologyAbsenceRecords =
+            switch malformedOwnership {
+            case .availableRepositoryMarkedAbsent:
+                .init(repositories: [repositoryID: .unconfirmed])
+            case .repositoryIDUsedAsWorktreeID:
+                .init(worktrees: [repositoryID: .unconfirmed])
+            case .orphanWorktreeID:
+                .init(worktrees: [orphanID: .unconfirmed])
+            }
+
+        let preparation = RepositoryTopologyReplacement.prepare(
+            repositories: [repository],
+            watchedPaths: [],
+            unavailableRepositoryIDs: [],
+            stableIdentity: .derived(repositories: [repository], watchedPaths: []),
+            absenceRecords: absenceRecords
+        )
+
+        guard case .rejected = preparation else {
+            Issue.record("malformed absence ownership must fail topology admission")
+            return
+        }
+    }
+
     @Test("same-ID stable identity replacement invalidates lookups without metadata noise")
     func sameIDStableIdentityReplacementInvalidatesLookupsWithoutMetadataNoise() throws {
         // Arrange
@@ -235,4 +284,10 @@ struct RepositoryTopologyStableIdentityTests {
             rejection
         }
     }
+}
+
+enum MalformedAbsenceOwnership: CaseIterable, Sendable {
+    case availableRepositoryMarkedAbsent
+    case repositoryIDUsedAsWorktreeID
+    case orphanWorktreeID
 }

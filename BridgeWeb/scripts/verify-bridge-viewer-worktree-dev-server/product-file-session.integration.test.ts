@@ -26,9 +26,11 @@ describe('Bridge verifier product File session', () => {
 	let bridgeDevelopmentServerDataRootPath: string | null = null;
 	let bridgeDevelopmentServerWorktreeRootPath: string | null = null;
 	let viteServer: ViteDevServer | null = null;
+	let currentPhase = 'notStarted';
 	const initialBackendOrigin = process.env['BRIDGE_WEB_DEV_BACKEND_ORIGIN'];
 
 	afterEach(async (): Promise<void> => {
+		process.stderr.write(`[product-file-session] cleanup after phase=${currentPhase}\n`);
 		const ownedViteServer = viteServer;
 		const ownedBridgeDevelopmentServer = bridgeDevelopmentServer;
 		const ownedBridgeDevelopmentServerDataRootPath = bridgeDevelopmentServerDataRootPath;
@@ -89,6 +91,7 @@ describe('Bridge verifier product File session', () => {
 		'proves source, tree, descriptor, content, cancellation, and stream closure through the typed carrier',
 		async () => {
 			// Arrange
+			currentPhase = 'fixture.creating';
 			bridgeDevelopmentServerDataRootPath = await mkdtemp(
 				join(tmpdir(), 'bridge-product-file-development-server-'),
 			);
@@ -103,6 +106,7 @@ describe('Bridge verifier product File session', () => {
 				join(bridgeDevelopmentServerWorktreeRootPath, 'fixture.txt'),
 				'bounded fixture content\n',
 			);
+			currentPhase = 'fixture.gitPreparing';
 			await runFixtureGit(bridgeDevelopmentServerWorktreeRootPath, [
 				'init',
 				'--initial-branch=main',
@@ -125,6 +129,7 @@ describe('Bridge verifier product File session', () => {
 				'-m',
 				'fixture base',
 			]);
+			currentPhase = 'backend.starting';
 			bridgeDevelopmentServer = await startOwnedBridgeDevelopmentServer({
 				dataRootPath: bridgeDevelopmentServerDataRootPath,
 				initialTarget: 'HEAD',
@@ -137,6 +142,7 @@ describe('Bridge verifier product File session', () => {
 			const metadataStreamClosed = new Promise<void>((resolve): void => {
 				resolveMetadataStreamClosed = resolve;
 			});
+			currentPhase = 'vite.creating';
 			viteServer = await createViteServer({
 				configFile: viteConfigFile,
 				logLevel: 'silent',
@@ -156,6 +162,7 @@ describe('Bridge verifier product File session', () => {
 				],
 				server: { host: '127.0.0.1', port: 0, strictPort: false },
 			});
+			currentPhase = 'vite.listening';
 			await viteServer.listen();
 			const address = viteServer.httpServer?.address();
 			if (address === undefined || address === null || typeof address === 'string') {
@@ -167,6 +174,7 @@ describe('Bridge verifier product File session', () => {
 			});
 
 			// Act
+			currentPhase = 'source.opening';
 			const source = await session.open();
 			const finalTreeWindow = source.treeWindows.findLast((event) => event.finalWindow);
 			const targetPath = source.treeWindows
@@ -179,10 +187,15 @@ describe('Bridge verifier product File session', () => {
 			if (secondTargetPath === undefined) {
 				throw new Error('Expected a second file in the product File tree.');
 			}
+			currentPhase = 'descriptor.first';
 			const descriptor = await session.demandDescriptor(targetPath);
+			currentPhase = 'descriptor.second';
 			const secondDescriptor = await session.demandDescriptor(secondTargetPath);
+			currentPhase = 'descriptor.repeated';
 			const repeatedDescriptor = await session.demandDescriptor(targetPath);
+			currentPhase = 'content.initial';
 			const content = await session.openContent(descriptor);
+			currentPhase = 'file.mutating';
 			await writeFile(
 				join(bridgeDevelopmentServerWorktreeRootPath, 'README.md'),
 				'# Agent Studio\n\nUpdated through the live development backend.\n',
@@ -190,15 +203,20 @@ describe('Bridge verifier product File session', () => {
 			if (descriptor.availability.availabilityKind !== 'available') {
 				throw new Error('Expected the original README descriptor to be available.');
 			}
+			currentPhase = 'refresh.waiting';
 			const refresh = await session.waitForRefresh(
 				targetPath,
 				descriptor.availability.contentDescriptor.descriptorId,
 			);
+			currentPhase = 'content.replacement';
 			const replacementContent = await session.openContent(refresh.descriptor);
+			currentPhase = 'session.closing';
 			await session.close();
+			currentPhase = 'metadataStream.waitingClosed';
 			await metadataStreamClosed;
 
 			// Assert
+			currentPhase = 'assertions';
 			expect(source.acceptedStreamSequence).toBe(0);
 			expect(source.sourceAccepted.source.sourceId).toBe(source.sourceIdentity.sourceId);
 			expect(finalTreeWindow?.totalRowCount).toBeGreaterThan(0);

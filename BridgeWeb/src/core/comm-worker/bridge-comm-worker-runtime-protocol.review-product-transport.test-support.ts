@@ -2,7 +2,7 @@ import { makeReviewPanePresentationFrame } from './bridge-comm-worker-runtime-pr
 import {
 	createIdleWorktreeAnnotationSubscription,
 	makeImmediateReviewContentStream,
-} from './bridge-comm-worker-runtime-protocol.test-support.js';
+} from './bridge-comm-worker-runtime-protocol.worker-test-support.js';
 import type {
 	BridgeProductMetadataApplicationEvent,
 	BridgeProductMetadataDataFrame,

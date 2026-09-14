@@ -338,6 +338,7 @@ enum BridgeProductWebKitTwoPaneJourneyTestSupport {
 
         let hiddenTransition = input.paneOne.applyBridgePaneActivity(.loadedHidden)
         await hiddenTransition?.value
+        try await requireHiddenFileRetirementBoundary(input.paneOne)
         let hiddenStatus = try await requireNoUpdatingStatus(input.paneOne.page)
         let staleForegroundAdmissionWasRejected =
             preparation.staleForegroundAdmission?.withValidAdmission { true } == nil
@@ -701,6 +702,19 @@ enum BridgeProductWebKitTwoPaneJourneyTestSupport {
                 && controller.activeReviewRefreshTask == nil
         }
         guard settled else { throw JourneyError.conditionFailed("hidden refresh did not settle") }
+    }
+
+    private static func requireHiddenFileRetirementBoundary(
+        _ controller: BridgePaneController
+    ) async throws {
+        guard await waitForRetiringFileRefreshTasksToDrain(controller) else {
+            throw JourneyError.conditionFailed("hidden File refresh did not retire")
+        }
+        // File retirement drops its custody after scheduling its terminal presentation.
+        // Chain behind that presentation before sampling the hidden invalidation boundary.
+        let presentationBarrier =
+            controller.worktreeRefreshDriver.schedulePresentationTransition { _ in }
+        await presentationBarrier?.value
     }
 
     private static func requireRefreshIdle(_ controller: BridgePaneController) async throws {

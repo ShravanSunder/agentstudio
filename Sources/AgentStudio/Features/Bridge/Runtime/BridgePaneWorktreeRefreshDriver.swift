@@ -96,6 +96,15 @@ final class BridgePaneWorktreeRefreshDriver {
     var hasRetiringFileOperations: Bool { !retiringFileTaskByID.isEmpty }
     var hasPendingFileStreamRecovery: Bool { pendingFileStreamRecovery != nil }
 
+    func awaitRetiringFileOperations() async {
+        while !retiringFileTaskByID.isEmpty {
+            let retiringTasks = Array(retiringFileTaskByID.values)
+            for retiringTask in retiringTasks {
+                await retiringTask.value
+            }
+        }
+    }
+
     @discardableResult
     func recordInvalidation(
         fileChangeset: FileChangeset?,

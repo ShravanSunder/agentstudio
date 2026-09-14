@@ -78,6 +78,11 @@ enum PaneFilesystemProjectionAdmission: Sendable {
 }
 
 actor FilesystemProjectionIndex: WorkspaceFilesystemProjectionIndexing {
+    private struct ObservedGitSnapshot: Equatable, Sendable {
+        let snapshot: GitWorkingTreeSnapshot
+        let lifetime: RepositoryFactObservationLifetime
+    }
+
     private enum PaneUpdateWaitOutcome: Sendable {
         case ready
         case cancelled
@@ -116,7 +121,7 @@ actor FilesystemProjectionIndex: WorkspaceFilesystemProjectionIndexing {
     private var topologyGeneration: UInt64 = 0
     private var appliedPaneUpdateGeneration: UInt64 = 0
     private var canonicalPathByRawPath: [String: String] = [:]
-    private var lastGitSnapshotByWorktreeId: [UUID: GitWorkingTreeSnapshot] = [:]
+    private var lastGitSnapshotByWorktreeId: [UUID: ObservedGitSnapshot] = [:]
     private var gitSnapshotInputRevisionByWorktreeId: [UUID: UInt64] = [:]
     private var pendingSourceSyncsByRequestGeneration: [UInt64: PendingSourceSyncSnapshot] = [:]
     private var paneUpdateWaiters: [UInt64: [CheckedContinuation<PaneUpdateWaitOutcome, Never>]] = [:]
@@ -311,15 +316,17 @@ actor FilesystemProjectionIndex: WorkspaceFilesystemProjectionIndexing {
             skippedUnchangedInputCount = 0
             inputRevision = 0
         case .gitSnapshot(let snapshot):
+            let observedSnapshot = ObservedGitSnapshot(
+                snapshot: snapshot, lifetime: worktreeEnvelope.observationLifetime)
             affectedPaneIds = paneIdsByWorktreeId[snapshot.worktreeId] ?? []
             affectedWorktreeIds = [snapshot.worktreeId]
-            if lastGitSnapshotByWorktreeId[snapshot.worktreeId] == snapshot {
+            if lastGitSnapshotByWorktreeId[snapshot.worktreeId] == observedSnapshot {
                 intents = []
                 derivedInputCount = 0
                 skippedUnchangedInputCount = 1
                 inputRevision = gitSnapshotInputRevisionByWorktreeId[snapshot.worktreeId] ?? 0
             } else {
-                lastGitSnapshotByWorktreeId[snapshot.worktreeId] = snapshot
+                lastGitSnapshotByWorktreeId[snapshot.worktreeId] = observedSnapshot
                 gitSnapshotInputRevisionByWorktreeId[snapshot.worktreeId, default: 0] &+= 1
                 intents = gitSnapshotIntents(for: snapshot, envelope: worktreeEnvelope)
                 derivedInputCount = 1

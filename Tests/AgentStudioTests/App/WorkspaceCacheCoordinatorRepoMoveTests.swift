@@ -87,8 +87,8 @@ struct WorkspaceCacheCoordinatorRepoMoveTests {
         #expect(durableFacets?.worktreeId == nil)
     }
 
-    @Test("re-association preserves UUID links and live panes outside relocated topology")
-    func relocateRepoPreservesIdentity() {
+    @Test("re-association keeps panes and assigns a distinct checkout identity at a different path")
+    func relocationKeepsPaneAndAssignsDistinctCheckoutIdentity() async {
         let workspaceStore = makeWorkspaceStore()
         let repoCache = RepoCacheAtom()
         let coordinator = WorkspaceCacheCoordinator(
@@ -131,7 +131,7 @@ struct WorkspaceCacheCoordinatorRepoMoveTests {
             isMainWorktree: true
         )
 
-        let reassociated = coordinator.reassociateRepo(
+        let reassociated = await coordinator.reassociateRepo(
             repoId: repo.id,
             to: relocatedPath,
             discoveredWorktrees: [discoveredAtNewPath]
@@ -144,7 +144,8 @@ struct WorkspaceCacheCoordinatorRepoMoveTests {
         #expect(workspaceStore.isRepoUnavailable(repo.id) == false)
         #expect(workspaceStore.repos[0].repoPath == relocatedPath)
         #expect(workspaceStore.repos[0].worktrees.count == 1)
-        #expect(workspaceStore.repos[0].worktrees[0].id == previousWorktreeId)
+        #expect(workspaceStore.repos[0].worktrees[0].id == discoveredAtNewPath.id)
+        #expect(workspaceStore.repos[0].worktrees[0].id != previousWorktreeId)
         #expect(workspaceStore.repos[0].worktrees[0].path == relocatedPath)
         let durableFacets = workspaceStore.paneAtom.graphAtom
             .paneState(pane.id)?.durableContextFacets
@@ -207,7 +208,7 @@ struct WorkspaceCacheCoordinatorRepoMoveTests {
     }
 
     @Test("same-path re-association preserves backgrounded pane scheduling")
-    func reassociationPreservesBackgroundedPaneScheduling() {
+    func reassociationPreservesBackgroundedPaneScheduling() async {
         let workspaceStore = makeWorkspaceStore()
         let repoCache = RepoCacheAtom()
         let coordinator = WorkspaceCacheCoordinator(
@@ -251,7 +252,7 @@ struct WorkspaceCacheCoordinatorRepoMoveTests {
             path: oldRepoPath,
             isMainWorktree: true
         )
-        let reassociated = coordinator.reassociateRepo(
+        let reassociated = await coordinator.reassociateRepo(
             repoId: repo.id,
             to: oldRepoPath,
             discoveredWorktrees: [rediscoveredWorktree]
@@ -265,7 +266,7 @@ struct WorkspaceCacheCoordinatorRepoMoveTests {
     }
 
     @Test("re-association rejection preserves pane residency and topology")
-    func reassociationRejectionPreservesPaneResidencyAndTopology() throws {
+    func reassociationRejectionPreservesPaneResidencyAndTopology() async throws {
         let workspaceStore = makeWorkspaceStore()
         let coordinator = WorkspaceCacheCoordinator(
             bus: EventBus<RuntimeEnvelope>(),
@@ -288,7 +289,7 @@ struct WorkspaceCacheCoordinatorRepoMoveTests {
         let unavailableRepoIdsBeforeRejection = workspaceStore.repositoryTopologyAtom.unavailableRepoIds
         let generationBeforeRejection = workspaceStore.repositoryTopologyAtom.worktreePathIndexGeneration
 
-        let result = coordinator.reassociateRepo(
+        let result = await coordinator.reassociateRepo(
             repoId: firstRepo.id,
             to: URL(fileURLWithPath: "/tmp/repo-reassociation-rejection-relocated"),
             discoveredWorktrees: [

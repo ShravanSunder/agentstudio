@@ -194,3 +194,38 @@ actor BridgeProductProducerInvocationCounter {
         wasInvoked = true
     }
 }
+
+actor BridgeProductProducerLifecycleAcknowledgementGate {
+    private var invocationWaiters: [CheckedContinuation<BridgeProductProducerLifecycleAcknowledgement, Never>] = []
+    private var recordedAcknowledgement: BridgeProductProducerLifecycleAcknowledgement?
+    private var releaseResult: Bool?
+    private var releaseWaiter: CheckedContinuation<Bool, Never>?
+
+    func acknowledge(
+        _ acknowledgement: BridgeProductProducerLifecycleAcknowledgement
+    ) async -> Bool {
+        recordedAcknowledgement = acknowledgement
+        let waiters = invocationWaiters
+        invocationWaiters.removeAll()
+        for waiter in waiters {
+            waiter.resume(returning: acknowledgement)
+        }
+        if let releaseResult { return releaseResult }
+        return await withCheckedContinuation { continuation in
+            releaseWaiter = continuation
+        }
+    }
+
+    func waitUntilInvoked() async -> BridgeProductProducerLifecycleAcknowledgement {
+        if let recordedAcknowledgement { return recordedAcknowledgement }
+        return await withCheckedContinuation { continuation in
+            invocationWaiters.append(continuation)
+        }
+    }
+
+    func release(result: Bool) {
+        releaseResult = result
+        releaseWaiter?.resume(returning: result)
+        releaseWaiter = nil
+    }
+}

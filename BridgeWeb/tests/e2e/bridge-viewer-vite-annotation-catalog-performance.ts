@@ -8,12 +8,24 @@ import { expect } from 'vitest';
 export interface AnnotationCatalogTransferTelemetryObservation {
 	readonly mainBeginStartTimeMilliseconds: number;
 	readonly mainCommitStartTimeMilliseconds: number;
+	readonly mainStagingSamples: readonly AnnotationCatalogMainStagingSample[];
 	readonly maximumUnitByteCount: number;
 	readonly operationCorrelationId: string;
 	readonly presentationRevisionAfter: number;
 	readonly presentationRevisionBefore: number;
 	readonly windowCount: number;
 }
+
+export type AnnotationCatalogMainStagingSample =
+	| {
+			readonly kind: 'begin' | 'commit';
+			readonly startTimeMilliseconds: number;
+	  }
+	| {
+			readonly kind: 'window';
+			readonly startTimeMilliseconds: number;
+			readonly windowOrdinal: number;
+	  };
 
 export interface AnnotationCatalogLongTaskEntry {
 	readonly durationMilliseconds: number;
@@ -277,15 +289,34 @@ export async function waitForAnnotationCatalogCommit(props: {
 					),
 				);
 				if (maximumUnitByteCount > 128 * 1024) return false;
+				const mainBeginStartTimeMilliseconds = numberAttribute(
+					beginSample,
+					'agentstudio.bridge.source.monotonic_ms',
+				);
+				const mainCommitStartTimeMilliseconds = numberAttribute(
+					commit,
+					'agentstudio.bridge.source.monotonic_ms',
+				);
 				observation = {
-					mainBeginStartTimeMilliseconds: numberAttribute(
-						beginSample,
-						'agentstudio.bridge.source.monotonic_ms',
-					),
-					mainCommitStartTimeMilliseconds: numberAttribute(
-						commit,
-						'agentstudio.bridge.source.monotonic_ms',
-					),
+					mainBeginStartTimeMilliseconds,
+					mainCommitStartTimeMilliseconds,
+					mainStagingSamples: [
+						{ kind: 'begin', startTimeMilliseconds: mainBeginStartTimeMilliseconds },
+						...windows.map(
+							(sample): AnnotationCatalogMainStagingSample => ({
+								kind: 'window',
+								startTimeMilliseconds: numberAttribute(
+									sample,
+									'agentstudio.bridge.source.monotonic_ms',
+								),
+								windowOrdinal: numberAttribute(
+									sample,
+									'agentstudio.bridge.annotation.catalog.window.ordinal',
+								),
+							}),
+						),
+						{ kind: 'commit', startTimeMilliseconds: mainCommitStartTimeMilliseconds },
+					],
 					maximumUnitByteCount,
 					operationCorrelationId: operationId,
 					presentationRevisionAfter,

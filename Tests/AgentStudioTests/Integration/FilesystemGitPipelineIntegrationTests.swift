@@ -34,12 +34,12 @@ struct FilesystemGitPipelineIntegrationTests {
         try FileManager.default.createDirectory(at: rootPath, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: rootPath) }
 
-        let worktreeId = UUID()
-        let repoId = UUID()
         let workspaceDir = FileManager.default.temporaryDirectory
             .appending(path: "pipeline-store-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: workspaceDir) }
         let store = WorkspaceStore()
+        let repository = store.addRepo(at: rootPath)
+        let worktreeId = try #require(repository.worktrees.first?.id)
         let repoCache = RepoCacheAtom()
         let cacheCoordinator = WorkspaceCacheCoordinator(
             bus: bus,
@@ -57,12 +57,12 @@ struct FilesystemGitPipelineIntegrationTests {
             }
         }
         await waitForSubscriberCount(bus: bus, atLeast: 3)
+        await registerAndAssertCanonicalTopology(workspaceStore: store, pipeline: pipeline)
         await pipeline.setRepositoryFactDemand(
             makeRepositoryFactDemand(
                 activePaneWorktreeId: worktreeId,
-                repositoryIdByWorktreeId: [worktreeId: repoId]
+                repositoryIdByWorktreeId: [worktreeId: repository.id]
             ))
-        await pipeline.register(worktreeId: worktreeId, repoId: repoId, rootPath: rootPath)
         await pipeline.enqueueRawPathsForTesting(
             worktreeId: worktreeId,
             paths: ["Sources/Feature.swift"]
@@ -132,12 +132,9 @@ struct FilesystemGitPipelineIntegrationTests {
         try FileManager.default.createDirectory(at: rootPath, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: rootPath) }
 
-        let worktreeId = UUID()
-        let repoId = UUID()
-        let workspaceDir = FileManager.default.temporaryDirectory
-            .appending(path: "pipeline-periodic-store-\(UUID().uuidString)")
-        defer { try? FileManager.default.removeItem(at: workspaceDir) }
         let store = WorkspaceStore()
+        let repository = store.addRepo(at: rootPath)
+        let worktreeId = try #require(repository.worktrees.first?.id)
         let repoCache = RepoCacheAtom()
         let cacheCoordinator = WorkspaceCacheCoordinator(
             bus: bus,
@@ -152,15 +149,18 @@ struct FilesystemGitPipelineIntegrationTests {
             }
         }
         await waitForSubscriberCount(bus: bus, atLeast: 3)
-        let visibilityAdmissionGeneration = gitClock.scheduledSleepGeneration
+        await registerAndAssertCanonicalTopology(workspaceStore: store, pipeline: pipeline)
+        let visibilityAdmissionDeadline = gitClock.now.advanced(
+            by: AppPolicies.GitRefresh.visibilityChangeCoalescingWindow
+        )
         await pipeline.setRepositoryFactDemand(
             makeRepositoryFactDemand(
                 sidebarAttendedWorktreeIds: [worktreeId],
-                repositoryIdByWorktreeId: [worktreeId: repoId],
+                repositoryIdByWorktreeId: [worktreeId: repository.id],
                 automaticRemoteAndForgeWorktreeIds: []
             ))
         let visibilitySleepScheduled = await waitUntilYielding {
-            gitClock.pendingSleepGenerations.contains(visibilityAdmissionGeneration)
+            gitClock.pendingSleepDeadlines.contains(visibilityAdmissionDeadline)
         }
         #expect(visibilitySleepScheduled)
         guard visibilitySleepScheduled else {
@@ -171,9 +171,8 @@ struct FilesystemGitPipelineIntegrationTests {
             )
             return
         }
-        gitClock.advance(by: AppPolicies.GitRefresh.visibilityChangeCoalescingWindow)
+        gitClock.advance(to: visibilityAdmissionDeadline)
         await pipeline.waitForRepositoryFactDemandAdmission()
-        await pipeline.register(worktreeId: worktreeId, repoId: repoId, rootPath: rootPath)
 
         let initialSnapshotArrived = await eventually("initial periodic snapshot should arrive") {
             guard let snapshot = repoCache.worktreeEnrichmentByWorktreeId[worktreeId]?.snapshot else { return false }
@@ -230,12 +229,13 @@ struct FilesystemGitPipelineIntegrationTests {
         try FileManager.default.createDirectory(at: rootPath, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: rootPath) }
 
-        let worktreeId = UUID()
-        let repoId = UUID()
         let workspaceDir = FileManager.default.temporaryDirectory
             .appending(path: "pipeline-focus-store-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: workspaceDir) }
         let store = WorkspaceStore()
+        let repository = store.addRepo(at: rootPath)
+        let worktreeId = try #require(repository.worktrees.first?.id)
+        let repoId = repository.id
         let repoCache = RepoCacheAtom()
         let cacheCoordinator = WorkspaceCacheCoordinator(
             bus: bus,
@@ -250,20 +250,12 @@ struct FilesystemGitPipelineIntegrationTests {
             }
         }
         await waitForSubscriberCount(bus: bus, atLeast: 3)
+        await registerAndAssertCanonicalTopology(workspaceStore: store, pipeline: pipeline)
         await pipeline.setRepositoryFactDemand(
             makeRepositoryFactDemand(
                 activePaneWorktreeId: worktreeId,
                 repositoryIdByWorktreeId: [worktreeId: repoId]
             ))
-        await pipeline.register(worktreeId: worktreeId, repoId: repoId, rootPath: rootPath)
-        await pipeline.assertTopology(
-            FilesystemTopologyAssertion(
-                generation: 1,
-                contextsByWorktreeId: [
-                    worktreeId: WorktreeFilesystemContext(repoId: repoId, rootPath: rootPath)
-                ]
-            )
-        )
 
         let initialSnapshotArrived = await eventually("initial focus test snapshot should arrive") {
             repoCache.worktreeEnrichmentByWorktreeId[worktreeId]?.branch == "main"
@@ -581,7 +573,7 @@ struct FilesystemGitPipelineIntegrationTests {
             }
         }
         await waitForSubscriberCount(bus: bus, atLeast: 3)
-        await pipeline.register(worktreeId: worktreeId, repoId: repo.id, rootPath: rootPath)
+        await registerAndAssertCanonicalTopology(workspaceStore: workspaceStore, pipeline: pipeline)
         await pipeline.setRepositoryFactDemand(
             makeRepositoryFactDemand(
                 sidebarAttendedWorktreeIds: [worktreeId],
@@ -640,6 +632,47 @@ struct FilesystemGitPipelineIntegrationTests {
         }
         Issue.record("\(description) timed out")
         return false
+    }
+
+    private func registerAndAssertCanonicalTopology(
+        workspaceStore: WorkspaceStore,
+        pipeline: FilesystemGitPipeline
+    ) async {
+        let topology = workspaceStore.repositoryTopologyAtom
+        let canonicalRepositories = topology.repos
+        for repository in canonicalRepositories {
+            for worktree in repository.worktrees {
+                await pipeline.register(
+                    worktreeId: worktree.id,
+                    repoId: repository.id,
+                    rootPath: worktree.path
+                )
+            }
+        }
+        await pipeline.assertTopology(
+            FilesystemTopologyAssertion(
+                generation: topology.worktreePathIndexGeneration,
+                contextsByWorktreeId: Dictionary(
+                    uniqueKeysWithValues: canonicalRepositories.flatMap { repository in
+                        repository.worktrees.map { worktree in
+                            (
+                                worktree.id,
+                                WorktreeFilesystemContext(repoId: repository.id, rootPath: worktree.path)
+                            )
+                        }
+                    }
+                ),
+                repositoryStableKeysByWorktreeId: Dictionary(
+                    uniqueKeysWithValues: canonicalRepositories.flatMap { repository in
+                        repository.worktrees.map { worktree in
+                            (worktree.id, repository.stableKey)
+                        }
+                    }
+                ),
+                repositoryLifetimes: topology.repositoryObservationLifetimes,
+                worktreeLifetimes: topology.worktreeObservationLifetimes
+            )
+        )
     }
 
     private func waitUntilYielding(

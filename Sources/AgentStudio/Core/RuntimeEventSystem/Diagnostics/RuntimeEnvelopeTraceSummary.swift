@@ -382,6 +382,8 @@ extension SystemScopedEvent {
 extension TopologyEvent {
     var traceName: String {
         switch self {
+        case .watchedFolderReconciled:
+            return "topology.watchedFolderReconciled"
         case .repoDiscovered:
             return "topology.repoDiscovered"
         case .reposDiscovered:

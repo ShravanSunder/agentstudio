@@ -48,7 +48,7 @@ extension CommandBarDataSource {
         dispatcher _: any AppCommandDispatching
     ) -> [CommandBarItem] {
         let presenceByWorktreeId = buildWorktreePresenceByWorktreeId(store: store)
-        return store.repositoryTopologyAtom.repos
+        return availableRepositories(store: store)
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
             .map { repo in
                 repoRootItem(
@@ -62,7 +62,7 @@ extension CommandBarDataSource {
 
     static func everythingWorktreeItems(store: WorkspaceStore) -> [CommandBarItem] {
         let presenceByWorktreeId = buildWorktreePresenceByWorktreeId(store: store)
-        return store.repositoryTopologyAtom.repos.flatMap { repo in
+        return availableRepositories(store: store).flatMap { repo in
             repo.worktrees.map { worktree in
                 let presence =
                     presenceByWorktreeId[worktree.id]
@@ -168,7 +168,7 @@ extension CommandBarDataSource {
 
     static func buildWorktreePresenceByWorktreeId(store: WorkspaceStore) -> [UUID: WorktreePresence] {
         buildWorktreePresenceByWorktreeId(
-            repos: store.repositoryTopologyAtom.repos,
+            repos: availableRepositories(store: store),
             locationsByWorktreeId: worktreeLocationsByWorktreeId(store: store)
         )
     }
@@ -254,6 +254,9 @@ extension CommandBarDataSource {
         presenceByWorktreeId: [UUID: WorktreePresence],
         dispatcher: any AppCommandDispatching
     ) -> CommandBarLevel {
+        let available = availableRepository(repo, store: store)
+        var repo = available ?? repo
+        if available == nil { repo.worktrees = [] }
         let defaultWorktree = repo.worktrees.first(where: \.isMainWorktree) ?? repo.worktrees.first
         var items: [CommandBarItem] = []
         let canOpenInCurrentTab = store.tabLayoutAtom.activeTabId != nil

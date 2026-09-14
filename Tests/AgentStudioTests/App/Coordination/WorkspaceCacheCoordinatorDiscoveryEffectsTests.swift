@@ -14,8 +14,8 @@ struct WorkspaceCacheCoordinatorDiscoveryEffectsTests {
         installTestCoreAtomsIfNeeded()
     }
 
-    @Test("not-scanned discovery followed by an authoritative scan registers the new main worktree once")
-    func notScannedThenScannedDiscoveryRegistersNewMainWorktreeOnce() async throws {
+    @Test("not-scanned discovery registers the new main worktree before authoritative replay")
+    func notScannedDiscoveryRegistersNewMainWorktreeBeforeScannedReplay() async throws {
         try await withDiscoveryHarness { harness in
             let repoPath = URL(
                 filePath: "/tmp/discovery-effects-single-\(UUIDv7.generate().uuidString)"
@@ -29,29 +29,48 @@ struct WorkspaceCacheCoordinatorDiscoveryEffectsTests {
             let mainWorktree = try #require(harness.store.repos.single?.worktrees.single)
             #expect(mainWorktree.isMainWorktree)
             #expect(mainWorktree.path == repoPath.standardizedFileURL)
+            let initialRegistrationIds = await harness.filesystemSource.operations().compactMap(
+                \.registeredWorktreeId
+            )
+            #expect(initialRegistrationIds == [mainWorktree.id])
+            #expect(
+                await harness.filesystemSource.snapshot().registeredRoots
+                    == [mainWorktree.id: repoPath.standardizedFileURL]
+            )
+            #expect(harness.topologyEffects.batches.count == 1)
+            #expect(harness.topologyEffects.batches.single?.single?.addedWorktreeIds == [mainWorktree.id])
 
             harness.cacheCoordinator.handleTopology(
                 discoveryEnvelope(repoPath: repoPath, linkedWorktrees: .scanned([]))
             )
             await harness.surfaceCoordinator.waitForFilesystemRootsAndActivitySyncIdle()
 
-            let registrationIds = await harness.filesystemSource.operations().compactMap(\.registeredWorktreeId)
-            #expect(registrationIds == [mainWorktree.id])
-            #expect(await harness.filesystemSource.snapshot().registeredRoots == [mainWorktree.id: repoPath])
+            let replayRegistrationIds = await harness.filesystemSource.operations().compactMap(
+                \.registeredWorktreeId
+            )
+            #expect(replayRegistrationIds == initialRegistrationIds)
+            #expect(harness.topologyEffects.batches.count == 1)
         }
     }
 
-    @Test("batched discovery registers both new main worktrees once and replay emits no duplicates")
-    func batchedDiscoveryRegistersBothMainWorktreesWithoutReplayDuplicates() async throws {
+    @Test("batched discovery registers every new worktree once and replay emits no duplicates")
+    func batchedDiscoveryRegistersCompleteNewFamiliesWithoutReplayDuplicates() async throws {
         try await withDiscoveryHarness { harness in
             let parentPath = URL(
                 filePath: "/tmp/discovery-effects-batch-\(UUIDv7.generate().uuidString)"
             )
-            let firstRepoPath = parentPath.appending(path: "first")
-            let secondRepoPath = parentPath.appending(path: "second")
+            let unscannedRepoPath = parentPath.appending(path: "unscanned")
+            let scannedRepoPath = parentPath.appending(path: "scanned")
+            let linkedWorktreePath = parentPath.appending(path: "scanned-linked")
             let repositories = [
-                DiscoveredRepoTopologyInfo(repoPath: firstRepoPath, linkedWorktrees: .scanned([])),
-                DiscoveredRepoTopologyInfo(repoPath: secondRepoPath, linkedWorktrees: .scanned([])),
+                DiscoveredRepoTopologyInfo(
+                    repoPath: unscannedRepoPath,
+                    linkedWorktrees: .notScanned
+                ),
+                DiscoveredRepoTopologyInfo(
+                    repoPath: scannedRepoPath,
+                    linkedWorktrees: .scanned([linkedWorktreePath])
+                ),
             ]
             let envelope = SystemEnvelope.test(
                 event: .topology(
@@ -63,20 +82,35 @@ struct WorkspaceCacheCoordinatorDiscoveryEffectsTests {
             harness.cacheCoordinator.handleTopology(envelope)
             await harness.surfaceCoordinator.waitForFilesystemRootsAndActivitySyncIdle()
 
-            let discoveredMainWorktrees = try harness.store.repos.map { repo in
-                try #require(repo.worktrees.single)
-            }
-            let expectedWorktreeIds = Set(discoveredMainWorktrees.map(\.id))
-            let expectedPaths = Set([firstRepoPath.standardizedFileURL, secondRepoPath.standardizedFileURL])
-            #expect(Set(discoveredMainWorktrees.map(\.path)) == expectedPaths)
-            #expect(Set(await harness.filesystemSource.snapshot().registeredRoots.keys) == expectedWorktreeIds)
+            let discoveredWorktrees = harness.store.repos.flatMap(\.worktrees)
+            let expectedWorktreeIds = Set(discoveredWorktrees.map(\.id))
+            let expectedPaths = Set(
+                [unscannedRepoPath, scannedRepoPath, linkedWorktreePath].map(\.standardizedFileURL)
+            )
+            #expect(expectedWorktreeIds.count == 3)
+            #expect(Set(discoveredWorktrees.map(\.path)) == expectedPaths)
+            let initialSnapshot = await harness.filesystemSource.snapshot()
+            #expect(Set(initialSnapshot.registeredRoots.keys) == expectedWorktreeIds)
+            #expect(Set(initialSnapshot.registeredRoots.values) == expectedPaths)
+            let initialRegistrationIds = await harness.filesystemSource.operations().compactMap(
+                \.registeredWorktreeId
+            )
+            #expect(initialRegistrationIds.count == 3)
+            #expect(Set(initialRegistrationIds) == expectedWorktreeIds)
+            #expect(harness.topologyEffects.batches.count == 1)
+            #expect(
+                Set(harness.topologyEffects.batches.single?.flatMap(\.addedWorktreeIds) ?? [])
+                    == expectedWorktreeIds
+            )
 
             harness.cacheCoordinator.handleTopology(envelope)
             await harness.surfaceCoordinator.waitForFilesystemRootsAndActivitySyncIdle()
 
-            let registrationIds = await harness.filesystemSource.operations().compactMap(\.registeredWorktreeId)
-            #expect(registrationIds.count == 2)
-            #expect(Set(registrationIds) == expectedWorktreeIds)
+            let replayRegistrationIds = await harness.filesystemSource.operations().compactMap(
+                \.registeredWorktreeId
+            )
+            #expect(replayRegistrationIds == initialRegistrationIds)
+            #expect(harness.topologyEffects.batches.count == 1)
         }
     }
 
@@ -126,18 +160,22 @@ struct WorkspaceCacheCoordinatorDiscoveryEffectsTests {
             windowLifecycleStore: WindowLifecycleAtom(),
             bridgePaneAttendance: BridgePaneAttendanceAtom()
         )
+        let topologyEffects = RecordingForwardingTopologyEffectHandler(
+            downstream: surfaceCoordinator
+        )
         let cacheCoordinator = WorkspaceCacheCoordinator(
             bus: EventBus<RuntimeEnvelope>(),
             workspaceStore: store,
             repoCache: RepoCacheAtom(),
             welcomeAtom: WelcomeAtom(),
-            topologyEffectHandler: surfaceCoordinator,
+            topologyEffectHandler: topologyEffects,
             scopeSyncHandler: { _ in }
         )
         return DiscoveryEffectsHarness(
             store: store,
             filesystemSource: filesystemSource,
             surfaceCoordinator: surfaceCoordinator,
+            topologyEffects: topologyEffects,
             cacheCoordinator: cacheCoordinator
         )
     }
@@ -148,5 +186,26 @@ private struct DiscoveryEffectsHarness {
     let store: WorkspaceStore
     let filesystemSource: OrderedRecordingFilesystemSource
     let surfaceCoordinator: WorkspaceSurfaceCoordinator
+    let topologyEffects: RecordingForwardingTopologyEffectHandler
     let cacheCoordinator: WorkspaceCacheCoordinator
+}
+
+@MainActor
+private final class RecordingForwardingTopologyEffectHandler: TopologyEffectHandler {
+    private(set) var batches: [[WorktreeTopologyDelta]] = []
+    private let downstream: any TopologyEffectHandler
+
+    init(downstream: any TopologyEffectHandler) {
+        self.downstream = downstream
+    }
+
+    func topologyDidChange(_ delta: WorktreeTopologyDelta) {
+        batches.append([delta])
+        downstream.topologyDidChange(delta)
+    }
+
+    func topologyDidChange(_ deltas: [WorktreeTopologyDelta]) {
+        batches.append(deltas)
+        downstream.topologyDidChange(deltas)
+    }
 }

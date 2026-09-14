@@ -221,6 +221,296 @@ struct RepoScannerCompletenessTests {
         #expect(unavailableScan.counts.scannerServiceInvocationCount == 1)
     }
 
+    @Test("retained checkout beyond ordinary depth is validated before exhaustion")
+    func retainedCheckoutBeyondMaximumDepthIsValidated() async throws {
+        // Arrange
+        let scanRoot = FileManager.default.temporaryDirectory
+            .appending(path: "repo-scanner-retained-depth-\(UUIDv7.generate().uuidString)")
+        let retainedCheckoutPath = scanRoot.appending(path: "organization/team/retained")
+        try FileManager.default.createDirectory(
+            at: retainedCheckoutPath.appending(path: ".git"),
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: scanRoot) }
+        let canonicalRetainedCheckoutPath = RepoScanner.canonicalURL(retainedCheckoutPath)
+        let expectedEntry = RepoScanner.ResolvedGitEntry(
+            path: canonicalRetainedCheckoutPath,
+            kind: .cloneRoot,
+            repositoryKey: "retained-depth"
+        )
+
+        // Act
+        let result = await finish(
+            session: RepoScanner().makeSession(
+                in: scanRoot,
+                maxDepth: 1,
+                retainedCheckoutPaths: [retainedCheckoutPath]
+            ),
+            outcomesByCanonicalPath: [canonicalPath(retainedCheckoutPath): .validated(expectedEntry)]
+        )
+
+        // Assert
+        guard case .completeAuthoritative(let completeScan) = result else {
+            Issue.record("expected retained checkout validation to remain authoritative, got \(result)")
+            return
+        }
+        #expect(completeScan.verifiedEntries == [expectedEntry])
+        #expect(completeScan.counts.validationSuccessCount == 1)
+    }
+
+    @Test("ordinary traversal and retained input validate one canonical target once")
+    func retainedCheckoutAlreadyExaminedByTraversalIsNotValidatedAgain() async throws {
+        // Arrange
+        let fixture = try ScanFixture(candidateNames: ["ordinary"])
+        defer { fixture.remove() }
+        let canonicalCandidatePath = RepoScanner.canonicalURL(fixture.candidatePaths[0])
+        let expectedEntry = RepoScanner.ResolvedGitEntry(
+            path: canonicalCandidatePath,
+            kind: .cloneRoot,
+            repositoryKey: "ordinary"
+        )
+
+        // Act
+        let result = await finish(
+            session: RepoScanner().makeSession(
+                in: fixture.root,
+                maxDepth: 1,
+                retainedCheckoutPaths: [fixture.candidatePaths[0], canonicalCandidatePath]
+            ),
+            outcomesByCanonicalPath: [canonicalPath(canonicalCandidatePath): .validated(expectedEntry)]
+        )
+
+        // Assert
+        guard case .completeAuthoritative(let completeScan) = result else {
+            Issue.record("expected complete scanner evidence, got \(result)")
+            return
+        }
+        #expect(completeScan.verifiedEntries == [expectedEntry])
+        #expect(completeScan.counts.gitCandidateCount == 1)
+        #expect(completeScan.counts.validationSuccessCount == 1)
+    }
+
+    @Test("failed ordinary candidate is not retried by retained continuation")
+    func retainedCheckoutDoesNotRetryFailedOrdinaryValidation() async throws {
+        // Arrange
+        let fixture = try ScanFixture(candidateNames: ["failed"])
+        defer { fixture.remove() }
+        let failureReason = GitRepositoryDiscoveryFailureReason.validationFailed(
+            detail: "injected ordinary validation failure"
+        )
+
+        // Act
+        let result = await finish(
+            session: RepoScanner().makeSession(
+                in: fixture.root,
+                maxDepth: 1,
+                retainedCheckoutPaths: [fixture.candidatePaths[0]]
+            ),
+            outcomesByCanonicalPath: [canonicalPath(fixture.candidatePaths[0]): .failure(failureReason)]
+        )
+
+        // Assert
+        guard case .partial(let partialScan) = result else {
+            Issue.record("expected one failed validation to keep the scan partial, got \(result)")
+            return
+        }
+        #expect(partialScan.counts.gitCandidateCount == 1)
+        #expect(partialScan.counts.validationFailureCount == 1)
+        #expect(partialScan.failures.all.count == 1)
+    }
+
+    @Test("missing and noncandidate retained checkouts are negative space without validation")
+    func missingAndNoncandidateRetainedCheckoutsDoNotEnterValidation() async throws {
+        // Arrange
+        let fixture = try ScanFixture(candidateNames: [])
+        defer { fixture.remove() }
+        let missingRetainedCheckoutPath = fixture.root.appending(path: "missing/checkout")
+        let noncandidateRetainedCheckoutPath = fixture.root.appending(path: "plain/folder")
+        try FileManager.default.createDirectory(
+            at: noncandidateRetainedCheckoutPath,
+            withIntermediateDirectories: true
+        )
+
+        // Act
+        let result = await finish(
+            session: RepoScanner().makeSession(
+                in: fixture.root,
+                maxDepth: 1,
+                retainedCheckoutPaths: [
+                    missingRetainedCheckoutPath,
+                    noncandidateRetainedCheckoutPath,
+                ]
+            ),
+            outcomesByCanonicalPath: [:]
+        )
+
+        // Assert
+        guard case .completeAuthoritative(let completeScan) = result else {
+            Issue.record("expected missing retained checkout to be authoritative negative space, got \(result)")
+            return
+        }
+        #expect(completeScan.verifiedEntries.isEmpty)
+        #expect(completeScan.counts.gitCandidateCount == 0)
+        #expect(completeScan.counts.validationFailureCount == 0)
+        #expect(completeScan.counts.validationAuthoritativeNegativeCount == 0)
+    }
+
+    @Test("retained continuation remains within the scanner session capacity")
+    func retainedCheckoutCapacityExhaustionRemainsPartial() async throws {
+        // Arrange
+        let fixture = try ScanFixture(candidateNames: ["retained"])
+        defer { fixture.remove() }
+        let capacity = try RepoScannerSessionCapacity(
+            maximumEnumeratedItems: 1,
+            maximumPathBytes: 1_048_576,
+            maximumRetainedVerifiedEntries: 10,
+            maximumRetainedVerifiedEntryBytes: 1_048_576,
+            maximumRetainedFailures: 10
+        )
+
+        // Act
+        let result = await finish(
+            session: RepoScanner().makeSession(
+                in: fixture.root,
+                maxDepth: 0,
+                retainedCheckoutPaths: [fixture.candidatePaths[0]],
+                capacity: capacity
+            ),
+            outcomesByCanonicalPath: [:]
+        )
+
+        // Assert
+        guard case .partial(let partialScan) = result else {
+            Issue.record("expected retained continuation capacity failure to remain partial, got \(result)")
+            return
+        }
+        #expect(
+            partialScan.failures.all.contains(
+                .sessionCapacityExceeded(.enumeratedItemCount(maximum: 1))
+            )
+        )
+        #expect(partialScan.counts.gitCandidateCount == 0)
+    }
+
+    @Test("retained continuation ignores targets outside the canonical scan root")
+    func retainedCheckoutOutsideRootIsNotExamined() async throws {
+        // Arrange
+        let fixture = try ScanFixture(candidateNames: [])
+        defer { fixture.remove() }
+        let outsideRoot = FileManager.default.temporaryDirectory
+            .appending(path: "repo-scanner-retained-outside-\(UUIDv7.generate().uuidString)")
+        try FileManager.default.createDirectory(
+            at: outsideRoot.appending(path: ".git"),
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: outsideRoot) }
+
+        // Act
+        let result = await finish(
+            session: RepoScanner().makeSession(
+                in: fixture.root,
+                maxDepth: 0,
+                retainedCheckoutPaths: [outsideRoot]
+            ),
+            outcomesByCanonicalPath: [:]
+        )
+
+        // Assert
+        guard case .completeAuthoritative(let completeScan) = result else {
+            Issue.record("expected outside retained target to be ignored, got \(result)")
+            return
+        }
+        #expect(completeScan.verifiedEntries.isEmpty)
+        #expect(completeScan.counts.gitCandidateCount == 0)
+        #expect(completeScan.counts.validationFailureCount == 0)
+    }
+
+    @Test("lexically contained retained target that escapes by symlink keeps scan partial")
+    func escapingRetainedCheckoutSymlinkDoesNotAuthorizeAbsence() async throws {
+        // Arrange
+        let fixture = try ScanFixture(candidateNames: [])
+        defer { fixture.remove() }
+        let outsideRepositoryPath = FileManager.default.temporaryDirectory
+            .appending(path: "repo-scanner-retained-escape-\(UUIDv7.generate().uuidString)")
+        try FileManager.default.createDirectory(
+            at: outsideRepositoryPath.appending(path: ".git"),
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: outsideRepositoryPath) }
+        let retainedCheckoutPath = fixture.root.appending(path: "retained-link")
+        try FileManager.default.createSymbolicLink(
+            at: retainedCheckoutPath,
+            withDestinationURL: outsideRepositoryPath
+        )
+
+        // Act
+        let result = await finish(
+            session: RepoScanner().makeSession(
+                in: fixture.root,
+                maxDepth: 0,
+                retainedCheckoutPaths: [retainedCheckoutPath]
+            ),
+            outcomesByCanonicalPath: [:]
+        )
+
+        // Assert
+        guard case .partial(let partialScan) = result else {
+            Issue.record("expected escaping retained target to keep scan partial, got \(result)")
+            return
+        }
+        #expect(partialScan.verifiedEntries.isEmpty)
+        #expect(partialScan.counts.validationFailureCount == 1)
+        #expect(
+            partialScan.failures.all.contains(
+                .gitRepositoryDiscoveryFailed(
+                    candidatePath: RepoScanner.canonicalURL(fixture.root)
+                        .appending(path: "retained-link"),
+                    reason: .candidateAdmissionRejected(.outsideRegisteredRoot)
+                )
+            )
+        )
+    }
+
+    @Test("retained checkout validation failure keeps the scan partial")
+    func retainedCheckoutValidationFailureDoesNotAuthorizeAbsence() async throws {
+        // Arrange
+        let scanRoot = FileManager.default.temporaryDirectory
+            .appending(path: "repo-scanner-retained-failure-\(UUIDv7.generate().uuidString)")
+        let retainedCheckoutPath = scanRoot.appending(path: "organization/team/retained")
+        try FileManager.default.createDirectory(
+            at: retainedCheckoutPath.appending(path: ".git"),
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: scanRoot) }
+        let failureReason = GitRepositoryDiscoveryFailureReason.validationFailed(
+            detail: "injected retained validation failure"
+        )
+
+        // Act
+        let result = await finish(
+            session: RepoScanner().makeSession(
+                in: scanRoot,
+                maxDepth: 1,
+                retainedCheckoutPaths: [retainedCheckoutPath]
+            ),
+            outcomesByCanonicalPath: [canonicalPath(retainedCheckoutPath): .failure(failureReason)]
+        )
+
+        // Assert
+        guard case .partial(let partialScan) = result else {
+            Issue.record("expected retained validation failure to remain partial, got \(result)")
+            return
+        }
+        #expect(partialScan.verifiedEntries.isEmpty)
+        #expect(partialScan.counts.validationFailureCount == 1)
+        #expect(
+            partialScan.failures.all.contains { failure in
+                guard case .gitRepositoryDiscoveryFailed(let candidatePath, let reason) = failure else { return false }
+                return canonicalPath(candidatePath) == canonicalPath(retainedCheckoutPath) && reason == failureReason
+            }
+        )
+    }
+
     @Test("invalid maximum depth is a scanner failure")
     func invalidMaximumDepthIsFailure() async throws {
         // Arrange
@@ -248,6 +538,33 @@ struct RepoScannerCompletenessTests {
         func discoveryOutcome(for url: URL) async -> GitRepositoryDiscoveryOutcome {
             outcomesByCanonicalPath[canonicalPath(url)]
                 ?? .authoritativeNegative(.notAValidWorktree)
+        }
+    }
+
+    private func finish(
+        session: RepoScannerSessionPort,
+        outcomesByCanonicalPath: [String: GitRepositoryDiscoveryOutcome]
+    ) async -> RepoScannerResult {
+        while true {
+            switch await session.advanceOneQuantum() {
+            case .suspended:
+                continue
+            case .validationRequired(let request):
+                let outcome =
+                    outcomesByCanonicalPath[canonicalPath(request.candidateURL)]
+                    ?? .authoritativeNegative(.notAValidWorktree)
+                #expect(
+                    session.consumeValidationCompletion(
+                        .init(
+                            request: request,
+                            outcome: outcome,
+                            validationServiceDuration: .zero
+                        )
+                    ) == .consumed
+                )
+            case .finished(let result):
+                return result
+            }
         }
     }
 

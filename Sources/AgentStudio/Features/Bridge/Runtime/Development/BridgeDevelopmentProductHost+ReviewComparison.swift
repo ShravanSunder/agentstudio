@@ -650,11 +650,11 @@ extension BridgeDevelopmentProductHost {
         refreshReservation: BridgePaneRefreshCatchUpReservation?
     ) async -> Bool {
         let didFail = await MainActor.run {
+            guard !Task.isCancelled else { return false }
             // Source lineage survives ordinary edits; only the current reservation
             // may publish a failure, just as only that reservation may commit.
             if let refreshReservation {
-                guard !Task.isCancelled,
-                    productAdmission.withValidAdmission({ true }) == true,
+                guard productAdmission.withValidAdmission({ true }) == true,
                     refreshReservation.foregroundWorkAdmission.withValidAdmission({ true }) == true,
                     refreshAdmissionCoordinator.isRefreshPassCurrent(refreshReservation)
                 else { return false }

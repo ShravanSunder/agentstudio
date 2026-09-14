@@ -685,7 +685,7 @@ struct DarwinFSEventStreamClientTests {
         let recovery = try #require(ingressBuffer.consumeOverflowRecoveries().first)
         #expect(recovery.worktreeId == overflowedWorktreeId)
         #expect(recovery.paths == nil)
-        #expect(recovery.containsGitTopologyPath == false)
+        #expect(recovery.requiresWatchedFolderScan == false)
         ingressBuffer.finish()
     }
 
@@ -707,7 +707,7 @@ struct DarwinFSEventStreamClientTests {
 
         let recovery = try #require(ingressBuffer.consumeOverflowRecoveries().first)
         #expect(recovery.paths == nil)
-        #expect(recovery.containsGitTopologyPath)
+        #expect(recovery.requiresWatchedFolderScan)
         ingressBuffer.finish()
     }
 
@@ -729,7 +729,7 @@ struct DarwinFSEventStreamClientTests {
 
         let recovery = try #require(ingressBuffer.consumeOverflowRecoveries().first)
         #expect(recovery.paths == nil)
-        #expect(recovery.containsGitTopologyPath)
+        #expect(recovery.requiresWatchedFolderScan)
         ingressBuffer.finish()
     }
 

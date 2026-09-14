@@ -141,9 +141,12 @@ struct WorkspaceSQLiteStoreBackend {
         )
     }
 
-    func replaceRepositoryTopologySnapshot(_ snapshot: RepositoryTopologySQLiteSnapshot) throws {
+    func replaceRepositoryTopologySnapshot(
+        _ snapshot: RepositoryTopologySQLiteSnapshot,
+        reparenting: [RepositoryWorktreeReparenting]
+    ) throws {
         try coreRepository.replaceRepositoryTopology(
-            WorkspaceSQLiteStateBridge.repositoryTopologyRecord(from: snapshot)
+            WorkspaceSQLiteStateBridge.repositoryTopologyRecord(from: snapshot), reparenting: reparenting
         )
     }
 
@@ -258,7 +261,8 @@ enum WorkspaceSQLiteStateBridge {
                     tags: repo.tags
                 )
             },
-            unavailableRepoIds: snapshot.unavailableRepoIds
+            unavailableRepoIds: snapshot.unavailableRepoIds,
+            absenceRecords: snapshot.absenceRecords
         )
     }
 
@@ -478,7 +482,8 @@ enum WorkspaceSQLiteStateBridge {
             watchedPathStableKeysByID: Dictionary(
                 uniqueKeysWithValues: topology.watchedPaths.map { ($0.id, $0.stableKey) }
             ),
-            updatedAt: updatedAt
+            updatedAt: updatedAt,
+            absenceRecords: topology.absenceRecords
         )
     }
 

@@ -24,10 +24,8 @@ final class CommandBarRepoScopeItemCache {
         groupPriority: Int,
         dispatcher: any AppCommandDispatching
     ) -> [CommandBarItem] {
-        let repositoryIDs = store.repositoryTopologyAtom.repositoryIdsInOrder
-        let repositories = repositoryIDs.compactMap { repositoryID in
-            store.repositoryTopologyAtom.repo(repositoryID)
-        }
+        let repositories = CommandBarDataSource.availableRepositories(store: store)
+        let repositoryIDs = repositories.map(\.id)
         let presenceByWorktreeID = CommandBarDataSource.buildWorktreePresenceByWorktreeId(
             repos: repositories,
             locationsByWorktreeId: CommandBarDataSource.worktreeLocationsByWorktreeId(store: store)

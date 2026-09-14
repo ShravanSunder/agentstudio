@@ -24,6 +24,7 @@ package struct RemoteReferenceAcceptance: Equatable, Sendable {
 }
 
 struct RemoteReferenceRegistration: Sendable {
+    var observationLifetime: RepositoryObservationLifetime?
     let repoId: UUID
     var repositoryPath: URL
     var remoteName: String

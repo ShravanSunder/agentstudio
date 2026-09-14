@@ -574,7 +574,10 @@ extension WebKitSerializedTests {
                         )
                     ),
                     repoId: setup.repoId,
-                    worktreeId: setup.worktree.id
+                    worktreeId: setup.worktree.id,
+                    observationLifetime: .worktree(
+                        try #require(
+                            harness.store.repositoryTopologyAtom.worktreeObservationLifetimes[setup.worktree.id]))
                 )
             )
             let oldResult = await oldAcquisition.result

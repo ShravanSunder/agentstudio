@@ -108,54 +108,159 @@ extension FilesystemActor {
             mayReplaceNegativeSpace: latestCoverage == result.demandCoverage
         )
 
-        let mutation: WatchedFolderInventoryMutation?
+        let observedAt: RepositoryRetentionTime?
+        if case .authoritativeReplacement = reduction {
+            observedAt = try? await RepositoryRetentionTime.current()
+        } else {
+            observedAt = nil
+        }
+        guard watchedFolderScanState.registrationsBySourceID[sourceID]?.registeredRoot == registration.registeredRoot
+        else {
+            return
+        }
+        let coverage: WatchedFolderTopologyCoverage
         switch reduction {
         case .authoritativeReplacement(let replacement):
-            guard
-                case .additiveMerge(let additiveFallback) = WatchedFolderInventoryReducer.reduce(
-                    previousGroups: previousGroups,
-                    scannerResult: result.scannerResult,
-                    mayReplaceNegativeSpace: false
-                )
-            else {
-                preconditionFailure("complete evidence must support additive fallback")
-            }
-            if let envelopes = prepareAuthoritativeWatchedFolderMutation(
-                replacement,
-                sourceID: sourceID,
-                registration: registration,
-                demandCoverage: result.demandCoverage
-            ) {
-                _ = await runtimeBus.post(contentsOf: envelopes)
+            if let observedAt,
+                watchedFolderScanState.latestDemandCoverageBySourceID[sourceID] == result.demandCoverage
+            {
+                coverage = .authoritative(observedAt)
+                watchedFolderScanState.inventoryBySourceID[sourceID] = .init(repoGroups: replacement.repoGroups)
             } else {
-                watchedFolderScanState.inventoryBySourceID[sourceID] =
-                    FilesystemWatchedFolderInventory(repoGroups: additiveFallback.repoGroups)
-                await emitReposDiscovered(
-                    parentPath: registration.watchedPath.path,
-                    repositories: additiveFallback.changedRepositories
-                )
+                coverage = .additive
+                guard
+                    case .additiveMerge(let fallback) = WatchedFolderInventoryReducer.reduce(
+                        previousGroups: previousGroups, scannerResult: result.scannerResult,
+                        mayReplaceNegativeSpace: false
+                    )
+                else { preconditionFailure("complete evidence must support additive fallback") }
+                watchedFolderScanState.inventoryBySourceID[sourceID] = .init(repoGroups: fallback.repoGroups)
             }
-            mutation = nil
         case .additiveMerge(let replacement):
-            mutation = replacement
-            watchedFolderScanState.inventoryBySourceID[sourceID] =
-                FilesystemWatchedFolderInventory(repoGroups: replacement.repoGroups)
+            coverage = .additive
+            watchedFolderScanState.inventoryBySourceID[sourceID] = .init(repoGroups: replacement.repoGroups)
         case .preserved:
-            mutation = nil
+            coverage = .additive
+        }
+        let entries = Self.validatedEntries(in: result.scannerResult)
+        watchedFolderScanState.validatedPathsBySourceID[sourceID] = Set(entries.map { $0.path.standardizedFileURL })
+        if case .authoritative = coverage {
+            watchedFolderScanState.authoritativeSourceIDs.insert(sourceID)
+        } else {
+            watchedFolderScanState.authoritativeSourceIDs.remove(sourceID)
         }
         watchedFolderScanState.appliedDemandCoverageBySourceID[sourceID] = result.demandCoverage
         watchedFolderScanState.lastAppliedResultIDBySourceID[sourceID] = result.resultID
-
-        if let mutation {
-            await emitReposDiscovered(
-                parentPath: registration.watchedPath.path,
-                repositories: mutation.changedRepositories
-            )
-            await emitRemovedClones(
-                noLongerReferencedByAnyWatchedFolder: mutation.removedClonePaths
-            )
+        var otherPaths = Set<URL>()
+        var otherEntries: [RepoScanner.ResolvedGitEntry] = []
+        var incompleteScopes: [URL] = []
+        for (otherID, otherRegistration) in watchedFolderScanState.registrationsBySourceID where otherID != sourceID {
+            if watchedFolderScanState.authoritativeSourceIDs.contains(otherID),
+                let applied = watchedFolderScanState.appliedDemandCoverageBySourceID[otherID],
+                applied == watchedFolderScanState.latestDemandCoverageBySourceID[otherID]
+            {
+                otherPaths.formUnion(watchedFolderScanState.validatedPathsBySourceID[otherID] ?? [])
+                otherEntries.append(
+                    contentsOf: watchedFolderScanState.latestObservationReceipts[otherID]?.observation.entries ?? [])
+            } else {
+                incompleteScopes.append(otherRegistration.watchedPath.path.standardizedFileURL)
+                incompleteScopes.append(
+                    URL(fileURLWithPath: otherRegistration.registeredRoot.aliases.onceResolvedCanonical.path))
+            }
         }
+        nextEnvelopeSequence += 1
+        let observation = WatchedFolderTopologyObservation(
+            root: registration.watchedPath.path, registration: registration.registeredRoot.registration,
+            entries: entries, otherObservedPaths: otherPaths, coverage: coverage,
+            baselineMembershipRevision: result.request.baselineMembershipRevision,
+            incompleteOtherScopes: incompleteScopes, demandCoverage: result.demandCoverage,
+            canonicalRoot: URL(fileURLWithPath: registration.registeredRoot.aliases.onceResolvedCanonical.path),
+            overlappingSourceVersions: overlappingSourceVersions(for: registration.registeredRoot),
+            otherObservedEntries: otherEntries
+        )
+        watchedFolderScanState.latestObservationReceipts[sourceID] = .init(
+            sequence: nextEnvelopeSequence, observation: observation)
+        _ = await runtimeBus.post(
+            .system(
+                SystemEnvelope(
+                    source: .builtin(.filesystemWatcher), seq: nextEnvelopeSequence, timestamp: envelopeClock.now,
+                    event: .topology(.watchedFolderReconciled(observation))
+                )))
         completeManualRefreshIfSatisfied()
+    }
+
+    package func currentWatchedFolderObservationReceipts() -> [WatchedFolderTopologyReceipt] {
+        watchedFolderScanState.latestObservationReceipts.values.filter {
+            isCurrentWatchedFolderObservation($0.observation)
+        }
+    }
+
+    package func areCurrentWatchedFolderObservations(_ observations: [WatchedFolderTopologyObservation]) -> Bool {
+        observations.allSatisfy(isCurrentWatchedFolderObservation)
+    }
+
+    private func isCurrentWatchedFolderObservation(_ observation: WatchedFolderTopologyObservation) -> Bool {
+        let sourceID = observation.registration.sourceID
+        guard let registration = watchedFolderScanState.registrationsBySourceID[sourceID],
+            registration.registeredRoot.registration == observation.registration,
+            registration.watchedPath.path.standardizedFileURL == observation.root.standardizedFileURL,
+            registration.registeredRoot.aliases.onceResolvedCanonical.path == observation.canonicalRoot.path,
+            let coverage = observation.demandCoverage,
+            watchedFolderScanState.latestDemandCoverageBySourceID[sourceID] == coverage,
+            watchedFolderScanState.appliedDemandCoverageBySourceID[sourceID] == coverage
+        else { return false }
+        let currentOverlaps = overlappingSourceVersions(for: registration.registeredRoot)
+        guard Set(currentOverlaps.keys) == Set(observation.overlappingSourceVersions.keys) else { return false }
+        return observation.overlappingSourceVersions.allSatisfy { sourceID, expected in
+            guard let current = currentOverlaps[sourceID], current.registration == expected.registration else {
+                return false
+            }
+            // A region captured as incomplete remains protected even if its scan subsequently finishes.
+            guard let authoritativeCoverage = expected.authoritativeCoverage else { return true }
+            return current.authoritativeCoverage == authoritativeCoverage
+        }
+    }
+
+    private func overlappingSourceVersions(
+        for root: RegisteredRootDescriptor
+    ) -> [FilesystemSourceID: WatchedFolderTopologySourceVersion] {
+        var versions: [FilesystemSourceID: WatchedFolderTopologySourceVersion] = [:]
+        for (sourceID, other) in watchedFolderScanState.registrationsBySourceID
+        where sourceID != root.sourceID && Self.watchedRootsOverlap(root, other.registeredRoot) {
+            let applied = watchedFolderScanState.appliedDemandCoverageBySourceID[sourceID]
+            let isComplete =
+                watchedFolderScanState.authoritativeSourceIDs.contains(sourceID)
+                && applied == watchedFolderScanState.latestDemandCoverageBySourceID[sourceID]
+            versions[sourceID] = .init(
+                registration: other.registeredRoot.registration, authoritativeCoverage: isComplete ? applied : nil)
+        }
+        return versions
+    }
+
+    private static func watchedRootsOverlap(_ first: RegisteredRootDescriptor, _ second: RegisteredRootDescriptor)
+        -> Bool
+    {
+        let isCaseInsensitive =
+            first.volumeSemantics.casePolicy == .caseInsensitive
+            || second.volumeSemantics.casePolicy == .caseInsensitive
+        func normalizedPath(_ root: RegisteredRootDescriptor) -> String {
+            let path = FilesystemRootOwnership.canonicalizeKernelPath(root.aliases.onceResolvedCanonical.path)
+                .precomposedStringWithCanonicalMapping
+            return isCaseInsensitive ? path.lowercased() : path
+        }
+        let firstPath = normalizedPath(first)
+        let secondPath = normalizedPath(second)
+        return firstPath == "/" || secondPath == "/" || firstPath == secondPath
+            || firstPath.hasPrefix(secondPath + "/") || secondPath.hasPrefix(firstPath + "/")
+    }
+
+    private static func validatedEntries(in result: RepoScannerResult) -> [RepoScanner.ResolvedGitEntry] {
+        switch result {
+        case .completeAuthoritative(let scan): return scan.verifiedEntries
+        case .partial(let scan): return scan.verifiedEntries
+        case .cancelled(let scan): return scan.verifiedEntries
+        case .failed, .unavailable: return []
+        }
     }
 
     func completeManualRefreshIfSatisfied() {
@@ -178,54 +283,6 @@ extension FilesystemActor {
         else { return }
         watchedFolderScanState.manualRefreshState = .running(id: refreshID, task: refreshTask)
         manualRefresh.continuation.resume(returning: watchedFolderRefreshSummary())
-    }
-
-    private func prepareAuthoritativeWatchedFolderMutation(
-        _ mutation: WatchedFolderInventoryMutation,
-        sourceID: FilesystemSourceID,
-        registration: FilesystemWatchedFolderRegistration,
-        demandCoverage: WatchedFolderScanDemandCoverage
-    ) -> [RuntimeEnvelope]? {
-        guard watchedFolderScanState.latestDemandCoverageBySourceID[sourceID] == demandCoverage else {
-            return nil
-        }
-
-        watchedFolderScanState.inventoryBySourceID[sourceID] =
-            FilesystemWatchedFolderInventory(repoGroups: mutation.repoGroups)
-        var envelopes: [RuntimeEnvelope] = []
-        if !mutation.changedRepositories.isEmpty {
-            nextEnvelopeSequence += 1
-            envelopes.append(
-                .system(
-                    SystemEnvelope(
-                        source: .builtin(.filesystemWatcher),
-                        seq: nextEnvelopeSequence,
-                        timestamp: envelopeClock.now,
-                        event: .topology(
-                            .reposDiscovered(
-                                parentPath: registration.watchedPath.path,
-                                repositories: mutation.changedRepositories
-                            )
-                        )
-                    )
-                )
-            )
-        }
-        for repoPath in mutation.removedClonePaths.sorted(by: Self.sortByPath) {
-            guard !isReferencedByAnyWatchedFolder(repoPath) else { continue }
-            nextEnvelopeSequence += 1
-            envelopes.append(
-                .system(
-                    SystemEnvelope(
-                        source: .builtin(.filesystemWatcher),
-                        seq: nextEnvelopeSequence,
-                        timestamp: envelopeClock.now,
-                        event: .topology(.repoRemoved(repoPath: repoPath))
-                    )
-                )
-            )
-        }
-        return envelopes
     }
 
     func watchedFolderRefreshSummary() -> WatchedFolderRefreshSummary {

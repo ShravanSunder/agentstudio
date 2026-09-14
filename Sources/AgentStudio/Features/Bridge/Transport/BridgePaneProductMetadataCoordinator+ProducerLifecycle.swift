@@ -121,8 +121,8 @@ struct BridgePaneProductMetadataProducerTaskLifecycle {
             do {
                 if let bootstrapPredecessor {
                     await bootstrapPredecessor.value
-                    try Task.checkCancellation()
                 }
+                try Task.checkCancellation()
                 try await operation(traceContext)
             } catch {
                 let foregroundWorkWasInvalidated =

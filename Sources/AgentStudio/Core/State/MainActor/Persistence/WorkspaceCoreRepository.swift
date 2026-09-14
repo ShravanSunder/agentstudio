@@ -318,6 +318,7 @@ enum WorkspaceCoreRepositoryError: Error, Equatable {
     )
     case paneNotFoundInWorkspace(UUID, UUID)
     case worktreeNotFound(UUID)
+    case worktreeReparentingChangedLocation(UUID)
     case tabNotFoundInWorkspace(UUID, UUID)
     case drawerNotFoundInWorkspace(UUID, UUID)
     case drawerParentPaneMissing(drawerId: UUID, parentPaneId: UUID)

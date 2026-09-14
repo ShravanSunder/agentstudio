@@ -3,30 +3,31 @@ import GRDB
 
 func replaceRepositoryTopologyRows(
     _ database: Database,
-    topology: WorkspaceCoreRepository.RepositoryTopologyRecord
+    topology: WorkspaceCoreRepository.RepositoryTopologyRecord,
+    reparenting: [RepositoryWorktreeReparenting]
 ) throws {
     let incomingWorktrees = topology.repos.flatMap(\.worktrees)
-    try preflightIncomingWorktreeIdentity(database, worktrees: incomingWorktrees)
-    try replaceUnavailableRepoRows(database, repoIds: [])
+    try preflightIncomingWorktreeIdentity(database, worktrees: incomingWorktrees, reparenting: reparenting)
+    try RepositoryAbsenceStorage.clear(database)
     try replaceWatchedPathRows(database, watchedPaths: topology.watchedPaths)
     try reconcileRepoRows(database, repos: topology.repos)
+    for transition in reparenting {
+        try database.execute(
+            sql: "UPDATE worktree SET repo_id = ? WHERE id = ? AND repo_id = ?",
+            arguments: [
+                transition.repositoryID.uuidString, transition.worktreeID.uuidString,
+                transition.expectedRepositoryID.uuidString,
+            ]
+        )
+    }
     try reconcileWorktreeRows(
         database,
         repoId: nil,
         worktrees: incomingWorktrees
     )
     try replaceRepoTagRows(database, repos: topology.repos)
-    try replaceUnavailableRepoRows(database, repoIds: topology.unavailableRepoIds)
-}
-
-func replaceUnavailableRepoRows(
-    _ database: Database,
-    repoIds: Set<UUID>
-) throws {
-    try database.execute(sql: "DELETE FROM unavailable_repo")
-    for repoId in repoIds.sorted(by: { $0.uuidString < $1.uuidString }) {
-        try insertUnavailableRepo(database, repoId: repoId)
-    }
+    try RepositoryAbsenceStorage.replace(database, records: topology.absenceRecords)
+    try clearInvalidPaneTopologyFacets(database)
 }
 
 func reconcileRepoWorktreeRows(
@@ -70,17 +71,41 @@ private func reconcileRepoRows(
 
 private func preflightIncomingWorktreeIdentity(
     _ database: Database,
-    worktrees: [WorkspaceCoreRepository.WorktreeRecord]
+    worktrees: [WorkspaceCoreRepository.WorktreeRecord],
+    reparenting: [RepositoryWorktreeReparenting]
 ) throws {
-    for worktree in worktrees {
-        guard let currentIdentity = try fetchWorktreeIdentity(database, worktreeId: worktree.id) else {
-            continue
+    var transitionsByID: [UUID: RepositoryWorktreeReparenting] = [:]
+    let incomingByID = Dictionary(uniqueKeysWithValues: worktrees.map { ($0.id, $0) })
+    for transition in reparenting {
+        guard transitionsByID.updateValue(transition, forKey: transition.worktreeID) == nil else {
+            throw WorkspaceCoreRepositoryError.duplicateWorktreeId(transition.worktreeID)
         }
-        guard currentIdentity.repoId == worktree.repoId else {
+        guard let incoming = incomingByID[transition.worktreeID] else {
+            throw WorkspaceCoreRepositoryError.worktreeNotFound(transition.worktreeID)
+        }
+        guard incoming.repoId == transition.repositoryID else {
             throw WorkspaceCoreRepositoryError.worktreeRepoMismatch(
-                worktreeId: worktree.id,
-                expectedRepoId: worktree.repoId,
-                actualRepoId: currentIdentity.repoId
+                worktreeId: incoming.id, expectedRepoId: transition.repositoryID, actualRepoId: incoming.repoId
+            )
+        }
+        // A checkout can change families before its first debounced save; no persisted owner exists yet.
+        guard let current = try fetchWorktreeIdentity(database, worktreeId: transition.worktreeID) else { continue }
+        guard current.repoId == transition.expectedRepositoryID || current.repoId == transition.repositoryID
+        else {
+            throw WorkspaceCoreRepositoryError.worktreeRepoMismatch(
+                worktreeId: transition.worktreeID, expectedRepoId: transition.expectedRepositoryID,
+                actualRepoId: current.repoId
+            )
+        }
+        guard incoming.stableKey == current.stableKey else {
+            throw WorkspaceCoreRepositoryError.worktreeReparentingChangedLocation(incoming.id)
+        }
+    }
+    for worktree in worktrees {
+        guard let currentIdentity = try fetchWorktreeIdentity(database, worktreeId: worktree.id) else { continue }
+        guard currentIdentity.repoId == worktree.repoId || transitionsByID[worktree.id] != nil else {
+            throw WorkspaceCoreRepositoryError.worktreeRepoMismatch(
+                worktreeId: worktree.id, expectedRepoId: worktree.repoId, actualRepoId: currentIdentity.repoId
             )
         }
     }
@@ -354,19 +379,6 @@ private func updateWorktree(
     )
 }
 
-private func insertUnavailableRepo(
-    _ database: Database,
-    repoId: UUID
-) throws {
-    try database.execute(
-        sql: """
-            INSERT INTO unavailable_repo(repo_id)
-            VALUES (?)
-            """,
-        arguments: [repoId.uuidString]
-    )
-}
-
 private func insertRepoTag(
     _ database: Database,
     repoId: UUID,
@@ -402,7 +414,7 @@ private func fetchWorktreeIdentity(
         let row = try Row.fetchOne(
             database,
             sql: """
-                SELECT repo_id
+                SELECT repo_id, stable_key
                 FROM worktree
                 WHERE id = ?
                 """,
@@ -415,7 +427,7 @@ private func fetchWorktreeIdentity(
     guard let repoId = UUID(uuidString: repoIdString) else {
         throw WorkspaceCoreRepositoryError.malformedRepoId(repoIdString)
     }
-    return .init(repoId: repoId)
+    return .init(repoId: repoId, stableKey: row["stable_key"])
 }
 
 private func repoArguments(
@@ -476,6 +488,7 @@ private func placeholders(count: Int) -> String {
 
 private struct WorktreeIdentity {
     let repoId: UUID
+    let stableKey: String
 }
 
 extension Set where Element == UUID {

@@ -1,5 +1,4 @@
 import Foundation
-import Synchronization
 import Testing
 
 @testable import AgentStudio
@@ -153,16 +152,24 @@ struct BackgroundFactApplyGovernorTests {
             timeUnixNano: { 939 }
         )
         let recorder = AgentStudioPerformanceTraceRecorder(traceRuntime: traceRuntime)
-        let clock = MainActorEntryAdvancingClock()
+        let clock = TestPushClock()
+        var shouldAdvanceAtMainActorEntry = true
         var appliedFacts: [String] = []
         let governor = BackgroundFactApplyGovernor<Int, String>(
             tickCadence: .zero,
             drainBudget: .milliseconds(20),
             clock: clock,
+            readMainActorInstant: { clock in
+                MainActor.assertIsolated()
+                if shouldAdvanceAtMainActorEntry {
+                    shouldAdvanceAtMainActorEntry = false
+                    clock.advance(by: .milliseconds(10))
+                }
+                return clock.now
+            },
             performanceTraceRecorder: recorder,
             prepareApply: { _, fact in
-                clock.advanceOnNextMainThreadRead(by: .milliseconds(10))
-                return { @MainActor in
+                { @MainActor in
                     appliedFacts.append(fact)
                     clock.advance(by: .milliseconds(2))
                 }
@@ -232,36 +239,5 @@ struct BackgroundFactApplyGovernorTests {
         #expect(contents.contains("\"agentstudio.performance.apply_governor.queue_wait_ms\":0"))
         #expect(contents.contains("\"agentstudio.performance.apply_governor.mainactor_held_ms\":2"))
         #expect(contents.contains("\"agentstudio.performance.apply_governor.max_single_fact_ms\":2"))
-    }
-}
-
-// Advance at the macOS MainActor entry boundary, not at a racing preparation signal.
-private final class MainActorEntryAdvancingClock: Clock, Sendable {
-    typealias Instant = TestPushClock.Instant
-    typealias Duration = Swift.Duration
-
-    private let clock = TestPushClock()
-    private let pendingAdvance = Mutex<Duration?>(nil)
-
-    var now: Instant {
-        pendingAdvance.withLock { pending in
-            if Thread.isMainThread, let duration = pending {
-                pending = nil
-                clock.advance(by: duration)
-            }
-            return clock.now
-        }
-    }
-
-    var minimumResolution: Duration { clock.minimumResolution }
-
-    func advanceOnNextMainThreadRead(by duration: Duration) {
-        pendingAdvance.withLock { $0 = duration }
-    }
-
-    func advance(by duration: Duration) { clock.advance(by: duration) }
-
-    func sleep(until deadline: Instant, tolerance: Duration?) async throws {
-        try await clock.sleep(until: deadline, tolerance: tolerance)
     }
 }

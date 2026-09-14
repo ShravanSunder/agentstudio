@@ -27,7 +27,7 @@ package enum DrawerDropDispatch {
                 from: store.tabLayoutAtom.tabs,
                 activeTabId: store.tabLayoutAtom.activeTabId,
                 isManagementLayerActive: atom(\.managementLayer).isActive,
-                knownWorktreeIds: Set(store.repositoryTopologyAtom.repos.flatMap(\.worktrees).map(\.id)),
+                knownWorktreeIds: store.repositoryTopologyAtom.availableWorktreeIDs,
                 drawerParentByPaneId: drawerParentByPaneId(store: store),
                 drawerLayoutByParentPaneId: drawerLayoutByParentPaneId(store: store),
                 visiblePaneIds: { tab in

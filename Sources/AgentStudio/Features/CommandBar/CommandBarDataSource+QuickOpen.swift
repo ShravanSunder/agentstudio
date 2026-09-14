@@ -8,8 +8,7 @@ extension CommandBarDataSource {
         dispatcher: any AppCommandDispatching
     ) -> [CommandBarItem] {
         let presenceByWorktreeID = buildWorktreePresenceByWorktreeId(store: store)
-        return store.repositoryTopologyAtom.repos
-            .filter { !store.repositoryTopologyAtom.isRepoUnavailable($0.id) }
+        return availableRepositories(store: store)
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
             .flatMap { repository -> [CommandBarItem] in
                 guard let defaultWorktree = quickOpenDefaultWorktree(for: repository) else {
@@ -293,7 +292,8 @@ extension CommandBarDataSource {
             guard
                 let repository = store.repositoryTopologyAtom.repo(stableKey: repositoryStableKey),
                 !store.repositoryTopologyAtom.isRepoUnavailable(repository.id),
-                quickOpenDefaultWorktree(for: repository) != nil
+                store.repositoryTopologyAtom.activationWorktree(
+                    for: .repository(repositoryStableKey: repositoryStableKey)) != nil
             else {
                 return nil
             }
@@ -302,7 +302,8 @@ extension CommandBarDataSource {
             guard
                 let worktree = store.repositoryTopologyAtom.worktree(stableKey: worktreeStableKey),
                 let repository = store.repositoryTopologyAtom.repo(containing: worktree.id),
-                !store.repositoryTopologyAtom.isRepoUnavailable(repository.id)
+                !store.repositoryTopologyAtom.isRepoUnavailable(repository.id),
+                !store.repositoryTopologyAtom.isWorktreeUnavailable(worktree.id)
             else {
                 return nil
             }

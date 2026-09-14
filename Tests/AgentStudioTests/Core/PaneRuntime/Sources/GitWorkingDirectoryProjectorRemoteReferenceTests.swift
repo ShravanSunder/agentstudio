@@ -16,7 +16,7 @@ struct GitWorkingDirectoryProjectorRemoteReferenceTests {
                 bus: EventBus<RuntimeEnvelope>(),
                 gitWorkingTreeProvider: StubGitWorkingTreeStatusProvider { _ in nil },
                 coalescingWindow: .zero,
-                remoteReferenceOriginHandler: { repositoryID, origin in
+                remoteReferenceOriginHandler: { repositoryID, origin, _ in
                     await originRecorder.record(repositoryID: repositoryID, origin: origin)
                 }
             )

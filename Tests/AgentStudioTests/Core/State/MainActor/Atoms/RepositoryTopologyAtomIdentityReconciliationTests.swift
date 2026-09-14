@@ -65,14 +65,14 @@ struct RepositoryTopologyAtomIdentityReconciliationTests {
     }
 
     @Test(
-        "scanned reconciliation preserves identity by path, main-worktree role, and name",
+        "scanned reconciliation preserves identity only at the same path",
         arguments: [
             ExistingIdentityMatchKind.path,
             ExistingIdentityMatchKind.mainWorktree,
             ExistingIdentityMatchKind.name,
         ]
     )
-    func scannedReconciliationPreservesIdentityByEverySupportedMatch(
+    func scannedReconciliationPreservesIdentityOnlyByPath(
         matchKind: ExistingIdentityMatchKind
     ) throws {
         let atom = RepositoryTopologyAtom()
@@ -131,10 +131,17 @@ struct RepositoryTopologyAtomIdentityReconciliationTests {
             Issue.record("expected reconciliation acceptance")
             return
         }
-        #expect(atom.worktree(existingNameMatchedWorktree.id)?.id == existingNameMatchedWorktree.id)
-        #expect(acceptance.delta.preservedWorktreeIds.contains(existingNameMatchedWorktree.id))
-        #expect(acceptance.delta.addedWorktreeIds.isEmpty)
-        #expect(acceptance.delta.removedWorktrees.isEmpty)
+        switch matchKind {
+        case .path:
+            #expect(atom.worktree(existingNameMatchedWorktree.id)?.id == existingNameMatchedWorktree.id)
+            #expect(acceptance.delta.preservedWorktreeIds.contains(existingNameMatchedWorktree.id))
+            #expect(acceptance.delta.addedWorktreeIds.isEmpty)
+            #expect(acceptance.delta.removedWorktrees.isEmpty)
+        case .mainWorktree, .name:
+            #expect(!acceptance.delta.preservedWorktreeIds.contains(existingNameMatchedWorktree.id))
+            #expect(acceptance.delta.addedWorktreeIds.count == 1)
+            #expect(acceptance.delta.removedWorktrees.contains { $0.id == existingNameMatchedWorktree.id })
+        }
     }
 
     @Test("scanned reconciliation reports mixed preserved added and removed identities")

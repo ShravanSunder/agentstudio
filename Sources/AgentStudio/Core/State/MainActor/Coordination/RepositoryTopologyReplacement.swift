@@ -18,6 +18,7 @@ package enum RepositoryTopologyIdentityRejection: Error, Equatable, Sendable {
     case availableRepositoryMainWorktreeMissing(UUID)
     case availableRepositoryHasMultipleMainWorktrees(UUID)
     case availableRepositoryMainWorktreePathMismatch(UUID)
+    case invalidAbsenceOwnership(RepositoryTopologyAbsenceValidationError)
 }
 
 package struct RepositoryTopologyStableIdentity: Equatable, Sendable {
@@ -61,7 +62,8 @@ enum RepositoryTopologyReplacementPreparation: Sendable {
 struct RepositoryTopologyReplacement: Sendable {
     let repositories: [Repo]
     let watchedPaths: [WatchedPath]
-    let unavailableRepositoryIDs: Set<UUID>
+    let absenceRecords: RepositoryTopologyAbsenceRecords
+    var unavailableRepositoryIDs: Set<UUID> { absenceRecords.unavailableRepositoryIDs }
     let repositoryStableKeysByID: [UUID: String]
     let worktreeStableKeysByID: [UUID: String]
     let watchedPathStableKeysByID: [UUID: String]
@@ -70,11 +72,12 @@ struct RepositoryTopologyReplacement: Sendable {
         repositories: [Repo],
         watchedPaths: [WatchedPath],
         unavailableRepositoryIDs: Set<UUID>,
-        stableIdentity: RepositoryTopologyStableIdentity
+        stableIdentity: RepositoryTopologyStableIdentity,
+        absenceRecords: RepositoryTopologyAbsenceRecords
     ) {
         self.repositories = repositories
         self.watchedPaths = watchedPaths
-        self.unavailableRepositoryIDs = unavailableRepositoryIDs
+        self.absenceRecords = absenceRecords.addingLegacyUnavailableRepositories(unavailableRepositoryIDs)
         self.repositoryStableKeysByID = stableIdentity.repositoryStableKeysByID
         self.worktreeStableKeysByID = stableIdentity.worktreeStableKeysByID
         self.watchedPathStableKeysByID = stableIdentity.watchedPathStableKeysByID
@@ -84,13 +87,15 @@ struct RepositoryTopologyReplacement: Sendable {
         repositories: [Repo],
         watchedPaths: [WatchedPath],
         unavailableRepositoryIDs: Set<UUID>,
-        stableIdentity: RepositoryTopologyStableIdentity
+        stableIdentity: RepositoryTopologyStableIdentity,
+        absenceRecords: RepositoryTopologyAbsenceRecords = .init()
     ) -> RepositoryTopologyReplacementPreparation {
         if let rejection = validateIdentity(
             repositories: repositories,
             watchedPaths: watchedPaths,
             unavailableRepositoryIDs: unavailableRepositoryIDs,
-            stableIdentity: stableIdentity
+            stableIdentity: stableIdentity,
+            absenceRecords: absenceRecords
         ) {
             return .rejected(rejection)
         }
@@ -99,7 +104,8 @@ struct RepositoryTopologyReplacement: Sendable {
                 repositories: repositories,
                 watchedPaths: watchedPaths,
                 unavailableRepositoryIDs: unavailableRepositoryIDs,
-                stableIdentity: stableIdentity
+                stableIdentity: stableIdentity,
+                absenceRecords: absenceRecords
             )
         )
     }
@@ -121,7 +127,8 @@ struct RepositoryTopologyReplacement: Sendable {
         repositories: [Repo],
         watchedPaths: [WatchedPath],
         unavailableRepositoryIDs: Set<UUID>,
-        stableIdentity: RepositoryTopologyStableIdentity
+        stableIdentity: RepositoryTopologyStableIdentity,
+        absenceRecords: RepositoryTopologyAbsenceRecords
     ) -> RepositoryTopologyIdentityRejection? {
         var repositoryIDs = Set<UUID>()
         var worktreeIDs = Set<UUID>()
@@ -177,10 +184,25 @@ struct RepositoryTopologyReplacement: Sendable {
         if let missingID = unavailableRepositoryIDs.first(where: { !repositoryIDs.contains($0) }) {
             return .unavailableRepositoryMissing(missingID)
         }
+        if let absenceError = absenceRecords.validationError(
+            repositoryIDs: repositoryIDs,
+            unavailableRepositoryIDs: unavailableRepositoryIDs,
+            worktreeIDs: worktreeIDs
+        ) {
+            return .invalidAbsenceOwnership(absenceError)
+        }
         for repository in repositories where !unavailableRepositoryIDs.contains(repository.id) {
             let mainWorktrees = repository.worktrees.filter(\.isMainWorktree)
-            guard !mainWorktrees.isEmpty else {
-                return .availableRepositoryMainWorktreeMissing(repository.id)
+            if mainWorktrees.isEmpty {
+                let rootIsPresent = repository.worktrees.contains {
+                    $0.path.standardizedFileURL == repository.repoPath.standardizedFileURL
+                        || stableIdentity.worktreeStableKeysByID[$0.id]
+                            == stableIdentity.repositoryStableKeysByID[repository.id]
+                }
+                guard !repository.worktrees.isEmpty, !rootIsPresent else {
+                    return .availableRepositoryMainWorktreeMissing(repository.id)
+                }
+                continue
             }
             guard mainWorktrees.count == 1 else {
                 return .availableRepositoryHasMultipleMainWorktrees(repository.id)

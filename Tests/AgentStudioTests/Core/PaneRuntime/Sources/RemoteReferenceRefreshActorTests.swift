@@ -242,29 +242,35 @@ struct RemoteReferenceRefreshActorTests {
         )
         let captureCountBeforeReplacement = await fixture.provider.captureCount
 
-        await actor.assertTopology([
-            fixture.worktreeId: WorktreeFilesystemContext(
-                repoId: fixture.repoId,
-                rootPath: fixture.repositoryPath
-            ),
-            secondWorktreeId: WorktreeFilesystemContext(
-                repoId: fixture.repoId,
-                rootPath: fixture.repositoryPath.appending(path: "second-worktree")
-            ),
-        ])
+        await actor.assertTopology(
+            .init(
+                generation: 0,
+                contextsByWorktreeId: [
+                    fixture.worktreeId: WorktreeFilesystemContext(
+                        repoId: fixture.repoId,
+                        rootPath: fixture.repositoryPath
+                    ),
+                    secondWorktreeId: WorktreeFilesystemContext(
+                        repoId: fixture.repoId,
+                        rootPath: fixture.repositoryPath.appending(path: "second-worktree")
+                    ),
+                ]))
 
         #expect(await fixture.provider.captureCount == captureCountBeforeReplacement + 1)
         let captureCountAfterReplacement = await fixture.provider.captureCount
-        await actor.assertTopology([
-            secondWorktreeId: WorktreeFilesystemContext(
-                repoId: fixture.repoId,
-                rootPath: fixture.repositoryPath.appending(path: "second-worktree")
-            ),
-            fixture.worktreeId: WorktreeFilesystemContext(
-                repoId: fixture.repoId,
-                rootPath: fixture.repositoryPath
-            ),
-        ])
+        await actor.assertTopology(
+            .init(
+                generation: 0,
+                contextsByWorktreeId: [
+                    secondWorktreeId: WorktreeFilesystemContext(
+                        repoId: fixture.repoId,
+                        rootPath: fixture.repositoryPath.appending(path: "second-worktree")
+                    ),
+                    fixture.worktreeId: WorktreeFilesystemContext(
+                        repoId: fixture.repoId,
+                        rootPath: fixture.repositoryPath
+                    ),
+                ]))
         #expect(await fixture.provider.captureCount == captureCountAfterReplacement)
         await actor.shutdown()
     }
@@ -591,14 +597,17 @@ struct RemoteReferenceRefreshActorTests {
         )
         await actor.setOrigin(repoId: fixture.repoId, expectedOrigin: fixture.originA)
 
-        await actor.assertTopology([:])
+        await actor.assertTopology(.init(generation: 0, contextsByWorktreeId: [:]))
         await fixture.provider.configureSnapshot(remoteURL: fixture.originB, references: [])
-        await actor.assertTopology([
-            fixture.worktreeId: WorktreeFilesystemContext(
-                repoId: fixture.repoId,
-                rootPath: fixture.repositoryPath
-            )
-        ])
+        await actor.assertTopology(
+            .init(
+                generation: 0,
+                contextsByWorktreeId: [
+                    fixture.worktreeId: WorktreeFilesystemContext(
+                        repoId: fixture.repoId,
+                        rootPath: fixture.repositoryPath
+                    )
+                ]))
         await actor.setOrigin(repoId: fixture.repoId, expectedOrigin: fixture.originB)
 
         #expect(await fixture.acceptanceRecorder.localAcceptanceOrigins == [fixture.originA])
@@ -657,13 +666,16 @@ struct RemoteReferenceRefreshActorTests {
         )
         await actor.setOrigin(repoId: fixture.repoId, expectedOrigin: fixture.originA)
 
-        await actor.assertTopology([:])
-        await actor.assertTopology([
-            fixture.worktreeId: WorktreeFilesystemContext(
-                repoId: fixture.repoId,
-                rootPath: fixture.repositoryPath
-            )
-        ])
+        await actor.assertTopology(.init(generation: 0, contextsByWorktreeId: [:]))
+        await actor.assertTopology(
+            .init(
+                generation: 0,
+                contextsByWorktreeId: [
+                    fixture.worktreeId: WorktreeFilesystemContext(
+                        repoId: fixture.repoId,
+                        rootPath: fixture.repositoryPath
+                    )
+                ]))
         await actor.setOrigin(repoId: fixture.repoId, expectedOrigin: fixture.originA)
 
         #expect(await fixture.acceptanceRecorder.localAcceptanceOrigins == [fixture.originA, fixture.originA])
@@ -854,6 +866,9 @@ struct RemoteReferenceRefreshActorTests {
         await actor.shutdown()
     }
 
+}
+
+extension RemoteReferenceRefreshActorTests {
     @Test("expired currentness retry is consumed while fetch capacity remains occupied")
     func expiredCurrentnessRetryIsConsumedWhileCapacityRemainsOccupied() async {
         let fixture = RemoteReferenceRefreshFixture(suspendStaging: true)

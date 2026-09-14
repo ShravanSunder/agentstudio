@@ -40,6 +40,7 @@ large_non_webkit_filter_pattern() {
 large_serial_non_webkit_filter_pattern() {
   local patterns=(
     BridgePackagedProductJourneyScriptTests
+    GitRefreshPerformanceWorkloadScriptTests
     SidebarPerformanceWorkloadScriptTests
     SidebarPerformanceWorkloadSettlementScriptTests
     PaneAgentLaunchOwnerTests
@@ -398,6 +399,7 @@ WebKitSerializedTests/BridgeReviewContentStreamTransportTests
 WebKitSerializedTests/WorkspaceSurfaceCoordinatorViewFactoryTests
 WebKitSerializedTests/WorkspaceBridgeGitReadActivityOrderingTests
 WebKitSerializedTests/WorkspaceBridgePaneRefreshIntegrationTests
+WebKitSerializedTests/RepositoryBridgeObservationLifetimeTests
 WebKitSerializedTests/WorkspaceBridgeConstructionIntegrationTests
 WebKitSerializedTests/WorkspaceBridgePaneActivityIntegrationTests
 WebKitSerializedTests/WorkspaceBridgePaneActivityRemediationTests

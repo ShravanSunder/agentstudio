@@ -518,7 +518,14 @@ struct WorkspaceSurfaceCoordinatorFilesystemSourceTests {
             sequence: 1
         )
 
-        await coordinator.publishCurrentDerivedFilesystemEnvelopes([currentEnvelope, staleEnvelope])
+        await coordinator.publishCurrentDerivedFilesystemEnvelopes(
+            [currentEnvelope, staleEnvelope],
+            source: RuntimeEnvelopeHarness.filesystemEnvelope(
+                event: .filesChanged(
+                    changeset: FileChangeset(
+                        worktreeId: worktree.id, repoId: repo.id, rootPath: worktree.path,
+                        paths: ["Sources/App.swift"], timestamp: .now, batchSeq: 1)),
+                repoId: repo.id, worktreeId: worktree.id))
 
         await assertEventuallyAsync("only current pane context should publish") {
             await subscriber.snapshot().count == 1

@@ -1,6 +1,7 @@
-import { chromium, type Page, type Request } from 'playwright';
+import { chromium, type Browser, type Page, type Request } from 'playwright';
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 
+import { runAllOwnedCleanupOperations } from '../../scripts/dev-server/bridge-development-server-process.ts';
 import { collectBridgeViewerProductOnlyContractViolations } from '../../scripts/verify-bridge-viewer-worktree-dev-server/product-only-real-router-contract.ts';
 import { runBridgeViewerProductOnlyJourney } from '../../scripts/verify-bridge-viewer-worktree-dev-server/product-only-real-router-page.ts';
 import {
@@ -82,7 +83,6 @@ interface FileContentScrollObservation {
 
 let disposeFixture: (() => Promise<void>) | null = null;
 let fixtureOracle: BridgeViewerViteProductFixtureOracle | null = null;
-let mutateLargeFileFixture: (() => Promise<BridgeViewerViteProductContentOracle>) | null = null;
 let ownedServer: BridgeViewerOwnedViteProductServer | null = null;
 let ownedServerCleanup: BridgeViewerOwnedViteProductServerCleanup | null = null;
 
@@ -91,7 +91,6 @@ describe('Bridge Viewer dedicated Vite product E2E', () => {
 		const fixture = await createBridgeViewerViteProductFixture();
 		disposeFixture = fixture.dispose;
 		fixtureOracle = fixture.oracle;
-		mutateLargeFileFixture = fixture.mutateLargeFile;
 		ownedServer = await startBridgeViewerOwnedViteProductServer(fixture.oracle);
 	});
 
@@ -214,11 +213,15 @@ describe('Bridge Viewer dedicated Vite product E2E', () => {
 	});
 
 	test('paints complete final File bytes after deep scroll with descriptor, role, request, source, and disposition correlation', async () => {
-		const oracle = requireFixtureOracle();
-		const server = requireOwnedServer();
-		const browser = await chromium.launch({ channel: 'chrome', headless: true });
+		const fixture = await createBridgeViewerViteProductFixture();
+		const oracle = fixture.oracle;
+		let browser: Browser | null = null;
 		let page: Page | null = null;
+		let server: BridgeViewerOwnedViteProductServer | null = null;
+		let primaryFailure: { readonly error: unknown } | null = null;
 		try {
+			server = await startBridgeViewerOwnedViteProductServer(oracle);
+			browser = await chromium.launch({ channel: 'chrome', headless: true });
 			page = await browser.newPage({ viewport: { height: 980, width: 1728 } });
 			const contentRequests = observeProductContentRequests(page);
 			const workerUrls: string[] = [];
@@ -294,8 +297,7 @@ describe('Bridge Viewer dedicated Vite product E2E', () => {
 				}),
 			);
 
-			const mutatedContent = await requireMutateLargeFileFixture()();
-			fixtureOracle = { ...oracle, fileContent: mutatedContent };
+			const mutatedContent = await fixture.mutateLargeFile();
 			await page.reload({
 				timeout: productJourneyTimeoutMilliseconds,
 				waitUntil: 'domcontentloaded',
@@ -337,9 +339,30 @@ describe('Bridge Viewer dedicated Vite product E2E', () => {
 			expect(readFileDescriptorRootRevisionToken(replacementRequest?.descriptor)).toBe(
 				initialRootRevisionToken,
 			);
+		} catch (error: unknown) {
+			primaryFailure = { error };
 		} finally {
-			await page?.close();
-			await browser.close();
+			await runAllOwnedCleanupOperations({
+				operations: [
+					{
+						name: 'browser',
+						run: async (): Promise<void> => {
+							await browser?.close();
+						},
+					},
+					{
+						name: 'Vite and Swift',
+						run: async (): Promise<void> => {
+							if (server === null) return;
+							const cleanup = await server.stop();
+							expect(cleanup.forcedTerminationRequired).toBe(false);
+							expect(cleanup.ownedProcessAliveAfterStop).toBe(false);
+						},
+					},
+					{ name: 'fixture', run: fixture.dispose },
+				],
+				...(primaryFailure === null ? {} : { primaryError: primaryFailure.error }),
+			});
 		}
 	});
 
@@ -925,10 +948,4 @@ function requireFixtureOracle(): BridgeViewerViteProductFixtureOracle {
 function requireOwnedServer(): BridgeViewerOwnedViteProductServer {
 	if (ownedServer === null) throw new Error('Owned Vite product server was not initialized.');
 	return ownedServer;
-}
-
-function requireMutateLargeFileFixture(): () => Promise<BridgeViewerViteProductContentOracle> {
-	if (mutateLargeFileFixture === null)
-		throw new Error('Vite product fixture mutation is unavailable.');
-	return mutateLargeFileFixture;
 }
