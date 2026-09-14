@@ -29,8 +29,12 @@ struct AgentStudioIPCClientMain {
                     let discovery = try IPCCommandDiscovery(methodCatalog: catalog)
                     let listClient = AgentStudioIPCClient(
                         configuration: global.configuration, descriptors: [discovery.commandListInvocation.descriptor])
-                    guard case .success(let response) = try listClient.call(discovery.commandListInvocation) else {
-                        throw CLIExit.rejected
+                    let response: IPCDescriptorClientResponse
+                    switch try listClient.call(discovery.commandListInvocation) {
+                    case .success(let successfulResponse):
+                        response = successfulResponse
+                    case .remoteFailure(let failure):
+                        throw CLIExit.structured(CLIErrorPresentation(remoteFailure: failure))
                     }
                     let commands = try discovery.decodeCommandCatalog(from: response.normalizedResult)
                     if global.methodArguments.first == "command.list" {
@@ -62,7 +66,8 @@ struct AgentStudioIPCClientMain {
                     switch frame {
                     case .initialResponse(let response): try write(response.normalizedResult)
                     case .notification(let notification): print(notification)
-                    case .remoteFailure: throw CLIExit.rejected
+                    case .remoteFailure(let failure):
+                        throw CLIExit.structured(CLIErrorPresentation(remoteFailure: failure))
                     }
                 }
             } else {
@@ -76,23 +81,185 @@ struct AgentStudioIPCClientMain {
                     } else {
                         try write(response.normalizedResult)
                     }
-                case .remoteFailure:
-                    throw CLIExit.rejected
+                case .remoteFailure(let failure):
+                    throw CLIExit.structured(CLIErrorPresentation(remoteFailure: failure))
                 }
             }
-        } catch let failure as IPCDescriptorClientFailure where failure.disposition == .deliveryUncertain {
-            fputs("Delivery uncertain.\n", stderr)
-            exit(1)
         } catch {
-            fputs("Agent Studio request rejected or unavailable.\n", stderr)
-            exit(1)
+            handleFailure(error)
         }
+    }
+
+    private static func handleFailure(_ error: Error) -> Never {
+        switch error {
+        case let failure as IPCCommandDiscoveryError:
+            writeStructuredError(CLIErrorPresentation(commandDiscoveryFailure: failure))
+        case let failure as IPCDescriptorInvocationError:
+            writeStructuredError(CLIErrorPresentation(invocationFailure: failure))
+        case let correction as IPCSchemaValidationError:
+            writeStructuredError(CLIErrorPresentation(schemaCorrection: correction))
+        case let failure as IPCDescriptorRemoteFailure:
+            writeStructuredError(CLIErrorPresentation(remoteFailure: failure))
+        case let failure as AgentStudioIPCClientError where failure.reason == .invalidArguments:
+            writeStructuredError(.localInvalidArguments)
+        case let failure as IPCDescriptorClientFailure where failure.disposition == .deliveryUncertain:
+            fputs("Delivery uncertain.\n", stderr)
+        case let failure as IPCDescriptorClientFailure:
+            if case .unsupportedVersion(let correction) = failure.reason {
+                writeStructuredError(CLIErrorPresentation(unsupportedVersion: correction))
+            } else {
+                writeUnavailableError()
+            }
+        case let error as CLIExit:
+            if case .structured(let presentation) = error {
+                writeStructuredError(presentation)
+            } else {
+                writeUnavailableError()
+            }
+        default:
+            writeUnavailableError()
+        }
+        exit(1)
+    }
+
+    private static func writeUnavailableError() {
+        fputs("Agent Studio request rejected or unavailable.\n", stderr)
     }
 
     private static func write(_ data: Data) throws {
         guard let output = String(data: data, encoding: .utf8) else { throw CLIExit.rejected }
         print(output)
     }
+
+    private static func writeStructuredError(_ error: CLIErrorPresentation) {
+        guard let encoded = try? JSONEncoder().encode(error),
+            let output = String(data: encoded, encoding: .utf8)
+        else {
+            fputs("Agent Studio request rejected or unavailable.\n", stderr)
+            return
+        }
+        fputs("\(output)\n", stderr)
+    }
 }
 
-private enum CLIExit: Error { case rejected }
+private enum CLIExit: Error {
+    case rejected
+    case structured(CLIErrorPresentation)
+}
+
+private struct CLIErrorPresentation: Codable {
+    let reason: String
+    let fieldPath: String?
+    let expected: String?
+    let catalogMethod: String?
+    let requiredScope: IPCPermissionScope?
+
+    init(commandDiscoveryFailure: IPCCommandDiscoveryError) {
+        switch commandDiscoveryFailure.reason {
+        case .unknownCommandIdentifier:
+            reason = "unknownCommand"
+            fieldPath = commandDiscoveryFailure.fieldPath
+            expected = commandDiscoveryFailure.expected
+            catalogMethod = "command.list"
+        case .argumentVariantNotAllowed:
+            reason = "invalidParams"
+            fieldPath = commandDiscoveryFailure.fieldPath
+            expected = commandDiscoveryFailure.expected
+            catalogMethod = "command.list"
+        default:
+            reason = "invalidParams"
+            fieldPath = nil
+            expected = nil
+            catalogMethod = nil
+        }
+        requiredScope = nil
+    }
+
+    init(remoteFailure: IPCDescriptorRemoteFailure) {
+        if let requiredScope = remoteFailure.requiredScope {
+            reason = "missingGrant"
+            fieldPath = "$.authorization"
+            expected = nil
+            catalogMethod = nil
+            self.requiredScope = requiredScope
+            return
+        }
+        if let correction = remoteFailure.correction {
+            reason = "invalidParams"
+            fieldPath = correction.fieldPath
+            expected = correction.expected
+            catalogMethod = nil
+            requiredScope = nil
+            return
+        }
+        reason = remoteFailure.documentedReason ?? "requestRejected"
+        fieldPath = Self.knownFieldPath(for: reason)
+        expected = nil
+        catalogMethod = nil
+        requiredScope = nil
+    }
+
+    init(invocationFailure: IPCDescriptorInvocationError) {
+        if invocationFailure.reason == .unknownMethod {
+            reason = "unknownMethod"
+            fieldPath = "$.method"
+            expected = "a method advertised by system.capabilities"
+            catalogMethod = "system.capabilities"
+        } else {
+            reason = "invalidParams"
+            fieldPath = invocationFailure.fieldPath
+            expected = invocationFailure.expected
+            catalogMethod = nil
+        }
+        requiredScope = nil
+    }
+
+    init(schemaCorrection: IPCSchemaValidationError) {
+        reason = "invalidParams"
+        fieldPath = schemaCorrection.fieldPath
+        expected = schemaCorrection.expected
+        catalogMethod = nil
+        requiredScope = nil
+    }
+
+    init(unsupportedVersion correction: IPCSchemaValidationError) {
+        reason = "unsupportedVersion"
+        fieldPath = Self.safeFieldPath(correction.fieldPath)
+        expected = correction.expected
+        catalogMethod = nil
+        requiredScope = nil
+    }
+
+    static let localInvalidArguments = Self(
+        reason: "invalidParams", fieldPath: "$", expected: "valid CLI arguments",
+        catalogMethod: nil, requiredScope: nil
+    )
+
+    private init(
+        reason: String, fieldPath: String?, expected: String?, catalogMethod: String?,
+        requiredScope: IPCPermissionScope?
+    ) {
+        self.reason = reason
+        self.fieldPath = fieldPath
+        self.expected = expected
+        self.catalogMethod = catalogMethod
+        self.requiredScope = requiredScope
+    }
+
+    private static func knownFieldPath(for reason: String) -> String? {
+        switch reason {
+        case "stateUnavailable", "unknownCommand", "unsupportedCommand": "$.commandId"
+        case "missingGrant": "$.authorization"
+        default: nil
+        }
+    }
+
+    private static func safeFieldPath(_ fieldPath: String?) -> String? {
+        guard let fieldPath,
+            ["$.arguments.kind", "$.authorization", "$.commandId", "$.compatibility"].contains(fieldPath)
+        else {
+            return nil
+        }
+        return fieldPath
+    }
+}

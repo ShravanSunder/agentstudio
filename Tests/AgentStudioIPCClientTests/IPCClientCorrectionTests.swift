@@ -7,6 +7,31 @@ import Testing
 
 @Suite("IPC client finite error corrections", .serialized)
 struct IPCClientCorrectionTests {
+    @Test("schema-produced wrong-type correction survives the real client socket path")
+    func schemaProducedWrongTypeCorrectionSurvivesRemoteFailure() throws {
+        let catalog = try IPCDescriptorClientFixtureCatalog.make()
+        let correction: IPCSchemaValidationError
+        do {
+            _ = try catalog.query.metadata.parameterSchema.normalize(Data("{\"query\":false}".utf8))
+            Issue.record("Expected schema failure")
+            return
+        } catch let failure as IPCSchemaValidationError {
+            correction = failure
+        }
+        let fixture = try makeCorrectionFixture { request in
+            try makeIPCDescriptorClientErrorFrame(
+                id: request.id, code: -32_602, message: "invalid params",
+                data: try JSONRPCCodec.encodeJSONValue(correction)
+            )
+        }
+        defer { fixture.listener.stop() }
+        guard case .remoteFailure(let failure) = try fixture.client.call(fixture.invocation) else {
+            Issue.record("Expected remote refusal")
+            return
+        }
+        #expect(failure.correction == correction)
+    }
+
     @Test("finite schema correction survives a real remote failure")
     func finiteSchemaCorrectionSurvivesRemoteFailure() throws {
         let expected = IPCSchemaValidationError(

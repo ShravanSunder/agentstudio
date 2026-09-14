@@ -228,6 +228,181 @@ struct AppIPCDynamicCommandClientTests {
         #expect(result.correlationId == scenario.correlationId)
         #expect(scenario.commandPort.receivedExecutionRequests == [request])
     }
+
+    @Test("built CLI renders an unknown dynamic command correction without reflecting its identifier")
+    func builtCLIRendersUnknownDynamicCommandCorrection() throws {
+        let scenario = try DynamicCommandScenario.make()
+        defer { scenario.fixture.cleanup() }
+        try scenario.fixture.server.start()
+        let executableURL = try cliExecutableURL()
+        let environment = makeCLIEnvironment(for: scenario)
+        let privateMarker = "PRIVATE-COMMAND-ID-MUST-NOT-REFLECT"
+
+        let unknown = try runCLI(
+            executableURL: executableURL,
+            arguments: [
+                "command.execute", "--json",
+                try commandRequestJSON(
+                    commandId: IPCCommandIdentifier(rawValue: privateMarker),
+                    correlationId: UUIDv7.generate(),
+                    arguments: .noArguments
+                ),
+            ],
+            environment: environment
+        )
+        let unknownError = try requireStructuredCLIError(unknown)
+        #expect(unknownError.reason == "unknownCommand")
+        #expect(unknownError.fieldPath == "$.commandId")
+        #expect(unknownError.catalogMethod == "command.list")
+        #expect(unknownError.expected == "an identifier advertised by command.list")
+        let standardError = try #require(String(data: unknown.standardError, encoding: .utf8))
+        #expect(!standardError.contains(privateMarker))
+    }
+
+    @Test("built CLI renders a selected-command argument correction without reflecting argument values")
+    func builtCLIRendersWrongDynamicCommandVariantCorrection() throws {
+        let scenario = try DynamicCommandScenario.make(includesRepositoryAlternative: true)
+        defer { scenario.fixture.cleanup() }
+        try scenario.fixture.server.start()
+        let executableURL = try cliExecutableURL()
+        let privateRepositoryIdentifier = UUIDv7.generate()
+        let wrongVariant = try runCLI(
+            executableURL: executableURL,
+            arguments: [
+                "command.execute", "--json",
+                try commandRequestJSON(
+                    commandId: scenario.commandId,
+                    correlationId: UUIDv7.generate(),
+                    arguments: .repository(IPCRepositoryCommandArguments(repoId: privateRepositoryIdentifier))
+                ),
+            ],
+            environment: makeCLIEnvironment(for: scenario)
+        )
+        let wrongVariantError = try requireStructuredCLIError(wrongVariant)
+        #expect(wrongVariantError.reason == "invalidParams")
+        #expect(wrongVariantError.fieldPath == "$.arguments.kind")
+        #expect(wrongVariantError.expected == "an argument variant advertised for the selected command")
+        #expect(wrongVariantError.catalogMethod == "command.list")
+        let standardError = try #require(String(data: wrongVariant.standardError, encoding: .utf8))
+        #expect(!standardError.contains(privateRepositoryIdentifier.uuidString))
+    }
+
+    @Test("built CLI renders known unavailable command correction")
+    func builtCLIRendersUnavailableDynamicCommandCorrection() throws {
+        let unavailableScenario = try DynamicCommandScenario.make(resultAvailable: false)
+        defer { unavailableScenario.fixture.cleanup() }
+        try unavailableScenario.fixture.server.start()
+        let executableURL = try cliExecutableURL()
+        let unavailable = try runCLI(
+            executableURL: executableURL,
+            arguments: [
+                "command.execute", "--json",
+                try commandRequestJSON(
+                    commandId: unavailableScenario.commandId,
+                    correlationId: unavailableScenario.correlationId,
+                    arguments: .noArguments
+                ),
+            ],
+            environment: makeCLIEnvironment(for: unavailableScenario)
+        )
+        let unavailableError = try requireStructuredCLIError(unavailable)
+        #expect(unavailableError.reason == "stateUnavailable")
+        #expect(unavailableError.fieldPath == "$.commandId")
+        #expect(unavailableError.expected == nil)
+        #expect(unavailableError.catalogMethod == nil)
+    }
+
+    @Test("built CLI renders foreign capabilities as unsupported version")
+    func builtCLIRendersUnsupportedVersionFromLiveSocket() throws {
+        let endpoint = UnixSocketEndpoint(path: temporaryDynamicCommandSocketPath())
+        let listener = UnixSocketListener(endpoint: endpoint)
+        let privateCompatibilityMarker = "PRIVATE-FOREIGN-CATALOG-MUST-NOT-REFLECT"
+        let foreignCatalog = IPCMethodCatalogResult(
+            compatibility: IPCProtocolCatalogCompatibility(
+                wireProtocolIdentifier: "foreign-wire-\(privateCompatibilityMarker)",
+                catalogIdentifier: "foreign-catalog-\(privateCompatibilityMarker)"
+            ),
+            methods: []
+        )
+        try listener.start { connection in
+            defer { connection.close() }
+            var decoder = NDJSONFrameDecoder(maxFrameBytes: 1_048_576)
+            let request = try receiveDynamicCommandRequest(connection: connection, decoder: &decoder)
+            #expect(request.method == "system.capabilities")
+            try connection.send(
+                dynamicCommandResponseFrame(id: request.id, result: foreignCatalog)
+            )
+        }
+        defer { listener.stop() }
+
+        let result = try runCLI(
+            executableURL: cliExecutableURL(),
+            arguments: ["system.capabilities"],
+            environment: makeCLIEnvironment(socketPath: endpoint.path)
+        )
+        let structuredError = try requireStructuredCLIError(result)
+        #expect(structuredError.reason == "unsupportedVersion")
+        #expect(structuredError.fieldPath == "$.compatibility")
+        #expect(structuredError.expected?.isEmpty == false)
+        let standardError = try #require(String(data: result.standardError, encoding: .utf8))
+        #expect(!standardError.contains(privateCompatibilityMarker))
+    }
+
+    @Test("built CLI renders a missing required method parameter as invalid params")
+    func builtCLIRendersMissingRequiredParameter() throws {
+        let scenario = try DynamicCommandScenario.make()
+        defer { scenario.fixture.cleanup() }
+        try scenario.fixture.server.start()
+
+        let result = try runCLI(
+            executableURL: cliExecutableURL(),
+            arguments: ["terminal.send", "--handle", "self"],
+            environment: makeCLIEnvironment(for: scenario)
+        )
+        let structuredError = try requireStructuredCLIError(result)
+        #expect(structuredError.reason == "invalidParams")
+        #expect(structuredError.fieldPath == "$.input")
+        #expect(structuredError.expected?.isEmpty == false)
+        #expect(structuredError.catalogMethod == nil)
+    }
+
+    @Test("built CLI preserves an App IPC missing grant scope")
+    func builtCLIRendersCanonicalMissingGrantScope() throws {
+        let scenario = try MissingGrantBootstrapScenario.make()
+        defer { scenario.fixture.cleanup() }
+        try scenario.fixture.server.start()
+
+        let result = try runCLI(
+            executableURL: cliExecutableURL(),
+            arguments: ["system.version"],
+            environment: scenario.cliEnvironment
+        )
+        let structuredError = try requireStructuredCLIError(result)
+        #expect(structuredError.reason == "missingGrant")
+        #expect(structuredError.fieldPath == "$.authorization")
+        #expect(structuredError.requiredScope == scenario.requiredScope)
+        #expect(structuredError.catalogMethod == nil)
+    }
+
+    @Test("built CLI renders an unknown method correction without reflecting its identifier")
+    func builtCLIRendersUnknownMethodCorrection() throws {
+        let scenario = try DynamicCommandScenario.make()
+        defer { scenario.fixture.cleanup() }
+        try scenario.fixture.server.start()
+        let privateMethodMarker = "private.future.method.DO_NOT_REFLECT"
+
+        let result = try runCLI(
+            executableURL: cliExecutableURL(),
+            arguments: [privateMethodMarker],
+            environment: makeCLIEnvironment(for: scenario)
+        )
+        let structuredError = try requireStructuredCLIError(result)
+        #expect(structuredError.reason == "unknownMethod")
+        #expect(structuredError.fieldPath == "$.method")
+        #expect(structuredError.catalogMethod == "system.capabilities")
+        let standardError = try #require(String(data: result.standardError, encoding: .utf8))
+        #expect(!standardError.contains(privateMethodMarker))
+    }
 }
 
 private struct DynamicCommandScenario {
@@ -236,11 +411,18 @@ private struct DynamicCommandScenario {
     let commandPort: FakeCommandPort
     let fixture: LiveServerFixture
 
-    static func make(resultCorrelationId: UUID? = nil) throws -> Self {
+    static func make(
+        resultCorrelationId: UUID? = nil,
+        resultAvailable: Bool = true,
+        includesRepositoryAlternative: Bool = false
+    ) throws -> Self {
         let commandId = IPCCommandIdentifier(rawValue: "fixture.liveCommand")
+        let repositoryCommandId = IPCCommandIdentifier(rawValue: "fixture.repositoryCommand")
         let correlationId = UUIDv7.generate()
         let descriptorResult = IPCCommandExecutionResult.applied(
             IPCCommandAppliedResult(commandId: commandId, correlationId: correlationId))
+        let repositoryDescriptorResult = IPCCommandExecutionResult.applied(
+            IPCCommandAppliedResult(commandId: repositoryCommandId, correlationId: correlationId))
         let descriptor = try makeFakeCommandDescriptor(
             FakeCommandDescriptorInput(
                 id: commandId,
@@ -252,18 +434,35 @@ private struct DynamicCommandScenario {
                 result: descriptorResult
             )
         )
+        let commands: [IPCCommandDescriptor]
+        if includesRepositoryAlternative {
+            let repositoryDescriptor = try makeFakeCommandDescriptor(
+                FakeCommandDescriptorInput(
+                    id: repositoryCommandId,
+                    executionMode: .headless,
+                    arguments: .repository(IPCRepositoryCommandArguments(repoId: UUIDv7.generate())),
+                    requiredPrivileges: [.appCommandExecute],
+                    dataScope: .unspecified,
+                    allowedTargetKinds: [],
+                    result: repositoryDescriptorResult
+                )
+            )
+            commands = [descriptor, repositoryDescriptor]
+        } else {
+            commands = [descriptor]
+        }
         let runtimeResult = IPCCommandExecutionResult.applied(
             IPCCommandAppliedResult(
                 commandId: commandId,
                 correlationId: resultCorrelationId ?? correlationId
             ))
         let commandPort = FakeCommandPort(
-            commands: [descriptor],
-            executionResultsByCommandId: [commandId.rawValue: runtimeResult]
+            commands: commands,
+            executionResultsByCommandId: resultAvailable ? [commandId.rawValue: runtimeResult] : [:]
         )
         let composition = try IPCCommandMethodComposition(
             compatibility: .current,
-            commands: [descriptor]
+            commands: commands
         )
         return try Self(
             commandId: commandId,
@@ -275,6 +474,40 @@ private struct DynamicCommandScenario {
                 commandPort: commandPort,
                 commandComposition: composition
             )
+        )
+    }
+}
+
+private struct MissingGrantBootstrapScenario {
+    let requiredScope: IPCPermissionScope
+    let fixture: LiveServerFixture
+    let authenticationToken: String
+
+    var cliEnvironment: [String: String] {
+        var environment = makeCLIEnvironment(socketPath: fixture.paths.socketURL.path)
+        environment["AGENTSTUDIO_PANE_TOKEN"] = authenticationToken
+        return environment
+    }
+
+    static func make() throws -> Self {
+        let requiredScope = IPCPermissionScope(
+            privilege: .systemRead,
+            target: .app,
+            dataScope: .unspecified
+        )
+        let fixture = try LiveServerFixture()
+        let principal = IPCPrincipal(
+            principalId: UUIDv7.generate(),
+            runtimeId: fixture.runtimeId,
+            accessMode: .agentStudioOnly,
+            kind: .automationClient,
+            approvalAuthority: .noApprovalAuthority
+        )
+        let authenticationToken = try fixture.server.principalRegistry.issueSubjectToken(for: principal)
+        return Self(
+            requiredScope: requiredScope,
+            fixture: fixture,
+            authenticationToken: authenticationToken.rawValue
         )
     }
 }
@@ -300,6 +533,73 @@ private struct CLIProcessResult {
     let exitCode: Int32
     let standardOutput: Data
     let standardError: Data
+}
+
+private struct StructuredCLIError: Decodable {
+    let reason: String
+    let fieldPath: String?
+    let expected: String?
+    let catalogMethod: String?
+    let requiredScope: IPCPermissionScope?
+}
+
+private func makeCLIEnvironment(for scenario: DynamicCommandScenario) -> [String: String] {
+    makeCLIEnvironment(socketPath: scenario.fixture.paths.socketURL.path)
+}
+
+private func makeCLIEnvironment(socketPath: String) -> [String: String] {
+    var environment = ProcessInfo.processInfo.environment
+    environment["AGENTSTUDIO_IPC_SOCKET"] = socketPath
+    environment.removeValue(forKey: "AGENTSTUDIO_PANE_TOKEN")
+    return environment
+}
+
+private func commandRequestJSON(
+    commandId: IPCCommandIdentifier,
+    correlationId: UUID,
+    arguments: IPCCommandArguments
+) throws -> String {
+    let request = IPCCommandExecutionRequest(
+        commandId: commandId,
+        correlationId: correlationId,
+        arguments: arguments
+    )
+    return try #require(String(data: JSONEncoder().encode(request), encoding: .utf8))
+}
+
+private func requireStructuredCLIError(_ result: CLIProcessResult) throws -> StructuredCLIError {
+    #expect(result.exitCode != 0)
+    #expect(result.standardOutput.isEmpty)
+    return try JSONDecoder().decode(StructuredCLIError.self, from: result.standardError)
+}
+
+private func temporaryDynamicCommandSocketPath() -> String {
+    "/tmp/asipc-cli-errors-\(UUIDv7.generate().uuidString).sock"
+}
+
+private func receiveDynamicCommandRequest(
+    connection: UnixSocketConnection,
+    decoder: inout NDJSONFrameDecoder
+) throws -> JSONRPCRequest {
+    while true {
+        let data = try connection.receive(maxBytes: 4096)
+        let frames = try decoder.append(data)
+        if let frame = frames.first {
+            return try JSONRPCCodec.decodeRequest(frame)
+        }
+    }
+}
+
+private func dynamicCommandResponseFrame<Result: Encodable>(
+    id: JSONRPCIdentifier?,
+    result: Result
+) throws -> Data {
+    try NDJSONFrameEncoder.encode(
+        JSONRPCCodec.encodeResponse(
+            .success(id: id, result: try JSONRPCCodec.encodeJSONValue(result))
+        ),
+        maxFrameBytes: 1_048_576
+    )
 }
 
 private func cliExecutableURL() throws -> URL {
