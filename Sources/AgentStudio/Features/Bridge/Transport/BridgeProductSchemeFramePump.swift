@@ -236,7 +236,7 @@ extension BridgeProductSession {
                     continuation.resume(returning: false)
                     return
                 }
-                let pacingWaiterRegistration =
+                let pacingWaiterRegistration: Bool? =
                     foregroundWorkAdmission.withValidAdmission {
                         productAdmission.withValidAdmission {
                             guard producerAdmissionMatches(productAdmission, for: lease) else {
@@ -263,7 +263,7 @@ extension BridgeProductSession {
                             }
                             return false
                         }
-                    }
+                    }.flatMap { $0 }
                 if pacingWaiterRegistration == true {
                     producerObservationPacingRegistrationObserver?(lease, sequence)
                 }
