@@ -380,6 +380,27 @@ extension BridgePaneProductMetadataCoordinator {
             throw BridgePaneProductMetadataCoordinatorError.foregroundWorkInvalidated
         }
         await recordEnqueued(event, traceContext: context.traceContext)
+        if case .enqueued(let frame) = result {
+            // A Review publication can exceed the shared queue; pace its windows at the consumer.
+            guard
+                await context.activeStream.session.waitUntilProducerFrameSequenceObserved(
+                    for: context.activeStream.lease,
+                    sequence: frame.sequence,
+                    productAdmission: emittedAdmission
+                )
+            else {
+                throw CancellationError()
+            }
+        }
+        guard context.foregroundWorkAdmission.withValidAdmission({ true }) == true else {
+            throw BridgePaneProductMetadataCoordinatorError.foregroundWorkInvalidated
+        }
+        guard activeStream?.lease == context.activeStream.lease,
+            emittedAdmission.matches(context.productAdmission),
+            await isReviewPublicationCurrent(event.publicationId, emittedAdmission)
+        else {
+            throw CancellationError()
+        }
         return result
     }
 
