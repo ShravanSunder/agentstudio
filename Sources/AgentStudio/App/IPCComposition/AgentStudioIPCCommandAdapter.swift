@@ -103,10 +103,19 @@ struct AgentStudioIPCCommandAdapter: AppIPCCommandPort, @unchecked Sendable {
     }
 
     private func activeCommand(for request: IPCCommandExecutionRequest) throws -> AppCommand {
-        guard let command = AppCommand(rawValue: request.commandId.rawValue),
-            command.ipcSpec.exposure == .allChannels,
-            command.ipcSpec.argumentVariants.contains(request.arguments.variant)
-        else { throw AppIPCCommandError(reason: .unsupportedCommand) }
+        guard let command = AppCommand(rawValue: request.commandId.rawValue) else {
+            throw AppIPCCommandError(reason: .unknownCommand)
+        }
+        guard command.ipcSpec.exposure == .allChannels else {
+            throw AppIPCCommandError(reason: .unsupportedCommand)
+        }
+        guard command.ipcSpec.argumentVariants.contains(request.arguments.variant) else {
+            throw IPCSchemaValidationError(
+                fieldPath: "$.arguments.kind",
+                reason: .invalidValue,
+                expected: "one argument variant declared by the selected command"
+            )
+        }
         return command
     }
 

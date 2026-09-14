@@ -92,6 +92,7 @@ public struct AppIPCCommandError: Error, Equatable, Sendable {
     public enum Reason: String, Equatable, Sendable {
         case noActiveWindow
         case targetNotFound
+        case unknownCommand
         case unsupportedCommand
         case requiresPresentation
         case requiresTarget

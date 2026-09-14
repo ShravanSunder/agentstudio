@@ -58,7 +58,7 @@ struct AgentStudioAppIPCServiceContributionTests {
 
         let response = try sendPaneSnapshot(client: client, handle: "pane:1")
 
-        #expect(response.error?.code == -32_603)
+        #expect(response.error?.code == -32_601)
         #expect(response.error?.message == "method not found")
         #expect(scenario.queryPort.snapshotPaneIds.isEmpty)
     }

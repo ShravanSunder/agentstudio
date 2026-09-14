@@ -54,12 +54,15 @@ public struct AuthorizationError: Error, Equatable, Sendable {
         case methodNotFound
         case unauthorized
         case noBoundPane
+        case missingGrant
     }
 
     public let reason: Reason
+    public let requiredScope: IPCPermissionScope?
 
-    public init(reason: Reason) {
+    public init(reason: Reason, requiredScope: IPCPermissionScope? = nil) {
         self.reason = reason
+        self.requiredScope = requiredScope
     }
 }
 
@@ -276,7 +279,7 @@ public struct AuthorizationService: Sendable {
             return
         }
 
-        throw AuthorizationError(reason: .unauthorized)
+        throw AuthorizationError(reason: .missingGrant, requiredScope: canonicalScope)
     }
 
     private func baselineAllows(_ scope: IPCPermissionScope, for principal: IPCPrincipal) -> Bool {

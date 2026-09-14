@@ -99,7 +99,7 @@ struct AgentStudioAppIPCSidebarServiceTests {
             let response = try await reader.receiveResponseWithoutBlockingMainActor(connection: connection)
 
             #expect(response.id == .number(requestId))
-            #expect(response.error?.code == -32_603)
+            #expect(response.error?.code == -32_601)
             #expect(response.error?.message == "method not found")
         }
     }

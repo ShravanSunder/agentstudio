@@ -111,13 +111,18 @@ package struct AgentStudioIPCClient: Sendable {
         try submit(frame, connection: connection)
         let response = try receiveResponse(id: commandID, connection: connection, reader: &reader)
         if let error = response.error {
-            throw IPCDescriptorRemoteFailure(code: error.code, documentedReason: nil, correction: nil)
+            throw IPCDescriptorRemoteFailureDecoder.decode(error, descriptor: nil)
         }
         guard let result = response.result else {
             throw failure(.deliveryUncertain, .invalidResponse)
         }
         do {
             return try IPCMethodCatalogDecoder.decode(JSONEncoder().encode(result))
+        } catch let correction as IPCSchemaValidationError
+            where
+            correction.fieldPath == "$.compatibility" && correction.reason == .invalidValue
+        {
+            throw failure(.protocolRejected, .unsupportedVersion(correction))
         } catch {
             throw failure(.deliveryUncertain, .invalidTypedResult)
         }
@@ -184,8 +189,12 @@ package struct AgentStudioIPCClient: Sendable {
         _ response: JSONRPCResponseMessage, descriptor: IPCAnyMethodDescriptor, requestID: Int
     ) throws -> IPCDescriptorClientCallResult {
         if let error = response.error {
-            // Remote prose/data is untrusted; structured correction is admitted separately by its shared contract.
-            return .remoteFailure(IPCDescriptorRemoteFailure(code: error.code, documentedReason: nil, correction: nil))
+            return .remoteFailure(
+                IPCDescriptorRemoteFailureDecoder.decode(
+                    error,
+                    descriptor: descriptor
+                )
+            )
         }
         do {
             guard let result = response.result else { throw failure(.deliveryUncertain, .invalidResponse) }

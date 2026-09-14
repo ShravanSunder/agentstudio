@@ -212,7 +212,7 @@ func receiveIPCDescriptorClientRequest(
 }
 
 func temporaryIPCDescriptorClientSocketPath() -> String {
-    "/tmp/asipc-descriptor-\(UUIDv7.generate().uuidString.prefix(8)).sock"
+    "/tmp/asipc-descriptor-\(UUIDv7.generate().uuidString).sock"
 }
 
 final class IPCDescriptorClientLockedBox<Value>: @unchecked Sendable {

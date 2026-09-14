@@ -541,13 +541,17 @@ final class FakeCommandPort: AppIPCCommandPort, @unchecked Sendable {
     func prepareCommand(
         _ request: IPCCommandExecutionRequest,
         principal _: IPCPrincipal,
-        tools _: AppIPCTargetResolutionTools
+        tools: AppIPCTargetResolutionTools
     ) async throws -> AppIPCPreparedCommand {
         guard let command = commands.first(where: { $0.id == request.commandId }) else {
-            throw AppIPCCommandError(reason: .unsupportedCommand)
+            throw AppIPCCommandError(reason: .unknownCommand)
         }
         guard command.argumentVariants.contains(request.arguments.variant) else {
-            throw AppIPCCommandError(reason: .validationRejected)
+            throw IPCSchemaValidationError(
+                fieldPath: "$.arguments.kind",
+                reason: .invalidValue,
+                expected: "one argument variant declared by the selected command"
+            )
         }
         let requiredScopes = command.requiredPrivileges.map { privilege in
             IPCPermissionScope(
@@ -556,9 +560,32 @@ final class FakeCommandPort: AppIPCCommandPort, @unchecked Sendable {
                 dataScope: command.dataScope
             )
         }
+        let preparedRequest: IPCCommandExecutionRequest
+        let canonicalHandle: IPCHandle?
+        switch request.arguments {
+        case .pane(let arguments):
+            let handle = try await tools.canonicalizePaneHandle(arguments.paneSelector.rawValue)
+            guard case (.pane, .canonicalUUID(let paneId)) = (handle.kind, handle.reference) else {
+                throw AppIPCCommandError(reason: .targetNotFound)
+            }
+            preparedRequest = IPCCommandExecutionRequest(
+                commandId: request.commandId,
+                correlationId: request.correlationId,
+                arguments: .pane(
+                    IPCPaneCommandArguments(
+                        workspaceWindowId: arguments.workspaceWindowId,
+                        paneSelector: try IPCPaneSelector(rawValue: paneId.uuidString)
+                    )
+                )
+            )
+            canonicalHandle = handle
+        default:
+            preparedRequest = request
+            canonicalHandle = nil
+        }
         return AppIPCPreparedCommand(
-            request: request,
-            canonicalHandle: nil,
+            request: preparedRequest,
+            canonicalHandle: canonicalHandle,
             target: requiredScopes.first?.target ?? .app,
             requiredScopes: requiredScopes
         )

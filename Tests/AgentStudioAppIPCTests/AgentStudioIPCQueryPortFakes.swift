@@ -46,8 +46,11 @@ struct FakeQueryPort: AppIPCQueryPort {
         throw AppIPCQueryError(reason: .noActiveWindow)
     }
 
-    func snapshotPane(_: UUID) throws -> IPCPaneSnapshotResult {
-        throw AppIPCQueryError(reason: .targetNotFound)
+    func snapshotPane(_ paneId: UUID) throws -> IPCPaneSnapshotResult {
+        guard let pane = panes.first(where: { $0.id == paneId }) else {
+            throw AppIPCQueryError(reason: .targetNotFound)
+        }
+        return makePaneSnapshotResult(pane: pane, paneCount: panes.count)
     }
 }
 

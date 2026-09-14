@@ -269,7 +269,7 @@ package struct IPCCommandDiscovery: Sendable {
             && execute.executionOwner == .appCommand
             && execute.principalAvailability == .authenticated
             && execute.resultSemantics == .discriminated
-            && execute.documentedErrors.isEmpty
+            && execute.documentedErrors == IPCCommandMethodComposition.executionErrors
             && execute.isMutating
             && execute.correlationPolicy == .required
             && execute.responseDelivery == .single

@@ -9,6 +9,33 @@ package enum IPCCommandMethodCompositionError: Error, Equatable, Sendable {
 /// One immutable command value supplies discovery, server registration, and
 /// later descriptor-driven CLI construction.
 package struct IPCCommandMethodComposition: Sendable {
+    package static let executionErrors = [
+        IPCMethodErrorCase(
+            reason: "invalidParams",
+            description: "The command envelope or selected typed arguments are invalid."
+        ),
+        IPCMethodErrorCase(
+            reason: "missingGrant",
+            description: "The principal lacks a required canonical command scope."
+        ),
+        IPCMethodErrorCase(
+            reason: "targetNotFound",
+            description: "The selected command target does not exist."
+        ),
+        IPCMethodErrorCase(
+            reason: "unknownCommand",
+            description: "The open command identifier is not known by this application."
+        ),
+        IPCMethodErrorCase(
+            reason: "unsupportedCommand",
+            description: "The known command is unavailable on this channel."
+        ),
+        IPCMethodErrorCase(
+            reason: "stateUnavailable",
+            description: "The selected command owner cannot currently apply the command."
+        ),
+    ]
+
     package let commands: [IPCCommandDescriptor]
     package let catalogResult: IPCCommandCatalogResult
     package let list: IPCMethodDescriptor<IPCEmptyParams, IPCCommandCatalogResult>
@@ -90,7 +117,7 @@ package struct IPCCommandMethodComposition: Sendable {
             executionOwner: .appCommand,
             principalAvailability: .authenticated,
             resultSemantics: .discriminated,
-            documentedErrors: [],
+            documentedErrors: Self.executionErrors,
             isMutating: true,
             correlationPolicy: .required
         )
