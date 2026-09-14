@@ -112,6 +112,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
     private let editorChooser: EditorChooserState
     private let paneInboxPresentation: PaneInboxPresentation?
     private let closeTransitionCoordinator: PaneCloseTransitionCoordinator
+    private let heldPanePreviewState: HeldPanePreviewState
     let performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
     private let onPreviewEligibilityLoss: @MainActor () -> Void
     private let interactionProbe: AgentStudioInteractionPerformanceProbe?
@@ -145,6 +146,18 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         let correlationId: UUID
         let movedTabId: UUID
         let expectedOrderedTabIds: [UUID]
+    }
+
+    private struct TabSelectionObservation: Equatable {
+        let orderedTabIds: [UUID]
+        let activeTabId: UUID?
+        let tabGraphRevision: Int?
+        let activeArrangementId: UUID?
+        let activeArrangementRevision: Int?
+        let activePaneId: UUID?
+        let activePaneRevision: Int?
+        let activeDrawerId: UUID?
+        let activeDrawerRevision: Int?
     }
     private lazy var actionDispatcher = PaneTabActionDispatcher(
         dispatch: { [weak self] action in
@@ -255,6 +268,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         },
         paneNotePresentation: PaneNotePresentation? = nil,
         closeTransitionCoordinator: PaneCloseTransitionCoordinator = PaneCloseTransitionCoordinator(),
+        heldPanePreviewState: HeldPanePreviewState,
         tabRenamePopoverState: TabRenamePopoverState = TabRenamePopoverState(),
         arrangementInlineRenameState: ArrangementInlineRenameState = ArrangementInlineRenameState(),
         arrangementPanelPresentation: ArrangementPanelPresentationAtom = atom(\.arrangementPanelPresentation),
@@ -299,6 +313,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             }
         self.bridgeViewerOpenTelemetryAnchorFactory = bridgeViewerOpenTelemetryAnchorFactory
         self.closeTransitionCoordinator = closeTransitionCoordinator
+        self.heldPanePreviewState = heldPanePreviewState
         self.performanceTraceRecorder = performanceTraceRecorder
         self.onPreviewEligibilityLoss = onPreviewEligibilityLoss
         self.interactionProbe =
@@ -659,17 +674,93 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
     /// Observe only tab membership plus the active tab's keyed selection facts.
     /// SwiftUI owns pane rendering; this bridge owns AppKit host visibility and focus.
     private func observeForTabSelectionState() {
+        let observedSelection = tabSelectionObservation()
         withObservationTracking {
             _ = self.store.tabShellAtom.orderedTabIds
-            if let activeTabId = self.store.tabShellAtom.activeTabId {
-                _ = self.store.tabLayoutAtom.tab(activeTabId)
+            let activeTabId = self.store.tabShellAtom.activeTabId
+            if let activeTabId {
+                _ = self.store.tabArrangementAtom.graphAtom.tabStateRevision(for: activeTabId)
+                _ = self.store.tabArrangementAtom.cursorAtom.activeArrangementRevision(forTab: activeTabId)
+                if let activeArrangementId = self.store.tabArrangementAtom.cursorAtom.activeArrangementId(
+                    forTab: activeTabId
+                ) {
+                    _ = self.store.tabArrangementAtom.cursorAtom.paneCursorRevision(
+                        forArrangement: activeArrangementId
+                    )
+                    if let activeDrawerId = self.activeDrawerId(for: activeTabId) {
+                        _ = self.store.tabArrangementAtom.cursorAtom.drawerCursorRevision(
+                            arrangementId: activeArrangementId,
+                            drawerId: activeDrawerId
+                        )
+                    }
+                }
+            }
+            _ = self.heldPanePreviewState.lifecycle
+            _ = self.heldPanePreviewState.presentedTarget
+            if let previewTarget = self.heldPanePreviewState.presentedTarget {
+                _ = self.viewRegistry.slot(for: previewTarget.paneID).host
+                if let pane = self.store.paneAtom.pane(previewTarget.paneID) {
+                    _ = self.store.tabLayoutAtom.tabID(
+                        containingPane: pane.parentPaneId ?? pane.id
+                    )
+                }
             }
         } onChange: {
             Task { @MainActor [weak self] in
-                self?.handleTabSelectionStateChange()
-                self?.observeForTabSelectionState()
+                guard let self else { return }
+                let durableTabSelectionChanged = observedSelection != self.tabSelectionObservation()
+                if durableTabSelectionChanged {
+                    self.handleTabSelectionStateChange()
+                } else {
+                    self.updateVisibleTabHost()
+                }
+                self.observeForTabSelectionState()
             }
         }
+    }
+
+    private func tabSelectionObservation() -> TabSelectionObservation {
+        let activeTabId = store.tabShellAtom.activeTabId
+        let activeArrangementId = activeTabId.flatMap {
+            store.tabArrangementAtom.cursorAtom.activeArrangementId(forTab: $0)
+        }
+        let activePaneId = activeTabId.flatMap { store.tabLayoutAtom.activePaneID(forTab: $0) }
+        let selectedDrawerId = activeTabId.flatMap { self.activeDrawerId(for: $0) }
+        let activeDrawerRevision = activeArrangementId.flatMap { arrangementId in
+            selectedDrawerId.map { drawerId in
+                store.tabArrangementAtom.cursorAtom.drawerCursorRevision(
+                    arrangementId: arrangementId,
+                    drawerId: drawerId
+                )
+            }
+        }
+        return TabSelectionObservation(
+            orderedTabIds: store.tabShellAtom.orderedTabIds,
+            activeTabId: activeTabId,
+            tabGraphRevision: activeTabId.map {
+                store.tabArrangementAtom.graphAtom.tabStateRevision(for: $0)
+            },
+            activeArrangementId: activeArrangementId,
+            activeArrangementRevision: activeTabId.map {
+                store.tabArrangementAtom.cursorAtom.activeArrangementRevision(forTab: $0)
+            },
+            activePaneId: activePaneId,
+            activePaneRevision: activeArrangementId.map {
+                store.tabArrangementAtom.cursorAtom.paneCursorRevision(forArrangement: $0)
+            },
+            activeDrawerId: selectedDrawerId,
+            activeDrawerRevision: activeDrawerRevision
+        )
+    }
+
+    private func activeDrawerId(for activeTabId: UUID) -> UUID? {
+        guard let parentPaneId = store.tabLayoutAtom.activePaneID(forTab: activeTabId),
+            let drawer = store.paneAtom.pane(parentPaneId)?.drawer,
+            drawer.isExpanded
+        else {
+            return nil
+        }
+        return drawer.drawerId
     }
 
     private func observeForEmptyState() {
@@ -1278,6 +1369,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             repoCache: repoCache,
             editorChooser: editorChooser,
             viewRegistry: viewRegistry,
+            heldPanePreviewState: heldPanePreviewState,
             appLifecycleStore: appLifecycleStore,
             closeTransitionCoordinator: closeTransitionCoordinator,
             actionDispatcher: actionDispatcher,
@@ -1517,9 +1609,26 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
 
     private func updateVisibleTabHost() {
         let activeTabId = store.tabLayoutAtom.activeTabId
+        let visibleTabId = previewVisibleTabId() ?? activeTabId
         for (tabId, host) in tabContentHosts {
-            host.isHidden = tabId != activeTabId
+            host.isHidden = tabId != visibleTabId
         }
+    }
+
+    private func previewVisibleTabId() -> UUID? {
+        guard heldPanePreviewState.isHeld,
+            let presentedTarget = heldPanePreviewState.presentedTarget,
+            tabContentHosts[presentedTarget.owningTabID] != nil,
+            let pane = store.paneAtom.pane(presentedTarget.paneID),
+            store.tabLayoutAtom.tabID(containingPane: pane.parentPaneId ?? pane.id)
+                == presentedTarget.owningTabID,
+            pane.provider == presentedTarget.provider,
+            pane.terminalState?.zmxSessionID == presentedTarget.sessionID,
+            viewRegistry.view(for: presentedTarget.paneID) != nil
+        else {
+            return nil
+        }
+        return presentedTarget.owningTabID
     }
 
     private func activeTabHost() -> PersistentTabHostView? {

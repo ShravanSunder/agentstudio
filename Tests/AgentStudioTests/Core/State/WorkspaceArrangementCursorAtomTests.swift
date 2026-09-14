@@ -91,6 +91,56 @@ struct WorkspaceArrangementCursorAtomTests {
             ) == observedDrawerChildID
         )
     }
+
+    @Test("keyed cursor revisions isolate tab, pane, and drawer changes")
+    func keyedCursorRevisionsIsolateTabPaneAndDrawerChanges() {
+        let atom = WorkspaceArrangementCursorAtom()
+        let tabID = UUIDv7.generate()
+        let arrangementID = UUIDv7.generate()
+        let drawerID = UUIDv7.generate()
+        let drawerKey = ArrangementDrawerCursorKey(
+            arrangementId: arrangementID,
+            drawerId: drawerID
+        )
+        let paneID = UUIDv7.generate()
+        let childID = UUIDv7.generate()
+        atom.replaceCursors(
+            activeArrangementIdsByTabId: [tabID: arrangementID],
+            paneCursorsByArrangementId: [arrangementID: .init(activePaneId: paneID)],
+            drawerCursorsByKey: [drawerKey: .init(activeChildId: childID)]
+        )
+
+        let initialRevisions = (
+            atom.activeArrangementRevision(forTab: tabID),
+            atom.paneCursorRevision(forArrangement: arrangementID),
+            atom.drawerCursorRevision(arrangementId: arrangementID, drawerId: drawerID)
+        )
+
+        let unrelatedTabID = UUIDv7.generate()
+        atom.replaceCursors(
+            activeArrangementIdsByTabId: [tabID: arrangementID, unrelatedTabID: UUIDv7.generate()],
+            paneCursorsByArrangementId: [arrangementID: .init(activePaneId: paneID)],
+            drawerCursorsByKey: [drawerKey: .init(activeChildId: childID)]
+        )
+        #expect(atom.activeArrangementRevision(forTab: tabID) == initialRevisions.0)
+        #expect(atom.paneCursorRevision(forArrangement: arrangementID) == initialRevisions.1)
+        #expect(
+            atom.drawerCursorRevision(arrangementId: arrangementID, drawerId: drawerID)
+                == initialRevisions.2
+        )
+
+        atom.replaceCursors(
+            activeArrangementIdsByTabId: [tabID: arrangementID],
+            paneCursorsByArrangementId: [arrangementID: .init(activePaneId: UUIDv7.generate())],
+            drawerCursorsByKey: [drawerKey: .init(activeChildId: UUIDv7.generate())]
+        )
+        #expect(atom.activeArrangementRevision(forTab: tabID) == initialRevisions.0)
+        #expect(atom.paneCursorRevision(forArrangement: arrangementID) != initialRevisions.1)
+        #expect(
+            atom.drawerCursorRevision(arrangementId: arrangementID, drawerId: drawerID)
+                != initialRevisions.2
+        )
+    }
 }
 
 private final class WorkspaceArrangementCursorObservationCounter: @unchecked Sendable {

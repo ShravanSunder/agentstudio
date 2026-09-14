@@ -559,6 +559,7 @@ extension ZoomPresentationContainerTests {
                 repoCache: RepoCacheAtom(),
                 editorChooser: makeTestAtomRegistry().editorChooser,
                 viewRegistry: viewRegistry,
+                heldPanePreviewState: HeldPanePreviewState(),
                 appLifecycleStore: AppLifecycleAtom(),
                 closeTransitionCoordinator: PaneCloseTransitionCoordinator(),
                 actionDispatcher: makeNoOpPaneActionDispatcher(),

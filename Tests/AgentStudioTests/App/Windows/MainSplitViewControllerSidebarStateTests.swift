@@ -380,6 +380,156 @@ struct MainSplitViewControllerSidebarStateTests {
         )
     }
 
+    @Test("ready held preview reveals its owning tab without changing durable selection")
+    func readyHeldPreviewRevealsOwningTabWithoutChangingDurableSelection() async throws {
+        try await withUnloadedMainSplitViewControllerHarness(
+            withRepos: true,
+            configureUIState: { $0.setSidebarCollapsed(false) },
+            body: { harness in
+                let activePane = harness.store.createPane()
+                let previewPane = harness.store.createPane()
+                let activeTab = Tab(paneId: activePane.id)
+                let previewTab = Tab(paneId: previewPane.id)
+                harness.store.appendTab(activeTab)
+                harness.store.appendTab(previewTab)
+                harness.store.setActiveTab(activeTab.id)
+
+                let previewHost = PaneHostView(paneId: previewPane.id)
+                harness.coordinator.viewRegistry.register(previewHost, for: previewPane.id)
+
+                harness.window.contentViewController = harness.controller
+                _ = harness.controller.view
+                harness.window.makeKeyAndOrderFront(nil)
+                #expect(harness.controller.focusSidebarHostIfReady())
+                let sidebarResponder = harness.window.firstResponder
+
+                let target = ValidatedPanePreviewTarget(
+                    paneID: previewPane.id,
+                    owningTabID: previewTab.id,
+                    provider: previewPane.provider,
+                    sessionID: previewPane.terminalState?.zmxSessionID
+                )
+                let state = try #require(harness.controller.heldPanePreviewState)
+                #expect(state.beginSpaceHold(requestedTarget: target))
+                #expect(state.acceptPresentedTarget(target, generation: 1))
+
+                await eventually("owning tab host should become visible for a ready preview") {
+                    let previewTabHost = firstPersistentTabHost(
+                        tabId: previewTab.id,
+                        in: harness.controller.view
+                    )
+                    return previewTabHost?.isHidden == false
+                }
+                #expect(harness.store.tabLayoutAtom.activeTabId == activeTab.id)
+                #expect(harness.window.firstResponder === sidebarResponder)
+            }
+        )
+    }
+
+    @Test("ready held preview reveals its owning tab after a late host registration")
+    func readyHeldPreviewRevealsOwningTabAfterLateHostRegistration() async throws {
+        try await withUnloadedMainSplitViewControllerHarness(
+            withRepos: true,
+            configureUIState: { $0.setSidebarCollapsed(false) },
+            body: { harness in
+                let activePane = harness.store.createPane()
+                let previewPane = harness.store.createPane()
+                let activeTab = Tab(paneId: activePane.id)
+                let previewTab = Tab(paneId: previewPane.id)
+                harness.store.appendTab(activeTab)
+                harness.store.appendTab(previewTab)
+                harness.store.setActiveTab(activeTab.id)
+
+                harness.window.contentViewController = harness.controller
+                _ = harness.controller.view
+                harness.window.makeKeyAndOrderFront(nil)
+                #expect(harness.controller.focusSidebarHostIfReady())
+
+                let target = ValidatedPanePreviewTarget(
+                    paneID: previewPane.id,
+                    owningTabID: previewTab.id,
+                    provider: previewPane.provider,
+                    sessionID: previewPane.terminalState?.zmxSessionID
+                )
+                let state = try #require(harness.controller.heldPanePreviewState)
+                #expect(state.beginSpaceHold(requestedTarget: target))
+                #expect(state.acceptPresentedTarget(target, generation: 1))
+
+                await eventually("canonical tab remains visible until the preview host is registered") {
+                    firstPersistentTabHost(
+                        tabId: activeTab.id,
+                        in: harness.controller.view
+                    )?.isHidden == false
+                        && firstPersistentTabHost(
+                            tabId: previewTab.id,
+                            in: harness.controller.view
+                        )?.isHidden == true
+                }
+
+                let previewHost = PaneHostView(paneId: previewPane.id)
+                harness.coordinator.viewRegistry.register(previewHost, for: previewPane.id)
+
+                await eventually("late host registration should reveal the owning tab") {
+                    firstPersistentTabHost(
+                        tabId: activeTab.id,
+                        in: harness.controller.view
+                    )?.isHidden == true
+                        && firstPersistentTabHost(
+                            tabId: previewTab.id,
+                            in: harness.controller.view
+                        )?.isHidden == false
+                }
+            }
+        )
+    }
+
+    @Test("stale held preview provider or session keeps the durable tab visible")
+    func staleHeldPreviewIdentityKeepsDurableTabVisible() async throws {
+        try await withUnloadedMainSplitViewControllerHarness(
+            withRepos: true,
+            configureUIState: { $0.setSidebarCollapsed(false) },
+            body: { harness in
+                let activePane = harness.store.createPane()
+                let previewPane = harness.store.createPane()
+                let activeTab = Tab(paneId: activePane.id)
+                let previewTab = Tab(paneId: previewPane.id)
+                harness.store.appendTab(activeTab)
+                harness.store.appendTab(previewTab)
+                harness.store.setActiveTab(activeTab.id)
+
+                let previewHost = PaneHostView(paneId: previewPane.id)
+                harness.coordinator.viewRegistry.register(previewHost, for: previewPane.id)
+
+                harness.window.contentViewController = harness.controller
+                _ = harness.controller.view
+                harness.window.makeKeyAndOrderFront(nil)
+
+                let currentProvider = try #require(previewPane.provider)
+                let staleProvider: SessionProvider = currentProvider == .zmx ? .ghostty : .zmx
+                let staleTarget = ValidatedPanePreviewTarget(
+                    paneID: previewPane.id,
+                    owningTabID: previewTab.id,
+                    provider: staleProvider,
+                    sessionID: .generateUUIDv7()
+                )
+                let state = try #require(harness.controller.heldPanePreviewState)
+                #expect(state.beginSpaceHold(requestedTarget: staleTarget))
+                #expect(state.acceptPresentedTarget(staleTarget, generation: 1))
+
+                await eventually("stale preview identity should not reveal its owning tab") {
+                    firstPersistentTabHost(
+                        tabId: activeTab.id,
+                        in: harness.controller.view
+                    )?.isHidden == false
+                        && firstPersistentTabHost(
+                            tabId: previewTab.id,
+                            in: harness.controller.view
+                        )?.isHidden == true
+                }
+            }
+        )
+    }
+
     private func layOutMainSplitViewController(_ harness: MainSplitViewControllerHarness) {
         harness.window.setContentSize(NSSize(width: 1000, height: 700))
         harness.controller.view.frame = NSRect(x: 0, y: 0, width: 1000, height: 700)
@@ -395,4 +545,20 @@ struct MainSplitViewControllerSidebarStateTests {
         harness.controller.splitView.layoutSubtreeIfNeeded()
         harness.controller.viewDidLayout()
     }
+}
+
+@MainActor
+private func firstPersistentTabHost(
+    tabId: UUID,
+    in view: NSView
+) -> PersistentTabHostView? {
+    if let host = view as? PersistentTabHostView, host.tabId == tabId {
+        return host
+    }
+    for subview in view.subviews {
+        if let host = firstPersistentTabHost(tabId: tabId, in: subview) {
+            return host
+        }
+    }
+    return nil
 }

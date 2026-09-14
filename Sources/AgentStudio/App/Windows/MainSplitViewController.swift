@@ -200,6 +200,9 @@ class MainSplitViewController: NSSplitViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
 
+        guard let heldPanePreviewState else {
+            preconditionFailure("Held pane preview state must exist before loading the window")
+        }
         let paneTabVC = PaneTabViewController(
             store: store,
             octiconLoader: octiconLoader,
@@ -217,6 +220,7 @@ class MainSplitViewController: NSSplitViewController {
             paneInboxPresentation: nil,
             pinnedPanePreferences: repoExplorerSidebarPrefs,
             closeTransitionCoordinator: closeTransitionCoordinator,
+            heldPanePreviewState: heldPanePreviewState,
             performanceTraceRecorder: performanceTraceRecorder,
             onPreviewEligibilityLoss: { [weak self] in
                 self?.heldPanePreviewState?.cancelIfHeld()

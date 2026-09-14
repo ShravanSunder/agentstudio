@@ -189,6 +189,7 @@ func makePaneTabViewControllerCommandHarness(
             launchRecorder: launchRecorder
         ),
         closeTransitionCoordinator: closeTransitionCoordinator,
+        heldPanePreviewState: HeldPanePreviewState(),
         tabRenamePopoverState: tabRenamePopoverState,
         arrangementInlineRenameState: arrangementInlineRenameState,
         arrangementPanelPresentation: arrangementPanelPresentation,

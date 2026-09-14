@@ -134,6 +134,12 @@ package final class WorkspaceTabGraphAtom {
         tabStateFamily.value(for: tabId)
     }
 
+    /// Read the keyed semantic revision without materializing the tab's
+    /// arrangements or drawer projections.
+    package func tabStateRevision(for tabId: UUID) -> Int {
+        tabStateFamily.revision(for: tabId)
+    }
+
     func tabIndex(for tabID: UUID) -> Int? {
         tabIndexByID[tabID]
     }
