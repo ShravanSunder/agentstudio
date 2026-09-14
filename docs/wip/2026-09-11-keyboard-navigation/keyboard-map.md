@@ -1,6 +1,8 @@
 # Keyboard sidebar and arrangement visibility — review map
 
-**Current core design-review map.** Sidebar source implementation has not started.
+**Current implementation review map.** Sidebar core and terminal navigation are implemented.
+The reviewed MainActor snapshot-capture regression is corrected; focused tests and lint pass.
+Fresh aggregate, correction review and pinned timing proof remain before readiness. Held preview remains pending.
 Explicit owner choices and implementation defaults are distinguished in the
 [decision record](core-design-decisions.md). Preview behavior is confirmed; its internal realization and proof remain to do.
 

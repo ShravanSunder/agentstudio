@@ -16,21 +16,18 @@ package struct RepositoryTopologyReadSnapshot: Sendable {
     fileprivate let repositoriesByID: [UUID: Repo]
     fileprivate let worktreesByID: [UUID: Worktree]
     fileprivate let worktreePathIndex: [RepositoryTopologyPathIndexEntry]
-    fileprivate let unavailableRepositoryIDs: Set<UUID>
-    fileprivate let unavailableWorktreeIDs: Set<UUID>
+    fileprivate let absenceRecords: RepositoryTopologyAbsenceRecords
 
     fileprivate nonisolated init(
         repositoriesByID: [UUID: Repo],
         worktreesByID: [UUID: Worktree],
         worktreePathIndex: [RepositoryTopologyPathIndexEntry],
-        unavailableRepositoryIDs: Set<UUID>,
-        unavailableWorktreeIDs: Set<UUID>
+        absenceRecords: RepositoryTopologyAbsenceRecords
     ) {
         self.repositoriesByID = repositoriesByID
         self.worktreesByID = worktreesByID
         self.worktreePathIndex = worktreePathIndex
-        self.unavailableRepositoryIDs = unavailableRepositoryIDs
-        self.unavailableWorktreeIDs = unavailableWorktreeIDs
+        self.absenceRecords = absenceRecords
     }
 
     nonisolated init(replacement: RepositoryTopologyReplacement) {
@@ -46,8 +43,7 @@ package struct RepositoryTopologyReadSnapshot: Sendable {
                 unavailableRepositoryIDs: replacement.unavailableRepositoryIDs,
                 unavailableWorktreeIDs: replacement.absenceRecords.unavailableWorktreeIDs
             ),
-            unavailableRepositoryIDs: replacement.unavailableRepositoryIDs,
-            unavailableWorktreeIDs: replacement.absenceRecords.unavailableWorktreeIDs
+            absenceRecords: replacement.absenceRecords
         )
     }
 
@@ -66,8 +62,8 @@ package struct RepositoryTopologyReadSnapshot: Sendable {
         guard
             let repoId,
             let worktreeId,
-            !unavailableRepositoryIDs.contains(repoId),
-            !unavailableWorktreeIDs.contains(worktreeId),
+            absenceRecords.repositories[repoId] == nil,
+            absenceRecords.worktrees[worktreeId] == nil,
             let repository = repo(repoId),
             let worktree = worktree(worktreeId),
             worktree.repoId == repository.id
@@ -398,8 +394,7 @@ package final class RepositoryTopologyAtom {
             repositoriesByID: repositoriesByID,
             worktreesByID: worktreesByID,
             worktreePathIndex: worktreePathIndex,
-            unavailableRepositoryIDs: unavailableRepoIds,
-            unavailableWorktreeIDs: absenceRecords.unavailableWorktreeIDs
+            absenceRecords: absenceRecords
         )
     }
 

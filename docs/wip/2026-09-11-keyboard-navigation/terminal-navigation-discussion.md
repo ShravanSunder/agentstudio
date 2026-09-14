@@ -1,11 +1,13 @@
 # Terminal navigation — selected design and implementation
 
 The owner settled the terminal family and authorized implementation on 2026-09-13.
-The selected map below supersedes the earlier tested mapping; source and proof are being updated.
+The selected map below is implemented and supersedes the earlier tested mapping.
 Focused validation and [revised native terminal proof](terminal-native-v2-proof.md)
-passed. The full aggregate failed the existing Bridge annotation stress journey;
-current independent implementation review remains outstanding.
-The current bounded review is [terminal-design-review-v2.md](terminal-design-review-v2.md).
+passed. The full aggregate passed at source HEAD `10383d28f` after main integration.
+Independent terminal implementation review found no defects; the shared sidebar delivery
+has corrected its snapshot-capture regression and is validating that correction;
+fresh pinned timing proof remains outstanding.
+The governing design review is [terminal-design-review-v2.md](terminal-design-review-v2.md).
 The immutable implementation plan is
 `tmp/plan-workflows/2026-09-13-terminal-keyboard-navigation-v2.md`.
 
