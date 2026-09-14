@@ -380,6 +380,50 @@ struct MainSplitViewControllerSidebarStateTests {
         )
     }
 
+    @Test("Space repeat and identical selection do not reprepare a held preview")
+    func spaceRepeatAndIdenticalSelectionDoNotReprepareHeldPreview() async throws {
+        var onSpaceKeyDown: (@MainActor (Bool, RepoExplorerSelectedPaneTarget?) -> Void)?
+        var onSelectedPaneTargetChange: (@MainActor (RepoExplorerSelectedPaneTarget?) -> Void)?
+        try await withMainSplitViewControllerHarness(
+            withRepos: false,
+            configureSidebarDependencies: { dependencies in
+                onSpaceKeyDown = dependencies.onSpaceKeyDown
+                onSelectedPaneTargetChange = dependencies.onSelectedPaneTargetChange
+            },
+            body: { harness in
+                let pane = harness.store.createPane()
+                let tab = Tab(paneId: pane.id, name: "Preview")
+                harness.store.appendTab(tab)
+                harness.store.setActiveTab(tab.id)
+                harness.coordinator.windowLifecycleStore.recordTerminalContainerBounds(
+                    CGRect(x: 0, y: 0, width: 1000, height: 700)
+                )
+                var preparedSignalCount = 0
+                harness.coordinator.preparedContentVisibilitySignalHandler = { _ in
+                    preparedSignalCount += 1
+                    return []
+                }
+                let target = RepoExplorerSelectedPaneTarget(
+                    paneID: pane.id,
+                    owningTabID: tab.id
+                )
+
+                onSpaceKeyDown?(false, target)
+                let state = try #require(harness.controller.heldPanePreviewState)
+                let preparedCountAfterInitialDown = preparedSignalCount
+                #expect(state.generation == 1)
+                #expect(state.requestedTarget?.paneID == pane.id)
+
+                onSpaceKeyDown?(true, target)
+                onSelectedPaneTargetChange?(target)
+
+                #expect(preparedSignalCount == preparedCountAfterInitialDown)
+                #expect(state.generation == 1)
+                #expect(state.requestedTarget?.paneID == pane.id)
+            }
+        )
+    }
+
     @Test("ready held preview reveals its owning tab without changing durable selection")
     func readyHeldPreviewRevealsOwningTabWithoutChangingDurableSelection() async throws {
         try await withUnloadedMainSplitViewControllerHarness(

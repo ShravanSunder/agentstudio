@@ -47,11 +47,13 @@ final class HeldPanePreviewState {
     }
 
     /// Follows the selected row without minting a new hold generation.
-    func updateRequestedTarget(_ target: ValidatedPanePreviewTarget?) {
-        guard case .held(let generation, _) = lifecycle else { return }
-        guard requestedTarget != target else { return }
+    @discardableResult
+    func updateRequestedTarget(_ target: ValidatedPanePreviewTarget?) -> Bool {
+        guard case .held(let generation, _) = lifecycle else { return false }
+        guard requestedTarget != target else { return false }
         presentedTarget = nil
         lifecycle = .held(generation: generation, requestedTarget: target)
+        return true
     }
 
     /// Publishes a target only when it still belongs to this held generation.

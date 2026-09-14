@@ -2,9 +2,9 @@
 
 **Current implementation review map.** Sidebar core and terminal navigation are implemented.
 The reviewed MainActor snapshot-capture regression is corrected; focused tests and lint pass.
-The corrected-head aggregate, capture correction review and pinned timing proof are complete at `41c427781`; held-preview S1 and S2 are accepted at fitting isolated proof, with the final S2 receipt covering the 24 previously missing suites and Bridge retry coverage. S3 mount/restore/renderer/Bridge integration and S4 Space overlay/performance/native journey remain unimplemented; no real native held-preview proof, aggregate run, or PR-readiness claim is made.
+The prior corrected-head aggregate, capture correction review and pinned timing proof are complete at `41c427781`; held-preview S1 and S2 are accepted at fitting isolated proof, and S3 is accepted at fitting scope. S3 covers prepared restore, real SurfaceManager attach/display custody, renderer visibility, actual Bridge retained Review/catch-up, deferred geometry with exact bounds/current generation, and autorepeat gating. S4 Space overlay/performance/native work has not started; cold C Ghostty, ended zmx, native geometry, the current aggregate, independent review, and PR gates remain pending.
 Explicit owner choices and implementation defaults are distinguished in the
-[decision record](core-design-decisions.md). Preview behavior is confirmed; S1 and S2 fitting proof are accepted, while S3/S4 realization and proof remain pending.
+[decision record](core-design-decisions.md). Preview behavior is confirmed; S1/S2 fitting proof and S3 fitting implementation/proof are accepted, while S4 realization and native proof remain pending.
 
 Authority: [Requirements](requirements.md) → [Specification](../../specs/2026-09-12-sidebar-keyboard-system/specification.md) → [Program Design](../../specs/2026-09-12-sidebar-keyboard-system/program-design.md). Historical discussion and retired traversal drafts are excluded.
 
@@ -59,7 +59,7 @@ Sidebar list owns focus
 
 Preview/Enter distinction is owner-requested. Keeping focus in the sidebar and
 restoring the prior presentation are the recommended behavior needed to make preview
-temporary; hold/release behavior is settled; loading existing content is confirmed; its remaining renderer path is governed by the ready S2–S4 plan in section 5.
+temporary; hold/release behavior is settled; loading existing content is confirmed; its remaining S4 renderer/input/performance path is governed by the ready S2–S4 plan in section 5.
 
 ## 3. Keys by focus location
 
@@ -246,8 +246,8 @@ P/R/F surface/filter routing and filter-to-list/terminal return have
 [native activation and overlay proof](sidebar-overlay-native-proof.md), including Bridge/custom
 arrangement, drawer reveal and offscreen result 9. The late-restore focus handshake has regression
 and rebuilt native proof. Direct pinned navigation is implemented with [mixed-pane native proof](pinned-navigation-native-proof.md);
-its full aggregate and corrected marker-scoped timing proof passed; the independent capture correction review is complete. The timing sample is 28 operations represented by 56 phase records, with capture median/max `0.010500`/`0.017875 ms` and worker median/max `0.123208`/`0.225750 ms`; this is an observed sample only. Held-preview S1 and S2 are accepted at fitting isolated proof; the mixed signal-11 run and zero-match dot-filter result are preserved as failures excluded from proof, and duplicate isolated counts are not summed. S3 mount/restore/renderer/Bridge integration and S4 Space overlay/performance/native journey remain unimplemented. No nested Bridge WebKit DOM-focus claim is made.
+its full aggregate and corrected marker-scoped timing proof passed; the independent capture correction review is complete. The timing sample is 28 operations represented by 56 phase records, with capture median/max `0.010500`/`0.017875 ms` and worker median/max `0.123208`/`0.225750 ms`; this is an observed sample only. Held-preview S1 and S2 are accepted at fitting isolated proof; the mixed signal-11 run and zero-match dot-filter result are preserved as failures excluded from proof, and duplicate isolated counts are not summed. S3 mount/restore/renderer/Bridge integration is accepted at fitting scope; S4 Space overlay/performance/native journey has not started. No nested Bridge WebKit DOM-focus claim is made.
 
 Arrangement creation/reveal has separate native terminal, Bridge and ordinary drawer
 proof. The revised terminal map has [fresh native evidence](terminal-native-v2-proof.md).
-The historical arrangement entry above preserves its PR #345/main-alignment context. The current corrected-head full aggregate passed at `41c427781` after the capture correction; the receipt is retained in `tmp/sidebar-keyboard-design/capture-current-head-aggregate.result.json`. This map records the corrected implementation and fitting S1/S2 proof state, while unimplemented S3/S4 slices keep the overall change short of whole-PR readiness.
+The historical arrangement entry above preserves its PR #345/main-alignment context. The prior corrected-head full aggregate passed at `41c427781` after the capture correction; the receipt is retained in `tmp/sidebar-keyboard-design/capture-current-head-aggregate.result.json`. A current post-S3 aggregate remains pending. This map records the corrected implementation, fitting S1/S2 proof, and fitting S3 status, while unstarted S4 and pending native/aggregate/review/PR gates keep the overall change short of whole-PR readiness.

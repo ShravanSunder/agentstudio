@@ -53,6 +53,9 @@ extension WorkspaceSurfaceCoordinator {
         }
         host.mountContentView(mountedView)
         viewRegistry.register(host, for: paneId)
+        if let capture = heldPanePreviewPreparationCapture {
+            acceptHeldPanePreviewIfCurrent(capture, paneID: paneId)
+        }
         if let priorHost, priorHost !== host {
             priorHost.retire()
         }
@@ -748,7 +751,7 @@ extension WorkspaceSurfaceCoordinator {
         }
         guard !resolvedFramesByPaneID.isEmpty else { return }
 
-        _ = preparedContentVisibilitySignalHandler(currentVisibleQueuedSet())
+        _ = preparedContentVisibilitySignalHandler(currentVisibleQueuedSetPreservingHeldPreview())
         await preparedTerminalGeometryReevaluationHandler(resolvedFramesByPaneID)
     }
 
@@ -799,7 +802,7 @@ extension WorkspaceSurfaceCoordinator {
         // answered `.visibilityChanged`, and the scheduler applies this
         // snapshot (R3's `admitWaitingMembers` plus `applyVisibilitySnapshot`)
         // before granting anything.
-        _ = preparedContentVisibilitySignalHandler(currentVisibleQueuedSet())
+        _ = preparedContentVisibilitySignalHandler(currentVisibleQueuedSetPreservingHeldPreview())
         await preparedTerminalGeometryReevaluationHandler(resolvedFramesByPaneID)
     }
 

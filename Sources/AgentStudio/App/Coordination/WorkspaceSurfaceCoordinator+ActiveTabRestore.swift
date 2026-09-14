@@ -39,11 +39,7 @@ extension WorkspaceSurfaceCoordinator {
         // still owns are excluded here; a terminal pane's actual creation
         // gate is its own per-pane `TerminalSurfaceCreationAuthority`,
         // resolved later inside `createViewForContent`.
-        let visiblePaneIDList = visiblePaneIDs.map(PaneId.init(existingUUID:))
-        let visibleQueuedSet = PreparedContentVisibleQueuedSet(
-            visiblePaneIDs: visiblePaneIDList,
-            activePaneIDs: Set(visiblePaneIDList.filter { visibilityTierResolver.isActive($0) })
-        )
+        let visibleQueuedSet = currentVisibleQueuedSetPreservingHeldPreview()
         let preparedHandledPaneIDs = preparedContentVisibilitySignalHandler(visibleQueuedSet)
         RestoreTrace.log(
             "restoreViewsForActiveTabIfNeeded signalledPreparedOwners activeTab=\(activeTab.id) visiblePaneCount=\(visiblePaneIDs.count) handledPaneCount=\(preparedHandledPaneIDs.count)"

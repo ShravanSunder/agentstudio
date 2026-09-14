@@ -110,6 +110,7 @@ class MainSplitViewController: NSSplitViewController {
 
     func syncVisibleTerminalGeometry(reason: StaticString) {
         paneTabViewController?.syncVisibleTerminalGeometry(reason: reason)
+        workspaceActionExecutor.prepareHeldPanePreview()
     }
 
     func makePaneFocusAppControl(store: WorkspaceStore) -> (any PaneFocusAppControlling)? {
@@ -203,6 +204,7 @@ class MainSplitViewController: NSSplitViewController {
         guard let heldPanePreviewState else {
             preconditionFailure("Held pane preview state must exist before loading the window")
         }
+        workspaceActionExecutor.bindHeldPanePreviewState(heldPanePreviewState)
         let paneTabVC = PaneTabViewController(
             store: store,
             octiconLoader: octiconLoader,
@@ -238,48 +240,7 @@ class MainSplitViewController: NSSplitViewController {
         splitView.isVertical = true
         splitView.dividerStyle = .thin
 
-        // Create sidebar (SwiftUI via NSHostingController)
-        let sidebarView = sidebarRootViewBuilder(
-            SidebarRootViewDependencies(
-                store: store,
-                octiconLoader: octiconLoader,
-                paneActivityStatusAtom: atom(\.paneActivityStatus),
-                applicationLifecycleMonitor: applicationLifecycleMonitor,
-                sidebarTimeInvalidationConsumerID: sidebarTimeInvalidationConsumerID,
-                sidebarState: uiState,
-                repoExplorerSidebarPrefs: repoExplorerSidebarPrefs,
-                bridgeAttendanceSnapshot: bridgeAttendanceSnapshot,
-                performanceTraceRecorder: performanceTraceRecorder,
-                onRefocusActivePane: { [weak self] in
-                    self?.restoreSidebarReturnFocusOrigin()
-                },
-                onSpaceKeyDown: { [weak self] isRepeat, target in
-                    guard let self else { return }
-                    self.heldPanePreviewState?.beginSpaceHold(
-                        requestedTarget: self.validatedPreviewTarget(for: target),
-                        isRepeat: isRepeat
-                    )
-                },
-                onSpaceKeyUp: { [weak self] in
-                    self?.heldPanePreviewState?.endSpaceHold()
-                },
-                onSelectedPaneTargetChange: { [weak self] target in
-                    guard let self else { return }
-                    self.heldPanePreviewState?.updateRequestedTarget(
-                        self.validatedPreviewTarget(for: target)
-                    )
-                },
-                onPreviewEligibilityLoss: { [weak self] in
-                    self?.heldPanePreviewState?.cancelIfHeld()
-                },
-                onPreviewCommit: { [weak self] in
-                    self?.heldPanePreviewState?.commitBeforeActivation()
-                },
-                onSidebarVisibleWorktreesChanged: onSidebarVisibleWorktreesChanged,
-                onPerformanceProofReadback: onPerformanceProofReadback,
-                onRepositoryFactUpdateProgressPresented: onRepositoryFactUpdateProgressPresented
-            )
-        )
+        let sidebarView = makeSidebarRootView()
         let sidebarHosting = NSHostingController(
             rootView: AnyView(sidebarView.tint(AppStyles.General.Accent.primaryColor)))
         sidebarHosting.sizingOptions = []
@@ -308,6 +269,62 @@ class MainSplitViewController: NSSplitViewController {
         }
 
         scheduleSidebarWidthRestore()
+    }
+
+    @MainActor
+    private func makeSidebarRootView() -> AnyView {
+        sidebarRootViewBuilder(
+            SidebarRootViewDependencies(
+                store: store,
+                octiconLoader: octiconLoader,
+                paneActivityStatusAtom: atom(\.paneActivityStatus),
+                applicationLifecycleMonitor: applicationLifecycleMonitor,
+                sidebarTimeInvalidationConsumerID: sidebarTimeInvalidationConsumerID,
+                sidebarState: uiState,
+                repoExplorerSidebarPrefs: repoExplorerSidebarPrefs,
+                bridgeAttendanceSnapshot: bridgeAttendanceSnapshot,
+                performanceTraceRecorder: performanceTraceRecorder,
+                onRefocusActivePane: { [weak self] in
+                    self?.restoreSidebarReturnFocusOrigin()
+                },
+                onSpaceKeyDown: { [weak self] isRepeat, target in
+                    guard let self else { return }
+                    let didBeginHold =
+                        self.heldPanePreviewState?.beginSpaceHold(
+                            requestedTarget: self.validatedPreviewTarget(for: target),
+                            isRepeat: isRepeat
+                        ) == true
+                    if didBeginHold {
+                        self.workspaceActionExecutor.prepareHeldPanePreview()
+                    }
+                },
+                onSpaceKeyUp: { [weak self] in
+                    self?.heldPanePreviewState?.endSpaceHold()
+                    self?.workspaceActionExecutor.prepareHeldPanePreview()
+                },
+                onSelectedPaneTargetChange: { [weak self] target in
+                    guard let self else { return }
+                    let didChangeTarget =
+                        self.heldPanePreviewState?.updateRequestedTarget(
+                            self.validatedPreviewTarget(for: target)
+                        ) == true
+                    if didChangeTarget {
+                        self.workspaceActionExecutor.prepareHeldPanePreview()
+                    }
+                },
+                onPreviewEligibilityLoss: { [weak self] in
+                    self?.heldPanePreviewState?.cancelIfHeld()
+                    self?.workspaceActionExecutor.prepareHeldPanePreview()
+                },
+                onPreviewCommit: { [weak self] in
+                    self?.heldPanePreviewState?.commitBeforeActivation()
+                    self?.workspaceActionExecutor.prepareHeldPanePreview()
+                },
+                onSidebarVisibleWorktreesChanged: onSidebarVisibleWorktreesChanged,
+                onPerformanceProofReadback: onPerformanceProofReadback,
+                onRepositoryFactUpdateProgressPresented: onRepositoryFactUpdateProgressPresented
+            )
+        )
     }
 
     func makeToolbarChromeView() -> MainToolbarChromeView {
