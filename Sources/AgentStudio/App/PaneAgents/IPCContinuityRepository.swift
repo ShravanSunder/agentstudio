@@ -1,0 +1,112 @@
+import AgentStudioCore
+import Foundation
+import GRDB
+
+actor IPCContinuityRepository {
+    private let datastore: WorkspaceSQLiteDatastoreActor
+
+    init(datastore: WorkspaceSQLiteDatastoreActor) {
+        self.datastore = datastore
+    }
+
+    func persistPreparedPaneCredential(
+        paneID: UUID,
+        workspaceID: UUID,
+        generation: UUID,
+        verifier: Data
+    ) async throws {
+        guard verifier.count == 32 else { throw IPCContinuityRepositoryError.invalidVerifierLength }
+        try await datastore.performApplicationLocalWrite { database in
+            let existing = try IPCContinuityRepository.fetchCredential(database, paneID: paneID, generation: generation)
+            if let existing {
+                guard existing.workspaceID == workspaceID, existing.verifier == verifier, existing.status == .prepared
+                else {
+                    throw IPCContinuityRepositoryError.conflictingPreparedCredential
+                }
+                return
+            }
+            try database.execute(
+                sql: """
+                    INSERT INTO local_ipc_credential
+                    (credential_namespace, pane_id, workspace_id, runtime_id, generation_id, verifier_sha256, status)
+                    VALUES ('pane', ?, ?, NULL, ?, ?, 'prepared')
+                    """,
+                arguments: [paneID.uuidString, workspaceID.uuidString, generation.uuidString, verifier]
+            )
+        }
+    }
+
+    func activatePreparedPaneCredential(paneID: UUID, generation: UUID) async throws {
+        try await datastore.performApplicationLocalWrite { database in
+            guard
+                let credential = try IPCContinuityRepository.fetchCredential(
+                    database, paneID: paneID, generation: generation)
+            else {
+                throw IPCContinuityRepositoryError.cannotActivateCredential
+            }
+            switch credential.status {
+            case .prepared:
+                try database.execute(
+                    sql: """
+                        UPDATE local_ipc_credential SET status = 'active'
+                        WHERE credential_namespace = 'pane' AND pane_id = ? AND generation_id = ? AND status = 'prepared'
+                        """,
+                    arguments: [paneID.uuidString, generation.uuidString]
+                )
+            case .active:
+                return
+            case .revoked:
+                throw IPCContinuityRepositoryError.cannotActivateRevokedCredential
+            case .superseded:
+                throw IPCContinuityRepositoryError.cannotActivateCredential
+            }
+        }
+    }
+
+    func revokePreparedPaneCredential(paneID: UUID, generation: UUID) async throws {
+        try await datastore.performApplicationLocalWrite { database in
+            try database.execute(
+                sql: """
+                    UPDATE local_ipc_credential SET status = 'revoked'
+                    WHERE credential_namespace = 'pane' AND pane_id = ? AND generation_id = ? AND status = 'prepared'
+                    """,
+                arguments: [paneID.uuidString, generation.uuidString]
+            )
+        }
+    }
+
+    func credential(for paneID: UUID, generation: UUID) async throws -> IPCContinuityCredential? {
+        try await datastore.performApplicationLocalRead { database in
+            try IPCContinuityRepository.fetchCredential(database, paneID: paneID, generation: generation)
+        }
+    }
+
+    private static func fetchCredential(
+        _ database: Database,
+        paneID: UUID,
+        generation: UUID
+    ) throws -> IPCContinuityCredential? {
+        guard
+            let row = try Row.fetchOne(
+                database,
+                sql: """
+                    SELECT pane_id, workspace_id, generation_id, verifier_sha256, status
+                    FROM local_ipc_credential
+                    WHERE credential_namespace = 'pane' AND pane_id = ? AND generation_id = ?
+                    """,
+                arguments: [paneID.uuidString, generation.uuidString]
+            ),
+            let storedPaneID = UUID(uuidString: row["pane_id"]),
+            let workspaceID = UUID(uuidString: row["workspace_id"]),
+            let storedGeneration = UUID(uuidString: row["generation_id"]),
+            let status = IPCContinuityCredentialStatus(rawValue: row["status"])
+        else { return nil }
+        return .init(
+            paneID: storedPaneID,
+            workspaceID: workspaceID,
+            generation: storedGeneration,
+            verifier: row["verifier_sha256"],
+            status: status
+        )
+    }
+}

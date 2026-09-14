@@ -62,6 +62,7 @@ struct WorkspaceLocalMigrationTests {
             "sessions_result",
             "sessions_operation",
             "sessions_loss",
+            "local_ipc_credential",
         ]
 
         #expect(tableNames == expectedTableNames)
@@ -97,6 +98,7 @@ struct WorkspaceLocalMigrationTests {
                     "010_remove_worktree_annotation_workspace_provenance",
                     "007_add_per_screen_sidebar_organization",
                     "011_create_sessions_ingestion_schema",
+                    "012_create_ipc_credential_schema",
                 ]
         )
     }

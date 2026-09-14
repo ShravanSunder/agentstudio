@@ -392,6 +392,7 @@ package enum WorkspaceLocalMigrations {
             try database.execute(sql: "ALTER TABLE local_repo_explorer_preferences DROP COLUMN visibility_mode")
         }
         registerSessionsSchema(in: &migrator)
+        registerIPCCredentialSchema(in: &migrator)
         return migrator
     }
 
