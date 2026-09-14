@@ -195,7 +195,8 @@ extension BridgePaneProductMetadataCoordinator {
             !(await publishingStream.session.waitUntilProducerFrameSequenceObserved(
                 for: publishingStream.lease,
                 sequence: maximumFinalSequence,
-                productAdmission: productAdmission
+                productAdmission: productAdmission,
+                foregroundWorkAdmission: foregroundWorkAdmission
             ))
         {
             let publicationRemainsCurrent = await isReviewPublicationCurrent(

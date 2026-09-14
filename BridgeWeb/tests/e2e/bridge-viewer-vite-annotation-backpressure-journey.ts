@@ -35,6 +35,7 @@ import {
 	compactTelemetryDiagnostic,
 	waitForBackpressureTelemetry,
 } from './bridge-viewer-vite-backpressure-telemetry.ts';
+import { observeFrameAcknowledgementQuiescence } from './bridge-viewer-vite-frame-acknowledgement-quiescence.ts';
 import {
 	createBridgeViewerViteProductFixture,
 	startBridgeViewerOwnedViteProductServer,
@@ -433,6 +434,10 @@ async function runAnnotationBackpressureJourney(props: {
 	try {
 		const createdPage = await browser.newPage({ viewport: { height: 980, width: 1728 } });
 		page = createdPage;
+		const frameAcknowledgementQuiescence = observeFrameAcknowledgementQuiescence(
+			createdPage,
+			stressOperationTimeoutMilliseconds,
+		);
 		const selectedItemApplyObservation = observeSelectedItemApplies(createdPage);
 		const observedReviewFile = props.oracle.reviewFiles[0];
 		if (observedReviewFile === undefined)
@@ -476,6 +481,7 @@ async function runAnnotationBackpressureJourney(props: {
 				}),
 			timeoutMilliseconds: 30_000,
 		});
+		await frameAcknowledgementQuiescence.wait();
 
 		await runMilestone({
 			after: 'review.item-count.waiting',
@@ -697,6 +703,7 @@ async function runAnnotationBackpressureJourney(props: {
 			operation: async () => waitForSelectedFileReady({ oracle: props.oracle, page: createdPage }),
 		});
 		expect(bootstrapRequestCount).toBe(2);
+		await frameAcknowledgementQuiescence.wait();
 		await createdPage
 			.getByTestId('bridge-viewer-mode-host-file')
 			.getByTestId('bridge-viewer-context-review')

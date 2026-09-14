@@ -288,7 +288,9 @@ extension Ghostty.ActionRouter {
                 ),
                 target: target,
                 routingLookupProvider: routingLookupProvider,
-                handledResult: false
+                // The runtime opens the clicked target. Declining would invoke
+                // Ghostty's fallback, which rejects OSC 8 on macOS.
+                handledResult: true
             )
         case .progressReport:
             return routeActionToTerminalRuntime(

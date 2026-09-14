@@ -291,10 +291,11 @@ struct RepoExplorerCommandPresentationBatchTests {
     func toolbarCapabilityRequestsKeepEveryDirectDestinationMounted() {
         let requests = RepoExplorerToolbarCommandPresentation.requests()
 
-        #expect(requests.count == 17)
+        #expect(requests.count == 9)
         #expect(requests.allSatisfy { $0.arguments == .noArguments })
         #expect(requests.contains { $0.command == .setReposSortFieldName })
-        #expect(requests.contains { $0.command == .setPanesSortFieldActivity })
+        #expect(requests.contains { $0.command == .togglePanesShowsPinned })
+        #expect(!requests.contains { $0.command == .setPanesSortFieldActivity })
     }
 
     @Test("mixed capability and visible-set wake re-resolves surviving requests")

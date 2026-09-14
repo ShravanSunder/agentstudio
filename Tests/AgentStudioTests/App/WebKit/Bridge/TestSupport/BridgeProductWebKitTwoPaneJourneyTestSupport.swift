@@ -29,6 +29,7 @@ struct BridgeProductWebKitTwoPaneJourneyProof: Sendable {
     let dormantDefaults: BridgeProductWebKitTwoPanePositionSnapshot
     let fileStateAfterReturn: BridgeProductWebKitTwoPanePositionSnapshot
     let hiddenDirtyGeneration: UInt64?
+    let hiddenMetadataStormDiagnostic: String
     let hiddenMetadataSequenceAfterStorm: Int
     let hiddenMetadataSequenceBeforeStorm: Int
     let hiddenRefreshPassCountAfterStorm: Int
@@ -370,6 +371,7 @@ enum BridgeProductWebKitTwoPaneJourneyTestSupport {
         let hiddenAfterStorm = input.paneOne.refreshAdmissionCoordinator.diagnosticSnapshot
         let hiddenNativeAfterStorm =
             await BridgeProductWebKitCarrierTestSupport.nativeSnapshot(input.paneOne)
+        let hiddenTraceAfterStorm = await input.paneOneTrace.scrubbedTrace()
         guard
             await input.paneOneReviewProvider.snapshot().comparisonCount
                 == hiddenComparisonCountBeforeStorm
@@ -404,6 +406,12 @@ enum BridgeProductWebKitTwoPaneJourneyTestSupport {
             dormantDefaults: preparation.dormantDefaults,
             fileStateAfterReturn: fileStateAfterReturn,
             hiddenDirtyGeneration: hiddenAfterStorm.dirtyFact?.generation,
+            hiddenMetadataStormDiagnostic: BridgeProductWebKitMetadataStormDiagnostic.message(
+                nativeBefore: hiddenNativeBeforeStorm,
+                nativeAfter: hiddenNativeAfterStorm,
+                traceBefore: hiddenTraceBeforeLateRelease,
+                traceAfter: hiddenTraceAfterStorm
+            ),
             hiddenMetadataSequenceAfterStorm: hiddenNativeAfterStorm.nextMetadataStreamSequence,
             hiddenMetadataSequenceBeforeStorm: hiddenNativeBeforeStorm.nextMetadataStreamSequence,
             hiddenRefreshPassCountAfterStorm: hiddenAfterStorm.refreshPassCount,

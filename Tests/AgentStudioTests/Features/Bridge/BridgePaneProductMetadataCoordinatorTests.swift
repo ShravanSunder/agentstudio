@@ -216,10 +216,10 @@ struct BridgePaneProductMetadataCoordinatorTests {
             await deliveryProbe.record(disposition)
             return disposition
         }
-        let publicationReceipt = await reviewSource.waitUntilPublicationReceipt()
         let sourceAcceptedFrame = try await pullMetadataFrame(from: pump)
         #expect(await deliveryProbe.disposition == nil)
         let snapshotFrame = try await pullMetadataFrame(from: pump)
+        let publicationReceipt = await reviewSource.waitUntilPublicationReceipt()
         let deliveryDisposition = await delivery.value
         await harness.session.settleControlProviderDispatch(token: token)
 
