@@ -26,6 +26,11 @@ package struct RepoExplorerView: View {
     let commandPresentationDelta: RepoExplorerCommandPresentationDelta?
     let visibleSnapshotConsumerToken: UUID?
     let onRefocusActivePane: () -> Void
+    let onSpaceKeyDown: @MainActor (Bool, RepoExplorerSelectedPaneTarget?) -> Void
+    let onSpaceKeyUp: @MainActor () -> Void
+    let onSelectedPaneTargetChange: @MainActor (RepoExplorerSelectedPaneTarget?) -> Void
+    let onPreviewEligibilityLoss: @MainActor () -> Void
+    let onPreviewCommit: @MainActor () -> Void
     let onSidebarVisibleWorktreesChanged: @MainActor @Sendable () -> Void
     let onVisibleWorktreeSnapshotChanged: @MainActor @Sendable (RepoExplorerVisibleWorktreeSnapshot) -> Void
     let onPerformanceProofReadback: @MainActor @Sendable (RepoExplorerPerformanceProofReadback) -> Void
@@ -48,6 +53,12 @@ package struct RepoExplorerView: View {
         commandPresentationDelta: RepoExplorerCommandPresentationDelta? = nil,
         visibleSnapshotConsumerToken: UUID? = nil,
         onRefocusActivePane: @escaping () -> Void,
+        onSpaceKeyDown: @escaping @MainActor (Bool, RepoExplorerSelectedPaneTarget?) -> Void = { _, _ in },
+        onSpaceKeyUp: @escaping @MainActor () -> Void = {},
+        onSelectedPaneTargetChange:
+            @escaping @MainActor (RepoExplorerSelectedPaneTarget?) -> Void = { _ in },
+        onPreviewEligibilityLoss: @escaping @MainActor () -> Void = {},
+        onPreviewCommit: @escaping @MainActor () -> Void = {},
         onSidebarVisibleWorktreesChanged: @escaping @MainActor @Sendable () -> Void,
         onVisibleWorktreeSnapshotChanged:
             @escaping @MainActor @Sendable (RepoExplorerVisibleWorktreeSnapshot) -> Void = { _ in },
@@ -74,6 +85,11 @@ package struct RepoExplorerView: View {
         self.commandPresentationDelta = commandPresentationDelta
         self.visibleSnapshotConsumerToken = visibleSnapshotConsumerToken
         self.onRefocusActivePane = onRefocusActivePane
+        self.onSpaceKeyDown = onSpaceKeyDown
+        self.onSpaceKeyUp = onSpaceKeyUp
+        self.onSelectedPaneTargetChange = onSelectedPaneTargetChange
+        self.onPreviewEligibilityLoss = onPreviewEligibilityLoss
+        self.onPreviewCommit = onPreviewCommit
         self.onSidebarVisibleWorktreesChanged = onSidebarVisibleWorktreesChanged
         self.onVisibleWorktreeSnapshotChanged = onVisibleWorktreeSnapshotChanged
         self.onPerformanceProofReadback = onPerformanceProofReadback
@@ -275,6 +291,11 @@ package struct RepoExplorerView: View {
                 )
                 return isProjectionDemanded && openOrganizationSelector == nil && context.isStableSidebar
             },
+            onSpaceKeyDown: onSpaceKeyDown,
+            onSpaceKeyUp: onSpaceKeyUp,
+            onSelectedPaneTargetChange: onSelectedPaneTargetChange,
+            onPreviewEligibilityLoss: onPreviewEligibilityLoss,
+            onPreviewCommit: onPreviewCommit,
             onFilterFocusRequest: { focusedField = .filter },
             onReturnFocusRequest: onRefocusActivePane,
             onSidebarFocusChange: { hasFocus in

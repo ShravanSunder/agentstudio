@@ -24,6 +24,7 @@ final class RepoExplorerMaterializationHost: NSView {
             keyboardInteraction = interaction
         }
         interaction.attach(self)
+        interaction.selectedPaneTargetDidChange(selectedPaneTarget())
     }
 
     @discardableResult
@@ -55,6 +56,19 @@ final class RepoExplorerMaterializationHost: NSView {
     }
 
     override func keyDown(with event: NSEvent) {
+        if Self.isSpaceKeyDown(event) {
+            guard isPresentationReady, let keyboardInteraction,
+                keyboardInteraction.isListKeyboardActive
+            else {
+                super.keyDown(with: event)
+                return
+            }
+            keyboardInteraction.spaceKeyDown(
+                isRepeat: event.isARepeat,
+                selectedPaneTarget: selectedPaneTarget()
+            )
+            return
+        }
         guard isPresentationReady, keyboardInteraction?.isListKeyboardActive == true,
             let trigger = ShortcutDecoder.decode(event: event)
         else {
@@ -70,6 +84,28 @@ final class RepoExplorerMaterializationHost: NSView {
             return
         }
         super.keyDown(with: event)
+    }
+
+    override func keyUp(with event: NSEvent) {
+        // Space-up is the physical end of the gesture. Its modifier snapshot
+        // and current list readiness may differ from the corresponding key-down
+        // (for example, Shift or Caps Lock can change while Space is held).
+        if event.keyCode == 49 {
+            keyboardInteraction?.spaceKeyUp()
+            return
+        }
+        super.keyUp(with: event)
+    }
+
+    private static func isSpaceKeyDown(_ event: NSEvent) -> Bool {
+        guard event.keyCode == 49 else { return false }
+        let conventionalCommandModifiers: NSEvent.ModifierFlags = [
+            .command,
+            .control,
+            .option,
+            .shift,
+        ]
+        return event.modifierFlags.isDisjoint(with: conventionalCommandModifiers)
     }
 
     private let makeContentChild: @MainActor () -> any RepoExplorerMaterializationContentChild
@@ -193,6 +229,7 @@ final class RepoExplorerMaterializationHost: NSView {
         self.acceptedBaseline = acceptedBaseline
         selectedRowID = reconciledSelectionRowID
         isPresentationReady = true
+        keyboardInteraction?.selectedPaneTargetDidChange(selectedPaneTarget())
         onFeedback(.accepted(identity: .candidate(candidate.id), baseline: acceptedBaseline))
         return .accepted(acceptedBaseline)
     }
@@ -428,6 +465,7 @@ final class RepoExplorerMaterializationHost: NSView {
             contentChild?.applySelection(rowID: initialRowID, scrollIntoView: true) == true
         else { return }
         selectedRowID = initialRowID
+        keyboardInteraction?.selectedPaneTargetDidChange(selectedPaneTarget())
     }
 
     private func moveSelection(verticalDirection: VerticalSelectionDirection) {
@@ -498,6 +536,7 @@ final class RepoExplorerMaterializationHost: NSView {
         guard let row = acceptedContentSnapshot?.row(id: rowID),
             let effect = Self.keyboardEffect(for: row)
         else { return }
+        keyboardInteraction?.commitPreviewBeforeActivation()
         contentChild?.performListKeyboardEffect(effect)
     }
 
@@ -506,6 +545,28 @@ final class RepoExplorerMaterializationHost: NSView {
             contentChild?.applySelection(rowID: rowID, scrollIntoView: true) == true
         else { return }
         selectedRowID = rowID
+        keyboardInteraction?.selectedPaneTargetDidChange(selectedPaneTarget())
+    }
+
+    private func selectedPaneTarget() -> RepoExplorerSelectedPaneTarget? {
+        guard let selectedRowID,
+            let row = acceptedContentSnapshot?.row(id: selectedRowID)
+        else { return nil }
+        switch row.presentation {
+        case .pane(let pane):
+            return RepoExplorerSelectedPaneTarget(
+                paneID: pane.destination.paneId,
+                owningTabID: pane.destination.tabId
+            )
+        case .unassociatedPane(let pane):
+            return RepoExplorerSelectedPaneTarget(
+                paneID: pane.destination.paneId,
+                owningTabID: pane.destination.tabId
+            )
+        case .activitySubgroup, .sectionHeader, .loadingSectionHeader, .loadingRepository,
+            .groupHeader, .worktree, .topologyFault, .unresolved:
+            return nil
+        }
     }
 
     private static func keyboardEffect(

@@ -11,6 +11,7 @@ final class RepoExplorerListKeyboardRecorder {
     private(set) var toggledGroupIDs: [String] = []
     private(set) var focusedPaneIDs: [UUID] = []
     private(set) var expansionRequests: [RepoExplorerGroupExpansionRequest] = []
+    private(set) var events: [String] = []
 
     func recordCommand(_ request: RepoExplorerCommandPresentationRequest) {
         commandRequests.append(request)
@@ -22,12 +23,17 @@ final class RepoExplorerListKeyboardRecorder {
 
     func recordFocus(paneID: UUID) {
         focusedPaneIDs.append(paneID)
+        events.append("focusPane")
     }
 
     func recordExpansion(groupID: String, isExpanded: Bool) {
         expansionRequests.append(
             RepoExplorerGroupExpansionRequest(groupID: groupID, isExpanded: isExpanded)
         )
+    }
+
+    func recordPreviewCommit() {
+        events.append("previewCommit")
     }
 }
 

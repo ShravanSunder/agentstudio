@@ -113,6 +113,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
     private let paneInboxPresentation: PaneInboxPresentation?
     private let closeTransitionCoordinator: PaneCloseTransitionCoordinator
     let performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
+    private let onPreviewEligibilityLoss: @MainActor () -> Void
     private let interactionProbe: AgentStudioInteractionPerformanceProbe?
     private var pendingTabMovePublication: PendingTabMovePublication?
     private let tabContextMenuPresenter = TabContextMenuPresenter()
@@ -263,6 +264,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
                 .live()
             },
         performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = nil,
+        onPreviewEligibilityLoss: @escaping @MainActor () -> Void = {},
         interactionProbe: AgentStudioInteractionPerformanceProbe? = nil,
         registersAsCommandHandler: Bool = true,
         embedsTabBarInView: Bool = true,
@@ -298,6 +300,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         self.bridgeViewerOpenTelemetryAnchorFactory = bridgeViewerOpenTelemetryAnchorFactory
         self.closeTransitionCoordinator = closeTransitionCoordinator
         self.performanceTraceRecorder = performanceTraceRecorder
+        self.onPreviewEligibilityLoss = onPreviewEligibilityLoss
         self.interactionProbe =
             interactionProbe
             ?? performanceTraceRecorder.map {
@@ -699,10 +702,33 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
     private func observeForManagementLayerState() {
         withObservationTracking {
             _ = atom(\.managementLayer).isActive
+            _ =
+                KeyboardRoutingContext.current(
+                    windowLifecycle: windowLifecycleStore,
+                    managementLayer: atom(\.managementLayer),
+                    uiState: atom(\.workspaceSidebarState),
+                    commandBarSurface: atom(\.commandBarSurface),
+                    transientKeyboardSurface: atom(\.transientKeyboardSurface),
+                    workspaceWindowId: workspaceWindowId
+                ).isStableSidebar
         } onChange: {
             Task { @MainActor [weak self] in
-                self?.handleManagementLayerStateChange()
-                self?.observeForManagementLayerState()
+                guard let self else { return }
+                let isManagementLayerActive = atom(\.managementLayer).isActive
+                let isStableSidebar = KeyboardRoutingContext.current(
+                    windowLifecycle: windowLifecycleStore,
+                    managementLayer: atom(\.managementLayer),
+                    uiState: atom(\.workspaceSidebarState),
+                    commandBarSurface: atom(\.commandBarSurface),
+                    transientKeyboardSurface: atom(\.transientKeyboardSurface),
+                    workspaceWindowId: workspaceWindowId
+                ).isStableSidebar
+                if self.lastManagementLayerActive != isManagementLayerActive {
+                    self.handleManagementLayerStateChange()
+                } else if !isStableSidebar {
+                    self.onPreviewEligibilityLoss()
+                }
+                self.observeForManagementLayerState()
             }
         }
     }
@@ -736,22 +762,23 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
     }
 
     private func handleManagementLayerStateChange() {
+        let isManagementLayerActive = atom(\.managementLayer).isActive
+        guard lastManagementLayerActive != isManagementLayerActive else { return }
+
+        onPreviewEligibilityLoss()
         let clock = ContinuousClock()
         let start = clock.now
-        let isManagementLayerActive = atom(\.managementLayer).isActive
         let didExitManagementLayer = lastManagementLayerActive && !isManagementLayerActive
-        if lastManagementLayerActive != isManagementLayerActive {
-            let transition: PaneModeFocusTrigger.Transition =
-                isManagementLayerActive ? .enteredManagementLayer : .exitedManagementLayer
-            handlePaneFocusTrigger(
-                .mode(
-                    PaneModeFocusTrigger(
-                        transition: transition,
-                        source: .command
-                    )
+        let transition: PaneModeFocusTrigger.Transition =
+            isManagementLayerActive ? .enteredManagementLayer : .exitedManagementLayer
+        handlePaneFocusTrigger(
+            .mode(
+                PaneModeFocusTrigger(
+                    transition: transition,
+                    source: .command
                 )
             )
-        }
+        )
 
         if !lastManagementLayerActive && isManagementLayerActive {
             managementNavigationScope = initialWorkspaceNavigationFocusScope()

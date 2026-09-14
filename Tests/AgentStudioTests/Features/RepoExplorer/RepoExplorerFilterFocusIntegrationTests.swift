@@ -88,6 +88,78 @@ struct RepoExplorerFilterFocusIntegrationTests {
         #expect(sidebarState.sidebarHasFocus)
     }
 
+    @Test("opening an organization selector reports preview eligibility loss")
+    func organizationSelectorOpeningReportsPreviewEligibilityLoss() throws {
+        var eligibilityLossCount = 0
+        let view = RepoExplorerView(
+            store: WorkspaceStore(startsObserving: false),
+            octiconLoader: makeRepoExplorerTestOcticonLoader(),
+            repoExplorerPrefs: RepoExplorerSidebarPrefsAtom(),
+            bridgeAttendanceSnapshot: { _ in nil },
+            commandDispatcher: FakeRepoExplorerAppCommandDispatcher(),
+            onRefocusActivePane: {},
+            onPreviewEligibilityLoss: { eligibilityLossCount += 1 },
+            onSidebarVisibleWorktreesChanged: {}
+        )
+        let hostingView = NSHostingView(rootView: AnyView(view.repoToolbarRow))
+        hostingView.frame = NSRect(x: 0, y: 0, width: 360, height: 40)
+        let window = NSWindow(
+            contentRect: hostingView.frame,
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.contentView = hostingView
+        defer {
+            hostingView.rootView = AnyView(EmptyView())
+            hostingView.layoutSubtreeIfNeeded()
+            window.close()
+        }
+        window.makeKeyAndOrderFront(nil)
+        hostingView.layoutSubtreeIfNeeded()
+
+        for location in [
+            NSPoint(x: 340, y: 10),
+            NSPoint(x: 340, y: 20),
+            NSPoint(x: 340, y: 30),
+            NSPoint(x: 320, y: 10),
+            NSPoint(x: 320, y: 20),
+            NSPoint(x: 320, y: 30),
+        ] where eligibilityLossCount == 0 {
+            let down = try #require(
+                NSEvent.mouseEvent(
+                    with: .leftMouseDown,
+                    location: location,
+                    modifierFlags: [],
+                    timestamp: 0,
+                    windowNumber: window.windowNumber,
+                    context: nil,
+                    eventNumber: 0,
+                    clickCount: 1,
+                    pressure: 1
+                )
+            )
+            let up = try #require(
+                NSEvent.mouseEvent(
+                    with: .leftMouseUp,
+                    location: location,
+                    modifierFlags: [],
+                    timestamp: 0,
+                    windowNumber: window.windowNumber,
+                    context: nil,
+                    eventNumber: 0,
+                    clickCount: 1,
+                    pressure: 1
+                )
+            )
+            window.sendEvent(down)
+            window.sendEvent(up)
+        }
+
+        #expect(eligibilityLossCount == 1)
+    }
+
     @Test(
         "shell-style direct list focus works from cold native and requested filter focus",
         arguments: ColdFilterFocusEntry.allCases

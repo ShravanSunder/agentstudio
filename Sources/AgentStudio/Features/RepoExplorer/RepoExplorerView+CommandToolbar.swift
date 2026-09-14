@@ -236,12 +236,20 @@ extension RepoExplorerView {
     ) -> Binding<Bool> {
         Binding(
             get: { openOrganizationSelector == selector },
-            set: { openOrganizationSelector = $0 ? selector : nil }
+            set: { setOrganizationSelector($0 ? selector : nil) }
         )
     }
 
     private func toggleOrganizationSelector(_ selector: RepoExplorerOrganizationSelector) {
-        openOrganizationSelector = openOrganizationSelector == selector ? nil : selector
+        setOrganizationSelector(openOrganizationSelector == selector ? nil : selector)
+    }
+
+    private func setOrganizationSelector(_ selector: RepoExplorerOrganizationSelector?) {
+        let isOpeningSelector = openOrganizationSelector == nil && selector != nil
+        openOrganizationSelector = selector
+        if isOpeningSelector {
+            onPreviewEligibilityLoss()
+        }
     }
 
     private func controlAccessibilityIdentifier(_ command: AppCommand) -> String {

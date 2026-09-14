@@ -1,3 +1,6 @@
+import AgentStudioCore
+import AgentStudioInfrastructure
+import AgentStudioRepoExplorer
 import AppKit
 import Testing
 
@@ -204,6 +207,175 @@ struct MainSplitViewControllerSidebarStateTests {
                 harness.controller.collapseSidebar()
 
                 #expect(harness.atoms.core.workspaceSidebarState.sidebarCollapsed == true)
+            }
+        )
+    }
+
+    @Test("management takeover cancels held preview through the existing pane observation")
+    func managementTakeoverCancelsHeldPreviewWithoutAnotherKey() async throws {
+        try await withMainSplitViewControllerHarness(
+            withRepos: true,
+            body: { harness in
+                let state = try #require(harness.controller.heldPanePreviewState)
+                #expect(state.beginSpaceHold(requestedTarget: nil))
+
+                harness.atoms.core.managementLayer.toggle()
+
+                await eventually("management takeover should cancel held preview") {
+                    if case .idle(nextGeneration: 2) = state.lifecycle {
+                        return true
+                    }
+                    return false
+                }
+
+                harness.atoms.core.managementLayer.deactivate()
+            }
+        )
+    }
+
+    @Test("transient takeover cancels held preview without another key")
+    func transientTakeoverCancelsHeldPreviewWithoutAnotherKey() async throws {
+        try await withMainSplitViewControllerHarness(
+            withRepos: true,
+            body: { harness in
+                let workspaceWindowId = UUIDv7.generate()
+                harness.atoms.core.windowLifecycle.recordWindowRegistered(workspaceWindowId)
+                harness.atoms.core.windowLifecycle.recordWindowBecameKey(workspaceWindowId)
+                harness.atoms.core.workspaceSidebarState.setSidebarHasFocus(true)
+
+                await eventually("sidebar routing should become eligible") {
+                    KeyboardRoutingContext.current(
+                        windowLifecycle: harness.atoms.core.windowLifecycle,
+                        managementLayer: harness.atoms.core.managementLayer,
+                        uiState: harness.atoms.core.workspaceSidebarState,
+                        commandBarSurface: harness.atoms.core.commandBarSurface,
+                        transientKeyboardSurface: harness.atoms.core.transientKeyboardSurface,
+                        workspaceWindowId: nil
+                    ).isStableSidebar
+                }
+
+                let state = try #require(harness.controller.heldPanePreviewState)
+                #expect(state.beginSpaceHold(requestedTarget: nil))
+                let token = harness.atoms.core.transientKeyboardSurface.present(
+                    .arrangementPanel(tabId: UUIDv7.generate()),
+                    workspaceWindowId: workspaceWindowId
+                )
+
+                await eventually("transient takeover should cancel held preview") {
+                    if case .idle(nextGeneration: 2) = state.lifecycle {
+                        return true
+                    }
+                    return false
+                }
+
+                harness.atoms.core.transientKeyboardSurface.dismiss(token)
+            }
+        )
+    }
+
+    @Test("returning to an eligible sidebar does not cancel a new held preview")
+    func returningToEligibleSidebarPreservesNewHeldPreview() async throws {
+        try await withMainSplitViewControllerHarness(
+            withRepos: true,
+            body: { harness in
+                let workspaceWindowId = UUIDv7.generate()
+                harness.atoms.core.windowLifecycle.recordWindowRegistered(workspaceWindowId)
+                harness.atoms.core.windowLifecycle.recordWindowBecameKey(workspaceWindowId)
+                harness.atoms.core.workspaceSidebarState.setSidebarHasFocus(true)
+
+                await eventually("sidebar routing should become eligible") {
+                    KeyboardRoutingContext.current(
+                        windowLifecycle: harness.atoms.core.windowLifecycle,
+                        managementLayer: harness.atoms.core.managementLayer,
+                        uiState: harness.atoms.core.workspaceSidebarState,
+                        commandBarSurface: harness.atoms.core.commandBarSurface,
+                        transientKeyboardSurface: harness.atoms.core.transientKeyboardSurface,
+                        workspaceWindowId: nil
+                    ).isStableSidebar
+                }
+
+                let state = try #require(harness.controller.heldPanePreviewState)
+                #expect(state.beginSpaceHold(requestedTarget: nil))
+                let token = harness.atoms.core.transientKeyboardSurface.present(
+                    .arrangementPanel(tabId: UUIDv7.generate()),
+                    workspaceWindowId: workspaceWindowId
+                )
+                await eventually("transient takeover should end the first hold") {
+                    if case .idle(nextGeneration: 2) = state.lifecycle {
+                        return true
+                    }
+                    return false
+                }
+
+                harness.atoms.core.transientKeyboardSurface.dismiss(token)
+                harness.atoms.core.workspaceSidebarState.setSidebarHasFocus(true)
+                await eventually("sidebar should be eligible after transient dismissal") {
+                    let context = KeyboardRoutingContext.current(
+                        windowLifecycle: harness.atoms.core.windowLifecycle,
+                        managementLayer: harness.atoms.core.managementLayer,
+                        uiState: harness.atoms.core.workspaceSidebarState,
+                        commandBarSurface: harness.atoms.core.commandBarSurface,
+                        transientKeyboardSurface: harness.atoms.core.transientKeyboardSurface,
+                        workspaceWindowId: nil
+                    )
+                    if case .idle(nextGeneration: 2) = state.lifecycle {
+                        return context.isStableSidebar
+                    }
+                    return false
+                }
+
+                #expect(state.beginSpaceHold(requestedTarget: nil))
+                await eventually("a fresh hold should remain active while sidebar stays eligible") {
+                    state.lifecycle == .held(generation: 2, requestedTarget: nil)
+                }
+            }
+        )
+    }
+
+    @Test("drawer child preview keeps child identity while resolving its parent tab")
+    func drawerChildPreviewResolvesOwningTabThroughParent() async throws {
+        var onSpaceKeyDown: (@MainActor (Bool, RepoExplorerSelectedPaneTarget?) -> Void)?
+        var onSelectedPaneTargetChange: (@MainActor (RepoExplorerSelectedPaneTarget?) -> Void)?
+        try await withMainSplitViewControllerHarness(
+            withRepos: false,
+            configureSidebarDependencies: { dependencies in
+                onSpaceKeyDown = dependencies.onSpaceKeyDown
+                onSelectedPaneTargetChange = dependencies.onSelectedPaneTargetChange
+            },
+            body: { harness in
+                let parentPane = harness.store.createPane()
+                let tab = Tab(paneId: parentPane.id)
+                harness.store.appendTab(tab)
+                harness.store.setActiveTab(tab.id)
+                let drawerPane = try #require(
+                    harness.store.paneAtom.addDrawerPane(
+                        to: parentPane.id,
+                        parentFallbackCWD: nil,
+                        zmxSessionID: .generateUUIDv7()
+                    )
+                )
+
+                #expect(harness.store.tabLayoutAtom.tabID(containingPane: drawerPane.id) == nil)
+                #expect(drawerPane.parentPaneId == parentPane.id)
+
+                let selectedTarget = RepoExplorerSelectedPaneTarget(
+                    paneID: drawerPane.id,
+                    owningTabID: tab.id
+                )
+                onSpaceKeyDown?(false, selectedTarget)
+
+                let state = try #require(harness.controller.heldPanePreviewState)
+                #expect(state.requestedTarget?.paneID == drawerPane.id)
+                #expect(state.requestedTarget?.owningTabID == tab.id)
+                #expect(state.requestedTarget?.provider == drawerPane.provider)
+                #expect(state.requestedTarget?.sessionID == drawerPane.terminalState?.zmxSessionID)
+
+                let wrongOwnerTarget = RepoExplorerSelectedPaneTarget(
+                    paneID: drawerPane.id,
+                    owningTabID: UUIDv7.generate()
+                )
+                onSelectedPaneTargetChange?(wrongOwnerTarget)
+                #expect(state.requestedTarget == nil)
             }
         )
     }

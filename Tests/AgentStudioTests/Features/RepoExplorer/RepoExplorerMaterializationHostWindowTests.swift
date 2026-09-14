@@ -47,8 +47,230 @@ private final class ExternalSidebarTestResponder: NSView {
 }
 
 @MainActor
+private final class SpaceCallbackRecorder {
+    var downs: [(isRepeat: Bool, target: RepoExplorerSelectedPaneTarget?)] = []
+    var ups = 0
+}
+
+@MainActor
 @Suite("Repo Explorer materialization host window", .serialized)
 struct RepoExplorerMaterializationHostWindowTests {
+    @Test("a real list responder reports Space down, repeat, and key-up separately")
+    func realListResponderReportsHeldSpaceCallbacks() throws {
+        let recorder = SpaceCallbackRecorder()
+        let interaction = RepoExplorerKeyboardInteraction()
+        interaction.configure(
+            RepoExplorerKeyboardCallbacks(
+                canInterpretListInput: { true },
+                onSpaceKeyDown: { isRepeat, target in
+                    recorder.downs.append((isRepeat, target))
+                },
+                onSpaceKeyUp: {
+                    recorder.ups += 1
+                }
+            )
+        )
+        let host = RepoExplorerMaterializationHost(
+            lifetimeID: RepoExplorerMaterializationHostLifetimeID(rawValue: UUIDv7.generate()),
+            initialDemandEpoch: 1,
+            initialPresentation: .noRepositories,
+            makeContentChild: { RowlessWindowContentChild() },
+            onFeedback: { _ in }
+        )
+        host.installKeyboardInteraction(interaction)
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 480),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        defer {
+            host.detach()
+            window.close()
+        }
+        #expect(window.makeFirstResponder(host))
+
+        let down = try #require(
+            NSEvent.keyEvent(
+                with: .keyDown,
+                location: .zero,
+                modifierFlags: [],
+                timestamp: 0,
+                windowNumber: window.windowNumber,
+                context: nil,
+                characters: " ",
+                charactersIgnoringModifiers: " ",
+                isARepeat: false,
+                keyCode: 49
+            )
+        )
+        let repeatDown = try #require(
+            NSEvent.keyEvent(
+                with: .keyDown,
+                location: .zero,
+                modifierFlags: [],
+                timestamp: 0,
+                windowNumber: window.windowNumber,
+                context: nil,
+                characters: " ",
+                charactersIgnoringModifiers: " ",
+                isARepeat: true,
+                keyCode: 49
+            )
+        )
+        let up = try #require(
+            NSEvent.keyEvent(
+                with: .keyUp,
+                location: .zero,
+                modifierFlags: [],
+                timestamp: 0,
+                windowNumber: window.windowNumber,
+                context: nil,
+                characters: " ",
+                charactersIgnoringModifiers: " ",
+                isARepeat: false,
+                keyCode: 49
+            )
+        )
+
+        host.keyDown(with: down)
+        host.keyDown(with: repeatDown)
+        host.keyUp(with: up)
+
+        #expect(recorder.downs.map(\.isRepeat) == [false, true])
+        #expect(recorder.ups == 1)
+    }
+
+    @Test("a physical Space key-up releases after modifiers change and readiness is lost")
+    func realListResponderReleasesModifiedSpaceKeyUp() throws {
+        let recorder = SpaceCallbackRecorder()
+        let interaction = RepoExplorerKeyboardInteraction()
+        interaction.configure(
+            RepoExplorerKeyboardCallbacks(
+                canInterpretListInput: { true },
+                onSpaceKeyDown: { isRepeat, target in
+                    recorder.downs.append((isRepeat, target))
+                },
+                onSpaceKeyUp: {
+                    recorder.ups += 1
+                }
+            )
+        )
+        let host = RepoExplorerMaterializationHost(
+            lifetimeID: RepoExplorerMaterializationHostLifetimeID(rawValue: UUIDv7.generate()),
+            initialDemandEpoch: 1,
+            initialPresentation: .noRepositories,
+            makeContentChild: { RowlessWindowContentChild() },
+            onFeedback: { _ in }
+        )
+        host.installKeyboardInteraction(interaction)
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 480),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        defer {
+            host.detach()
+            window.close()
+        }
+        #expect(window.makeFirstResponder(host))
+
+        let down = try #require(
+            NSEvent.keyEvent(
+                with: .keyDown,
+                location: .zero,
+                modifierFlags: [],
+                timestamp: 0,
+                windowNumber: window.windowNumber,
+                context: nil,
+                characters: " ",
+                charactersIgnoringModifiers: " ",
+                isARepeat: false,
+                keyCode: 49
+            )
+        )
+        let modifiedUp = try #require(
+            NSEvent.keyEvent(
+                with: .keyUp,
+                location: .zero,
+                modifierFlags: [.shift],
+                timestamp: 0,
+                windowNumber: window.windowNumber,
+                context: nil,
+                characters: " ",
+                charactersIgnoringModifiers: " ",
+                isARepeat: false,
+                keyCode: 49
+            )
+        )
+
+        host.keyDown(with: down)
+        host.suspendDemand()
+        host.keyUp(with: modifiedUp)
+
+        #expect(recorder.downs.map(\.isRepeat) == [false])
+        #expect(recorder.ups == 1)
+    }
+
+    @Test("Caps Lock does not disable Space preview on a real list responder")
+    func capsLockDoesNotDisableSpacePreview() throws {
+        let recorder = SpaceCallbackRecorder()
+        let interaction = RepoExplorerKeyboardInteraction()
+        interaction.configure(
+            RepoExplorerKeyboardCallbacks(
+                canInterpretListInput: { true },
+                onSpaceKeyDown: { isRepeat, target in
+                    recorder.downs.append((isRepeat, target))
+                }
+            )
+        )
+        let host = RepoExplorerMaterializationHost(
+            lifetimeID: RepoExplorerMaterializationHostLifetimeID(rawValue: UUIDv7.generate()),
+            initialDemandEpoch: 1,
+            initialPresentation: .noRepositories,
+            makeContentChild: { RowlessWindowContentChild() },
+            onFeedback: { _ in }
+        )
+        host.installKeyboardInteraction(interaction)
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 480),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        defer {
+            host.detach()
+            window.close()
+        }
+        #expect(window.makeFirstResponder(host))
+
+        let capsLockDown = try #require(
+            NSEvent.keyEvent(
+                with: .keyDown,
+                location: .zero,
+                modifierFlags: [.capsLock],
+                timestamp: 0,
+                windowNumber: window.windowNumber,
+                context: nil,
+                characters: " ",
+                charactersIgnoringModifiers: " ",
+                isARepeat: false,
+                keyCode: 49
+            )
+        )
+
+        host.keyDown(with: capsLockDown)
+
+        #expect(recorder.downs.map(\.isRepeat) == [false])
+    }
+
     @Test("rowless sidebar host owns keyboard focus across empty result changes")
     func rowlessHostRetainsKeyboardFocusAcrossPresentationChanges() throws {
         let host = RepoExplorerMaterializationHost(

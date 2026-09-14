@@ -17,6 +17,11 @@ struct SidebarRootViewDependencies {
     let bridgeAttendanceSnapshot: BridgeAttendanceSnapshot
     let performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
     let onRefocusActivePane: () -> Void
+    let onSpaceKeyDown: @MainActor (Bool, RepoExplorerSelectedPaneTarget?) -> Void
+    let onSpaceKeyUp: @MainActor () -> Void
+    let onSelectedPaneTargetChange: @MainActor (RepoExplorerSelectedPaneTarget?) -> Void
+    let onPreviewEligibilityLoss: @MainActor () -> Void
+    let onPreviewCommit: @MainActor () -> Void
     let onSidebarVisibleWorktreesChanged: @MainActor @Sendable () -> Void
     let onPerformanceProofReadback: @MainActor @Sendable (RepoExplorerPerformanceProofReadback) -> Void
     let onRepositoryFactUpdateProgressPresented: @MainActor @Sendable (UUID, UUID) -> Void
@@ -51,6 +56,11 @@ class MainSplitViewController: NSSplitViewController {
                 bridgeAttendanceSnapshot: dependencies.bridgeAttendanceSnapshot,
                 performanceTraceRecorder: dependencies.performanceTraceRecorder,
                 onRefocusActivePane: dependencies.onRefocusActivePane,
+                onSpaceKeyDown: dependencies.onSpaceKeyDown,
+                onSpaceKeyUp: dependencies.onSpaceKeyUp,
+                onSelectedPaneTargetChange: dependencies.onSelectedPaneTargetChange,
+                onPreviewEligibilityLoss: dependencies.onPreviewEligibilityLoss,
+                onPreviewCommit: dependencies.onPreviewCommit,
                 onSidebarVisibleWorktreesChanged: dependencies.onSidebarVisibleWorktreesChanged,
                 onPerformanceProofReadback: dependencies.onPerformanceProofReadback,
                 onRepositoryFactUpdateProgressPresented: dependencies
@@ -96,6 +106,7 @@ class MainSplitViewController: NSSplitViewController {
     private let sidebarRootViewBuilder: SidebarRootViewBuilder
     private let closeTransitionCoordinator: PaneCloseTransitionCoordinator
     private let paneTabRegistersAsCommandHandler: Bool
+    private(set) var heldPanePreviewState: HeldPanePreviewState? = HeldPanePreviewState()
 
     func syncVisibleTerminalGeometry(reason: StaticString) {
         paneTabViewController?.syncVisibleTerminalGeometry(reason: reason)
@@ -207,6 +218,9 @@ class MainSplitViewController: NSSplitViewController {
             pinnedPanePreferences: repoExplorerSidebarPrefs,
             closeTransitionCoordinator: closeTransitionCoordinator,
             performanceTraceRecorder: performanceTraceRecorder,
+            onPreviewEligibilityLoss: { [weak self] in
+                self?.heldPanePreviewState?.cancelIfHeld()
+            },
             registersAsCommandHandler: paneTabRegistersAsCommandHandler,
             embedsTabBarInView: false
         )
@@ -234,6 +248,28 @@ class MainSplitViewController: NSSplitViewController {
                 performanceTraceRecorder: performanceTraceRecorder,
                 onRefocusActivePane: { [weak self] in
                     self?.restoreSidebarReturnFocusOrigin()
+                },
+                onSpaceKeyDown: { [weak self] isRepeat, target in
+                    guard let self else { return }
+                    self.heldPanePreviewState?.beginSpaceHold(
+                        requestedTarget: self.validatedPreviewTarget(for: target),
+                        isRepeat: isRepeat
+                    )
+                },
+                onSpaceKeyUp: { [weak self] in
+                    self?.heldPanePreviewState?.endSpaceHold()
+                },
+                onSelectedPaneTargetChange: { [weak self] target in
+                    guard let self else { return }
+                    self.heldPanePreviewState?.updateRequestedTarget(
+                        self.validatedPreviewTarget(for: target)
+                    )
+                },
+                onPreviewEligibilityLoss: { [weak self] in
+                    self?.heldPanePreviewState?.cancelIfHeld()
+                },
+                onPreviewCommit: { [weak self] in
+                    self?.heldPanePreviewState?.commitBeforeActivation()
                 },
                 onSidebarVisibleWorktreesChanged: onSidebarVisibleWorktreesChanged,
                 onPerformanceProofReadback: onPerformanceProofReadback,
@@ -337,6 +373,23 @@ class MainSplitViewController: NSSplitViewController {
 
         guard !isCollapsed, didApplySidebarWidthAfterLayout, let sidebarWidth = currentSidebarWidth() else { return }
         store.windowMemoryAtom.setSidebarWidth(sidebarWidth)
+    }
+
+    private func validatedPreviewTarget(
+        for selection: RepoExplorerSelectedPaneTarget?
+    ) -> ValidatedPanePreviewTarget? {
+        guard let selection,
+            let pane = store.paneAtom.pane(selection.paneID),
+            store.tabLayoutAtom.tabID(containingPane: pane.parentPaneId ?? pane.id)
+                == selection.owningTabID
+        else { return nil }
+        let terminalState = pane.terminalState
+        return ValidatedPanePreviewTarget(
+            paneID: pane.id,
+            owningTabID: selection.owningTabID,
+            provider: pane.provider,
+            sessionID: terminalState?.zmxSessionID
+        )
     }
 
     private func applySidebarWidthAfterLayoutIfNeeded() {
@@ -492,6 +545,7 @@ class MainSplitViewController: NSSplitViewController {
     }
 
     func collapseSidebar() {
+        heldPanePreviewState?.cancelIfHeld()
         sidebarFocusTask?.cancel()
         shouldFocusSidebarWhenVisible = false
         guard isViewLoaded else {
@@ -605,6 +659,10 @@ class MainSplitViewController: NSSplitViewController {
         paneTabViewController?.refocusActivePane()
     }
 
+    func cancelHeldPanePreview() {
+        heldPanePreviewState?.cancelIfHeld()
+    }
+
     private func restoreSidebarReturnFocusOrigin() {
         sidebarReturnFocusOrigin.restore(in: view.window) { [weak self] in
             self?.paneTabViewController?.refocusActivePane()
@@ -618,6 +676,8 @@ class MainSplitViewController: NSSplitViewController {
         sidebarWidthRestoreTask?.cancel()
         shouldFocusSidebarWhenVisible = false
         sidebarReturnFocusOrigin.clear()
+        heldPanePreviewState?.cancelIfHeld()
+        heldPanePreviewState = nil
         paneTabViewController?.shutdown()
     }
 

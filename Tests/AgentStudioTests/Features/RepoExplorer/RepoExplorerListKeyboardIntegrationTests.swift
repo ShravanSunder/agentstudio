@@ -193,6 +193,52 @@ struct RepoExplorerListKeyboardIntegrationTests {
         #expect(fixture.recorder.commandRequests.allSatisfy { $0.targetType == .worktree })
     }
 
+    @Test("pane activation commits held preview before the existing focus effect")
+    func activationCommitsPreviewBeforeFocusEffect() throws {
+        let fixture = RepoExplorerListKeyboardFixture()
+        defer { fixture.close() }
+        let paneID = UUIDv7.generate()
+        let tabID = UUIDv7.generate()
+        let snapshot = navigationSnapshot([
+            .unassociatedPane(paneID: paneID, tabID: tabID)
+        ])
+        fixture.interaction.configure(
+            RepoExplorerKeyboardCallbacks(
+                canInterpretListInput: { true },
+                onPreviewCommit: { fixture.recorder.recordPreviewCommit() }
+            )
+        )
+
+        _ = try fixture.apply(snapshot: snapshot, generation: 1)
+        try fixture.send(.activateSelection)
+
+        #expect(fixture.recorder.events == ["previewCommit", "focusPane"])
+        #expect(fixture.recorder.focusedPaneIDs == [paneID])
+    }
+
+    @Test("accepted pane selection reports its feature-owned tab target")
+    func acceptedPaneSelectionReportsTarget() throws {
+        let fixture = RepoExplorerListKeyboardFixture()
+        defer { fixture.close() }
+        let paneID = UUIDv7.generate()
+        let tabID = UUIDv7.generate()
+        let expectedTarget = RepoExplorerSelectedPaneTarget(paneID: paneID, owningTabID: tabID)
+        let snapshot = navigationSnapshot([
+            .unassociatedPane(paneID: paneID, tabID: tabID)
+        ])
+        var observedTargets: [RepoExplorerSelectedPaneTarget?] = []
+        fixture.interaction.configure(
+            RepoExplorerKeyboardCallbacks(
+                canInterpretListInput: { true },
+                onSelectedPaneTargetChange: { observedTargets.append($0) }
+            )
+        )
+
+        _ = try fixture.apply(snapshot: snapshot, generation: 1)
+
+        #expect(observedTargets.last == expectedTarget)
+    }
+
     @Test("digit nine activates its accepted destination below the viewport")
     func ninthDestinationActivatesOffscreen() throws {
         let fixture = RepoExplorerListKeyboardFixture(windowHeight: 40)

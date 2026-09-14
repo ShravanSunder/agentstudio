@@ -5,10 +5,25 @@ import Observation
 @MainActor
 struct RepoExplorerKeyboardCallbacks {
     var canInterpretListInput: () -> Bool = { false }
+    var onSpaceKeyDown: (Bool, RepoExplorerSelectedPaneTarget?) -> Void = { _, _ in }
+    var onSpaceKeyUp: () -> Void = {}
+    var onSelectedPaneTargetChange: (RepoExplorerSelectedPaneTarget?) -> Void = { _ in }
+    var onPreviewEligibilityLoss: () -> Void = {}
+    var onPreviewCommit: () -> Void = {}
     var onFilterFocusRequest: () -> Void = {}
     var onReturnFocusRequest: () -> Void = {}
     var onSidebarFocusChange: (Bool) -> Void = { _ in }
     var onCommandRequest: (AppCommand) -> Void = { _ in }
+}
+
+package struct RepoExplorerSelectedPaneTarget: Equatable, Sendable {
+    package let paneID: UUID
+    package let owningTabID: UUID
+
+    package init(paneID: UUID, owningTabID: UUID) {
+        self.paneID = paneID
+        self.owningTabID = owningTabID
+    }
 }
 
 /// Reports native list and SwiftUI field focus without owning workspace keyboard routing.
@@ -41,7 +56,7 @@ final class RepoExplorerKeyboardInteraction {
 
     func attach(_ host: RepoExplorerMaterializationHost) {
         guard listHost !== host else { return }
-        clearFocusReporting()
+        clearFocusReporting(notifyPreviewEligibilityLoss: listHost != nil)
         listHost = host
     }
 
@@ -60,6 +75,22 @@ final class RepoExplorerKeyboardInteraction {
     func listDidResignFirstResponder(_ host: RepoExplorerMaterializationHost) {
         guard listHost === host, focusedRegion == .list else { return }
         setFocusedRegion(.unfocused)
+    }
+
+    func spaceKeyDown(isRepeat: Bool, selectedPaneTarget: RepoExplorerSelectedPaneTarget?) {
+        callbacks.onSpaceKeyDown(isRepeat, selectedPaneTarget)
+    }
+
+    func spaceKeyUp() {
+        callbacks.onSpaceKeyUp()
+    }
+
+    func selectedPaneTargetDidChange(_ target: RepoExplorerSelectedPaneTarget?) {
+        callbacks.onSelectedPaneTargetChange(target)
+    }
+
+    func commitPreviewBeforeActivation() {
+        callbacks.onPreviewCommit()
     }
 
     func filterFocusDidChange(isFocused: Bool) {
@@ -104,12 +135,17 @@ final class RepoExplorerKeyboardInteraction {
         callbacks.onCommandRequest(command)
     }
 
-    func clearFocusReporting() {
+    func clearFocusReporting(notifyPreviewEligibilityLoss: Bool = true) {
+        let wasListFocused = focusedRegion == .list
         hasPendingFilterFocusRequest = false
         setFocusedRegion(.unfocused)
+        if notifyPreviewEligibilityLoss, !wasListFocused {
+            callbacks.onPreviewEligibilityLoss()
+        }
     }
 
     private func setFocusedRegion(_ region: FocusedRegion) {
+        let wasListFocused = focusedRegion == .list
         if focusedRegion != region {
             focusedRegion = region
         }
@@ -117,5 +153,8 @@ final class RepoExplorerKeyboardInteraction {
         // fact without changing the native responder. Reassert observed focus
         // even for filter-to-list or repeated list entry.
         callbacks.onSidebarFocusChange(region != .unfocused)
+        if wasListFocused, region != .list {
+            callbacks.onPreviewEligibilityLoss()
+        }
     }
 }
