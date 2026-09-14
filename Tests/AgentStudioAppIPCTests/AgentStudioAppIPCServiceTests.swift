@@ -42,7 +42,10 @@ struct AgentStudioAppIPCServiceTests {
 
         #expect(service.configuration.runtimeId == runtimeId)
         #expect(service.configuration.accessMode == .agentStudioOnly)
-        #expect(service.methodRegistry.capabilities.methods.count == 43)
+        #expect(service.methodRegistry.capabilities.methods.count == 44)
+        #expect(
+            service.methodRegistry.capabilities.methods.filter { $0.name == "system.capabilities" }.count == 1
+        )
         #expect(service.eventBroker === eventBroker)
     }
 
@@ -349,20 +352,16 @@ struct AgentStudioAppIPCServiceTests {
         }
         #expect(statusResult["authenticated"] == .bool(false))
 
-        let send = try sendRequest(
+        let version = try sendRequest(
             socketPath: fixture.paths.socketURL.path,
             request: JSONRPCClientRequest(
                 id: .number(63),
-                method: "terminal.send",
-                params: .object([
-                    "handle": .string("pane:1"),
-                    "input": .string("echo denied\n"),
-                    "correlationId": .string(UUIDv7.generate().uuidString),
-                ])
+                method: "system.version",
+                params: .object([:])
             )
         )
-        #expect(send.error?.code == -32_001)
-        #expect(send.error?.message == "unauthenticated")
+        #expect(version.error?.code == -32_001)
+        #expect(version.error?.message == "unauthenticated")
     }
 
     @Test("debug token escrow writes owner-only token and removes it after login")
@@ -496,29 +495,24 @@ struct AgentStudioAppIPCServiceTests {
         #expect(drawerToggleResult.parentPaneId == paneId)
     }
 
-    @Test("server authorizes friendly pane ordinals as concrete panes before terminal dispatch")
-    func serverAuthorizesFriendlyPaneOrdinalsAsConcretePanesBeforeTerminalDispatch() throws {
-        let firstPaneId = UUID()
-        let secondPaneId = UUID()
-        let fixture = try LiveServerFixture(panes: [
-            makePaneSummary(id: firstPaneId, ordinal: 1),
-            makePaneSummary(id: secondPaneId, ordinal: 2),
-        ])
+    @Test("server canonicalizes friendly pane ordinals before cross-pane command authorization")
+    func serverCanonicalizesFriendlyPaneOrdinalsBeforeCrossPaneCommandAuthorization() throws {
+        let scenario = try OrdinalCommandAuthorizationScenario.make()
         defer {
-            fixture.cleanup()
+            scenario.fixture.cleanup()
         }
-        try fixture.server.start()
+        try scenario.fixture.server.start()
 
         let principal = IPCPrincipal(
-            principalId: UUID(),
-            runtimeId: fixture.runtimeId,
+            principalId: UUIDv7.generate(),
+            runtimeId: scenario.fixture.runtimeId,
             accessMode: .agentStudioOnly,
-            kind: .spawnedPaneAgent(boundPaneId: secondPaneId.uuidString, boundWorkspaceId: nil),
+            kind: .spawnedPaneAgent(boundPaneId: scenario.secondPaneId.uuidString, boundWorkspaceId: nil),
             approvalAuthority: .noApprovalAuthority
         )
-        let token = try fixture.server.principalRegistry.issueSubjectToken(for: principal)
+        let token = try scenario.fixture.server.principalRegistry.issueSubjectToken(for: principal)
         let connection = try UnixSocketClient.connect(
-            endpoint: UnixSocketEndpoint(path: fixture.paths.socketURL.path)
+            endpoint: UnixSocketEndpoint(path: scenario.fixture.paths.socketURL.path)
         )
         defer {
             connection.close()
@@ -530,19 +524,44 @@ struct AgentStudioAppIPCServiceTests {
             connection: connection,
             request: JSONRPCClientRequest(
                 id: .number(41),
-                method: "terminal.send",
-                params: .object([
-                    "handle": .string("pane:1"),
-                    "input": .string("echo should-not-dispatch\n"),
-                    "correlationId": .string(UUIDv7.generate().uuidString),
-                ])
+                method: "command.execute",
+                params: try JSONRPCCodec.encodeJSONValue(
+                    IPCCommandExecutionRequest(
+                        commandId: scenario.commandId,
+                        correlationId: scenario.correlationId,
+                        arguments: .pane(
+                            IPCPaneCommandArguments(
+                                workspaceWindowId: scenario.workspaceWindowId,
+                                paneSelector: try IPCPaneSelector(rawValue: "pane:1")
+                            )
+                        )
+                    )
+                )
             )
         )
 
         let response = try reader.receiveResponse(connection: connection)
         #expect(response.id == .number(41))
         #expect(response.error?.code == -32_002)
-        #expect(response.error?.message == "unauthorized")
+        #expect(response.error?.message == "missing grant")
+        guard case .object(let correction)? = response.error?.data,
+            let requiredScopeValue = correction["requiredScope"]
+        else {
+            Issue.record("Expected canonical missing-grant correction")
+            return
+        }
+        let requiredScope = try decodeJSONValue(IPCPermissionScope.self, from: requiredScopeValue)
+        #expect(correction["reason"] == .string("missingGrant"))
+        #expect(correction["fieldPath"] == .string("$.authorization"))
+        #expect(requiredScope.target == .pane(scenario.firstPaneId.uuidString))
+        #expect(requiredScope.privilege == .appCommandExecute)
+        #expect(requiredScope.dataScope == .unspecified)
+        guard case .pane(let preparedArguments)? = scenario.commandPort.preparedRequests.first?.arguments else {
+            Issue.record("Expected the command port to receive canonical pane arguments")
+            return
+        }
+        #expect(preparedArguments.paneSelector.rawValue == scenario.firstPaneId.uuidString)
+        #expect(scenario.underlyingCommandPort.receivedExecutionRequests.isEmpty)
     }
 
     @Test("server stop closes existing authenticated socket sessions")
@@ -670,5 +689,104 @@ struct AgentStudioAppIPCServiceTests {
         #expect(environment.values.allSatisfy { !$0.contains(token.rawValue) })
         let principal = try fixture.server.principalRegistry.authenticate(subjectToken: token)
         #expect(principal.kind == .spawnedPaneAgent(boundPaneId: fixture.boundPaneId.uuidString, boundWorkspaceId: nil))
+    }
+}
+
+private final class PreparedCommandRecordingPort: AppIPCCommandPort, @unchecked Sendable {
+    private let underlying: FakeCommandPort
+    private let lock = NSLock()
+    nonisolated(unsafe) private var preparedRequestsStorage: [IPCCommandExecutionRequest] = []
+
+    nonisolated init(underlying: FakeCommandPort) {
+        self.underlying = underlying
+    }
+
+    nonisolated var preparedRequests: [IPCCommandExecutionRequest] {
+        lock.withLock { preparedRequestsStorage }
+    }
+
+    func listCommands() throws -> IPCCommandCatalogResult {
+        try underlying.listCommands()
+    }
+
+    func prepareCommand(
+        _ params: IPCCommandExecutionRequest,
+        principal: IPCPrincipal,
+        tools: AppIPCTargetResolutionTools
+    ) async throws -> AppIPCPreparedCommand {
+        let prepared = try await underlying.prepareCommand(params, principal: principal, tools: tools)
+        lock.withLock { preparedRequestsStorage.append(prepared.request) }
+        return prepared
+    }
+
+    func executeCommand(_ params: IPCCommandExecutionRequest) async throws -> IPCCommandExecutionResult {
+        try await underlying.executeCommand(params)
+    }
+}
+
+private struct OrdinalCommandAuthorizationScenario {
+    let firstPaneId: UUID
+    let secondPaneId: UUID
+    let workspaceWindowId: UUID
+    let commandId: IPCCommandIdentifier
+    let correlationId: UUID
+    let commandPort: PreparedCommandRecordingPort
+    let underlyingCommandPort: FakeCommandPort
+    let fixture: LiveServerFixture
+
+    static func make() throws -> Self {
+        let firstPaneId = UUIDv7.generate()
+        let secondPaneId = UUIDv7.generate()
+        let workspaceWindowId = UUIDv7.generate()
+        let commandId = IPCCommandIdentifier(rawValue: "fixtureOrdinalCommand")
+        let correlationId = UUIDv7.generate()
+        let result = IPCCommandExecutionResult.applied(
+            IPCCommandAppliedResult(commandId: commandId, correlationId: correlationId)
+        )
+        let descriptor = try makeFakeCommandDescriptor(
+            FakeCommandDescriptorInput(
+                id: commandId,
+                executionMode: .headless,
+                arguments: .pane(
+                    IPCPaneCommandArguments(
+                        workspaceWindowId: workspaceWindowId,
+                        paneSelector: try IPCPaneSelector(rawValue: "pane:1")
+                    )
+                ),
+                requiredPrivileges: [.appCommandExecute, .layoutMutate],
+                dataScope: .paneContext,
+                allowedTargetKinds: [.pane],
+                result: result
+            )
+        )
+        let underlyingCommandPort = FakeCommandPort(
+            commands: [descriptor],
+            executionResultsByCommandId: [commandId.rawValue: result],
+            requiredPermissionTargetByPrivilege: [
+                .appCommandExecute: .pane(firstPaneId.uuidString),
+                .layoutMutate: .pane(firstPaneId.uuidString),
+            ]
+        )
+        let commandPort = PreparedCommandRecordingPort(underlying: underlyingCommandPort)
+        return try Self(
+            firstPaneId: firstPaneId,
+            secondPaneId: secondPaneId,
+            workspaceWindowId: workspaceWindowId,
+            commandId: commandId,
+            correlationId: correlationId,
+            commandPort: commandPort,
+            underlyingCommandPort: underlyingCommandPort,
+            fixture: LiveServerFixture(
+                panes: [
+                    makePaneSummary(id: firstPaneId, ordinal: 1),
+                    makePaneSummary(id: secondPaneId, ordinal: 2),
+                ],
+                commandPort: commandPort,
+                commandComposition: IPCCommandMethodComposition(
+                    compatibility: .current,
+                    commands: [descriptor]
+                )
+            )
+        )
     }
 }

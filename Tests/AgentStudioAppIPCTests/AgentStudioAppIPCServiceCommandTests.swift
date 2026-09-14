@@ -16,12 +16,12 @@ struct AgentStudioAppIPCServiceCommandTests {
             arguments: .noArguments
         )
 
-        await #expect(throws: AppIPCCommandError.self) {
-            try await port.prepareCommand(
-                request,
-                principal: diagnosticCommandPrincipal(),
-                tools: unusedCommandTargetTools()
-            )
+        do {
+            _ = try await port.prepareCommand(
+                request, principal: diagnosticCommandPrincipal(), tools: unusedCommandTargetTools())
+            Issue.record("Expected the unknown command identity to be rejected")
+        } catch let error as AppIPCCommandError {
+            #expect(error.reason == .unknownCommand)
         }
         #expect(port.receivedExecutionRequests.isEmpty)
     }
@@ -51,12 +51,14 @@ struct AgentStudioAppIPCServiceCommandTests {
             arguments: .repository(IPCRepositoryCommandArguments(repoId: UUIDv7.generate()))
         )
 
-        await #expect(throws: AppIPCCommandError.self) {
-            try await port.prepareCommand(
-                request,
-                principal: diagnosticCommandPrincipal(),
-                tools: unusedCommandTargetTools()
-            )
+        do {
+            _ = try await port.prepareCommand(
+                request, principal: diagnosticCommandPrincipal(), tools: unusedCommandTargetTools())
+            Issue.record("Expected the typed command variant to be rejected")
+        } catch let error as IPCSchemaValidationError {
+            #expect(error.fieldPath == "$.arguments.kind")
+            #expect(error.reason == .invalidValue)
+            #expect(error.expected == "one argument variant declared by the selected command")
         }
         #expect(port.receivedExecutionRequests.isEmpty)
     }
@@ -73,7 +75,7 @@ struct AgentStudioAppIPCServiceCommandTests {
                 id: commandId,
                 executionMode: .uiPresentation,
                 arguments: .noArguments,
-                requiredPrivileges: [.uiPresent],
+                requiredPrivileges: [.appCommandExecute, .uiPresent],
                 dataScope: .uiSurface,
                 allowedTargetKinds: [],
                 result: result
@@ -82,7 +84,10 @@ struct AgentStudioAppIPCServiceCommandTests {
         let port = FakeCommandPort(
             commands: [descriptor],
             executionResultsByCommandId: [commandId.rawValue: result],
-            requiredPermissionTargetByPrivilege: [.uiPresent: .app]
+            requiredPermissionTargetByPrivilege: [
+                .appCommandExecute: .app,
+                .uiPresent: .app,
+            ]
         )
         let request = IPCCommandExecutionRequest(
             commandId: commandId,
@@ -100,7 +105,10 @@ struct AgentStudioAppIPCServiceCommandTests {
         #expect(prepared.target == .app)
         #expect(
             prepared.requiredScopes
-                == [IPCPermissionScope(privilege: .uiPresent, target: .app, dataScope: .uiSurface)]
+                == [
+                    IPCPermissionScope(privilege: .appCommandExecute, target: .app, dataScope: .uiSurface),
+                    IPCPermissionScope(privilege: .uiPresent, target: .app, dataScope: .uiSurface),
+                ]
         )
         #expect(executed == result)
         #expect(port.receivedExecutionRequests == [request])
