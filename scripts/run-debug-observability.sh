@@ -256,7 +256,7 @@ PY
 retire_debug_candidate() {
   local state_path="${1:?missing state path}"
   local expected_code="${2:?missing debug code}"
-  local expected_debug_root="${3:?missing debug root}"
+  local expected_artifact_root="${3:?missing debug artifact root}"
   local expected_data_root="${4:?missing data root}"
   local operation="${5:-retire}"
   [ -f "$state_path" ] || {
@@ -279,7 +279,7 @@ retire_debug_candidate() {
   state_zmx_dir="$(read_state_value AGENTSTUDIO_OBSERVABILITY_ZMX_DIR "$state_path")"
 
   local expected_bundle_identifier="com.agentstudio.app.debug.d$expected_code"
-  local expected_app="$expected_debug_root/apps/AgentStudio Debug $expected_code.app"
+  local expected_app="$expected_artifact_root/AgentStudio Debug $expected_code.app"
   local expected_executable="$expected_app/Contents/MacOS/AgentStudio"
   local expected_zmx_dir="$expected_data_root/z"
   case "$state_pid" in
@@ -868,6 +868,7 @@ cd "$PROJECT_ROOT"
 
 debug_code="$(worktree_debug_code)"
 debug_root="$HOME/.agentstudio-db/$debug_code"
+debug_artifact_root="${AGENTSTUDIO_DEBUG_ARTIFACT_DIR:-$debug_root/apps}"
 launch_data_root="${AGENTSTUDIO_DEBUG_DATA_DIR:-$debug_root}"
 debug_zmx_dir="$launch_data_root/z"
 state_file="${AGENTSTUDIO_OBSERVABILITY_STATE_FILE:-$PROJECT_ROOT/tmp/debug-observability/latest-observability.env}"
@@ -877,11 +878,11 @@ if [ "$retire_candidate" = true ] && [ "$validate_candidate" = true ]; then
   exit 2
 fi
 if [ "$retire_candidate" = true ]; then
-  retire_debug_candidate "$state_file" "$debug_code" "$debug_root" "$launch_data_root" retire
+  retire_debug_candidate "$state_file" "$debug_code" "$debug_artifact_root" "$launch_data_root" retire
   exit $?
 fi
 if [ "$validate_candidate" = true ]; then
-  retire_debug_candidate "$state_file" "$debug_code" "$debug_root" "$launch_data_root" validate
+  retire_debug_candidate "$state_file" "$debug_code" "$debug_artifact_root" "$launch_data_root" validate
   exit $?
 fi
 
@@ -1104,10 +1105,9 @@ if ! trace_name_is_safe_path_component "$trace_name"; then
 fi
 
 if [ -n "${AGENTSTUDIO_DEBUG_ARTIFACT_DIR:-}" ]; then
-  app_path="$(copy_debug_bundle "$binary_path" "$build_path" "$debug_code" "$AGENTSTUDIO_DEBUG_ARTIFACT_DIR")"
+  app_path="$(copy_debug_bundle "$binary_path" "$build_path" "$debug_code" "$debug_artifact_root")"
 else
-  default_artifact_root="$debug_root/apps"
-  app_path="$(publish_debug_bundle "$binary_path" "$build_path" "$debug_code" "$default_artifact_root")"
+  app_path="$(publish_debug_bundle "$binary_path" "$build_path" "$debug_code" "$debug_artifact_root")"
 fi
 app_binary_path="$app_path/Contents/MacOS/AgentStudio"
 

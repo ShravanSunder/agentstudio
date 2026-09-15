@@ -26,6 +26,18 @@ struct ObservabilityDebugCandidateLifecycleScriptTests {
         #expect(outcome.result.stdout.contains("candidate_retirement=graceful"))
     }
 
+    @Test("candidate retirement honors the configured debug artifact root")
+    func candidateRetirementHonorsConfiguredDebugArtifactRoot() throws {
+        let outcome = try runCandidateRetirementContract(
+            actualIdentityOverrides: [:],
+            usesConfiguredArtifactRoot: true
+        )
+
+        #expect(outcome.result.exitCode == 0, "stdout: \(outcome.result.stdout)\nstderr: \(outcome.result.stderr)")
+        #expect(outcome.quitArguments.contains("4242"))
+        #expect(outcome.result.stdout.contains("candidate_retirement=graceful"))
+    }
+
     @Test("production candidate identity preserves the explicit data root")
     func productionCandidateIdentityPreservesExplicitDataRoot() throws {
         let source = try String(
@@ -243,13 +255,19 @@ struct ObservabilityDebugCandidateLifecycleScriptTests {
     private func runCandidateRetirementContract(
         actualIdentityOverrides: [String: Any],
         quitExitCode: Int = 0,
-        usesDisposableDataRoot: Bool = false
+        usesDisposableDataRoot: Bool = false,
+        usesConfiguredArtifactRoot: Bool = false
     ) throws -> (result: ScriptRunResult, quitArguments: String) {
         let fixture = try LauncherScriptFixture()
         defer { fixture.cleanup() }
         let debugCode = try fixture.worktreeDebugCode()
+        let artifactRelativeRoot =
+            usesConfiguredArtifactRoot
+            ? "debug-app-artifacts"
+            : ".agentstudio-db/\(debugCode)/apps"
+        let artifactRoot = fixture.url(artifactRelativeRoot)
         let app = try fixture.makeAppBundle(
-            name: ".agentstudio-db/\(debugCode)/apps/AgentStudio Debug \(debugCode).app",
+            name: "\(artifactRelativeRoot)/AgentStudio Debug \(debugCode).app",
             releaseChannel: "stable",
             bundleIdentifier: "com.agentstudio.app.debug.d\(debugCode)"
         )
@@ -311,6 +329,7 @@ struct ObservabilityDebugCandidateLifecycleScriptTests {
         if usesDisposableDataRoot {
             environment["AGENTSTUDIO_DEBUG_DATA_DIR"] = dataRoot.path
         }
+        environment["AGENTSTUDIO_DEBUG_ARTIFACT_DIR"] = usesConfiguredArtifactRoot ? artifactRoot.path : ""
         let result = try fixture.runScript(
             "scripts/run-debug-observability.sh",
             arguments: ["--retire-candidate"],
