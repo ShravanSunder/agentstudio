@@ -17,6 +17,30 @@ struct PaneTabViewControllerTargetedPaneCommandTests {
         var didFire = false
     }
 
+    @Test("management toggle capability does not depend on tab presentation")
+    func managementToggleCapabilityDoesNotObserveTabPresentation() async {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+        await withWorkspaceCommandHarness(harness) {
+            let pane = harness.store.createPane()
+            let tab = Tab(paneId: pane.id, name: "Before")
+            harness.store.appendTab(tab)
+            let invalidation = ObservationInvalidationFlag()
+
+            let enabled = withObservationTracking {
+                harness.controller.canExecute(.toggleManagementLayer)
+            } onChange: {
+                invalidation.didFire = true
+            }
+            #expect(enabled)
+
+            harness.store.tabLayoutAtom.renameTab(tab.id, name: "After")
+
+            #expect(!invalidation.didFire)
+            #expect(harness.controller.canExecute(.toggleManagementLayer))
+        }
+    }
+
     @Test("targeted pane capability ignores unrelated repository topology changes")
     func canExecutePaneCommand_doesNotObserveRepositoryTopology() {
         let harness = makeHarness()

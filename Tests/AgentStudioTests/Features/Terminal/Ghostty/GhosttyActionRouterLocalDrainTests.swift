@@ -180,7 +180,7 @@ extension GhosttyActionRouterTests {
         #expect(Ghostty.ActionRouter.localActionAccumulator.hasPendingActions(for: surfaceID))
     }
 
-    @Test("successful title drain commits the applied projection")
+    @Test("successful title drain commits the applied projection without reading activity context")
     func successfulTitleDrainCommitsAppliedProjection() async {
         let surfaceID = UUIDv7.generate()
         let paneUUID = UUIDv7.generate()
@@ -213,6 +213,7 @@ extension GhosttyActionRouterTests {
         )
         Ghostty.ActionRouter.localActionDrainScheduler.cancel(for: surfaceID)
 
+        var activityContextReadCount = 0
         await Ghostty.ActionRouter.drainLocalActions(
             for: surfaceID,
             lane: .title,
@@ -224,11 +225,16 @@ extension GhosttyActionRouterTests {
                 runtimeRegistry: runtimeRegistry,
                 fallbackRuntimeRegistry: nil,
                 routingLookup: routingLookup,
-                activityContext: { _ in nil },
+                activityContext: { _ in
+                    activityContextReadCount += 1
+                    return nil
+                },
                 submitActivityInput: { _ in }
             )
         )
 
+        #expect(activityContextReadCount == 0)
+        #expect(host.title == "A")
         #expect(
             Ghostty.ActionRouter.localActionAccumulator.offer(
                 .titleChanged("A"),

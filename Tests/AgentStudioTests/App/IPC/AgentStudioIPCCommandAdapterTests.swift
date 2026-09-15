@@ -106,6 +106,41 @@ struct AgentStudioIPCCommandAdapterTests {
         }
     }
 
+    @Test("retired Panes organization commands remain inert full-catalog entries")
+    func retiredPanesOrganizationCommandsRemainInertFullCatalogEntries() throws {
+        let shellCommandHandler = RecordingShellCommandHandler()
+        let harness = CommandAdapterHarness(shellCommandHandler: shellCommandHandler)
+        let commandsById = Dictionary(
+            uniqueKeysWithValues: try harness.adapter.listCommands().commands.map { ($0.id, $0) }
+        )
+
+        for command in [
+            AppCommand.setPanesGroupingRepo, .setPanesGroupingTab, .setPanesGroupingActivity,
+            .setPanesSubgroupNone, .setPanesSubgroupActivity,
+            .setPanesSortFieldName, .setPanesSortFieldActivity, .togglePanesSortDirection,
+        ] {
+            let entry = try #require(
+                commandsById[IPCCommandIdentifier(rawValue: command.rawValue)]
+            )
+            #expect(entry.executionModes.isEmpty)
+            #expect(entry.requiredPrivileges.isEmpty)
+
+            do {
+                _ = try harness.adapter.executeCommand(
+                    IPCCommandExecuteParams(
+                        commandId: entry.id,
+                        targetHandle: nil,
+                        arguments: [:]
+                    )
+                )
+                Issue.record("retired Panes organization command unexpectedly executed")
+            } catch let error as AppIPCCommandError {
+                #expect(error.reason == .requiresParameters)
+            }
+        }
+        #expect(shellCommandHandler.handledRequests.isEmpty)
+    }
+
     @Test("sidebar command mutation permissions resolve to current workspace")
     func sidebarCommandMutationPermissionsResolveToCurrentWorkspace() throws {
         let harness = CommandAdapterHarness()

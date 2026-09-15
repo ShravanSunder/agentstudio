@@ -94,7 +94,7 @@ extension RepoExplorerCommandPresentationBatchTests {
                             in: batch.snapshot
                         ) == true
                             && toolbarCapability(
-                                .setPanesSubgroupActivity,
+                                .togglePanesShowsPinned,
                                 in: batch.snapshot
                             ) == false
                     }
@@ -109,7 +109,7 @@ extension RepoExplorerCommandPresentationBatchTests {
                                 in: batch.snapshot
                             ) == false
                             && toolbarCapability(
-                                .setPanesSubgroupActivity,
+                                .togglePanesShowsPinned,
                                 in: batch.snapshot
                             ) == true
                     }
@@ -118,8 +118,8 @@ extension RepoExplorerCommandPresentationBatchTests {
         )
     }
 
-    @Test("Panes activity grouping re-resolves and disables subgroup commands")
-    func panesActivityGroupingReresolvesAndDisablesSubgroupCommands() async throws {
+    @Test("Panes command presentation excludes organization settings")
+    func panesCommandPresentationExcludesOrganizationSettings() async throws {
         try await withIsolatedCommandDispatcher(
             configure: {},
             body: {
@@ -133,7 +133,6 @@ extension RepoExplorerCommandPresentationBatchTests {
                     AppCommandDispatcher.shared.appCommandRouter = delegate
                     AppCommandDispatcher.shared.handler = nil
                     coreAtoms.workspaceSidebarState.setSidebarSurface(.panes)
-                    prefs.setGroupingMode(.repo, for: .panes)
 
                     let batch = RepoExplorerCommandPresentationBatch(
                         store: WorkspaceStore(),
@@ -145,30 +144,18 @@ extension RepoExplorerCommandPresentationBatchTests {
                     batch.acceptVisibleWorktreeSnapshot(
                         sidebarCapabilityVisibleSnapshot()
                     )
-                    await eventually("initial Panes subgroup capabilities") {
+                    await eventually("Panes pin capability is published") {
                         toolbarCapability(
-                            .setPanesSubgroupNone,
+                            .togglePanesShowsPinned,
                             in: batch.snapshot
                         ) == true
-                            && toolbarCapability(
-                                .setPanesSubgroupActivity,
-                                in: batch.snapshot
-                            ) == true
                     }
-                    let repoGroupingGeneration = batch.snapshot.generation
-
-                    prefs.setGroupingMode(.activity, for: .panes)
-
-                    await eventually("disabled Panes subgroup capabilities") {
-                        batch.snapshot.generation > repoGroupingGeneration
-                            && toolbarCapability(
-                                .setPanesSubgroupNone,
-                                in: batch.snapshot
-                            ) == false
-                            && toolbarCapability(
-                                .setPanesSubgroupActivity,
-                                in: batch.snapshot
-                            ) == false
+                    for command in [
+                        AppCommand.setPanesGroupingRepo, .setPanesGroupingTab, .setPanesGroupingActivity,
+                        .setPanesSubgroupNone, .setPanesSubgroupActivity,
+                        .setPanesSortFieldName, .setPanesSortFieldActivity, .togglePanesSortDirection,
+                    ] {
+                        #expect(toolbarCapability(command, in: batch.snapshot) == nil)
                     }
                 }
             }

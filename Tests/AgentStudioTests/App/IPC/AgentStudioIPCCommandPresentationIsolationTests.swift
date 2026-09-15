@@ -19,10 +19,11 @@ struct AgentStudioIPCCommandPresentationIsolationTests {
             .map { String(format: "%02x", $0) }
             .joined()
 
-        // Accepted catalog includes Focus Sidebar, pinned navigation and the 90%/33% terminal commands.
+        // Accepted catalog combines the fixed Panes organization with Focus Sidebar,
+        // pinned navigation and the 90%/33% terminal commands.
         #expect(
             encodedCommandListSHA256
-                == "197556569d3e3e612d45adfa39df8da104a8947e87171f55a658f57dcff69775"
+                == "f140c6828afb88267790e6d0911cc3272bd95f59562869a3563f129a814b2233"
         )
     }
 

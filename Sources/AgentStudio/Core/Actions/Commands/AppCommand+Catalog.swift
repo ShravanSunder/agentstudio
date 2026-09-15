@@ -778,17 +778,13 @@ extension AppCommand {
         case .showPanesSidebar: return showPanesSidebarDefinition()
         case .setReposGroupingRepo: return setReposGroupingRepoDefinition()
         case .setReposGroupingActivity: return setReposGroupingActivityDefinition()
-        case .setPanesGroupingRepo: return setPanesGroupingRepoDefinition()
-        case .setPanesGroupingTab: return setPanesGroupingTabDefinition()
-        case .setPanesGroupingActivity: return setPanesGroupingActivityDefinition()
-        case .setPanesSubgroupNone: return setPanesSubgroupNoneDefinition()
-        case .setPanesSubgroupActivity: return setPanesSubgroupActivityDefinition()
+        case .setPanesGroupingRepo, .setPanesGroupingTab, .setPanesGroupingActivity,
+            .setPanesSubgroupNone, .setPanesSubgroupActivity,
+            .setPanesSortFieldName, .setPanesSortFieldActivity, .togglePanesSortDirection:
+            return retiredPanesOrganizationDefinition()
         case .setReposSortFieldName: return setReposSortFieldNameDefinition()
         case .setReposSortFieldActivity: return setReposSortFieldActivityDefinition()
-        case .setPanesSortFieldName: return setPanesSortFieldNameDefinition()
-        case .setPanesSortFieldActivity: return setPanesSortFieldActivityDefinition()
         case .toggleReposSortDirection: return toggleReposSortDirectionDefinition()
-        case .togglePanesSortDirection: return togglePanesSortDirectionDefinition()
         case .toggleReposShowsPinned: return toggleReposShowsPinnedDefinition()
         case .togglePanesShowsPinned: return togglePanesShowsPinnedDefinition()
         case .setInboxGroupingTab: return setInboxGroupingTabDefinition()

@@ -83,43 +83,16 @@ extension AppCommand {
         )
     }
 
-    func setPanesGroupingRepoDefinition() -> AppCommandSpec {
-        sidebarSettingDefinition(
-            label: "Repo",
-            icon: .octicon(.repo),
-            helpText: "Group the Panes sidebar by repository"
-        )
-    }
-
-    func setPanesGroupingTabDefinition() -> AppCommandSpec {
-        sidebarSettingDefinition(
-            label: "Tab",
-            icon: .system(.squareStackFill),
-            helpText: "Group the Panes sidebar by tab"
-        )
-    }
-
-    func setPanesGroupingActivityDefinition() -> AppCommandSpec {
-        sidebarSettingDefinition(
-            label: "Activity",
+    func retiredPanesOrganizationDefinition() -> AppCommandSpec {
+        AppCommandSpec(
+            command: self,
+            label: "Panes",
             icon: .system(.clock),
-            helpText: "Group the Panes sidebar by terminal activity"
-        )
-    }
-
-    func setPanesSubgroupNoneDefinition() -> AppCommandSpec {
-        sidebarSettingDefinition(
-            label: "None",
-            icon: .system(.circle),
-            helpText: "Do not subgroup panes in the Panes sidebar"
-        )
-    }
-
-    func setPanesSubgroupActivityDefinition() -> AppCommandSpec {
-        sidebarSettingDefinition(
-            label: "Activity",
-            icon: .system(.clock),
-            helpText: "Subgroup panes by terminal activity in the Panes sidebar"
+            helpText: "Panes are always organized by most recent activity",
+            surfacePolicy: .notPresented,
+            targeting: .contextual,
+            commandBarGroupName: "Sidebar",
+            commandBarGroupPriority: CommandBarGroupPriority.sidebar
         )
     }
 
@@ -139,35 +112,11 @@ extension AppCommand {
         )
     }
 
-    func setPanesSortFieldNameDefinition() -> AppCommandSpec {
-        sidebarSettingDefinition(
-            label: "Name",
-            icon: .system(.line3Horizontal),
-            helpText: "Sort Panes sidebar rows by name"
-        )
-    }
-
-    func setPanesSortFieldActivityDefinition() -> AppCommandSpec {
-        sidebarSettingDefinition(
-            label: "Activity",
-            icon: .system(.clock),
-            helpText: "Sort Panes sidebar rows by terminal activity"
-        )
-    }
-
     func toggleReposSortDirectionDefinition() -> AppCommandSpec {
         sidebarSettingDefinition(
             label: "Direction",
             icon: .system(.arrowUpArrowDown),
             helpText: "Reverse the Repos sidebar leaf sort direction"
-        )
-    }
-
-    func togglePanesSortDirectionDefinition() -> AppCommandSpec {
-        sidebarSettingDefinition(
-            label: "Direction",
-            icon: .system(.arrowUpArrowDown),
-            helpText: "Reverse the Panes sidebar leaf sort direction"
         )
     }
 

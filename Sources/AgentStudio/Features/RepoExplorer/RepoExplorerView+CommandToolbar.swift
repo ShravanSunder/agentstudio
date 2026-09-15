@@ -35,28 +35,25 @@ extension RepoExplorerView {
     var repoToolbarRow: some View {
         let presentation = RepoExplorerToolbarCommandPresentation.resolve(snapshot: commandPresentationSnapshot)
         let isPanes = repoExplorerPrefs.sidebarSurface == .panes
-        let sortCommands: [AppCommand] =
-            isPanes
-            ? [.setPanesSortFieldName, .setPanesSortFieldActivity]
-            : [.setReposSortFieldName, .setReposSortFieldActivity]
-        let groupingCommands: [AppCommand] =
-            isPanes
-            ? [.setPanesGroupingRepo, .setPanesGroupingTab, .setPanesGroupingActivity]
-            : [.setReposGroupingRepo, .setReposGroupingActivity]
         return HStack(spacing: AppStyles.General.Spacing.tight) {
             Spacer(minLength: 0)
             commandToggle(
                 isPanes ? .togglePanesShowsPinned : .toggleReposShowsPinned,
                 selected: repoExplorerPrefs.showsPinned, presentation: presentation
             )
-            SidebarToolbarDivider()
-            sortDirectionButton(
-                isPanes ? .togglePanesSortDirection : .toggleReposSortDirection,
-                presentation: presentation
-            )
-            sortFieldSelector(commands: sortCommands, presentation: presentation)
-            SidebarToolbarDivider()
-            groupingSelector(commands: groupingCommands, presentation: presentation)
+            if !isPanes {
+                SidebarToolbarDivider()
+                sortDirectionButton(.toggleReposSortDirection, presentation: presentation)
+                sortFieldSelector(
+                    commands: [.setReposSortFieldName, .setReposSortFieldActivity],
+                    presentation: presentation
+                )
+                SidebarToolbarDivider()
+                groupingSelector(
+                    commands: [.setReposGroupingRepo, .setReposGroupingActivity],
+                    presentation: presentation
+                )
+            }
         }
         .overlay(alignment: .leading) {
             if showsListKeyboardHints {
@@ -125,7 +122,6 @@ extension RepoExplorerView {
         let organizationAction = LocalActionSpec.showRepoExplorerOrganization.actionSpec
         let groupingAction = LocalActionSpec.groupRepoExplorerWorktrees.actionSpec
         let subgroupAction = LocalActionSpec.subgroupRepoExplorerWorktrees.actionSpec
-        let subgroupCommand = currentSubgroupCommand
         return SidebarToolbarPickerButton(
             label: organizationAction.label,
             selectionLabel: groupingSelectionLabel,
@@ -149,16 +145,7 @@ extension RepoExplorerView {
                         options: commandOptions(commands, presentation: presentation),
                         selection: groupingCommand
                     ),
-                    subgroup: subgroupCommand.map { selectedSubgroupCommand in
-                        SidebarOrganizationPopoverSection(
-                            title: subgroupAction.label,
-                            options: commandOptions(
-                                [.setPanesSubgroupNone, .setPanesSubgroupActivity],
-                                presentation: presentation
-                            ),
-                            selection: selectedSubgroupCommand
-                        )
-                    },
+                    subgroup: nil,
                     subgroupTitle: subgroupAction.label,
                     unavailableSubgroupText: LocalActionSpec.noRepoExplorerSubgroups.actionSpec.label,
                     unavailableSubgroupIcon: {
@@ -201,34 +188,11 @@ extension RepoExplorerView {
     }
 
     private var groupingCommand: AppCommand {
-        switch (repoExplorerPrefs.sidebarSurface, repoExplorerPrefs.groupingMode) {
-        case (.repos, .repo), (.inbox, .repo), (.repos, .tab), (.inbox, .tab):
-            .setReposGroupingRepo
-        case (.repos, .activity), (.inbox, .activity):
-            .setReposGroupingActivity
-        case (.panes, .repo):
-            .setPanesGroupingRepo
-        case (.panes, .tab):
-            .setPanesGroupingTab
-        case (.panes, .activity):
-            .setPanesGroupingActivity
-        }
-    }
-
-    private var currentSubgroupCommand: AppCommand? {
-        guard repoExplorerPrefs.sidebarSurface == .panes,
-            repoExplorerPrefs.groupingMode != .activity
-        else {
-            return nil
-        }
-        return repoExplorerPrefs.subgroupMode == .ungrouped
-            ? .setPanesSubgroupNone : .setPanesSubgroupActivity
+        repoExplorerPrefs.groupingMode == .activity ? .setReposGroupingActivity : .setReposGroupingRepo
     }
 
     private var groupingSelectionLabel: String {
-        [groupingCommand, currentSubgroupCommand]
-            .compactMap { $0?.definition.label }
-            .joined(separator: " → ")
+        groupingCommand.definition.label
     }
 
     private func organizationSelectorBinding(
@@ -254,9 +218,8 @@ extension RepoExplorerView {
 
     private func controlAccessibilityIdentifier(_ command: AppCommand) -> String {
         switch command {
-        case .setReposGroupingRepo, .setPanesGroupingRepo: "repoSidebarGroupingSegment.repo"
-        case .setPanesGroupingTab: "repoSidebarGroupingSegment.tab"
-        case .setReposGroupingActivity, .setPanesGroupingActivity: "repoSidebarGroupingSegment.activity"
+        case .setReposGroupingRepo: "repoSidebarGroupingSegment.repo"
+        case .setReposGroupingActivity: "repoSidebarGroupingSegment.activity"
         default: "sidebarOrganization.\(command.rawValue)"
         }
     }

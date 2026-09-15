@@ -208,7 +208,10 @@ extension AppCommand {
                 .clearReadInboxNotifications, .clearAllInboxNotifications,
                 .showPaneInboxNotifications, .clearPaneInboxNotifications,
                 .setInboxGroupingTab, .setInboxGroupingRepo, .setInboxGroupingPane,
-                .setInboxGroupingNone, .setInboxRowStateFilter, .setInboxContentMode:
+                .setInboxGroupingNone, .setInboxRowStateFilter, .setInboxContentMode,
+                .setPanesGroupingRepo, .setPanesGroupingTab, .setPanesGroupingActivity,
+                .setPanesSubgroupNone, .setPanesSubgroupActivity,
+                .setPanesSortFieldName, .setPanesSortFieldActivity, .togglePanesSortDirection:
                 .notExposed
             case .reloadBridgeWebView:
                 .headless(
@@ -221,11 +224,8 @@ extension AppCommand {
                     requiredPrivilege: ipcRequiredPrivilege
                 )
             case .setReposGroupingRepo, .setReposGroupingActivity,
-                .setPanesGroupingRepo, .setPanesGroupingTab, .setPanesGroupingActivity,
-                .setPanesSubgroupNone, .setPanesSubgroupActivity,
                 .setReposSortFieldName, .setReposSortFieldActivity,
-                .setPanesSortFieldName, .setPanesSortFieldActivity,
-                .toggleReposSortDirection, .togglePanesSortDirection,
+                .toggleReposSortDirection,
                 .toggleReposShowsPinned, .togglePanesShowsPinned:
                 .headless(
                     durableTarget: ipcDurableTargetContract,
