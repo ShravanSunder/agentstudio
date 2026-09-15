@@ -92,6 +92,35 @@ struct RepoExplorerKeyboardChromeTests {
         #expect(secondCell.hostingView.rootView.slot.keyboardPresentation.shortcutDisplay?.value == "2")
     }
 
+    @Test("pane composition keeps Space first and excludes it from worktree rows")
+    func paneCompositionKeepsSpaceFirstAndExcludesItFromWorktreeRows() throws {
+        let projectRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .appending(path: "../../../..")
+            .standardizedFileURL
+        let paneRowSource = try String(
+            contentsOf: projectRoot.appending(
+                path: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerPaneNavigation.swift"
+            ),
+            encoding: .utf8
+        )
+        let worktreeRowSource = try String(
+            contentsOf: projectRoot.appending(
+                path: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerWorktreeRow.swift"
+            ),
+            encoding: .utf8
+        )
+
+        #expect(paneRowSource.components(separatedBy: "RepoExplorerPaneRowContent(").count - 1 == 2)
+        #expect(
+            paneRowSource.contains(
+                ") {\n            SidebarShortcutHint(LocalActionSpec.previewPaneShortcutDisplay)"
+            )
+        )
+        #expect(!worktreeRowSource.contains("LocalActionSpec.previewPaneShortcutDisplay"))
+        #expect(!worktreeRowSource.contains("SidebarShortcutHint"))
+    }
+
     @Test("always-visible first Space chip preserves pane rows at supported widths")
     func alwaysVisibleFirstSpaceChipPreservesPaneRowsAtSupportedWidths() throws {
         let projectRoot = URL(fileURLWithPath: #filePath)

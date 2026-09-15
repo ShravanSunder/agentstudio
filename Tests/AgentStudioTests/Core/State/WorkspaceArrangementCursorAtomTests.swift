@@ -140,6 +140,31 @@ struct WorkspaceArrangementCursorAtomTests {
             atom.drawerCursorRevision(arrangementId: arrangementID, drawerId: drawerID)
                 != initialRevisions.2
         )
+
+        let revisionsBeforeActiveArrangementChange = (
+            atom.activeArrangementRevision(forTab: tabID),
+            atom.paneCursorRevision(forArrangement: arrangementID),
+            atom.drawerCursorRevision(arrangementId: arrangementID, drawerId: drawerID)
+        )
+        let replacementArrangementID = UUIDv7.generate()
+        atom.replaceCursors(
+            activeArrangementIdsByTabId: [tabID: replacementArrangementID],
+            paneCursorsByArrangementId: atom.paneCursorsByArrangementId,
+            drawerCursorsByKey: atom.drawerCursorsByKey
+        )
+        #expect(
+            atom.activeArrangementRevision(forTab: tabID)
+                != revisionsBeforeActiveArrangementChange.0
+        )
+        #expect(
+            atom.paneCursorRevision(forArrangement: arrangementID)
+                == revisionsBeforeActiveArrangementChange.1
+        )
+        #expect(
+            atom.drawerCursorRevision(arrangementId: arrangementID, drawerId: drawerID)
+                == revisionsBeforeActiveArrangementChange.2
+        )
+        #expect(atom.activeArrangementId(forTab: tabID) == replacementArrangementID)
     }
 }
 
