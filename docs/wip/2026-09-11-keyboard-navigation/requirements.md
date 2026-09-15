@@ -79,6 +79,7 @@ thresholds or input-event telemetry.
 | F | Enter the existing current-list filter; viewer search stays separate |
 | Filter Enter | Keep query/results and focus table; do not open a result |
 | Digits 1–9 | Address first nine list results; open the numbered result immediately |
+| Held-preview hint | Always show `Space` as the first metadata chip on associated and unassociated pane rows; retain recency in composition and keep the digit hint beside the pane title. At the supported 250-point narrow width, dense trailing metadata may clip while `Space`, the digit and the title remain visible and non-overlapping. |
 | Option-Shift-Up/Down from terminal | Direct previous/next pinned-pane navigation in sidebar pinned order, wrapping at ends |
 | Creation | Current arrangement plus Default visible; unrelated custom arrangements do not reveal new pane |
 | Committed reveal | Current if visible; otherwise first visible custom in arrangement order; otherwise Default |

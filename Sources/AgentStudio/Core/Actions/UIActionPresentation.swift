@@ -75,6 +75,8 @@ extension KeyBinding {
 }
 
 package enum LocalActionSpec {
+    package static let previewPaneShortcutDisplay = ShortcutDisplayText(value: "Space")
+
     case quickOpen
     case commandPalette
     case goToPane
@@ -129,6 +131,7 @@ package enum LocalActionSpec {
     case openPaneLocationInEditorMenu
     case toggleDrawer(isExpanded: Bool)
     case addDrawerPane
+    case previewPane
 
     package var actionSpec: ActionSpec {
         switch self {
@@ -320,6 +323,12 @@ package enum LocalActionSpec {
             )
         case .addDrawerPane:
             return ActionSpec(label: "Add Drawer Pane", helpText: "Add drawer pane", icon: .system(.plus))
+        case .previewPane:
+            return ActionSpec(
+                label: "Preview Pane",
+                helpText: "Preview the selected pane while holding Space",
+                icon: .system(.eye)
+            )
         }
     }
 }

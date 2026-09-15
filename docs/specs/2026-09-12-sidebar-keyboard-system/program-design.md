@@ -375,25 +375,35 @@ mounted host. Once the mount is ready, the branch renders that host's one stable
 does not become a keyboard owner; existing pane hit behavior remains unchanged. If
 an existing pointer interaction changes the first responder, the same responder-loss
 cancellation path invalidates preview. There is no click-to-commit behavior.
-The held-state indication reuses the existing compact overlay/keycap presentation
-and the deliberate non-reflowing Space hint; it adds no header row, help panel, or
-workspace dimming.
+The held-preview affordance reuses the existing compact keycap presentation and inserts
+the Space hint as the first item in every pane row's existing metadata/chip row; it adds
+no header row, help panel, or workspace dimming.
 
 The Space keycap comes from one UI-only local action descriptor,
 `LocalActionSpec.previewPane`, so its label/help copy has one owner and no row-local
-string. Its Space `ShortcutDisplayText` is carried by the keyboard presentation value
-independently from the existing digit display. `RepoExplorerPaneRowContent` keeps
-the numbered keycap on its leading
-identity icon (`RepoExplorerPaneNavigation.swift:63-74`); the Space keycap is a
-trailing overlay in the existing status metadata/icon line supplied by
-`SidebarStatusChipRow` (`SidebarChips.swift:108-143`). It is emitted only for the
-selected pane row while list hints are eligible, uses `SidebarShortcutHint`
-(`SidebarShortcutHint.swift:5-43`), and therefore remains fixed-size,
-accessibility-hidden, and non-pointer-interactive. The overlay does not claim row
-width or height and never displaces the leading digit. If the actual trailing slot
-cannot fit beside the existing chips at a supported width, native proof records the
-width, chip set, and collision as a concrete layout issue; it does not overlap title
-or chips, move the digit, add a row, or expand the UI.
+string. A named `LocalActionSpec.previewPaneShortcutDisplay` static value beside that
+descriptor owns `ShortcutDisplayText(value: "Space")`; `ActionSpec` remains the existing
+label/help/icon contract and is not widened. `RepoExplorerPaneRowContent.chipRow`
+injects `SidebarShortcutHint(LocalActionSpec.previewPaneShortcutDisplay)` as the first
+element of the pane-only `SidebarStatusChipRow` content closure, before status, drawer,
+recency and active chips. The generic `SidebarStatusChipRow` remains unchanged and
+worktree-safe. Associated and unassociated pane rows share this same
+`RepoExplorerPaneRowContent` composition. The old
+`RepoExplorerRowKeyboardPresentation.previewShortcutDisplay`, its conditional
+`showsKeyboardHints && isSelected` materializer path, and
+`SidebarStatusChipRow.trailingShortcutDisplay` overlay are removed together.
+
+`RepoExplorerPaneRowContent` keeps the numbered keycap on its leading identity icon
+(`RepoExplorerPaneNavigation.swift`, `RepoExplorerPaneRowContent.body`), while
+`SidebarShortcutHint` (`SidebarShortcutHint.swift`) remains fixed-size,
+accessibility-hidden and non-pointer-interactive. This owner-approved Space-only
+exception consumes ordinary chip-row width, but it does not change row height, hide
+recency from composition, displace the leading digit, or change input eligibility. The
+pane row fills the finite proposed width with leading alignment so `Space`, the digit and
+the title remain visible and non-overlapping. At the supported 250-point narrow width,
+dense trailing metadata may clip; this accepted trailing overflow does not authorize
+swapping, overlap, conditional visibility, compression, another row, or another visual
+system.
 
 The preview branch also participates in the existing rendered-surface union. It
 registers a stable preview surface identity with
@@ -577,7 +587,7 @@ The design's proof map extends the existing quality table as follows:
 | R-S9 existing-pane restore | Real mounted terminal, hidden attached terminal, prepared cold terminal absent from the active custom layout, drawer child whose parent is absent from that layout, ended-session normal restore, and cold Bridge; inspect pane/provider/session identity, slot custody, existing attach/display path, durable arrangement, and warm completion after release. |
 | R-S9 visibility/activity | Recording renderer reconciliation plus Bridge activity projection: canonical while the requested mount prepares, exact ready-mount target replacement, covered installed peers `loadedHidden`, closed/dormant/no-controller/inactive guards, canonical restoration on release, equality suppression, and terminal window occlusion/miniaturization. |
 | R-S9 geometry | Real allocation and `forceGeometrySync` for the trusted full-pane-area frame and release resize, including background-tab and drawer targets; keep frame proof separate from renderer visibility proof. |
-| R-S6/U16 Space overlay | Native narrow and ordinary widths with the selected pane's trailing metadata/icon keycap and simultaneous digit keycap; inspect no row reflow, no title/chip overlap, no pointer interception, and report any insufficient trailing slot as a concrete layout issue. |
+| R-S6/U16 Space chip | Native associated and unassociated pane rows at 250- and 320-point widths with `Space` first in the metadata/chip row and the simultaneous leading digit hint when eligible; inspect recency retained in composition, title/digit separation, unchanged row height and pointer behavior. At 250 points, dense trailing metadata may clip while the leading identity and `Space` remain visible and non-overlapping. |
 
 Mocks may replace external filesystem/runtime dependencies at pure policy seams;
 native responder, custody, renderer, Bridge, and allocation proof remains real. The
@@ -591,7 +601,7 @@ path; preview adds no second host or shared-slot reparenting.
 - [Snapshot construction](../../../Sources/AgentStudio/Features/RepoExplorer/Models/RepoExplorerMaterializationSnapshot.swift), [update planning](../../../Sources/AgentStudio/Features/RepoExplorer/Models/RepoExplorerNativeUpdatePlan.swift) and [pane organization](../../../Sources/AgentStudio/Features/RepoExplorer/Models/RepoExplorerProjection+Organization.swift).
 - [Shortcut context/display](../../../Sources/AgentStudio/Core/Actions/Commands/AppShortcut.swift) and [dispatch policy](../../../Sources/AgentStudio/Core/Actions/Commands/AppShortcutDispatchPolicy.swift).
 - [Row shell](../../../Sources/AgentStudio/SharedComponents/SidebarRowShell.swift), [surface toggle](../../../Sources/AgentStudio/SharedComponents/SidebarEntityToggle.swift) and [toolbar](../../../Sources/AgentStudio/Features/RepoExplorer/RepoExplorerView+CommandToolbar.swift).
-- [Pane row](../../../Sources/AgentStudio/Features/RepoExplorer/RepoExplorerPaneNavigation.swift), [sidebar chips](../../../Sources/AgentStudio/Core/Views/SidebarChips.swift), and [shortcut hint](../../../Sources/AgentStudio/SharedComponents/SidebarShortcutHint.swift): existing leading digit and trailing metadata overlay anchors.
+- [Pane row](../../../Sources/AgentStudio/Features/RepoExplorer/RepoExplorerPaneNavigation.swift), [sidebar chips](../../../Sources/AgentStudio/Core/Views/SidebarChips.swift), and [shortcut hint](../../../Sources/AgentStudio/SharedComponents/SidebarShortcutHint.swift): existing leading digit anchor and ordered metadata/chip row.
 - [Committed focus](../../../Sources/AgentStudio/App/Panes/PaneCommittedFocusOperation.swift) remains the arrangement effect owner.
 - [Persistent tab host](../../../Sources/AgentStudio/App/Panes/PersistentTabHostView.swift), [view registry](../../../Sources/AgentStudio/App/Panes/ViewRegistry.swift) and [pane representable](../../../Sources/AgentStudio/App/Panes/Hosting/PaneViewRepresentable.swift) preserve pane-lifetime host/container custody.
 - [Terminal geometry](../../../Sources/AgentStudio/Features/Terminal/Restore/TerminalPaneGeometryResolver.swift), [terminal restore](../../../Sources/AgentStudio/Features/Terminal/Restore/TerminalRestoreRuntime.swift) and [zmx backend](../../../Sources/AgentStudio/Core/RuntimeEventSystem/Runtime/ZmxBackend.swift) provide the canonical geometry foundation and same-identity normal restore/fresh-shell behavior.

@@ -96,6 +96,8 @@ struct RepoExplorerPaneRowContent: View {
             }
             chipRow
         }
+        .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
+        .fixedSize(horizontal: false, vertical: true)
     }
 
     @ViewBuilder
@@ -105,6 +107,7 @@ struct RepoExplorerPaneRowContent: View {
                 SidebarGitStatusChips.showsPendingPullRequestFacts(branchStatus: $0)
             } ?? false
         ) {
+            SidebarShortcutHint(LocalActionSpec.previewPaneShortcutDisplay)
             if let branchStatus,
                 SidebarGitStatusChips.hasContent(branchStatus: branchStatus)
             {

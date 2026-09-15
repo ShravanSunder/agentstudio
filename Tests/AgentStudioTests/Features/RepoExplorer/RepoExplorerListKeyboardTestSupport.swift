@@ -51,7 +51,11 @@ final class RepoExplorerListKeyboardFixture {
     let textField: NSTextField
     let window: NSWindow
 
-    init(windowHeight: CGFloat = 240, focusListInitially: Bool = true) {
+    init(
+        windowWidth: CGFloat = 320,
+        windowHeight: CGFloat = 240,
+        focusListInitially: Bool = true
+    ) {
         let lifetimeID = RepoExplorerMaterializationHostLifetimeID(rawValue: UUIDv7.generate())
         let recorder = RepoExplorerListKeyboardRecorder()
         var interactions = RepoExplorerTableInteractions(
@@ -81,7 +85,7 @@ final class RepoExplorerListKeyboardFixture {
         )
         host.installKeyboardInteraction(interaction)
 
-        let container = NSView(frame: NSRect(x: 0, y: 0, width: 320, height: windowHeight))
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: windowWidth, height: windowHeight))
         host.frame = container.bounds
         host.autoresizingMask = [.width, .height]
         container.addSubview(host)

@@ -229,6 +229,57 @@ func navigationUnassociatedPaneRow(
     )
 }
 
+func navigationRichPaneRow(
+    paneID: UUID,
+    tabID: UUID
+) -> RepoExplorerMaterializedRow {
+    let repositoryID = UUIDv7.generate()
+    let worktreeID = UUIDv7.generate()
+    let rowID = RepoExplorerRowID.associatedPane(
+        groupID: "rich-pane-group",
+        repoID: repositoryID,
+        worktreeID: worktreeID,
+        paneID: paneID
+    )
+    let destination = RepoExplorerPaneDestination(
+        paneId: paneID,
+        repoId: repositoryID,
+        worktreeId: worktreeID,
+        worktreeLabel: "main",
+        tabId: tabID,
+        tabIndex: 0,
+        paneIndexInTab: 0,
+        isActiveInTab: true
+    )
+    let presentation = RepoExplorerProjectedPaneRow(
+        groupId: "rich-pane-group",
+        repoId: repositoryID,
+        destination: destination,
+        rowId: "associated:\(paneID.uuidString)",
+        primaryText: "Previewable pane title",
+        secondaryLine: .note("Review output"),
+        branchContextText: "agent-studio · feature/sidebar",
+        branchStatus: GitBranchStatus(
+            isDirty: true,
+            syncState: .ahead(2),
+            prCount: 3,
+            linesAdded: 12,
+            linesDeleted: 4,
+            untrackedFileCount: 1
+        ),
+        recencyText: "Now",
+        recencyTier: .strongBlue,
+        isActive: true,
+        isDrawerPane: true
+    )
+    return navigationMaterializedRow(
+        id: rowID,
+        presentation: .pane(presentation),
+        representedRepositoryID: repositoryID,
+        representedWorktreeID: worktreeID
+    )
+}
+
 func navigationUnassociatedDestination(
     paneID: UUID,
     tabID: UUID
