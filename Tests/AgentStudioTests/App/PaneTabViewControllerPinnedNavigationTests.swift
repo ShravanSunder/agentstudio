@@ -40,15 +40,17 @@ struct PaneTabViewControllerPinnedNavigationTests {
             defer { window.close() }
             for paneID in paneIDs { try attachPaneHost(paneId: paneID, in: harness, to: window) }
 
+            // Fixed Panes organization sorts equal-activity titles descending:
+            // Charlie, Bravo, Alpha. Starting at Alpha, next wraps to Charlie.
             let firstMove = harness.controller.submitPinnedPaneNavigation(previous: false)
             let secondMove = harness.controller.submitPinnedPaneNavigation(previous: false)
             #expect(await firstMove.value)
             #expect(await secondMove.value)
-            #expect(atoms.workspaceFocusOwner.owner == .mainPane(paneId: paneIDs[2]))
+            #expect(atoms.workspaceFocusOwner.owner == .mainPane(paneId: paneIDs[1]))
             #expect(await harness.controller.submitPinnedPaneNavigation(previous: false).value)
             #expect(atoms.workspaceFocusOwner.owner == .mainPane(paneId: paneIDs[0]))
             #expect(await harness.controller.submitPinnedPaneNavigation(previous: true).value)
-            #expect(atoms.workspaceFocusOwner.owner == .mainPane(paneId: paneIDs[2]))
+            #expect(atoms.workspaceFocusOwner.owner == .mainPane(paneId: paneIDs[1]))
         }
     }
 
