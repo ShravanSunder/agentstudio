@@ -57,6 +57,16 @@ private final class ControlledRepoExplorerContentChild:
         respond(removalResponse, completion: completion)
     }
 
+    func applySelection(rowID: RepoExplorerRowID?, scrollIntoView: Bool) -> Bool {
+        _ = rowID
+        _ = scrollIntoView
+        return true
+    }
+
+    func performListKeyboardEffect(_ effect: RepoExplorerListKeyboardEffect) {
+        _ = effect
+    }
+
     func suspendDemand() {
         suspendDemandCount += 1
         onSuspendDemand?()

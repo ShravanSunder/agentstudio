@@ -1,3 +1,6 @@
+import AgentStudioRepoExplorer
+import AgentStudioWebview
+import AppKit
 import Foundation
 import Testing
 
@@ -102,6 +105,115 @@ extension WebKitSerializedTests {
             #expect(coordinator.runtimeForPane(paneID) is BridgeRuntime)
 
             coordinator.teardownView(for: acceptedPane.id)
+            await coordinator.shutdown()
+        }
+
+        @Test("held preview publishes an installed nonterminal target through the real sidebar callback")
+        func heldPreviewPublishesInstalledNonterminalTargetThroughSidebarCallback() async throws {
+            var onSpaceKeyDown: (@MainActor (Bool, RepoExplorerSelectedPaneTarget?) -> Void)?
+
+            try await withMainSplitViewControllerHarness(
+                withRepos: false,
+                configureSidebarDependencies: { dependencies in
+                    onSpaceKeyDown = dependencies.onSpaceKeyDown
+                },
+                body: { harness in
+                    let pane = harness.store.createPane(
+                        content: .webview(
+                            WebviewState(url: URL(string: "https://example.com/held-preview")!)
+                        ),
+                        metadata: PaneMetadata(title: "Preview Webview")
+                    )
+                    let tab = Tab(paneId: pane.id, name: "Preview")
+                    harness.store.appendTab(tab)
+                    harness.store.setActiveTab(tab.id)
+                    harness.coordinator.windowLifecycleStore.recordTerminalContainerBounds(
+                        CGRect(x: 0, y: 0, width: 1000, height: 700)
+                    )
+                    var recordedVisibleQueuedSet: PreparedContentVisibleQueuedSet?
+                    harness.coordinator.preparedContentVisibilitySignalHandler = { visibleQueuedSet in
+                        recordedVisibleQueuedSet = visibleQueuedSet
+                        return []
+                    }
+
+                    _ = try #require(harness.coordinator.createViewForContent(pane: pane))
+                    let installedView = try #require(
+                        harness.coordinator.viewRegistry.webviewView(for: pane.id)
+                    )
+                    let selectedTarget = RepoExplorerSelectedPaneTarget(
+                        paneID: pane.id,
+                        owningTabID: tab.id
+                    )
+
+                    onSpaceKeyDown?(false, selectedTarget)
+
+                    let heldState = try #require(harness.controller.heldPanePreviewState)
+                    #expect(heldState.requestedTarget?.paneID == pane.id)
+                    #expect(
+                        recordedVisibleQueuedSet?.visiblePaneIDs.contains(PaneId(existingUUID: pane.id)) == true,
+                        "the requested preview target stays in prepared visibility custody while it is pending"
+                    )
+                    #expect(
+                        heldState.presentedTarget?.paneID == pane.id,
+                        "an installed nonterminal mount must become presented through the real sidebar callback"
+                    )
+                    #expect(
+                        harness.coordinator.viewRegistry.webviewView(for: pane.id) === installedView,
+                        "held preview must reuse the installed Webview mount"
+                    )
+
+                    heldState.endSpaceHold()
+                    onSpaceKeyDown?(false, selectedTarget)
+                    #expect(heldState.presentedTarget?.paneID == pane.id)
+                    #expect(harness.coordinator.viewRegistry.webviewView(for: pane.id) === installedView)
+                }
+            )
+        }
+
+        @Test("held preview accepts a late prepared host only for the current request")
+        func heldPreviewAcceptsLatePreparedHostOnlyForCurrentRequest() async throws {
+            let store = WorkspaceStore()
+            let viewRegistry = ViewRegistry()
+            let coordinator = WorkspaceSurfaceCoordinator(
+                store: store,
+                viewRegistry: viewRegistry,
+                runtime: SessionRuntime(store: store),
+                windowLifecycleStore: WindowLifecycleAtom(),
+                bridgePaneAttendance: BridgePaneAttendanceAtom()
+            )
+            let pane = store.createPane(
+                content: .webview(WebviewState(url: URL(string: "https://example.com/late")!)),
+                metadata: PaneMetadata(title: "Late preview")
+            )
+            let tab = Tab(paneId: pane.id, name: "Late")
+            store.appendTab(tab)
+            store.setActiveTab(tab.id)
+            coordinator.windowLifecycleStore.recordTerminalContainerBounds(
+                CGRect(x: 0, y: 0, width: 1000, height: 700)
+            )
+            coordinator.preparedContentVisibilitySignalHandler = { _ in
+                Set([PaneId(existingUUID: pane.id)])
+            }
+
+            let heldState = HeldPanePreviewState()
+            coordinator.bindHeldPanePreviewState(heldState)
+            let target = ValidatedPanePreviewTarget(
+                paneID: pane.id,
+                owningTabID: tab.id,
+                provider: pane.provider,
+                sessionID: pane.terminalState?.zmxSessionID
+            )
+            #expect(heldState.beginSpaceHold(requestedTarget: target))
+            coordinator.prepareHeldPanePreview()
+            #expect(heldState.presentedTarget == nil)
+
+            let mountedView = WebviewPaneMountView(
+                paneId: pane.id,
+                state: WebviewState(url: URL(string: "https://example.com/late")!)
+            )
+            _ = coordinator.registerHostedView(mountedView: mountedView, for: pane.id)
+
+            #expect(heldState.presentedTarget == target)
             await coordinator.shutdown()
         }
     }

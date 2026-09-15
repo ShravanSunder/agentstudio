@@ -6,12 +6,13 @@ import SwiftUI
 struct RepoExplorerPaneRow: View {
     let row: RepoExplorerProjectedPaneRow
     let octiconLoader: OcticonLoader
+    var keyboardPresentation = RepoExplorerRowKeyboardPresentation.inactive
     let onFocus: () -> Void
 
     @State private var isHovering = false
 
     var body: some View {
-        SidebarRowShell(isHovering: isHovering) {
+        SidebarRowShell(isSelected: keyboardPresentation.isSelected, isHovering: isHovering) {
             RepoExplorerPaneRowContent(
                 primaryText: row.primaryText,
                 secondaryLine: row.secondaryLine,
@@ -21,7 +22,8 @@ struct RepoExplorerPaneRow: View {
                 recencyTier: row.recencyTier,
                 isActive: row.isActive,
                 isDrawerPane: row.isDrawerPane,
-                octiconLoader: octiconLoader
+                octiconLoader: octiconLoader,
+                shortcutDisplay: keyboardPresentation.shortcutDisplay
             )
         }
         .onTapGesture(perform: onFocus)
@@ -55,6 +57,7 @@ struct RepoExplorerPaneRowContent: View {
     let isActive: Bool
     let isDrawerPane: Bool
     let octiconLoader: OcticonLoader
+    var shortcutDisplay: ShortcutDisplayText?
 
     var body: some View {
         VStack(alignment: .leading, spacing: AppStyles.Shell.Sidebar.rowContentSpacing) {
@@ -67,6 +70,7 @@ struct RepoExplorerPaneRowContent: View {
                     width: AppStyles.Shell.Sidebar.rowLeadingIconColumnWidth,
                     alignment: .leading
                 )
+                .sidebarShortcutHint(shortcutDisplay)
                 Text(primaryText)
                     .font(.system(size: AppStyles.General.Typography.textBase, weight: .semibold))
                     .lineLimit(1)
@@ -92,6 +96,8 @@ struct RepoExplorerPaneRowContent: View {
             }
             chipRow
         }
+        .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
+        .fixedSize(horizontal: false, vertical: true)
     }
 
     @ViewBuilder
@@ -101,6 +107,7 @@ struct RepoExplorerPaneRowContent: View {
                 SidebarGitStatusChips.showsPendingPullRequestFacts(branchStatus: $0)
             } ?? false
         ) {
+            SidebarShortcutHint(LocalActionSpec.previewPaneShortcutDisplay)
             if let branchStatus,
                 SidebarGitStatusChips.hasContent(branchStatus: branchStatus)
             {
@@ -150,13 +157,14 @@ struct RepoExplorerUnassociatedPaneRow: View {
     let isActive: Bool
     let isDrawerPane: Bool
     let octiconLoader: OcticonLoader
+    var keyboardPresentation = RepoExplorerRowKeyboardPresentation.inactive
     let onFocus: () -> Void
 
     @State private var isHovering = false
 
     var body: some View {
         Button(action: onFocus) {
-            SidebarRowShell(isHovering: isHovering) {
+            SidebarRowShell(isSelected: keyboardPresentation.isSelected, isHovering: isHovering) {
                 RepoExplorerPaneRowContent(
                     primaryText: primaryText,
                     secondaryLine: secondaryLine,
@@ -166,7 +174,8 @@ struct RepoExplorerUnassociatedPaneRow: View {
                     recencyTier: recencyTier,
                     isActive: isActive,
                     isDrawerPane: isDrawerPane,
-                    octiconLoader: octiconLoader
+                    octiconLoader: octiconLoader,
+                    shortcutDisplay: keyboardPresentation.shortcutDisplay
                 )
             }
         }

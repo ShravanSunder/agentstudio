@@ -680,7 +680,8 @@ extension RepoExplorerTableMaterializerTests {
             requestGeneration: requestGeneration,
             visibleGeneration: requestGeneration,
             snapshot: snapshot,
-            tableUpdatePlan: tablePlan
+            tableUpdatePlan: tablePlan,
+            selectedRowID: nil
         )
     }
 

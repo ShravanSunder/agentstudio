@@ -146,6 +146,7 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
     }
 
     func windowDidResignKey(_ notification: Notification) {
+        splitViewController?.cancelHeldPanePreview()
         applicationLifecycleMonitor.handleWindowDidResignKey(windowId)
         synchronizeWindowPresentationFacts()
     }
@@ -253,6 +254,10 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
         splitViewController?.toggleSidebarFromCommand()
     }
 
+    func focusSidebarFromCommand() {
+        splitViewController?.focusSidebarFromCommand()
+    }
+
     func showSidebarFilter() {
         splitViewController?.showSidebarFilter()
     }
@@ -271,6 +276,10 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
 
     func refocusActivePane() {
         splitViewController?.refocusActivePane()
+    }
+
+    func cancelHeldPanePreview() {
+        splitViewController?.cancelHeldPanePreview()
     }
 
     func awaitLaunchRestoreAfterNextResize() {

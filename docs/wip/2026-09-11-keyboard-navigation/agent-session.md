@@ -93,3 +93,15 @@ execution authority. Opus was not resumed; no cache warmth or wake claimed.
 Receipt timing: native App-sidekick acknowledgement was observed before the22:01UTC keyboard probe; the native message does not expose an exact timestamp. No exact ping time or cache-hit receipt is invented.
 
 Foreground permission approved by owner. CUA resumed successfully and Bridge native reveal/retention/interaction proved. Existing App sidekick source lookup confirmed Bridge DOM shortcuts have a preexisting inner-responder gap; keep it with broader keyboard design. No new source edits or active tests. Current aggregate94e85dd5f remains green.
+
+## Sidebar core continuity resume
+
+2026-09-13T11:58:20.449275+00:00 — same Opus record/provider ID and high effort verified in stored metadata. Status reports queue owner dead; no live ping claimed. Resuming the same named relationship for read-only core design advice, packet tmp/sidebar-keyboard-design/opus-core-resume-packet.md. Current source inherits validated main merge 1a467a120; sidebar branch has no source implementation yet. Cold resume; prior cache warmth lost. Parent remains sole writer and proof owner.
+
+Router wake discovery during resume returned Endpoint discovery unavailable (exit3). No wake was submitted or saved, no service restart or alternate scheduler attempted. Root retains active-turn time checks. ACPX prompt process78573 was submitted for same named session; no completed response receipt yet.
+
+Cold Opus resume unavailable: initial prompt and one bounded retry both exited1 with QUEUE_NOT_ACCEPTING_REQUESTS. Intermediate status remained dead and lastPromptTime remained2026-09-12T17:12:22.914Z, so no new consultation/ping was accepted. Logs tmp/sidebar-keyboard-design/opus-core-resume-response.jsonl and opus-core-resume-retry.jsonl. No further retries or replacement session; continue core source work and ordinary independent review. No cache warmth or active keep-alive wake claimed.
+
+Native App Sidekick continuity acknowledgement received at about2026-09-13T12:07UTC; read-only, old writes closed, sourcebe9a4551f. Prior interval exceeded29 minutes; no cache warmth claimed. Next active-turn check due before12:34UTC if relationship remains in use. Router wake discovery unavailable; no saved wake.
+
+2026-09-13T12:24:15.879082+00:00 — App Sidekick read-only preparation assignment2026-09-13-core-app-prepare at0444368a2. Canonical plan tmp/plan-workflows/2026-09-13-sidebar-keyboard-core.md. Root owns feature/native host; sidekick maps App shell/Core catalog/return focus. No write grant until initial permanent focus test reaches expected RED. Root exclusively controls test Operator.

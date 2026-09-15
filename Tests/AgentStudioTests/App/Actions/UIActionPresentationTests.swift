@@ -113,6 +113,16 @@ struct UIActionPresentationTests {
         #expect(subgroup.helpText == "Choose how sidebar items are subgrouped")
     }
 
+    @Test("preview pane owns the transient Space hint presentation")
+    func previewPaneOwnsTransientSpaceHintPresentation() {
+        let preview = LocalActionSpec.previewPane.actionSpec
+
+        #expect(preview.label == "Preview Pane")
+        #expect(preview.helpText == "Preview the selected pane while holding Space")
+        #expect(preview.icon == .system(.eye))
+        #expect(LocalActionSpec.previewPaneShortcutDisplay.value == "Space")
+    }
+
     @Test
     func drawerChooserToolTip_usesOverrideWithShortcut() {
         let toolTip = AppCommand.openPaneLocationInEditorMenu.definition.controlToolTip(

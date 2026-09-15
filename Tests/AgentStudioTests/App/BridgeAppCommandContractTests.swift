@@ -111,7 +111,7 @@ struct BridgeAppCommandContractTests {
         #expect(definition.targeting == .contextual)
         #expect(definition.visibleWhen == [.hasActivePane, .paneIsBridge])
         #expect(definition.shortcut == nil)
-        #expect(definition.keyBinding == nil)
+        #expect(definition.globalKeyBinding == nil)
         #expect(definition.ipcExposure.executionModes == [.headless])
         #expect(definition.ipcCommandListEntry.targetKinds == [.pane])
         #expect(definition.ipcExposure.requiredPrivileges == [.workspaceRead])

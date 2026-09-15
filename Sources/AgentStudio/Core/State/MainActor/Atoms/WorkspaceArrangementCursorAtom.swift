@@ -62,18 +62,32 @@ package final class WorkspaceArrangementCursorAtom {
         mutation.commit()
     }
 
-    func activeArrangementId(forTab tabId: UUID) -> UUID? {
+    package func activeArrangementId(forTab tabId: UUID) -> UUID? {
         activeArrangementFamily.value(for: tabId)
+    }
+
+    package func activeArrangementRevision(forTab tabId: UUID) -> Int {
+        activeArrangementFamily.revision(for: tabId)
     }
 
     func activePaneId(forArrangement arrangementId: UUID) -> UUID? {
         paneCursorFamily.value(for: arrangementId)?.activePaneId
     }
 
+    package func paneCursorRevision(forArrangement arrangementId: UUID) -> Int {
+        paneCursorFamily.revision(for: arrangementId)
+    }
+
     func activeChildId(forArrangement arrangementId: UUID, drawerId: UUID) -> UUID? {
         drawerCursorFamily.value(
             for: ArrangementDrawerCursorKey(arrangementId: arrangementId, drawerId: drawerId)
         )?.activeChildId
+    }
+
+    package func drawerCursorRevision(arrangementId: UUID, drawerId: UUID) -> Int {
+        drawerCursorFamily.revision(
+            for: ArrangementDrawerCursorKey(arrangementId: arrangementId, drawerId: drawerId)
+        )
     }
 
 }

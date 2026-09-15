@@ -52,10 +52,58 @@ struct SidebarSurfaceHost: View {
     let bridgeAttendanceSnapshot: BridgeAttendanceSnapshot
     let performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
     let onRefocusActivePane: () -> Void
+    let onSpaceKeyDown: @MainActor (Bool, RepoExplorerSelectedPaneTarget?) -> Void
+    let onSpaceKeyUp: @MainActor () -> Void
+    let onSelectedPaneTargetChange: @MainActor (RepoExplorerSelectedPaneTarget?) -> Void
+    let onPreviewEligibilityLoss: @MainActor () -> Void
+    let onPreviewCommit: @MainActor () -> Void
     let onSidebarVisibleWorktreesChanged: @MainActor @Sendable () -> Void
     let onPerformanceProofReadback: @MainActor @Sendable (RepoExplorerPerformanceProofReadback) -> Void
     let onRepositoryFactUpdateProgressPresented: @MainActor @Sendable (UUID, UUID) -> Void
     @State private var repoCommandPresentationBatch: RepoExplorerCommandPresentationBatch?
+
+    init(
+        store: WorkspaceStore,
+        octiconLoader: OcticonLoader,
+        paneActivityStatusAtom: PaneActivityStatusAtom,
+        applicationLifecycleMonitor: ApplicationLifecycleMonitor,
+        sidebarTimeInvalidationConsumerID: UUID,
+        sidebarState: WorkspaceSidebarState,
+        repoExplorerSidebarPrefs: RepoExplorerSidebarPrefsAtom,
+        bridgeAttendanceSnapshot: @escaping BridgeAttendanceSnapshot,
+        performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?,
+        onRefocusActivePane: @escaping () -> Void,
+        onSpaceKeyDown: @escaping @MainActor (Bool, RepoExplorerSelectedPaneTarget?) -> Void = { _, _ in },
+        onSpaceKeyUp: @escaping @MainActor () -> Void = {},
+        onSelectedPaneTargetChange:
+            @escaping @MainActor (RepoExplorerSelectedPaneTarget?) -> Void = { _ in },
+        onPreviewEligibilityLoss: @escaping @MainActor () -> Void = {},
+        onPreviewCommit: @escaping @MainActor () -> Void = {},
+        onSidebarVisibleWorktreesChanged: @escaping @MainActor @Sendable () -> Void,
+        onPerformanceProofReadback:
+            @escaping @MainActor @Sendable (RepoExplorerPerformanceProofReadback) -> Void,
+        onRepositoryFactUpdateProgressPresented:
+            @escaping @MainActor @Sendable (UUID, UUID) -> Void
+    ) {
+        self.store = store
+        self.octiconLoader = octiconLoader
+        self.paneActivityStatusAtom = paneActivityStatusAtom
+        self.applicationLifecycleMonitor = applicationLifecycleMonitor
+        self.sidebarTimeInvalidationConsumerID = sidebarTimeInvalidationConsumerID
+        self.sidebarState = sidebarState
+        self.repoExplorerSidebarPrefs = repoExplorerSidebarPrefs
+        self.bridgeAttendanceSnapshot = bridgeAttendanceSnapshot
+        self.performanceTraceRecorder = performanceTraceRecorder
+        self.onRefocusActivePane = onRefocusActivePane
+        self.onSpaceKeyDown = onSpaceKeyDown
+        self.onSpaceKeyUp = onSpaceKeyUp
+        self.onSelectedPaneTargetChange = onSelectedPaneTargetChange
+        self.onPreviewEligibilityLoss = onPreviewEligibilityLoss
+        self.onPreviewCommit = onPreviewCommit
+        self.onSidebarVisibleWorktreesChanged = onSidebarVisibleWorktreesChanged
+        self.onPerformanceProofReadback = onPerformanceProofReadback
+        self.onRepositoryFactUpdateProgressPresented = onRepositoryFactUpdateProgressPresented
+    }
 
     static var surfaceChromePolicy: SidebarSurfaceChromePolicy {
         SidebarSurfaceChrome<EmptyView>.policy
@@ -75,6 +123,11 @@ struct SidebarSurfaceHost: View {
                 commandPresentationDelta: repoCommandPresentationBatch?.latestDelta,
                 visibleSnapshotConsumerToken: repoCommandPresentationBatch?.consumerToken,
                 onRefocusActivePane: onRefocusActivePane,
+                onSpaceKeyDown: onSpaceKeyDown,
+                onSpaceKeyUp: onSpaceKeyUp,
+                onSelectedPaneTargetChange: onSelectedPaneTargetChange,
+                onPreviewEligibilityLoss: onPreviewEligibilityLoss,
+                onPreviewCommit: onPreviewCommit,
                 onSidebarVisibleWorktreesChanged: onSidebarVisibleWorktreesChanged,
                 onVisibleWorktreeSnapshotChanged: { snapshot in
                     repoCommandPresentationBatch?.acceptVisibleWorktreeSnapshot(snapshot)

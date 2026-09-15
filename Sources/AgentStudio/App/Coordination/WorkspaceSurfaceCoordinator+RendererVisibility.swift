@@ -25,7 +25,7 @@ extension WorkspaceSurfaceCoordinator {
         surfaceManager.setAttachedBindingsChangeHandler(nil)
     }
 
-    private func restartRendererVisibilityObservation() {
+    func restartRendererVisibilityObservation() {
         rendererVisibilityObservationGeneration &+= 1
         observeRendererVisibility(generation: rendererVisibilityObservationGeneration)
     }
@@ -39,6 +39,13 @@ extension WorkspaceSurfaceCoordinator {
                 .flatMap(windowLifecycleStore.presentationFacts(for:)) ?? .hidden
             let windowIsVisible = windowFacts.isVisible && !windowFacts.isMiniaturized && !windowFacts.isOccluded
             guard windowIsVisible else { return surfaceManager.reconcileAttachedVisibility { _ in false } }
+            _ = heldPanePreviewState?.lifecycle
+            _ = heldPanePreviewState?.presentedTarget
+            if let heldPreviewPaneID = currentHeldPreviewTarget()?.target.paneID {
+                return surfaceManager.reconcileAttachedVisibility { paneID in
+                    paneID == heldPreviewPaneID
+                }
+            }
             let visibilityForPaneID = visibilityTierResolver.captureRendererVisibility()
             return surfaceManager.reconcileAttachedVisibility { paneID in
                 visibilityForPaneID(paneID)
@@ -62,8 +69,13 @@ extension WorkspaceSurfaceCoordinator {
         let windowFacts =
             rendererVisibilityOwningWindowId
             .flatMap(windowLifecycleStore.presentationFacts(for:)) ?? .hidden
-        return windowFacts.isVisible && !windowFacts.isMiniaturized && !windowFacts.isOccluded
-            && visibilityTierResolver.tier(for: PaneId(existingUUID: paneID)) == .p0Visible
+        guard windowFacts.isVisible && !windowFacts.isMiniaturized && !windowFacts.isOccluded else {
+            return false
+        }
+        if let heldPreviewPaneID = currentHeldPreviewTarget()?.target.paneID {
+            return heldPreviewPaneID == paneID
+        }
+        return visibilityTierResolver.tier(for: PaneId(existingUUID: paneID)) == .p0Visible
     }
 
     /// The owning window's presentation facts at the moment of a reconciliation pass, for the
