@@ -1,4 +1,6 @@
+import AgentStudioAppIPC
 import AgentStudioInfrastructure
+import CryptoKit
 import Foundation
 import Testing
 
@@ -174,6 +176,77 @@ struct IPCContinuityRepositoryTests {
             )
         }
         #expect(try await repository.credential(for: paneID, generation: generation) == nil)
+    }
+
+    @Test("resolver hashes active pane credentials and rejects prepared or ambiguous verifier matches")
+    func resolverUsesExactVerifierLookup() async throws {
+        let fixture = try IPCContinuityRepositoryFixture()
+        defer { fixture.removeFiles() }
+        let runtimeID = UUIDv7.generate()
+        let token = AgentStudioIPCSubjectToken(rawValue: "deterministic-pane-token")
+        let verifier = Data(SHA256.hash(data: Data(token.rawValue.utf8)))
+        let datastore = fixture.makeDatastore()
+        guard case .prepared = await datastore.prepareDatabasesForBoot() else { return }
+        let repository = IPCContinuityRepository(datastore: datastore)
+        let paneID = UUIDv7.generate()
+        let generation = UUIDv7.generate()
+        try await repository.persistPreparedPaneCredential(
+            paneID: paneID, workspaceID: UUIDv7.generate(), generation: generation, verifier: verifier
+        )
+        let resolver = IPCContinuityCredentialResolver(repository: repository)
+        await #expect(throws: AgentStudioIPCAuthenticationError.self) {
+            _ = try await resolver.resolveCredential(token, serverRuntimeID: runtimeID)
+        }
+        try await repository.activatePreparedPaneCredential(paneID: paneID, generation: generation)
+        let resolution = try await resolver.resolveCredential(token, serverRuntimeID: runtimeID)
+        #expect(resolution.generationID == generation)
+        try await repository.persistPreparedDiagnosticCredential(
+            runtimeID: runtimeID, generation: UUIDv7.generate(), verifier: verifier
+        )
+        await #expect(throws: AgentStudioIPCAuthenticationError.self) {
+            _ = try await resolver.resolveCredential(token, serverRuntimeID: runtimeID)
+        }
+    }
+
+    @Test("resolver requires matching active diagnostic runtime and maps superseded pane late-only")
+    func resolverEnforcesDiagnosticRuntimeAndPaneSupersession() async throws {
+        let fixture = try IPCContinuityRepositoryFixture()
+        defer { fixture.removeFiles() }
+        let serverRuntimeID = UUIDv7.generate()
+        let token = AgentStudioIPCSubjectToken(rawValue: "diagnostic-token")
+        let verifier = Data(SHA256.hash(data: Data(token.rawValue.utf8)))
+        let datastore = fixture.makeDatastore()
+        guard case .prepared = await datastore.prepareDatabasesForBoot() else { return }
+        let repository = IPCContinuityRepository(datastore: datastore)
+        let diagnosticGeneration = UUIDv7.generate()
+        try await repository.persistPreparedDiagnosticCredential(
+            runtimeID: serverRuntimeID, generation: diagnosticGeneration, verifier: verifier
+        )
+        try await repository.activatePreparedDiagnosticCredential(
+            runtimeID: serverRuntimeID, generation: diagnosticGeneration
+        )
+        let resolver = IPCContinuityCredentialResolver(repository: repository)
+        let diagnosticResolution = try await resolver.resolveCredential(token, serverRuntimeID: serverRuntimeID)
+        #expect(diagnosticResolution.status == .active)
+        await #expect(throws: AgentStudioIPCAuthenticationError.self) {
+            _ = try await resolver.resolveCredential(token, serverRuntimeID: UUIDv7.generate())
+        }
+        try await repository.revokeDiagnosticCredential(runtimeID: serverRuntimeID, generation: diagnosticGeneration)
+        await #expect(throws: AgentStudioIPCAuthenticationError.self) {
+            _ = try await resolver.resolveCredential(token, serverRuntimeID: serverRuntimeID)
+        }
+
+        let paneToken = AgentStudioIPCSubjectToken(rawValue: "superseded-pane-token")
+        let paneVerifier = Data(SHA256.hash(data: Data(paneToken.rawValue.utf8)))
+        let paneID = UUIDv7.generate()
+        let paneGeneration = UUIDv7.generate()
+        try await repository.persistPreparedPaneCredential(
+            paneID: paneID, workspaceID: UUIDv7.generate(), generation: paneGeneration, verifier: paneVerifier
+        )
+        try await repository.activatePreparedPaneCredential(paneID: paneID, generation: paneGeneration)
+        try await repository.supersedeActivePaneCredential(paneID: paneID, generation: paneGeneration)
+        let supersededResolution = try await resolver.resolveCredential(paneToken, serverRuntimeID: serverRuntimeID)
+        #expect(supersededResolution.status == .superseded)
     }
 
     @Test("active and revoked pane credentials survive prepared datastore reopening")

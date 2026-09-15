@@ -7,10 +7,6 @@ import Testing
 
 @testable import AgentStudio
 
-#if canImport(Darwin)
-    import Darwin
-#endif
-
 @Suite("AgentStudio App IPC service shell", .serialized)
 struct AgentStudioAppIPCServiceTests {
     @Test("composes service from configuration and protocol ports")
@@ -84,14 +80,13 @@ struct AgentStudioAppIPCServiceTests {
             fixture.cleanup()
         }
         try fixture.server.start()
-        let principal = IPCPrincipal(
-            principalId: UUID(),
-            runtimeId: fixture.runtimeId,
-            accessMode: .agentStudioOnly,
-            kind: .spawnedPaneAgent(boundPaneId: fixture.boundPaneId.uuidString, boundWorkspaceId: nil),
-            approvalAuthority: .noApprovalAuthority
+        let token = try fixture.issueTestCredential(
+            for: .pane(
+                paneId: fixture.boundPaneId,
+                generationId: UUIDv7.generate(),
+                status: .active
+            )
         )
-        let token = try fixture.server.principalRegistry.issueSubjectToken(for: principal)
         let connection = try UnixSocketClient.connect(
             endpoint: UnixSocketEndpoint(path: fixture.paths.socketURL.path)
         )
@@ -364,61 +359,35 @@ struct AgentStudioAppIPCServiceTests {
         #expect(version.error?.message == "unauthenticated")
     }
 
-    @Test("debug token escrow writes owner-only token and removes it after login")
-    func debugTokenEscrowWritesOwnerOnlyTokenAndRemovesItAfterLogin() throws {
-        let fixture = try LiveServerFixture(
-            channel: .debug,
-            debugTokenEscrowEnabled: true
-        )
+    @Test("explicit diagnostic credential can authenticate two connections")
+    func explicitDiagnosticCredentialAuthenticatesTwoConnections() throws {
+        let fixture = try LiveServerFixture(channel: .debug)
         defer {
             fixture.cleanup()
         }
-        try fixture.server.start(processIdentifier: 12_346, startedAt: Date(timeIntervalSince1970: 1_800_000_001))
-
-        #expect(FileManager.default.fileExists(atPath: fixture.paths.debugTokenURL.path))
-        #expect(try fileMode(for: fixture.paths.debugTokenURL) & 0o777 == 0o600)
-
-        let token = try String(contentsOf: fixture.paths.debugTokenURL, encoding: .utf8)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        #expect(!token.isEmpty)
-
-        let metadata = try String(contentsOf: fixture.paths.metadataURL, encoding: .utf8)
-        #expect(!metadata.contains(token))
-        #expect(!metadata.contains(fixture.paths.debugTokenURL.path))
-
-        let connection = try UnixSocketClient.connect(endpoint: UnixSocketEndpoint(path: fixture.paths.socketURL.path))
-        defer {
-            connection.close()
-        }
-        var reader = TestFrameReader()
-        try sendRequest(
-            connection: connection,
-            request: JSONRPCClientRequest(
-                id: .number(65),
-                method: "auth.login",
-                params: .object(["token": .string(token)])
-            )
+        try fixture.server.start()
+        let token = try fixture.issueTestCredential(
+            for: .diagnostic(generationId: UUIDv7.generate(), status: .active)
         )
-        let loginResponse = try reader.receiveResponse(connection: connection)
-        #expect(loginResponse.error == nil)
-        guard case .object(let loginResult)? = loginResponse.result else {
-            Issue.record("expected auth login result")
-            return
-        }
-        #expect(loginResult["authenticated"] == .bool(true))
-        #expect(loginResult["accessMode"] == .string(IPCAccessMode.unsafeDebug.rawValue))
-        #expect(!FileManager.default.fileExists(atPath: fixture.paths.debugTokenURL.path))
 
-        let replay = try sendRequest(
-            socketPath: fixture.paths.socketURL.path,
-            request: JSONRPCClientRequest(
-                id: .number(66),
-                method: "auth.login",
-                params: .object(["token": .string(token)])
+        for requestId in [65, 66] {
+            let connection = try UnixSocketClient.connect(
+                endpoint: UnixSocketEndpoint(path: fixture.paths.socketURL.path)
             )
-        )
-        #expect(replay.error?.code == -32_001)
-        #expect(replay.error?.message == "unauthenticated")
+            defer { connection.close() }
+            var reader = TestFrameReader()
+            try login(connection: connection, token: token, requestId: requestId, reader: &reader)
+            try sendRequest(
+                connection: connection,
+                request: JSONRPCClientRequest(
+                    id: .number(requestId + 1),
+                    method: "auth.status",
+                    params: .object([:])
+                )
+            )
+            let response = try reader.receiveResponse(connection: connection)
+            #expect(response.error == nil)
+        }
     }
 
     @Test("unsafe debug client can invoke semantic layout control methods")
@@ -503,14 +472,13 @@ struct AgentStudioAppIPCServiceTests {
         }
         try scenario.fixture.server.start()
 
-        let principal = IPCPrincipal(
-            principalId: UUIDv7.generate(),
-            runtimeId: scenario.fixture.runtimeId,
-            accessMode: .agentStudioOnly,
-            kind: .spawnedPaneAgent(boundPaneId: scenario.secondPaneId.uuidString, boundWorkspaceId: nil),
-            approvalAuthority: .noApprovalAuthority
+        let token = try scenario.fixture.issueTestCredential(
+            for: .pane(
+                paneId: scenario.secondPaneId,
+                generationId: UUIDv7.generate(),
+                status: .active
+            )
         )
-        let token = try scenario.fixture.server.principalRegistry.issueSubjectToken(for: principal)
         let connection = try UnixSocketClient.connect(
             endpoint: UnixSocketEndpoint(path: scenario.fixture.paths.socketURL.path)
         )
@@ -571,14 +539,13 @@ struct AgentStudioAppIPCServiceTests {
             fixture.cleanup()
         }
         try fixture.server.start()
-        let principal = IPCPrincipal(
-            principalId: UUID(),
-            runtimeId: fixture.runtimeId,
-            accessMode: .agentStudioOnly,
-            kind: .spawnedPaneAgent(boundPaneId: fixture.boundPaneId.uuidString, boundWorkspaceId: nil),
-            approvalAuthority: .noApprovalAuthority
+        let token = try fixture.issueTestCredential(
+            for: .pane(
+                paneId: fixture.boundPaneId,
+                generationId: UUIDv7.generate(),
+                status: .active
+            )
         )
-        let token = try fixture.server.principalRegistry.issueSubjectToken(for: principal)
         let connection = try UnixSocketClient.connect(
             endpoint: UnixSocketEndpoint(path: fixture.paths.socketURL.path)
         )
@@ -632,14 +599,13 @@ struct AgentStudioAppIPCServiceTests {
             fixture.cleanup()
         }
         try fixture.server.start()
-        let principal = IPCPrincipal(
-            principalId: UUID(),
-            runtimeId: fixture.runtimeId,
-            accessMode: .agentStudioOnly,
-            kind: .spawnedPaneAgent(boundPaneId: fixture.boundPaneId.uuidString, boundWorkspaceId: nil),
-            approvalAuthority: .noApprovalAuthority
+        let token = try fixture.issueTestCredential(
+            for: .pane(
+                paneId: fixture.boundPaneId,
+                generationId: UUIDv7.generate(),
+                status: .active
+            )
         )
-        let token = try fixture.server.principalRegistry.issueSubjectToken(for: principal)
         let connection = try UnixSocketClient.connect(
             endpoint: UnixSocketEndpoint(path: fixture.paths.socketURL.path)
         )
@@ -663,32 +629,32 @@ struct AgentStudioAppIPCServiceTests {
         }
     }
 
-    @Test("pane bootstrap delivers token through inherited fd metadata only")
-    func paneBootstrapDeliversTokenThroughInheritedFDMetadataOnly() throws {
+    @Test("pane authentication uses canonical fixture credential metadata")
+    func paneAuthenticationUsesCanonicalFixtureCredentialMetadata() throws {
         let fixture = try LiveServerFixture()
         defer {
             fixture.cleanup()
         }
-
-        let bootstrap = try fixture.server.makePaneBootstrap(
-            boundPaneId: fixture.boundPaneId.uuidString,
-            boundWorkspaceId: nil
+        try fixture.server.start()
+        let token = try fixture.issueTestCredential(
+            for: .pane(
+                paneId: fixture.boundPaneId,
+                generationId: UUIDv7.generate(),
+                status: .active
+            )
         )
-        defer {
-            bootstrap.closeTokenReadFileDescriptor()
-        }
-
-        let environment = bootstrap.descriptor.environment.variables
-        #expect(environment["AGENTSTUDIO_IPC_SOCKET"] == fixture.paths.socketURL.path)
-        #expect(environment["AGENTSTUDIO_IPC_RUNTIME_ID"] == fixture.runtimeId.uuidString)
-        #expect(environment["AGENTSTUDIO_IPC_BOOTSTRAP_FD"] == String(bootstrap.descriptor.tokenReadFileDescriptor))
-        #expect(!environment.keys.contains("AGENTSTUDIO_IPC_TOKEN"))
-        #expect(try isCloseOnExec(fileDescriptor: bootstrap.descriptor.tokenReadFileDescriptor))
-
-        let token = try readBootstrapToken(fileDescriptor: bootstrap.descriptor.tokenReadFileDescriptor)
-        #expect(environment.values.allSatisfy { !$0.contains(token.rawValue) })
-        let principal = try fixture.server.principalRegistry.authenticate(subjectToken: token)
-        #expect(principal.kind == .spawnedPaneAgent(boundPaneId: fixture.boundPaneId.uuidString, boundWorkspaceId: nil))
+        let connection = try UnixSocketClient.connect(
+            endpoint: UnixSocketEndpoint(path: fixture.paths.socketURL.path)
+        )
+        defer { connection.close() }
+        var reader = TestFrameReader()
+        try login(connection: connection, token: token, requestId: 67, reader: &reader)
+        try sendRequest(
+            connection: connection,
+            request: JSONRPCClientRequest(id: .number(68), method: "system.identify", params: .object([:]))
+        )
+        let response = try reader.receiveResponse(connection: connection)
+        #expect(response.error == nil)
     }
 }
 

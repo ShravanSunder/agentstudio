@@ -7,6 +7,10 @@ import Foundation
 extension AppDelegate {
     func startAppIPCServer() {
         guard appIPCServer == nil else { return }
+        guard let workspaceSQLiteDatastore else {
+            appLogger.warning("App IPC server skipped: local SQLite is unavailable")
+            return
+        }
 
         do {
             let runtimeId = UUIDv7.generate()
@@ -86,16 +90,16 @@ extension AppDelegate {
             let registry = try AppIPCMethodRegistry(registrations: registrations, channel: Self.appIPCChannel())
             let service = AgentStudioAppIPCService(
                 configuration: AgentStudioAppIPCConfiguration(
-                    runtimeId: runtimeId, accessMode: accessMode,
-                    debugTokenEscrowEnabled: Self.appIPCDebugTokenEscrowEnabled(),
-                    debugTokenEscrowPermissionScopes: Self.debugAutomationIPCPermissionScopes(
-                        workspaceId: store.identityAtom.workspaceId)
+                    runtimeId: runtimeId, accessMode: accessMode
                 ), ports: ports, methodRegistry: registry, eventBroker: eventBroker
             )
             let server = AgentStudioAppIPCServer(
                 service: service,
                 paths: paths,
-                channel: Self.appIPCChannel()
+                channel: Self.appIPCChannel(),
+                credentialResolver: IPCContinuityCredentialResolver(
+                    repository: IPCContinuityRepository(datastore: workspaceSQLiteDatastore)
+                )
             )
             try server.start()
             appIPCServer = server
@@ -134,14 +138,6 @@ extension AppDelegate {
             }
         #endif
         return .agentStudioOnly
-    }
-
-    private static func appIPCDebugTokenEscrowEnabled() -> Bool {
-        #if DEBUG
-            return ProcessInfo.processInfo.environment["AGENTSTUDIO_IPC_DEBUG_TOKEN_ESCROW"] == "1"
-        #else
-            return false
-        #endif
     }
 
     static func debugAutomationIPCPermissionScopes(workspaceId: UUID) -> [IPCPermissionScope] {

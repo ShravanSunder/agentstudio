@@ -239,19 +239,13 @@ package struct AgentStudioAppIPCPorts: Sendable {
 public struct AgentStudioAppIPCConfiguration: Equatable, Sendable {
     public let runtimeId: UUID
     public let accessMode: IPCAccessMode
-    public let debugTokenEscrowEnabled: Bool
-    public let debugTokenEscrowPermissionScopes: [IPCPermissionScope]
 
     public init(
         runtimeId: UUID,
-        accessMode: IPCAccessMode,
-        debugTokenEscrowEnabled: Bool = false,
-        debugTokenEscrowPermissionScopes: [IPCPermissionScope] = []
+        accessMode: IPCAccessMode
     ) {
         self.runtimeId = runtimeId
         self.accessMode = accessMode
-        self.debugTokenEscrowEnabled = debugTokenEscrowEnabled
-        self.debugTokenEscrowPermissionScopes = debugTokenEscrowPermissionScopes
     }
 }
 

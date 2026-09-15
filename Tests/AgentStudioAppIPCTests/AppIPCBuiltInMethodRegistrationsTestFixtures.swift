@@ -93,7 +93,7 @@ struct BuiltInMethodRegistrationsFixture {
     func connectionContext(
         principal: IPCPrincipal?,
         channel: AgentStudioIPCChannel = .debug,
-        authenticate: @escaping @Sendable (IPCAuthLoginParams) throws -> IPCAuthStatusResult = { _ in
+        authenticate: @escaping @Sendable (IPCAuthLoginParams) async throws -> IPCAuthStatusResult = { _ in
             .unauthenticated
         },
         authenticationStatus: @escaping @Sendable () -> IPCAuthStatusResult = {
@@ -104,7 +104,13 @@ struct BuiltInMethodRegistrationsFixture {
         AppIPCConnectionContext(
             contextId: connectionId,
             channel: channel,
-            principal: principal,
+            authenticatedContext: principal.map {
+                AgentStudioIPCAuthenticatedContext(
+                    principal: $0,
+                    generationID: UUIDv7.generate(),
+                    authorityDisposition: .current
+                )
+            },
             authenticate: authenticate,
             authenticationStatus: authenticationStatus,
             eventSubscriber: subscriber

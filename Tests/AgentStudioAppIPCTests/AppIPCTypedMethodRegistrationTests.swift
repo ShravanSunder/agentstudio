@@ -479,7 +479,11 @@ private struct TypedRegistrationFixture {
         AppIPCConnectionContext(
             contextId: UUIDv7.generate(),
             channel: .stable,
-            principal: principal,
+            authenticatedContext: AgentStudioIPCAuthenticatedContext(
+                principal: principal,
+                generationID: UUIDv7.generate(),
+                authorityDisposition: .current
+            ),
             authenticate: { _ in .unauthenticated },
             authenticationStatus: { .unauthenticated },
             eventSubscriber: TypedConnectionRecordingEventSubscriber()

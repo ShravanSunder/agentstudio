@@ -44,7 +44,6 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
     public let channel: AgentStudioIPCChannel
     public let principalRegistry: AgentStudioIPCPrincipalRegistry
     public let grantLedger: GrantLedger
-    public let bootstrapFactory: AgentStudioIPCPaneBootstrapFactory
 
     private let listener: UnixSocketListener
     private let methodRegistry: AppIPCMethodRegistry
@@ -55,16 +54,15 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
     private let peerCredentialGate: AgentStudioIPCPeerCredentialGate
     private let maxFrameBytes: Int
     private let lifecycleLock = NSLock()
-    private let debugEscrowLock = NSLock()
     private var isRunning = false
     private var activeConnections: [ObjectIdentifier: UnixSocketConnection] = [:]
-    private var activeConnectionPrincipals: [ObjectIdentifier: IPCPrincipal] = [:]
-    private var debugEscrowPrincipalId: UUID?
+    private var activeConnectionContexts: [ObjectIdentifier: AgentStudioIPCAuthenticatedContext] = [:]
 
-    public init(
+    package init(
         service: AgentStudioAppIPCService,
         paths: AgentStudioIPCPaths,
         channel: AgentStudioIPCChannel,
+        credentialResolver: any AgentStudioIPCCredentialResolving,
         approvalPolicyStore: any ApprovalPolicyStore = StaticApprovalPolicyStore(),
         peerCredentialProvider: any PeerCredentialProviding = DarwinPeerCredentialProvider(),
         currentUserIdentifier: uid_t = getuid(),
@@ -77,6 +75,7 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
         self.grantLedger = GrantLedger()
         self.principalRegistry = AgentStudioIPCPrincipalRegistry(
             runtimeId: service.configuration.runtimeId,
+            credentialResolver: credentialResolver,
             grantLedger: grantLedger
         )
         self.authenticator = AgentStudioIPCAuthenticator(registry: principalRegistry)
@@ -95,11 +94,6 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
         self.peerCredentialProvider = peerCredentialProvider
         self.peerCredentialGate = AgentStudioIPCPeerCredentialGate(currentUserIdentifier: currentUserIdentifier)
         self.maxFrameBytes = maxFrameBytes
-        self.bootstrapFactory = AgentStudioIPCPaneBootstrapFactory(
-            registry: principalRegistry,
-            socketPath: paths.socketURL.path,
-            runtimeId: service.configuration.runtimeId
-        )
     }
 
     public func start(
@@ -112,7 +106,6 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
 
         try AgentStudioIPCFilesystem.prepare(paths: paths)
         try resolveExistingSocketBeforeBind()
-        try installDebugTokenEscrowIfNeeded()
         setRunning(true)
         do {
             try listener.start { [self] connection in
@@ -135,50 +128,70 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
             try AgentStudioIPCFilesystem.writeMetadata(metadata, paths: paths)
         } catch {
             stopListenerAndConnections()
-            AgentStudioIPCFilesystem.removeDebugToken(paths: paths)
             throw error
         }
     }
 
     public func stop() {
+        principalRegistry.shutdown()
         stopListenerAndConnections()
-        principalRegistry.rotateTokens()
         principalRegistry.revokeAllGrants()
         try? FileManager.default.removeItem(at: paths.metadataURL)
-        AgentStudioIPCFilesystem.removeDebugToken(paths: paths)
-        debugEscrowLock.withLock {
-            debugEscrowPrincipalId = nil
-        }
-    }
-
-    public func makePaneBootstrap(
-        boundPaneId: String,
-        boundWorkspaceId: UUID?,
-        approvalAuthority: IPCApprovalAuthority = .noApprovalAuthority
-    ) throws -> AgentStudioIPCPaneBootstrap {
-        try bootstrapFactory.makePaneBootstrap(
-            boundPaneId: boundPaneId,
-            boundWorkspaceId: boundWorkspaceId,
-            approvalAuthority: approvalAuthority
-        )
-    }
-
-    public func cancelPaneBootstrap(_ bootstrap: AgentStudioIPCPaneBootstrap) {
-        bootstrap.cancel(in: principalRegistry)
     }
 
     public func invalidatePrincipals(boundToPaneId paneId: String) {
         principalRegistry.invalidatePrincipals(boundToPaneId: paneId)
         let connections = lifecycleLock.withLock {
             let matchingConnectionIdentifiers =
-                activeConnectionPrincipals
-                .filter { _, principal in principal.isBound(toPaneId: paneId) }
+                activeConnectionContexts
+                .filter { _, context in context.principal.isBound(toPaneId: paneId) }
                 .map(\.key)
             for connectionIdentifier in matchingConnectionIdentifiers {
-                activeConnectionPrincipals.removeValue(forKey: connectionIdentifier)
+                activeConnectionContexts.removeValue(forKey: connectionIdentifier)
             }
             return matchingConnectionIdentifiers.compactMap { connectionIdentifier in
                 activeConnections.removeValue(forKey: connectionIdentifier)
+            }
+        }
+        for connection in connections {
+            connection.close()
+        }
+    }
+
+    package func retirePaneCredentialLease(
+        paneID: UUID,
+        workspaceID: UUID,
+        generationID: UUID
+    ) {
+        let retirementContext = AgentStudioIPCAuthenticatedContext(
+            principal: IPCPrincipal(
+                principalId: UUIDv7.generate(),
+                runtimeId: service.configuration.runtimeId,
+                accessMode: .agentStudioOnly,
+                kind: .spawnedPaneAgent(
+                    boundPaneId: paneID.uuidString,
+                    boundWorkspaceId: workspaceID
+                ),
+                approvalAuthority: .noApprovalAuthority
+            ),
+            generationID: generationID,
+            authorityDisposition: .current
+        )
+        principalRegistry.retireLease(retirementContext)
+        let connections: [UnixSocketConnection] = lifecycleLock.withLock {
+            let identifiers: [ObjectIdentifier] = activeConnectionContexts.compactMap { entry in
+                let (identifier, context) = entry
+                guard context.generationID == generationID,
+                    context.principal.isBound(
+                        toPaneId: paneID.uuidString,
+                        workspaceID: workspaceID
+                    )
+                else { return nil }
+                return identifier
+            }
+            return identifiers.compactMap { identifier in
+                activeConnectionContexts.removeValue(forKey: identifier)
+                return activeConnections.removeValue(forKey: identifier)
             }
         }
         for connection in connections {
@@ -268,6 +281,11 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
         guard let registration = methodRegistry.registration(named: request.method) else {
             throw AgentStudioAppIPCRequestError.methodNotFound
         }
+        if connectionState.authorityDisposition == .lateReportOnly,
+            !AgentStudioIPCPreAuthMethods.isAllowed(request.method)
+        {
+            throw AgentStudioAppIPCRequestError.unauthenticated
+        }
         if connectionState.principal == nil, !connectionState.authenticationFailed,
             request.method != "auth.login", allowsUnsafeDebugNoAuthentication
         {
@@ -275,24 +293,44 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
                 principalId: UUIDv7.generate(), runtimeId: service.configuration.runtimeId,
                 accessMode: .unsafeDebug, kind: .unsafeDebugClient, approvalAuthority: .noApprovalAuthority
             )
-            connectionState.setPrincipal(principal)
-            recordPrincipal(principal, for: connection)
+            let context = AgentStudioIPCAuthenticatedContext(
+                principal: principal,
+                generationID: UUIDv7.generate(),
+                authorityDisposition: .current
+            )
+            guard recordAuthenticatedContext(context, for: connection) else {
+                throw AgentStudioAppIPCRequestError.unauthenticated
+            }
+            connectionState.setAuthenticatedContext(context)
         }
         let context = AppIPCConnectionContext(
-            contextId: connectionId, channel: channel, principal: connectionState.principal,
+            contextId: connectionId, channel: channel,
+            authenticatedContext: connectionState.authenticatedContext,
             authenticate: { [self] params in
                 do {
-                    let principal = try authenticator.login(
-                        subjectToken: AgentStudioIPCSubjectToken(rawValue: params.token), callerSuppliedPaneHint: nil
-                    ).principal
-                    connectionState.setPrincipal(principal)
-                    recordPrincipal(principal, for: connection)
-                    consumeDebugEscrowIfNeeded(for: principal)
+                    let authenticatedContext = try await authenticator.login(
+                        subjectToken: AgentStudioIPCSubjectToken(rawValue: params.token)
+                    ).authenticatedContext
+                    guard authenticatedContextIsAllowedOnChannel(authenticatedContext) else {
+                        principalRegistry.releaseLease(authenticatedContext)
+                        throw AgentStudioIPCAuthenticationError(reason: .unauthenticated)
+                    }
+                    guard recordAuthenticatedContext(authenticatedContext, for: connection) else {
+                        principalRegistry.releaseLease(authenticatedContext)
+                        throw AgentStudioIPCAuthenticationError(reason: .unauthenticated)
+                    }
+                    if let replaced = connectionState.replaceAuthenticatedContext(authenticatedContext) {
+                        principalRegistry.releaseLease(replaced)
+                    }
+                    let principal = authenticatedContext.principal
                     return .authenticated(
                         principalId: principal.principalId, runtimeId: principal.runtimeId,
                         accessMode: principal.accessMode)
                 } catch {
-                    connectionState.rejectAuthentication()
+                    if let rejected = connectionState.rejectAuthentication() {
+                        principalRegistry.releaseLease(rejected)
+                    }
+                    clearAuthenticatedContext(for: connection)
                     throw error
                 }
             },
@@ -388,57 +426,14 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
         service.configuration.accessMode == .unsafeDebug && channel == .debug
     }
 
-    private var allowsDebugTokenEscrow: Bool {
-        service.configuration.debugTokenEscrowEnabled && channel == .debug
-    }
-
-    private func installDebugTokenEscrowIfNeeded() throws {
-        AgentStudioIPCFilesystem.removeDebugToken(paths: paths)
-        let stalePrincipalId = debugEscrowLock.withLock {
-            let stalePrincipalId = debugEscrowPrincipalId
-            debugEscrowPrincipalId = nil
-            return stalePrincipalId
-        }
-        if let stalePrincipalId {
-            grantLedger.revokeAll(for: stalePrincipalId)
-        }
-
-        guard allowsDebugTokenEscrow else {
-            return
-        }
-
-        let principal = IPCPrincipal(
-            principalId: UUID(),
-            runtimeId: service.configuration.runtimeId,
-            accessMode: .unsafeDebug,
-            kind: .automationClient,
-            approvalAuthority: .noApprovalAuthority
-        )
-        for scope in service.configuration.debugTokenEscrowPermissionScopes {
-            grantLedger.grant(scope, to: principal.principalId)
-        }
-        let token = try principalRegistry.issueSubjectToken(for: principal)
-        do {
-            try AgentStudioIPCFilesystem.writeDebugToken(token, paths: paths)
-        } catch {
-            principalRegistry.revokeSubjectToken(token)
-            throw error
-        }
-        debugEscrowLock.withLock {
-            debugEscrowPrincipalId = principal.principalId
-        }
-    }
-
-    private func consumeDebugEscrowIfNeeded(for principal: IPCPrincipal) {
-        let shouldRemove = debugEscrowLock.withLock {
-            guard debugEscrowPrincipalId == principal.principalId else {
-                return false
-            }
-            debugEscrowPrincipalId = nil
-            return true
-        }
-        if shouldRemove {
-            AgentStudioIPCFilesystem.removeDebugToken(paths: paths)
+    private func authenticatedContextIsAllowedOnChannel(
+        _ context: AgentStudioIPCAuthenticatedContext
+    ) -> Bool {
+        switch context.principal.kind {
+        case .spawnedPaneAgent:
+            true
+        case .automationClient, .futureMCPClient, .unsafeDebugClient:
+            channel == .debug
         }
     }
 
@@ -453,11 +448,14 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
     }
 
     private func unregisterConnection(_ connection: UnixSocketConnection) {
-        lifecycleLock.withLock {
+        let releasedContext: AgentStudioIPCAuthenticatedContext? = lifecycleLock.withLock {
             let connectionIdentifier = ObjectIdentifier(connection)
-            guard activeConnections[connectionIdentifier] === connection else { return }
+            guard activeConnections[connectionIdentifier] === connection else { return nil }
             _ = activeConnections.removeValue(forKey: connectionIdentifier)
-            _ = activeConnectionPrincipals.removeValue(forKey: connectionIdentifier)
+            return activeConnectionContexts.removeValue(forKey: connectionIdentifier)
+        }
+        if let releasedContext {
+            principalRegistry.releaseLease(releasedContext)
         }
     }
 
@@ -474,11 +472,21 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
         }
     }
 
-    private func recordPrincipal(_ principal: IPCPrincipal, for connection: UnixSocketConnection) {
+    private func recordAuthenticatedContext(
+        _ context: AgentStudioIPCAuthenticatedContext,
+        for connection: UnixSocketConnection
+    ) -> Bool {
         lifecycleLock.withLock {
             let connectionIdentifier = ObjectIdentifier(connection)
-            guard activeConnections[connectionIdentifier] === connection else { return }
-            activeConnectionPrincipals[connectionIdentifier] = principal
+            guard isRunning, activeConnections[connectionIdentifier] === connection else { return false }
+            activeConnectionContexts[connectionIdentifier] = context
+            return true
+        }
+    }
+
+    private func clearAuthenticatedContext(for connection: UnixSocketConnection) {
+        lifecycleLock.withLock {
+            _ = activeConnectionContexts.removeValue(forKey: ObjectIdentifier(connection))
         }
     }
 
@@ -487,7 +495,7 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
             isRunning = false
             let connections = Array(activeConnections.values)
             activeConnections.removeAll(keepingCapacity: false)
-            activeConnectionPrincipals.removeAll(keepingCapacity: false)
+            activeConnectionContexts.removeAll(keepingCapacity: false)
             return connections
         }
         listener.stop()
@@ -499,23 +507,38 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
 
 private final class AgentStudioAppIPCConnectionState: @unchecked Sendable {
     private let lock = NSLock()
-    private var storedPrincipal: IPCPrincipal?
+    private var storedAuthenticatedContext: AgentStudioIPCAuthenticatedContext?
     private var storedAuthenticationFailed = false
 
-    var principal: IPCPrincipal? { lock.withLock { storedPrincipal } }
+    var authenticatedContext: AgentStudioIPCAuthenticatedContext? { lock.withLock { storedAuthenticatedContext } }
+    var principal: IPCPrincipal? { authenticatedContext?.principal }
+    var authorityDisposition: AgentStudioIPCAuthorityDisposition? { authenticatedContext?.authorityDisposition }
     var authenticationFailed: Bool { lock.withLock { storedAuthenticationFailed } }
 
-    func setPrincipal(_ principal: IPCPrincipal) {
+    func setAuthenticatedContext(_ context: AgentStudioIPCAuthenticatedContext) {
         lock.withLock {
-            storedPrincipal = principal
+            storedAuthenticatedContext = context
             storedAuthenticationFailed = false
         }
     }
 
-    func rejectAuthentication() {
+    func replaceAuthenticatedContext(
+        _ context: AgentStudioIPCAuthenticatedContext
+    ) -> AgentStudioIPCAuthenticatedContext? {
         lock.withLock {
-            storedPrincipal = nil
+            let replaced = storedAuthenticatedContext
+            storedAuthenticatedContext = context
+            storedAuthenticationFailed = false
+            return replaced
+        }
+    }
+
+    func rejectAuthentication() -> AgentStudioIPCAuthenticatedContext? {
+        lock.withLock {
+            let rejected = storedAuthenticatedContext
+            storedAuthenticatedContext = nil
             storedAuthenticationFailed = true
+            return rejected
         }
     }
 }
@@ -564,6 +587,15 @@ extension IPCPrincipal {
         switch kind {
         case .spawnedPaneAgent(let boundPaneId, _):
             boundPaneId == paneId
+        case .automationClient, .futureMCPClient, .unsafeDebugClient:
+            false
+        }
+    }
+
+    fileprivate func isBound(toPaneId paneId: String, workspaceID: UUID) -> Bool {
+        switch kind {
+        case .spawnedPaneAgent(let boundPaneId, let boundWorkspaceID):
+            boundPaneId == paneId && boundWorkspaceID == workspaceID
         case .automationClient, .futureMCPClient, .unsafeDebugClient:
             false
         }

@@ -147,14 +147,9 @@ struct AppIPCDynamicCommandClientTests {
         let scenario = try DynamicCommandScenario.make()
         defer { scenario.fixture.cleanup() }
         try scenario.fixture.server.start()
-        let principal = IPCPrincipal(
-            principalId: UUIDv7.generate(),
-            runtimeId: scenario.fixture.runtimeId,
-            accessMode: .unsafeDebug,
-            kind: .automationClient,
-            approvalAuthority: .noApprovalAuthority
+        let token = try scenario.fixture.issueTestCredential(
+            for: .diagnostic(generationId: UUIDv7.generate(), status: .active)
         )
-        let token = try scenario.fixture.server.principalRegistry.issueSubjectToken(for: principal)
         let connection = try UnixSocketClient.connect(
             endpoint: UnixSocketEndpoint(path: scenario.fixture.paths.socketURL.path))
         defer { connection.close() }
@@ -368,13 +363,20 @@ struct AppIPCDynamicCommandClientTests {
 
     @Test("built CLI preserves an App IPC missing grant scope")
     func builtCLIRendersCanonicalMissingGrantScope() throws {
-        let scenario = try MissingGrantBootstrapScenario.make()
+        let scenario = try MissingGrantCredentialScenario.make()
         defer { scenario.fixture.cleanup() }
         try scenario.fixture.server.start()
 
         let result = try runCLI(
             executableURL: cliExecutableURL(),
-            arguments: ["system.version"],
+            arguments: [
+                "command.execute", "--json",
+                try commandRequestJSON(
+                    commandId: scenario.commandId,
+                    correlationId: scenario.correlationId,
+                    arguments: .noArguments
+                ),
+            ],
             environment: scenario.cliEnvironment
         )
         let structuredError = try requireStructuredCLIError(result)
@@ -382,6 +384,7 @@ struct AppIPCDynamicCommandClientTests {
         #expect(structuredError.fieldPath == "$.authorization")
         #expect(structuredError.requiredScope == scenario.requiredScope)
         #expect(structuredError.catalogMethod == nil)
+        #expect(scenario.commandPort.receivedExecutionRequests.isEmpty)
     }
 
     @Test("built CLI renders an unknown method correction without reflecting its identifier")
@@ -478,8 +481,11 @@ private struct DynamicCommandScenario {
     }
 }
 
-private struct MissingGrantBootstrapScenario {
+private struct MissingGrantCredentialScenario {
+    let commandId: IPCCommandIdentifier
+    let correlationId: UUID
     let requiredScope: IPCPermissionScope
+    let commandPort: FakeCommandPort
     let fixture: LiveServerFixture
     let authenticationToken: String
 
@@ -490,22 +496,48 @@ private struct MissingGrantBootstrapScenario {
     }
 
     static func make() throws -> Self {
+        let commandId = IPCCommandIdentifier(rawValue: "fixture.missingGrantCommand")
+        let correlationId = UUIDv7.generate()
+        let descriptorResult = IPCCommandExecutionResult.applied(
+            IPCCommandAppliedResult(commandId: commandId, correlationId: correlationId)
+        )
+        let descriptor = try makeFakeCommandDescriptor(
+            FakeCommandDescriptorInput(
+                id: commandId,
+                executionMode: .headless,
+                arguments: .noArguments,
+                requiredPrivileges: [.appCommandExecute],
+                dataScope: .unspecified,
+                allowedTargetKinds: [],
+                result: descriptorResult
+            )
+        )
+        let commandPort = FakeCommandPort(commands: [descriptor])
+        let composition = try IPCCommandMethodComposition(
+            compatibility: .current,
+            commands: [descriptor]
+        )
         let requiredScope = IPCPermissionScope(
-            privilege: .systemRead,
+            privilege: .appCommandExecute,
             target: .app,
             dataScope: .unspecified
         )
-        let fixture = try LiveServerFixture()
-        let principal = IPCPrincipal(
-            principalId: UUIDv7.generate(),
-            runtimeId: fixture.runtimeId,
-            accessMode: .agentStudioOnly,
-            kind: .automationClient,
-            approvalAuthority: .noApprovalAuthority
+        let fixture = try LiveServerFixture(
+            commandPort: commandPort,
+            commandComposition: composition
         )
-        let authenticationToken = try fixture.server.principalRegistry.issueSubjectToken(for: principal)
+        let authenticationToken = try fixture.issueTestCredential(
+            for: .pane(
+                paneId: fixture.boundPaneId,
+                generationId: UUIDv7.generate(),
+                status: .active
+            )
+        )
         return Self(
+            commandId: commandId,
+            correlationId: correlationId,
             requiredScope: requiredScope,
+            commandPort: commandPort,
             fixture: fixture,
             authenticationToken: authenticationToken.rawValue
         )

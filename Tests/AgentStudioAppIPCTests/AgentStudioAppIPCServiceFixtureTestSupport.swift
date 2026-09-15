@@ -20,9 +20,11 @@ extension JSONDecoder {
 struct LiveServerFixture {
     let runtimeId = UUID()
     let boundPaneId = UUID()
+    let workspaceId = UUIDv7.generate()
     let rootURL: URL
     let paths: AgentStudioIPCPaths
     let server: AgentStudioAppIPCServer
+    private let testCredentialResolver: IPCFixtureCredentialResolver?
 
     init(
         accessMode: IPCAccessMode = .agentStudioOnly,
@@ -35,9 +37,10 @@ struct LiveServerFixture {
         uiPresentationPort: any AppIPCUIPresentationPort = FakeUIPresentationPort(),
         sidebarPort: any AppIPCSidebarPort = FakeSidebarPort(),
         commandComposition: IPCCommandMethodComposition? = nil,
-        debugTokenEscrowEnabled: Bool = false,
-        debugTokenEscrowPermissionScopes: [IPCPermissionScope] = []
+        credentialResolver: (any AgentStudioIPCCredentialResolving)? = nil
     ) throws {
+        let resolvedCredentialResolver = credentialResolver ?? IPCFixtureCredentialResolver()
+        testCredentialResolver = resolvedCredentialResolver as? IPCFixtureCredentialResolver
         rootURL = URL(
             fileURLWithPath: "/tmp/asipc-\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))",
             isDirectory: true
@@ -80,20 +83,81 @@ struct LiveServerFixture {
         let service = AgentStudioAppIPCService(
             configuration: AgentStudioAppIPCConfiguration(
                 runtimeId: runtimeId,
-                accessMode: accessMode,
-                debugTokenEscrowEnabled: debugTokenEscrowEnabled,
-                debugTokenEscrowPermissionScopes: debugTokenEscrowPermissionScopes
+                accessMode: accessMode
             ),
             ports: ports,
             methodRegistry: methodRegistry,
             eventBroker: eventBroker
         )
-        server = AgentStudioAppIPCServer(service: service, paths: paths, channel: channel)
+        server = AgentStudioAppIPCServer(
+            service: service,
+            paths: paths,
+            channel: channel,
+            credentialResolver: resolvedCredentialResolver
+        )
+    }
+
+    func issueTestCredential(for intent: IPCFixtureCredentialIntent) throws -> AgentStudioIPCSubjectToken {
+        guard let testCredentialResolver else {
+            throw IPCFixtureCredentialError.requiresExplicitResolver
+        }
+        return testCredentialResolver.issueTestCredential(for: intent, workspaceId: workspaceId, runtimeId: runtimeId)
     }
 
     func cleanup() {
         server.stop()
         try? FileManager.default.removeItem(at: rootURL)
+    }
+}
+
+enum IPCFixtureCredentialIntent: Sendable {
+    case pane(paneId: UUID, generationId: UUID, status: AgentStudioIPCCredentialStatus)
+    case diagnostic(generationId: UUID, status: AgentStudioIPCCredentialStatus)
+}
+
+enum IPCFixtureCredentialError: Error, Equatable {
+    case requiresExplicitResolver
+}
+
+final class IPCFixtureCredentialResolver: AgentStudioIPCCredentialResolving, @unchecked Sendable {
+    private let lock = NSLock()
+    private var resolutions: [String: AgentStudioIPCCredentialResolution] = [:]
+
+    func issueTestCredential(
+        for intent: IPCFixtureCredentialIntent,
+        workspaceId: UUID,
+        runtimeId: UUID
+    ) -> AgentStudioIPCSubjectToken {
+        let token = AgentStudioIPCSubjectToken(rawValue: "fixture-\(UUIDv7.generate().uuidString)")
+        let resolution: AgentStudioIPCCredentialResolution
+        switch intent {
+        case .pane(let paneId, let generationId, let status):
+            resolution = AgentStudioIPCCredentialResolution(
+                namespace: .pane(paneID: paneId, workspaceID: workspaceId),
+                generationID: generationId,
+                status: status
+            )
+        case .diagnostic(let generationId, let status):
+            resolution = AgentStudioIPCCredentialResolution(
+                namespace: .diagnostic(runtimeID: runtimeId),
+                generationID: generationId,
+                status: status
+            )
+        }
+        lock.withLock {
+            resolutions[token.rawValue] = resolution
+        }
+        return token
+    }
+
+    func resolveCredential(
+        _ credential: AgentStudioIPCSubjectToken,
+        serverRuntimeID _: UUID
+    ) async throws -> AgentStudioIPCCredentialResolution {
+        guard let resolution = lock.withLock({ resolutions[credential.rawValue] }) else {
+            throw AgentStudioIPCAuthenticationError(reason: .unauthenticated)
+        }
+        return resolution
     }
 }
 

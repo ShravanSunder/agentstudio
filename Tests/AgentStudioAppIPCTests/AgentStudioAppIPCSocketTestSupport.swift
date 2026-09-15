@@ -4,10 +4,6 @@ import AgentStudioProgrammaticControl
 import Foundation
 import Testing
 
-#if canImport(Darwin)
-    import Darwin
-#endif
-
 func sendRequest(socketPath: String, request: JSONRPCClientRequest) throws -> JSONRPCResponseMessage {
     let connection = try UnixSocketClient.connect(endpoint: UnixSocketEndpoint(path: socketPath))
     defer {
@@ -168,43 +164,4 @@ struct TestFrameReader {
             }
         }
     }
-}
-
-func readBootstrapToken(fileDescriptor: Int32) throws -> AgentStudioIPCSubjectToken {
-    #if canImport(Darwin)
-        var buffer = [UInt8](repeating: 0, count: 128)
-        let bytesRead = Darwin.read(fileDescriptor, &buffer, buffer.count)
-        guard bytesRead > 0 else {
-            throw AgentStudioIPCPaneBootstrapError(reason: .tokenWriteFailed, errnoCode: errno)
-        }
-        guard
-            let rawValue = String(bytes: buffer.prefix(bytesRead), encoding: .utf8)?
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-        else {
-            throw AgentStudioIPCPaneBootstrapError(reason: .tokenWriteFailed, errnoCode: errno)
-        }
-        return AgentStudioIPCSubjectToken(rawValue: rawValue)
-    #else
-        throw AgentStudioIPCPaneBootstrapError(reason: .unsupportedPlatform)
-    #endif
-}
-
-func isCloseOnExec(fileDescriptor: Int32) throws -> Bool {
-    #if canImport(Darwin)
-        let flags = fcntl(fileDescriptor, F_GETFD)
-        guard flags >= 0 else {
-            throw AgentStudioIPCPaneBootstrapError(reason: .pipeConfigurationFailed, errnoCode: errno)
-        }
-        return flags & FD_CLOEXEC == FD_CLOEXEC
-    #else
-        throw AgentStudioIPCPaneBootstrapError(reason: .unsupportedPlatform)
-    #endif
-}
-
-func fileMode(for url: URL) throws -> mode_t {
-    var statBuffer = stat()
-    guard lstat(url.path, &statBuffer) == 0 else {
-        throw POSIXError(.ENOENT)
-    }
-    return statBuffer.st_mode
 }

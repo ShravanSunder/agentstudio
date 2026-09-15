@@ -33,7 +33,7 @@ struct TypedConnectionRegistrationFixture {
     func context(
         channel: AgentStudioIPCChannel,
         principal: IPCPrincipal?,
-        authenticate: @escaping @Sendable (IPCAuthLoginParams) throws -> IPCAuthStatusResult = { _ in
+        authenticate: @escaping @Sendable (IPCAuthLoginParams) async throws -> IPCAuthStatusResult = { _ in
             .unauthenticated
         },
         authenticationStatus: @escaping @Sendable () -> IPCAuthStatusResult = {
@@ -44,7 +44,13 @@ struct TypedConnectionRegistrationFixture {
         AppIPCConnectionContext(
             contextId: contextId,
             channel: channel,
-            principal: principal,
+            authenticatedContext: principal.map {
+                AgentStudioIPCAuthenticatedContext(
+                    principal: $0,
+                    generationID: UUIDv7.generate(),
+                    authorityDisposition: .current
+                )
+            },
             authenticate: authenticate,
             authenticationStatus: authenticationStatus,
             eventSubscriber: eventSubscriber

@@ -27,8 +27,14 @@ struct AgentStudioIPCClientMain {
                 let catalog = try discoveryClient.discoverCatalog()
                 if global.methodArguments.first == "command.list" || global.methodArguments.first == "command.execute" {
                     let discovery = try IPCCommandDiscovery(methodCatalog: catalog)
+                    let authenticationDescriptors = bootstrap.filter { $0.metadata.name == "auth.login" }
+                    guard authenticationDescriptors.count == 1 else {
+                        throw CLIExit.rejected
+                    }
                     let listClient = AgentStudioIPCClient(
-                        configuration: global.configuration, descriptors: [discovery.commandListInvocation.descriptor])
+                        configuration: global.configuration,
+                        descriptors: authenticationDescriptors + [discovery.commandListInvocation.descriptor]
+                    )
                     let response: IPCDescriptorClientResponse
                     switch try listClient.call(discovery.commandListInvocation) {
                     case .success(let successfulResponse):
@@ -45,7 +51,7 @@ struct AgentStudioIPCClientMain {
                         return
                     }
                     commandCatalog = commands
-                    descriptors = [commands.executeDescriptor]
+                    descriptors = authenticationDescriptors + [commands.executeDescriptor]
                 } else {
                     descriptors = try IPCBuiltInMethodCatalog.matchingDiscoveredMethods(catalog, examples: examples)
                 }

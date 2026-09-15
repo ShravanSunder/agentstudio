@@ -71,7 +71,7 @@ struct AppIPCTypedConnectionRegistrationTests {
                 AppIPCTargetResolution(parameters: parameters, canonicalHandle: nil, target: .app)
             },
             connectionHandler: { parameters, context, _ in
-                try context.authenticate(parameters)
+                try await context.authenticate(parameters)
             }
         )
 

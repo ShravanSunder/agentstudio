@@ -51,7 +51,7 @@ extension AppIPCBuiltInMethodRegistrations {
                     AppIPCBuiltInRegistrationSupport.appTarget(parameters)
                 },
                 connectionHandler: { parameters, context, _ in
-                    try context.authenticate(parameters)
+                    try await context.authenticate(parameters)
                 }
             ).erase(),
             AppIPCTypedMethodRegistration(

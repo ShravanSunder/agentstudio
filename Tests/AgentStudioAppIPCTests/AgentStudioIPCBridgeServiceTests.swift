@@ -286,6 +286,10 @@ struct AgentStudioIPCBridgeServiceTests {
     @Test("debug unsafe no-auth serves semantic Bridge control methods")
     func debugUnsafeNoAuthServesSemanticBridgeControlMethods() throws {
         let paneId = UUIDv7.generate()
+        let filterCorrelationId = UUIDv7.generate()
+        let revealCorrelationId = UUIDv7.generate()
+        let markdownCorrelationId = UUIDv7.generate()
+        let scrollCorrelationId = UUIDv7.generate()
         let fixture = try LiveServerFixture(
             accessMode: .unsafeDebug,
             channel: .debug,
@@ -310,6 +314,7 @@ struct AgentStudioIPCBridgeServiceTests {
                         "showBinary": .bool(true),
                         "showLarge": .bool(false),
                     ]),
+                    "correlationId": .string(filterCorrelationId.uuidString),
                 ])
             )
         )
@@ -320,6 +325,7 @@ struct AgentStudioIPCBridgeServiceTests {
         #expect(filterResult.categoryFilter == .source)
         #expect(filterResult.showBinary)
         #expect(!filterResult.showLarge)
+        #expect(filterResult.correlationId == filterCorrelationId)
 
         let revealResponse = try sendRequest(
             socketPath: fixture.paths.socketURL.path,
@@ -329,6 +335,7 @@ struct AgentStudioIPCBridgeServiceTests {
                 params: .object([
                     "handle": .string("pane:1"),
                     "path": .string("Sources/App/View.swift"),
+                    "correlationId": .string(revealCorrelationId.uuidString),
                 ])
             )
         )
@@ -336,6 +343,7 @@ struct AgentStudioIPCBridgeServiceTests {
         #expect(revealResult.method == "bridge.fileTree.revealPath")
         #expect(revealResult.itemId == "item-source")
         #expect(revealResult.path == "Sources/App/View.swift")
+        #expect(revealResult.correlationId == revealCorrelationId)
 
         let markdownResponse = try sendRequest(
             socketPath: fixture.paths.socketURL.path,
@@ -345,6 +353,7 @@ struct AgentStudioIPCBridgeServiceTests {
                 params: .object([
                     "handle": .string("pane:1"),
                     "itemId": .string("item-source"),
+                    "correlationId": .string(markdownCorrelationId.uuidString),
                 ])
             )
         )
@@ -352,6 +361,7 @@ struct AgentStudioIPCBridgeServiceTests {
         #expect(markdownResult.method == "bridge.fileView.showMarkdownPreview")
         #expect(markdownResult.itemId == "item-source")
         #expect(markdownResult.renderMode == "markdownPreview")
+        #expect(markdownResult.correlationId == markdownCorrelationId)
 
         let scrollResponse = try sendRequest(
             socketPath: fixture.paths.socketURL.path,
@@ -361,12 +371,14 @@ struct AgentStudioIPCBridgeServiceTests {
                 params: .object([
                     "handle": .string("pane:1"),
                     "itemId": .string("item-source"),
+                    "correlationId": .string(scrollCorrelationId.uuidString),
                 ])
             )
         )
         let scrollResult = try decodeResponseResult(IPCBridgePageControlResult.self, from: scrollResponse)
         #expect(scrollResult.method == "bridge.diff.scrollToFile")
         #expect(scrollResult.itemId == "item-source")
+        #expect(scrollResult.correlationId == scrollCorrelationId)
     }
 
     @Test("debug unsafe no-auth preserves semantic Bridge Search mode")
@@ -414,6 +426,7 @@ struct AgentStudioIPCBridgeServiceTests {
     @Test("debug unsafe no-auth preserves the Files filter candidate")
     func debugUnsafeNoAuthPreservesFilesFilterCandidate() throws {
         let paneId = UUID(uuidString: "00000000-0000-0000-0000-000000000751")!
+        let correlationId = UUIDv7.generate()
         let fixture = try LiveServerFixture(
             accessMode: .unsafeDebug,
             channel: .debug,
@@ -435,6 +448,7 @@ struct AgentStudioIPCBridgeServiceTests {
                         "surface": .string("files"),
                         "categoryFilter": .string("docs"),
                     ]),
+                    "correlationId": .string(correlationId.uuidString),
                 ])
             )
         )
@@ -445,11 +459,14 @@ struct AgentStudioIPCBridgeServiceTests {
         #expect(result.categoryFilter == .docs)
         #expect(!result.showBinary)
         #expect(!result.showLarge)
+        #expect(result.correlationId == correlationId)
     }
 
     @Test("debug unsafe no-auth serves Bridge diff expand and collapse methods")
     func debugUnsafeNoAuthServesBridgeDiffExpandAndCollapseMethods() throws {
         let paneId = UUID()
+        let collapseCorrelationId = UUIDv7.generate()
+        let expandCorrelationId = UUIDv7.generate()
         let fixture = try LiveServerFixture(
             accessMode: .unsafeDebug,
             channel: .debug,
@@ -468,12 +485,14 @@ struct AgentStudioIPCBridgeServiceTests {
                 params: .object([
                     "handle": .string("pane:1"),
                     "itemId": .string("item-source"),
+                    "correlationId": .string(collapseCorrelationId.uuidString),
                 ])
             )
         )
         let collapseResult = try decodeResponseResult(IPCBridgePageControlResult.self, from: collapseResponse)
         #expect(collapseResult.method == "bridge.diff.collapseFile")
         #expect(collapseResult.itemId == "item-source")
+        #expect(collapseResult.correlationId == collapseCorrelationId)
 
         let expandResponse = try sendRequest(
             socketPath: fixture.paths.socketURL.path,
@@ -483,6 +502,7 @@ struct AgentStudioIPCBridgeServiceTests {
                 params: .object([
                     "handle": .string("pane:1"),
                     "itemId": .string("item-source"),
+                    "correlationId": .string(expandCorrelationId.uuidString),
                 ])
             )
         )
@@ -490,6 +510,7 @@ struct AgentStudioIPCBridgeServiceTests {
         #expect(expandResult.method == "bridge.diff.expandFile")
         #expect(expandResult.itemId == "item-source")
         #expect(expandResult.paneId == paneId)
+        #expect(expandResult.correlationId == expandCorrelationId)
     }
 
     @Test("Bridge methods reject valid non-Bridge pane targets as unsupported")
@@ -505,76 +526,7 @@ struct AgentStudioIPCBridgeServiceTests {
         }
         try fixture.server.start()
 
-        let bridgeRequests: [(id: Int, method: String, params: JSONValue)] = [
-            (79, "bridge.diff.getPackage", .object(["handle": .string("pane:1")])),
-            (80, "bridge.diff.renderState", .object(["handle": .string("pane:1")])),
-            (
-                81,
-                "bridge.diff.refresh",
-                .object([
-                    "handle": .string("pane:1"),
-                    "correlationId": .string(UUID().uuidString),
-                ])
-            ),
-            (
-                82,
-                "bridge.diff.selectFile",
-                .object([
-                    "handle": .string("pane:1"),
-                    "itemId": .string("item-source"),
-                ])
-            ),
-            (
-                83,
-                "bridge.diff.scrollToFile",
-                .object([
-                    "handle": .string("pane:1"),
-                    "itemId": .string("item-source"),
-                ])
-            ),
-            (
-                84,
-                "bridge.fileTree.search",
-                .object([
-                    "handle": .string("pane:1"),
-                    "searchText": .string("BridgePaneController"),
-                ])
-            ),
-            (
-                85,
-                "bridge.fileTree.setFilter",
-                bridgeReviewFilterParams(handle: "pane:1")
-            ),
-            (
-                86,
-                "bridge.fileTree.revealPath",
-                .object([
-                    "handle": .string("pane:1"),
-                    "path": .string("Sources/App/View.swift"),
-                ])
-            ),
-            (
-                87,
-                "bridge.fileView.showMarkdownPreview",
-                .object([
-                    "handle": .string("pane:1"),
-                    "itemId": .string("item-source"),
-                ])
-            ),
-            (
-                88,
-                "bridge.fileView.getContent",
-                .object([
-                    "handle": .string("pane:1"),
-                    "contentHandleId": .string("content-head"),
-                    "reviewGeneration": .number(1),
-                ])
-            ),
-            (89, "bridge.telemetry.snapshot", .object(["handle": .string("pane:1")])),
-            (90, "bridge.telemetry.flush", .object(["handle": .string("pane:1")])),
-        ]
-
-        for bridgeRequest in bridgeRequests {
+        for bridgeRequest in nonBridgeTargetRequests() {
             let response = try sendRequest(
                 socketPath: fixture.paths.socketURL.path,
                 request: JSONRPCClientRequest(
@@ -618,6 +570,7 @@ struct AgentStudioIPCBridgeServiceTests {
                     params: .object([
                         "handle": .string("pane:1"),
                         "itemId": .string("item-source"),
+                        "correlationId": .string(UUIDv7.generate().uuidString),
                     ])
                 )
             )
@@ -629,8 +582,8 @@ struct AgentStudioIPCBridgeServiceTests {
         }
     }
 
-    @Test("ungranted automation clients do not learn whether a pane is a Bridge pane")
-    func ungrantedAutomationClientsDoNotLearnWhetherPaneIsBridgePane() throws {
+    @Test("diagnostic Bridge reads reject non-Bridge pane targets")
+    func diagnosticBridgeReadsRejectNonBridgePaneTargets() throws {
         let paneId = UUID()
         let fixture = try LiveServerFixture(
             panes: [makePaneSummary(id: paneId, ordinal: 1, contentKind: .terminal)]
@@ -639,14 +592,9 @@ struct AgentStudioIPCBridgeServiceTests {
             fixture.cleanup()
         }
         try fixture.server.start()
-        let principal = IPCPrincipal(
-            principalId: UUID(),
-            runtimeId: fixture.runtimeId,
-            accessMode: .agentStudioOnly,
-            kind: .automationClient,
-            approvalAuthority: .noApprovalAuthority
+        let token = try fixture.issueTestCredential(
+            for: .diagnostic(generationId: UUIDv7.generate(), status: .active)
         )
-        let token = try fixture.server.principalRegistry.issueSubjectToken(for: principal)
         let connection = try UnixSocketClient.connect(
             endpoint: UnixSocketEndpoint(path: fixture.paths.socketURL.path)
         )
@@ -666,13 +614,13 @@ struct AgentStudioIPCBridgeServiceTests {
         )
 
         let response = try frameReader.receiveResponse(connection: connection)
-        #expect(response.error?.code == -32_002)
-        #expect(response.error?.message == "unauthorized")
+        #expect(response.error?.code == -32_003)
+        #expect(response.error?.message == "unsupported target")
         #expect(response.result == nil)
     }
 
-    @Test("spawned pane agents cannot open new Bridge review panes")
-    func spawnedPaneAgentsCannotOpenNewBridgeReviewPanes() throws {
+    @Test("pane principals cannot discover the debug-only Bridge open method")
+    func panePrincipalsCannotDiscoverDebugOnlyBridgeOpenMethod() throws {
         let paneId = UUID()
         let fixture = try LiveServerFixture(
             panes: [makePaneSummary(id: paneId, ordinal: 1, contentKind: .bridgePanel)]
@@ -681,14 +629,9 @@ struct AgentStudioIPCBridgeServiceTests {
             fixture.cleanup()
         }
         try fixture.server.start()
-        let principal = IPCPrincipal(
-            principalId: UUID(),
-            runtimeId: fixture.runtimeId,
-            accessMode: .agentStudioOnly,
-            kind: .spawnedPaneAgent(boundPaneId: paneId.uuidString, boundWorkspaceId: nil),
-            approvalAuthority: .noApprovalAuthority
+        let token = try fixture.issueTestCredential(
+            for: .pane(paneId: paneId, generationId: UUIDv7.generate(), status: .active)
         )
-        let token = try fixture.server.principalRegistry.issueSubjectToken(for: principal)
         let connection = try UnixSocketClient.connect(
             endpoint: UnixSocketEndpoint(path: fixture.paths.socketURL.path)
         )
@@ -710,8 +653,9 @@ struct AgentStudioIPCBridgeServiceTests {
         )
 
         let response = try frameReader.receiveResponse(connection: connection)
-        #expect(response.error?.code == -32_002)
-        #expect(response.error?.message == "unauthorized")
+        #expect(response.error?.code == -32_601)
+        #expect(response.error?.message == "method not found")
+        #expect(response.result == nil)
     }
 
     @Test("rejected Bridge page-control commands do not publish file selection notifications")
@@ -729,14 +673,9 @@ struct AgentStudioIPCBridgeServiceTests {
             fixture.cleanup()
         }
         try fixture.server.start()
-        let principal = IPCPrincipal(
-            principalId: UUID(),
-            runtimeId: fixture.runtimeId,
-            accessMode: .agentStudioOnly,
-            kind: .spawnedPaneAgent(boundPaneId: paneId.uuidString, boundWorkspaceId: nil),
-            approvalAuthority: .noApprovalAuthority
+        let token = try fixture.issueTestCredential(
+            for: .diagnostic(generationId: UUIDv7.generate(), status: .active)
         )
-        let token = try fixture.server.principalRegistry.issueSubjectToken(for: principal)
         let connection = try UnixSocketClient.connect(
             endpoint: UnixSocketEndpoint(path: fixture.paths.socketURL.path)
         )
@@ -745,6 +684,8 @@ struct AgentStudioIPCBridgeServiceTests {
         }
         var frameReader = TestFrameReader()
         try login(connection: connection, token: token, requestId: 93, reader: &frameReader)
+        let subscriptionCorrelationId = UUIDv7.generate()
+        let correlationId = UUIDv7.generate()
 
         try sendRequest(
             connection: connection,
@@ -752,11 +693,15 @@ struct AgentStudioIPCBridgeServiceTests {
                 id: .number(94),
                 method: "events.subscribe",
                 params: .object([
-                    "eventNames": .array([.string(IPCEventName.bridgeFileSelected.rawValue)])
+                    "eventNames": .array([.string(IPCEventName.bridgeFileSelected.rawValue)]),
+                    "correlationId": .string(subscriptionCorrelationId.uuidString),
                 ])
             )
         )
-        _ = try frameReader.receiveResponse(connection: connection)
+        let subscriptionResponse = try frameReader.receiveResponse(connection: connection)
+        try #require(subscriptionResponse.error == nil)
+        let subscription = try decodeResponseResult(IPCEventSubscriptionResult.self, from: subscriptionResponse)
+        #expect(subscription.eventNames == [.bridgeFileSelected])
 
         try sendRequest(
             connection: connection,
@@ -766,6 +711,7 @@ struct AgentStudioIPCBridgeServiceTests {
                 params: .object([
                     "handle": .string("pane:1"),
                     "itemId": .string("missing-item"),
+                    "correlationId": .string(correlationId.uuidString),
                 ])
             )
         )
@@ -774,12 +720,14 @@ struct AgentStudioIPCBridgeServiceTests {
         let result = try decodeResponseResult(IPCBridgePageControlResult.self, from: response)
         #expect(result.status == "rejected")
         #expect(result.reason == "missing_item")
+        #expect(result.correlationId == correlationId)
         #expect(!frameReader.hasBufferedFrame(containing: "events.notification"))
     }
 
-    @Test("Bridge select publishes notification for the bound pane subscriber")
-    func bridgeSelectPublishesNotificationForBoundPaneSubscriber() throws {
+    @Test("Bridge select publishes notification for a diagnostic subscriber")
+    func bridgeSelectPublishesNotificationForDiagnosticSubscriber() throws {
         let paneId = UUID()
+        let correlationId = UUIDv7.generate()
         let fixture = try LiveServerFixture(
             panes: [makePaneSummary(id: paneId, ordinal: 1, contentKind: .bridgePanel)]
         )
@@ -787,14 +735,9 @@ struct AgentStudioIPCBridgeServiceTests {
             fixture.cleanup()
         }
         try fixture.server.start()
-        let principal = IPCPrincipal(
-            principalId: UUID(),
-            runtimeId: fixture.runtimeId,
-            accessMode: .agentStudioOnly,
-            kind: .spawnedPaneAgent(boundPaneId: paneId.uuidString, boundWorkspaceId: nil),
-            approvalAuthority: .noApprovalAuthority
+        let token = try fixture.issueTestCredential(
+            for: .diagnostic(generationId: UUIDv7.generate(), status: .active)
         )
-        let token = try fixture.server.principalRegistry.issueSubjectToken(for: principal)
         let connection = try UnixSocketClient.connect(
             endpoint: UnixSocketEndpoint(path: fixture.paths.socketURL.path)
         )
@@ -802,6 +745,7 @@ struct AgentStudioIPCBridgeServiceTests {
             connection.close()
         }
         var frameReader = TestFrameReader()
+        let subscriptionCorrelationId = UUIDv7.generate()
 
         try sendRequest(
             connection: connection,
@@ -819,11 +763,15 @@ struct AgentStudioIPCBridgeServiceTests {
                 id: .number(69),
                 method: "events.subscribe",
                 params: .object([
-                    "eventNames": .array([.string(IPCEventName.bridgeFileSelected.rawValue)])
+                    "eventNames": .array([.string(IPCEventName.bridgeFileSelected.rawValue)]),
+                    "correlationId": .string(subscriptionCorrelationId.uuidString),
                 ])
             )
         )
-        _ = try frameReader.receiveResponse(connection: connection)
+        let subscriptionResponse = try frameReader.receiveResponse(connection: connection)
+        try #require(subscriptionResponse.error == nil)
+        let subscription = try decodeResponseResult(IPCEventSubscriptionResult.self, from: subscriptionResponse)
+        #expect(subscription.eventNames == [.bridgeFileSelected])
 
         try sendRequest(
             connection: connection,
@@ -833,15 +781,34 @@ struct AgentStudioIPCBridgeServiceTests {
                 params: .object([
                     "handle": .string("pane:1"),
                     "itemId": .string("item-source"),
+                    "correlationId": .string(correlationId.uuidString),
                 ])
             )
         )
 
-        let frames = [
-            try frameReader.receiveFrame(connection: connection),
-            try frameReader.receiveFrame(connection: connection),
-        ]
-        let notificationFrame = try #require(frames.first { $0.contains("events.notification") })
+        func validateSelectionResponse(_ response: JSONRPCResponseMessage) throws {
+            #expect(response.id == .number(70))
+            #expect(response.error == nil)
+            let result = try decodeResponseResult(IPCBridgeReviewSelectFileResult.self, from: response)
+            #expect(result.paneId == paneId)
+            #expect(result.itemId == "item-source")
+            #expect(result.selected)
+            #expect(result.correlationId == correlationId)
+        }
+
+        let firstFrame = try frameReader.receiveFrame(connection: connection)
+        let response: JSONRPCResponseMessage
+        let notificationFrame: String
+        if firstFrame.contains("events.notification") {
+            notificationFrame = firstFrame
+            response = try frameReader.receiveResponse(connection: connection)
+            try validateSelectionResponse(response)
+        } else {
+            response = try JSONRPCCodec.decodeResponse(firstFrame)
+            try validateSelectionResponse(response)
+            notificationFrame = try frameReader.receiveFrame(connection: connection)
+        }
+
         let notificationObject = try #require(
             try JSONSerialization.jsonObject(with: Data(notificationFrame.utf8)) as? [String: Any]
         )
@@ -855,7 +822,95 @@ struct AgentStudioIPCBridgeServiceTests {
     }
 }
 
-private func bridgeReviewFilterParams(handle: String) -> JSONValue {
+private func nonBridgeTargetRequests() -> [(id: Int, method: String, params: JSONValue)] {
+    nonBridgeReadTargetRequests() + nonBridgeMutationTargetRequests()
+}
+
+private func nonBridgeReadTargetRequests() -> [(id: Int, method: String, params: JSONValue)] {
+    [
+        (79, "bridge.diff.getPackage", .object(["handle": .string("pane:1")])),
+        (80, "bridge.diff.renderState", .object(["handle": .string("pane:1")])),
+        (
+            88,
+            "bridge.fileView.getContent",
+            .object([
+                "handle": .string("pane:1"),
+                "contentHandleId": .string("content-head"),
+                "reviewGeneration": .number(1),
+            ])
+        ),
+        (89, "bridge.telemetry.snapshot", .object(["handle": .string("pane:1")])),
+    ]
+}
+
+private func nonBridgeMutationTargetRequests() -> [(id: Int, method: String, params: JSONValue)] {
+    [
+        (
+            81,
+            "bridge.diff.refresh",
+            .object([
+                "handle": .string("pane:1"),
+                "correlationId": .string(UUIDv7.generate().uuidString),
+            ])
+        ),
+        (
+            82,
+            "bridge.diff.selectFile",
+            .object([
+                "handle": .string("pane:1"),
+                "itemId": .string("item-source"),
+                "correlationId": .string(UUIDv7.generate().uuidString),
+            ])
+        ),
+        (
+            83,
+            "bridge.diff.scrollToFile",
+            .object([
+                "handle": .string("pane:1"),
+                "itemId": .string("item-source"),
+                "correlationId": .string(UUIDv7.generate().uuidString),
+            ])
+        ),
+        (
+            84,
+            "bridge.fileTree.search",
+            .object([
+                "handle": .string("pane:1"),
+                "searchText": .string("BridgePaneController"),
+                "correlationId": .string(UUIDv7.generate().uuidString),
+            ])
+        ),
+        (85, "bridge.fileTree.setFilter", bridgeReviewFilterParams(handle: "pane:1", correlationId: UUIDv7.generate())),
+        (
+            86,
+            "bridge.fileTree.revealPath",
+            .object([
+                "handle": .string("pane:1"),
+                "path": .string("Sources/App/View.swift"),
+                "correlationId": .string(UUIDv7.generate().uuidString),
+            ])
+        ),
+        (
+            87,
+            "bridge.fileView.showMarkdownPreview",
+            .object([
+                "handle": .string("pane:1"),
+                "itemId": .string("item-source"),
+                "correlationId": .string(UUIDv7.generate().uuidString),
+            ])
+        ),
+        (
+            90,
+            "bridge.telemetry.flush",
+            .object([
+                "handle": .string("pane:1"),
+                "correlationId": .string(UUIDv7.generate().uuidString),
+            ])
+        ),
+    ]
+}
+
+private func bridgeReviewFilterParams(handle: String, correlationId: UUID) -> JSONValue {
     .object([
         "handle": .string(handle),
         "candidate": .object([
@@ -865,5 +920,6 @@ private func bridgeReviewFilterParams(handle: String) -> JSONValue {
             "showBinary": .bool(false),
             "showLarge": .bool(false),
         ]),
+        "correlationId": .string(correlationId.uuidString),
     ])
 }

@@ -206,17 +206,13 @@ private func authenticatedPaneClient(
     fixture: LiveServerFixture,
     boundPaneId: UUID? = nil
 ) throws -> TypedPaneSnapshotClient {
-    let principal = IPCPrincipal(
-        principalId: UUIDv7.generate(),
-        runtimeId: fixture.runtimeId,
-        accessMode: .agentStudioOnly,
-        kind: .spawnedPaneAgent(
-            boundPaneId: (boundPaneId ?? fixture.boundPaneId).uuidString,
-            boundWorkspaceId: nil
-        ),
-        approvalAuthority: .noApprovalAuthority
+    let token = try fixture.issueTestCredential(
+        for: .pane(
+            paneId: boundPaneId ?? fixture.boundPaneId,
+            generationId: UUIDv7.generate(),
+            status: .active
+        )
     )
-    let token = try fixture.server.principalRegistry.issueSubjectToken(for: principal)
     let connection = try UnixSocketClient.connect(endpoint: UnixSocketEndpoint(path: fixture.paths.socketURL.path))
     let client = TypedPaneSnapshotClient(connection: connection)
     try login(connection: connection, token: token, requestId: 80, reader: &client.reader)
@@ -226,14 +222,9 @@ private func authenticatedPaneClient(
 private func authenticatedDiagnosticClient(
     fixture: LiveServerFixture
 ) throws -> TypedPaneSnapshotClient {
-    let principal = IPCPrincipal(
-        principalId: UUIDv7.generate(),
-        runtimeId: fixture.runtimeId,
-        accessMode: .unsafeDebug,
-        kind: .automationClient,
-        approvalAuthority: .noApprovalAuthority
+    let token = try fixture.issueTestCredential(
+        for: .diagnostic(generationId: UUIDv7.generate(), status: .active)
     )
-    let token = try fixture.server.principalRegistry.issueSubjectToken(for: principal)
     let connection = try UnixSocketClient.connect(endpoint: UnixSocketEndpoint(path: fixture.paths.socketURL.path))
     let client = TypedPaneSnapshotClient(connection: connection)
     try login(connection: connection, token: token, requestId: 80, reader: &client.reader)

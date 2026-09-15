@@ -48,17 +48,13 @@ struct AppIPCErrorCorrectionTests {
         )
         defer { fixture.cleanup() }
         try fixture.server.start()
-        let principal = IPCPrincipal(
-            principalId: UUIDv7.generate(),
-            runtimeId: fixture.runtimeId,
-            accessMode: .agentStudioOnly,
-            kind: .spawnedPaneAgent(
-                boundPaneId: boundPaneId.uuidString,
-                boundWorkspaceId: nil
-            ),
-            approvalAuthority: .noApprovalAuthority
+        let token = try fixture.issueTestCredential(
+            for: .pane(
+                paneId: boundPaneId,
+                generationId: UUIDv7.generate(),
+                status: .active
+            )
         )
-        let token = try fixture.server.principalRegistry.issueSubjectToken(for: principal)
         let connection = try UnixSocketClient.connect(
             endpoint: UnixSocketEndpoint(path: fixture.paths.socketURL.path)
         )
