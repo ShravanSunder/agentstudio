@@ -94,9 +94,11 @@ alternatives: keep the 07-24 reporting/control socket split (rejected: two
           credentials, two client paths); env ids with no token (rejected:
           any same-user process could drive the app).
 consequences: `PaneAgentLaunchOwner`'s fd path is no longer the identity
-          delivery mechanism; token revocation on pane close becomes the
-          generation fence; A2 (restored panes) still open.
-status:   accepted
+          delivery mechanism; close is the authority fence. AB/AC refine the
+          retained-shell behavior to canonical ineligibility, Undo eligibility
+          restoration and final discard/expiry revocation without a new
+          persisted suspended state.
+status:   accepted; close lifecycle refined by AB
 ```
 
 ## B — Control scope: IPC v2
@@ -241,7 +243,10 @@ decision: When the app socket is absent, the CLI appends the exact JSON-RPC
           path, marking lines "late" so they can create durable messages but
           never override newer live state. No bearer token is written to
           disk; the same-user directory plus pane-id filename is the scope.
-          "No message lost across an app restart" is a MUST for this slice.
+          "No message lost across an app restart" is a MUST for accepted or
+          durably spooled notifications. AB's explicit reachable-app auth
+          rejection is not an accepted/queued message and never falls back to
+          spooling.
 why:      owner asked how a spool works and accepted the explanation
           ("spool makes sense"); durability of messages is the value of D4.
 alternatives: small always-on daemon (deferred to the ACP phase);
@@ -249,7 +254,7 @@ alternatives: small always-on daemon (deferred to the ACP phase);
 consequences: resolves A2 and F. A running agent in a restored pane reports
           through the spool/socket with its existing env; token lifetime and
           restart handling are design's to settle within this contract.
-status:   accepted
+status:   accepted; non-durable credential failure boundary refined by AB
 ```
 
 ## L — Spool loss tolerance (from independent review finding F1)
@@ -304,8 +309,8 @@ consequences: U11 deferred to round 2 (priority should); U14/U21 narrow to
           running survive restart" — no app-down collection, no late
           admission, no per-pane cap/loss disclosure for offline facts;
           decision K (spool) and decision L (spool loss) are deferred with
-          it; decision I's V1 mechanism note is moot; Specification R-03
-          (superseded-credential late path), R-21/C7/V8 (steering),
+          it; decision I's V1 mechanism note is moot; Specification R-03's
+          credential late-report path as then designed, R-21/C7/V8 (steering),
           R-22/R-23/C6 (spool) and Program Design D6/D7, PaneReportSpool,
           LockedRequestSpool, SessionsInstructionDelivery, the
           sessions_instruction table and the mailbox methods are removed
@@ -466,17 +471,19 @@ status:   accepted
 ```text
 decision: With the CLI back in round 1, the offline spool (decisions K and
           L) returns to round 1: the CLI spools reports when the app socket
-          is absent; the app drains on launch; messages are never dropped;
+          is absent; the app drains after IPC readiness without gating launch;
+          messages are never dropped;
           state facts may be capped with disclosure. Studio→agent steering
           STAYS in PR2 (that half of N stands).
 why:      "if we have a cli then we can do spool and we can do the ipc unix
           socket."
 consequences: U14/U21 return to their K/L wording; Specification R-22 and
           the spool halves of R-03/R-23/C6/C8/V6 return; Program Design
-          restores PaneReportSpool, LockedRequestSpool, D6, the
-          superseded-credential late-report path, and the related lint and
-          proof seams.
-status:   accepted
+          restores PaneReportSpool, LockedRequestSpool, D6, the credential
+          late-report path as then designed, and the related lint and proof
+          seams. AC later supersedes credential supersession without changing
+          notification-spool recovery.
+status:   accepted; drain timing refined by AA
 ```
 
 ## V — File-open: contract at the boundary only (2026-09-13; refines P)
@@ -548,8 +555,8 @@ status:   accepted (supersedes L)
 
 ```text
 decision: (1) Debug builds write an owner-only (0600), runtime-bound
-          debug credential at server start; the CLI reads it on every
-          call; the app verifies a SHA-256 verifier (the same mechanism as
+          debug credential when off-critical IPC readiness succeeds; the CLI
+          reads it on every call; the app verifies a SHA-256 verifier (the same mechanism as
           pane tokens); it is revoked and deleted at app shutdown or runtime
           replacement; debug channel only — stable/beta never write it.
           (2) Running and controlling a debug app MUST NOT be onerous: a
@@ -572,7 +579,8 @@ consequences: Specification C4/R-13 gain the reusable-credential lifecycle
           with the verifier-backed debug credential, and adds the discovery
           rule; ASTRA-02's diagnostic correlation namespace keys on the
           debug runtime id + credential generation.
-status:   accepted
+status:   accepted; startup timing and authenticated principal provenance
+          refined by AA
 ```
 
 ## Z — The full command spec is callable from IPC in debug mode (2026-09-13; widens S)
@@ -596,14 +604,121 @@ consequences: `ipcSpec` gains a debug argument variant for every
 status:   accepted
 ```
 
+## AA — IPC never gates normal startup or terminal availability (2026-09-15)
+
+```text
+decision: Normal IDE startup, the first interactive frame, fresh terminal
+          construction, and attachment to an existing zmx shell do not wait
+          for IPC communication, credential persistence, Sessions/IPC schema
+          readiness, server/catalog publication, or spool recovery. Any IPC
+          failure leaves the IDE and terminal usable. Existing-zmx attachment
+          performs no IPC readiness preload, external check, durable write, or
+          running-shell environment rewrite. AC confirms restoration is only
+          reattachment: the existing zmx shell keeps its original token.
+why:      owner correction on 2026-09-15: "i do not want the ide to impacted
+          by ipc comm on startup if that maek sens". The surrounding owner
+          instructions extended that boundary to new-shell creation,
+          existing-zmx attachment, credential persistence, and spool readiness,
+          then authorized bringing the full accepted scope home under it.
+alternatives: persist the pane verifier before exposing shell environment
+          (rejected: makes terminal construction wait on optional SQLite);
+          keep Sessions/IPC DDL in the pre-window migrator because it appears
+          cheap (rejected: assumed cost is not independence); preload restored
+          credentials before zmx attachment (rejected: reattachment must remain
+          an existing-shell operation).
+consequences: Program Design must realize the boundary without a second
+          persistence owner, pool, daemon, atom, store or coordinator, while
+          preserving the accepted token, spool, Sessions and debug-control
+          scope. Specification R-03 must state the resulting non-durable window and
+          the proof obligations must cover delayed readiness and retirement.
+limitation: Superseded by the owner decisions in AB. The non-durable window
+          covers any process end before verifier durability, including normal
+          exit after optional schema/storage failure, with explicit failure
+          after relaunch until a new shell.
+advisory: Fable Advisor posts 84 and 85 identified the Program Design's
+          structural consequence as the smallest response to the owner boundary
+          and required the R-03 crash-window guarantee to become explicit. That
+          advice informs the structural choice; it is not owner authority.
+status:   accepted (owner boundary); refined by AB after independent review
+```
+
+## AB — Undo credential lifecycle and non-durable exit (2026-09-16)
+
+```text
+decision: (1) SUPERSEDED by AC: no per-surface/per-attachment candidate issuance.
+          (2) Undo-eligible close immediately denies all requests and closes
+          leases through canonical ineligibility. Undo restores that same
+          retained-shell credential's eligibility after membership restoration;
+          expiry/discard revokes permanently. No new persisted suspension or forced
+          shell recreation and no new timer/coordinator.
+          (3) The owner accepts explicit IPC failure after any process end before
+          credential durability, including normal exit after storage failure.
+          The terminal remains usable, IPC is explicitly unavailable until a
+          new shell, and authentication rejection never triggers spooling.
+why:      Owner answered all three startup-correction review questions on
+          2026-09-16 and selected the recommended Undo-preserving path while
+          restating concern that terminal startup/attachment stay on their
+          existing behavior rails.
+alternatives: IPC/vendor probe before attach (rejected: adds dependency and
+          changes vendor/terminal path); permanent credential loss on Undo or
+          forced shell recreation (rejected); seamless unknown-token admission
+          or auth-rejection spool fallback (rejected: weakens authority); new
+          mount owner/coordinator (rejected).
+consequences: Specification R-03/R-20 and C1/C8 state the retained outcomes.
+          Program Design uses existing identity/principal, canonical membership
+          and undo-deadline owners for deny/restore/revoke transitions and starts optional
+          IPC work only at the existing first-frame/terminal-release edges.
+status:   items 2 and 3 accepted; item 1 superseded by AC
+```
+
+## AC — Restoration reattaches; it does not replace credentials (2026-09-16)
+
+```text
+decision: Pane restoration reattaches to the existing zmx shell. That shell
+          retains its original environment and raw token; restoration does not
+          save, recover, rotate or replace the credential. IPC owns logical pane
+          identity and verifies a token presented on the request path through
+          the stored hash. A genuinely new shell may receive a new token and
+          need not recover an old raw token.
+why:      Owner rejected the candidate design as unnecessary mount coordination:
+          "no do not save with terminal mounting" and then clarified that an
+          existing zmx session retains the shell/token and restoration is only
+          reattachment.
+alternatives: per-surface candidate issuance/promotion/retention (rejected as an
+          invented problem and mount coupling); raw-token recovery during restore
+          (rejected). No HMAC/master key, raw-token persistence or alternate
+          storage mechanism is selected.
+consequences: Remove automatic issuance and supersession tied to renderer/surface
+          recreation. Program Design assigns the existing PaneIPCIdentityOwner one
+          cached environment token per logical pane/app runtime: its first request
+          mints the token and opaque credential record ID, admits the verifier to
+          the existing principal registry and caches the environment entirely in
+          RAM. It submits no persistence. The existing IPC service independently
+          schedules hash persistence at post-frame readiness, newly used
+          authenticated admission and normal shutdown. Graceful shutdown first
+          snapshots every still-unsaved issued RAM verifier, including credentials
+          never used for IPC, and then drains accepted writes. Storage-unavailable
+          or interrupted shutdown retains AB's explicit non-durable window. Every
+          later mount receives the same environment; existing zmx ignores it and
+          a genuine new shell inherits it. Previously durable verifier rows remain
+          valid for the same canonical live pane, and new issuance does not
+          supersede them. Opaque
+          record IDs key persistence/correlation/replay, not authority ordering.
+          AB's close/Undo/discard and non-durable-exit outcomes remain. This is the
+          selected structural How for the accepted outcomes, not implementation
+          authority or a new owner-visible product outcome.
+status:   accepted restoration correction; structural realization updated for owner review
+```
+
 ## Open items (owner decisions still needed)
 
 - None. Program Design inventory approved by the owner on 2026-09-13
   ("it looks good") subject to decision X.
 
-- None. The remaining items below are design-owned, not owner decisions:
-  second-file replace-vs-add in the drawer (C), the Studio→agent mechanism
-  in V1 (I), pane-token lifetime across restart (K).
+- The remaining items below are design-owned, not owner decisions:
+  second-file replace-vs-add in the drawer (C) and the Studio→agent mechanism
+  in V1 (I). Pane-token lifetime across restart is resolved by AA with the
+  explicit AB non-durable process-end limitation and Undo lifecycle.
 
 ## Evidence gaps (not owner decisions)
 

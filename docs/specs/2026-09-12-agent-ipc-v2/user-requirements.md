@@ -7,8 +7,13 @@ in [decision-record.md](decision-record.md).
 
 Status: **goal boundary confirmed by the owner on 2026-09-12** ("ok lets go
 through orchestrate design"), with the amendments in decision-record.md J
-(Swift-owned, JSON-RPC schema, CLI now / Rust CLI later) and K (spool as the
-collector; no message lost across restart is a must).
+(Swift-owned, JSON-RPC schema, CLI now / Rust CLI later), K (spool as the
+collector; no message lost across restart is a must), and AA (normal IDE
+startup, fresh terminal creation, and existing-zmx attachment never wait for
+IPC communication, credential persistence, or spool readiness), as refined by
+AB (retained-shell Undo eligibility restoration and the explicit failure window for
+credentials that never become durable), as corrected by AC (restoration keeps
+the existing zmx shell and token; it does not issue a replacement credential).
 
 ## Who this is for
 
@@ -25,11 +30,13 @@ terminals not running Agent Studio; remote/multi-machine operators.
 
 ## Evidence anchors used by the rows
 
-- E-IPC: this repo's IPC census (2026-09-12) — 42 registered methods; 23/125
-  `AppCommand`s headless; a normal pane shell receives no Agent Studio
-  identity (`WorkspaceSurfaceCoordinator+ViewLifecycle.swift:404-446`);
-  `PaneAgentLaunchOwner` has zero callers; one `eventBroker.publish` site
-  (`AgentStudioAppIPCServer+AuthenticatedRouting.swift:376`).
+- E-IPC: this repo's IPC census, refreshed at `3ea043ab3` on 2026-09-15 —
+  a normal pane shell receives no Agent Studio identity; fresh terminal creation
+  and existing-zmx attachment call no `PaneIPCIdentityOwner`; the identity owner
+  and Sessions runtime have no production object consumer. Sessions/IPC schema
+  migrations are nevertheless registered in pre-window local database
+  preparation, and AppIPC filesystem/socket/catalog setup runs synchronously
+  after window presentation but before post-presentation boot continues.
 - E-HERDR: herdr @ a5d5f6f6 — `HERDR_ENV`/`HERDR_PANE_ID`/`HERDR_SOCKET_PATH`
   injection, `skills/herdr/SKILL.md` guardrail, per-source seq and session
   fencing in `src/terminal/state.rs`, one status authority per pane.
@@ -51,7 +58,7 @@ terminals not running Agent Studio; remote/multi-machine operators.
 
 | ID | Class | Need or outcome | Evidence | Authority | Priority | Assigner |
 | --- | --- | --- | --- | --- | --- | --- |
-| U1 | C2 | An agent in a pane can identify its own pane and workspace and reach Agent Studio using only its environment (ids, socket path, pane-scoped token). | E-IPC (nothing injected today), E-HERDR, E-OWNER (A) | authorized | must | owner |
+| U1 | C2 | Every ordinary genuinely new pane shell gets the environment identity needed to identify its pane/workspace and reach Agent Studio (ids, socket path, pane-scoped token). Restoration reattaches to the existing zmx shell, which keeps its original environment and token; it does not require credential replacement. A bounded identity creation or authority-registration failure is reported as unavailable and never prevents the pane shell itself from starting. | E-IPC (nothing injected today), E-HERDR, E-OWNER (A, AA, AC) | authorized | must | owner |
 | U2 | C2, C1 | An agent can open a file (path, line) in Agent Studio placed relative to its own pane — default the caller's drawer — instead of printing a link. **This slice designs only the IPC contract at the boundary (method, params, results, errors) as a reserved, unadvertised contract; the internals are a separate later piece of work (decisions P, V).** | E-IPC (no `file.*` method; `showViewer` unexposed), E-ORCA, E-OWNER (C, P, V) | authorized (contract only) | must (contract) / deferred (internals) | owner |
 | U3 | C2 | An agent can drive Agent Studio through a curated, agent-friendly semantic API plus generic headless command execution; UI-interactive verbs are not exposed in stable/beta. In DEBUG mode the full command spec — every `AppCommand`, with explicit typed arguments — is callable from IPC with good DX (decision Z). | E-IPC (83 verbs rejected today), E-OWNER (B, S, Z) | authorized | must | owner |
 | U23 | C2 (test agents), C4 | Running and controlling a debug app is zero-ceremony: a small model (Haiku/Luna class) given only the skill can discover the running debug app and drive it — no tokens, socket paths, or flags to assemble; repeated CLI calls authenticate without manual steps. | E-OWNER (Y) | authorized | must | owner |
@@ -65,15 +72,16 @@ terminals not running Agent Studio; remote/multi-machine operators.
 | U11 | C1 | Agent Studio can talk to the agent in a pane (bidirectional), so the user can steer agents programmatically. **Deferred to round 2 / PR2 by decision N (2026-09-13); not part of this slice.** | E-OWNER (I, N) | authorized (deferred) | should | owner |
 | U12 | C1 | Status honesty: each fact carries whether the provider reported it, the agent asserted it, or it was estimated; typed terminal signals (OSC 9, title, progress) count as provider-authored; screen manifests are not used in this slice. | E-SPEC (08-03 labels), E-HOOKS (Codex OSC 9), E-OWNER (E) | authorized | must | owner |
 | U13 | C1 | Needs-you is observed and shown in this slice; each needs-you carries a request id so answering from Agent Studio can be added later without redesign. | E-OWNER (H) | authorized | must | owner |
-| U14 | C1 | Sessions state is rebuildable after restart; agent messages and seen/attention state survive restart; agent messages and deliberate agent reports emitted while the app is down are never lost (the CLI spools notifications, never commands). Hook lifecycle state facts emitted while the app is down are not collected in round 1 (decision X). | E-ORCA (spool), E-OWNER (F, K, U, X) | authorized | must | owner |
+| U14 | C1 | Sessions state is rebuildable after restart; accepted agent messages and seen/attention state survive restart; agent messages and deliberate agent reports durably spooled while the app is unreachable are never lost (the CLI spools notifications, never commands). A continuing shell whose credential did not become durable before the prior process ended receives explicit IPC failure after relaunch until a new shell is created; authentication rejection never becomes offline spooling. Hook lifecycle state facts emitted while the app is down are not collected in round 1 (decision X). | E-ORCA (spool), E-OWNER (F, K, U, X, AB) | authorized | must | owner |
 | U15 | C1, C4 | Inbox stays retired; Sessions owns message/attention delivery; this slice delivers the capability (ingest, store, query) and the Sessions pane UI follows in a later slice. | E-SPEC (retirement shipped), E-OWNER (G) | authorized | must | owner |
-| U16 | C2 | Self-pane actions need no grant; cross-pane or workspace-wide actions require an explicit grant, and in round 1 no grant is issuable — such requests fail with a stable missing-grant outcome naming the scope. Same-UID trust is the accepted boundary. | E-SPEC (08-03 trust boundary), E-OWNER (A, M) | authorized | must | owner |
+| U16 | C2 | Self-pane actions need no grant; cross-pane or workspace-wide actions require an explicit grant, and in round 1 no grant is issuable — such requests fail with a stable missing-grant outcome naming the scope. Same-UID trust is the accepted boundary. Undo-eligible close immediately denies the retained shell and closes its leases; Undo restores eligibility for that same retained-shell credential, while discard or expiry revokes it permanently. | E-SPEC (08-03 trust boundary), E-OWNER (A, M, AB) | authorized | must | owner |
 | U17 | S1 | The internal fact vocabulary is shaped so an ACP-connected agent later produces the same facts without translation. | agent proposal | advisory | should | agent (needs owner) |
 | U18 | S1 | Agent-to-agent messaging (codex-router libraries, ACP) is a secondary phase and not part of this slice. | E-OWNER (I) | authorized (non-goal) | — | owner |
 | U19 | C2, C4 | IPC v2 is JSON-RPC 2.0 with a discoverable schema (method list with typed params and results, MCP-like) so the same surface can back an MCP adapter or SDK later; the CLI is generated from that schema. | E-OWNER (J), ipc.md "MCP should be an adapter over the same registry" | authorized | must | owner |
 | U20 | C2 | The `agentstudio` CLI exists in this slice, generated from the catalog (decision J, reaffirmed by R after O was superseded); an SDK and a Rust CLI to codex-router standards are later separate work. | E-OWNER (J, O superseded, R) | authorized | must (CLI) / could (SDK, Rust CLI) | owner |
 | U22 | C2 | The surface a model touches costs few tokens: plain scalar arguments (no JSON), no hand-typed identifiers, a closed tiny report vocabulary, one-line replies. | E-OWNER (Q) | authorized | must | owner |
-| U21 | C1 | No agent message or deliberate agent report is lost across an app restart: the CLI spools these notifications while the app is down and the app admits them on launch marked as late. Commands (controls, queries, auth) are never buffered offline (decisions K, U, X). | E-OWNER (K, U, X), E-ORCA | authorized | must | owner |
+| U21 | C1 | No accepted or durably spooled agent message or deliberate agent report is lost across an app restart: the CLI spools eligible notifications while the app is genuinely unreachable and the app admits them after IPC readiness marked as late, without delaying normal launch. Commands (controls, queries, auth) and authentication-rejected notifications are never buffered offline. A continuing shell in AB's accepted non-durable credential window fails explicitly until a new shell rather than receiving a false accepted/queued receipt. | E-OWNER (K, U, X, AA, AB), E-ORCA | authorized | must | owner |
+| U24 | C1, C2 | Normal IDE startup, genuine new terminal creation, and restoration/attachment to an existing zmx shell remain usable without waiting for IPC communication, credential persistence, Sessions/IPC schema readiness, socket/catalog publication or spool work. Restoration performs no credential replacement or IPC/storage readiness read. Any IPC-side failure leaves the IDE and terminal usable and reports the integration unavailable. | E-OWNER (AA, AC), E-IPC (current terminal and boot call paths) | authorized | must | owner |
 
 ## User-job sequence inputs (C1, C2)
 
@@ -87,7 +95,7 @@ terminals not running Agent Studio; remote/multi-machine operators.
 - C3: runs one install → each provider's config gains the Agent Studio hooks
   → uninstall removes exactly those entries (U5, U6).
 
-## Goal boundary (proposed — owner to confirm or correct)
+## Goal boundary (confirmed; amended by AA on 2026-09-15 and AB/AC on 2026-09-16)
 
 ```text
 goal            agents inside Agent Studio panes get a first-class, agent-
@@ -131,7 +139,12 @@ evidence        live: an agent in a pane reports and sends a message through
                 while the app is down is present after relaunch; a debug
                 build's testing verbs drive the app while a stable build
                 refuses them; `mise run test` green; architecture lint green
-unresolved      owner: none. design-owned: pane-token lifetime across
-                restart. evidence gap: Cursor CLI interactive hook
+                Normal app startup, genuine new terminal creation, and
+                existing-zmx restoration/attachment remain usable while IPC
+                persistence, listener, and spool work are delayed or fail.
+                Restoration keeps the existing shell/token and performs no
+                credential replacement. Undo restores the retained shell credential;
+                nondurable process-end credentials fail explicitly after relaunch.
+unresolved      owner: none. evidence gap: Cursor CLI interactive hook
                 applicability (headless start/end proven 2026-09-12)
 ```

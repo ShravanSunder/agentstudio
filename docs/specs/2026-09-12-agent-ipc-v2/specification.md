@@ -1,6 +1,6 @@
 # Agent IPC v2 and Agent Package — Specification
 
-Date: 2026-09-13.
+Date: 2026-09-16.
 Requirements: [user-requirements.md](user-requirements.md).
 Authority and rationale: [decision-record.md](decision-record.md).
 Structural realization: [program-design.md](program-design.md).
@@ -16,7 +16,7 @@ features through an explicitly classified testing surface.
 
 | Problem | Outcome |
 | --- | --- |
-| P1 — A pane agent lacks a usable app identity and invocation contract. | O1 — It identifies its own scope, reports and sends messages without hand-typed identifiers. |
+| P1 — A pane agent lacks a usable app identity and invocation contract, while making that identity durable can delay unrelated terminal use. | O1 — It identifies its own scope, reports and sends messages without hand-typed identifiers; normal startup and terminal use remain independent of IPC readiness. |
 | P2 — Provider activity does not uniformly establish agent state. | O2 — Each fact has qualified origin, matching context and honest freshness. |
 | P3 — Messages and attention must outlive app availability. | O3 — Durable messages survive restart; offline notifications are collected; no message drops. |
 | P4 — Native integration and testing vary by provider and surface. | O4 — One package installs the native integrations; one typed CLI serves tools and debug tests without a second catalog. |
@@ -80,15 +80,15 @@ resolves to the distinct Requirements source.
 
 | ID | Obligation and observable failure boundary | Basis; contract; proof |
 | --- | --- | --- |
-| R-01 | Every ordinary pane shell MUST receive pane/workspace IDs, socket location and pane-scoped credential through its environment without a special agent launch. The package guard MUST decline missing or invalid context without guessing a target. | U1; A; C1; V1 |
+| R-01 | Every ordinary genuinely new pane shell MUST receive pane/workspace IDs, socket location and a pane-scoped credential through its environment without a special agent launch. Restoration or attachment to an existing zmx shell MUST preserve that shell's original environment and credential rather than issue a replacement. At a ready IPC endpoint, a genuinely new shell MUST authenticate while durable verifier registration is deliberately delayed. If bounded identity creation or authority registration fails, the terminal MUST still start and the integration MUST report unavailable. The package guard MUST decline missing or invalid context without guessing a target. | U1, U24; A, AA, AC; C1; V1/V10 |
 | R-02 | One pane-bound principal MUST serve reporting and control. Self-pane baseline actions need no additional grant; no pane grants are issuable in round 1. Cross-pane/workspace requests MUST return missing-grant with the required scope. Channel-bound diagnostic authority is separate and MUST NOT upgrade a pane principal. | U1, U16; A, M, S; C1/C4; V1/V4 |
-| R-03 | Pane closure MUST revoke authority. Continuing agents in restored panes MUST retain reporting continuity with their existing environment. A superseded credential to a reachable app MUST admit reports as late under same-user pane scope and reject controls with re-identification; it MUST NOT regain live authority. | U1, U14, U16, U21; A, K, U; C1/C6; V1/V7 |
+| R-03 | Undo-eligible pane close MUST immediately deny all requests and close leases for the retained shell because the closed pane is not canonically eligible. Undo of that same retained shell MUST restore eligibility for the same credential only after canonical pane/workspace membership is restored. Discard or undo expiry MUST revoke every credential for that logical pane permanently; neither a request nor delayed work may restore a revoked or nonmember pane. Continuing agents in restored panes retain reporting continuity when their existing verifier was durable. Reattachment MUST NOT inspect IPC, replace the credential or rewrite the running shell. A genuinely new shell may receive the current app runtime's pane token and need not recover an old raw token. Previously durable verifier credentials for the same canonical live pane remain valid; issuing another credential MUST NOT automatically supersede them. Undo-closed, revoked, forged or unknown credentials fail all requests. If any process ends before a credential becomes durable — including an otherwise normal exit after optional schema or storage failure — the next app MUST reject that continuing shell's unknown credential, report IPC explicitly unavailable, and keep IDE/terminal recovery usable; the shell remains without IPC until a new shell is created. Authentication rejection MUST NOT trigger spooling. | U1, U14, U16, U21, U24; A, K, U, AA, AB, AC; C1/C6/C8; V1/V7/V10 |
 | R-04 | IPC v2 MUST use JSON-RPC 2.0 over the existing local socket and make a hard cutover from phase-1 argument shapes. Exposed methods MUST have agent-friendly explicit inputs, not implicit picker or focused-UI arguments. | U3, U4, U19; B, J; C2; V2 |
 | R-05 | App commands MUST retain one AppCommand identity and exhaustive ipcSpec classification. Curated user-visible methods MUST declare reuse of that identity or an explicit no-interactive-identity relationship. Current session/report methods have no interactive identity. Typed command.execute MUST reject non-headless execution in stable/beta and expose every AppCommand with typed debug variants in debug; presentation success MUST NOT mean command completion. | U3, U4, U19; B, S, Z; C2/C4; V2/V4 |
 | R-06 | One discovery call MUST return the complete available method catalog with JSON Schema params/results, descriptions, examples, required privileges, target kinds and compatibility identity. Missing schema, hidden defaults or non-executable examples fail the contract. | U3, U4, U19; J, R, T; C2; V2 |
 | R-07 | Errors MUST have stable reasons and machine-readable correction data for invalid input, missing grants, wrong targets, unknown methods/commands and version skew. Unknown identifiers MUST yield protocol errors, never opaque client enum/decode failures. | U3, U4, U19, U20; C2/C8; V2 |
 | R-08 | Methods MUST share the spellings self, UUID and pane:N while separately declaring target kinds. Pane, workspace, conversation/session, message occurrence and needs-you request are distinct kinds; existing catalog kinds remain explicit. Wrong kinds MUST fail without falling back to focus. | U1, U3, U4, U16, U19; C1/C2; V1/V2 |
-| R-09 | Every mutation/report MUST require a correlation ID on the wire. The CLI MUST generate one when omitted by its caller. Equivalent retries MUST not duplicate effects or occurrences; conflicting reuse MUST fail. Responses and observable outcomes MUST preserve correlation. | U3, U4, U14, U19–U22; Q; C2/C3/C6; V2/V3/V7 |
+| R-09 | Every mutation/report MUST require a correlation ID on the wire. The CLI MUST generate one when omitted by its caller. Equivalent retries MUST not duplicate effects or occurrences; conflicting correlation reuse MUST fail. For reports carrying a provider occurrence ID, equivalent occurrence reuse under a new correlation MUST return the retained outcome, while conflicting semantic reuse MUST fail before evidence or derived state changes. Responses and observable outcomes MUST preserve correlation. | U3, U4, U14, U19–U22; Q; C2/C3/C5/C6; V2/V3/V6/V7 |
 
 ### Agent DX and model token economy
 
@@ -100,7 +100,7 @@ a catalog can be excellent while a model-facing invocation still wastes tokens.
 | R-10 | The Swift agentstudio CLI MUST ship in this repo's app bundle under its signing/notarization boundary. Hook/tool verbs, argument parsing, help and schemas MUST derive from the same compiled descriptor definitions the server registers, without a hand-maintained mapping or JSON-export generation step. It MUST provide one invocation per method, AGENTSTUDIO_CLI as the owning bundle executable path with its directory prepended to pane PATH, pane-env defaults, --json/stdin input, structured results/errors and no bearer token argv. | U19, U20; R, T; C2; V2 |
 | R-11 | Model commands MUST take plain scalar arguments and require no model-authored JSON, pane ID, correlation ID, request ID or sequence. The deliberate model vocabulary MUST be needs-you, needs-you --clear and done; message is the sole free-text message operation. Targeting and identifiers MUST be supplied by the CLI/app context. | U8, U13, U22; Q; C3; V3 |
 | R-12 | Each model call MUST return one short line unless detail is explicitly requested. Catalog dumps, query pages, raw IDs and protocol envelopes MUST NOT appear in its default reply. | U22; Q; C3; V3 |
-| R-13 | Debug MUST expose every AppCommand through typed command.execute, including interactive and presentation-only variants, plus curated layout/terminal/bridge/ui/snapshot and acknowledgment testing methods. Discovery MUST label debugTesting; stable/beta MUST refuse debug-only variants while retaining headless-only exposure. Debug MUST write an owner-only reusable runtime-bound credential at server start, verify its SHA-256 verifier on every CLI call, and revoke/delete it at shutdown or runtime replacement. Stable/beta MUST never write it. The CLI MUST discover a single running debug app without flags, tokens or paths to assemble, use plain arguments and short replies, and require explicit selection if multiple debug apps exist. | U3, U4, U20, U23; S, Y, Z; C4; V4 |
+| R-13 | Debug MUST expose every AppCommand through typed command.execute, including interactive and presentation-only variants, plus curated layout/terminal/bridge/ui/snapshot and acknowledgment testing methods. Discovery MUST label debugTesting; stable/beta MUST refuse debug-only variants while retaining headless-only exposure. Debug MUST write an owner-only reusable runtime-bound credential when its off-critical-path IPC service becomes ready, verify its SHA-256 verifier on every CLI call, and revoke/delete it at shutdown or runtime replacement. Authenticated debug calls MUST use the existing automation-client principal kind with the current authenticated same-user access mode; they MUST NOT acquire unsafe-no-auth provenance. Stable/beta MUST never write the credential. The CLI MUST discover a single running debug app without flags, tokens or paths to assemble, use plain arguments and short replies, and require explicit selection if multiple debug apps exist. | U3, U4, U20, U23, U24; S, Y, Z, AA; C4; V4/V10 |
 
 ### Package, facts and delivery
 
@@ -112,17 +112,18 @@ a catalog can be excellent while a model-facing invocation still wastes tokens.
 | R-17 | Needs-you MUST remain observe-only, with durable/queryable request identity and matching resolution. The app MUST derive a model report's request ID and coalesce one current deliberate assertion per conversation/generation; clearing that assertion MUST need no model-typed ID. Report handling MUST NOT answer, approve, deny or wait on Studio for a provider response. | U7, U13, U22; D3, H, Q; C3/C5; V3/V6 |
 | R-18 | Bound agents MUST be able to send arbitrary text. Accepted messages MUST preserve that text exactly and remain durably attributable and queryable through Sessions. They MUST NOT be reduced to content-free status or a single replacement status. | U8, U15, U21; D4, G; C6; V7 |
 | R-19 | Sessions MUST own ingest/store/query and durable seen/attention state. New messages start unseen; only explicit acknowledgment of the exact occurrence through the in-process App entry reserved for the future Sessions UI action or the debug-channel testing principal marks them seen. Pane principals MUST NOT acknowledge messages. Reads, delivery receipts, focus and input MUST NOT do so. Replays/restart preserve disposition and MUST NOT change unrelated messages or resolve needs-you. Derived-state rebuilding MUST preserve durable data; Inbox remains dormant. | U8, U14, U15; G, accepted seen-state contract; C6; V7/V8 |
-| R-20 | When the app is unreachable (missing socket path, refused connection or dead/stale endpoint), the CLI MUST durably spool eligible notifications (message, needs-you, done) without bearer tokens; launch admission MUST use the same semantics and mark them late. Authentication and protocol rejection MUST NOT trigger queuing. A notification that cannot be appended or durably accepted MUST return explicit failure; notifications MUST NOT be dropped. Controls, queries, auth and needs-you --clear MUST never queue. Hook lifecycle state facts emitted while the app is unreachable are not collected in round 1. Live overload MUST return throttled/rejected outcomes and disclose state drops. Late notifications MUST NOT supersede newer live state; admitted lines MUST be removed after durable admission. | U14, U21; K, U, X; C6/C8; V7 |
+| R-20 | When the app is unreachable (missing socket path, refused connection or dead/stale endpoint), the CLI MUST durably spool eligible notifications (message, needs-you, done) without bearer tokens; later IPC-side recovery admission MUST use the same semantics and mark them late without gating normal launch or terminal activation. Authentication and protocol rejection — including AB's unknown credential after a non-durable process end — MUST NOT trigger queuing. A notification that cannot be appended or durably accepted MUST return explicit failure; notifications MUST NOT be dropped after acceptance. Controls, queries, auth and needs-you --clear MUST never queue. Hook lifecycle state facts emitted while the app is unreachable are not collected in round 1. Live overload MUST return throttled/rejected outcomes and disclose state drops. Late notifications MUST NOT supersede newer live state; admitted lines MUST be removed after durable admission. | U14, U21, U24; K, U, X, AA, AB; C6/C8; V7/V10 |
 | R-21 | Message/attention explanation text MUST NOT enter OTLP or JSONL telemetry/logs, including failures. Existing OTLP exclusions for raw paths, UUIDs, prompts, payloads, errors and tool output remain binding. The report surface MUST NOT ingest transcripts or terminal content. | U8, U9, U12, U15; D4; C3/C6/C8; V8 |
 | R-22 | Integration loss, rejection and unavailable capability MUST fail open for the provider/terminal and disclose source health. A report cannot become a hidden provider control or answer-through dependency. | U5, U7, U12, U13; H; C5/C8; V5/V6 |
 | R-23 | The typed catalog MUST project to MCP tools metadata without another semantic catalog. This MUST NOT require an MCP server, SDK or Rust CLI in round 1. | U19, U20; J, T; C2; V2 |
 | R-24 | Round 1 MUST preserve the explicit negative space below. Deferred features MUST NOT acquire active endpoints, hidden workers or advertised capabilities merely because their contracts are documented. | U2, U6, U10, U11, U15, U18, U20; P, V, N; C7; V9 |
+| R-25 | Normal IDE startup, first interactive frame, genuine new terminal construction and existing-zmx restoration/attachment MUST have no IPC-specific readiness wait, database operation, schema migration, socket/catalog publication or spool drain on their critical paths. Restoration MUST NOT replace or recover the running shell's token. Optional migration/catalog/socket work starts only after the existing first-frame and terminal-activation release edges; if those edges are unavailable or the optional work fails, IPC remains explicitly unavailable without new retry machinery. | U24; AA, AC; C1/C6/C8; V10 |
 
 ## Observable contracts
 
 ### C1 — Environment and authority
 
-Pane shells receive AGENTSTUDIO_PANE_ID, AGENTSTUDIO_WORKSPACE_ID,
+Ordinary genuinely new pane shells receive AGENTSTUDIO_PANE_ID, AGENTSTUDIO_WORKSPACE_ID,
 AGENTSTUDIO_IPC_SOCKET, AGENTSTUDIO_PANE_TOKEN, AGENTSTUDIO_IPC_SPOOL_DIR and
 AGENTSTUDIO_CLI. AGENTSTUDIO_CLI is the absolute path to the owning app bundle's
 agentstudio executable, supplied by the runtime issuing the pane credential.
@@ -130,9 +131,14 @@ The environment also prepends that executable's directory to PATH, so the
 skill's bare agentstudio calls select the owning stable/beta/debug bundle.
 Hooks and the skill invoke through this declared location: AGENTSTUDIO_CLI is
 the contract; PATH is its convenience projection, not an alternate authority.
-The same scope follows descendant agent/hook processes. Cwd and window focus
-do not change identity. The credential is pane-scoped, revoked on close,
-never passed as argv, written to spool, or printed/logged by the integration.
+At a ready IPC endpoint, this environment authenticates successfully while its
+durable registration is deliberately delayed. Durable registration is not a
+terminal-readiness condition. If bounded identity creation or immediate authority
+registration fails, the terminal still starts and the package guard reports
+integration unavailable. The same scope follows descendant agent/hook processes.
+Cwd and window focus do not change identity. The credential is pane-scoped,
+denied while Undo-closed and permanently revoked on discard/expiry; it is never
+passed as argv, written to spool, or printed/logged by the integration.
 
 Self means the authenticated pane; pane:N is workspace-local convenience,
 not durable authority. UUIDs are interpreted against the declared target kind.
@@ -143,10 +149,25 @@ accepts only the in-process App entry reserved for the future Sessions UI action
 or the debug-channel testing principal. Pane principals cannot mark messages
 seen, including their own; knowing an occurrence ID supplies no authority.
 
-Credential continuity survives restart for continuing shells. Superseded
-credentials remain usable only for late reporting to the original pane scope;
-controls require re-identification. Late reports cannot revive live authority.
-A forged scope or unknown credential is not a superseded authenticated context.
+Credential continuity survives restart for continuing shells whose verifier was
+durably registered before the prior process ended. A credential not durable when
+the process ends is an accepted limitation whether the end was abrupt or followed
+optional schema/storage failure: after relaunch it is unknown, every request fails
+with explicit IPC-unavailable/authentication status, and the terminal remains
+usable until a new shell supplies a new credential. That rejection never enters
+the offline spool. Within one app runtime, IPC supplies one reused environment
+token per logical pane; repeated mount/attachment preparation does not mint,
+promote, order or supersede credentials. Existing-zmx restoration/attachment keeps the shell's original
+environment and token; it does not preload, validate, rotate, replace, persist or
+otherwise wait on IPC state. IPC verifies a presented token through its stored
+hash on the request path. A genuinely new shell may receive a newly issued token
+and does not need the old raw token recovered from storage. Previously durable
+verifiers for that same canonical live pane remain valid until final revocation.
+A forged scope, Undo-closed, revoked or unknown credential is not an authenticated
+context. Undo-eligible close removes canonical request eligibility
+and closes leases. Undo restores eligibility for that same retained-shell
+credential only after canonical membership is restored; discard or expiry revokes
+it permanently. No new persisted suspended state is required for renderer retention.
 Offline files use the accepted same-UID filesystem trust boundary. Neither that
 boundary nor a possessed current credential distinguishes malicious same-user
 processes; the product claims no stronger process identity.
@@ -230,11 +251,14 @@ meaning is presentation report presented, never action completion. Existing
 feature availability still applies; catalog completeness does not revive dormant
 features or implement the reserved file.open contract.
 
-At server start, debug writes a 0600 owner-only runtime-bound credential. The
+When the off-critical-path debug IPC service becomes ready, it writes a 0600
+owner-only runtime-bound credential. The
 CLI reads it on every call; the app verifies its SHA-256 verifier. Disconnect
 does not consume or revoke it. Shutdown/runtime replacement revoke its generation
-and delete the owned file. Stable/beta never write this credential. The explicit
-unsafe-no-auth option remains opt-in only, never automatic failure recovery.
+and delete the owned file. Stable/beta never write this credential. Authenticated
+diagnostic calls use `.automationClient` with `.automationSameUser`; they do not
+use `.unsafeDebug` or `.unsafeDebugClient`. The explicit unsafe-no-auth option
+remains opt-in only, never automatic failure recovery.
 
 The installed skill gives a Haiku/Luna-class test agent enough information to
 start/discover and drive a debug app. For a single running debug app, the CLI
@@ -269,10 +293,11 @@ user-modified conflicts. Unsupported profiles stay useful through explicit
 agent reports without inheriting provider authority.
 
 session.bind establishes an absent binding, repeats the same current conversation
-idempotently, and replaces it only with qualified new provider session-start
+idempotently, and replaces it only with live qualified new provider session-start
 evidence or an explicit model bind labeled AGENT REPORTED. Replacement ends the
-old generation. A delayed bind/report for an ended or older generation is
-historical only, never current; competing identities without such a transition
+old generation. A late/historical provider bind is historical only even when it
+carries a previously unseen source generation. A delayed bind/report for an ended
+or older generation is likewise historical only, never current; competing identities without such a transition
 return bindingConflict. Same-correlation bind replay returns its original outcome.
 On app restart, restored bindings have ended generations; the first qualified
 bind establishes a fresh generation. These rules prevent A→B→delayed A from
@@ -369,9 +394,8 @@ An unattributable drained notification remains durably queryable as an
 unattributed message with its pane UUID retained and conversation unknown;
 nothing is lost merely because its pane/binding no longer resolves.
 
-Launch drains through the same admission rules, forcing late disposition.
-Reports under a superseded credential to a reachable app have that same
-same-user pane scope and late treatment. Late facts can preserve historical
+An IPC-side recovery pass drains through the same admission rules, forcing late disposition.
+Late offline facts can preserve historical
 occurrences/messages but cannot overwrite newer live state, clear current
 attention, or create fresh live completion. Equivalent replay never duplicates
 an occurrence or resets seen state. Lines are removed after successful durable
@@ -404,7 +428,7 @@ composition belong to later work. No such internals are selected here.
 | Situation | Required outcome |
 | --- | --- |
 | Missing/forged identity | No guessed target; structured auth/binding failure and concise model reply. |
-| Superseded credential | Late report admission only; controls require re-identification. |
+| Undo-closed retained shell | Canonically ineligible, all requests denied and leases closed; Undo restores the same credential's eligibility after canonical membership returns; discard/expiry revokes permanently. |
 | Cross-scope pane request | Missing-grant names required privilege/scope; no effect or grant prompt. |
 | Wrong target kind / unknown identifier / version skew | Stable correction data, no focus fallback or client decode crash. |
 | Missing correlation / conflicting replay | Invalid input or conflict before a new side effect. |
@@ -415,6 +439,8 @@ composition belong to later work. No such internals are selected here.
 | Live state admission overload | Per-request throttled/rejected outcome and queryable loss disclosure. |
 | Diagnostic call to stable/beta | Testing capability unavailable; no effect regardless of CLI flags. |
 | Provider integration failure | Provider/terminal continue; source health remains explicit. |
+| IPC/Sessions schema, credential persistence, server publication or spool recovery delayed/unavailable | IDE startup and terminal construction/attachment continue without waiting; IPC remains unavailable until its own readiness succeeds. Restoration leaves the existing shell/token unchanged. |
+| Any process end before a pane verifier becomes durable, including normal exit after storage failure | The next app explicitly rejects the continuing shell's unknown credential; authentication rejection does not spool, startup/reattachment remains usable, and IPC requires a new shell. |
 
 ## Cross-cutting boundaries and negative space
 
@@ -426,7 +452,7 @@ and [Inbox retirement](../2026-08-21-inbox-retirement/specification.md) remain
 binding. No zmx.* public methods, renderer transports, direct IPC atom access,
 commands on a facts bus, or Inbox startup/data writes. Decision A explicitly
 replaces the old ban on env-borne bearer credentials while retaining pane scope,
-close revocation and no token argv/log/spool. Typed source admission stays
+close denial/final revocation and no token argv/log/spool. Typed source admission stays
 outside MainActor; MainActor applies compact validated UI changes only.
 
 Round 1 excludes Studio-to-agent steering, file-open internals, Sessions pane
@@ -443,21 +469,22 @@ performance, privacy and native accessibility gates remain intact.
 
 | ID | Requirements | Evidence distinguishing pass from fail |
 | --- | --- | --- |
-| V1 | R-01–R-03, R-08 | Real pane-shell/descendant env and authenticated socket calls: self context, denied broader scope, close revocation, restored-shell continuity, superseded late-report/control-rejection split, forged-scope and other-UID negatives. |
+| V1 | R-01–R-03, R-08 | Real pane-shell/descendant env and authenticated socket calls: one reused per-pane/app-runtime environment token, genuinely new shell identity, restored existing-zmx shell retaining its original token, multiple durable verifier credentials remaining valid for the same canonical live pane, stored-hash verification, self context, denied broader scope, close-time canonical ineligibility/all-request denial, same-shell Undo eligibility restoration, expiry/discard revocation of every pane credential, restored-shell continuity, forged-scope and other-UID negatives. |
 | V2 | R-04–R-10, R-23 | In-process ClientCore and shell CLI transcripts through the actual catalog/decoder: every schema/example/result alternative, command relationships, target kinds, unknown/version-skew errors, omitted correlation, equivalent/conflicting/ordinal-reassignment replay and MCP metadata projection, including targetless diagnostic duplicate/conflict cases across reconnect and runtime replacement. Inspect the bundled Swift executable's signing/notarization context; no JSON-generated CLI resource or hand map supplies its verbs. |
 | V3 | R-09, R-11, R-12, R-17 | Installed skill plus CLI reports/messages in a real bound agent context using only inherited AGENTSTUDIO_CLI/PATH, with another app channel installed: scalar calls, no typed identifiers/JSON, one-line replies, no catalog/query dump. Verify server-derived request identity, repeated help/done coalescing, ID-free clear, binding A→B with delayed A bind/report, repeated B bind, source end/restart, descendant calls with and without stronger provider evidence, exact message text and concise invalid-context/queued outcomes. |
 | V4 | R-02, R-05, R-13 | A Haiku/Luna-class agent given only the installed skill starts via the repo launcher, discovers from an unrelated shell and drives the debug app end-to-end: split, send terminal input, run a command and read a snapshot using plain arguments/short replies. Every AppCommand dispatches its typed debug variant; presentation-only outcomes report presentation. Stable/beta refuse debug-only variants and omit them from discovery, preserving admitted headless variants. Two sequential authenticated calls with disconnect both succeed; inspect reusable credential disposition, shutdown/replacement revocation/deletion and stable/beta absence. Test duplicate/conflicting targetless mutations across reconnect/runtime replacement and explicit selection among multiple debug apps; pane credentials never gain diagnostic authority. |
 | V5 | R-14, R-22 | Native install/upgrade/reinstall/uninstall with pre-existing and modified settings, partial failures, missing/untrusted integrations and exact ownership diffs; actual provider entry points remain usable on reporting failure. |
-| V6 | R-15–R-17, R-22 | Exact-version provider fixtures for origin, turn/request/child matching, abort, generation loss, binding A→B then delayed A bind/report, repeated B bind, source end/restart, stale/replayed inputs, precedence and state fallback; Contract 7 typed terminal facts with silence/screen/unqualified-event negatives. Cursor headless evidence does not substitute for its pane mode. |
-| V7 | R-03, R-09, R-18–R-20 | Real app-down CLI emission with removed-socket and stale-socket-file variants, launch drain and SQLite queries: exact durable messages and deliberate reports once, seen/attention survival, late-versus-live ordering, app-derived assertion IDs, live-overload loss disclosure, notification append/commit failures and crashes before/after commit/line removal. Controls/queries/auth, needs-you --clear and hook lifecycle facts never enter the offline spool; deleted/unresolvable bindings yield queryable unattributed notifications. Reads/focus cannot mark seen; debug-channel session.message.ack is isolated and idempotent; pane principals are denied, and stable/beta do not expose the method. |
+| V6 | R-09, R-15–R-17, R-22 | Exact-version provider fixtures for origin, turn/request/child matching, abort, generation loss, binding A→B then delayed A bind/report, late/historical new-generation bind, repeated B bind, source end/restart, equivalent/conflicting occurrence-ID reuse across correlations, stale/replayed inputs, precedence and state fallback; Contract 7 typed terminal facts with silence/screen/unqualified-event negatives. Cursor headless evidence does not substitute for its pane mode. |
+| V7 | R-03, R-09, R-18–R-20 | Real app-down CLI emission with removed-socket and stale-socket-file variants, post-readiness recovery drain and SQLite queries: exact durable messages and deliberate reports once, seen/attention survival, late-versus-live ordering, app-derived assertion IDs, live-overload loss disclosure, notification append/commit failures and crashes before/after commit/line removal. Controls/queries/auth, needs-you --clear and hook lifecycle facts never enter the offline spool; deleted/unresolvable bindings yield queryable unattributed notifications. Reads/focus cannot mark seen; debug-channel session.message.ack is isolated and idempotent; pane principals are denied, and stable/beta do not expose the method. |
 | V8 | R-19, R-21 | Real storage and telemetry sinks with distinctive private payloads in success/rejection/recovery: no message/explanation/token in OTLP/JSONL logs, no bearer in spool/argv, no transcript ingestion; architecture/runtime evidence preserves IPC/atom/renderer/zmx and dormant Inbox boundaries. |
 | V9 | R-24 | Scope and capability inspection preserves excluded systems and the reserved-only boundary; no deferred feature is presented as active. |
+| V10 | R-01, R-03, R-13, R-25 | Controlled barriers delay optional schema migration, verifier persistence, socket/catalog publication and spool recovery while real startup reaches its first interactive frame and genuine new and restored terminal paths become usable. Prove normal and automatic-restore-suppressed trigger paths and same-writer migration barrier scheduling. Against a ready endpoint, a genuine new shell authenticates while persistence is delayed; restoration retains the existing zmx token without replacement; close/Undo/discard during delayed persistence cannot regress. Separate abrupt-exit and normal-storage-failure process-end evidence proves explicit unknown-credential failure without auth-rejection spooling. First-schema and steady-schema runs measure startup, genuine construction and reattachment without an invented threshold. |
 
 ## Requirement coverage
 
 | U | Problem/outcome | Active obligations or reserved boundary | Contracts/proof; disposition |
 | --- | --- | --- | --- |
-| U1 | P1/O1 | R-01–R-03, R-08–R-10 | C1/C2; V1/V2; covered |
+| U1 | P1/O1 | R-01–R-03, R-08–R-10, R-25 | C1/C2; V1/V2/V10; covered |
 | U2 | Contract only | C7 reserved file.open | No realization or functional proof in this slice; P/V |
 | U3 | P1/O1, P4/O4 | R-04–R-08, R-13 | C2/C4; V2/V4; full typed debug command catalog under Z |
 | U4 | P1/O1 | R-04–R-10, R-13 | C2/C4; V2/V4; covered |
@@ -470,13 +497,14 @@ performance, privacy and native accessibility gates remain intact.
 | U11 | PR2 steering | No delivery obligation | N; deferred |
 | U12 | P2/O2 | R-15, R-16, R-21, R-22 | C5; V6/V8; qualified evidence only |
 | U13 | P2/O2 | R-15, R-17, R-22 | C3/C5; V3/V6; observe-only |
-| U14 | P3/O3 | R-03, R-09, R-16, R-19, R-20 | C1/C6; V1/V7; notifications-only offline collection under X; hook lifecycle facts excluded |
+| U14 | P3/O3 | R-03, R-09, R-16, R-19, R-20 | C1/C6; V1/V7/V10; notifications-only offline collection under X; AB's authentication rejection never queues |
 | U15 | P3/O3 | R-18, R-19, R-21, R-24 | C6; V7/V8/V9; capability now, UI later |
 | U16 | P1/O1 | R-02, R-03, R-08 | C1/C4; V1/V4; no issuable pane grants |
 | U17 | Advisory S1 | None | No normative ACP compatibility claim |
 | U18 | Excluded agent-to-agent | R-24 exclusion | Negative space; V9 |
 | U19 | P1/O1, P4/O4 | R-04–R-10, R-23 | C2; V2; common typed catalog |
 | U20 | P1/O1, P4/O4 | R-10, R-13, R-23 | C2/C4; V2/V4; Swift CLI now, SDK/Rust later |
-| U21 | P3/O3 | R-03, R-09, R-18–R-20 | C6; V7; message/deliberate-report durability; commands never queue (X) |
+| U21 | P3/O3 | R-03, R-09, R-18–R-20 | C1/C6/C8; V1/V7/V10; accepted/spooled notification durability, commands/auth rejection never queue, AB non-durable failure explicit |
 | U22 | P1/O1 | R-09, R-11, R-12, R-17 | C3; V3; model token economy |
 | U23 | P4/O4 | R-13 | C4; V4; reusable debug auth and zero-ceremony test-agent DX (Y) |
+| U24 | P1/O1 | R-01, R-03, R-13, R-25 | C1/C6/C8; V1/V4/V7/V10; startup and terminal independence, restored-token continuity and the accepted non-durable process-end limitation |
