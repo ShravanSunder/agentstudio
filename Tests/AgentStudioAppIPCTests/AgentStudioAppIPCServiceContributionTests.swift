@@ -209,8 +209,8 @@ private func authenticatedPaneClient(
     let token = try fixture.issueTestCredential(
         for: .pane(
             paneId: boundPaneId ?? fixture.boundPaneId,
-            generationId: UUIDv7.generate(),
-            status: .active
+            credentialRecordId: UUIDv7.generate(),
+            status: .registered
         )
     )
     let connection = try UnixSocketClient.connect(endpoint: UnixSocketEndpoint(path: fixture.paths.socketURL.path))

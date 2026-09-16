@@ -1,5 +1,4 @@
 import AgentStudioAppIPC
-import AgentStudioCore
 import AgentStudioInfrastructure
 import CryptoKit
 import Foundation
@@ -7,162 +6,125 @@ import Testing
 
 @testable import AgentStudio
 
-@Suite("Pane IPC identity owner")
+@MainActor
+@Suite("Pane IPC identity owner", .serialized)
 struct PaneIPCIdentityOwnerTests {
-    @Test("preparation validates membership and persists only the token verifier")
-    func preparationValidatesMembershipAndPersistsTokenVerifier() async throws {
+    @Test("first request mints once and later requests reuse one RAM-only pane environment")
+    func environmentIsMintedOnceAndReusedWithoutPersistenceSubmission() async throws {
         let fixture = try PaneIPCIdentityOwnerFixture()
         defer { fixture.removeFiles() }
-        let datastore = await fixture.makePreparedDatastore()
-        let repository = IPCContinuityRepository(datastore: datastore)
         let paneID = UUIDv7.generate()
         let workspaceID = UUIDv7.generate()
         let rawBytes = Data(repeating: 0xA5, count: 32)
+        let randomBytes = PaneCredentialByteSequence([rawBytes])
+        let durableResolver = UnexpectedDurableCredentialResolver()
+        let registry = makeRegistry(
+            durableResolver: durableResolver,
+            membership: { candidatePaneID, candidateWorkspaceID in
+                candidatePaneID == paneID && candidateWorkspaceID == workspaceID
+            }
+        )
         let owner = makeIdentityOwner(
-            repository: repository,
+            principalRegistry: registry,
             membership: { candidatePaneID, candidateWorkspaceID in
                 candidatePaneID == paneID && candidateWorkspaceID == workspaceID
             },
-            rawBytes: rawBytes,
+            randomBytes: randomBytes.next,
             fixture: fixture
         )
 
-        let preparation = try await owner.prepareEnvironment(paneID: paneID, workspaceID: workspaceID)
-        let rawToken = try #require(preparation.environmentVariables["AGENTSTUDIO_PANE_TOKEN"])
+        let first = try owner.environment(paneID: paneID, workspaceID: workspaceID)
+        let second = try owner.environment(paneID: paneID, workspaceID: workspaceID)
+        let rawToken = try #require(first.environmentVariables["AGENTSTUDIO_PANE_TOKEN"])
         let verifier = Data(SHA256.hash(data: Data(rawToken.utf8)))
-        let persisted = try #require(
-            try await repository.credential(for: paneID, generation: preparation.generationID)
-        )
 
-        #expect(preparation.environmentVariables["AGENTSTUDIO_PANE_ID"] == paneID.uuidString)
-        #expect(preparation.environmentVariables["AGENTSTUDIO_WORKSPACE_ID"] == workspaceID.uuidString)
-        #expect(preparation.environmentVariables["AGENTSTUDIO_IPC_SOCKET"] == fixture.socketURL.path)
-        #expect(preparation.environmentVariables["AGENTSTUDIO_PANE_TOKEN"] == rawBytes.base64EncodedString())
+        #expect(first.credentialRecordID == second.credentialRecordID)
+        #expect(first.environmentVariables == second.environmentVariables)
+        #expect(randomBytes.callCount == 1)
+        #expect(first.environmentVariables["AGENTSTUDIO_PANE_ID"] == paneID.uuidString)
+        #expect(first.environmentVariables["AGENTSTUDIO_WORKSPACE_ID"] == workspaceID.uuidString)
+        #expect(first.environmentVariables["AGENTSTUDIO_IPC_SOCKET"] == fixture.socketURL.path)
+        #expect(first.environmentVariables["AGENTSTUDIO_PANE_TOKEN"] == rawBytes.base64EncodedString())
         #expect(
-            preparation.environmentVariables["AGENTSTUDIO_IPC_GENERATION_ID"] == preparation.generationID.uuidString)
-        #expect(preparation.environmentVariables["AGENTSTUDIO_IPC_SPOOL_DIR"] == fixture.spoolDirectory.path)
-        #expect(preparation.environmentVariables["AGENTSTUDIO_CLI"] == fixture.cliExecutableURL.path)
+            first.environmentVariables["AGENTSTUDIO_IPC_CREDENTIAL_RECORD_ID"]
+                == first.credentialRecordID.uuidString)
+        #expect(first.environmentVariables["AGENTSTUDIO_IPC_SPOOL_DIR"] == fixture.spoolDirectory.path)
+        #expect(first.environmentVariables["AGENTSTUDIO_CLI"] == fixture.cliExecutableURL.path)
         #expect(
-            preparation.environmentVariables["PATH"]
+            first.environmentVariables["PATH"]
                 == "\(fixture.cliExecutableURL.deletingLastPathComponent().path):/usr/bin:/bin"
         )
-        #expect(persisted.workspaceID == workspaceID)
-        #expect(persisted.generation == preparation.generationID)
-        #expect(persisted.status == .prepared)
-        #expect(persisted.verifier == verifier)
-        #expect(persisted.verifier != Data(rawToken.utf8))
+
+        let firstContext = try await registry.authenticate(
+            subjectToken: AgentStudioIPCSubjectToken(rawValue: rawToken)
+        )
+        let secondContext = try await registry.authenticate(
+            subjectToken: AgentStudioIPCSubjectToken(rawValue: rawToken)
+        )
+        #expect(firstContext.credentialIdentity == .pane(recordID: first.credentialRecordID))
+        #expect(secondContext.credentialIdentity == .pane(recordID: first.credentialRecordID))
+        #expect(firstContext.principal.principalId != secondContext.principal.principalId)
+        #expect(await durableResolver.lookupCount == 0)
+        #expect(registry.issuedCredentialCandidates().map(\.verifierSHA256) == [verifier])
     }
 
-    @Test("preparation refuses a pane outside canonical workspace membership without a row")
-    func preparationRejectsNonmemberWithoutPersistingCandidate() async throws {
+    @Test("nonmember refusal happens before mint or verifier admission")
+    func environmentRejectsNonmemberBeforeMint() async throws {
         let fixture = try PaneIPCIdentityOwnerFixture()
         defer { fixture.removeFiles() }
-        let repository = IPCContinuityRepository(datastore: await fixture.makePreparedDatastore())
-        let rawBytes = Data(repeating: 0xB4, count: 32)
-        let rejectedPaneID = UUIDv7.generate()
-        let rejectedWorkspaceID = UUIDv7.generate()
-        let expectedRawToken = rawBytes.base64EncodedString()
-        let expectedVerifier = Data(SHA256.hash(data: Data(expectedRawToken.utf8)))
+        let randomBytes = PaneCredentialByteSequence([Data(repeating: 0xB4, count: 32)])
+        let durableResolver = UnexpectedDurableCredentialResolver()
+        let registry = makeRegistry(durableResolver: durableResolver, membership: { _, _ in false })
         let owner = makeIdentityOwner(
-            repository: repository,
+            principalRegistry: registry,
             membership: { _, _ in false },
-            rawBytes: rawBytes,
+            randomBytes: randomBytes.next,
             fixture: fixture
         )
 
-        await #expect(throws: PaneIPCIdentityOwnerError.paneNotInWorkspace) {
-            _ = try await owner.prepareEnvironment(paneID: rejectedPaneID, workspaceID: rejectedWorkspaceID)
+        #expect(throws: PaneIPCIdentityOwnerError.paneNotInWorkspace) {
+            _ = try owner.environment(
+                paneID: UUIDv7.generate(),
+                workspaceID: UUIDv7.generate()
+            )
         }
-        #expect(try await repository.credential(matchingVerifier: expectedVerifier) == nil)
-    }
 
-    @Test("cancellation, rollback, and retirement affect only their exact generation")
-    func lifecycleRetiresOnlyTheExactCredentialGeneration() async throws {
-        let fixture = try PaneIPCIdentityOwnerFixture()
-        defer { fixture.removeFiles() }
-        let repository = IPCContinuityRepository(datastore: await fixture.makePreparedDatastore())
-        let paneID = UUIDv7.generate()
-        let workspaceID = UUIDv7.generate()
-        let leaseRecorder = PaneCredentialLeaseRecorder()
-        let owner = PaneIPCIdentityOwner(
-            repository: repository,
-            socketURL: fixture.socketURL,
-            spoolDirectory: fixture.spoolDirectory,
-            cliExecutableURL: fixture.cliExecutableURL,
-            inheritedEnvironment: ["PATH": "/usr/bin:/bin"],
-            canonicalPaneMembership: { candidatePaneID, candidateWorkspaceID in
-                candidatePaneID == paneID && candidateWorkspaceID == workspaceID
-            },
-            randomBytes: PaneCredentialByteSequence([
-                Data(repeating: 0x01, count: 32),
-                Data(repeating: 0x02, count: 32),
-                Data(repeating: 0x03, count: 32),
-            ]).next,
-            retireServerLease: { retiredPaneID, retiredWorkspaceID, retiredGenerationID in
-                leaseRecorder.record(
-                    paneID: retiredPaneID,
-                    workspaceID: retiredWorkspaceID,
-                    generationID: retiredGenerationID
-                )
-            }
-        )
-
-        let cancelled = try await owner.prepareEnvironment(paneID: paneID, workspaceID: workspaceID)
-        let sibling = try await owner.prepareEnvironment(paneID: paneID, workspaceID: workspaceID)
-        await owner.cancelPrepared(cancelled)
-        #expect(
-            try await repository.credential(for: paneID, generation: cancelled.generationID)?.status == .revoked
-        )
-        #expect(
-            try await repository.credential(for: paneID, generation: sibling.generationID)?.status == .prepared
-        )
-
-        let activated = try await owner.activateForMount(sibling)
-        await owner.rollbackFailedMount(activated)
-        #expect(
-            try await repository.credential(for: paneID, generation: sibling.generationID)?.status == .revoked
-        )
-        #expect(
-            leaseRecorder.calls == [.init(paneID: paneID, workspaceID: workspaceID, generationID: sibling.generationID)]
-        )
-
-        let retained = try await owner.prepareEnvironment(paneID: paneID, workspaceID: workspaceID)
-        let retainedActivation = try await owner.activateForMount(retained)
-        try await owner.retire(retainedActivation)
-        #expect(
-            try await repository.credential(for: paneID, generation: retained.generationID)?.status == .revoked
-        )
-        #expect(
-            leaseRecorder.calls == [
-                .init(paneID: paneID, workspaceID: workspaceID, generationID: sibling.generationID),
-                .init(paneID: paneID, workspaceID: workspaceID, generationID: retained.generationID),
-            ]
-        )
+        #expect(randomBytes.callCount == 0)
+        #expect(registry.issuedCredentialCandidates().isEmpty)
+        #expect(await durableResolver.lookupCount == 0)
     }
 
     private func makeIdentityOwner(
-        repository: IPCContinuityRepository,
+        principalRegistry: AgentStudioIPCPrincipalRegistry,
         membership: @escaping @MainActor @Sendable (UUID, UUID) -> Bool,
-        rawBytes: Data,
+        randomBytes: @escaping @Sendable () throws -> Data,
         fixture: PaneIPCIdentityOwnerFixture
     ) -> PaneIPCIdentityOwner {
         PaneIPCIdentityOwner(
-            repository: repository,
+            principalRegistry: principalRegistry,
             socketURL: fixture.socketURL,
             spoolDirectory: fixture.spoolDirectory,
             cliExecutableURL: fixture.cliExecutableURL,
             inheritedEnvironment: ["PATH": "/usr/bin:/bin"],
             canonicalPaneMembership: membership,
-            randomBytes: { rawBytes },
-            retireServerLease: { _, _, _ in }
+            randomBytes: randomBytes
+        )
+    }
+
+    private func makeRegistry(
+        durableResolver: any AgentStudioIPCCredentialResolving,
+        membership: @escaping @MainActor @Sendable (UUID, UUID) -> Bool
+    ) -> AgentStudioIPCPrincipalRegistry {
+        AgentStudioIPCPrincipalRegistry(
+            runtimeId: UUIDv7.generate(),
+            credentialResolver: durableResolver,
+            canonicalPaneMembership: membership
         )
     }
 }
 
 private struct PaneIPCIdentityOwnerFixture {
     let rootDirectory: URL
-    let localDatabaseURL: URL
-    let coreDatabaseURL: URL
     let socketURL: URL
     let spoolDirectory: URL
     let cliExecutableURL: URL
@@ -170,23 +132,10 @@ private struct PaneIPCIdentityOwnerFixture {
     init() throws {
         rootDirectory = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-pane-ipc-identity-\(UUIDv7.generate())")
-        localDatabaseURL = rootDirectory.appending(path: "local.sqlite")
-        coreDatabaseURL = rootDirectory.appending(path: "core.sqlite")
         socketURL = rootDirectory.appending(path: "agentstudio.sock")
         spoolDirectory = rootDirectory.appending(path: "spool/v2", directoryHint: .isDirectory)
         cliExecutableURL = rootDirectory.appending(path: "AgentStudio.app/Contents/MacOS/agentstudio")
         try FileManager.default.createDirectory(at: rootDirectory, withIntermediateDirectories: true)
-    }
-
-    func makePreparedDatastore() async -> WorkspaceSQLiteDatastoreActor {
-        let datastore = WorkspaceSQLiteDatastoreFactory(
-            coreDatabaseURL: coreDatabaseURL,
-            localDatabaseURL: localDatabaseURL
-        ).makeDatastore()
-        guard case .prepared = await datastore.prepareDatabasesForBoot() else {
-            fatalError("Pane IPC identity test database preparation failed")
-        }
-        return datastore
     }
 
     func removeFiles() {
@@ -194,39 +143,40 @@ private struct PaneIPCIdentityOwnerFixture {
     }
 }
 
-private final class PaneCredentialLeaseRecorder: @unchecked Sendable {
-    struct Call: Equatable {
-        let paneID: UUID
-        let workspaceID: UUID
-        let generationID: UUID
-    }
+private actor UnexpectedDurableCredentialResolver: AgentStudioIPCCredentialResolving {
+    private(set) var lookupCount = 0
 
-    private let lock = NSLock()
-    private var recordedCalls: [Call] = []
-
-    var calls: [Call] {
-        lock.withLock { recordedCalls }
-    }
-
-    func record(paneID: UUID, workspaceID: UUID, generationID: UUID) {
-        lock.withLock {
-            recordedCalls.append(.init(paneID: paneID, workspaceID: workspaceID, generationID: generationID))
-        }
+    func resolveCredential(
+        _: AgentStudioIPCSubjectToken,
+        serverRuntimeID _: UUID
+    ) async throws -> AgentStudioIPCCredentialResolution {
+        lookupCount += 1
+        throw PaneIPCIdentityOwnerTestError.durableLookupUnavailable
     }
 }
 
 private final class PaneCredentialByteSequence: @unchecked Sendable {
     private let lock = NSLock()
     private var values: [Data]
+    private var recordedCallCount = 0
 
     init(_ values: [Data]) {
         self.values = values
     }
 
+    var callCount: Int {
+        lock.withLock { recordedCallCount }
+    }
+
     func next() throws -> Data {
         try lock.withLock {
+            recordedCallCount += 1
             guard !values.isEmpty else { throw PaneIPCIdentityOwnerError.randomBytesUnavailable }
             return values.removeFirst()
         }
     }
+}
+
+private enum PaneIPCIdentityOwnerTestError: Error {
+    case durableLookupUnavailable
 }

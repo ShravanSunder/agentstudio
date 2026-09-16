@@ -25,21 +25,25 @@ actor IPCContinuityCredentialResolver: AgentStudioIPCCredentialResolving {
         }
         switch resolved {
         case .pane(let paneCredential):
-            let status: AgentStudioIPCCredentialStatus
-            switch paneCredential.status {
-            case .active: status = .active
-            case .superseded: status = .superseded
-            case .prepared, .revoked: throw AgentStudioIPCAuthenticationError(reason: .unauthenticated)
+            guard paneCredential.status == .registered else {
+                throw AgentStudioIPCAuthenticationError(reason: .unauthenticated)
             }
-            return .init(
-                namespace: .pane(paneID: paneCredential.paneID, workspaceID: paneCredential.workspaceID),
-                generationID: paneCredential.generation, status: status)
-        case .diagnostic(let runtimeID, let generation, _, let credentialStatus):
+            return .pane(
+                paneID: paneCredential.paneID,
+                workspaceID: paneCredential.workspaceID,
+                credentialRecordID: paneCredential.credentialRecordID,
+                status: .registered
+            )
+        case .diagnostic(let runtimeID, let generationID, _, let credentialStatus):
             guard runtimeID == serverRuntimeID, credentialStatus == .active else {
                 throw AgentStudioIPCAuthenticationError(
                     reason: runtimeID == serverRuntimeID ? .unauthenticated : .runtimeMismatch)
             }
-            return .init(namespace: .diagnostic(runtimeID: runtimeID), generationID: generation, status: .active)
+            return .diagnostic(
+                runtimeID: runtimeID,
+                generationID: generationID,
+                status: .active
+            )
         }
     }
 }

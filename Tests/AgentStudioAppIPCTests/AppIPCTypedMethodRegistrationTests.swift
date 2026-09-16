@@ -481,8 +481,7 @@ private struct TypedRegistrationFixture {
             channel: .stable,
             authenticatedContext: AgentStudioIPCAuthenticatedContext(
                 principal: principal,
-                generationID: UUIDv7.generate(),
-                authorityDisposition: .current
+                credentialIdentity: .pane(recordID: UUIDv7.generate())
             ),
             authenticate: { _ in .unauthenticated },
             authenticationStatus: { .unauthenticated },

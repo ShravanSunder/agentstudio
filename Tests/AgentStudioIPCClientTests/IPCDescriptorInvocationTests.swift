@@ -79,7 +79,7 @@ struct IPCDescriptorInvocationTests {
     }
 
     @Test("JSON and stdin enter the same typed normalization path")
-    func JSONAndStandardInputShareTypedNormalization() throws {
+    func jsonAndStandardInputShareTypedNormalization() throws {
         let correlation = UUIDv7.generate()
         let payload = Data(
             """
@@ -93,10 +93,10 @@ struct IPCDescriptorInvocationTests {
             """.utf8
         )
         let unusedGenerator = IPCDescriptorInvocationCorrelationGenerator(UUIDv7.generate())
-        let JSONPayload = try #require(String(data: payload, encoding: .utf8))
+        let jsonPayload = try #require(String(data: payload, encoding: .utf8))
 
-        let JSONInvocation = try parse(
-            ["fixture.control", "--json", JSONPayload],
+        let jsonInvocation = try parse(
+            ["fixture.control", "--json", jsonPayload],
             correlationGenerator: unusedGenerator
         )
         let standardInputInvocation = try parse(
@@ -105,10 +105,10 @@ struct IPCDescriptorInvocationTests {
             standardInput: payload
         )
 
-        #expect(JSONInvocation.normalizedParameters == standardInputInvocation.normalizedParameters)
+        #expect(jsonInvocation.normalizedParameters == standardInputInvocation.normalizedParameters)
         #expect(
             try decodeIPCDescriptorInvocationParameters(
-                IPCDescriptorInvocationToolingParameters.self, from: JSONInvocation.normalizedParameters)
+                IPCDescriptorInvocationToolingParameters.self, from: jsonInvocation.normalizedParameters)
                 == IPCDescriptorInvocationToolingParameters(
                     retryCount: 4,
                     isEnabled: true,

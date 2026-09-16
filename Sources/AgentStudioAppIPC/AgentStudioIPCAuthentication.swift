@@ -1,6 +1,7 @@
 import AgentStudioIPCTransport
 import AgentStudioInfrastructure
 import AgentStudioProgrammaticControl
+import CryptoKit
 import Foundation
 
 public struct AgentStudioIPCSubjectToken: RawRepresentable, Codable, Hashable, Sendable {
@@ -25,6 +26,11 @@ public struct AgentStudioIPCAuthenticationError: Error, Equatable, Sendable {
     }
 }
 
+package enum AgentStudioIPCIssuedCredentialRegistrationError: Error, Equatable, Sendable {
+    case conflictingRecordIdentity
+    case conflictingVerifier
+}
+
 package protocol AgentStudioIPCCredentialResolving: Sendable {
     func resolveCredential(
         _ credential: AgentStudioIPCSubjectToken,
@@ -37,46 +43,60 @@ package enum AgentStudioIPCCredentialNamespace: Equatable, Hashable, Sendable {
     case diagnostic(runtimeID: UUID)
 }
 
-package enum AgentStudioIPCCredentialStatus: Equatable, Sendable {
-    case active
-    case superseded
+package enum AgentStudioIPCPaneCredentialStatus: Equatable, Sendable {
+    case registered
     case revoked
 }
 
-package enum AgentStudioIPCAuthorityDisposition: Equatable, Sendable {
-    case current
-    case lateReportOnly
+package enum AgentStudioIPCDiagnosticCredentialStatus: Equatable, Sendable {
+    case prepared
+    case active
+    case revoked
 }
 
-package struct AgentStudioIPCCredentialResolution: Equatable, Sendable {
-    package let namespace: AgentStudioIPCCredentialNamespace
-    package let generationID: UUID
-    package let status: AgentStudioIPCCredentialStatus
-
-    package init(
-        namespace: AgentStudioIPCCredentialNamespace,
+package enum AgentStudioIPCCredentialResolution: Equatable, Sendable {
+    case pane(
+        paneID: UUID,
+        workspaceID: UUID,
+        credentialRecordID: UUID,
+        status: AgentStudioIPCPaneCredentialStatus
+    )
+    case diagnostic(
+        runtimeID: UUID,
         generationID: UUID,
-        status: AgentStudioIPCCredentialStatus
-    ) {
-        self.namespace = namespace
-        self.generationID = generationID
-        self.status = status
+        status: AgentStudioIPCDiagnosticCredentialStatus
+    )
+}
+
+package enum AgentStudioIPCAuthenticatedCredentialIdentity: Equatable, Hashable, Sendable {
+    case pane(recordID: UUID)
+    case diagnostic(generationID: UUID)
+}
+
+package struct AgentStudioIPCIssuedPaneCredential: Equatable, Sendable {
+    package let paneID: UUID
+    package let workspaceID: UUID
+    package let credentialRecordID: UUID
+    package let verifierSHA256: Data
+
+    package init(paneID: UUID, workspaceID: UUID, credentialRecordID: UUID, verifierSHA256: Data) {
+        self.paneID = paneID
+        self.workspaceID = workspaceID
+        self.credentialRecordID = credentialRecordID
+        self.verifierSHA256 = verifierSHA256
     }
 }
 
 package struct AgentStudioIPCAuthenticatedContext: Equatable, Sendable {
     package let principal: IPCPrincipal
-    package let generationID: UUID
-    package let authorityDisposition: AgentStudioIPCAuthorityDisposition
+    package let credentialIdentity: AgentStudioIPCAuthenticatedCredentialIdentity
 
     package init(
         principal: IPCPrincipal,
-        generationID: UUID,
-        authorityDisposition: AgentStudioIPCAuthorityDisposition
+        credentialIdentity: AgentStudioIPCAuthenticatedCredentialIdentity
     ) {
         self.principal = principal
-        self.generationID = generationID
-        self.authorityDisposition = authorityDisposition
+        self.credentialIdentity = credentialIdentity
     }
 }
 
@@ -85,27 +105,75 @@ public final class AgentStudioIPCPrincipalRegistry: @unchecked Sendable {
 
     private struct LeaseKey: Hashable, Sendable {
         let namespace: AgentStudioIPCCredentialNamespace
-        let generationID: UUID
+        let credentialIdentity: AgentStudioIPCAuthenticatedCredentialIdentity
     }
 
     private let lock = NSLock()
     private let credentialResolver: any AgentStudioIPCCredentialResolving
-    private let grantLedger: GrantLedger?
+    private let canonicalPaneMembership: @MainActor @Sendable (UUID, UUID) -> Bool
+    package let grantLedger: GrantLedger
     private var lifetimeEpoch: UInt64 = 0
     private var invalidationSequence: UInt64 = 0
     private var paneInvalidationSequences: [UUID: UInt64] = [:]
     private var retiredLeaseSequences: [LeaseKey: UInt64] = [:]
     private var activeLeases: [LeaseKey: Set<UUID>] = [:]
+    private var issuedPaneCredentialsByRecordID: [UUID: AgentStudioIPCIssuedPaneCredential] = [:]
+    private var issuedPaneCredentialRecordIDByVerifier: [Data: UUID] = [:]
+    private var durableIssuedPaneCredentialIDs: Set<UUID> = []
     private var isShutdown = false
 
     package init(
         runtimeId: UUID,
         credentialResolver: any AgentStudioIPCCredentialResolving,
-        grantLedger: GrantLedger? = nil
+        canonicalPaneMembership: @escaping @MainActor @Sendable (UUID, UUID) -> Bool,
+        grantLedger: GrantLedger = GrantLedger()
     ) {
         self.runtimeId = runtimeId
         self.credentialResolver = credentialResolver
+        self.canonicalPaneMembership = canonicalPaneMembership
         self.grantLedger = grantLedger
+    }
+
+    package func registerIssuedPaneCredential(
+        paneID: UUID,
+        workspaceID: UUID,
+        credentialRecordID: UUID,
+        verifierSHA256: Data
+    ) throws {
+        precondition(verifierSHA256.count == 32, "pane credential verifier must be SHA-256")
+        let credential = AgentStudioIPCIssuedPaneCredential(
+            paneID: paneID,
+            workspaceID: workspaceID,
+            credentialRecordID: credentialRecordID,
+            verifierSHA256: verifierSHA256
+        )
+        try lock.withLock {
+            if let existing = issuedPaneCredentialsByRecordID[credentialRecordID] {
+                guard existing == credential else {
+                    throw AgentStudioIPCIssuedCredentialRegistrationError.conflictingRecordIdentity
+                }
+                return
+            }
+            if let existingRecordID = issuedPaneCredentialRecordIDByVerifier[verifierSHA256],
+                existingRecordID != credentialRecordID
+            {
+                throw AgentStudioIPCIssuedCredentialRegistrationError.conflictingVerifier
+            }
+            issuedPaneCredentialsByRecordID[credentialRecordID] = credential
+            issuedPaneCredentialRecordIDByVerifier[verifierSHA256] = credentialRecordID
+        }
+    }
+
+    package func issuedCredentialCandidates() -> [AgentStudioIPCIssuedPaneCredential] {
+        lock.withLock {
+            issuedPaneCredentialsByRecordID.values
+                .filter { !durableIssuedPaneCredentialIDs.contains($0.credentialRecordID) }
+                .sorted { $0.credentialRecordID.uuidString < $1.credentialRecordID.uuidString }
+        }
+    }
+
+    package func markIssuedCredentialDurable(recordID: UUID) {
+        _ = lock.withLock { durableIssuedPaneCredentialIDs.insert(recordID) }
     }
 
     package func authenticate(
@@ -122,17 +190,35 @@ public final class AgentStudioIPCPrincipalRegistry: @unchecked Sendable {
             throw AgentStudioIPCAuthenticationError(reason: .unauthenticated)
         }
 
-        let resolution = try await credentialResolver.resolveCredential(
-            subjectToken,
-            serverRuntimeID: runtimeId
-        )
-        let context = try makeAuthenticatedContext(from: resolution)
-        let leaseKey = LeaseKey(namespace: resolution.namespace, generationID: resolution.generationID)
+        let verifier = Data(SHA256.hash(data: Data(subjectToken.rawValue.utf8)))
+        let resolution: AgentStudioIPCCredentialResolution
+        if let issuedCredential = lock.withLock({
+            issuedPaneCredentialRecordIDByVerifier[verifier]
+                .flatMap { issuedPaneCredentialsByRecordID[$0] }
+        }) {
+            resolution = .pane(
+                paneID: issuedCredential.paneID,
+                workspaceID: issuedCredential.workspaceID,
+                credentialRecordID: issuedCredential.credentialRecordID,
+                status: .registered
+            )
+        } else {
+            resolution = try await credentialResolver.resolveCredential(
+                subjectToken,
+                serverRuntimeID: runtimeId
+            )
+        }
+        let context = try await makeAuthenticatedContext(from: resolution)
+        let namespace = namespace(for: context.principal)
+        guard let namespace else { throw AgentStudioIPCAuthenticationError(reason: .unauthenticated) }
+        let leaseKey = LeaseKey(namespace: namespace, credentialIdentity: context.credentialIdentity)
 
         let accepted = lock.withLock {
             guard !isShutdown, lifetimeEpoch == observation.lifetimeEpoch else { return false }
-            if case .pane(let paneID, _) = resolution.namespace {
-                guard paneInvalidationSequences[paneID, default: 0] <= observation.invalidationSequence else {
+            if case .spawnedPaneAgent(let paneID, _) = context.principal.kind,
+                let paneUUID = UUID(uuidString: paneID)
+            {
+                guard paneInvalidationSequences[paneUUID, default: 0] <= observation.invalidationSequence else {
                     return false
                 }
             }
@@ -164,7 +250,7 @@ public final class AgentStudioIPCPrincipalRegistry: @unchecked Sendable {
     }
 
     package func revokeAllGrants() {
-        grantLedger?.revokeAll()
+        grantLedger.revokeAll()
     }
 
     package func invalidatePrincipals(boundToPaneId paneId: String) {
@@ -187,7 +273,7 @@ public final class AgentStudioIPCPrincipalRegistry: @unchecked Sendable {
 
     package func releaseLease(_ context: AgentStudioIPCAuthenticatedContext) {
         guard let namespace = namespace(for: context.principal) else { return }
-        let leaseKey = LeaseKey(namespace: namespace, generationID: context.generationID)
+        let leaseKey = LeaseKey(namespace: namespace, credentialIdentity: context.credentialIdentity)
         let released = lock.withLock {
             guard var principalIDs = activeLeases[leaseKey],
                 principalIDs.remove(context.principal.principalId) != nil
@@ -202,13 +288,29 @@ public final class AgentStudioIPCPrincipalRegistry: @unchecked Sendable {
             return true
         }
         if released {
-            grantLedger?.revokeAll(for: context.principal.principalId)
+            grantLedger.revokeAll(for: context.principal.principalId)
+        }
+    }
+
+    package func contextRemainsAuthorized(_ context: AgentStudioIPCAuthenticatedContext) async -> Bool {
+        if case .spawnedPaneAgent(let paneID, let workspaceID) = context.principal.kind {
+            guard
+                let paneUUID = UUID(uuidString: paneID),
+                let workspaceID,
+                await canonicalPaneMembership(paneUUID, workspaceID)
+            else { return false }
+        }
+        guard let namespace = namespace(for: context.principal) else { return false }
+        let leaseKey = LeaseKey(namespace: namespace, credentialIdentity: context.credentialIdentity)
+        return lock.withLock {
+            guard !isShutdown, retiredLeaseSequences[leaseKey] == nil else { return false }
+            return activeLeases[leaseKey]?.contains(context.principal.principalId) == true
         }
     }
 
     package func retireLease(_ context: AgentStudioIPCAuthenticatedContext) {
         guard let namespace = namespace(for: context.principal) else { return }
-        let leaseKey = LeaseKey(namespace: namespace, generationID: context.generationID)
+        let leaseKey = LeaseKey(namespace: namespace, credentialIdentity: context.credentialIdentity)
         let principalIDs = lock.withLock {
             invalidationSequence &+= 1
             retiredLeaseSequences[leaseKey] = invalidationSequence
@@ -230,7 +332,7 @@ public final class AgentStudioIPCPrincipalRegistry: @unchecked Sendable {
 
     private func revokeGrants(for principalIDs: Set<UUID>) {
         for principalID in principalIDs {
-            grantLedger?.revokeAll(for: principalID)
+            grantLedger.revokeAll(for: principalID)
         }
     }
 
@@ -248,11 +350,14 @@ public final class AgentStudioIPCPrincipalRegistry: @unchecked Sendable {
 
     private func makeAuthenticatedContext(
         from resolution: AgentStudioIPCCredentialResolution
-    ) throws -> AgentStudioIPCAuthenticatedContext {
+    ) async throws -> AgentStudioIPCAuthenticatedContext {
         let principal: IPCPrincipal
-        let authorityDisposition: AgentStudioIPCAuthorityDisposition
-        switch (resolution.namespace, resolution.status) {
-        case (.pane(let paneID, let workspaceID), .active):
+        let credentialIdentity: AgentStudioIPCAuthenticatedCredentialIdentity
+        switch resolution {
+        case .pane(let paneID, let workspaceID, let credentialRecordID, .registered):
+            guard await canonicalPaneMembership(paneID, workspaceID) else {
+                throw AgentStudioIPCAuthenticationError(reason: .unauthenticated)
+            }
             principal = IPCPrincipal(
                 principalId: UUIDv7.generate(),
                 runtimeId: runtimeId,
@@ -263,38 +368,27 @@ public final class AgentStudioIPCPrincipalRegistry: @unchecked Sendable {
                 ),
                 approvalAuthority: .noApprovalAuthority
             )
-            authorityDisposition = .current
-        case (.pane(let paneID, let workspaceID), .superseded):
-            principal = IPCPrincipal(
-                principalId: UUIDv7.generate(),
-                runtimeId: runtimeId,
-                accessMode: .agentStudioOnly,
-                kind: .spawnedPaneAgent(
-                    boundPaneId: paneID.uuidString,
-                    boundWorkspaceId: workspaceID
-                ),
-                approvalAuthority: .noApprovalAuthority
-            )
-            authorityDisposition = .lateReportOnly
-        case (.diagnostic(let credentialRuntimeID), .active):
+            credentialIdentity = .pane(recordID: credentialRecordID)
+        case .pane(_, _, _, .revoked):
+            throw AgentStudioIPCAuthenticationError(reason: .unauthenticated)
+        case .diagnostic(let credentialRuntimeID, let generationID, .active):
             guard credentialRuntimeID == runtimeId else {
                 throw AgentStudioIPCAuthenticationError(reason: .runtimeMismatch)
             }
             principal = IPCPrincipal(
                 principalId: UUIDv7.generate(),
                 runtimeId: runtimeId,
-                accessMode: .unsafeDebug,
+                accessMode: .automationSameUser,
                 kind: .automationClient,
                 approvalAuthority: .noApprovalAuthority
             )
-            authorityDisposition = .current
+            credentialIdentity = .diagnostic(generationID: generationID)
         default:
             throw AgentStudioIPCAuthenticationError(reason: .unauthenticated)
         }
         return AgentStudioIPCAuthenticatedContext(
             principal: principal,
-            generationID: resolution.generationID,
-            authorityDisposition: authorityDisposition
+            credentialIdentity: credentialIdentity
         )
     }
 

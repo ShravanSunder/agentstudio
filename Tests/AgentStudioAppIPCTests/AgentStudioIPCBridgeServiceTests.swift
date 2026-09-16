@@ -630,7 +630,7 @@ struct AgentStudioIPCBridgeServiceTests {
         }
         try fixture.server.start()
         let token = try fixture.issueTestCredential(
-            for: .pane(paneId: paneId, generationId: UUIDv7.generate(), status: .active)
+            for: .pane(paneId: paneId, credentialRecordId: UUIDv7.generate(), status: .registered)
         )
         let connection = try UnixSocketClient.connect(
             endpoint: UnixSocketEndpoint(path: fixture.paths.socketURL.path)

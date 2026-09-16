@@ -62,7 +62,7 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
         service: AgentStudioAppIPCService,
         paths: AgentStudioIPCPaths,
         channel: AgentStudioIPCChannel,
-        credentialResolver: any AgentStudioIPCCredentialResolving,
+        principalRegistry: AgentStudioIPCPrincipalRegistry,
         approvalPolicyStore: any ApprovalPolicyStore = StaticApprovalPolicyStore(),
         peerCredentialProvider: any PeerCredentialProviding = DarwinPeerCredentialProvider(),
         currentUserIdentifier: uid_t = getuid(),
@@ -72,12 +72,8 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
         self.paths = paths
         self.channel = channel
         self.methodRegistry = service.methodRegistry
-        self.grantLedger = GrantLedger()
-        self.principalRegistry = AgentStudioIPCPrincipalRegistry(
-            runtimeId: service.configuration.runtimeId,
-            credentialResolver: credentialResolver,
-            grantLedger: grantLedger
-        )
+        self.principalRegistry = principalRegistry
+        self.grantLedger = principalRegistry.grantLedger
         self.authenticator = AgentStudioIPCAuthenticator(registry: principalRegistry)
         self.authorizationService = AuthorizationService(
             methodRegistry: methodRegistry,
@@ -151,47 +147,6 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
             }
             return matchingConnectionIdentifiers.compactMap { connectionIdentifier in
                 activeConnections.removeValue(forKey: connectionIdentifier)
-            }
-        }
-        for connection in connections {
-            connection.close()
-        }
-    }
-
-    package func retirePaneCredentialLease(
-        paneID: UUID,
-        workspaceID: UUID,
-        generationID: UUID
-    ) {
-        let retirementContext = AgentStudioIPCAuthenticatedContext(
-            principal: IPCPrincipal(
-                principalId: UUIDv7.generate(),
-                runtimeId: service.configuration.runtimeId,
-                accessMode: .agentStudioOnly,
-                kind: .spawnedPaneAgent(
-                    boundPaneId: paneID.uuidString,
-                    boundWorkspaceId: workspaceID
-                ),
-                approvalAuthority: .noApprovalAuthority
-            ),
-            generationID: generationID,
-            authorityDisposition: .current
-        )
-        principalRegistry.retireLease(retirementContext)
-        let connections: [UnixSocketConnection] = lifecycleLock.withLock {
-            let identifiers: [ObjectIdentifier] = activeConnectionContexts.compactMap { entry in
-                let (identifier, context) = entry
-                guard context.generationID == generationID,
-                    context.principal.isBound(
-                        toPaneId: paneID.uuidString,
-                        workspaceID: workspaceID
-                    )
-                else { return nil }
-                return identifier
-            }
-            return identifiers.compactMap { identifier in
-                activeConnectionContexts.removeValue(forKey: identifier)
-                return activeConnections.removeValue(forKey: identifier)
             }
         }
         for connection in connections {
@@ -281,11 +236,6 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
         guard let registration = methodRegistry.registration(named: request.method) else {
             throw AgentStudioAppIPCRequestError.methodNotFound
         }
-        if connectionState.authorityDisposition == .lateReportOnly,
-            !AgentStudioIPCPreAuthMethods.isAllowed(request.method)
-        {
-            throw AgentStudioAppIPCRequestError.unauthenticated
-        }
         if connectionState.principal == nil, !connectionState.authenticationFailed,
             request.method != "auth.login", allowsUnsafeDebugNoAuthentication
         {
@@ -295,13 +245,20 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
             )
             let context = AgentStudioIPCAuthenticatedContext(
                 principal: principal,
-                generationID: UUIDv7.generate(),
-                authorityDisposition: .current
+                credentialIdentity: .diagnostic(generationID: UUIDv7.generate())
             )
             guard recordAuthenticatedContext(context, for: connection) else {
                 throw AgentStudioAppIPCRequestError.unauthenticated
             }
             connectionState.setAuthenticatedContext(context)
+        }
+        if let authenticatedContext = connectionState.authenticatedContext,
+            request.method != "auth.login",
+            !AgentStudioIPCPreAuthMethods.isAllowed(request.method),
+            !isExplicitUnsafeNoAuthenticationContext(authenticatedContext),
+            !(await principalRegistry.contextRemainsAuthorized(authenticatedContext))
+        {
+            throw AgentStudioAppIPCRequestError.unauthenticated
         }
         let context = AppIPCConnectionContext(
             contextId: connectionId, channel: channel,
@@ -350,6 +307,12 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
                 try authorizationService.authorize(principal: principal, request: authorization)
             }
         )
+    }
+
+    private func isExplicitUnsafeNoAuthenticationContext(_ context: AgentStudioIPCAuthenticatedContext) -> Bool {
+        allowsUnsafeDebugNoAuthentication
+            && context.principal.accessMode == .unsafeDebug
+            && context.principal.kind == .unsafeDebugClient
     }
 
     private func canonicalHandle(fromRawHandle rawHandle: String, principal: IPCPrincipal?) async throws -> IPCHandle {
@@ -512,7 +475,6 @@ private final class AgentStudioAppIPCConnectionState: @unchecked Sendable {
 
     var authenticatedContext: AgentStudioIPCAuthenticatedContext? { lock.withLock { storedAuthenticatedContext } }
     var principal: IPCPrincipal? { authenticatedContext?.principal }
-    var authorityDisposition: AgentStudioIPCAuthorityDisposition? { authenticatedContext?.authorityDisposition }
     var authenticationFailed: Bool { lock.withLock { storedAuthenticationFailed } }
 
     func setAuthenticatedContext(_ context: AgentStudioIPCAuthenticatedContext) {

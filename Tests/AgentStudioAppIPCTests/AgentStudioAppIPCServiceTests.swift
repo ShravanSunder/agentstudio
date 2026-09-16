@@ -83,8 +83,8 @@ struct AgentStudioAppIPCServiceTests {
         let token = try fixture.issueTestCredential(
             for: .pane(
                 paneId: fixture.boundPaneId,
-                generationId: UUIDv7.generate(),
-                status: .active
+                credentialRecordId: UUIDv7.generate(),
+                status: .registered
             )
         )
         let connection = try UnixSocketClient.connect(
@@ -475,8 +475,8 @@ struct AgentStudioAppIPCServiceTests {
         let token = try scenario.fixture.issueTestCredential(
             for: .pane(
                 paneId: scenario.secondPaneId,
-                generationId: UUIDv7.generate(),
-                status: .active
+                credentialRecordId: UUIDv7.generate(),
+                status: .registered
             )
         )
         let connection = try UnixSocketClient.connect(
@@ -542,8 +542,8 @@ struct AgentStudioAppIPCServiceTests {
         let token = try fixture.issueTestCredential(
             for: .pane(
                 paneId: fixture.boundPaneId,
-                generationId: UUIDv7.generate(),
-                status: .active
+                credentialRecordId: UUIDv7.generate(),
+                status: .registered
             )
         )
         let connection = try UnixSocketClient.connect(
@@ -602,8 +602,8 @@ struct AgentStudioAppIPCServiceTests {
         let token = try fixture.issueTestCredential(
             for: .pane(
                 paneId: fixture.boundPaneId,
-                generationId: UUIDv7.generate(),
-                status: .active
+                credentialRecordId: UUIDv7.generate(),
+                status: .registered
             )
         )
         let connection = try UnixSocketClient.connect(
@@ -629,6 +629,39 @@ struct AgentStudioAppIPCServiceTests {
         }
     }
 
+    @Test("authenticated pane requests recheck canonical membership")
+    func authenticatedPaneRequestsRecheckCanonicalMembership() throws {
+        let membership = PaneMembershipGate()
+        let fixture = try LiveServerFixture(
+            canonicalPaneMembership: { _, _ in membership.isMember }
+        )
+        defer { fixture.cleanup() }
+        try fixture.server.start()
+        let token = try fixture.issueTestCredential(
+            for: .pane(
+                paneId: fixture.boundPaneId,
+                credentialRecordId: UUIDv7.generate(),
+                status: .registered
+            )
+        )
+        let connection = try UnixSocketClient.connect(
+            endpoint: UnixSocketEndpoint(path: fixture.paths.socketURL.path)
+        )
+        defer { connection.close() }
+        var reader = TestFrameReader()
+        try login(connection: connection, token: token, requestId: 60, reader: &reader)
+
+        membership.setMember(false)
+        try sendRequest(
+            connection: connection,
+            request: JSONRPCClientRequest(id: .number(61), method: "system.version", params: .object([:]))
+        )
+        let response = try reader.receiveResponse(connection: connection)
+
+        #expect(response.error?.code == -32_001)
+        #expect(response.error?.message == "unauthenticated")
+    }
+
     @Test("pane authentication uses canonical fixture credential metadata")
     func paneAuthenticationUsesCanonicalFixtureCredentialMetadata() throws {
         let fixture = try LiveServerFixture()
@@ -639,8 +672,8 @@ struct AgentStudioAppIPCServiceTests {
         let token = try fixture.issueTestCredential(
             for: .pane(
                 paneId: fixture.boundPaneId,
-                generationId: UUIDv7.generate(),
-                status: .active
+                credentialRecordId: UUIDv7.generate(),
+                status: .registered
             )
         )
         let connection = try UnixSocketClient.connect(
@@ -655,6 +688,17 @@ struct AgentStudioAppIPCServiceTests {
         )
         let response = try reader.receiveResponse(connection: connection)
         #expect(response.error == nil)
+    }
+}
+
+private final class PaneMembershipGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storedIsMember = true
+
+    var isMember: Bool { lock.withLock { storedIsMember } }
+
+    func setMember(_ isMember: Bool) {
+        lock.withLock { storedIsMember = isMember }
     }
 }
 

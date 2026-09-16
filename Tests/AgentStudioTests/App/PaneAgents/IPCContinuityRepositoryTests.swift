@@ -6,298 +6,177 @@ import Testing
 
 @testable import AgentStudio
 @testable import AgentStudioCore
-@testable import AgentStudioTestSupport
 
-@Suite("IPC continuity credential repository")
+@Suite("IPC continuity credential repository", .serialized)
 struct IPCContinuityRepositoryTests {
-    @Test("unprepared credential storage does not open another database")
-    func unpreparedCredentialStorageDoesNotOpenAnotherDatabase() async throws {
+    @Test("pane registration is idempotent only for identical immutable intent")
+    func paneRegistrationIsImmutableAndIdempotent() async throws {
         let fixture = try IPCContinuityRepositoryFixture()
         defer { fixture.removeFiles() }
-        let paneID = UUIDv7.generate()
-        let workspaceID = UUIDv7.generate()
-        let generation = UUIDv7.generate()
-        let verifier = Data(repeating: 0xA5, count: 32)
-
-        let unpreparedRepository = IPCContinuityRepository(datastore: fixture.makeDatastore())
-        await #expect(throws: WorkspaceSQLiteDatastoreError.databasesNotPrepared) {
-            try await unpreparedRepository.persistPreparedPaneCredential(
-                paneID: paneID,
-                workspaceID: workspaceID,
-                generation: generation,
-                verifier: verifier
-            )
+        let repository = try await fixture.makePreparedRepository()
+        let credential = makePaneCredential()
+        try await repository.registerPaneCredential(credential)
+        try await repository.registerPaneCredential(credential)
+        let conflicting = IPCPaneCredential(
+            paneID: credential.paneID,
+            workspaceID: UUIDv7.generate(),
+            credentialRecordID: credential.credentialRecordID,
+            verifierSHA256: credential.verifierSHA256,
+            status: .registered
+        )
+        await #expect(throws: IPCContinuityRepositoryError.conflictingCredentialRecord) {
+            try await repository.registerPaneCredential(conflicting)
         }
-        #expect(!FileManager.default.fileExists(atPath: fixture.localDatabaseURL.path))
+        let conflictingVerifier = IPCPaneCredential(
+            paneID: credential.paneID,
+            workspaceID: credential.workspaceID,
+            credentialRecordID: credential.credentialRecordID,
+            verifierSHA256: Data(repeating: 0xB6, count: 32),
+            status: .registered
+        )
+        await #expect(throws: IPCContinuityRepositoryError.conflictingCredentialRecord) {
+            try await repository.registerPaneCredential(conflictingVerifier)
+        }
+        #expect(try await repository.paneCredentials(paneID: credential.paneID) == [credential])
     }
 
-    @Test("prepared pane credentials activate idempotently and revoked candidates cannot activate")
-    func preparedPaneCredentialLifecycleUsesPreparedApplicationLocalDatabase() async throws {
+    @Test("invalid verifier length is rejected without writing a row")
+    func invalidVerifierLengthDoesNotPersist() async throws {
         let fixture = try IPCContinuityRepositoryFixture()
         defer { fixture.removeFiles() }
-        let paneID = UUIDv7.generate()
-        let workspaceID = UUIDv7.generate()
-        let generation = UUIDv7.generate()
-        let verifier = Data(repeating: 0xA5, count: 32)
-        let cancelledPaneID = UUIDv7.generate()
-        let cancelledGeneration = UUIDv7.generate()
+        let repository = try await fixture.makePreparedRepository()
+        let credential = makePaneCredential(verifier: Data(repeating: 0xA5, count: 31))
 
-        let datastore = fixture.makeDatastore()
-        guard case .prepared = await datastore.prepareDatabasesForBoot() else {
-            Issue.record("Database preparation failed")
-            return
-        }
-        let repository = IPCContinuityRepository(datastore: datastore)
-        try await repository.persistPreparedPaneCredential(
-            paneID: paneID,
-            workspaceID: workspaceID,
-            generation: generation,
-            verifier: verifier
-        )
-        #expect(
-            try await repository.credential(for: paneID, generation: generation)?.status == .prepared
-        )
-        try await repository.activatePreparedPaneCredential(paneID: paneID, generation: generation)
-        try await repository.activatePreparedPaneCredential(paneID: paneID, generation: generation)
-        let activeCredential = try #require(
-            try await repository.credential(for: paneID, generation: generation)
-        )
-        #expect(activeCredential.status == .active)
-        #expect(activeCredential.workspaceID == workspaceID)
-        #expect(activeCredential.generation == generation)
-        #expect(activeCredential.verifier == verifier)
-
-        try await repository.persistPreparedPaneCredential(
-            paneID: cancelledPaneID,
-            workspaceID: workspaceID,
-            generation: cancelledGeneration,
-            verifier: verifier
-        )
-        try await repository.revokePreparedPaneCredential(
-            paneID: cancelledPaneID,
-            generation: cancelledGeneration
-        )
-        #expect(
-            try await repository.credential(for: cancelledPaneID, generation: cancelledGeneration)?.status
-                == .revoked
-        )
-        await #expect(throws: IPCContinuityRepositoryError.cannotActivateRevokedCredential) {
-            try await repository.activatePreparedPaneCredential(
-                paneID: cancelledPaneID,
-                generation: cancelledGeneration
-            )
-        }
-    }
-
-    @Test("prepared candidate identity is idempotent only for identical immutable intent")
-    func preparedCandidateIdentityRejectsConflictingIntentWithoutReplacement() async throws {
-        let fixture = try IPCContinuityRepositoryFixture()
-        defer { fixture.removeFiles() }
-        let paneID = UUIDv7.generate()
-        let workspaceID = UUIDv7.generate()
-        let generation = UUIDv7.generate()
-        let verifier = Data(repeating: 0xA5, count: 32)
-        let datastore = fixture.makeDatastore()
-        guard case .prepared = await datastore.prepareDatabasesForBoot() else {
-            Issue.record("Database preparation failed")
-            return
-        }
-        let repository = IPCContinuityRepository(datastore: datastore)
-        try await repository.persistPreparedPaneCredential(
-            paneID: paneID, workspaceID: workspaceID, generation: generation, verifier: verifier
-        )
-        try await repository.persistPreparedPaneCredential(
-            paneID: paneID, workspaceID: workspaceID, generation: generation, verifier: verifier
-        )
-        await #expect(throws: IPCContinuityRepositoryError.conflictingPreparedCredential) {
-            try await repository.persistPreparedPaneCredential(
-                paneID: paneID, workspaceID: UUIDv7.generate(), generation: generation, verifier: verifier
-            )
-        }
-        await #expect(throws: IPCContinuityRepositoryError.conflictingPreparedCredential) {
-            try await repository.persistPreparedPaneCredential(
-                paneID: paneID, workspaceID: workspaceID, generation: generation,
-                verifier: Data(repeating: 0x5A, count: 32)
-            )
-        }
-        let retained = try #require(try await repository.credential(for: paneID, generation: generation))
-        #expect(retained.workspaceID == workspaceID)
-        #expect(retained.verifier == verifier)
-        #expect(retained.status == .prepared)
-    }
-
-    @Test("revocation changes only the exact prepared pane generation")
-    func revokePreparedCredentialLeavesSiblingGenerationAndActiveCredentialUntouched() async throws {
-        let fixture = try IPCContinuityRepositoryFixture()
-        defer { fixture.removeFiles() }
-        let paneID = UUIDv7.generate()
-        let workspaceID = UUIDv7.generate()
-        let firstGeneration = UUIDv7.generate()
-        let secondGeneration = UUIDv7.generate()
-        let verifier = Data(repeating: 0xA5, count: 32)
-        let datastore = fixture.makeDatastore()
-        guard case .prepared = await datastore.prepareDatabasesForBoot() else {
-            Issue.record("Database preparation failed")
-            return
-        }
-        let repository = IPCContinuityRepository(datastore: datastore)
-        try await repository.persistPreparedPaneCredential(
-            paneID: paneID, workspaceID: workspaceID, generation: firstGeneration, verifier: verifier
-        )
-        try await repository.persistPreparedPaneCredential(
-            paneID: paneID, workspaceID: workspaceID, generation: secondGeneration, verifier: verifier
-        )
-        try await repository.revokePreparedPaneCredential(paneID: paneID, generation: firstGeneration)
-        #expect(try await repository.credential(for: paneID, generation: firstGeneration)?.status == .revoked)
-        #expect(try await repository.credential(for: paneID, generation: secondGeneration)?.status == .prepared)
-        try await repository.activatePreparedPaneCredential(paneID: paneID, generation: secondGeneration)
-        try await repository.revokePreparedPaneCredential(paneID: paneID, generation: secondGeneration)
-        #expect(try await repository.credential(for: paneID, generation: secondGeneration)?.status == .active)
-    }
-
-    @Test("invalid verifier length is rejected without a persisted candidate")
-    func invalidVerifierLengthDoesNotPersistCredential() async throws {
-        let fixture = try IPCContinuityRepositoryFixture()
-        defer { fixture.removeFiles() }
-        let paneID = UUIDv7.generate()
-        let generation = UUIDv7.generate()
-        let datastore = fixture.makeDatastore()
-        guard case .prepared = await datastore.prepareDatabasesForBoot() else {
-            Issue.record("Database preparation failed")
-            return
-        }
-        let repository = IPCContinuityRepository(datastore: datastore)
         await #expect(throws: IPCContinuityRepositoryError.invalidVerifierLength) {
-            try await repository.persistPreparedPaneCredential(
-                paneID: paneID,
-                workspaceID: UUIDv7.generate(),
-                generation: generation,
-                verifier: Data(repeating: 0xA5, count: 31)
-            )
+            try await repository.registerPaneCredential(credential)
         }
-        #expect(try await repository.credential(for: paneID, generation: generation) == nil)
+        #expect(try await repository.paneCredentials(paneID: credential.paneID).isEmpty)
     }
 
-    @Test("resolver hashes active pane credentials and rejects prepared or ambiguous verifier matches")
-    func resolverUsesExactVerifierLookup() async throws {
+    @Test("two records for one pane coexist and revoke-all isolates another pane")
+    func additivePaneRecordsRevokeTogether() async throws {
         let fixture = try IPCContinuityRepositoryFixture()
         defer { fixture.removeFiles() }
-        let runtimeID = UUIDv7.generate()
-        let token = AgentStudioIPCSubjectToken(rawValue: "deterministic-pane-token")
-        let verifier = Data(SHA256.hash(data: Data(token.rawValue.utf8)))
-        let datastore = fixture.makeDatastore()
-        guard case .prepared = await datastore.prepareDatabasesForBoot() else { return }
-        let repository = IPCContinuityRepository(datastore: datastore)
+        let repository = try await fixture.makePreparedRepository()
         let paneID = UUIDv7.generate()
-        let generation = UUIDv7.generate()
-        try await repository.persistPreparedPaneCredential(
-            paneID: paneID, workspaceID: UUIDv7.generate(), generation: generation, verifier: verifier
-        )
-        let resolver = IPCContinuityCredentialResolver(repository: repository)
-        await #expect(throws: AgentStudioIPCAuthenticationError.self) {
-            _ = try await resolver.resolveCredential(token, serverRuntimeID: runtimeID)
-        }
-        try await repository.activatePreparedPaneCredential(paneID: paneID, generation: generation)
-        let resolution = try await resolver.resolveCredential(token, serverRuntimeID: runtimeID)
-        #expect(resolution.generationID == generation)
-        try await repository.persistPreparedDiagnosticCredential(
-            runtimeID: runtimeID, generation: UUIDv7.generate(), verifier: verifier
-        )
-        await #expect(throws: AgentStudioIPCAuthenticationError.self) {
-            _ = try await resolver.resolveCredential(token, serverRuntimeID: runtimeID)
+        let workspaceID = UUIDv7.generate()
+        let first = makePaneCredential(paneID: paneID, workspaceID: workspaceID, byte: 0x11)
+        let second = makePaneCredential(paneID: paneID, workspaceID: workspaceID, byte: 0x22)
+        let other = makePaneCredential(byte: 0x33)
+        try await repository.registerPaneCredential(first)
+        try await repository.registerPaneCredential(second)
+        try await repository.registerPaneCredential(other)
+        try await repository.revokeAllPaneCredentials(paneID: paneID)
+        #expect(try await repository.paneCredentials(paneID: paneID).map(\.status) == [.revoked, .revoked])
+        #expect(try await repository.paneCredentials(paneID: other.paneID) == [other])
+    }
+
+    @Test("exact verifier lookup rejects ambiguous matches")
+    func verifierLookupIsExactAndFailClosed() async throws {
+        let fixture = try IPCContinuityRepositoryFixture()
+        defer { fixture.removeFiles() }
+        let repository = try await fixture.makePreparedRepository()
+        let sharedVerifier = Data(repeating: 0x44, count: 32)
+        let first = makePaneCredential(verifier: sharedVerifier)
+        let second = makePaneCredential(verifier: sharedVerifier)
+        try await repository.registerPaneCredential(first)
+        #expect(try await repository.credential(matchingVerifier: sharedVerifier) == .pane(first))
+        try await repository.registerPaneCredential(second)
+        await #expect(throws: IPCContinuityRepositoryError.ambiguousVerifier) {
+            _ = try await repository.credential(matchingVerifier: sharedVerifier)
         }
     }
 
-    @Test("resolver requires matching active diagnostic runtime and maps superseded pane late-only")
-    func resolverEnforcesDiagnosticRuntimeAndPaneSupersession() async throws {
+    @Test("ambiguous durable verifier becomes controlled unauthenticated resolution")
+    func resolverMapsAmbiguousVerifierToUnauthenticated() async throws {
         let fixture = try IPCContinuityRepositoryFixture()
         defer { fixture.removeFiles() }
-        let serverRuntimeID = UUIDv7.generate()
-        let token = AgentStudioIPCSubjectToken(rawValue: "diagnostic-token")
+        let repository = try await fixture.makePreparedRepository()
+        let token = AgentStudioIPCSubjectToken(rawValue: "ambiguous-durable-token")
         let verifier = Data(SHA256.hash(data: Data(token.rawValue.utf8)))
-        let datastore = fixture.makeDatastore()
-        guard case .prepared = await datastore.prepareDatabasesForBoot() else { return }
-        let repository = IPCContinuityRepository(datastore: datastore)
-        let diagnosticGeneration = UUIDv7.generate()
-        try await repository.persistPreparedDiagnosticCredential(
-            runtimeID: serverRuntimeID, generation: diagnosticGeneration, verifier: verifier
-        )
-        try await repository.activatePreparedDiagnosticCredential(
-            runtimeID: serverRuntimeID, generation: diagnosticGeneration
-        )
+        try await repository.registerPaneCredential(makePaneCredential(verifier: verifier))
+        try await repository.registerPaneCredential(makePaneCredential(verifier: verifier))
         let resolver = IPCContinuityCredentialResolver(repository: repository)
-        let diagnosticResolution = try await resolver.resolveCredential(token, serverRuntimeID: serverRuntimeID)
-        #expect(diagnosticResolution.status == .active)
-        await #expect(throws: AgentStudioIPCAuthenticationError.self) {
+
+        await #expect(throws: AgentStudioIPCAuthenticationError(reason: .unauthenticated)) {
             _ = try await resolver.resolveCredential(token, serverRuntimeID: UUIDv7.generate())
         }
-        try await repository.revokeDiagnosticCredential(runtimeID: serverRuntimeID, generation: diagnosticGeneration)
-        await #expect(throws: AgentStudioIPCAuthenticationError.self) {
-            _ = try await resolver.resolveCredential(token, serverRuntimeID: serverRuntimeID)
-        }
-
-        let paneToken = AgentStudioIPCSubjectToken(rawValue: "superseded-pane-token")
-        let paneVerifier = Data(SHA256.hash(data: Data(paneToken.rawValue.utf8)))
-        let paneID = UUIDv7.generate()
-        let paneGeneration = UUIDv7.generate()
-        try await repository.persistPreparedPaneCredential(
-            paneID: paneID, workspaceID: UUIDv7.generate(), generation: paneGeneration, verifier: paneVerifier
-        )
-        try await repository.activatePreparedPaneCredential(paneID: paneID, generation: paneGeneration)
-        try await repository.supersedeActivePaneCredential(paneID: paneID, generation: paneGeneration)
-        let supersededResolution = try await resolver.resolveCredential(paneToken, serverRuntimeID: serverRuntimeID)
-        #expect(supersededResolution.status == .superseded)
     }
 
-    @Test("active and revoked pane credentials survive prepared datastore reopening")
-    func credentialLifecycleSurvivesPreparedDatastoreReopening() async throws {
+    @Test("registered replay after revoke cannot restore a record across reopening")
+    func registeredReplayAfterRevokeIsRefused() async throws {
         let fixture = try IPCContinuityRepositoryFixture()
         defer { fixture.removeFiles() }
-        let paneID = UUIDv7.generate()
-        let workspaceID = UUIDv7.generate()
-        let generation = UUIDv7.generate()
-        let cancelledPaneID = UUIDv7.generate()
-        let cancelledGeneration = UUIDv7.generate()
-        let verifier = Data(repeating: 0xA5, count: 32)
-        let datastore = fixture.makeDatastore()
-        guard case .prepared = await datastore.prepareDatabasesForBoot() else {
-            Issue.record("Database preparation failed")
-            return
-        }
-        try await datastore.saveWorkspaceSnapshotBundle(
-            WorkspaceSQLiteSaveBundle(workspace: .init(id: UUIDv7.generate(), name: "IPC continuity proof"))
-        )
-        let repository = IPCContinuityRepository(datastore: datastore)
-        try await repository.persistPreparedPaneCredential(
-            paneID: paneID, workspaceID: workspaceID, generation: generation, verifier: verifier
-        )
-        try await repository.activatePreparedPaneCredential(paneID: paneID, generation: generation)
-        try await repository.persistPreparedPaneCredential(
-            paneID: cancelledPaneID, workspaceID: workspaceID, generation: cancelledGeneration,
-            verifier: verifier
-        )
-        try await repository.revokePreparedPaneCredential(
-            paneID: cancelledPaneID,
-            generation: cancelledGeneration
-        )
+        let repository = try await fixture.makePreparedRepository()
+        let credential = makePaneCredential()
+        try await repository.registerPaneCredential(credential)
+        try await repository.revokeAllPaneCredentials(paneID: credential.paneID)
 
-        let reopenedDatastore = fixture.makeDatastore()
-        guard case .prepared = await reopenedDatastore.prepareDatabasesForBoot() else {
-            Issue.record("Database reopening failed")
-            return
+        await #expect(throws: IPCContinuityRepositoryError.conflictingCredentialRecord) {
+            try await repository.registerPaneCredential(credential)
         }
-        let reopenedRepository = IPCContinuityRepository(datastore: reopenedDatastore)
-        let reopenedCredential = try #require(
-            try await reopenedRepository.credential(for: paneID, generation: generation)
-        )
-        #expect(reopenedCredential.status == .active)
-        #expect(reopenedCredential.workspaceID == workspaceID)
-        #expect(reopenedCredential.verifier == verifier)
+        let reopened = try await fixture.makePreparedRepository()
         #expect(
-            try await reopenedRepository.credential(for: cancelledPaneID, generation: cancelledGeneration)?.status
-                == .revoked
-        )
+            try await reopened.paneCredential(
+                paneID: credential.paneID,
+                credentialRecordID: credential.credentialRecordID
+            )
+                == IPCPaneCredential(
+                    paneID: credential.paneID,
+                    workspaceID: credential.workspaceID,
+                    credentialRecordID: credential.credentialRecordID,
+                    verifierSHA256: credential.verifierSHA256,
+                    status: .revoked
+                ))
     }
+
+    @Test("pane records and diagnostic credentials survive datastore reopening")
+    func credentialsSurviveReopening() async throws {
+        let fixture = try IPCContinuityRepositoryFixture()
+        defer { fixture.removeFiles() }
+        let repository = try await fixture.makePreparedRepository()
+        let pane = makePaneCredential()
+        let runtimeID = UUIDv7.generate()
+        let generationID = UUIDv7.generate()
+        let diagnosticVerifier = Data(repeating: 0x5A, count: 32)
+        try await repository.registerPaneCredential(pane)
+        try await repository.persistPreparedDiagnosticCredential(
+            runtimeID: runtimeID,
+            generation: generationID,
+            verifier: diagnosticVerifier
+        )
+        try await repository.activatePreparedDiagnosticCredential(runtimeID: runtimeID, generation: generationID)
+        let reopened = try await fixture.makePreparedRepository()
+        #expect(
+            try await reopened.paneCredential(
+                paneID: pane.paneID,
+                credentialRecordID: pane.credentialRecordID
+            ) == pane)
+        #expect(
+            try await reopened.credential(matchingVerifier: diagnosticVerifier)
+                == .diagnostic(
+                    runtimeID: runtimeID,
+                    generationID: generationID,
+                    verifierSHA256: diagnosticVerifier,
+                    status: .active
+                ))
+    }
+}
+
+private func makePaneCredential(
+    paneID: UUID = UUIDv7.generate(),
+    workspaceID: UUID = UUIDv7.generate(),
+    credentialRecordID: UUID = UUIDv7.generate(),
+    verifier: Data? = nil,
+    byte: UInt8 = 0xA5
+) -> IPCPaneCredential {
+    IPCPaneCredential(
+        paneID: paneID,
+        workspaceID: workspaceID,
+        credentialRecordID: credentialRecordID,
+        verifierSHA256: verifier ?? Data(repeating: byte, count: 32),
+        status: .registered
+    )
 }
 
 private struct IPCContinuityRepositoryFixture {
@@ -313,14 +192,27 @@ private struct IPCContinuityRepositoryFixture {
         try FileManager.default.createDirectory(at: rootDirectory, withIntermediateDirectories: true)
     }
 
-    func makeDatastore() -> WorkspaceSQLiteDatastoreActor {
-        WorkspaceSQLiteDatastoreFactory(
+    func makePreparedRepository() async throws -> IPCContinuityRepository {
+        let datastore = WorkspaceSQLiteDatastoreFactory(
             coreDatabaseURL: coreDatabaseURL,
             localDatabaseURL: localDatabaseURL
         ).makeDatastore()
+        guard case .prepared = await datastore.prepareDatabasesForBoot() else {
+            throw IPCContinuityRepositoryFixtureError.databasePreparationFailed
+        }
+        try await datastore.saveWorkspaceSnapshotBundle(
+            WorkspaceSQLiteSaveBundle(
+                workspace: .init(id: UUIDv7.generate(), name: "IPC continuity repository tests")
+            )
+        )
+        return IPCContinuityRepository(datastore: datastore)
     }
 
     func removeFiles() {
         try? FileManager.default.removeItem(at: rootDirectory)
     }
+}
+
+private enum IPCContinuityRepositoryFixtureError: Error {
+    case databasePreparationFailed
 }

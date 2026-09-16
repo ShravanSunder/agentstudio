@@ -393,6 +393,7 @@ package enum WorkspaceLocalMigrations {
         }
         registerSessionsSchema(in: &migrator)
         registerIPCCredentialSchema(in: &migrator)
+        registerOpaquePaneCredentialRecords(in: &migrator)
         return migrator
     }
 

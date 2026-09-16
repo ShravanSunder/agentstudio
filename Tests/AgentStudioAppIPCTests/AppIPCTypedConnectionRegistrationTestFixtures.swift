@@ -47,14 +47,24 @@ struct TypedConnectionRegistrationFixture {
             authenticatedContext: principal.map {
                 AgentStudioIPCAuthenticatedContext(
                     principal: $0,
-                    generationID: UUIDv7.generate(),
-                    authorityDisposition: .current
+                    credentialIdentity: credentialIdentity(for: $0)
                 )
             },
             authenticate: authenticate,
             authenticationStatus: authenticationStatus,
             eventSubscriber: eventSubscriber
         )
+    }
+
+    private func credentialIdentity(
+        for principal: IPCPrincipal
+    ) -> AgentStudioIPCAuthenticatedCredentialIdentity {
+        switch principal.kind {
+        case .spawnedPaneAgent:
+            return .pane(recordID: UUIDv7.generate())
+        case .automationClient, .futureMCPClient, .unsafeDebugClient:
+            return .diagnostic(generationID: UUIDv7.generate())
+        }
     }
 
     var unusedTargetResolutionTools: AppIPCTargetResolutionTools {

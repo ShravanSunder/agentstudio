@@ -529,8 +529,8 @@ private struct MissingGrantCredentialScenario {
         let authenticationToken = try fixture.issueTestCredential(
             for: .pane(
                 paneId: fixture.boundPaneId,
-                generationId: UUIDv7.generate(),
-                status: .active
+                credentialRecordId: UUIDv7.generate(),
+                status: .registered
             )
         )
         return Self(

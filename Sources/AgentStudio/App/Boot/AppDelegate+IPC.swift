@@ -66,18 +66,7 @@ extension AppDelegate {
                 permissionApprovalPort: AgentStudioIPCHumanApprovalPort()
             )
             let eventBroker = IPCEventBroker()
-            let catalog = try IPCBuiltInMethodCatalog(
-                inputs: .init(
-                    terminalWaitMaximumSeconds: AppPolicies.IPC.maximumTerminalWaitSeconds,
-                    relationships: .init(
-                        paneFocus: .appCommand(identifier: AppCommand.focusPane.rawValue),
-                        paneClose: .appCommand(identifier: AppCommand.closePane.rawValue),
-                        drawerToggle: .appCommand(identifier: AppCommand.toggleDrawer.rawValue),
-                        drawerAddPane: .appCommand(identifier: AppCommand.addDrawerPane.rawValue),
-                        bridgeDiffLoad: .appCommand(identifier: AppCommand.showBridgeReview.rawValue),
-                        bridgeFileViewOpen: .appCommand(identifier: AppCommand.showBridgeFiles.rawValue)
-                    ), examples: .init(illustrativeIdentifier: UUIDv7.generate())
-                ))
+            let catalog = try Self.appIPCBuiltInMethodCatalog()
             var registrations = try AppIPCBuiltInMethodRegistrations.make(
                 inputs: .init(
                     catalog: catalog, runtimeId: runtimeId, ports: ports, eventBroker: eventBroker
@@ -93,13 +82,21 @@ extension AppDelegate {
                     runtimeId: runtimeId, accessMode: accessMode
                 ), ports: ports, methodRegistry: registry, eventBroker: eventBroker
             )
+            let credentialResolver = IPCContinuityCredentialResolver(
+                repository: IPCContinuityRepository(datastore: workspaceSQLiteDatastore)
+            )
+            let principalRegistry = AgentStudioIPCPrincipalRegistry(
+                runtimeId: runtimeId,
+                credentialResolver: credentialResolver,
+                canonicalPaneMembership: { [store] paneID, workspaceID in
+                    store.identityAtom.workspaceId == workspaceID && store.paneAtom.pane(paneID) != nil
+                }
+            )
             let server = AgentStudioAppIPCServer(
                 service: service,
                 paths: paths,
                 channel: Self.appIPCChannel(),
-                credentialResolver: IPCContinuityCredentialResolver(
-                    repository: IPCContinuityRepository(datastore: workspaceSQLiteDatastore)
-                )
+                principalRegistry: principalRegistry
             )
             try server.start()
             appIPCServer = server
@@ -116,6 +113,23 @@ extension AppDelegate {
 
     private static func appIPCAppVersion() -> String {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev"
+    }
+
+    private static func appIPCBuiltInMethodCatalog() throws -> IPCBuiltInMethodCatalog {
+        try IPCBuiltInMethodCatalog(
+            inputs: .init(
+                terminalWaitMaximumSeconds: AppPolicies.IPC.maximumTerminalWaitSeconds,
+                relationships: .init(
+                    paneFocus: .appCommand(identifier: AppCommand.focusPane.rawValue),
+                    paneClose: .appCommand(identifier: AppCommand.closePane.rawValue),
+                    drawerToggle: .appCommand(identifier: AppCommand.toggleDrawer.rawValue),
+                    drawerAddPane: .appCommand(identifier: AppCommand.addDrawerPane.rawValue),
+                    bridgeDiffLoad: .appCommand(identifier: AppCommand.showBridgeReview.rawValue),
+                    bridgeFileViewOpen: .appCommand(identifier: AppCommand.showBridgeFiles.rawValue)
+                ),
+                examples: .init(illustrativeIdentifier: UUIDv7.generate())
+            )
+        )
     }
 
     private static func appIPCChannel() -> AgentStudioIPCChannel {

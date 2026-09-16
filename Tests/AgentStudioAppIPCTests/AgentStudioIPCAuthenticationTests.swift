@@ -1,6 +1,7 @@
 import AgentStudioIPCTransport
 import AgentStudioInfrastructure
 import AgentStudioProgrammaticControl
+import CryptoKit
 import Foundation
 import Testing
 
@@ -13,7 +14,7 @@ struct AgentStudioIPCAuthenticationTests {
         let runtimeID = UUIDv7.generate()
         let paneID = UUIDv7.generate()
         let workspaceID = UUIDv7.generate()
-        let generationID = UUIDv7.generate()
+        let credentialRecordID = UUIDv7.generate()
         let token = AgentStudioIPCSubjectToken(rawValue: "active-pane-token")
         let registry = makeRegistry(
             runtimeID: runtimeID,
@@ -22,8 +23,8 @@ struct AgentStudioIPCAuthenticationTests {
                     paneResolution(
                         paneID: paneID,
                         workspaceID: workspaceID,
-                        generationID: generationID,
-                        status: .active
+                        credentialRecordID: credentialRecordID,
+                        status: .registered
                     )
                 )
             ]
@@ -32,10 +33,9 @@ struct AgentStudioIPCAuthenticationTests {
         let first = try await registry.authenticate(subjectToken: token)
         let second = try await registry.authenticate(subjectToken: token)
 
-        #expect(first.generationID == generationID)
-        #expect(second.generationID == generationID)
+        #expect(first.credentialIdentity == .pane(recordID: credentialRecordID))
+        #expect(second.credentialIdentity == .pane(recordID: credentialRecordID))
         #expect(first.principal.principalId != second.principal.principalId)
-        #expect(first.authorityDisposition == .current)
         #expect(
             first.principal.kind
                 == .spawnedPaneAgent(boundPaneId: paneID.uuidString, boundWorkspaceId: workspaceID)
@@ -56,8 +56,8 @@ struct AgentStudioIPCAuthenticationTests {
                     paneResolution(
                         paneID: paneID,
                         workspaceID: workspaceID,
-                        generationID: UUIDv7.generate(),
-                        status: .active
+                        credentialRecordID: UUIDv7.generate(),
+                        status: .registered
                     )
                 )
             ],
@@ -89,7 +89,7 @@ struct AgentStudioIPCAuthenticationTests {
         let runtimeID = UUIDv7.generate()
         let paneID = UUIDv7.generate()
         let workspaceID = UUIDv7.generate()
-        let generationID = UUIDv7.generate()
+        let credentialRecordID = UUIDv7.generate()
         let token = AgentStudioIPCSubjectToken(rawValue: "login-token")
         let registry = makeRegistry(
             runtimeID: runtimeID,
@@ -98,8 +98,8 @@ struct AgentStudioIPCAuthenticationTests {
                     paneResolution(
                         paneID: paneID,
                         workspaceID: workspaceID,
-                        generationID: generationID,
-                        status: .active
+                        credentialRecordID: credentialRecordID,
+                        status: .registered
                     )
                 )
             ]
@@ -107,7 +107,7 @@ struct AgentStudioIPCAuthenticationTests {
 
         let login = try await AgentStudioIPCAuthenticator(registry: registry).login(subjectToken: token)
 
-        #expect(login.authenticatedContext.generationID == generationID)
+        #expect(login.authenticatedContext.credentialIdentity == .pane(recordID: credentialRecordID))
         #expect(
             login.principal.kind
                 == .spawnedPaneAgent(
@@ -132,29 +132,24 @@ struct AgentStudioIPCAuthenticationTests {
         }
     }
 
-    @Test("prepared and revoked credential resolutions cannot authenticate")
-    func preparedAndRevokedCredentialsCannotAuthenticate() async {
+    @Test("revoked credential resolutions cannot authenticate")
+    func revokedCredentialsCannotAuthenticate() async {
         let runtimeID = UUIDv7.generate()
-        let preparedToken = AgentStudioIPCSubjectToken(rawValue: "prepared-token")
         let revokedToken = AgentStudioIPCSubjectToken(rawValue: "revoked-token")
         let registry = makeRegistry(
             runtimeID: runtimeID,
             outcomes: [
-                preparedToken.rawValue: .rejected(.init(reason: .unauthenticated)),
                 revokedToken.rawValue: .resolved(
                     paneResolution(
                         paneID: UUIDv7.generate(),
                         workspaceID: UUIDv7.generate(),
-                        generationID: UUIDv7.generate(),
+                        credentialRecordID: UUIDv7.generate(),
                         status: .revoked
                     )
-                ),
+                )
             ]
         )
 
-        await #expect(throws: AgentStudioIPCAuthenticationError.self) {
-            try await registry.authenticate(subjectToken: preparedToken)
-        }
         await #expect(throws: AgentStudioIPCAuthenticationError.self) {
             try await registry.authenticate(subjectToken: revokedToken)
         }
@@ -166,7 +161,7 @@ struct AgentStudioIPCAuthenticationTests {
         let foreignRuntimeID = UUIDv7.generate()
         let activeToken = AgentStudioIPCSubjectToken(rawValue: "diagnostic-active")
         let foreignToken = AgentStudioIPCSubjectToken(rawValue: "diagnostic-foreign")
-        let supersededToken = AgentStudioIPCSubjectToken(rawValue: "diagnostic-superseded")
+        let revokedToken = AgentStudioIPCSubjectToken(rawValue: "diagnostic-revoked")
         let registry = makeRegistry(
             runtimeID: runtimeID,
             outcomes: [
@@ -176,53 +171,105 @@ struct AgentStudioIPCAuthenticationTests {
                 foreignToken.rawValue: .resolved(
                     diagnosticResolution(runtimeID: foreignRuntimeID, status: .active)
                 ),
-                supersededToken.rawValue: .resolved(
-                    diagnosticResolution(runtimeID: runtimeID, status: .superseded)
+                revokedToken.rawValue: .resolved(
+                    diagnosticResolution(runtimeID: runtimeID, status: .revoked)
                 ),
             ]
         )
 
         let activeContext = try await registry.authenticate(subjectToken: activeToken)
-        #expect(activeContext.principal.accessMode == .unsafeDebug)
+        #expect(activeContext.principal.accessMode == .automationSameUser)
         #expect(activeContext.principal.kind == .automationClient)
-        #expect(activeContext.authorityDisposition == .current)
         await #expect(throws: AgentStudioIPCAuthenticationError.self) {
             try await registry.authenticate(subjectToken: foreignToken)
         }
         await #expect(throws: AgentStudioIPCAuthenticationError.self) {
-            try await registry.authenticate(subjectToken: supersededToken)
+            try await registry.authenticate(subjectToken: revokedToken)
         }
     }
 
-    @Test("superseded pane credentials authenticate only as late reports")
-    func supersededPaneCredentialIsLateReportOnly() async throws {
+    @Test("current RAM and older durable pane verifiers coexist across repeated authentication")
+    func currentRAMAndOlderDurablePaneVerifiersCoexist() async throws {
         let paneID = UUIDv7.generate()
         let workspaceID = UUIDv7.generate()
-        let token = AgentStudioIPCSubjectToken(rawValue: "superseded-pane-token")
-        let registry = makeRegistry(
-            runtimeID: UUIDv7.generate(),
+        let currentToken = AgentStudioIPCSubjectToken(rawValue: "current-memory-pane-token")
+        let durableToken = AgentStudioIPCSubjectToken(rawValue: "older-durable-pane-token")
+        let currentRecordID = UUIDv7.generate()
+        let durableRecordID = UUIDv7.generate()
+        let durableResolver = StaticCredentialResolver(
             outcomes: [
-                token.rawValue: .resolved(
+                durableToken.rawValue: .resolved(
                     paneResolution(
                         paneID: paneID,
                         workspaceID: workspaceID,
-                        generationID: UUIDv7.generate(),
-                        status: .superseded
+                        credentialRecordID: durableRecordID,
+                        status: .registered
                     )
                 )
             ]
         )
+        let registry = AgentStudioIPCPrincipalRegistry(
+            runtimeId: UUIDv7.generate(),
+            credentialResolver: durableResolver,
+            canonicalPaneMembership: { candidatePaneID, candidateWorkspaceID in
+                candidatePaneID == paneID && candidateWorkspaceID == workspaceID
+            }
+        )
+        try registry.registerIssuedPaneCredential(
+            paneID: paneID,
+            workspaceID: workspaceID,
+            credentialRecordID: currentRecordID,
+            verifierSHA256: Data(SHA256.hash(data: Data(currentToken.rawValue.utf8)))
+        )
 
-        let context = try await registry.authenticate(subjectToken: token)
+        let firstCurrent = try await registry.authenticate(subjectToken: currentToken)
+        let secondCurrent = try await registry.authenticate(subjectToken: currentToken)
+        let firstDurable = try await registry.authenticate(subjectToken: durableToken)
+        let secondDurable = try await registry.authenticate(subjectToken: durableToken)
 
-        #expect(context.authorityDisposition == .lateReportOnly)
-        #expect(context.principal.accessMode == .agentStudioOnly)
+        #expect(firstCurrent.credentialIdentity == .pane(recordID: currentRecordID))
+        #expect(secondCurrent.credentialIdentity == .pane(recordID: currentRecordID))
+        #expect(firstDurable.credentialIdentity == .pane(recordID: durableRecordID))
+        #expect(secondDurable.credentialIdentity == .pane(recordID: durableRecordID))
+        #expect(await durableResolver.lookupCount == 2)
         #expect(
-            context.principal.kind
+            firstCurrent.principal.kind
                 == .spawnedPaneAgent(
                     boundPaneId: paneID.uuidString,
                     boundWorkspaceId: workspaceID
                 ))
+        #expect(firstDurable.principal.kind == firstCurrent.principal.kind)
+    }
+
+    @Test("issued pane record identity is immutable across verifier conflicts")
+    func issuedPaneRecordIdentityRejectsConflictingVerifier() async throws {
+        let paneID = UUIDv7.generate()
+        let workspaceID = UUIDv7.generate()
+        let credentialRecordID = UUIDv7.generate()
+        let originalToken = AgentStudioIPCSubjectToken(rawValue: "original-record-token")
+        let conflictingToken = AgentStudioIPCSubjectToken(rawValue: "conflicting-record-token")
+        let registry = makeRegistry(runtimeID: UUIDv7.generate(), outcomes: [:])
+        try registry.registerIssuedPaneCredential(
+            paneID: paneID,
+            workspaceID: workspaceID,
+            credentialRecordID: credentialRecordID,
+            verifierSHA256: Data(SHA256.hash(data: Data(originalToken.rawValue.utf8)))
+        )
+
+        #expect(throws: AgentStudioIPCIssuedCredentialRegistrationError.conflictingRecordIdentity) {
+            try registry.registerIssuedPaneCredential(
+                paneID: paneID,
+                workspaceID: workspaceID,
+                credentialRecordID: credentialRecordID,
+                verifierSHA256: Data(SHA256.hash(data: Data(conflictingToken.rawValue.utf8)))
+            )
+        }
+
+        let original = try await registry.authenticate(subjectToken: originalToken)
+        #expect(original.credentialIdentity == .pane(recordID: credentialRecordID))
+        await #expect(throws: AgentStudioIPCAuthenticationError.self) {
+            try await registry.authenticate(subjectToken: conflictingToken)
+        }
     }
 
     @Test("rotation during credential lookup rejects the suspended authentication")
@@ -232,7 +279,8 @@ struct AgentStudioIPCAuthenticationTests {
         let resolver = SuspendedCredentialResolver()
         let registry = AgentStudioIPCPrincipalRegistry(
             runtimeId: runtimeID,
-            credentialResolver: resolver
+            credentialResolver: resolver,
+            canonicalPaneMembership: { _, _ in true }
         )
         let authenticationTask = Task {
             try await registry.authenticate(subjectToken: token)
@@ -254,7 +302,8 @@ struct AgentStudioIPCAuthenticationTests {
         let resolver = SuspendedCredentialResolver()
         let registry = AgentStudioIPCPrincipalRegistry(
             runtimeId: runtimeID,
-            credentialResolver: resolver
+            credentialResolver: resolver,
+            canonicalPaneMembership: { _, _ in true }
         )
         let authenticationTask = Task {
             try await registry.authenticate(
@@ -268,8 +317,8 @@ struct AgentStudioIPCAuthenticationTests {
             with: paneResolution(
                 paneID: paneID,
                 workspaceID: UUIDv7.generate(),
-                generationID: UUIDv7.generate(),
-                status: .active
+                credentialRecordID: UUIDv7.generate(),
+                status: .registered
             ))
 
         await #expect(throws: AgentStudioIPCAuthenticationError.self) {
@@ -283,7 +332,8 @@ struct AgentStudioIPCAuthenticationTests {
         let resolver = SuspendedCredentialResolver()
         let registry = AgentStudioIPCPrincipalRegistry(
             runtimeId: runtimeID,
-            credentialResolver: resolver
+            credentialResolver: resolver,
+            canonicalPaneMembership: { _, _ in true }
         )
         let authenticationTask = Task {
             try await registry.authenticate(
@@ -349,6 +399,7 @@ private enum CredentialResolutionOutcome: Sendable {
 
 private actor StaticCredentialResolver: AgentStudioIPCCredentialResolving {
     private let outcomes: [String: CredentialResolutionOutcome]
+    private(set) var lookupCount = 0
 
     init(outcomes: [String: CredentialResolutionOutcome]) {
         self.outcomes = outcomes
@@ -358,6 +409,7 @@ private actor StaticCredentialResolver: AgentStudioIPCCredentialResolving {
         _ credential: AgentStudioIPCSubjectToken,
         serverRuntimeID _: UUID
     ) async throws -> AgentStudioIPCCredentialResolution {
+        lookupCount += 1
         switch outcomes[credential.rawValue] {
         case .resolved(let resolution):
             return resolution
@@ -411,29 +463,31 @@ private func makeRegistry(
     AgentStudioIPCPrincipalRegistry(
         runtimeId: runtimeID,
         credentialResolver: StaticCredentialResolver(outcomes: outcomes),
-        grantLedger: grantLedger
+        canonicalPaneMembership: { _, _ in true },
+        grantLedger: grantLedger ?? GrantLedger()
     )
 }
 
 private func paneResolution(
     paneID: UUID,
     workspaceID: UUID,
-    generationID: UUID,
-    status: AgentStudioIPCCredentialStatus
+    credentialRecordID: UUID,
+    status: AgentStudioIPCPaneCredentialStatus
 ) -> AgentStudioIPCCredentialResolution {
-    AgentStudioIPCCredentialResolution(
-        namespace: .pane(paneID: paneID, workspaceID: workspaceID),
-        generationID: generationID,
+    .pane(
+        paneID: paneID,
+        workspaceID: workspaceID,
+        credentialRecordID: credentialRecordID,
         status: status
     )
 }
 
 private func diagnosticResolution(
     runtimeID: UUID,
-    status: AgentStudioIPCCredentialStatus
+    status: AgentStudioIPCDiagnosticCredentialStatus
 ) -> AgentStudioIPCCredentialResolution {
-    AgentStudioIPCCredentialResolution(
-        namespace: .diagnostic(runtimeID: runtimeID),
+    .diagnostic(
+        runtimeID: runtimeID,
         generationID: UUIDv7.generate(),
         status: status
     )

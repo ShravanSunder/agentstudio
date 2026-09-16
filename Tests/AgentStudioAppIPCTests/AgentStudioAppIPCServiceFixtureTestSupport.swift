@@ -37,7 +37,8 @@ struct LiveServerFixture {
         uiPresentationPort: any AppIPCUIPresentationPort = FakeUIPresentationPort(),
         sidebarPort: any AppIPCSidebarPort = FakeSidebarPort(),
         commandComposition: IPCCommandMethodComposition? = nil,
-        credentialResolver: (any AgentStudioIPCCredentialResolving)? = nil
+        credentialResolver: (any AgentStudioIPCCredentialResolving)? = nil,
+        canonicalPaneMembership: (@MainActor @Sendable (UUID, UUID) -> Bool)? = nil
     ) throws {
         let resolvedCredentialResolver = credentialResolver ?? IPCFixtureCredentialResolver()
         testCredentialResolver = resolvedCredentialResolver as? IPCFixtureCredentialResolver
@@ -89,11 +90,24 @@ struct LiveServerFixture {
             methodRegistry: methodRegistry,
             eventBroker: eventBroker
         )
+        let fixtureWorkspaceID = workspaceId
+        let fixtureBoundPaneID = boundPaneId
+        let eligiblePaneIDs = Set(panes.map(\.id))
+        let resolvedCanonicalPaneMembership =
+            canonicalPaneMembership ?? { candidatePaneID, candidateWorkspaceID in
+                candidateWorkspaceID == fixtureWorkspaceID
+                    && (candidatePaneID == fixtureBoundPaneID || eligiblePaneIDs.contains(candidatePaneID))
+            }
+        let principalRegistry = AgentStudioIPCPrincipalRegistry(
+            runtimeId: runtimeId,
+            credentialResolver: resolvedCredentialResolver,
+            canonicalPaneMembership: resolvedCanonicalPaneMembership
+        )
         server = AgentStudioAppIPCServer(
             service: service,
             paths: paths,
             channel: channel,
-            credentialResolver: resolvedCredentialResolver
+            principalRegistry: principalRegistry
         )
     }
 
@@ -111,8 +125,8 @@ struct LiveServerFixture {
 }
 
 enum IPCFixtureCredentialIntent: Sendable {
-    case pane(paneId: UUID, generationId: UUID, status: AgentStudioIPCCredentialStatus)
-    case diagnostic(generationId: UUID, status: AgentStudioIPCCredentialStatus)
+    case pane(paneId: UUID, credentialRecordId: UUID, status: AgentStudioIPCPaneCredentialStatus)
+    case diagnostic(generationId: UUID, status: AgentStudioIPCDiagnosticCredentialStatus)
 }
 
 enum IPCFixtureCredentialError: Error, Equatable {
@@ -131,15 +145,16 @@ final class IPCFixtureCredentialResolver: AgentStudioIPCCredentialResolving, @un
         let token = AgentStudioIPCSubjectToken(rawValue: "fixture-\(UUIDv7.generate().uuidString)")
         let resolution: AgentStudioIPCCredentialResolution
         switch intent {
-        case .pane(let paneId, let generationId, let status):
-            resolution = AgentStudioIPCCredentialResolution(
-                namespace: .pane(paneID: paneId, workspaceID: workspaceId),
-                generationID: generationId,
+        case .pane(let paneId, let credentialRecordId, let status):
+            resolution = .pane(
+                paneID: paneId,
+                workspaceID: workspaceId,
+                credentialRecordID: credentialRecordId,
                 status: status
             )
         case .diagnostic(let generationId, let status):
-            resolution = AgentStudioIPCCredentialResolution(
-                namespace: .diagnostic(runtimeID: runtimeId),
+            resolution = .diagnostic(
+                runtimeID: runtimeId,
                 generationID: generationId,
                 status: status
             )

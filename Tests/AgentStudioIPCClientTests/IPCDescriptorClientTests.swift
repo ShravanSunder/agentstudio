@@ -336,7 +336,7 @@ struct IPCDescriptorClientTests {
     }
 
     @Test("EOF after a received command is delivery uncertain")
-    func EOFPostSubmissionIsUncertain() throws {
+    func eofPostSubmissionIsUncertain() throws {
         let catalog = try IPCDescriptorClientFixtureCatalog.make()
         let endpoint = UnixSocketEndpoint(path: temporaryIPCDescriptorClientSocketPath())
         let listener = UnixSocketListener(endpoint: endpoint)

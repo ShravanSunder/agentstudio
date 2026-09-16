@@ -51,8 +51,8 @@ struct AppIPCErrorCorrectionTests {
         let token = try fixture.issueTestCredential(
             for: .pane(
                 paneId: boundPaneId,
-                generationId: UUIDv7.generate(),
-                status: .active
+                credentialRecordId: UUIDv7.generate(),
+                status: .registered
             )
         )
         let connection = try UnixSocketClient.connect(
