@@ -153,6 +153,7 @@ private actor UnexpectedDurableCredentialResolver: AgentStudioIPCCredentialResol
         lookupCount += 1
         throw PaneIPCIdentityOwnerTestError.durableLookupUnavailable
     }
+
 }
 
 private final class PaneCredentialByteSequence: @unchecked Sendable {

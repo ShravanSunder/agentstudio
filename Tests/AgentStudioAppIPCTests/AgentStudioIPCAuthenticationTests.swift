@@ -326,6 +326,46 @@ struct AgentStudioIPCAuthenticationTests {
         }
     }
 
+    @Test("final fence rejects cached RAM and suspended durable pane authentication")
+    func finalFenceRejectsCachedRAMAndSuspendedDurableAuthentication() async throws {
+        let paneID = UUIDv7.generate()
+        let workspaceID = UUIDv7.generate()
+        let currentToken = AgentStudioIPCSubjectToken(rawValue: "final-fenced-current-token")
+        let durableToken = AgentStudioIPCSubjectToken(rawValue: "final-fenced-durable-token")
+        let resolver = SuspendedCredentialResolver()
+        let registry = AgentStudioIPCPrincipalRegistry(
+            runtimeId: UUIDv7.generate(),
+            credentialResolver: resolver,
+            canonicalPaneMembership: { _, _ in true }
+        )
+        try registry.registerIssuedPaneCredential(
+            paneID: paneID,
+            workspaceID: workspaceID,
+            credentialRecordID: UUIDv7.generate(),
+            verifierSHA256: Data(SHA256.hash(data: Data(currentToken.rawValue.utf8)))
+        )
+        let durableAuthenticationTask = Task {
+            try await registry.authenticate(subjectToken: durableToken)
+        }
+        await resolver.waitUntilLookupStarted()
+
+        registry.finalRevokePane(paneID)
+        await resolver.resume(
+            with: paneResolution(
+                paneID: paneID,
+                workspaceID: workspaceID,
+                credentialRecordID: UUIDv7.generate(),
+                status: .registered
+            ))
+
+        await #expect(throws: AgentStudioIPCAuthenticationError.self) {
+            try await registry.authenticate(subjectToken: currentToken)
+        }
+        await #expect(throws: AgentStudioIPCAuthenticationError.self) {
+            try await durableAuthenticationTask.value
+        }
+    }
+
     @Test("shutdown during credential lookup rejects the suspended authentication")
     func shutdownDuringLookupRejectsAuthentication() async {
         let runtimeID = UUIDv7.generate()

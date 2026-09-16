@@ -28,7 +28,8 @@ struct AgentStudioAppIPCReusableCredentialTests {
         }
         let repository = IPCContinuityRepository(datastore: datastore)
         let serverFixture = try fixture.makeServer(
-            credentialResolver: IPCContinuityCredentialResolver(repository: repository)
+            credentialResolver: IPCContinuityCredentialResolver(repository: repository),
+            credentialContinuityPort: repository
         )
         defer { serverFixture.cleanup() }
         let paneID = serverFixture.boundPaneId
@@ -68,7 +69,9 @@ struct AgentStudioAppIPCReusableCredentialTests {
             try await repository.paneCredential(paneID: paneID, credentialRecordID: durableRecordID))
         #expect(stored.verifierSHA256 == durableVerifier)
         #expect(stored.verifierSHA256 != Data(durableToken.rawValue.utf8))
-        #expect(try await repository.paneCredential(paneID: paneID, credentialRecordID: currentRecordID) == nil)
+        #expect(
+            try await repository.paneCredential(paneID: paneID, credentialRecordID: currentRecordID)?.status
+                == .registered)
     }
 
     @Test("revoked durable pane credential cannot authenticate")
@@ -83,7 +86,8 @@ struct AgentStudioAppIPCReusableCredentialTests {
         }
         let repository = IPCContinuityRepository(datastore: datastore)
         let serverFixture = try fixture.makeServer(
-            credentialResolver: IPCContinuityCredentialResolver(repository: repository)
+            credentialResolver: IPCContinuityCredentialResolver(repository: repository),
+            credentialContinuityPort: repository
         )
         defer { serverFixture.cleanup() }
         try await repository.registerPaneCredential(
@@ -105,7 +109,10 @@ struct AgentStudioAppIPCReusableCredentialTests {
         let fixture = try ReusableCredentialFixture()
         defer { fixture.cleanup() }
         let membership = ReusableCredentialMembershipGate()
-        let token = AgentStudioIPCSubjectToken(rawValue: Data(repeating: 0xC3, count: 32).base64EncodedString())
+        let durableToken = AgentStudioIPCSubjectToken(
+            rawValue: Data(repeating: 0xC3, count: 32).base64EncodedString())
+        let currentToken = AgentStudioIPCSubjectToken(
+            rawValue: Data(repeating: 0xD4, count: 32).base64EncodedString())
         let datastore = fixture.makeDatastore()
         guard case .prepared = await datastore.prepareDatabasesForBoot() else {
             Issue.record("Database preparation failed")
@@ -114,6 +121,7 @@ struct AgentStudioAppIPCReusableCredentialTests {
         let repository = IPCContinuityRepository(datastore: datastore)
         let serverFixture = try fixture.makeServer(
             credentialResolver: IPCContinuityCredentialResolver(repository: repository),
+            credentialContinuityPort: repository,
             canonicalPaneMembership: { _, _ in membership.isMember }
         )
         defer { serverFixture.cleanup() }
@@ -122,9 +130,15 @@ struct AgentStudioAppIPCReusableCredentialTests {
                 paneID: serverFixture.boundPaneId,
                 workspaceID: serverFixture.workspaceId,
                 credentialRecordID: UUIDv7.generate(),
-                verifierSHA256: Data(SHA256.hash(data: Data(token.rawValue.utf8))),
+                verifierSHA256: Data(SHA256.hash(data: Data(durableToken.rawValue.utf8))),
                 status: .registered
             )
+        )
+        try serverFixture.server.principalRegistry.registerIssuedPaneCredential(
+            paneID: serverFixture.boundPaneId,
+            workspaceID: serverFixture.workspaceId,
+            credentialRecordID: UUIDv7.generate(),
+            verifierSHA256: Data(SHA256.hash(data: Data(currentToken.rawValue.utf8)))
         )
         try serverFixture.server.start()
         let connection = try UnixSocketClient.connect(
@@ -135,7 +149,7 @@ struct AgentStudioAppIPCReusableCredentialTests {
         try sendRequest(
             connection: connection,
             request: JSONRPCClientRequest(
-                id: .number(50), method: "auth.login", params: .object(["token": .string(token.rawValue)]))
+                id: .number(50), method: "auth.login", params: .object(["token": .string(durableToken.rawValue)]))
         )
         let initialLoginResponse = try await reader.receiveResponseWithoutBlockingMainActor(connection: connection)
         let initialLoginStatus = try decodeResponseResult(IPCAuthStatusResult.self, from: initialLoginResponse)
@@ -153,12 +167,81 @@ struct AgentStudioAppIPCReusableCredentialTests {
         #expect(closedResponse.result == nil)
         #expect(closedResponse.error?.code == -32_001)
 
-        serverFixture.server.invalidatePrincipals(boundToPaneId: serverFixture.boundPaneId.uuidString)
-        try await repository.revokeAllPaneCredentials(paneID: serverFixture.boundPaneId)
+        serverFixture.server.finalRevokePrincipals(boundToPaneID: serverFixture.boundPaneId)
+        #expect(await serverFixture.server.drainCredentialPersistence().failedOperationCount == 0)
         membership.setMember(true)
-        let finalResponse = try await fixture.loginResponse(fixture: serverFixture, token: token, requestID: 52)
-        #expect(finalResponse.result == nil)
-        #expect(finalResponse.error?.code == -32_001)
+        for (index, token) in [durableToken, currentToken].enumerated() {
+            let finalResponse = try await fixture.loginResponse(
+                fixture: serverFixture,
+                token: token,
+                requestID: 52 + index
+            )
+            #expect(finalResponse.result == nil)
+            #expect(finalResponse.error?.code == -32_001)
+        }
+    }
+
+    @Test("socket authentication does not await held persistence and duplicate admission coalesces")
+    func socketAuthenticationDoesNotAwaitHeldPersistence() async throws {
+        let fixture = try ReusableCredentialFixture()
+        defer { fixture.cleanup() }
+        let datastore = fixture.makeDatastore()
+        guard case .prepared = await datastore.prepareDatabasesForBoot() else {
+            Issue.record("Database preparation failed")
+            return
+        }
+        let repository = IPCContinuityRepository(datastore: datastore)
+        let barrierPort = HeldCredentialContinuityPort(repository: repository)
+        let serverFixture = try fixture.makeServer(
+            credentialResolver: IPCContinuityCredentialResolver(repository: repository),
+            credentialContinuityPort: barrierPort
+        )
+        defer { serverFixture.cleanup() }
+        try serverFixture.server.start()
+        let token = AgentStudioIPCSubjectToken(rawValue: "held-persistence-token")
+        try serverFixture.server.principalRegistry.registerIssuedPaneCredential(
+            paneID: serverFixture.boundPaneId,
+            workspaceID: serverFixture.workspaceId,
+            credentialRecordID: UUIDv7.generate(),
+            verifierSHA256: Data(SHA256.hash(data: Data(token.rawValue.utf8)))
+        )
+
+        let first = try await fixture.loginResponse(fixture: serverFixture, token: token, requestID: 60)
+        let second = try await fixture.loginResponse(fixture: serverFixture, token: token, requestID: 61)
+        #expect(try decodeResponseResult(IPCAuthStatusResult.self, from: first).isAuthenticated)
+        #expect(try decodeResponseResult(IPCAuthStatusResult.self, from: second).isAuthenticated)
+        await barrierPort.waitUntilRegistrationHeld()
+        #expect(barrierPort.registrationCallCount == 1)
+
+        barrierPort.releaseRegistration()
+        #expect(await serverFixture.server.stopAndDrainCredentialPersistence().failedOperationCount == 0)
+        #expect(barrierPort.registrationCallCount == 1)
+    }
+
+    @Test("graceful shutdown persists an unused issued token that authenticates after reopen")
+    func gracefulShutdownPersistsUnusedIssuedToken() async throws {
+        let fixture = try ReusableCredentialFixture()
+        defer { fixture.cleanup() }
+        let token = AgentStudioIPCSubjectToken(rawValue: "unused-shutdown-token")
+        let persistedIdentity = try await fixture.persistUnusedIssuedTokenBeforeShutdown(token)
+
+        let reopenedDatastore = fixture.makeDatastore()
+        guard case .prepared = await reopenedDatastore.prepareDatabasesForBoot() else {
+            Issue.record("Reopened database preparation failed")
+            return
+        }
+        let reopenedRepository = IPCContinuityRepository(datastore: reopenedDatastore)
+        let secondServer = try fixture.makeServer(
+            credentialResolver: IPCContinuityCredentialResolver(repository: reopenedRepository),
+            credentialContinuityPort: reopenedRepository,
+            canonicalPaneMembership: { paneID, workspaceID in
+                paneID == persistedIdentity.paneID && workspaceID == persistedIdentity.workspaceID
+            }
+        )
+        defer { secondServer.cleanup() }
+        try secondServer.server.start()
+        let response = try await fixture.loginResponse(fixture: secondServer, token: token, requestID: 70)
+        #expect(try decodeResponseResult(IPCAuthStatusResult.self, from: response).isAuthenticated)
     }
 }
 
@@ -184,12 +267,51 @@ private struct ReusableCredentialFixture {
 
     func makeServer(
         credentialResolver: any AgentStudioIPCCredentialResolving,
+        credentialContinuityPort: any AgentStudioIPCCredentialContinuityPort,
         canonicalPaneMembership: (@MainActor @Sendable (UUID, UUID) -> Bool)? = nil
     ) throws -> LiveServerFixture {
         try LiveServerFixture(
             credentialResolver: credentialResolver,
+            credentialContinuityPort: credentialContinuityPort,
             canonicalPaneMembership: canonicalPaneMembership
         )
+    }
+
+    func persistUnusedIssuedTokenBeforeShutdown(
+        _ token: AgentStudioIPCSubjectToken
+    ) async throws -> (paneID: UUID, workspaceID: UUID) {
+        let datastore = makeDatastore()
+        guard case .prepared = await datastore.prepareDatabasesForBoot() else {
+            throw ReusableCredentialTestError.databasePreparationFailed
+        }
+        let repository = IPCContinuityRepository(datastore: datastore)
+        let serverFixture = try makeServer(
+            credentialResolver: IPCContinuityCredentialResolver(repository: repository),
+            credentialContinuityPort: repository
+        )
+        try await datastore.saveWorkspaceSnapshotBundle(
+            WorkspaceSQLiteSaveBundle(
+                workspace: .init(id: serverFixture.workspaceId, name: "IPC graceful shutdown reopen")
+            )
+        )
+        try serverFixture.server.start()
+        try serverFixture.server.principalRegistry.registerIssuedPaneCredential(
+            paneID: serverFixture.boundPaneId,
+            workspaceID: serverFixture.workspaceId,
+            credentialRecordID: UUIDv7.generate(),
+            verifierSHA256: Data(SHA256.hash(data: Data(token.rawValue.utf8)))
+        )
+        #expect(await serverFixture.server.stopAndDrainCredentialPersistence().failedOperationCount == 0)
+        #expect(throws: AgentStudioIPCIssuedCredentialRegistrationError.registryShutdown) {
+            try serverFixture.server.principalRegistry.registerIssuedPaneCredential(
+                paneID: UUIDv7.generate(),
+                workspaceID: serverFixture.workspaceId,
+                credentialRecordID: UUIDv7.generate(),
+                verifierSHA256: Data(repeating: 0xA5, count: 32)
+            )
+        }
+        serverFixture.cleanup()
+        return (serverFixture.boundPaneId, serverFixture.workspaceId)
     }
 
     func loginAndReadSystemVersion(
@@ -243,6 +365,77 @@ private struct ReusableCredentialFixture {
     }
 }
 
+extension IPCAuthStatusResult {
+    fileprivate var isAuthenticated: Bool {
+        if case .authenticated = self { return true }
+        return false
+    }
+}
+
+private final class HeldCredentialContinuityPort: AgentStudioIPCCredentialContinuityPort,
+    @unchecked Sendable
+{
+    private let repository: IPCContinuityRepository
+    private let lock = NSLock()
+    private var heldContinuation: CheckedContinuation<Void, Never>?
+    private var releaseContinuation: CheckedContinuation<Void, Never>?
+    private var didHold = false
+    private var didRelease = false
+    private var storedRegistrationCallCount = 0
+
+    init(repository: IPCContinuityRepository) {
+        self.repository = repository
+    }
+
+    var registrationCallCount: Int { lock.withLock { storedRegistrationCallCount } }
+
+    func registerIssuedPaneCredential(
+        _ credential: AgentStudioIPCIssuedPaneCredential,
+        if remainsEligible: @escaping @Sendable () -> Bool
+    ) async throws -> Bool {
+        await holdRegistration()
+        return try await repository.registerIssuedPaneCredential(credential, if: remainsEligible)
+    }
+
+    func revokeAllPaneCredentials(paneID: UUID) async throws {
+        try await repository.revokeAllPaneCredentials(paneID: paneID)
+    }
+
+    func waitUntilRegistrationHeld() async {
+        await withCheckedContinuation { continuation in
+            let resumeNow = lock.withLock {
+                guard !didHold else { return true }
+                heldContinuation = continuation
+                return false
+            }
+            if resumeNow { continuation.resume() }
+        }
+    }
+
+    func releaseRegistration() {
+        lock.withLock {
+            didRelease = true
+            releaseContinuation?.resume()
+            releaseContinuation = nil
+        }
+    }
+
+    private func holdRegistration() async {
+        await withCheckedContinuation { continuation in
+            let resumeNow = lock.withLock {
+                storedRegistrationCallCount += 1
+                didHold = true
+                heldContinuation?.resume()
+                heldContinuation = nil
+                guard !didRelease else { return true }
+                releaseContinuation = continuation
+                return false
+            }
+            if resumeNow { continuation.resume() }
+        }
+    }
+}
+
 private final class ReusableCredentialMembershipGate: @unchecked Sendable {
     private let lock = NSLock()
     private var storedIsMember = true
@@ -262,4 +455,5 @@ private struct ReusableCredentialLoginResult: Equatable {
 
 private enum ReusableCredentialTestError: Error {
     case unauthenticated
+    case databasePreparationFailed
 }

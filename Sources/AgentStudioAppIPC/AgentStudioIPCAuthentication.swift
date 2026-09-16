@@ -29,6 +29,8 @@ public struct AgentStudioIPCAuthenticationError: Error, Equatable, Sendable {
 package enum AgentStudioIPCIssuedCredentialRegistrationError: Error, Equatable, Sendable {
     case conflictingRecordIdentity
     case conflictingVerifier
+    case paneFinalRevoked
+    case registryShutdown
 }
 
 package protocol AgentStudioIPCCredentialResolving: Sendable {
@@ -90,13 +92,16 @@ package struct AgentStudioIPCIssuedPaneCredential: Equatable, Sendable {
 package struct AgentStudioIPCAuthenticatedContext: Equatable, Sendable {
     package let principal: IPCPrincipal
     package let credentialIdentity: AgentStudioIPCAuthenticatedCredentialIdentity
+    package let persistenceCandidate: AgentStudioIPCIssuedPaneCredential?
 
     package init(
         principal: IPCPrincipal,
-        credentialIdentity: AgentStudioIPCAuthenticatedCredentialIdentity
+        credentialIdentity: AgentStudioIPCAuthenticatedCredentialIdentity,
+        persistenceCandidate: AgentStudioIPCIssuedPaneCredential? = nil
     ) {
         self.principal = principal
         self.credentialIdentity = credentialIdentity
+        self.persistenceCandidate = persistenceCandidate
     }
 }
 
@@ -120,6 +125,7 @@ public final class AgentStudioIPCPrincipalRegistry: @unchecked Sendable {
     private var issuedPaneCredentialsByRecordID: [UUID: AgentStudioIPCIssuedPaneCredential] = [:]
     private var issuedPaneCredentialRecordIDByVerifier: [Data: UUID] = [:]
     private var durableIssuedPaneCredentialIDs: Set<UUID> = []
+    private var finalRevokedPaneIDs: Set<UUID> = []
     private var isShutdown = false
 
     package init(
@@ -148,6 +154,12 @@ public final class AgentStudioIPCPrincipalRegistry: @unchecked Sendable {
             verifierSHA256: verifierSHA256
         )
         try lock.withLock {
+            guard !isShutdown else {
+                throw AgentStudioIPCIssuedCredentialRegistrationError.registryShutdown
+            }
+            guard !finalRevokedPaneIDs.contains(paneID) else {
+                throw AgentStudioIPCIssuedCredentialRegistrationError.paneFinalRevoked
+            }
             if let existing = issuedPaneCredentialsByRecordID[credentialRecordID] {
                 guard existing == credential else {
                     throw AgentStudioIPCIssuedCredentialRegistrationError.conflictingRecordIdentity
@@ -167,13 +179,56 @@ public final class AgentStudioIPCPrincipalRegistry: @unchecked Sendable {
     package func issuedCredentialCandidates() -> [AgentStudioIPCIssuedPaneCredential] {
         lock.withLock {
             issuedPaneCredentialsByRecordID.values
-                .filter { !durableIssuedPaneCredentialIDs.contains($0.credentialRecordID) }
+                .filter {
+                    !durableIssuedPaneCredentialIDs.contains($0.credentialRecordID)
+                        && !finalRevokedPaneIDs.contains($0.paneID)
+                }
                 .sorted { $0.credentialRecordID.uuidString < $1.credentialRecordID.uuidString }
         }
     }
 
     package func markIssuedCredentialDurable(recordID: UUID) {
         _ = lock.withLock { durableIssuedPaneCredentialIDs.insert(recordID) }
+    }
+
+    package func finalRevokePane(_ paneID: UUID) {
+        let principalIDs = lock.withLock {
+            finalRevokedPaneIDs.insert(paneID)
+            invalidationSequence &+= 1
+            paneInvalidationSequences[paneID] = invalidationSequence
+            let matchingKeys = activeLeases.keys.filter { key in
+                guard case .pane(let boundPaneID, _) = key.namespace else { return false }
+                return boundPaneID == paneID
+            }
+            let principalIDs = Set(matchingKeys.flatMap { activeLeases[$0] ?? [] })
+            for key in matchingKeys {
+                activeLeases.removeValue(forKey: key)
+            }
+            return principalIDs
+        }
+        revokeGrants(for: principalIDs)
+    }
+
+    package func beginGracefulShutdownAndSnapshotUnsavedCredentials()
+        -> [AgentStudioIPCIssuedPaneCredential]
+    {
+        let shutdown = lock.withLock {
+            () -> (
+                [AgentStudioIPCIssuedPaneCredential], Set<UUID>
+            ) in
+            isShutdown = true
+            lifetimeEpoch &+= 1
+            let principalIDs = Set(activeLeases.values.joined())
+            activeLeases.removeAll(keepingCapacity: false)
+            let snapshot = issuedPaneCredentialsByRecordID.values
+                .filter {
+                    !durableIssuedPaneCredentialIDs.contains($0.credentialRecordID)
+                        && !finalRevokedPaneIDs.contains($0.paneID)
+                }
+            return (snapshot, principalIDs)
+        }
+        revokeGrants(for: shutdown.1)
+        return shutdown.0
     }
 
     package func authenticate(
@@ -191,11 +246,12 @@ public final class AgentStudioIPCPrincipalRegistry: @unchecked Sendable {
         }
 
         let verifier = Data(SHA256.hash(data: Data(subjectToken.rawValue.utf8)))
-        let resolution: AgentStudioIPCCredentialResolution
-        if let issuedCredential = lock.withLock({
+        let issuedCredential = lock.withLock {
             issuedPaneCredentialRecordIDByVerifier[verifier]
                 .flatMap { issuedPaneCredentialsByRecordID[$0] }
-        }) {
+        }
+        let resolution: AgentStudioIPCCredentialResolution
+        if let issuedCredential {
             resolution = .pane(
                 paneID: issuedCredential.paneID,
                 workspaceID: issuedCredential.workspaceID,
@@ -208,7 +264,10 @@ public final class AgentStudioIPCPrincipalRegistry: @unchecked Sendable {
                 serverRuntimeID: runtimeId
             )
         }
-        let context = try await makeAuthenticatedContext(from: resolution)
+        let context = try await makeAuthenticatedContext(
+            from: resolution,
+            persistenceCandidate: issuedCredential
+        )
         let namespace = namespace(for: context.principal)
         guard let namespace else { throw AgentStudioIPCAuthenticationError(reason: .unauthenticated) }
         let leaseKey = LeaseKey(namespace: namespace, credentialIdentity: context.credentialIdentity)
@@ -218,6 +277,7 @@ public final class AgentStudioIPCPrincipalRegistry: @unchecked Sendable {
             if case .spawnedPaneAgent(let paneID, _) = context.principal.kind,
                 let paneUUID = UUID(uuidString: paneID)
             {
+                guard !finalRevokedPaneIDs.contains(paneUUID) else { return false }
                 guard paneInvalidationSequences[paneUUID, default: 0] <= observation.invalidationSequence else {
                     return false
                 }
@@ -336,6 +396,13 @@ public final class AgentStudioIPCPrincipalRegistry: @unchecked Sendable {
         }
     }
 
+    package func registrationRemainsEligible(_ credential: AgentStudioIPCIssuedPaneCredential) -> Bool {
+        lock.withLock {
+            guard !finalRevokedPaneIDs.contains(credential.paneID) else { return false }
+            return issuedPaneCredentialsByRecordID[credential.credentialRecordID] == credential
+        }
+    }
+
     private func namespace(for principal: IPCPrincipal) -> AgentStudioIPCCredentialNamespace? {
         switch principal.kind {
         case .spawnedPaneAgent(let paneID, let workspaceID):
@@ -349,7 +416,8 @@ public final class AgentStudioIPCPrincipalRegistry: @unchecked Sendable {
     }
 
     private func makeAuthenticatedContext(
-        from resolution: AgentStudioIPCCredentialResolution
+        from resolution: AgentStudioIPCCredentialResolution,
+        persistenceCandidate: AgentStudioIPCIssuedPaneCredential?
     ) async throws -> AgentStudioIPCAuthenticatedContext {
         let principal: IPCPrincipal
         let credentialIdentity: AgentStudioIPCAuthenticatedCredentialIdentity
@@ -388,7 +456,8 @@ public final class AgentStudioIPCPrincipalRegistry: @unchecked Sendable {
         }
         return AgentStudioIPCAuthenticatedContext(
             principal: principal,
-            credentialIdentity: credentialIdentity
+            credentialIdentity: credentialIdentity,
+            persistenceCandidate: persistenceCandidate
         )
     }
 

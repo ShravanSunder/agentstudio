@@ -48,6 +48,7 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
     private let listener: UnixSocketListener
     private let methodRegistry: AppIPCMethodRegistry
     private let authenticator: AgentStudioIPCAuthenticator
+    private let credentialPersistenceLane: AgentStudioIPCCredentialPersistenceLane
     let authorizationService: AuthorizationService
     let permissionBroker: PermissionBroker
     private let peerCredentialProvider: any PeerCredentialProviding
@@ -63,6 +64,7 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
         paths: AgentStudioIPCPaths,
         channel: AgentStudioIPCChannel,
         principalRegistry: AgentStudioIPCPrincipalRegistry,
+        credentialContinuityPort: any AgentStudioIPCCredentialContinuityPort,
         approvalPolicyStore: any ApprovalPolicyStore = StaticApprovalPolicyStore(),
         peerCredentialProvider: any PeerCredentialProviding = DarwinPeerCredentialProvider(),
         currentUserIdentifier: uid_t = getuid(),
@@ -75,6 +77,9 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
         self.principalRegistry = principalRegistry
         self.grantLedger = principalRegistry.grantLedger
         self.authenticator = AgentStudioIPCAuthenticator(registry: principalRegistry)
+        self.credentialPersistenceLane = AgentStudioIPCCredentialPersistenceLane(
+            continuityPort: credentialContinuityPort
+        )
         self.authorizationService = AuthorizationService(
             methodRegistry: methodRegistry,
             grantLedger: grantLedger,
@@ -122,6 +127,7 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
                 startedAt: startedAt
             )
             try AgentStudioIPCFilesystem.writeMetadata(metadata, paths: paths)
+            schedulePersistence(of: principalRegistry.issuedCredentialCandidates())
         } catch {
             stopListenerAndConnections()
             throw error
@@ -135,12 +141,49 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
         try? FileManager.default.removeItem(at: paths.metadataURL)
     }
 
+    package func stopAndDrainCredentialPersistence() async -> AgentStudioIPCCredentialPersistenceDrainResult {
+        let shutdownSnapshot = principalRegistry.beginGracefulShutdownAndSnapshotUnsavedCredentials()
+        schedulePersistence(of: shutdownSnapshot)
+        stopListenerAndConnections()
+        principalRegistry.revokeAllGrants()
+        try? FileManager.default.removeItem(at: paths.metadataURL)
+        return await credentialPersistenceLane.drain()
+    }
+
+    package func drainCredentialPersistence() async -> AgentStudioIPCCredentialPersistenceDrainResult {
+        await credentialPersistenceLane.drain()
+    }
+
     public func invalidatePrincipals(boundToPaneId paneId: String) {
         principalRegistry.invalidatePrincipals(boundToPaneId: paneId)
         let connections = lifecycleLock.withLock {
             let matchingConnectionIdentifiers =
                 activeConnectionContexts
                 .filter { _, context in context.principal.isBound(toPaneId: paneId) }
+                .map(\.key)
+            for connectionIdentifier in matchingConnectionIdentifiers {
+                activeConnectionContexts.removeValue(forKey: connectionIdentifier)
+            }
+            return matchingConnectionIdentifiers.compactMap { connectionIdentifier in
+                activeConnections.removeValue(forKey: connectionIdentifier)
+            }
+        }
+        for connection in connections {
+            connection.close()
+        }
+    }
+
+    package func finalRevokePrincipals(boundToPaneID paneID: UUID) {
+        principalRegistry.finalRevokePane(paneID)
+        closeConnections(boundToPaneID: paneID.uuidString)
+        credentialPersistenceLane.enqueueFinalRevoke(paneID: paneID)
+    }
+
+    private func closeConnections(boundToPaneID paneID: String) {
+        let connections = lifecycleLock.withLock {
+            let matchingConnectionIdentifiers =
+                activeConnectionContexts
+                .filter { _, context in context.principal.isBound(toPaneId: paneID) }
                 .map(\.key)
             for connectionIdentifier in matchingConnectionIdentifiers {
                 activeConnectionContexts.removeValue(forKey: connectionIdentifier)
@@ -279,6 +322,9 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
                     if let replaced = connectionState.replaceAuthenticatedContext(authenticatedContext) {
                         principalRegistry.releaseLease(replaced)
                     }
+                    if let candidate = authenticatedContext.persistenceCandidate {
+                        schedulePersistence(of: [candidate])
+                    }
                     let principal = authenticatedContext.principal
                     return .authenticated(
                         principalId: principal.principalId, runtimeId: principal.runtimeId,
@@ -307,6 +353,21 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
                 try authorizationService.authorize(principal: principal, request: authorization)
             }
         )
+    }
+
+    private func schedulePersistence(of credentials: [AgentStudioIPCIssuedPaneCredential]) {
+        for credential in credentials {
+            guard principalRegistry.registrationRemainsEligible(credential) else { continue }
+            credentialPersistenceLane.enqueueRegistration(
+                credential,
+                remainsEligible: { [weak principalRegistry] in
+                    principalRegistry?.registrationRemainsEligible(credential) == true
+                },
+                didPersist: { [weak principalRegistry] in
+                    principalRegistry?.markIssuedCredentialDurable(recordID: credential.credentialRecordID)
+                }
+            )
+        }
     }
 
     private func isExplicitUnsafeNoAuthenticationContext(_ context: AgentStudioIPCAuthenticatedContext) -> Bool {

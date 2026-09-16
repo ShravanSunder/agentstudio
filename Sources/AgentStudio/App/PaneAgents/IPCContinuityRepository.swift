@@ -1,3 +1,4 @@
+import AgentStudioAppIPC
 import AgentStudioCore
 import Foundation
 import GRDB
@@ -9,11 +10,16 @@ actor IPCContinuityRepository {
         self.datastore = datastore
     }
 
-    func registerPaneCredential(_ credential: IPCPaneCredential) async throws {
+    @discardableResult
+    func registerPaneCredential(
+        _ credential: IPCPaneCredential,
+        if remainsEligible: @escaping @Sendable () -> Bool = { true }
+    ) async throws -> Bool {
         guard credential.verifierSHA256.count == 32 else {
             throw IPCContinuityRepositoryError.invalidVerifierLength
         }
-        try await datastore.performApplicationLocalWrite { database in
+        return try await datastore.performApplicationLocalWrite { database in
+            guard remainsEligible() else { return false }
             if let existing = try Self.fetchPaneCredential(
                 database,
                 paneID: credential.paneID,
@@ -22,7 +28,7 @@ actor IPCContinuityRepository {
                 guard existing == credential else {
                     throw IPCContinuityRepositoryError.conflictingCredentialRecord
                 }
-                return
+                return true
             }
             try database.execute(
                 sql: """
@@ -39,6 +45,7 @@ actor IPCContinuityRepository {
                     credential.status.rawValue,
                 ]
             )
+            return true
         }
     }
 
@@ -198,5 +205,23 @@ actor IPCContinuityRepository {
                 throw IPCContinuityRepositoryError.cannotTransitionDiagnosticCredential
             }
         }
+    }
+}
+
+extension IPCContinuityRepository: AgentStudioIPCCredentialContinuityPort {
+    func registerIssuedPaneCredential(
+        _ credential: AgentStudioIPCIssuedPaneCredential,
+        if remainsEligible: @escaping @Sendable () -> Bool
+    ) async throws -> Bool {
+        try await registerPaneCredential(
+            IPCPaneCredential(
+                paneID: credential.paneID,
+                workspaceID: credential.workspaceID,
+                credentialRecordID: credential.credentialRecordID,
+                verifierSHA256: credential.verifierSHA256,
+                status: .registered
+            ),
+            if: remainsEligible
+        )
     }
 }

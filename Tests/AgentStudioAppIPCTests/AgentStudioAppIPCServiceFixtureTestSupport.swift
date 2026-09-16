@@ -38,6 +38,7 @@ struct LiveServerFixture {
         sidebarPort: any AppIPCSidebarPort = FakeSidebarPort(),
         commandComposition: IPCCommandMethodComposition? = nil,
         credentialResolver: (any AgentStudioIPCCredentialResolving)? = nil,
+        credentialContinuityPort: any AgentStudioIPCCredentialContinuityPort = TestCredentialContinuityPort(),
         canonicalPaneMembership: (@MainActor @Sendable (UUID, UUID) -> Bool)? = nil
     ) throws {
         let resolvedCredentialResolver = credentialResolver ?? IPCFixtureCredentialResolver()
@@ -107,7 +108,8 @@ struct LiveServerFixture {
             service: service,
             paths: paths,
             channel: channel,
-            principalRegistry: principalRegistry
+            principalRegistry: principalRegistry,
+            credentialContinuityPort: credentialContinuityPort
         )
     }
 
@@ -122,6 +124,15 @@ struct LiveServerFixture {
         server.stop()
         try? FileManager.default.removeItem(at: rootURL)
     }
+}
+
+final class TestCredentialContinuityPort: AgentStudioIPCCredentialContinuityPort, @unchecked Sendable {
+    func registerIssuedPaneCredential(
+        _: AgentStudioIPCIssuedPaneCredential,
+        if _: @escaping @Sendable () -> Bool
+    ) async throws -> Bool { true }
+
+    func revokeAllPaneCredentials(paneID _: UUID) async throws {}
 }
 
 enum IPCFixtureCredentialIntent: Sendable {

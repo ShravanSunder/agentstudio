@@ -82,9 +82,8 @@ extension AppDelegate {
                     runtimeId: runtimeId, accessMode: accessMode
                 ), ports: ports, methodRegistry: registry, eventBroker: eventBroker
             )
-            let credentialResolver = IPCContinuityCredentialResolver(
-                repository: IPCContinuityRepository(datastore: workspaceSQLiteDatastore)
-            )
+            let continuityRepository = IPCContinuityRepository(datastore: workspaceSQLiteDatastore)
+            let credentialResolver = IPCContinuityCredentialResolver(repository: continuityRepository)
             let principalRegistry = AgentStudioIPCPrincipalRegistry(
                 runtimeId: runtimeId,
                 credentialResolver: credentialResolver,
@@ -96,7 +95,8 @@ extension AppDelegate {
                 service: service,
                 paths: paths,
                 channel: Self.appIPCChannel(),
-                principalRegistry: principalRegistry
+                principalRegistry: principalRegistry,
+                credentialContinuityPort: continuityRepository
             )
             try server.start()
             appIPCServer = server
