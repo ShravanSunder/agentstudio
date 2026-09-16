@@ -363,6 +363,8 @@ struct ApplicationEntrypointArchitectureTests {
         let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
         let appDelegateURL = projectRoot.appending(path: "Sources/AgentStudio/App/Boot/AppDelegate.swift")
         let ipcBootURL = projectRoot.appending(path: "Sources/AgentStudio/App/Boot/AppDelegate+IPC.swift")
+        let launchRestoreURL = projectRoot.appending(
+            path: "Sources/AgentStudio/App/Boot/AppDelegate+LaunchRestore.swift")
         let terminationURL = projectRoot.appending(path: "Sources/AgentStudio/App/Boot/AppDelegate+Termination.swift")
         let mainWindowControllerURL = projectRoot.appending(
             path: "Sources/AgentStudio/App/Windows/MainWindowController.swift")
@@ -371,18 +373,35 @@ struct ApplicationEntrypointArchitectureTests {
 
         let appDelegateSource = try String(contentsOf: appDelegateURL, encoding: .utf8)
         let ipcBootSource = try String(contentsOf: ipcBootURL, encoding: .utf8)
+        let launchRestoreSource = try String(contentsOf: launchRestoreURL, encoding: .utf8)
         let terminationSource = try String(contentsOf: terminationURL, encoding: .utf8)
         let mainWindowControllerSource = try String(contentsOf: mainWindowControllerURL, encoding: .utf8)
         let splitViewControllerSource = try String(contentsOf: splitViewControllerURL, encoding: .utf8)
 
-        let lifecycleConsumerIndex = try #require(appDelegateSource.range(of: "wireLifecycleConsumers()")?.lowerBound)
-        let appIPCStartIndex = try #require(appDelegateSource.range(of: "startAppIPCServer()")?.lowerBound)
+        let suppressedScheduleIndex = try #require(
+            appDelegateSource.range(of: "scheduleAppIPCInitialization()")?.lowerBound)
+        let terminalReleaseIndex = try #require(
+            launchRestoreSource.range(of: "await preparedMountOwners.coordinator.releaseTerminalActivation()")?
+                .lowerBound)
+        let normalScheduleIndex = try #require(
+            launchRestoreSource.range(of: "scheduleAppIPCInitialization()")?.lowerBound)
         let appIPCStopIndex = try #require(terminationSource.range(of: "stopAppIPCServer()")?.lowerBound)
         let flushStoresIndex = try #require(terminationSource.range(of: "await store.flushAsync()")?.lowerBound)
 
         #expect(appDelegateSource.contains("import AgentStudioAppIPC"))
         #expect(appDelegateSource.contains("var appIPCServer: AgentStudioAppIPCServer?"))
-        #expect(lifecycleConsumerIndex < appIPCStartIndex)
+        #expect(!appDelegateSource.contains("startAppIPCServer()"))
+        #expect(appDelegateSource.contains("var appIPCInitializationTask: Task<Void, Never>?"))
+        #expect(appDelegateSource.contains("appIPCInitializationTask?.cancel()"))
+        #expect(suppressedScheduleIndex < appDelegateSource.endIndex)
+        #expect(terminalReleaseIndex < normalScheduleIndex)
+        #expect(ipcBootSource.contains("prepareOptionalApplicationLocalSchema()"))
+        #expect(ipcBootSource.contains("waitUntilFirstInteractiveFramePublished()"))
+        #expect(ipcBootSource.contains("appIPCInitializationTask?.cancel()"))
+        #expect(!ipcBootSource.contains("self.appIPCInitializationTask = nil"))
+        #expect(
+            ipcBootSource.components(separatedBy: "guard appIPCServer == nil else { return }").count - 1
+                == 2)
         #expect(ipcBootSource.contains("import AgentStudioAppIPC"))
         #expect(ipcBootSource.contains("import AgentStudioProgrammaticControl"))
         #expect(ipcBootSource.contains("AppIPCBuiltInMethodRegistrations.make("))

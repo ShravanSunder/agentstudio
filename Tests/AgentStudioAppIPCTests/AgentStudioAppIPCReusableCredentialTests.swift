@@ -22,7 +22,7 @@ struct AgentStudioAppIPCReusableCredentialTests {
         let durableVerifier = Data(SHA256.hash(data: Data(durableToken.rawValue.utf8)))
         let currentVerifier = Data(SHA256.hash(data: Data(currentToken.rawValue.utf8)))
         let datastore = fixture.makeDatastore()
-        guard case .prepared = await datastore.prepareDatabasesForBoot() else {
+        guard await fixture.prepareDatastoreForIPC(datastore) else {
             Issue.record("Database preparation failed")
             return
         }
@@ -80,7 +80,7 @@ struct AgentStudioAppIPCReusableCredentialTests {
         defer { fixture.cleanup() }
         let token = AgentStudioIPCSubjectToken(rawValue: Data(repeating: 0xA5, count: 32).base64EncodedString())
         let datastore = fixture.makeDatastore()
-        guard case .prepared = await datastore.prepareDatabasesForBoot() else {
+        guard await fixture.prepareDatastoreForIPC(datastore) else {
             Issue.record("Database preparation failed")
             return
         }
@@ -114,7 +114,7 @@ struct AgentStudioAppIPCReusableCredentialTests {
         let currentToken = AgentStudioIPCSubjectToken(
             rawValue: Data(repeating: 0xD4, count: 32).base64EncodedString())
         let datastore = fixture.makeDatastore()
-        guard case .prepared = await datastore.prepareDatabasesForBoot() else {
+        guard await fixture.prepareDatastoreForIPC(datastore) else {
             Issue.record("Database preparation failed")
             return
         }
@@ -186,7 +186,7 @@ struct AgentStudioAppIPCReusableCredentialTests {
         let fixture = try ReusableCredentialFixture()
         defer { fixture.cleanup() }
         let datastore = fixture.makeDatastore()
-        guard case .prepared = await datastore.prepareDatabasesForBoot() else {
+        guard await fixture.prepareDatastoreForIPC(datastore) else {
             Issue.record("Database preparation failed")
             return
         }
@@ -226,7 +226,7 @@ struct AgentStudioAppIPCReusableCredentialTests {
         let persistedIdentity = try await fixture.persistUnusedIssuedTokenBeforeShutdown(token)
 
         let reopenedDatastore = fixture.makeDatastore()
-        guard case .prepared = await reopenedDatastore.prepareDatabasesForBoot() else {
+        guard await fixture.prepareDatastoreForIPC(reopenedDatastore) else {
             Issue.record("Reopened database preparation failed")
             return
         }
@@ -265,6 +265,12 @@ private struct ReusableCredentialFixture {
         ).makeDatastore()
     }
 
+    func prepareDatastoreForIPC(_ datastore: WorkspaceSQLiteDatastoreActor) async -> Bool {
+        guard case .prepared = await datastore.prepareDatabasesForBoot() else { return false }
+        guard case .ready = await datastore.prepareOptionalApplicationLocalSchema() else { return false }
+        return true
+    }
+
     func makeServer(
         credentialResolver: any AgentStudioIPCCredentialResolving,
         credentialContinuityPort: any AgentStudioIPCCredentialContinuityPort,
@@ -281,7 +287,7 @@ private struct ReusableCredentialFixture {
         _ token: AgentStudioIPCSubjectToken
     ) async throws -> (paneID: UUID, workspaceID: UUID) {
         let datastore = makeDatastore()
-        guard case .prepared = await datastore.prepareDatabasesForBoot() else {
+        guard await prepareDatastoreForIPC(datastore) else {
             throw ReusableCredentialTestError.databasePreparationFailed
         }
         let repository = IPCContinuityRepository(datastore: datastore)

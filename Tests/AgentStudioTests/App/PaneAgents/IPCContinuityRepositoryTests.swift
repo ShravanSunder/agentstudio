@@ -200,6 +200,9 @@ private struct IPCContinuityRepositoryFixture {
         guard case .prepared = await datastore.prepareDatabasesForBoot() else {
             throw IPCContinuityRepositoryFixtureError.databasePreparationFailed
         }
+        guard case .ready = await datastore.prepareOptionalApplicationLocalSchema() else {
+            throw IPCContinuityRepositoryFixtureError.databasePreparationFailed
+        }
         try await datastore.saveWorkspaceSnapshotBundle(
             WorkspaceSQLiteSaveBundle(
                 workspace: .init(id: UUIDv7.generate(), name: "IPC continuity repository tests")

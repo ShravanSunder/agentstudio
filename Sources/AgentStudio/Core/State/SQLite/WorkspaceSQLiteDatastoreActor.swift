@@ -956,7 +956,7 @@ extension WorkspaceSQLiteDatastoreActor {
             workspaceId: workspaceId,
             databaseWriter: localDatabasePool
         )
-        try localRepository.migrate()
+        try localRepository.migrateBootRequired()
         return localRepository
     }
 

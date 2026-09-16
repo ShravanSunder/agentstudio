@@ -4,111 +4,163 @@ import AgentStudioInfrastructure
 import AgentStudioProgrammaticControl
 import Foundation
 
+@MainActor
+enum AppIPCDeferredInitialization {
+    static func run(
+        windowLifecycleStore: WindowLifecycleAtom,
+        initialization: @escaping @MainActor @Sendable () async -> Void
+    ) async {
+        guard await windowLifecycleStore.waitUntilFirstInteractiveFramePublished() == .completed else {
+            return
+        }
+        guard !Task.isCancelled else { return }
+        await initialization()
+    }
+
+    static func prepareOptionalSchema(
+        using datastore: WorkspaceSQLiteDatastoreActor
+    ) async -> Bool {
+        guard case .ready = await datastore.prepareOptionalApplicationLocalSchema() else {
+            return false
+        }
+        return !Task.isCancelled
+    }
+}
+
 extension AppDelegate {
-    func startAppIPCServer() {
+    func scheduleAppIPCInitialization() {
+        guard appIPCServer == nil, appIPCInitializationTask == nil else { return }
+        let windowLifecycleStore = windowLifecycleStore!
+        appIPCInitializationTask = Task { @MainActor [weak self] in
+            await AppIPCDeferredInitialization.run(
+                windowLifecycleStore: windowLifecycleStore
+            ) { [weak self] in
+                await self?.startAppIPCServer()
+            }
+        }
+    }
+
+    func startAppIPCServer() async {
         guard appIPCServer == nil else { return }
         guard let workspaceSQLiteDatastore else {
             appLogger.warning("App IPC server skipped: local SQLite is unavailable")
             return
         }
+        guard await AppIPCDeferredInitialization.prepareOptionalSchema(using: workspaceSQLiteDatastore) else {
+            appLogger.warning("App IPC server skipped: optional local schema is unavailable")
+            return
+        }
+        guard appIPCServer == nil else { return }
 
         do {
-            let runtimeId = UUIDv7.generate()
-            let accessMode = Self.appIPCAccessMode()
-            let rootDirectory = AppDataPaths.rootDirectory()
-            let paths = AgentStudioIPCPathResolver().paths(
-                rootDirectory: rootDirectory,
-                socketDirectory: Self.appIPCSocketDirectory()
-            )
-            let windowLifecycleReader = WorkspaceWindowLifecycleReader(lifecycleStore: windowLifecycleStore)
-            guard mainWindowController?.acceptsIPCCommands == true else {
-                appLogger.warning("App IPC server skipped: pane focus control is unavailable")
-                return
-            }
-
-            let ports = AgentStudioAppIPCPorts(
-                queryPort: AgentStudioIPCQueryAdapter(
-                    runtimeId: runtimeId,
-                    accessMode: accessMode,
-                    appVersion: Self.appIPCAppVersion(),
-                    workspaceStore: store,
-                    windowLifecycleReader: windowLifecycleReader
-                ),
-                layoutPort: AgentStudioIPCLayoutAdapter(
-                    workspaceStore: store,
-                    windowLifecycleReader: windowLifecycleReader,
-                    paneFocusControl: self,
-                    workspaceActionExecutor: executor
-                ),
-                runtimePort: AgentStudioIPCRuntimeAdapter(
-                    workspaceStore: store,
-                    runtimeRegistry: workspaceSurfaceCoordinator.runtimeRegistry,
-                    commandDispatcher: workspaceSurfaceCoordinator
-                ),
-                bridgePort: AgentStudioIPCBridgeAdapter(
-                    workspaceStore: store,
-                    viewRegistry: viewRegistry,
-                    actionExecutor: executor
-                ),
-                commandPort: AgentStudioIPCCommandAdapter(
-                    workspaceId: store.identityAtom.workspaceId,
-                    targetAuthorizer: WorkspaceDurableTargetAuthorizationPort(workspaceStore: store),
-                    shellCommandHandler: self
-                ),
-                uiPresentationPort: AgentStudioIPCUIPresentationAdapter(
-                    presenter: self,
-                    targetAuthorizer: WorkspaceDurableTargetAuthorizationPort(workspaceStore: store)
-                ),
-                sidebarPort: AgentStudioIPCSidebarAdapter(
-                    repoPrefs: atomStore.repoExplorerSidebarPrefs,
-                    sidebarState: atomStore.core.workspaceSidebarState
-                ),
-                permissionApprovalPort: AgentStudioIPCHumanApprovalPort()
-            )
-            let eventBroker = IPCEventBroker()
-            let catalog = try Self.appIPCBuiltInMethodCatalog()
-            var registrations = try AppIPCBuiltInMethodRegistrations.make(
-                inputs: .init(
-                    catalog: catalog, runtimeId: runtimeId, ports: ports, eventBroker: eventBroker
-                ))
-            let commandComposition = try IPCCommandMethodComposition(
-                compatibility: .current, commands: ports.commandPort.listCommands().commands
-            )
-            registrations += try AppIPCCommandMethodRegistrations.make(
-                composition: commandComposition, port: ports.commandPort)
-            let registry = try AppIPCMethodRegistry(registrations: registrations, channel: Self.appIPCChannel())
-            let service = AgentStudioAppIPCService(
-                configuration: AgentStudioAppIPCConfiguration(
-                    runtimeId: runtimeId, accessMode: accessMode
-                ), ports: ports, methodRegistry: registry, eventBroker: eventBroker
-            )
-            let continuityRepository = IPCContinuityRepository(datastore: workspaceSQLiteDatastore)
-            let credentialResolver = IPCContinuityCredentialResolver(repository: continuityRepository)
-            let principalRegistry = AgentStudioIPCPrincipalRegistry(
-                runtimeId: runtimeId,
-                credentialResolver: credentialResolver,
-                canonicalPaneMembership: { [store] paneID, workspaceID in
-                    store.identityAtom.workspaceId == workspaceID && store.paneAtom.pane(paneID) != nil
-                }
-            )
-            let server = AgentStudioAppIPCServer(
-                service: service,
-                paths: paths,
-                channel: Self.appIPCChannel(),
-                principalRegistry: principalRegistry,
-                credentialContinuityPort: continuityRepository
-            )
-            try server.start()
-            appIPCServer = server
-            appLogger.info("App IPC server started at \(paths.socketURL.path, privacy: .private)")
+            let composition = try makeAppIPCServer(workspaceSQLiteDatastore: workspaceSQLiteDatastore)
+            try composition.server.start()
+            appIPCServer = composition.server
+            appLogger.info("App IPC server started at \(composition.socketURL.path, privacy: .private)")
         } catch {
             appLogger.warning("App IPC server failed to start: \(String(describing: error), privacy: .public)")
         }
     }
 
     func stopAppIPCServer() {
+        appIPCInitializationTask?.cancel()
+        appIPCInitializationTask = nil
         appIPCServer?.stop()
         appIPCServer = nil
+    }
+
+    private func makeAppIPCServer(
+        workspaceSQLiteDatastore: WorkspaceSQLiteDatastoreActor
+    ) throws -> (server: AgentStudioAppIPCServer, socketURL: URL) {
+        let runtimeId = UUIDv7.generate()
+        let accessMode = Self.appIPCAccessMode()
+        let rootDirectory = AppDataPaths.rootDirectory()
+        let paths = AgentStudioIPCPathResolver().paths(
+            rootDirectory: rootDirectory,
+            socketDirectory: Self.appIPCSocketDirectory()
+        )
+        let windowLifecycleReader = WorkspaceWindowLifecycleReader(lifecycleStore: windowLifecycleStore)
+        guard mainWindowController?.acceptsIPCCommands == true else {
+            throw AppIPCLayoutError(reason: .noActiveWindow)
+        }
+        let ports = AgentStudioAppIPCPorts(
+            queryPort: AgentStudioIPCQueryAdapter(
+                runtimeId: runtimeId,
+                accessMode: accessMode,
+                appVersion: Self.appIPCAppVersion(),
+                workspaceStore: store,
+                windowLifecycleReader: windowLifecycleReader
+            ),
+            layoutPort: AgentStudioIPCLayoutAdapter(
+                workspaceStore: store,
+                windowLifecycleReader: windowLifecycleReader,
+                paneFocusControl: self,
+                workspaceActionExecutor: executor
+            ),
+            runtimePort: AgentStudioIPCRuntimeAdapter(
+                workspaceStore: store,
+                runtimeRegistry: workspaceSurfaceCoordinator.runtimeRegistry,
+                commandDispatcher: workspaceSurfaceCoordinator
+            ),
+            bridgePort: AgentStudioIPCBridgeAdapter(
+                workspaceStore: store,
+                viewRegistry: viewRegistry,
+                actionExecutor: executor
+            ),
+            commandPort: AgentStudioIPCCommandAdapter(
+                workspaceId: store.identityAtom.workspaceId,
+                targetAuthorizer: WorkspaceDurableTargetAuthorizationPort(workspaceStore: store),
+                shellCommandHandler: self
+            ),
+            uiPresentationPort: AgentStudioIPCUIPresentationAdapter(
+                presenter: self,
+                targetAuthorizer: WorkspaceDurableTargetAuthorizationPort(workspaceStore: store)
+            ),
+            sidebarPort: AgentStudioIPCSidebarAdapter(
+                repoPrefs: atomStore.repoExplorerSidebarPrefs,
+                sidebarState: atomStore.core.workspaceSidebarState
+            ),
+            permissionApprovalPort: AgentStudioIPCHumanApprovalPort()
+        )
+        let eventBroker = IPCEventBroker()
+        let catalog = try Self.appIPCBuiltInMethodCatalog()
+        var registrations = try AppIPCBuiltInMethodRegistrations.make(
+            inputs: .init(catalog: catalog, runtimeId: runtimeId, ports: ports, eventBroker: eventBroker)
+        )
+        let commandComposition = try IPCCommandMethodComposition(
+            compatibility: .current,
+            commands: ports.commandPort.listCommands().commands
+        )
+        registrations += try AppIPCCommandMethodRegistrations.make(
+            composition: commandComposition,
+            port: ports.commandPort
+        )
+        let registry = try AppIPCMethodRegistry(registrations: registrations, channel: Self.appIPCChannel())
+        let service = AgentStudioAppIPCService(
+            configuration: AgentStudioAppIPCConfiguration(runtimeId: runtimeId, accessMode: accessMode),
+            ports: ports,
+            methodRegistry: registry,
+            eventBroker: eventBroker
+        )
+        let continuityRepository = IPCContinuityRepository(datastore: workspaceSQLiteDatastore)
+        let credentialResolver = IPCContinuityCredentialResolver(repository: continuityRepository)
+        let principalRegistry = AgentStudioIPCPrincipalRegistry(
+            runtimeId: runtimeId,
+            credentialResolver: credentialResolver,
+            canonicalPaneMembership: { [store] paneID, workspaceID in
+                store.identityAtom.workspaceId == workspaceID && store.paneAtom.pane(paneID) != nil
+            }
+        )
+        return (
+            AgentStudioAppIPCServer(
+                service: service,
+                paths: paths,
+                channel: Self.appIPCChannel(),
+                principalRegistry: principalRegistry,
+                credentialContinuityPort: continuityRepository
+            ),
+            paths.socketURL
+        )
     }
 
     private static func appIPCAppVersion() -> String {

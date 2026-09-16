@@ -317,6 +317,9 @@ private struct IPCContinuityPersistenceFixture {
         guard case .prepared = await datastore.prepareDatabasesForBoot() else {
             throw PersistenceFixtureError.databasePreparationFailed
         }
+        guard case .ready = await datastore.prepareOptionalApplicationLocalSchema() else {
+            throw PersistenceFixtureError.databasePreparationFailed
+        }
         try await datastore.saveWorkspaceSnapshotBundle(
             WorkspaceSQLiteSaveBundle(
                 workspace: .init(id: UUIDv7.generate(), name: "IPC persistence lane tests")

@@ -83,6 +83,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     var executor: WorkspaceActionExecutor!
     var runtime: SessionRuntime!
     var appIPCServer: AgentStudioAppIPCServer?
+    var appIPCInitializationTask: Task<Void, Never>?
     var appLifecycleStore: AppLifecycleAtom!
     var windowLifecycleStore: WindowLifecycleAtom!
     var applicationLifecycleMonitor: ApplicationLifecycleMonitor!
@@ -203,11 +204,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         mainWindowController?.completeLaunchPresentation()
         if AgentStudioStartupDiagnosticAction.fromEnvironment()?.suppressesAutomaticLaunchPaneRestore == true {
             launchRestoreObservationState.complete()
+            scheduleAppIPCInitialization()
         } else {
             observeLaunchRestoreReadiness()
         }
         wireLifecycleConsumers()
-        startAppIPCServer()
         if let window = mainWindowController?.window {
             RestoreTrace.log(
                 "mainWindow showWindow frame=\(NSStringFromRect(window.frame)) content=\(NSStringFromRect(window.contentLayoutRect))"
@@ -230,6 +231,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     isolated deinit {
         appIPCServer?.stop()
+        appIPCInitializationTask?.cancel()
         filesystemPipelineBootTask?.cancel()
         initialTopologySyncTask?.cancel()
         persistenceObservationBootTask?.cancel()

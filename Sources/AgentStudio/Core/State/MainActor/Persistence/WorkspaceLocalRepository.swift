@@ -195,6 +195,14 @@ package struct WorkspaceLocalRepository: Sendable {
         try WorkspaceLocalMigrations.migrate(databaseWriter)
     }
 
+    func migrateBootRequired() throws {
+        try WorkspaceLocalMigrations.migrateBootRequired(databaseWriter)
+    }
+
+    func migrateOptionalSchema() async throws {
+        try await WorkspaceLocalMigrations.migrateOptionalSchema(databaseWriter)
+    }
+
     func replaceCursorState(cursorState: CursorStateRecord, updatedAt: Date) throws {
         try databaseWriter.write { database in
             try WorkspaceLocalRepositoryStorage.replaceCursorRows(
