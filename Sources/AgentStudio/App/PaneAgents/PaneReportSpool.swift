@@ -67,9 +67,7 @@ actor PaneReportSpool {
 
     func drain(spoolDirectory: URL) async -> DrainReport {
         var report = DrainReport()
-        guard
-            let fileNames = try? FileManager.default.contentsOfDirectory(atPath: spoolDirectory.path)
-        else {
+        guard let fileNames = await Self.spoolFileNames(in: spoolDirectory) else {
             return report
         }
         for fileName in fileNames.sorted() where fileName.hasSuffix(Self.fileSuffix) {
@@ -88,25 +86,36 @@ actor PaneReportSpool {
 
     /// The exclusive lock is held across admission so a concurrent CLI append
     /// cannot land between reading the lines and truncating the file.
+    ///
+    /// Every blocking syscall runs off this actor's executor. `flock(LOCK_EX)`
+    /// waits for however long the pane's CLI holds the file, and an actor whose
+    /// executor is parked in that syscall answers nothing else.
     private func drainFile(at url: URL, paneId: UUID) async -> DrainReport {
         #if canImport(Darwin)
             var report = DrainReport()
-            let descriptor = open(url.path, O_RDWR)
+            let descriptor = await Self.openForUpdate(path: url.path)
             guard descriptor >= 0 else {
                 report.retainedFileCount = 1
                 return report
             }
-            defer { close(descriptor) }
-            guard flock(descriptor, LOCK_EX) == 0 else {
+            // Releasing the lock and closing the descriptor never block, so they
+            // stay here where a `defer` can guarantee them.
+            defer {
+                flock(descriptor, LOCK_UN)
+                close(descriptor)
+            }
+            guard await Self.acquireExclusiveLock(descriptor) else {
                 report.retainedFileCount = 1
                 return report
             }
-            defer { flock(descriptor, LOCK_UN) }
-            guard let decoded = readLines(from: descriptor) else {
+            guard
+                let decoded = await Self.readSpoolFile(
+                    descriptor: descriptor, maximumLineBytes: maximumLineBytes)
+            else {
                 report.retainedFileCount = 1
                 return report
             }
-            report.malformedLineCount += decoded.incompleteTrailingLineCount
+            report.malformedLineCount += decoded.unreadableLineCount
             var consumedEveryLine = true
             for line in decoded.lines {
                 switch await admit(line: line, paneId: paneId) {
@@ -117,7 +126,7 @@ actor PaneReportSpool {
                 }
                 guard consumedEveryLine else { break }
             }
-            guard consumedEveryLine, ftruncate(descriptor, 0) == 0 else {
+            guard consumedEveryLine, await Self.truncateToEmpty(descriptor) else {
                 report.retainedFileCount = 1
                 return report
             }
@@ -128,16 +137,38 @@ actor PaneReportSpool {
         #endif
     }
 
+    // MARK: - Blocking file work, off the actor's executor
+
+    @concurrent private nonisolated static func spoolFileNames(in directory: URL) async -> [String]? {
+        try? FileManager.default.contentsOfDirectory(atPath: directory.path)
+    }
+
     #if canImport(Darwin)
         private struct DecodedSpoolFile {
             let lines: [String]
-            let incompleteTrailingLineCount: Int
+            /// Lines that can never be admitted because they cannot be read back
+            /// as one UTF-8 line within the ceiling, plus a torn trailing line.
+            let unreadableLineCount: Int
         }
 
-        private func readLines(from descriptor: Int32) -> DecodedSpoolFile? {
+        @concurrent private nonisolated static func openForUpdate(path: String) async -> Int32 {
+            open(path, O_RDWR)
+        }
+
+        @concurrent private nonisolated static func acquireExclusiveLock(_ descriptor: Int32) async -> Bool {
+            flock(descriptor, LOCK_EX) == 0
+        }
+
+        @concurrent private nonisolated static func truncateToEmpty(_ descriptor: Int32) async -> Bool {
+            ftruncate(descriptor, 0) == 0
+        }
+
+        @concurrent private nonisolated static func readSpoolFile(
+            descriptor: Int32,
+            maximumLineBytes: Int
+        ) async -> DecodedSpoolFile? {
             guard lseek(descriptor, 0, SEEK_SET) == 0 else { return nil }
-            var frameDecoder = NDJSONFrameDecoder(maxFrameBytes: maximumLineBytes)
-            var lines: [String] = []
+            var contents = Data()
             var buffer = [UInt8](repeating: 0, count: 16_384)
             while true {
                 let readCount = buffer.withUnsafeMutableBytes { pointer in
@@ -148,13 +179,40 @@ actor PaneReportSpool {
                     return nil
                 }
                 guard readCount > 0 else { break }
-                guard let decoded = try? frameDecoder.append(Data(buffer[..<readCount])) else { return nil }
-                lines.append(contentsOf: decoded)
+                contents.append(contentsOf: buffer[..<readCount])
             }
-            return DecodedSpoolFile(
-                lines: lines,
-                incompleteTrailingLineCount: frameDecoder.pendingByteCount > 0 ? 1 : 0
-            )
+            return splitLines(in: contents, maximumLineBytes: maximumLineBytes)
+        }
+
+        /// Splits the file itself rather than streaming it through the wire frame
+        /// decoder: that decoder drops everything still buffered when one frame
+        /// exceeds the ceiling, which would wedge every later notification in the
+        /// same file behind a line that can never be admitted. Here an unreadable
+        /// line is counted and skipped, and its neighbours still drain.
+        private nonisolated static func splitLines(
+            in contents: Data,
+            maximumLineBytes: Int
+        ) -> DecodedSpoolFile {
+            var lines: [String] = []
+            var unreadableLineCount = 0
+            var lineStart = contents.startIndex
+            while let newlineIndex = contents[lineStart...].firstIndex(of: 0x0a) {
+                let rawLine = contents[lineStart..<newlineIndex]
+                lineStart = contents.index(after: newlineIndex)
+                guard !rawLine.isEmpty else { continue }
+                let normalized = rawLine.last == 0x0d ? rawLine.dropLast() : rawLine
+                guard normalized.count <= maximumLineBytes,
+                    let line = String(data: Data(normalized), encoding: .utf8)
+                else {
+                    unreadableLineCount += 1
+                    continue
+                }
+                lines.append(line)
+            }
+            // A line without its terminator is a torn append. It is not a
+            // notification anyone can admit, and it must not hold the file.
+            if lineStart < contents.endIndex { unreadableLineCount += 1 }
+            return DecodedSpoolFile(lines: lines, unreadableLineCount: unreadableLineCount)
         }
     #endif
 
@@ -207,17 +265,21 @@ actor PaneReportSpool {
     }
 
     /// A duplicate correlation is already durable, so it consumes its line. A
-    /// late deliberate report with no binding to attach to is a terminal
-    /// rejection that also consumes its line. Only an unavailable ingestion or an
-    /// unclassified failure retains the file for the next readiness.
+    /// line the admission can never accept — a foreign target, a rejected shape —
+    /// consumes its line too.
+    ///
+    /// `bindingRequired` is neither. The CLI already answered the model "Report
+    /// queued.", and a pane that has never bound may still bind: dropping the
+    /// line here would turn an accepted notification into a silent loss. It is
+    /// retryable, so the file is retained and the next drain tries again.
     private static func lineOutcome(for error: any Error) -> LineOutcome {
         guard let sessionsError = error as? AppIPCSessionsError else { return .retryable }
         switch sessionsError.reason {
         case .correlationConflict:
             return .admitted
-        case .bindingRequired, .targetNotFound, .validationRejected:
+        case .targetNotFound, .validationRejected:
             return .rejected
-        case .ingestionUnavailable:
+        case .bindingRequired, .ingestionUnavailable:
             return .retryable
         }
     }

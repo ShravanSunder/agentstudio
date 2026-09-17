@@ -3,6 +3,7 @@ import AgentStudioIPCTransport
 import AgentStudioInfrastructure
 import AgentStudioProgrammaticControl
 import AgentStudioSessions
+import Darwin
 import Foundation
 import GRDB
 import Testing
@@ -141,24 +142,96 @@ struct PaneReportSpoolDrainTests {
         }
     }
 
-    @Test("a late deliberate report on a pane that never bound is a counted rejection, not a retry")
-    func lateDeliberateReportWithoutAnyBindingIsRejected() async throws {
+    /// The CLI already answered the model "Report queued." A pane that has not
+    /// bound yet may still bind, so the line waits rather than disappearing.
+    @Test("a late deliberate report on a pane that never bound is retained until that pane binds")
+    func lateDeliberateReportWithoutAnyBindingIsRetained() async throws {
         // Arrange
         try await withPaneReportSpoolDrainHarness { harness in
             let paneId = UUIDv7.generate()
+            let lines = [try harness.reportLine(kind: .needsYou, explanation: "approve the plan")]
+            try harness.writeSpoolFile(paneId: paneId, lines: lines)
+            let expectedByteCount = try harness.spoolFileByteCount(paneId: paneId)
+
+            // Act
+            let beforeBinding = await harness.drain()
+
+            // Assert
+            #expect(beforeBinding.retainedFileCount == 1)
+            #expect(beforeBinding.rejectedLineCount == 0)
+            #expect(beforeBinding.admittedLineCount == 0)
+            #expect(beforeBinding.truncatedFileCount == 0)
+            #expect(try harness.spoolFileByteCount(paneId: paneId) == expectedByteCount)
+            #expect(try harness.spoolFileLines(paneId: paneId) == lines)
+
+            // Act
+            try await harness.bindPane(paneId: paneId)
+            let afterBinding = await harness.drain()
+
+            // Assert
+            #expect(afterBinding.admittedLineCount == 1)
+            #expect(afterBinding.retainedFileCount == 0)
+            #expect(afterBinding.truncatedFileCount == 1)
+            #expect(try harness.spoolFileByteCount(paneId: paneId) == 0)
+            #expect(try await harness.snapshot(paneId: paneId).currentAttention.count == 1)
+        }
+    }
+
+    /// The wire frame decoder drops everything it still holds when one frame is
+    /// over the ceiling. Reusing it here would wedge a pane's whole file behind
+    /// a line that can never be admitted.
+    @Test("an over-limit line is counted as malformed while its neighbour still drains")
+    func overLimitLineIsSkippedAndTheFileStillEmpties() async throws {
+        // Arrange
+        try await withPaneReportSpoolDrainHarness { harness in
+            let paneId = UUIDv7.generate()
+            let oversized = try harness.messageLine(
+                text: String(repeating: "x", count: AppPolicies.IPC.spoolDrainMaximumLineBytes))
             try harness.writeSpoolFile(
                 paneId: paneId,
-                lines: [try harness.reportLine(kind: .needsYou, explanation: "approve the plan")]
+                lines: [oversized, try harness.messageLine(text: "survivor")]
             )
 
             // Act
             let report = await harness.drain()
 
             // Assert
-            #expect(report.rejectedLineCount == 1)
-            #expect(report.admittedLineCount == 0)
+            #expect(report.malformedLineCount == 1)
+            #expect(report.admittedLineCount == 1)
+            #expect(report.retainedFileCount == 0)
             #expect(report.truncatedFileCount == 1)
             #expect(try harness.spoolFileByteCount(paneId: paneId) == 0)
+            #expect(try await harness.snapshot(paneId: paneId).messages.map(\.text) == ["survivor"])
+        }
+    }
+
+    /// `flock(LOCK_EX)` waits for as long as the pane's own CLI holds the file.
+    /// If that syscall ran on the actor's executor, nothing else the spool owns
+    /// could run for that whole time.
+    @Test(
+        "a drain waiting on another writer's lock leaves the spool actor answering",
+        .timeLimit(.minutes(1))
+    )
+    func aLockedFileDoesNotParkTheActor() async throws {
+        // Arrange: another process holds the append lock this drain must wait for.
+        try await withPaneReportSpoolDrainHarness { harness in
+            let paneId = UUIDv7.generate()
+            try harness.writeSpoolFile(
+                paneId: paneId, lines: [try harness.messageLine(text: "behind a lock")])
+            let heldLock = try harness.holdExclusiveLock(paneId: paneId)
+            let idleDirectory = try harness.makeIdleSpoolDirectory()
+
+            // Act
+            let blockedDrain = Task { await harness.drain() }
+            for _ in 0..<100 { await Task.yield() }
+            let idleReport = await harness.drain(in: idleDirectory)
+
+            // Assert
+            #expect(idleReport.hasWork == false)
+            heldLock.release()
+            let unblocked = await blockedDrain.value
+            #expect(unblocked.admittedLineCount == 1)
+            #expect(unblocked.truncatedFileCount == 1)
         }
     }
 
@@ -275,6 +348,33 @@ private final class PaneReportSpoolDrainHarness {
 
     func drain() async -> PaneReportSpool.DrainReport {
         await spool.drain(spoolDirectory: spoolDirectory)
+    }
+
+    func drain(in directory: URL) async -> PaneReportSpool.DrainReport {
+        await spool.drain(spoolDirectory: directory)
+    }
+
+    /// A second spool directory with nothing in it, so a drain of it can only be
+    /// slow if the actor itself is parked.
+    func makeIdleSpoolDirectory() throws -> URL {
+        let directory = rootDirectory.appending(path: "ipc/spool/idle")
+        try FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: true,
+            attributes: [.posixPermissions: 0o700]
+        )
+        return directory
+    }
+
+    /// Takes the same exclusive lock a pane's CLI takes to append, on a separate
+    /// open file description, so the drain's own `flock` really has to wait.
+    func holdExclusiveLock(paneId: UUID) throws -> HeldSpoolLock {
+        let descriptor = open(spoolFileURL(paneId: paneId).path, O_RDWR)
+        guard descriptor >= 0, flock(descriptor, LOCK_EX) == 0 else {
+            if descriptor >= 0 { close(descriptor) }
+            throw PaneReportSpoolDrainHarnessError.spoolLockUnavailable
+        }
+        return HeldSpoolLock(descriptor: descriptor)
     }
 
     func snapshot(paneId: UUID) async throws -> SessionsSnapshot {
@@ -395,6 +495,24 @@ private final class PaneReportSpoolDrainHarness {
 
 private enum PaneReportSpoolDrainHarnessError: Error {
     case optionalSchemaUnavailable
+    case spoolLockUnavailable
+}
+
+/// An exclusive `flock` the test holds until it says otherwise.
+@MainActor
+private final class HeldSpoolLock {
+    private var descriptor: Int32?
+
+    init(descriptor: Int32) {
+        self.descriptor = descriptor
+    }
+
+    func release() {
+        guard let descriptor else { return }
+        flock(descriptor, LOCK_UN)
+        close(descriptor)
+        self.descriptor = nil
+    }
 }
 
 private struct PaneReportSpoolDrainStorageFailure: Error {}
