@@ -396,13 +396,16 @@ extension AppDelegate: ShellCommandHandling {
     }
 
     func execute(_ request: AppCommandExecutionRequest) -> AppCommandExecutionOutcome {
-        switch (request.command, request.arguments) {
-        case (.showInboxNotifications, _), (.toggleInboxNotificationSort, _),
-            (.clearReadInboxNotifications, _), (.clearAllInboxNotifications, _),
-            (.showPaneInboxNotifications, _), (.clearPaneInboxNotifications, _),
-            (.setInboxGroupingTab, _), (.setInboxGroupingRepo, _),
-            (.setInboxGroupingPane, _), (.setInboxGroupingNone, _),
-            (.setInboxRowStateFilter, _), (.setInboxContentMode, _):
+        if let typedArguments = request.typedIPCArguments {
+            return executeTypedIPCShellCommand(request.command, arguments: typedArguments)
+        }
+        switch request.command {
+        case .showInboxNotifications, .toggleInboxNotificationSort,
+            .clearReadInboxNotifications, .clearAllInboxNotifications,
+            .showPaneInboxNotifications, .clearPaneInboxNotifications,
+            .setInboxGroupingTab, .setInboxGroupingRepo,
+            .setInboxGroupingPane, .setInboxGroupingNone,
+            .setInboxRowStateFilter, .setInboxContentMode:
             return .unsupportedCommand
         default:
             return execute(request.command) ? .applied : .unsupportedCommand

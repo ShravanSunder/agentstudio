@@ -267,6 +267,7 @@ extension AppDelegate {
             ),
             commandPort: AgentStudioIPCCommandAdapter(
                 workspaceId: store.identityAtom.workspaceId,
+                channel: Self.appIPCChannel(),
                 targetAuthorizer: WorkspaceDurableTargetAuthorizationPort(workspaceStore: store),
                 shellCommandHandler: self
             ),
