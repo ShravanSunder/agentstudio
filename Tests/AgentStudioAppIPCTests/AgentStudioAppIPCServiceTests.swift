@@ -30,6 +30,7 @@ struct AgentStudioAppIPCServiceTests {
                 commandPort: FakeCommandPort(),
                 uiPresentationPort: FakeUIPresentationPort(),
                 sidebarPort: FakeSidebarPort(),
+                sessionsPort: RecordingSessionsPort(),
                 permissionApprovalPort: FakePermissionApprovalPort()
             ),
             methodRegistry: registry,
@@ -38,7 +39,7 @@ struct AgentStudioAppIPCServiceTests {
 
         #expect(service.configuration.runtimeId == runtimeId)
         #expect(service.configuration.accessMode == .agentStudioOnly)
-        #expect(service.methodRegistry.capabilities.methods.count == 44)
+        #expect(service.methodRegistry.capabilities.methods.count == 48)
         #expect(
             service.methodRegistry.capabilities.methods.filter { $0.name == "system.capabilities" }.count == 1
         )

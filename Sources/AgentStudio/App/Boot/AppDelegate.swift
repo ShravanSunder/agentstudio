@@ -4,6 +4,7 @@ import AgentStudioCommandBar
 import AgentStudioCore
 import AgentStudioInboxNotification
 import AgentStudioInfrastructure
+import AgentStudioSessions
 import AgentStudioTerminal
 import AppKit
 import SwiftUI
@@ -90,6 +91,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     var appIPCCredentialResolver: IPCContinuityCredentialResolver!
     var appIPCPrincipalRegistry: AgentStudioIPCPrincipalRegistry!
     var paneIPCIdentityOwner: PaneIPCIdentityOwner!
+    var appIPCSessionsIngestion: SessionsIngestion?
+    /// Exact provider profiles are composition input. An empty list grants no
+    /// provider-reported authority until a qualified provider package ships.
+    var appIPCSessionsProviderProfiles: [SessionsProviderProfile] = []
     var appLifecycleStore: AppLifecycleAtom!
     var windowLifecycleStore: WindowLifecycleAtom!
     var applicationLifecycleMonitor: ApplicationLifecycleMonitor!

@@ -55,6 +55,10 @@ struct AppCommandIPCSpec: Sendable {
             .permissionState
         case .sidebarStateMutate:
             .sidebarState
+        case .sessionReportWrite:
+            .sessionReport
+        case .sessionStateRead:
+            .sessionState
         }
     }
 }

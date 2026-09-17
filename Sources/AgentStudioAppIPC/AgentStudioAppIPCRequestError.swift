@@ -43,6 +43,8 @@ extension AgentStudioAppIPCRequestError {
             self.init(commandError.reason)
         case let bridgeError as AppIPCBridgeError:
             self.init(bridgeError.reason)
+        case let sessionsError as AppIPCSessionsError:
+            self.init(sessionsError.reason)
         case let uiPresentationError as AppIPCUIPresentationError:
             self.init(uiPresentationError.reason)
         case let authError as AgentStudioIPCAuthenticationError:
@@ -133,6 +135,31 @@ extension AgentStudioAppIPCRequestError {
             self = Self(code: -32_009, message: "timeout")
         case .replayGap:
             self = Self(code: -32_010, message: "replay gap")
+        }
+    }
+
+    private init(_ reason: AppIPCSessionsError.Reason) {
+        switch reason {
+        case .targetNotFound:
+            self = Self(code: -32_004, message: "target not found")
+        case .bindingRequired:
+            self = Self(
+                code: -32_003, message: "no bound conversation",
+                data: .object([
+                    "reason": .string("bindingRequired"),
+                    "fieldPath": .string("$.handle"),
+                ]))
+        case .correlationConflict:
+            self = Self(
+                code: -32_007, message: "correlation conflict",
+                data: .object([
+                    "reason": .string("correlationConflict"),
+                    "fieldPath": .string("$.correlationId"),
+                ]))
+        case .ingestionUnavailable:
+            self = Self(code: -32_005, message: "sessions ingestion unavailable")
+        case .validationRejected:
+            self = Self(code: -32_007, message: "validation rejected")
         }
     }
 

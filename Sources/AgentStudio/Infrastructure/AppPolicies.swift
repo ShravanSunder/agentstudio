@@ -5,6 +5,13 @@ package enum AppPolicies {
     package enum IPC {
         package static let maximumTerminalWaitSeconds: Double = 86_400
     }
+
+    package enum Sessions {
+        /// Live ingress bounds. Exceeding either bound discloses the loss on
+        /// the request instead of silently dropping the fact.
+        package static let maximumPendingIngestionPerPane = 256
+        package static let maximumPendingIngestionGlobal = 1024
+    }
     package enum BackgroundFactApplyGovernor {
         package static let tickCadence: Duration = .milliseconds(16)
         package static let drainBudget: Duration = .milliseconds(4)

@@ -213,6 +213,7 @@ package struct AgentStudioAppIPCPorts: Sendable {
     package let commandPort: any AppIPCCommandPort
     package let uiPresentationPort: any AppIPCUIPresentationPort
     package let sidebarPort: any AppIPCSidebarPort
+    package let sessionsPort: any AppIPCSessionsPort
     package let permissionApprovalPort: any AppIPCPermissionApprovalPort
 
     package init(
@@ -223,6 +224,7 @@ package struct AgentStudioAppIPCPorts: Sendable {
         commandPort: any AppIPCCommandPort,
         uiPresentationPort: any AppIPCUIPresentationPort,
         sidebarPort: any AppIPCSidebarPort,
+        sessionsPort: any AppIPCSessionsPort,
         permissionApprovalPort: any AppIPCPermissionApprovalPort
     ) {
         self.queryPort = queryPort
@@ -232,6 +234,7 @@ package struct AgentStudioAppIPCPorts: Sendable {
         self.commandPort = commandPort
         self.uiPresentationPort = uiPresentationPort
         self.sidebarPort = sidebarPort
+        self.sessionsPort = sessionsPort
         self.permissionApprovalPort = permissionApprovalPort
     }
 }

@@ -14,6 +14,18 @@ enum IPCRequestSchemaFields {
         )
     }
 
+    /// Model calls supply no targeting: the CLI and app own it. A defaulted
+    /// self handle keeps those invocations free of a typed pane identifier
+    /// while tooling callers may still name an explicit pane.
+    static func paneDefaultingToSelf(_ name: String = "handle") throws -> IPCObjectField {
+        .init(
+            name: name,
+            description: "Authenticated self pane, canonical pane UUID, or workspace-local pane:N ordinal",
+            schema: paneSelector,
+            presence: try .defaulted("self")
+        )
+    }
+
     static let correlation = IPCObjectField(
         name: "correlationId", description: "Logical mutation UUID retained unchanged across retries",
         schema: IPCSchemaScalars.uuid

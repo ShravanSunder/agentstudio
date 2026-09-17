@@ -64,6 +64,7 @@ struct BuiltInMethodRegistrationsFixture {
         runtimePort: any AppIPCRuntimePort = FakeRuntimePort(),
         bridgePort: (any AppIPCBridgePort)? = nil,
         uiPresentationPort: (any AppIPCUIPresentationPort)? = nil,
+        sessionsPort: (any AppIPCSessionsPort)? = nil,
         eventBroker: IPCEventBroker = IPCEventBroker()
     ) throws -> [AnyAppIPCMethodRegistration] {
         try AppIPCBuiltInMethodRegistrations.make(
@@ -83,6 +84,7 @@ struct BuiltInMethodRegistrationsFixture {
                             arrangementContextPaneId: paneId
                         ),
                     sidebarPort: FakeSidebarPort(),
+                    sessionsPort: sessionsPort ?? RecordingSessionsPort(),
                     permissionApprovalPort: FakePermissionApprovalPort()
                 ),
                 eventBroker: eventBroker
@@ -134,6 +136,11 @@ struct BuiltInMethodRegistrationsFixture {
             await recorder?.record(rawHandle)
             if rawHandle == "self" {
                 return IPCHandle(kind: .pane, reference: .canonicalUUID(paneId))
+            }
+            // The declared pane selector accepts a bare canonical UUID, which
+            // the live server resolves through IPCTargetSelector.
+            if let canonicalPaneId = UUID(uuidString: rawHandle) {
+                return IPCHandle(kind: .pane, reference: .canonicalUUID(canonicalPaneId))
             }
             let parsedHandle = try IPCHandle.parse(rawHandle)
             guard parsedHandle.kind == .pane else {

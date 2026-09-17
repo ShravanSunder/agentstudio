@@ -2,6 +2,7 @@ import AgentStudioAppIPC
 import AgentStudioCore
 import AgentStudioInfrastructure
 import AgentStudioProgrammaticControl
+import AgentStudioSessions
 import Foundation
 
 @MainActor
@@ -110,9 +111,12 @@ extension AppDelegate {
             return
         }
         guard appIPCServer == nil else { return }
+        guard let sessionsIngestion = await prepareAppIPCSessionsIngestion(datastore: workspaceSQLiteDatastore) else {
+            return
+        }
 
         do {
-            let composition = try makeAppIPCServer()
+            let composition = try makeAppIPCServer(sessionsIngestion: sessionsIngestion)
             try composition.server.start()
             appIPCServer = composition.server
             appLogger.info("App IPC server started at \(composition.socketURL.path, privacy: .private)")
@@ -126,6 +130,45 @@ extension AppDelegate {
         appIPCInitializationTask = nil
         appIPCServer?.stop()
         appIPCServer = nil
+        finishAppIPCSessionsIngestion()
+    }
+
+    /// Sessions ingestion is built with the IPC server, not on the first-frame
+    /// or terminal paths. Launch preparation ends the previous run's active
+    /// sources before any live report can reach them.
+    private func prepareAppIPCSessionsIngestion(
+        datastore: WorkspaceSQLiteDatastoreActor
+    ) async -> SessionsIngestion? {
+        if let existing = appIPCSessionsIngestion { return existing }
+        let ingestion = SessionsIngestion(
+            repository: SessionsRepository(
+                sqliteAccess: WorkspaceSessionsSQLiteAccess(datastore: datastore)
+            ),
+            limits: SessionsIngestionLimits(
+                maximumPendingPerPane: AppPolicies.Sessions.maximumPendingIngestionPerPane,
+                maximumPendingGlobal: AppPolicies.Sessions.maximumPendingIngestionGlobal
+            ),
+            // Ingestion statistics carry a raw pane UUID, which the OTLP scrub
+            // rules exclude. Counts reach no sink until a scrubbed probe exists.
+            probe: { _ in }
+        )
+        do {
+            _ = try await ingestion.prepareForLaunch(at: Date())
+        } catch {
+            appLogger.warning(
+                "Sessions ingestion skipped: launch preparation failed: \(String(describing: error), privacy: .public)"
+            )
+            return nil
+        }
+        guard !Task.isCancelled else { return nil }
+        appIPCSessionsIngestion = ingestion
+        return ingestion
+    }
+
+    private func finishAppIPCSessionsIngestion() {
+        guard let ingestion = appIPCSessionsIngestion else { return }
+        appIPCSessionsIngestion = nil
+        Task { await ingestion.finish() }
     }
 
     func stopAndDrainAppIPCServer() async {
@@ -147,7 +190,9 @@ extension AppDelegate {
         }
     }
 
-    private func makeAppIPCServer() throws -> (server: AgentStudioAppIPCServer, socketURL: URL) {
+    private func makeAppIPCServer(
+        sessionsIngestion: SessionsIngestion
+    ) throws -> (server: AgentStudioAppIPCServer, socketURL: URL) {
         let runtimeId = appIPCRuntimeID!
         let accessMode = Self.appIPCAccessMode()
         let paths = appIPCPaths!
@@ -191,6 +236,12 @@ extension AppDelegate {
             sidebarPort: AgentStudioIPCSidebarAdapter(
                 repoPrefs: atomStore.repoExplorerSidebarPrefs,
                 sidebarState: atomStore.core.workspaceSidebarState
+            ),
+            sessionsPort: AgentStudioIPCSessionsAdapter(
+                ingestion: sessionsIngestion,
+                providerRegistry: SessionsProviderAdapterRegistry(
+                    profiles: appIPCSessionsProviderProfiles
+                )
             ),
             permissionApprovalPort: AgentStudioIPCHumanApprovalPort()
         )

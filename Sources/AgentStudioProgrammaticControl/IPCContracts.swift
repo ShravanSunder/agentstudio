@@ -117,6 +117,8 @@ public enum IPCDataScope: String, Codable, CaseIterable, Hashable, Sendable {
     case terminalInput
     case terminalWait
     case permissionState
+    case sessionReport
+    case sessionState
 }
 
 public enum IPCPrivilegeClass: String, Codable, CaseIterable, Hashable, Sendable {
@@ -142,6 +144,8 @@ public enum IPCPrivilegeClass: String, Codable, CaseIterable, Hashable, Sendable
     case grantApprove
     case appCommandExecute
     case sidebarStateMutate
+    case sessionReportWrite
+    case sessionStateRead
     case debugUnsafe
 }
 
@@ -154,6 +158,7 @@ public enum IPCExecutionOwner: String, CaseIterable, Codable, Equatable, Sendabl
     case queryReader
     case eventReader
     case permissionBroker
+    case sessionsIngest
 }
 
 public enum IPCResultSemantics: String, CaseIterable, Codable, Equatable, Sendable {

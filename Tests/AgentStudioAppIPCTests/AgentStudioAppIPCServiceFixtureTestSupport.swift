@@ -36,6 +36,7 @@ struct LiveServerFixture {
         commandPort: any AppIPCCommandPort = FakeCommandPort(),
         uiPresentationPort: any AppIPCUIPresentationPort = FakeUIPresentationPort(),
         sidebarPort: any AppIPCSidebarPort = FakeSidebarPort(),
+        sessionsPort: any AppIPCSessionsPort = RecordingSessionsPort(),
         commandComposition: IPCCommandMethodComposition? = nil,
         credentialResolver: (any AgentStudioIPCCredentialResolving)? = nil,
         credentialContinuityPort: any AgentStudioIPCCredentialContinuityPort = TestCredentialContinuityPort(),
@@ -60,6 +61,7 @@ struct LiveServerFixture {
             commandPort: commandPort,
             uiPresentationPort: uiPresentationPort,
             sidebarPort: sidebarPort,
+            sessionsPort: sessionsPort,
             permissionApprovalPort: FakePermissionApprovalPort()
         )
         let eventBroker = IPCEventBroker()

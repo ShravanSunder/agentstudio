@@ -8,6 +8,7 @@ package struct IPCBuiltInMethodCatalog: Sendable {
     package let bridge: IPCBridgeMethodDescriptors
     package let presentationAndSidebar: IPCPresentationAndSidebarMethodDescriptors
     package let events: IPCEventMethodDescriptors
+    package let sessions: IPCSessionMethodDescriptors
     package let erasedDescriptors: [IPCAnyMethodDescriptor]
 
     package init(inputs: IPCBuiltInMethodCatalogInputs) throws {
@@ -18,6 +19,7 @@ package struct IPCBuiltInMethodCatalog: Sendable {
         bridge = try IPCBridgeMethodDescriptors(inputs: inputs)
         presentationAndSidebar = try IPCPresentationAndSidebarMethodDescriptors(examples: inputs.examples)
         events = try IPCEventMethodDescriptors(examples: inputs.examples)
+        sessions = try IPCSessionMethodDescriptors(examples: inputs.examples)
         erasedDescriptors = try
             (systemAndAuth.erased
             + workspaceQueries.erased
@@ -25,6 +27,7 @@ package struct IPCBuiltInMethodCatalog: Sendable {
             + terminal.erased
             + bridge.erased
             + presentationAndSidebar.erased
-            + events.erased).sorted { $0.metadata.name < $1.metadata.name }
+            + events.erased
+            + sessions.erased).sorted { $0.metadata.name < $1.metadata.name }
     }
 }

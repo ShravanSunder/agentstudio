@@ -5,13 +5,13 @@ import Testing
 
 @Suite("IPC built-in typed method catalog")
 struct IPCBuiltInMethodCatalogTests {
-    @Test("catalog exposes exactly 43 unique static methods in name order")
+    @Test("catalog exposes exactly 47 unique static methods in name order")
     func catalogHasExactStaticSurface() throws {
         let catalog = try makeCatalog(waitMaximum: 9)
         let names = catalog.erasedDescriptors.map(\.metadata.name)
 
         #expect(names == expectedStaticMethodNames)
-        #expect(Set(names).count == 43)
+        #expect(Set(names).count == 47)
         #expect(names == names.sorted())
     }
 
@@ -65,9 +65,6 @@ struct IPCBuiltInMethodCatalogTests {
             "permission.pendingApprovals",
             "permission.resolveRequest",
             "session.bind",
-            "session.report",
-            "session.message",
-            "session.query",
             "file.open",
         ]
 
@@ -228,6 +225,10 @@ struct IPCBuiltInMethodCatalogTests {
             "auth.status",
             "events.subscribe",
             "events.unsubscribe",
+            "session.event",
+            "session.message",
+            "session.query",
+            "session.report",
             "system.identify",
             "system.ping",
             "system.version",
@@ -255,6 +256,9 @@ struct IPCBuiltInMethodCatalogTests {
             "pane.close",
             "pane.focus",
             "pane.split",
+            "session.event",
+            "session.message",
+            "session.report",
             "terminal.send",
             "ui.arrangements.open",
             "ui.commandBar.open",
@@ -291,6 +295,10 @@ struct IPCBuiltInMethodCatalogTests {
             "pane.list",
             "pane.snapshot",
             "pane.split",
+            "session.event",
+            "session.message",
+            "session.query",
+            "session.report",
             "sidebar.grouping.get",
             "sidebar.surface.get",
             "system.identify",

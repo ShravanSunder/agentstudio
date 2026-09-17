@@ -211,6 +211,10 @@ public struct PermissionScopeCanonicalizer: Sendable {
             .unspecified
         case .sidebarStateMutate:
             .sidebarState
+        case .sessionReportWrite:
+            .sessionReport
+        case .sessionStateRead:
+            .sessionState
         case .debugUnsafe:
             .unspecified
         }
@@ -314,6 +318,8 @@ public struct AuthorizationService: Sendable {
         .bridgeTelemetryFlush,
         .permissionRead,
         .permissionRequest,
+        .sessionReportWrite,
+        .sessionStateRead,
         .systemRead,
         .terminalInputWrite,
         .terminalSnapshotRead,
