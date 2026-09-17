@@ -45,9 +45,9 @@ struct PaneIPCIdentityOwnerTests {
         #expect(first.environmentVariables["AGENTSTUDIO_WORKSPACE_ID"] == workspaceID.uuidString)
         #expect(first.environmentVariables["AGENTSTUDIO_IPC_SOCKET"] == fixture.socketURL.path)
         #expect(first.environmentVariables["AGENTSTUDIO_PANE_TOKEN"] == rawBytes.base64EncodedString())
-        #expect(
-            first.environmentVariables["AGENTSTUDIO_IPC_CREDENTIAL_RECORD_ID"]
-                == first.credentialRecordID.uuidString)
+        // The credential record ID is persistence identity, not pane authority,
+        // so it is deliberately absent from the pane's environment.
+        #expect(first.environmentVariables["AGENTSTUDIO_IPC_CREDENTIAL_RECORD_ID"] == nil)
         #expect(first.environmentVariables["AGENTSTUDIO_IPC_SPOOL_DIR"] == fixture.spoolDirectory.path)
         #expect(first.environmentVariables["AGENTSTUDIO_CLI"] == fixture.cliExecutableURL.path)
         #expect(
@@ -104,7 +104,6 @@ struct PaneIPCIdentityOwnerTests {
             "AGENTSTUDIO_WORKSPACE_ID": "outer-workspace",
             "AGENTSTUDIO_IPC_SOCKET": "/tmp/outer.sock",
             "AGENTSTUDIO_PANE_TOKEN": "outer-token",
-            "AGENTSTUDIO_IPC_CREDENTIAL_RECORD_ID": "outer-record",
             "AGENTSTUDIO_IPC_SPOOL_DIR": "/tmp/outer-spool",
             "AGENTSTUDIO_CLI": "/tmp/outer-agentstudio",
         ]

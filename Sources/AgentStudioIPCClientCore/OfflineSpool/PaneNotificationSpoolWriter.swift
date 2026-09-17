@@ -107,6 +107,8 @@ package struct PaneNotificationSpoolWriter: Sendable {
                 throw PaneNotificationSpoolWriteError(reason: .lineEncodingFailed)
             }
             try prepareSpoolDirectory(location.spoolDirectory)
+            let fileExistedBeforeAppend = FileManager.default.fileExists(
+                atPath: location.notificationFileURL.path)
             let descriptor = open(location.notificationFileURL.path, O_WRONLY | O_APPEND | O_CREAT, 0o600)
             guard descriptor >= 0 else {
                 throw PaneNotificationSpoolWriteError(reason: .notificationFileUnavailable, errnoCode: errno)
@@ -120,6 +122,9 @@ package struct PaneNotificationSpoolWriter: Sendable {
             try appendAllBytes(frame, to: descriptor)
             guard fsync(descriptor) == 0 else {
                 throw PaneNotificationSpoolWriteError(reason: .synchronizeFailed, errnoCode: errno)
+            }
+            if !fileExistedBeforeAppend {
+                try synchronizeDirectoryEntry(location.spoolDirectory)
             }
         #else
             throw PaneNotificationSpoolWriteError(reason: .notificationFileUnavailable)
@@ -137,6 +142,20 @@ package struct PaneNotificationSpoolWriter: Sendable {
                 )
             } catch {
                 throw PaneNotificationSpoolWriteError(reason: .spoolDirectoryUnavailable, errnoCode: errno)
+            }
+        }
+
+        /// Syncing the file does not make its own directory entry durable, so a
+        /// crash right after the first-ever append to a pane could lose the file
+        /// the queued reply promised.
+        private func synchronizeDirectoryEntry(_ directory: URL) throws {
+            let descriptor = open(directory.path, O_RDONLY)
+            guard descriptor >= 0 else {
+                throw PaneNotificationSpoolWriteError(reason: .synchronizeFailed, errnoCode: errno)
+            }
+            defer { close(descriptor) }
+            guard fsync(descriptor) == 0 else {
+                throw PaneNotificationSpoolWriteError(reason: .synchronizeFailed, errnoCode: errno)
             }
         }
 

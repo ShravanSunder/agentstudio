@@ -6,6 +6,7 @@ import Foundation
 @main
 struct AgentStudioIPCClientMain {
     static func main() {
+        var endpointCameFromDebugEscrow = false
         do {
             let readInput: @Sendable () -> Data = { FileHandle.standardInput.readDataToEndOfFile() }
             let environment = ProcessInfo.processInfo.environment
@@ -19,6 +20,7 @@ struct AgentStudioIPCClientMain {
                 rawArguments, environment: environment,
                 standardInputProvider: readInput
             )
+            endpointCameFromDebugEscrow = global.endpointCameFromDebugEscrow
             let offlineHandler = PaneNotificationOfflineHandler(environment: environment)
             let examples = IPCBuiltInMethodExampleContext(illustrativeIdentifier: UUIDv7.generate())
             let bootstrap = try IPCBuiltInMethodCatalog.bootstrapDescriptors(examples: examples)
@@ -67,43 +69,60 @@ struct AgentStudioIPCClientMain {
                 invocation = try commandCatalog.makeInvocation(
                     commandId: request.commandId, correlationId: request.correlationId, arguments: request.arguments)
             }
-            let client = AgentStudioIPCClient(configuration: global.configuration, descriptors: descriptors)
-            if invocation.descriptor.metadata.responseDelivery == .subscription {
-                try client.stream(invocation) { frame in
-                    switch frame {
-                    case .initialResponse(let response): try write(response.normalizedResult)
-                    case .notification(let notification): print(notification)
-                    case .remoteFailure(let failure):
-                        throw CLIExit.structured(CLIErrorPresentation(remoteFailure: failure))
-                    }
-                }
-            } else {
-                let result: IPCDescriptorClientCallResult
-                do {
-                    result = try client.call(invocation)
-                } catch let unreachable as IPCDescriptorClientFailure where unreachable.permitsOfflineQueue {
-                    try queueWhileOffline(
-                        invocation: invocation, handler: offlineHandler,
-                        requestLine: { try client.requestFrame(invocation) }, unreachable: unreachable
-                    )
-                    return
-                }
-                switch result {
-                case .success(let response):
-                    if let commandCatalog {
-                        _ = try commandCatalog.decodeResult(response.normalizedResult, for: invocation)
-                    }
-                    if case .model(let presentation) = invocation.presentation, !presentation.showsDetail {
-                        print(presentation.successReply)
-                    } else {
-                        try write(response.normalizedResult)
-                    }
+            try deliver(
+                invocation: invocation,
+                client: AgentStudioIPCClient(
+                    configuration: global.configuration, descriptors: descriptors),
+                commandCatalog: commandCatalog,
+                offlineHandler: offlineHandler
+            )
+        } catch {
+            handleFailure(error, endpointCameFromDebugEscrow: endpointCameFromDebugEscrow)
+        }
+    }
+
+    /// Sends one parsed invocation and writes whatever the app answers. A
+    /// subscription streams; anything else is one call whose unreachable case is
+    /// the offline queue.
+    private static func deliver(
+        invocation: IPCDescriptorInvocation,
+        client: AgentStudioIPCClient,
+        commandCatalog: IPCDiscoveredCommandCatalog?,
+        offlineHandler: PaneNotificationOfflineHandler
+    ) throws {
+        guard invocation.descriptor.metadata.responseDelivery != .subscription else {
+            try client.stream(invocation) { frame in
+                switch frame {
+                case .initialResponse(let response): try write(response.normalizedResult)
+                case .notification(let notification): print(notification)
                 case .remoteFailure(let failure):
-                    throw modelFailureExit(failure, invocation: invocation)
+                    throw CLIExit.structured(CLIErrorPresentation(remoteFailure: failure))
                 }
             }
-        } catch {
-            handleFailure(error)
+            return
+        }
+        let result: IPCDescriptorClientCallResult
+        do {
+            result = try client.call(invocation)
+        } catch let unreachable as IPCDescriptorClientFailure where unreachable.permitsOfflineQueue {
+            try queueWhileOffline(
+                invocation: invocation, handler: offlineHandler,
+                requestLine: { try client.requestFrame(invocation) }, unreachable: unreachable
+            )
+            return
+        }
+        switch result {
+        case .success(let response):
+            if let commandCatalog {
+                _ = try commandCatalog.decodeResult(response.normalizedResult, for: invocation)
+            }
+            if case .model(let presentation) = invocation.presentation, !presentation.showsDetail {
+                print(presentation.successReply)
+            } else {
+                try write(response.normalizedResult)
+            }
+        case .remoteFailure(let failure):
+            throw modelFailureExit(failure, invocation: invocation)
         }
     }
 
@@ -246,7 +265,7 @@ struct AgentStudioIPCClientMain {
         )
     }
 
-    private static func handleFailure(_ error: Error) -> Never {
+    private static func handleFailure(_ error: Error, endpointCameFromDebugEscrow: Bool) -> Never {
         switch error {
         case let failure as PaneNotificationSpoolWriteError:
             fputs("Agent Studio could not durably queue this notification: \(failure.reason.rawValue)\n", stderr)
@@ -261,6 +280,11 @@ struct AgentStudioIPCClientMain {
         case let failure as AgentStudioIPCClientError where failure.reason == .invalidArguments:
             writeStructuredError(.localInvalidArguments)
         case let failure as AgentStudioIPCClientError where failure.reason == .debugAppNotRunning:
+            fputs("Debug app not running; start it with the debug launcher.\n", stderr)
+        case let failure as IPCDescriptorClientFailure
+        where endpointCameFromDebugEscrow && failure.disposition == .endpointUnavailableBeforeSubmission:
+            // The escrow named this socket; nothing answering there means the
+            // debug app that wrote the file is gone.
             fputs("Debug app not running; start it with the debug launcher.\n", stderr)
         case let failure as IPCDescriptorClientFailure where failure.disposition == .deliveryUncertain:
             fputs("Delivery uncertain.\n", stderr)

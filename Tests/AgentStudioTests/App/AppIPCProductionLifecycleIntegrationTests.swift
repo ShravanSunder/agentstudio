@@ -144,13 +144,9 @@ struct AppIPCProductionLifecycleIntegrationTests {
         let harness = try makeServerCapableAppIPCTestHarness()
         do {
             let readinessPane = harness.store.createPane()
-            let readinessEnvironment = harness.appDelegate.appIPCWorkspaceSurfaceLifecycle().environment(
-                readinessPane.id,
-                harness.workspaceID
-            )
             let readinessRecordID = try #require(
-                readinessEnvironment["AGENTSTUDIO_IPC_CREDENTIAL_RECORD_ID"].flatMap(UUID.init(uuidString:))
-            )
+                harness.appDelegate.paneIPCIdentityOwner
+            ).environment(paneID: readinessPane.id, workspaceID: harness.workspaceID).credentialRecordID
             let earlyRegistry = harness.appDelegate.appIPCPrincipalRegistry!
 
             await harness.appDelegate.startAppIPCServer()
@@ -158,13 +154,9 @@ struct AppIPCProductionLifecycleIntegrationTests {
             #expect(server.principalRegistry === earlyRegistry)
 
             let shutdownOnlyPane = harness.store.createPane()
-            let shutdownOnlyEnvironment = harness.appDelegate.appIPCWorkspaceSurfaceLifecycle().environment(
-                shutdownOnlyPane.id,
-                harness.workspaceID
-            )
             let shutdownOnlyRecordID = try #require(
-                shutdownOnlyEnvironment["AGENTSTUDIO_IPC_CREDENTIAL_RECORD_ID"].flatMap(UUID.init(uuidString:))
-            )
+                harness.appDelegate.paneIPCIdentityOwner
+            ).environment(paneID: shutdownOnlyPane.id, workspaceID: harness.workspaceID).credentialRecordID
             #expect(
                 try await harness.appDelegate.appIPCContinuityRepository.paneCredential(
                     paneID: shutdownOnlyPane.id,
