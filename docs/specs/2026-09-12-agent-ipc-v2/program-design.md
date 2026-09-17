@@ -680,8 +680,13 @@ be bypassed by installation. pi/OpenCode are outside this package's first round.
 
 
 Delivery order and installer scope (AG). The bundled CLI executable ships first
-as `Contents/MacOS/agentstudio`, built from the `agentstudio` executable product
-(formerly `agentstudio-ipc`) and signed with the app; it is a PR gate on its own.
+as `Contents/Helpers/agentstudio`, built from the `agentstudio-cli` executable
+product (formerly `agentstudio-ipc`) and signed with the app; it is a PR gate on
+its own. It cannot live in `Contents/MacOS`: on the case-insensitive volumes
+macOS and the CI runners use, `agentstudio` and the app's `AgentStudio` are one
+path, and a `Contents/MacOS` PATH entry would resolve bare `agentstudio` to the
+app. The pane env therefore prepends `Contents/Helpers` to PATH and advertises
+that file as AGENTSTUDIO_CLI.
 Providers land in the order Codex CLI, Claude Code, Cursor CLI, each proven with
 that provider's real entry point before the next starts. The installer is a
 subcommand of the same CLI (`agentstudio package install|uninstall <provider>`).

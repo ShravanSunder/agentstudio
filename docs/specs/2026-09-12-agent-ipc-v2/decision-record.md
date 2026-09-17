@@ -774,8 +774,10 @@ status:   accepted (owner, 2026-09-17)
 ## AG — Package delivery order and minimal installer (2026-09-17)
 
 ```text
-decision: Ship the bundled CLI first (Contents/MacOS/agentstudio, product renamed
-          from agentstudio-ipc), then providers in the order Codex CLI, Claude
+decision: Ship the bundled CLI first as Contents/Helpers/agentstudio from the
+          agentstudio-cli product (renamed from agentstudio-ipc; Contents/MacOS
+          is impossible because agentstudio and AgentStudio collide on the
+          case-insensitive default volume), then providers in the order Codex CLI, Claude
           Code, Cursor CLI. The installer is a CLI subcommand that writes and
           removes only marker-owned entries and prints a one-line notice before
           overwriting a marked entry that differs. No last-installed manifest or
@@ -801,6 +803,29 @@ why:      Independent drift audit findings A–C; repository rule against
           wall-clock tests; no UI consumes acknowledgment or terminal facts in
           round 1.
 status:   accepted (owner, 2026-09-17)
+```
+
+## AI — Deliberate verbs require a bound provider session (2026-09-17)
+
+```text
+decision: needs-you, needs-you --clear and done are admitted only for a pane
+          with an active provider binding; an unbound pane returns the finite
+          reason bindingRequired with a one-line reply telling the model to
+          install the Agent Studio hooks for its provider. Free-text message
+          is admitted on any pane and is stored unattributed when no binding
+          exists. session.bind (explicit model bind) stays deferred.
+why:      R-17 coalesces one deliberate assertion per conversation/generation;
+          without a binding there is no conversation to coalesce against. The
+          committed reducer already enforces this (SessionsEvidenceReducer
+          requireActiveBinding). In round 1 every supported provider installs
+          hooks, so the binding exists whenever a model can run the skill.
+alternatives: undefer session.bind (rejected for round 1: a model-typed bind
+          contradicts Q's no-identifier vocabulary and invents a conversation
+          identity the provider did not report).
+consequences: W3 proves report-after-bind, report-on-unbound-pane failure, and
+          unattributed message durability. The skill text states the
+          precondition. Revisit only if a provider without hooks must report.
+status:   accepted structural note; no owner-visible product change
 ```
 
 ## Open items (owner decisions still needed)
