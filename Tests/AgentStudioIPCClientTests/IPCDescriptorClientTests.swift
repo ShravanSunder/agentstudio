@@ -53,7 +53,7 @@ struct IPCDescriptorClientTests {
             parameters: IPCDescriptorClientQueryParameters(query: "read")
         )
         let client = AgentStudioIPCClient(
-            configuration: .init(socketPath: endpoint.path, maxFrameBytes: 65_536),
+            configuration: .init(socketPath: endpoint.path, maxRequestFrameBytes: 65_536),
             descriptors: catalog.descriptors
         )
 
@@ -122,7 +122,7 @@ struct IPCDescriptorClientTests {
             configuration: .init(
                 socketPath: endpoint.path,
                 authToken: "private-fixture-token",
-                maxFrameBytes: 65_536
+                maxRequestFrameBytes: 65_536
             ),
             descriptors: catalog.descriptors
         )
@@ -180,7 +180,7 @@ struct IPCDescriptorClientTests {
             configuration: .init(
                 socketPath: endpoint.path,
                 authToken: "private-fixture-token",
-                maxFrameBytes: 65_536
+                maxRequestFrameBytes: 65_536
             ),
             descriptors: catalog.descriptors
         )
@@ -231,7 +231,7 @@ struct IPCDescriptorClientTests {
             configuration: .init(
                 socketPath: endpoint.path,
                 authToken: "rejected-fixture-token",
-                maxFrameBytes: 65_536
+                maxRequestFrameBytes: 65_536
             ),
             descriptors: catalog.descriptors
         )
@@ -353,7 +353,7 @@ struct IPCDescriptorClientTests {
             parameters: IPCDescriptorClientQueryParameters(query: "uncertain")
         )
         let client = AgentStudioIPCClient(
-            configuration: .init(socketPath: endpoint.path, maxFrameBytes: 65_536),
+            configuration: .init(socketPath: endpoint.path, maxRequestFrameBytes: 65_536),
             descriptors: catalog.descriptors
         )
 
@@ -444,7 +444,7 @@ struct IPCDescriptorClientTests {
         return try IPCDescriptorClientSocketFixture(
             listener: listener,
             client: AgentStudioIPCClient(
-                configuration: .init(socketPath: endpoint.path, maxFrameBytes: 65_536),
+                configuration: .init(socketPath: endpoint.path, maxRequestFrameBytes: 65_536),
                 descriptors: catalog.descriptors
             ),
             invocation: makeIPCDescriptorClientInvocation(
@@ -469,7 +469,7 @@ struct IPCDescriptorClientTests {
         return try IPCDescriptorClientSocketFixture(
             listener: listener,
             client: AgentStudioIPCClient(
-                configuration: .init(socketPath: endpoint.path, maxFrameBytes: 65_536),
+                configuration: .init(socketPath: endpoint.path, maxRequestFrameBytes: 65_536),
                 descriptors: catalog.descriptors
             ),
             invocation: makeIPCDescriptorClientInvocation(

@@ -184,7 +184,7 @@ struct IPCClientCorrectionTests {
         }
         defer { listener.stop() }
         let client = AgentStudioIPCClient(
-            configuration: .init(socketPath: endpoint.path, maxFrameBytes: 65_536),
+            configuration: .init(socketPath: endpoint.path, maxRequestFrameBytes: 65_536),
             descriptors: []
         )
 
@@ -227,7 +227,7 @@ private func makeCorrectionFixture(
     return try IPCClientCorrectionSocketFixture(
         listener: listener,
         client: AgentStudioIPCClient(
-            configuration: .init(socketPath: endpoint.path, maxFrameBytes: 65_536),
+            configuration: .init(socketPath: endpoint.path, maxRequestFrameBytes: 65_536),
             descriptors: catalog.descriptors
         ),
         invocation: makeIPCDescriptorClientInvocation(

@@ -69,8 +69,30 @@ extension AgentStudioAppIPCRequestError {
             self = .unauthorized
         case is IPCHandleError:
             self = Self(code: -32_004, message: "target not found")
+        case let frameError as NDJSONFrameError:
+            self.init(frameError)
         default:
             self = Self(code: -32_603, message: "internal error")
+        }
+    }
+
+    /// A frame this process composed itself overflowed the outbound bound.
+    /// Without this arm the throw reached the `default` arm and a finite,
+    /// measurable size condition reported as an opaque internal error.
+    private init(_ error: NDJSONFrameError) {
+        switch error.reason {
+        case .frameTooLarge:
+            self = Self(
+                code: -32_008,
+                message: "response too large",
+                data: .object([
+                    "reason": .string("responseTooLarge"),
+                    "frameByteCount": .number(Double(error.frameByteCount)),
+                    "maximumFrameBytes": .number(Double(error.maximumFrameBytes)),
+                ])
+            )
+        case .embeddedNewline, .invalidUTF8:
+            self = .responseEncodingFailed
         }
     }
 

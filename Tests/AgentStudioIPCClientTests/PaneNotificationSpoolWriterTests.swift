@@ -159,7 +159,7 @@ struct PaneNotificationSpoolWriterTests {
         let invocation = try fixture.invocation(["message", "rejected"])
         let client = AgentStudioIPCClient(
             configuration: .init(
-                socketPath: endpoint.path, authToken: fixture.paneToken, maxFrameBytes: 65_536),
+                socketPath: endpoint.path, authToken: fixture.paneToken, maxRequestFrameBytes: 65_536),
             descriptors: fixture.descriptors + [try IPCDescriptorClientFixtureCatalog.make().authentication]
         )
 

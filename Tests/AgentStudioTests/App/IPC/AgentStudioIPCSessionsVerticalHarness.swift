@@ -252,6 +252,13 @@ struct SessionsVerticalHarness {
     }
 
     func response(method: String, params: JSONValue) async throws -> JSONRPCResponseMessage {
+        try JSONRPCCodec.decodeResponse(try await responseFrame(method: method, params: params))
+    }
+
+    /// Returns the frame exactly as it crossed the socket, so a caller can
+    /// measure what the transport carried rather than what the composition
+    /// would have produced in process.
+    func responseFrame(method: String, params: JSONValue) async throws -> String {
         let connection = try UnixSocketClient.connect(endpoint: UnixSocketEndpoint(path: socketPath))
         defer { connection.close() }
         var reader = SessionsVerticalFrameReader()
@@ -269,7 +276,7 @@ struct SessionsVerticalHarness {
             connection: connection,
             request: try JSONRPCClientRequest(id: .number(2), method: method, params: params)
         )
-        return try await reader.receiveResponse(connection: connection)
+        return try await reader.receiveFrame(connection: connection)
     }
 
     private func send(connection: UnixSocketConnection, request: JSONRPCClientRequest) throws {
@@ -292,12 +299,16 @@ final class SessionsVerticalMainWindowController: MainWindowController {
 }
 
 struct SessionsVerticalFrameReader {
-    private var decoder = NDJSONFrameDecoder(maxFrameBytes: 1_048_576)
+    private var decoder = NDJSONFrameDecoder(maxFrameBytes: IPCFramePolicy.maximumResponseFrameBytes)
     private var queuedFrames: [String] = []
 
     mutating func receiveResponse(connection: UnixSocketConnection) async throws -> JSONRPCResponseMessage {
+        try JSONRPCCodec.decodeResponse(try await receiveFrame(connection: connection))
+    }
+
+    mutating func receiveFrame(connection: UnixSocketConnection) async throws -> String {
         if !queuedFrames.isEmpty {
-            return try JSONRPCCodec.decodeResponse(queuedFrames.removeFirst())
+            return queuedFrames.removeFirst()
         }
         while true {
             let data = try await withCheckedThrowingContinuation { continuation in
@@ -311,7 +322,7 @@ struct SessionsVerticalFrameReader {
             }
             queuedFrames.append(contentsOf: try decoder.append(data))
             if !queuedFrames.isEmpty {
-                return try JSONRPCCodec.decodeResponse(queuedFrames.removeFirst())
+                return queuedFrames.removeFirst()
             }
         }
     }

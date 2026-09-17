@@ -5,16 +5,32 @@ import Foundation
 public struct AgentStudioIPCClientConfiguration: Equatable, Sendable {
     public let socketPath: String
     public let authToken: String?
-    public let maxFrameBytes: Int
+    /// Requests this client composes stay inside the bound the server enforces
+    /// on inbound frames.
+    public let maxRequestFrameBytes: Int
+    /// Responses are read against the larger outbound bound: the catalog the
+    /// discovery path asks for is legitimately bigger than a request ever is.
+    public let maxResponseFrameBytes: Int
 
-    public init(socketPath: String, authToken: String? = nil, maxFrameBytes: Int = 1_048_576) {
+    public init(
+        socketPath: String,
+        authToken: String? = nil,
+        maxRequestFrameBytes: Int = IPCFramePolicy.maximumRequestFrameBytes,
+        maxResponseFrameBytes: Int = IPCFramePolicy.maximumResponseFrameBytes
+    ) {
         self.socketPath = socketPath
         self.authToken = authToken
-        self.maxFrameBytes = maxFrameBytes
+        self.maxRequestFrameBytes = maxRequestFrameBytes
+        self.maxResponseFrameBytes = maxResponseFrameBytes
     }
 
     public func withAuthToken(_ authToken: String?) -> Self {
-        Self(socketPath: socketPath, authToken: authToken, maxFrameBytes: maxFrameBytes)
+        Self(
+            socketPath: socketPath,
+            authToken: authToken,
+            maxRequestFrameBytes: maxRequestFrameBytes,
+            maxResponseFrameBytes: maxResponseFrameBytes
+        )
     }
 }
 

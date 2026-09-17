@@ -8,9 +8,17 @@ public struct NDJSONFrameError: Error, Equatable, Sendable {
     }
 
     public let reason: Reason
+    /// Measured size of the offending frame, so an overflow is reported as a
+    /// finite condition rather than an opaque failure. Zero when the reason
+    /// carries no size, such as an embedded newline.
+    public let frameByteCount: Int
+    /// Bound the frame was measured against.
+    public let maximumFrameBytes: Int
 
-    public init(reason: Reason) {
+    public init(reason: Reason, frameByteCount: Int = 0, maximumFrameBytes: Int = 0) {
         self.reason = reason
+        self.frameByteCount = frameByteCount
+        self.maximumFrameBytes = maximumFrameBytes
     }
 }
 
@@ -22,8 +30,13 @@ public enum NDJSONFrameEncoder {
             throw NDJSONFrameError(reason: .embeddedNewline)
         }
 
-        guard frame.utf8.count <= maxFrameBytes else {
-            throw NDJSONFrameError(reason: .frameTooLarge)
+        let frameByteCount = frame.utf8.count
+        guard frameByteCount <= maxFrameBytes else {
+            throw NDJSONFrameError(
+                reason: .frameTooLarge,
+                frameByteCount: frameByteCount,
+                maximumFrameBytes: maxFrameBytes
+            )
         }
 
         return Data((frame + "\n").utf8)
@@ -49,8 +62,13 @@ public struct NDJSONFrameDecoder: Sendable {
         while let newlineIndex = pending.firstIndex(of: 0x0a) {
             let frameData = pending[..<newlineIndex]
             guard frameData.count <= maxFrameBytes else {
+                let frameByteCount = frameData.count
                 clearPending()
-                throw NDJSONFrameError(reason: .frameTooLarge)
+                throw NDJSONFrameError(
+                    reason: .frameTooLarge,
+                    frameByteCount: frameByteCount,
+                    maximumFrameBytes: maxFrameBytes
+                )
             }
 
             let nextFrameStart = pending.index(after: newlineIndex)
@@ -71,8 +89,13 @@ public struct NDJSONFrameDecoder: Sendable {
         }
 
         guard pending.count <= maxFrameBytes else {
+            let pendingFrameByteCount = pending.count
             clearPending()
-            throw NDJSONFrameError(reason: .frameTooLarge)
+            throw NDJSONFrameError(
+                reason: .frameTooLarge,
+                frameByteCount: pendingFrameByteCount,
+                maximumFrameBytes: maxFrameBytes
+            )
         }
 
         return frames

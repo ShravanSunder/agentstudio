@@ -35,7 +35,7 @@ package struct AgentStudioIPCClient: Sendable {
         let exchange = try prepareExchange(invocation, requestID: requestID)
         let connection = try connect()
         defer { connection.close() }
-        var reader = AgentStudioIPCClientFrameReader(maxFrameBytes: configuration.maxFrameBytes)
+        var reader = AgentStudioIPCClientFrameReader(maxFrameBytes: configuration.maxResponseFrameBytes)
         try authenticateIfNeeded(exchange, connection: connection, reader: &reader)
         try submit(exchange.commandFrame, connection: connection)
         let response = try receiveResponse(id: exchange.commandRequestID, connection: connection, reader: &reader)
@@ -53,7 +53,7 @@ package struct AgentStudioIPCClient: Sendable {
         let exchange = try prepareExchange(invocation, requestID: requestID)
         let connection = try connect()
         defer { connection.close() }
-        var reader = AgentStudioIPCClientFrameReader(maxFrameBytes: configuration.maxFrameBytes)
+        var reader = AgentStudioIPCClientFrameReader(maxFrameBytes: configuration.maxResponseFrameBytes)
         try authenticateIfNeeded(exchange, connection: connection, reader: &reader)
         try submit(exchange.commandFrame, connection: connection)
         let initial = try receiveResponse(id: exchange.commandRequestID, connection: connection, reader: &reader)
@@ -98,7 +98,7 @@ package struct AgentStudioIPCClient: Sendable {
             frame = try NDJSONFrameEncoder.encode(
                 JSONRPCCodec.encodeRequest(
                     JSONRPCClientRequest(id: .number(commandID), method: "system.capabilities", params: .object([:]))
-                ), maxFrameBytes: configuration.maxFrameBytes
+                ), maxFrameBytes: configuration.maxRequestFrameBytes
             )
         } catch { throw failure(.notSubmitted, .localRequestEncoding) }
         let exchange = PreparedDescriptorExchange(
@@ -106,7 +106,7 @@ package struct AgentStudioIPCClient: Sendable {
         )
         let connection = try connect()
         defer { connection.close() }
-        var reader = AgentStudioIPCClientFrameReader(maxFrameBytes: configuration.maxFrameBytes)
+        var reader = AgentStudioIPCClientFrameReader(maxFrameBytes: configuration.maxResponseFrameBytes)
         try authenticateIfNeeded(exchange, connection: connection, reader: &reader)
         try submit(frame, connection: connection)
         let response = try receiveResponse(id: commandID, connection: connection, reader: &reader)
@@ -137,7 +137,7 @@ package struct AgentStudioIPCClient: Sendable {
         do {
             return try PreparedDescriptorExchange(
                 commandFrame: NDJSONFrameEncoder.encode(
-                    requestFrame(invocation, requestID: commandID), maxFrameBytes: configuration.maxFrameBytes
+                    requestFrame(invocation, requestID: commandID), maxFrameBytes: configuration.maxRequestFrameBytes
                 ), commandRequestID: commandID, authentication: authentication
             )
         } catch { throw failure(.notSubmitted, .localRequestEncoding) }
@@ -158,7 +158,7 @@ package struct AgentStudioIPCClient: Sendable {
                 descriptor: descriptor,
                 requestID: requestID,
                 frame: NDJSONFrameEncoder.encode(
-                    requestFrame(invocation, requestID: requestID), maxFrameBytes: configuration.maxFrameBytes
+                    requestFrame(invocation, requestID: requestID), maxFrameBytes: configuration.maxRequestFrameBytes
                 )
             )
         } catch { throw failure(.notSubmitted, .authenticationResponse) }
