@@ -76,7 +76,11 @@ extension AppDelegate {
             .setReposGroupingRepo, .setReposGroupingActivity,
             .setReposSortFieldName, .setReposSortFieldActivity,
             .toggleReposSortDirection, .toggleReposShowsPinned, .togglePanesShowsPinned:
-            return execute(AppCommandExecutionRequest(command: command))
+            // The shell owns these regardless of the visible sidebar surface. A
+            // setting that does not apply to the current surface is a state
+            // refusal, never a claim that the command has no owner.
+            let outcome = execute(AppCommandExecutionRequest(command: command))
+            return outcome == .unsupportedCommand ? .stateUnavailable : outcome
         default:
             return .unsupportedCommand
         }
