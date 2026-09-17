@@ -20,6 +20,7 @@ struct CommandAdapterHarness {
     init(
         windowId: UUID = UUIDv7.generate(),
         channel: AgentStudioIPCChannel = .stable,
+        targetAuthorizer: (any WorkspaceDurableTargetAuthorizing)? = nil,
         shellCommandHandler: RecordingShellCommandHandler = RecordingShellCommandHandler()
     ) {
         workspaceStore = WorkspaceStore()
@@ -32,7 +33,8 @@ struct CommandAdapterHarness {
         adapter = AgentStudioIPCCommandAdapter(
             workspaceId: workspaceStore.identityAtom.workspaceId,
             channel: channel,
-            targetAuthorizer: WorkspaceDurableTargetAuthorizationPort(workspaceStore: workspaceStore),
+            targetAuthorizer: targetAuthorizer
+                ?? WorkspaceDurableTargetAuthorizationPort(workspaceStore: workspaceStore),
             shellCommandHandler: shellCommandHandler
         )
     }
@@ -42,7 +44,10 @@ struct CommandAdapterHarness {
 final class RecordingShellCommandHandler: ShellCommandHandling {
     var handledRequests: [AppCommandExecutionRequest] = []
     var currentWindowId: UUID?
-    var outcome: AppCommandExecutionOutcome = .applied
+    /// Outcome for any command this fake shell claims. Tests that want the
+    /// workspace owner to receive the request set this to `.unsupportedCommand`.
+    var defaultOutcome: AppCommandExecutionOutcome = .applied
+    var outcomeByCommand: [AppCommand: AppCommandExecutionOutcome] = [:]
 
     init(currentWindowId: UUID? = nil) {
         self.currentWindowId = currentWindowId
@@ -59,12 +64,54 @@ final class RecordingShellCommandHandler: ShellCommandHandling {
 
     func execute(_ request: AppCommandExecutionRequest) -> AppCommandExecutionOutcome {
         handledRequests.append(request)
-        return outcome
+        return outcomeByCommand[request.command] ?? defaultOutcome
     }
 
     func showRepoCommandBar() {}
     func refreshWorktrees() {}
     func refocusActivePane() {}
+}
+
+/// Records the exact typed request a workspace owner received and reports the
+/// strongest boundary the projection lets the command advertise, so adapter
+/// tests assert owner arguments rather than a handler count.
+@MainActor
+final class RecordingWorkspaceIPCCommandHandler: WorkspaceCommandHandling {
+    private(set) var headlessRequests: [AppCommandExecutionRequest] = []
+    var currentWindowId: UUID?
+    var refusesEveryCommand = false
+
+    init(currentWindowId: UUID? = nil) {
+        self.currentWindowId = currentWindowId
+    }
+
+    func ownsWorkspaceWindow(_ workspaceWindowId: UUID) -> Bool {
+        currentWindowId == nil || currentWindowId == workspaceWindowId
+    }
+
+    func execute(_: AppCommand) {}
+    func execute(_: AppCommand, target _: UUID, targetType _: SearchItemType) {}
+    func canExecute(_: AppCommand) -> Bool { true }
+    func canExecute(_: AppCommand, target _: UUID, targetType _: SearchItemType) -> Bool { true }
+    func executeExtractPaneToTab(tabId _: UUID, paneId _: UUID, targetTabInsertionIndex _: Int?) {}
+    func executeMovePaneToTab(sourcePaneId _: UUID, sourceTabId _: UUID?, targetTabId _: UUID) {}
+
+    func executeHeadlessIPC(_ request: AppCommandExecutionRequest) async -> AppCommandExecutionOutcome {
+        headlessRequests.append(request)
+        if refusesEveryCommand { return .stateUnavailable }
+        return Self.declaredOutcome(for: request.command)
+    }
+
+    /// The first boundary `AppCommand.ipcSpec` declares. The adapter must accept
+    /// it unchanged, so a mismatch is a real projection or mapping defect.
+    static func declaredOutcome(for command: AppCommand) -> AppCommandExecutionOutcome {
+        switch command.ipcSpec.resultVariants.first {
+        case .accepted: .accepted(operationId: nil)
+        case .presented: .presented
+        case .unavailable: .unavailable(.featureUnavailable)
+        default: .applied
+        }
+    }
 }
 
 func commandAdapterTestPrincipal() -> IPCPrincipal {

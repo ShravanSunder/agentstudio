@@ -192,4 +192,12 @@ private final class RecordingDurableTargetAuthorizer: WorkspaceDurableTargetAuth
     func containsPane(id: UUID) -> Bool {
         paneIds.contains(id)
     }
+
+    func containsWorktree(id _: UUID) -> Bool {
+        false
+    }
+
+    func containsArrangement(tabId _: UUID, arrangementId _: UUID) -> Bool {
+        false
+    }
 }

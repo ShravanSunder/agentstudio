@@ -56,13 +56,13 @@ struct AppDelegateInboxNotificationCommandsTests {
         let rowFilterOutcome = delegate.execute(
             AppCommandExecutionRequest(
                 command: .setInboxRowStateFilter,
-                executionContext: .headlessIPC
+                executionContext: .headlessIPC(admitsDebugTestingCommands: true)
             )
         )
         let contentModeOutcome = delegate.execute(
             AppCommandExecutionRequest(
                 command: .setInboxContentMode,
-                executionContext: .headlessIPC
+                executionContext: .headlessIPC(admitsDebugTestingCommands: true)
             )
         )
 
