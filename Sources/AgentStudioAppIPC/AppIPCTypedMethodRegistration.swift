@@ -179,15 +179,22 @@ package struct AppIPCTypedMethodRegistration<
         }
         guard context.channel == .debug,
             let principal = context.principal,
-            principal.accessMode == .unsafeDebug
+            hasDiagnosticProvenance(principal)
         else {
             throw AppIPCTypedMethodRegistrationError.methodNotExposed
         }
-        switch principal.kind {
-        case .automationClient, .unsafeDebugClient:
-            return
-        case .spawnedPaneAgent, .futureMCPClient:
-            throw AppIPCTypedMethodRegistrationError.methodNotExposed
+    }
+
+    private func hasDiagnosticProvenance(_ principal: IPCPrincipal) -> Bool {
+        switch (principal.kind, principal.accessMode) {
+        case (.automationClient, .automationSameUser),
+            (.unsafeDebugClient, .unsafeDebug):
+            true
+        case (.automationClient, _),
+            (.unsafeDebugClient, _),
+            (.spawnedPaneAgent, _),
+            (.futureMCPClient, _):
+            false
         }
     }
 

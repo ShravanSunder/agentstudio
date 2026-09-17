@@ -203,6 +203,69 @@ struct AppIPCTypedConnectionRegistrationTests {
         #expect(await recorder.snapshot().isEmpty)
     }
 
+    @Test("debug registration admits the exact unsafe diagnostic pair")
+    func debugRegistrationAcceptsUnsafeDiagnosticPair() async throws {
+        let fixture = TypedConnectionRegistrationFixture()
+        let recorder = TypedConnectionRegistrationRecorder()
+        let principal = fixture.unsafeDebugPrincipal
+        let correlationId = UUIDv7.generate()
+        let registration = try authenticatedRegistration(
+            fixture: fixture,
+            recorder: recorder,
+            exposure: .debugTesting
+        )
+
+        let result = try await registration.erase().invoke(
+            parameters: parameters(correlationId: correlationId),
+            connectionContext: fixture.context(channel: .debug, principal: principal),
+            targetResolutionTools: fixture.canonicalPaneTargetResolutionTools(recorder: recorder),
+            authorize: { authorizedPrincipal, _ in
+                await recorder.record(.authorize(authorizedPrincipal))
+            }
+        )
+
+        #expect(result == .object(["canonicalHandle": .string("pane:\(fixture.paneId.uuidString)")]))
+        #expect(
+            await recorder.snapshot().last
+                == .handler(
+                    contextId: fixture.contextId,
+                    principal: principal,
+                    target: .pane(fixture.paneId.uuidString)
+                ))
+    }
+
+    @Test("debug registration rejects mixed and non-diagnostic principals before downstream effects")
+    func debugRegistrationRejectsInvalidDiagnosticPairsBeforeEffects() async throws {
+        let fixture = TypedConnectionRegistrationFixture()
+        let rejectedPrincipals = [
+            fixture.automationUnsafeHybridPrincipal,
+            fixture.unsafeAutomationHybridPrincipal,
+            fixture.panePrincipal,
+            fixture.futureMCPPrincipal,
+        ]
+
+        for principal in rejectedPrincipals {
+            let recorder = TypedConnectionRegistrationRecorder()
+            let registration = try authenticatedRegistration(
+                fixture: fixture,
+                recorder: recorder,
+                exposure: .debugTesting
+            )
+
+            await #expect(throws: AppIPCTypedMethodRegistrationError.methodNotExposed) {
+                try await registration.erase().invoke(
+                    parameters: parameters(correlationId: UUIDv7.generate()),
+                    connectionContext: fixture.context(channel: .debug, principal: principal),
+                    targetResolutionTools: fixture.unusedTargetResolutionTools,
+                    authorize: { authorizedPrincipal, _ in
+                        await recorder.record(.authorize(authorizedPrincipal))
+                    }
+                )
+            }
+            #expect(await recorder.snapshot().isEmpty)
+        }
+    }
+
     @Test("diagnostic invocation retains schema correlation target authorization handler order")
     func diagnosticInvocationRetainsTypedBoundaryOrder() async throws {
         let fixture = TypedConnectionRegistrationFixture()

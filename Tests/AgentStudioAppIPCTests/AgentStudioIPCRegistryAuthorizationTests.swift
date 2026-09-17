@@ -219,6 +219,118 @@ struct AgentStudioIPCRegistryAuthorizationTests {
         try service.authorize(principal: principal, request: request)
     }
 
+    @Test("debug authorization bypasses grants only for exact diagnostic provenance pairs")
+    func diagnosticAuthorizationRequiresExactProvenancePair() throws {
+        let fixture = BuiltInMethodRegistrationsFixture()
+        let service = AuthorizationService(
+            methodRegistry: try AppIPCMethodRegistry(registrations: fixture.registrations(), channel: .debug),
+            grantLedger: GrantLedger(),
+            canonicalizer: PermissionScopeCanonicalizer()
+        )
+        let request = authorizationRequest(
+            method: "ui.commandBar.open",
+            privilege: .uiPresent,
+            dataScope: .uiSurface,
+            target: .app
+        )
+        let admittedPrincipals = [
+            diagnosticPrincipal(
+                runtimeId: fixture.runtimeId,
+                accessMode: .automationSameUser,
+                kind: .automationClient
+            ),
+            diagnosticPrincipal(
+                runtimeId: fixture.runtimeId,
+                accessMode: .unsafeDebug,
+                kind: .unsafeDebugClient
+            ),
+        ]
+        let rejectedPrincipals = [
+            diagnosticPrincipal(
+                runtimeId: fixture.runtimeId,
+                accessMode: .unsafeDebug,
+                kind: .automationClient
+            ),
+            diagnosticPrincipal(
+                runtimeId: fixture.runtimeId,
+                accessMode: .automationSameUser,
+                kind: .unsafeDebugClient
+            ),
+            panePrincipal(boundPaneId: "pane-1", runtimeId: fixture.runtimeId),
+            diagnosticPrincipal(
+                runtimeId: fixture.runtimeId,
+                accessMode: .automationSameUser,
+                kind: .futureMCPClient
+            ),
+        ]
+
+        for principal in admittedPrincipals {
+            try service.authorize(principal: principal, request: request)
+        }
+        for principal in rejectedPrincipals {
+            #expect(throws: AuthorizationError.self) {
+                try service.authorize(principal: principal, request: request)
+            }
+        }
+    }
+
+    @Test("descriptor metadata mismatch rejects before diagnostic authority bypass")
+    func diagnosticAuthorizationRejectsMetadataMismatch() throws {
+        let fixture = BuiltInMethodRegistrationsFixture()
+        let service = AuthorizationService(
+            methodRegistry: try AppIPCMethodRegistry(registrations: fixture.registrations(), channel: .debug),
+            grantLedger: GrantLedger(),
+            canonicalizer: PermissionScopeCanonicalizer()
+        )
+        let principal = diagnosticPrincipal(
+            runtimeId: fixture.runtimeId,
+            accessMode: .automationSameUser,
+            kind: .automationClient
+        )
+
+        #expect(throws: AuthorizationError.self) {
+            try service.authorize(
+                principal: principal,
+                request: authorizationRequest(
+                    method: "ui.commandBar.open",
+                    privilege: .uiPresent,
+                    dataScope: .paneContext,
+                    target: .app
+                )
+            )
+        }
+    }
+
+    @Test(
+        "stable and beta registries refuse diagnostic-only authorization",
+        arguments: [AgentStudioIPCChannel.stable, .beta]
+    )
+    func productionRegistryRefusesDiagnosticAuthorization(channel: AgentStudioIPCChannel) throws {
+        let fixture = BuiltInMethodRegistrationsFixture()
+        let service = AuthorizationService(
+            methodRegistry: try AppIPCMethodRegistry(registrations: fixture.registrations(), channel: channel),
+            grantLedger: GrantLedger(),
+            canonicalizer: PermissionScopeCanonicalizer()
+        )
+        let principal = diagnosticPrincipal(
+            runtimeId: fixture.runtimeId,
+            accessMode: .automationSameUser,
+            kind: .automationClient
+        )
+
+        #expect(throws: AuthorizationError.self) {
+            try service.authorize(
+                principal: principal,
+                request: authorizationRequest(
+                    method: "ui.commandBar.open",
+                    privilege: .uiPresent,
+                    dataScope: .uiSurface,
+                    target: .app
+                )
+            )
+        }
+    }
+
     @Test("debug channel does not upgrade a pane principal to diagnostic methods")
     func debugChannelDoesNotUpgradePanePrincipal() throws {
         let fixture = BuiltInMethodRegistrationsFixture()
@@ -277,6 +389,20 @@ private func automationPrincipal(runtimeId: UUID) -> IPCPrincipal {
         runtimeId: runtimeId,
         accessMode: .agentStudioOnly,
         kind: .automationClient,
+        approvalAuthority: .noApprovalAuthority
+    )
+}
+
+private func diagnosticPrincipal(
+    runtimeId: UUID,
+    accessMode: IPCAccessMode,
+    kind: IPCPrincipalKind
+) -> IPCPrincipal {
+    IPCPrincipal(
+        principalId: UUIDv7.generate(),
+        runtimeId: runtimeId,
+        accessMode: accessMode,
+        kind: kind,
         approvalAuthority: .noApprovalAuthority
     )
 }

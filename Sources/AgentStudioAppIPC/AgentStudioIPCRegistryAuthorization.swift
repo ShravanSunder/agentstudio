@@ -254,10 +254,15 @@ public struct AuthorizationService: Sendable {
     }
 
     private func isDiagnostic(_ principal: IPCPrincipal) -> Bool {
-        guard principal.accessMode == .unsafeDebug else { return false }
-        switch principal.kind {
-        case .automationClient, .unsafeDebugClient: return true
-        case .spawnedPaneAgent, .futureMCPClient: return false
+        switch (principal.kind, principal.accessMode) {
+        case (.automationClient, .automationSameUser),
+            (.unsafeDebugClient, .unsafeDebug):
+            true
+        case (.automationClient, _),
+            (.unsafeDebugClient, _),
+            (.spawnedPaneAgent, _),
+            (.futureMCPClient, _):
+            false
         }
     }
 

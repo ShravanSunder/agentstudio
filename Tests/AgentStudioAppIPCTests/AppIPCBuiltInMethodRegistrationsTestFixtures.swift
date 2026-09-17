@@ -22,7 +22,7 @@ struct BuiltInMethodRegistrationsFixture {
         IPCPrincipal(
             principalId: UUIDv7.generate(),
             runtimeId: runtimeId,
-            accessMode: .unsafeDebug,
+            accessMode: .automationSameUser,
             kind: .automationClient,
             approvalAuthority: .noApprovalAuthority
         )

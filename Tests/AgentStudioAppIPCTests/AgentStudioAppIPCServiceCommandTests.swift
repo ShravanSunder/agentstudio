@@ -119,7 +119,7 @@ private func diagnosticCommandPrincipal() -> IPCPrincipal {
     IPCPrincipal(
         principalId: UUIDv7.generate(),
         runtimeId: UUIDv7.generate(),
-        accessMode: .unsafeDebug,
+        accessMode: .automationSameUser,
         kind: .automationClient,
         approvalAuthority: .noApprovalAuthority
     )

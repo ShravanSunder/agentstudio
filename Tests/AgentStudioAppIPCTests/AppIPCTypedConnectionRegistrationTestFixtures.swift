@@ -24,8 +24,48 @@ struct TypedConnectionRegistrationFixture {
         IPCPrincipal(
             principalId: UUIDv7.generate(),
             runtimeId: runtimeId,
+            accessMode: .automationSameUser,
+            kind: .automationClient,
+            approvalAuthority: .noApprovalAuthority
+        )
+    }
+
+    var unsafeDebugPrincipal: IPCPrincipal {
+        IPCPrincipal(
+            principalId: UUIDv7.generate(),
+            runtimeId: runtimeId,
+            accessMode: .unsafeDebug,
+            kind: .unsafeDebugClient,
+            approvalAuthority: .noApprovalAuthority
+        )
+    }
+
+    var automationUnsafeHybridPrincipal: IPCPrincipal {
+        IPCPrincipal(
+            principalId: UUIDv7.generate(),
+            runtimeId: runtimeId,
             accessMode: .unsafeDebug,
             kind: .automationClient,
+            approvalAuthority: .noApprovalAuthority
+        )
+    }
+
+    var unsafeAutomationHybridPrincipal: IPCPrincipal {
+        IPCPrincipal(
+            principalId: UUIDv7.generate(),
+            runtimeId: runtimeId,
+            accessMode: .automationSameUser,
+            kind: .unsafeDebugClient,
+            approvalAuthority: .noApprovalAuthority
+        )
+    }
+
+    var futureMCPPrincipal: IPCPrincipal {
+        IPCPrincipal(
+            principalId: UUIDv7.generate(),
+            runtimeId: runtimeId,
+            accessMode: .automationSameUser,
+            kind: .futureMCPClient,
             approvalAuthority: .noApprovalAuthority
         )
     }
