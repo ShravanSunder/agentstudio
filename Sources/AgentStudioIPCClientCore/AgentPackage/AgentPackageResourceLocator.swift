@@ -85,6 +85,7 @@ package enum AgentPackageInstallationError: Error, Equatable, Sendable, CustomSt
     case providerHomeUnavailable(String)
     case providerHomeNotWritable(String)
     case configurationUnreadable(String)
+    case featuresTableNotLocatable(String)
 
     package var description: String {
         switch self {
@@ -96,6 +97,8 @@ package enum AgentPackageInstallationError: Error, Equatable, Sendable, CustomSt
             "cannot write inside \(path)"
         case .configurationUnreadable(let path):
             "cannot read existing configuration at \(path)"
+        case .featuresTableNotLocatable(let path):
+            "cannot locate the [features] table in \(path) with certainty; not modified"
         }
     }
 }

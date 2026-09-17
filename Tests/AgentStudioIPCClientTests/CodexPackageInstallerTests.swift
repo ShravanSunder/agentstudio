@@ -118,6 +118,112 @@ struct CodexPackageInstallerTests {
         #expect(output.contains { $0.contains("already true") })
     }
 
+    @Test("a [features] header carrying an inline comment is extended, not duplicated")
+    func commentedFeaturesHeaderIsExtended() throws {
+        // Arrange
+        let home = try CodexHomeFixture()
+        defer { home.tearDown() }
+        try home.writeConfiguration("[features]  # experimental toggles\nweb_search = true\n")
+
+        // Act
+        _ = try CodexPackageInstaller.install(home.props)
+
+        // Assert
+        let configuration = home.configuration()
+        #expect(configuration.components(separatedBy: "[features]").count == 2)
+        #expect(configuration.contains("# experimental toggles"))
+        #expect(configuration.contains("hooks = true"))
+        #expect(configuration.contains("web_search = true"))
+    }
+
+    @Test("a CRLF config gains the key inside its table and keeps its line endings")
+    func carriageReturnConfigIsExtended() throws {
+        // Arrange
+        let home = try CodexHomeFixture()
+        defer { home.tearDown() }
+        try home.writeConfiguration(
+            "model = \"gpt-5.5-codex\"\r\n[features]\r\nweb_search = true\r\n")
+
+        // Act
+        _ = try CodexPackageInstaller.install(home.props)
+
+        // Assert
+        let configuration = home.configuration()
+        #expect(configuration.components(separatedBy: "[features]").count == 2)
+        #expect(configuration.contains("hooks = true\r\n"))
+        #expect(configuration.replacingOccurrences(of: "\r\n", with: "").contains("\n") == false)
+    }
+
+    @Test("hooks = true followed by the user's comment counts as enabled and keeps the comment")
+    func enabledHooksWithCommentIsUntouched() throws {
+        // Arrange
+        let home = try CodexHomeFixture()
+        defer { home.tearDown() }
+        let original = "[features]\nhooks = true  # keep hooks on\n"
+        try home.writeConfiguration(original)
+
+        // Act
+        let output = try CodexPackageInstaller.install(home.props)
+
+        // Assert
+        #expect(home.configuration() == original)
+        #expect(output.contains { $0.contains("already true") })
+    }
+
+    /// A `[features]` line inside a multi-line string is indistinguishable from
+    /// a real header to a line scanner, and guessing wrong appends a second
+    /// `[features]` table, which TOML rejects as a duplicate.
+    @Test("a [features] line the scanner cannot place refuses the install and writes nothing")
+    func ambiguousFeaturesTableRefusesTheInstall() throws {
+        // Arrange
+        let home = try CodexHomeFixture()
+        defer { home.tearDown() }
+        let original = "instructions = \"\"\"\n[features]\nhooks = false\n\"\"\"\n"
+        try home.writeConfiguration(original)
+
+        // Act / Assert
+        let configurationPath = home.codexHome.appending(path: "config.toml").path
+        #expect(
+            throws: AgentPackageInstallationError.featuresTableNotLocatable(configurationPath)
+        ) {
+            _ = try CodexPackageInstaller.install(home.props)
+        }
+        #expect(home.configuration() == original)
+        #expect(home.fileExists(relativePath: "hooks.json") == false)
+        #expect(home.fileExists(relativePath: "skills/agentstudio") == false)
+    }
+
+    @Test("uninstall on a machine that never installed leaves hooks.json byte-identical")
+    func uninstallLeavesAForeignHooksFileAlone() throws {
+        // Arrange
+        let home = try CodexHomeFixture()
+        defer { home.tearDown() }
+        let original = "{\"hooks\":{\"SessionStart\":[]},  \"description\":\"mine\"}"
+        try home.writeHooks(original)
+
+        // Act
+        let output = try CodexPackageInstaller.uninstall(home.props)
+
+        // Assert
+        #expect(home.hooksText() == original)
+        #expect(output.contains { $0.contains("no agentstudio hook entries to remove") })
+    }
+
+    @Test("a non-object hooks value is never read as empty and is never deleted")
+    func uninstallLeavesANonObjectHooksValueAlone() throws {
+        // Arrange
+        let home = try CodexHomeFixture()
+        defer { home.tearDown() }
+        let original = "{\"hooks\":\"not-an-object\"}"
+        try home.writeHooks(original)
+
+        // Act
+        _ = try CodexPackageInstaller.uninstall(home.props)
+
+        // Assert
+        #expect(home.hooksText() == original)
+    }
+
     @Test("hooks belonging to someone else survive install and uninstall untouched")
     func unrelatedHooksArePreserved() throws {
         // Arrange
