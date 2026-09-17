@@ -16,6 +16,7 @@ package enum WorkspaceLocalMigrations {
         registerSessionsSchema(in: &migrator)
         registerIPCCredentialSchema(in: &migrator)
         registerOpaquePaneCredentialRecords(in: &migrator)
+        registerPaneOnlyCredentialRecords(in: &migrator)
         return migrator
     }
 

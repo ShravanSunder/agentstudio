@@ -550,9 +550,13 @@ Debug channel composition has two explicit proof modes:
 - unsafe no-auth: `AGENTSTUDIO_IPC_UNSAFE_NO_AUTH=1` creates an
   `.unsafeDebugClient` principal per connection only when the server channel is
   debug.
-- debug token escrow: `AGENTSTUDIO_IPC_DEBUG_TOKEN_ESCROW=1` writes a one-shot
-  owner-only token file at the debug IPC path, exercises the same `auth.login`
-  path as real clients, and removes the file after successful login.
+- debug credential escrow: `AGENTSTUDIO_IPC_DEBUG_TOKEN_ESCROW` names an
+  owner-only 0600 file. When the debug IPC service becomes ready the app mints
+  one reusable credential, admits its SHA-256 verifier to the in-memory
+  principal registry for the runtime's lifetime, and writes the runtime ID,
+  socket path and raw credential into that file as JSON. The credential is
+  never persisted; shutdown drops the verifier and deletes the file. Every CLI
+  call exercises the same `auth.login` path as real clients.
 
 Both modes use the debug unsafe method allowlist, cannot grant
 `.debugUnsafe`, and must be ignored by beta/stable channel composition.

@@ -6,6 +6,7 @@ import Testing
 @testable import AgentStudio
 @testable import AgentStudioCore
 @testable import AgentStudioTerminal
+@testable import AgentStudioTestSupport
 
 enum DeferredIPCReleasePath: Sendable {
     case normalRestore
@@ -20,6 +21,12 @@ enum DeferredIPCSchemaState: Sendable {
 @MainActor
 @Suite("Deferred App IPC initialization", .serialized)
 struct AppIPCDeferredInitializationIntegrationTests {
+    // The server-capable harness composes an AtomRegistry without installing the
+    // ambient scope, so this suite installs it exactly as the sibling suite that
+    // owns that harness does. Without it the suite crashes when it runs in its
+    // own process and no other suite has set the scope up.
+    init() { installTestCoreAtomsIfNeeded() }
+
     @Test(
         "release edges and Core terminal creation stay independent of held optional local migration",
         arguments: [DeferredIPCReleasePath.normalRestore, .restoreSuppressed],

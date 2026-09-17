@@ -42,9 +42,14 @@ package enum AgentStudioIPCClientArguments {
         guard !(consumesTokenInput && methodArguments.dropFirst().first == "--stdin") else {
             throw invalidArguments()
         }
-        let socket = try AgentStudioIPCClientDiscovery.socketPath(
+        let debugEscrowCredential = try AgentStudioIPCClientDiscovery.debugEscrowCredential(
             explicitSocketPath: explicitSocketPath, environment: environment, metadataURL: metadataURL
         )
+        let socket =
+            try debugEscrowCredential?.socketPath
+            ?? AgentStudioIPCClientDiscovery.socketPath(
+                explicitSocketPath: explicitSocketPath, environment: environment, metadataURL: metadataURL
+            )
         let token: String?
         if consumesTokenInput {
             guard
@@ -53,7 +58,7 @@ package enum AgentStudioIPCClientArguments {
             else { throw invalidArguments() }
             token = value
         } else {
-            token = environment["AGENTSTUDIO_PANE_TOKEN"]
+            token = environment["AGENTSTUDIO_PANE_TOKEN"] ?? debugEscrowCredential?.token
         }
         return IPCClientGlobalArguments(
             configuration: .init(socketPath: socket, authToken: token),

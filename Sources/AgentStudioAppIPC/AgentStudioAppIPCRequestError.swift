@@ -242,7 +242,7 @@ extension AgentStudioAppIPCRequestError {
 
     private init(_ reason: AgentStudioIPCAuthenticationError.Reason) {
         switch reason {
-        case .unauthenticated, .runtimeMismatch, .peerUserMismatch:
+        case .unauthenticated, .peerUserMismatch:
             self = .unauthenticated
         }
     }

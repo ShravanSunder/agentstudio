@@ -253,6 +253,8 @@ struct AgentStudioIPCClientMain {
             writeStructuredError(CLIErrorPresentation(remoteFailure: failure))
         case let failure as AgentStudioIPCClientError where failure.reason == .invalidArguments:
             writeStructuredError(.localInvalidArguments)
+        case let failure as AgentStudioIPCClientError where failure.reason == .debugAppNotRunning:
+            fputs("Debug app not running; start it with the debug launcher.\n", stderr)
         case let failure as IPCDescriptorClientFailure where failure.disposition == .deliveryUncertain:
             fputs("Delivery uncertain.\n", stderr)
         case let failure as IPCDescriptorClientFailure:

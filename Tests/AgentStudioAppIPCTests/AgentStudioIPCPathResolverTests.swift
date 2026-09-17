@@ -1,4 +1,5 @@
 import AgentStudioAppIPC
+import AgentStudioProgrammaticControl
 import Foundation
 import Testing
 
@@ -13,7 +14,6 @@ struct AgentStudioIPCPathResolverTests {
         #expect(paths.socketDirectory == paths.ipcDirectory)
         #expect(paths.metadataURL == root.appendingPathComponent("ipc/runtime.json"))
         #expect(paths.socketURL == root.appendingPathComponent("ipc/agentstudio.sock"))
-        #expect(paths.debugTokenURL == root.appendingPathComponent("ipc/debug-token"))
         #expect(paths.spoolDirectory == root.appendingPathComponent("ipc/spool/v2", isDirectory: true))
     }
 
@@ -31,7 +31,6 @@ struct AgentStudioIPCPathResolverTests {
 
         #expect(paths.ipcDirectory == fixture.root.appendingPathComponent("ipc", isDirectory: true))
         #expect(paths.metadataURL == fixture.root.appendingPathComponent("ipc/runtime.json"))
-        #expect(paths.debugTokenURL == fixture.root.appendingPathComponent("ipc/debug-token"))
         #expect(paths.socketDirectory == socketDirectory)
         #expect(paths.socketURL == socketDirectory.appendingPathComponent("agentstudio.sock"))
         #expect(try fixture.mode(for: paths.socketDirectory) & 0o777 == 0o700)
@@ -101,6 +100,49 @@ struct AgentStudioIPCPathResolverTests {
         #expect(json.contains("agentstudio-ipc-jsonrpc-2"))
         #expect(!json.localizedCaseInsensitiveContains("token"))
         #expect(try fixture.mode(for: paths.metadataURL) & 0o777 == 0o600)
+    }
+
+    @Test("hands the debug credential over through an owner-only escrow file")
+    func writesDebugCredentialEscrowOwnerOnly() throws {
+        let fixture = try IPCPathFixture()
+        defer { fixture.cleanup() }
+        let escrowURL = fixture.root.appendingPathComponent("debug-escrow.json")
+        let document = IPCDebugCredentialEscrowDocument(
+            runtimeId: UUID(),
+            socketPath: "/tmp/asipc-escrow/agentstudio.sock",
+            token: Data(repeating: 0x2B, count: 32).base64EncodedString()
+        )
+
+        try AgentStudioIPCFilesystem.writeDebugCredentialEscrow(document, to: escrowURL)
+
+        let decoded = try JSONDecoder().decode(
+            IPCDebugCredentialEscrowDocument.self,
+            from: try Data(contentsOf: escrowURL)
+        )
+        #expect(decoded == document)
+        #expect(try fixture.mode(for: escrowURL) & 0o777 == 0o600)
+        #expect(try FileManager.default.contentsOfDirectory(atPath: fixture.root.path) == ["debug-escrow.json"])
+
+        AgentStudioIPCFilesystem.removeDebugCredentialEscrow(at: escrowURL)
+        #expect(!FileManager.default.fileExists(atPath: escrowURL.path))
+    }
+
+    @Test("refuses a debug escrow path whose directory the launcher never created")
+    func refusesDebugCredentialEscrowWithoutItsDirectory() throws {
+        let fixture = try IPCPathFixture()
+        defer { fixture.cleanup() }
+        let escrowURL = fixture.root.appendingPathComponent("missing/debug-escrow.json")
+
+        #expect(throws: AgentStudioIPCFilesystemTrustError.self) {
+            try AgentStudioIPCFilesystem.writeDebugCredentialEscrow(
+                IPCDebugCredentialEscrowDocument(
+                    runtimeId: UUID(),
+                    socketPath: "/tmp/asipc-escrow/agentstudio.sock",
+                    token: "unused"
+                ),
+                to: escrowURL
+            )
+        }
     }
 
     @Test("classifies stale socket probe outcomes")

@@ -155,36 +155,60 @@ struct AgentStudioIPCAuthenticationTests {
         }
     }
 
-    @Test("diagnostic credentials require the matching runtime and active status")
-    func diagnosticCredentialsRequireMatchingRuntime() async throws {
-        let runtimeID = UUIDv7.generate()
-        let foreignRuntimeID = UUIDv7.generate()
-        let activeToken = AgentStudioIPCSubjectToken(rawValue: "diagnostic-active")
-        let foreignToken = AgentStudioIPCSubjectToken(rawValue: "diagnostic-foreign")
-        let revokedToken = AgentStudioIPCSubjectToken(rawValue: "diagnostic-revoked")
-        let registry = makeRegistry(
-            runtimeID: runtimeID,
-            outcomes: [
-                activeToken.rawValue: .resolved(
-                    diagnosticResolution(runtimeID: runtimeID, status: .active)
-                ),
-                foreignToken.rawValue: .resolved(
-                    diagnosticResolution(runtimeID: foreignRuntimeID, status: .active)
-                ),
-                revokedToken.rawValue: .resolved(
-                    diagnosticResolution(runtimeID: runtimeID, status: .revoked)
-                ),
-            ]
-        )
+    @Test("the installed debug credential authenticates from memory without a stored row")
+    func installedDebugCredentialAuthenticatesFromMemory() async throws {
+        let token = AgentStudioIPCSubjectToken(rawValue: "installed-debug-token")
+        let registry = makeRegistry(runtimeID: UUIDv7.generate(), outcomes: [:])
 
-        let activeContext = try await registry.authenticate(subjectToken: activeToken)
-        #expect(activeContext.principal.accessMode == .automationSameUser)
-        #expect(activeContext.principal.kind == .automationClient)
+        let generationID = registry.installDiagnosticCredential(verifierSHA256: verifier(for: token))
+        let context = try await registry.authenticate(subjectToken: token)
+
+        #expect(context.principal.accessMode == .automationSameUser)
+        #expect(context.principal.kind == .automationClient)
+        #expect(context.credentialIdentity == .diagnostic(generationID: generationID))
+        #expect(context.persistenceCandidate == nil)
+    }
+
+    @Test("an unknown debug token never reaches an installed credential's authority")
+    func unknownDebugTokenIsRefused() async {
+        let installedToken = AgentStudioIPCSubjectToken(rawValue: "installed-debug-token")
+        let unknownToken = AgentStudioIPCSubjectToken(rawValue: "unknown-debug-token")
+        let registry = makeRegistry(runtimeID: UUIDv7.generate(), outcomes: [:])
+        _ = registry.installDiagnosticCredential(verifierSHA256: verifier(for: installedToken))
+
         await #expect(throws: AgentStudioIPCAuthenticationError.self) {
-            try await registry.authenticate(subjectToken: foreignToken)
+            try await registry.authenticate(subjectToken: unknownToken)
         }
+    }
+
+    @Test("revoking the debug credential refuses the token it admitted")
+    func revokedDebugCredentialIsRefused() async throws {
+        let token = AgentStudioIPCSubjectToken(rawValue: "revoked-debug-token")
+        let registry = makeRegistry(runtimeID: UUIDv7.generate(), outcomes: [:])
+        _ = registry.installDiagnosticCredential(verifierSHA256: verifier(for: token))
+        _ = try await registry.authenticate(subjectToken: token)
+
+        registry.revokeDiagnosticCredential()
+
         await #expect(throws: AgentStudioIPCAuthenticationError.self) {
-            try await registry.authenticate(subjectToken: revokedToken)
+            try await registry.authenticate(subjectToken: token)
+        }
+    }
+
+    @Test("a replacement debug generation refuses the credential it replaced")
+    func replacedDebugGenerationRefusesTheEarlierCredential() async throws {
+        let firstToken = AgentStudioIPCSubjectToken(rawValue: "first-debug-token")
+        let secondToken = AgentStudioIPCSubjectToken(rawValue: "second-debug-token")
+        let registry = makeRegistry(runtimeID: UUIDv7.generate(), outcomes: [:])
+        let firstGenerationID = registry.installDiagnosticCredential(verifierSHA256: verifier(for: firstToken))
+
+        let secondGenerationID = registry.installDiagnosticCredential(verifierSHA256: verifier(for: secondToken))
+        let context = try await registry.authenticate(subjectToken: secondToken)
+
+        #expect(secondGenerationID != firstGenerationID)
+        #expect(context.credentialIdentity == .diagnostic(generationID: secondGenerationID))
+        await #expect(throws: AgentStudioIPCAuthenticationError.self) {
+            try await registry.authenticate(subjectToken: firstToken)
         }
     }
 
@@ -288,7 +312,14 @@ struct AgentStudioIPCAuthenticationTests {
         await resolver.waitUntilLookupStarted()
 
         registry.rotateTokens()
-        await resolver.resume(with: diagnosticResolution(runtimeID: runtimeID, status: .active))
+        await resolver.resume(
+            with: paneResolution(
+                paneID: UUIDv7.generate(),
+                workspaceID: UUIDv7.generate(),
+                credentialRecordID: UUIDv7.generate(),
+                status: .registered
+            )
+        )
 
         await #expect(throws: AgentStudioIPCAuthenticationError.self) {
             try await authenticationTask.value
@@ -384,7 +415,14 @@ struct AgentStudioIPCAuthenticationTests {
         await resolver.waitUntilLookupStarted()
 
         registry.shutdown()
-        await resolver.resume(with: diagnosticResolution(runtimeID: runtimeID, status: .active))
+        await resolver.resume(
+            with: paneResolution(
+                paneID: UUIDv7.generate(),
+                workspaceID: UUIDv7.generate(),
+                credentialRecordID: UUIDv7.generate(),
+                status: .registered
+            )
+        )
 
         await #expect(throws: AgentStudioIPCAuthenticationError.self) {
             try await authenticationTask.value
@@ -523,13 +561,6 @@ private func paneResolution(
     )
 }
 
-private func diagnosticResolution(
-    runtimeID: UUID,
-    status: AgentStudioIPCDiagnosticCredentialStatus
-) -> AgentStudioIPCCredentialResolution {
-    .diagnostic(
-        runtimeID: runtimeID,
-        generationID: UUIDv7.generate(),
-        status: status
-    )
+private func verifier(for token: AgentStudioIPCSubjectToken) -> Data {
+    Data(SHA256.hash(data: Data(token.rawValue.utf8)))
 }

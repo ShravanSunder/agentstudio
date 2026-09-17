@@ -90,6 +90,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     var appIPCContinuityRepository: IPCContinuityRepository!
     var appIPCCredentialResolver: IPCContinuityCredentialResolver!
     var appIPCPrincipalRegistry: AgentStudioIPCPrincipalRegistry!
+    /// The owner-only file the debug launcher named for this runtime's reusable
+    /// credential, resolved once when IPC identity is composed. Stable and beta
+    /// leave it nil and never hand a credential out.
+    var appIPCDebugCredentialEscrowURL: URL?
     var paneIPCIdentityOwner: PaneIPCIdentityOwner!
     var appIPCSessionsIngestion: SessionsIngestion?
     var paneReportSpoolDrainTask: Task<Void, Never>?

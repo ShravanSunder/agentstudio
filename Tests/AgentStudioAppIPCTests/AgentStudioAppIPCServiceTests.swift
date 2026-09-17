@@ -367,9 +367,7 @@ struct AgentStudioAppIPCServiceTests {
             fixture.cleanup()
         }
         try fixture.server.start()
-        let token = try fixture.issueTestCredential(
-            for: .diagnostic(generationId: UUIDv7.generate(), status: .active)
-        )
+        let token = fixture.installDebugCredential()
 
         for requestId in [65, 66] {
             let connection = try UnixSocketClient.connect(

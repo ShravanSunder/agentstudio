@@ -3,7 +3,9 @@ import AgentStudioCore
 import AgentStudioInfrastructure
 import AgentStudioProgrammaticControl
 import AgentStudioSessions
+import CryptoKit
 import Foundation
+import Security
 
 @MainActor
 enum AppIPCDeferredInitialization {
@@ -46,6 +48,7 @@ extension AppDelegate {
         )
         appIPCRuntimeID = runtimeID
         appIPCPaths = paths
+        appIPCDebugCredentialEscrowURL = Self.appIPCDebugCredentialEscrowURL()
         appIPCContinuityRepository = repository
         appIPCCredentialResolver = resolver
         appIPCPrincipalRegistry = registry
@@ -120,6 +123,7 @@ extension AppDelegate {
             try composition.server.start()
             appIPCServer = composition.server
             appLogger.info("App IPC server started at \(composition.socketURL.path, privacy: .private)")
+            publishDebugCredentialEscrow(socketURL: composition.socketURL)
             startPaneReportSpoolDrain(sessionsIngestion: sessionsIngestion)
         } catch {
             appLogger.warning("App IPC server failed to start: \(String(describing: error), privacy: .public)")
@@ -131,9 +135,59 @@ extension AppDelegate {
         appIPCInitializationTask = nil
         paneReportSpoolDrainTask?.cancel()
         paneReportSpoolDrainTask = nil
+        retireDebugCredentialEscrow()
         appIPCServer?.stop()
         appIPCServer = nil
         finishAppIPCSessionsIngestion()
+    }
+
+    /// Only a debug app whose launcher named an escrow file hands out a reusable
+    /// credential, and only after the socket is listening: the raw value reaches
+    /// disk with the endpoint that accepts it. The credential lives in the
+    /// principal registry's memory and is never persisted. A failed handover
+    /// leaves debug authentication unavailable; it never falls back to the
+    /// separate unsafe no-auth composition.
+    private func publishDebugCredentialEscrow(socketURL: URL) {
+        guard Self.appIPCChannel() == .debug,
+            let escrowURL = appIPCDebugCredentialEscrowURL
+        else { return }
+        var credentialBytes = Data(count: 32)
+        let generatedCredential = credentialBytes.withUnsafeMutableBytes { buffer in
+            guard let baseAddress = buffer.baseAddress else { return errSecParam }
+            return SecRandomCopyBytes(kSecRandomDefault, buffer.count, baseAddress)
+        }
+        guard generatedCredential == errSecSuccess else {
+            appLogger.warning("Debug IPC credential unavailable: random generation failed")
+            return
+        }
+        let token = credentialBytes.base64EncodedString()
+        let generationID = appIPCPrincipalRegistry.installDiagnosticCredential(
+            verifierSHA256: Data(SHA256.hash(data: Data(token.utf8)))
+        )
+        do {
+            try AgentStudioIPCFilesystem.writeDebugCredentialEscrow(
+                IPCDebugCredentialEscrowDocument(
+                    runtimeId: appIPCRuntimeID,
+                    socketPath: socketURL.path,
+                    token: token
+                ),
+                to: escrowURL
+            )
+        } catch {
+            appIPCPrincipalRegistry.revokeDiagnosticCredential()
+            appLogger.warning(
+                """
+                Debug IPC credential unavailable: escrow handover failed for generation \
+                \(generationID, privacy: .public)
+                """
+            )
+        }
+    }
+
+    private func retireDebugCredentialEscrow() {
+        appIPCPrincipalRegistry?.revokeDiagnosticCredential()
+        guard let escrowURL = appIPCDebugCredentialEscrowURL else { return }
+        AgentStudioIPCFilesystem.removeDebugCredentialEscrow(at: escrowURL)
     }
 
     /// Notifications the CLI spooled while this app was unreachable are admitted
@@ -217,6 +271,7 @@ extension AppDelegate {
         initializationTask?.cancel()
         await initializationTask?.value
         appIPCInitializationTask = nil
+        retireDebugCredentialEscrow()
         guard let server = appIPCServer else {
             appIPCPrincipalRegistry?.shutdown()
             appLogger.info("App IPC shutdown completed without a published server or durable drain")
@@ -359,6 +414,24 @@ extension AppDelegate {
             }
         #endif
         return .agentStudioOnly
+    }
+
+    private static func appIPCDebugCredentialEscrowURL() -> URL? {
+        #if DEBUG
+            guard
+                let rawPath = ProcessInfo.processInfo
+                    .environment[IPCDebugCredentialEscrowDocument.environmentVariableName]?
+                    .trimmingCharacters(in: .whitespacesAndNewlines),
+                !rawPath.isEmpty
+            else {
+                return nil
+            }
+
+            return URL(fileURLWithPath: NSString(string: rawPath).expandingTildeInPath)
+                .standardizedFileURL
+        #else
+            return nil
+        #endif
     }
 
     private static func appIPCSocketDirectory() -> URL? {

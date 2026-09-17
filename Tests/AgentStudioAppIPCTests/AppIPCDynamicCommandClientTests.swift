@@ -147,9 +147,7 @@ struct AppIPCDynamicCommandClientTests {
         let scenario = try DynamicCommandScenario.make()
         defer { scenario.fixture.cleanup() }
         try scenario.fixture.server.start()
-        let token = try scenario.fixture.issueTestCredential(
-            for: .diagnostic(generationId: UUIDv7.generate(), status: .active)
-        )
+        let token = scenario.fixture.installDebugCredential()
         let connection = try UnixSocketClient.connect(
             endpoint: UnixSocketEndpoint(path: scenario.fixture.paths.socketURL.path))
         defer { connection.close() }

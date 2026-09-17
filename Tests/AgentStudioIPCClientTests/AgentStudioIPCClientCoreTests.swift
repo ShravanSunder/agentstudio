@@ -157,6 +157,113 @@ struct AgentStudioIPCClientCoreTests {
         #expect(invocation.configuration.authToken == "fixture-token")
     }
 
+    @Test("the debug escrow file supplies both endpoint and credential with no flags")
+    func debugEscrowSuppliesEndpointAndCredential() throws {
+        let fixture = try DebugEscrowFixture(
+            document: IPCDebugCredentialEscrowDocument(
+                runtimeId: UUIDv7.generate(),
+                socketPath: "/tmp/debug-escrow.sock",
+                token: "escrow-token"
+            )
+        )
+        defer { fixture.cleanup() }
+
+        let invocation = try AgentStudioIPCClientArguments.parse(
+            ["system.identify"], descriptors: makeCatalog().erasedDescriptors,
+            environment: fixture.environment,
+            correlationIDGenerator: { UUIDv7.generate() },
+            standardInputProvider: {
+                Issue.record("No stdin requested")
+                return Data()
+            }
+        )
+
+        #expect(invocation.configuration.socketPath == "/tmp/debug-escrow.sock")
+        #expect(invocation.configuration.authToken == "escrow-token")
+    }
+
+    @Test("pane authority answers before the debug escrow file is read")
+    func paneEnvironmentPrecedesDebugEscrow() throws {
+        let fixture = try DebugEscrowFixture(
+            document: IPCDebugCredentialEscrowDocument(
+                runtimeId: UUIDv7.generate(),
+                socketPath: "/tmp/debug-escrow.sock",
+                token: "escrow-token"
+            )
+        )
+        defer { fixture.cleanup() }
+        var environment = fixture.environment
+        environment["AGENTSTUDIO_IPC_SOCKET"] = "/tmp/pane.sock"
+        environment["AGENTSTUDIO_PANE_TOKEN"] = "pane-token"
+
+        let invocation = try AgentStudioIPCClientArguments.parse(
+            ["system.identify"], descriptors: makeCatalog().erasedDescriptors,
+            environment: environment,
+            correlationIDGenerator: { UUIDv7.generate() },
+            standardInputProvider: {
+                Issue.record("No stdin requested")
+                return Data()
+            }
+        )
+
+        #expect(invocation.configuration.socketPath == "/tmp/pane.sock")
+        #expect(invocation.configuration.authToken == "pane-token")
+    }
+
+    @Test("an explicit endpoint answers before the debug escrow file is read")
+    func explicitEndpointPrecedesDebugEscrow() throws {
+        let fixture = try DebugEscrowFixture(
+            document: IPCDebugCredentialEscrowDocument(
+                runtimeId: UUIDv7.generate(),
+                socketPath: "/tmp/debug-escrow.sock",
+                token: "escrow-token"
+            )
+        )
+        defer { fixture.cleanup() }
+
+        let invocation = try AgentStudioIPCClientArguments.parse(
+            ["--socket", "/tmp/explicit.sock", "system.identify"],
+            descriptors: makeCatalog().erasedDescriptors,
+            environment: fixture.environment,
+            correlationIDGenerator: { UUIDv7.generate() },
+            standardInputProvider: {
+                Issue.record("No stdin requested")
+                return Data()
+            }
+        )
+
+        #expect(invocation.configuration.socketPath == "/tmp/explicit.sock")
+        #expect(invocation.configuration.authToken == nil)
+    }
+
+    @Test("a missing or unreadable escrow file reports that the debug app is not running")
+    func missingOrCorruptDebugEscrowReportsNotRunning() throws {
+        let fixture = try DebugEscrowFixture(
+            document: IPCDebugCredentialEscrowDocument(
+                runtimeId: UUIDv7.generate(),
+                socketPath: "/tmp/debug-escrow.sock",
+                token: "escrow-token"
+            )
+        )
+        defer { fixture.cleanup() }
+        try Data("not an escrow document".utf8).write(to: fixture.escrowURL)
+
+        for environment in [fixture.environment, fixture.environmentWithoutFile] {
+            let error = #expect(throws: AgentStudioIPCClientError.self) {
+                try AgentStudioIPCClientArguments.parse(
+                    ["system.identify"], descriptors: makeCatalog().erasedDescriptors,
+                    environment: environment,
+                    correlationIDGenerator: { UUIDv7.generate() },
+                    standardInputProvider: {
+                        Issue.record("No stdin requested")
+                        return Data()
+                    }
+                )
+            }
+            #expect(error?.reason == .debugAppNotRunning)
+        }
+    }
+
     @Test("live capabilities validates before compiled method selection over the same protocol")
     func liveCapabilitiesBuildsTypedInvocationCatalog() throws {
         let catalog = try makeCatalog()
@@ -220,5 +327,33 @@ struct AgentStudioIPCClientCoreTests {
                     bridgeDiffLoad: .noInteractiveIdentity, bridgeFileViewOpen: .noInteractiveIdentity),
                 examples: .init(illustrativeIdentifier: UUIDv7.generate())
             ))
+    }
+}
+
+private struct DebugEscrowFixture {
+    let directory: URL
+    let escrowURL: URL
+
+    init(document: IPCDebugCredentialEscrowDocument) throws {
+        directory = FileManager.default.temporaryDirectory
+            .appending(path: "ipc-escrow-\(UUIDv7.generate().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        escrowURL = directory.appending(path: "debug-credential.json")
+        try JSONEncoder().encode(document).write(to: escrowURL)
+    }
+
+    var environment: [String: String] {
+        [IPCDebugCredentialEscrowDocument.environmentVariableName: escrowURL.path]
+    }
+
+    var environmentWithoutFile: [String: String] {
+        [
+            IPCDebugCredentialEscrowDocument.environmentVariableName:
+                directory.appending(path: "absent.json").path
+        ]
+    }
+
+    func cleanup() {
+        try? FileManager.default.removeItem(at: directory)
     }
 }

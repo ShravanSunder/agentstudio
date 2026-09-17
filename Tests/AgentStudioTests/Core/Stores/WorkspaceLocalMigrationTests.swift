@@ -760,6 +760,7 @@ private let expectedFullLocalMigrationIdentifiers =
         "011_create_sessions_ingestion_schema",
         "012_create_ipc_credential_schema",
         "013_create_opaque_pane_credential_records",
+        "014_ipc_credentials_pane_only",
     ]
 
 private struct Migration007Scenario: Sendable {

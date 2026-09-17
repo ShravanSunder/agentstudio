@@ -592,9 +592,7 @@ struct AgentStudioIPCBridgeServiceTests {
             fixture.cleanup()
         }
         try fixture.server.start()
-        let token = try fixture.issueTestCredential(
-            for: .diagnostic(generationId: UUIDv7.generate(), status: .active)
-        )
+        let token = fixture.installDebugCredential()
         let connection = try UnixSocketClient.connect(
             endpoint: UnixSocketEndpoint(path: fixture.paths.socketURL.path)
         )
@@ -673,9 +671,7 @@ struct AgentStudioIPCBridgeServiceTests {
             fixture.cleanup()
         }
         try fixture.server.start()
-        let token = try fixture.issueTestCredential(
-            for: .diagnostic(generationId: UUIDv7.generate(), status: .active)
-        )
+        let token = fixture.installDebugCredential()
         let connection = try UnixSocketClient.connect(
             endpoint: UnixSocketEndpoint(path: fixture.paths.socketURL.path)
         )
@@ -735,9 +731,7 @@ struct AgentStudioIPCBridgeServiceTests {
             fixture.cleanup()
         }
         try fixture.server.start()
-        let token = try fixture.issueTestCredential(
-            for: .diagnostic(generationId: UUIDv7.generate(), status: .active)
-        )
+        let token = fixture.installDebugCredential()
         let connection = try UnixSocketClient.connect(
             endpoint: UnixSocketEndpoint(path: fixture.paths.socketURL.path)
         )

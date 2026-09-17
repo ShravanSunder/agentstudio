@@ -149,9 +149,7 @@ struct AgentStudioAppIPCSidebarServiceTests {
         for fixture: LiveServerFixture,
         tokenRequestId: Int
     ) async throws -> UnixSocketConnection {
-        let token = try fixture.issueTestCredential(
-            for: .diagnostic(generationId: UUIDv7.generate(), status: .active)
-        )
+        let token = fixture.installDebugCredential()
         let connection = try UnixSocketClient.connect(endpoint: UnixSocketEndpoint(path: fixture.paths.socketURL.path))
         var reader = TestFrameReader()
         try await loginWithoutBlockingMainActor(

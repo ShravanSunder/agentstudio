@@ -12,7 +12,7 @@ import Testing
 @testable import AgentStudioTestSupport
 
 /// Starts the real App IPC server over a temporary socket with a real Sessions
-/// database, authenticated by a diagnostic credential. Session methods need no
+/// database, authenticated by the in-memory debug credential. Session methods need no
 /// window, so the harness stops at what the composition itself requires.
 @MainActor
 struct SessionsVerticalHarness {
@@ -38,9 +38,14 @@ struct SessionsVerticalHarness {
         qualifiedCapabilities: [.sessionStart, .sessionEnd, .turnStart, .turnDone]
     )
 
+    /// Supplying an escrow path exercises the real debug handover: the app mints
+    /// the credential, installs its verifier in memory and writes the file the
+    /// launcher named. Without one the harness installs a verifier directly,
+    /// which is all a session-method test needs.
     static func make(
         providerProfiles: [SessionsProviderProfile] = [qualifiedProviderProfile],
-        additionalProviderProfiles: [SessionsProviderProfile] = []
+        additionalProviderProfiles: [SessionsProviderProfile] = [],
+        debugCredentialEscrowURL: URL? = nil
     ) async throws -> Self {
         let commandHarness = makeHarness()
         let boundPane = commandHarness.store.createPane(title: "Bound pane")
@@ -87,20 +92,26 @@ struct SessionsVerticalHarness {
         let paths = AgentStudioIPCPathResolver().paths(rootDirectory: rootDirectory)
         appDelegate.appIPCPaths = paths
 
-        let token = AgentStudioIPCSubjectToken(rawValue: "sessions-vertical-\(UUIDv7.generate().uuidString)")
-        let generationID = UUIDv7.generate()
-        try await appDelegate.appIPCContinuityRepository.persistPreparedDiagnosticCredential(
-            runtimeID: appDelegate.appIPCRuntimeID,
-            generation: generationID,
-            verifier: Data(SHA256.hash(data: Data(token.rawValue.utf8)))
-        )
-        try await appDelegate.appIPCContinuityRepository.activatePreparedDiagnosticCredential(
-            runtimeID: appDelegate.appIPCRuntimeID,
-            generation: generationID
-        )
+        var token = AgentStudioIPCSubjectToken(rawValue: "sessions-vertical-\(UUIDv7.generate().uuidString)")
+        appDelegate.appIPCDebugCredentialEscrowURL = debugCredentialEscrowURL
+        if debugCredentialEscrowURL == nil {
+            _ = appDelegate.appIPCPrincipalRegistry.installDiagnosticCredential(
+                verifierSHA256: Data(SHA256.hash(data: Data(token.rawValue.utf8)))
+            )
+        }
         await appDelegate.startAppIPCServer()
         guard appDelegate.appIPCServer != nil else {
             throw SessionsVerticalHarnessError.serverUnavailable
+        }
+        if let debugCredentialEscrowURL {
+            guard let escrowData = try? Data(contentsOf: debugCredentialEscrowURL),
+                let escrow = try? JSONDecoder().decode(
+                    IPCDebugCredentialEscrowDocument.self, from: escrowData
+                )
+            else {
+                throw SessionsVerticalHarnessError.debugCredentialEscrowUnavailable
+            }
+            token = AgentStudioIPCSubjectToken(rawValue: escrow.token)
         }
 
         return Self(
@@ -271,6 +282,7 @@ struct SessionsVerticalHarness {
 enum SessionsVerticalHarnessError: Error {
     case optionalSchemaUnavailable
     case serverUnavailable
+    case debugCredentialEscrowUnavailable
     case requestFailed(method: String, code: Int, data: JSONValue?)
 }
 

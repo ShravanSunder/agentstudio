@@ -2,6 +2,7 @@ import AgentStudioAppIPC
 import AgentStudioIPCTransport
 import AgentStudioInfrastructure
 import AgentStudioProgrammaticControl
+import CryptoKit
 import Foundation
 import Testing
 
@@ -122,6 +123,16 @@ struct LiveServerFixture {
         return testCredentialResolver.issueTestCredential(for: intent, workspaceId: workspaceId, runtimeId: runtimeId)
     }
 
+    /// The reusable debug credential has no durable row: the app installs its
+    /// verifier in the principal registry for the runtime's lifetime.
+    func installDebugCredential() -> AgentStudioIPCSubjectToken {
+        let token = AgentStudioIPCSubjectToken(rawValue: "debug-\(UUIDv7.generate().uuidString)")
+        _ = server.principalRegistry.installDiagnosticCredential(
+            verifierSHA256: Data(SHA256.hash(data: Data(token.rawValue.utf8)))
+        )
+        return token
+    }
+
     func cleanup() {
         server.stop()
         try? FileManager.default.removeItem(at: rootURL)
@@ -139,7 +150,6 @@ final class TestCredentialContinuityPort: AgentStudioIPCCredentialContinuityPort
 
 enum IPCFixtureCredentialIntent: Sendable {
     case pane(paneId: UUID, credentialRecordId: UUID, status: AgentStudioIPCPaneCredentialStatus)
-    case diagnostic(generationId: UUID, status: AgentStudioIPCDiagnosticCredentialStatus)
 }
 
 enum IPCFixtureCredentialError: Error, Equatable {
@@ -153,7 +163,7 @@ final class IPCFixtureCredentialResolver: AgentStudioIPCCredentialResolving, @un
     func issueTestCredential(
         for intent: IPCFixtureCredentialIntent,
         workspaceId: UUID,
-        runtimeId: UUID
+        runtimeId _: UUID
     ) -> AgentStudioIPCSubjectToken {
         let token = AgentStudioIPCSubjectToken(rawValue: "fixture-\(UUIDv7.generate().uuidString)")
         let resolution: AgentStudioIPCCredentialResolution
@@ -163,12 +173,6 @@ final class IPCFixtureCredentialResolver: AgentStudioIPCCredentialResolving, @un
                 paneID: paneId,
                 workspaceID: workspaceId,
                 credentialRecordID: credentialRecordId,
-                status: status
-            )
-        case .diagnostic(let generationId, let status):
-            resolution = .diagnostic(
-                runtimeID: runtimeId,
-                generationID: generationId,
                 status: status
             )
         }

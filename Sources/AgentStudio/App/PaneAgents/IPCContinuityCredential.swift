@@ -5,12 +5,6 @@ enum IPCPaneCredentialStatus: String, Sendable {
     case revoked
 }
 
-enum IPCDiagnosticCredentialStatus: String, Sendable {
-    case prepared
-    case active
-    case revoked
-}
-
 struct IPCPaneCredential: Sendable, Equatable {
     let paneID: UUID
     let workspaceID: UUID
@@ -19,19 +13,8 @@ struct IPCPaneCredential: Sendable, Equatable {
     let status: IPCPaneCredentialStatus
 }
 
-enum IPCContinuityResolvedCredential: Sendable, Equatable {
-    case pane(IPCPaneCredential)
-    case diagnostic(
-        runtimeID: UUID,
-        generationID: UUID,
-        verifierSHA256: Data,
-        status: IPCDiagnosticCredentialStatus
-    )
-}
-
 enum IPCContinuityRepositoryError: Error, Equatable {
     case invalidVerifierLength
     case conflictingCredentialRecord
     case ambiguousVerifier
-    case cannotTransitionDiagnosticCredential
 }

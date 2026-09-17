@@ -11,7 +11,6 @@ public struct AgentStudioIPCPaths: Equatable, Sendable {
     public let socketDirectory: URL
     public let metadataURL: URL
     public let socketURL: URL
-    public let debugTokenURL: URL
     public let spoolDirectory: URL
 
     public init(
@@ -20,7 +19,6 @@ public struct AgentStudioIPCPaths: Equatable, Sendable {
         socketDirectory: URL,
         metadataURL: URL,
         socketURL: URL,
-        debugTokenURL: URL,
         spoolDirectory: URL
     ) {
         self.rootDirectory = rootDirectory
@@ -28,7 +26,6 @@ public struct AgentStudioIPCPaths: Equatable, Sendable {
         self.socketDirectory = socketDirectory
         self.metadataURL = metadataURL
         self.socketURL = socketURL
-        self.debugTokenURL = debugTokenURL
         self.spoolDirectory = spoolDirectory
     }
 }
@@ -45,7 +42,6 @@ public struct AgentStudioIPCPathResolver: Sendable {
             socketDirectory: resolvedSocketDirectory,
             metadataURL: ipcDirectory.appendingPathComponent("runtime.json"),
             socketURL: resolvedSocketDirectory.appendingPathComponent("agentstudio.sock"),
-            debugTokenURL: ipcDirectory.appendingPathComponent("debug-token"),
             spoolDirectory: ipcDirectory.appendingPathComponent("spool/v2", isDirectory: true)
         )
     }
@@ -93,6 +89,9 @@ public struct AgentStudioIPCFilesystemTrustError: Error, Equatable, Sendable {
         case directoryCreationFailed
         case metadataEncodingFailed
         case metadataWriteFailed
+        case debugEscrowDirectoryMissing
+        case debugEscrowEncodingFailed
+        case debugEscrowWriteFailed
     }
 
     public let reason: Reason
@@ -191,8 +190,67 @@ public enum AgentStudioIPCFilesystem {
         }
     }
 
-    public static func removeDebugToken(paths: AgentStudioIPCPaths) {
-        try? FileManager.default.removeItem(at: paths.debugTokenURL)
+    /// The launcher names the escrow file, so its directory belongs to whoever
+    /// started the debug app and is never created here. The raw credential
+    /// reaches disk only through an owner-only temporary file that is renamed
+    /// into place, so a reader never observes a partial document.
+    public static func writeDebugCredentialEscrow(
+        _ document: IPCDebugCredentialEscrowDocument,
+        to escrowURL: URL
+    ) throws {
+        let directoryURL = escrowURL.deletingLastPathComponent()
+        var directoryIsDirectory: ObjCBool = false
+        guard
+            FileManager.default.fileExists(atPath: directoryURL.path, isDirectory: &directoryIsDirectory),
+            directoryIsDirectory.boolValue
+        else {
+            throw AgentStudioIPCFilesystemTrustError(
+                reason: .debugEscrowDirectoryMissing,
+                path: directoryURL.path
+            )
+        }
+
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        let data: Data
+        do {
+            data = try encoder.encode(document)
+        } catch {
+            throw AgentStudioIPCFilesystemTrustError(
+                reason: .debugEscrowEncodingFailed,
+                path: escrowURL.path
+            )
+        }
+
+        let temporaryURL = directoryURL.appendingPathComponent(
+            ".\(escrowURL.lastPathComponent).\(UUID().uuidString).tmp"
+        )
+        do {
+            try data.write(to: temporaryURL)
+            try chmodOwnerOnly(temporaryURL, mode: 0o600)
+            if rename(temporaryURL.path, escrowURL.path) != 0 {
+                throw AgentStudioIPCFilesystemTrustError(
+                    reason: .debugEscrowWriteFailed,
+                    path: escrowURL.path,
+                    errnoCode: errno
+                )
+            }
+            try chmodOwnerOnly(escrowURL, mode: 0o600)
+        } catch let error as AgentStudioIPCFilesystemTrustError {
+            try? FileManager.default.removeItem(at: temporaryURL)
+            throw error
+        } catch {
+            try? FileManager.default.removeItem(at: temporaryURL)
+            throw AgentStudioIPCFilesystemTrustError(
+                reason: .debugEscrowWriteFailed,
+                path: escrowURL.path,
+                errnoCode: errno
+            )
+        }
+    }
+
+    public static func removeDebugCredentialEscrow(at escrowURL: URL) {
+        try? FileManager.default.removeItem(at: escrowURL)
     }
 
     private static func validateTrustedExistingPath(_ url: URL, requireDirectory: Bool) throws {

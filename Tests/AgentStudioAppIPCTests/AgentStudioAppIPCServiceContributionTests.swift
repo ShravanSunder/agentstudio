@@ -222,9 +222,7 @@ private func authenticatedPaneClient(
 private func authenticatedDiagnosticClient(
     fixture: LiveServerFixture
 ) throws -> TypedPaneSnapshotClient {
-    let token = try fixture.issueTestCredential(
-        for: .diagnostic(generationId: UUIDv7.generate(), status: .active)
-    )
+    let token = fixture.installDebugCredential()
     let connection = try UnixSocketClient.connect(endpoint: UnixSocketEndpoint(path: fixture.paths.socketURL.path))
     let client = TypedPaneSnapshotClient(connection: connection)
     try login(connection: connection, token: token, requestId: 80, reader: &client.reader)

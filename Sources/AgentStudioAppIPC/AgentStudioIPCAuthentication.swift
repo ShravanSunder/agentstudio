@@ -15,7 +15,6 @@ public struct AgentStudioIPCSubjectToken: RawRepresentable, Codable, Hashable, S
 public struct AgentStudioIPCAuthenticationError: Error, Equatable, Sendable {
     public enum Reason: String, Equatable, Sendable {
         case unauthenticated
-        case runtimeMismatch
         case peerUserMismatch
     }
 
@@ -50,23 +49,15 @@ package enum AgentStudioIPCPaneCredentialStatus: Equatable, Sendable {
     case revoked
 }
 
-package enum AgentStudioIPCDiagnosticCredentialStatus: Equatable, Sendable {
-    case prepared
-    case active
-    case revoked
-}
-
+/// Durable credential storage holds pane verifiers only. The reusable debug
+/// credential lives in the principal registry's memory for the runtime's
+/// lifetime and never reaches this resolver.
 package enum AgentStudioIPCCredentialResolution: Equatable, Sendable {
     case pane(
         paneID: UUID,
         workspaceID: UUID,
         credentialRecordID: UUID,
         status: AgentStudioIPCPaneCredentialStatus
-    )
-    case diagnostic(
-        runtimeID: UUID,
-        generationID: UUID,
-        status: AgentStudioIPCDiagnosticCredentialStatus
     )
 }
 
@@ -126,6 +117,7 @@ public final class AgentStudioIPCPrincipalRegistry: @unchecked Sendable {
     private var issuedPaneCredentialRecordIDByVerifier: [Data: UUID] = [:]
     private var durableIssuedPaneCredentialIDs: Set<UUID> = []
     private var finalRevokedPaneIDs: Set<UUID> = []
+    private var installedDebugCredential: InstalledDebugCredential?
     private var isShutdown = false
 
     package init(
@@ -174,6 +166,25 @@ public final class AgentStudioIPCPrincipalRegistry: @unchecked Sendable {
             issuedPaneCredentialsByRecordID[credentialRecordID] = credential
             issuedPaneCredentialRecordIDByVerifier[verifierSHA256] = credentialRecordID
         }
+    }
+
+    /// The reusable debug credential exists for this runtime only. Installing a
+    /// replacement drops the previous verifier, so the token it replaced stops
+    /// authenticating immediately.
+    package func installDiagnosticCredential(verifierSHA256: Data) -> UUID {
+        precondition(verifierSHA256.count == 32, "debug credential verifier must be SHA-256")
+        let generationID = UUIDv7.generate()
+        lock.withLock {
+            installedDebugCredential = InstalledDebugCredential(
+                verifierSHA256: verifierSHA256,
+                generationID: generationID
+            )
+        }
+        return generationID
+    }
+
+    package func revokeDiagnosticCredential() {
+        lock.withLock { installedDebugCredential = nil }
     }
 
     package func issuedCredentialCandidates() -> [AgentStudioIPCIssuedPaneCredential] {
@@ -250,28 +261,37 @@ public final class AgentStudioIPCPrincipalRegistry: @unchecked Sendable {
         }
 
         let verifier = Data(SHA256.hash(data: Data(subjectToken.rawValue.utf8)))
-        let issuedCredential = lock.withLock {
-            issuedPaneCredentialRecordIDByVerifier[verifier]
-                .flatMap { issuedPaneCredentialsByRecordID[$0] }
-        }
-        let resolution: AgentStudioIPCCredentialResolution
-        if let issuedCredential {
-            resolution = .pane(
-                paneID: issuedCredential.paneID,
-                workspaceID: issuedCredential.workspaceID,
-                credentialRecordID: issuedCredential.credentialRecordID,
-                status: .registered
+        let memoryMatch = lock.withLock {
+            (
+                debugGenerationID: installedDebugCredential?.generationID(matching: verifier),
+                issuedPaneCredential: issuedPaneCredentialRecordIDByVerifier[verifier]
+                    .flatMap { issuedPaneCredentialsByRecordID[$0] }
             )
+        }
+        let context: AgentStudioIPCAuthenticatedContext
+        if let debugGenerationID = memoryMatch.debugGenerationID {
+            context = makeDebugAuthenticatedContext(generationID: debugGenerationID)
         } else {
-            resolution = try await credentialResolver.resolveCredential(
-                subjectToken,
-                serverRuntimeID: runtimeId
+            let issuedCredential = memoryMatch.issuedPaneCredential
+            let resolution: AgentStudioIPCCredentialResolution
+            if let issuedCredential {
+                resolution = .pane(
+                    paneID: issuedCredential.paneID,
+                    workspaceID: issuedCredential.workspaceID,
+                    credentialRecordID: issuedCredential.credentialRecordID,
+                    status: .registered
+                )
+            } else {
+                resolution = try await credentialResolver.resolveCredential(
+                    subjectToken,
+                    serverRuntimeID: runtimeId
+                )
+            }
+            context = try await makeAuthenticatedContext(
+                from: resolution,
+                persistenceCandidate: issuedCredential
             )
         }
-        let context = try await makeAuthenticatedContext(
-            from: resolution,
-            persistenceCandidate: issuedCredential
-        )
         let namespace = namespace(for: context.principal)
         guard let namespace else { throw AgentStudioIPCAuthenticationError(reason: .unauthenticated) }
         let leaseKey = LeaseKey(namespace: namespace, credentialIdentity: context.credentialIdentity)
@@ -423,46 +443,52 @@ public final class AgentStudioIPCPrincipalRegistry: @unchecked Sendable {
         from resolution: AgentStudioIPCCredentialResolution,
         persistenceCandidate: AgentStudioIPCIssuedPaneCredential?
     ) async throws -> AgentStudioIPCAuthenticatedContext {
-        let principal: IPCPrincipal
-        let credentialIdentity: AgentStudioIPCAuthenticatedCredentialIdentity
         switch resolution {
         case .pane(let paneID, let workspaceID, let credentialRecordID, .registered):
             guard await canonicalPaneMembership(paneID, workspaceID) else {
                 throw AgentStudioIPCAuthenticationError(reason: .unauthenticated)
             }
-            principal = IPCPrincipal(
-                principalId: UUIDv7.generate(),
-                runtimeId: runtimeId,
-                accessMode: .agentStudioOnly,
-                kind: .spawnedPaneAgent(
-                    boundPaneId: paneID.uuidString,
-                    boundWorkspaceId: workspaceID
+            return AgentStudioIPCAuthenticatedContext(
+                principal: IPCPrincipal(
+                    principalId: UUIDv7.generate(),
+                    runtimeId: runtimeId,
+                    accessMode: .agentStudioOnly,
+                    kind: .spawnedPaneAgent(
+                        boundPaneId: paneID.uuidString,
+                        boundWorkspaceId: workspaceID
+                    ),
+                    approvalAuthority: .noApprovalAuthority
                 ),
-                approvalAuthority: .noApprovalAuthority
+                credentialIdentity: .pane(recordID: credentialRecordID),
+                persistenceCandidate: persistenceCandidate
             )
-            credentialIdentity = .pane(recordID: credentialRecordID)
         case .pane(_, _, _, .revoked):
             throw AgentStudioIPCAuthenticationError(reason: .unauthenticated)
-        case .diagnostic(let credentialRuntimeID, let generationID, .active):
-            guard credentialRuntimeID == runtimeId else {
-                throw AgentStudioIPCAuthenticationError(reason: .runtimeMismatch)
-            }
-            principal = IPCPrincipal(
+        }
+    }
+
+    /// The debug credential is admitted from memory, so there is no stored
+    /// runtime to compare and no persistence candidate to carry.
+    private func makeDebugAuthenticatedContext(generationID: UUID) -> AgentStudioIPCAuthenticatedContext {
+        AgentStudioIPCAuthenticatedContext(
+            principal: IPCPrincipal(
                 principalId: UUIDv7.generate(),
                 runtimeId: runtimeId,
                 accessMode: .automationSameUser,
                 kind: .automationClient,
                 approvalAuthority: .noApprovalAuthority
-            )
-            credentialIdentity = .diagnostic(generationID: generationID)
-        default:
-            throw AgentStudioIPCAuthenticationError(reason: .unauthenticated)
-        }
-        return AgentStudioIPCAuthenticatedContext(
-            principal: principal,
-            credentialIdentity: credentialIdentity,
-            persistenceCandidate: persistenceCandidate
+            ),
+            credentialIdentity: .diagnostic(generationID: generationID)
         )
+    }
+
+    private struct InstalledDebugCredential: Sendable {
+        let verifierSHA256: Data
+        let generationID: UUID
+
+        func generationID(matching verifier: Data) -> UUID? {
+            verifierSHA256 == verifier ? generationID : nil
+        }
     }
 
     private struct AuthObservation: Sendable {

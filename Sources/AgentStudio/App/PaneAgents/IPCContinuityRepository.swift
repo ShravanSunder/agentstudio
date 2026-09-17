@@ -33,9 +33,8 @@ actor IPCContinuityRepository {
             try database.execute(
                 sql: """
                     INSERT INTO local_ipc_credential(
-                        credential_namespace, pane_id, workspace_id, runtime_id,
-                        credential_record_id, generation_id, verifier_sha256, status
-                    ) VALUES ('pane', ?, ?, NULL, ?, NULL, ?, ?)
+                        pane_id, workspace_id, credential_record_id, verifier_sha256, status
+                    ) VALUES (?, ?, ?, ?, ?)
                     """,
                 arguments: [
                     credential.paneID.uuidString,
@@ -62,7 +61,7 @@ actor IPCContinuityRepository {
                 sql: """
                     SELECT pane_id, workspace_id, credential_record_id, verifier_sha256, status
                     FROM local_ipc_credential
-                    WHERE credential_namespace = 'pane' AND pane_id = ?
+                    WHERE pane_id = ?
                     ORDER BY credential_record_id
                     """,
                 arguments: [paneID.uuidString]
@@ -75,78 +74,27 @@ actor IPCContinuityRepository {
             try database.execute(
                 sql: """
                     UPDATE local_ipc_credential SET status = 'revoked'
-                    WHERE credential_namespace = 'pane' AND pane_id = ?
+                    WHERE pane_id = ?
                     """,
                 arguments: [paneID.uuidString]
             )
         }
     }
 
-    func persistPreparedDiagnosticCredential(runtimeID: UUID, generation: UUID, verifier: Data) async throws {
-        guard verifier.count == 32 else { throw IPCContinuityRepositoryError.invalidVerifierLength }
-        try await datastore.performApplicationLocalWrite { database in
-            try database.execute(
-                sql: """
-                    INSERT INTO local_ipc_credential(
-                        credential_namespace, pane_id, workspace_id, runtime_id,
-                        credential_record_id, generation_id, verifier_sha256, status
-                    ) VALUES ('diagnostic', NULL, NULL, ?, NULL, ?, ?, 'prepared')
-                    """,
-                arguments: [runtimeID.uuidString, generation.uuidString, verifier]
-            )
-        }
-    }
-
-    func activatePreparedDiagnosticCredential(runtimeID: UUID, generation: UUID) async throws {
-        try await updateDiagnosticCredentialStatus(
-            runtimeID: runtimeID,
-            generation: generation,
-            from: .prepared,
-            to: .active
-        )
-    }
-
-    func revokeDiagnosticCredential(runtimeID: UUID, generation: UUID) async throws {
-        try await datastore.performApplicationLocalWrite { database in
-            try database.execute(
-                sql: """
-                    UPDATE local_ipc_credential SET status = 'revoked'
-                    WHERE credential_namespace = 'diagnostic'
-                        AND runtime_id = ? AND generation_id = ?
-                    """,
-                arguments: [runtimeID.uuidString, generation.uuidString]
-            )
-        }
-    }
-
-    func credential(matchingVerifier verifier: Data) async throws -> IPCContinuityResolvedCredential? {
+    func credential(matchingVerifier verifier: Data) async throws -> IPCPaneCredential? {
         guard verifier.count == 32 else { return nil }
         return try await datastore.performApplicationLocalRead { database in
             let rows = try Row.fetchAll(
                 database,
                 sql: """
-                    SELECT credential_namespace, pane_id, workspace_id, runtime_id,
-                        credential_record_id, generation_id, verifier_sha256, status
+                    SELECT pane_id, workspace_id, credential_record_id, verifier_sha256, status
                     FROM local_ipc_credential WHERE verifier_sha256 = ?
                     """,
                 arguments: [verifier]
             )
             guard rows.count <= 1 else { throw IPCContinuityRepositoryError.ambiguousVerifier }
             guard let row = rows.first else { return nil }
-            if row["credential_namespace"] as String == "pane" {
-                return Self.decodePaneCredential(row).map(IPCContinuityResolvedCredential.pane)
-            }
-            guard
-                let runtimeID = UUID(uuidString: row["runtime_id"]),
-                let generationID = UUID(uuidString: row["generation_id"]),
-                let status = IPCDiagnosticCredentialStatus(rawValue: row["status"])
-            else { return nil }
-            return .diagnostic(
-                runtimeID: runtimeID,
-                generationID: generationID,
-                verifierSHA256: row["verifier_sha256"],
-                status: status
-            )
+            return Self.decodePaneCredential(row)
         }
     }
 
@@ -161,8 +109,7 @@ actor IPCContinuityRepository {
                 sql: """
                     SELECT pane_id, workspace_id, credential_record_id, verifier_sha256, status
                     FROM local_ipc_credential
-                    WHERE credential_namespace = 'pane'
-                        AND pane_id = ? AND credential_record_id = ?
+                    WHERE pane_id = ? AND credential_record_id = ?
                     """,
                 arguments: [paneID.uuidString, credentialRecordID.uuidString]
             )
@@ -186,26 +133,6 @@ actor IPCContinuityRepository {
         )
     }
 
-    private func updateDiagnosticCredentialStatus(
-        runtimeID: UUID,
-        generation: UUID,
-        from: IPCDiagnosticCredentialStatus,
-        to: IPCDiagnosticCredentialStatus
-    ) async throws {
-        try await datastore.performApplicationLocalWrite { database in
-            try database.execute(
-                sql: """
-                    UPDATE local_ipc_credential SET status = ?
-                    WHERE credential_namespace = 'diagnostic'
-                        AND runtime_id = ? AND generation_id = ? AND status = ?
-                    """,
-                arguments: [to.rawValue, runtimeID.uuidString, generation.uuidString, from.rawValue]
-            )
-            guard database.changesCount == 1 else {
-                throw IPCContinuityRepositoryError.cannotTransitionDiagnosticCredential
-            }
-        }
-    }
 }
 
 extension IPCContinuityRepository: AgentStudioIPCCredentialContinuityPort {

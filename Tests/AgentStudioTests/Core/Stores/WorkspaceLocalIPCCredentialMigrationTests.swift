@@ -7,7 +7,7 @@ import Testing
 
 @Suite("IPC credential local schema migration")
 struct WorkspaceLocalIPCCredentialMigrationTests {
-    @Test("migrations 012 and 013 add opaque IPC credentials while preserving initialized local data")
+    @Test("IPC credential migrations preserve initialized local data")
     func credentialMigrationsPreserveInitializedLocalData() throws {
         let database = try SQLiteDatabaseFactory.makeInMemoryQueue(
             label: "AgentStudio.sqlite.ipc-credential-migration"
@@ -23,9 +23,14 @@ struct WorkspaceLocalIPCCredentialMigrationTests {
 
         try database.read { connection in
             let completedMigrations = try WorkspaceLocalMigrations.migrator.completedMigrations(connection)
-            #expect(completedMigrations.last == "013_create_opaque_pane_credential_records")
-            #expect(completedMigrations.filter { $0 == "012_create_ipc_credential_schema" }.count == 1)
-            #expect(completedMigrations.filter { $0 == "013_create_opaque_pane_credential_records" }.count == 1)
+            #expect(completedMigrations.last == "014_ipc_credentials_pane_only")
+            for identifier in [
+                "012_create_ipc_credential_schema",
+                "013_create_opaque_pane_credential_records",
+                "014_ipc_credentials_pane_only",
+            ] {
+                #expect(completedMigrations.filter { $0 == identifier }.count == 1)
+            }
             #expect(try connection.tableExists("local_ipc_credential"))
             #expect(
                 try String.fetchOne(
@@ -55,8 +60,8 @@ struct WorkspaceLocalIPCCredentialMigrationTests {
         }
     }
 
-    @Test("credential schema has only verifier and discriminated scope columns")
-    func credentialSchemaHasExactColumnsAndAcceptsValidScopes() throws {
+    @Test("the credential schema stores pane verifiers and nothing runtime-scoped")
+    func credentialSchemaKeepsOnlyPaneColumns() throws {
         let database = try migratedIPCCredentialDatabase()
 
         try database.write { connection in
@@ -66,19 +71,28 @@ struct WorkspaceLocalIPCCredentialMigrationTests {
             ).map { $0["name"] as String }
             #expect(
                 columns == [
-                    "credential_namespace", "pane_id", "workspace_id", "runtime_id",
-                    "credential_record_id", "generation_id", "verifier_sha256", "status",
+                    "pane_id", "workspace_id", "credential_record_id", "verifier_sha256", "status",
                 ]
             )
-            try insertPaneCredential(connection, verifier: Data(repeating: 0xA5, count: 32))
-            try insertDiagnosticCredential(connection, verifier: Data(repeating: 0x5A, count: 32))
-            let verifierStorage = try Row.fetchAll(
+            let indexNames = try String.fetchAll(
                 connection,
-                sql:
-                    "SELECT typeof(verifier_sha256) AS storage_type, length(verifier_sha256) AS byte_count FROM local_ipc_credential ORDER BY credential_namespace"
+                sql: "SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'local_ipc_credential'"
             )
-            #expect(verifierStorage.map { $0["storage_type"] as String } == ["blob", "blob"])
-            #expect(verifierStorage.map { $0["byte_count"] as Int } == [32, 32])
+            #expect(indexNames == ["idx_local_ipc_credential_pane_record"])
+
+            try insertPaneCredential(connection, verifier: Data(repeating: 0xA5, count: 32))
+            let verifierStorage = try #require(
+                try Row.fetchOne(
+                    connection,
+                    sql: """
+                        SELECT typeof(verifier_sha256) AS storage_type,
+                            length(verifier_sha256) AS byte_count
+                        FROM local_ipc_credential
+                        """
+                )
+            )
+            #expect(verifierStorage["storage_type"] as String == "blob")
+            #expect(verifierStorage["byte_count"] as Int == 32)
         }
     }
 
@@ -96,92 +110,37 @@ struct WorkspaceLocalIPCCredentialMigrationTests {
         }
     }
 
-    @Test("credential scope requires exactly one complete namespace shape")
-    func credentialScopeRejectsMissingAndMixedFields() throws {
-        let database = try migratedIPCCredentialDatabase()
-
-        try database.write { connection in
-            expectCredentialConstraintFailure {
-                try insertCredential(
-                    connection,
-                    values: .init(
-                        namespace: "pane",
-                        paneID: nil,
-                        workspaceID: "workspace-1",
-                        credentialRecordID: "record-missing-pane"
-                    )
-                )
-            }
-            expectCredentialConstraintFailure {
-                try insertCredential(
-                    connection,
-                    values: .init(
-                        namespace: "diagnostic",
-                        paneID: "pane-1",
-                        workspaceID: "workspace-1",
-                        runtimeID: "runtime-1",
-                        credentialRecordID: "record-mixed",
-                        generationID: "generation-mixed"
-                    )
-                )
-            }
-            expectCredentialConstraintFailure {
-                try insertCredential(
-                    connection,
-                    values: .init(
-                        namespace: "future",
-                        runtimeID: "runtime-1",
-                        generationID: "generation-unknown-namespace"
-                    )
-                )
-            }
-        }
-    }
-
-    @Test("credential status accepts only the namespace lifecycle")
+    @Test("credential status accepts only the pane lifecycle")
     func credentialStatusAcceptsOnlyFiniteLifecycle() throws {
         let database = try migratedIPCCredentialDatabase()
 
         try database.write { connection in
             for status in ["registered", "revoked"] {
-                try insertCredential(
+                try insertPaneCredential(
                     connection,
-                    values: .init(
-                        namespace: "pane",
-                        paneID: "pane-\(status)",
-                        workspaceID: "workspace-1",
-                        credentialRecordID: "record-\(status)",
-                        status: status
-                    )
-                )
-            }
-            for status in ["prepared", "active", "revoked"] {
-                try insertCredential(
-                    connection,
-                    values: .init(
-                        namespace: "diagnostic",
-                        runtimeID: "runtime-\(status)",
-                        generationID: "generation-\(status)",
-                        status: status
-                    )
+                    paneID: "pane-\(status)",
+                    credentialRecordID: "record-\(status)",
+                    verifier: Data(repeating: 0xA5, count: 32),
+                    status: status
                 )
             }
             expectCredentialConstraintFailure {
-                try insertCredential(
+                try insertPaneCredential(
                     connection,
-                    values: .init(
-                        namespace: "pane",
-                        paneID: "pane-unknown",
-                        workspaceID: "workspace-1",
-                        credentialRecordID: "record-unknown",
-                        status: "future"
-                    )
+                    paneID: "pane-unknown",
+                    credentialRecordID: "record-unknown",
+                    status: "future"
                 )
+            }
+            for missingColumn in ["pane_id", "workspace_id", "credential_record_id"] {
+                expectCredentialConstraintFailure(containing: "NOT NULL constraint failed") {
+                    try insertPaneCredentialWithNullColumn(connection, column: missingColumn)
+                }
             }
         }
     }
 
-    @Test("pane uniqueness uses opaque record while distinct same-pane records coexist")
+    @Test("pane uniqueness uses the opaque record while distinct same-pane records coexist")
     func credentialUniquenessUsesOpaqueRecordIdentity() throws {
         let database = try migratedIPCCredentialDatabase()
 
@@ -191,48 +150,57 @@ struct WorkspaceLocalIPCCredentialMigrationTests {
                 try insertPaneCredential(connection, workspaceID: "workspace-2")
             }
             try insertPaneCredential(connection, credentialRecordID: "second-record")
-            try insertDiagnosticCredential(connection)
-            expectCredentialConstraintFailure(containing: "UNIQUE constraint failed") {
-                try insertDiagnosticCredential(connection)
-            }
             #expect(
-                try Int.fetchOne(connection, sql: "SELECT COUNT(*) FROM local_ipc_credential") == 3
+                try Int.fetchOne(connection, sql: "SELECT COUNT(*) FROM local_ipc_credential") == 2
             )
         }
     }
 
-    @Test("migration 013 preserves and remaps already-applied 012 pane and diagnostic rows")
-    func migration013PreservesExistingCredentialRows() throws {
-        let database = try SQLiteDatabaseFactory.makeInMemoryQueue(label: "AgentStudio.sqlite.ipc-013")
-        try WorkspaceLocalMigrations.migrator.migrate(database, upTo: "012_create_ipc_credential_schema")
+    @Test("migration 014 keeps every pane row byte-for-byte and drops diagnostic rows")
+    func migration014DropsDiagnosticRowsAndPreservesPaneRows() throws {
+        let database = try SQLiteDatabaseFactory.makeInMemoryQueue(label: "AgentStudio.sqlite.ipc-014")
+        try WorkspaceLocalMigrations.migrator.migrate(
+            database,
+            upTo: "013_create_opaque_pane_credential_records"
+        )
+        let paneVerifiers = [Data(repeating: 0x01, count: 32), Data(repeating: 0x02, count: 32)]
         try database.write { connection in
             try connection.execute(
                 sql: """
                     INSERT INTO local_ipc_credential VALUES
-                    ('pane', 'pane-a', 'workspace-a', NULL, 'record-active', ?, 'active'),
-                    ('pane', 'pane-a', 'workspace-a', NULL, 'record-superseded', ?, 'superseded'),
-                    ('pane', 'pane-b', 'workspace-a', NULL, 'record-prepared', ?, 'prepared'),
-                    ('diagnostic', NULL, NULL, 'runtime-a', 'generation-a', ?, 'active')
+                    ('pane', 'pane-a', 'workspace-a', NULL, 'record-registered', NULL, ?, 'registered'),
+                    ('pane', 'pane-b', 'workspace-a', NULL, 'record-revoked', NULL, ?, 'revoked'),
+                    ('diagnostic', NULL, NULL, 'runtime-a', NULL, 'generation-a', ?, 'active')
                     """,
-                arguments: [
-                    Data(repeating: 0x01, count: 32), Data(repeating: 0x02, count: 32),
-                    Data(repeating: 0x03, count: 32), Data(repeating: 0x04, count: 32),
-                ]
+                arguments: StatementArguments(paneVerifiers + [Data(repeating: 0x03, count: 32)])
             )
         }
+
         try WorkspaceLocalMigrations.migrate(database)
+
         try database.read { connection in
             let rows = try Row.fetchAll(
                 connection,
                 sql: """
-                    SELECT credential_namespace, credential_record_id, generation_id, status
+                    SELECT pane_id, workspace_id, credential_record_id, verifier_sha256, status
                     FROM local_ipc_credential ORDER BY verifier_sha256
                     """
             )
-            #expect(rows.map { $0["status"] as String } == ["registered", "registered", "revoked", "active"])
-            #expect(rows[0]["credential_record_id"] as String? == "record-active")
-            #expect(rows[1]["credential_record_id"] as String? == "record-superseded")
-            #expect(rows[3]["generation_id"] as String? == "generation-a")
+            #expect(rows.count == 2)
+            #expect(rows.map { $0["pane_id"] as String } == ["pane-a", "pane-b"])
+            #expect(rows.map { $0["workspace_id"] as String } == ["workspace-a", "workspace-a"])
+            #expect(
+                rows.map { $0["credential_record_id"] as String } == ["record-registered", "record-revoked"]
+            )
+            #expect(rows.map { $0["verifier_sha256"] as Data } == paneVerifiers)
+            #expect(rows.map { $0["status"] as String } == ["registered", "revoked"])
+            #expect(
+                try String.fetchAll(
+                    connection,
+                    sql: "SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'local_ipc_credential'"
+                ) == ["idx_local_ipc_credential_pane_record"]
+            )
+            #expect(try !connection.tableExists("local_ipc_credential_013"))
         }
     }
 }
@@ -295,20 +263,19 @@ private func migratedIPCCredentialDatabase() throws -> DatabaseQueue {
 
 private func insertPaneCredential(
     _ database: Database,
+    paneID: String = "pane-1",
     workspaceID: String = "workspace-1",
     credentialRecordID: String = "shared-record",
-    verifier: Data = Data(repeating: 0xA5, count: 32)
+    verifier: Data = Data(repeating: 0xA5, count: 32),
+    status: String = "registered"
 ) throws {
-    try insertCredential(
-        database,
-        values: .init(
-            namespace: "pane",
-            paneID: "pane-1",
-            workspaceID: workspaceID,
-            credentialRecordID: credentialRecordID,
-            verifier: verifier,
-            status: "registered"
-        )
+    try database.execute(
+        sql: """
+            INSERT INTO local_ipc_credential(
+                pane_id, workspace_id, credential_record_id, verifier_sha256, status
+            ) VALUES (?, ?, ?, ?, ?)
+            """,
+        arguments: [paneID, workspaceID, credentialRecordID, verifier, status]
     )
 }
 
@@ -316,78 +283,23 @@ private func insertPaneCredential(_ database: Database, verifierSQL: String) thr
     try database.execute(
         sql: """
             INSERT INTO local_ipc_credential(
-                credential_namespace, pane_id, workspace_id, runtime_id,
-                credential_record_id, generation_id, verifier_sha256, status
-            ) VALUES (
-                'pane', 'pane-1', 'workspace-1', NULL,
-                'text-verifier-record', NULL, \(verifierSQL), 'registered'
-            )
+                pane_id, workspace_id, credential_record_id, verifier_sha256, status
+            ) VALUES ('pane-1', 'workspace-1', 'text-verifier-record', \(verifierSQL), 'registered')
             """
     )
 }
 
-private func insertDiagnosticCredential(
-    _ database: Database,
-    verifier: Data = Data(repeating: 0x5A, count: 32)
-) throws {
-    try insertCredential(
-        database,
-        values: .init(
-            namespace: "diagnostic",
-            runtimeID: "runtime-1",
-            generationID: "shared-generation",
-            verifier: verifier,
-            status: "prepared"
-        )
-    )
-}
-
-private struct CredentialInsertValues {
-    let namespace: String
-    var paneID: String?
-    var workspaceID: String?
-    var runtimeID: String?
-    var credentialRecordID: String?
-    var generationID: String?
-    var verifier: Data
-    var status: String
-
-    init(
-        namespace: String,
-        paneID: String? = nil,
-        workspaceID: String? = nil,
-        runtimeID: String? = nil,
-        credentialRecordID: String? = nil,
-        generationID: String? = nil,
-        verifier: Data = Data(repeating: 0xA5, count: 32),
-        status: String = "prepared"
-    ) {
-        self.namespace = namespace
-        self.paneID = paneID
-        self.workspaceID = workspaceID
-        self.runtimeID = runtimeID
-        self.credentialRecordID = credentialRecordID
-        self.generationID = generationID
-        self.verifier = verifier
-        self.status = status
-    }
-}
-
-private func insertCredential(
-    _ database: Database,
-    values: CredentialInsertValues
-) throws {
+private func insertPaneCredentialWithNullColumn(_ database: Database, column: String) throws {
+    let paneID: String? = column == "pane_id" ? nil : "pane-null-\(column)"
+    let workspaceID: String? = column == "workspace_id" ? nil : "workspace-1"
+    let credentialRecordID: String? = column == "credential_record_id" ? nil : "record-null-\(column)"
     try database.execute(
         sql: """
             INSERT INTO local_ipc_credential(
-                credential_namespace, pane_id, workspace_id, runtime_id,
-                credential_record_id, generation_id, verifier_sha256, status
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                pane_id, workspace_id, credential_record_id, verifier_sha256, status
+            ) VALUES (?, ?, ?, ?, 'registered')
             """,
-        arguments: [
-            values.namespace, values.paneID, values.workspaceID, values.runtimeID,
-            values.credentialRecordID, values.generationID, values.verifier, values.status,
-        ]
+        arguments: [paneID, workspaceID, credentialRecordID, Data(repeating: 0xC3, count: 32)]
     )
 }
 

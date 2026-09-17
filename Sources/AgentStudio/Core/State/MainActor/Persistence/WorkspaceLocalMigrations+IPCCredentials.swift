@@ -110,4 +110,42 @@ extension WorkspaceLocalMigrations {
             )
         }
     }
+
+    /// The reusable debug credential became memory-only, so the diagnostic
+    /// namespace, its runtime and generation columns and its index have no
+    /// remaining writer. Pane verifiers are the only durable credential.
+    static func registerPaneOnlyCredentialRecords(in migrator: inout DatabaseMigrator) {
+        migrator.registerMigration("014_ipc_credentials_pane_only") { database in
+            try database.execute(sql: "ALTER TABLE local_ipc_credential RENAME TO local_ipc_credential_013")
+            try database.execute(
+                sql: """
+                    CREATE TABLE local_ipc_credential (
+                        pane_id TEXT NOT NULL,
+                        workspace_id TEXT NOT NULL,
+                        credential_record_id TEXT NOT NULL,
+                        verifier_sha256 BLOB NOT NULL
+                            CHECK (typeof(verifier_sha256) = 'blob' AND length(verifier_sha256) = 32),
+                        status TEXT NOT NULL CHECK (status IN ('registered', 'revoked'))
+                    )
+                    """
+            )
+            try database.execute(
+                sql: """
+                    INSERT INTO local_ipc_credential(
+                        pane_id, workspace_id, credential_record_id, verifier_sha256, status
+                    )
+                    SELECT pane_id, workspace_id, credential_record_id, verifier_sha256, status
+                    FROM local_ipc_credential_013
+                    WHERE credential_namespace = 'pane'
+                    """
+            )
+            try database.execute(sql: "DROP TABLE local_ipc_credential_013")
+            try database.execute(
+                sql: """
+                    CREATE UNIQUE INDEX idx_local_ipc_credential_pane_record
+                    ON local_ipc_credential(pane_id, credential_record_id)
+                    """
+            )
+        }
+    }
 }

@@ -80,7 +80,7 @@ struct IPCContinuityRepositoryTests {
         let first = makePaneCredential(verifier: sharedVerifier)
         let second = makePaneCredential(verifier: sharedVerifier)
         try await repository.registerPaneCredential(first)
-        #expect(try await repository.credential(matchingVerifier: sharedVerifier) == .pane(first))
+        #expect(try await repository.credential(matchingVerifier: sharedVerifier) == first)
         try await repository.registerPaneCredential(second)
         await #expect(throws: IPCContinuityRepositoryError.ambiguousVerifier) {
             _ = try await repository.credential(matchingVerifier: sharedVerifier)
@@ -130,36 +130,20 @@ struct IPCContinuityRepositoryTests {
                 ))
     }
 
-    @Test("pane records and diagnostic credentials survive datastore reopening")
+    @Test("pane records survive datastore reopening")
     func credentialsSurviveReopening() async throws {
         let fixture = try IPCContinuityRepositoryFixture()
         defer { fixture.removeFiles() }
         let repository = try await fixture.makePreparedRepository()
         let pane = makePaneCredential()
-        let runtimeID = UUIDv7.generate()
-        let generationID = UUIDv7.generate()
-        let diagnosticVerifier = Data(repeating: 0x5A, count: 32)
         try await repository.registerPaneCredential(pane)
-        try await repository.persistPreparedDiagnosticCredential(
-            runtimeID: runtimeID,
-            generation: generationID,
-            verifier: diagnosticVerifier
-        )
-        try await repository.activatePreparedDiagnosticCredential(runtimeID: runtimeID, generation: generationID)
         let reopened = try await fixture.makePreparedRepository()
         #expect(
             try await reopened.paneCredential(
                 paneID: pane.paneID,
                 credentialRecordID: pane.credentialRecordID
             ) == pane)
-        #expect(
-            try await reopened.credential(matchingVerifier: diagnosticVerifier)
-                == .diagnostic(
-                    runtimeID: runtimeID,
-                    generationID: generationID,
-                    verifierSHA256: diagnosticVerifier,
-                    status: .active
-                ))
+        #expect(try await reopened.credential(matchingVerifier: pane.verifierSHA256) == pane)
     }
 }
 
