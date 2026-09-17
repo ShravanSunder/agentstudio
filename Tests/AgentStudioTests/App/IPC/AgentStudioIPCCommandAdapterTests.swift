@@ -72,11 +72,22 @@ struct AgentStudioIPCCommandAdapterTests {
             arguments: .workspaceWindow(.init(workspaceWindowId: harness.windowId))
         )
 
-        let result = try await harness.adapter.executeCommand(request)
+        let result = try await withIsolatedCommandDispatcher(
+            configure: {
+                AppCommandDispatcher.shared.handler = nil
+                AppCommandDispatcher.shared.appCommandRouter = shell
+            },
+            body: {
+                try await harness.adapter.executeCommand(request)
+            }
+        )
 
         #expect(result.variant == .applied)
         #expect(result.correlationId == request.correlationId)
         #expect(shell.handledRequests.map(\.command) == [.showReposSidebar])
+        #expect(
+            shell.handledRequests.map(\.arguments)
+                == [.typedIPC(.workspaceWindow(.init(workspaceWindowId: harness.windowId)))])
     }
 
     @Test("pane alias is canonicalized before targeted execution")
@@ -100,7 +111,7 @@ struct AgentStudioIPCCommandAdapterTests {
 
         let prepared = try await harness.adapter.prepareCommand(
             request,
-            principal: testPrincipal(),
+            principal: commandAdapterTestPrincipal(),
             tools: tools
         )
 
@@ -189,7 +200,7 @@ struct AgentStudioIPCCommandAdapterTests {
         )
         let prepared = try await harness.adapter.prepareCommand(
             request,
-            principal: testPrincipal(),
+            principal: commandAdapterTestPrincipal(),
             tools: AppIPCTargetResolutionTools { _ in
                 throw AppIPCCommandError(reason: .validationRejected)
             }
@@ -236,16 +247,23 @@ struct AgentStudioIPCCommandAdapterTests {
     }
 
     @Test("default headless IPC execution fails closed without invoking a void owner")
-    func defaultHeadlessIPCExecutionFailsClosed() async {
+    func defaultHeadlessIPCExecutionFailsClosed() async throws {
         let owner = DefaultWorkspaceCommandHandler()
 
-        let applied = await owner.executeHeadlessIPC(
-            .zoomPane,
-            target: UUIDv7.generate(),
-            targetType: .pane
+        let outcome = await owner.executeHeadlessIPC(
+            AppCommandExecutionRequest(
+                command: .zoomPane,
+                arguments: .typedIPC(
+                    .pane(
+                        .init(
+                            workspaceWindowId: UUIDv7.generate(),
+                            paneSelector: try IPCPaneSelector(rawValue: UUIDv7.generate().uuidString)
+                        ))),
+                executionContext: .headlessIPC(admitsDebugTestingCommands: true)
+            )
         )
 
-        #expect(!applied)
+        #expect(outcome == .unsupportedCommand)
         #expect(owner.executedCommands.isEmpty)
     }
 
@@ -323,73 +341,9 @@ struct AgentStudioIPCCommandAdapterTests {
     }
 }
 
-let retiredPanesOrganizationCommands: [AppCommand] = [
-    .setPanesGroupingRepo,
-    .setPanesGroupingTab,
-    .setPanesGroupingActivity,
-    .setPanesSubgroupNone,
-    .setPanesSubgroupActivity,
-    .setPanesSortFieldName,
-    .setPanesSortFieldActivity,
-    .togglePanesSortDirection,
-]
-
 @MainActor
 func makeIPCCommandAdapterForPresentationIsolationTests() -> AgentStudioIPCCommandAdapter {
     CommandAdapterHarness().adapter
-}
-
-@MainActor
-private struct CommandAdapterHarness {
-    let adapter: AgentStudioIPCCommandAdapter
-    let workspaceStore: WorkspaceStore
-    let windowId: UUID
-    let shellCommandHandler: RecordingShellCommandHandler
-
-    init(
-        windowId: UUID = UUIDv7.generate(),
-        shellCommandHandler: RecordingShellCommandHandler = RecordingShellCommandHandler()
-    ) {
-        workspaceStore = WorkspaceStore()
-        self.windowId = windowId
-        self.shellCommandHandler = shellCommandHandler
-        if shellCommandHandler.currentWindowId == nil {
-            shellCommandHandler.currentWindowId = windowId
-        }
-        adapter = AgentStudioIPCCommandAdapter(
-            workspaceId: workspaceStore.identityAtom.workspaceId,
-            targetAuthorizer: WorkspaceDurableTargetAuthorizationPort(workspaceStore: workspaceStore),
-            shellCommandHandler: shellCommandHandler
-        )
-    }
-}
-
-@MainActor
-private final class RecordingShellCommandHandler: ShellCommandHandling {
-    var handledRequests: [AppCommandExecutionRequest] = []
-    var currentWindowId: UUID?
-
-    init(currentWindowId: UUID? = nil) {
-        self.currentWindowId = currentWindowId
-    }
-
-    func ownsWorkspaceWindow(_ workspaceWindowId: UUID) -> Bool {
-        currentWindowId == workspaceWindowId
-    }
-
-    func canExecute(_: AppCommand) -> Bool { true }
-    func canExecute(_: AppCommand, target _: UUID, targetType _: SearchItemType) -> Bool { true }
-    func execute(_: AppCommand) -> Bool { false }
-    func execute(_: AppCommand, target _: UUID, targetType _: SearchItemType) -> Bool { false }
-
-    func execute(_ request: AppCommandExecutionRequest) -> AppCommandExecutionOutcome {
-        handledRequests.append(request)
-        return .applied
-    }
-
-    func showRepoCommandBar() {}
-    func refreshWorktrees() {}
-    func refocusActivePane() {}
 }
 
 @MainActor
@@ -415,13 +369,9 @@ private final class RecordingWorkspaceCommandHandler: WorkspaceCommandHandling {
         targetType == .pane
     }
 
-    func executeHeadlessIPC(
-        _ command: AppCommand,
-        target _: UUID,
-        targetType _: SearchItemType
-    ) async -> Bool {
-        awaitedCommands.append(command)
-        return true
+    func executeHeadlessIPC(_ request: AppCommandExecutionRequest) async -> AppCommandExecutionOutcome {
+        awaitedCommands.append(request.command)
+        return .applied
     }
 }
 
@@ -442,16 +392,6 @@ private final class DefaultWorkspaceCommandHandler: WorkspaceCommandHandling {
 
     func canExecute(_: AppCommand) -> Bool { true }
     func canExecute(_: AppCommand, target _: UUID, targetType _: SearchItemType) -> Bool { true }
-}
-
-private func testPrincipal() -> IPCPrincipal {
-    IPCPrincipal(
-        principalId: UUIDv7.generate(),
-        runtimeId: UUIDv7.generate(),
-        accessMode: .unsafeDebug,
-        kind: .unsafeDebugClient,
-        approvalAuthority: .noApprovalAuthority
-    )
 }
 
 @MainActor

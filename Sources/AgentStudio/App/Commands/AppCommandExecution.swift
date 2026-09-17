@@ -1,5 +1,6 @@
 import AgentStudioCommandBar
 import AgentStudioCore
+import AgentStudioProgrammaticControl
 import AgentStudioRepoExplorer
 import Foundation
 
@@ -9,7 +10,7 @@ protocol WorkspaceCommandHandling: AnyObject {
     func ownsWorkspaceWindow(_ workspaceWindowId: UUID) -> Bool
     func execute(_ command: AppCommand)
     func execute(_ command: AppCommand, target: UUID, targetType: SearchItemType)
-    func executeHeadlessIPC(_ command: AppCommand, target: UUID, targetType: SearchItemType) async -> Bool
+    func executeHeadlessIPC(_ request: AppCommandExecutionRequest) async -> AppCommandExecutionOutcome
     func canExecute(_ command: AppCommand) -> Bool
     func canExecute(_ command: AppCommand, target: UUID, targetType: SearchItemType) -> Bool
     func bridgePaneCommandTarget(worktreeId: UUID) -> BridgePaneCommandTarget?
@@ -61,15 +62,27 @@ struct AppCommandExecutionRequest: Equatable, Sendable {
 
 enum AppCommandExecutionContext: Equatable, Sendable {
     case interactive
-    case headlessIPC
+    /// Typed `command.execute` delivery. `admitsDebugTestingCommands` is true
+    /// only on the debug server channel; stable and beta keep the admitted
+    /// headless commands the projection marks `.allChannels`.
+    case headlessIPC(admitsDebugTestingCommands: Bool)
 }
 
 enum AppCommandExecutionArguments: Equatable, Sendable {
     case noArguments
+    /// Canonical typed IPC arguments. Pane selectors are already resolved to
+    /// stored canonical UUIDs before an owner sees them.
+    case typedIPC(IPCCommandArguments)
 }
 
+/// The truthful boundary a command owner reached. Owners never report a
+/// stronger boundary than they observed: presentation is not completion and a
+/// scheduled workspace effect is acceptance, not application.
 enum AppCommandExecutionOutcome: Equatable, Sendable {
     case applied
+    case accepted(operationId: UUID?)
+    case presented
+    case unavailable(IPCCommandUnavailableReason)
     case stateUnavailable
     case unsupportedCommand
 }
@@ -78,8 +91,10 @@ enum AppCommandExecutionOutcome: Equatable, Sendable {
 extension WorkspaceCommandHandling {
     func ownsWorkspaceWindow(_: UUID) -> Bool { false }
 
-    func executeHeadlessIPC(_ command: AppCommand, target: UUID, targetType: SearchItemType) async -> Bool {
-        false
+    /// Fail closed. An owner opts in per command family; it never inherits a
+    /// silent success from this protocol.
+    func executeHeadlessIPC(_: AppCommandExecutionRequest) async -> AppCommandExecutionOutcome {
+        .unsupportedCommand
     }
 
     func repoExplorerCommandCapabilities(
@@ -120,6 +135,8 @@ extension ShellCommandHandling {
         switch request.arguments {
         case .noArguments:
             return execute(request.command) ? .applied : .unsupportedCommand
+        case .typedIPC:
+            return .unsupportedCommand
         }
     }
 }

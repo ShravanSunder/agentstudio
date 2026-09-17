@@ -167,7 +167,7 @@ struct IPCSystemCapabilitiesCompositionTests {
         }
     }
 
-    @Test("the actual 43-method catalog response fits the existing one MiB frame budget")
+    @Test("the actual 47-method catalog response fits the existing one MiB frame budget")
     func actualCatalogFitsExistingFrameBudget() throws {
         let composition = try makeComposition()
         let resultObject = try JSONSerialization.jsonObject(
