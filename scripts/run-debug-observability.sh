@@ -748,6 +748,14 @@ copy_debug_bundle() {
   [ -d "Sources/AgentStudio/Resources/ghostty" ] &&
     "$DITTO_BIN" "Sources/AgentStudio/Resources/ghostty" "$app_dir/Resources/ghostty"
 
+  # AgentPackage — provider hooks, installer resources and the model skill. The
+  # installer resolves this tree from Contents/Helpers/agentstudio, so the path
+  # Contents/Resources/AgentPackage is load-bearing.
+  if [ -d "Sources/AgentStudio/Resources/AgentPackage" ]; then
+    "$DITTO_BIN" "Sources/AgentStudio/Resources/AgentPackage" "$app_dir/Resources/AgentPackage"
+    find "$app_dir/Resources/AgentPackage" -name '*.sh' -exec chmod 755 {} +
+  fi
+
   local resource_bundle
   resource_bundle="$(find "$build_root" -path '*/debug/AgentStudio_AgentStudio.bundle' -type d | head -1)"
   [ -n "$resource_bundle" ] && "$DITTO_BIN" "$resource_bundle" "$app_dir/Resources/AgentStudio_AgentStudio.bundle"

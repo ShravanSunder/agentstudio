@@ -237,6 +237,24 @@ extension AgentStudioIPCSessionsAdapter {
             }
             return .admitted(.bind(bind))
         }
+        // A session end retires the source generation itself rather than
+        // recording evidence against it. It is decided before the binding
+        // requirement below because ending a pane that is already unbound is
+        // not a caller error — there is simply nothing left to retire.
+        guard params.event.name != .sessionEnd else {
+            guard let binding = snapshot.currentBinding, binding.status == .active else {
+                return .rejected(.unqualified)
+            }
+            return .admitted(
+                .sourceEnded(
+                    SessionsSourceEndMutation(
+                        paneId: paneId,
+                        sourceGenerationId: binding.sourceGenerationId,
+                        endedAt: occurredAt
+                    )
+                )
+            )
+        }
         guard let binding = snapshot.currentBinding, binding.status == .active else {
             throw AppIPCSessionsError(reason: .bindingRequired)
         }
@@ -308,7 +326,7 @@ extension AgentStudioIPCSessionsAdapter {
         switch event.name {
         case .turnStart, .toolActivity, .subagentActivity:
             return .activityStarted
-        case .turnDone, .sessionEnd:
+        case .turnDone:
             return .completed
         case .turnAbort:
             return .aborted
@@ -317,7 +335,9 @@ extension AgentStudioIPCSessionsAdapter {
                 throw AppIPCSessionsError(reason: .validationRejected)
             }
             return .needsYouOpened(requestId: requestId, explanation: nil)
-        case .sessionStart:
+        case .sessionStart, .sessionEnd:
+            // Neither is evidence: one opens a source generation and the other
+            // retires it. `providerAdmission` routes both before reaching here.
             throw AppIPCSessionsError(reason: .validationRejected)
         }
     }

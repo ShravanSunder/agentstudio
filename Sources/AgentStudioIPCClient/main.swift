@@ -7,8 +7,13 @@ import Foundation
 struct AgentStudioIPCClientMain {
     static func main() {
         do {
-            let readInput = { FileHandle.standardInput.readDataToEndOfFile() }
+            let readInput: @Sendable () -> Data = { FileHandle.standardInput.readDataToEndOfFile() }
             let environment = ProcessInfo.processInfo.environment
+            // Provider hooks and the package installer are not IPC methods, so
+            // they are dispatched before descriptor parsing.
+            if let subcommand = AgentPackageSubcommand.parse(Array(CommandLine.arguments.dropFirst())) {
+                exit(AgentPackageCommandRunner.run(subcommand, props: agentPackageProps(readInput: readInput)))
+            }
             let global = try AgentStudioIPCClientArguments.parseGlobal(
                 Array(CommandLine.arguments.dropFirst()), environment: environment,
                 standardInputProvider: readInput
@@ -190,6 +195,20 @@ struct AgentStudioIPCClientMain {
         case .notQueued:
             throw unreachable
         }
+    }
+
+    private static func agentPackageProps(
+        readInput: @escaping @Sendable () -> Data
+    ) -> AgentPackageCommandRunner.Props {
+        AgentPackageCommandRunner.Props(
+            environment: ProcessInfo.processInfo.environment,
+            executableURL: Bundle.main.executableURL,
+            standardInput: readInput,
+            correlationIdProvider: { UUIDv7.generate() },
+            exampleIdentifierProvider: { UUIDv7.generate() },
+            standardOutputSink: { print($0) },
+            standardErrorSink: { fputs("\($0)\n", stderr) }
+        )
     }
 
     private static func handleFailure(_ error: Error) -> Never {
