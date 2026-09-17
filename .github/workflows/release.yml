@@ -204,11 +204,22 @@ jobs:
           APP_BUNDLE_NAME="${{ steps.version.outputs.app_bundle_name }}"
           APP_DIR="$APP_BUNDLE_NAME/Contents"
           rm -rf "$APP_BUNDLE_NAME"
-          mkdir -p "$APP_DIR/MacOS" "$APP_DIR/Resources"
+          mkdir -p "$APP_DIR/MacOS" "$APP_DIR/Resources" "$APP_DIR/Helpers"
+          chmod 755 "$APP_DIR/Helpers"
           echo "APP_BUNDLE_NAME=$APP_BUNDLE_NAME" >> "$GITHUB_ENV"
 
           cp .build-ci/release/AgentStudio "$APP_DIR/MacOS/"
           [ -f "vendor/zmx/zig-out/bin/zmx" ] && cp vendor/zmx/zig-out/bin/zmx "$APP_DIR/MacOS/"
+
+          # agentstudio CLI — bundled as Contents/Helpers/agentstudio because
+          # Contents/MacOS/agentstudio collides with the app executable on
+          # case-insensitive volumes. The pane environment advertises this path.
+          if [ ! -f ".build-ci/release/agentstudio-cli" ]; then
+            echo "::error::agentstudio-cli executable not found in .build-ci/release"
+            exit 1
+          fi
+          cp .build-ci/release/agentstudio-cli "$APP_DIR/Helpers/agentstudio"
+          chmod 755 "$APP_DIR/Helpers/agentstudio"
           cp Sources/AgentStudio/Resources/Info.plist "$APP_DIR/"
           bash scripts/inject-bundle-version.sh \
             "$APP_DIR/Info.plist" \
@@ -263,6 +274,14 @@ jobs:
             if [ -f "$APP/Contents/MacOS/zmx" ]; then
               codesign --force --sign "$SIGNING_IDENTITY" --timestamp --options runtime \
                 --entitlements "$ENTITLEMENTS" "$APP/Contents/MacOS/zmx"
+            fi
+
+            # Sign bundled helper executables (inside-out, before the outer app)
+            if [ -d "$APP/Contents/Helpers" ]; then
+              find "$APP/Contents/Helpers" -type f -perm -u+x -print0 | while IFS= read -r -d '' item; do
+                codesign --force --sign "$SIGNING_IDENTITY" --timestamp --options runtime \
+                  --entitlements "$ENTITLEMENTS" "$item"
+              done
             fi
 
             # Sign the main app bundle

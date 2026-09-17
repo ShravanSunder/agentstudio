@@ -137,7 +137,7 @@ AgentStudioIPCClientCore
   Must not: Import AgentStudioAppIPC or the AgentStudio executable target.
 
 AgentStudioIPCClient
-  Owns:     Thin `agentstudio-ipc` executable entrypoint.
+  Owns:     Thin `agentstudio-cli` executable entrypoint.
   Imports:  AgentStudioIPCClientCore.
   Must not: Import app/runtime owner targets.
 ```
@@ -477,11 +477,16 @@ so new clients cannot race shutdown.
 
 ## CLI Boundary
 
-The phase-1 CLI ships as the `agentstudio-ipc` Swift executable product. Its
+The phase-1 CLI ships as the `agentstudio-cli` Swift executable product,
+bundled at `AgentStudio.app/Contents/Helpers/agentstudio`. The product name
+must stay distinct from `AgentStudio`: on a case-insensitive volume a product
+named `agentstudio` shares one build-directory file with the app executable,
+and `Contents/MacOS/agentstudio` is the same path as `Contents/MacOS/AgentStudio`.
+Its
 implementation is split so tests can prove the dependency boundary:
 
 ```
-agentstudio-ipc executable
+agentstudio-cli executable (bundled as Contents/Helpers/agentstudio)
   -> AgentStudioIPCClientCore
        discovers socket from --socket, AGENTSTUDIO_IPC_SOCKET,
        AGENTSTUDIO_IPC_SOCKET_PATH, or --metadata runtime.json

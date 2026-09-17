@@ -53,7 +53,7 @@ extension AppDelegate {
             socketURL: paths.socketURL,
             spoolDirectory: paths.spoolDirectory,
             cliExecutableURL: Bundle.main.bundleURL
-                .appending(path: "Contents/MacOS/agentstudio"),
+                .appending(path: "Contents/Helpers/agentstudio"),
             canonicalPaneMembership: { [store] paneID, workspaceID in
                 store.identityAtom.workspaceId == workspaceID && store.paneAtom.pane(paneID) != nil
             }

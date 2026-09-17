@@ -713,11 +713,21 @@ copy_debug_bundle() {
   local marketing_version="${APP_MARKETING_VERSION:-0.0.1-debug+$code}"
   local build_version="${APP_BUILD_VERSION:-$(git rev-list --count HEAD)}"
 
-  mkdir -p "$app_dir/MacOS" "$app_dir/Resources"
+  mkdir -p "$app_dir/MacOS" "$app_dir/Resources" "$app_dir/Helpers"
+  chmod 755 "$app_dir/Helpers"
   "$DITTO_BIN" "$source_binary" "$app_dir/MacOS/AgentStudio"
 
   if [ -f "vendor/zmx/zig-out/bin/zmx" ]; then
     "$DITTO_BIN" "vendor/zmx/zig-out/bin/zmx" "$app_dir/MacOS/zmx"
+  fi
+
+  # agentstudio CLI — bundled as Contents/Helpers/agentstudio because
+  # Contents/MacOS/agentstudio collides with the app executable on
+  # case-insensitive volumes. The pane environment advertises this exact path.
+  local cli_source_binary="$build_root/debug/agentstudio-cli"
+  if [ -f "$cli_source_binary" ]; then
+    "$DITTO_BIN" "$cli_source_binary" "$app_dir/Helpers/agentstudio"
+    chmod 755 "$app_dir/Helpers/agentstudio"
   fi
 
   "$DITTO_BIN" "Sources/AgentStudio/Resources/Info.plist" "$plist_path"
@@ -750,6 +760,9 @@ copy_debug_bundle() {
   fi
   if [ -f "$app_dir/MacOS/zmx" ]; then
     codesign_debug_item "$app_dir/MacOS/zmx" "$signing_identity" "$entitlements"
+  fi
+  if [ -f "$app_dir/Helpers/agentstudio" ]; then
+    codesign_debug_item "$app_dir/Helpers/agentstudio" "$signing_identity" "$entitlements"
   fi
   codesign_debug_item "$app_path" "$signing_identity" "$entitlements"
   "$CODESIGN_BIN" --verify --deep --strict "$app_path"

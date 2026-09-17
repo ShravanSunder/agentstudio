@@ -49,7 +49,7 @@ struct AppIPCProductionLifecycleIntegrationTests {
         #expect(environment["AGENTSTUDIO_WORKSPACE_ID"] == workspaceID.uuidString)
         #expect(environment["AGENTSTUDIO_IPC_SOCKET"] == appDelegate.appIPCPaths.socketURL.path)
         #expect(environment["AGENTSTUDIO_IPC_SPOOL_DIR"] == appDelegate.appIPCPaths.spoolDirectory.path)
-        #expect(environment["AGENTSTUDIO_CLI"]?.hasSuffix("/Contents/MacOS/agentstudio") == true)
+        #expect(environment["AGENTSTUDIO_CLI"]?.hasSuffix("/Contents/Helpers/agentstudio") == true)
 
         let token = AgentStudioIPCSubjectToken(rawValue: rawToken)
         let closeLease = try await appDelegate.appIPCPrincipalRegistry.authenticate(subjectToken: token)
@@ -224,7 +224,7 @@ func makeServerCapableAppIPCTestHarness(
         principalRegistry: appDelegate.appIPCPrincipalRegistry,
         socketURL: paths.socketURL,
         spoolDirectory: paths.spoolDirectory,
-        cliExecutableURL: Bundle.main.bundleURL.appending(path: "Contents/MacOS/agentstudio"),
+        cliExecutableURL: Bundle.main.bundleURL.appending(path: "Contents/Helpers/agentstudio"),
         canonicalPaneMembership: { [store] paneID, candidateWorkspaceID in
             store.identityAtom.workspaceId == candidateWorkspaceID && store.paneAtom.pane(paneID) != nil
         }
