@@ -1,0 +1,281 @@
+import Foundation
+import Testing
+
+@testable import AgentStudioIPCClientCore
+
+/// The installer edits a file the user owns and shares with other tools, so
+/// these cases are mostly about what it must not touch: their comments, their
+/// other hooks, their `[features]` table, and their trust grants.
+@Suite("Codex package installer")
+struct CodexPackageInstallerTests {
+    @Test("a fresh install enables the feature, writes every hook entry and lands the skill")
+    func freshInstall() throws {
+        // Arrange
+        let home = try CodexHomeFixture()
+        defer { home.tearDown() }
+
+        // Act
+        let output = try CodexPackageInstaller.install(home.props)
+
+        // Assert
+        #expect(home.configuration().contains("[features]"))
+        #expect(home.configuration().contains("hooks = true"))
+        let hooks = try home.hooksDocument()
+        for event in CodexHookEventName.installedEvents {
+            let owned = hooks.ownedGroups(
+                event: event.rawValue,
+                ownedCommandFragment: CodexPackageInstaller.ownedCommandFragment
+            )
+            #expect(owned.count == 1, "expected one owned group for \(event.rawValue)")
+        }
+        #expect(home.fileExists(relativePath: "skills/agentstudio/SKILL.md"))
+        #expect(home.fileExists(relativePath: "skills/agentstudio/.agentstudio-package"))
+        #expect(output.contains { $0.contains("trust") })
+    }
+
+    /// Codex runs the command through a shell, so a bundle path with a space
+    /// must survive as one word.
+    @Test("the hook command quotes the script path and names the event")
+    func hookCommandIsShellSafe() throws {
+        // Arrange
+        let home = try CodexHomeFixture(packageDirectoryName: "Agent Studio Beta Package")
+        defer { home.tearDown() }
+
+        // Act
+        _ = try CodexPackageInstaller.install(home.props)
+
+        // Assert
+        let command = try #require(home.ownedCommand(event: .sessionStart))
+        #expect(command.hasPrefix("\""))
+        #expect(command.hasSuffix("\" SessionStart"))
+        #expect(command.contains("Agent Studio Beta Package"))
+        #expect(command.contains(CodexPackageInstaller.ownedCommandFragment))
+    }
+
+    @Test("an existing [features] table gains the key instead of a second table")
+    func existingFeaturesTableIsExtended() throws {
+        // Arrange
+        let home = try CodexHomeFixture()
+        defer { home.tearDown() }
+        try home.writeConfiguration(
+            """
+            # my notes
+            model = "gpt-5.5-codex"
+
+            [features]
+            web_search = true
+
+            [profiles.work]
+            model = "gpt-5.5"
+            """
+        )
+
+        // Act
+        _ = try CodexPackageInstaller.install(home.props)
+
+        // Assert
+        let configuration = home.configuration()
+        #expect(configuration.components(separatedBy: "[features]").count == 2)
+        #expect(configuration.contains("# my notes"))
+        #expect(configuration.contains("web_search = true"))
+        #expect(configuration.contains("[profiles.work]"))
+        // The key lands inside [features], not after the next table header.
+        let featuresBody = try #require(
+            configuration.components(separatedBy: "[features]").last?
+                .components(separatedBy: "[profiles.work]").first)
+        #expect(featuresBody.contains("hooks = true"))
+    }
+
+    @Test("features.hooks set to false is corrected in place")
+    func disabledFeatureIsCorrected() throws {
+        // Arrange
+        let home = try CodexHomeFixture()
+        defer { home.tearDown() }
+        try home.writeConfiguration("[features]\nhooks = false\nweb_search = true\n")
+
+        // Act
+        _ = try CodexPackageInstaller.install(home.props)
+
+        // Assert
+        #expect(home.configuration().contains("hooks = true"))
+        #expect(home.configuration().contains("hooks = false") == false)
+        #expect(home.configuration().contains("web_search = true"))
+    }
+
+    @Test("features.hooks already true is left exactly as written")
+    func alreadyEnabledFeatureIsUntouched() throws {
+        // Arrange
+        let home = try CodexHomeFixture()
+        defer { home.tearDown() }
+        let original = "[features]\n  hooks   =   true\n"
+        try home.writeConfiguration(original)
+
+        // Act
+        let output = try CodexPackageInstaller.install(home.props)
+
+        // Assert
+        #expect(home.configuration() == original)
+        #expect(output.contains { $0.contains("already true") })
+    }
+
+    @Test("hooks belonging to someone else survive install and uninstall untouched")
+    func unrelatedHooksArePreserved() throws {
+        // Arrange
+        let home = try CodexHomeFixture()
+        defer { home.tearDown() }
+        try home.writeHooks(
+            """
+            {
+              "description": "my own hooks",
+              "hooks": {
+                "SessionStart": [
+                  { "hooks": [{ "type": "command", "command": "/usr/local/bin/mine.sh", "timeout": 9 }] }
+                ],
+                "PostToolUse": [
+                  { "matcher": "shell", "hooks": [{ "type": "command", "command": "/usr/local/bin/audit.sh" }] }
+                ]
+              }
+            }
+            """
+        )
+
+        // Act
+        _ = try CodexPackageInstaller.install(home.props)
+
+        // Assert — ours appended after theirs, so their trust key index holds.
+        let installed = try home.hooksDocument()
+        let sessionStart = installed.groups(event: "SessionStart")
+        #expect(sessionStart.count == 2)
+        #expect(Self.command(sessionStart[0]) == "/usr/local/bin/mine.sh")
+        #expect(Self.command(sessionStart[1])?.contains(CodexPackageInstaller.ownedCommandFragment) == true)
+
+        // Act
+        _ = try CodexPackageInstaller.uninstall(home.props)
+
+        // Assert
+        let remaining = try home.hooksDocument()
+        #expect(remaining.groups(event: "SessionStart").count == 1)
+        #expect(Self.command(remaining.groups(event: "SessionStart")[0]) == "/usr/local/bin/mine.sh")
+        #expect(remaining.groups(event: "PostToolUse").count == 1)
+    }
+
+    @Test("reinstalling changes nothing and prints no notice")
+    func reinstallIsIdempotent() throws {
+        // Arrange
+        let home = try CodexHomeFixture()
+        defer { home.tearDown() }
+        _ = try CodexPackageInstaller.install(home.props)
+        let firstConfiguration = home.configuration()
+        let firstHooks = home.hooksData()
+
+        // Act
+        let output = try CodexPackageInstaller.install(home.props)
+
+        // Assert
+        #expect(home.configuration() == firstConfiguration)
+        #expect(home.hooksData() == firstHooks)
+        #expect(output.contains { $0.hasPrefix("notice:") } == false)
+    }
+
+    @Test("a hand-edited package entry is reported once and then restored")
+    func modifiedEntryIsNoticedAndOverwritten() throws {
+        // Arrange
+        let home = try CodexHomeFixture()
+        defer { home.tearDown() }
+        _ = try CodexPackageInstaller.install(home.props)
+        try home.rewriteOwnedTimeout(event: .sessionStart, to: 99)
+
+        // Act
+        let output = try CodexPackageInstaller.install(home.props)
+
+        // Assert
+        let notices = output.filter { $0.hasPrefix("notice:") }
+        #expect(notices == ["notice: replacing modified agentstudio entry SessionStart"])
+        let restored = try #require(home.ownedGroup(event: .sessionStart))
+        let handler = try #require((restored["hooks"] as? [[String: Any]])?.first)
+        #expect(handler["timeout"] as? Int == CodexPackageInstaller.hookTimeoutSeconds)
+    }
+
+    @Test("uninstall removes the package's own files and leaves the feature enabled")
+    func uninstallRemovesOnlyWhatItOwns() throws {
+        // Arrange
+        let home = try CodexHomeFixture()
+        defer { home.tearDown() }
+        _ = try CodexPackageInstaller.install(home.props)
+
+        // Act
+        let output = try CodexPackageInstaller.uninstall(home.props)
+
+        // Assert
+        #expect(home.fileExists(relativePath: "hooks.json") == false)
+        #expect(home.fileExists(relativePath: "skills/agentstudio") == false)
+        #expect(home.configuration().contains("hooks = true"))
+        #expect(output.contains { $0.contains("features.hooks") })
+    }
+
+    @Test("uninstall leaves a skill directory that carries no package marker")
+    func uninstallLeavesAnUnmarkedSkillDirectory() throws {
+        // Arrange
+        let home = try CodexHomeFixture()
+        defer { home.tearDown() }
+        try home.writeSkillWithoutMarker()
+
+        // Act
+        let output = try CodexPackageInstaller.uninstall(home.props)
+
+        // Assert
+        #expect(home.fileExists(relativePath: "skills/agentstudio/SKILL.md"))
+        #expect(output.contains { $0.contains("no package marker") })
+    }
+
+    @Test("a Codex home that does not exist fails before anything is written")
+    func missingCodexHomeFails() throws {
+        // Arrange
+        let home = try CodexHomeFixture()
+        defer { home.tearDown() }
+        let absentHome = home.root.appending(path: "not-here", directoryHint: .isDirectory)
+        let absent = CodexPackageInstaller.Props(
+            codexHome: absentHome, locator: home.props.locator)
+
+        // Act / Assert
+        #expect(throws: AgentPackageInstallationError.self) {
+            _ = try CodexPackageInstaller.install(absent)
+        }
+        #expect(FileManager.default.fileExists(atPath: absentHome.path) == false)
+    }
+
+    @Test("a malformed hooks.json fails and leaves both files untouched")
+    func malformedHooksFileFailsWithoutWriting() throws {
+        // Arrange
+        let home = try CodexHomeFixture()
+        defer { home.tearDown() }
+        try home.writeConfiguration("model = \"gpt-5.5-codex\"\n")
+        try home.writeHooks("{ this is not json")
+
+        // Act / Assert
+        #expect(throws: AgentPackageInstallationError.self) {
+            _ = try CodexPackageInstaller.install(home.props)
+        }
+        #expect(home.configuration() == "model = \"gpt-5.5-codex\"\n")
+        #expect(home.hooksText() == "{ this is not json")
+    }
+
+    @Test("the Codex home follows CODEX_HOME and then the home directory")
+    func codexHomeResolution() {
+        // Arrange / Act
+        let explicit = CodexPackageInstaller.codexHome(
+            explicitPath: "/tmp/explicit", environment: ["CODEX_HOME": "/tmp/env"])
+        let fromEnvironment = CodexPackageInstaller.codexHome(
+            explicitPath: nil, environment: ["CODEX_HOME": "/tmp/env"])
+        let fallback = CodexPackageInstaller.codexHome(explicitPath: nil, environment: [:])
+
+        // Assert
+        #expect(explicit.path == "/tmp/explicit")
+        #expect(fromEnvironment.path == "/tmp/env")
+        #expect(fallback.lastPathComponent == ".codex")
+    }
+
+    private static func command(_ group: [String: Any]) -> String? {
+        (group["hooks"] as? [[String: Any]])?.first?["command"] as? String
+    }
+}

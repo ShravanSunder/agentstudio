@@ -30,7 +30,17 @@ struct SessionsVerticalHarness {
     let boundPaneId: UUID
     let sparePaneId: UUID
 
-    static func make() async throws -> Self {
+    /// The profile the default provider identity qualifies against.
+    static let qualifiedProviderProfile = SessionsProviderProfile(
+        providerIdentifier: qualifiedProvider.identifier,
+        exactVersion: qualifiedProvider.version,
+        operatingMode: qualifiedProvider.mode,
+        qualifiedCapabilities: [.sessionStart, .sessionEnd, .turnStart, .turnDone]
+    )
+
+    static func make(
+        providerProfiles: [SessionsProviderProfile] = [qualifiedProviderProfile]
+    ) async throws -> Self {
         let commandHarness = makeHarness()
         let boundPane = commandHarness.store.createPane(title: "Bound pane")
         let sparePane = commandHarness.store.createPane(title: "Spare pane")
@@ -57,18 +67,17 @@ struct SessionsVerticalHarness {
         appDelegate.workspaceSurfaceCoordinator = commandHarness.coordinator
         appDelegate.executor = commandHarness.executor
         appDelegate.mainWindowController = SessionsVerticalMainWindowController(window: nil)
-        appDelegate.appIPCSessionsProviderProfiles = [
-            SessionsProviderProfile(
-                providerIdentifier: qualifiedProvider.identifier,
-                exactVersion: qualifiedProvider.version,
-                operatingMode: qualifiedProvider.mode,
-                qualifiedCapabilities: [.sessionStart, .sessionEnd, .turnStart, .turnDone]
-            )
-        ]
+        appDelegate.appIPCSessionsProviderProfiles = providerProfiles
         appDelegate.installAppIPCIdentityAuthority(datastore: datastore)
 
+        // The tail of the identifier, not its head: a UUIDv7 begins with a
+        // millisecond timestamp, so two harnesses built in the same millisecond
+        // shared a directory name and the second failed to create it. The tail
+        // is cryptographic random. The whole identifier will not do — the
+        // socket underneath this root must fit in `sockaddr_un.sun_path`, which
+        // is 104 bytes including the temporary directory and `/ipc/agentstudio.sock`.
         let rootDirectory = FileManager.default.temporaryDirectory
-            .appending(path: "as-ipc-sessions-\(UUIDv7.generate().uuidString.prefix(8))")
+            .appending(path: "as-ipc-\(UUIDv7.generate().uuidString.suffix(12))")
         try FileManager.default.createDirectory(
             at: rootDirectory,
             withIntermediateDirectories: false,
@@ -141,6 +150,15 @@ struct SessionsVerticalHarness {
                 ]),
                 "correlationId": .string(correlationId.uuidString),
             ])
+        )
+    }
+
+    /// Sends fully formed parameters, for a caller that built them somewhere
+    /// else — a provider hook projection, say — rather than field by field here.
+    func sessionEvent(params: IPCSessionEventParams) async throws -> IPCSessionEventResult {
+        try await decoded(
+            method: "session.event",
+            params: try JSONDecoder().decode(JSONValue.self, from: try JSONEncoder().encode(params))
         )
     }
 

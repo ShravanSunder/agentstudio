@@ -58,6 +58,9 @@ let package = Package(
                 "Core",
                 "Features",
                 "Infrastructure",
+                // Copied into Contents/Resources/AgentPackage by the bundle
+                // assembly, not into the SwiftPM resource bundle.
+                "Resources/AgentPackage",
                 "Resources/Info.plist",
                 "Resources/AppIcon.svg",
                 "Resources/terminfo-src",
@@ -551,6 +554,9 @@ let package = Package(
                 "AgentStudioInfrastructure",
             ],
             path: "Tests/AgentStudioIPCClientTests",
+            resources: [
+                .copy("Fixtures")
+            ],
             swiftSettings: [
                 .swiftLanguageMode(.v6)
             ]
@@ -565,6 +571,7 @@ let package = Package(
                 "AgentStudioCommandBar",
                 "AgentStudioCore",
                 "AgentStudioEditorChooser",
+                "AgentStudioIPCClientCore",
                 "AgentStudioIPCTransport",
                 "AgentStudioInboxNotification",
                 "AgentStudioInfrastructure",

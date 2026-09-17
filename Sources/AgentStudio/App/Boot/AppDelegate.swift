@@ -94,7 +94,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     var appIPCSessionsIngestion: SessionsIngestion?
     /// Exact provider profiles are composition input. An empty list grants no
     /// provider-reported authority until a qualified provider package ships.
-    var appIPCSessionsProviderProfiles: [SessionsProviderProfile] = []
+    var appIPCSessionsProviderProfiles: [SessionsProviderProfile] = SessionsProviderProfile
+        .shippedProfiles
     var appLifecycleStore: AppLifecycleAtom!
     var windowLifecycleStore: WindowLifecycleAtom!
     var applicationLifecycleMonitor: ApplicationLifecycleMonitor!
