@@ -59,6 +59,9 @@ not yours. Under Claude Code the line to give them is:
 > Agent Studio is not tracking this session. Run
 > `"$AGENTSTUDIO_CLI" package install claude` and restart Claude Code.
 
+Under the Cursor CLI the line is
+`"$AGENTSTUDIO_CLI" package install cursor`, then restart `cursor-agent`.
+
 Then carry on without calling the status verbs again this session. A free-text
 `message` still works and is still worth sending.
 
