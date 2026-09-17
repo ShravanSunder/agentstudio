@@ -135,6 +135,8 @@ package enum ClaudeCodePackageCommand {
             "settings.json is not readable JSON: \(path)"
         case ClaudeCodePackageInstallerError.settingsNotAnObject(let path):
             "settings.json is not a JSON object: \(path)"
+        case ClaudeCodePackageInstallerError.hooksValueNotAnObject(let path):
+            "\(path) has a non-object \"hooks\" value; not modified"
         default:
             "unexpected failure"
         }

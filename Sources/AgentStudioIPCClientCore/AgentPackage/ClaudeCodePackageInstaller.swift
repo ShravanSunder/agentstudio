@@ -7,6 +7,7 @@ package enum ClaudeCodePackageInstallerError: Error, Equatable, Sendable {
     case packageResourcesUnavailable(String)
     case settingsUnreadable(String)
     case settingsNotAnObject(String)
+    case hooksValueNotAnObject(String)
 }
 
 /// Installs and removes Agent Studio's Claude Code integration inside one
@@ -58,6 +59,12 @@ package struct ClaudeCodePackageInstallation: Sendable {
         }
         let skillContents = try Data(contentsOf: sourceSkillURL)
         var settings = try readSettingsObject()
+        // Uninstall already leaves a non-object `hooks` alone. Install must
+        // refuse it for the same reason: replacing it would throw away a value
+        // this package never wrote and cannot read.
+        if let present = settings["hooks"], objectValue(present) == nil {
+            throw ClaudeCodePackageInstallerError.hooksValueNotAnObject(settingsURL.path)
+        }
         var hooksByEvent = objectValue(settings["hooks"]) ?? [:]
         for event in ClaudeCodeHookEvent.allCases {
             let desired = ownedGroup(for: event)

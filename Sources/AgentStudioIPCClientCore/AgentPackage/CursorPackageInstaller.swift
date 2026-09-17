@@ -7,6 +7,7 @@ package enum CursorPackageInstallerError: Error, Equatable, Sendable {
     case packageResourcesUnavailable(String)
     case hooksDocumentUnreadable(String)
     case hooksDocumentNotAnObject(String)
+    case hooksValueNotAnObject(String)
 }
 
 /// Installs and removes Agent Studio's Cursor integration inside one Cursor
@@ -63,6 +64,12 @@ package struct CursorPackageInstallation: Sendable {
         }
         let skillContents = try Data(contentsOf: sourceSkillURL)
         var document = try readHooksObject()
+        // Uninstall already leaves a non-object `hooks` alone. Install must
+        // refuse it for the same reason: replacing it would throw away a value
+        // this package never wrote and cannot read.
+        if let present = document["hooks"], objectValue(present) == nil {
+            throw CursorPackageInstallerError.hooksValueNotAnObject(hooksURL.path)
+        }
         if document["version"] == nil { document["version"] = .number(Self.hooksDocumentVersion) }
         var hooksByEvent = objectValue(document["hooks"]) ?? [:]
         for event in CursorHookEvent.allCases {
