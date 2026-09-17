@@ -60,7 +60,7 @@ legacy-ownership-bound for waiting (hundreds of private helpers).
 | D6 | Vite cold start | Warm one throwaway server into a seed cache before any journey clock starts; each fixture copies the seed into its own cache directory | Vite accepts a copied cache: validity is lockfile and config hash, paths in `_metadata.json` are relative, the commit is an atomic rename | Warm-up must load the same surfaces the journeys load, or a runtime-discovered dependency still forces a re-optimize | Vite changes cache validity to include the cache path |
 | D7 | Isolation membership | Keep the existing lists. Add a gate that fails when a listed suite no longer exists or is no longer matched by its filter; add the missing visible-tier suite to the list. Same gate for the WebKit suite list | R13 asks that a member cannot silently fall out; a rename or deletion is how that happens, and the gate catches it without rewriting the file that owns test topology | A new suite that needs isolation is still added by hand | A suite that needed isolation is again found running in the concurrent lane |
 | D8 | Lane hang-bound defaults | The test script's built-in defaults become the values CI and the aggregate task already set | The instructions that tell agents to raise this timeout after edits exist only because the bare default kills a silent cold compile; R12 removes that instruction, so the default it compensated for has to be sane. No new mechanism | None | A hang is ever mistaken for slow progress again; then measure child CPU progress instead of output bytes |
-| D9 | Dev-host handoff | The scheme handler keeps the live metadata stream's reply task and marks it terminated, under a lock, inside `onTermination`. An initial bootstrap that finds a live producer whose stream is marked terminated awaits that task's completion, then re-evaluates the existing barriers. Every refusal is typed. A second session requested while the client's first is still open is refused; the integration test that did so closes its first surface first | `BridgeProductSession` is an actor, so a synchronous termination callback cannot record a barrier in it; the reply task is the one handle that exists at that instant. Awaiting a task's completion needs no clock | A small lock-protected record in the scheme handler; the scheme handler owner keeps it in step with stream lifecycle | A supported use needs two concurrent sessions from one client |
+| D9 | Dev-host handoff | `BridgeProductSchemeSessionRouter`, the existing claim-lifetime owner on every path, holds a nonisolated lock-protected census of stream-route scheme tasks. The scheme handler marks a task terminated in it, synchronously, inside `onTermination`. An initial bootstrap that finds a producer lease with no retirement state consults the census: if any stream is still live it is refused at once; if every stream has terminated it joins the router's stream-claim drain, then re-evaluates the existing barriers and still refuses a failed retirement. Every refusal is typed. A second session requested while the client's first is genuinely still open is refused; the worktree-data integration test that did so closes its first surface first. The Review replay test already closes its first stream and is not changed | `BridgeProductSession` and the router are actors, so a synchronous termination callback cannot record state in either; a lock box hanging off the router is the one place the fact can be written at that instant. The join already exists: the router's drain resolves only after the reply task has finished retiring its producer, and the real app's reload path already uses it. "Live" is today approximated by "a lease exists", which is also true of a dead document until its reply task unwinds; the census records the fact itself. Joining a drain needs no clock | One small lock-protected type beside the router; the scheme handler must finish its census entry on every exit path. Census and join are scoped to stream-route claims, or a live content stream would turn the join into a hang | A supported use needs two concurrent sessions from one client |
 
 Rejected: a larger runner (hides every defect, and the large macOS runner is Intel); sharding the 4,900-test fast lane
 as the primary bound (about 2 s of process start per helper, and it leaves polling in place); a test-only scoping
@@ -108,7 +108,7 @@ BridgeWeb harness
   explicit poll bound           one declared hang bound in shared config (R15)
 
 Development host and scheme handler
-  terminated-stream record (scheme handler); bootstrap awaits the ended stream's reply task; typed refusals (D9)
+  terminated-stream census (router); bootstrap joins the router's stream-claim drain; typed refusals (D9)
 ```
 
 Dependency direction follows the repository's import rule: the protocol and helper live in Infrastructure; Core, App,
@@ -329,8 +329,8 @@ and baseline support deleted. No entry may be added after seeding.
 | A lossy subscription drops envelopes during a burst | Quiescence is silent about them (C3). The test reads the bus's existing per-subscriber drop count and asserts zero; no new drop machinery | Test author |
 | Vendor input missing in CI | Lane fails in preflight by name | Lane runner |
 
-No new retry or time budget is introduced anywhere in this design. The one new lock guards the scheme handler's
-terminated-stream record (D9).
+No new retry or time budget is introduced anywhere in this design. The one new lock guards the router's
+terminated-stream census (D9).
 
 ## Cross-cutting realization
 
@@ -356,7 +356,7 @@ terminated-stream record (D9).
 | R10, R12, R13 | Standard document; instruction and config corrections; isolation and WebKit list gate | Audit checklist; a gate test that every listed suite exists and is matched by its filter | Real scripts |
 | R14 | Seed cache | CI log: no optimizer cold start inside a bounded step | Real Vite, real backend |
 | R15 | One animation-settle helper; explicit poll bound | Browser tests | Real browser |
-| R16, C5 | Terminated-stream record; bootstrap awaits the ended stream's reply task; typed refusals | Swift replay suite; integration through the real development server | All real |
+| R16, C5 | Terminated-stream census on the router; bootstrap joins the router's stream-claim drain; typed refusals | Swift replay suite; integration through the real development server | All real |
 | R18 | — | Ten consecutive first-attempt green runs with lane reports; empty baseline | Real CI |
 
 ### Each failure family, and what fixes it
@@ -372,11 +372,11 @@ terminated-stream record (D9).
 | Visible-tier cadence | The projector's duty-measurement clock becomes injectable beside its scheduling clock; tests advance both | 1 |
 | Exact-item FSEvents stream | The fixture awaits the activity fence it currently discards | 1 |
 | Pane-agent helper exit | The blocking wait moves off the cooperative pool (R8); a server signal only if that is not enough | 1 |
-| Review replay | Terminated-stream record; bootstrap awaits the ended stream's reply task (D9) | 1 |
+| Review replay | Terminated-stream census on the router; a bootstrap that finds every stream terminated joins the stream-claim drain, a live stream is still refused (D9). The test is correct and unchanged | 1 |
 | Worktree-data integration (HTTP 409) | The test closes its first surface before opening the second; refusals are typed | 1 |
-| BridgeWeb backpressure E2E | Seed cache (D6); `retry: 1` deleted | 1 |
+| BridgeWeb backpressure E2E | Diagnosed 2026-09-17: the acknowledgement observer counted requests of a document destroyed by reload (Playwright gives a worker's in-flight requests no terminal event), so its wait could not end. The observer now counts the current document only and has its own deterministic test. Seed cache (D6) and deleting `retry: 1` remain | 1 |
 | BridgeWeb share-shelf timeouts | One animation-settle helper; the unbounded one deleted | 1 |
-| BridgeWeb annotation E2E `source.refresh` | Undiagnosed (H5). Harness reports which commands arrived; derived waiters are abandoned with their antecedent | diagnostics in 1; fix when diagnosed |
+| BridgeWeb annotation E2E `source.refresh` | Diagnosed 2026-09-17 (closes H5): the save journey required the demanded projection query's request sequence to exceed `source.refresh`'s, but one `acquireSession` call issues both from different threads, so the numbers race. Sequence numbers are a total order, not a causal one. The gate is anchored to `root.create` | 1 |
 | Ghostty header not found | Lane preflight names the missing vendor input | 1 |
 
 ## Cutover
