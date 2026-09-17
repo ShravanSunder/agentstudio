@@ -75,7 +75,7 @@ These constrain delivery. They are not product behavior.
 | May change | Test code and test support; CI workflows and mise test tasks; the pinned Xcode version; production code where it fixes a defect found here or exposes a completion signal (U6); agent instruction files and architecture docs; BridgeWeb test harnesses and the development host's session handoff |
 | Protected | Shipped product behavior unrelated to a defect found here; proof strength of every existing test; the vendored Ghostty and zmx sources; release identity and signing; per-server Vite cache isolation (`docs/guides/agent_resources.md`, "BridgeWeb Fast UI Loop") |
 | Non-goals | Quarantining, skipping, or retrying tests to obtain green; raising time or turn budgets as a fix; a larger CI runner as the fix; rewriting tests that do not wait on asynchronous state; new test frameworks; performance benchmarking of the app (post-merge benchmark lanes are out of scope); fixing PR #350's own content |
-| Acceptable complexity | One shared set of waiting primitives and one quiescence contract. A second waiting convention, a test-only production hook, or a per-suite bespoke mechanism reopens scope |
+| Acceptable complexity | One shared set of waiting primitives and one quiescence contract. A second waiting convention, a test-only production hook, or a per-suite bespoke mechanism reopens scope. Adopted by the owner on 2026-09-17 with one exception: existing polling helpers and the new primitives may coexist between the two stacked pull requests, and only then; the empty lint baseline marks the end of that window |
 
 ## Evidence
 
@@ -102,6 +102,9 @@ Reports are under [`docs/wip/2026-09-17-ci-reliability-evidence/`](../../wip/202
 | H2 | One viewer holds one development-host session. A client that opens a second session while its first is still open is not a supported shape; the integration test that does so is wrong and closes its first surface first. A same-viewer successor whose predecessor's stream has ended always gets a session |
 | — | The structure in the Program Design is confirmed: bounded test concurrency, no blocking on the cooperative pool, per-owner quiescence composed per pipeline, event-driven test waits with a lint ban |
 | — | Delivery is two stacked pull requests: everything except the bulk conversion first, which unblocks PR #350; the conversion of remaining polling waits stacked behind it |
+| — | The first pull request merges after "CI / Test" passes on its head twice in a row on the first attempt, then PR #350 merges; run data is collected throughout ("run it 2. then merge pr, then merge 350. while doing this collect info"). Deliberately triggered runs count toward H1 |
+| — | The release workflow moves to the new Xcode together with CI, in the first pull request |
+| — | The serialized E2E lane, which runs in the local gate but not in CI, is added to CI in the second pull request |
 
 ## Not yet decided
 
@@ -109,3 +112,4 @@ Reports are under [`docs/wip/2026-09-17-ci-reliability-evidence/`](../../wip/202
 | --- | --- | --- | --- |
 | H3 | Whether the single content-hash mismatch in the product E2E (E8, `lane-bridgeweb-flakes.md` B2) is a product defect | Investigated separately; not counted as a flake and not fixed under this goal unless it reproduces on `main` | A real content-integrity defect could be mislabeled as flakiness |
 | H4 | How far U4 and U5 reach into BridgeWeb browser tests, where waiting on a DOM condition is the library idiom and runs in a separate process from the app | BridgeWeb waits stay condition-driven, with one declared hang bound and no undeclared library default; they do not adopt the Swift no-polling ban | The owner's statements were made about Swift tests; applying them literally to the browser lane is a larger change nobody has asked for |
+| H5 | Why the File surface reported no committed refresh for 120 s in the BridgeWeb annotation E2E (E8, `lane-bridgeweb-flakes.md` B1) | Diagnosed before any fix; until then the journey's failure reports which commands arrived | One failure family stays open; it does not block the first pull request |

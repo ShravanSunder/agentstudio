@@ -87,8 +87,9 @@ scheduler-turn count. A wait in a test MUST complete because a named event, a co
 change, or a quiescence signal occurred. *Basis: U4, U5.* *Fails if:* a wait can expire while the awaited work is
 correct and still in flight.
 
-**R4 — One hang bound, never tuned.** The only elapsed-time bound permitted in a test is the runner-owned hang bound.
-If it expires, the failure MUST identify what was being awaited. A hang bound MUST NOT be raised to make a correct but
+**R4 — One hang bound, never tuned.** The only elapsed-time bound permitted in a test is the runner-owned hang bound:
+the test framework's time limit on the test. A lane may additionally bound the whole lane against a hung process; that
+is also a hang bound and follows the same rule. If a test's hang bound expires, the failure MUST identify what was being awaited. A hang bound MUST NOT be raised to make a correct but
 slow test pass; such a test indicates a violation of R1, R3, or R8. *Basis: U4.*
 
 **R5 — Time as subject uses a controlled clock.** Where the behavior under test depends on time, the test MUST drive
@@ -130,7 +131,7 @@ states the invariant at least as strongly. *Basis: U3, U7; `CLAUDE.md` proof-gat
 | Worktree-data integration (HTTP 409) | The test opens a second session while its first is still open, which the host does not support | The test closes its first surface before opening the second; the refusal it used to hit is typed (C5) |
 | BridgeWeb backpressure E2E | Dependency optimizer cold inside the measured window on every attempt | R14 holds |
 | BridgeWeb share-shelf timeouts | Unbounded, uncaught animation await | R15 holds |
-| BridgeWeb annotation E2E `source.refresh` | Ordering defect in what the journey awaits | The journey awaits the event that actually marks readiness; diagnosed in Program Design |
+| BridgeWeb annotation E2E `source.refresh` | Not yet diagnosed: after the root annotation is created the File surface did not report a committed refresh for 120 s, against a norm near 1 s, while the Review sibling passed | Diagnosed before it is fixed (H5). Until then the journey reports which commands did arrive when this wait fails, and its derived waiters are abandoned rather than orphaned when their antecedent fails |
 | Ghostty header not found | Vendor artifact availability in CI | The lane fails before tests with a message naming the missing vendor input, or the input is always present |
 
 ### Standard, enforcement, and hygiene
@@ -180,12 +181,17 @@ session is still open and not closing is refused the same way; that shape is not
 
 **R17 — Packaging.** The reliability changes MUST land separately from and ahead of PR #350, as two stacked pull
 requests: the first carries everything except the bulk conversion of remaining polling waits and is sufficient to
-unblock PR #350; the second carries that conversion and ends with an empty baseline. *Basis: U8.*
+unblock PR #350; the second carries that conversion, adds the serialized E2E lane to CI, and ends with an empty
+baseline. Each pull request merges under the repository's existing pull-request gate. In addition the first merges
+only after "CI / Test" has passed on its head twice in a row on the first attempt; PR #350 merges after it.
+*Basis: U8 and the owner's decisions of 2026-09-17.*
 
 **R18 — Acceptance measure.** The work is complete when "CI / Test" completes green on the first attempt, with no job
 rerun, for ten consecutive runs spanning `main` and pull requests that do not themselves change test infrastructure,
 the lane reports (R2) for those runs show the concurrency bound in effect, and the polling baseline (R11) is empty.
-*Basis: U1, H1.*
+Deliberately triggered runs count. A run that fails resets the count and is diagnosed, never rerun to obtain green;
+a cancelled run neither counts nor resets. Lane reports are collected from every run from the first pull request
+onward. *Basis: U1, H1.*
 
 ## Observable contracts
 
@@ -227,7 +233,11 @@ Consumer: tests and production shutdown.
   window is unfinished work: the component is not quiescent. A standing schedule that will generate work in the future
   (a periodic refresh waiting on its next deadline) is not accepted work and does not prevent quiescence.
 - **Clocks.** A test that controls the component's clock advances it and then awaits quiescence. Awaiting quiescence
-  in a test never completes by letting real time pass.
+  in a test never completes by letting real time pass. A component whose held work is released by a clock therefore
+  makes that clock controllable by the test (R5).
+- **Dropped delivery.** Quiescence covers work a component accepted. An envelope that a bounded, lossy subscription
+  discarded was never accepted, so quiescence says nothing about it. A test whose outcome depends on delivery across
+  such a subscription asserts that the subscription dropped nothing.
 - **Shutdown and cancellation.** If the component shuts down, then pending awaits complete rather than hang. If the
   awaiting task is cancelled, then the await ends promptly and leaves no stored waiter behind.
 - **Cost.** With no one awaiting, quiescence adds no work to the hot path beyond bookkeeping the component already does.
@@ -273,7 +283,7 @@ restating it.
 | Performance | Quiescence adds no hot-path cost without an awaiter (C3). Bounded concurrency MUST NOT lengthen a lane's wall time by more than the lane report can explain; regressions are visible through R2 |
 | Observability | R2, C1. No new telemetry export; lane reports are log lines |
 | Security and privacy | Same-viewer proof in C5 MUST NOT let a different local process take over a session it could not already access; development host only |
-| Compatibility | Hard cutover: no polling helper remains beside the new forms; no dual toolchain pin. Release and benchmark workflows move with CI or state why not |
+| Compatibility | Hard cutover: at completion no polling helper remains beside the new forms. No dual toolchain pin: the release and benchmark workflows move with CI in the first pull request, by the owner's decision. A tagged release cannot be withdrawn by reverting a workflow, so the first release built on the new toolchain follows the repository's existing release smoke before it is relied on |
 | Accessibility, data lifecycle, compliance | Not applicable: no user-facing surface or stored data changes |
 
 ## Proof obligations
@@ -311,4 +321,5 @@ restating it.
 | ID | Decision | Owner | Effect if unresolved |
 | --- | --- | --- | --- |
 | H3 | Whether the single content-hash mismatch is a product defect | Repository owner, after investigation | Not addressed here; tracked separately |
+| H5 | Why the File surface reported no committed refresh in the annotation E2E | Whoever diagnoses it; the owner if it proves to be product behavior | That one family stays open; it does not block the first pull request |
 | H4 | Whether BridgeWeb should go beyond R15 and remove DOM-condition polling as Swift does | Repository owner | R15 stands: condition-driven waits with one declared hang bound |

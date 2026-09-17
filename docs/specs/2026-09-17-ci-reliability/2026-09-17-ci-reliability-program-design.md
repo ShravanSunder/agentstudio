@@ -34,13 +34,13 @@ only trustworthy once the one above it holds.
 
 | Area | Current behavior | Anchor |
 | --- | --- | --- |
-| Toolchain | CI downgrades the runner's default Xcode 26.6 to 26.3 in five places. 26.3's Swift Testing has no parallelism cap; 26.6's caps at 2 x CPU count and reads `SWT_EXPERIMENTAL_MAXIMUM_PARALLELIZATION_WIDTH`. The pin worked around zig 0.15.2; the repository is on zig 0.16.0 | `ci.yml:30,153,274`; `benchmarks.yml:35`; `release.yml:32`; `agent_resources.md:139`; `.mise.toml` |
+| Toolchain | CI downgrades the runner's default Xcode 26.6 to 26.3 in five places, and two architecture-lint cache keys hard-code the same version. 26.3's Swift Testing has no parallelism cap; 26.6's caps at 2 x CPU count and reads `SWT_EXPERIMENTAL_MAXIMUM_PARALLELIZATION_WIDTH`. The pin worked around zig 0.15.2; the repository is on zig 0.16.0 | `ci.yml:30,46,48,153,274`; `benchmarks.yml:35`; `release.yml:32`; `agent_resources.md:139`; `.mise.toml` |
 | Lane execution | One test process per lane run; isolated suites run one per process, four at a time, on a 3-vCPU runner. `--num-workers` is inert for Swift Testing | `scripts/run-swift-test-task.sh`; `scripts/swift-test-helpers.sh`; `lane-swift-runner-starvation.md` |
 | Lane hang bound | An output-inactivity watchdog. The same variable defaults to 90 s in one script, 1200 s in `.mise.toml`, and is set to 1200 s in CI; a silent cold compile is killed locally | `run-swift-test-task.sh:20-21`; `.mise.toml:330-331,393`; `ci.yml:384-408` |
 | Isolation list | Suites needing process isolation are partly auto-discovered and partly a hand-kept list; one suite is missing beside its listed sibling | `swift-test-helpers.sh:165-167` |
 | Waiting | 123 polling helpers, 678 call sites, 162 inline loops. Two shared helpers cover 225 sites | `polling-wait-survey.md`; `Tests/AgentStudioTests/TestSupport/EventBusHarness.swift:150,173` |
 | Event-driven doubles | 380 stored-continuation declarations in 122 test files; a reusable recorder already exists | `Tests/AgentStudioTests/Helpers/WorkspaceSurfaceCoordinatorTestHelpers.swift` (`ExactEventAcknowledgement`) |
-| Production completion signals | One real quiescence contract exists and is used by shutdown. Others exist but are discarded or miss a path | `RemoteReferenceRefreshActor+ExplicitUpdates.swift:14`; `WorkspaceCacheCoordinator.swift:293,305,348` (`_ = governor.enqueue`) |
+| Production completion signals | Two quiescence contracts already exist, each with its own hand-rolled waiter array, and both are used by shutdown. The second one's predicate (`deliveryTask != nil`) ignores input held behind a cancelled deadline task, so it is checked against C3 rather than copied. Other completion signals exist but are discarded or miss a path | `RemoteReferenceRefreshActor+ExplicitUpdates.swift:14`; `RepositoryFactDemandCoordinator.swift:212-227`; `WorkspaceCacheCoordinator.swift:293,305,348` (`_ = governor.enqueue`) |
 | Bus accounting | A subscriber's `consumedCount` advances when an envelope is pulled, before it is handled | `EventBus.swift:90-94` |
 | BridgeWeb E2E | Each fixture gets a fresh Vite cache directory, so the optimizer is cold on every attempt and retry | `bridge-viewer-vite-product-fixture.ts:159,454` |
 | Dev-host handoff | An initial bootstrap is refused unless the live session's metadata producers already have retirement barriers; a stream's end reaches the host through task cancellation, asynchronously | `BridgeDevelopmentProductHost.swift:848-881`; `BridgeSchemeHandler+RPC.swift:96-104` |
@@ -52,14 +52,14 @@ legacy-ownership-bound for waiting (hundreds of private helpers).
 
 | # | Decision | Chosen | Why this is enough | Cost, and who pays | Reopen if |
 | --- | --- | --- | --- | --- | --- |
-| D1 | How to bound concurrent tests | Move CI, benchmarks, and release to the runner's default Xcode and set the width explicitly in the lane runner | The cap already exists upstream; the pin blocking it is obsolete. One version string, no new mechanism | An `EXPERIMENTAL` environment variable; the test-topology owner re-checks it on each toolchain bump. Swift 6.3.3 compiles the app cleanly with 185 new warnings, and rejects test code in two files so far: three data-race captures in `BackgroundFactApplyGovernorTests` and one `#expect` too complex to type-check in `PreparedBridgeMountTopologyBoundaryTests`. Compilation stops at the first failing module, so the list may grow | Test bundles do not compile on 26.6, or the lane report shows the width is not honored. Fallback: shard the fast inventory across processes in `run-swift-test-task.sh` |
+| D1 | How to bound concurrent tests | Move CI, benchmarks, and release to the runner's default Xcode and set the width explicitly in the lane runner | The cap already exists upstream; the pin blocking it is obsolete. One version string, no new mechanism. The owner decided the release workflow moves in the same change | An `EXPERIMENTAL` environment variable; the test-topology owner re-checks it on each toolchain bump. Swift 6.3.3 compiles the app cleanly with 185 new warnings, and rejects test code in two files so far: three data-race captures in `BackgroundFactApplyGovernorTests` and one `#expect` too complex to type-check in `PreparedBridgeMountTopologyBoundaryTests`. Compilation stops at the first failing module, so the list may grow | Test bundles do not compile on 26.6, or the lane report shows the width is not honored. Fallback: shard the fast inventory across processes in `run-swift-test-task.sh` |
 | D2 | Shape of quiescence | Each owner exposes its own `waitUntilIdle()`, following the existing `RemoteReferenceRefreshActor` contract; a pipeline is awaited by composing its stages to a fixed point | Owners already know when they are idle; four of seven already have most of the signal. No global registry, no whole-app idle | One small shared protocol and one waiter-storage helper in Infrastructure. Each owner maintains its idle predicate when it adds a buffer | A second component needs whole-application idle, or owners' predicates drift from their buffers repeatedly |
-| D3 | Bus "handled" semantics | Count an envelope as handled when its subscriber asks for the next one | "Every subscriber is parked with an empty buffer" becomes knowable without touching any consumer | Lag and pressure diagnostics read one higher while an envelope is being handled; the bus owner documents it | A consumer needs per-envelope acknowledgement out of order |
+| D3 | How the bus knows it is idle | Leave every existing counter alone. Track, per subscriber, whether its iterator is suspended waiting for the next envelope. The bus is idle when every live subscriber has pulled everything yielded to it and is suspended | A subscriber between pulling an envelope and asking for the next one is handling it, so it is visibly not idle; no consumer changes and no diagnostic changes meaning | The suspended mark is recorded without an extra hop to the bus actor; the bus is notified of a change only while something is awaiting it. A subscriber that stops iterating ends its stream and is removed, so it cannot hold the bus busy | A consumer hands an envelope to background work without owning its own quiescence |
 | D4 | Where test waits live | One set of primitives in `AgentStudioTestSupport`; every private polling helper is deleted | 74% of sites need only two primitives (observed state; signalling double) | A wide mechanical change across about 120 test files | — |
 | D5 | How polling is kept out | A rule in `Tools/AgentStudioArchitectureLint`, with a shrink-only baseline during conversion | The gate already runs in `mise run lint`, `mise run test`, and CI | A baseline file exists until conversion finishes; R18 is not met while it is non-empty | The rule produces false positives that reviewers start suppressing |
 | D6 | Vite cold start | Warm one throwaway server into a seed cache before any journey clock starts; each fixture copies the seed into its own cache directory | Vite accepts a copied cache: validity is lockfile and config hash, paths in `_metadata.json` are relative, the commit is an atomic rename | Warm-up must load the same surfaces the journeys load, or a runtime-discovered dependency still forces a re-optimize | Vite changes cache validity to include the cache path |
-| D7 | Isolation membership | The suite declares its own need in source; the script derives the list | Membership cannot fall out of a list that does not exist | One annotation per isolated suite | — |
-| D8 | Lane hang bound | One definition site for each bound; local default equals CI | Removes the 90 s local trap without inventing a new watchdog | None | A hang is ever mistaken for slow progress again; then measure child CPU progress instead of output bytes |
+| D7 | Isolation membership | Keep the existing lists. Add a gate that fails when a listed suite no longer exists or is no longer matched by its filter; add the missing visible-tier suite to the list. Same gate for the WebKit suite list | R13 asks that a member cannot silently fall out; a rename or deletion is how that happens, and the gate catches it without rewriting the file that owns test topology | A new suite that needs isolation is still added by hand | A suite that needed isolation is again found running in the concurrent lane |
+| D8 | Lane hang-bound defaults | The test script's built-in defaults become the values CI and the aggregate task already set | The instructions that tell agents to raise this timeout after edits exist only because the bare default kills a silent cold compile; R12 removes that instruction, so the default it compensated for has to be sane. No new mechanism | None | A hang is ever mistaken for slow progress again; then measure child CPU progress instead of output bytes |
 | D9 | Dev-host handoff | The scheme handler keeps the live metadata stream's reply task and marks it terminated, under a lock, inside `onTermination`. An initial bootstrap that finds a live producer whose stream is marked terminated awaits that task's completion, then re-evaluates the existing barriers. Every refusal is typed. A second session requested while the client's first is still open is refused; the integration test that did so closes its first surface first | `BridgeProductSession` is an actor, so a synchronous termination callback cannot record a barrier in it; the reply task is the one handle that exists at that instant. Awaiting a task's completion needs no clock | A small lock-protected record in the scheme handler; the scheme handler owner keeps it in step with stream lifecycle | A supported use needs two concurrent sessions from one client |
 
 Rejected: a larger runner (hides every defect, and the large macOS runner is Intel); sharding the 4,900-test fast lane
@@ -80,14 +80,14 @@ Infrastructure
     changes when: waiter storage or cancellation semantics change
 
 Owners that gain or complete quiescence (each: owns its own idle predicate)
-  EventBus                          Core    idle = every subscriber parked, nothing buffered (D3)
+  EventBus                          Core    idle = every subscriber pulled everything and is suspended (D3)
   BackgroundFactApplyGovernor       App     idle = nothing pending, no drain in flight
   WorkspaceCacheCoordinator         App     idle = its subscription drained AND its governors idle
   GitWorkingDirectoryProjector      Core    idle = no pending changesets, no worktree task, no held admission
   RepoExplorerProjectionAdapter     Feature idle = no pending invalidation, no invalidation task, projection settled
   TerminalActivationScheduler       Feature idle = nothing queued or attaching, no supplemental drain in flight
   BridgePaneRefreshAdmissionCoordinator  Feature idle = no active pass, no retained dirty fact
-  Pane-agent IPC server             App     signal = bootstrap for pane X reached a terminal disposition
+  Pane-agent IPC server             App     conditional: only if the family persists once R8 is applied
   DarwinFSEventStreamClient         Core    existing activity fence; callers stop discarding it
 
 Test support (AgentStudioTestSupport)
@@ -99,8 +99,8 @@ Test support (AgentStudioTestSupport)
 
 Tooling
   ArchitectureLint rule         no polling waits under Tests/, with shrink-only baseline (D5)
-  lane runner                   width, preflight, lane report, single-sourced bounds (D1, D8)
-  isolation derivation          suites declare; script derives (D7)
+  lane runner                   width, preflight, lane report, sane default bounds (D1, D8)
+  isolation list gate           listed suites must exist and match their filter (D7)
 
 BridgeWeb harness
   Vite seed cache               vitest global setup warms once; fixtures copy (D6)
@@ -130,7 +130,7 @@ Owner: the conforming component. Consumers: tests, shutdown, pipeline compositio
   pipeline composition to detect work that arrived during a pass.
 - An owner marks a unit finished only after it has handed the result on and the next stage has accepted it
   (`await bus.post` returned; `governor.enqueue` returned; the MainActor commit ran). This is what makes "work is always
-  accounted for in exactly one stage" true.
+  accounted for in at least one stage" true.
 - Not provided: ordering across owners, a promise that no work arrives later, a timeout.
 
 Representative use, a test proving a negative:
@@ -152,17 +152,22 @@ what idle means.
 
 | Owner | Idle means | Work buffered inside it today | Already has |
 | --- | --- | --- | --- |
-| `EventBus` | For every live subscriber, handled count equals yielded count | Per-subscriber stream buffers | Both counters; `consumedCount` moves to "handled" (D3) |
+| `EventBus` | Every live subscriber has pulled everything yielded to it and its iterator is suspended | Per-subscriber stream buffers | Yielded and consumed counters, unchanged; the suspended mark is new (D3) |
 | `BackgroundFactApplyGovernor` | `pendingByKey` empty and no drain turn in flight, including its last MainActor commit | Pending facts under its lock; tick stream; carried facts | Per-fact `Acknowledgement`; `flushPending()` |
 | `WorkspaceCacheCoordinator` | Its bus subscription is drained, no direct consume is in flight, and both governors are idle | The detached consume loop; two governors | Calls `flushPending()` before direct consumes |
-| `GitWorkingDirectoryProjector` | No pending changesets, no in-flight worktree task, no visibility admission held for its window; a parked periodic deadline does not count | `pendingByWorktreeId`; `worktreeTasks`; visibility admission task | Nothing awaitable |
+| `GitWorkingDirectoryProjector` | No pending changesets, no in-flight worktree task, no visibility admission held for its window, **and no changeset deferred behind a status backoff or a capacity retry**; a parked periodic deadline does not count | `pendingByWorktreeId`; `worktreeTasks`; visibility admission task; `deferredStatusBackoffChangesetByWorktreeId`; `capacityRetryWorktreeIds` | Nothing awaitable. Its deferred work is released by its deadline clock, which tests already inject and must advance |
 | `RepoExplorerProjectionAdapter` | No pending invalidation, no invalidation task, projection has no unsettled tasks, a result is published | `pendingInvalidation`; single `invalidationTask` | The same predicate, written as a poll in a sibling test |
 | `TerminalActivationScheduler` | No queued or attaching member and no supplemental drain in flight | Worker fleet; an untracked supplemental `Task` | `activate()` covers startup only; the supplemental drain becomes tracked |
 | `BridgePaneRefreshAdmissionCoordinator` | No active refresh pass and no retained dirty fact | Pending/dirty fact; active pass | A sibling `awaitRetiringFileOperations()` of the right shape |
 
-Two owners need a signal, not idleness. The FSEvents client keeps its existing activity fence; the exact-item fixture
-awaits the fence it currently acknowledges and discards. The pane-agent server exposes an awaitable terminal
-disposition per bootstrap, so its test stops inferring authentication from a child process's exit.
+The predicates above are a starting inventory, not the contract. The contract is C3: every place an owner can hold
+accepted work counts. Each owner's seam is therefore built from an audit of that owner's buffers, and its proof
+includes the buffers found. A seam is added only when a diagnosed family's corrected test needs it.
+
+The FSEvents client needs no new signal: it keeps its existing activity fence, and the exact-item fixture awaits the
+fence it currently acknowledges and discards. The pane-agent server is conditional. Its family's blocking wait is
+verified; that the blocking wait is the cause is not. R8 is applied first. Only if the family persists does the
+server gain an awaitable terminal disposition per bootstrap.
 
 Adding these seams is a new responsibility on each owner. The repository requires the owner's approval for new
 coordinator responsibilities; approval was given for quiescence seams as a class (U6), and the list above is the
@@ -188,8 +193,7 @@ site is triaged individually during conversion. Category G (22 sites) is triaged
 Before tests: print CPU count, memory, width, process count; verify vendor inputs (the Ghostty header and
 XCFramework) exist and fail by name if not. Run the lane under `/usr/bin/time -l`. After tests: print wall, CPU, and
 utilization. The width is `min(2 x CPU, a policy ceiling)`; isolated-suite process concurrency becomes the CPU count
-rather than a constant four. Each hang-bound default has one definition site that both `.mise.toml` and the script
-read.
+rather than a constant four. The script's built-in hang-bound defaults equal the values CI sets (D8).
 
 ### Polling-wait lint rule
 
@@ -206,11 +210,11 @@ file with no violation.
 CURRENT                                         PROPOSED
 test ── post ─► EventBus                        test ── post ─► EventBus              (unchanged)
 test ── loop: read atom, Task.yield x100        test ── awaitQuiescence([projector,   (changed)
-        (gives up after ~12 ms)     [removed]            bus, coordinator])
+        (gives up after 100 turns)  [removed]            bus, coordinator])
                                                   ├─► projector.waitUntilIdle()        (added)
 projector (actor) ── await bus.post             │     idle only after bus.post returned
 EventBus ── yield ─► subscriber stream          ├─► bus.waitUntilIdle()               (added)
-  consumedCount++ at PULL          [changed]    │     handled++ when subscriber asks for next
+  consumedCount++ at pull (unchanged)           │     idle only when every subscriber is suspended
 coordinator (detached) ── next()                └─► coordinator.waitUntilIdle()       (added)
   ── _ = governor.enqueue(...)     [changed]          subscription drained + governors idle
 governor ── tick ─► MainActor commit                 governor idle after MainActor commit
@@ -218,7 +222,7 @@ atom write (MainActor)                          test ── assert once         
 result: expectation fails under load            result: returns when applied; hang bound only on a real hang
 ```
 
-Evidence: `WorkspaceCacheCoordinatorIntegrationTests.swift:823-834` (poll), `WorkspaceCacheCoordinator.swift:115-170`,
+Evidence: `WorkspaceCacheCoordinatorIntegrationTests.swift:108-116` (the failing call site, default budget of 100 turns; helper at `:820-834`), `WorkspaceCacheCoordinator.swift:115-170`,
 `EventBus.swift:90-94`, `BackgroundFactApplyGovernor.swift:152-205`. Unchanged and preservation-critical: the
 coordinator still flushes governors before a direct consume (ordering), and the governor's tick and coalescing
 behavior is untouched; idle is observed, never forced.
@@ -267,7 +271,7 @@ select Xcode 26.3            [removed]    use runner default Xcode, version prin
 swift test (unbounded fan-out)            swift test with explicit width               (changed)
 isolated suites x4 processes              isolated suites x CPU-count processes        (changed)
 no load report                            preflight + time -l + lane report            (added)
-hand-kept isolation list     [removed]    list derived from suite annotations          (changed)
+hand-kept isolation list                  same list, verified by a gate                (changed)
 ```
 
 ## Instruction and tooling corrections
@@ -280,15 +284,14 @@ surface that today teaches, permits, or hard-codes a pattern the standard forbid
 | Sleep-only lint rule | Errors on `Task.sleep` in tests and says "wait for explicit events", but detects nothing else; yield loops replaced sleeps and stayed invisible | Joined by the polling-wait rule (D5), shipped together with the primitives so the rule names an alternative that exists | `Tools/AgentStudioArchitectureLint/.../TestTaskSleepRule.swift` |
 | Blocking-I/O lint rule | Severity `report`; cannot fail a build | Severity `error`, once the existing violations are fixed (R8) | `.../NonisolatedAsyncBlockingIORule.swift:5` |
 | Workflow test asserting the pin | `CIFastLaneWorkflowTests` requires a step named for Xcode 26.3 and that version string | Asserts the toolchain step's contract without naming a version that a workaround chose | `Tests/AgentStudioTests/Scripts/CIFastLaneWorkflowTests.swift:34-44` |
-| Xcode and zig workaround notes | Seven sites keep the 26.3 workaround alive after its stated removal condition was met | Deleted; the doctor script's baseline updated | `README.md`; `docs/guides/agent_resources.md:30,139`; `scripts/doctor-mac.sh`; workflows |
+| Xcode and zig workaround notes | Nine sites keep the 26.3 workaround alive after its stated removal condition was met | Deleted; the doctor script's baseline updated | `README.md`; `docs/guides/agent_resources.md:30,139`; `scripts/doctor-mac.sh`; workflows, including the architecture-lint cache key and restore key at `ci.yml:46,48` |
 | "No Wall-Clock Tests" | Forbids `Task.sleep`; silent on scheduler-turn loops and dual turn-and-time budgets | Names them as forbidden and points to the standard | root `AGENTS.md` |
 | Fast-lane concurrency rule | Says concurrency is left to Swift Testing; written for a toolchain with no cap | States the explicit width and why `--parallel` and `--num-workers` are not used | root `AGENTS.md` |
 | `SWIFT_TEST_NUM_WORKERS` plumbing | Passed by script and CI; inert for Swift Testing | Deleted | `scripts/swift-test-helpers.sh`; `ci.yml` |
-| Timeout guidance for agents | Tells agents tests finish in about 15 s and to use a 60 s timeout; elsewhere to raise a timeout after edits | Removed; the single-sourced bound (D8) replaces it | `docs/guides/agent_resources.md` |
+| Timeout guidance for agents | Tells agents tests finish in about 15 s and to use a 60 s timeout; elsewhere to raise a timeout after edits | Removed; the script's default bound is made sane instead (D8) | `docs/guides/agent_resources.md` |
 | Hook claim | Says a `.claude/hooks/check.sh` hook formats Swift after edits; no such hook exists | Removed, or the hook is restored; the instruction matches reality either way | root `AGENTS.md` |
-| WebKit suite list | A hand-kept filter list; a WebKit suite absent from it runs in no lane and CI stays green | Derived or verified the same way as isolation membership (D7) | `scripts/swift-test-helpers.sh` |
-| CI versus the local gate | `mise run test` runs the serialized E2E lane; CI never does, while instructions describe it as gated | One of the two changes so they agree; decided with the owner under P3 | `.mise.toml`; `ci.yml` |
-| Workflow hygiene | No `timeout-minutes`; no concurrency group cancelling superseded runs | Both added; a job-level hang bound is a legitimate hang bound (R4) | `ci.yml` |
+| WebKit suite list | A hand-kept filter list; a WebKit suite absent from it runs in no lane and CI stays green | Verified by the same gate as isolation membership (D7) | `scripts/swift-test-helpers.sh` |
+| CI versus the local gate | `mise run test` runs the serialized E2E lane; CI never does, while instructions describe it as gated | The lane is added to CI in the second pull request, by the owner's decision. Removing it from the local gate would delete a proof gate and is not an option | `.mise.toml`; `ci.yml` |
 | BridgeWeb E2E `retry: 1` | Repeats the cold cost that failed the first attempt | Deleted once the seed cache lands (R14) | `BridgeWeb/vitest.e2e.config.ts` |
 | WebKit lane retry on helper crash | Retries when the test helper crashes during teardown after assertions pass | Kept for now and recorded as debt: it masks a real teardown crash | `scripts/swift-test-helpers.sh` |
 
@@ -323,9 +326,11 @@ and baseline support deleted. No entry may be added after seeding.
 | Governor enqueue races its drain | Unchanged; idle is evaluated after the drain's MainActor commit under the existing lock | Governor |
 | Vite seed warm-up fails | The E2E lane fails before any journey, naming the warm-up; no journey runs cold by accident | Vitest global setup |
 | Seed misses a runtime-discovered dependency | Vite re-optimizes and reloads; the lane report for that journey shows it. The warm-up surface list is corrected; no retry is added | BridgeWeb harness owner |
+| A lossy subscription drops envelopes during a burst | Quiescence is silent about them (C3). The test reads the bus's existing per-subscriber drop count and asserts zero; no new drop machinery | Test author |
 | Vendor input missing in CI | Lane fails in preflight by name | Lane runner |
 
-No new retry, timeout, or lock is introduced anywhere in this design.
+No new retry or time budget is introduced anywhere in this design. The one new lock guards the scheme handler's
+terminated-stream record (D9).
 
 ## Cross-cutting realization
 
@@ -347,12 +352,32 @@ No new retry, timeout, or lock is introduced anywhere in this design.
 | R5 | Second clock injected into the projector; tests advance it | Visible-tier suite with both clocks controlled | Clocks replaced, projector real |
 | R6, R7, C3 | `QuiescenceAwaiting` on each owner | Per owner: not idle while buffered or in flight; idle after publish; resumes on shutdown; cancellation leaves no waiter. Pipeline: real projector, bus, coordinator, governors | Git status provider stubbed; everything else real |
 | R8 | Blocking waits moved off the pool | Pane-agent helper test; lane utilization | Real child process |
-| R9 | Each family's row in the Specification | Corrected test; deterministic reproduction where one exists | Per family |
-| R10, R12, R13 | Standard document; instruction and config corrections; derived isolation list | Audit checklist; a gate test that an annotated suite appears in the derived list | Real scripts |
+| R9 | The per-family table below | Corrected test; deterministic reproduction where one exists | Per family |
+| R10, R12, R13 | Standard document; instruction and config corrections; isolation and WebKit list gate | Audit checklist; a gate test that every listed suite exists and is matched by its filter | Real scripts |
 | R14 | Seed cache | CI log: no optimizer cold start inside a bounded step | Real Vite, real backend |
 | R15 | One animation-settle helper; explicit poll bound | Browser tests | Real browser |
 | R16, C5 | Terminated-stream record; bootstrap awaits the ended stream's reply task; typed refusals | Swift replay suite; integration through the real development server | All real |
 | R18 | — | Ten consecutive first-attempt green runs with lane reports; empty baseline | Real CI |
+
+### Each failure family, and what fixes it
+
+| Family | Fixed by | Pull request |
+| --- | --- | --- |
+| File source context leak | `open` owns one release boundary around `bootstrapInstalledContext`; a test invalidates admission from the acceptance observer. Present on this branch | 1 |
+| Hidden pane admits a frame | Assertion compares product-frame deltas, not total sequence | 1 |
+| Cache coordinator convergence; coalesced burst | `awaitQuiescence` over projector, bus, coordinator; the burst test also asserts zero drops on the projector's lossy subscription | 1 |
+| Launch-restore surface creation | `TerminalActivationScheduler` quiescence, with the supplemental drain tracked | 1 |
+| Refresh admission comparison | `BridgePaneRefreshAdmissionCoordinator` quiescence | 1 |
+| Repo explorer capture count | The test takes its baseline after `RepoExplorerProjectionAdapter` is idle, not from a value written mid-capture. The adapter's idle predicate and this row are the same signal: a capture that has finished | 1 |
+| Visible-tier cadence | The projector's duty-measurement clock becomes injectable beside its scheduling clock; tests advance both | 1 |
+| Exact-item FSEvents stream | The fixture awaits the activity fence it currently discards | 1 |
+| Pane-agent helper exit | The blocking wait moves off the cooperative pool (R8); a server signal only if that is not enough | 1 |
+| Review replay | Terminated-stream record; bootstrap awaits the ended stream's reply task (D9) | 1 |
+| Worktree-data integration (HTTP 409) | The test closes its first surface before opening the second; refusals are typed | 1 |
+| BridgeWeb backpressure E2E | Seed cache (D6); `retry: 1` deleted | 1 |
+| BridgeWeb share-shelf timeouts | One animation-settle helper; the unbounded one deleted | 1 |
+| BridgeWeb annotation E2E `source.refresh` | Undiagnosed (H5). Harness reports which commands arrived; derived waiters are abandoned with their antecedent | diagnostics in 1; fix when diagnosed |
+| Ghostty header not found | Lane preflight names the missing vendor input | 1 |
 
 ## Cutover
 
@@ -360,14 +385,16 @@ One authority per phase; nothing runs two ways at once.
 
 | Phase | Becomes true | Authority for "how a test waits" | Rollback |
 | --- | --- | --- | --- |
-| 1. Runner and threads | Bounded concurrency, lane report, preflight, single-sourced bounds, derived isolation list, blocking waits off the pool | Unchanged (existing helpers) | Revert the workflow pin; nothing else depends on it |
+| 1. Runner and threads | Bounded concurrency, lane report, preflight, sane default bounds, isolation list gate, blocking waits off the pool | Unchanged (existing helpers) | Reverting the workflow change restores CI and benchmarks. It does not withdraw a release already tagged from the new toolchain, so the first such release follows the existing release smoke before it is relied on |
 | 2. Signals | Bus handled semantics; quiescence on the listed owners; discarded signals consumed | Unchanged | Per owner; each is additive |
 | 3. Diagnosed families and BridgeWeb | Every row of R9 dispositioned; seed cache; animation settle; stream-end handoff | New primitives for converted tests; baseline seeded; lint rule active | Per family |
-| 4. Conversion | Remaining polling sites converted by category; baseline shrinks to empty; helpers and baseline support deleted | New primitives only | Not applicable; shrink-only |
+| 4. Conversion | Remaining polling sites converted by category; baseline shrinks to empty; helpers and baseline support deleted; the serialized E2E lane joins CI | New primitives only | Not applicable; shrink-only |
 | 5. Standard and hygiene | Standard published and routed; contradicting instructions and stale notes removed | — | — |
 
-Phases 1, 2, 3, and 5 form the first pull request and are sufficient to unblock PR #350. Phase 4 is the second pull
-request, stacked behind the first; it is the bulk of the mechanical change and is what R18 waits on.
+Phases 1, 2, 3, and 5 form the first pull request and are sufficient to unblock PR #350. It merges under the
+repository's existing pull-request gate once "CI / Test" has passed on its head twice in a row on the first attempt;
+PR #350 merges after it. Phase 4 is the second pull request, stacked behind the first; it is the bulk of the mechanical
+change and is what R18 waits on. Lane reports are collected from every run from the first pull request onward.
 
 ## Accepted debt
 
@@ -375,12 +402,6 @@ request, stacked behind the first; it is the bulk of the mechanical change and i
 | --- | --- | --- |
 | Width is set through an `EXPERIMENTAL` environment variable | Test-topology owner | Swift Testing stabilizes the option or changes its default |
 | Category E and G sites have no single primitive | Whoever converts them | A third site needs the same bespoke signal; then it becomes a primitive |
-| 185 new compiler warnings on Swift 6.3.3 | Reliability work, as a triage list | Any becomes an error in a later toolchain |
+| 185 new compiler warnings on Swift 6.3.3 | Deferred; no owner under this goal | Any becomes an error in a later toolchain |
 | Lint detects loops, not every disguised poll | Reviewers | A disguised poll reaches `main` |
 | WebKit lane still retries a test-helper crash during teardown | WebKit lane owner | The crash is diagnosed; then the retry is deleted |
-
-## Open decisions
-
-| # | Decision | Options | Recommendation | Blocks |
-| --- | --- | --- | --- | --- |
-| P3 | The serialized E2E lane runs in the local gate but never in CI | Add it to CI, or remove it from the local gate and the instructions | Add it to CI after phase 1, when lane time is explainable | R12 for that one row |
