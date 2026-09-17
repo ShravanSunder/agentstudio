@@ -36,10 +36,22 @@ func replyToApplicationTerminationAfterBoundedDrain(
     drain: @escaping @MainActor () async -> Void,
     reply: @escaping @MainActor (TerminationDrainOutcome) -> Void
 ) async {
-    let didDrain = await withCheckedContinuation { continuation in
+    reply(await runWithTerminationDeadline(timeout: timeout, delay: delay, operation: drain))
+}
+
+/// Races one termination stage against its deadline and reports which side won.
+/// Nothing here cancels the stage: a stage that overruns keeps running, it just
+/// stops being able to hold up what follows.
+@MainActor
+func runWithTerminationDeadline(
+    timeout: Duration,
+    delay: AsyncDelay = .taskSleep,
+    operation: @escaping @MainActor () async -> Void
+) async -> TerminationDrainOutcome {
+    let didComplete = await withCheckedContinuation { continuation in
         let completion = TerminationDrainCompletion()
         Task { @MainActor in
-            await drain()
+            await operation()
             completion.resume(continuation, value: true)
         }
         Task {
@@ -47,7 +59,23 @@ func replyToApplicationTerminationAfterBoundedDrain(
             completion.resume(continuation, value: false)
         }
     }
-    reply(didDrain ? .completed : .timedOut)
+    return didComplete ? .completed : .timedOut
+}
+
+/// The workspace flush must never lose its budget to the IPC drain. Decision AB
+/// accepts a non-durable credential window at process end, so the drain is the
+/// least important stage; a workspace layout that never reached disk is not
+/// recoverable at all. The drain therefore runs after the flush, under its own
+/// bound, and its overrun costs nothing that was still unwritten.
+@MainActor
+func runBoundedIPCDrainAfterWorkspaceFlush(
+    timeout: Duration,
+    delay: AsyncDelay = .taskSleep,
+    workspaceFlush: @MainActor () async -> Void,
+    ipcDrain: @escaping @MainActor () async -> Void
+) async -> TerminationDrainOutcome {
+    await workspaceFlush()
+    return await runWithTerminationDeadline(timeout: timeout, delay: delay, operation: ipcDrain)
 }
 
 @MainActor
@@ -61,13 +89,6 @@ func runFirstPersistenceFlushAfterWorkspaceCacheShutdown(
 
 extension AppDelegate {
     func flushApplicationStateBeforeTermination(store: WorkspaceStore) async {
-        startupTraceRecorder?.recordAppStartup(
-            "app.termination.ipc_drain", phase: "started", outcome: "started"
-        )
-        await stopAndDrainAppIPCServer()
-        startupTraceRecorder?.recordAppStartup(
-            "app.termination.ipc_drain", phase: "completed", outcome: "completed"
-        )
         stopWorkspacePaneRecencyObservation()
 
         await runFirstPersistenceFlushAfterWorkspaceCacheShutdown(
@@ -126,10 +147,28 @@ extension AppDelegate {
             try? await self?.performanceTraceRecorder?.drain()
         }
 
-        // Always flush on quit — the pre-persist hook syncs runtime webview state
-        // back to the pane model, so this must run even when isDirty == false.
-        if !(await store.flushAsync()).succeeded {
-            appLogger.warning("Workspace flush failed at termination")
+        let ipcDrainOutcome = await runBoundedIPCDrainAfterWorkspaceFlush(
+            timeout: AppPolicies.IPC.shutdownDrainTimeout,
+            workspaceFlush: {
+                // Always flush on quit — the pre-persist hook syncs runtime webview
+                // state back to the pane model, so this must run even when
+                // isDirty == false.
+                if !(await store.flushAsync()).succeeded {
+                    appLogger.warning("Workspace flush failed at termination")
+                }
+            },
+            ipcDrain: { [weak self] in
+                self?.startupTraceRecorder?.recordAppStartup(
+                    "app.termination.ipc_drain", phase: "started", outcome: "started"
+                )
+                await self?.stopAndDrainAppIPCServer()
+                self?.startupTraceRecorder?.recordAppStartup(
+                    "app.termination.ipc_drain", phase: "completed", outcome: "completed"
+                )
+            }
+        )
+        if ipcDrainOutcome == .timedOut {
+            appLogger.warning("IPC drain timed out at termination; continuing shutdown")
         }
 
         await runTerminationDrain("trace flush") { [weak self] in
@@ -153,18 +192,10 @@ extension AppDelegate {
         _ name: String,
         operation: @escaping @MainActor () async -> Void
     ) async {
-        let didDrain = await withCheckedContinuation { continuation in
-            let completion = TerminationDrainCompletion()
-            Task { @MainActor in
-                await operation()
-                completion.resume(continuation, value: true)
-            }
-            Task {
-                try? await Task.sleep(nanoseconds: terminationTraceDrainTimeout.nanosecondsForTaskSleep)
-                completion.resume(continuation, value: false)
-            }
-        }
-        if !didDrain {
+        let outcome = await runWithTerminationDeadline(
+            timeout: terminationTraceDrainTimeout, operation: operation
+        )
+        if outcome == .timedOut {
             appLogger.warning("\(name) drain timed out at termination; continuing shutdown")
         }
     }

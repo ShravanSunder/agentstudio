@@ -45,6 +45,55 @@ struct AppTerminationDrainDeadlineTests {
         #expect(recorder.outcomes == [.completed])
         withheldDeadline.release()
     }
+    @Test("the workspace flush completes even when the IPC drain never does")
+    func workspaceFlushSurvivesAnUnfinishedIPCDrain() async {
+        let stages = TerminationStageRecorder()
+        let neverCompletingIPCDrain = ReleasableGate()
+
+        let outcome = await runBoundedIPCDrainAfterWorkspaceFlush(
+            timeout: .seconds(2),
+            delay: .immediate,
+            workspaceFlush: { stages.record("workspaceFlush") },
+            ipcDrain: {
+                stages.record("ipcDrainStarted")
+                await neverCompletingIPCDrain.wait()
+                stages.record("ipcDrainCompleted")
+            }
+        )
+
+        #expect(outcome == .timedOut)
+        // The flush is durable before the drain is even attempted, so the
+        // drain overrunning its bound cannot cost the workspace layout.
+        #expect(stages.names.first == "workspaceFlush")
+        #expect(!stages.names.contains("ipcDrainCompleted"))
+        neverCompletingIPCDrain.release()
+    }
+
+    @Test("a completing IPC drain still runs after the workspace flush")
+    func ipcDrainRunsAfterTheWorkspaceFlush() async {
+        let stages = TerminationStageRecorder()
+        let withheldDeadline = ReleasableGate()
+
+        let outcome = await runBoundedIPCDrainAfterWorkspaceFlush(
+            timeout: .seconds(2),
+            delay: AsyncDelay { _ in await withheldDeadline.wait() },
+            workspaceFlush: { stages.record("workspaceFlush") },
+            ipcDrain: { stages.record("ipcDrain") }
+        )
+
+        #expect(outcome == .completed)
+        #expect(stages.names == ["workspaceFlush", "ipcDrain"])
+        withheldDeadline.release()
+    }
+}
+
+@MainActor
+private final class TerminationStageRecorder {
+    private(set) var names: [String] = []
+
+    func record(_ name: String) {
+        names.append(name)
+    }
 }
 
 @MainActor
