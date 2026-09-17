@@ -643,6 +643,14 @@ func cliExecutableURL() throws -> URL {
     return resolvedBuildDirectory.appending(path: "debug/agentstudio-cli")
 }
 
+/// A hang guard, not a performance assertion.
+///
+/// Ten seconds was close enough to what a CLI subprocess and a real server
+/// harness take under the fully parallel fast lane that it failed the run
+/// rather than catching anything. No case here asserts elapsed time, so the
+/// only job left is to end a process that will never exit.
+private let cliSubprocessTimeout = DispatchTimeInterval.seconds(120)
+
 func runCLI(
     executableURL: URL,
     arguments: [String],
@@ -659,7 +667,7 @@ func runCLI(
     process.standardError = standardError
     process.terminationHandler = { _ in completion.signal() }
     try process.run()
-    guard completion.wait(timeout: .now() + 10) == .success else {
+    guard completion.wait(timeout: .now() + cliSubprocessTimeout) == .success else {
         process.terminate()
         process.waitUntilExit()
         throw DynamicCommandClientTestError.subprocessTimedOut
