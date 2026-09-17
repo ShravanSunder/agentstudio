@@ -229,7 +229,8 @@ Sources/AgentStudioIPCClientCore/
   Depends only on transport and public programmatic-control contracts.
 
 Sources/AgentStudioIPCClient/
-  Thin `agentstudio-ipc` executable entrypoint.
+  Thin `agentstudio-cli` executable entrypoint, bundled as
+  `Contents/Helpers/agentstudio`.
   Depends only on the client core.
 
 Sources/AgentStudioPaneAgent/

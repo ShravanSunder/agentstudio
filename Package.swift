@@ -12,7 +12,7 @@ let package = Package(
             name: "agentstudio-bridge-dev-server",
             targets: ["AgentStudioBridgeDevelopmentServer"]
         ),
-        .executable(name: "agentstudio-ipc", targets: ["AgentStudioIPCClient"]),
+        .executable(name: "agentstudio-cli", targets: ["AgentStudioIPCClient"]),
         .executable(
             name: "agentstudio-sqlite-crash-fixture",
             targets: ["AgentStudioSQLiteCrashFixture"]

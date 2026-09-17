@@ -173,7 +173,7 @@ private struct PaneIPCIdentityOwnerFixture {
             .appending(path: "agentstudio-pane-ipc-identity-\(UUIDv7.generate())")
         socketURL = rootDirectory.appending(path: "agentstudio.sock")
         spoolDirectory = rootDirectory.appending(path: "spool/v2", directoryHint: .isDirectory)
-        cliExecutableURL = rootDirectory.appending(path: "AgentStudio.app/Contents/MacOS/agentstudio")
+        cliExecutableURL = rootDirectory.appending(path: "AgentStudio.app/Contents/Helpers/agentstudio")
         try FileManager.default.createDirectory(at: rootDirectory, withIntermediateDirectories: true)
     }
 

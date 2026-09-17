@@ -268,7 +268,7 @@ struct AgentStudioAppIPCReusableCredentialTests {
             principalRegistry: serverFixture.server.principalRegistry,
             socketURL: serverFixture.paths.socketURL,
             spoolDirectory: serverFixture.paths.spoolDirectory,
-            cliExecutableURL: fixture.rootURL.appending(path: "AgentStudio.app/Contents/MacOS/agentstudio"),
+            cliExecutableURL: fixture.rootURL.appending(path: "AgentStudio.app/Contents/Helpers/agentstudio"),
             inheritedEnvironment: [:],
             canonicalPaneMembership: { _, _ in true }
         )

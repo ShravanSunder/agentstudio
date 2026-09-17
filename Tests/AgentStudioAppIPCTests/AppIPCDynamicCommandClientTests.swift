@@ -642,7 +642,7 @@ private func cliExecutableURL() throws -> URL {
         buildDirectory.hasPrefix("/")
         ? URL(fileURLWithPath: buildDirectory)
         : projectRoot.appending(path: buildDirectory)
-    return resolvedBuildDirectory.appending(path: "debug/agentstudio-ipc")
+    return resolvedBuildDirectory.appending(path: "debug/agentstudio-cli")
 }
 
 private func runCLI(
