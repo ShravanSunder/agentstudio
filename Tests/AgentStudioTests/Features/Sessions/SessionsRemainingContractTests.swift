@@ -113,6 +113,120 @@ struct SessionsRemainingContractTests {
         }
     }
 
+    @Test(
+        "unseen non-live provider binds remain historical without replacing the current generation",
+        arguments: [SessionsEvidenceFreshness.late, .historical]
+    )
+    func unseenNonLiveProviderBindPreservesCurrentGeneration(
+        freshness: SessionsEvidenceFreshness
+    ) async throws {
+        let fixture = try SessionsDatabaseFixture()
+        try await withSessionsIngestion(repository: fixture.makeRepository()) { ingestion in
+            let paneId = UUIDv7.generate()
+            let sourceGenerationA = UUIDv7.generate()
+            let sourceGenerationC = UUIDv7.generate()
+            let establishedA = try await ingestion.submit(
+                correlationId: UUIDv7.generate(),
+                mutation: .bind(
+                    makeQualifiedBindMutation(
+                        paneId: paneId,
+                        providerConversationId: "conversation-A",
+                        sourceGenerationId: sourceGenerationA,
+                        reportedAt: 1
+                    )
+                )
+            )
+            guard case .binding(.established(let bindingA)) = establishedA else {
+                Issue.record("Expected binding A to establish, got \(establishedA)")
+                return
+            }
+            let historicalOccurrenceId = UUIDv7.generate()
+
+            let outcome = try await ingestion.submit(
+                correlationId: UUIDv7.generate(),
+                mutation: .bind(
+                    makeQualifiedBindMutation(
+                        paneId: paneId,
+                        providerConversationId: "conversation-C",
+                        sourceGenerationId: sourceGenerationC,
+                        occurrenceId: historicalOccurrenceId,
+                        freshness: freshness,
+                        reportedAt: 2
+                    )
+                )
+            )
+
+            #expect(outcome == .historical(occurrenceId: historicalOccurrenceId))
+            let snapshot = try await ingestion.snapshot(makeSessionsSnapshotQuery(paneId: paneId))
+            #expect(snapshot.currentBinding == bindingA)
+            let persistenceCounts = try await loadGenerationPersistenceCounts(
+                fixture.sqliteAccess,
+                currentSourceGenerationId: sourceGenerationA,
+                rejectedSourceGenerationId: sourceGenerationC
+            )
+            #expect(persistenceCounts.currentBindings == 1)
+            #expect(persistenceCounts.currentSources == 1)
+            #expect(persistenceCounts.rejectedBindings == 0)
+            #expect(persistenceCounts.rejectedSources == 0)
+        }
+    }
+
+    @Test("explicit model bind retains authority to replace the current provider generation")
+    func explicitModelBindReplacesCurrentProviderGeneration() async throws {
+        let fixture = try SessionsDatabaseFixture()
+        try await withSessionsIngestion(repository: fixture.makeRepository()) { ingestion in
+            let paneId = UUIDv7.generate()
+            let establishedA = try await ingestion.submit(
+                correlationId: UUIDv7.generate(),
+                mutation: .bind(
+                    makeQualifiedBindMutation(
+                        paneId: paneId,
+                        providerConversationId: "conversation-A",
+                        sourceGenerationId: UUIDv7.generate(),
+                        reportedAt: 1
+                    )
+                )
+            )
+            guard case .binding(.established(let bindingA)) = establishedA else {
+                Issue.record("Expected binding A to establish, got \(establishedA)")
+                return
+            }
+            let modelSourceGenerationId = UUIDv7.generate()
+            let modelBind = SessionsBindMutation.explicitModelBind(
+                SessionsExplicitModelBindInput(
+                    provider: SessionsProviderIdentity(
+                        providerIdentifier: "model-selected-provider",
+                        exactVersion: "1.0.0",
+                        operatingMode: "model"
+                    ),
+                    source: SessionsBindingSourceIdentity(
+                        paneId: paneId,
+                        providerConversationId: "conversation-model",
+                        sourceId: "model-selected-source",
+                        sourceGenerationId: modelSourceGenerationId,
+                        occurrenceId: UUIDv7.generate()
+                    ),
+                    reportedAt: Date(timeIntervalSince1970: 2)
+                )
+            )
+
+            let outcome = try await ingestion.submit(
+                correlationId: UUIDv7.generate(),
+                mutation: .bind(modelBind)
+            )
+
+            guard case .binding(.replaced(let endedA, let modelBinding)) = outcome else {
+                Issue.record("Expected explicit model bind to replace A, got \(outcome)")
+                return
+            }
+            #expect(endedA.bindingGenerationId == bindingA.bindingGenerationId)
+            #expect(modelBinding.sourceGenerationId == modelSourceGenerationId)
+            #expect(modelBinding.origin == .agentReported)
+            let snapshot = try await ingestion.snapshot(makeSessionsSnapshotQuery(paneId: paneId))
+            #expect(snapshot.currentBinding == modelBinding)
+        }
+    }
+
     @Test("competing identity without a qualified transition returns binding conflict")
     func competingUnqualifiedBindReturnsConflict() async throws {
         let fixture = try SessionsDatabaseFixture()
@@ -456,6 +570,47 @@ private func loadSourceCursor(
             database,
             sql: "SELECT last_cursor FROM sessions_source WHERE source_generation_id = ?",
             arguments: [sourceGenerationId.uuidString]
+        )
+    }
+}
+
+private struct SessionsGenerationPersistenceCounts: Sendable {
+    let currentBindings: Int
+    let currentSources: Int
+    let rejectedBindings: Int
+    let rejectedSources: Int
+}
+
+private func loadGenerationPersistenceCounts(
+    _ sqliteAccess: TestSessionsSQLiteAccess,
+    currentSourceGenerationId: UUID,
+    rejectedSourceGenerationId: UUID
+) async throws -> SessionsGenerationPersistenceCounts {
+    try await sqliteAccess.read { database in
+        func countRows(table: String, sourceGenerationId: UUID) throws -> Int {
+            try Int.fetchOne(
+                database,
+                sql: "SELECT COUNT(*) FROM \(table) WHERE source_generation_id = ?",
+                arguments: [sourceGenerationId.uuidString]
+            ) ?? 0
+        }
+        return try SessionsGenerationPersistenceCounts(
+            currentBindings: countRows(
+                table: "sessions_pane_binding",
+                sourceGenerationId: currentSourceGenerationId
+            ),
+            currentSources: countRows(
+                table: "sessions_source",
+                sourceGenerationId: currentSourceGenerationId
+            ),
+            rejectedBindings: countRows(
+                table: "sessions_pane_binding",
+                sourceGenerationId: rejectedSourceGenerationId
+            ),
+            rejectedSources: countRows(
+                table: "sessions_source",
+                sourceGenerationId: rejectedSourceGenerationId
+            )
         )
     }
 }

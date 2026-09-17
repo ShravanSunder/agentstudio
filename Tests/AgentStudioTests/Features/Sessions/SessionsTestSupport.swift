@@ -233,6 +233,7 @@ func makeQualifiedBindMutation(
     providerConversationId: String,
     sourceGenerationId: UUID,
     occurrenceId: UUID = UUIDv7.generate(),
+    freshness: SessionsEvidenceFreshness = .live,
     reportedAt: TimeInterval
 ) -> SessionsBindMutation {
     SessionsBindMutation(
@@ -244,7 +245,7 @@ func makeQualifiedBindMutation(
         sourceId: "qualified-source",
         sourceGenerationId: sourceGenerationId,
         transition: .qualifiedSessionStart(occurrenceId: occurrenceId),
-        freshness: .live,
+        freshness: freshness,
         reportedAt: Date(timeIntervalSince1970: reportedAt)
     )
 }

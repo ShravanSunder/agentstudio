@@ -14,8 +14,8 @@ extension SessionsEvidenceReducer {
         {
             return SessionsRepositoryReduction(outcome: .binding(.unchanged(currentBinding)))
         }
-        if context.sources.contains(where: { $0.sourceGenerationId == mutation.sourceGenerationId }) {
-            return SessionsRepositoryReduction(outcome: .historical(occurrenceId: mutation.transition.occurrenceId))
+        if let historicalReduction = historicalBindReduction(mutation, context: context) {
+            return historicalReduction
         }
         guard let admittedOrigin = mutation.transition.admittedOrigin else {
             throw SessionsRepositoryError.bindingConflict(mutation.paneId)
@@ -105,6 +105,23 @@ extension SessionsEvidenceReducer {
             sourceChanges: sourceChanges,
             outcome: outcome
         )
+    }
+
+    private static func historicalBindReduction(
+        _ mutation: SessionsBindMutation,
+        context: SessionsRepositoryContext
+    ) -> SessionsRepositoryReduction? {
+        let isNonLiveProviderBind: Bool
+        if case .qualifiedSessionStart = mutation.transition {
+            isNonLiveProviderBind = mutation.freshness != .live
+        } else {
+            isNonLiveProviderBind = false
+        }
+        let isKnownGeneration = context.sources.contains {
+            $0.sourceGenerationId == mutation.sourceGenerationId
+        }
+        guard isNonLiveProviderBind || isKnownGeneration else { return nil }
+        return SessionsRepositoryReduction(outcome: .historical(occurrenceId: mutation.transition.occurrenceId))
     }
 
     static func reduceMessage(
