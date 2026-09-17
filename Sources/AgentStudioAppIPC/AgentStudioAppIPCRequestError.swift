@@ -146,14 +146,14 @@ extension AgentStudioAppIPCRequestError {
             self = Self(
                 code: -32_003, message: "no bound conversation",
                 data: .object([
-                    "reason": .string("bindingRequired"),
+                    "reason": .string(IPCSessionFailureReason.bindingRequired),
                     "fieldPath": .string("$.handle"),
                 ]))
         case .correlationConflict:
             self = Self(
                 code: -32_007, message: "correlation conflict",
                 data: .object([
-                    "reason": .string("correlationConflict"),
+                    "reason": .string(IPCSessionFailureReason.correlationConflict),
                     "fieldPath": .string("$.correlationId"),
                 ]))
         case .ingestionUnavailable:

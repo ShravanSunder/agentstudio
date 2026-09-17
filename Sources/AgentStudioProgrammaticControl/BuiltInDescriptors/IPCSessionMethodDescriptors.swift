@@ -253,11 +253,11 @@ package struct IPCSessionMethodDescriptors: Sendable {
             IPCBuiltInDescriptorSupport.targetNotFound,
             IPCBuiltInDescriptorSupport.unavailable,
             .init(
-                reason: "bindingRequired",
+                reason: IPCSessionFailureReason.bindingRequired,
                 description: "The pane has no active conversation binding for a deliberate report."
             ),
             .init(
-                reason: "correlationConflict",
+                reason: IPCSessionFailureReason.correlationConflict,
                 description: "The correlation identifier was reused for a different request."
             ),
         ]

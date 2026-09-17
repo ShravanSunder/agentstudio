@@ -88,12 +88,27 @@ struct AgentStudioIPCClientMain {
                         try write(response.normalizedResult)
                     }
                 case .remoteFailure(let failure):
-                    throw CLIExit.structured(CLIErrorPresentation(remoteFailure: failure))
+                    throw modelFailureExit(failure, invocation: invocation)
                 }
             }
         } catch {
             handleFailure(error)
         }
+    }
+
+    /// A refused model call answers in the same one-line register it asked in.
+    /// Tooling callers and `--detail` keep the structured envelope.
+    private static func modelFailureExit(
+        _ failure: IPCDescriptorRemoteFailure,
+        invocation: IPCDescriptorInvocation
+    ) -> CLIExit {
+        guard case .model(let presentation) = invocation.presentation,
+            !presentation.showsDetail,
+            let reply = IPCModelInvocationFailureReply.line(forDocumentedReason: failure.documentedReason)
+        else {
+            return .structured(CLIErrorPresentation(remoteFailure: failure))
+        }
+        return .modelReply(reply)
     }
 
     private static func handleFailure(_ error: Error) -> Never {
@@ -117,10 +132,10 @@ struct AgentStudioIPCClientMain {
                 writeUnavailableError()
             }
         case let error as CLIExit:
-            if case .structured(let presentation) = error {
-                writeStructuredError(presentation)
-            } else {
-                writeUnavailableError()
+            switch error {
+            case .structured(let presentation): writeStructuredError(presentation)
+            case .modelReply(let reply): fputs("\(reply)\n", stderr)
+            case .rejected: writeUnavailableError()
             }
         default:
             writeUnavailableError()
@@ -151,6 +166,7 @@ struct AgentStudioIPCClientMain {
 private enum CLIExit: Error {
     case rejected
     case structured(CLIErrorPresentation)
+    case modelReply(String)
 }
 
 private struct CLIErrorPresentation: Codable {

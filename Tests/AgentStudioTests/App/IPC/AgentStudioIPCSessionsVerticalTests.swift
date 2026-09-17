@@ -120,9 +120,16 @@ struct AgentStudioIPCSessionsVerticalTests {
         let harness = try await SessionsVerticalHarness.make()
         defer { harness.tearDown() }
 
-        let sent = try await harness.sessionMessage(paneId: harness.sparePaneId, text: "no binding yet")
+        // The same awkward text as the bound case: an unattributed message is a
+        // successful durable outcome, so it may not lose a byte either.
+        let text = "no binding yet \u{1F9ED}\nsecond line \u{00E9}\u{4E2D}"
+        let sent = try await harness.sessionMessage(paneId: harness.sparePaneId, text: text)
         #expect(!sent.attributed)
-        #expect(try await harness.sessionQuery(paneId: harness.sparePaneId).messages.map(\.text) == ["no binding yet"])
+
+        let queried = try await harness.sessionQuery(paneId: harness.sparePaneId)
+        #expect(queried.messages.map(\.text) == [text])
+        #expect(queried.messages.first?.occurrenceId == sent.occurrenceId)
+        #expect(queried.sourceHealth == .unbound)
 
         let failure = try await harness.rawSessionReport(
             paneId: harness.sparePaneId, kind: "needsYou", explanation: "nobody home"

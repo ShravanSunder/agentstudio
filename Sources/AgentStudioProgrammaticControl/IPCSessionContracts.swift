@@ -1,5 +1,13 @@
 import Foundation
 
+/// Documented failure reasons the session methods declare. The descriptor's
+/// error catalog, the app's error payload and the CLI's one-line model reply
+/// all read these constants so the wire reason cannot drift between them.
+package enum IPCSessionFailureReason {
+    package static let bindingRequired = "bindingRequired"
+    package static let correlationConflict = "correlationConflict"
+}
+
 /// Deliberate model vocabulary. The model never types a request identifier: the
 /// app derives and coalesces the assertion identity behind these three verbs.
 package enum IPCSessionReportKind: String, Codable, CaseIterable, Equatable, Sendable, IPCSchemaProviding {
