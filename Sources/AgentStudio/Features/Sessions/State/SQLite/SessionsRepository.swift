@@ -19,6 +19,12 @@ package struct SessionsRepository: Sendable {
             ) {
                 return replay
             }
+            if let replay = try SessionsRepositoryStorage.loadOccurrenceReplay(
+                database: database,
+                operation: operation
+            ) {
+                return replay
+            }
             let context = try SessionsRepositoryStorage.loadContext(
                 database: database,
                 query: operation.contextQuery

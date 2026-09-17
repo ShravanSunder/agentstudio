@@ -198,6 +198,7 @@ extension SessionsIngestion {
             operationScope: mutation.operationScope,
             operationKind: mutation.operationKind,
             semanticFingerprint: try mutation.semanticFingerprint(),
+            providerOccurrence: mutation.providerOccurrence,
             contextQuery: mutation.contextQuery,
             createdAt: mutation.occurredAt
         )
@@ -283,6 +284,21 @@ extension SessionsMutation {
         case .acknowledgeMessage: "messageAcknowledgment"
         case .recordLiveLoss: "loss"
         case .prepareForLaunch: "prepareForLaunch"
+        }
+    }
+
+    fileprivate var providerOccurrence: SessionsProviderOccurrenceIdentity? {
+        switch self {
+        case .bind(let mutation):
+            guard case .qualifiedSessionStart(let occurrenceId) = mutation.transition else {
+                return nil
+            }
+            return SessionsProviderOccurrenceIdentity(kind: .bind, occurrenceId: occurrenceId)
+        case .recordEvidence(let mutation):
+            return SessionsProviderOccurrenceIdentity(kind: .evidence, occurrenceId: mutation.occurrenceId)
+        case .message, .deliberateNeedsYou, .clearDeliberateNeedsYou, .deliberateDone,
+            .sourceEnded, .acknowledgeMessage, .recordLiveLoss, .prepareForLaunch:
+            return nil
         }
     }
 

@@ -8,11 +8,22 @@ package enum SessionsRepositoryContextQuery: Sendable, Equatable {
     case allActiveSources
 }
 
+package enum SessionsProviderOccurrenceKind: String, Sendable, Equatable {
+    case bind
+    case evidence
+}
+
+package struct SessionsProviderOccurrenceIdentity: Sendable, Equatable {
+    package let kind: SessionsProviderOccurrenceKind
+    package let occurrenceId: UUID
+}
+
 package struct SessionsRepositoryOperation: Sendable, Equatable {
     package let correlationId: UUID
     package let operationScope: String
     package let operationKind: String
     package let semanticFingerprint: String
+    package let providerOccurrence: SessionsProviderOccurrenceIdentity?
     package let contextQuery: SessionsRepositoryContextQuery
     package let createdAt: Date
 }

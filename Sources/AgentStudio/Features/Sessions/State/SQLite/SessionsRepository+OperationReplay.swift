@@ -25,12 +25,52 @@ extension SessionsRepositoryStorage {
         return try decodeOperationOutcome(database: database, row: row)
     }
 
+    static func loadOccurrenceReplay(
+        database: Database,
+        operation: SessionsRepositoryOperation
+    ) throws -> SessionsMutationOutcome? {
+        guard let providerOccurrence = operation.providerOccurrence else { return nil }
+        guard
+            let row = try Row.fetchOne(
+                database,
+                sql: """
+                    SELECT * FROM sessions_operation
+                    WHERE operation_kind = ? AND outcome_occurrence_id = ?
+                    ORDER BY commit_revision ASC
+                    LIMIT 1
+                    """,
+                arguments: [providerOccurrence.kind.rawValue, providerOccurrence.occurrenceId.uuidString]
+            )
+        else {
+            return nil
+        }
+        let storedScope: String = row["operation_scope"]
+        let storedKind: String = row["operation_kind"]
+        guard storedScope == operation.operationScope,
+            storedKind == operation.operationKind,
+            operation.operationKind == providerOccurrence.kind.rawValue
+        else {
+            throw SessionsRepositoryError.occurrenceConflict(providerOccurrence.occurrenceId)
+        }
+        let storedFingerprint: String = row["semantic_fingerprint"]
+        guard storedFingerprint == operation.semanticFingerprint else {
+            throw SessionsRepositoryError.occurrenceConflict(providerOccurrence.occurrenceId)
+        }
+        let outcome = try decodeOperationOutcome(database: database, row: row)
+        try insertOperationAlias(
+            database: database,
+            operation: operation,
+            retainedOperation: row
+        )
+        return outcome
+    }
+
     static func insertOperation(
         database: Database,
         operation: SessionsRepositoryOperation,
         outcome: SessionsMutationOutcome
     ) throws -> Int64 {
-        let storage = operationStorage(outcome)
+        let storage = operationStorage(operation: operation, outcome: outcome)
         try database.execute(
             sql: """
                 INSERT INTO sessions_operation(
@@ -53,6 +93,37 @@ extension SessionsRepositoryStorage {
         )
         return database.lastInsertedRowID
     }
+
+    private static func insertOperationAlias(
+        database: Database,
+        operation: SessionsRepositoryOperation,
+        retainedOperation: Row
+    ) throws {
+        let outcomeKind: String = retainedOperation["outcome_kind"]
+        let outcomeEntityId: String? = retainedOperation["outcome_entity_id"]
+        let outcomeOccurrenceId: String? = retainedOperation["outcome_occurrence_id"]
+        let bindingGenerationId: String? = retainedOperation["binding_generation_id"]
+        try database.execute(
+            sql: """
+                INSERT INTO sessions_operation(
+                    operation_scope, correlation_id, operation_kind, semantic_fingerprint,
+                    outcome_kind, outcome_entity_id, outcome_occurrence_id,
+                    binding_generation_id, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+            arguments: [
+                operation.operationScope,
+                operation.correlationId.uuidString,
+                operation.operationKind,
+                operation.semanticFingerprint,
+                outcomeKind,
+                outcomeEntityId,
+                outcomeOccurrenceId,
+                bindingGenerationId,
+                operation.createdAt.timeIntervalSince1970,
+            ]
+        )
+    }
 }
 
 extension SessionsRepositoryStorage {
@@ -63,7 +134,23 @@ extension SessionsRepositoryStorage {
         let bindingGenerationId: String?
     }
 
-    fileprivate static func operationStorage(_ outcome: SessionsMutationOutcome) -> OperationStorage {
+    fileprivate static func operationStorage(
+        operation: SessionsRepositoryOperation,
+        outcome: SessionsMutationOutcome
+    ) -> OperationStorage {
+        let storedOutcome = outcomeStorage(outcome)
+        guard let providerOccurrence = operation.providerOccurrence else {
+            return storedOutcome
+        }
+        return OperationStorage(
+            kind: storedOutcome.kind,
+            entityId: storedOutcome.entityId,
+            occurrenceId: providerOccurrence.occurrenceId.uuidString,
+            bindingGenerationId: storedOutcome.bindingGenerationId
+        )
+    }
+
+    private static func outcomeStorage(_ outcome: SessionsMutationOutcome) -> OperationStorage {
         switch outcome {
         case .binding(.established(let binding)):
             OperationStorage(

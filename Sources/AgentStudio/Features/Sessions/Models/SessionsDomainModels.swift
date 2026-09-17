@@ -525,6 +525,7 @@ package enum SessionsRepositoryError: Error, Sendable, Equatable {
     case bindingRequired(UUID)
     case bindingConflict(UUID)
     case correlationConflict(UUID)
+    case occurrenceConflict(UUID)
     case messageNotFound(UUID)
     case sourceNotFound(UUID)
     case attentionNotFound(UUID)
