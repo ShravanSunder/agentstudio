@@ -221,6 +221,13 @@ struct AgentStudioIPCClientMain {
         ) {
             return code
         }
+        if let code = CursorProviderRouter.exitCode(
+            arguments: arguments, environment: environment,
+            executablePath: CommandLine.arguments[0], standardInput: readInput,
+            identifierGenerator: { UUIDv7.generate() }
+        ) {
+            return code
+        }
         guard let subcommand = AgentPackageSubcommand.parse(arguments) else { return nil }
         return AgentPackageCommandRunner.run(subcommand, props: agentPackageProps(readInput: readInput))
     }

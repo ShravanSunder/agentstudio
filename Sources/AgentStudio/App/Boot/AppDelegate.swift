@@ -98,7 +98,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     /// mode reports as unqualified. Composition happens here because the
     /// Claude Code profile is App-owned and the shipped list is Feature-owned.
     var appIPCSessionsProviderProfiles: [SessionsProviderProfile] =
-        SessionsProviderProfile.shippedProfiles + [.claudeCodeCommandLine]
+        SessionsProviderProfile.shippedProfiles + [.claudeCodeCommandLine, .cursorCommandLine]
     var appLifecycleStore: AppLifecycleAtom!
     var windowLifecycleStore: WindowLifecycleAtom!
     var applicationLifecycleMonitor: ApplicationLifecycleMonitor!
