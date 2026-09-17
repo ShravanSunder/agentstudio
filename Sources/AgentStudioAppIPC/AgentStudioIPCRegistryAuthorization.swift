@@ -1,3 +1,4 @@
+import AgentStudioIPCTransport
 import AgentStudioProgrammaticControl
 import Foundation
 
@@ -24,13 +25,19 @@ package struct AppIPCMethodRegistry: Sendable {
             compatibility: .current, availableDescriptors: available.map(\.descriptor),
             illustrativeDescriptor: ping.descriptor
         )
+        let capabilityDescriptor = composition.descriptor
+        let capabilityResult = composition.result
         let capabilityRegistration = try AppIPCTypedMethodRegistration(
             descriptor: composition.descriptor,
             correlation: .notRequired,
             resolveTarget: { parameters, context, _ in
                 try AppIPCBuiltInRegistrationSupport.principalTarget(parameters, context: context)
             },
-            connectionHandler: { _, _, _ in composition.result }
+            connectionHandler: { _, _, _ in capabilityResult },
+            cachedTransportResult: AppIPCCachedTransportResult {
+                try JSONDecoder().decode(
+                    JSONValue.self, from: try capabilityDescriptor.encodeResult(capabilityResult))
+            }
         ).erase()
         self.channel = channel
         self.capabilities = composition.result

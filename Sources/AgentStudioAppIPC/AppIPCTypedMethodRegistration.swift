@@ -98,13 +98,18 @@ package struct AppIPCTypedMethodRegistration<
                 Parameters,
                 AppIPCConnectionContext,
                 IPCTargetScope
-            ) async throws -> Result
+            ) async throws -> Result,
+        cachedTransportResult: AppIPCCachedTransportResult? = nil
     ) {
         self.descriptor = descriptor
         self.correlation = correlation
         self.resolveTarget = resolveTarget
         self.connectionHandler = connectionHandler
+        self.cachedTransportResult = cachedTransportResult
     }
+
+    /// Set only for a method whose answer is fixed for the runtime.
+    private let cachedTransportResult: AppIPCCachedTransportResult?
 
     package func erase() throws -> AnyAppIPCMethodRegistration {
         try validateCorrelationPolicy()
@@ -155,6 +160,12 @@ package struct AppIPCTypedMethodRegistration<
                     )
                 }
 
+                // Every access and authorization gate above still runs. Only
+                // the encoding of an answer that cannot differ between requests
+                // is reused.
+                if let cachedTransportResult {
+                    return try cachedTransportResult.value()
+                }
                 let typedResult = try await connectionHandler(
                     resolution.parameters,
                     connectionContext,

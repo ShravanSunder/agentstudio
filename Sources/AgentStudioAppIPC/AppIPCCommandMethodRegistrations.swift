@@ -1,3 +1,4 @@
+import AgentStudioIPCTransport
 import AgentStudioProgrammaticControl
 import Foundation
 
@@ -13,7 +14,12 @@ package enum AppIPCCommandMethodRegistrations {
                 resolveTarget: { parameters, context, _ in
                     try AppIPCBuiltInRegistrationSupport.principalTarget(parameters, context: context)
                 },
-                connectionHandler: { _, _, _ in composition.catalogResult }
+                connectionHandler: { _, _, _ in composition.catalogResult },
+                cachedTransportResult: AppIPCCachedTransportResult {
+                    try JSONDecoder().decode(
+                        JSONValue.self,
+                        from: try composition.list.encodeResult(composition.catalogResult))
+                }
             ).erase(),
             AppIPCTypedMethodRegistration(
                 descriptor: composition.execute,

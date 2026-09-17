@@ -45,6 +45,36 @@ struct AgentStudioIPCCatalogFrameTransportTests {
         #expect(catalog.methods.contains { $0.name == "session.message" })
     }
 
+    /// The catalog cannot change while a runtime is up, so the encoding that
+    /// turns it into a wire response is done once. Three requests must return
+    /// the same answer, and only the first may pay for producing it.
+    @Test("repeated capabilities requests return one answer and only the first pays")
+    func repeatedCapabilitiesRequestsServeOneComposition() async throws {
+        let harness = try await SessionsVerticalHarness.make()
+        defer { harness.tearDown() }
+
+        let first = try await harness.measuredResponseFrame(method: "system.capabilities")
+        let second = try await harness.measuredResponseFrame(method: "system.capabilities")
+        let third = try await harness.measuredResponseFrame(method: "system.capabilities")
+
+        // The answer, not its byte layout: JSON object key order is not part of
+        // the contract, and the transport re-serializes the cached value.
+        let firstResult = try JSONRPCCodec.decodeResponse(first.frame).result
+        let secondResult = try JSONRPCCodec.decodeResponse(second.frame).result
+        let thirdResult = try JSONRPCCodec.decodeResponse(third.frame).result
+        #expect(firstResult == secondResult)
+        #expect(secondResult == thirdResult)
+        #expect(firstResult != nil)
+        // Re-encoding the catalog costs seconds, so a served response cannot
+        // come close to the cost of producing one. This compares two measured
+        // requests rather than waiting on a clock.
+        #expect(
+            second.duration < first.duration * 0.75,
+            "first \(first.duration) second \(second.duration)"
+        )
+        #expect(third.duration < first.duration * 0.75)
+    }
+
     @Test("command.list crosses the socket and carries the debug command catalog")
     func commandListCrossesTheSocket() async throws {
         let harness = try await SessionsVerticalHarness.make()
