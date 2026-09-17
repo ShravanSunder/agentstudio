@@ -1,4 +1,5 @@
 import AgentStudioAppIPC
+import AgentStudioIPCTransport
 import AgentStudioInfrastructure
 import AgentStudioProgrammaticControl
 import Foundation
@@ -180,6 +181,30 @@ struct AgentStudioIPCCommandChannelCoverageTests {
             }
         )
         #expect(workspaceOwner.headlessRequests.isEmpty)
+    }
+
+    @Test("the complete debug command catalog still fits the existing one MiB NDJSON frame")
+    func debugCatalogFitsExistingFrame() throws {
+        let catalog = try CommandAdapterHarness(channel: .debug).adapter.listCommands()
+        let composition = try IPCCommandMethodComposition(
+            compatibility: .current,
+            commands: catalog.commands
+        )
+        let response = JSONRPCResponse.success(
+            id: .number(1),
+            result: try JSONRPCCodec.encodeJSONValue(composition.catalogResult)
+        )
+        let payload = try JSONRPCCodec.encodeResponse(response)
+        let frameByteLimit = 1_048_576
+        let frameByteCount = payload.utf8.count + 1
+
+        #expect(catalog.commands.count == 146)
+        #expect(
+            frameByteCount <= frameByteLimit,
+            "Complete 146-command debug catalog frame is \(frameByteCount) bytes"
+        )
+        let frame = try NDJSONFrameEncoder.encode(payload, maxFrameBytes: frameByteLimit)
+        #expect(frame.count == frameByteCount)
     }
 
     static let admittedHeadlessCommands: [AppCommand] = [
