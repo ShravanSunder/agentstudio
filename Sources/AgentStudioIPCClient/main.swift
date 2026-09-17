@@ -29,10 +29,18 @@ struct AgentStudioIPCClientMain {
                 try write(JSONEncoder().encode(discoveryClient.discoverCatalog()))
                 return
             }
+            let locallyResolvable = try IPCBuiltInMethodCatalog.locallyResolvableDescriptors(examples: examples)
             let descriptors: [IPCAnyMethodDescriptor]
             var commandCatalog: IPCDiscoveredCommandCatalog?
-            if bootstrap.contains(where: { $0.metadata.name == global.methodArguments.first }) {
-                descriptors = bootstrap
+            // A method this binary was compiled with goes straight out. Only the
+            // command verbs, whose arguments the running app defines, and
+            // anything not compiled here need the catalog.
+            if global.methodArguments.first != "command.list",
+                global.methodArguments.first != "command.execute",
+                IPCBuiltInMethodCatalog.resolvesLocally(
+                    global.methodArguments, descriptors: locallyResolvable)
+            {
+                descriptors = locallyResolvable
             } else {
                 let catalog: IPCMethodCatalogResult
                 do {

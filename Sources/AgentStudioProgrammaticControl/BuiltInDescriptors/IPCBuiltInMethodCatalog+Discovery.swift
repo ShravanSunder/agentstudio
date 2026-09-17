@@ -27,6 +27,41 @@ extension IPCBuiltInMethodCatalog {
         try IPCSessionMethodDescriptors(examples: examples).erased
     }
 
+    /// The methods the CLI can invoke straight from its own compiled contracts.
+    ///
+    /// R-10 makes the compiled descriptor the CLI's source of truth, so fetching
+    /// the whole self-describing catalog to reach a method it already holds
+    /// buys nothing: the request still carries the compiled catalog identity and
+    /// the server's existing version-skew error still answers a mismatch. It
+    /// costs a great deal, because the catalog is the largest response the app
+    /// composes and the provider hooks that call these methods run under short
+    /// timeouts several times a turn.
+    ///
+    /// `command.list` and `command.execute` are deliberately absent: their
+    /// arguments are defined by the running app, not by this binary.
+    package static func locallyResolvableDescriptors(
+        examples: IPCBuiltInMethodExampleContext
+    ) throws -> [IPCAnyMethodDescriptor] {
+        try bootstrapDescriptors(examples: examples)
+            + IPCSessionMethodDescriptors(examples: examples).erased
+    }
+
+    /// Whether these arguments name one of `descriptors`, either by method name
+    /// or by a model call it declares, using the same prefix match the
+    /// invocation parser applies.
+    package static func resolvesLocally(
+        _ arguments: [String],
+        descriptors: [IPCAnyMethodDescriptor]
+    ) -> Bool {
+        guard let invocationName = arguments.first else { return false }
+        if descriptors.contains(where: { $0.metadata.name == invocationName }) { return true }
+        return descriptors.contains { descriptor in
+            descriptor.metadata.modelCalls.contains { modelCall in
+                arguments.starts(with: modelCall.variant.rawValue.split(separator: " ").map(String.init))
+            }
+        }
+    }
+
     package static func matchingDiscoveredMethods(
         _ catalog: IPCMethodCatalogResult,
         examples: IPCBuiltInMethodExampleContext

@@ -559,7 +559,7 @@ private enum DynamicCommandClientTestError: Error {
     case subprocessTimedOut
 }
 
-private struct CLIProcessResult {
+struct CLIProcessResult {
     let exitCode: Int32
     let standardOutput: Data
     let standardError: Data
@@ -632,7 +632,7 @@ private func dynamicCommandResponseFrame<Result: Encodable>(
     )
 }
 
-private func cliExecutableURL() throws -> URL {
+func cliExecutableURL() throws -> URL {
     let buildDirectory = try #require(ProcessInfo.processInfo.environment["SWIFT_BUILD_DIR"])
     let testFileURL = URL(fileURLWithPath: #filePath)
     let projectRoot = testFileURL.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
@@ -643,7 +643,7 @@ private func cliExecutableURL() throws -> URL {
     return resolvedBuildDirectory.appending(path: "debug/agentstudio-cli")
 }
 
-private func runCLI(
+func runCLI(
     executableURL: URL,
     arguments: [String],
     environment: [String: String]

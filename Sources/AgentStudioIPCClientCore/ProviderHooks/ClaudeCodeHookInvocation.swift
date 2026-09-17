@@ -90,9 +90,10 @@ package enum ClaudeCodeHookInvocation {
         )
         let examples = IPCBuiltInMethodExampleContext(illustrativeIdentifier: params.correlationId)
         let bootstrap = try IPCBuiltInMethodCatalog.bootstrapDescriptors(examples: examples)
-        let catalog = try AgentStudioIPCClient(configuration: configuration, descriptors: bootstrap)
-            .discoverCatalog()
-        let descriptors = try IPCBuiltInMethodCatalog.matchingDiscoveredMethods(catalog, examples: examples)
+        // A hook fires several times a turn under a short provider timeout, so
+        // it resolves session.event from its own compiled contract rather than
+        // fetching the whole catalog first.
+        let descriptors = try IPCBuiltInMethodCatalog.locallyResolvableDescriptors(examples: examples)
         guard let descriptor = descriptors.first(where: { $0.metadata.name == "session.event" }) else {
             throw ClaudeCodeHookInvocationError.sessionEventUnavailable
         }

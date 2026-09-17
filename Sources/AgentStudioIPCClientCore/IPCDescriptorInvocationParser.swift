@@ -72,11 +72,17 @@ package enum IPCDescriptorInvocationParser {
         }
         switch arguments.first {
         case "--json":
+            // `--json` reads as an output flag to almost everyone who types it,
+            // so a bare one means "no parameters" rather than a usage error.
+            // A method that does need parameters still refuses, naming the
+            // field it wanted, because the empty object is normalized against
+            // its schema like any other payload.
+            if arguments.count == 1 { return Data("{}".utf8) }
             guard arguments.count == 2 else {
                 throw failure(
                     .conflictingInputMode,
                     fieldPath: "$",
-                    expected: "--json followed by one JSON payload"
+                    expected: "--json followed by at most one JSON payload"
                 )
             }
             return Data(arguments[1].utf8)
