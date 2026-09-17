@@ -94,10 +94,49 @@ struct PaneIPCIdentityOwnerTests {
         #expect(await durableResolver.lookupCount == 0)
     }
 
+    @Test("terminal startup fails open while clearing inherited Agent Studio authority")
+    func terminalEnvironmentClearsInheritedAuthorityWhenMintingFails() throws {
+        let fixture = try PaneIPCIdentityOwnerFixture()
+        defer { fixture.removeFiles() }
+        let inheritedEnvironment = [
+            "PATH": "/usr/bin:/bin",
+            "AGENTSTUDIO_PANE_ID": "outer-pane",
+            "AGENTSTUDIO_WORKSPACE_ID": "outer-workspace",
+            "AGENTSTUDIO_IPC_SOCKET": "/tmp/outer.sock",
+            "AGENTSTUDIO_PANE_TOKEN": "outer-token",
+            "AGENTSTUDIO_IPC_CREDENTIAL_RECORD_ID": "outer-record",
+            "AGENTSTUDIO_IPC_SPOOL_DIR": "/tmp/outer-spool",
+            "AGENTSTUDIO_CLI": "/tmp/outer-agentstudio",
+        ]
+        let registry = makeRegistry(
+            durableResolver: UnexpectedDurableCredentialResolver(),
+            membership: { _, _ in false }
+        )
+        let owner = makeIdentityOwner(
+            principalRegistry: registry,
+            membership: { _, _ in false },
+            randomBytes: PaneCredentialByteSequence([]).next,
+            inheritedEnvironment: inheritedEnvironment,
+            fixture: fixture
+        )
+
+        let environment = owner.terminalEnvironment(
+            paneID: UUIDv7.generate(),
+            workspaceID: UUIDv7.generate()
+        )
+
+        #expect(environment["PATH"] == "/usr/bin:/bin")
+        for key in inheritedEnvironment.keys where key.hasPrefix("AGENTSTUDIO_") {
+            #expect(environment[key]?.isEmpty == true)
+        }
+        #expect(registry.issuedCredentialCandidates().isEmpty)
+    }
+
     private func makeIdentityOwner(
         principalRegistry: AgentStudioIPCPrincipalRegistry,
         membership: @escaping @MainActor @Sendable (UUID, UUID) -> Bool,
         randomBytes: @escaping @Sendable () throws -> Data,
+        inheritedEnvironment: [String: String] = ["PATH": "/usr/bin:/bin"],
         fixture: PaneIPCIdentityOwnerFixture
     ) -> PaneIPCIdentityOwner {
         PaneIPCIdentityOwner(
@@ -105,7 +144,7 @@ struct PaneIPCIdentityOwnerTests {
             socketURL: fixture.socketURL,
             spoolDirectory: fixture.spoolDirectory,
             cliExecutableURL: fixture.cliExecutableURL,
-            inheritedEnvironment: ["PATH": "/usr/bin:/bin"],
+            inheritedEnvironment: inheritedEnvironment,
             canonicalPaneMembership: membership,
             randomBytes: randomBytes
         )

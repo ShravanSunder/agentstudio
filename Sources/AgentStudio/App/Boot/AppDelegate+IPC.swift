@@ -28,6 +28,65 @@ enum AppIPCDeferredInitialization {
 }
 
 extension AppDelegate {
+    func installAppIPCIdentityAuthority(datastore: WorkspaceSQLiteDatastoreActor) {
+        let runtimeID = UUIDv7.generate()
+        let paths = AgentStudioIPCPathResolver().paths(
+            rootDirectory: AppDataPaths.rootDirectory(),
+            socketDirectory: Self.appIPCSocketDirectory()
+        )
+        let repository = IPCContinuityRepository(datastore: datastore)
+        let resolver = IPCContinuityCredentialResolver(repository: repository)
+        let registry = AgentStudioIPCPrincipalRegistry(
+            runtimeId: runtimeID,
+            credentialResolver: resolver,
+            canonicalPaneMembership: { [store] paneID, workspaceID in
+                store.identityAtom.workspaceId == workspaceID && store.paneAtom.pane(paneID) != nil
+            }
+        )
+        appIPCRuntimeID = runtimeID
+        appIPCPaths = paths
+        appIPCContinuityRepository = repository
+        appIPCCredentialResolver = resolver
+        appIPCPrincipalRegistry = registry
+        paneIPCIdentityOwner = PaneIPCIdentityOwner(
+            principalRegistry: registry,
+            socketURL: paths.socketURL,
+            spoolDirectory: paths.spoolDirectory,
+            cliExecutableURL: Bundle.main.bundleURL
+                .appending(path: "Contents/MacOS/agentstudio"),
+            canonicalPaneMembership: { [store] paneID, workspaceID in
+                store.identityAtom.workspaceId == workspaceID && store.paneAtom.pane(paneID) != nil
+            }
+        )
+    }
+
+    func appIPCWorkspaceSurfaceLifecycle() -> WorkspaceSurfaceIPCLifecycle {
+        let paneIPCIdentityOwner = paneIPCIdentityOwner!
+        return WorkspaceSurfaceIPCLifecycle(
+            environment: { paneID, workspaceID in
+                paneIPCIdentityOwner.terminalEnvironment(paneID: paneID, workspaceID: workspaceID)
+            },
+            invalidatePaneIDs: { [weak self] paneIDs in
+                for paneID in paneIDs {
+                    if let server = self?.appIPCServer {
+                        server.invalidatePrincipals(boundToPaneId: paneID.uuidString)
+                    } else {
+                        self?.appIPCPrincipalRegistry.invalidatePrincipals(boundToPaneId: paneID.uuidString)
+                    }
+                }
+            },
+            finalRevokePaneIDs: { [weak self] paneIDs in
+                for paneID in paneIDs {
+                    if let server = self?.appIPCServer {
+                        server.finalRevokePrincipals(boundToPaneID: paneID)
+                    } else {
+                        self?.appIPCPrincipalRegistry.finalRevokePane(paneID)
+                    }
+                }
+            }
+        )
+    }
+
     func scheduleAppIPCInitialization() {
         guard appIPCServer == nil, appIPCInitializationTask == nil else { return }
         let windowLifecycleStore = windowLifecycleStore!
@@ -53,7 +112,7 @@ extension AppDelegate {
         guard appIPCServer == nil else { return }
 
         do {
-            let composition = try makeAppIPCServer(workspaceSQLiteDatastore: workspaceSQLiteDatastore)
+            let composition = try makeAppIPCServer()
             try composition.server.start()
             appIPCServer = composition.server
             appLogger.info("App IPC server started at \(composition.socketURL.path, privacy: .private)")
@@ -69,16 +128,29 @@ extension AppDelegate {
         appIPCServer = nil
     }
 
-    private func makeAppIPCServer(
-        workspaceSQLiteDatastore: WorkspaceSQLiteDatastoreActor
-    ) throws -> (server: AgentStudioAppIPCServer, socketURL: URL) {
-        let runtimeId = UUIDv7.generate()
+    func stopAndDrainAppIPCServer() async {
+        let initializationTask = appIPCInitializationTask
+        initializationTask?.cancel()
+        await initializationTask?.value
+        appIPCInitializationTask = nil
+        guard let server = appIPCServer else {
+            appIPCPrincipalRegistry?.shutdown()
+            appLogger.info("App IPC shutdown completed without a published server or durable drain")
+            return
+        }
+        let result = await server.stopAndDrainCredentialPersistence()
+        appIPCServer = nil
+        if result.failedOperationCount > 0 {
+            appLogger.warning(
+                "App IPC credential persistence drain completed with \(result.failedOperationCount) failures"
+            )
+        }
+    }
+
+    private func makeAppIPCServer() throws -> (server: AgentStudioAppIPCServer, socketURL: URL) {
+        let runtimeId = appIPCRuntimeID!
         let accessMode = Self.appIPCAccessMode()
-        let rootDirectory = AppDataPaths.rootDirectory()
-        let paths = AgentStudioIPCPathResolver().paths(
-            rootDirectory: rootDirectory,
-            socketDirectory: Self.appIPCSocketDirectory()
-        )
+        let paths = appIPCPaths!
         let windowLifecycleReader = WorkspaceWindowLifecycleReader(lifecycleStore: windowLifecycleStore)
         guard mainWindowController?.acceptsIPCCommands == true else {
             throw AppIPCLayoutError(reason: .noActiveWindow)
@@ -142,22 +214,13 @@ extension AppDelegate {
             methodRegistry: registry,
             eventBroker: eventBroker
         )
-        let continuityRepository = IPCContinuityRepository(datastore: workspaceSQLiteDatastore)
-        let credentialResolver = IPCContinuityCredentialResolver(repository: continuityRepository)
-        let principalRegistry = AgentStudioIPCPrincipalRegistry(
-            runtimeId: runtimeId,
-            credentialResolver: credentialResolver,
-            canonicalPaneMembership: { [store] paneID, workspaceID in
-                store.identityAtom.workspaceId == workspaceID && store.paneAtom.pane(paneID) != nil
-            }
-        )
         return (
             AgentStudioAppIPCServer(
                 service: service,
                 paths: paths,
                 channel: Self.appIPCChannel(),
-                principalRegistry: principalRegistry,
-                credentialContinuityPort: continuityRepository
+                principalRegistry: appIPCPrincipalRegistry,
+                credentialContinuityPort: appIPCContinuityRepository
             ),
             paths.socketURL
         )

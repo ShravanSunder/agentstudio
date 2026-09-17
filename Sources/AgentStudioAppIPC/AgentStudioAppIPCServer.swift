@@ -127,6 +127,9 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
                 startedAt: startedAt
             )
             try AgentStudioIPCFilesystem.writeMetadata(metadata, paths: paths)
+            for paneID in principalRegistry.finalRevokedPaneIDsSnapshot() {
+                credentialPersistenceLane.enqueueFinalRevoke(paneID: paneID)
+            }
             schedulePersistence(of: principalRegistry.issuedCredentialCandidates())
         } catch {
             stopListenerAndConnections()

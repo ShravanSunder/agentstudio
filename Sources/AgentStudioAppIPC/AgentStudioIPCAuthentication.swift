@@ -209,6 +209,10 @@ public final class AgentStudioIPCPrincipalRegistry: @unchecked Sendable {
         revokeGrants(for: principalIDs)
     }
 
+    package func finalRevokedPaneIDsSnapshot() -> Set<UUID> {
+        lock.withLock { finalRevokedPaneIDs }
+    }
+
     package func beginGracefulShutdownAndSnapshotUnsavedCredentials()
         -> [AgentStudioIPCIssuedPaneCredential]
     {

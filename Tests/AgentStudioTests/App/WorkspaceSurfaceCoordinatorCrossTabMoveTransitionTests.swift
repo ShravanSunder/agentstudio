@@ -92,6 +92,7 @@ struct WorkspaceCrossTabMoveTransitionTests {
                 surfaceManager: surfaceManager,
                 runtimeRegistry: RuntimeRegistry(),
                 windowLifecycleStore: WindowLifecycleAtom(),
+                ipcLifecycle: .testUnavailable,
                 bridgePaneAttendance: BridgePaneAttendanceAtom()
             )
 
@@ -181,6 +182,7 @@ struct WorkspaceCrossTabMoveTransitionTests {
                 surfaceManager: surfaceManager,
                 runtimeRegistry: RuntimeRegistry(),
                 windowLifecycleStore: WindowLifecycleAtom(),
+                ipcLifecycle: .testUnavailable,
                 bridgePaneAttendance: BridgePaneAttendanceAtom()
             )
 

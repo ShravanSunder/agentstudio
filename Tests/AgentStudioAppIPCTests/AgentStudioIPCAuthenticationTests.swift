@@ -350,6 +350,7 @@ struct AgentStudioIPCAuthenticationTests {
         await resolver.waitUntilLookupStarted()
 
         registry.finalRevokePane(paneID)
+        #expect(registry.finalRevokedPaneIDsSnapshot() == [paneID])
         await resolver.resume(
             with: paneResolution(
                 paneID: paneID,

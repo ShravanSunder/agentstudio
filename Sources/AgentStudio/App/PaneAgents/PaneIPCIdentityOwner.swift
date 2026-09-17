@@ -3,6 +3,7 @@ import AgentStudioInfrastructure
 import CryptoKit
 import Foundation
 import Security
+import os.log
 
 struct PaneIPCEnvironment: Sendable, Equatable {
     let paneID: UUID
@@ -19,6 +20,16 @@ enum PaneIPCIdentityOwnerError: Error, Equatable {
 
 @MainActor
 final class PaneIPCIdentityOwner {
+    private static let logger = Logger(subsystem: "com.agentstudio", category: "PaneIPCIdentityOwner")
+    private static let authorityEnvironmentKeys = [
+        "AGENTSTUDIO_PANE_ID",
+        "AGENTSTUDIO_WORKSPACE_ID",
+        "AGENTSTUDIO_IPC_SOCKET",
+        "AGENTSTUDIO_PANE_TOKEN",
+        "AGENTSTUDIO_IPC_CREDENTIAL_RECORD_ID",
+        "AGENTSTUDIO_IPC_SPOOL_DIR",
+        "AGENTSTUDIO_CLI",
+    ]
     private let principalRegistry: AgentStudioIPCPrincipalRegistry
     private let socketURL: URL
     private let spoolDirectory: URL
@@ -83,6 +94,19 @@ final class PaneIPCIdentityOwner {
         )
         environmentsByPaneID[paneID] = environment
         return environment
+    }
+
+    func terminalEnvironment(paneID: UUID, workspaceID: UUID) -> [String: String] {
+        do {
+            return try environment(paneID: paneID, workspaceID: workspaceID).environmentVariables
+        } catch {
+            Self.logger.warning("Pane IPC environment unavailable; terminal startup continuing without IPC authority")
+            var environment = inheritedEnvironment
+            for key in Self.authorityEnvironmentKeys {
+                environment[key] = ""
+            }
+            return environment
+        }
     }
 
     private func makeEnvironment(

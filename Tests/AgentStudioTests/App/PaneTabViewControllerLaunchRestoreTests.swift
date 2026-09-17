@@ -66,6 +66,7 @@ struct PaneTabViewControllerLaunchRestoreTests {
             surfaceManager: surfaceManager,
             runtimeRegistry: .shared,
             windowLifecycleStore: windowLifecycleStore,
+            ipcLifecycle: .testUnavailable,
             bridgePaneAttendance: atomRegistry.bridgePaneAttendance
         )
         coordinator.sessionConfig = fixtureSessionConfiguration

@@ -244,6 +244,7 @@ extension AppDelegate {
             preconditionFailure("Workspace startup invariant violated: \(diagnosticCode.rawValue)")
         }
         await finishCanonicalStoreBoot(sqliteDatastore: sqliteDatastore)
+        installAppIPCIdentityAuthority(datastore: sqliteDatastore)
     }
 
     private func finishCanonicalStoreBoot(sqliteDatastore: WorkspaceSQLiteDatastoreActor) async {
@@ -444,6 +445,7 @@ extension AppDelegate {
             filesystemSource: pipeline,
             windowLifecycleStore: windowLifecycleStore,
             appLifecycleStore: appLifecycleStore,
+            ipcLifecycle: appIPCWorkspaceSurfaceLifecycle(),
             bridgePaneAttendance: atomStore.bridgePaneAttendance,
             worktreeAnnotationStore: worktreeAnnotationStore,
             worktreeAnnotationOutputCoordinator: worktreeAnnotationOutputCoordinator,

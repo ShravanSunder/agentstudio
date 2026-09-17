@@ -29,7 +29,13 @@ func runFirstPersistenceFlushAfterWorkspaceCacheShutdown(
 
 extension AppDelegate {
     func flushApplicationStateBeforeTermination(store: WorkspaceStore) async {
-        stopAppIPCServer()
+        startupTraceRecorder?.recordAppStartup(
+            "app.termination.ipc_drain", phase: "started", outcome: "started"
+        )
+        await stopAndDrainAppIPCServer()
+        startupTraceRecorder?.recordAppStartup(
+            "app.termination.ipc_drain", phase: "completed", outcome: "completed"
+        )
         stopWorkspacePaneRecencyObservation()
 
         await runFirstPersistenceFlushAfterWorkspaceCacheShutdown(

@@ -365,6 +365,8 @@ struct ApplicationEntrypointArchitectureTests {
         let ipcBootURL = projectRoot.appending(path: "Sources/AgentStudio/App/Boot/AppDelegate+IPC.swift")
         let launchRestoreURL = projectRoot.appending(
             path: "Sources/AgentStudio/App/Boot/AppDelegate+LaunchRestore.swift")
+        let workspaceBootURL = projectRoot.appending(
+            path: "Sources/AgentStudio/App/Boot/AppDelegate+WorkspaceBoot.swift")
         let terminationURL = projectRoot.appending(path: "Sources/AgentStudio/App/Boot/AppDelegate+Termination.swift")
         let mainWindowControllerURL = projectRoot.appending(
             path: "Sources/AgentStudio/App/Windows/MainWindowController.swift")
@@ -374,6 +376,7 @@ struct ApplicationEntrypointArchitectureTests {
         let appDelegateSource = try String(contentsOf: appDelegateURL, encoding: .utf8)
         let ipcBootSource = try String(contentsOf: ipcBootURL, encoding: .utf8)
         let launchRestoreSource = try String(contentsOf: launchRestoreURL, encoding: .utf8)
+        let workspaceBootSource = try String(contentsOf: workspaceBootURL, encoding: .utf8)
         let terminationSource = try String(contentsOf: terminationURL, encoding: .utf8)
         let mainWindowControllerSource = try String(contentsOf: mainWindowControllerURL, encoding: .utf8)
         let splitViewControllerSource = try String(contentsOf: splitViewControllerURL, encoding: .utf8)
@@ -385,8 +388,15 @@ struct ApplicationEntrypointArchitectureTests {
                 .lowerBound)
         let normalScheduleIndex = try #require(
             launchRestoreSource.range(of: "scheduleAppIPCInitialization()")?.lowerBound)
-        let appIPCStopIndex = try #require(terminationSource.range(of: "stopAppIPCServer()")?.lowerBound)
+        let appIPCStopIndex = try #require(
+            terminationSource.range(of: "await stopAndDrainAppIPCServer()")?.lowerBound)
         let flushStoresIndex = try #require(terminationSource.range(of: "await store.flushAsync()")?.lowerBound)
+        let identityAuthorityIndex = try #require(
+            workspaceBootSource.range(of: "installAppIPCIdentityAuthority(datastore:")?.lowerBound)
+        let surfaceCoordinatorIndex = try #require(
+            workspaceBootSource.range(of: "workspaceSurfaceCoordinator = WorkspaceSurfaceCoordinator(")?.lowerBound)
+        let undoRecoveryIndex = try #require(
+            workspaceBootSource.range(of: "workspaceSurfaceCoordinator.installUndoJournalRecovery(")?.lowerBound)
 
         #expect(appDelegateSource.contains("import AgentStudioAppIPC"))
         #expect(appDelegateSource.contains("var appIPCServer: AgentStudioAppIPCServer?"))
@@ -395,9 +405,13 @@ struct ApplicationEntrypointArchitectureTests {
         #expect(appDelegateSource.contains("appIPCInitializationTask?.cancel()"))
         #expect(suppressedScheduleIndex < appDelegateSource.endIndex)
         #expect(terminalReleaseIndex < normalScheduleIndex)
+        #expect(identityAuthorityIndex < surfaceCoordinatorIndex)
+        #expect(surfaceCoordinatorIndex < undoRecoveryIndex)
         #expect(ipcBootSource.contains("prepareOptionalApplicationLocalSchema()"))
         #expect(ipcBootSource.contains("waitUntilFirstInteractiveFramePublished()"))
         #expect(ipcBootSource.contains("appIPCInitializationTask?.cancel()"))
+        #expect(ipcBootSource.contains("await initializationTask?.value"))
+        #expect(ipcBootSource.contains("let paneIPCIdentityOwner = paneIPCIdentityOwner!"))
         #expect(!ipcBootSource.contains("self.appIPCInitializationTask = nil"))
         #expect(
             ipcBootSource.components(separatedBy: "guard appIPCServer == nil else { return }").count - 1
@@ -408,7 +422,7 @@ struct ApplicationEntrypointArchitectureTests {
         #expect(ipcBootSource.contains("AppIPCCommandMethodRegistrations.make("))
         #expect(ipcBootSource.contains("AppIPCMethodRegistry(registrations: registrations, channel:"))
         #expect(ipcBootSource.contains("methodRegistry: registry"))
-        #expect(ipcBootSource.contains("let rootDirectory = AppDataPaths.rootDirectory()"))
+        #expect(ipcBootSource.contains("rootDirectory: AppDataPaths.rootDirectory()"))
         #expect(ipcBootSource.contains("socketDirectory: Self.appIPCSocketDirectory()"))
         #expect(ipcBootSource.contains("ProcessInfo.processInfo.environment[\"AGENTSTUDIO_IPC_SOCKET_DIR\"]"))
         #expect(ipcBootSource.contains("makePaneFocusAppControl(store: store)"))

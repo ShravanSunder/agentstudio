@@ -12,6 +12,7 @@ public struct AgentStudioIPCPaths: Equatable, Sendable {
     public let metadataURL: URL
     public let socketURL: URL
     public let debugTokenURL: URL
+    public let spoolDirectory: URL
 
     public init(
         rootDirectory: URL,
@@ -19,7 +20,8 @@ public struct AgentStudioIPCPaths: Equatable, Sendable {
         socketDirectory: URL,
         metadataURL: URL,
         socketURL: URL,
-        debugTokenURL: URL
+        debugTokenURL: URL,
+        spoolDirectory: URL
     ) {
         self.rootDirectory = rootDirectory
         self.ipcDirectory = ipcDirectory
@@ -27,6 +29,7 @@ public struct AgentStudioIPCPaths: Equatable, Sendable {
         self.metadataURL = metadataURL
         self.socketURL = socketURL
         self.debugTokenURL = debugTokenURL
+        self.spoolDirectory = spoolDirectory
     }
 }
 
@@ -42,7 +45,8 @@ public struct AgentStudioIPCPathResolver: Sendable {
             socketDirectory: resolvedSocketDirectory,
             metadataURL: ipcDirectory.appendingPathComponent("runtime.json"),
             socketURL: resolvedSocketDirectory.appendingPathComponent("agentstudio.sock"),
-            debugTokenURL: ipcDirectory.appendingPathComponent("debug-token")
+            debugTokenURL: ipcDirectory.appendingPathComponent("debug-token"),
+            spoolDirectory: ipcDirectory.appendingPathComponent("spool/v2", isDirectory: true)
         )
     }
 }

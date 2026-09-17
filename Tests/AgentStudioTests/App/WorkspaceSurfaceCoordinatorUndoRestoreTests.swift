@@ -101,6 +101,7 @@ struct WorkspaceSurfaceCoordinatorUndoRestoreTests {
             surfaceManager: surfaceManager,
             runtimeRegistry: RuntimeRegistry(),
             windowLifecycleStore: WindowLifecycleAtom(),
+            ipcLifecycle: .testUnavailable,
             bridgePaneAttendance: BridgePaneAttendanceAtom()
         )
         return Harness(
@@ -313,6 +314,7 @@ struct WorkspaceSurfaceCoordinatorUndoRestoreTests {
             ),
             runtimeRegistry: RuntimeRegistry(),
             windowLifecycleStore: WindowLifecycleAtom(),
+            ipcLifecycle: .testUnavailable,
             bridgePaneAttendance: BridgePaneAttendanceAtom()
         )
         let (repo, worktree) = makeRepoAndWorktree(store, root: tempDir)

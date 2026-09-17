@@ -243,6 +243,64 @@ struct AgentStudioAppIPCReusableCredentialTests {
         let response = try await fixture.loginResponse(fixture: secondServer, token: token, requestID: 70)
         #expect(try decodeResponseResult(IPCAuthStatusResult.self, from: response).isAuthenticated)
     }
+
+    @MainActor
+    @Test("the App-owned final fence recorded before server publication replays before registration")
+    func preServerFinalFenceReplaysBeforeCredentialRegistration() async throws {
+        let fixture = try ReusableCredentialFixture()
+        defer { fixture.cleanup() }
+        let datastore = fixture.makeDatastore()
+        guard await fixture.prepareDatastoreForIPC(datastore) else {
+            Issue.record("Database preparation failed")
+            return
+        }
+        let repository = IPCContinuityRepository(datastore: datastore)
+        let serverFixture = try fixture.makeServer(
+            credentialResolver: IPCContinuityCredentialResolver(repository: repository),
+            credentialContinuityPort: repository
+        )
+        defer { serverFixture.cleanup() }
+        let durableRecordID = UUIDv7.generate()
+        let issuedRecordID = UUIDv7.generate()
+        let appDelegate = AppDelegate()
+        appDelegate.appIPCPrincipalRegistry = serverFixture.server.principalRegistry
+        appDelegate.paneIPCIdentityOwner = PaneIPCIdentityOwner(
+            principalRegistry: serverFixture.server.principalRegistry,
+            socketURL: serverFixture.paths.socketURL,
+            spoolDirectory: serverFixture.paths.spoolDirectory,
+            cliExecutableURL: fixture.rootURL.appending(path: "AgentStudio.app/Contents/MacOS/agentstudio"),
+            inheritedEnvironment: [:],
+            canonicalPaneMembership: { _, _ in true }
+        )
+        #expect(appDelegate.appIPCPrincipalRegistry === serverFixture.server.principalRegistry)
+        try await repository.registerPaneCredential(
+            IPCPaneCredential(
+                paneID: serverFixture.boundPaneId,
+                workspaceID: serverFixture.workspaceId,
+                credentialRecordID: durableRecordID,
+                verifierSHA256: Data(repeating: 0xA5, count: 32),
+                status: .registered
+            )
+        )
+        try serverFixture.server.principalRegistry.registerIssuedPaneCredential(
+            paneID: serverFixture.boundPaneId,
+            workspaceID: serverFixture.workspaceId,
+            credentialRecordID: issuedRecordID,
+            verifierSHA256: Data(repeating: 0xB4, count: 32)
+        )
+        appDelegate.appIPCWorkspaceSurfaceLifecycle().finalRevokePaneIDs([serverFixture.boundPaneId])
+
+        try serverFixture.server.start()
+        appDelegate.appIPCServer = serverFixture.server
+        await appDelegate.stopAndDrainAppIPCServer()
+        #expect(appDelegate.appIPCServer == nil)
+
+        let storedCredentials = try await repository.paneCredentials(paneID: serverFixture.boundPaneId)
+        #expect(storedCredentials.map(\.credentialRecordID) == [durableRecordID])
+        #expect(storedCredentials.first?.status == .revoked)
+        #expect(!storedCredentials.contains { $0.credentialRecordID == issuedRecordID })
+    }
+
 }
 
 private struct ReusableCredentialFixture {

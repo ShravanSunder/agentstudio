@@ -214,6 +214,35 @@ struct AppIPCDeferredInitializationIntegrationTests {
         #expect(!initialization.didContinueServerInitialization)
     }
 
+    @Test("App shutdown cancels and joins deferred initialization awaiting the release edge")
+    func appShutdownJoinsDeferredInitializationAwaitingRelease() async throws {
+        let releaseWaitEntry = FirstInteractiveFrameWaitEntrySignal()
+        let windowLifecycleStore = WindowLifecycleAtom(
+            deferralDelay: releaseWaitEntry.deferralDelay
+        )
+        let harness = try makeServerCapableAppIPCTestHarness(
+            windowLifecycleStore: windowLifecycleStore
+        )
+        do {
+            harness.appDelegate.scheduleAppIPCInitialization()
+            let initializationTask = try #require(harness.appDelegate.appIPCInitializationTask)
+            await releaseWaitEntry.waitUntilEntered()
+
+            await harness.appDelegate.stopAndDrainAppIPCServer()
+
+            #expect(initializationTask.isCancelled)
+            #expect(harness.appDelegate.appIPCInitializationTask == nil)
+            #expect(harness.appDelegate.appIPCServer == nil)
+            windowLifecycleStore.recordFirstInteractiveFramePublished(source: .presented)
+            await initializationTask.value
+            #expect(harness.appDelegate.appIPCServer == nil)
+        } catch {
+            await harness.shutdown()
+            throw error
+        }
+        await harness.shutdown()
+    }
+
     @Test(
         "local-unavailable release leaves server continuation uncalled",
         arguments: [DeferredIPCReleasePath.normalRestore, .restoreSuppressed]
