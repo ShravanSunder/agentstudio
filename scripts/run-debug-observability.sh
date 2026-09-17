@@ -747,7 +747,6 @@ copy_debug_bundle() {
     "$DITTO_BIN" "Sources/AgentStudio/Resources/terminfo" "$app_dir/Resources/terminfo"
   [ -d "Sources/AgentStudio/Resources/ghostty" ] &&
     "$DITTO_BIN" "Sources/AgentStudio/Resources/ghostty" "$app_dir/Resources/ghostty"
-
   # AgentPackage — provider hooks, installer resources and the model skill. The
   # installer resolves this tree from Contents/Helpers/agentstudio, so the path
   # Contents/Resources/AgentPackage is load-bearing.

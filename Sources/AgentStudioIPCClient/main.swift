@@ -9,13 +9,14 @@ struct AgentStudioIPCClientMain {
         do {
             let readInput: @Sendable () -> Data = { FileHandle.standardInput.readDataToEndOfFile() }
             let environment = ProcessInfo.processInfo.environment
-            // Provider hooks and the package installer are not IPC methods, so
-            // they are dispatched before descriptor parsing.
-            if let subcommand = AgentPackageSubcommand.parse(Array(CommandLine.arguments.dropFirst())) {
-                exit(AgentPackageCommandRunner.run(subcommand, props: agentPackageProps(readInput: readInput)))
+            let rawArguments = Array(CommandLine.arguments.dropFirst())
+            if let code = providerCommandExit(
+                arguments: rawArguments, environment: environment, readInput: readInput
+            ) {
+                exit(code)
             }
             let global = try AgentStudioIPCClientArguments.parseGlobal(
-                Array(CommandLine.arguments.dropFirst()), environment: environment,
+                rawArguments, environment: environment,
                 standardInputProvider: readInput
             )
             let offlineHandler = PaneNotificationOfflineHandler(environment: environment)
@@ -195,6 +196,33 @@ struct AgentStudioIPCClientMain {
         case .notQueued:
             throw unreachable
         }
+    }
+
+    /// Provider hooks and the package installer are not IPC methods, so they
+    /// are dispatched before descriptor parsing: one runs as the provider's own
+    /// child process and the other edits the provider's configuration on disk.
+    ///
+    /// Claude Code's router is asked first. The provider-keyed parser matches
+    /// `hook <provider> <event>` and `package install <provider>` for every
+    /// provider name, so running it first would answer a Claude Code invocation
+    /// with "unknown provider" instead of letting Claude Code's own path run.
+    ///
+    /// - Returns: the process exit code when the arguments address a provider
+    ///   command, and `nil` when they belong to the descriptor CLI.
+    private static func providerCommandExit(
+        arguments: [String],
+        environment: [String: String],
+        readInput: @escaping @Sendable () -> Data
+    ) -> Int32? {
+        if let code = ClaudeCodeProviderRouter.exitCode(
+            arguments: arguments, environment: environment,
+            executablePath: CommandLine.arguments[0], standardInput: readInput,
+            identifierGenerator: { UUIDv7.generate() }
+        ) {
+            return code
+        }
+        guard let subcommand = AgentPackageSubcommand.parse(arguments) else { return nil }
+        return AgentPackageCommandRunner.run(subcommand, props: agentPackageProps(readInput: readInput))
     }
 
     private static func agentPackageProps(

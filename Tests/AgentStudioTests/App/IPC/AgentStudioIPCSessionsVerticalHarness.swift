@@ -39,7 +39,8 @@ struct SessionsVerticalHarness {
     )
 
     static func make(
-        providerProfiles: [SessionsProviderProfile] = [qualifiedProviderProfile]
+        providerProfiles: [SessionsProviderProfile] = [qualifiedProviderProfile],
+        additionalProviderProfiles: [SessionsProviderProfile] = []
     ) async throws -> Self {
         let commandHarness = makeHarness()
         let boundPane = commandHarness.store.createPane(title: "Bound pane")
@@ -67,7 +68,7 @@ struct SessionsVerticalHarness {
         appDelegate.workspaceSurfaceCoordinator = commandHarness.coordinator
         appDelegate.executor = commandHarness.executor
         appDelegate.mainWindowController = SessionsVerticalMainWindowController(window: nil)
-        appDelegate.appIPCSessionsProviderProfiles = providerProfiles
+        appDelegate.appIPCSessionsProviderProfiles = providerProfiles + additionalProviderProfiles
         appDelegate.installAppIPCIdentityAuthority(datastore: datastore)
 
         // The tail of the identifier, not its head: a UUIDv7 begins with a
@@ -227,7 +228,7 @@ struct SessionsVerticalHarness {
         return .object(fields)
     }
 
-    private func decoded<Result: Decodable>(
+    func decoded<Result: Decodable>(
         method: String,
         params: JSONValue
     ) async throws -> Result {
@@ -239,7 +240,7 @@ struct SessionsVerticalHarness {
         return try JSONDecoder().decode(Result.self, from: try JSONEncoder().encode(result))
     }
 
-    private func response(method: String, params: JSONValue) async throws -> JSONRPCResponseMessage {
+    func response(method: String, params: JSONValue) async throws -> JSONRPCResponseMessage {
         let connection = try UnixSocketClient.connect(endpoint: UnixSocketEndpoint(path: socketPath))
         defer { connection.close() }
         var reader = SessionsVerticalFrameReader()

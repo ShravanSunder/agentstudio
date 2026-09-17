@@ -1,4 +1,4 @@
 {
   "version": "1",
-  "providers": ["codex"]
+  "providers": ["codex", "claude"]
 }
