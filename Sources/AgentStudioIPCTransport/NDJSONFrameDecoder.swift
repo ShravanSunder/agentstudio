@@ -48,6 +48,13 @@ public struct NDJSONFrameDecoder: Sendable {
 
     private let maxFrameBytes: Int
     private var pending = Data()
+    /// Leading bytes of `pending` already known to hold no newline.
+    ///
+    /// Without it every append searched the whole buffer from the start, so a
+    /// frame arriving in chunks was rescanned once per chunk: a 1.88 MB catalog
+    /// read in sixteen-kilobyte pieces cost seconds of pure scanning. Carrying
+    /// the offset across appends means each byte is looked at once.
+    private var scannedByteCount = 0
 
     public init(maxFrameBytes: Int) {
         precondition(maxFrameBytes > 0, "maxFrameBytes must be positive")
@@ -59,8 +66,13 @@ public struct NDJSONFrameDecoder: Sendable {
         pendingByteCount = pending.count
 
         var frames: [String] = []
-        while let newlineIndex = pending.firstIndex(of: 0x0a) {
-            let frameData = pending[..<newlineIndex]
+        while true {
+            let searchStart = pending.index(pending.startIndex, offsetBy: scannedByteCount)
+            guard let newlineIndex = pending[searchStart...].firstIndex(of: 0x0a) else {
+                scannedByteCount = pending.count
+                break
+            }
+            let frameData = pending[pending.startIndex..<newlineIndex]
             guard frameData.count <= maxFrameBytes else {
                 let frameByteCount = frameData.count
                 clearPending()
@@ -74,6 +86,7 @@ public struct NDJSONFrameDecoder: Sendable {
             let nextFrameStart = pending.index(after: newlineIndex)
             pending.removeSubrange(..<nextFrameStart)
             pendingByteCount = pending.count
+            scannedByteCount = 0
 
             guard !frameData.isEmpty else {
                 continue
@@ -104,5 +117,6 @@ public struct NDJSONFrameDecoder: Sendable {
     private mutating func clearPending() {
         pending.removeAll(keepingCapacity: true)
         pendingByteCount = 0
+        scannedByteCount = 0
     }
 }
