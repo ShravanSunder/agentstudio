@@ -1,6 +1,12 @@
 import AgentStudioInfrastructure
 import Foundation
 
+/// The generation a deliberate report reduces against.
+package enum DeliberateReportTarget: Sendable, Equatable {
+    case liveBinding(SessionsBindingRecord)
+    case endedBindingHistory(SessionsBindingRecord)
+}
+
 package enum SessionsEvidenceReducer {
     package static func currentTurnId(
         evidence: [SessionsEvidenceRecord],

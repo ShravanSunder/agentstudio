@@ -315,34 +315,56 @@ package struct SessionsEvidenceMutation: Sendable, Codable, Equatable {
     }
 }
 
+/// A deliberate report carries the freshness of the route that admitted it. A
+/// late report is one the CLI spooled while the app was unreachable, so it may
+/// land after the binding it was written against has already ended.
 package struct SessionsDeliberateNeedsYouMutation: Sendable, Codable, Equatable {
     package let paneId: UUID
     package let explanation: String
+    package let freshness: SessionsEvidenceFreshness
     package let reportedAt: Date
 
-    package init(paneId: UUID, explanation: String, reportedAt: Date) {
+    package init(
+        paneId: UUID,
+        explanation: String,
+        freshness: SessionsEvidenceFreshness = .live,
+        reportedAt: Date
+    ) {
         self.paneId = paneId
         self.explanation = explanation
+        self.freshness = freshness
         self.reportedAt = reportedAt
     }
 }
 
 package struct SessionsClearDeliberateNeedsYouMutation: Sendable, Codable, Equatable {
     package let paneId: UUID
+    package let freshness: SessionsEvidenceFreshness
     package let clearedAt: Date
 
-    package init(paneId: UUID, clearedAt: Date) {
+    package init(
+        paneId: UUID,
+        freshness: SessionsEvidenceFreshness = .live,
+        clearedAt: Date
+    ) {
         self.paneId = paneId
+        self.freshness = freshness
         self.clearedAt = clearedAt
     }
 }
 
 package struct SessionsDeliberateDoneMutation: Sendable, Codable, Equatable {
     package let paneId: UUID
+    package let freshness: SessionsEvidenceFreshness
     package let reportedAt: Date
 
-    package init(paneId: UUID, reportedAt: Date) {
+    package init(
+        paneId: UUID,
+        freshness: SessionsEvidenceFreshness = .live,
+        reportedAt: Date
+    ) {
         self.paneId = paneId
+        self.freshness = freshness
         self.reportedAt = reportedAt
     }
 }

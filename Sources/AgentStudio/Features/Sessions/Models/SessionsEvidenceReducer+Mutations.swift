@@ -243,7 +243,66 @@ extension SessionsEvidenceReducer {
         _ mutation: SessionsDeliberateNeedsYouMutation,
         context: SessionsRepositoryContext
     ) throws -> SessionsRepositoryReduction {
-        let binding = try requireActiveBinding(paneId: mutation.paneId, context: context)
+        switch try deliberateReportTarget(
+            paneId: mutation.paneId,
+            freshness: mutation.freshness,
+            context: context
+        ) {
+        case .liveBinding(let binding):
+            return liveDeliberateNeedsYou(mutation, binding: binding, context: context)
+        case .endedBindingHistory(let binding):
+            return historicalDeliberateNeedsYou(mutation, binding: binding, context: context)
+        }
+    }
+
+    /// A late needs-you keeps the report's request identity and explanation but
+    /// enters already stale against the binding that ended: the snapshot derives
+    /// attention from live evidence on the current binding, so nothing here can
+    /// raise attention on a pane that has since moved on.
+    private static func historicalDeliberateNeedsYou(
+        _ mutation: SessionsDeliberateNeedsYouMutation,
+        binding: SessionsBindingRecord,
+        context: SessionsRepositoryContext
+    ) -> SessionsRepositoryReduction {
+        let source = context.source(sourceGenerationId: binding.sourceGenerationId)
+        let occurrenceId = UUIDv7.generate()
+        let attentionId = UUIDv7.generate()
+        let attention = SessionsStoredAttentionRecord(
+            id: attentionId,
+            conversationId: binding.conversationId,
+            bindingGenerationId: binding.bindingGenerationId,
+            sourceId: source?.id,
+            sourceGenerationId: binding.sourceGenerationId,
+            sourceKind: "deliberate",
+            turnId: deliberateTurnId(bindingGenerationId: binding.bindingGenerationId),
+            subject: .root,
+            requestId: attentionId.uuidString,
+            attentionKind: "deliberate",
+            origin: .agentReported,
+            freshness: mutation.freshness,
+            explanation: mutation.explanation,
+            disposition: .stale,
+            openedOccurrenceId: occurrenceId,
+            resolutionOccurrenceId: nil,
+            openedAt: mutation.reportedAt,
+            resolvedAt: mutation.reportedAt
+        )
+        let evidence = evidence(
+            from: attention,
+            kind: .needsYouOpened(requestId: attention.requestId, explanation: mutation.explanation)
+        )
+        return SessionsRepositoryReduction(
+            evidenceChanges: [evidence],
+            attentionChanges: [attention],
+            outcome: .historical(occurrenceId: occurrenceId)
+        )
+    }
+
+    private static func liveDeliberateNeedsYou(
+        _ mutation: SessionsDeliberateNeedsYouMutation,
+        binding: SessionsBindingRecord,
+        context: SessionsRepositoryContext
+    ) -> SessionsRepositoryReduction {
         let source = context.source(sourceGenerationId: binding.sourceGenerationId)
         let reportingTurnId = currentReportingTurnId(binding: binding, context: context)
         let prior = context.attention.first {

@@ -4,6 +4,10 @@ import Foundation
 package enum AppPolicies {
     package enum IPC {
         package static let maximumTerminalWaitSeconds: Double = 86_400
+        /// One spooled notification is one wire frame, so the drainer accepts
+        /// exactly what the IPC server would have accepted live. A longer line
+        /// could never have been submitted and is malformed by construction.
+        package static let spoolDrainMaximumLineBytes: Int = 1_048_576
     }
 
     package enum Sessions {

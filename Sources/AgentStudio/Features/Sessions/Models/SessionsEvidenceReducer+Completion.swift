@@ -6,7 +6,71 @@ extension SessionsEvidenceReducer {
         _ mutation: SessionsDeliberateDoneMutation,
         context: SessionsRepositoryContext
     ) throws -> SessionsRepositoryReduction {
-        let binding = try requireActiveBinding(paneId: mutation.paneId, context: context)
+        switch try deliberateReportTarget(
+            paneId: mutation.paneId,
+            freshness: mutation.freshness,
+            context: context
+        ) {
+        case .liveBinding(let binding):
+            return liveDeliberateDone(mutation, binding: binding, context: context)
+        case .endedBindingHistory(let binding):
+            return historicalDeliberateDone(mutation, binding: binding, context: context)
+        }
+    }
+
+    /// A late done records the completion against the generation that ended.
+    /// The snapshot's state comes from live evidence only, so a late completion
+    /// reaches the result history without reviving a finished generation.
+    private static func historicalDeliberateDone(
+        _ mutation: SessionsDeliberateDoneMutation,
+        binding: SessionsBindingRecord,
+        context: SessionsRepositoryContext
+    ) -> SessionsRepositoryReduction {
+        let turnId = deliberateTurnId(bindingGenerationId: binding.bindingGenerationId)
+        let existingResult = context.results.first {
+            $0.bindingGenerationId == binding.bindingGenerationId
+                && $0.turnId == turnId && $0.subject == .root
+        }
+        let occurrenceId = UUIDv7.generate()
+        let evidence = SessionsEvidenceRecord(
+            occurrenceId: occurrenceId,
+            conversationId: binding.conversationId,
+            bindingGenerationId: binding.bindingGenerationId,
+            sourceGenerationId: binding.sourceGenerationId,
+            turnId: turnId,
+            subject: .root,
+            kind: .completed,
+            origin: .agentReported,
+            freshness: mutation.freshness,
+            occurredAt: mutation.reportedAt
+        )
+        let result = SessionsResultRecord(
+            id: existingResult?.id ?? UUIDv7.generate(),
+            conversationId: binding.conversationId,
+            bindingGenerationId: binding.bindingGenerationId,
+            sourceGenerationId: binding.sourceGenerationId,
+            turnId: turnId,
+            subject: .root,
+            completionOccurrenceId: occurrenceId,
+            origin: .agentReported,
+            freshness: mutation.freshness,
+            disposition: existingResult?.disposition ?? .unseen,
+            seenAt: existingResult?.seenAt,
+            createdAt: existingResult?.createdAt ?? mutation.reportedAt,
+            updatedAt: mutation.reportedAt
+        )
+        return SessionsRepositoryReduction(
+            evidenceChanges: [evidence],
+            resultChanges: [result],
+            outcome: .historical(occurrenceId: occurrenceId)
+        )
+    }
+
+    private static func liveDeliberateDone(
+        _ mutation: SessionsDeliberateDoneMutation,
+        binding: SessionsBindingRecord,
+        context: SessionsRepositoryContext
+    ) -> SessionsRepositoryReduction {
         let source = context.source(sourceGenerationId: binding.sourceGenerationId)
         let turnId = currentReportingTurnId(binding: binding, context: context)
         let existingResult = context.results.first {
@@ -251,6 +315,31 @@ extension SessionsEvidenceReducer {
             throw SessionsRepositoryError.bindingRequired(paneId)
         }
         return binding
+    }
+
+    /// Which generation a deliberate report belongs to. A live report needs the
+    /// active binding. A late report the CLI spooled while the app was down may
+    /// instead attach to the generation it was written against, which launch
+    /// preparation has since ended; a pane that never bound at all keeps the
+    /// live refusal.
+    static func deliberateReportTarget(
+        paneId: UUID,
+        freshness: SessionsEvidenceFreshness,
+        context: SessionsRepositoryContext
+    ) throws -> DeliberateReportTarget {
+        if let binding = context.currentBinding, binding.paneId == paneId, binding.status == .active {
+            return .liveBinding(binding)
+        }
+        // Bindings arrive active first, then newest started first, so the first
+        // ended binding for this pane is its most recent generation.
+        guard freshness != .live,
+            let endedBinding = context.bindings.first(where: {
+                $0.paneId == paneId && $0.status == .ended
+            })
+        else {
+            throw SessionsRepositoryError.bindingRequired(paneId)
+        }
+        return .endedBindingHistory(endedBinding)
     }
 
     static func deliberateTurnId(bindingGenerationId: UUID) -> String {

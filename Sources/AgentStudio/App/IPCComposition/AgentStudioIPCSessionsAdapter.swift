@@ -17,15 +17,21 @@ private enum SessionsProviderEventAdmissionOutcome: Sendable {
 struct AgentStudioIPCSessionsAdapter: AppIPCSessionsPort {
     private let ingestion: SessionsIngestion
     private let providerRegistry: SessionsProviderAdapterRegistry
+    private let admissionFreshness: SessionsEvidenceFreshness
     private let now: @Sendable () -> Date
 
+    /// The live IPC server admits messages as `.live`. The offline spool drainer
+    /// composes a second adapter over the same ingestion with `.late`, so one
+    /// mapping serves both routes and freshness stays a composition input.
     init(
         ingestion: SessionsIngestion,
         providerRegistry: SessionsProviderAdapterRegistry,
+        admissionFreshness: SessionsEvidenceFreshness = .live,
         now: @escaping @Sendable () -> Date = { Date() }
     ) {
         self.ingestion = ingestion
         self.providerRegistry = providerRegistry
+        self.admissionFreshness = admissionFreshness
         self.now = now
     }
 
@@ -41,16 +47,25 @@ struct AgentStudioIPCSessionsAdapter: AppIPCSessionsPort {
                     SessionsDeliberateNeedsYouMutation(
                         paneId: paneId,
                         explanation: params.explanation ?? "",
+                        freshness: admissionFreshness,
                         reportedAt: reportedAt
                     )
                 )
             case .clearNeedsYou:
                 .clearDeliberateNeedsYou(
-                    SessionsClearDeliberateNeedsYouMutation(paneId: paneId, clearedAt: reportedAt)
+                    SessionsClearDeliberateNeedsYouMutation(
+                        paneId: paneId,
+                        freshness: admissionFreshness,
+                        clearedAt: reportedAt
+                    )
                 )
             case .done:
                 .deliberateDone(
-                    SessionsDeliberateDoneMutation(paneId: paneId, reportedAt: reportedAt)
+                    SessionsDeliberateDoneMutation(
+                        paneId: paneId,
+                        freshness: admissionFreshness,
+                        reportedAt: reportedAt
+                    )
                 )
             }
         do {
@@ -85,7 +100,12 @@ struct AgentStudioIPCSessionsAdapter: AppIPCSessionsPort {
             outcome = try await ingestion.submit(
                 correlationId: params.correlationId,
                 mutation: .message(
-                    SessionsMessageMutation(context: context, text: params.text, receivedAt: now())
+                    SessionsMessageMutation(
+                        context: context,
+                        text: params.text,
+                        freshness: admissionFreshness,
+                        receivedAt: now()
+                    )
                 )
             )
         } catch {
