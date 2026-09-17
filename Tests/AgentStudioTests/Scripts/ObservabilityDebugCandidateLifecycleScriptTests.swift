@@ -38,6 +38,23 @@ struct ObservabilityDebugCandidateLifecycleScriptTests {
         #expect(outcome.result.stdout.contains("candidate_retirement=graceful"))
     }
 
+    @Test("candidate retirement quits a candidate whose artifact root is reached through a symlink")
+    func candidateRetirementQuitsThroughSymlinkedArtifactRoot() throws {
+        let outcome = try runCandidateRetirementContract(
+            actualIdentityOverrides: [:],
+            usesSymlinkedArtifactRoot: true
+        )
+
+        #expect(outcome.result.exitCode == 0, "stdout: \(outcome.result.stdout)\nstderr: \(outcome.result.stderr)")
+        #expect(outcome.result.stdout.contains("candidate_retirement=graceful"))
+        // AppKit reports the canonical path, so the quit request must carry it
+        // too. A lexical state-file path would fail the JXA identity check and
+        // make any symlinked artifact root unretirable.
+        let canonicalApp = try #require(outcome.canonicalAppPath)
+        #expect(outcome.quitArguments.contains(canonicalApp))
+        #expect(!outcome.quitArguments.contains("linked-artifacts"))
+    }
+
     @Test("production candidate identity preserves the explicit data root")
     func productionCandidateIdentityPreservesExplicitDataRoot() throws {
         let source = try String(
@@ -256,8 +273,9 @@ struct ObservabilityDebugCandidateLifecycleScriptTests {
         actualIdentityOverrides: [String: Any],
         quitExitCode: Int = 0,
         usesDisposableDataRoot: Bool = false,
-        usesConfiguredArtifactRoot: Bool = false
-    ) throws -> (result: ScriptRunResult, quitArguments: String) {
+        usesConfiguredArtifactRoot: Bool = false,
+        usesSymlinkedArtifactRoot: Bool = false
+    ) throws -> (result: ScriptRunResult, quitArguments: String, canonicalAppPath: String?) {
         let fixture = try LauncherScriptFixture()
         defer { fixture.cleanup() }
         let debugCode = try fixture.worktreeDebugCode()
@@ -272,6 +290,15 @@ struct ObservabilityDebugCandidateLifecycleScriptTests {
             bundleIdentifier: "com.agentstudio.app.debug.d\(debugCode)"
         )
         let executable = app.appending(path: "Contents/MacOS/AgentStudio")
+        // The launcher is routinely handed a lexical path whose parent is a
+        // symlink, which is the shape that broke retirement under /tmp.
+        var stateApp = app
+        if usesSymlinkedArtifactRoot {
+            let linkedRoot = fixture.url("linked-artifacts")
+            try FileManager.default.createSymbolicLink(at: linkedRoot, withDestinationURL: artifactRoot)
+            stateApp = linkedRoot.appending(path: "AgentStudio Debug \(debugCode).app")
+        }
+        let stateExecutable = stateApp.appending(path: "Contents/MacOS/AgentStudio")
         let stateFile = fixture.url("candidate.env")
         let dataRoot =
             usesDisposableDataRoot
@@ -288,8 +315,8 @@ struct ObservabilityDebugCandidateLifecycleScriptTests {
         AGENTSTUDIO_OBSERVABILITY_PID=4242
         AGENTSTUDIO_OBSERVABILITY_PROCESS_START_IDENTITY=\(startIdentity)
         AGENTSTUDIO_OBSERVABILITY_BUNDLE_IDENTIFIER=com.agentstudio.app.debug.d\(debugCode)
-        AGENTSTUDIO_OBSERVABILITY_APP=\(shellEscapedStateValue(app.path))
-        AGENTSTUDIO_OBSERVABILITY_EXECUTABLE=\(shellEscapedStateValue(executable.path))
+        AGENTSTUDIO_OBSERVABILITY_APP=\(shellEscapedStateValue(stateApp.path))
+        AGENTSTUDIO_OBSERVABILITY_EXECUTABLE=\(shellEscapedStateValue(stateExecutable.path))
         AGENTSTUDIO_OBSERVABILITY_DATA_DIR=\(dataRoot.path)
         AGENTSTUDIO_OBSERVABILITY_ZMX_DIR=\(dataRoot.appending(path: "z").path)
         """.appending("\n").write(to: stateFile, atomically: true, encoding: .utf8)
@@ -337,6 +364,14 @@ struct ObservabilityDebugCandidateLifecycleScriptTests {
         )
         let quitArguments =
             (try? String(contentsOf: quitFile, encoding: .utf8)) ?? ""
-        return (result, quitArguments)
+        return (result, quitArguments, canonicalFilesystemPath(app.path))
+    }
+
+    /// `realpath(3)`, not `resolvingSymlinksInPath`, which leaves `/tmp`
+    /// lexical and would compare against a path the launcher never produces.
+    private func canonicalFilesystemPath(_ path: String) -> String? {
+        guard let resolved = realpath(path, nil) else { return nil }
+        defer { free(resolved) }
+        return String(cString: resolved)
     }
 }

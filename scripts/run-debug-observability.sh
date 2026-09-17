@@ -366,8 +366,13 @@ retire_debug_candidate() {
     echo "candidate identity mismatch: process start changed before graceful quit" >&2
     return 1
   fi
+  # AppKit reports the canonical path; the state file stores what the launcher
+  # was given. The surrounding tuple check already compares realpaths, so the
+  # quit request must too or any artifact root reached through a symlink
+  # (/tmp, /var) is unretirable.
   if ! request_normal_candidate_quit \
-    "$state_pid" "$state_bundle_identifier" "$state_app" "$state_executable"
+    "$state_pid" "$state_bundle_identifier" \
+    "$(realpath_value "$state_app")" "$(realpath_value "$state_executable")"
   then
     echo "graceful quit request failed for exact candidate PID $state_pid" >&2
     return 1
