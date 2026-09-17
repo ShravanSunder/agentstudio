@@ -129,7 +129,12 @@ package enum CodexPackageInstaller {
                 removedEntries += document.removeOwnedGroups(
                     event: event.rawValue, ownedCommandFragment: ownedCommandFragment)
             }
-            if document.carriesNothingButEmptyHooks {
+            // A file this package never wrote is left byte-identical: no
+            // re-encode, no deletion. Only an install of ours can have put
+            // entries there, and only then can removing them empty the file.
+            if removedEntries == 0 {
+                output.append("no agentstudio hook entries to remove from \(props.hooksURL.path)")
+            } else if document.carriesNothingButAnEmptyHooksTable {
                 try props.fileManager.removeItem(at: props.hooksURL)
                 output.append("removed \(removedEntries) hook entries and \(props.hooksURL.path)")
             } else {
@@ -169,7 +174,8 @@ package enum CodexPackageInstaller {
         } else {
             existing = ""
         }
-        return CodexFeatureTableEditor.enablingHooks(in: existing)
+        return try CodexFeatureTableEditor.enablingHooks(
+            in: existing, configurationPath: props.configurationURL.path)
     }
 
     private static func plannedHooks(

@@ -138,7 +138,8 @@ AgentStudioIPCClientCore
 
 AgentStudioIPCClient
   Owns:     Thin `agentstudio-cli` executable entrypoint.
-  Imports:  AgentStudioIPCClientCore.
+  Imports:  AgentStudioIPCClientCore, AgentStudioInfrastructure and
+            AgentStudioProgrammaticControl.
   Must not: Import app/runtime owner targets.
 ```
 

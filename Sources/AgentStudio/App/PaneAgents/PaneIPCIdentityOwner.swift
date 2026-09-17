@@ -26,7 +26,6 @@ final class PaneIPCIdentityOwner {
         "AGENTSTUDIO_WORKSPACE_ID",
         "AGENTSTUDIO_IPC_SOCKET",
         "AGENTSTUDIO_PANE_TOKEN",
-        "AGENTSTUDIO_IPC_CREDENTIAL_RECORD_ID",
         "AGENTSTUDIO_IPC_SPOOL_DIR",
         "AGENTSTUDIO_CLI",
     ]
@@ -88,7 +87,6 @@ final class PaneIPCIdentityOwner {
             environmentVariables: makeEnvironment(
                 paneID: paneID,
                 workspaceID: workspaceID,
-                credentialRecordID: credentialRecordID,
                 rawToken: rawToken
             )
         )
@@ -109,10 +107,12 @@ final class PaneIPCIdentityOwner {
         }
     }
 
+    /// The credential record ID stays out of the pane's environment: it is
+    /// persistence and correlation identity, not authority, and nothing in the
+    /// pane reads it.
     private func makeEnvironment(
         paneID: UUID,
         workspaceID: UUID,
-        credentialRecordID: UUID,
         rawToken: AgentStudioIPCSubjectToken
     ) -> [String: String] {
         var environmentVariables = inheritedEnvironment
@@ -126,7 +126,6 @@ final class PaneIPCIdentityOwner {
         environmentVariables["AGENTSTUDIO_WORKSPACE_ID"] = workspaceID.uuidString
         environmentVariables["AGENTSTUDIO_IPC_SOCKET"] = socketURL.path
         environmentVariables["AGENTSTUDIO_PANE_TOKEN"] = rawToken.rawValue
-        environmentVariables["AGENTSTUDIO_IPC_CREDENTIAL_RECORD_ID"] = credentialRecordID.uuidString
         environmentVariables["AGENTSTUDIO_IPC_SPOOL_DIR"] = spoolDirectory.path
         environmentVariables["AGENTSTUDIO_CLI"] = cliExecutableURL.path
         return environmentVariables

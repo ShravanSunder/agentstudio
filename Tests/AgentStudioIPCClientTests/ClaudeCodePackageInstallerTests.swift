@@ -229,6 +229,27 @@ struct ClaudeCodePackageInstallerTests {
         #expect(!FileManager.default.fileExists(atPath: absent.path))
     }
 
+    /// Uninstall already steps around a non-object `hooks`. Install replacing it
+    /// would destroy a value the package never wrote.
+    @Test("A non-object hooks value aborts the install and writes nothing")
+    func nonObjectHooksValueAbortsInstall() throws {
+        // Arrange
+        let fixture = try ClaudeCodePackageFixture.make()
+        defer { fixture.tearDown() }
+        try fixture.writeSettings(
+            .object(["hooks": .string("mine"), "model": .string("opus")])
+        )
+        let original = try Data(contentsOf: fixture.settingsURL)
+
+        // Act / Assert
+        #expect(throws: ClaudeCodePackageInstallerError.hooksValueNotAnObject(fixture.settingsURL.path)) {
+            try fixture.installation.install(notice: { _ in })
+        }
+        #expect(try Data(contentsOf: fixture.settingsURL) == original)
+        #expect(
+            !FileManager.default.fileExists(atPath: fixture.installation.skillDirectoryURL.path))
+    }
+
     @Test("A missing package root fails before settings.json is touched")
     func missingPackageRootWritesNothing() throws {
         // Arrange

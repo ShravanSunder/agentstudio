@@ -126,7 +126,8 @@ extension AppDelegate {
             publishDebugCredentialEscrow(socketURL: composition.socketURL)
             startPaneReportSpoolDrain(sessionsIngestion: sessionsIngestion)
         } catch {
-            appLogger.warning("App IPC server failed to start: \(String(describing: error), privacy: .public)")
+            appLogger.warning(
+                "App IPC server failed to start: \(error.localizedDescription, privacy: .private)")
         }
     }
 
@@ -207,7 +208,7 @@ extension AppDelegate {
             spool = try PaneReportSpool(admission: lateAdmission)
         } catch {
             appLogger.warning(
-                "Offline notification drain skipped: \(String(describing: error), privacy: .public)"
+                "Offline notification drain skipped: \(error.localizedDescription, privacy: .private)"
             )
             return
         }
@@ -251,7 +252,10 @@ extension AppDelegate {
             _ = try await ingestion.prepareForLaunch(at: Date())
         } catch {
             appLogger.warning(
-                "Sessions ingestion skipped: launch preparation failed: \(String(describing: error), privacy: .public)"
+                """
+                Sessions ingestion skipped: launch preparation failed: \
+                \(error.localizedDescription, privacy: .private)
+                """
             )
             return nil
         }

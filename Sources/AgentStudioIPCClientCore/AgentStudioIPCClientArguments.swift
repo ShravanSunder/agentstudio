@@ -10,6 +10,23 @@ package struct IPCClientGlobalArguments: Sendable {
     package let configuration: AgentStudioIPCClientConfiguration
     package let methodArguments: [String]
     package let consumesTokenInput: Bool
+    /// The endpoint came from the debug escrow file rather than a flag, the pane
+    /// environment or runtime metadata. A stale escrow names a socket nobody is
+    /// listening on, and that reads as "the debug app is gone", not as a
+    /// transport fault the caller should decode.
+    package let endpointCameFromDebugEscrow: Bool
+
+    package init(
+        configuration: AgentStudioIPCClientConfiguration,
+        methodArguments: [String],
+        consumesTokenInput: Bool,
+        endpointCameFromDebugEscrow: Bool = false
+    ) {
+        self.configuration = configuration
+        self.methodArguments = methodArguments
+        self.consumesTokenInput = consumesTokenInput
+        self.endpointCameFromDebugEscrow = endpointCameFromDebugEscrow
+    }
 }
 
 package enum AgentStudioIPCClientArguments {
@@ -62,7 +79,8 @@ package enum AgentStudioIPCClientArguments {
         }
         return IPCClientGlobalArguments(
             configuration: .init(socketPath: socket, authToken: token),
-            methodArguments: methodArguments, consumesTokenInput: consumesTokenInput
+            methodArguments: methodArguments, consumesTokenInput: consumesTokenInput,
+            endpointCameFromDebugEscrow: debugEscrowCredential != nil
         )
     }
 

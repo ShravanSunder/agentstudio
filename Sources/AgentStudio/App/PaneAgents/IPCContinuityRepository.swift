@@ -3,6 +3,12 @@ import AgentStudioCore
 import Foundation
 import GRDB
 
+enum IPCContinuityRepositoryError: Error, Equatable {
+    case invalidVerifierLength
+    case conflictingCredentialRecord
+    case ambiguousVerifier
+}
+
 actor IPCContinuityRepository {
     private let datastore: WorkspaceSQLiteDatastoreActor
 

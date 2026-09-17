@@ -74,12 +74,17 @@ package struct CodexHooksDocument {
         return existing.count - remaining.count
     }
 
-    /// True when nothing but an empty `hooks` table is left, so the file would
+    /// True when the document is exactly `{"hooks": {}}`, so the file would
     /// only be debris if it stayed.
-    package var carriesNothingButEmptyHooks: Bool {
-        let hooks = root[Self.hooksKey] as? [String: Any] ?? [:]
-        let hasAnyGroup = hooks.values.contains { ($0 as? [Any])?.isEmpty == false }
-        return !hasAnyGroup && root.keys.allSatisfy { $0 == Self.hooksKey }
+    ///
+    /// The `hooks` value must really be an empty object. A non-object there is
+    /// something this package does not understand and therefore does not own,
+    /// and an event key that survived removal is still somebody's hook.
+    package var carriesNothingButAnEmptyHooksTable: Bool {
+        guard root.keys.count == 1, let hooks = root[Self.hooksKey] as? [String: Any] else {
+            return false
+        }
+        return hooks.isEmpty
     }
 
     package func encoded() throws -> Data {

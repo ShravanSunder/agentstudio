@@ -236,6 +236,75 @@ struct AgentStudioIPCClientCoreTests {
         #expect(invocation.configuration.authToken == nil)
     }
 
+    /// A stale escrow names a socket nobody is listening on. The CLI has to know
+    /// the endpoint came from that file to answer "the debug app is gone" rather
+    /// than a raw transport failure.
+    @Test("an escrow-supplied endpoint is marked as such and an explicit one is not")
+    func escrowSuppliedEndpointIsMarked() throws {
+        // Arrange
+        let fixture = try DebugEscrowFixture(
+            document: IPCDebugCredentialEscrowDocument(
+                runtimeId: UUIDv7.generate(),
+                socketPath: "/tmp/debug-escrow.sock",
+                token: "escrow-token"
+            )
+        )
+        defer { fixture.cleanup() }
+        var paneEnvironment = fixture.environment
+        paneEnvironment["AGENTSTUDIO_IPC_SOCKET"] = "/tmp/pane.sock"
+
+        // Act
+        let fromEscrow = try AgentStudioIPCClientArguments.parseGlobal(
+            ["system.identify"], environment: fixture.environment,
+            standardInputProvider: {
+                Issue.record("No stdin requested")
+                return Data()
+            }
+        )
+        let fromPaneEnvironment = try AgentStudioIPCClientArguments.parseGlobal(
+            ["system.identify"], environment: paneEnvironment,
+            standardInputProvider: {
+                Issue.record("No stdin requested")
+                return Data()
+            }
+        )
+
+        // Assert
+        #expect(fromEscrow.endpointCameFromDebugEscrow)
+        #expect(fromPaneEnvironment.endpointCameFromDebugEscrow == false)
+    }
+
+    @Test("an escrow file without a usable runtime identity reports that the debug app is not running")
+    func escrowWithoutARuntimeIdentityReportsNotRunning() throws {
+        // Arrange
+        let fixture = try DebugEscrowFixture(
+            document: IPCDebugCredentialEscrowDocument(
+                runtimeId: UUIDv7.generate(),
+                socketPath: "/tmp/debug-escrow.sock",
+                token: "escrow-token"
+            )
+        )
+        defer { fixture.cleanup() }
+        let withoutRuntimeId = #"{"socketPath":"/tmp/debug-escrow.sock","token":"escrow-token"}"#
+        let unparsableRuntimeId =
+            #"{"runtimeId":"not-a-uuid","socketPath":"/tmp/debug-escrow.sock","token":"escrow-token"}"#
+
+        // Act / Assert
+        for contents in [withoutRuntimeId, unparsableRuntimeId] {
+            try Data(contents.utf8).write(to: fixture.escrowURL)
+            let error = #expect(throws: AgentStudioIPCClientError.self) {
+                try AgentStudioIPCClientArguments.parseGlobal(
+                    ["system.identify"], environment: fixture.environment,
+                    standardInputProvider: {
+                        Issue.record("No stdin requested")
+                        return Data()
+                    }
+                )
+            }
+            #expect(error?.reason == .debugAppNotRunning)
+        }
+    }
+
     @Test("a missing or unreadable escrow file reports that the debug app is not running")
     func missingOrCorruptDebugEscrowReportsNotRunning() throws {
         let fixture = try DebugEscrowFixture(

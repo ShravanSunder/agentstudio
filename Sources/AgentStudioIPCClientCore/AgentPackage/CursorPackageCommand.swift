@@ -144,6 +144,8 @@ package enum CursorPackageCommand {
             "hooks.json is not readable JSON: \(path)"
         case CursorPackageInstallerError.hooksDocumentNotAnObject(let path):
             "hooks.json is not a JSON object: \(path)"
+        case CursorPackageInstallerError.hooksValueNotAnObject(let path):
+            "\(path) has a non-object \"hooks\" value; not modified"
         default:
             "unexpected failure"
         }

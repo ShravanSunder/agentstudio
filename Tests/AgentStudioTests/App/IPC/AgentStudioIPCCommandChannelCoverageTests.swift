@@ -14,6 +14,17 @@ import Testing
 @MainActor
 @Suite("AgentStudio IPC command channel coverage", .serialized)
 struct AgentStudioIPCCommandChannelCoverageTests {
+    /// The two example helpers split the variants between them. They are both
+    /// exhaustive so a new variant is a build failure, and this pins the runtime
+    /// half of that claim: no variant reaches a rejection instead of an example.
+    @Test("every argument variant projects the example shape it names")
+    func everyArgumentVariantProjectsItsOwnExample() throws {
+        for variant in IPCCommandArgumentVariant.allCases {
+            let arguments = try AgentStudioIPCCommandCatalogProjection.exampleArguments(for: variant)
+            #expect(arguments.variant == variant, "\(variant.rawValue) projected a different shape")
+        }
+    }
+
     @Test("debug discovery exposes every AppCommand and labels the debug-only ones")
     func debugCatalogExposesEveryAppCommand() throws {
         let catalog = try CommandAdapterHarness(channel: .debug).adapter.listCommands()
