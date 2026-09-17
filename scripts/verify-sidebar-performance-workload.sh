@@ -16,7 +16,7 @@ REQUIRED_SAMPLE_COUNT=100
 REQUIRED_MATERIALIZED_SAMPLE_COUNT=90
 REQUIRED_KEY_MUTATION_COUNT=100
 REQUIRED_METRIC_READBACK_ATTEMPTS=45
-WORKLOAD_FIXTURE_VERSION=sidebar-workload-v6-panes-organization
+WORKLOAD_FIXTURE_VERSION=sidebar-workload-v7-fixed-panes-organization
 REQUIRED_REPOSITORY_COUNT=150
 REQUIRED_WORKTREE_COUNT=180
 REQUIRED_TAB_COUNT=12
@@ -2588,15 +2588,24 @@ record_required_sidebar_metric_matrix() {
   : >"$REQUIRED_METRIC_KEYS_FILE"
   : >"$METRIC_VALUES_FILE"
 
-  for mode_name in repo activity tab; do
+  for mode_name in repo activity; do
     for phase in request_build_mainactor projection_worker row_index mainactor_apply; do
       minimum_count="$REQUIRED_MATERIALIZED_SAMPLE_COUNT"
       if [ "$phase" = "request_build_mainactor" ]; then
         minimum_count="$REQUIRED_SAMPLE_COUNT"
       fi
-      record_required_metric_series panes "$phase" "$mode_name" grouping_switch \
-        "panes_${mode_name}_${phase}" "$minimum_count"
+      record_required_metric_series repo "$phase" "$mode_name" grouping_switch \
+        "repos_${mode_name}_${phase}" "$minimum_count"
     done
+  done
+
+  for phase in request_build_mainactor projection_worker row_index mainactor_apply; do
+    minimum_count="$REQUIRED_MATERIALIZED_SAMPLE_COUNT"
+    if [ "$phase" = "request_build_mainactor" ]; then
+      minimum_count="$REQUIRED_SAMPLE_COUNT"
+    fi
+    record_required_metric_series panes "$phase" activity data_refresh \
+      "panes_fixed_activity_${phase}" "$minimum_count"
   done
 
 }
@@ -2703,7 +2712,7 @@ validate_compare_baseline_fixture() {
 run_authenticated_sidebar_ipc_workload() {
   local metadata_path="${1:?missing metadata path}"
   local debug_token_path="${2:?missing debug token path}"
-  local sort_direction_receipt_path="$ARTIFACT/panes-sort-direction-receipts.jsonl"
+  local sort_direction_receipt_path="$ARTIFACT/repos-sort-direction-receipts.jsonl"
   : >"$sort_direction_receipt_path"
   /usr/bin/python3 - "$metadata_path" "$debug_token_path" "$LOGS_QUERY_URL" "$TRACE_MARKER" \
     "$sort_direction_receipt_path" <<'PY'
@@ -2800,11 +2809,11 @@ def record_time_ns(record):
     return int(parsed.timestamp() * 1_000_000_000)
 
 
-def latest_completed_panes_projection():
+def latest_completed_sidebar_projection(surface):
     matching = [
         record for record in marker_records()
         if record.get("_msg") == "performance.sidebar.projection"
-        and record.get("agentstudio.performance.sidebar.surface") == "panes"
+        and record.get("agentstudio.performance.sidebar.surface") == surface
         and record.get("agentstudio.performance.sidebar.phase") == "projection_worker"
     ]
     if not matching:
@@ -2812,11 +2821,11 @@ def latest_completed_panes_projection():
     return max(matching, key=record_time_ns)
 
 
-def wait_for_panes_projection(expected_grouping=None, expected_sort_order=None, after_ns=0):
+def wait_for_sidebar_projection(surface, expected_grouping=None, expected_sort_order=None, after_ns=0):
     deadline = time.monotonic() + timeout
     latest = None
     while time.monotonic() < deadline:
-        latest = latest_completed_panes_projection()
+        latest = latest_completed_sidebar_projection(surface)
         if latest is not None and record_time_ns(latest) > after_ns:
             grouping = latest.get("agentstudio.performance.sidebar.group_mode")
             sort_order = latest.get("agentstudio.performance.sidebar.sort_order")
@@ -2827,8 +2836,8 @@ def wait_for_panes_projection(expected_grouping=None, expected_sort_order=None, 
         if readback_poll_delay > 0:
             time.sleep(readback_poll_delay)
     print(
-        "panes projection readiness timed out: "
-        f"grouping={expected_grouping} sort_order={expected_sort_order} latest={latest}",
+        "sidebar projection readiness timed out: "
+        f"surface={surface} grouping={expected_grouping} sort_order={expected_sort_order} latest={latest}",
         file=sys.stderr,
     )
     sys.exit(1)
@@ -2875,48 +2884,113 @@ try:
         if step_delay > 0:
             time.sleep(step_delay)
 
-    def set_grouping(surface, mode):
-        command_by_grouping = {
-            ("panes", "repo"): "setPanesGroupingRepo",
-            ("panes", "tab"): "setPanesGroupingTab",
-            ("panes", "activity"): "setPanesGroupingActivity",
-        }
-        command_id = command_by_grouping.get((surface, mode))
-        if command_id is None:
-            print(f"unsupported sidebar grouping command: surface={surface} mode={mode}", file=sys.stderr)
+    retired_panes_organization_commands = {
+        "setPanesGroupingRepo",
+        "setPanesGroupingTab",
+        "setPanesGroupingActivity",
+        "setPanesSubgroupNone",
+        "setPanesSubgroupActivity",
+        "setPanesSortFieldName",
+        "setPanesSortFieldActivity",
+        "togglePanesSortDirection",
+    }
+    command_list = require_success(
+        session.request(next_id(), "command.list", {}),
+        "command.list",
+    )
+    commands_by_id = {command.get("id"): command for command in command_list.get("commands", [])}
+    for command_id in sorted(retired_panes_organization_commands):
+        command_entry = commands_by_id.get(command_id)
+        if command_entry is None:
+            print(f"command.list omitted retained retired command {command_id}", file=sys.stderr)
             sys.exit(1)
-        previous_projection = wait_for_panes_projection()
+        if command_entry.get("executionModes") != [] or command_entry.get("requiredPrivileges") != []:
+            print(f"retired command retained IPC authority: {command_entry}", file=sys.stderr)
+            sys.exit(1)
+
+    def assert_fixed_panes_projection(projection, label):
+        grouping = projection.get("agentstudio.performance.sidebar.group_mode")
+        sort_order = projection.get("agentstudio.performance.sidebar.sort_order")
+        if grouping != "activity" or sort_order != "descending":
+            print(
+                f"{label} violated fixed Panes activity/descending/no-subgroup policy: {projection}",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+
+    def reject_retired_panes_organization_commands():
+        before = wait_for_sidebar_projection("panes")
+        assert_fixed_panes_projection(before, "Panes projection before retired commands")
+        for command_id in sorted(retired_panes_organization_commands):
+            require_error(
+                session.request(
+                    next_id(),
+                    "command.execute",
+                    {"commandId": command_id, "targetHandle": None, "arguments": {}},
+                ),
+                f"command.execute retired {command_id}",
+                -32007,
+                "parameters required",
+            )
+        after = wait_for_sidebar_projection("panes")
+        assert_fixed_panes_projection(after, "Panes projection after retired commands")
+        for attribute in (
+            "agentstudio.performance.sidebar.group_mode",
+            "agentstudio.performance.sidebar.sort_order",
+        ):
+            if after.get(attribute) != before.get(attribute):
+                print(
+                    f"retired Panes organization commands mutated {attribute}: before={before} after={after}",
+                    file=sys.stderr,
+                )
+                sys.exit(1)
+
+    def set_repo_grouping(mode):
+        command_by_grouping = {
+            "repo": "setReposGroupingRepo",
+            "activity": "setReposGroupingActivity",
+        }
+        command_id = command_by_grouping.get(mode)
+        if command_id is None:
+            print(f"unsupported Repos grouping command: mode={mode}", file=sys.stderr)
+            sys.exit(1)
+        previous_projection = wait_for_sidebar_projection("repo")
         previous_grouping = previous_projection.get("agentstudio.performance.sidebar.group_mode")
         execute_sidebar_command(command_id, {}, f"command.execute {command_id}")
         if previous_grouping != mode:
-            wait_for_panes_projection(
+            wait_for_sidebar_projection(
+                "repo",
                 expected_grouping=mode,
                 after_ns=record_time_ns(previous_projection),
             )
         pace_projection_application()
 
-    def toggle_panes_sort_direction_pair():
-        initial_projection = wait_for_panes_projection()
+    def toggle_repos_sort_direction_pair():
+        initial_projection = wait_for_sidebar_projection("repo", expected_grouping="repo")
         initial_order = initial_projection.get("agentstudio.performance.sidebar.sort_order")
         if initial_order not in {"ascending", "descending"}:
-            print(f"invalid initial panes sort order: {initial_projection}", file=sys.stderr)
+            print(f"invalid initial Repos sort order: {initial_projection}", file=sys.stderr)
             sys.exit(1)
         opposite_order = "descending" if initial_order == "ascending" else "ascending"
         first_toggle_result = execute_sidebar_command(
-            "togglePanesSortDirection",
+            "toggleReposSortDirection",
             {},
-            "command.execute togglePanesSortDirection first toggle",
+            "command.execute toggleReposSortDirection first toggle",
         )
-        opposite_projection = wait_for_panes_projection(
+        opposite_projection = wait_for_sidebar_projection(
+            "repo",
+            expected_grouping="repo",
             expected_sort_order=opposite_order,
             after_ns=record_time_ns(initial_projection),
         )
         second_toggle_result = execute_sidebar_command(
-            "togglePanesSortDirection",
+            "toggleReposSortDirection",
             {},
-            "command.execute togglePanesSortDirection second toggle",
+            "command.execute toggleReposSortDirection second toggle",
         )
-        restored_projection = wait_for_panes_projection(
+        restored_projection = wait_for_sidebar_projection(
+            "repo",
+            expected_grouping="repo",
             expected_sort_order=initial_order,
             after_ns=record_time_ns(opposite_projection),
         )
@@ -2930,25 +3004,50 @@ try:
             }, sort_keys=True) + "\n")
         pace_projection_application()
 
+    def toggle_panes_shows_pinned_pair():
+        initial_projection = wait_for_sidebar_projection("panes")
+        assert_fixed_panes_projection(initial_projection, "Panes projection before Show Pinned toggle")
+        execute_sidebar_command(
+            "togglePanesShowsPinned",
+            {},
+            "command.execute togglePanesShowsPinned first toggle",
+        )
+        toggled_projection = wait_for_sidebar_projection(
+            "panes",
+            expected_grouping="activity",
+            expected_sort_order="descending",
+            after_ns=record_time_ns(initial_projection),
+        )
+        assert_fixed_panes_projection(toggled_projection, "Panes projection after first Show Pinned toggle")
+        execute_sidebar_command(
+            "togglePanesShowsPinned",
+            {},
+            "command.execute togglePanesShowsPinned second toggle",
+        )
+        restored_projection = wait_for_sidebar_projection(
+            "panes",
+            expected_grouping="activity",
+            expected_sort_order="descending",
+            after_ns=record_time_ns(toggled_projection),
+        )
+        assert_fixed_panes_projection(restored_projection, "Panes projection after second Show Pinned toggle")
+        pace_projection_application()
+
     execute_sidebar_command("showPanesSidebar", {}, "command.execute showPanesSidebar")
-    wait_for_panes_projection()
+    initial_panes_projection = wait_for_sidebar_projection("panes")
+    assert_fixed_panes_projection(initial_panes_projection, "initial Panes projection")
+    reject_retired_panes_organization_commands()
 
     for _ in range(cycles):
-        set_grouping("panes", "repo")
-        toggle_panes_sort_direction_pair()
-        set_grouping("panes", "activity")
-        set_grouping("panes", "tab")
-        set_grouping("panes", "repo")
-        set_grouping("panes", "activity")
-        set_grouping("panes", "tab")
-        set_grouping("panes", "repo")
-        toggle_panes_sort_direction_pair()
-        set_grouping("panes", "activity")
-        set_grouping("panes", "tab")
-        set_grouping("panes", "repo")
-        set_grouping("panes", "activity")
-        set_grouping("panes", "repo")
-        toggle_panes_sort_direction_pair()
+        execute_sidebar_command("showPanesSidebar", {}, "command.execute showPanesSidebar")
+        wait_for_sidebar_projection("panes", expected_grouping="activity", expected_sort_order="descending")
+        toggle_panes_shows_pinned_pair()
+        execute_sidebar_command("showReposSidebar", {}, "command.execute showReposSidebar")
+        wait_for_sidebar_projection("repo")
+        for _ in range(3):
+            set_repo_grouping("activity")
+            set_repo_grouping("repo")
+            toggle_repos_sort_direction_pair()
 finally:
     session.close()
 PY
@@ -2956,7 +3055,7 @@ PY
   local actual_sort_direction_receipt_count
   actual_sort_direction_receipt_count="$(wc -l <"$sort_direction_receipt_path" | tr -d '[:space:]')"
   if [ "$actual_sort_direction_receipt_count" != "$expected_sort_direction_receipt_count" ]; then
-    echo "panes sort direction receipt count mismatch: expected=$expected_sort_direction_receipt_count actual=$actual_sort_direction_receipt_count" >&2
+    echo "Repos sort direction receipt count mismatch: expected=$expected_sort_direction_receipt_count actual=$actual_sort_direction_receipt_count" >&2
     return 1
   fi
 }
@@ -3458,104 +3557,104 @@ require_exact_fixture_count fixture_active_pty_count "$fixture_active_pty_count"
 
 repo_pane_projection_worker_elapsed_ms_p95="$(
   wait_for_required_metric_value repo_pane_projection_worker_elapsed_ms_p95 \
-    "$(metric_event_elapsed_p95_query panes projection_worker activity grouping_switch)"
+    "$(metric_event_elapsed_p95_query repo projection_worker activity grouping_switch)"
 )"
 repo_pane_projection_worker_elapsed_ms_max="$(
   wait_for_required_metric_value repo_pane_projection_worker_elapsed_ms_max \
-    "$(metric_event_elapsed_max_query panes projection_worker activity grouping_switch)"
+    "$(metric_event_elapsed_max_query repo projection_worker activity grouping_switch)"
 )"
 repo_tab_mainactor_apply_elapsed_ms_p95="$(
   wait_for_required_metric_value repo_tab_mainactor_apply_elapsed_ms_p95 \
-    "$(metric_event_elapsed_p95_query panes mainactor_apply tab grouping_switch)"
+    "$(metric_event_elapsed_p95_query panes mainactor_apply activity data_refresh)"
 )"
 repo_tab_mainactor_apply_elapsed_ms_max="$(
   wait_for_required_metric_value repo_tab_mainactor_apply_elapsed_ms_max \
-    "$(metric_event_elapsed_max_query panes mainactor_apply tab grouping_switch)"
+    "$(metric_event_elapsed_max_query panes mainactor_apply activity data_refresh)"
 )"
 repo_pane_projection_worker_elapsed_ms_count="$(
   wait_for_required_metric_count repo_pane_projection_worker_elapsed_ms_count \
-    "$(metric_event_elapsed_count_query panes projection_worker activity grouping_switch)" \
+    "$(metric_event_elapsed_count_query repo projection_worker activity grouping_switch)" \
     "$REQUIRED_MATERIALIZED_SAMPLE_COUNT"
 )"
 repo_sort_projection_worker_elapsed_ms_p95="$(
   wait_for_required_metric_value repo_sort_projection_worker_elapsed_ms_p95 \
-    "$(metric_event_elapsed_p95_query panes projection_worker repo sort_order)"
+    "$(metric_event_elapsed_p95_query repo projection_worker repo sort_order)"
 )"
 repo_sort_projection_worker_elapsed_ms_max="$(
   wait_for_required_metric_value repo_sort_projection_worker_elapsed_ms_max \
-    "$(metric_event_elapsed_max_query panes projection_worker repo sort_order)"
+    "$(metric_event_elapsed_max_query repo projection_worker repo sort_order)"
 )"
 repo_sort_projection_worker_elapsed_ms_count="$(
   wait_for_required_metric_count repo_sort_projection_worker_elapsed_ms_count \
-    "$(metric_event_elapsed_count_query panes projection_worker repo sort_order)" \
+    "$(metric_event_elapsed_count_query repo projection_worker repo sort_order)" \
     "$REQUIRED_MATERIALIZED_SAMPLE_COUNT"
 )"
 repo_sort_mainactor_apply_elapsed_ms_p95="$(
   wait_for_required_metric_value repo_sort_mainactor_apply_elapsed_ms_p95 \
-    "$(metric_event_elapsed_p95_query panes mainactor_apply repo sort_order)"
+    "$(metric_event_elapsed_p95_query repo mainactor_apply repo sort_order)"
 )"
 repo_sort_mainactor_apply_elapsed_ms_max="$(
   wait_for_required_metric_value repo_sort_mainactor_apply_elapsed_ms_max \
-    "$(metric_event_elapsed_max_query panes mainactor_apply repo sort_order)"
+    "$(metric_event_elapsed_max_query repo mainactor_apply repo sort_order)"
 )"
 repo_sort_mainactor_apply_elapsed_ms_count="$(
   wait_for_required_metric_count repo_sort_mainactor_apply_elapsed_ms_count \
-    "$(metric_event_elapsed_count_query panes mainactor_apply repo sort_order)" \
+    "$(metric_event_elapsed_count_query repo mainactor_apply repo sort_order)" \
     "$REQUIRED_MATERIALIZED_SAMPLE_COUNT"
 )"
 repo_sort_request_build_mainactor_elapsed_ms_p95="$(
   wait_for_required_metric_value repo_sort_request_build_mainactor_elapsed_ms_p95 \
-    "$(metric_event_elapsed_p95_query panes request_build_mainactor repo sort_order)"
+    "$(metric_event_elapsed_p95_query repo request_build_mainactor repo sort_order)"
 )"
 repo_sort_request_build_mainactor_elapsed_ms_max="$(
   wait_for_required_metric_value repo_sort_request_build_mainactor_elapsed_ms_max \
-    "$(metric_event_elapsed_max_query panes request_build_mainactor repo sort_order)"
+    "$(metric_event_elapsed_max_query repo request_build_mainactor repo sort_order)"
 )"
 repo_sort_request_build_mainactor_elapsed_ms_count="$(
   wait_for_required_metric_count repo_sort_request_build_mainactor_elapsed_ms_count \
-    "$(metric_event_elapsed_count_query panes request_build_mainactor repo sort_order)" "$REQUIRED_SAMPLE_COUNT"
+    "$(metric_event_elapsed_count_query repo request_build_mainactor repo sort_order)" "$REQUIRED_SAMPLE_COUNT"
 )"
 repo_sort_row_index_elapsed_ms_p95="$(
   wait_for_required_metric_value repo_sort_row_index_elapsed_ms_p95 \
-    "$(metric_event_elapsed_p95_query panes row_index repo sort_order)"
+    "$(metric_event_elapsed_p95_query repo row_index repo sort_order)"
 )"
 repo_sort_row_index_elapsed_ms_max="$(
   wait_for_required_metric_value repo_sort_row_index_elapsed_ms_max \
-    "$(metric_event_elapsed_max_query panes row_index repo sort_order)"
+    "$(metric_event_elapsed_max_query repo row_index repo sort_order)"
 )"
 repo_sort_row_index_elapsed_ms_count="$(
   wait_for_required_metric_count repo_sort_row_index_elapsed_ms_count \
-    "$(metric_event_elapsed_count_query panes row_index repo sort_order)" \
+    "$(metric_event_elapsed_count_query repo row_index repo sort_order)" \
     "$REQUIRED_MATERIALIZED_SAMPLE_COUNT"
 )"
 repo_tab_mainactor_apply_elapsed_ms_count="$(
   wait_for_required_metric_count repo_tab_mainactor_apply_elapsed_ms_count \
-    "$(metric_event_elapsed_count_query panes mainactor_apply tab grouping_switch)" \
+    "$(metric_event_elapsed_count_query panes mainactor_apply activity data_refresh)" \
     "$REQUIRED_MATERIALIZED_SAMPLE_COUNT"
 )"
 repo_pane_request_build_mainactor_elapsed_ms_p95="$(
   wait_for_required_metric_value repo_pane_request_build_mainactor_elapsed_ms_p95 \
-    "$(metric_event_elapsed_p95_query panes request_build_mainactor activity grouping_switch)"
+    "$(metric_event_elapsed_p95_query repo request_build_mainactor activity grouping_switch)"
 )"
 repo_pane_request_build_mainactor_elapsed_ms_max="$(
   wait_for_required_metric_value repo_pane_request_build_mainactor_elapsed_ms_max \
-    "$(metric_event_elapsed_max_query panes request_build_mainactor activity grouping_switch)"
+    "$(metric_event_elapsed_max_query repo request_build_mainactor activity grouping_switch)"
 )"
 repo_pane_request_build_mainactor_elapsed_ms_count="$(
   wait_for_required_metric_count repo_pane_request_build_mainactor_elapsed_ms_count \
-    "$(metric_event_elapsed_count_query panes request_build_mainactor activity grouping_switch)" "$REQUIRED_SAMPLE_COUNT"
+    "$(metric_event_elapsed_count_query repo request_build_mainactor activity grouping_switch)" "$REQUIRED_SAMPLE_COUNT"
 )"
 repo_pane_row_index_elapsed_ms_p95="$(
   wait_for_required_metric_value repo_pane_row_index_elapsed_ms_p95 \
-    "$(metric_event_elapsed_p95_query panes row_index activity grouping_switch)"
+    "$(metric_event_elapsed_p95_query repo row_index activity grouping_switch)"
 )"
 repo_pane_row_index_elapsed_ms_max="$(
   wait_for_required_metric_value repo_pane_row_index_elapsed_ms_max \
-    "$(metric_event_elapsed_max_query panes row_index activity grouping_switch)"
+    "$(metric_event_elapsed_max_query repo row_index activity grouping_switch)"
 )"
 repo_pane_row_index_elapsed_ms_count="$(
   wait_for_required_metric_count repo_pane_row_index_elapsed_ms_count \
-    "$(metric_event_elapsed_count_query panes row_index activity grouping_switch)" \
+    "$(metric_event_elapsed_count_query repo row_index activity grouping_switch)" \
     "$REQUIRED_MATERIALIZED_SAMPLE_COUNT"
 )"
 
@@ -3793,8 +3892,11 @@ fi
   echo "repo_pane_row_index_elapsed_ms_p95=$repo_pane_row_index_elapsed_ms_p95"
   echo "repo_pane_row_index_elapsed_ms_max=$repo_pane_row_index_elapsed_ms_max"
   echo "repo_pane_row_index_elapsed_ms_count=$repo_pane_row_index_elapsed_ms_count"
-  echo "panes_only_workload.ipc_sequence=grouping_and_sort"
-  echo "panes_sort.ipc_sequence=toggle,restore,toggle,restore,toggle,restore"
+  echo "repos_workload.ipc_sequence=grouping_and_sort"
+  echo "repos_sort.ipc_sequence=toggle,restore,toggle,restore,toggle,restore"
+  echo "panes_fixed_policy=activity,descending,no_subgroup"
+  echo "panes_supported_workload.ipc_sequence=show_pinned_toggle,restore"
+  echo "panes_retired_commands=absent,rejected,no_mutation"
   echo "eager_family_admission_count=$eager_family_admission_count"
   echo "marker_w=$TRACE_MARKER_W"
   echo "marker_k=$TRACE_MARKER_K"

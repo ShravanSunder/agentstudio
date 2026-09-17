@@ -19,7 +19,7 @@ package struct CommandContextDerived {
 
         var satisfiedRequirements: Set<CommandRequirement> = [.hasActiveTab]
 
-        if workspaceTab.tabs.count > 1 {
+        if workspaceTab.shellAtom.tabCount > 1 {
             satisfiedRequirements.insert(.hasMultipleTabs)
         }
         if workspacePane.activeResidencyPaneIds(in: activeTab.activeArrangement.layout.paneIds).count > 1 {

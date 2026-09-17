@@ -59,18 +59,27 @@ struct AgentStudioIPCPhaseASmokeScriptTests {
         #expect(script.contains("\"showPanesSidebar\""))
         #expect(script.contains("\"setReposGroupingRepo\""))
         #expect(script.contains("\"setReposGroupingActivity\""))
-        #expect(script.contains("\"setPanesGroupingRepo\""))
-        #expect(script.contains("\"setPanesGroupingTab\""))
-        #expect(script.contains("\"setPanesGroupingActivity\""))
-        #expect(script.contains("\"setPanesSubgroupNone\""))
-        #expect(script.contains("\"setPanesSubgroupActivity\""))
         #expect(script.contains("\"setReposSortFieldName\""))
         #expect(script.contains("\"setReposSortFieldActivity\""))
-        #expect(script.contains("\"setPanesSortFieldName\""))
-        #expect(script.contains("\"setPanesSortFieldActivity\""))
-        #expect(script.contains("\"togglePanesSortDirection\""))
         #expect(script.contains("\"toggleReposShowsPinned\""))
         #expect(script.contains("\"togglePanesShowsPinned\""))
+        #expect(script.contains("retired_panes_organization_commands"))
+        for retiredCommand in [
+            "setPanesGroupingRepo", "setPanesGroupingTab", "setPanesGroupingActivity",
+            "setPanesSubgroupNone", "setPanesSubgroupActivity",
+            "setPanesSortFieldName", "setPanesSortFieldActivity", "togglePanesSortDirection",
+        ] {
+            #expect(script.contains("\"\(retiredCommand)\""))
+        }
+        #expect(script.contains("command.list omitted retained retired command"))
+        #expect(script.contains("retired command retained IPC authority"))
+        #expect(script.contains("command.execute retired"))
+        #expect(script.contains("-32007"))
+        #expect(script.contains("\"parameters required\""))
+        #expect(script.contains("sidebar.grouping.get panes before retired commands"))
+        #expect(script.contains("sidebar.grouping.get panes after retired commands"))
+        #expect(script.contains("Panes grouping did not use fixed activity mode"))
+        #expect(script.contains("retired Panes organization commands mutated fixed Panes state"))
         #expect(script.contains("\"setInboxGroupingTab\""))
         #expect(script.contains("\"setInboxGroupingRepo\""))
         #expect(script.contains("\"setInboxGroupingPane\""))

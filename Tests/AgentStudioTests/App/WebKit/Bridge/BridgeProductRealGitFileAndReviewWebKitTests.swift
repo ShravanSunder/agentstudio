@@ -157,7 +157,8 @@ extension WebKitSerializedTests {
             #expect(proof.hiddenRefreshPassCountAfterStorm == proof.hiddenRefreshPassCountBeforeStorm)
             #expect(
                 proof.hiddenMetadataSequenceAfterStorm
-                    == proof.hiddenMetadataSequenceBeforeStorm
+                    == proof.hiddenMetadataSequenceBeforeStorm,
+                Comment(rawValue: proof.hiddenMetadataStormDiagnostic)
             )
             #expect(
                 proof.hiddenReviewPublicationCountAfterLateRelease

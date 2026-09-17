@@ -167,11 +167,8 @@ extension AppCommand {
         case .zoomPane, .reloadBridgeWebView,
             .showReposSidebar, .showPanesSidebar,
             .setReposGroupingRepo, .setReposGroupingActivity,
-            .setPanesGroupingRepo, .setPanesGroupingTab, .setPanesGroupingActivity,
-            .setPanesSubgroupNone, .setPanesSubgroupActivity,
             .setReposSortFieldName, .setReposSortFieldActivity,
-            .setPanesSortFieldName, .setPanesSortFieldActivity,
-            .toggleReposSortDirection, .togglePanesSortDirection,
+            .toggleReposSortDirection,
             .toggleReposShowsPinned, .togglePanesShowsPinned,
             .pinRepo, .unpinRepo, .pinPane, .unpinPane:
             .allChannels
@@ -212,6 +209,10 @@ extension AppCommand {
             .showPaneInboxNotifications, .clearPaneInboxNotifications,
             .setInboxGroupingTab, .setInboxGroupingRepo, .setInboxGroupingPane,
             .setInboxGroupingNone, .setInboxRowStateFilter, .setInboxContentMode,
+            .setPanesGroupingRepo, .setPanesGroupingTab, .setPanesGroupingActivity,
+            .setPanesSubgroupNone, .setPanesSubgroupActivity,
+            .setPanesSortFieldName, .setPanesSortFieldActivity,
+            .togglePanesSortDirection,
             .newFloatingTerminal, .newWindow, .closeWindow,
             .showCommandBarEverything, .showCommandBarQuickOpen,
             .showCommandBarCommands, .showCommandBarPanes, .showCommandBarRepos,
@@ -431,7 +432,11 @@ extension AppCommand {
             .clearReadInboxNotifications, .clearAllInboxNotifications,
             .showPaneInboxNotifications, .clearPaneInboxNotifications,
             .setInboxGroupingTab, .setInboxGroupingRepo, .setInboxGroupingPane,
-            .setInboxGroupingNone, .setInboxRowStateFilter, .setInboxContentMode:
+            .setInboxGroupingNone, .setInboxRowStateFilter, .setInboxContentMode,
+            .setPanesGroupingRepo, .setPanesGroupingTab, .setPanesGroupingActivity,
+            .setPanesSubgroupNone, .setPanesSubgroupActivity,
+            .setPanesSortFieldName, .setPanesSortFieldActivity,
+            .togglePanesSortDirection:
             [.unavailable]
 
         case .openPaneLocationInEditorMenu, .editPaneNote,
@@ -480,11 +485,8 @@ extension AppCommand {
             .toggleManagementLayer, .managementLayerExit,
             .toggleSidebar, .showReposSidebar, .showPanesSidebar,
             .setReposGroupingRepo, .setReposGroupingActivity,
-            .setPanesGroupingRepo, .setPanesGroupingTab, .setPanesGroupingActivity,
-            .setPanesSubgroupNone, .setPanesSubgroupActivity,
             .setReposSortFieldName, .setReposSortFieldActivity,
-            .setPanesSortFieldName, .setPanesSortFieldActivity,
-            .toggleReposSortDirection, .togglePanesSortDirection,
+            .toggleReposSortDirection,
             .toggleReposShowsPinned, .togglePanesShowsPinned,
             .newFloatingTerminal, .newWindow, .closeWindow,
             .openWebview, .openNewTerminalInTab:

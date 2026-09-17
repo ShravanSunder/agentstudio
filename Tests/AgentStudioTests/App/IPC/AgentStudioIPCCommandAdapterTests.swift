@@ -12,20 +12,23 @@ import Testing
 @MainActor
 @Suite("AgentStudio IPC command adapter", .serialized)
 struct AgentStudioIPCCommandAdapterTests {
-    @Test("catalog exposes exactly the current 23 typed headless commands")
+    @Test("catalog exposes exactly the current 15 typed headless commands")
     func catalogContainsCurrentHeadlessCommandsOnly() throws {
         let harness = CommandAdapterHarness()
         let catalog = try harness.adapter.listCommands()
         let ids = Set(catalog.commands.map(\.id.rawValue))
 
         #expect(catalog.compatibility == .current)
-        #expect(catalog.commands.count == 23)
+        #expect(catalog.commands.count == 15)
         #expect(ids.contains(AppCommand.zoomPane.rawValue))
         #expect(ids.contains(AppCommand.reloadBridgeWebView.rawValue))
         #expect(ids.contains(AppCommand.showReposSidebar.rawValue))
         #expect(ids.contains(AppCommand.pinRepo.rawValue))
         #expect(!ids.contains(AppCommand.closePane.rawValue))
         #expect(!ids.contains(AppCommand.showInboxNotifications.rawValue))
+        for command in retiredPanesOrganizationCommands {
+            #expect(!ids.contains(command.rawValue))
+        }
 
         let reload = try #require(
             catalog.commands.first { $0.id.rawValue == AppCommand.reloadBridgeWebView.rawValue }
@@ -33,6 +36,30 @@ struct AgentStudioIPCCommandAdapterTests {
         #expect(reload.argumentVariants == [.pane])
         #expect(reload.resultVariants == [.accepted])
         #expect(reload.requiredPrivileges == [.appCommandExecute, .workspaceRead])
+    }
+
+    @Test("retired Panes organization commands remain unavailable without reaching an owner")
+    func retiredPanesOrganizationCommandsRemainUnavailable() async throws {
+        let shell = RecordingShellCommandHandler()
+        let harness = CommandAdapterHarness(shellCommandHandler: shell)
+
+        for command in retiredPanesOrganizationCommands {
+            #expect(command.ipcSpec.exposure == .debugTesting)
+            #expect(command.ipcSpec.resultVariants == [.unavailable])
+            do {
+                _ = try await harness.adapter.executeCommand(
+                    IPCCommandExecutionRequest(
+                        commandId: .init(rawValue: command.rawValue),
+                        correlationId: UUIDv7.generate(),
+                        arguments: .workspaceWindow(.init(workspaceWindowId: harness.windowId))
+                    )
+                )
+                Issue.record("Retired Panes organization command unexpectedly executed")
+            } catch let error as AppIPCCommandError {
+                #expect(error.reason == .unsupportedCommand)
+            }
+        }
+        #expect(shell.handledRequests.isEmpty)
     }
 
     @Test("explicit window sidebar command reaches its existing shell owner")
@@ -259,7 +286,7 @@ struct AgentStudioIPCCommandAdapterTests {
         )
 
         #expect(builtIns.erasedDescriptors.count == 43)
-        #expect(commandCatalog.commands.count == 23)
+        #expect(commandCatalog.commands.count == 15)
         #expect(capabilities.result.methods.count == 46)
 
         let encodedCatalog = try capabilities.descriptor.encodeResult(capabilities.result)
@@ -275,7 +302,7 @@ struct AgentStudioIPCCommandAdapterTests {
         let frameByteCount = responsePayload.utf8.count + 1
         #expect(
             frameByteCount <= frameByteLimit,
-            "Complete 43 built-in + 23 command capabilities frame is \(frameByteCount) bytes"
+            "Complete 43 built-in + 15 command capabilities frame is \(frameByteCount) bytes"
         )
         let frame = try NDJSONFrameEncoder.encode(
             responsePayload,
@@ -295,6 +322,17 @@ struct AgentStudioIPCCommandAdapterTests {
         #expect(strictRoundTrip == capabilities.result)
     }
 }
+
+let retiredPanesOrganizationCommands: [AppCommand] = [
+    .setPanesGroupingRepo,
+    .setPanesGroupingTab,
+    .setPanesGroupingActivity,
+    .setPanesSubgroupNone,
+    .setPanesSubgroupActivity,
+    .setPanesSortFieldName,
+    .setPanesSortFieldActivity,
+    .togglePanesSortDirection,
+]
 
 @MainActor
 func makeIPCCommandAdapterForPresentationIsolationTests() -> AgentStudioIPCCommandAdapter {

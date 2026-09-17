@@ -1,3 +1,4 @@
+import AgentStudioInfrastructure
 import AgentStudioTestSupport
 import Foundation
 import Observation
@@ -8,6 +9,50 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct WorkspaceTabLayoutDerivedTests {
+    @Test("pane-to-tab lookup observes only its owning tab cursor")
+    func tabContainingIgnoresUnrelatedTabCursor() {
+        let observedPaneID = UUIDv7.generate()
+        let unrelatedPaneID = UUIDv7.generate()
+        let observedSiblingID = UUIDv7.generate()
+        let unrelatedSiblingID = UUIDv7.generate()
+        let observedShell = TabShell(id: UUIDv7.generate(), name: "Observed")
+        let unrelatedShell = TabShell(id: UUIDv7.generate(), name: "Unrelated")
+        let shellAtom = WorkspaceTabShellAtom()
+        let arrangementAtom = WorkspaceTabArrangementAtom()
+        for (shell, paneID, siblingID) in [
+            (observedShell, observedPaneID, observedSiblingID),
+            (unrelatedShell, unrelatedPaneID, unrelatedSiblingID),
+        ] {
+            shellAtom.appendTabShell(shell)
+            let arrangement = PaneArrangement(
+                name: "Default", isDefault: true, layout: Layout.autoTiled([paneID, siblingID]))
+            arrangementAtom.appendState(
+                TabArrangementState(
+                    tabId: shell.id,
+                    allPaneIds: [paneID, siblingID],
+                    arrangements: [arrangement],
+                    activeArrangementId: arrangement.id,
+                    activePaneId: paneID
+                )
+            )
+        }
+        let derived = WorkspaceTabLayoutDerived(shellAtom: shellAtom, arrangementAtom: arrangementAtom)
+        let observationCounter = WorkspaceTabArrangementObservationCounter()
+        let observedTab = withObservationTracking {
+            derived.tabContaining(paneId: observedPaneID)
+        } onChange: {
+            observationCounter.record()
+        }
+        #expect(observedTab?.id == observedShell.id)
+
+        arrangementAtom.setActivePane(unrelatedSiblingID, inTab: unrelatedShell.id)
+        #expect(!observationCounter.didFire)
+
+        arrangementAtom.setActivePane(observedSiblingID, inTab: observedShell.id)
+        #expect(observationCounter.didFire)
+        #expect(derived.tabContaining(paneId: observedPaneID)?.activePaneId == observedSiblingID)
+    }
+
     @Test
     func assembleTab_preservesShellAndArrangementFields() {
         let paneA = UUID()

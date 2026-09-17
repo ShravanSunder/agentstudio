@@ -99,6 +99,7 @@ struct PaneTabViewControllerLaunchRestoreTests {
         )
         window.contentViewController = controller
         window.makeKeyAndOrderFront(nil)
+        controller.view.frame = NSRect(x: 0, y: 0, width: 1200, height: 800)
         window.contentView?.layoutSubtreeIfNeeded()
 
         return Harness(
@@ -498,6 +499,7 @@ struct PaneTabViewControllerLaunchRestoreTests {
         // that race for reference.
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+        #expect(!harness.windowLifecycleStore.terminalContainerBounds.isEmpty)
         harness.applicationLifecycleMonitor.handleLaunchLayoutSettled()
 
         let deferredPane = harness.store.createPane(launchDirectory: harness.tempDir, provider: .zmx)
@@ -566,6 +568,7 @@ struct PaneTabViewControllerLaunchRestoreTests {
         // to prove the fix rather than the workaround is what makes this safe.
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+        #expect(!harness.windowLifecycleStore.terminalContainerBounds.isEmpty)
         harness.applicationLifecycleMonitor.handleLaunchLayoutSettled()
 
         let overlapPane = harness.store.createPane(launchDirectory: harness.tempDir, provider: .zmx)
@@ -611,6 +614,7 @@ struct PaneTabViewControllerLaunchRestoreTests {
         // would fail this test.
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+        #expect(!harness.windowLifecycleStore.terminalContainerBounds.isEmpty)
         harness.applicationLifecycleMonitor.handleLaunchLayoutSettled()
 
         let activeMainPane = harness.store.createPane(launchDirectory: harness.tempDir, provider: .zmx)
@@ -724,6 +728,7 @@ struct PaneTabViewControllerLaunchRestoreTests {
         // for the pre-existing scheduler race that ordering avoids.
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+        #expect(!harness.windowLifecycleStore.terminalContainerBounds.isEmpty)
         harness.applicationLifecycleMonitor.handleLaunchLayoutSettled()
 
         let storedSessionID = ZmxSessionID.generateUUIDv7()

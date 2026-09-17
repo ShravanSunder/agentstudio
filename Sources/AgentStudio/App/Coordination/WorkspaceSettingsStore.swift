@@ -86,9 +86,7 @@ final class WorkspaceSettingsStore {
         withObservationTracking {
             _ = editorPreferenceAtom.bookmarkedEditorId
             _ = repoExplorerSidebarPrefsAtom.repoSortField
-            _ = repoExplorerSidebarPrefsAtom.paneSortField
             _ = repoExplorerSidebarPrefsAtom.repoSortDirection
-            _ = repoExplorerSidebarPrefsAtom.paneSortDirection
         } onChange: { [weak self] in
             MainActor.assumeIsolated {
                 guard let self else { return }
@@ -179,9 +177,7 @@ final class WorkspaceSettingsStore {
         case .loaded(let preferences):
             repoExplorerSidebarPrefsAtom.hydrate(
                 repoSortField: preferences.reposSortField,
-                paneSortField: preferences.panesSortField,
-                repoSortDirection: preferences.reposSortDirection,
-                paneSortDirection: preferences.panesSortDirection
+                repoSortDirection: preferences.reposSortDirection
             )
         case .defaulted:
             hydrateRepoExplorerDefaults()
@@ -192,9 +188,7 @@ final class WorkspaceSettingsStore {
     private func hydrateRepoExplorerDefaults() {
         repoExplorerSidebarPrefsAtom.hydrate(
             repoSortField: .name,
-            paneSortField: .name,
-            repoSortDirection: .default,
-            paneSortDirection: .default
+            repoSortDirection: .default
         )
     }
 

@@ -14,17 +14,9 @@ struct AppCommandSidebarCommandsTests {
             (.showPanesSidebar, "Panes", .system(.squareSplit2x1)),
             (.setReposGroupingRepo, "Repo", .octicon(.repo)),
             (.setReposGroupingActivity, "Activity", .system(.clock)),
-            (.setPanesGroupingRepo, "Repo", .octicon(.repo)),
-            (.setPanesGroupingTab, "Tab", .system(.squareStackFill)),
-            (.setPanesGroupingActivity, "Activity", .system(.clock)),
-            (.setPanesSubgroupNone, "None", .system(.circle)),
-            (.setPanesSubgroupActivity, "Activity", .system(.clock)),
             (.setReposSortFieldName, "Name", .system(.line3Horizontal)),
             (.setReposSortFieldActivity, "Activity", .system(.clock)),
-            (.setPanesSortFieldName, "Name", .system(.line3Horizontal)),
-            (.setPanesSortFieldActivity, "Activity", .system(.clock)),
             (.toggleReposSortDirection, "Direction", .system(.arrowUpArrowDown)),
-            (.togglePanesSortDirection, "Direction", .system(.arrowUpArrowDown)),
             (.toggleReposShowsPinned, "Show Pinned", .system(.pin)),
             (.togglePanesShowsPinned, "Show Pinned", .system(.pin)),
         ]
@@ -38,6 +30,20 @@ struct AppCommandSidebarCommandsTests {
             #expect(command.ipcSpec.executionMode == .headless)
             #expect(command.ipcSpec.requiredPrivilege == .sidebarStateMutate)
             #expect(command.ipcSpec.argumentVariants == [.workspaceWindow])
+        }
+    }
+
+    @Test("fixed Panes organization has no interactive or IPC setting commands")
+    func fixedPanesOrganizationHasNoSettingCommands() {
+        for command in [
+            AppCommand.setPanesGroupingRepo, .setPanesGroupingTab, .setPanesGroupingActivity,
+            .setPanesSubgroupNone, .setPanesSubgroupActivity,
+            .setPanesSortFieldName, .setPanesSortFieldActivity, .togglePanesSortDirection,
+        ] {
+            let definition = AppCommandDispatcher.shared.definition(for: command)
+            #expect(definition.surfacePolicy == .notPresented)
+            #expect(command.ipcSpec.exposure == .debugTesting)
+            #expect(command.ipcSpec.resultVariants == [.unavailable])
         }
     }
 

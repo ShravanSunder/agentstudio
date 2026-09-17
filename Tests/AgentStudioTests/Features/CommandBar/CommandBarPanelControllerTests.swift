@@ -594,6 +594,7 @@ struct CommandBarPanelControllerTests {
                     lastInteractedAt: Date(timeIntervalSince1970: 1)
                 )
             )
+            let retainedRecency = atoms.applicationEntityRecency.recentEntities
             store.repositoryTopologyAtom.replaceTopology(
                 try #require(
                     RepositoryTopologyReplacement.prepare(
@@ -627,7 +628,7 @@ struct CommandBarPanelControllerTests {
             #expect(dispatcher.targetedDispatches.isEmpty)
             #expect(controller.state.currentLevel == nil)
             #expect(controller.state.isVisible)
-            #expect(atoms.applicationEntityRecency.recentEntities.isEmpty)
+            #expect(atoms.applicationEntityRecency.recentEntities == retainedRecency)
         }
     }
 
@@ -672,18 +673,31 @@ struct CommandBarPanelControllerTests {
         }
     }
 
-    @Test("unavailable recent repository and worktree activations prune without dispatch")
-    func unavailableRecentApplicationActivationsDoNotDispatch() async throws {
+    @Test(
+        "unavailable recent repository and worktree activations preserve recency for return without dispatch",
+        arguments: [true, false])
+    func unavailableRecentApplicationActivationsDoNotDispatch(hasAvailableSibling: Bool) async throws {
         try await withAsyncTestCoreAtoms { atoms in
             let store = WorkspaceStore()
             let repository = store.addRepo(at: URL(filePath: "/tmp/command-bar-unavailable-recent"))
             let worktree = try #require(repository.worktrees.first)
+            if hasAvailableSibling {
+                let sibling = Worktree(
+                    id: UUIDv7.generate(), repoId: repository.id, name: "sibling",
+                    path: URL(filePath: "/tmp/command-bar-unavailable-recent-sibling"))
+                _ = store.mutationCoordinator.reconcileDiscoveredWorktrees(
+                    repository.id, worktrees: [worktree, sibling])
+            }
             try atoms.applicationEntityRecency.recordOpened(
                 repositoryStableKey: repository.stableKey,
                 worktreeStableKey: worktree.stableKey,
-                at: Date(timeIntervalSince1970: 3)
+                at: Date()
             )
-            store.markRepoUnavailable(repository.id)
+            let retainedRecency = atoms.applicationEntityRecency.recentEntities
+            #expect(
+                store.mutationCoordinator.recordWorktreeAbsence(
+                    worktree.id,
+                    at: .init(utc: Date(), bootID: "fixture", uptimeNanoseconds: 1)))
             let dispatcher = FakeAppCommandDispatcher()
             let controller = makeController(store: store, dispatcher: dispatcher)
             controller.state.show(prefix: "#")
@@ -707,8 +721,10 @@ struct CommandBarPanelControllerTests {
 
             #expect(dispatcher.dispatchedCommands.isEmpty)
             #expect(dispatcher.targetedDispatches.isEmpty)
-            #expect(atoms.applicationEntityRecency.recentEntities.isEmpty)
+            #expect(atoms.applicationEntityRecency.recentEntities == retainedRecency)
             #expect(controller.state.isVisible)
+            #expect(store.mutationCoordinator.restoreObservedWorktrees([worktree.id]))
+            #expect(atoms.applicationEntityRecency.recentEntities == retainedRecency)
         }
     }
 

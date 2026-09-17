@@ -87,3 +87,57 @@ extension GitWorkingDirectoryProjector {
         return status
     }
 }
+
+extension GitWorkingDirectoryProjector {
+    func emitOriginResolutionIfChanged(
+        changeset: FileChangeset,
+        statusSnapshot: GitWorkingTreeStatus
+    ) async {
+        guard RepositoryObservationRequestContext.worktree == observationLifetimesByWorktreeID[changeset.worktreeId]
+        else { return }
+        let repositoryLifetime = latestTopologyAssertion?.repositoryLifetimes[changeset.repoId]
+        let nextOriginResolution = statusSnapshot.originResolution
+        let previousOriginResolution = originResolutionByRepoId[changeset.repoId]
+
+        switch nextOriginResolution {
+        case .awaitingResolution:
+            originResolutionByRepoId[changeset.repoId] = .awaitingResolution
+            return
+        case .confirmedAbsent:
+            guard previousOriginResolution != .confirmedAbsent else { return }
+            originResolutionByRepoId[changeset.repoId] = .confirmedAbsent
+            lastKnownOriginByRepoId.removeValue(forKey: changeset.repoId)
+            remoteReferenceAcceptanceByRepoId.removeValue(forKey: changeset.repoId)
+            await remoteReferenceOriginHandler?(changeset.repoId, nil, repositoryLifetime)
+            await emitGitWorkingDirectoryEvent(
+                worktreeId: changeset.worktreeId,
+                repoId: changeset.repoId,
+                event: .originUnavailable(repoId: changeset.repoId)
+            )
+        case .resolved(let currentOrigin):
+            let trimmedOrigin = currentOrigin.trimmingCharacters(in: .whitespacesAndNewlines)
+            let previousOrigin = lastKnownOriginByRepoId[changeset.repoId]
+            let originChanged = previousOrigin != trimmedOrigin
+            guard originChanged || previousOriginResolution == .awaitingResolution else {
+                originResolutionByRepoId[changeset.repoId] = .resolved(trimmedOrigin)
+                return
+            }
+            originResolutionByRepoId[changeset.repoId] = .resolved(trimmedOrigin)
+            lastKnownOriginByRepoId[changeset.repoId] = trimmedOrigin
+            if originChanged {
+                remoteReferenceAcceptanceByRepoId.removeValue(forKey: changeset.repoId)
+                await remoteReferenceOriginHandler?(changeset.repoId, trimmedOrigin, repositoryLifetime)
+            }
+            await emitGitWorkingDirectoryEvent(
+                worktreeId: changeset.worktreeId,
+                repoId: changeset.repoId,
+                event: .originChanged(
+                    repoId: changeset.repoId,
+                    from: previousOriginResolution == .awaitingResolution ? "" : previousOrigin ?? "",
+                    to: trimmedOrigin
+                )
+            )
+        }
+    }
+
+}

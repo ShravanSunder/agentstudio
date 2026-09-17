@@ -376,8 +376,8 @@ struct CIFastLaneWorkflowTests {
         #expect(!testHelperScript.contains("swift test list ${EXTRA_SWIFT_TEST_ARGS:-} --skip-build"))
     }
 
-    @Test("packaged journey fixture runs outside the parallel large inventory")
-    func packagedJourneyFixtureRunsInSerialLargeProcessLane() throws {
+    @Test("subprocess workload fixtures run outside the parallel large inventory")
+    func subprocessWorkloadFixturesRunInSerialLargeProcessLane() throws {
         let testHelperScript = try String(
             contentsOfFile: "scripts/swift-test-helpers.sh",
             encoding: .utf8
@@ -392,6 +392,7 @@ struct CIFastLaneWorkflowTests {
         )
 
         #expect(largeSerialFilter.contains("BridgePackagedProductJourneyScriptTests"))
+        #expect(largeSerialFilter.contains("GitRefreshPerformanceWorkloadScriptTests"))
         #expect(largeSerialFilter.contains("SidebarPerformanceWorkloadScriptTests"))
         #expect(largeSerialFilter.contains("SidebarPerformanceWorkloadSettlementScriptTests"))
         #expect(

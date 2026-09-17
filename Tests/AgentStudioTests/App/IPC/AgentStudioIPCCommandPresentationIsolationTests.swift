@@ -13,12 +13,15 @@ struct AgentStudioIPCCommandPresentationIsolationTests {
         let catalog = try makeIPCCommandAdapterForPresentationIsolationTests().listCommands()
         let ids = Set(catalog.commands.map(\.id.rawValue))
 
-        #expect(catalog.commands.count == 23)
+        #expect(catalog.commands.count == 15)
         #expect(ids.contains(AppCommand.zoomPane.rawValue))
         #expect(ids.contains(AppCommand.showReposSidebar.rawValue))
         #expect(!ids.contains(AppCommand.showCommandBarEverything.rawValue))
         #expect(!ids.contains(AppCommand.closePane.rawValue))
         #expect(!ids.contains(AppCommand.showInboxNotifications.rawValue))
+        for command in retiredPanesOrganizationCommands {
+            #expect(!ids.contains(command.rawValue))
+        }
     }
 
     @Test("App-owned policy keeps headless, presentation, and dormant meanings distinct")
@@ -35,6 +38,11 @@ struct AgentStudioIPCCommandPresentationIsolationTests {
         #expect(AppCommand.showInboxNotifications.ipcSpec.exposure == .debugTesting)
         #expect(AppCommand.showInboxNotifications.ipcSpec.argumentVariants == [.noArguments])
         #expect(AppCommand.showInboxNotifications.ipcSpec.resultVariants == [.unavailable])
+
+        for command in retiredPanesOrganizationCommands {
+            #expect(command.ipcSpec.exposure == .debugTesting)
+            #expect(command.ipcSpec.resultVariants == [.unavailable])
+        }
     }
 
     @Test("encoded command descriptors exclude interactive presentation policy")

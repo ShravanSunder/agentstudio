@@ -10,6 +10,7 @@ import {
 	markAnnotationCatalogLongTaskPhase,
 	observeAnnotationProjectionQueries,
 	settleBrowserFrames,
+	type AnnotationCatalogLongTaskEntry,
 	type AnnotationCatalogLongTaskObservation,
 	type AnnotationCatalogTransferTelemetryObservation,
 	waitForAnnotationCatalogCommit,
@@ -34,6 +35,7 @@ import {
 	compactTelemetryDiagnostic,
 	waitForBackpressureTelemetry,
 } from './bridge-viewer-vite-backpressure-telemetry.ts';
+import { observeFrameAcknowledgementQuiescence } from './bridge-viewer-vite-frame-acknowledgement-quiescence.ts';
 import {
 	createBridgeViewerViteProductFixture,
 	startBridgeViewerOwnedViteProductServer,
@@ -49,6 +51,7 @@ import {
 import {
 	installReviewRenderObservation,
 	readReviewRenderObservation,
+	readSelectedReviewReadinessDOMSnapshot,
 	requireReviewRenderObservationStarted,
 } from './bridge-viewer-vite-review-render-observation.ts';
 import { observeSelectedItemApplies } from './bridge-viewer-vite-selected-item-apply-observation.ts';
@@ -115,6 +118,7 @@ interface JourneyMilestoneDuration {
 }
 
 interface JourneyFailureDiagnostic {
+	readonly catalogTelemetry?: AnnotationCatalogTelemetryObservation;
 	readonly currentElapsedMilliseconds: number;
 	readonly currentMilestone: JourneyMilestone;
 	readonly errorKind: string;
@@ -124,6 +128,7 @@ interface JourneyFailureDiagnostic {
 }
 
 class AnnotationBackpressureMilestones {
+	private catalogTelemetryDiagnostic: AnnotationCatalogTelemetryObservation | null = null;
 	private currentMilestone: JourneyMilestone = 'test.start';
 	private currentMilestoneStartedAt = performance.now();
 	private readonly executionStartedAt = this.currentMilestoneStartedAt;
@@ -152,6 +157,10 @@ class AnnotationBackpressureMilestones {
 		];
 	}
 
+	recordCatalogTelemetry(observation: AnnotationCatalogTelemetryObservation): void {
+		this.catalogTelemetryDiagnostic = observation;
+	}
+
 	currentTelemetryDiagnostic(): readonly Readonly<Record<string, unknown>>[] {
 		return this.telemetryDiagnostic ?? [];
 	}
@@ -169,6 +178,9 @@ class AnnotationBackpressureMilestones {
 
 	failureDiagnostic(error: unknown): JourneyFailureDiagnostic {
 		return {
+			...(this.catalogTelemetryDiagnostic === null
+				? {}
+				: { catalogTelemetry: this.catalogTelemetryDiagnostic }),
 			currentElapsedMilliseconds: Math.round(performance.now() - this.currentMilestoneStartedAt),
 			currentMilestone: this.currentMilestone,
 			errorKind: error instanceof Error ? error.name : typeof error,
@@ -272,9 +284,17 @@ export function registerBridgeViewerViteAnnotationBackpressureJourneyTests(): vo
 				);
 				expect(
 					observations.catalogTelemetry.longTaskCountDelta,
-					`catalog-scoped long-task count: ${JSON.stringify(
-						observations.catalogTelemetry.longTaskObservation,
-					)}`,
+					`catalog-scoped long-task count: ${JSON.stringify({
+						continuousBounds: {
+							mainBeginStartTimeMilliseconds:
+								observations.catalogTelemetry.mainBeginStartTimeMilliseconds,
+							mainCommitStartTimeMilliseconds:
+								observations.catalogTelemetry.mainCommitStartTimeMilliseconds,
+						},
+						mainStagingSamples: observations.catalogTelemetry.mainStagingSamples,
+						matchedEntries: observations.catalogTelemetry.longTasksOverlappingMainStaging,
+						observation: observations.catalogTelemetry.longTaskObservation,
+					})}`,
 				).toBe(0);
 				expect(
 					observations.catalogTelemetry.undemandedSessionRichFetchCount,
@@ -384,6 +404,10 @@ interface AnnotationBackpressureJourneyObservations {
 interface AnnotationCatalogTelemetryObservation {
 	readonly longTaskCountDelta: number;
 	readonly longTaskObservation: AnnotationCatalogLongTaskObservation;
+	readonly longTasksOverlappingMainStaging: readonly AnnotationCatalogLongTaskEntry[];
+	readonly mainBeginStartTimeMilliseconds: number;
+	readonly mainCommitStartTimeMilliseconds: number;
+	readonly mainStagingSamples: AnnotationCatalogTransferTelemetryObservation['mainStagingSamples'];
 	readonly maximumUnitByteCount: number;
 	readonly presentationRevisionAfter: number;
 	readonly presentationRevisionBefore: number;
@@ -410,6 +434,10 @@ async function runAnnotationBackpressureJourney(props: {
 	try {
 		const createdPage = await browser.newPage({ viewport: { height: 980, width: 1728 } });
 		page = createdPage;
+		const frameAcknowledgementQuiescence = observeFrameAcknowledgementQuiescence(
+			createdPage,
+			stressOperationTimeoutMilliseconds,
+		);
 		const selectedItemApplyObservation = observeSelectedItemApplies(createdPage);
 		const observedReviewFile = props.oracle.reviewFiles[0];
 		if (observedReviewFile === undefined)
@@ -453,6 +481,7 @@ async function runAnnotationBackpressureJourney(props: {
 				}),
 			timeoutMilliseconds: 30_000,
 		});
+		await frameAcknowledgementQuiescence.wait();
 
 		await runMilestone({
 			after: 'review.item-count.waiting',
@@ -551,13 +580,15 @@ async function runAnnotationBackpressureJourney(props: {
 			await finishAnnotationCatalogLongTaskObservation(createdPage).catch((): void => {});
 			throw error;
 		}
+		const longTasksOverlappingMainStaging = annotationCatalogLongTasksOverlappingMainStaging(
+			catalogLongTaskObservation,
+			catalogTransferTelemetry,
+		);
 		const catalogTelemetry: AnnotationCatalogTelemetryObservation = {
 			...catalogTransferTelemetry,
-			longTaskCountDelta: annotationCatalogLongTasksOverlappingMainStaging(
-				catalogLongTaskObservation,
-				catalogTransferTelemetry,
-			).length,
+			longTaskCountDelta: longTasksOverlappingMainStaging.length,
 			longTaskObservation: catalogLongTaskObservation,
+			longTasksOverlappingMainStaging,
 			undemandedSessionAcquireCount: projectionQueries
 				.acquiredSessionIds()
 				.filter((sessionId) => sessionId.toLowerCase() === props.undemandedSessionId.toLowerCase())
@@ -567,6 +598,7 @@ async function runAnnotationBackpressureJourney(props: {
 				.filter((sessionId) => sessionId.toLowerCase() === props.undemandedSessionId.toLowerCase())
 				.length,
 		};
+		props.milestones.recordCatalogTelemetry(catalogTelemetry);
 		await props.releaseLargeCatalogFixture();
 		exactSavedBodies.push(rootBody);
 		for (const { body, replyOrdinal } of replies) {
@@ -671,6 +703,7 @@ async function runAnnotationBackpressureJourney(props: {
 			operation: async () => waitForSelectedFileReady({ oracle: props.oracle, page: createdPage }),
 		});
 		expect(bootstrapRequestCount).toBe(2);
+		await frameAcknowledgementQuiescence.wait();
 		await createdPage
 			.getByTestId('bridge-viewer-mode-host-file')
 			.getByTestId('bridge-viewer-context-review')
@@ -689,13 +722,29 @@ async function runAnnotationBackpressureJourney(props: {
 		});
 		expect(bootstrapRequestCount).toBe(2);
 		await selectReviewFile({ page: createdPage, path: reviewFile.path });
-		await runMilestone({
-			after: 'review.selected.ready',
-			before: 'review.selected.waiting',
-			milestones: props.milestones,
-			operation: async () =>
-				waitForSelectedReviewReady({ itemId: reviewFile.itemId, page: createdPage }),
-		});
+		try {
+			await runMilestone({
+				after: 'review.selected.ready',
+				before: 'review.selected.waiting',
+				milestones: props.milestones,
+				operation: async () =>
+					waitForSelectedReviewReady({ itemId: reviewFile.itemId, page: createdPage }),
+			});
+		} catch (error: unknown) {
+			const [readinessDOM, renderObservation] = await Promise.all([
+				readBrowserDiagnosticWithinDeadline(
+					readSelectedReviewReadinessDOMSnapshot({
+						expectedItemId: reviewFile.itemId,
+						page: createdPage,
+					}),
+				),
+				readBrowserDiagnosticWithinDeadline(readReviewRenderObservation(createdPage)),
+			]);
+			throw new Error(
+				`Post-reload selected Review readiness failed: dom=${JSON.stringify(readinessDOM)} publications=${JSON.stringify(renderObservation)}`,
+				{ cause: error },
+			);
+		}
 		const exactBodyCountAfterReload = await runMilestone({
 			after: 'review.bodies.verified',
 			before: 'review.bodies.verifying',
@@ -755,8 +804,12 @@ async function waitForReviewItemCount(props: {
 			{ timeout: stressDiagnosticTimeoutMilliseconds },
 		);
 	} catch (error: unknown) {
+		const [browserDiagnostic, publicationDiagnostic] = await Promise.all([
+			props.diagnostics.describe(),
+			readBrowserDiagnosticWithinDeadline(readReviewRenderObservation(props.page)),
+		]);
 		throw new Error(
-			`Review item count did not settle: browser=${await props.diagnostics.describe()} server=${props.failureContext()}`,
+			`Review item count did not settle: browser=${browserDiagnostic} publications=${JSON.stringify(publicationDiagnostic)} server=${props.failureContext()}`,
 			{ cause: error },
 		);
 	}

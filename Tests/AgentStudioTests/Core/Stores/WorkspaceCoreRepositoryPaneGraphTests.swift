@@ -111,8 +111,8 @@ struct WorkspaceCoreRepositoryPaneGraphTests {
         #expect(restoredGraph.panes.first?.residency == .pendingUndo(expiresAt: Date(timeIntervalSince1970: 400)))
     }
 
-    @Test("pane graph round trips a dangling soft association without topology rows")
-    func paneGraphRoundTripsDanglingSoftAssociation() throws {
+    @Test("pane graph clears dangling optional associations without rejecting the pane")
+    func paneGraphClearsDanglingSoftAssociation() throws {
         // Arrange
         let fixture = try makeWorkspaceCoreRepositoryFixture()
         let workspaceId = UUIDv7.generate()
@@ -137,7 +137,10 @@ struct WorkspaceCoreRepositoryPaneGraphTests {
         let restoredGraph = try fixture.repository.fetchPaneGraph(workspaceId: workspaceId)
 
         // Assert
-        #expect(restoredGraph == graph)
+        var expected = graph
+        expected.panes[0].metadata.durableFacets.repoId = nil
+        expected.panes[0].metadata.durableFacets.worktreeId = nil
+        #expect(restoredGraph == expected)
     }
 
     @Test("pane graph routes content variants to their schema-owned tables")

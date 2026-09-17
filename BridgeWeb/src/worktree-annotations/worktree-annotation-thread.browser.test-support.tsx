@@ -165,11 +165,18 @@ export async function settleBrowserCondition(
 	await settleBrowserCondition(predicate, failureMessage, remainingFrames - 1);
 }
 
-export async function settleThreadMotion(panel: Element, failureMessage: string): Promise<void> {
-	await settleBrowserCondition(
-		(): boolean => !panel.hasAttribute('data-starting-style'),
-		failureMessage,
-	);
+export async function settleThreadMotion(element: Element, failureMessage: string): Promise<void> {
+	if (!(element instanceof HTMLElement)) throw new Error(failureMessage);
+	const panel = element;
+	// Opening state is committed on a browser frame. Flush each observed frame
+	// through act until that state commits; a frame count is not completion.
+	while (panel.isConnected && panel.hasAttribute('data-starting-style')) {
+		await act(async (): Promise<void> => {
+			await new Promise<void>((resolve): void => {
+				requestAnimationFrame((): void => resolve());
+			});
+		});
+	}
 	await act(async (): Promise<void> => {
 		await Promise.all(
 			panel.getAnimations({ subtree: true }).map(async (animation): Promise<void> => {
@@ -180,7 +187,24 @@ export async function settleThreadMotion(panel: Element, failureMessage: string)
 				}
 			}),
 		);
-		await Promise.resolve();
+		// Base UI probes animations on a later frame, then clears its measured
+		// dimensions in flushSync. Visual completion alone does not join that update.
+		await new Promise<void>((resolve): void => {
+			const observer = new MutationObserver(checkCompletion);
+			function checkCompletion(): void {
+				const opened =
+					panel.hasAttribute('data-open') &&
+					!panel.hasAttribute('data-starting-style') &&
+					panel.style.getPropertyValue('--collapsible-panel-height') === 'auto';
+				if (!panel.isConnected || panel.hasAttribute('hidden') || opened) {
+					observer.disconnect();
+					resolve();
+				}
+			}
+			observer.observe(panel, { attributes: true });
+			if (panel.parentNode !== null) observer.observe(panel.parentNode, { childList: true });
+			checkCompletion();
+		});
 	});
 }
 
