@@ -106,10 +106,12 @@ struct AgentStudioIPCClaudeHookVerticalTests {
         // the pane's demand for the user.
         #expect(afterStop.state == .needsYou)
         #expect(afterStop.origin == .reported)
-        // `session.event` records evidence; ending the source is a separate
-        // mutation the committed adapter does not emit, so the binding stays
-        // live. Recorded in the W5 report rather than asserted as intent.
-        #expect(afterSessionEnd.sourceHealth == .live)
+        // `SessionEnd` retires the source generation itself rather than
+        // recording evidence against it, so the pane reports a source that has
+        // ended rather than one that is live with nothing arriving on it. The
+        // adapter decides this before the provider registry, so Claude Code and
+        // Codex end a session through the same path.
+        #expect(afterSessionEnd.sourceHealth == .ended)
     }
 
     @Test("A replayed tool-use hook is refused, not counted twice")
