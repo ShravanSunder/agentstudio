@@ -116,17 +116,29 @@ actor PaneReportSpool {
                 return report
             }
             report.malformedLineCount += decoded.unreadableLineCount
-            var consumedEveryLine = true
-            for line in decoded.lines {
+            var retainedLines: [String] = []
+            for (offset, line) in decoded.lines.enumerated() {
                 switch await admit(line: line, paneId: paneId) {
                 case .admitted: report.admittedLineCount += 1
                 case .rejected: report.rejectedLineCount += 1
                 case .malformed: report.malformedLineCount += 1
-                case .retryable: consumedEveryLine = false
+                case .retryable:
+                    // Order is the pane's sequence, so a line that must be
+                    // retried keeps every line behind it rather than letting a
+                    // later one be admitted ahead of it.
+                    retainedLines = Array(decoded.lines[offset...])
                 }
-                guard consumedEveryLine else { break }
+                guard retainedLines.isEmpty else { break }
             }
-            guard consumedEveryLine, await Self.truncateToEmpty(descriptor) else {
+            guard retainedLines.isEmpty else {
+                // Only the retried lines stay. Rewriting instead of leaving the
+                // file whole is what stops an admitted record being re-read and
+                // re-deduped on every launch, without bound.
+                report.retainedFileCount = 1
+                _ = await Self.rewrite(descriptor: descriptor, lines: retainedLines)
+                return report
+            }
+            guard await Self.truncateToEmpty(descriptor) else {
                 report.retainedFileCount = 1
                 return report
             }
@@ -161,6 +173,46 @@ actor PaneReportSpool {
 
         @concurrent private nonisolated static func truncateToEmpty(_ descriptor: Int32) async -> Bool {
             ftruncate(descriptor, 0) == 0
+        }
+
+        /// Rewrites in place on the descriptor the exclusive lock is held on,
+        /// rather than renaming a replacement over the path.
+        ///
+        /// The writer opens the path and only then blocks in `flock`, so a
+        /// rename landing in that window would leave it appending to an
+        /// unlinked inode and its line would be lost with no error. Writing
+        /// through this descriptor keeps one inode, so a writer already waiting
+        /// on this lock appends to the same file the moment the drain releases
+        /// it. A torn write leaves a partial trailing line, which the reader
+        /// already counts as unreadable.
+        @concurrent private nonisolated static func rewrite(
+            descriptor: Int32,
+            lines: [String]
+        ) async -> Bool {
+            var contents = Data()
+            for line in lines {
+                contents.append(contentsOf: Array(line.utf8))
+                contents.append(0x0a)
+            }
+            guard lseek(descriptor, 0, SEEK_SET) == 0 else { return false }
+            var writtenCount = 0
+            while writtenCount < contents.count {
+                let result = contents.withUnsafeBytes { pointer -> Int in
+                    guard let baseAddress = pointer.baseAddress else { return -1 }
+                    return write(
+                        descriptor,
+                        baseAddress.advanced(by: writtenCount),
+                        contents.count - writtenCount
+                    )
+                }
+                if result < 0 {
+                    if errno == EINTR { continue }
+                    return false
+                }
+                writtenCount += result
+            }
+            guard ftruncate(descriptor, off_t(contents.count)) == 0 else { return false }
+            return fsync(descriptor) == 0
         }
 
         @concurrent private nonisolated static func readSpoolFile(
