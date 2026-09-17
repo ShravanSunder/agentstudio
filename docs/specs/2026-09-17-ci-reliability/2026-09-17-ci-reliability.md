@@ -73,7 +73,7 @@ The reliability system is one opaque box. These are the surfaces its consumers t
 
 **R1 — Bounded concurrency.** While a Swift test lane runs, the number of test cases executing concurrently inside
 one test process MUST be bounded by a value derived from the runner's CPU count. *Basis: U1, U3, E3.*
-*Fails if:* a lane log shows test cases in flight far beyond that bound (E3 observed about 4,900 on 3 CPUs).
+*Fails if:* a lane's record of test cases actually executing shows more at once than that bound. Tests whose start has merely been announced do not count: the framework announces a start before it applies the bound (E3 observed about 3,900 announced at once on 3 CPUs, with nothing bounding how many ran).
 
 **R2 — Lanes report their own load.** Each Swift test lane MUST print, in its output, the runner's CPU count and
 memory, the concurrency bound in effect, the number of test processes it runs at once, and the lane's CPU
