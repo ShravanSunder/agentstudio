@@ -346,23 +346,28 @@ private struct CLIErrorPresentation: Codable {
     let catalogMethod: String?
     let requiredScope: IPCPermissionScope?
 
+    /// Every discovery failure already carries a field path and an expectation.
+    /// Dropping them left a catalog mismatch indistinguishable from a bad
+    /// argument, which is why a whole-catalog failure read as a bare
+    /// `invalidParams`. The switch is exhaustive so a new reason has to be
+    /// classified rather than silently losing its diagnostics.
     init(commandDiscoveryFailure: IPCCommandDiscoveryError) {
+        fieldPath = commandDiscoveryFailure.fieldPath
+        expected = commandDiscoveryFailure.expected
         switch commandDiscoveryFailure.reason {
         case .unknownCommandIdentifier:
             reason = "unknownCommand"
-            fieldPath = commandDiscoveryFailure.fieldPath
-            expected = commandDiscoveryFailure.expected
             catalogMethod = "command.list"
-        case .argumentVariantNotAllowed:
+        case .argumentVariantNotAllowed, .invalidCommandCatalog:
             reason = "invalidParams"
-            fieldPath = commandDiscoveryFailure.fieldPath
-            expected = commandDiscoveryFailure.expected
             catalogMethod = "command.list"
-        default:
+        case .missingCommandList, .missingCommandExecute, .incompatibleMethodMetadata:
             reason = "invalidParams"
-            fieldPath = nil
-            expected = nil
-            catalogMethod = nil
+            catalogMethod = "system.capabilities"
+        case .invalidCommandResult, .resultVariantNotAllowed, .resultCommandIdentifierMismatch,
+            .resultCorrelationMismatch:
+            reason = "invalidParams"
+            catalogMethod = "command.execute"
         }
         requiredScope = nil
     }

@@ -29,6 +29,8 @@ struct SessionsVerticalHarness {
     let token: AgentStudioIPCSubjectToken
     let boundPaneId: UUID
     let sparePaneId: UUID
+    /// The one registered window, which command arguments must name.
+    let workspaceWindowId: UUID
 
     /// The profile the default provider identity qualifies against.
     static let qualifiedProviderProfile = SessionsProviderProfile(
@@ -54,7 +56,8 @@ struct SessionsVerticalHarness {
         commandHarness.store.appendTab(Tab(paneId: sparePane.id))
         // Pane handle canonicalization reads the current window before it
         // resolves a pane, so the harness registers exactly one.
-        commandHarness.windowLifecycleStore.recordWindowRegistered(UUIDv7.generate())
+        let workspaceWindowId = UUIDv7.generate()
+        commandHarness.windowLifecycleStore.recordWindowRegistered(workspaceWindowId)
 
         let sqliteFixture = try makeWorkspaceSQLiteBridgeFixture(
             workspaceId: commandHarness.store.identityAtom.workspaceId
@@ -72,7 +75,9 @@ struct SessionsVerticalHarness {
         appDelegate.viewRegistry = commandHarness.viewRegistry
         appDelegate.workspaceSurfaceCoordinator = commandHarness.coordinator
         appDelegate.executor = commandHarness.executor
-        appDelegate.mainWindowController = SessionsVerticalMainWindowController(window: nil)
+        let mainWindowController = SessionsVerticalMainWindowController(window: nil)
+        mainWindowController.registeredWorkspaceWindowId = workspaceWindowId
+        appDelegate.mainWindowController = mainWindowController
         appDelegate.appIPCSessionsProviderProfiles = providerProfiles + additionalProviderProfiles
         appDelegate.installAppIPCIdentityAuthority(datastore: datastore)
 
@@ -121,7 +126,8 @@ struct SessionsVerticalHarness {
             socketPath: paths.socketURL.path,
             token: token,
             boundPaneId: boundPane.id,
-            sparePaneId: sparePane.id
+            sparePaneId: sparePane.id,
+            workspaceWindowId: workspaceWindowId
         )
     }
 
@@ -295,7 +301,12 @@ enum SessionsVerticalHarnessError: Error {
 
 @MainActor
 final class SessionsVerticalMainWindowController: MainWindowController {
+    /// Command targeting resolves a workspace window through the controller,
+    /// so the stub answers with the same identifier the harness registered.
+    var registeredWorkspaceWindowId: UUID?
+
     override var acceptsIPCCommands: Bool { true }
+    override var workspaceWindowId: UUID { registeredWorkspaceWindowId ?? super.workspaceWindowId }
 }
 
 struct SessionsVerticalFrameReader {

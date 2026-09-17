@@ -30,8 +30,16 @@ package enum IPCFieldPresence: Equatable, Sendable {
     case optional
     case defaultValue(Data)
 
+    /// The stored bytes are compared verbatim and travel through a wire round
+    /// trip, which returns them re-encoded by `IPCSchemaValue.encoded()`. They
+    /// must therefore be written in that same canonical form here; a plain
+    /// `JSONEncoder` escapes forward slashes, so a default such as
+    /// `https://github.com` came back twenty bytes on one side and twenty-two
+    /// on the other and compared unequal.
     package static func defaulted<Value: Encodable>(_ value: Value) throws -> Self {
-        .defaultValue(try JSONEncoder().encode(value))
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
+        return .defaultValue(try encoder.encode(value))
     }
 }
 
