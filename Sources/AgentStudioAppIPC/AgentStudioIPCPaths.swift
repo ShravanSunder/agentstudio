@@ -191,41 +191,6 @@ public enum AgentStudioIPCFilesystem {
         }
     }
 
-    public static func writeDebugToken(
-        _ token: AgentStudioIPCSubjectToken,
-        paths: AgentStudioIPCPaths
-    ) throws {
-        try validateTrustedExistingPath(paths.ipcDirectory, requireDirectory: true)
-        if FileManager.default.fileExists(atPath: paths.debugTokenURL.path) {
-            try validateTrustedExistingPath(paths.debugTokenURL, requireDirectory: false)
-        }
-
-        let temporaryURL = paths.ipcDirectory.appendingPathComponent(".debug-token.\(UUID().uuidString).tmp")
-        let data = Data((token.rawValue + "\n").utf8)
-        do {
-            try data.write(to: temporaryURL)
-            try chmodOwnerOnly(temporaryURL, mode: 0o600)
-            if rename(temporaryURL.path, paths.debugTokenURL.path) != 0 {
-                throw AgentStudioIPCFilesystemTrustError(
-                    reason: .metadataWriteFailed,
-                    path: paths.debugTokenURL.path,
-                    errnoCode: errno
-                )
-            }
-            try chmodOwnerOnly(paths.debugTokenURL, mode: 0o600)
-        } catch let error as AgentStudioIPCFilesystemTrustError {
-            try? FileManager.default.removeItem(at: temporaryURL)
-            throw error
-        } catch {
-            try? FileManager.default.removeItem(at: temporaryURL)
-            throw AgentStudioIPCFilesystemTrustError(
-                reason: .metadataWriteFailed,
-                path: paths.debugTokenURL.path,
-                errnoCode: errno
-            )
-        }
-    }
-
     public static func removeDebugToken(paths: AgentStudioIPCPaths) {
         try? FileManager.default.removeItem(at: paths.debugTokenURL)
     }

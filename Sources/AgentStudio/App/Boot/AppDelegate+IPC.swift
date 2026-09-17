@@ -269,36 +269,6 @@ extension AppDelegate {
         return .agentStudioOnly
     }
 
-    static func debugAutomationIPCPermissionScopes(workspaceId: UUID) -> [IPCPermissionScope] {
-        [
-            IPCPermissionScope(
-                privilege: .workspaceRead,
-                target: .app,
-                dataScope: .unspecified
-            ),
-            IPCPermissionScope(
-                privilege: .appCommandExecute,
-                target: .app,
-                dataScope: .unspecified
-            ),
-            IPCPermissionScope(
-                privilege: .layoutMutate,
-                target: .app,
-                dataScope: .paneContext
-            ),
-            IPCPermissionScope(
-                privilege: .uiPresent,
-                target: .app,
-                dataScope: .uiSurface
-            ),
-            IPCPermissionScope(
-                privilege: .sidebarStateMutate,
-                target: .workspace(workspaceId),
-                dataScope: .sidebarState
-            ),
-        ]
-    }
-
     private static func appIPCSocketDirectory() -> URL? {
         #if DEBUG
             guard

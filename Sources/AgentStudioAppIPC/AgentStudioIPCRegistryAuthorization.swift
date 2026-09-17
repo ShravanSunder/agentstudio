@@ -175,7 +175,12 @@ public struct PermissionScopeCanonicalizer: Sendable {
         }
 
         return IPCPermissionScope(
-            privilege: scope.privilege, target: target, dataScope: scope.dataScope)
+            privilege: scope.privilege,
+            target: target,
+            dataScope: scope.dataScope == .unspecified
+                ? Self.dataScope(for: scope.privilege)
+                : scope.dataScope
+        )
     }
 
     public static func dataScope(for privilege: IPCPrivilegeClass) -> IPCDataScope {
