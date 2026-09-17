@@ -129,7 +129,12 @@ enum AgentStudioIPCCommandCatalogProjection {
                 .init(workspaceWindowId: window, parentPaneSelector: pane, drawerPaneSelector: secondaryPane))
         case .detachedDrawerPane:
             return .detachedDrawerPane(.init(workspaceWindowId: window, drawerPaneSelector: secondaryPane))
-        default:
+        case .directory, .repository, .standalonePane, .worktree, .worktreeInPane,
+            .terminalFromWorktree, .terminalFromPane, .managementFromMainPane,
+            .managementFromDrawerPane, .floatingTerminal, .webview:
+            // Owned by `exampleSurfaceArguments`. Spelled out rather than
+            // defaulted so a new variant fails this build instead of failing a
+            // discovery call at runtime.
             return nil
         }
     }
@@ -191,7 +196,12 @@ enum AgentStudioIPCCommandCatalogProjection {
                 ))
         case .webview:
             return .webview(.init(workspaceWindowId: window, url: ExampleIdentities.webviewURL))
-        default:
+        case .noArguments, .workspaceWindow, .tab, .renamedTab, .newTab, .tabAnchor, .pane,
+            .sourcePane, .movePaneToTab, .arrangement, .newArrangement, .renamedArrangement,
+            .drawerParent, .drawerSourcePane, .drawerPane, .detachedDrawerPane:
+            // `exampleLayoutArguments` answered these before this call, so the
+            // branch is unreachable. It is spelled out rather than defaulted so a
+            // new variant fails this build instead of reaching it.
             throw AppIPCCommandError(reason: .validationRejected)
         }
     }
