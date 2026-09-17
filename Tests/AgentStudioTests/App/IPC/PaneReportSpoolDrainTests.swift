@@ -141,8 +141,8 @@ struct PaneReportSpoolDrainTests {
         }
     }
 
-    @Test("a late deliberate report on an unbound pane is a counted rejection, not a retry")
-    func lateDeliberateReportWithoutBindingIsRejected() async throws {
+    @Test("a late deliberate report on a pane that never bound is a counted rejection, not a retry")
+    func lateDeliberateReportWithoutAnyBindingIsRejected() async throws {
         // Arrange
         try await withPaneReportSpoolDrainHarness { harness in
             let paneId = UUIDv7.generate()
@@ -159,6 +159,39 @@ struct PaneReportSpoolDrainTests {
             #expect(report.admittedLineCount == 0)
             #expect(report.truncatedFileCount == 1)
             #expect(try harness.spoolFileByteCount(paneId: paneId) == 0)
+        }
+    }
+
+    @Test("spooled needs-you and done from before a relaunch are admitted as history")
+    func spooledDeliberateReportsSurviveARelaunch() async throws {
+        // Arrange: bind the pane, then end that generation the way launch does.
+        try await withPaneReportSpoolDrainHarness { harness in
+            let paneId = UUIDv7.generate()
+            try await harness.bindPane(paneId: paneId)
+            try await harness.simulateRelaunch()
+            let stateAfterRelaunch = try await harness.snapshot(paneId: paneId).state
+            try harness.writeSpoolFile(
+                paneId: paneId,
+                lines: [
+                    try harness.reportLine(kind: .needsYou, explanation: "approve the plan"),
+                    try harness.reportLine(kind: .done, explanation: nil),
+                ]
+            )
+
+            // Act
+            let report = await harness.drain()
+
+            // Assert
+            #expect(report.admittedLineCount == 2)
+            #expect(report.rejectedLineCount == 0)
+            #expect(report.truncatedFileCount == 1)
+            #expect(try harness.spoolFileByteCount(paneId: paneId) == 0)
+            let snapshot = try await harness.snapshot(paneId: paneId)
+            #expect(snapshot.state == stateAfterRelaunch)
+            #expect(snapshot.currentAttention.isEmpty)
+            #expect(snapshot.results.count == 1)
+            #expect(snapshot.results.first?.freshness == .late)
+            #expect(snapshot.historicalOccurrenceIds.count == 2)
         }
     }
 }
@@ -187,9 +220,16 @@ private func withPaneReportSpoolDrainHarness(
 private final class PaneReportSpoolDrainHarness {
     let spoolDirectory: URL
     private let rootDirectory: URL
+    static let qualifiedProvider = IPCSessionProviderIdentity(
+        identifier: "spool-drain-provider",
+        version: "1.0.0",
+        mode: "interactive"
+    )
+
     private let sqliteAccess: FailableSessionsSQLiteAccess
     private let repository: SessionsRepository
     private let ingestion: SessionsIngestion
+    private let admission: AgentStudioIPCSessionsAdapter
     private let spool: PaneReportSpool
 
     init() async throws {
@@ -216,13 +256,21 @@ private final class PaneReportSpoolDrainHarness {
             limits: SessionsIngestionLimits(maximumPendingPerPane: 32, maximumPendingGlobal: 128),
             probe: { _ in }
         )
-        spool = try PaneReportSpool(
-            admission: AgentStudioIPCSessionsAdapter(
-                ingestion: ingestion,
-                providerRegistry: SessionsProviderAdapterRegistry(profiles: []),
-                admissionFreshness: .late
-            )
+        admission = AgentStudioIPCSessionsAdapter(
+            ingestion: ingestion,
+            providerRegistry: SessionsProviderAdapterRegistry(
+                profiles: [
+                    SessionsProviderProfile(
+                        providerIdentifier: Self.qualifiedProvider.identifier,
+                        exactVersion: Self.qualifiedProvider.version,
+                        operatingMode: Self.qualifiedProvider.mode,
+                        qualifiedCapabilities: [.sessionStart, .sessionEnd]
+                    )
+                ]
+            ),
+            admissionFreshness: .late
         )
+        spool = try PaneReportSpool(admission: admission)
     }
 
     func drain() async -> PaneReportSpool.DrainReport {
@@ -237,6 +285,33 @@ private final class PaneReportSpoolDrainHarness {
 
     func failEveryWrite() async {
         await sqliteAccess.failEveryWrite()
+    }
+
+    /// Binds the pane through the same qualified session-start admission the
+    /// live IPC path uses, so the generation the spooled lines belong to is real.
+    func bindPane(paneId: UUID) async throws {
+        _ = try await admission.recordProviderEvent(
+            paneId: paneId,
+            params: IPCSessionEventParams(
+                handle: paneId.uuidString,
+                provider: Self.qualifiedProvider,
+                event: IPCSessionEventIdentity(
+                    name: .sessionStart,
+                    conversationId: "conversation-\(paneId.uuidString)",
+                    turnId: nil,
+                    requestId: nil,
+                    toolId: nil,
+                    subagentId: nil,
+                    occurrenceId: UUIDv7.generate()
+                ),
+                correlationId: UUIDv7.generate()
+            )
+        )
+    }
+
+    /// Launch preparation is exactly what an app relaunch runs before the drain.
+    func simulateRelaunch() async throws {
+        _ = try await ingestion.prepareForLaunch(at: Date())
     }
 
     func messageLine(

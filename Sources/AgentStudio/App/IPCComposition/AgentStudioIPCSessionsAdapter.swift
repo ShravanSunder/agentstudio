@@ -47,16 +47,25 @@ struct AgentStudioIPCSessionsAdapter: AppIPCSessionsPort {
                     SessionsDeliberateNeedsYouMutation(
                         paneId: paneId,
                         explanation: params.explanation ?? "",
+                        freshness: admissionFreshness,
                         reportedAt: reportedAt
                     )
                 )
             case .clearNeedsYou:
                 .clearDeliberateNeedsYou(
-                    SessionsClearDeliberateNeedsYouMutation(paneId: paneId, clearedAt: reportedAt)
+                    SessionsClearDeliberateNeedsYouMutation(
+                        paneId: paneId,
+                        freshness: admissionFreshness,
+                        clearedAt: reportedAt
+                    )
                 )
             case .done:
                 .deliberateDone(
-                    SessionsDeliberateDoneMutation(paneId: paneId, reportedAt: reportedAt)
+                    SessionsDeliberateDoneMutation(
+                        paneId: paneId,
+                        freshness: admissionFreshness,
+                        reportedAt: reportedAt
+                    )
                 )
             }
         do {
