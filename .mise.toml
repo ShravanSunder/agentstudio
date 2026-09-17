@@ -593,6 +593,12 @@ TERMINFO="Sources/AgentStudio/Resources/terminfo"
 GHOSTTY_RES="Sources/AgentStudio/Resources/ghostty"
 [ -d "$GHOSTTY_RES" ] && { mkdir -p "$APP_DIR/Resources/ghostty"; cp -R "$GHOSTTY_RES/." "$APP_DIR/Resources/ghostty/"; }
 
+# Agent package — provider hooks and the model skill that
+# `agentstudio package install <provider>` copies into the provider's own
+# configuration. The whole directory ships so every provider rides along.
+AGENT_PACKAGE="Sources/AgentStudio/Resources/AgentPackage"
+[ -d "$AGENT_PACKAGE" ] && { mkdir -p "$APP_DIR/Resources/AgentPackage"; cp -R "$AGENT_PACKAGE/." "$APP_DIR/Resources/AgentPackage/"; }
+
 # GhosttyKit is a static library — already linked into the binary at build time.
 # Do NOT embed the xcframework; it's only needed at build time for SwiftPM.
 

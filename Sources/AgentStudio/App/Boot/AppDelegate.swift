@@ -92,9 +92,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     var appIPCPrincipalRegistry: AgentStudioIPCPrincipalRegistry!
     var paneIPCIdentityOwner: PaneIPCIdentityOwner!
     var appIPCSessionsIngestion: SessionsIngestion?
-    /// Exact provider profiles are composition input. An empty list grants no
-    /// provider-reported authority until a qualified provider package ships.
-    var appIPCSessionsProviderProfiles: [SessionsProviderProfile] = []
+    /// Exact provider profiles are composition input. Only the releases listed
+    /// here grant provider-reported authority; every other provider, version or
+    /// mode reports as unqualified.
+    var appIPCSessionsProviderProfiles: [SessionsProviderProfile] = [.claudeCodeCommandLine]
     var appLifecycleStore: AppLifecycleAtom!
     var windowLifecycleStore: WindowLifecycleAtom!
     var applicationLifecycleMonitor: ApplicationLifecycleMonitor!

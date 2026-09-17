@@ -8,8 +8,16 @@ struct AgentStudioIPCClientMain {
     static func main() {
         do {
             let readInput = { FileHandle.standardInput.readDataToEndOfFile() }
+            let rawArguments = Array(CommandLine.arguments.dropFirst())
+            if let code = ClaudeCodeProviderRouter.exitCode(
+                arguments: rawArguments, environment: ProcessInfo.processInfo.environment,
+                executablePath: CommandLine.arguments[0], standardInput: readInput,
+                identifierGenerator: { UUIDv7.generate() }
+            ) {
+                exit(code)
+            }
             let global = try AgentStudioIPCClientArguments.parseGlobal(
-                Array(CommandLine.arguments.dropFirst()), environment: ProcessInfo.processInfo.environment,
+                rawArguments, environment: ProcessInfo.processInfo.environment,
                 standardInputProvider: readInput
             )
             let examples = IPCBuiltInMethodExampleContext(illustrativeIdentifier: UUIDv7.generate())

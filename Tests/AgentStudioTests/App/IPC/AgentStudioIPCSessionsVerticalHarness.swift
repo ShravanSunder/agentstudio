@@ -30,7 +30,7 @@ struct SessionsVerticalHarness {
     let boundPaneId: UUID
     let sparePaneId: UUID
 
-    static func make() async throws -> Self {
+    static func make(additionalProviderProfiles: [SessionsProviderProfile] = []) async throws -> Self {
         let commandHarness = makeHarness()
         let boundPane = commandHarness.store.createPane(title: "Bound pane")
         let sparePane = commandHarness.store.createPane(title: "Spare pane")
@@ -57,18 +57,23 @@ struct SessionsVerticalHarness {
         appDelegate.workspaceSurfaceCoordinator = commandHarness.coordinator
         appDelegate.executor = commandHarness.executor
         appDelegate.mainWindowController = SessionsVerticalMainWindowController(window: nil)
-        appDelegate.appIPCSessionsProviderProfiles = [
-            SessionsProviderProfile(
-                providerIdentifier: qualifiedProvider.identifier,
-                exactVersion: qualifiedProvider.version,
-                operatingMode: qualifiedProvider.mode,
-                qualifiedCapabilities: [.sessionStart, .sessionEnd, .turnStart, .turnDone]
-            )
-        ]
+        appDelegate.appIPCSessionsProviderProfiles =
+            [
+                SessionsProviderProfile(
+                    providerIdentifier: qualifiedProvider.identifier,
+                    exactVersion: qualifiedProvider.version,
+                    operatingMode: qualifiedProvider.mode,
+                    qualifiedCapabilities: [.sessionStart, .sessionEnd, .turnStart, .turnDone]
+                )
+            ] + additionalProviderProfiles
         appDelegate.installAppIPCIdentityAuthority(datastore: datastore)
 
+        // The trailing node, not the leading one: UUIDv7 begins with a coarse
+        // timestamp, so a prefix repeats across suite processes and the second
+        // harness fails to create its directory. The name stays short because
+        // the Unix socket underneath it must fit the 104-byte path limit.
         let rootDirectory = FileManager.default.temporaryDirectory
-            .appending(path: "as-ipc-sessions-\(UUIDv7.generate().uuidString.prefix(8))")
+            .appending(path: "as-ipc-sessions-\(UUIDv7.generate().uuidString.suffix(12))")
         try FileManager.default.createDirectory(
             at: rootDirectory,
             withIntermediateDirectories: false,
@@ -209,7 +214,7 @@ struct SessionsVerticalHarness {
         return .object(fields)
     }
 
-    private func decoded<Result: Decodable>(
+    func decoded<Result: Decodable>(
         method: String,
         params: JSONValue
     ) async throws -> Result {
@@ -221,7 +226,7 @@ struct SessionsVerticalHarness {
         return try JSONDecoder().decode(Result.self, from: try JSONEncoder().encode(result))
     }
 
-    private func response(method: String, params: JSONValue) async throws -> JSONRPCResponseMessage {
+    func response(method: String, params: JSONValue) async throws -> JSONRPCResponseMessage {
         let connection = try UnixSocketClient.connect(endpoint: UnixSocketEndpoint(path: socketPath))
         defer { connection.close() }
         var reader = SessionsVerticalFrameReader()

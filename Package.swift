@@ -72,6 +72,7 @@ let package = Package(
                 .copy("Resources/terminfo"),
                 .copy("Resources/ghostty"),
                 .copy("Resources/BridgeWeb"),
+                .copy("Resources/AgentPackage"),
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6)
@@ -565,6 +566,7 @@ let package = Package(
                 "AgentStudioCommandBar",
                 "AgentStudioCore",
                 "AgentStudioEditorChooser",
+                "AgentStudioIPCClientCore",
                 "AgentStudioIPCTransport",
                 "AgentStudioInboxNotification",
                 "AgentStudioInfrastructure",

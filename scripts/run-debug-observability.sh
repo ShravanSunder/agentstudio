@@ -747,6 +747,11 @@ copy_debug_bundle() {
     "$DITTO_BIN" "Sources/AgentStudio/Resources/terminfo" "$app_dir/Resources/terminfo"
   [ -d "Sources/AgentStudio/Resources/ghostty" ] &&
     "$DITTO_BIN" "Sources/AgentStudio/Resources/ghostty" "$app_dir/Resources/ghostty"
+  # Agent package — provider hooks and the model skill the CLI installs into a
+  # provider's own configuration. The whole directory ships so every provider
+  # rides along.
+  [ -d "Sources/AgentStudio/Resources/AgentPackage" ] &&
+    "$DITTO_BIN" "Sources/AgentStudio/Resources/AgentPackage" "$app_dir/Resources/AgentPackage"
 
   local resource_bundle
   resource_bundle="$(find "$build_root" -path '*/debug/AgentStudio_AgentStudio.bundle' -type d | head -1)"
