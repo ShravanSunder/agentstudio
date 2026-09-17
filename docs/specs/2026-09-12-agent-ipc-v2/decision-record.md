@@ -828,6 +828,31 @@ consequences: W3 proves report-after-bind, report-on-unbound-pane failure, and
 status:   accepted structural note; no owner-visible product change
 ```
 
+## AJ — Debug credential is memory-only; only pane hashes are stored (2026-09-17)
+
+```text
+decision: The reusable debug credential (Y) is minted at debug IPC readiness,
+          its SHA-256 verifier is admitted to the in-memory principal registry
+          for the runtime's lifetime, its raw value is written to the escrow
+          file the launcher named (AF), and it disappears at quit or
+          replacement. It is never persisted. local_ipc_credential stores pane
+          verifiers only: the diagnostic namespace, runtime_id, generation_id
+          and their indexes are removed by a forward migration.
+why:      Owner: "I only said a hash for pane. Why is the app being stored?"
+          Y authorized a reusable zero-ceremony debug credential, not durable
+          storage. A debug build needs no restart continuity for its token.
+alternatives: keep the persisted diagnostic rows as harmless (rejected: the
+          same "harmless but unnecessary" pattern that inflated credentials).
+consequences: IPCContinuityCredential loses its diagnostic case;
+          IPCContinuityRepository loses persistPrepared/activatePrepared/
+          revokeDiagnostic; authentication verifies diagnostic tokens through
+          the registry only; tests register debug verifiers in memory.
+          R-13's "reusable runtime-bound credential ... verify its SHA-256
+          verifier on every call ... revoke at shutdown or replacement" holds
+          unchanged. Implemented in W8.
+status:   accepted (owner, 2026-09-17)
+```
+
 ## Open items (owner decisions still needed)
 
 - None. Program Design inventory approved by the owner on 2026-09-13

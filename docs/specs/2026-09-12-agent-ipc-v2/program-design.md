@@ -285,8 +285,9 @@ denied. Stable/beta omit/refuse debug-only variants, retaining their admitted
 headless command variants. Server channel decides composition, never a CLI flag.
 
 Off-critical-path debug IPC initialization replaces single-use escrow with one reusable random credential.
-IPCContinuityRepository persists its SHA-256 verifier, runtime ID, credential
-generation and status; the principal registry verifies it without consuming it.
+Its SHA-256 verifier lives only in the in-memory principal registry for the
+runtime's lifetime (AJ); nothing about it is persisted, and local_ipc_credential
+holds pane verifiers only.
 The authenticated principal is `.automationClient` with `.automationSameUser`;
 `.unsafeDebugClient` and `.unsafeDebug` remain exclusive to the explicit
 unsafe-no-auth composition.
@@ -301,13 +302,11 @@ verifier/file setup succeeds. A failed setup reports debug auth unavailable;
 it never enables unsafe auth. Each CLI call can connect, authenticate, execute
 and disconnect without changing the file or generation.
 
-Shutdown first revokes the generation/active connections, then deletes the
-runtime-owned credential file. Replacement invalidates the old generation and
-removes only its owned file before publishing the new runtime/credential;
-stale cleanup must not delete a replacement's file. Crash leftovers authenticate
-against no current runtime: next startup invalidates stale runtime verifiers and
-replaces its owned file before publishing readiness. Stable/beta never create
-this file. Unsafe-no-auth remains a separately explicit opt-in only.
+Shutdown drops the in-memory debug verifier, closes its connections and
+deletes the escrow file. Replacement writes a new token to the file before
+publishing readiness. A crash leaves a stale file whose token matches no
+running registry and is refused; the next launch overwrites it. Stable/beta
+never create this file. Unsafe-no-auth remains a separately explicit opt-in.
 
 Debug discovery (AF). No shared runtime registry directory exists. The launcher
 that starts a debug app passes AGENTSTUDIO_IPC_DEBUG_TOKEN_ESCROW, the path of
@@ -515,7 +514,7 @@ cannot invent new authority. Domain outcome and correlation commit atomically.
 
 | Table | Durable responsibility |
 | --- | --- |
-| local_ipc_credential | Typed pane or diagnostic scope: pane/workspace + opaque credential record ID, or debug runtime + credential generation; SHA-256 verifier and status only, never raw bearer. The pane record ID stabilizes correlation/replay identity; it is not ordered shell authority. |
+| local_ipc_credential | Pane scope only (AJ): pane/workspace + opaque credential record ID, SHA-256 verifier and status, never raw bearer. The pane record ID stabilizes correlation identity; it is not ordered shell authority. Debug credentials are memory-only. |
 | sessions_conversation | Native/provider identity and durable conversation attribution. |
 | sessions_pane_binding | Pane/conversation association and binding revisions/generations. |
 | sessions_source | Qualified source context, cursor, liveness and ended generation. |
