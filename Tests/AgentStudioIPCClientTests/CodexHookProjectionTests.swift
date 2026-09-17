@@ -103,6 +103,109 @@ struct CodexHookProjectionTests {
         )
     }
 
+    /// Codex sends no `tool_use_id` with a permission request, so without the
+    /// tool name two approvals in one turn would derive one identity and the
+    /// second would be deduplicated away — the pane would show one needs-you
+    /// for two questions.
+    @Test("two permission requests for different tools in one turn stay distinct")
+    func permissionRequestsForDifferentToolsStayDistinct() throws {
+        // Arrange
+        let shell = Self.permissionPayload(toolName: "shell")
+        let applyPatch = Self.permissionPayload(toolName: "apply_patch")
+
+        // Act
+        let first = try #require(
+            CodexHookProjection.project(eventName: .permissionRequest, payload: shell))
+        let second = try #require(
+            CodexHookProjection.project(eventName: .permissionRequest, payload: applyPatch))
+
+        // Assert
+        #expect(first.event.occurrenceId != second.event.occurrenceId)
+        #expect(first.event.requestId != second.event.requestId)
+        #expect(
+            first.event.occurrenceId
+                == DeterministicUUIDv5.providerHookIdentifier(
+                    name:
+                        "codex|\(CodexFixtures.sessionId)|\(CodexFixtures.turnId)|PermissionRequest|shell|"
+                )
+        )
+    }
+
+    @Test("the same permission request retried derives the same identity")
+    func permissionRequestRetryKeepsItsIdentity() throws {
+        // Arrange
+        let payload = Self.permissionPayload(toolName: "shell")
+
+        // Act
+        let first = try #require(
+            CodexHookProjection.project(eventName: .permissionRequest, payload: payload))
+        let second = try #require(
+            CodexHookProjection.project(eventName: .permissionRequest, payload: payload))
+
+        // Assert
+        #expect(first.event.occurrenceId == second.event.occurrenceId)
+        #expect(first.event.requestId == second.event.requestId)
+    }
+
+    @Test(
+        "two subagents started in one turn stay distinct",
+        arguments: [CodexHookEventName.subagentStart, .subagentStop]
+    )
+    func subagentsInOneTurnStayDistinct(eventName: CodexHookEventName) throws {
+        // Arrange
+        let reviewer = Self.subagentPayload(agentId: "agent_4d71")
+        let researcher = Self.subagentPayload(agentId: "agent_91ba")
+
+        // Act
+        let first = try #require(CodexHookProjection.project(eventName: eventName, payload: reviewer))
+        let second = try #require(
+            CodexHookProjection.project(eventName: eventName, payload: researcher))
+
+        // Assert
+        #expect(first.event.occurrenceId != second.event.occurrenceId)
+        #expect(first.event.subagentId != second.event.subagentId)
+        #expect(
+            first.event.occurrenceId
+                == DeterministicUUIDv5.providerHookIdentifier(
+                    name:
+                        "codex|\(CodexFixtures.sessionId)|\(CodexFixtures.turnId)|\(eventName.rawValue)||agent_4d71"
+                )
+        )
+    }
+
+    /// The same subagent starting and stopping are two different occurrences.
+    @Test("a subagent's start and stop derive different identities")
+    func subagentStartAndStopDiffer() throws {
+        // Arrange
+        let payload = Self.subagentPayload(agentId: "agent_4d71")
+
+        // Act
+        let start = try #require(
+            CodexHookProjection.project(eventName: .subagentStart, payload: payload))
+        let stop = try #require(
+            CodexHookProjection.project(eventName: .subagentStop, payload: payload))
+
+        // Assert
+        #expect(start.event.occurrenceId != stop.event.occurrenceId)
+    }
+
+    private static func permissionPayload(toolName: String) -> CodexHookPayload {
+        CodexHookPayload(
+            sessionId: CodexFixtures.sessionId,
+            turnId: CodexFixtures.turnId,
+            hookEventName: CodexHookEventName.permissionRequest.rawValue,
+            toolName: toolName
+        )
+    }
+
+    private static func subagentPayload(agentId: String) -> CodexHookPayload {
+        CodexHookPayload(
+            sessionId: CodexFixtures.sessionId,
+            turnId: CodexFixtures.turnId,
+            agentId: agentId
+        )
+    }
+
     @Test("different events in the same turn derive different occurrence identities")
     func occurrenceIdentityDistinguishesEvents() throws {
         // Arrange / Act

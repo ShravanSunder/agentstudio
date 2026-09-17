@@ -71,17 +71,33 @@ struct AgentStudioIPCCodexHookVerticalTests {
             params: try CodexHookVerticalFixtures.params(
                 event: .sessionEnd, paneId: harness.boundPaneId))
 
-        // Assert — the projection reaches the app and is admitted.
-        //
-        // The binding stays live. `AgentStudioIPCSessionsAdapter.evidenceKind`
-        // maps `sessionEnd` to `.completed` evidence, and nothing on the
-        // `session.event` path ever produces the `.sourceEnded` mutation the
-        // reducer already implements, so no provider event can retire a source
-        // generation today. That is a gap in the admission adapter, not in this
-        // projection; this case pins the behaviour that actually ships so the
-        // gap cannot be closed by accident.
+        // Assert — the source generation is retired, not merely recorded
+        // against. `AgentStudioIPCSessionsAdapter` maps a session end to
+        // `SessionsMutation.sourceEnded` using the binding's own source
+        // generation, so the pane reports a source that has ended rather than
+        // one that is still live with nothing arriving on it.
         #expect(ended.disposition == .admitted)
-        #expect(try await harness.sessionQuery(paneId: harness.boundPaneId).sourceHealth == .live)
+        #expect(try await harness.sessionQuery(paneId: harness.boundPaneId).sourceHealth == .ended)
+    }
+
+    /// Ending a pane that was never bound is not a caller error — there is no
+    /// source generation to retire — so it is refused rather than rejected as a
+    /// missing binding, and nothing is submitted.
+    @Test("a session end on an unbound pane is refused without ending anything")
+    func sessionEndOnUnboundPaneIsRefused() async throws {
+        // Arrange
+        let harness = try await SessionsVerticalHarness.make(
+            providerProfiles: SessionsProviderProfile.shippedProfiles)
+        defer { harness.tearDown() }
+
+        // Act
+        let refused = try await harness.sessionEvent(
+            params: try CodexHookVerticalFixtures.params(
+                event: .sessionEnd, paneId: harness.sparePaneId))
+
+        // Assert
+        #expect(refused.disposition == .unqualified)
+        #expect(try await harness.sessionQuery(paneId: harness.sparePaneId).sourceHealth == .unbound)
     }
 
     @Test("a Codex turn that finishes without a permission request reaches the query as done")
@@ -169,6 +185,7 @@ enum CodexHookVerticalFixtures {
             sessionId: "01994d2f-8f1a-7c3b-9d44-2a6f5b8c1e07",
             turnId: turnId(for: event),
             hookEventName: event.rawValue,
+            toolName: event == .preToolUse || event == .permissionRequest ? "shell" : nil,
             toolUseId: event == .preToolUse ? "call_9f2c41ab" : nil,
             agentId: event == .subagentStart || event == .subagentStop ? "agent_4d71" : nil,
             codexVersion: reportedVersion

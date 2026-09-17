@@ -18,11 +18,15 @@ its required/optional split:
 | `interrupt.json` | `InterruptCommandInput` | 627-640 |
 | `post-tool-use.json` | `PostToolUseCommandInput` | 323-346 |
 
-Two facts these fixtures encode on purpose:
+Three facts these fixtures encode on purpose:
 
 - `SessionStart` and `SessionEnd` carry no `turn_id`.
 - `PermissionRequest` carries no `tool_use_id` and no request identifier of any
-  kind; only `PreToolUse` and `PostToolUse` carry `tool_use_id`.
+  kind; only `PreToolUse` and `PostToolUse` carry `tool_use_id`. Its `tool_name`
+  is therefore what separates two permission requests inside one turn, and the
+  projection derives both `occurrenceId` and `requestId` from it.
+- The subagent events carry a required `agent_id` and no `tool_use_id`, so
+  `agent_id` is what separates two subagents inside one turn.
 
 A live capture from a real Codex run is still owed; it belongs with the
 end-to-end provider proof, not here.
