@@ -710,6 +710,99 @@ consequences: Remove automatic issuance and supersession tied to renderer/surfac
 status:   accepted restoration correction; structural realization updated for owner review
 ```
 
+## AD — No control replay journal (2026-09-17)
+
+```text
+decision: Controls (commands, layout, terminal input, events) have no durable or
+          in-memory correlation replay journal in round 1. Correlation stays
+          required on the wire and echoed in results. A repeated correlation is
+          a new request. Durable deduplication exists only for reports and
+          messages through the Sessions occurrence journal, which already
+          commits domain outcome and correlation atomically.
+why:      No owner requirement asks for control replay: U14 and U21 cover
+          reports and messages, and U21 says commands are never buffered. The
+          CLI mints a fresh correlation on every run, so no round-1 caller can
+          resupply one. The planned local_ipc_operation journal (reserved/
+          started/final, fingerprints, in-flight joins, restart classification)
+          protected nobody and repeated the credential over-engineering pattern.
+          Owner: "drop S4c, it's really off the rails."
+alternatives: durable journal (rejected as above); bounded in-memory per-runtime
+          map (deferred until a retrying caller exists).
+consequences: local_ipc_operation table, control journal section and S4c are
+          removed from the Program Design and plan; R-09 and the C2 correlation
+          paragraph are narrowed to reports and messages. The S4c draft test is
+          parked outside the tree.
+status:   accepted (owner, 2026-09-17)
+```
+
+## AE — Minimal offline spool (2026-09-17)
+
+```text
+decision: The round-1 spool is one append-only per-pane file written by the CLI
+          under flock when the app is unreachable, fsynced before "queued", and
+          drained after IPC readiness by reading every line, admitting each as
+          late through common admission, and truncating the file only when
+          every line is admitted or a duplicate. Malformed lines are counted and
+          skipped. No claim/rename generations, quarantine, lock files, per-line
+          removal or operator cleanup route.
+why:      U14/U21 require that spooled notifications are never lost while the
+          app is down; the accepted design grew generation, quarantine and
+          cleanup machinery beyond that need. Owner: "do the minimum offline and
+          then we can change that later."
+alternatives: the full generation/quarantine design (deferred, not deleted from
+          history).
+consequences: Program Design spool section rewritten; R-20 unchanged in meaning.
+status:   accepted (owner, 2026-09-17)
+```
+
+## AF — Debug discovery through the existing escrow path (2026-09-17)
+
+```text
+decision: Debug CLI discovery uses the existing AGENTSTUDIO_IPC_DEBUG_TOKEN_ESCROW
+          file path passed by the launcher: the App writes runtime ID, socket
+          path and the reusable debug credential into that 0600 file at IPC
+          readiness. No per-user runtime registry directory, entry enumeration,
+          pruning or multi-runtime selection in round 1. Full AppCommand
+          coverage with typed debug arguments (U3, decision Z) stays in scope.
+why:      The registry was new machinery; the escrow file and its launcher
+          plumbing already exist and the proof scripts already use it.
+alternatives: shared 0700 registry directory (deferred).
+consequences: Program Design debug discovery paragraphs replaced; R-13 unchanged.
+status:   accepted (owner, 2026-09-17)
+```
+
+## AG — Package delivery order and minimal installer (2026-09-17)
+
+```text
+decision: Ship the bundled CLI first (Contents/MacOS/agentstudio, product renamed
+          from agentstudio-ipc), then providers in the order Codex CLI, Claude
+          Code, Cursor CLI. The installer is a CLI subcommand that writes and
+          removes only marker-owned entries and prints a one-line notice before
+          overwriting a marked entry that differs. No last-installed manifest or
+          conflict-diff engine.
+why:      The pane environment already advertises a CLI path that nothing
+          copies, so bundling blocks every agent use. Owner: Codex first, test
+          with Luna, then the others; all three matter.
+alternatives: ownership-aware manifest installer (deferred).
+consequences: S8 split into bundling (this PR gate) and three provider slices.
+status:   accepted (owner, 2026-09-17)
+```
+
+## AH — Wrap-up cleanup of committed divergence (2026-09-17)
+
+```text
+decision: Delete the never-called debugAutomationIPCPermissionScopes catalog and
+          the dead writeDebugToken path; remove the wall-clock optional-migration
+          measurement suite from the pull-request test lane and record its
+          measured bounds in the Program Design proof view instead; defer the
+          Sessions acknowledgment port and the Contract 7 terminal-fact
+          subscriber out of S5 until a consumer exists.
+why:      Independent drift audit findings A–C; repository rule against
+          wall-clock tests; no UI consumes acknowledgment or terminal facts in
+          round 1.
+status:   accepted (owner, 2026-09-17)
+```
+
 ## Open items (owner decisions still needed)
 
 - None. Program Design inventory approved by the owner on 2026-09-13

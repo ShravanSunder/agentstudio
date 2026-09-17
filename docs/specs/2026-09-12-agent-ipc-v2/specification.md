@@ -88,7 +88,7 @@ resolves to the distinct Requirements source.
 | R-06 | One discovery call MUST return the complete available method catalog with JSON Schema params/results, descriptions, examples, required privileges, target kinds and compatibility identity. Missing schema, hidden defaults or non-executable examples fail the contract. | U3, U4, U19; J, R, T; C2; V2 |
 | R-07 | Errors MUST have stable reasons and machine-readable correction data for invalid input, missing grants, wrong targets, unknown methods/commands and version skew. Unknown identifiers MUST yield protocol errors, never opaque client enum/decode failures. | U3, U4, U19, U20; C2/C8; V2 |
 | R-08 | Methods MUST share the spellings self, UUID and pane:N while separately declaring target kinds. Pane, workspace, conversation/session, message occurrence and needs-you request are distinct kinds; existing catalog kinds remain explicit. Wrong kinds MUST fail without falling back to focus. | U1, U3, U4, U16, U19; C1/C2; V1/V2 |
-| R-09 | Every mutation/report MUST require a correlation ID on the wire. The CLI MUST generate one when omitted by its caller. Equivalent retries MUST not duplicate effects or occurrences; conflicting correlation reuse MUST fail. For reports carrying a provider occurrence ID, equivalent occurrence reuse under a new correlation MUST return the retained outcome, while conflicting semantic reuse MUST fail before evidence or derived state changes. Responses and observable outcomes MUST preserve correlation. | U3, U4, U14, U19–U22; Q; C2/C3/C5/C6; V2/V3/V6/V7 |
+| R-09 | Every mutation/report MUST require a correlation ID on the wire; the CLI MUST generate one when omitted by its caller, and responses MUST echo it. For reports and messages, equivalent retries MUST NOT duplicate occurrences and conflicting correlation reuse MUST fail before evidence or derived state changes; for reports carrying a provider occurrence ID, equivalent occurrence reuse under a new correlation MUST return the retained outcome. Controls carry no replay guarantee in round 1: a repeated correlation is a new request, and a caller that loses the response treats the outcome as uncertain (decision AD). | U14, U19–U22; Q, AD; C2/C3/C5/C6; V2/V3/V6/V7 |
 
 ### Agent DX and model token economy
 
@@ -188,12 +188,12 @@ JSON representation returned by system.capabilities remains the future adapter
 contract; it is not the Swift CLI's build input.
 
 Wire request ID identifies a response; correlation identifies the logical
-mutation/report across reconnect and replay. Reusing an ID with equivalent
-input returns the known outcome without repeating effects. Different content
-conflicts. An ordinal retry retains its originally resolved target. Missing
-wire correlation is invalid input with no effect. Authority is rechecked on
-retries. Timeout/disconnect after submission may leave an uncertain outcome;
-it does not establish cancellation or authorize a new duplicate request.
+mutation/report. For reports and messages, reusing a correlation with
+equivalent input returns the known outcome without repeating occurrences, and
+different content conflicts. Controls have no replay store (decision AD): a
+repeated correlation executes again. Missing wire correlation is invalid input
+with no effect. Timeout/disconnect after submission may leave an uncertain
+outcome; it does not establish cancellation or authorize an automatic retry.
 
 A result establishes only its declared boundary: accepted, durable, applied,
 partial or uncertain. Presenting UI does not execute a selected command, and

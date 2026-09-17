@@ -75,10 +75,6 @@ Component / placement                       Responsibility and reason to change
 IPCMethodDefinition + typed schema          Protocol shapes, model-call metadata,
   AgentStudioProgrammaticControl            exposure, examples; protocol evolution
 
-IPCDebugLocationContract                    Fixed debug registry directory and entry
-  AgentStudioProgrammaticControl            shape (runtime/socket/data root/credential
-                                            file); App/CLI; discovery contract changes
-
 agentstudio thin executable                 Descriptor-driven argv/stdin/help and
   existing AgentStudioIPCClient target       short model replies; invocation UX
 
@@ -98,11 +94,11 @@ PaneIPCIdentityOwner                       Logical pane identity, hash verifier,
 IPCContinuityRepository                     Write-behind pane/debug verifiers, forward-only
   App/PaneAgents                            continuity SQL, not domain evidence
 
-PaneReportSpool actor                       Claim/drain/acknowledge notifications;
-  App/PaneAgents                            offline admission lifecycle
+PaneReportSpool actor                       Drain notification files after IPC
+  App/PaneAgents                            readiness (AE minimal spool)
 
-LockedRequestSpool                         Lock, append, durable file replacement;
-  AgentStudioIPCTransport                   generic local-file mechanics only
+Notification file append                    flock + append + fsync of one request
+  AgentStudioIPCClientCore                  line per pane file (AE)
 
 SessionsIngestion actor                    Ordered binding/report/ack/source-end;
   Features/Sessions/Runtime                 domain admission and queue policy
@@ -191,7 +187,7 @@ Proposed names describe contracts rather than existing APIs:
   through canonical membership; `revoke` at discard/expiry is permanent. Only
   verifier registration and final revocation require credential persistence; no
   new durable suspended/reactivated state is introduced. These transitions never
-  delete spool or quarantine files and never delay pane close or Undo.
+  delete spool files and never delay pane close or Undo.
 - `SessionsIngestion.submit` accepts a normalized report plus server-issued
   scope/origin/freshness. One non-reentrant FIFO consumer serializes bind,
   report, acknowledgment and source-end across awaited database work.
@@ -210,9 +206,9 @@ Proposed names describe contracts rather than existing APIs:
   the call off-main does not erase same-writer scheduling contention. The optional
   owner starts only after interactive/terminal release and its proof measures
   overlap with local writes. It adds no pool, store or coordinator.
-- `PaneReportSpool.drain` claims a file generation under the shared lock, submits
-  each eligible notification through normal admission with an offline context, and removes
-  only committed/duplicate lines. No lock spans an awaited database operation.
+- `PaneReportSpool.drain` reads every line of a pane file under `flock`, submits
+  each eligible notification through normal admission forced late, and truncates
+  the file only when every line was admitted or was a duplicate (AE).
 
 The principal registry's existing lock owns a shared generation/lease gate.
 Canonical-pane snapshots come through a narrow App-injected MainActor read
@@ -313,31 +309,18 @@ against no current runtime: next startup invalidates stale runtime verifiers and
 replaces its owned file before publishing readiness. Stable/beta never create
 this file. Unsafe-no-auth remains a separately explicit opt-in only.
 
-For debug verbs, IPCDebugLocationContract in ProgrammaticControl owns the shared
-Foundation-only registry location and entry shape. Use a fixed per-user,
-channel-scoped directory `~/.agentstudio-debug-runtime-registry/`, independent
-of AGENTSTUDIO_DATA_DIR and every per-run root. Directory mode is 0700; each
-`<runtimeID>.json` entry is 0600 and names runtime ID, debug channel, socket path,
-data root and credential-file location. These are locations, never the raw
-credential. IPC-side server composition publishes its own entry atomically
-only after socket and credential readiness; shutdown/replacement removes only
-that runtime's entry. The repo launcher need not know this registry: its app
-registers itself even when the launcher relocates data/socket roots, as
-[scripts/run-debug-observability.sh](../../../scripts/run-debug-observability.sh)
-does for per-worktree and traced runs.
-
-The CLI enumerates this shared registry from an unrelated shell, validates
-owner/channel and probes socket liveness/runtime identity before reading the
-credential. One matching live entry is selected automatically; multiple live
-entries produce a short list and require explicit runtime selection. A dead
-entry is pruned only after a dead probe, and only if its identity/content still
-matches the inspected entry; a live mismatched runtime is not deleted or guessed.
-No live entries returns a concise start instruction. App/CLI share the location
-contract without importing AppIPC into the CLI. AppIPC owns server-side registry
-publication/removal; ClientCore owns enumeration/probe/selection. Stable/beta
-neither publish nor use this debug registry as pane authority. Unsafe auth
-remains explicit opt-in. Ordinary report/message calls use pane env authority;
-debug intent selects this separate discovery path.
+Debug discovery (AF). No shared runtime registry directory exists. The launcher
+that starts a debug app passes AGENTSTUDIO_IPC_DEBUG_TOKEN_ESCROW, the path of
+an owner-only 0600 file. When the off-critical-path debug IPC service becomes
+ready, the App writes that file with the runtime ID, socket path and the
+reusable raw debug credential, and deletes it at shutdown or replacement.
+ClientCore reads the same env variable on every debug invocation; an operator
+in an unrelated shell exports the value the launcher printed. A missing or
+unreadable file, a runtime-ID mismatch or a dead socket probe returns a concise
+start instruction. Multi-runtime selection, entry pruning and enumeration are
+outside round 1; one escrow path names one runtime. Stable/beta never write
+the file. Ordinary report/message calls use pane env authority; debug intent
+selects this separate path.
 
 Descriptor projections provide plain debug arguments (for example split with a
 pane handle, terminal send with text, command.execute with command ID and typed
@@ -533,7 +516,6 @@ cannot invent new authority. Domain outcome and correlation commit atomically.
 | Table | Durable responsibility |
 | --- | --- |
 | local_ipc_credential | Typed pane or diagnostic scope: pane/workspace + opaque credential record ID, or debug runtime + credential generation; SHA-256 verifier and status only, never raw bearer. The pane record ID stabilizes correlation/replay identity; it is not ordered shell authority. |
-| local_ipc_operation | Control correlation, stable caller scope, optional canonical target, semantic fingerprint and reserved/started/final outcome. |
 | sessions_conversation | Native/provider identity and durable conversation attribution. |
 | sessions_pane_binding | Pane/conversation association and binding revisions/generations. |
 | sessions_source | Qualified source context, cursor, liveness and ended generation. |
@@ -613,82 +595,52 @@ App obtains its data root from
 The existing [AgentStudioIPCPathResolver](../../../Sources/AgentStudioAppIPC/AgentStudioIPCPaths.swift)
 alone derives `<root>/ipc/spool/v2/`; its composed path is delivered as
 AGENTSTUDIO_IPC_SPOOL_DIR. The CLI consumes that env value without a second
-root-derivation implementation. Each canonical pane has one owner-only
-`<paneUUID>.notifications.ndjson` and `<paneUUID>.lock`. Shared descriptors
-classify offline eligibility: only messages and deliberate needs-you/done
-reports are eligible. needs-you --clear is an offline-ineligible command: ClientCore returns
-“Can't clear while Agent Studio is offline.” and appends nothing.
-Controls, queries, auth, needs-you --clear and hook lifecycle facts are ineligible. ClientCore
-applies spool fallback only to eligible notification descriptors; admission
-rechecks that classification before drain dispatch so an injected command line
-cannot execute. Classification follows the report variant when a method has
-multiple variants, not merely the outer method name.
+root-derivation implementation.
 
-Notifications here mean “what happened,” not JSON-RPC's no-response envelope.
-Files contain the exact JSON-RPC request lines, including correlation and
-reportedAt/source context in params. No bearer or auth frame goes on disk.
+Minimal spool (AE). Each canonical pane has one owner-only append-only file
+`<paneUUID>.notifications.ndjson`. Shared descriptors classify offline
+eligibility: only `session.message` and the deliberate `session.report`
+variants needs-you and done are eligible. needs-you --clear, controls, queries,
+auth and hook lifecycle facts are ineligible: ClientCore returns "Can't clear
+while Agent Studio is offline." for clear and a plain failure for the rest, and
+appends nothing. Classification follows the report variant, not the method name.
+
 App unreachability permits queuing: a missing socket path, refused connection,
-or dead/stale endpoint. The existing AgentStudioIPCSocketProbeOutcome.dead
-in [IPC paths](../../../Sources/AgentStudioAppIPC/AgentStudioIPCPaths.swift)
-is the server-side check; ClientCore applies the same shared probe semantics
-through its transport dependency without importing AppIPC. An authenticated or
+or a dead/stale endpoint by the shared probe semantics. An authenticated or
 protocol-level rejection proves reachability and never queues. An ambiguous
-disconnect after submission remains uncertain, not an offline resubmission. Hook lifecycle facts are dropped at the source while the app is down;
-provider history remains their record. No offline state-fact collection or
-loss-disclosure machinery exists in round 1.
+disconnect after submission remains uncertain, never an offline resubmission.
+Hook lifecycle facts are dropped at the source while the app is down.
 
-LockedRequestSpool performs locked append and durable flush before queued success.
-A partial append failure rolls back that incomplete tail and returns failure.
-Crash after flush but before response is safe through correlation replay.
-Notifications have no eviction cap: append or durable-accept failure is explicit,
-and no notification is dropped. The existing frame acceptance limit still
-applies; oversized input fails explicitly rather than truncating content.
+ClientCore appends the exact JSON-RPC request line (correlation and reportedAt
+in params; no bearer or auth frame) under an exclusive `flock` on the file and
+fsyncs before returning queued. Append or fsync failure returns explicit
+failure. There is no eviction cap; the frame acceptance limit still applies.
+
+Drain: only after optional schema and server-side admission are ready, and never
+on the first-frame, terminal-activation, new-shell or existing-zmx paths, the
+IPC-side drainer takes the same `flock`, reads every line, submits each through
+common admission forced late, and relies on the Sessions correlation journal
+for deduplication. When every line is admitted or rejected as a duplicate, the
+drainer truncates the file under the lock. If any submission fails for another
+reason, the file is left intact and drained again at the next IPC readiness.
+Malformed lines are counted in source health and skipped; their text is never
+logged. No claim/rename generations, quarantine files, per-line removal, lock
+files or operator cleanup routes exist in round 1.
 
 ```text
-CLI notification -> live socket available -> common admission -> durable/rejected
+CLI notification -> live socket -> common admission -> durable/rejected
           |
-          + app unreachable -> lock -> append/flush -> queued
-                                         |
-IPC ready after interactive launch -> validate owner/path
-           -> claim notification generation under lock
-           -> check eligibility -> common scope/domain admission, forced late
-           -> commit domain + correlation
-           -> remove committed/duplicate line; retain uncommitted notification
+          + app unreachable -> flock -> append + fsync -> queued
 
-normal startup / fresh shell / existing-zmx attach -X-> spool claim or drain
+IPC ready after interactive launch -> flock -> read all lines
+           -> admit each forced late (dedup by correlation journal)
+           -> all admitted/duplicate: truncate | other failure: retain, retry
 
+normal startup / fresh shell / existing-zmx attach -X-> drain
 controls / queries / auth / clear -> unreachable app: failure, never spool
-hook lifecycle facts      -> unreachable app: source drop, provider continues
-crash before commit -> retry claimed notification
-crash after commit before line removal -> deduplicate, then remove
-concurrent writer -> new active generation, untouched by old-file acknowledgment
 ```
 
-Claim uses rename under the per-pane lock, allowing a fresh active file while
-SQL runs. Completion uses file-generation/line identity, never a blind truncate
-of a writer's current file. Recovery resumes claimed files. Malformed/ineligible
-lines move durably to an owner-only per-pane quarantine before removal from
-the claimed file; they are neither dispatched nor silently discarded.
-PaneReportSpool owns this disposition and source-health disclosure. Quarantine
-retains entries until an explicit later cleanup decision; AppPolicies bounds
-quarantine admission to 128 entries per pane, never eviction. When full, the
-drainer retains the offending and subsequent lines in the claimed spool and
-reports quarantineFull source health. The round-1 operator route is documented
-manual deletion of that pane's owner-only quarantine file while the app/drainer
-is stopped; it explicitly discards quarantined malformed/ineligible entries,
-not the retained notification spool. On next launch the drainer resumes, can
-quarantine remaining offending lines and admits retained valid notifications. This bounds quarantine count without dropping notification content.
-Only the drainer removes a pane's spool data files, after every line is durably
-admitted or quarantined. Pane retirement never deletes them. At final drain,
-after pane producers and drainer lock holders have quiesced, the drainer removes
-the pane's spool data and .lock together; if writers/holders remain, final
-teardown is deferred until they stop, avoiding replacement-lock inode races.
-Quarantine survives that teardown until the documented operator cleanup. Admitted lines are removed
-rather than retained as a permanent telemetry log. No lock spans awaited SQL.
-
-Spool recovery begins only after optional schema and server-side admission are
-ready. It is never awaited by first-frame publication, terminal activation,
-genuine new-shell construction or existing-zmx attachment. Ingestion has bounded live queues: 256 per pane and 1024 globally. Messages and
+Ingestion has bounded live queues: 256 per pane and 1024 globally. Messages and
 deliberate reports are never eviction candidates: full queue/write failure
 returns explicit rejection without claiming acceptance. For live lifecycle
 state drops, persist sessions_loss before dropping and return a throttled/rejected
@@ -698,7 +650,6 @@ source health; never claim a durable loss receipt that was not committed. The
 reducer consumes late deliberate reports only as history and preserves newer
 live projections. Provider wrappers remain fail-open; durable failure is visible
 without blocking provider control.
-
 ## Agent package
 
 ```text
@@ -727,6 +678,17 @@ an explicit conflict report. Missing executables/config access and inactive
 native trust are per-provider outcomes, not global success. Native trust cannot
 be bypassed by installation. pi/OpenCode are outside this package's first round.
 
+
+Delivery order and installer scope (AG). The bundled CLI executable ships first
+as `Contents/MacOS/agentstudio`, built from the `agentstudio` executable product
+(formerly `agentstudio-ipc`) and signed with the app; it is a PR gate on its own.
+Providers land in the order Codex CLI, Claude Code, Cursor CLI, each proven with
+that provider's real entry point before the next starts. The installer is a
+subcommand of the same CLI (`agentstudio package install|uninstall <provider>`).
+It writes only entries carrying a package-owned marker, removes only marked
+entries, and prints a one-line notice when a marked entry differs from the
+package's current value before overwriting it. No manifest of last-installed
+values and no conflict-diff engine exist in round 1.
 ## Call-path deltas
 
 `+` added, `~` changed, `-` retired, `=` preserved. Typed outcomes return along
@@ -782,9 +744,9 @@ Outcome: qualified evidence or ignored/unverified disposition; no raw screen pat
 
 D5 SPOOL / RESTART — R-03, R-09, R-18–R-20
 Current: missing/refused/dead endpoint cannot deliver notification
-Target: + descriptor eligibility -> CLI locked append/flush -> queued receipt
-        + post-readiness recovery claim -> common late admission -> atomic SQL dedup/domain commit
-        + unattributed durable fallback -> committed-line removal; retained quarantine
+Target: + descriptor eligibility -> CLI flock append/fsync -> queued receipt
+        + post-readiness drain -> common late admission -> atomic SQL dedup/domain commit
+        + all admitted/duplicate -> truncate; other failure -> retain and retry (AE)
         + no command/clear or hook lifecycle buffering
         = first frame and terminal activation never await claim/drain
 Outcome: notification survives until accepted, or explicit append/admission failure.
@@ -821,41 +783,25 @@ so this cleanup does not assume the unchanged terminal path is regression-free.
 
 ## Failure containment and replay
 
-Control correlation uses a discriminated caller namespace, never a connection
-ID: pane callers use pane UUID + opaque credential record ID; diagnostic callers use
-debug runtime ID + debug credential generation. The correlation ID completes
-either key. The pane record ID stabilizes correlation/replay and does not order
-shell authority or make renderer recreation a supersession event. Reconnect retains the diagnostic namespace; runtime replacement ends
-it. Targetless presentation/workspace commands use that diagnostic key with no
-invented pane target. Explicit unsafe diagnostic composition uses its runtime's
-server-issued diagnostic generation, never a client-selected namespace. Store canonical target and semantic fingerprint immutably. Look
-up correlation before resolving an ordinal anew; an identical ordinal retry
-uses the recorded target. A different spelling must resolve to that identity
-to be equivalent. Recheck current runtime/generation authority before exposing stored private
-outcomes; replacement credentials cannot read/replay an old runtime namespace.
-Equal concurrent calls join one server-owned task; conflicts fail before effects.
+Control correlation (AD): every control carries a required correlation ID on the
+wire, the server echoes it in the typed result, and no durable or in-memory
+replay journal exists for controls. A repeated correlation is a new request. The
+only durable deduplication is the Sessions occurrence journal
+(`sessions_operation`) for reports and messages, where domain outcome and
+correlation commit in one transaction. A caller that loses the response after
+submission treats the outcome as uncertain and does not retry automatically.
 
 ```text
-CONTROL JOURNAL
-absent -> reserved (durable) -> started (durable) -> native effect -> final outcome
-                                  |
-                        crash -> uncertain; never automatic redispatch
-reserved after restart -> only explicit caller retry can resume
-completed retry -> recorded outcome after current authority check
-caller disconnect -> started work continues; receipt loss is not cancellation
-
 TRUST / FAILURE CONTAINMENT
 bytes -> peer UID/frame -> schema/channel -> principal/target -> admitted context
   reject at any gate: typed reason/correction, no effect
   reports -> bounded FIFO -> correlation/occurrence gate -> reduction
           -> domain/dedup commit -> durable receipt
-  controls -> started marker -> live lease + native owner -> final/partial/uncertain
+  controls -> live lease + native owner -> final/partial/uncertain (no journal)
   private text -> explicit SQLite/spool only -X-> JSONL/OTLP/logger
 ```
 
-SQLite cannot atomically commit arbitrary terminal/native effects. Started to
-uncertain avoids repeated non-idempotent execution, at the cost of an effect
-possibly never having run. No boot worker replays controls. Reports and seen
+Reports and seen
 acknowledgments commit their dedup row and domain change in one transaction and
 therefore avoid that gap. No general transaction coordinator is introduced.
 
@@ -974,9 +920,9 @@ schema completeness. Required implementation gates remain future proof work.
 | Actors/subscription | PaneIPCIdentityOwner with cached environments, SessionsIngestion, PaneReportSpool; principal in-memory verifier/lease gate; IPC service-owned verifier persistence scheduling; named SessionsTerminalFactSubscriber, off-main often lane. |
 | Coordinator responsibilities | Existing coordinator receives close/Undo/discard lifecycle calls only; it never issues/replaces credentials, waits on IPC readiness or owns persistence. |
 | Atoms/stores | None added; no new event family or coordinator class. |
-| Files/package | LockedRequestSpool primitive, one notification file plus lock per pane with quiescent final-drain cleanup, drainer-owned quarantine/manual operator cleanup; fixed debug registry published by App server composition; native installers/ownership manifest and signed bundled CLI. |
+| Files/package | One append-only notification file per pane drained under flock (AE); debug escrow file at the launcher-supplied path (AF); bundled `agentstudio` executable and marker-owned provider installer (AG). |
 | Retired items | Phase-1 agentstudio-ipc executable/verb mapping and fd-bootstrap helper and single-use debug escrow; ClientCore remains. |
-| Policy values | Live admission queues 256/pane and 1024/global; quarantine admission 128 entries/pane, retained until documented manual operator deletion, full means retained spool plus source-health disclosure and next-launch recovery; no notification eviction or offline state cap. |
+| Policy values | Live admission queues 256/pane and 1024/global; no notification eviction; no quarantine limit (AE). |
 
 ## Structural choices and limits
 
@@ -986,8 +932,8 @@ schema completeness. Required implementation gates remain future proof work.
 | Feature-owned Sessions with two repository responsibilities | Provider/domain policy stays out of IPC/Core; adds one Feature target and App translation ports, not another database. | Core ownership reduces one target but misplaces provider policy; revisit if a real shared-domain consumer needs these models. |
 | One cached pane/runtime token with hash-only continuity and retained-shell Undo | The identity owner admits one current-runtime verifier in memory and caches one environment; every mount receives that environment, a new shell inherits it, and restored zmx keeps its existing token. Environment requests are RAM-only. The IPC service schedules hash persistence at its post-frame readiness and newly used authenticated-admission boundaries; graceful shutdown snapshots every still-unsaved issued RAM verifier before draining accepted writes. Older durable verifiers remain valid for the same canonical live pane; issuance does not supersede them. Canonical membership denies/restores close/Undo eligibility, and final discard/expiry revokes all pane credentials. The opaque record ID stabilizes persistence/correlation/replay without ordering shell authority. Cost: storage-unavailable or interrupted shutdown before verifier durability leaves that shell explicitly unavailable after restart. | Raw-token recovery/persistence, a new durable suspended state, ordered credential generations, per-attachment candidates and mount-owned replacement are rejected. Revisit only if the owner changes the accepted AB failure window or canonical-pane authority model. |
 | Two Core-owned local migration phases on one writer | Boot runs only required schema; IPC/Sessions schema and all existing rows remain under the same owner and database while optional readiness moves after the exact release edge. GRDB's barrier is measured rather than assumed contention-free. | A second pool/owner is forbidden. Rejoin phases only if real first-schema and steady-schema measurements prove the optional work cannot preserve first frame or terminal activation. |
-| One notification spool per pane | Preserves messages and deliberate reports; requires locked generations and deduplication, with explicit storage failure instead of eviction. Hook lifecycle history while offline stays with the provider. | A daemon changes the accepted deployment boundary; revisit only when a later always-on collector is authorized. |
-| Conservative control journal | Prevents speculative repeated effects; crash ambiguity can require caller reconciliation. | Automatic retry risks duplicated native effects; revisit only with an effect owner supplying durable idempotent application. |
+| One notification spool per pane | Preserves messages and deliberate reports with flock append and post-readiness drain; explicit storage failure instead of eviction (AE). Hook lifecycle history while offline stays with the provider. | A daemon changes the trust and lifecycle model; deferred. |
+| No control journal (AD) | Controls execute once per request; a lost response is uncertain to the caller and a retry is a new request. | A durable journal was built for no round-1 caller; revisit only when a retrying caller exists. |
 
 Provider qualification remains incomplete: the recorded Cursor headless
 2026.09.02-c22c1a3 runs establish sessionStart/sessionEnd only; interactive TUI
