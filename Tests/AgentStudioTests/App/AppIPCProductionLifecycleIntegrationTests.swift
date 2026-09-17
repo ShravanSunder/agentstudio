@@ -117,6 +117,28 @@ struct AppIPCProductionLifecycleIntegrationTests {
         #expect(try await appDelegate.appIPCContinuityRepository.paneCredentials(paneID: pane.id).isEmpty)
     }
 
+    @Test("no local datastore starts neither the IPC server nor the offline notification drain")
+    func missingLocalDatastoreStartsNoServerAndNoSpoolDrain() async throws {
+        let workspaceID = UUIDv7.generate()
+        let fixture = try makeWorkspaceSQLiteBridgeFixture(workspaceId: workspaceID)
+        let datastore = try preparedWorkspaceSQLiteDatastore(from: fixture.backend)
+        let store = WorkspaceStore(
+            identityAtom: WorkspaceIdentityAtom(workspaceId: workspaceID),
+            sqliteDatastore: datastore,
+            startsObserving: false
+        )
+        let appDelegate = AppDelegate()
+        appDelegate.store = store
+        appDelegate.installAppIPCIdentityAuthority(datastore: datastore)
+        appDelegate.workspaceSQLiteDatastore = nil
+
+        await appDelegate.startAppIPCServer()
+
+        #expect(appDelegate.appIPCServer == nil)
+        #expect(appDelegate.paneReportSpoolDrainTask == nil)
+        #expect(appDelegate.appIPCSessionsIngestion == nil)
+    }
+
     @Test("production App start reuses the early registry and shutdown persists a later unused token")
     func productionStartAndShutdownReuseEarlyRegistryAndPersistUnusedToken() async throws {
         let harness = try makeServerCapableAppIPCTestHarness()

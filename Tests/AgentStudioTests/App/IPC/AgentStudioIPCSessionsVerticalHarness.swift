@@ -67,8 +67,11 @@ struct SessionsVerticalHarness {
         ]
         appDelegate.installAppIPCIdentityAuthority(datastore: datastore)
 
+        // The name stays short because the socket underneath it must fit
+        // `sun_path`, and it takes the UUID's random tail rather than its
+        // leading timestamp so concurrently started suites cannot collide.
         let rootDirectory = FileManager.default.temporaryDirectory
-            .appending(path: "as-ipc-sessions-\(UUIDv7.generate().uuidString.prefix(8))")
+            .appending(path: "as-ipc-sessions-\(UUIDv7.generate().uuidString.suffix(8))")
         try FileManager.default.createDirectory(
             at: rootDirectory,
             withIntermediateDirectories: false,

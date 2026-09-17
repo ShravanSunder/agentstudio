@@ -120,6 +120,7 @@ extension AppDelegate {
             try composition.server.start()
             appIPCServer = composition.server
             appLogger.info("App IPC server started at \(composition.socketURL.path, privacy: .private)")
+            startPaneReportSpoolDrain(sessionsIngestion: sessionsIngestion)
         } catch {
             appLogger.warning("App IPC server failed to start: \(String(describing: error), privacy: .public)")
         }
@@ -128,9 +129,49 @@ extension AppDelegate {
     func stopAppIPCServer() {
         appIPCInitializationTask?.cancel()
         appIPCInitializationTask = nil
+        paneReportSpoolDrainTask?.cancel()
+        paneReportSpoolDrainTask = nil
         appIPCServer?.stop()
         appIPCServer = nil
         finishAppIPCSessionsIngestion()
+    }
+
+    /// Notifications the CLI spooled while this app was unreachable are admitted
+    /// once IPC is listening and ingestion is prepared. The drain is detached and
+    /// awaited nowhere, so no startup, terminal or zmx path waits on it.
+    private func startPaneReportSpoolDrain(sessionsIngestion: SessionsIngestion) {
+        guard paneReportSpoolDrainTask == nil, let spoolDirectory = appIPCPaths?.spoolDirectory else {
+            return
+        }
+        let lateAdmission = AgentStudioIPCSessionsAdapter(
+            ingestion: sessionsIngestion,
+            providerRegistry: SessionsProviderAdapterRegistry(profiles: appIPCSessionsProviderProfiles),
+            admissionFreshness: .late
+        )
+        let spool: PaneReportSpool
+        do {
+            spool = try PaneReportSpool(admission: lateAdmission)
+        } catch {
+            appLogger.warning(
+                "Offline notification drain skipped: \(String(describing: error), privacy: .public)"
+            )
+            return
+        }
+        // The drain must not inherit MainActor isolation: it holds a file lock
+        // across admission and nothing on the startup path may await it.
+        // swiftlint:disable:next no_task_detached
+        paneReportSpoolDrainTask = Task.detached(priority: .utility) {
+            let report = await spool.drain(spoolDirectory: spoolDirectory)
+            guard report.hasWork else { return }
+            appLogger.info(
+                """
+                Offline notification drain admitted \(report.admittedLineCount, privacy: .public) \
+                rejected \(report.rejectedLineCount, privacy: .public) \
+                malformed \(report.malformedLineCount, privacy: .public) \
+                retained \(report.retainedFileCount, privacy: .public) files
+                """
+            )
+        }
     }
 
     /// Sessions ingestion is built with the IPC server, not on the first-frame

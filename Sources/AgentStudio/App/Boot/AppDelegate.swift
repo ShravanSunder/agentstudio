@@ -92,6 +92,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     var appIPCPrincipalRegistry: AgentStudioIPCPrincipalRegistry!
     var paneIPCIdentityOwner: PaneIPCIdentityOwner!
     var appIPCSessionsIngestion: SessionsIngestion?
+    var paneReportSpoolDrainTask: Task<Void, Never>?
     /// Exact provider profiles are composition input. An empty list grants no
     /// provider-reported authority until a qualified provider package ships.
     var appIPCSessionsProviderProfiles: [SessionsProviderProfile] = []

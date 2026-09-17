@@ -8,10 +8,12 @@ struct AgentStudioIPCClientMain {
     static func main() {
         do {
             let readInput = { FileHandle.standardInput.readDataToEndOfFile() }
+            let environment = ProcessInfo.processInfo.environment
             let global = try AgentStudioIPCClientArguments.parseGlobal(
-                Array(CommandLine.arguments.dropFirst()), environment: ProcessInfo.processInfo.environment,
+                Array(CommandLine.arguments.dropFirst()), environment: environment,
                 standardInputProvider: readInput
             )
+            let offlineHandler = PaneNotificationOfflineHandler(environment: environment)
             let examples = IPCBuiltInMethodExampleContext(illustrativeIdentifier: UUIDv7.generate())
             let bootstrap = try IPCBuiltInMethodCatalog.bootstrapDescriptors(examples: examples)
             let discoveryClient = AgentStudioIPCClient(configuration: global.configuration, descriptors: bootstrap)
@@ -24,34 +26,27 @@ struct AgentStudioIPCClientMain {
             if bootstrap.contains(where: { $0.metadata.name == global.methodArguments.first }) {
                 descriptors = bootstrap
             } else {
-                let catalog = try discoveryClient.discoverCatalog()
-                if global.methodArguments.first == "command.list" || global.methodArguments.first == "command.execute" {
-                    let discovery = try IPCCommandDiscovery(methodCatalog: catalog)
-                    let authenticationDescriptors = bootstrap.filter { $0.metadata.name == "auth.login" }
-                    guard authenticationDescriptors.count == 1 else {
-                        throw CLIExit.rejected
-                    }
-                    let listClient = AgentStudioIPCClient(
-                        configuration: global.configuration,
-                        descriptors: authenticationDescriptors + [discovery.commandListInvocation.descriptor]
+                let catalog: IPCMethodCatalogResult
+                do {
+                    catalog = try discoveryClient.discoverCatalog()
+                } catch let unreachable as IPCDescriptorClientFailure where unreachable.permitsOfflineQueue {
+                    try queueNotificationWhileOffline(
+                        global: global, examples: examples, handler: offlineHandler,
+                        standardInputProvider: readInput, unreachable: unreachable
                     )
-                    let response: IPCDescriptorClientResponse
-                    switch try listClient.call(discovery.commandListInvocation) {
-                    case .success(let successfulResponse):
-                        response = successfulResponse
-                    case .remoteFailure(let failure):
-                        throw CLIExit.structured(CLIErrorPresentation(remoteFailure: failure))
-                    }
-                    let commands = try discovery.decodeCommandCatalog(from: response.normalizedResult)
-                    if global.methodArguments.first == "command.list" {
-                        _ = try AgentStudioIPCClientArguments.parseMethod(
-                            global, descriptors: [discovery.commandListInvocation.descriptor],
-                            correlationIDGenerator: { UUIDv7.generate() }, standardInputProvider: readInput)
-                        try write(response.normalizedResult)
+                    return
+                }
+                if global.methodArguments.first == "command.list" || global.methodArguments.first == "command.execute" {
+                    switch try resolveDiscoveredCommandDescriptors(
+                        global: global, bootstrap: bootstrap, catalog: catalog,
+                        standardInputProvider: readInput
+                    ) {
+                    case .completed:
                         return
+                    case .resolved(let resolvedDescriptors, let resolvedCatalog):
+                        descriptors = resolvedDescriptors
+                        commandCatalog = resolvedCatalog
                     }
-                    commandCatalog = commands
-                    descriptors = authenticationDescriptors + [commands.executeDescriptor]
                 } else {
                     descriptors = try IPCBuiltInMethodCatalog.matchingDiscoveredMethods(catalog, examples: examples)
                 }
@@ -77,7 +72,17 @@ struct AgentStudioIPCClientMain {
                     }
                 }
             } else {
-                switch try client.call(invocation) {
+                let result: IPCDescriptorClientCallResult
+                do {
+                    result = try client.call(invocation)
+                } catch let unreachable as IPCDescriptorClientFailure where unreachable.permitsOfflineQueue {
+                    try queueWhileOffline(
+                        invocation: invocation, handler: offlineHandler,
+                        requestLine: { try client.requestFrame(invocation) }, unreachable: unreachable
+                    )
+                    return
+                }
+                switch result {
                 case .success(let response):
                     if let commandCatalog {
                         _ = try commandCatalog.decodeResult(response.normalizedResult, for: invocation)
@@ -96,8 +101,86 @@ struct AgentStudioIPCClientMain {
         }
     }
 
+    /// `command.list` answers from the discovery response itself, so it finishes
+    /// here rather than continuing to a second call.
+    private static func resolveDiscoveredCommandDescriptors(
+        global: IPCClientGlobalArguments,
+        bootstrap: [IPCAnyMethodDescriptor],
+        catalog: IPCMethodCatalogResult,
+        standardInputProvider: () throws -> Data
+    ) throws -> DiscoveredCommandDescriptors {
+        let discovery = try IPCCommandDiscovery(methodCatalog: catalog)
+        let authenticationDescriptors = bootstrap.filter { $0.metadata.name == "auth.login" }
+        guard authenticationDescriptors.count == 1 else { throw CLIExit.rejected }
+        let listClient = AgentStudioIPCClient(
+            configuration: global.configuration,
+            descriptors: authenticationDescriptors + [discovery.commandListInvocation.descriptor]
+        )
+        let response: IPCDescriptorClientResponse
+        switch try listClient.call(discovery.commandListInvocation) {
+        case .success(let successfulResponse):
+            response = successfulResponse
+        case .remoteFailure(let failure):
+            throw CLIExit.structured(CLIErrorPresentation(remoteFailure: failure))
+        }
+        let commands = try discovery.decodeCommandCatalog(from: response.normalizedResult)
+        guard global.methodArguments.first != "command.list" else {
+            _ = try AgentStudioIPCClientArguments.parseMethod(
+                global, descriptors: [discovery.commandListInvocation.descriptor],
+                correlationIDGenerator: { UUIDv7.generate() }, standardInputProvider: standardInputProvider)
+            try write(response.normalizedResult)
+            return .completed
+        }
+        return .resolved(
+            authenticationDescriptors + [commands.executeDescriptor], commandCatalog: commands)
+    }
+
+    /// Discovery never reached the app, so the notification is classified from
+    /// the compiled descriptors. Anything that is not an eligible model
+    /// notification keeps the original unreachable failure.
+    private static func queueNotificationWhileOffline(
+        global: IPCClientGlobalArguments,
+        examples: IPCBuiltInMethodExampleContext,
+        handler: PaneNotificationOfflineHandler,
+        standardInputProvider: () throws -> Data,
+        unreachable: IPCDescriptorClientFailure
+    ) throws {
+        let descriptors = try IPCBuiltInMethodCatalog.offlineNotificationDescriptors(examples: examples)
+        guard
+            let invocation = try? AgentStudioIPCClientArguments.parseMethod(
+                global, descriptors: descriptors, correlationIDGenerator: { UUIDv7.generate() },
+                standardInputProvider: standardInputProvider
+            ).descriptorInvocation
+        else {
+            throw unreachable
+        }
+        let client = AgentStudioIPCClient(configuration: global.configuration, descriptors: descriptors)
+        try queueWhileOffline(
+            invocation: invocation, handler: handler,
+            requestLine: { try client.requestFrame(invocation) }, unreachable: unreachable
+        )
+    }
+
+    private static func queueWhileOffline(
+        invocation: IPCDescriptorInvocation,
+        handler: PaneNotificationOfflineHandler,
+        requestLine: () throws -> String,
+        unreachable: IPCDescriptorClientFailure
+    ) throws {
+        switch try handler.handleUnreachableApp(invocation: invocation, requestLine: requestLine) {
+        case .queued(let reply):
+            print(reply)
+        case .clearUnavailableWhileOffline:
+            throw CLIExit.message("Can't clear while Agent Studio is offline.")
+        case .notQueued:
+            throw unreachable
+        }
+    }
+
     private static func handleFailure(_ error: Error) -> Never {
         switch error {
+        case let failure as PaneNotificationSpoolWriteError:
+            fputs("Agent Studio could not durably queue this notification: \(failure.reason.rawValue)\n", stderr)
         case let failure as IPCCommandDiscoveryError:
             writeStructuredError(CLIErrorPresentation(commandDiscoveryFailure: failure))
         case let failure as IPCDescriptorInvocationError:
@@ -117,10 +200,10 @@ struct AgentStudioIPCClientMain {
                 writeUnavailableError()
             }
         case let error as CLIExit:
-            if case .structured(let presentation) = error {
-                writeStructuredError(presentation)
-            } else {
-                writeUnavailableError()
+            switch error {
+            case .structured(let presentation): writeStructuredError(presentation)
+            case .message(let message): fputs("\(message)\n", stderr)
+            case .rejected: writeUnavailableError()
             }
         default:
             writeUnavailableError()
@@ -148,8 +231,14 @@ struct AgentStudioIPCClientMain {
     }
 }
 
+private enum DiscoveredCommandDescriptors {
+    case completed
+    case resolved([IPCAnyMethodDescriptor], commandCatalog: IPCDiscoveredCommandCatalog)
+}
+
 private enum CLIExit: Error {
     case rejected
+    case message(String)
     case structured(CLIErrorPresentation)
 }
 
