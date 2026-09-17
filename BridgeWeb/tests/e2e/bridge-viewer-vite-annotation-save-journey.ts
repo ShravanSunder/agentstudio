@@ -219,11 +219,14 @@ export async function runAnnotationSaveJourney(props: {
 			props.surface === 'file'
 				? waitForCommittedAnnotationCommand(page, 'source.refresh', 'file')
 				: null;
+		// Request sequence numbers are a total order, not a causal one. `source.refresh` and the
+		// demanded projection query are issued concurrently by one `acquireSession`, so anchor the
+		// gate to `root.create`, which the session genuinely cannot exist before.
 		const demandedDraftProjectionCommitted =
 			sourceRefreshCommitted === null
 				? null
 				: waitForDemandedAnnotationProjectionContent({
-						afterRequestSequence: sourceRefreshCommitted.then((receipt) => receipt.requestSequence),
+						afterRequestSequence: rootCreateCommitted.then((receipt) => receipt.requestSequence),
 						page,
 						sessionId: rootCreateCommitted.then((receipt) => {
 							if (receipt.sessionId === null) {
