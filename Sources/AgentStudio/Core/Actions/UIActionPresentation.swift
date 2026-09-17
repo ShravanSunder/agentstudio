@@ -75,8 +75,6 @@ extension KeyBinding {
 }
 
 package enum LocalActionSpec {
-    package static let previewPaneShortcutDisplay = ShortcutDisplayText(value: "Space")
-
     case quickOpen
     case commandPalette
     case goToPane

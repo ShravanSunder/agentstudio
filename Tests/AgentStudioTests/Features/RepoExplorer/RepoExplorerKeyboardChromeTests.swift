@@ -67,8 +67,8 @@ struct RepoExplorerKeyboardChromeTests {
         #expect(table.selectionHighlightStyle == .none)
     }
 
-    @Test("pane rows always carry Space independently from conditional numbered hints")
-    func paneRowsAlwaysCarrySpaceIndependentlyFromConditionalNumberedHints() throws {
+    @Test("pane rows omit Space while retaining conditional numbered hints")
+    func paneRowsOmitSpaceWhileRetainingConditionalNumberedHints() throws {
         let fixture = RepoExplorerListKeyboardFixture()
         defer { fixture.close() }
         let tabID = UUIDv7.generate()
@@ -85,15 +85,13 @@ struct RepoExplorerKeyboardChromeTests {
 
         #expect(firstCell.hostingView.rootView.slot.keyboardPresentation.shortcutDisplay == nil)
         #expect(secondCell.hostingView.rootView.slot.keyboardPresentation.shortcutDisplay == nil)
-        #expect(LocalActionSpec.previewPaneShortcutDisplay.value == "Space")
-
         fixture.materializer.setShowsKeyboardHints(true)
         #expect(firstCell.hostingView.rootView.slot.keyboardPresentation.shortcutDisplay?.value == "1")
         #expect(secondCell.hostingView.rootView.slot.keyboardPresentation.shortcutDisplay?.value == "2")
     }
 
-    @Test("pane composition keeps Space first and excludes it from worktree rows")
-    func paneCompositionKeepsSpaceFirstAndExcludesItFromWorktreeRows() throws {
+    @Test("pane composition omits Space and excludes it from worktree rows")
+    func paneCompositionOmitsSpaceAndExcludesItFromWorktreeRows() throws {
         let projectRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .appending(path: "../../../..")
@@ -112,17 +110,13 @@ struct RepoExplorerKeyboardChromeTests {
         )
 
         #expect(paneRowSource.components(separatedBy: "RepoExplorerPaneRowContent(").count - 1 == 2)
-        #expect(
-            paneRowSource.contains(
-                ") {\n            SidebarShortcutHint(LocalActionSpec.previewPaneShortcutDisplay)"
-            )
-        )
+        #expect(!paneRowSource.contains("SidebarShortcutHint(LocalActionSpec.previewPaneShortcutDisplay)"))
         #expect(!worktreeRowSource.contains("LocalActionSpec.previewPaneShortcutDisplay"))
         #expect(!worktreeRowSource.contains("SidebarShortcutHint"))
     }
 
-    @Test("always-visible first Space chip preserves pane rows at supported widths")
-    func alwaysVisibleFirstSpaceChipPreservesPaneRowsAtSupportedWidths() throws {
+    @Test("pane rows preserve numbered hints and recency at supported widths")
+    func paneRowsPreserveNumberedHintsAndRecencyAtSupportedWidths() throws {
         let projectRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .appending(path: "../../../..")
@@ -190,11 +184,6 @@ struct RepoExplorerKeyboardChromeTests {
                 unassociatedRowRect: unassociatedRowRect,
                 unassociatedBitmap: unassociatedBitmap
             ))
-        if width == 250 {
-            try expectCapturedLeadingEdgePreserved(
-                at: artifactDirectory.appending(path: "pane-row-250-associated-space-first.png")
-            )
-        }
         try clickFirstChip(in: table, rowRect: associatedRowRect, window: fixture.window)
         #expect(fixture.recorder.focusedPaneIDs == [richPaneID])
     }
@@ -210,9 +199,6 @@ struct RepoExplorerKeyboardChromeTests {
             to: capture.artifactDirectory.appending(
                 path: "pane-row-\(Int(capture.width))-unassociated-space-first.png")
         )
-        let spaceHintHost = NSHostingView(
-            rootView: SidebarShortcutHint(LocalActionSpec.previewPaneShortcutDisplay)
-        )
         let bounds = """
             width=\(Int(capture.width))
             associatedCellFrame=\(NSStringFromRect(capture.associatedCell.frame))
@@ -225,7 +211,6 @@ struct RepoExplorerKeyboardChromeTests {
             unassociatedHostingFittingSize=\(NSStringFromSize(capture.unassociatedCell.hostingView.fittingSize))
             unassociatedRowRect=\(NSStringFromRect(capture.unassociatedRowRect))
             unassociatedPixels=\(capture.unassociatedBitmap.pixelsWide)x\(capture.unassociatedBitmap.pixelsHigh)
-            spaceHintFittingSize=\(NSStringFromSize(spaceHintHost.fittingSize))
             """
         try bounds.write(
             to: capture.artifactDirectory.appending(path: "pane-row-\(Int(capture.width))-bounds.txt"),

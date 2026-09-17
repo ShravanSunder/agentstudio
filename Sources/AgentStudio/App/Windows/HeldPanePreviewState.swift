@@ -99,11 +99,9 @@ final class HeldPanePreviewState {
         return true
     }
 
-    /// Enter and digit activation take ownership before the matching Space up.
+    /// Enter and digit activation take ownership and return to canonical presentation.
     func commitBeforeActivation() {
-        guard case .held(let generation, _) = lifecycle else { return }
-        presentedTarget = nil
-        lifecycle = .suppressedUntilSpaceRelease(generation: generation)
+        cancelIfHeld()
     }
 
     /// Ends a held or committed gesture and returns to canonical presentation.

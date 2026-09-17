@@ -304,10 +304,15 @@ class MainSplitViewController: NSSplitViewController {
                 },
                 onSelectedPaneTargetChange: { [weak self] target in
                     guard let self else { return }
-                    let didChangeTarget =
-                        self.heldPanePreviewState?.updateRequestedTarget(
-                            self.validatedPreviewTarget(for: target)
-                        ) == true
+                    let validatedTarget = self.validatedPreviewTarget(for: target)
+                    let didChangeTarget: Bool
+                    if self.heldPanePreviewState?.isHeld == true {
+                        didChangeTarget =
+                            self.heldPanePreviewState?.updateRequestedTarget(validatedTarget) == true
+                    } else {
+                        didChangeTarget =
+                            self.heldPanePreviewState?.beginSpaceHold(requestedTarget: validatedTarget) == true
+                    }
                     if didChangeTarget {
                         self.workspaceActionExecutor.prepareHeldPanePreview()
                     }

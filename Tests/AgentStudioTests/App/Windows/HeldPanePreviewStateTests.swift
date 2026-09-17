@@ -27,13 +27,11 @@ struct HeldPanePreviewStateTests {
         #expect(state.lifecycle == .held(generation: 1, requestedTarget: target))
     }
 
-    @Test("commit suppresses a later Space key-up")
-    func commitWinsBeforeKeyUp() {
+    @Test("commit returns arrow preview to canonical presentation")
+    func commitReturnsArrowPreviewToCanonicalPresentation() {
         let state = HeldPanePreviewState()
         #expect(state.beginSpaceHold(requestedTarget: nil))
         state.commitBeforeActivation()
-        #expect(state.lifecycle == .suppressedUntilSpaceRelease(generation: 1))
-        state.endSpaceHold()
         #expect(state.lifecycle == .idle(nextGeneration: 2))
     }
 

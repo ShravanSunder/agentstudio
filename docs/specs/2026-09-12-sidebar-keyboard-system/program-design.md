@@ -357,7 +357,7 @@ The held-session lifecycle is:
 
 | State/transition | Guard and owner action | Resulting presentation |
 | --- | --- | --- |
-| `idle` → `held(g, requestedTarget?)` | Space down while the actual first responder is the eligible list; mint one generation and resolve the current selected row | Canonical set until the requested pane's presentation mount is ready; a non-pane request stays `nil` |
+| `idle` → `held(g, requestedTarget?)` | Arrow selection while the actual first responder is the eligible list; mint one generation and resolve the current selected row | Canonical set until the requested pane's presentation mount is ready; a non-pane request stays `nil` |
 | `held(g, requestedTarget?)` → `held(g, requestedTarget?)` | Accepted selection or snapshot reconciliation replaces the requested target; clear the presented target until the new presentation mount is ready; Space autorepeat does not mint `g+1` | The requested target with a ready mount replaces the presented set; `nil` returns to canonical presentation |
 | `held(g, requestedTarget)` → `suppressedUntilSpaceRelease(g)` | Enter or digit invalidates the requested and presented targets synchronously before invoking its existing activation effect | Canonical presentation while `PaneCommittedFocusOperation` owns committed reveal/focus |
 | `held`/`suppressed` → `idle` | Matching Space key-up, list focus loss, host detach, sidebar hide, Management/transient takeover, window resign, or window close | Current canonical presentation; no durable rollback |
@@ -376,34 +376,14 @@ does not become a keyboard owner; existing pane hit behavior remains unchanged. 
 an existing pointer interaction changes the first responder, the same responder-loss
 cancellation path invalidates preview. There is no click-to-commit behavior.
 The held-preview affordance reuses the existing compact keycap presentation and inserts
-the Space hint as the first item in every pane row's existing metadata/chip row; it adds
+no Space hint to pane-row metadata/chip composition; held preview remains an input-only
 no header row, help panel, or workspace dimming.
 
-The Space keycap comes from one UI-only local action descriptor,
-`LocalActionSpec.previewPane`, so its label/help copy has one owner and no row-local
-string. A named `LocalActionSpec.previewPaneShortcutDisplay` static value beside that
-descriptor owns `ShortcutDisplayText(value: "Space")`; `ActionSpec` remains the existing
-label/help/icon contract and is not widened. `RepoExplorerPaneRowContent.chipRow`
-injects `SidebarShortcutHint(LocalActionSpec.previewPaneShortcutDisplay)` as the first
-element of the pane-only `SidebarStatusChipRow` content closure, before status, drawer,
-recency and active chips. The generic `SidebarStatusChipRow` remains unchanged and
-worktree-safe. Associated and unassociated pane rows share this same
-`RepoExplorerPaneRowContent` composition. The old
-`RepoExplorerRowKeyboardPresentation.previewShortcutDisplay`, its conditional
-`showsKeyboardHints && isSelected` materializer path, and
-`SidebarStatusChipRow.trailingShortcutDisplay` overlay are removed together.
+The prior Space keycap display path is removed; `LocalActionSpec.previewPane` remains the input owner without a row-local presentation. Numbered hints remain right-aligned through existing row presentation and recency remains in composition. Worktree rows do not gain preview affordances. The old preview shortcut display and trailing overlay paths are removed together.
 
-`RepoExplorerPaneRowContent` keeps the numbered keycap on its leading identity icon
+`RepoExplorerPaneRowContent` keeps the numbered keycap in its existing right-aligned row presentation
 (`RepoExplorerPaneNavigation.swift`, `RepoExplorerPaneRowContent.body`), while
-`SidebarShortcutHint` (`SidebarShortcutHint.swift`) remains fixed-size,
-accessibility-hidden and non-pointer-interactive. This owner-approved Space-only
-exception consumes ordinary chip-row width, but it does not change row height, hide
-recency from composition, displace the leading digit, or change input eligibility. The
-pane row fills the finite proposed width with leading alignment so `Space`, the digit and
-the title remain visible and non-overlapping. At the supported 250-point narrow width,
-dense trailing metadata may clip; this accepted trailing overflow does not authorize
-swapping, overlap, conditional visibility, compression, another row, or another visual
-system.
+`SidebarShortcutHint` remains fixed-size, accessibility-hidden and non-pointer-interactive where used elsewhere. No Space affordance consumes row width, changes row height, hides recency, or changes input eligibility; the pane row retains existing alignment and dense metadata behavior.
 
 The preview branch also participates in the existing rendered-surface union. It
 registers a stable preview surface identity with

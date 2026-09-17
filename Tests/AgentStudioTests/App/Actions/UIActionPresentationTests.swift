@@ -120,7 +120,6 @@ struct UIActionPresentationTests {
         #expect(preview.label == "Preview Pane")
         #expect(preview.helpText == "Preview the selected pane while holding Space")
         #expect(preview.icon == .system(.eye))
-        #expect(LocalActionSpec.previewPaneShortcutDisplay.value == "Space")
     }
 
     @Test

@@ -38,7 +38,7 @@ package struct SidebarEntityToggle<Value: Hashable>: View {
                     size: AppStyles.General.Icon.compact,
                     foregroundOverride: value == selection ? AppStyles.General.Accent.selectedControlForeground : nil
                 )
-                .sidebarShortcutHint(shortcutDisplay(value))
+                .sidebarShortcutHint(shortcutDisplay(value), style: .accentGlyph)
             },
             onSelect: onSelect
         )

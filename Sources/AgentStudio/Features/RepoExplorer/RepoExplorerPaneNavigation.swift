@@ -70,7 +70,6 @@ struct RepoExplorerPaneRowContent: View {
                     width: AppStyles.Shell.Sidebar.rowLeadingIconColumnWidth,
                     alignment: .leading
                 )
-                .sidebarShortcutHint(shortcutDisplay)
                 Text(primaryText)
                     .font(.system(size: AppStyles.General.Typography.textBase, weight: .semibold))
                     .lineLimit(1)
@@ -78,6 +77,10 @@ struct RepoExplorerPaneRowContent: View {
                     .layoutPriority(1)
                     .foregroundStyle(.primary)
                     .frame(maxWidth: .infinity, alignment: .leading)
+                Spacer(minLength: 0)
+                if let shortcutDisplay {
+                    SidebarShortcutHint(shortcutDisplay, style: .accentGlyph)
+                }
 
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -107,7 +110,6 @@ struct RepoExplorerPaneRowContent: View {
                 SidebarGitStatusChips.showsPendingPullRequestFacts(branchStatus: $0)
             } ?? false
         ) {
-            SidebarShortcutHint(LocalActionSpec.previewPaneShortcutDisplay)
             if let branchStatus,
                 SidebarGitStatusChips.hasContent(branchStatus: branchStatus)
             {

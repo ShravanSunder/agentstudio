@@ -63,21 +63,16 @@ activate a different result or create a substitute pane. Basis: U5/U7.
 
 ## Feedback and protected behavior
 
-R-S6. Hints are compact and anchored to existing controls/results. Except for the pane
-row's `Space` chip described below, they are overlays that do not add rows, shift
+R-S6. Hints are compact and anchored to existing controls/results. They are overlays that do not add rows, shift
 controls, obscure/dim the workspace or intercept pointer input. One focus
 indicator occupies leading unused space of the existing second toolbar row. List hints
 are visible only while the list effectively owns keyboard input; filter typing,
 Management and transient keyboard owners suppress list-command hints. Selection and
 active-pane appearance remain distinguishable. Native visual proof determines fit at
-narrow and ordinary sidebar widths. Every associated and unassociated pane row always
-shows `Space` as the first chip in its existing metadata/chip row, before status,
-drawer, recency and active chips. Recency remains in the composition; at the supported
-250-point narrow width, dense trailing metadata may clip while `Space`, the numbered
-hint and the title remain visible and non-overlapping. This visual hint does not
+narrow and ordinary sidebar widths. Pane rows do not add a Space chip or glyph to their metadata/chip row; drawer, recency, and active chips remain unchanged. Recency remains in the composition; at the supported
+250-point narrow width, dense trailing metadata may clip while numbered hints and the title remain visible and non-overlapping. This visual hint does not
 change the list-focus requirement for held preview, and the numbered hint retains its
-existing conditional position beside the pane title. The `Space` chip does not
-intercept pointer input or change row height. Basis: U1/U16.
+existing right-aligned position beside the pane title. No Space affordance changes pointer input or row height. Basis: U1/U16.
 
 R-S7. Preserve existing Option-I/J/K/L bindings. Normal Option-J/L moves left/right
 only among visible panes in the current arrangement and current main/drawer row.
@@ -108,8 +103,8 @@ preceding successful navigation. Basis U14. Default-selection provenance is reco
 
 ## Temporary preview
 
-R-S9. Holding Space while the sidebar list has focus temporarily displays the
-selected existing pane in the full pane area. Preview follows selection while Space
+R-S9. Arrow selection while the sidebar list has focus temporarily displays the
+selected existing pane in the full pane area. Preview follows selection while the list
 remains held. A non-pane selection leaves the canonical presentation in place until
 a pane is selected again. Releasing Space cancels uncommitted preview. Enter commits
 selection; digits commit their target. Later key-up never undoes commitment.
@@ -127,10 +122,10 @@ rolling back durable layout mutations. Basis U15.
 | --- | --- | --- |
 | U1/U3/U4 | R-S1/R-S2/R-S3 | Native visibility/surface/focus, empty states, return origin, Management and editable exclusions |
 | U5/U7 | R-S4/R-S5 | Real list/filter/dispatcher journey; group moves, updates, first-nine identity, stale targets and arrangement reveal |
-| U1/U16 | R-S6 | Native associated and unassociated pane rows at 250- and 320-point sidebar widths; `Space` is first with recency retained in composition, digit/title separation, unchanged row height and pointer behavior; dense trailing metadata clipping is accepted at 250 while the leading identity and `Space` remain visible and non-overlapping |
+| U1/U16 | R-S6 | Native associated, unassociated, selected, and worktree rows retain existing metadata/recency while omitting Space row chrome; numbered shortcuts remain right-aligned and row height/pointer behavior are unchanged |
 | U1/U12/U18 | R-S7/R-S8 | Binding/catalog regressions; Option-J/L skips minimized/backgrounded neighbors, native focus and unchanged visibility; marker-scoped MainActor versus detached work |
 | U14 | R-S10 | Hidden sidebar, each grouping/sort, mixed pane kinds, wrapping and repeated/stale navigation |
-| U15 | R-S9 | Native hold/release/commit/loss-of-focus proof with loaded and initially unloaded existing panes, including same-identity fresh-shell restore, full-pane-area allocation, and pane identity preservation |
+| U15 | R-S9 | Native arrow-selection preview and Enter/number commit/loss-of-focus proof with loaded and initially unloaded existing panes, including same-identity fresh-shell restore, full-pane-area allocation, and pane identity preservation |
 
 U8/U9 broader pin/rename bindings, U10 viewer redesign, U11 repository finder and
 broad chord restructuring remain deferred by the owner's prior scope. U2 activity/history
