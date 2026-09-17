@@ -32,16 +32,28 @@ struct CIFastLaneWorkflowTests {
             ".github/workflows/release.yml",
         ]
 
+        var selectedXcodeVersions: [String] = []
+
         for workflowPath in workflowPaths {
             let workflow = try String(contentsOfFile: workflowPath, encoding: .utf8)
-            let xcodeStep = try workflowStep(named: "Select Xcode 26.3", in: workflow)
+            let xcodeStep = try workflowStep(named: "Select Xcode", in: workflow)
             let xcodeStepRange = try #require(workflow.range(of: xcodeStep))
             let miseStepRange = try #require(workflow.range(of: "      - name: Setup mise"))
 
             #expect(xcodeStep.contains("uses: maxim-lobanov/setup-xcode@v1"))
-            #expect(xcodeStep.contains("xcode-version: \"26.3\""))
             #expect(xcodeStepRange.lowerBound < miseStepRange.lowerBound)
+            selectedXcodeVersions.append(
+                try #require(
+                    selectedXcodeVersion(in: xcodeStep),
+                    "\(workflowPath) does not pin a quoted xcode-version"
+                )
+            )
         }
+
+        #expect(
+            Set(selectedXcodeVersions).count == 1,
+            "macOS workflows must select one identical Xcode version: \(selectedXcodeVersions)"
+        )
     }
 
     @Test("CI jobs use descriptive check names")
@@ -791,76 +803,84 @@ struct CIFastLaneWorkflowTests {
         #expect(!zmxE2ETask.contains("--skip ZmxE2ETests"))
     }
 
-    private func workflowStep(named stepName: String, in workflow: String) throws -> String {
-        try namedBlock(
-            startingWith: "      - name: \(stepName)",
-            endingBefore: "\n      - name: ",
-            in: workflow
-        )
+}
+
+private func selectedXcodeVersion(in xcodeStep: String) -> String? {
+    guard let versionKeyRange = xcodeStep.range(of: "xcode-version: \"") else { return nil }
+    let quotedTail = xcodeStep[versionKeyRange.upperBound...]
+    guard let closingQuoteRange = quotedTail.range(of: "\"") else { return nil }
+    return String(quotedTail[..<closingQuoteRange.lowerBound])
+}
+
+private func workflowStep(named stepName: String, in workflow: String) throws -> String {
+    try namedBlock(
+        startingWith: "      - name: \(stepName)",
+        endingBefore: "\n      - name: ",
+        in: workflow
+    )
+}
+
+private func workflowJob(named jobName: String, in workflow: String) throws -> String {
+    let workflowLines = workflow.split(separator: "\n", omittingEmptySubsequences: false)
+    guard let startIndex = workflowLines.firstIndex(where: { $0 == "  \(jobName):" }) else {
+        throw CIFastLaneWorkflowError.missingBlock("  \(jobName):")
     }
 
-    private func workflowJob(named jobName: String, in workflow: String) throws -> String {
-        let workflowLines = workflow.split(separator: "\n", omittingEmptySubsequences: false)
-        guard let startIndex = workflowLines.firstIndex(where: { $0 == "  \(jobName):" }) else {
-            throw CIFastLaneWorkflowError.missingBlock("  \(jobName):")
+    var endIndex = workflowLines.index(after: startIndex)
+    while endIndex < workflowLines.endIndex {
+        let line = workflowLines[endIndex]
+        if line.hasPrefix("  "), !line.hasPrefix("    "), !line.trimmingCharacters(in: .whitespaces).isEmpty {
+            break
         }
-
-        var endIndex = workflowLines.index(after: startIndex)
-        while endIndex < workflowLines.endIndex {
-            let line = workflowLines[endIndex]
-            if line.hasPrefix("  "), !line.hasPrefix("    "), !line.trimmingCharacters(in: .whitespaces).isEmpty {
-                break
-            }
-            endIndex = workflowLines.index(after: endIndex)
-        }
-
-        return workflowLines[startIndex..<endIndex].joined(separator: "\n")
+        endIndex = workflowLines.index(after: endIndex)
     }
 
-    private func shellCase(named caseName: String, in script: String) throws -> String {
-        try namedBlock(
-            startingWith: "  \(caseName))",
-            endingBefore: "\n    ;;",
-            in: script
-        )
-    }
+    return workflowLines[startIndex..<endIndex].joined(separator: "\n")
+}
 
-    private func shellFunction(named functionName: String, in script: String) throws -> String {
-        try namedBlock(
-            startingWith: "\(functionName)() {",
-            endingBefore: "\n}\n",
-            in: script
-        )
-    }
+private func shellCase(named caseName: String, in script: String) throws -> String {
+    try namedBlock(
+        startingWith: "  \(caseName))",
+        endingBefore: "\n    ;;",
+        in: script
+    )
+}
 
-    private func miseTask(named taskName: String, in config: String) throws -> String {
-        let quotedMarker = "[tasks.\"\(taskName)\"]"
-        let bareMarker = "[tasks.\(taskName)]"
-        let marker = config.contains(quotedMarker) ? quotedMarker : bareMarker
-        return try namedBlock(startingWith: marker, endingBefore: "\n[tasks.", in: config)
-    }
+private func shellFunction(named functionName: String, in script: String) throws -> String {
+    try namedBlock(
+        startingWith: "\(functionName)() {",
+        endingBefore: "\n}\n",
+        in: script
+    )
+}
 
-    private func discoveredSuiteNames(annotationOrder: String, source: String) throws -> String {
-        try runBash(
-            "source scripts/swift-test-helpers.sh; "
-                + "serialized_main_actor_suite_names_from_stdin \(annotationOrder)",
-            standardInput: source
-        )
-    }
+private func miseTask(named taskName: String, in config: String) throws -> String {
+    let quotedMarker = "[tasks.\"\(taskName)\"]"
+    let bareMarker = "[tasks.\(taskName)]"
+    let marker = config.contains(quotedMarker) ? quotedMarker : bareMarker
+    return try namedBlock(startingWith: marker, endingBefore: "\n[tasks.", in: config)
+}
 
-    private func namedBlock(startingWith marker: String, endingBefore terminator: String, in text: String) throws
-        -> String
-    {
-        guard let startRange = text.range(of: marker) else {
-            throw CIFastLaneWorkflowError.missingBlock(marker)
-        }
-        let tail = text[startRange.lowerBound...]
-        guard let endRange = tail.range(of: terminator, range: tail.index(after: startRange.lowerBound)..<tail.endIndex)
-        else {
-            return String(tail)
-        }
-        return String(tail[..<endRange.lowerBound])
+private func discoveredSuiteNames(annotationOrder: String, source: String) throws -> String {
+    try runBash(
+        "source scripts/swift-test-helpers.sh; "
+            + "serialized_main_actor_suite_names_from_stdin \(annotationOrder)",
+        standardInput: source
+    )
+}
+
+private func namedBlock(startingWith marker: String, endingBefore terminator: String, in text: String) throws
+    -> String
+{
+    guard let startRange = text.range(of: marker) else {
+        throw CIFastLaneWorkflowError.missingBlock(marker)
     }
+    let tail = text[startRange.lowerBound...]
+    guard let endRange = tail.range(of: terminator, range: tail.index(after: startRange.lowerBound)..<tail.endIndex)
+    else {
+        return String(tail)
+    }
+    return String(tail[..<endRange.lowerBound])
 }
 
 private func runBash(_ command: String, standardInput: String? = nil) throws -> String {

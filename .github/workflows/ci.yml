@@ -24,10 +24,11 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Select Xcode 26.3
+      - name: Select Xcode
+        id: select-xcode
         uses: maxim-lobanov/setup-xcode@v1
         with:
-          xcode-version: "26.3"
+          xcode-version: "26.6"
 
       - name: Setup mise
         uses: jdx/mise-action@v3
@@ -43,9 +44,9 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: .build-ci/architecture-lint
-          key: architecture-lint-${{ runner.os }}-${{ runner.arch }}-xcode-26.3-${{ hashFiles('Tools/AgentStudioArchitectureLint/Package.swift', 'Tools/AgentStudioArchitectureLint/Package.resolved') }}
+          key: architecture-lint-${{ runner.os }}-${{ runner.arch }}-xcode-26.6-${{ hashFiles('Tools/AgentStudioArchitectureLint/Package.swift', 'Tools/AgentStudioArchitectureLint/Package.resolved') }}
           restore-keys: |
-            architecture-lint-${{ runner.os }}-${{ runner.arch }}-xcode-26.3-
+            architecture-lint-${{ runner.os }}-${{ runner.arch }}-xcode-26.6-
 
       - name: AgentStudio architecture lint tool tests
         run: mise run test:architecture
@@ -147,10 +148,11 @@ jobs:
           persist-credentials: false
           submodules: recursive
 
-      - name: Select Xcode 26.3
+      - name: Select Xcode
+        id: select-xcode
         uses: maxim-lobanov/setup-xcode@v1
         with:
-          xcode-version: "26.3"
+          xcode-version: "26.6"
 
       - name: Setup mise
         uses: jdx/mise-action@v3
@@ -268,10 +270,11 @@ jobs:
           persist-credentials: false
           submodules: recursive
 
-      - name: Select Xcode 26.3
+      - name: Select Xcode
+        id: select-xcode
         uses: maxim-lobanov/setup-xcode@v1
         with:
-          xcode-version: "26.3"
+          xcode-version: "26.6"
 
       - name: Setup mise
         uses: jdx/mise-action@v3

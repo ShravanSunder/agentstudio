@@ -103,7 +103,7 @@ struct BackgroundFactApplyGovernorTests {
         )
         let recorder = AgentStudioPerformanceTraceRecorder(traceRuntime: traceRuntime)
         let clock = TestPushClock()
-        var appliedFacts: [String] = []
+        let appliedFactLog = AppliedFactLog()
         let governor = BackgroundFactApplyGovernor<Int, String>(
             tickCadence: .zero,
             drainBudget: .milliseconds(20),
@@ -112,7 +112,7 @@ struct BackgroundFactApplyGovernorTests {
             prepareApply: { _, fact in
                 try? await clock.sleep(for: .milliseconds(10))
                 return { @MainActor in
-                    appliedFacts.append(fact)
+                    appliedFactLog.append(fact)
                     clock.advance(by: .milliseconds(2))
                 }
             }
@@ -126,7 +126,7 @@ struct BackgroundFactApplyGovernorTests {
         await governor.shutdown()
         try await recorder.drain()
 
-        #expect(appliedFacts == ["pending"])
+        #expect(appliedFactLog.facts == ["pending"])
         let outputFileURL = try #require(traceRuntime.outputFileURL)
         let contents = try String(contentsOf: outputFileURL, encoding: .utf8)
         #expect(contents.contains("\"agentstudio.performance.apply_governor.awaited_ms\":10"))
@@ -154,7 +154,7 @@ struct BackgroundFactApplyGovernorTests {
         let recorder = AgentStudioPerformanceTraceRecorder(traceRuntime: traceRuntime)
         let clock = TestPushClock()
         var shouldAdvanceAtMainActorEntry = true
-        var appliedFacts: [String] = []
+        let appliedFactLog = AppliedFactLog()
         let governor = BackgroundFactApplyGovernor<Int, String>(
             tickCadence: .zero,
             drainBudget: .milliseconds(20),
@@ -170,7 +170,7 @@ struct BackgroundFactApplyGovernorTests {
             performanceTraceRecorder: recorder,
             prepareApply: { _, fact in
                 { @MainActor in
-                    appliedFacts.append(fact)
+                    appliedFactLog.append(fact)
                     clock.advance(by: .milliseconds(2))
                 }
             }
@@ -181,7 +181,7 @@ struct BackgroundFactApplyGovernorTests {
         await governor.shutdown()
         try await recorder.drain()
 
-        #expect(appliedFacts == ["pending"])
+        #expect(appliedFactLog.facts == ["pending"])
         let outputFileURL = try #require(traceRuntime.outputFileURL)
         let contents = try String(contentsOf: outputFileURL, encoding: .utf8)
         #expect(contents.contains("\"agentstudio.performance.apply_governor.queue_wait_ms\":10"))
@@ -208,7 +208,7 @@ struct BackgroundFactApplyGovernorTests {
         )
         let recorder = AgentStudioPerformanceTraceRecorder(traceRuntime: traceRuntime)
         let clock = TestPushClock()
-        var appliedFacts: [String] = []
+        let appliedFactLog = AppliedFactLog()
         let governor = BackgroundFactApplyGovernor<Int, String>(
             tickCadence: .seconds(1),
             drainBudget: .milliseconds(20),
@@ -217,7 +217,7 @@ struct BackgroundFactApplyGovernorTests {
             prepareApply: { _, fact in
                 try? await clock.sleep(for: .milliseconds(10))
                 return { @MainActor in
-                    appliedFacts.append(fact)
+                    appliedFactLog.append(fact)
                     clock.advance(by: .milliseconds(2))
                 }
             }
@@ -232,12 +232,27 @@ struct BackgroundFactApplyGovernorTests {
         await governor.shutdown()
         try await recorder.drain()
 
-        #expect(appliedFacts == ["pending"])
+        #expect(appliedFactLog.facts == ["pending"])
         let outputFileURL = try #require(traceRuntime.outputFileURL)
         let contents = try String(contentsOf: outputFileURL, encoding: .utf8)
         #expect(contents.contains("\"agentstudio.performance.apply_governor.awaited_ms\":10"))
         #expect(contents.contains("\"agentstudio.performance.apply_governor.queue_wait_ms\":0"))
         #expect(contents.contains("\"agentstudio.performance.apply_governor.mainactor_held_ms\":2"))
         #expect(contents.contains("\"agentstudio.performance.apply_governor.max_single_fact_ms\":2"))
+    }
+}
+
+/// MainActor-isolated record of the facts a `prepareApply` commit closure applied.
+///
+/// The commit closure returned by `prepareApply` is `@MainActor`, but the surrounding
+/// `prepareApply` body is task-isolated. Capturing a local `var` array across that boundary
+/// is a data race; a MainActor-isolated reference type is implicitly `Sendable`, so the
+/// closure shares the log instead of the storage.
+@MainActor
+private final class AppliedFactLog {
+    private(set) var facts: [String] = []
+
+    func append(_ fact: String) {
+        facts.append(fact)
     }
 }
