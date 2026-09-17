@@ -389,8 +389,10 @@ struct ApplicationEntrypointArchitectureTests {
         let normalScheduleIndex = try #require(
             launchRestoreSource.range(of: "scheduleAppIPCInitialization()")?.lowerBound)
         let appIPCStopIndex = try #require(
-            terminationSource.range(of: "await stopAndDrainAppIPCServer()")?.lowerBound)
+            terminationSource.range(of: "await self?.stopAcceptingAppIPCConnections()")?.lowerBound)
         let flushStoresIndex = try #require(terminationSource.range(of: "await store.flushAsync()")?.lowerBound)
+        let appIPCDrainIndex = try #require(
+            terminationSource.range(of: "await self?.drainAppIPCCredentialPersistence()")?.lowerBound)
         let identityAuthorityIndex = try #require(
             workspaceBootSource.range(of: "installAppIPCIdentityAuthority(datastore:")?.lowerBound)
         let surfaceCoordinatorIndex = try #require(
@@ -427,7 +429,11 @@ struct ApplicationEntrypointArchitectureTests {
         #expect(ipcBootSource.contains("ProcessInfo.processInfo.environment[\"AGENTSTUDIO_IPC_SOCKET_DIR\"]"))
         #expect(ipcBootSource.contains("makePaneFocusAppControl(store: store)"))
         #expect(ipcBootSource.contains("server.start()"))
+        // Ingress closes before the flush so no late request can mutate state
+        // the flush has written; the durable drain runs after it so it can
+        // never spend the flush's budget.
         #expect(appIPCStopIndex < flushStoresIndex)
+        #expect(flushStoresIndex < appIPCDrainIndex)
         #expect(mainWindowControllerSource.contains("splitViewController?.loadViewIfNeeded()"))
         #expect(mainWindowControllerSource.contains("makePaneFocusAppControl(store: WorkspaceStore)"))
         #expect(splitViewControllerSource.contains("makePaneFocusAppControl(store: WorkspaceStore)"))

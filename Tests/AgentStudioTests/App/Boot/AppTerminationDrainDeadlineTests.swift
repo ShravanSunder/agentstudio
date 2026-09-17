@@ -1,8 +1,13 @@
+import AgentStudioAppIPC
+import AgentStudioIPCTransport
 import AgentStudioInfrastructure
+import AgentStudioProgrammaticControl
 import Foundation
 import Testing
 
 @testable import AgentStudio
+@testable import AgentStudioCore
+@testable import AgentStudioTestSupport
 
 /// `applicationShouldTerminate` returns `.terminateLater`, so the AppKit quit
 /// completes only when the reply fires. A drain stage that never finishes must
@@ -10,6 +15,8 @@ import Testing
 @MainActor
 @Suite("App termination drain deadline", .serialized)
 struct AppTerminationDrainDeadlineTests {
+    init() { installTestCoreAtomsIfNeeded() }
+
     @Test("the AppKit reply fires when a drain stage never completes")
     func replyFiresWhenTheDrainNeverCompletes() async {
         let recorder = TerminationReplyRecorder()
@@ -67,6 +74,27 @@ struct AppTerminationDrainDeadlineTests {
         #expect(stages.names.first == "workspaceFlush")
         #expect(!stages.names.contains("ipcDrainCompleted"))
         neverCompletingIPCDrain.release()
+    }
+
+    @Test("no IPC request is accepted once the stop stage has run")
+    func ipcStopRefusesFurtherRequests() async throws {
+        let harness = try await SessionsVerticalHarness.make()
+        defer { harness.tearDown() }
+
+        let beforeStop = try await harness.response(method: "system.ping", params: .object([:]))
+        #expect(beforeStop.error == nil)
+
+        await harness.appDelegate.stopAcceptingAppIPCConnections()
+
+        // Connecting must fail outright rather than be refused after login:
+        // the listener is closed, so there is no path by which a late
+        // command.execute or Bridge open reaches the app and mutates state the
+        // workspace flush is about to write.
+        #expect(throws: (any Error).self) {
+            try UnixSocketClient.connect(
+                endpoint: UnixSocketEndpoint(path: harness.socketPath)
+            ).close()
+        }
     }
 
     @Test("a completing IPC drain still runs after the workspace flush")

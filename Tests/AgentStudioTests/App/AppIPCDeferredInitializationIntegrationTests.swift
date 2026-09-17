@@ -235,7 +235,8 @@ struct AppIPCDeferredInitializationIntegrationTests {
             let initializationTask = try #require(harness.appDelegate.appIPCInitializationTask)
             await releaseWaitEntry.waitUntilEntered()
 
-            await harness.appDelegate.stopAndDrainAppIPCServer()
+            await harness.appDelegate.stopAcceptingAppIPCConnections()
+            await harness.appDelegate.drainAppIPCCredentialPersistence()
 
             #expect(initializationTask.isCancelled)
             #expect(harness.appDelegate.appIPCInitializationTask == nil)

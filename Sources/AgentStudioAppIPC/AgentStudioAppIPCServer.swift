@@ -147,15 +147,21 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
         try? FileManager.default.removeItem(at: paths.metadataURL)
     }
 
-    package func stopAndDrainCredentialPersistence() async -> AgentStudioIPCCredentialPersistenceDrainResult {
+    /// Ends the accepting side: no new connection is admitted, live ones are
+    /// closed, and any further request is refused. Unsaved credentials are
+    /// snapshotted and queued here, while the registry still holds them; this
+    /// call performs no durable write of its own and never waits for one, so a
+    /// caller may run it before persisting other state.
+    package func stopAcceptingConnections() {
         let shutdownSnapshot = principalRegistry.beginGracefulShutdownAndSnapshotUnsavedCredentials()
         schedulePersistence(of: shutdownSnapshot)
         stopListenerAndConnections()
         principalRegistry.revokeAllGrants()
         try? FileManager.default.removeItem(at: paths.metadataURL)
-        return await credentialPersistenceLane.drain()
     }
 
+    /// Waits for the credential writes queued by `stopAcceptingConnections()`.
+    /// This is the durable half and the only part that touches storage.
     package func drainCredentialPersistence() async -> AgentStudioIPCCredentialPersistenceDrainResult {
         await credentialPersistenceLane.drain()
     }

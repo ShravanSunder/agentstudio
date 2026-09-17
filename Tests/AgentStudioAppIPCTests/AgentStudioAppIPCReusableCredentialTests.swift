@@ -214,7 +214,8 @@ struct AgentStudioAppIPCReusableCredentialTests {
         #expect(barrierPort.registrationCallCount == 1)
 
         barrierPort.releaseRegistration()
-        #expect(await serverFixture.server.stopAndDrainCredentialPersistence().failedOperationCount == 0)
+        serverFixture.server.stopAcceptingConnections()
+        #expect(await serverFixture.server.drainCredentialPersistence().failedOperationCount == 0)
         #expect(barrierPort.registrationCallCount == 1)
     }
 
@@ -292,7 +293,8 @@ struct AgentStudioAppIPCReusableCredentialTests {
 
         try serverFixture.server.start()
         appDelegate.appIPCServer = serverFixture.server
-        await appDelegate.stopAndDrainAppIPCServer()
+        await appDelegate.stopAcceptingAppIPCConnections()
+        await appDelegate.drainAppIPCCredentialPersistence()
         #expect(appDelegate.appIPCServer == nil)
 
         let storedCredentials = try await repository.paneCredentials(paneID: serverFixture.boundPaneId)
@@ -365,7 +367,8 @@ private struct ReusableCredentialFixture {
             credentialRecordID: UUIDv7.generate(),
             verifierSHA256: Data(SHA256.hash(data: Data(token.rawValue.utf8)))
         )
-        #expect(await serverFixture.server.stopAndDrainCredentialPersistence().failedOperationCount == 0)
+        serverFixture.server.stopAcceptingConnections()
+        #expect(await serverFixture.server.drainCredentialPersistence().failedOperationCount == 0)
         #expect(throws: AgentStudioIPCIssuedCredentialRegistrationError.registryShutdown) {
             try serverFixture.server.principalRegistry.registerIssuedPaneCredential(
                 paneID: UUIDv7.generate(),

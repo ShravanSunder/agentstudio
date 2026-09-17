@@ -107,7 +107,8 @@ struct AppIPCProductionLifecycleIntegrationTests {
             rawValue: try #require(environment["AGENTSTUDIO_PANE_TOKEN"])
         )
 
-        await appDelegate.stopAndDrainAppIPCServer()
+        await appDelegate.stopAcceptingAppIPCConnections()
+        await appDelegate.drainAppIPCCredentialPersistence()
 
         #expect(appDelegate.appIPCServer == nil)
         #expect(appDelegate.appIPCInitializationTask == nil)
@@ -172,7 +173,8 @@ struct AppIPCProductionLifecycleIntegrationTests {
                 ) == nil
             )
 
-            await harness.appDelegate.stopAndDrainAppIPCServer()
+            await harness.appDelegate.stopAcceptingAppIPCConnections()
+            await harness.appDelegate.drainAppIPCCredentialPersistence()
 
             #expect(harness.appDelegate.appIPCServer == nil)
             #expect(
@@ -204,7 +206,8 @@ struct ServerCapableAppIPCTestHarness {
     let rootDirectory: URL
 
     func shutdown() async {
-        await appDelegate.stopAndDrainAppIPCServer()
+        await appDelegate.stopAcceptingAppIPCConnections()
+        await appDelegate.drainAppIPCCredentialPersistence()
         await coordinator.shutdown()
         try? FileManager.default.removeItem(at: rootDirectory)
     }

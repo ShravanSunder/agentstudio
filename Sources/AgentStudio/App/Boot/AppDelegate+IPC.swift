@@ -266,26 +266,34 @@ extension AppDelegate {
         Task { await ingestion.finish() }
     }
 
-    func stopAndDrainAppIPCServer() async {
+    /// Ends IPC ingress and nothing else. No durable write happens here and
+    /// nothing waits for one, so this runs before the workspace flush: it
+    /// closes the window in which a late `command.execute` or Bridge open could
+    /// mutate state the flush has already written. The escrow file only names
+    /// the socket, so it is retired here too.
+    func stopAcceptingAppIPCConnections() async {
         let initializationTask = appIPCInitializationTask
         initializationTask?.cancel()
         await initializationTask?.value
         appIPCInitializationTask = nil
-        // The offline spool drain admits through the same serialized workspace
-        // datastore actor the credential persistence drain below waits on, and
-        // it holds a file lock across admission. The synchronous stop already
-        // retired it; this path did not, so the drain could wait behind work
-        // nothing was going to finish.
+        retireDebugCredentialEscrow()
+        appIPCServer?.stopAcceptingConnections()
+    }
+
+    /// The durable half, which runs after the workspace flush. It writes
+    /// through the same serialized workspace datastore actor the offline spool
+    /// drain admits through, and that drain holds a file lock across admission,
+    /// so it is retired before this waits on anything.
+    func drainAppIPCCredentialPersistence() async {
         paneReportSpoolDrainTask?.cancel()
         paneReportSpoolDrainTask = nil
-        retireDebugCredentialEscrow()
         guard let server = appIPCServer else {
             appIPCPrincipalRegistry?.shutdown()
             finishAppIPCSessionsIngestion()
             appLogger.info("App IPC shutdown completed without a published server or durable drain")
             return
         }
-        let result = await server.stopAndDrainCredentialPersistence()
+        let result = await server.drainCredentialPersistence()
         appIPCServer = nil
         finishAppIPCSessionsIngestion()
         if result.failedOperationCount > 0 {

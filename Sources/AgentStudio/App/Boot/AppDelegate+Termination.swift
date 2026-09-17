@@ -89,6 +89,18 @@ func runFirstPersistenceFlushAfterWorkspaceCacheShutdown(
 
 extension AppDelegate {
     func flushApplicationStateBeforeTermination(store: WorkspaceStore) async {
+        // Ingress closes first. Nothing durable happens in this stage, and
+        // leaving the socket open across the flushes below would let a late
+        // IPC request mutate state the workspace flush had already written.
+        await runTerminationDrain("IPC stop") { [weak self] in
+            self?.startupTraceRecorder?.recordAppStartup(
+                "app.termination.ipc_stop", phase: "started", outcome: "started"
+            )
+            await self?.stopAcceptingAppIPCConnections()
+            self?.startupTraceRecorder?.recordAppStartup(
+                "app.termination.ipc_stop", phase: "completed", outcome: "completed"
+            )
+        }
         stopWorkspacePaneRecencyObservation()
 
         await runFirstPersistenceFlushAfterWorkspaceCacheShutdown(
@@ -161,7 +173,7 @@ extension AppDelegate {
                 self?.startupTraceRecorder?.recordAppStartup(
                     "app.termination.ipc_drain", phase: "started", outcome: "started"
                 )
-                await self?.stopAndDrainAppIPCServer()
+                await self?.drainAppIPCCredentialPersistence()
                 self?.startupTraceRecorder?.recordAppStartup(
                     "app.termination.ipc_drain", phase: "completed", outcome: "completed"
                 )
