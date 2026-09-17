@@ -1,9 +1,10 @@
 import AgentStudioCore
+import AgentStudioInfrastructure
 import AgentStudioTerminal
 import AppKit
 import Foundation
 
-private let terminationTraceDrainTimeout: Duration = .seconds(2)
+private let terminationTraceDrainTimeout: Duration = AppPolicies.IPC.shutdownDrainTimeout
 
 private final class TerminationDrainCompletion: @unchecked Sendable {
     private let lock = NSLock()
@@ -16,6 +17,37 @@ private final class TerminationDrainCompletion: @unchecked Sendable {
         didResume = true
         continuation.resume(returning: value)
     }
+}
+
+package enum TerminationDrainOutcome: Equatable, Sendable {
+    case completed
+    case timedOut
+}
+
+/// AppKit's `.terminateLater` contract has exactly one exit: the reply. An
+/// unbounded await anywhere in the drain therefore does not delay the quit, it
+/// abandons it — the process stays alive at 0% CPU inside
+/// `-[NSApplication _shouldTerminate]` with no further event to wake it. The
+/// deadline makes the reply unconditional and reports which side won.
+@MainActor
+func replyToApplicationTerminationAfterBoundedDrain(
+    timeout: Duration,
+    delay: AsyncDelay = .taskSleep,
+    drain: @escaping @MainActor () async -> Void,
+    reply: @escaping @MainActor (TerminationDrainOutcome) -> Void
+) async {
+    let didDrain = await withCheckedContinuation { continuation in
+        let completion = TerminationDrainCompletion()
+        Task { @MainActor in
+            await drain()
+            completion.resume(continuation, value: true)
+        }
+        Task {
+            try? await delay.wait(timeout)
+            completion.resume(continuation, value: false)
+        }
+    }
+    reply(didDrain ? .completed : .timedOut)
 }
 
 @MainActor

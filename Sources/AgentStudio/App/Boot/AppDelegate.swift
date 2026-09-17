@@ -293,15 +293,27 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
         guard terminationDrainTask == nil else { return .terminateLater }
         terminationDrainTask = Task { @MainActor [weak self] in
-            await self?.executor?.stopAcceptingCommandsAndDrain()
-            await self?.flushApplicationStateBeforeTermination(store: store)
-            self?.mainWindowController?.shutdown()
-            self?.cancelAllRepositoryFactUpdates()
-            if let workspaceSurfaceCoordinator = self?.workspaceSurfaceCoordinator {
-                await workspaceSurfaceCoordinator.shutdown()
-            }
-            await self?.waitForRepositoryFactUpdatesToSettle()
-            sender.reply(toApplicationShouldTerminate: true)
+            await replyToApplicationTerminationAfterBoundedDrain(
+                timeout: AppPolicies.IPC.shutdownDrainTimeout,
+                drain: { [weak self] in
+                    await self?.executor?.stopAcceptingCommandsAndDrain()
+                    await self?.flushApplicationStateBeforeTermination(store: store)
+                    self?.mainWindowController?.shutdown()
+                    self?.cancelAllRepositoryFactUpdates()
+                    if let workspaceSurfaceCoordinator = self?.workspaceSurfaceCoordinator {
+                        await workspaceSurfaceCoordinator.shutdown()
+                    }
+                    await self?.waitForRepositoryFactUpdatesToSettle()
+                },
+                reply: { outcome in
+                    if outcome == .timedOut {
+                        appLogger.warning(
+                            "Termination drain exceeded its deadline; replying to AppKit without it"
+                        )
+                    }
+                    sender.reply(toApplicationShouldTerminate: true)
+                }
+            )
         }
         return .terminateLater
     }

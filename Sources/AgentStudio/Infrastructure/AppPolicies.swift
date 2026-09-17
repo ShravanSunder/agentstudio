@@ -8,6 +8,10 @@ package enum AppPolicies {
         /// exactly what the IPC server would have accepted live. A longer line
         /// could never have been submitted and is malformed by construction.
         package static let spoolDrainMaximumLineBytes: Int = 1_048_576
+        /// Deadline on the whole application termination drain. AppKit's
+        /// `.terminateLater` has one exit, the reply, so an unbounded await in
+        /// the drain does not delay quit — it cancels it.
+        package static let shutdownDrainTimeout: Duration = .seconds(2)
     }
 
     package enum Sessions {

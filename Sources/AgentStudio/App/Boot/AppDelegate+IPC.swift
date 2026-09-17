@@ -271,14 +271,23 @@ extension AppDelegate {
         initializationTask?.cancel()
         await initializationTask?.value
         appIPCInitializationTask = nil
+        // The offline spool drain admits through the same serialized workspace
+        // datastore actor the credential persistence drain below waits on, and
+        // it holds a file lock across admission. The synchronous stop already
+        // retired it; this path did not, so the drain could wait behind work
+        // nothing was going to finish.
+        paneReportSpoolDrainTask?.cancel()
+        paneReportSpoolDrainTask = nil
         retireDebugCredentialEscrow()
         guard let server = appIPCServer else {
             appIPCPrincipalRegistry?.shutdown()
+            finishAppIPCSessionsIngestion()
             appLogger.info("App IPC shutdown completed without a published server or durable drain")
             return
         }
         let result = await server.stopAndDrainCredentialPersistence()
         appIPCServer = nil
+        finishAppIPCSessionsIngestion()
         if result.failedOperationCount > 0 {
             appLogger.warning(
                 "App IPC credential persistence drain completed with \(result.failedOperationCount) failures"
