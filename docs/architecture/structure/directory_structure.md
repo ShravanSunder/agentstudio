@@ -107,6 +107,13 @@ Sources/AgentStudio/
 │   ├── RepoExplorer/                 # (renamed from Features/Sidebar/ in LUNA-361; the repo
 │   │                                 #   explorer feature. The sidebar itself is composition
 │   │                                 #   in App/, not a feature)
+│   ├── Sessions/                     # Agent session evidence: provider adapters, ingestion,
+│   │                                 #   reducer and the SQLite-backed repository
+│   │   ├── Models/                   # Session domain types
+│   │   ├── Providers/                # Provider profiles and qualification
+│   │   ├── Runtime/                  # Ingestion and evidence reduction
+│   │   └── State/                    # Repository and SQLite access
+│   │
 │   ├── Terminal/                     # Everything Ghostty-specific
 │   │   ├── Diagnostics/              # Terminal-owned diagnostic helpers
 │   │   ├── Ghostty/                  # C API bridge, SurfaceManager, SurfaceTypes
@@ -165,6 +172,7 @@ AgentStudio executable
   ├── AgentStudioEditorChooser
   ├── AgentStudioInboxNotification
   ├── AgentStudioRepoExplorer
+  ├── AgentStudioSessions
   ├── AgentStudioTerminal
   ├── AgentStudioWebview
   ├── AgentStudioCore
@@ -180,7 +188,15 @@ AgentStudioCore ──► AgentStudioSharedComponents
 
 AgentStudioSharedComponents ──► AgentStudioInfrastructure
 AgentStudioInfrastructure     ──► AgentStudioGit (external package; see [agentstudio-git](../state/agentstudio_git.md#agentstudio-git))
+
+AgentStudioSessions ──► AgentStudioCore
+                    ├─► AgentStudioInfrastructure
+                    └─► GRDB (external package)
 ```
+
+`AgentStudioSessions` is a Feature target like any other: it imports no sibling
+Feature, no `AgentStudioAppIPC` and no `AgentStudioProgrammaticControl`. The IPC
+admission adapter that feeds it lives in App, not in the Feature.
 
 There are no sibling Feature dependencies. App is the only product target that
 may import multiple Features and perform cross-Feature composition. Compiled
@@ -233,15 +249,10 @@ Sources/AgentStudioIPCClient/
   `Contents/Helpers/agentstudio`.
   Depends only on the client core.
 
-Sources/AgentStudioPaneAgent/
-  Thin `agentstudio-pane-agent` helper. Reads the app-supplied bootstrap fd
-  once, authenticates with `auth.login`, and verifies runtime identity.
-  Depends only on the client core.
-
 Sources/AgentStudio/App/IPCComposition/
   Concrete adapters from AgentStudioAppIPC protocol ports into WorkspaceSurfaceCoordinator,
-  RuntimeRegistry, PaneRuntime, app-owned state, and app-owned method
-  contribution files such as `Panes/PaneSnapshotIPCContribution.swift`.
+  RuntimeRegistry, PaneRuntime, app-owned state, and the app-owned method
+  contribution files that sit beside them.
   Feature-specific IPC contributions belong in subfolders here, not in
   `Sources/AgentStudioAppIPC/` and not inside `Features/*`.
 
