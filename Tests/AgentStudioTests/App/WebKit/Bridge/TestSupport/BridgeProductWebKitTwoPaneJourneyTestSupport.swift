@@ -30,13 +30,12 @@ struct BridgeProductWebKitTwoPaneJourneyProof: Sendable {
     let fileStateAfterReturn: BridgeProductWebKitTwoPanePositionSnapshot
     let hiddenDirtyGeneration: UInt64?
     let hiddenMetadataStormDiagnostic: String
-    let hiddenMetadataSequenceAfterStorm: Int
-    let hiddenMetadataSequenceBeforeStorm: Int
     let hiddenRefreshPassCountAfterStorm: Int
     let hiddenRefreshPassCountBeforeStorm: Int
     let hiddenReviewPublicationCountAfterLateRelease: Int
     let hiddenReviewPublicationCountBeforeLateRelease: Int
     let hiddenStatus: BridgeProductWebKitTwoPanePositionSnapshot
+    let hiddenStormProductDeltas: BridgeProductWebKitHiddenStormProductDeltas
     let initialReviewState: BridgeProductWebKitTwoPanePositionSnapshot
     let paneOneFinalRefreshPassCount: Int
     let paneOneForegroundRefreshPassCount: Int
@@ -401,19 +400,20 @@ enum BridgeProductWebKitTwoPaneJourneyTestSupport {
         let paneTwoNativeAfterJourney =
             await BridgeProductWebKitCarrierTestSupport.nativeSnapshot(input.paneTwo)
         let paneTwoStateAfterJourney = try await requirePositionSnapshot(input.paneTwo.page)
+        // One reading of the hidden-pane traces feeds both the assertable product
+        // deltas and the printed diagnostic, so the two can never disagree.
+        let hiddenStorm = BridgeProductWebKitMetadataStormDiagnostic.summarize(
+            nativeBefore: hiddenNativeBeforeStorm,
+            nativeAfter: hiddenNativeAfterStorm,
+            traceBefore: hiddenTraceBeforeLateRelease,
+            traceAfter: hiddenTraceAfterStorm
+        )
 
         return BridgeProductWebKitTwoPaneJourneyProof(
             dormantDefaults: preparation.dormantDefaults,
             fileStateAfterReturn: fileStateAfterReturn,
             hiddenDirtyGeneration: hiddenAfterStorm.dirtyFact?.generation,
-            hiddenMetadataStormDiagnostic: BridgeProductWebKitMetadataStormDiagnostic.message(
-                nativeBefore: hiddenNativeBeforeStorm,
-                nativeAfter: hiddenNativeAfterStorm,
-                traceBefore: hiddenTraceBeforeLateRelease,
-                traceAfter: hiddenTraceAfterStorm
-            ),
-            hiddenMetadataSequenceAfterStorm: hiddenNativeAfterStorm.nextMetadataStreamSequence,
-            hiddenMetadataSequenceBeforeStorm: hiddenNativeBeforeStorm.nextMetadataStreamSequence,
+            hiddenMetadataStormDiagnostic: hiddenStorm.message,
             hiddenRefreshPassCountAfterStorm: hiddenAfterStorm.refreshPassCount,
             hiddenRefreshPassCountBeforeStorm: hiddenBeforeStorm.refreshPassCount,
             hiddenReviewPublicationCountAfterLateRelease:
@@ -421,6 +421,7 @@ enum BridgeProductWebKitTwoPaneJourneyTestSupport {
             hiddenReviewPublicationCountBeforeLateRelease:
                 hiddenTraceBeforeLateRelease.completedReviewPublicationCount,
             hiddenStatus: hiddenStatus,
+            hiddenStormProductDeltas: hiddenStorm.productDeltas,
             initialReviewState: preparation.initialReviewState,
             paneOneFinalRefreshPassCount:
                 input.paneOne.refreshAdmissionCoordinator.diagnosticSnapshot.refreshPassCount,
