@@ -1,0 +1,356 @@
+import Foundation
+import Testing
+
+@Suite("Swift lane runner load reporting")
+struct SwiftLaneRunnerReportTests {
+    @Test("every Swift test invocation takes its parallelization width from the one helper")
+    func everySwiftTestInvocationTakesItsWidthFromTheOneHelper() throws {
+        let helperScript = try String(contentsOfFile: "scripts/swift-test-helpers.sh", encoding: .utf8)
+        let laneRunnerScript = try String(contentsOfFile: "scripts/run-swift-test-task.sh", encoding: .utf8)
+        let widthFunction = try shellFunction(named: "swift_test_parallelization_width", in: helperScript)
+        let invocationLines = (helperScript + "\n" + laneRunnerScript)
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .filter { $0.contains("env AGENT_STUDIO_BENCHMARK_MODE=off") }
+        let invocationsBypassingTheHelper = invocationLines.filter {
+            !$0.contains("$(swift_test_parallelization_env_word)")
+        }
+
+        #expect(invocationLines.count >= 10)
+        #expect(
+            invocationsBypassingTheHelper.isEmpty,
+            "Swift test invocations not routed through the width helper: \(invocationsBypassingTheHelper)"
+        )
+        // No default: the cap is experimental, and a set width hung this suite at
+        // every width tried, so it must stay opt-in.
+        #expect(widthFunction.contains("${SWIFT_TEST_PARALLELIZATION_WIDTH:-}"))
+        #expect(!widthFunction.contains("hw.ncpu"))
+        // No call site may name the variable directly; that is how they drift.
+        #expect(
+            invocationLines.allSatisfy {
+                !$0.contains("SWT_EXPERIMENTAL_MAXIMUM_PARALLELIZATION_WIDTH=")
+            }
+        )
+    }
+
+    @Test("the width reaches the environment only when it is set")
+    func widthReachesTheEnvironmentOnlyWhenItIsSet() throws {
+        // Absence and empty are different to Swift Testing: absence means
+        // unlimited, and we never want to depend on how it parses "" or 0.
+        let unsetWord = try runBash(
+            "env -u SWIFT_TEST_PARALLELIZATION_WIDTH bash -c "
+                + "'source scripts/swift-test-helpers.sh; swift_test_parallelization_env_word'"
+        )
+        let setWord = try runBash(
+            "SWIFT_TEST_PARALLELIZATION_WIDTH=7 bash -c "
+                + "'source scripts/swift-test-helpers.sh; swift_test_parallelization_env_word'"
+        )
+        // The word is used unquoted, so an empty helper must contribute no
+        // argument at all to the invocation.
+        let unsetArgumentCount = try runBash(
+            "env -u SWIFT_TEST_PARALLELIZATION_WIDTH bash -c "
+                + "'source scripts/swift-test-helpers.sh; "
+                + "set -- $(swift_test_parallelization_env_word); echo $#'"
+        )
+        let unsetLabel = try runBash(
+            "env -u SWIFT_TEST_PARALLELIZATION_WIDTH bash -c "
+                + "'source scripts/swift-test-helpers.sh; swift_test_parallelization_width_label'"
+        )
+        let setLabel = try runBash(
+            "SWIFT_TEST_PARALLELIZATION_WIDTH=7 bash -c "
+                + "'source scripts/swift-test-helpers.sh; swift_test_parallelization_width_label'"
+        )
+
+        #expect(unsetWord.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        #expect(
+            setWord.trimmingCharacters(in: .whitespacesAndNewlines)
+                == "SWT_EXPERIMENTAL_MAXIMUM_PARALLELIZATION_WIDTH=7"
+        )
+        #expect(unsetArgumentCount.trimmingCharacters(in: .whitespacesAndNewlines) == "0")
+        #expect(unsetLabel.trimmingCharacters(in: .whitespacesAndNewlines) == "unlimited")
+        #expect(setLabel.trimmingCharacters(in: .whitespacesAndNewlines) == "7")
+    }
+
+    @Test("lane runner reports machine load before and after every lane")
+    func laneRunnerReportsMachineLoadBeforeAndAfterEveryLane() throws {
+        let helperScript = try String(contentsOfFile: "scripts/swift-test-helpers.sh", encoding: .utf8)
+        let laneRunnerScript = try String(contentsOfFile: "scripts/run-swift-test-task.sh", encoding: .utf8)
+        let closingReport = try shellFunction(named: "print_closing_lane_report", in: laneRunnerScript)
+
+        for preflightLabel in [
+            "lane-report cpu_count=",
+            "lane-report memory_bytes=",
+            "lane-report parallelization_width=",
+            "lane-report isolated_process_concurrency=",
+            "lane-report xcode=",
+            "lane-report swift=",
+        ] {
+            #expect(laneRunnerScript.contains(preflightLabel))
+        }
+        for closingLabel in [
+            "lane-report exit_status=",
+            "lane-report wall_seconds=",
+            "lane-report cpu_seconds=",
+            "lane-report cpu_utilization=",
+            "lane-report peak_started_tests=",
+            "lane-report peak_running_parameterized_cases=",
+        ] {
+            #expect(closingReport.contains(closingLabel))
+        }
+        // The whole point of a stable prefix is that a CI reader can grep it, so
+        // the emitted label set is pinned rather than only spot-checked.
+        #expect(
+            laneReportLabels(in: helperScript + "\n" + laneRunnerScript) == [
+                "cpu_count",
+                "cpu_seconds",
+                "cpu_utilization",
+                "exit_status",
+                "isolated_process_concurrency",
+                "memory_bytes",
+                "parallelization_width",
+                "peak_running_parameterized_cases",
+                "peak_started_tests",
+                "running_parameterized_cases_at_timeout",
+                "swift",
+                "wall_seconds",
+                "xcode",
+            ]
+        )
+        // A failing lane is the one whose load numbers matter most, so the
+        // closing block hangs off EXIT rather than the end of the happy path.
+        #expect(laneRunnerScript.contains("trap print_closing_lane_report EXIT"))
+    }
+
+    @Test("the inactivity timeout names the test cases that were still running")
+    func inactivityTimeoutNamesTheTestCasesThatWereStillRunning() throws {
+        let helperScript = try String(contentsOfFile: "scripts/swift-test-helpers.sh", encoding: .utf8)
+        let timeoutRunner = try shellFunction(named: "run_swift_with_timeout", in: helperScript)
+        // Case 1 of alpha ends; case 2 and beta do not, and the truncated final
+        // line a killed writer leaves behind must not derail the parse.
+        let streamRecords = [
+            #"{\"kind\":\"testCaseStarted\",\"testID\":\"S/alpha(v:)\",\"_testCase\":{\"displayName\":\"v: 1\"}}"#,
+            #"{\"kind\":\"testCaseStarted\",\"testID\":\"S/alpha(v:)\",\"_testCase\":{\"displayName\":\"v: 2\"}}"#,
+            #"{\"kind\":\"testCaseEnded\",\"testID\":\"S/alpha(v:)\",\"_testCase\":{\"displayName\":\"v: 1\"}}"#,
+            #"{\"kind\":\"testCaseStarted\",\"testID\":\"S/beta()\"}"#,
+            #"{\"kind\":\"testCase"#,
+        ].joined(separator: #"\n"#)
+        let stillRunning = try runBash(
+            "LOG_PREFIX=lane; source scripts/swift-test-helpers.sh; "
+                + "print_running_parameterized_cases_at_timeout <(printf '\(streamRecords)\\n')"
+        )
+        let withoutStream = try runBash(
+            "LOG_PREFIX=lane; source scripts/swift-test-helpers.sh; "
+                + "print_running_parameterized_cases_at_timeout /nonexistent/event-stream"
+        )
+        let emptyStream = try runBash(
+            "LOG_PREFIX=lane; source scripts/swift-test-helpers.sh; "
+                + "print_running_parameterized_cases_at_timeout /dev/null"
+        )
+
+        #expect(timeoutRunner.contains("print_running_parameterized_cases_at_timeout \"$event_stream_file\""))
+        #expect(
+            stillRunning.split(separator: "\n").map(String.init) == [
+                "[lane] lane-report running_parameterized_cases_at_timeout=S/alpha(v:) [v: 2]",
+                "[lane] lane-report running_parameterized_cases_at_timeout=S/beta()",
+            ]
+        )
+        // Missing stream and empty stream are different findings, so they read
+        // differently rather than both looking like "nothing was running".
+        #expect(withoutStream.contains("running_parameterized_cases_at_timeout=unavailable"))
+        #expect(emptyStream.contains("running_parameterized_cases_at_timeout=none"))
+    }
+
+    @Test("the at-timeout case list is capped so one wedged lane cannot bury its log")
+    func atTimeoutCaseListIsCappedSoOneWedgedLaneCannotBuryItsLog() throws {
+        let helperScript = try String(contentsOfFile: "scripts/swift-test-helpers.sh", encoding: .utf8)
+        let idsFunction = try shellFunction(named: "swift_test_running_case_ids_from_events", in: helperScript)
+        let cappedIDs = try runBash(
+            "source scripts/swift-test-helpers.sh; swift_test_running_case_ids_from_events "
+                + #"<(for index in $(seq 1 60); do printf '{"kind":"testCaseStarted","testID":"S/t%s()"}\n' "$index"; done)"#
+        )
+
+        #expect(idsFunction.contains("maximum_ids=\"${2:-40}\""))
+        #expect(cappedIDs.split(separator: "\n").count == 40)
+    }
+
+    @Test("lane runner hang bounds default to the budgets CI already sets")
+    func laneRunnerHangBoundsDefaultToBudgetsCIAlreadySets() throws {
+        let laneRunnerScript = try String(contentsOfFile: "scripts/run-swift-test-task.sh", encoding: .utf8)
+        let ciWorkflow = try String(contentsOfFile: ".github/workflows/ci.yml", encoding: .utf8)
+        let prebuildStep = try workflowStep(named: "Prebuild Swift test bundles", in: ciWorkflow)
+
+        #expect(laneRunnerScript.contains("TIMEOUT_SECONDS=\"${SWIFT_TEST_TIMEOUT_SECONDS:-600}\""))
+        #expect(
+            laneRunnerScript.contains(
+                "PREBUILD_TIMEOUT_SECONDS=\"${SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS:-1200}\""
+            )
+        )
+        #expect(!laneRunnerScript.contains(":-60}"))
+        #expect(!laneRunnerScript.contains(":-90}"))
+        #expect(prebuildStep.contains("SWIFT_TEST_TIMEOUT_SECONDS: \"600\""))
+        #expect(prebuildStep.contains("SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS: \"1200\""))
+    }
+
+    @Test("isolated suite process fan-out never exceeds the core count")
+    func isolatedSuiteProcessFanOutNeverExceedsCoreCount() throws {
+        let helperScript = try String(contentsOfFile: "scripts/swift-test-helpers.sh", encoding: .utf8)
+        let concurrencyFunction = try shellFunction(
+            named: "swift_test_isolated_process_concurrency",
+            in: helperScript
+        )
+        let observedConcurrency = try runBash(
+            "source scripts/swift-test-helpers.sh; swift_test_isolated_process_concurrency"
+        )
+        let reportedCoreCount = try runBash("sysctl -n hw.ncpu")
+        let concurrency = try #require(
+            Int(observedConcurrency.trimmingCharacters(in: .whitespacesAndNewlines))
+        )
+        let coreCount = try #require(
+            Int(reportedCoreCount.trimmingCharacters(in: .whitespacesAndNewlines))
+        )
+
+        #expect(concurrencyFunction.contains("sysctl -n hw.ncpu"))
+        #expect(concurrency == min(4, coreCount))
+        #expect(concurrency >= 1)
+    }
+
+    @Test("started-test counter tracks posted start events, not the cap")
+    func startedTestCounterTracksPostedStartEvents() throws {
+        // a and b overlap (peak 2), a closes, then c opens (2 again). The
+        // run-level and suite-level events are not tests.
+        let observedPeak = try runBash(
+            "source scripts/swift-test-helpers.sh; swift_test_peak_started_from_output "
+                + "<(printf '◇ Test run started.\\n"
+                + "◇ Suite \"S\" started.\\n"
+                + "◇ Test \"a\" started.\\n"
+                + "◇ Test \"b\" started.\\n"
+                + "✔ Test \"a\" passed after 0.1 seconds.\\n"
+                + "◇ Test \"c\" started.\\n"
+                + "✔ Test run with 3 tests in 1 suite passed after 0.5 seconds.\\n')"
+        )
+
+        #expect(observedPeak.trimmingCharacters(in: .whitespacesAndNewlines) == "2")
+    }
+
+    @Test("running-test-case counter reads the post-serializer event stream")
+    func runningTestCaseCounterReadsPostSerializerEventStream() throws {
+        // Two cases overlap before either ends, so the cap-observing peak is 2.
+        let observedPeak = try runBash(
+            "source scripts/swift-test-helpers.sh; swift_test_peak_running_cases_from_events "
+                + "<(printf '{\"kind\":\"testCaseStarted\"}\\n"
+                + "{\"kind\":\"testCaseStarted\"}\\n"
+                + "{\"kind\":\"testCaseEnded\"}\\n"
+                + "{\"kind\":\"testCaseStarted\"}\\n"
+                + "{\"kind\":\"testCaseEnded\"}\\n"
+                + "{\"kind\":\"testCaseEnded\"}\\n')"
+        )
+        let emptyStreamPeak = try runBash(
+            "source scripts/swift-test-helpers.sh; swift_test_peak_running_cases_from_events /dev/null"
+        )
+
+        #expect(observedPeak.trimmingCharacters(in: .whitespacesAndNewlines) == "2")
+        #expect(emptyStreamPeak.trimmingCharacters(in: .whitespacesAndNewlines) == "0")
+    }
+
+    @Test("event-stream flags reach every test invocation but not the prebuild")
+    func eventStreamFlagsReachEveryTestInvocationButNotThePrebuild() throws {
+        let helperScript = try String(contentsOfFile: "scripts/swift-test-helpers.sh", encoding: .utf8)
+        let timeoutRunner = try shellFunction(named: "run_swift_with_timeout", in: helperScript)
+        let acceptsEventStream = try shellFunction(
+            named: "swift_test_command_accepts_event_stream",
+            in: helperScript
+        )
+
+        #expect(timeoutRunner.contains("--event-stream-version 0 --event-stream-output-path"))
+        #expect(timeoutRunner.contains("swift_test_command_accepts_event_stream"))
+        // `swift build` rejects the flags, so the prebuild must be excluded.
+        #expect(acceptsEventStream.contains("\"$argument\" = \"build\""))
+        #expect(
+            try runBashStatus(
+                "source scripts/swift-test-helpers.sh; "
+                    + "swift_test_command_accepts_event_stream swift build --build-tests"
+            ) == 1
+        )
+        #expect(
+            try runBashStatus(
+                "source scripts/swift-test-helpers.sh; "
+                    + "swift_test_command_accepts_event_stream swift test --skip-build"
+            ) == 0
+        )
+    }
+}
+
+/// Every `lane-report <label>=` key the shell scripts can emit, sorted.
+private func laneReportLabels(in script: String) -> [String] {
+    let marker = "lane-report "
+    var labels: Set<String> = []
+
+    for line in script.split(separator: "\n") {
+        guard let markerRange = line.range(of: marker) else { continue }
+        let label = line[markerRange.upperBound...].prefix { $0.isLowercase || $0 == "_" }
+        guard !label.isEmpty, line[markerRange.upperBound...].dropFirst(label.count).first == "=" else { continue }
+        labels.insert(String(label))
+    }
+    return labels.sorted()
+}
+
+private func workflowStep(named stepName: String, in workflow: String) throws -> String {
+    try namedBlock(
+        startingWith: "      - name: \(stepName)",
+        endingBefore: "\n      - name: ",
+        in: workflow
+    )
+}
+
+private func shellFunction(named functionName: String, in script: String) throws -> String {
+    try namedBlock(
+        startingWith: "\(functionName)() {",
+        endingBefore: "\n}\n",
+        in: script
+    )
+}
+
+private func namedBlock(startingWith marker: String, endingBefore terminator: String, in text: String) throws
+    -> String
+{
+    guard let startRange = text.range(of: marker) else {
+        throw SwiftLaneRunnerReportError.missingBlock(marker)
+    }
+    let tail = text[startRange.lowerBound...]
+    guard let endRange = tail.range(of: terminator, range: tail.index(after: startRange.lowerBound)..<tail.endIndex)
+    else {
+        return String(tail)
+    }
+    return String(tail[..<endRange.lowerBound])
+}
+
+private func runBash(_ command: String) throws -> String {
+    let process = Process()
+    let output = Pipe()
+    process.executableURL = URL(fileURLWithPath: "/bin/bash")
+    process.arguments = ["-c", command]
+    process.currentDirectoryURL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+    process.standardOutput = output
+    process.standardError = output
+
+    try process.run()
+    process.waitUntilExit()
+    let data = output.fileHandleForReading.readDataToEndOfFile()
+    let renderedOutput = try #require(String(bytes: data, encoding: .utf8))
+    #expect(process.terminationStatus == 0, Comment(rawValue: renderedOutput))
+    return renderedOutput
+}
+
+private func runBashStatus(_ command: String) throws -> Int32 {
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: "/bin/bash")
+    process.arguments = ["-c", command]
+    process.currentDirectoryURL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+
+    try process.run()
+    process.waitUntilExit()
+    return process.terminationStatus
+}
+
+private enum SwiftLaneRunnerReportError: Error {
+    case missingBlock(String)
+}

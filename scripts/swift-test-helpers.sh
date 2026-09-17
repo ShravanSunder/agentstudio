@@ -14,6 +14,239 @@
 # shellcheck source=scripts/xcb-helpers.sh
 source "$(dirname "${BASH_SOURCE[0]}")/xcb-helpers.sh"
 
+# Maximum test cases Swift Testing may run concurrently inside one test process.
+# OPT-IN, WITH NO DEFAULT, ON PURPOSE.
+#
+# Swift Testing's cap is experimental and off unless
+# SWT_EXPERIMENTAL_MAXIMUM_PARALLELIZATION_WIDTH is set. On this suite, setting a
+# width made the fast lane hang intermittently at EVERY width tried — 15 of 28
+# local runs on Swift 6.3.3 blocked (widths 3, 8, 16, 17, 64 and 256 all blocked;
+# evidence in the CI reliability work). Until that is understood the width stays
+# opt-in for experiments only and MUST NOT be given a default.
+#
+# Prints the width when SWIFT_TEST_PARALLELIZATION_WIDTH is set and non-empty,
+# and nothing otherwise.
+swift_test_parallelization_width() {
+  echo "${SWIFT_TEST_PARALLELIZATION_WIDTH:-}"
+}
+
+# The `NAME=value` env word for a test invocation, or NOTHING when no width is
+# set. Every invocation uses this one helper, unquoted, so an unset width leaves
+# the variable ABSENT from the child environment rather than set to an empty
+# string — Swift Testing treats absence as unlimited, and we do not rely on how
+# it would parse "" or 0.
+swift_test_parallelization_env_word() {
+  local width
+  width="$(swift_test_parallelization_width)"
+
+  [ -n "$width" ] || return 0
+  echo "SWT_EXPERIMENTAL_MAXIMUM_PARALLELIZATION_WIDTH=$width"
+}
+
+# What the lane report prints for the width: the number, or `unlimited` when no
+# width is set, because an absent cap is the state a log reader needs to see.
+swift_test_parallelization_width_label() {
+  local width
+  width="$(swift_test_parallelization_width)"
+
+  if [ -n "$width" ]; then
+    echo "$width"
+  else
+    echo unlimited
+  fi
+}
+
+# How many isolated suite PROCESSES the aggregate phase runs at once. Process
+# fan-out follows the machine: never more than one per core, and never more
+# than 4 (the fan-out that developer machines already used).
+swift_test_isolated_process_concurrency() {
+  local cpu_count
+  cpu_count="$(sysctl -n hw.ncpu)"
+  if [ "$cpu_count" -lt 4 ]; then
+    echo "$cpu_count"
+  else
+    echo 4
+  fi
+}
+
+# Largest number of tests whose START EVENT had been posted but whose result had
+# not, as an ordinal count over one captured console stream.
+#
+# This does NOT reflect the parallelization cap. Swift Testing posts .testStarted
+# in _runStep BEFORE the test acquires the parallelization serializer, so a test
+# counted here may be suspended in a continuation rather than running, and this
+# number stays near the total test count even when the cap is working. It is kept
+# because it is cheap and shows admission backlog; peak_running_parameterized_cases is the
+# number that reflects the cap.
+swift_test_peak_started_from_output() {
+  local output_file="$1"
+
+  /usr/bin/iconv -f UTF-8 -t UTF-8 -c <"$output_file" | /usr/bin/awk '
+    { line = $0; sub(/^\[[^]]*\] /, "", line) }
+    line ~ /^◇ Test / && line ~ /started\.$/ && line !~ /^◇ Test (run|case) / {
+      in_flight++
+      if (in_flight > peak) { peak = in_flight }
+      next
+    }
+    line ~ /^[✔✘] Test / && line !~ /^[✔✘] Test (run|case) / &&
+      (line ~ / passed after / || line ~ / failed after /) {
+      if (in_flight > 0) { in_flight-- }
+      next
+    }
+    END { print peak + 0 }
+  '
+}
+
+# Largest number of test cases RUNNING at once, from Swift Testing's JSON event
+# stream. The parallelization serializer gates _runTestCase and testCaseStarted /
+# testCaseEnded fire inside it, so unlike peak_started_tests this observes the cap.
+#
+# Coverage caveat for this toolchain (Swift 6.3.3): the event stream serializes
+# testCase events only for PARAMETERIZED cases — measured 54 testCaseStarted
+# records against 880 testStarted records on one lane sample. So this is a lower
+# bound taken over the parameterized subset, and reads 0 for a lane that has none.
+swift_test_peak_running_cases_from_events() {
+  local event_stream_file="${1:-}"
+
+  # -r, not -s: a pipe (process substitution in tests) always reports size 0, and
+  # an empty regular stream already yields 0 from the END rule below.
+  if [ -z "$event_stream_file" ] || [ ! -r "$event_stream_file" ]; then
+    echo 0
+    return 0
+  fi
+  /usr/bin/awk '
+    /"kind":"testCaseStarted"/ {
+      running++
+      if (running > peak) { peak = running }
+      next
+    }
+    /"kind":"testCaseEnded"/ { if (running > 0) { running-- }; next }
+    END { print peak + 0 }
+  ' "$event_stream_file"
+}
+
+# Identifiers of the test cases that had a testCaseStarted with no matching
+# testCaseEnded when the stream was read — i.e. what the timed-out command was
+# still executing. First-seen order, capped at maximum_ids so one wedged lane
+# cannot bury its own log. Returns 1 (and prints nothing) when there is no
+# readable stream; the caller turns that into the `unavailable` label.
+#
+# Same parameterized-case caveat as swift_test_peak_running_cases_from_events:
+# this names the stuck PARAMETERIZED cases and stays silent about others.
+swift_test_running_case_ids_from_events() {
+  local event_stream_file="${1:-}"
+  local maximum_ids="${2:-40}"
+
+  if [ -z "$event_stream_file" ] || [ ! -r "$event_stream_file" ]; then
+    return 1
+  fi
+  # A timed-out writer leaves a half-flushed final line; awk just fails to match
+  # it. Nothing in here may fail the lane, so stderr is dropped and the caller
+  # tolerates a non-zero status.
+  /usr/bin/awk -v maximum_ids="$maximum_ids" '
+    function case_key(record,   test_id, display_name, case_field) {
+      test_id = ""
+      display_name = ""
+      if (match(record, /"testID":"[^"]*"/)) {
+        test_id = substr(record, RSTART + 10, RLENGTH - 11)
+      }
+      case_field = record
+      if (match(case_field, /"_testCase":\{/)) {
+        case_field = substr(case_field, RSTART)
+        if (match(case_field, /"displayName":"[^"]*"/)) {
+          display_name = substr(case_field, RSTART + 15, RLENGTH - 16)
+        }
+      }
+      if (display_name == "") { return test_id }
+      return test_id " [" display_name "]"
+    }
+    /"kind":"testCaseStarted"/ {
+      started_key = case_key($0)
+      if (!(started_key in seen)) {
+        seen[started_key] = 1
+        order[++order_count] = started_key
+      }
+      running[started_key]++
+      next
+    }
+    /"kind":"testCaseEnded"/ {
+      ended_key = case_key($0)
+      if (running[ended_key] > 0) { running[ended_key]-- }
+      next
+    }
+    END {
+      for (position = 1; position <= order_count && printed < maximum_ids; position++) {
+        if (running[order[position]] > 0) {
+          print order[position]
+          printed++
+        }
+      }
+    }
+  ' "$event_stream_file" 2>/dev/null
+}
+
+# Names what was still executing when the inactivity bound fired, under the same
+# greppable lane-report prefix as the rest of the lane load numbers.
+print_running_parameterized_cases_at_timeout() {
+  local event_stream_file="${1:-}"
+  local running_case_ids=""
+  local running_case_id
+
+  if [ -z "$event_stream_file" ] || [ ! -r "$event_stream_file" ]; then
+    echo "[$LOG_PREFIX] lane-report running_parameterized_cases_at_timeout=unavailable"
+    return 0
+  fi
+  running_case_ids="$(swift_test_running_case_ids_from_events "$event_stream_file" || true)"
+  if [ -z "$running_case_ids" ]; then
+    echo "[$LOG_PREFIX] lane-report running_parameterized_cases_at_timeout=none"
+    return 0
+  fi
+  while IFS= read -r running_case_id; do
+    [ -n "$running_case_id" ] || continue
+    echo "[$LOG_PREFIX] lane-report running_parameterized_cases_at_timeout=$running_case_id"
+  done <<<"$running_case_ids"
+}
+
+# Each run_swift_with_timeout invocation appends its own peaks here; the lane
+# reports the maximum. Appending (rather than read-modify-write) keeps the
+# isolated phase's concurrent subshells from racing each other.
+swift_test_record_lane_peaks() {
+  local output_file="$1"
+  local event_stream_file="${2:-}"
+
+  if [ -n "${SWIFT_TEST_PEAK_STARTED_FILE:-}" ]; then
+    swift_test_peak_started_from_output "$output_file" \
+      >>"$SWIFT_TEST_PEAK_STARTED_FILE" 2>/dev/null || true
+  fi
+  if [ -n "${SWIFT_TEST_PEAK_RUNNING_FILE:-}" ] && [ -n "$event_stream_file" ]; then
+    swift_test_peak_running_cases_from_events "$event_stream_file" \
+      >>"$SWIFT_TEST_PEAK_RUNNING_FILE" 2>/dev/null || true
+  fi
+}
+
+swift_test_peak_total_from_file() {
+  local peak_file="${1:-}"
+
+  if [ -z "$peak_file" ] || [ ! -s "$peak_file" ]; then
+    echo 0
+    return 0
+  fi
+  /usr/bin/awk 'BEGIN { peak = 0 } $1 + 0 > peak { peak = $1 + 0 } END { print peak }' "$peak_file"
+}
+
+# swift build (the prebuild) rejects the Swift Testing event-stream flags; every
+# other run_swift_with_timeout caller is a test invocation that accepts them.
+swift_test_command_accepts_event_stream() {
+  local argument
+
+  for argument in "$@"; do
+    if [ "$argument" = "build" ]; then
+      return 1
+    fi
+  done
+  return 0
+}
+
 large_non_webkit_filter_pattern() {
   local patterns=(
     Script
@@ -209,7 +442,7 @@ run_fast_serial_process_swift_tests() {
   run_swift_with_timeout \
     "serial fast process suites" \
     "$TIMEOUT_SECONDS" \
-    env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" swift test ${EXTRA_SWIFT_TEST_ARGS:-} --skip-build \
+    env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" $(swift_test_parallelization_env_word) swift test ${EXTRA_SWIFT_TEST_ARGS:-} --skip-build \
     --filter "$(fast_serial_process_filter_pattern)" \
     --skip WebKitSerializedTests --skip E2ESerializedTests --skip ZmxE2ETests --build-path "$BUILD_PATH"
 }
@@ -223,7 +456,9 @@ prebuild_swift_tests() {
 }
 
 run_aggregate_serial_non_webkit_swift_tests() {
-  local process_global_concurrency=4
+  local process_global_concurrency
+  process_global_concurrency="$(swift_test_isolated_process_concurrency)"
+  echo "[$LOG_PREFIX] isolated process-global concurrency: $process_global_concurrency"
   local swift_test_bundle
   swift_test_bundle="$(swift_testing_bundle_path)"
   local swift_testing_helper
@@ -238,7 +473,7 @@ run_aggregate_serial_non_webkit_swift_tests() {
       run_swift_with_timeout \
         "isolated process-global non-WebKit suite: $aggregate_serial_suite_filter" \
         "$TIMEOUT_SECONDS" \
-        env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" \
+        env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" $(swift_test_parallelization_env_word) \
         DYLD_FRAMEWORK_PATH="$testing_framework_path" \
         "$swift_testing_helper" --test-bundle-path "$swift_test_bundle" \
         --filter "$aggregate_serial_suite_filter" \
@@ -270,7 +505,7 @@ run_large_process_global_swift_tests() {
     run_swift_with_timeout \
       "isolated large process-global suite: $large_process_global_suite_filter" \
       "$TIMEOUT_SECONDS" \
-      env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" \
+      env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" $(swift_test_parallelization_env_word) \
       DYLD_FRAMEWORK_PATH="$testing_framework_path" \
       "$swift_testing_helper" --test-bundle-path "$swift_test_bundle" \
       --filter "$large_process_global_suite_filter" \
@@ -318,7 +553,7 @@ run_non_serialized_swift_tests() {
     run_swift_with_timeout \
       "parallel $label" \
       "$TIMEOUT_SECONDS" \
-      env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" swift test ${EXTRA_SWIFT_TEST_ARGS:-} --skip-build \
+      env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" $(swift_test_parallelization_env_word) swift test ${EXTRA_SWIFT_TEST_ARGS:-} --skip-build \
       --parallel \
       --skip WebKitSerializedTests --skip E2ESerializedTests --skip ZmxE2ETests \
       --skip "$(aggregate_serial_non_webkit_filter_pattern)" --build-path "$BUILD_PATH"
@@ -328,19 +563,20 @@ run_non_serialized_swift_tests() {
     run_swift_with_timeout \
       "serial $label" \
       "$TIMEOUT_SECONDS" \
-      env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" swift test ${EXTRA_SWIFT_TEST_ARGS:-} --skip-build \
+      env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" $(swift_test_parallelization_env_word) swift test ${EXTRA_SWIFT_TEST_ARGS:-} --skip-build \
       --skip WebKitSerializedTests --skip E2ESerializedTests --skip ZmxE2ETests --build-path "$BUILD_PATH"
   fi
 }
 
 run_fast_non_webkit_swift_tests() {
-  # Swift Testing provides in-process case concurrency. SwiftPM's --parallel
-  # harness wraps the entire Testing library in one helper process on Xcode
-  # 26.3 and can deadlock its event stream under the fast inventory's volume.
+  # Swift Testing provides in-process case concurrency, bounded by the explicit
+  # SWT_EXPERIMENTAL_MAXIMUM_PARALLELIZATION_WIDTH exported below. SwiftPM's
+  # --parallel harness is not used for the fast inventory; suites that need a
+  # process of their own get one from the isolated phases that follow.
   run_swift_with_timeout \
     "native-concurrent fast non-WebKit suites" \
     "$TIMEOUT_SECONDS" \
-    env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" swift test ${EXTRA_SWIFT_TEST_ARGS:-} --skip-build \
+    env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" $(swift_test_parallelization_env_word) swift test ${EXTRA_SWIFT_TEST_ARGS:-} --skip-build \
     --skip WebKitSerializedTests --skip E2ESerializedTests --skip ZmxE2ETests \
     --skip "GlobalPreferencesBootstrapBenchmarkTests|RepoExplorerNativeTablePilotBenchmarkTests|$(large_non_webkit_filter_pattern)|$(large_serial_non_webkit_filter_pattern)|$(aggregate_serial_non_webkit_filter_pattern)|$(fast_serial_process_filter_pattern)" --build-path "$BUILD_PATH"
 
@@ -351,13 +587,10 @@ run_fast_non_webkit_swift_tests() {
 run_large_non_webkit_swift_tests() {
   if [ "${SWIFT_TEST_PARALLEL:-1}" = "1" ]; then
     local parallel_args=(--parallel)
-    if [ -n "${SWIFT_TEST_NUM_WORKERS:-}" ]; then
-      parallel_args+=(--num-workers "$SWIFT_TEST_NUM_WORKERS")
-    fi
     run_swift_with_timeout \
       "parallel large non-WebKit suites" \
       "$TIMEOUT_SECONDS" \
-      env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" swift test ${EXTRA_SWIFT_TEST_ARGS:-} --skip-build \
+      env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" $(swift_test_parallelization_env_word) swift test ${EXTRA_SWIFT_TEST_ARGS:-} --skip-build \
       "${parallel_args[@]}" \
       --filter "$(large_non_webkit_filter_pattern)" \
       --skip "$(large_serial_non_webkit_filter_pattern)|$(large_process_global_filter_pattern)" \
@@ -366,14 +599,14 @@ run_large_non_webkit_swift_tests() {
     run_swift_with_timeout \
       "serial large process suites" \
       "$TIMEOUT_SECONDS" \
-      env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" swift test ${EXTRA_SWIFT_TEST_ARGS:-} --skip-build \
+      env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" $(swift_test_parallelization_env_word) swift test ${EXTRA_SWIFT_TEST_ARGS:-} --skip-build \
       --filter "$(large_serial_non_webkit_filter_pattern)" \
       --skip WebKitSerializedTests --skip E2ESerializedTests --skip ZmxE2ETests --build-path "$BUILD_PATH"
   else
     run_swift_with_timeout \
       "serial large non-WebKit suites" \
       "$TIMEOUT_SECONDS" \
-      env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" swift test ${EXTRA_SWIFT_TEST_ARGS:-} --skip-build \
+      env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" $(swift_test_parallelization_env_word) swift test ${EXTRA_SWIFT_TEST_ARGS:-} --skip-build \
       --filter "$(large_non_webkit_filter_pattern)|$(large_serial_non_webkit_filter_pattern)" \
       --skip "$(large_process_global_filter_pattern)" \
       --skip WebKitSerializedTests --skip E2ESerializedTests --skip ZmxE2ETests --build-path "$BUILD_PATH"
@@ -478,6 +711,14 @@ run_swift_with_timeout() {
   local output_file
   output_file="$(mktemp "${TMPDIR:-/tmp}/agentstudio-swift-test-output.XXXXXX")"
 
+  # Both `swift test` and swiftpm-testing-helper accept these trailing flags on
+  # Swift 6.3.3 (neither advertises them in --help).
+  local event_stream_file=""
+  if swift_test_command_accepts_event_stream "$@"; then
+    event_stream_file="$(mktemp "${TMPDIR:-/tmp}/agentstudio-swift-test-events.XXXXXX")"
+    set -- "$@" --event-stream-version 0 --event-stream-output-path "$event_stream_file"
+  fi
+
   # Run command piped through xcbeautify in a subshell so we track one PID.
   # Subshell inherits pipefail from parent — swift exit code propagates.
   # shellcheck disable=SC2086
@@ -519,6 +760,9 @@ run_swift_with_timeout() {
 
   if [ "$timed_out" -eq 1 ]; then
     echo "[$LOG_PREFIX] ERROR: no output progress from '$label' for ${timeout_seconds}s"
+    # Read the stream before terminating anything: this names what was still
+    # executing at the timeout, not what survived the kill.
+    print_running_parameterized_cases_at_timeout "$event_stream_file"
     print_timeout_process_diagnostics "$label" "$command_pid"
     echo "[$LOG_PREFIX] raw output tail for '$label':"
     tail -n 120 "$output_file" || true
@@ -526,7 +770,8 @@ run_swift_with_timeout() {
     sleep 2
     terminate_process_tree KILL "$command_pid"
     wait "$command_pid" 2>/dev/null || true
-    rm -f "$output_file"
+    swift_test_record_lane_peaks "$output_file" "$event_stream_file"
+    rm -f "$output_file" ${event_stream_file:+"$event_stream_file"}
     return 124
   fi
 
@@ -540,7 +785,8 @@ run_swift_with_timeout() {
     command_status=1
   fi
 
-  rm -f "$output_file"
+  swift_test_record_lane_peaks "$output_file" "$event_stream_file"
+  rm -f "$output_file" ${event_stream_file:+"$event_stream_file"}
   return "$command_status"
 }
 
@@ -676,7 +922,7 @@ run_webkit_suite_with_retry() {
     _XCB_BYPASS=1
     # shellcheck disable=SC2086
     output=$(run_swift_with_timeout "$filter" "$TIMEOUT_SECONDS" \
-      env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" swift test ${EXTRA_SWIFT_TEST_ARGS:-} \
+      env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" $(swift_test_parallelization_env_word) swift test ${EXTRA_SWIFT_TEST_ARGS:-} \
       --skip-build --filter "$filter" --build-path "$BUILD_PATH" 2>&1)
     local command_status=$?
     unset _XCB_BYPASS

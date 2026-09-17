@@ -13,12 +13,11 @@ struct CIFastLaneWorkflowTests {
         #expect(testTask.contains("mise run test:bridge-web"))
         #expect(testTask.contains("mise run --skip-deps bridge-web-build"))
         #expect(testTask.contains("test -f Sources/AgentStudio/Resources/BridgeWeb/app/index.html"))
-        #expect(testTask.contains("SWIFT_TEST_TIMEOUT_SECONDS=\"${SWIFT_TEST_TIMEOUT_SECONDS:-600}\""))
-        #expect(
-            testTask.contains(
-                "SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS=\"${SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS:-1200}\""
-            )
-        )
+        // The 600/1200 hang bounds are the lane runner's own defaults now, so the
+        // aggregate task must not restate them; `swiftLaneRunnerDefaultsMatchCIBudgets`
+        // owns proving the values themselves.
+        #expect(!testTask.contains("SWIFT_TEST_TIMEOUT_SECONDS="))
+        #expect(!testTask.contains("SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS="))
         #expect(testTask.contains("SWIFT_TEST_INCLUDE_E2E=1"))
         #expect(testTask.contains("mise run --skip-deps test:swift"))
         #expect(testTask.contains("git diff --check"))
@@ -366,7 +365,7 @@ struct CIFastLaneWorkflowTests {
         #expect(!fastRunner.contains("serial App IPC service live socket suites"))
         #expect(!fastRunner.contains("app_ipc_live_socket_suite_filter"))
         #expect(largeRunner.contains("--parallel"))
-        #expect(largeRunner.contains("--num-workers \"$SWIFT_TEST_NUM_WORKERS\""))
+        #expect(!largeRunner.contains("--num-workers"))
         #expect(largeRunner.contains("--filter \"$(large_non_webkit_filter_pattern)\""))
         #expect(largeRunner.contains("serial large process suites"))
         #expect(largeRunner.contains("--filter \"$(large_serial_non_webkit_filter_pattern)\""))
@@ -440,12 +439,13 @@ struct CIFastLaneWorkflowTests {
 
         #expect(ciLargeLaneStep.contains("SWIFT_TEST_SKIP_PREBUILD: \"1\""))
         #expect(ciLargeLaneStep.contains("SWIFT_TEST_TIMEOUT_SECONDS: \"600\""))
-        #expect(ciLargeLaneStep.contains("SWIFT_TEST_NUM_WORKERS: \"4\""))
+        // --num-workers governs XCTest process fan-out and is inert for Swift
+        // Testing, so the lane must not advertise a worker count it cannot honor.
+        #expect(!ciLargeLaneStep.contains("SWIFT_TEST_NUM_WORKERS"))
         #expect(ciLargeLaneStep.contains("_XCB_BYPASS: \"1\""))
         #expect(ciLargeLaneStep.contains("run: mise run --skip-deps --raw test:swift:large"))
         #expect(aggregateLaneMode.contains("run_fast_non_webkit_swift_tests"))
-        #expect(!aggregateLaneMode.contains("SWIFT_TEST_NUM_WORKERS=4 run_fast_non_webkit_swift_tests"))
-        #expect(aggregateLaneMode.contains("SWIFT_TEST_NUM_WORKERS=4 run_large_non_webkit_swift_tests"))
+        #expect(!aggregateLaneMode.contains("SWIFT_TEST_NUM_WORKERS"))
         #expect(aggregateLaneMode.contains("run_fast_non_webkit_swift_tests"))
         #expect(aggregateLaneMode.contains("run_large_non_webkit_swift_tests"))
         #expect(!aggregateLaneMode.contains("run_non_serialized_swift_tests"))
@@ -610,7 +610,8 @@ struct CIFastLaneWorkflowTests {
         #expect(fullRunner.contains("--skip \"$(aggregate_serial_non_webkit_filter_pattern)\""))
         #expect(fullRunner.contains("run_aggregate_serial_non_webkit_swift_tests"))
         #expect(aggregateRunner.contains("while IFS= read -r aggregate_serial_suite_filter"))
-        #expect(aggregateRunner.contains("local process_global_concurrency=4"))
+        #expect(aggregateRunner.contains("swift_test_isolated_process_concurrency"))
+        #expect(!aggregateRunner.contains("local process_global_concurrency=4"))
         #expect(aggregateRunner.contains("process_global_batch_pids+=(\"$!\")"))
         #expect(aggregateRunner.contains("wait_for_process_global_suite_batch"))
         #expect(
