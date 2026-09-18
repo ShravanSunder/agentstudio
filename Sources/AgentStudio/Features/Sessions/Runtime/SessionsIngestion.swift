@@ -131,6 +131,21 @@ package actor SessionsIngestion {
         try await repository.snapshot(query)
     }
 
+    /// Reads past the current binding, for a caller that has to attribute an
+    /// event to the generation its conversation opened rather than to whatever
+    /// the pane is bound to now. It reads only; nothing here enters the FIFO.
+    package func bindingForProviderConversation(
+        paneId: UUID,
+        providerIdentifier: String,
+        providerConversationId: String
+    ) async throws -> SessionsBindingRecord? {
+        try await repository.bindingForProviderConversation(
+            paneId: paneId,
+            providerIdentifier: providerIdentifier,
+            providerConversationId: providerConversationId
+        )
+    }
+
     package func prepareForLaunch(at launchDate: Date) async throws -> SessionsLaunchPreparationOutcome {
         let outcome = try await submit(
             correlationId: UUIDv7.generate(),

@@ -11,6 +11,24 @@ private enum SessionsProviderEventAdmissionOutcome: Sendable {
     case rejected(IPCSessionEventDisposition)
 }
 
+/// Which of the pane's source generations one provider event names.
+///
+/// A provider that has not noticed it was replaced keeps reporting, and what it
+/// reports is about its own conversation. Resolving the generation from the
+/// event's conversation rather than from the pane's current binding is what
+/// keeps a delayed event off whatever replaced it.
+private enum SessionsProviderEventGeneration: Sendable {
+    /// The pane's live binding, which this event's conversation still owns.
+    case live(SessionsBindingRecord)
+    /// A generation of this pane that has already been retired. Evidence
+    /// against it is history and an end for it is a duplicate.
+    case retired(SessionsBindingRecord)
+    /// The pane has bindings, but never one for this conversation.
+    case foreignConversation
+    /// The pane has never bound at all.
+    case unbound
+}
+
 /// Bridges the IPC session methods to Sessions ingestion. It owns only the
 /// wire-to-domain mapping: ordering, replay and reduction stay in Sessions, and
 /// nothing here touches MainActor.
@@ -126,7 +144,7 @@ struct AgentStudioIPCSessionsAdapter: AppIPCSessionsPort {
         paneId: UUID,
         params: IPCSessionEventParams
     ) async throws -> IPCSessionEventResult {
-        let admission = try providerAdmission(
+        let admission = try await providerAdmission(
             paneId: paneId,
             params: params,
             snapshot: try await paneSnapshot(paneId: paneId)
@@ -196,13 +214,13 @@ extension AgentStudioIPCSessionsAdapter {
     }
 
     /// A session start binds the pane; every other name records evidence
-    /// against the pane's existing source generation. Both routes admit only an
-    /// exactly qualified provider identity.
+    /// against the source generation its own conversation opened. Both routes
+    /// admit only an exactly qualified provider identity.
     fileprivate func providerAdmission(
         paneId: UUID,
         params: IPCSessionEventParams,
         snapshot: SessionsSnapshot
-    ) throws -> SessionsProviderEventAdmissionOutcome {
+    ) async throws -> SessionsProviderEventAdmissionOutcome {
         let provider = SessionsProviderIdentity(
             providerIdentifier: params.provider.identifier,
             exactVersion: params.provider.version,
@@ -237,26 +255,52 @@ extension AgentStudioIPCSessionsAdapter {
             }
             return .admitted(.bind(bind))
         }
-        // A session end retires the source generation itself rather than
-        // recording evidence against it. It is decided before the binding
-        // requirement below because ending a pane that is already unbound is
-        // not a caller error — there is simply nothing left to retire.
+        let generation = try await eventGeneration(
+            paneId: paneId,
+            provider: provider,
+            conversationId: params.event.conversationId,
+            snapshot: snapshot
+        )
+        // A session end retires the generation it names rather than recording
+        // evidence against it. It is decided before the binding requirement
+        // below because ending a pane that is already unbound is not a caller
+        // error — there is simply nothing left to retire. An end for a
+        // generation that is already retired is a duplicate: the reduction
+        // recognizes the ended source and changes nothing.
         guard params.event.name != .sessionEnd else {
-            guard let binding = snapshot.currentBinding, binding.status == .active else {
+            switch generation {
+            case .unbound, .foreignConversation:
                 return .rejected(.unqualified)
-            }
-            return .admitted(
-                .sourceEnded(
-                    SessionsSourceEndMutation(
-                        paneId: paneId,
-                        sourceGenerationId: binding.sourceGenerationId,
-                        endedAt: occurredAt
+            case .live(let binding), .retired(let binding):
+                return .admitted(
+                    .sourceEnded(
+                        SessionsSourceEndMutation(
+                            paneId: paneId,
+                            sourceGenerationId: binding.sourceGenerationId,
+                            endedAt: occurredAt
+                        )
                     )
                 )
-            )
+            }
         }
-        guard let binding = snapshot.currentBinding, binding.status == .active else {
+        let binding: SessionsBindingRecord
+        let freshness: SessionsEvidenceFreshness
+        switch generation {
+        case .unbound:
             throw AppIPCSessionsError(reason: .bindingRequired)
+        case .foreignConversation:
+            // Not late evidence about anything this pane ran. Recording it
+            // against the live generation would make one pane's state answer
+            // for a session that was never on it.
+            return .rejected(.unqualified)
+        case .live(let liveBinding):
+            binding = liveBinding
+            freshness = .live
+        case .retired(let retiredBinding):
+            // The reduction stores this against its own generation as history
+            // and projects nothing onto whatever replaced it.
+            binding = retiredBinding
+            freshness = .historical
         }
         guard
             let admitted = providerRegistry.admitProviderEvidence(
@@ -265,7 +309,7 @@ extension AgentStudioIPCSessionsAdapter {
                     capability: capability,
                     paneId: paneId,
                     sourceGenerationId: binding.sourceGenerationId,
-                    freshness: .live
+                    freshness: freshness
                 )
             )
         else {
@@ -284,6 +328,39 @@ extension AgentStudioIPCSessionsAdapter {
                 )
             )
         )
+    }
+
+    /// Resolves the generation an event belongs to from the conversation it
+    /// names.
+    ///
+    /// The current binding answers the common case for free, so only a
+    /// conversation the pane is not bound to right now costs a read. A pane has
+    /// at most one active binding and the snapshot already names it, so any
+    /// binding this read finds belongs to a generation that has been retired.
+    fileprivate func eventGeneration(
+        paneId: UUID,
+        provider: SessionsProviderIdentity,
+        conversationId: String,
+        snapshot: SessionsSnapshot
+    ) async throws -> SessionsProviderEventGeneration {
+        guard let currentBinding = snapshot.currentBinding else { return .unbound }
+        if currentBinding.providerIdentifier == provider.providerIdentifier,
+            currentBinding.providerConversationId == conversationId
+        {
+            return currentBinding.status == .active ? .live(currentBinding) : .retired(currentBinding)
+        }
+        let earlierBinding: SessionsBindingRecord?
+        do {
+            earlierBinding = try await ingestion.bindingForProviderConversation(
+                paneId: paneId,
+                providerIdentifier: provider.providerIdentifier,
+                providerConversationId: conversationId
+            )
+        } catch {
+            throw Self.portError(from: error)
+        }
+        guard let earlierBinding else { return .foreignConversation }
+        return .retired(earlierBinding)
     }
 
     /// An absent profile means no capability of this provider is known at all;

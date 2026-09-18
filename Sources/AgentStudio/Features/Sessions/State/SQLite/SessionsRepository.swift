@@ -49,6 +49,24 @@ package struct SessionsRepository: Sendable {
             try SessionsRepositoryStorage.loadSnapshot(database: database, query: query)
         }
     }
+
+    /// One pane binding addressed by the conversation that opened it, which a
+    /// snapshot cannot answer: it carries the current generation only, and a
+    /// delayed provider event names the generation it was written against.
+    package func bindingForProviderConversation(
+        paneId: UUID,
+        providerIdentifier: String,
+        providerConversationId: String
+    ) async throws -> SessionsBindingRecord? {
+        try await sqliteAccess.read { database in
+            try SessionsRepositoryStorage.loadBindingForProviderConversation(
+                database: database,
+                paneId: paneId,
+                providerIdentifier: providerIdentifier,
+                providerConversationId: providerConversationId
+            )
+        }
+    }
 }
 
 enum SessionsRepositoryStorage {}

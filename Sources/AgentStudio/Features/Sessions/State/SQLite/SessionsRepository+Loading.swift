@@ -191,6 +191,37 @@ extension SessionsRepositoryStorage {
         ).map(decodeBinding)
     }
 
+    /// The pane's binding for one provider conversation, whether that binding
+    /// is still the current generation or one that has since been retired.
+    ///
+    /// A snapshot carries only the current binding, which cannot say which
+    /// generation a delayed provider event belongs to. Ordering matches
+    /// `loadBindings`, so a conversation that bound the same pane more than once
+    /// resolves to the same generation either read would name first.
+    static func loadBindingForProviderConversation(
+        database: Database,
+        paneId: UUID,
+        providerIdentifier: String,
+        providerConversationId: String
+    ) throws -> SessionsBindingRecord? {
+        try Row.fetchOne(
+            database,
+            sql: """
+                SELECT binding.*, conversation.provider_identifier, conversation.provider_conversation_id
+                FROM sessions_pane_binding AS binding
+                JOIN sessions_conversation AS conversation ON conversation.id = binding.conversation_id
+                WHERE binding.pane_id = ?
+                  AND conversation.provider_identifier = ?
+                  AND conversation.provider_conversation_id = ?
+                ORDER BY CASE binding.status WHEN 'active' THEN 0 ELSE 1 END,
+                         binding.started_at DESC,
+                         binding.binding_generation_id ASC
+                LIMIT 1
+                """,
+            arguments: [paneId.uuidString, providerIdentifier, providerConversationId]
+        ).map(decodeBinding)
+    }
+
     fileprivate static func loadActiveBindings(database: Database) throws -> [SessionsBindingRecord] {
         try Row.fetchAll(
             database,

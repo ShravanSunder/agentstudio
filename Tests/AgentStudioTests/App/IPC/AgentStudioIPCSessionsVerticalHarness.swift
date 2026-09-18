@@ -145,11 +145,14 @@ struct SessionsVerticalHarness {
         )
     }
 
+    /// `occurrenceId` is a parameter so a case can name the occurrence it
+    /// expects to find again in the pane's history rather than counting rows.
     func sessionEvent(
         paneId: UUID,
         provider: IPCSessionProviderIdentity,
         name: String,
         conversationId: String,
+        occurrenceId: UUID = UUIDv7.generate(),
         correlationId: UUID = UUIDv7.generate()
     ) async throws -> IPCSessionEventResult {
         try await decoded(
@@ -164,10 +167,19 @@ struct SessionsVerticalHarness {
                 "event": .object([
                     "name": .string(name),
                     "conversationId": .string(conversationId),
-                    "occurrenceId": .string(UUIDv7.generate().uuidString),
+                    "occurrenceId": .string(occurrenceId.uuidString),
                 ]),
                 "correlationId": .string(correlationId.uuidString),
             ])
+        )
+    }
+
+    /// The pane's durable Sessions row, for a case that has to see history the
+    /// `session.query` projection deliberately does not carry over the wire.
+    func paneSnapshot(paneId: UUID) async throws -> SessionsSnapshot {
+        let ingestion = try #require(appDelegate.appIPCSessionsIngestion)
+        return try await ingestion.snapshot(
+            .pane(paneId, page: SessionsSnapshotPage(limit: 100, after: nil))
         )
     }
 

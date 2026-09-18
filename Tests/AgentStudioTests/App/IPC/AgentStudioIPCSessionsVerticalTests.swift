@@ -141,4 +141,154 @@ struct AgentStudioIPCSessionsVerticalTests {
         }
         #expect(reason == "bindingRequired")
     }
+
+    /// Program design, Binding admission: an ended or older generation arriving
+    /// after the one that replaced it is historical only and never replaces it.
+    /// A provider that has not noticed it was replaced keeps sending, and the
+    /// generation an event belongs to is the conversation it names — not
+    /// whatever the pane happens to be bound to when the event lands.
+    @Test("a delayed event from a replaced conversation becomes history and leaves the new generation alone")
+    func delayedEventFromReplacedConversationStaysHistorical() async throws {
+        let harness = try await SessionsVerticalHarness.make()
+        defer { harness.tearDown() }
+        // Arrange: conversation A binds the pane, then conversation B replaces it.
+        _ = try await harness.sessionEvent(
+            paneId: harness.boundPaneId,
+            provider: SessionsVerticalHarness.qualifiedProvider,
+            name: "sessionStart",
+            conversationId: "conversation-a"
+        )
+        _ = try await harness.sessionEvent(
+            paneId: harness.boundPaneId,
+            provider: SessionsVerticalHarness.qualifiedProvider,
+            name: "sessionStart",
+            conversationId: "conversation-b"
+        )
+        let delayedOccurrenceId = UUIDv7.generate()
+
+        // Act: A reports a turn start it began before it was replaced.
+        let delayed = try await harness.sessionEvent(
+            paneId: harness.boundPaneId,
+            provider: SessionsVerticalHarness.qualifiedProvider,
+            name: "turnStart",
+            conversationId: "conversation-a",
+            occurrenceId: delayedOccurrenceId
+        )
+
+        // Assert: it is durable against A's own generation and invisible to B.
+        #expect(delayed.disposition == .admitted)
+        let queried = try await harness.sessionQuery(paneId: harness.boundPaneId)
+        #expect(queried.state == .unknown)
+        #expect(queried.sourceHealth == .live)
+        let snapshot = try await harness.paneSnapshot(paneId: harness.boundPaneId)
+        #expect(snapshot.historicalOccurrenceIds == [delayedOccurrenceId])
+    }
+
+    /// A delayed end retires the generation it names. Ending B because A said
+    /// so would take the pane's live source away from a conversation that never
+    /// finished.
+    @Test("a delayed session end from a replaced conversation leaves the live source alone")
+    func delayedSessionEndFromReplacedConversationLeavesTheLiveSource() async throws {
+        let harness = try await SessionsVerticalHarness.make()
+        defer { harness.tearDown() }
+        // Arrange
+        _ = try await harness.sessionEvent(
+            paneId: harness.boundPaneId,
+            provider: SessionsVerticalHarness.qualifiedProvider,
+            name: "sessionStart",
+            conversationId: "conversation-a"
+        )
+        _ = try await harness.sessionEvent(
+            paneId: harness.boundPaneId,
+            provider: SessionsVerticalHarness.qualifiedProvider,
+            name: "sessionStart",
+            conversationId: "conversation-b"
+        )
+
+        // Act: A ends. Its generation was already retired when B replaced it,
+        // so this is a duplicate the reduction absorbs.
+        let delayedEnd = try await harness.sessionEvent(
+            paneId: harness.boundPaneId,
+            provider: SessionsVerticalHarness.qualifiedProvider,
+            name: "sessionEnd",
+            conversationId: "conversation-a"
+        )
+
+        // Assert
+        #expect(delayedEnd.disposition == .admitted)
+        #expect(try await harness.sessionQuery(paneId: harness.boundPaneId).sourceHealth == .live)
+
+        // Act: B ends its own generation.
+        let liveEnd = try await harness.sessionEvent(
+            paneId: harness.boundPaneId,
+            provider: SessionsVerticalHarness.qualifiedProvider,
+            name: "sessionEnd",
+            conversationId: "conversation-b"
+        )
+
+        // Assert
+        #expect(liveEnd.disposition == .admitted)
+        #expect(try await harness.sessionQuery(paneId: harness.boundPaneId).sourceHealth == .ended)
+    }
+
+    /// A conversation identifier this pane never bound is not late evidence
+    /// about anything. Recording it against the current generation would make
+    /// one pane's state answer for a session that was never on it.
+    @Test("an event naming a conversation the pane never bound is refused and stores nothing")
+    func eventNamingAnUnknownConversationIsRefused() async throws {
+        let harness = try await SessionsVerticalHarness.make()
+        defer { harness.tearDown() }
+        // Arrange
+        _ = try await harness.sessionEvent(
+            paneId: harness.boundPaneId,
+            provider: SessionsVerticalHarness.qualifiedProvider,
+            name: "sessionStart",
+            conversationId: "conversation-a"
+        )
+
+        // Act
+        let foreign = try await harness.sessionEvent(
+            paneId: harness.boundPaneId,
+            provider: SessionsVerticalHarness.qualifiedProvider,
+            name: "turnStart",
+            conversationId: "conversation-never-bound"
+        )
+
+        // Assert
+        #expect(foreign.disposition == .unqualified)
+        let queried = try await harness.sessionQuery(paneId: harness.boundPaneId)
+        #expect(queried.state == .unknown)
+        #expect(queried.sourceHealth == .live)
+        let snapshot = try await harness.paneSnapshot(paneId: harness.boundPaneId)
+        #expect(snapshot.historicalOccurrenceIds.isEmpty)
+    }
+
+    /// The event's own conversation still drives the pane it is bound to. This
+    /// is the case the delayed-event rule must not cost anything.
+    @Test("an event from the conversation that owns the live generation still drives the pane")
+    func eventFromTheLiveConversationStillDrivesThePane() async throws {
+        let harness = try await SessionsVerticalHarness.make()
+        defer { harness.tearDown() }
+        // Arrange
+        _ = try await harness.sessionEvent(
+            paneId: harness.boundPaneId,
+            provider: SessionsVerticalHarness.qualifiedProvider,
+            name: "sessionStart",
+            conversationId: "conversation-a"
+        )
+
+        // Act
+        let turnStart = try await harness.sessionEvent(
+            paneId: harness.boundPaneId,
+            provider: SessionsVerticalHarness.qualifiedProvider,
+            name: "turnStart",
+            conversationId: "conversation-a"
+        )
+
+        // Assert
+        #expect(turnStart.disposition == .admitted)
+        let queried = try await harness.sessionQuery(paneId: harness.boundPaneId)
+        #expect(queried.state == .running)
+        #expect(queried.origin == .reported)
+    }
 }
