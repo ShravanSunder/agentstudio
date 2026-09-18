@@ -5,6 +5,10 @@ import Foundation
 package struct AppIPCMethodRegistry: Sendable {
     package let channel: AgentStudioIPCChannel
     package let capabilities: IPCMethodCatalogResult
+    /// The one cache behind `system.capabilities`. Held so a test that drives
+    /// the real socket can prove the catalog is composed and encoded once and
+    /// served from the stored value thereafter.
+    package let capabilitiesTransportResultCache: AppIPCCachedTransportResult
     private let registrationsByName: [String: AnyAppIPCMethodRegistration]
 
     package init(registrations: [AnyAppIPCMethodRegistration], channel: AgentStudioIPCChannel) throws {
@@ -27,6 +31,10 @@ package struct AppIPCMethodRegistry: Sendable {
         )
         let capabilityDescriptor = composition.descriptor
         let capabilityResult = composition.result
+        let capabilitiesTransportResultCache = AppIPCCachedTransportResult {
+            try JSONDecoder().decode(
+                JSONValue.self, from: try capabilityDescriptor.encodeResult(capabilityResult))
+        }
         let capabilityRegistration = try AppIPCTypedMethodRegistration(
             descriptor: composition.descriptor,
             correlation: .notRequired,
@@ -34,11 +42,9 @@ package struct AppIPCMethodRegistry: Sendable {
                 try AppIPCBuiltInRegistrationSupport.principalTarget(parameters, context: context)
             },
             connectionHandler: { _, _, _ in capabilityResult },
-            cachedTransportResult: AppIPCCachedTransportResult {
-                try JSONDecoder().decode(
-                    JSONValue.self, from: try capabilityDescriptor.encodeResult(capabilityResult))
-            }
+            cachedTransportResult: capabilitiesTransportResultCache
         ).erase()
+        self.capabilitiesTransportResultCache = capabilitiesTransportResultCache
         self.channel = channel
         self.capabilities = composition.result
         self.registrationsByName = Dictionary(

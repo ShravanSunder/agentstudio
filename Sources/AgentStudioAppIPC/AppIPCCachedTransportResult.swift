@@ -18,6 +18,7 @@ package final class AppIPCCachedTransportResult: @unchecked Sendable {
     private let lock = NSLock()
     private let compose: @Sendable () throws -> JSONValue
     private var cachedValue: JSONValue?
+    private var composedCount = 0
 
     package init(compose: @escaping @Sendable () throws -> JSONValue) {
         self.compose = compose
@@ -29,6 +30,7 @@ package final class AppIPCCachedTransportResult: @unchecked Sendable {
     package func value() throws -> JSONValue {
         if let cachedValue = lock.withLock({ cachedValue }) { return cachedValue }
         let composed = try compose()
+        lock.withLock { composedCount += 1 }
         return lock.withLock {
             if let cachedValue { return cachedValue }
             cachedValue = composed
@@ -40,5 +42,13 @@ package final class AppIPCCachedTransportResult: @unchecked Sendable {
     /// to prove it happens once.
     package var hasComposedValue: Bool {
         lock.withLock { cachedValue != nil }
+    }
+
+    /// How many times the response has actually been composed and encoded, for
+    /// tests that prove repeated requests are served from the stored value
+    /// rather than paying for it again. Counts successful compositions only; a
+    /// throwing composition is not cached and is retried.
+    package var compositionCount: Int {
+        lock.withLock { composedCount }
     }
 }
