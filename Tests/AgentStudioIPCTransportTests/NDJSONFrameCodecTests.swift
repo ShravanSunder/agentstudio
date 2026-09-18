@@ -52,17 +52,34 @@ struct NDJSONFrameCodecTests {
         #expect(decoder.pendingByteCount == 0)
     }
 
-    /// Doubling the payload must roughly double the work. Before the decoder
-    /// carried its scan offset across appends it searched the whole buffer
-    /// again for every chunk, and this ratio measured about four.
-    @Test("scanning a chunked frame costs linear, not quadratic, work")
-    func chunkedFrameScanningIsLinear() throws {
-        let singleMebibyte = try fastestChunkedDecodeSeconds(payloadBytes: 1_048_576)
-        let doubleMebibyte = try fastestChunkedDecodeSeconds(payloadBytes: 2 * 1_048_576)
+    /// Each byte of a chunked frame must be looked at once.
+    ///
+    /// This used to compare how long a 1 MiB decode took against a 2 MiB one and
+    /// demand the ratio stay under three, which asks a shared CI machine to be a
+    /// stopwatch. The decoder now counts the bytes it examines, so the same
+    /// claim is a fact about work done rather than about elapsed time.
+    ///
+    /// The allowance is one chunk: the search that finds the newline re-examines
+    /// nothing, but the final chunk is scanned in full before the terminator
+    /// turns up. Rescanning the whole buffer per chunk, which is what the offset
+    /// carried across appends prevents, would examine roughly sixty times the
+    /// payload here, far past `frame.count * 8`.
+    @Test("scanning a chunked frame examines each byte once")
+    func chunkedFrameScanningExaminesEachByteOnce() throws {
+        // Arrange
+        let chunkBytes = 16_384
+        let payload = String(repeating: "a", count: 2 * 1_048_576)
+        let frame = Data((payload + "\n").utf8)
+        var decoder = NDJSONFrameDecoder(maxFrameBytes: 8 * 1_048_576)
 
+        // Act
+        let frames = try appendInChunks(frame, to: &decoder, chunkBytes: chunkBytes)
+
+        // Assert
+        #expect(frames == [payload])
         #expect(
-            doubleMebibyte < singleMebibyte * 3,
-            "1 MiB \(singleMebibyte)s, 2 MiB \(doubleMebibyte)s"
+            decoder.scannedByteCount <= frame.count + chunkBytes,
+            "examined \(decoder.scannedByteCount) bytes for a \(frame.count) byte frame"
         )
     }
 
@@ -102,25 +119,5 @@ struct NDJSONFrameCodecTests {
             offset = end
         }
         return frames
-    }
-
-    /// The fastest of three runs, because the minimum is the least noisy
-    /// statistic for a timing comparison and this case only needs the growth
-    /// rate, not an absolute number.
-    private func fastestChunkedDecodeSeconds(payloadBytes: Int) throws -> Double {
-        let frame = Data((String(repeating: "a", count: payloadBytes) + "\n").utf8)
-        var fastest = Double.greatestFiniteMagnitude
-        for _ in 0..<3 {
-            var decoder = NDJSONFrameDecoder(maxFrameBytes: 8 * 1_048_576)
-            let started = ContinuousClock.now
-            _ = try appendInChunks(frame, to: &decoder)
-            let elapsed = ContinuousClock.now - started
-            let attosecondsPerSecond = 1_000_000_000_000_000_000.0
-            let seconds =
-                Double(elapsed.components.seconds)
-                + Double(elapsed.components.attoseconds) / attosecondsPerSecond
-            fastest = min(fastest, seconds)
-        }
-        return fastest
     }
 }

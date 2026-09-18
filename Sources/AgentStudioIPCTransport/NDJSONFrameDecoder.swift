@@ -46,6 +46,14 @@ public enum NDJSONFrameEncoder {
 public struct NDJSONFrameDecoder: Sendable {
     public private(set) var pendingByteCount = 0
 
+    /// Bytes this decoder has examined looking for a newline, cumulative.
+    ///
+    /// The scan is linear exactly when this stays close to the number of bytes
+    /// fed in, because each byte is looked at once. Quadratic rescanning shows
+    /// up here as a multiple of the payload, which is a fact a test can assert
+    /// instead of timing the decoder and hoping the machine cooperates.
+    package private(set) var scannedByteCount = 0
+
     private let maxFrameBytes: Int
     private var pending = Data()
     /// Leading bytes of `pending` already known to hold no newline.
@@ -54,7 +62,7 @@ public struct NDJSONFrameDecoder: Sendable {
     /// frame arriving in chunks was rescanned once per chunk: a 1.88 MB catalog
     /// read in sixteen-kilobyte pieces cost seconds of pure scanning. Carrying
     /// the offset across appends means each byte is looked at once.
-    private var scannedByteCount = 0
+    private var scannedPrefixByteCount = 0
 
     public init(maxFrameBytes: Int) {
         precondition(maxFrameBytes > 0, "maxFrameBytes must be positive")
@@ -67,11 +75,13 @@ public struct NDJSONFrameDecoder: Sendable {
 
         var frames: [String] = []
         while true {
-            let searchStart = pending.index(pending.startIndex, offsetBy: scannedByteCount)
+            let searchStart = pending.index(pending.startIndex, offsetBy: scannedPrefixByteCount)
             guard let newlineIndex = pending[searchStart...].firstIndex(of: 0x0a) else {
-                scannedByteCount = pending.count
+                scannedByteCount += pending.count - scannedPrefixByteCount
+                scannedPrefixByteCount = pending.count
                 break
             }
+            scannedByteCount += pending.distance(from: searchStart, to: newlineIndex) + 1
             let frameData = pending[pending.startIndex..<newlineIndex]
             guard frameData.count <= maxFrameBytes else {
                 let frameByteCount = frameData.count
@@ -86,7 +96,7 @@ public struct NDJSONFrameDecoder: Sendable {
             let nextFrameStart = pending.index(after: newlineIndex)
             pending.removeSubrange(..<nextFrameStart)
             pendingByteCount = pending.count
-            scannedByteCount = 0
+            scannedPrefixByteCount = 0
 
             guard !frameData.isEmpty else {
                 continue
@@ -117,6 +127,7 @@ public struct NDJSONFrameDecoder: Sendable {
     private mutating func clearPending() {
         pending.removeAll(keepingCapacity: true)
         pendingByteCount = 0
+        scannedPrefixByteCount = 0
         scannedByteCount = 0
     }
 }
