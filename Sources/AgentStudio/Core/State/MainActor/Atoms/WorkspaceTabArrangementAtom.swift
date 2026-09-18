@@ -151,8 +151,8 @@ extension WorkspaceTabArrangementAtom {
 @MainActor
 @Observable
 package final class WorkspaceTabArrangementAtom {
-    let graphAtom: WorkspaceTabGraphAtom
-    let cursorAtom: WorkspaceArrangementCursorAtom
+    package let graphAtom: WorkspaceTabGraphAtom
+    package let cursorAtom: WorkspaceArrangementCursorAtom
     package let presentationAtom: WorkspacePanePresentationAtom
 
     package init(

@@ -313,7 +313,8 @@ struct RepoExplorerContextMenuPresenterTests {
                 requestGeneration: requestGeneration,
                 visibleGeneration: requestGeneration,
                 snapshot: snapshot,
-                tableUpdatePlan: try #require(plan.tableUpdatePlan())
+                tableUpdatePlan: try #require(plan.tableUpdatePlan()),
+                selectedRowID: nil
             )
         ) { _ in }
     }

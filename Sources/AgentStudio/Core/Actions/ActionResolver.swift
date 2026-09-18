@@ -73,7 +73,9 @@ package enum WorkspaceCommandResolver {
 
         case .focusPane:
             return nil
-        case .scrollToBottom, .scrollPageUp, .jumpToPreviousPrompt, .jumpToNextPrompt:
+        case .scrollToBottom, .scrollPageUp, .scrollPageDown,
+            .scrollSmallStepUp, .scrollSmallStepDown,
+            .jumpToPreviousPrompt, .jumpToNextPrompt:
             return nil
         case .extractPaneToTab:
             guard let (tab, paneId) = activeTabAndPane(tabs: tabs, activeTabId: activeTabId)
@@ -89,7 +91,7 @@ package enum WorkspaceCommandResolver {
 
         // Pane focus now routes through PaneFocusTrigger / PaneFocusDecision in PaneTabViewController.
         case .focusPaneLeft, .focusPaneRight, .focusPaneUp, .focusPaneDown,
-            .focusNextPane, .focusPrevPane:
+            .focusNextPane, .focusPrevPane, .focusPreviousPinnedPane, .focusNextPinnedPane:
             return nil
 
         // Split directions (horizontal only — vertical splits disabled for drawers)
@@ -116,7 +118,7 @@ package enum WorkspaceCommandResolver {
             return nil
 
         case .watchFolder, .updateRepositoryFacts, .removeRepo, .pinRepo, .unpinRepo, .pinPane, .unpinPane,
-            .toggleSidebar, .showInboxNotifications, .toggleInboxNotificationSort,
+            .toggleSidebar, .focusSidebar, .showInboxNotifications, .toggleInboxNotificationSort,
             .clearReadInboxNotifications, .clearAllInboxNotifications, .showPaneInboxNotifications,
             .clearPaneInboxNotifications,
             .showReposSidebar, .showPanesSidebar,
@@ -161,7 +163,7 @@ package enum WorkspaceCommandResolver {
     private static func isNonPaneCommand(_ command: AppCommand) -> Bool {
         switch command {
         case .watchFolder, .updateRepositoryFacts, .removeRepo, .pinRepo, .unpinRepo, .pinPane, .unpinPane,
-            .toggleSidebar, .showInboxNotifications, .toggleInboxNotificationSort,
+            .toggleSidebar, .focusSidebar, .showInboxNotifications, .toggleInboxNotificationSort,
             .clearReadInboxNotifications, .clearAllInboxNotifications, .showPaneInboxNotifications,
             .clearPaneInboxNotifications,
             .showReposSidebar, .showPanesSidebar,
@@ -184,7 +186,9 @@ package enum WorkspaceCommandResolver {
             .openWebview, .reloadBridgeWebView, .showViewer, .showBridgeReview, .showBridgeFiles,
             .openBridgeReviewInNewTab, .openBridgeFilesInNewTab, .signInGitHub, .signInGoogle,
             .filterSidebar, .openNewTerminalInTab, .openWorktree, .openWorktreeInPane,
-            .scrollToBottom, .scrollPageUp, .jumpToPreviousPrompt, .jumpToNextPrompt,
+            .scrollToBottom, .scrollPageUp, .scrollPageDown,
+            .scrollSmallStepUp, .scrollSmallStepDown,
+            .jumpToPreviousPrompt, .jumpToNextPrompt,
             .switchArrangement, .previousArrangement, .nextArrangement, .cycleArrangement, .saveArrangement,
             .deleteArrangement, .renameArrangement,
             .enterDrawer, .focusDrawerPaneUp, .focusDrawerPaneLeft, .focusDrawerPaneDown,
@@ -209,7 +213,7 @@ package enum WorkspaceCommandResolver {
             .extractPaneToTab, .movePaneToTab,
             .equalizePanes,
             .focusPaneLeft, .focusPaneRight, .focusPaneUp, .focusPaneDown,
-            .focusNextPane, .focusPrevPane,
+            .focusNextPane, .focusPrevPane, .focusPreviousPinnedPane, .focusNextPinnedPane,
             .focusPane1, .focusPane2, .focusPane3, .focusPane4, .focusPane5,
             .focusPane6, .focusPane7, .focusPane8, .focusPane9,
             .splitRight, .splitLeft,

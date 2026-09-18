@@ -298,7 +298,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         let item = NSMenuItem(title: definition.actionSpec.label, action: action, keyEquivalent: "")
         item.target = self
         item.representedObject = command.rawValue
-        if let binding = definition.keyBinding {
+        if let binding = definition.globalKeyBinding {
             binding.apply(to: item)
         }
         return item

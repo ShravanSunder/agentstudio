@@ -17,13 +17,16 @@ extension RepoExplorerView {
                     value: command,
                     label: command.definition.label,
                     accessibilityIdentifier: "sidebarSurface.\(command.rawValue)",
-                    tooltipValue: command.definition.controlTooltipRenderValue(),
+                    tooltipValue: command.definition.controlTooltipRenderValue(
+                        shortcutTextOverride: sidebarShortcutDisplay(for: command)
+                    ),
                     isEnabled: presentation.command(command)?.isEnabled == true
                 )
             },
             selection: repoExplorerPrefs.sidebarSurface == .repos ? .showReposSidebar : .showPanesSidebar,
             octiconLoader: octiconLoader,
             entityIcon: { $0 == .showReposSidebar ? .repo : .pane },
+            shortcutDisplay: sidebarShortcutDisplay,
             onSelect: { command in commandDispatcher.dispatch(command) }
         )
         .accessibilityIdentifier("sidebarSurfaceSelector")
@@ -50,6 +53,17 @@ extension RepoExplorerView {
                     commands: [.setReposGroupingRepo, .setReposGroupingActivity],
                     presentation: presentation
                 )
+            }
+        }
+        .overlay(alignment: .leading) {
+            if showsListKeyboardHints {
+                AppCommand.focusSidebar.definition.icon.swiftUIImage(
+                    loader: octiconLoader,
+                    size: AppStyles.General.Icon.compact
+                )
+                .foregroundStyle(AppStyles.General.Accent.primaryColor)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
             }
         }
         .accessibilityIdentifier("repoSidebarToolbarRow")
@@ -186,12 +200,20 @@ extension RepoExplorerView {
     ) -> Binding<Bool> {
         Binding(
             get: { openOrganizationSelector == selector },
-            set: { openOrganizationSelector = $0 ? selector : nil }
+            set: { setOrganizationSelector($0 ? selector : nil) }
         )
     }
 
     private func toggleOrganizationSelector(_ selector: RepoExplorerOrganizationSelector) {
-        openOrganizationSelector = openOrganizationSelector == selector ? nil : selector
+        setOrganizationSelector(openOrganizationSelector == selector ? nil : selector)
+    }
+
+    private func setOrganizationSelector(_ selector: RepoExplorerOrganizationSelector?) {
+        let isOpeningSelector = openOrganizationSelector == nil && selector != nil
+        openOrganizationSelector = selector
+        if isOpeningSelector {
+            onPreviewEligibilityLoss()
+        }
     }
 
     private func controlAccessibilityIdentifier(_ command: AppCommand) -> String {

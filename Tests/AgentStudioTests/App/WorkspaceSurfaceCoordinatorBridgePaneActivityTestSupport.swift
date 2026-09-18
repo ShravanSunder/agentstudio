@@ -173,7 +173,7 @@ func expectBridgePaneActivity(
 }
 
 @MainActor
-private final class BridgeActivityIntegrationSurfaceManager: WorkspaceSurfaceManaging {
+final class BridgeActivityIntegrationSurfaceManager: WorkspaceSurfaceManaging {
     func retainSurfacesForUndo(forPaneIDs paneIDs: Set<UUID>) {}
     func retireActiveAndHiddenSurfaces(forPaneIDs paneIDs: Set<UUID>) {}
 

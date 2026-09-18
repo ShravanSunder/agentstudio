@@ -32,9 +32,9 @@ struct WorkspaceGeometryReevaluationIntegrationTests {
         maxCheckpointAge: 60
     )
 
-    private let trustedBounds = CGRect(x: 0, y: 0, width: 1000, height: 600)
+    let trustedBounds = CGRect(x: 0, y: 0, width: 1000, height: 600)
 
-    private struct Harness {
+    struct Harness {
         let store: WorkspaceStore
         let viewRegistry: ViewRegistry
         let runtime: SessionRuntime
@@ -76,7 +76,7 @@ struct WorkspaceGeometryReevaluationIntegrationTests {
         )
     }
 
-    private func withGeometryReevaluationHarness<TResult>(
+    func withGeometryReevaluationHarness<TResult>(
         _ operation: @MainActor (Harness) async throws -> TResult
     ) async throws -> TResult {
         let harness = makeHarness()
@@ -720,7 +720,7 @@ private final class ReevaluationOrderRecorder {
     }
 }
 
-private struct MountedGeometryReevaluationCohort {
+struct MountedGeometryReevaluationCohort {
     let terminalAdmissionPort: PreparedTerminalMountAdmissionPort
     let owner: WorkspacePreparedContentMountCoordinator
     let generation: WorkspaceContentMountGeneration
@@ -737,7 +737,7 @@ private struct MountedGeometryReevaluationCohort {
 /// `WorkspaceSurfaceCoordinator` only holds them `weak`, matching the
 /// production lifetime contract.
 @MainActor
-private func mountGeometryReevaluationCohort(
+func mountGeometryReevaluationCohort(
     coordinator: WorkspaceSurfaceCoordinator,
     viewRegistry: ViewRegistry,
     entries: [(Pane, TerminalActivationVisibilityPriority, TerminalHostPlacementIdentity)],
@@ -791,7 +791,7 @@ private func mountGeometryReevaluationCohort(
     return MountedGeometryReevaluationCohort(terminalAdmissionPort: port, owner: owner, generation: generation)
 }
 
-private func geometryReevaluationTerminalDescriptor(
+func geometryReevaluationTerminalDescriptor(
     pane: Pane,
     visibilityPriority: TerminalActivationVisibilityPriority,
     hostPlacement: TerminalHostPlacementIdentity
@@ -807,16 +807,16 @@ private func geometryReevaluationTerminalDescriptor(
 }
 
 @MainActor
-private final class GeometryReevaluationCapturingSurfaceManager: WorkspaceSurfaceManaging {
+final class GeometryReevaluationCapturingSurfaceManager: WorkspaceSurfaceManaging {
     func retainSurfacesForUndo(forPaneIDs paneIDs: Set<UUID>) {}
     func retireActiveAndHiddenSurfaces(forPaneIDs paneIDs: Set<UUID>) {}
 
     func releaseUndoSurfaces(forPaneIDs paneIDs: Set<UUID>) {}
 
-    private(set) var lastConfig: Ghostty.SurfaceConfiguration?
-    private(set) var lastMetadata: SurfaceMetadata?
-    private(set) var createdPaneIds: [UUID] = []
-    private(set) var createdConfigsByPaneId: [UUID: Ghostty.SurfaceConfiguration] = [:]
+    var lastConfig: Ghostty.SurfaceConfiguration?
+    var lastMetadata: SurfaceMetadata?
+    var createdPaneIds: [UUID] = []
+    var createdConfigsByPaneId: [UUID: Ghostty.SurfaceConfiguration] = [:]
 
     func syncFocus(activeSurfaceId _: UUID?) {}
 

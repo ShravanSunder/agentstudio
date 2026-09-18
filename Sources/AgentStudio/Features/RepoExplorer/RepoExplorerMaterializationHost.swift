@@ -1,3 +1,4 @@
+import AgentStudioCore
 import AppKit
 import SwiftUI
 
@@ -7,12 +8,105 @@ final class RepoExplorerMaterializationHost: NSView {
     private(set) var acceptedBaseline: RepoExplorerMaterializationBaseline?
     private(set) var isPresentationReady = false
     private(set) var presentedChildView: NSView?
+    private(set) var selectedRowID: RepoExplorerRowID?
 
     var visibleGeneration: UInt64? {
         acceptedBaseline?.visibleGeneration
     }
 
-    override var acceptsFirstResponder: Bool { false }
+    override var acceptsFirstResponder: Bool { !isDetached }
+
+    private var keyboardInteraction: RepoExplorerKeyboardInteraction?
+
+    func installKeyboardInteraction(_ interaction: RepoExplorerKeyboardInteraction) {
+        if keyboardInteraction !== interaction {
+            keyboardInteraction?.detach(self)
+            keyboardInteraction = interaction
+        }
+        interaction.attach(self)
+        interaction.selectedPaneTargetDidChange(selectedPaneTarget())
+    }
+
+    @discardableResult
+    func requestListFocus() -> Bool {
+        guard !isDetached, let keyboardInteraction else { return false }
+        return keyboardInteraction.requestListFocus()
+    }
+
+    @discardableResult
+    func requestFilterFocus() -> Bool {
+        guard !isDetached, let keyboardInteraction else { return false }
+        keyboardInteraction.requestFilterFocus()
+        return true
+    }
+
+    override func becomeFirstResponder() -> Bool {
+        let accepted = super.becomeFirstResponder()
+        if accepted {
+            keyboardInteraction?.listDidBecomeFirstResponder(self)
+            ensureInitialSelectionForKeyboardEntry()
+        }
+        return accepted
+    }
+
+    override func resignFirstResponder() -> Bool {
+        let accepted = super.resignFirstResponder()
+        if accepted { keyboardInteraction?.listDidResignFirstResponder(self) }
+        return accepted
+    }
+
+    override func keyDown(with event: NSEvent) {
+        if Self.isSpaceKeyDown(event) {
+            guard isPresentationReady, let keyboardInteraction,
+                keyboardInteraction.isListKeyboardActive
+            else {
+                super.keyDown(with: event)
+                return
+            }
+            keyboardInteraction.spaceKeyDown(
+                isRepeat: event.isARepeat,
+                selectedPaneTarget: selectedPaneTarget()
+            )
+            return
+        }
+        guard isPresentationReady, keyboardInteraction?.isListKeyboardActive == true,
+            let trigger = ShortcutDecoder.decode(event: event)
+        else {
+            super.keyDown(with: event)
+            return
+        }
+        if let shortcut = ShortcutDecoder.shortcut(for: trigger, in: .sidebarList) {
+            keyboardInteraction?.requestCommand(shortcut.command)
+            return
+        }
+        if let action = RepoExplorerListKeyboardAction.resolve(trigger) {
+            handleListKeyboardAction(action)
+            return
+        }
+        super.keyDown(with: event)
+    }
+
+    override func keyUp(with event: NSEvent) {
+        // Space-up is the physical end of the gesture. Its modifier snapshot
+        // and current list readiness may differ from the corresponding key-down
+        // (for example, Shift or Caps Lock can change while Space is held).
+        if event.keyCode == 49 {
+            keyboardInteraction?.spaceKeyUp()
+            return
+        }
+        super.keyUp(with: event)
+    }
+
+    private static func isSpaceKeyDown(_ event: NSEvent) -> Bool {
+        guard event.keyCode == 49 else { return false }
+        let conventionalCommandModifiers: NSEvent.ModifierFlags = [
+            .command,
+            .control,
+            .option,
+            .shift,
+        ]
+        return event.modifierFlags.isDisjoint(with: conventionalCommandModifiers)
+    }
 
     private let makeContentChild: @MainActor () -> any RepoExplorerMaterializationContentChild
     private let onFeedback: @MainActor (RepoExplorerMaterializationFeedback) -> Void
@@ -106,11 +200,20 @@ final class RepoExplorerMaterializationHost: NSView {
         guard candidate.proposedRevision == currentBaseline.revision &+ 1 else {
             return reject(candidate, reason: .invalidRevisionTransition)
         }
+        let reconciledSelectionRowID: RepoExplorerRowID?
+        if selectedRowID != nil || keyboardInteraction?.isListKeyboardActive == true {
+            reconciledSelectionRowID = candidate.nativeUpdatePlan.reconciledSelectionRowID(
+                for: selectedRowID
+            )
+        } else {
+            reconciledSelectionRowID = nil
+        }
 
         activeCandidate = candidate
         defer { activeCandidate = nil }
         let transitionDisposition = applyChangedPresentation(
-            candidate
+            candidate,
+            selectedRowID: reconciledSelectionRowID
         )
         guard transitionDisposition == .accepted else {
             return reject(candidate, reason: transitionDisposition.rejectionReason)
@@ -124,7 +227,9 @@ final class RepoExplorerMaterializationHost: NSView {
             presentation: candidate.presentation
         )
         self.acceptedBaseline = acceptedBaseline
+        selectedRowID = reconciledSelectionRowID
         isPresentationReady = true
+        keyboardInteraction?.selectedPaneTargetDidChange(selectedPaneTarget())
         onFeedback(.accepted(identity: .candidate(candidate.id), baseline: acceptedBaseline))
         return .accepted(acceptedBaseline)
     }
@@ -163,9 +268,12 @@ final class RepoExplorerMaterializationHost: NSView {
 
     func detach() {
         guard !isDetached else { return }
+        keyboardInteraction?.detach(self)
+        keyboardInteraction = nil
         isDetached = true
         isPresentationReady = false
         acceptedBaseline = nil
+        selectedRowID = nil
         activeCandidate = nil
         contentChild?.detach()
         contentChild = nil
@@ -175,7 +283,8 @@ final class RepoExplorerMaterializationHost: NSView {
     }
 
     private func applyChangedPresentation(
-        _ candidate: RepoExplorerMaterializationCandidate
+        _ candidate: RepoExplorerMaterializationCandidate,
+        selectedRowID: RepoExplorerRowID?
     ) -> ChangedTransitionDisposition {
         switch candidate.presentation {
         case .rowless(let rowlessPresentation):
@@ -193,7 +302,8 @@ final class RepoExplorerMaterializationHost: NSView {
                     requestGeneration: candidate.requestGeneration,
                     visibleGeneration: candidate.visibleGeneration,
                     snapshot: snapshot,
-                    tableUpdatePlan: tableUpdatePlan
+                    tableUpdatePlan: tableUpdatePlan,
+                    selectedRowID: selectedRowID
                 )
             )
         }
@@ -319,6 +429,170 @@ final class RepoExplorerMaterializationHost: NSView {
             childView.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
         layoutSubtreeIfNeeded()
+    }
+
+    private func handleListKeyboardAction(_ action: RepoExplorerListKeyboardAction) {
+        switch action {
+        case .moveSelectionUp:
+            moveSelection(verticalDirection: .previous)
+        case .moveSelectionDown:
+            moveSelection(verticalDirection: .next)
+        case .moveToParentOrCollapseGroup:
+            moveToParentOrCollapseGroup()
+        case .moveToFirstChildOrExpandGroup:
+            moveToFirstChildOrExpandGroup()
+        case .activateSelection:
+            activateSelectedRow()
+        case .returnFocus:
+            keyboardInteraction?.returnFromList()
+        case .activateNumberedDestination(let digit):
+            activateNumberedDestination(digit)
+        }
+    }
+
+    private enum VerticalSelectionDirection {
+        case previous
+        case next
+    }
+
+    private var acceptedContentSnapshot: RepoExplorerMaterializationSnapshot? {
+        acceptedBaseline?.presentation.contentSnapshot
+    }
+
+    private func ensureInitialSelectionForKeyboardEntry() {
+        guard selectedRowID == nil,
+            let initialRowID = acceptedContentSnapshot?.navigationIndex.initialSelectionRowID,
+            contentChild?.applySelection(rowID: initialRowID, scrollIntoView: true) == true
+        else { return }
+        selectedRowID = initialRowID
+        keyboardInteraction?.selectedPaneTargetDidChange(selectedPaneTarget())
+    }
+
+    private func moveSelection(verticalDirection: VerticalSelectionDirection) {
+        guard let snapshot = acceptedContentSnapshot else { return }
+        let targetRowID: RepoExplorerRowID?
+        if let selectedRowID {
+            switch verticalDirection {
+            case .previous:
+                targetRowID = snapshot.navigationIndex.previousSelectableRowID(before: selectedRowID)
+            case .next:
+                targetRowID = snapshot.navigationIndex.nextSelectableRowID(after: selectedRowID)
+            }
+        } else {
+            targetRowID = snapshot.navigationIndex.initialSelectionRowID
+        }
+        guard let targetRowID else { return }
+        applyKeyboardSelection(targetRowID)
+    }
+
+    private func moveToParentOrCollapseGroup() {
+        guard let snapshot = acceptedContentSnapshot,
+            let selectedRowID,
+            let row = snapshot.row(id: selectedRowID)
+        else { return }
+        if case .groupHeader(let group) = row.presentation {
+            guard group.isExpanded else { return }
+            contentChild?.performListKeyboardEffect(
+                .setGroupExpanded(groupID: group.groupID, isExpanded: false)
+            )
+            return
+        }
+        guard let parentRowID = snapshot.navigationIndex.parentRowID(for: selectedRowID) else {
+            return
+        }
+        applyKeyboardSelection(parentRowID)
+    }
+
+    private func moveToFirstChildOrExpandGroup() {
+        guard let snapshot = acceptedContentSnapshot,
+            let selectedRowID,
+            let row = snapshot.row(id: selectedRowID),
+            case .groupHeader(let group) = row.presentation
+        else { return }
+        if group.isExpanded {
+            if let firstChildRowID = snapshot.navigationIndex.firstChildRowID(for: selectedRowID) {
+                applyKeyboardSelection(firstChildRowID)
+            }
+            return
+        }
+        contentChild?.performListKeyboardEffect(
+            .setGroupExpanded(groupID: group.groupID, isExpanded: true)
+        )
+    }
+
+    private func activateSelectedRow() {
+        guard let selectedRowID else { return }
+        activate(rowID: selectedRowID)
+    }
+
+    private func activateNumberedDestination(_ digit: Int) {
+        guard let rowID = acceptedContentSnapshot?.navigationIndex.rowID(forDigit: digit) else {
+            return
+        }
+        activate(rowID: rowID)
+    }
+
+    private func activate(rowID: RepoExplorerRowID) {
+        guard let row = acceptedContentSnapshot?.row(id: rowID),
+            let effect = Self.keyboardEffect(for: row)
+        else { return }
+        keyboardInteraction?.commitPreviewBeforeActivation()
+        contentChild?.performListKeyboardEffect(effect)
+    }
+
+    private func applyKeyboardSelection(_ rowID: RepoExplorerRowID) {
+        guard rowID != selectedRowID,
+            contentChild?.applySelection(rowID: rowID, scrollIntoView: true) == true
+        else { return }
+        selectedRowID = rowID
+        keyboardInteraction?.selectedPaneTargetDidChange(selectedPaneTarget())
+    }
+
+    private func selectedPaneTarget() -> RepoExplorerSelectedPaneTarget? {
+        guard let selectedRowID,
+            let row = acceptedContentSnapshot?.row(id: selectedRowID)
+        else { return nil }
+        switch row.presentation {
+        case .pane(let pane):
+            return RepoExplorerSelectedPaneTarget(
+                paneID: pane.destination.paneId,
+                owningTabID: pane.destination.tabId
+            )
+        case .unassociatedPane(let pane):
+            return RepoExplorerSelectedPaneTarget(
+                paneID: pane.destination.paneId,
+                owningTabID: pane.destination.tabId
+            )
+        case .activitySubgroup, .sectionHeader, .loadingSectionHeader, .loadingRepository,
+            .groupHeader, .worktree, .topologyFault, .unresolved:
+            return nil
+        }
+    }
+
+    private static func keyboardEffect(
+        for row: RepoExplorerMaterializedRow
+    ) -> RepoExplorerListKeyboardEffect? {
+        switch row.presentation {
+        case .groupHeader(let group):
+            .toggleGroup(groupID: group.groupID)
+        case .worktree(let worktree):
+            .commandRequest(
+                RepoExplorerCommandPresentationRequest(
+                    command: .openWorktree,
+                    surface: .inlineControl,
+                    target: worktree.worktree.id,
+                    targetType: .worktree,
+                    arguments: .noArguments
+                )
+            )
+        case .pane(let pane):
+            .focusPane(paneID: pane.destination.paneId)
+        case .unassociatedPane(let pane):
+            .focusPane(paneID: pane.destination.paneId)
+        case .activitySubgroup, .sectionHeader, .loadingSectionHeader, .loadingRepository,
+            .topologyFault, .unresolved:
+            nil
+        }
     }
 
     private func reject(

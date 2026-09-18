@@ -173,4 +173,53 @@ struct RepositoryTopologyAtomObservationTests {
         #expect(invalidation.didFire)
     }
 
+    @Test("read snapshots preserve absence and captured identity across restoration", arguments: [false, true])
+    func readSnapshotsPreserveAbsenceAcrossRestoration(repositoryIsAbsent: Bool) throws {
+        let atom = RepositoryTopologyAtom()
+        let coordinator = makeTopologyMutationCoordinator(atom: atom)
+        let repository = coordinator.addRepo(at: URL(filePath: "/tmp/topology-snapshot-absence"))
+        let otherRepository = coordinator.addRepo(at: URL(filePath: "/tmp/topology-snapshot-other"))
+        let worktree = try #require(repository.worktrees.single)
+        let availableSnapshot = atom.captureReadSnapshot()
+        let absences = RepositoryTopologyAbsenceRecords(
+            repositories: repositoryIsAbsent ? [repository.id: .unconfirmed] : [:],
+            worktrees: repositoryIsAbsent ? [:] : [worktree.id: .unconfirmed]
+        )
+        let preparation = RepositoryTopologyReplacement.prepare(
+            repositories: atom.repos,
+            watchedPaths: atom.watchedPaths,
+            unavailableRepositoryIDs: repositoryIsAbsent ? [repository.id] : [],
+            stableIdentity: .derived(repositories: atom.repos, watchedPaths: atom.watchedPaths),
+            absenceRecords: absences
+        )
+        guard case .prepared(let replacement) = preparation else {
+            Issue.record("Valid repository/worktree absence must prepare a topology replacement")
+            return
+        }
+        atom.replaceTopology(replacement)
+        let absentSnapshot = atom.captureReadSnapshot()
+        let preparedSnapshot = RepositoryTopologyReadSnapshot(replacement: replacement)
+
+        for snapshot in [absentSnapshot, preparedSnapshot] {
+            #expect(snapshot.repo(repository.id) == repository)
+            #expect(snapshot.worktree(worktree.id) == worktree)
+            #expect(snapshot.validatedAssociation(repoId: repository.id, worktreeId: worktree.id) == nil)
+            #expect(snapshot.repoAndWorktree(containing: worktree.path) == nil)
+        }
+        #expect(
+            availableSnapshot.validatedAssociation(repoId: repository.id, worktreeId: worktree.id)?.worktree == worktree
+        )
+        #expect(availableSnapshot.validatedAssociation(repoId: otherRepository.id, worktreeId: worktree.id) == nil)
+        #expect(availableSnapshot.validatedAssociation(repoId: nil, worktreeId: worktree.id) == nil)
+        #expect(availableSnapshot.validatedAssociation(repoId: repository.id, worktreeId: UUIDv7.generate()) == nil)
+
+        installTopology(atom: atom, repositories: atom.repos, unavailableRepositoryIDs: [])
+        let restoredSnapshot = atom.captureReadSnapshot()
+        #expect(
+            restoredSnapshot.validatedAssociation(repoId: repository.id, worktreeId: worktree.id)?.worktree == worktree)
+        #expect(restoredSnapshot.repoAndWorktree(containing: worktree.path)?.worktree == worktree)
+        #expect(absentSnapshot.validatedAssociation(repoId: repository.id, worktreeId: worktree.id) == nil)
+        #expect(preparedSnapshot.validatedAssociation(repoId: repository.id, worktreeId: worktree.id) == nil)
+    }
+
 }

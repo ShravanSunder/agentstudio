@@ -65,6 +65,7 @@ struct SingleTabContentCompositionTests {
                 repoCache: coreAtoms.repoCache,
                 editorChooser: atomRegistry.editorChooser,
                 viewRegistry: ViewRegistry(),
+                heldPanePreviewState: HeldPanePreviewState(),
                 appLifecycleStore: AppLifecycleAtom(),
                 closeTransitionCoordinator: PaneCloseTransitionCoordinator(),
                 actionDispatcher: makeNoOpPaneActionDispatcher(),
@@ -160,6 +161,7 @@ struct SingleTabContentCompositionTests {
                 repoCache: coreAtoms.repoCache,
                 editorChooser: atomRegistry.editorChooser,
                 viewRegistry: viewRegistry,
+                heldPanePreviewState: HeldPanePreviewState(),
                 appLifecycleStore: AppLifecycleAtom(),
                 closeTransitionCoordinator: PaneCloseTransitionCoordinator(),
                 actionDispatcher: makeNoOpPaneActionDispatcher(),
@@ -202,6 +204,72 @@ struct SingleTabContentCompositionTests {
                 paneStructuralReadCount == 2,
                 "Mounted FlatTabStripContainer must consume its supplied active layout"
             )
+        }
+    }
+
+    @Test("held preview keeps its rendered surface until the branch disappears")
+    func heldPreviewKeepsRenderedSurfaceUntilBranchDisappears() async throws {
+        let coreAtoms = makeInstalledTestCoreAtoms()
+
+        try await withAsyncTestCoreAtoms(using: coreAtoms) { coreAtoms in
+            let store = WorkspaceStore(
+                identityAtom: coreAtoms.workspaceIdentity,
+                windowMemoryAtom: coreAtoms.workspaceWindowMemory,
+                repositoryTopologyAtom: coreAtoms.workspaceRepositoryTopology,
+                paneAtom: coreAtoms.workspacePane,
+                tabLayoutAtom: coreAtoms.workspaceTabLayout,
+                mutationCoordinator: coreAtoms.workspaceMutationCoordinator,
+                startsObserving: false
+            )
+            let pane = store.createPane()
+            let tab = Tab(paneId: pane.id)
+            store.appendTab(tab)
+            store.setActiveTab(tab.id)
+
+            let viewRegistry = ViewRegistry()
+            let paneHost = PaneHostView(paneId: pane.id)
+            viewRegistry.register(paneHost, for: pane.id)
+            let previewState = HeldPanePreviewState()
+            let target = ValidatedPanePreviewTarget(
+                paneID: pane.id,
+                owningTabID: tab.id,
+                provider: pane.provider,
+                sessionID: pane.terminalState?.zmxSessionID
+            )
+            #expect(previewState.beginSpaceHold(requestedTarget: target))
+            #expect(previewState.acceptPresentedTarget(target, generation: 1))
+
+            let hostingView = NSHostingView(
+                rootView: HeldPanePreviewContainer(
+                    tabId: tab.id,
+                    paneHost: paneHost,
+                    viewRegistry: viewRegistry
+                )
+                .frame(width: 640, height: 360)
+            )
+            hostingView.frame = CGRect(x: 0, y: 0, width: 640, height: 360)
+            let window = NSWindow(
+                contentRect: hostingView.frame,
+                styleMask: [.borderless],
+                backing: .buffered,
+                defer: false
+            )
+            window.contentView = hostingView
+            window.makeKeyAndOrderFront(nil)
+            defer {
+                window.orderOut(nil)
+                window.close()
+            }
+
+            hostingView.layoutSubtreeIfNeeded()
+            viewRegistry.retireSlot(for: pane.id)
+
+            #expect(viewRegistry.isRetiredForTesting(pane.id))
+            #expect(viewRegistry.peekSlotForTesting(pane.id) != nil)
+
+            viewRegistry.unregisterSurface("held-preview:\(tab.id)")
+            #expect(viewRegistry.isRetiredForTesting(pane.id) == false)
+            #expect(viewRegistry.peekSlotForTesting(pane.id) == nil)
         }
     }
 

@@ -814,6 +814,8 @@ private enum SidebarMetricSurface: String {
 }
 
 private enum SidebarMetricPhase: String {
+    case pinnedCaptureMainActor = "pinned_capture_mainactor"
+    case pinnedProjectionWorker = "pinned_projection_worker"
     case requestBuildMainActor = "request_build_mainactor"
     case projectionWorker = "projection_worker"
     case mainActorApply = "mainactor_apply"
@@ -836,6 +838,7 @@ private enum SidebarMetricGroupMode: String {
 }
 
 private enum SidebarMetricTrigger: String {
+    case pinnedNavigation = "pinned_navigation"
     case groupingSwitch = "grouping_switch"
     case surfaceSwitch = "surface_switch"
     case search

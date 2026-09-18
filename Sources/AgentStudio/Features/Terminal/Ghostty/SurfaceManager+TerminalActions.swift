@@ -6,8 +6,8 @@ extension SurfaceManager {
         performBindingAction(.scrollToBottom, forPaneId: paneId)
     }
 
-    package func scrollPageUp(forPaneId paneId: UUID) -> Result<Void, SurfaceError> {
-        performBindingAction(.scrollPageUp, forPaneId: paneId)
+    package func scrollPageFractional(fraction: Double, forPaneId paneId: UUID) -> Result<Void, SurfaceError> {
+        performBindingAction(.scrollPageFractional(fraction), forPaneId: paneId)
     }
 
     package func jumpToPrompt(delta: Int, forPaneId paneId: UUID) -> Result<Void, SurfaceError> {

@@ -143,10 +143,12 @@ extension AppCommand {
                 .selectTab, .nextTab, .prevTab, .selectTab1, .selectTab2, .selectTab3, .selectTab4,
                 .selectTab5, .selectTab6, .selectTab7, .selectTab8, .selectTab9,
                 .closePane, .extractPaneToTab, .movePaneToTab, .focusPane,
-                .scrollToBottom, .scrollPageUp, .jumpToPreviousPrompt, .jumpToNextPrompt,
+                .scrollToBottom, .scrollPageUp, .scrollPageDown,
+                .scrollSmallStepUp, .scrollSmallStepDown,
+                .jumpToPreviousPrompt, .jumpToNextPrompt,
                 .splitRight, .splitLeft, .equalizePanes,
                 .focusPaneLeft, .focusPaneRight, .focusPaneUp, .focusPaneDown,
-                .focusNextPane, .focusPrevPane,
+                .focusNextPane, .focusPrevPane, .focusPreviousPinnedPane, .focusNextPinnedPane,
                 .focusPane1, .focusPane2, .focusPane3, .focusPane4, .focusPane5,
                 .focusPane6, .focusPane7, .focusPane8, .focusPane9,
                 .zoomPane, .minimizePane, .expandPane,
@@ -167,7 +169,7 @@ extension AppCommand {
                 .managementLayerEnterDrawer, .managementLayerExitDrawer,
                 .managementLayerOpenDrawer, .managementLayerCreateTerminal,
                 .managementLayerCreateBrowser, .managementLayerExit,
-                .toggleSidebar, .showInboxNotifications, .toggleInboxNotificationSort,
+                .toggleSidebar, .focusSidebar, .showInboxNotifications, .toggleInboxNotificationSort,
                 .clearReadInboxNotifications, .clearAllInboxNotifications,
                 .showPaneInboxNotifications, .clearPaneInboxNotifications, .showReposSidebar, .showPanesSidebar,
                 .setReposGroupingRepo, .setReposGroupingActivity,
@@ -190,7 +192,8 @@ extension AppCommand {
 
         let exposure: AppCommandIPCExposure =
             switch self {
-            case .showCommandBarEverything, .showCommandBarCommands, .showCommandBarPanes, .showCommandBarRepos:
+            case .focusSidebar, .showCommandBarEverything, .showCommandBarCommands,
+                .showCommandBarPanes, .showCommandBarRepos:
                 .uiPresentation
             case .zoomPane:
                 .headless(
@@ -237,10 +240,12 @@ extension AppCommand {
                 .selectTab, .nextTab, .prevTab, .selectTab1, .selectTab2, .selectTab3, .selectTab4,
                 .selectTab5, .selectTab6, .selectTab7, .selectTab8, .selectTab9,
                 .closePane, .extractPaneToTab, .movePaneToTab, .focusPane,
-                .scrollToBottom, .scrollPageUp, .jumpToPreviousPrompt, .jumpToNextPrompt,
+                .scrollToBottom, .scrollPageUp, .scrollPageDown,
+                .scrollSmallStepUp, .scrollSmallStepDown,
+                .jumpToPreviousPrompt, .jumpToNextPrompt,
                 .splitRight, .splitLeft, .equalizePanes,
                 .focusPaneLeft, .focusPaneRight, .focusPaneUp, .focusPaneDown,
-                .focusNextPane, .focusPrevPane,
+                .focusNextPane, .focusPrevPane, .focusPreviousPinnedPane, .focusNextPinnedPane,
                 .focusPane1, .focusPane2, .focusPane3, .focusPane4, .focusPane5,
                 .focusPane6, .focusPane7, .focusPane8, .focusPane9,
                 .minimizePane, .expandPane,
@@ -292,7 +297,9 @@ extension AppCommand {
         case .updateRepositoryFacts, .removeRepo, .pinRepo, .unpinRepo:
             return .required(primary: .repo, additional: [])
         case .closePane, .extractPaneToTab, .movePaneToTab, .focusPane,
-            .scrollToBottom, .scrollPageUp, .jumpToPreviousPrompt, .jumpToNextPrompt,
+            .scrollToBottom, .scrollPageUp, .scrollPageDown,
+            .scrollSmallStepUp, .scrollSmallStepDown,
+            .jumpToPreviousPrompt, .jumpToNextPrompt,
             .zoomPane, .minimizePane, .expandPane, .enterDrawer,
             .focusDrawerPaneUp, .focusDrawerPaneLeft, .focusDrawerPaneDown,
             .focusDrawerPaneRight, .detachDrawerPane, .addDrawerPane, .toggleDrawer,
@@ -305,7 +312,7 @@ extension AppCommand {
             .selectTab1, .selectTab2, .selectTab3, .selectTab4, .selectTab5,
             .selectTab6, .selectTab7, .selectTab8, .selectTab9,
             .focusPaneLeft, .focusPaneRight, .focusPaneUp, .focusPaneDown,
-            .focusNextPane, .focusPrevPane,
+            .focusNextPane, .focusPrevPane, .focusPreviousPinnedPane, .focusNextPinnedPane,
             .focusPane1, .focusPane2, .focusPane3, .focusPane4, .focusPane5,
             .focusPane6, .focusPane7, .focusPane8, .focusPane9,
             .previousArrangement, .nextArrangement, .cycleArrangement,
@@ -315,7 +322,7 @@ extension AppCommand {
             .toggleManagementLayer, .managementLayerFocusLeft, .managementLayerFocusRight,
             .managementLayerEnterDrawer, .managementLayerExitDrawer,
             .managementLayerOpenDrawer, .managementLayerCreateTerminal,
-            .managementLayerCreateBrowser, .managementLayerExit, .toggleSidebar,
+            .managementLayerCreateBrowser, .managementLayerExit, .toggleSidebar, .focusSidebar,
             .showInboxNotifications, .toggleInboxNotificationSort,
             .clearReadInboxNotifications, .clearAllInboxNotifications, .showReposSidebar, .showPanesSidebar,
             .setReposGroupingRepo, .setReposGroupingActivity,
@@ -339,10 +346,12 @@ extension AppCommand {
 
     private var ipcRequiredPrivilege: IPCPrivilegeClass {
         switch self {
-        case .showCommandBarEverything, .showCommandBarCommands,
+        case .focusSidebar, .showCommandBarEverything, .showCommandBarCommands,
             .showCommandBarPanes, .showCommandBarRepos:
             return .uiPresent
-        case .scrollToBottom, .scrollPageUp, .jumpToPreviousPrompt, .jumpToNextPrompt:
+        case .scrollToBottom, .scrollPageUp, .scrollPageDown,
+            .scrollSmallStepUp, .scrollSmallStepDown,
+            .jumpToPreviousPrompt, .jumpToNextPrompt:
             return .terminalInputWrite
         case .showInboxNotifications, .showReposSidebar, .showPanesSidebar,
             .setReposGroupingRepo, .setReposGroupingActivity,
@@ -367,7 +376,7 @@ extension AppCommand {
             .closePane, .extractPaneToTab, .movePaneToTab, .focusPane,
             .splitRight, .splitLeft, .equalizePanes,
             .focusPaneLeft, .focusPaneRight, .focusPaneUp, .focusPaneDown,
-            .focusNextPane, .focusPrevPane,
+            .focusNextPane, .focusPrevPane, .focusPreviousPinnedPane, .focusNextPinnedPane,
             .focusPane1, .focusPane2, .focusPane3, .focusPane4, .focusPane5,
             .focusPane6, .focusPane7, .focusPane8, .focusPane9,
             .zoomPane, .minimizePane, .expandPane,

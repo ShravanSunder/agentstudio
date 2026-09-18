@@ -21,8 +21,12 @@ struct TabClickHotPathArchitectureTests {
 
         #expect(observation.contains("tabShellAtom.orderedTabIds"))
         #expect(observation.contains("tabShellAtom.activeTabId"))
-        #expect(observation.contains("tabLayoutAtom.tab(activeTabId)"))
+        #expect(observation.contains("tabStateRevision(for: activeTabId)"))
+        #expect(observation.contains("activeArrangementRevision(forTab: activeTabId)"))
+        #expect(observation.contains("paneCursorRevision("))
+        #expect(observation.contains("drawerCursorRevision("))
         #expect(!observation.contains("repositoryTopologyAtom"))
+        #expect(!observation.contains("tabLayoutAtom.tab(activeTabId)"))
         #expect(!observation.contains("tabLayoutAtom.tabs"))
         #expect(!observation.contains("paneIDs"))
         #expect(!observation.contains("await"))

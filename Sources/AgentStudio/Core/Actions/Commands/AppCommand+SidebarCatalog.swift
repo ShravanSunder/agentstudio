@@ -1,4 +1,18 @@
 extension AppCommand {
+    func focusSidebarDefinition() -> AppCommandSpec {
+        AppCommandSpec(
+            command: self,
+            shortcut: .focusSidebar,
+            label: "Focus Sidebar",
+            icon: .system(.keyboard),
+            helpText: "Move keyboard focus to the sidebar",
+            surfacePolicy: .exposed([.commandBar, .inlineControl]),
+            targeting: .contextual,
+            commandBarGroupName: "Sidebar",
+            commandBarGroupPriority: CommandBarGroupPriority.sidebar
+        )
+    }
+
     func pinRepoDefinition() -> AppCommandSpec {
         sidebarPinDefinition(
             label: "Pin Repository",
@@ -46,6 +60,7 @@ extension AppCommand {
 
     func showPanesSidebarDefinition() -> AppCommandSpec {
         sidebarScreenDefinition(
+            shortcut: .showPanesSidebar,
             label: "Panes",
             icon: .system(.squareSplit2x1),
             helpText: "Show pane destinations in the sidebar"

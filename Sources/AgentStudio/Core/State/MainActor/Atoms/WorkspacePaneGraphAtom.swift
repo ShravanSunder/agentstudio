@@ -192,6 +192,12 @@ package struct PaneGraphState: Identifiable, Hashable, Sendable {
         content
     }
 
+    package var title: String { metadata.title }
+
+    package var isPinned: Bool { metadata.isPinned }
+
+    package var sessionResidency: SessionResidency { residency }
+
     package var durableContextFacets: PaneContextFacets {
         metadata.facets.paneContextFacets
     }

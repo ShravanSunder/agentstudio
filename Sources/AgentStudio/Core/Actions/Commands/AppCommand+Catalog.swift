@@ -187,6 +187,7 @@ extension AppCommand {
             return AppCommandSpec(
                 command: self,
                 shortcut: .scrollToBottom,
+                displayShortcutTrigger: AppShortcut.scrollToBottom.trigger,
                 label: "Scroll to Bottom",
                 icon: .system(.arrowDownToLine),
                 helpText: "Scroll the active terminal pane to the bottom",
@@ -200,9 +201,52 @@ extension AppCommand {
             return AppCommandSpec(
                 command: self,
                 shortcut: .scrollPageUp,
-                label: "Page Up",
+                displayShortcutTrigger: AppShortcut.scrollPageUp.trigger,
+                label: "Scroll Up 90%",
                 icon: .system(.arrowUp),
-                helpText: "Scroll the active terminal pane up by one page",
+                helpText: "Scroll the active terminal pane up by 90% of its viewport",
+                surfacePolicy: .exposed([.commandBar]),
+                targeting: .contextualAndTargeted([.pane, .floatingTerminal], preferredInvocation: .contextual),
+                visibleWhen: [.hasActivePane, .paneIsTerminal],
+                commandBarGroupName: "Terminal",
+                commandBarGroupPriority: CommandBarGroupPriority.terminal
+            )
+        case .scrollPageDown:
+            return AppCommandSpec(
+                command: self,
+                shortcut: .scrollPageDown,
+                displayShortcutTrigger: AppShortcut.scrollPageDown.trigger,
+                label: "Scroll Down 90%",
+                icon: .system(.arrowDown),
+                helpText: "Scroll the active terminal pane down by 90% of its viewport",
+                surfacePolicy: .exposed([.commandBar]),
+                targeting: .contextualAndTargeted([.pane, .floatingTerminal], preferredInvocation: .contextual),
+                visibleWhen: [.hasActivePane, .paneIsTerminal],
+                commandBarGroupName: "Terminal",
+                commandBarGroupPriority: CommandBarGroupPriority.terminal
+            )
+        case .scrollSmallStepUp:
+            return AppCommandSpec(
+                command: self,
+                shortcut: .scrollSmallStepUp,
+                displayShortcutTrigger: AppShortcut.scrollSmallStepUp.trigger,
+                label: "Scroll Up 33%",
+                icon: .system(.arrowUp),
+                helpText: "Scroll the active terminal pane up by 33% of its viewport",
+                surfacePolicy: .exposed([.commandBar]),
+                targeting: .contextualAndTargeted([.pane, .floatingTerminal], preferredInvocation: .contextual),
+                visibleWhen: [.hasActivePane, .paneIsTerminal],
+                commandBarGroupName: "Terminal",
+                commandBarGroupPriority: CommandBarGroupPriority.terminal
+            )
+        case .scrollSmallStepDown:
+            return AppCommandSpec(
+                command: self,
+                shortcut: .scrollSmallStepDown,
+                displayShortcutTrigger: AppShortcut.scrollSmallStepDown.trigger,
+                label: "Scroll Down 33%",
+                icon: .system(.arrowDown),
+                helpText: "Scroll the active terminal pane down by 33% of its viewport",
                 surfacePolicy: .exposed([.commandBar]),
                 targeting: .contextualAndTargeted([.pane, .floatingTerminal], preferredInvocation: .contextual),
                 visibleWhen: [.hasActivePane, .paneIsTerminal],
@@ -213,6 +257,7 @@ extension AppCommand {
             return AppCommandSpec(
                 command: self,
                 shortcut: .jumpToPreviousPrompt,
+                displayShortcutTrigger: AppShortcut.jumpToPreviousPrompt.trigger,
                 label: "Previous Prompt",
                 icon: .system(.arrowUp),
                 helpText: "Jump to the previous shell prompt in terminal scrollback",
@@ -226,6 +271,7 @@ extension AppCommand {
             return AppCommandSpec(
                 command: self,
                 shortcut: .jumpToNextPrompt,
+                displayShortcutTrigger: AppShortcut.jumpToNextPrompt.trigger,
                 label: "Next Prompt",
                 icon: .system(.arrowDown),
                 helpText: "Jump to the next shell prompt in terminal scrollback",
@@ -303,6 +349,19 @@ extension AppCommand {
                 label: "Focus Pane Down",
                 icon: .system(.arrowDown),
                 helpText: "Move focus to the pane below"
+            )
+        case .focusPreviousPinnedPane, .focusNextPinnedPane:
+            return AppCommandSpec(
+                command: self,
+                shortcut: self == .focusPreviousPinnedPane ? .focusPreviousPinnedPane : .focusNextPinnedPane,
+                label: self == .focusPreviousPinnedPane ? "Previous Pinned Pane" : "Next Pinned Pane",
+                icon: .system(self == .focusPreviousPinnedPane ? .arrowUp : .arrowDown),
+                helpText: "Navigate pinned panes in sidebar order across the workspace",
+                surfacePolicy: .exposed([.commandBar]),
+                targeting: .contextual,
+                visibleWhen: [.hasActivePane],
+                commandBarGroupName: "Focus",
+                commandBarGroupPriority: CommandBarGroupPriority.focus
             )
         case .focusNextPane:
             return focusDefinition(
@@ -708,6 +767,7 @@ extension AppCommand {
                 surfacePolicy: .exposed([.commandBar, .toolbar(.app)]),
                 targeting: .contextual
             )
+        case .focusSidebar: return focusSidebarDefinition()
         case .showInboxNotifications: return showInboxNotificationsDefinition()
         case .toggleInboxNotificationSort: return toggleInboxNotificationSortDefinition()
         case .clearReadInboxNotifications: return clearReadInboxNotificationsDefinition()

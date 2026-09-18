@@ -348,6 +348,7 @@ struct RepoExplorerMaterializationInputs: Sendable {
 
 struct RepoExplorerMaterializationSnapshot: Equatable, Sendable {
     let rows: [RepoExplorerMaterializedRow]
+    let navigationIndex: RepoExplorerNavigationIndex
     let fallbackContentHeight: CGFloat
     let rowIndexByID: [RepoExplorerRowID: Int]
     let rowIDsByWorktreeID: [UUID: [RepoExplorerRowID]]
@@ -399,6 +400,7 @@ struct RepoExplorerMaterializationSnapshot: Equatable, Sendable {
         }
 
         self.rows = rows
+        navigationIndex = RepoExplorerNavigationIndex(rows: rows)
         fallbackContentHeight = rows.reduce(into: 0) { totalHeight, row in
             totalHeight += row.layout.metrics.fallbackHeight
         }
