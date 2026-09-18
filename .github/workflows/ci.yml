@@ -435,3 +435,15 @@ jobs:
             ~/Library/Logs/DiagnosticReports/*.ips
             ~/Library/Logs/DiagnosticReports/*.crash
           if-no-files-found: ignore
+
+      - name: Upload wedged-lane event-stream ledgers
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: swift-lane-event-streams-${{ github.run_id }}
+          # The runner keeps the Swift Testing event stream when a lane times out
+          # or a child dies without recording a failure. It is the only
+          # authoritative record of which tests started and never ended; the
+          # console stream is block-buffered and stops mid-line at a wedge.
+          path: tmp/plan-workflows/ci-runs/lane-*.events.jsonl
+          if-no-files-found: ignore
