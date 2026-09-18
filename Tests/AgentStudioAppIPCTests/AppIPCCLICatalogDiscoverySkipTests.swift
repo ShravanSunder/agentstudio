@@ -1,27 +1,35 @@
 import AgentStudioAppIPC
+import AgentStudioIPCClientCore
 import AgentStudioIPCTransport
 import AgentStudioInfrastructure
 import AgentStudioProgrammaticControl
+import Dispatch
 import Foundation
 import Testing
 
 /// The provider hooks and the model verbs run several times a turn under short
 /// timeouts, so what matters is not only that they answer but that they do not
 /// pull the whole self-describing catalog first. A proxy in front of the real
-/// server records exactly which methods the built CLI asks for.
+/// server records exactly which methods the client asks for.
+///
+/// The client runs in process rather than as a spawned binary. The dispatch
+/// under test is `AgentStudioIPCClientCommandLineRunner`, which is the whole of
+/// what the shipped CLI does; `main.swift` only binds it to argv and stdio.
+/// `AppIPCDynamicCommandClientTests` keeps the subprocess cases that prove the
+/// built binary itself runs.
 @Suite("App IPC CLI catalog discovery skip", .serialized)
 struct AppIPCCLICatalogDiscoverySkipTests {
     @Test("a session verb reaches the server without fetching the catalog")
-    func sessionVerbSkipsCatalogDiscovery() throws {
-        let observed = try runCLIThroughRecordingProxy(arguments: ["message", "hi"])
+    func sessionVerbSkipsCatalogDiscovery() async throws {
+        let observed = try await runClientThroughRecordingProxy(arguments: ["message", "hi"])
 
         #expect(!observed.contains("system.capabilities"))
         #expect(observed.contains("session.message"))
     }
 
     @Test("a session method named outright also skips the catalog")
-    func namedSessionMethodSkipsCatalogDiscovery() throws {
-        let observed = try runCLIThroughRecordingProxy(
+    func namedSessionMethodSkipsCatalogDiscovery() async throws {
+        let observed = try await runClientThroughRecordingProxy(
             arguments: ["session.query", "--handle", "self"])
 
         #expect(!observed.contains("system.capabilities"))
@@ -29,7 +37,7 @@ struct AppIPCCLICatalogDiscoverySkipTests {
     }
 
     @Test("a bare --json on a parameterless method means no parameters")
-    func bareJSONFlagMeansNoParameters() throws {
+    func bareJSONFlagMeansNoParameters() async throws {
         let fixture = try LiveServerFixture(accessMode: .unsafeDebug, channel: .debug)
         defer { fixture.cleanup() }
         try fixture.server.start()
@@ -37,35 +45,37 @@ struct AppIPCCLICatalogDiscoverySkipTests {
         environment["AGENTSTUDIO_IPC_SOCKET"] = fixture.paths.socketURL.path
         environment.removeValue(forKey: "AGENTSTUDIO_PANE_TOKEN")
 
-        let bare = try runCLI(
-            executableURL: try cliExecutableURL(), arguments: ["system.ping", "--json"],
-            environment: environment)
-        let plain = try runCLI(
-            executableURL: try cliExecutableURL(), arguments: ["system.ping"],
-            environment: environment)
+        let bare = await runClientCommandLineOffCooperativePool(
+            arguments: ["system.ping", "--json"], environment: environment)
+        let plain = await runClientCommandLineOffCooperativePool(
+            arguments: ["system.ping"], environment: environment)
 
-        #expect(bare.exitCode == 0, "stderr: \(String(data: bare.standardError, encoding: .utf8) ?? "")")
+        #expect(bare.exitCode == 0, "stderr: \(bare.standardError)")
         #expect(bare.standardOutput == plain.standardOutput)
     }
 
     @Test("command.execute still resolves its arguments from the live catalog")
-    func commandExecuteStillDiscovers() throws {
-        let observed = try runCLIThroughRecordingProxy(
+    func commandExecuteStillDiscovers() async throws {
+        let observed = try await runClientThroughRecordingProxy(
             arguments: ["command.execute", "--json", #"{"commandId":"x","correlationId":"y"}"#])
 
         #expect(observed.contains("system.capabilities"))
     }
 }
 
-/// Runs the built CLI against a proxy that forwards to the real server and
+/// Runs the CLI dispatch against a proxy that forwards to the real server and
 /// records every request method the client sends.
-private func runCLIThroughRecordingProxy(arguments: [String]) throws -> [String] {
+private func runClientThroughRecordingProxy(arguments: [String]) async throws -> [String] {
     let fixture = try LiveServerFixture(accessMode: .unsafeDebug, channel: .debug)
     defer { fixture.cleanup() }
     try fixture.server.start()
     let recorder = RequestMethodRecorder()
     let proxyPath = "/tmp/asipc-skip-\(UUIDv7.generate().uuidString).sock"
     let proxy = UnixSocketListener(endpoint: UnixSocketEndpoint(path: proxyPath))
+    defer {
+        proxy.stop()
+        try? FileManager.default.removeItem(atPath: proxyPath)
+    }
     try proxy.start { clientConnection in
         guard
             let serverConnection = try? UnixSocketClient.connect(
@@ -77,17 +87,58 @@ private func runCLIThroughRecordingProxy(arguments: [String]) throws -> [String]
         pumpRecordingRequests(from: clientConnection, to: serverConnection, recorder: recorder)
         pumpResponses(from: serverConnection, to: clientConnection)
     }
-    defer {
-        proxy.stop()
-        try? FileManager.default.removeItem(atPath: proxyPath)
-    }
 
     var environment = ProcessInfo.processInfo.environment
     environment["AGENTSTUDIO_IPC_SOCKET"] = proxyPath
     environment.removeValue(forKey: "AGENTSTUDIO_PANE_TOKEN")
-    _ = try runCLI(
-        executableURL: try cliExecutableURL(), arguments: arguments, environment: environment)
+    _ = await runClientCommandLineOffCooperativePool(arguments: arguments, environment: environment)
     return recorder.methods()
+}
+
+private struct ClientCommandLineOutcome {
+    let exitCode: Int32
+    let standardOutput: String
+    let standardError: String
+}
+
+/// Drives the CLI dispatch on a libdispatch thread and suspends the caller.
+///
+/// The dispatch is synchronous and blocks on socket reads. Swift Testing runs
+/// each test body as a task on the cooperative executor, whose width is the
+/// machine's core count, and `AgentStudioAppIPCServer` answers every accepted
+/// connection from a `Task` on that same pool. Blocking the test's own thread
+/// would starve the server that has to answer this very request, which is how a
+/// three-core CI runner deadlocked the fast lane. libdispatch grows threads on
+/// demand, so the block lands somewhere that can afford it.
+private func runClientCommandLineOffCooperativePool(
+    arguments: [String],
+    environment: [String: String]
+) async -> ClientCommandLineOutcome {
+    await withCheckedContinuation { continuation in
+        DispatchQueue.global(qos: .userInitiated).async {
+            let standardOutput = CommandLineOutputCollector()
+            let standardError = CommandLineOutputCollector()
+            let exitCode = AgentStudioIPCClientCommandLineRunner.run(
+                props: AgentStudioIPCClientCommandLineRunner.Props(
+                    arguments: arguments,
+                    environment: environment,
+                    executablePath: ProcessInfo.processInfo.arguments.first ?? "",
+                    bundleExecutableURL: Bundle.main.executableURL,
+                    standardInput: { Data() },
+                    identifierGenerator: { UUIDv7.generate() },
+                    standardOutputSink: { standardOutput.append($0) },
+                    standardErrorSink: { standardError.append($0) }
+                )
+            )
+            continuation.resume(
+                returning: ClientCommandLineOutcome(
+                    exitCode: exitCode,
+                    standardOutput: standardOutput.joined(),
+                    standardError: standardError.joined()
+                )
+            )
+        }
+    }
 }
 
 private func pumpRecordingRequests(
@@ -132,5 +183,21 @@ private final class RequestMethodRecorder: @unchecked Sendable {
 
     func methods() -> [String] {
         lock.withLock { recorded }
+    }
+}
+
+/// Stands in for one of the process's own streams. The sinks the runner writes
+/// through are the same ones `main.swift` points at `print` and `stderr`, so a
+/// collected line is a line the binary would have emitted.
+private final class CommandLineOutputCollector: @unchecked Sendable {
+    private let lock = NSLock()
+    private var lines: [String] = []
+
+    func append(_ line: String) {
+        lock.withLock { lines.append(line) }
+    }
+
+    func joined() -> String {
+        lock.withLock { lines.isEmpty ? "" : lines.joined(separator: "\n") + "\n" }
     }
 }
