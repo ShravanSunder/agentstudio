@@ -898,18 +898,9 @@ run_swift_with_timeout() {
   # Run command piped through xcbeautify in a subshell so we track one PID.
   # Subshell inherits pipefail from parent — swift exit code propagates.
   #
-  # `set -m` puts that subshell in its OWN process group, whose id is its pid.
-  # The timeout path needs that: it used to signal by walking live parent links,
-  # so a descendant that re-parented when its parent died was missed and outlived
-  # the lane. That is how wedged `swiftpm-testing-helper` processes kept holding
-  # build slots and made the NEXT run fail with "all 2 slots are busy". A process
-  # group is stable across re-parenting, and this one contains only the lane's
-  # own child.
-  set -m
   # shellcheck disable=SC2086
   ( "$@" 2>&1 | tee "$output_file" | $xcb_pipe ) &
   local command_pid=$!
-  set +m
 
   while kill -0 "$command_pid" 2>/dev/null; do
     sleep 1
@@ -959,24 +950,26 @@ run_swift_with_timeout() {
     # cross-filesystem move would not — it would leave the child appending to an
     # unlinked inode.
     preserve_lane_event_stream "$label" "$event_stream_file"
-    terminate_lane_process_group TERM "$command_pid"
+    terminate_lane_child_tree TERM "$command_pid"
     # Writing the report IS the grace period. It is work the lane must do anyway,
     # so a child that honours TERM exits while it happens and no `sleep` has to
     # guess how long that takes.
     swift_test_record_lane_peaks "$output_file" "$event_stream_file"
 
-    if lane_process_group_is_gone "$command_pid"; then
-      echo "[$LOG_PREFIX] lane-report timeout_reap=terminated"
-      wait "$command_pid" 2>/dev/null || true
-    else
-      terminate_lane_process_group KILL "$command_pid"
-      # SIGKILL can be neither caught nor ignored, so this returns as soon as the
-      # kernel has finished tearing the group down — however long that takes on
-      # this machine. The only thing that could hold it is a process wedged in an
-      # uninterruptible kernel wait, which is a kernel fault outside this
-      # runner's remit and is already covered by the job-level timeout.
+    if lane_run_has_survivors "$command_pid" "$event_stream_file"; then
+      terminate_lane_child_tree KILL "$command_pid"
+      # The tree walk cannot see a survivor that re-parented, so sweep this run's
+      # token as well. SIGKILL can be neither caught nor ignored, so the wait
+      # below returns as soon as the kernel has finished teardown — however long
+      # that takes on this machine. The only thing that could hold it is a
+      # process wedged in an uninterruptible kernel wait, which is a kernel fault
+      # outside this runner's remit and already covered by the job-level timeout.
+      kill_lane_processes_by_run_token "$event_stream_file"
       wait "$command_pid" 2>/dev/null || true
       echo "[$LOG_PREFIX] lane-report timeout_reap=killed"
+    else
+      echo "[$LOG_PREFIX] lane-report timeout_reap=terminated"
+      wait "$command_pid" 2>/dev/null || true
     fi
     rm -f "$output_file" ${event_stream_file:+"$event_stream_file"}
     return 124
@@ -1144,33 +1137,65 @@ sample_stuck_swift_test_process() {
   rm -f "$sample_file"
 }
 
-# Signals the process GROUP the lane created for its own child, never the lane's
-# own group: `run_swift_with_timeout` launches under `set -m`, so the group id is
-# the child subshell's pid and the negative pid below can only reach that group.
+# Signals one process tree: children first, then the root.
 #
-# This replaces walking live parent links on the timeout path. That walk read
-# `pgrep -P` before signalling, so a `swiftpm-testing-helper` that re-parented
-# when `swift test` died was never in the second pass and survived the lane still
-# holding a build slot.
-terminate_lane_process_group() {
+# A process-group attempt was reverted because it was environment-dependent.
+# `set -m` only puts a background job in its own group when bash's job control is
+# active, and whether that happens depends on the launching context: the same
+# probe put the subshell in its own group in one worktree and left it in the
+# parent's group in another, where `kill -<sig> -<pid>` was ESRCH and the liveness
+# check then read "gone". A reap whose branch depends on the launching context
+# cannot be shipped, so the tree walk is back and the survivors it cannot see are
+# handled by the run token below.
+terminate_lane_child_tree() {
   local signal="$1"
-  local group_pid="$2"
+  local root_pid="$2"
+  local child_pid
 
-  kill -"$signal" -"$group_pid" 2>/dev/null || true
+  for child_pid in $(pgrep -P "$root_pid" 2>/dev/null || true); do
+    terminate_lane_child_tree "$signal" "$child_pid"
+  done
+  kill -"$signal" "$root_pid" 2>/dev/null || true
 }
 
-# True when nothing in the lane's child group is alive.
+# Kills anything still carrying THIS run's event-stream path on its command line.
 #
-# ONE check, deliberately. Retrying a fixed number of times would be a wall clock
-# in disguise, and a machine-speed-dependent one: a few hundred builtin
-# invocations are milliseconds on a fast laptop and longer on a loaded runner, so
-# a group that was merely slow to tear down would be reported as unreapable. The
-# caller needs no retry — after SIGKILL it simply waits, because SIGKILL can be
-# neither caught nor ignored.
-lane_process_group_is_gone() {
-  local group_pid="$1"
+# The tree walk reads live parent links, so a helper that re-parented when its
+# parent died is unreachable from the child pid — that survivor is what held a
+# build slot and made the next run fail with "all 2 slots are busy". The
+# event-stream path is a per-run `mktemp` name passed as
+# `--event-stream-output-path`, so it appears on the command line of this lane's
+# own `swift test` / `swiftpm-testing-helper` and of nothing else on the machine:
+# it identifies exactly this run and can never match another worktree's. `pgrep`
+# only lists; every kill is explicit and by pid, so no pattern-matching kill
+# command is involved.
+kill_lane_processes_by_run_token() {
+  local run_token="${1:-}"
+  local token_pid
 
-  ! kill -0 -"$group_pid" 2>/dev/null
+  [ -n "$run_token" ] || return 0
+  for token_pid in $(pgrep -f -- "$run_token" 2>/dev/null || true); do
+    [ "$token_pid" = "$$" ] && continue
+    kill -KILL "$token_pid" 2>/dev/null || true
+  done
+}
+
+# True while any process of this run is still alive — the lane's own child, or a
+# survivor that re-parented away from it.
+#
+# Both halves are needed. Checking only the child pid would report "gone" the
+# moment the subshell honoured TERM, even though the grandchild that ignored it
+# is still running and still holding a slot; that is the exact defect this path
+# exists to close, and the token is the only thing that can still see it.
+lane_run_has_survivors() {
+  local child_pid="$1"
+  local run_token="${2:-}"
+
+  if kill -0 "$child_pid" 2>/dev/null; then
+    return 0
+  fi
+  [ -n "$run_token" ] || return 1
+  pgrep -f -- "$run_token" >/dev/null 2>&1
 }
 
 run_webkit_suite_with_retry() {
