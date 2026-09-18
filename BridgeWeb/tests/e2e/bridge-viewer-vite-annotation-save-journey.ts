@@ -45,7 +45,6 @@ import {
 } from './bridge-viewer-vite-review-render-observation.ts';
 import { observeSelectedItemApplies } from './bridge-viewer-vite-selected-item-apply-observation.ts';
 
-const annotationSaveJourneyTimeoutMilliseconds = 120_000;
 const annotationProjectionResponseTimeoutMilliseconds = 30_000;
 export interface AnnotationSaveJourneyObservations {
 	readonly correlatedLifecycleStageCount: number;
@@ -107,12 +106,14 @@ async function runReleasedDraftReloadJourney(props: {
 	let page: Page | null = null;
 	try {
 		page = await browser.newPage({ viewport: { height: 980, width: 1728 } });
+		// The vitest hang bound is the only clock this journey is allowed.
+		page.setDefaultTimeout(0);
+		page.setDefaultNavigationTimeout(0);
 		const reviewFile = props.oracle.reviewFiles[0];
 		if (reviewFile === undefined) {
 			throw new Error('Review released-draft journey requires a changed review file.');
 		}
 		await page.goto(bridgeViewerViteProductReviewUrl(props.server.origin), {
-			timeout: annotationSaveJourneyTimeoutMilliseconds,
 			waitUntil: 'domcontentloaded',
 		});
 		await selectReviewFile({ page, path: reviewFile.path });
@@ -126,26 +127,23 @@ async function runReleasedDraftReloadJourney(props: {
 		await rootCreateCommitted;
 		await page
 			.locator('[data-testid="worktree-annotation-message"][data-annotation-draft="present"]')
-			.waitFor({ state: 'visible', timeout: annotationProjectionResponseTimeoutMilliseconds });
+			.waitFor({ state: 'visible' });
 
 		const releaseCommitted = waitForCommittedAnnotationCommand(
 			page,
 			'draft.edit.release',
 			'review',
-			annotationProjectionResponseTimeoutMilliseconds,
 		);
 		await composer.press('Escape');
 		await releaseCommitted;
 
 		await page.reload({
-			timeout: annotationSaveJourneyTimeoutMilliseconds,
 			waitUntil: 'domcontentloaded',
 		});
 		await waitForSelectedReviewReady({ itemId: reviewFile.itemId, page });
 		const reloadedDraft = page.getByText(draftBody, { exact: true });
 		await reloadedDraft.waitFor({
 			state: 'visible',
-			timeout: annotationProjectionResponseTimeoutMilliseconds,
 		});
 		const reloadedCollapsedDraftCount = await reloadedDraft.count();
 		const reloadedDraftLabelCount = await page.getByText('Draft', { exact: true }).count();
@@ -154,7 +152,6 @@ async function runReleasedDraftReloadJourney(props: {
 		await page.getByRole('button', { name: 'Revert draft' }).click();
 		await reloadedDraft.waitFor({
 			state: 'hidden',
-			timeout: annotationProjectionResponseTimeoutMilliseconds,
 		});
 
 		return {
@@ -181,6 +178,9 @@ export async function runAnnotationSaveJourney(props: {
 		null;
 	try {
 		page = await browser.newPage({ viewport: { height: 980, width: 1728 } });
+		// The vitest hang bound is the only clock this journey is allowed.
+		page.setDefaultTimeout(0);
+		page.setDefaultNavigationTimeout(0);
 		transportFailures = await observeInteractionProfileFailures(page);
 		observeAnnotationJourneyDiagnostics(page, diagnostics);
 		const reviewFile = props.oracle.reviewFiles[0];
@@ -197,7 +197,6 @@ export async function runAnnotationSaveJourney(props: {
 				? bridgeViewerViteProductFileUrl(props.server.origin, props.oracle.largeFilePath)
 				: bridgeViewerViteProductReviewUrl(props.server.origin),
 			{
-				timeout: annotationSaveJourneyTimeoutMilliseconds,
 				waitUntil: 'domcontentloaded',
 			},
 		);
@@ -243,17 +242,13 @@ export async function runAnnotationSaveJourney(props: {
 		if (demandedDraftProjectionCommitted !== null) await demandedDraftProjectionCommitted;
 		await page
 			.locator('[data-testid="worktree-annotation-message"][data-annotation-draft="present"]')
-			.waitFor({ state: 'visible', timeout: annotationProjectionResponseTimeoutMilliseconds });
-		await page.waitForFunction(
-			(): boolean => {
-				const saveButton = document.querySelector<HTMLButtonElement>(
-					'[aria-label="Save annotation"]',
-				);
-				return saveButton !== null && !saveButton.disabled;
-			},
-			undefined,
-			{ timeout: annotationSaveJourneyTimeoutMilliseconds },
-		);
+			.waitFor({ state: 'visible' });
+		await page.waitForFunction((): boolean => {
+			const saveButton = document.querySelector<HTMLButtonElement>(
+				'[aria-label="Save annotation"]',
+			);
+			return saveButton !== null && !saveButton.disabled;
+		}, undefined);
 
 		const projectionGate = createDeferred<void>();
 		let gatedProjectionRequestCount = 0;
@@ -271,19 +266,16 @@ export async function runAnnotationSaveJourney(props: {
 		};
 		await page.route(projectionRoutePattern, projectionRouteHandler);
 		try {
-			const gatedProjectionRequest = page.waitForRequest(
-				(request): boolean => {
-					if (
-						request.method() !== 'POST' ||
-						new URL(request.url()).pathname !== '/__bridge-product/content'
-					) {
-						return false;
-					}
-					const body: unknown = request.postDataJSON();
-					return isUnknownRecord(body) && body['contentKind'] === 'annotation.projection';
-				},
-				{ timeout: annotationProjectionResponseTimeoutMilliseconds },
-			);
+			const gatedProjectionRequest = page.waitForRequest((request): boolean => {
+				if (
+					request.method() !== 'POST' ||
+					new URL(request.url()).pathname !== '/__bridge-product/content'
+				) {
+					return false;
+				}
+				const body: unknown = request.postDataJSON();
+				return isUnknownRecord(body) && body['contentKind'] === 'annotation.projection';
+			});
 			const draftSaveCommitted = waitForCommittedAnnotationCommand(
 				page,
 				'draft.save',
@@ -326,7 +318,6 @@ export async function runAnnotationSaveJourney(props: {
 			.getByText(savedBody, { exact: true });
 		await savedThreadBody.waitFor({
 			state: 'visible',
-			timeout: annotationProjectionResponseTimeoutMilliseconds,
 		});
 		const projectedSavedMessageCount = await savedThreadBody.count();
 		if (projectionOperationCorrelationId === null) {
@@ -345,7 +336,6 @@ export async function runAnnotationSaveJourney(props: {
 		const reloadedMainProjection =
 			props.surface === 'review' ? observeAnnotationMainProjection(page) : null;
 		await page.reload({
-			timeout: annotationSaveJourneyTimeoutMilliseconds,
 			waitUntil: 'domcontentloaded',
 		});
 		if (props.surface === 'file') {
@@ -360,7 +350,6 @@ export async function runAnnotationSaveJourney(props: {
 			.getByText(savedBody, { exact: true });
 		await reloadedSavedThreadBody.waitFor({
 			state: 'visible',
-			timeout: annotationProjectionResponseTimeoutMilliseconds,
 		});
 		const reloadedSavedMessageCount = await reloadedSavedThreadBody.count();
 		const outputIdentity = await verifyAnnotationOutputCaptures({
@@ -707,11 +696,9 @@ export async function waitForCommittedAnnotationCommand(
 	page: Page,
 	operationKind: 'draft.edit.release' | 'draft.save' | 'root.create' | 'source.refresh',
 	surface: 'file' | 'review',
-	timeoutMilliseconds = annotationSaveJourneyTimeoutMilliseconds,
 ): Promise<{ readonly requestSequence: number; readonly sessionId: string | null }> {
-	const response = await page.waitForResponse(
-		(candidate): boolean => isAnnotationCommandResponse(candidate, operationKind, surface),
-		{ timeout: timeoutMilliseconds },
+	const response = await page.waitForResponse((candidate): boolean =>
+		isAnnotationCommandResponse(candidate, operationKind, surface),
 	);
 	const body: unknown = await response.json();
 	if (
@@ -738,20 +725,17 @@ export async function waitForCommittedAnnotationCommand(
 }
 
 async function waitForAnnotationProjectionContentResponse(page: Page): Promise<void> {
-	const response = await page.waitForResponse(
-		(candidate): boolean => {
-			const request = candidate.request();
-			if (
-				request.method() !== 'POST' ||
-				new URL(request.url()).pathname !== '/__bridge-product/content'
-			) {
-				return false;
-			}
-			const body: unknown = request.postDataJSON();
-			return isUnknownRecord(body) && body['contentKind'] === 'annotation.projection';
-		},
-		{ timeout: annotationProjectionResponseTimeoutMilliseconds },
-	);
+	const response = await page.waitForResponse((candidate): boolean => {
+		const request = candidate.request();
+		if (
+			request.method() !== 'POST' ||
+			new URL(request.url()).pathname !== '/__bridge-product/content'
+		) {
+			return false;
+		}
+		const body: unknown = request.postDataJSON();
+		return isUnknownRecord(body) && body['contentKind'] === 'annotation.projection';
+	});
 	if (!response.ok()) {
 		throw new Error(`Annotation projection content failed with HTTP ${response.status()}.`);
 	}
@@ -814,7 +798,6 @@ export async function waitForSelectedFileReady(props: {
 			expectedSha256: props.oracle.fileContent.sha256,
 			path: props.oracle.largeFilePath,
 		},
-		{ timeout: annotationSaveJourneyTimeoutMilliseconds },
 	);
 }
 
