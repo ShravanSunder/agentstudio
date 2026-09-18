@@ -10,7 +10,7 @@ import Testing
 @Suite("Live dynamic command ClientCore integration", .serialized)
 struct AppIPCDynamicCommandClientTests {
     @Test("ClientCore discovers lists and executes one live typed command")
-    func clientDiscoversListsAndExecutesTypedCommand() throws {
+    func clientDiscoversListsAndExecutesTypedCommand() async throws {
         let scenario = try DynamicCommandScenario.make()
         defer { scenario.fixture.cleanup() }
         try scenario.fixture.server.start()
@@ -19,16 +19,19 @@ struct AppIPCDynamicCommandClientTests {
             descriptors: []
         )
 
-        let methodCatalog = try client.discoverCatalog(requestID: 10)
+        let methodCatalog = try await client.discoverCatalogWithoutBlockingCooperativePool(requestID: 10)
         let discovery = try IPCCommandDiscovery(methodCatalog: methodCatalog)
-        let listResponse = try requireSuccess(try client.call(discovery.commandListInvocation, requestID: 20))
+        let listResponse = try requireSuccess(
+            try await client.callWithoutBlockingCooperativePool(
+                discovery.commandListInvocation, requestID: 20))
         let commandCatalog = try discovery.decodeCommandCatalog(from: listResponse.normalizedResult)
         let invocation = try commandCatalog.makeInvocation(
             commandId: scenario.commandId,
             correlationId: scenario.correlationId,
             arguments: .noArguments
         )
-        let executeResponse = try requireSuccess(try client.call(invocation, requestID: 30))
+        let executeResponse = try requireSuccess(
+            try await client.callWithoutBlockingCooperativePool(invocation, requestID: 30))
         let result = try commandCatalog.decodeResult(executeResponse.normalizedResult, for: invocation)
 
         #expect(methodCatalog.methods.contains { $0.name == "command.list" })
@@ -41,7 +44,7 @@ struct AppIPCDynamicCommandClientTests {
     }
 
     @Test("unknown identity and wrong variant are refused before the command port")
-    func discoveryRefusesUnknownIdentityAndWrongVariantBeforePort() throws {
+    func discoveryRefusesUnknownIdentityAndWrongVariantBeforePort() async throws {
         let scenario = try DynamicCommandScenario.make()
         defer { scenario.fixture.cleanup() }
         try scenario.fixture.server.start()
@@ -49,8 +52,11 @@ struct AppIPCDynamicCommandClientTests {
             configuration: AgentStudioIPCClientConfiguration(socketPath: scenario.fixture.paths.socketURL.path),
             descriptors: []
         )
-        let discovery = try IPCCommandDiscovery(methodCatalog: client.discoverCatalog())
-        let listResponse = try requireSuccess(try client.call(discovery.commandListInvocation, requestID: 10))
+        let discovery = try IPCCommandDiscovery(
+            methodCatalog: try await client.discoverCatalogWithoutBlockingCooperativePool())
+        let listResponse = try requireSuccess(
+            try await client.callWithoutBlockingCooperativePool(
+                discovery.commandListInvocation, requestID: 10))
         let commandCatalog = try discovery.decodeCommandCatalog(from: listResponse.normalizedResult)
 
         #expect(throws: IPCCommandDiscoveryError.self) {
@@ -71,7 +77,7 @@ struct AppIPCDynamicCommandClientTests {
     }
 
     @Test("server rejects a command result whose correlation differs from its request")
-    func serverRejectsMismatchedCommandResultIdentity() throws {
+    func serverRejectsMismatchedCommandResultIdentity() async throws {
         let scenario = try DynamicCommandScenario.make(resultCorrelationId: UUIDv7.generate())
         defer { scenario.fixture.cleanup() }
         try scenario.fixture.server.start()
@@ -79,8 +85,10 @@ struct AppIPCDynamicCommandClientTests {
             configuration: AgentStudioIPCClientConfiguration(socketPath: scenario.fixture.paths.socketURL.path),
             descriptors: []
         )
-        let discovery = try IPCCommandDiscovery(methodCatalog: client.discoverCatalog())
-        let listResponse = try requireSuccess(try client.call(discovery.commandListInvocation))
+        let discovery = try IPCCommandDiscovery(
+            methodCatalog: try await client.discoverCatalogWithoutBlockingCooperativePool())
+        let listResponse = try requireSuccess(
+            try await client.callWithoutBlockingCooperativePool(discovery.commandListInvocation))
         let commandCatalog = try discovery.decodeCommandCatalog(from: listResponse.normalizedResult)
         let invocation = try commandCatalog.makeInvocation(
             commandId: scenario.commandId,
@@ -88,7 +96,7 @@ struct AppIPCDynamicCommandClientTests {
             arguments: .noArguments
         )
 
-        switch try client.call(invocation, requestID: 40) {
+        switch try await client.callWithoutBlockingCooperativePool(invocation, requestID: 40) {
         case .success:
             Issue.record("Mismatched command result must not cross the server boundary")
         case .remoteFailure(let failure):
@@ -98,12 +106,12 @@ struct AppIPCDynamicCommandClientTests {
     }
 
     @Test("raw server requests reject unknown identity and wrong variant before execution")
-    func rawServerRequestsRejectInvalidCommandSelectionBeforePort() throws {
+    func rawServerRequestsRejectInvalidCommandSelectionBeforePort() async throws {
         let scenario = try DynamicCommandScenario.make()
         defer { scenario.fixture.cleanup() }
         try scenario.fixture.server.start()
 
-        let unknownResponse = try sendRequest(
+        let unknownResponse = try await sendRequestWithoutBlockingCooperativePool(
             socketPath: scenario.fixture.paths.socketURL.path,
             request: JSONRPCClientRequest(
                 id: .number(45),
@@ -121,7 +129,7 @@ struct AppIPCDynamicCommandClientTests {
         #expect(unknownResponse.error?.message == "unsupported capability")
         #expect(scenario.commandPort.receivedExecutionRequests.isEmpty)
 
-        let wrongVariantResponse = try sendRequest(
+        let wrongVariantResponse = try await sendRequestWithoutBlockingCooperativePool(
             socketPath: scenario.fixture.paths.socketURL.path,
             request: JSONRPCClientRequest(
                 id: .number(46),
@@ -143,7 +151,7 @@ struct AppIPCDynamicCommandClientTests {
     }
 
     @Test("one authenticated socket can list and execute after its single login")
-    func oneAuthenticatedConnectionSupportsMultipleCommandCalls() throws {
+    func oneAuthenticatedConnectionSupportsMultipleCommandCalls() async throws {
         let scenario = try DynamicCommandScenario.make()
         defer { scenario.fixture.cleanup() }
         try scenario.fixture.server.start()
@@ -152,13 +160,14 @@ struct AppIPCDynamicCommandClientTests {
             endpoint: UnixSocketEndpoint(path: scenario.fixture.paths.socketURL.path))
         defer { connection.close() }
         var reader = TestFrameReader()
-        try login(connection: connection, token: token, requestId: 50, reader: &reader)
+        try await loginWithoutBlockingMainActor(
+            connection: connection, token: token, requestId: 50, reader: &reader)
 
         try sendRequest(
             connection: connection,
             request: JSONRPCClientRequest(id: .number(51), method: "command.list", params: .object([:]))
         )
-        let listResponse = try reader.receiveResponse(connection: connection)
+        let listResponse = try await reader.receiveResponseWithoutBlockingMainActor(connection: connection)
         let catalog = try decodeResponseResult(IPCCommandCatalogResult.self, from: listResponse)
         #expect(catalog.commands.map(\.id) == [scenario.commandId])
 
@@ -175,7 +184,7 @@ struct AppIPCDynamicCommandClientTests {
                 params: try JSONRPCCodec.encodeJSONValue(request)
             )
         )
-        let executeResponse = try reader.receiveResponse(connection: connection)
+        let executeResponse = try await reader.receiveResponseWithoutBlockingMainActor(connection: connection)
         let result = try decodeResponseResult(IPCCommandExecutionResult.self, from: executeResponse)
 
         #expect(result.commandId == scenario.commandId)
@@ -320,7 +329,7 @@ struct AppIPCDynamicCommandClientTests {
         try listener.start { connection in
             defer { connection.close() }
             var decoder = NDJSONFrameDecoder(maxFrameBytes: 1_048_576)
-            let request = try receiveDynamicCommandRequest(connection: connection, decoder: &decoder)
+            let request = try receiveListenerHandlerRequest(connection: connection, decoder: &decoder)
             #expect(request.method == "system.capabilities")
             try connection.send(
                 dynamicCommandResponseFrame(id: request.id, result: foreignCatalog)
@@ -605,19 +614,6 @@ private func requireStructuredCLIError(_ result: CLIProcessResult) throws -> Str
 
 private func temporaryDynamicCommandSocketPath() -> String {
     "/tmp/asipc-cli-errors-\(UUIDv7.generate().uuidString).sock"
-}
-
-private func receiveDynamicCommandRequest(
-    connection: UnixSocketConnection,
-    decoder: inout NDJSONFrameDecoder
-) throws -> JSONRPCRequest {
-    while true {
-        let data = try connection.receive(maxBytes: 4096)
-        let frames = try decoder.append(data)
-        if let frame = frames.first {
-            return try JSONRPCCodec.decodeRequest(frame)
-        }
-    }
 }
 
 private func dynamicCommandResponseFrame<Result: Encodable>(

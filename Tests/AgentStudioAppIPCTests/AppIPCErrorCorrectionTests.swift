@@ -8,7 +8,7 @@ import Testing
 @Suite("App IPC finite error corrections", .serialized)
 struct AppIPCErrorCorrectionTests {
     @Test("cross-pane denial returns the canonical missing grant scope")
-    func crossPaneDenialReturnsCanonicalMissingGrantScope() throws {
+    func crossPaneDenialReturnsCanonicalMissingGrantScope() async throws {
         let boundPaneId = UUIDv7.generate()
         let targetPaneId = UUIDv7.generate()
         let commandId = IPCCommandIdentifier(rawValue: "fixtureCrossPaneCommand")
@@ -60,7 +60,8 @@ struct AppIPCErrorCorrectionTests {
         )
         defer { connection.close() }
         var reader = TestFrameReader()
-        try login(connection: connection, token: token, requestId: 1, reader: &reader)
+        try await loginWithoutBlockingMainActor(
+            connection: connection, token: token, requestId: 1, reader: &reader)
 
         try sendRequest(
             connection: connection,
@@ -76,7 +77,7 @@ struct AppIPCErrorCorrectionTests {
                 )
             )
         )
-        let response = try reader.receiveResponse(connection: connection)
+        let response = try await reader.receiveResponseWithoutBlockingMainActor(connection: connection)
 
         #expect(response.error?.code == -32_002)
         #expect(response.error?.message == "missing grant")
@@ -99,13 +100,13 @@ struct AppIPCErrorCorrectionTests {
     }
 
     @Test("unknown method returns a finite correction without reflecting input")
-    func unknownMethodReturnsControlledCorrection() throws {
+    func unknownMethodReturnsControlledCorrection() async throws {
         let fixture = try LiveServerFixture(accessMode: .unsafeDebug, channel: .debug)
         defer { fixture.cleanup() }
         try fixture.server.start()
         let rawMethod = "private.future.method.DO_NOT_REFLECT"
 
-        let response = try sendRequest(
+        let response = try await sendRequestWithoutBlockingCooperativePool(
             socketPath: fixture.paths.socketURL.path,
             request: JSONRPCClientRequest(id: .number(3), method: rawMethod, params: .object([:]))
         )
@@ -124,13 +125,13 @@ struct AppIPCErrorCorrectionTests {
     }
 
     @Test("unknown command is distinct from known unavailable command")
-    func unknownCommandHasControlledCatalogCorrection() throws {
+    func unknownCommandHasControlledCatalogCorrection() async throws {
         let scenario = try makeCommandScenario()
         defer { scenario.fixture.cleanup() }
         try scenario.fixture.server.start()
         let unknownId = "privateFutureCommandDoNotReflect"
 
-        let unknown = try sendCommand(
+        let unknown = try await sendCommand(
             fixture: scenario.fixture,
             commandId: unknownId,
             paneId: scenario.paneId,
@@ -147,7 +148,7 @@ struct AppIPCErrorCorrectionTests {
         let encodedUnknown = try encodedError(unknown)
         #expect(!encodedUnknown.contains(unknownId))
 
-        let knownUnavailable = try sendCommand(
+        let knownUnavailable = try await sendCommand(
             fixture: scenario.fixture,
             commandId: scenario.commandId.rawValue,
             paneId: scenario.paneId,
@@ -160,12 +161,12 @@ struct AppIPCErrorCorrectionTests {
     }
 
     @Test("wrong command target kind is structured and rejected before the port")
-    func wrongCommandTargetKindRejectsBeforeEffect() throws {
+    func wrongCommandTargetKindRejectsBeforeEffect() async throws {
         let scenario = try makeCommandScenario()
         defer { scenario.fixture.cleanup() }
         try scenario.fixture.server.start()
 
-        let response = try sendRequest(
+        let response = try await sendRequestWithoutBlockingCooperativePool(
             socketPath: scenario.fixture.paths.socketURL.path,
             request: JSONRPCClientRequest(
                 id: .number(6),
@@ -245,8 +246,8 @@ private func sendCommand(
     commandId: String,
     paneId: UUID,
     requestId: Int
-) throws -> JSONRPCResponseMessage {
-    try sendRequest(
+) async throws -> JSONRPCResponseMessage {
+    try await sendRequestWithoutBlockingCooperativePool(
         socketPath: fixture.paths.socketURL.path,
         request: JSONRPCClientRequest(
             id: .number(requestId),

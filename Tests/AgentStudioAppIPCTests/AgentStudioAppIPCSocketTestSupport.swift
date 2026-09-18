@@ -1,6 +1,8 @@
 import AgentStudioAppIPC
+import AgentStudioIPCClientCore
 import AgentStudioIPCTransport
 import AgentStudioProgrammaticControl
+import AgentStudioTestSupport
 import Foundation
 import Testing
 
@@ -162,6 +164,55 @@ struct TestFrameReader {
                     continuation.resume(throwing: error)
                 }
             }
+        }
+    }
+}
+
+/// `AgentStudioIPCClient` is synchronous: every call sends a frame and then
+/// blocks in `UnixSocketConnection.receive` until the app answers. From a test
+/// body that block lands on the cooperative executor, which is where the
+/// server's own connection handler needs to run, so these shims move the wait
+/// to a libdispatch thread. See `withoutBlockingCooperativePool`.
+extension AgentStudioIPCClient {
+    func discoverCatalogWithoutBlockingCooperativePool(
+        requestID: Int = 1
+    ) async throws -> IPCMethodCatalogResult {
+        try await withoutBlockingCooperativePool { try discoverCatalog(requestID: requestID) }
+    }
+
+    func callWithoutBlockingCooperativePool(
+        _ invocation: IPCDescriptorInvocation,
+        requestID: Int = 1
+    ) async throws -> IPCDescriptorClientCallResult {
+        try await withoutBlockingCooperativePool { try call(invocation, requestID: requestID) }
+    }
+}
+
+/// The socket-path form of `sendRequest`, off the cooperative pool. The
+/// connection is opened, used and closed inside the one hop.
+func sendRequestWithoutBlockingCooperativePool(
+    socketPath: String,
+    request: JSONRPCClientRequest
+) async throws -> JSONRPCResponseMessage {
+    try await withoutBlockingCooperativePool { try sendRequest(socketPath: socketPath, request: request) }
+}
+
+/// Reads one request inside a `UnixSocketListener.start` handler.
+///
+/// This blocking receive is correct where it is used: the listener invokes its
+/// handler on its own serial dispatch queue, never on the cooperative executor,
+/// so parking here costs a libdispatch thread rather than one the IPC server
+/// needs. It lives in this file so the blocking primitive stays in the handful
+/// of allowlisted places the lint rule knows about.
+func receiveListenerHandlerRequest(
+    connection: UnixSocketConnection,
+    decoder: inout NDJSONFrameDecoder
+) throws -> JSONRPCRequest {
+    while true {
+        let data = try connection.receive(maxBytes: 4096)
+        let frames = try decoder.append(data)
+        if let frame = frames.first {
+            return try JSONRPCCodec.decodeRequest(frame)
         }
     }
 }
