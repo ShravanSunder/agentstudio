@@ -96,9 +96,20 @@ let package = Package(
                 .linkedLibrary("c++"),
             ]
         ),
+        // Pure, Foundation-only value types and functions shared by the app and
+        // the `agentstudio-cli` executable. No package dependencies, nothing
+        // internal: this is what lets the CLI stay a leaf-only binary.
+        .target(
+            name: "AgentStudioPrimitives",
+            path: "Sources/AgentStudioPrimitives",
+            swiftSettings: [
+                .swiftLanguageMode(.v6)
+            ]
+        ),
         .target(
             name: "AgentStudioInfrastructure",
             dependencies: [
+                "AgentStudioPrimitives",
                 .product(name: "GRDB", package: "GRDB.swift"),
                 .product(name: "Logging", package: "swift-log"),
                 .product(name: "Metrics", package: "swift-metrics"),
@@ -276,6 +287,7 @@ let package = Package(
             name: "AgentStudioIPCClientCore",
             dependencies: [
                 "AgentStudioIPCTransport",
+                "AgentStudioPrimitives",
                 "AgentStudioProgrammaticControl",
             ],
             path: "Sources/AgentStudioIPCClientCore",
@@ -300,7 +312,7 @@ let package = Package(
             name: "AgentStudioIPCClient",
             dependencies: [
                 "AgentStudioIPCClientCore",
-                "AgentStudioInfrastructure",
+                "AgentStudioPrimitives",
                 "AgentStudioProgrammaticControl",
             ],
             path: "Sources/AgentStudioIPCClient",
@@ -511,8 +523,8 @@ let package = Package(
         .testTarget(
             name: "AgentStudioProgrammaticControlTests",
             dependencies: [
+                "AgentStudioPrimitives",
                 "AgentStudioProgrammaticControl",
-                "AgentStudioInfrastructure",
             ],
             path: "Tests/AgentStudioProgrammaticControlTests",
             swiftSettings: [
@@ -551,8 +563,8 @@ let package = Package(
             dependencies: [
                 "AgentStudioIPCClientCore",
                 "AgentStudioIPCTransport",
+                "AgentStudioPrimitives",
                 "AgentStudioProgrammaticControl",
-                "AgentStudioInfrastructure",
             ],
             path: "Tests/AgentStudioIPCClientTests",
             resources: [

@@ -1,5 +1,5 @@
 import AgentStudioIPCClientCore
-import AgentStudioInfrastructure
+import AgentStudioPrimitives
 import Foundation
 
 /// Binds the descriptor CLI to the real process. Everything the CLI decides

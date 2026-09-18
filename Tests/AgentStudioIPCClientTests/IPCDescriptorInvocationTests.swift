@@ -1,5 +1,5 @@
 import AgentStudioIPCClientCore
-import AgentStudioInfrastructure
+import AgentStudioPrimitives
 import AgentStudioProgrammaticControl
 import Foundation
 import Testing

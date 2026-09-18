@@ -273,13 +273,6 @@ struct SessionsVerticalHarness {
         try JSONRPCCodec.decodeResponse(try await responseFrame(method: method, params: params))
     }
 
-    /// One request, with how long the whole exchange took.
-    func measuredResponseFrame(method: String) async throws -> (frame: String, duration: Duration) {
-        let started = ContinuousClock.now
-        let frame = try await responseFrame(method: method, params: .object([:]))
-        return (frame, ContinuousClock.now - started)
-    }
-
     /// Returns the frame exactly as it crossed the socket, so a caller can
     /// measure what the transport carried rather than what the composition
     /// would have produced in process.

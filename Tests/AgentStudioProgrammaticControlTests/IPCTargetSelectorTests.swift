@@ -1,4 +1,4 @@
-import AgentStudioInfrastructure
+import AgentStudioPrimitives
 import AgentStudioProgrammaticControl
 import Testing
 

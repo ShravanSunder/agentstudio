@@ -1,5 +1,5 @@
 import AgentStudioIPCTransport
-import AgentStudioInfrastructure
+import AgentStudioPrimitives
 import AgentStudioProgrammaticControl
 import Foundation
 import Testing

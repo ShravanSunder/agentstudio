@@ -1,3 +1,9 @@
+// AgentStudioPrimitives owns pure, Foundation-only value types and functions
+// shared by the AgentStudio app and the `agentstudio-cli` executable. It has no
+// package dependencies and imports nothing internal, so the CLI can depend on it
+// without pulling in AgentStudioInfrastructure's GRDB/OTel/libgit2 base.
+// New pure helpers of that shape belong here rather than in Infrastructure.
+
 import Foundation
 import Security
 
@@ -16,8 +22,8 @@ import Security
 ///   Byte  8     (8 bits):  variant (10) | rand_b high 6 bits
 ///   Bytes 9-15  (56 bits): rand_b remaining
 ///
-/// This lives in Infrastructure/ because it's a domain-agnostic utility
-/// that imports nothing internal.
+/// This lives in `AgentStudioPrimitives` because it is a pure, Foundation-only
+/// value helper shared by both the app and the `agentstudio-cli` executable.
 package enum UUIDv7 {
 
     /// Generate the preferred identity for a newly created durable AgentStudio entity.
