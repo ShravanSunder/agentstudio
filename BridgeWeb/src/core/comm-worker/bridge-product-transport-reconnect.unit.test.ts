@@ -263,10 +263,11 @@ describe('Bridge product transport fresh metadata stream after poison', () => {
 	test('a frame naming a subscription the client no longer holds fails the fresh stream closed', async () => {
 		const harness = createTransportHarness();
 		const interestHash = emptyInterestHash('file.metadata');
-		const subscription = harness.transport.subscribe(
-			bridgeProductFileMetadataApplicationProtocol,
-			{ interests: [], pathScope: [], source: fileSourceConfiguration() },
-		);
+		const subscription = harness.transport.subscribe(bridgeProductFileMetadataApplicationProtocol, {
+			interests: [],
+			pathScope: [],
+			source: fileSourceConfiguration(),
+		});
 		const events = subscription.events[Symbol.asyncIterator]();
 		const settled = events.next().then(
 			() => 'delivered',
