@@ -105,6 +105,9 @@ struct SwiftLaneRunnerReportTests {
                 "cpu_count",
                 "cpu_seconds",
                 "cpu_utilization",
+                // Where a wedged run's event-stream ledger was kept, and whether
+                // the lane's own child group was actually reaped on the way out.
+                "event_stream",
                 "exit_status",
                 "failed_isolated_suite",
                 "failed_isolated_suites",
@@ -115,6 +118,7 @@ struct SwiftLaneRunnerReportTests {
                 "peak_started_tests",
                 "running_parameterized_cases_at_timeout",
                 "swift",
+                "timeout_reap",
                 "wall_seconds",
                 "xcode",
             ]
@@ -184,6 +188,85 @@ struct SwiftLaneRunnerReportTests {
         #expect(laneOutput.contains("BATCH=1"))
         #expect(laneOutput.contains("COUNT=1"))
         #expect(laneOutput.contains("CrashingSuite\t139\tSEGV"))
+    }
+
+    @Test("a timed out child that ignores TERM is still reaped, and the report is still written")
+    func timedOutChildThatIgnoresTermIsStillReaped() throws {
+        // The shape that survived the old parent-link walk: a child that traps
+        // TERM, so only a group-wide KILL removes it. One of these left alive
+        // holds a build slot, and the NEXT run dies with "all 2 slots are busy",
+        // which reads like an unrelated slot error rather than this timeout.
+        let workDirectory = NSTemporaryDirectory() + "agentstudio-s2e-reap-\(UUIDv7.generate())"
+        defer { try? FileManager.default.removeItem(atPath: workDirectory) }
+        let laneOutput = try runBashAllowingFailure(
+            "mkdir -p '\(workDirectory)'; "
+                + "LOG_PREFIX=lane; TIMEOUT_SECONDS=2; BUILD_PATH=.build-agent-1; "
+                + "export LANE_EVENT_STREAM_DIR='\(workDirectory)/ci-runs'; "
+                + "source scripts/swift-test-helpers.sh; set +e; "
+                + "run_swift_with_timeout 'reap probe' 2 /bin/bash -c "
+                + #"'trap \"\" TERM; echo $$ > \"$0\"/child.pid; while true; do sleep 1; done' "#
+                + "'\(workDirectory)' "
+                + "|| returned=$?; echo \"RETURNED=${returned:-0}\"; "
+                + "child_pid=$(cat '\(workDirectory)/child.pid' 2>/dev/null || echo 0); "
+                + "if [ \"$child_pid\" -gt 0 ] && kill -0 \"$child_pid\" 2>/dev/null; then "
+                + "echo CHILD_ALIVE=yes; kill -9 \"$child_pid\" 2>/dev/null; "
+                + "else echo CHILD_ALIVE=no; fi"
+        )
+
+        // The reap is the point: nothing of the lane's child outlives the timeout.
+        #expect(laneOutput.contains("CHILD_ALIVE=no"))
+        // And it took the KILL branch, because this child ignores TERM. Asserting
+        // the exact branch keeps the test honest: a child that happened to exit on
+        // its own would report `terminated` and prove nothing about the escalation.
+        #expect(laneOutput.contains("timeout_reap=killed"))
+        // And the report still happens — reaping must not cost the diagnosis.
+        #expect(laneOutput.contains("ERROR: no output progress from 'reap probe'"))
+        #expect(laneOutput.contains("RETURNED=124"))
+    }
+
+    @Test("a wedged run keeps its event-stream ledger, and a clean run does not")
+    func wedgedRunKeepsItsEventStreamLedger() throws {
+        // The ledger is the only authoritative record of which cases started and
+        // ended. Without it the same wedged runs produced two contradictory
+        // unfinished-suite counts from console archaeology.
+        let workDirectory = NSTemporaryDirectory() + "agentstudio-s2e-ledger-\(UUIDv7.generate())"
+        defer { try? FileManager.default.removeItem(atPath: workDirectory) }
+        let ledgerDirectory = workDirectory + "/ci-runs"
+        // The child writes real records to the path the runner handed it, then
+        // stalls without output, which is exactly how a wedged suite behaves.
+        let wedgedOutput = try runBashAllowingFailure(
+            "mkdir -p '\(workDirectory)'; "
+                + "LOG_PREFIX=lane; TIMEOUT_SECONDS=2; BUILD_PATH=.build-agent-1; "
+                + "export LANE_EVENT_STREAM_DIR='\(ledgerDirectory)'; "
+                + "source scripts/swift-test-helpers.sh; set +e; "
+                + "run_swift_with_timeout 'ledger probe' 2 /bin/bash -c "
+                + #"'while [ \"$#\" -gt 0 ]; do if [ \"$1\" = \"--event-stream-output-path\" ]; "#
+                + #"then printf \"%s\\n\" LEDGER_RECORD_ONE LEDGER_RECORD_TWO > \"$2\"; fi; shift; done; "#
+                + #"while true; do sleep 1; done' probe "#
+                + "|| returned=$?; echo \"RETURNED=${returned:-0}\"; "
+                + "for ledger in '\(ledgerDirectory)'/*.events.jsonl; do "
+                + "echo \"LEDGER_AT=$ledger\"; cat \"$ledger\"; done"
+        )
+
+        #expect(wedgedOutput.contains("RETURNED=124"))
+        // The path is printed under the lane prefix so a reader can find it.
+        #expect(wedgedOutput.contains("lane-report event_stream=\(ledgerDirectory)/lane-ledger-probe-"))
+        // ...and the records survived the reap.
+        #expect(wedgedOutput.contains("LEDGER_RECORD_ONE"))
+        #expect(wedgedOutput.contains("LEDGER_RECORD_TWO"))
+
+        let cleanDirectory = workDirectory + "/clean-runs"
+        let cleanOutput = try runBash(
+            "LOG_PREFIX=lane; TIMEOUT_SECONDS=60; BUILD_PATH=.build-agent-1; "
+                + "export LANE_EVENT_STREAM_DIR='\(cleanDirectory)'; "
+                + "source scripts/swift-test-helpers.sh; "
+                + "run_swift_with_timeout 'clean probe' 60 /bin/bash -c 'echo CLEAN_RUN_OK'; "
+                + "echo \"LEDGERS=$(ls -1 '\(cleanDirectory)' 2>/dev/null | wc -l | tr -d '[:space:]')\""
+        )
+
+        // A run that ended cleanly has nothing to explain, so it keeps nothing.
+        #expect(cleanOutput.contains("CLEAN_RUN_OK"))
+        #expect(cleanOutput.contains("LEDGERS=0"))
     }
 
     @Test("a clean lane reports zero failed isolated suites")
