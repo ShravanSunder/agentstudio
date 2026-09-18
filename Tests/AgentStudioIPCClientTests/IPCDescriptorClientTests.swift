@@ -1,6 +1,6 @@
 import AgentStudioIPCClientCore
 import AgentStudioIPCTransport
-import AgentStudioInfrastructure
+import AgentStudioPrimitives
 import AgentStudioProgrammaticControl
 import Dispatch
 import Foundation

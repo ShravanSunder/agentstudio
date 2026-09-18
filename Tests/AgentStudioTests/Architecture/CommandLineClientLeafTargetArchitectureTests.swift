@@ -9,9 +9,9 @@ import Testing
 /// libgit2 — and with them AppKit, SwiftUI, WebKit and libsqlite3 — into a
 /// process that only speaks JSON-RPC over a Unix socket.
 ///
-/// These tests pin the allowed module imports of the four CLI-side targets so
-/// that regression fails the suite instead of quietly adding ~50 MB to the
-/// helper and minutes to its build.
+/// These tests pin the allowed module imports of the four CLI-side targets, and
+/// of the two test targets that cover them, so that regression fails the suite
+/// instead of quietly adding ~50 MB to the helper and minutes to its build.
 @Suite("Command-line client leaf targets")
 struct CommandLineClientLeafTargetArchitectureTests {
 
@@ -36,6 +36,16 @@ struct CommandLineClientLeafTargetArchitectureTests {
         "Sources/AgentStudioIPCClientCore",
         "Sources/AgentStudioIPCTransport",
         "Sources/AgentStudioProgrammaticControl",
+    ]
+
+    /// The suites covering the CLI side keep the same leaf-only graph, plus the
+    /// test framework. A test target that drags Infrastructure back in rebuilds
+    /// GRDB, OTel and libgit2 for every `mise run test:swift`.
+    private static let allowedTestImportedModules = allowedImportedModules.union(["Testing"])
+
+    private static let commandLineClientTestTargetPaths = [
+        "Tests/AgentStudioIPCClientTests",
+        "Tests/AgentStudioProgrammaticControlTests",
     ]
 
     @Test("CLI-side targets import only Foundation-level modules and each other")
@@ -82,6 +92,29 @@ struct CommandLineClientLeafTargetArchitectureTests {
         )
     }
 
+    @Test("CLI-side test targets import only Foundation-level modules and each other")
+    func commandLineClientTestTargetsImportOnlyLeafModules() throws {
+        // Arrange
+        let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
+
+        // Act
+        let disallowed = try Self.commandLineClientTestTargetPaths.flatMap { targetPath in
+            try Self.importedModules(inTargetAt: targetPath, projectRoot: projectRoot)
+                .filter { !Self.allowedTestImportedModules.contains($0.moduleName) }
+        }
+
+        // Assert
+        #expect(
+            disallowed.isEmpty,
+            """
+            The suites covering the CLI side must stay on the same leaf graph. \
+            Pure Foundation-only helpers belong in AgentStudioPrimitives. \
+            Disallowed imports: \
+            \(disallowed.map { "\($0.relativePath): import \($0.moduleName)" }.sorted().joined(separator: ", "))
+            """
+        )
+    }
+
     @Test("Package.swift keeps the CLI product off the Infrastructure dependency edge")
     func packageManifestKeepsCommandLineClientOffInfrastructure() throws {
         // Arrange
@@ -89,13 +122,20 @@ struct CommandLineClientLeafTargetArchitectureTests {
         let manifest = try String(contentsOf: projectRoot.appending(path: "Package.swift"), encoding: .utf8)
 
         // Act
-        let commandLineClientDependencyBlocks = ["AgentStudioIPCClient", "AgentStudioIPCClientCore"]
+        let commandLineClientTargetNames = [
+            "AgentStudioIPCClient",
+            "AgentStudioIPCClientCore",
+            "AgentStudioIPCClientTests",
+            "AgentStudioProgrammaticControlTests",
+        ]
+        let commandLineClientDependencyBlocks =
+            commandLineClientTargetNames
             .compactMap { targetName in
                 Self.dependencyBlock(forTargetNamed: targetName, in: manifest).map { (targetName, $0) }
             }
 
         // Assert
-        #expect(commandLineClientDependencyBlocks.count == 2)
+        #expect(commandLineClientDependencyBlocks.count == commandLineClientTargetNames.count)
         for (targetName, dependencyBlock) in commandLineClientDependencyBlocks {
             #expect(
                 !dependencyBlock.contains("AgentStudioInfrastructure"),

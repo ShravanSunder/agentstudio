@@ -523,8 +523,8 @@ let package = Package(
         .testTarget(
             name: "AgentStudioProgrammaticControlTests",
             dependencies: [
+                "AgentStudioPrimitives",
                 "AgentStudioProgrammaticControl",
-                "AgentStudioInfrastructure",
             ],
             path: "Tests/AgentStudioProgrammaticControlTests",
             swiftSettings: [
@@ -563,8 +563,8 @@ let package = Package(
             dependencies: [
                 "AgentStudioIPCClientCore",
                 "AgentStudioIPCTransport",
+                "AgentStudioPrimitives",
                 "AgentStudioProgrammaticControl",
-                "AgentStudioInfrastructure",
             ],
             path: "Tests/AgentStudioIPCClientTests",
             resources: [
