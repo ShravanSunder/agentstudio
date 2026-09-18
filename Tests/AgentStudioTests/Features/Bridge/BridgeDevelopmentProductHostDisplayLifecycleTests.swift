@@ -17,12 +17,16 @@ struct BridgeDevelopmentProductHostDisplayLifecycleTests {
         )
         defer { FilesystemTestGitRepo.destroy(repositoryURL) }
         try FilesystemTestGitRepo.seedTrackedAndUntrackedChanges(at: repositoryURL)
+        let commitObserver = ReviewPublicationCommitObserver()
         let host = try await BridgeDevelopmentProductHost(
             source: makeDevelopmentProductSource(worktreeRoot: repositoryURL),
             contributionTargetCommit: developmentContributionTargetCommit(
                 worktreeRoot: repositoryURL
             ),
-            makeReviewProvider: { _, _ in BridgeObservabilitySmokeReviewSourceProvider() }
+            makeReviewProvider: { _, _ in BridgeObservabilitySmokeReviewSourceProvider() },
+            didCommitReviewPublication: { [commitObserver] in
+                commitObserver.recordCommit()
+            }
         )
 
         try await withMainActorShutdownDevelopmentProductHost(host) {
@@ -40,8 +44,10 @@ struct BridgeDevelopmentProductHostDisplayLifecycleTests {
             // Act
             try await worker.activateReviewViewerMode()
 
-            // Assert
-            #expect(await initialReviewPublicationArrives(in: host))
+            // Assert — await the coordinator's own commit, then still read the host once,
+            // so the host's diagnostic read path stays proved rather than assumed.
+            await commitObserver.waitForFirstCommit()
+            #expect(await host.diagnosticCommittedReviewPublication() != nil)
         }
     }
 
@@ -72,13 +78,32 @@ struct BridgeDevelopmentProductHostDisplayLifecycleTests {
     }
 }
 
-private func initialReviewPublicationArrives(in host: BridgeDevelopmentProductHost) async -> Bool {
-    let deadline = ContinuousClock.now + .seconds(5)
-    while ContinuousClock.now < deadline {
-        if await host.diagnosticCommittedReviewPublication() != nil { return true }
-        await Task.yield()
+/// Observes `BridgeReviewPublicationCoordinator.commit()`, the one moment the coordinator
+/// publishes that a Review publication exists. Installed before the action that triggers
+/// the commit, so there is no lost-wakeup window and nothing to poll.
+@MainActor
+private final class ReviewPublicationCommitObserver {
+    private var commitCount = 0
+    private var firstCommitWaiters: [CheckedContinuation<Void, Never>] = []
+
+    func recordCommit() {
+        commitCount += 1
+        let waiters = firstCommitWaiters
+        firstCommitWaiters.removeAll()
+        for waiter in waiters {
+            waiter.resume()
+        }
     }
-    return await host.diagnosticCommittedReviewPublication() != nil
+
+    /// Returns at once if a commit already happened, so a late waiter is never stranded.
+    func waitForFirstCommit() async {
+        if commitCount > 0 {
+            return
+        }
+        await withCheckedContinuation { continuation in
+            firstCommitWaiters.append(continuation)
+        }
+    }
 }
 
 @MainActor
