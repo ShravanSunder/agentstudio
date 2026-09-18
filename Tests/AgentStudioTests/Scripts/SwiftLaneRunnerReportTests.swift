@@ -224,6 +224,50 @@ struct SwiftLaneRunnerReportTests {
         #expect(laneOutput.contains("RETURNED=124"))
     }
 
+    @Test("a grandchild that outlives its parent is still reaped")
+    func grandchildThatOutlivesItsParentIsStillReaped() throws {
+        // The real defect. The parent honours TERM and dies; its child ignores
+        // TERM and re-parents, so it is no longer reachable by walking live parent
+        // links from the lane's own pid. That survivor is the `swiftpm-testing-helper`
+        // that kept holding a build slot and made the next run fail with
+        // "all 2 slots are busy". Only this run's unique event-stream path can
+        // still find it — which is why the KILL path sweeps that token.
+        let workDirectory = NSTemporaryDirectory() + "agentstudio-s2e-orphan-\(UUIDv7.generate())"
+        defer { try? FileManager.default.removeItem(atPath: workDirectory) }
+        let laneOutput = try runBashAllowingFailure(
+            "mkdir -p '\(workDirectory)'; "
+                + "LOG_PREFIX=lane; TIMEOUT_SECONDS=2; BUILD_PATH=.build-agent-1; "
+                + "export LANE_EVENT_STREAM_DIR='\(workDirectory)/ci-runs'; "
+                + "source scripts/swift-test-helpers.sh; set +e; "
+                + "run_swift_with_timeout 'orphan probe' 2 /bin/bash -c "
+                // The subshell inherits this invocation's argv, so it carries the
+                // event-stream path the runner appended — the token that finds it.
+                // The PARENT records the pid with `$!` and only then exits, so the
+                // pid is on disk before anything can race it. Writing it from
+                // inside the subshell lost the race against `exit 0`, and reading
+                // `$$` there would have recorded the parent instead — either way
+                // the liveness check below would have passed vacuously.
+                // `trap : TERM` installs a no-op handler without needing nested
+                // quotes.
+                + "'( trap : TERM; while true; do sleep 1; done ) & "
+                + "echo $! > \(workDirectory)/orphan.pid; exit 0' "
+                + "|| returned=$?; echo \"RETURNED=${returned:-0}\"; "
+                + "orphan_pid=$(cat '\(workDirectory)/orphan.pid' 2>/dev/null || echo 0); "
+                + "echo \"ORPHAN_PID=${orphan_pid:-0}\"; "
+                + "if [ \"${orphan_pid:-0}\" -gt 0 ] && kill -0 \"$orphan_pid\" 2>/dev/null; then "
+                + "echo ORPHAN_ALIVE=yes; kill -9 \"$orphan_pid\" 2>/dev/null; "
+                + "else echo ORPHAN_ALIVE=no; fi"
+        )
+
+        // The probe must actually have produced an orphan, or "no survivor" below
+        // would be true for the wrong reason.
+        #expect(!laneOutput.contains("ORPHAN_PID=0"))
+        // Nothing of this run outlives the lane, however it re-parented.
+        #expect(laneOutput.contains("ORPHAN_ALIVE=no"))
+        #expect(laneOutput.contains("timeout_reap=killed"))
+        #expect(laneOutput.contains("RETURNED=124"))
+    }
+
     @Test("a wedged run keeps its event-stream ledger, and a clean run does not")
     func wedgedRunKeepsItsEventStreamLedger() throws {
         // The ledger is the only authoritative record of which cases started and

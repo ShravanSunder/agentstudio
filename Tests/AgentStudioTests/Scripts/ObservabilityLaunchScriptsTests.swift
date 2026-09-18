@@ -148,9 +148,14 @@ struct ObservabilityLaunchScriptsTests {
         // that group. It used to walk live parent links, which missed any
         // descendant that re-parented when its parent died — the survivor held a
         // build slot and made the next run fail with "all 2 slots are busy".
-        #expect(testHelperScript.contains("terminate_lane_process_group TERM \"$command_pid\""))
-        #expect(testHelperScript.contains("terminate_lane_process_group KILL \"$command_pid\""))
+        #expect(testHelperScript.contains("terminate_lane_child_tree TERM \"$command_pid\""))
+        #expect(testHelperScript.contains("terminate_lane_child_tree KILL \"$command_pid\""))
         #expect(!testHelperScript.contains("terminate_process_tree"))
+        // A survivor that re-parented is unreachable from the child pid, so the
+        // KILL path also sweeps this run's unique event-stream path. `pgrep` only
+        // lists; the kills are explicit and by pid, never a pattern-matching kill.
+        #expect(testHelperScript.contains("kill_lane_processes_by_run_token \"$event_stream_file\""))
+        #expect(!testHelperScript.contains("pkill -f"))
         #expect(!testHelperScript.contains("pkill -9 -f"))
         #expect(!agentInstructions.contains("pkill -f \"swift-build\""))
         #expect(ciWorkflow.contains("SWIFT_TEST_TIMEOUT_SECONDS: \"600\""))
