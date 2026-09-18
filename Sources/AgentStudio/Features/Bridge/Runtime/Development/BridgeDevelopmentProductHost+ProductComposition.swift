@@ -6,6 +6,7 @@ struct BridgeDevelopmentProductProviderPreparationInput {
     let gitReadContext: BridgeGitReadContext
     let reviewInitialization: BridgeDevelopmentProductReviewInitialization
     let reviewProvider: any BridgeReviewSourceProvider
+    let schemeTaskCensus: BridgeProductSchemeTaskCensus
     let source: BridgeDevelopmentProductSource
     let statusPhysicalGate: AgentStudioGitStatusPhysicalGate
     let worktreeAnnotationOutputCoordinator: WorktreeAnnotationOutputCoordinatorActor?
@@ -178,7 +179,8 @@ extension BridgeDevelopmentProductHost {
                     workerInstanceId: workerInstanceId
                 )
                 await worktreeAnnotationStore?.invalidateEditOwnerGeneration(workerInstanceId)
-            }
+            },
+            schemeTaskCensus: input.schemeTaskCensus
         )
         return (productAdmission, productAdmissionGate, productSessionOwner)
     }
