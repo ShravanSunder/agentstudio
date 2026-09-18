@@ -501,12 +501,62 @@ fast_serial_process_filter_pattern() {
   echo "SQLiteDatabaseFactoryProcessTests"
 }
 
+# Anchors a suite TYPE name so `--filter`/`--skip` selects that type and nothing
+# that merely lives in a file named after it.
+#
+# Swift Testing matches these as regexes with `contains` over the test's id, and a
+# FUNCTION's id ends with its source location. Captured from a real event stream
+# on this branch:
+#   suite:    AgentStudioInfrastructureTests.RepoScannerTests
+#   function: AgentStudioInfrastructureTests.RepoScannerTests/cloneRootGitdirIndirectionsOutsideScannedPathAreFilteredOut()/RepoScannerTests.swift:234:6
+#   sibling:  AgentStudioInfrastructureTests.RepoScannerClassificationTests/gitDirectoryIsCloneRoot()/RepoScannerTests.swift:430:6
+# The third id belongs to a DIFFERENT suite that happens to live in
+# RepoScannerTests.swift, so the bare name `RepoScannerTests` selected it too:
+# `--filter RepoScannerTests` admits 2 suites and 29 ids on this bundle. That is
+# how two process-global suites ended up sharing one process and the process
+# SIGSEGVed at exit (CI 35276671883).
+#
+# `\.<name>(/|$)` matches only the type component: the module separator `.` before
+# it, and either the function separator `/` or end-of-id after it. A file
+# component is always preceded by `/`, never `.`, so it can never match — and the
+# leading `.` also stops a name matching a longer type it is a prefix of.
+swift_test_isolated_suite_filter_pattern() {
+  local suite_type_name="$1"
+  local escaped_type_name
+
+  # Escape every non-identifier character. Suite names are Swift identifiers
+  # today; the anchor must not silently depend on that staying true.
+  escaped_type_name="$(printf '%s' "$suite_type_name" | /usr/bin/sed 's/[^A-Za-z0-9_]/\\&/g')"
+  printf '\\.%s(/|$)' "$escaped_type_name"
+}
+
+# The same anchor across a `|`-joined list of EXACT suite type names.
+#
+# Only for lists of exact names. `large_non_webkit_filter_pattern` deliberately
+# carries substring families (`Script`, `Smoke`, `Integration`, `SourceScan`) that
+# are meant to match many suites by prefix, and anchoring those would silently
+# drop whole suites out of their lane — the same class of bug in the opposite
+# direction.
+swift_test_isolated_suite_skip_pattern() {
+  local joined_type_names="${1:-}"
+  local anchored_patterns=()
+  local type_name
+  local IFS='|'
+
+  [ -n "$joined_type_names" ] || return 0
+  for type_name in $joined_type_names; do
+    [ -n "$type_name" ] || continue
+    anchored_patterns+=("$(swift_test_isolated_suite_filter_pattern "$type_name")")
+  done
+  printf '%s' "${anchored_patterns[*]}"
+}
+
 run_fast_serial_process_swift_tests() {
   run_swift_with_timeout \
     "serial fast process suites" \
     "$TIMEOUT_SECONDS" \
     env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" $(swift_test_parallelization_env_word) swift test ${EXTRA_SWIFT_TEST_ARGS:-} --skip-build \
-    --filter "$(fast_serial_process_filter_pattern)" \
+    --filter "$(swift_test_isolated_suite_filter_pattern "$(fast_serial_process_filter_pattern)")" \
     --skip WebKitSerializedTests --skip E2ESerializedTests --skip ZmxE2ETests --build-path "$BUILD_PATH"
 }
 
@@ -540,7 +590,7 @@ run_aggregate_serial_non_webkit_swift_tests() {
         env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" $(swift_test_parallelization_env_word) \
         DYLD_FRAMEWORK_PATH="$testing_framework_path" \
         "$swift_testing_helper" --test-bundle-path "$swift_test_bundle" \
-        --filter "$aggregate_serial_suite_filter" \
+        --filter "$(swift_test_isolated_suite_filter_pattern "$aggregate_serial_suite_filter")" \
         "$swift_test_bundle" --testing-library swift-testing
     ) &
     process_global_batch_pids+=("$!" "$aggregate_serial_suite_filter")
@@ -575,7 +625,7 @@ run_large_process_global_swift_tests() {
       env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" $(swift_test_parallelization_env_word) \
       DYLD_FRAMEWORK_PATH="$testing_framework_path" \
       "$swift_testing_helper" --test-bundle-path "$swift_test_bundle" \
-      --filter "$large_process_global_suite_filter" \
+      --filter "$(swift_test_isolated_suite_filter_pattern "$large_process_global_suite_filter")" \
       "$swift_test_bundle" --testing-library swift-testing
   done < <(large_process_global_suite_filters)
 }
@@ -673,6 +723,27 @@ run_non_serialized_swift_tests() {
   fi
 }
 
+# What the fast inventory skips because another phase owns it.
+#
+# The exact suite names are ANCHORED for the same reason the isolated `--filter`
+# is: an unanchored name also skips anything living in a file named after it, so
+# a fast-lane suite sharing a file with an isolated suite was silently dropped
+# from the lane and run nowhere. `large_non_webkit_filter_pattern` stays
+# unanchored on purpose — it carries substring families (`Script`, `Smoke`,
+# `Integration`, `SourceScan`) meant to match many suites by prefix, and
+# anchoring those would drop whole suites instead.
+fast_non_webkit_skip_pattern() {
+  local exact_suite_names
+  exact_suite_names="GlobalPreferencesBootstrapBenchmarkTests|RepoExplorerNativeTablePilotBenchmarkTests"
+  exact_suite_names="$exact_suite_names|$(large_serial_non_webkit_filter_pattern)"
+  exact_suite_names="$exact_suite_names|$(aggregate_serial_non_webkit_filter_pattern)"
+  exact_suite_names="$exact_suite_names|$(fast_serial_process_filter_pattern)"
+
+  printf '%s|%s' \
+    "$(swift_test_isolated_suite_skip_pattern "$exact_suite_names")" \
+    "$(large_non_webkit_filter_pattern)"
+}
+
 run_fast_non_webkit_swift_tests() {
   # Swift Testing provides in-process case concurrency, bounded by the explicit
   # SWT_EXPERIMENTAL_MAXIMUM_PARALLELIZATION_WIDTH exported below. SwiftPM's
@@ -683,7 +754,7 @@ run_fast_non_webkit_swift_tests() {
     "$TIMEOUT_SECONDS" \
     env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" $(swift_test_parallelization_env_word) swift test ${EXTRA_SWIFT_TEST_ARGS:-} --skip-build \
     --skip WebKitSerializedTests --skip E2ESerializedTests --skip ZmxE2ETests \
-    --skip "GlobalPreferencesBootstrapBenchmarkTests|RepoExplorerNativeTablePilotBenchmarkTests|$(large_non_webkit_filter_pattern)|$(large_serial_non_webkit_filter_pattern)|$(aggregate_serial_non_webkit_filter_pattern)|$(fast_serial_process_filter_pattern)" --build-path "$BUILD_PATH"
+    --skip "$(fast_non_webkit_skip_pattern)" --build-path "$BUILD_PATH"
 
   run_aggregate_serial_non_webkit_swift_tests
   run_fast_serial_process_swift_tests

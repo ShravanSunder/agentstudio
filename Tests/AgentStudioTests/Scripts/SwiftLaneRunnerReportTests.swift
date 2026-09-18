@@ -269,6 +269,66 @@ struct SwiftLaneRunnerReportTests {
         #expect(cleanOutput.contains("LEDGERS=0"))
     }
 
+    @Test("an isolated suite filter matches its type, never a file named after it")
+    func isolatedSuiteFilterMatchesItsTypeNeverAFileNamedAfterIt() throws {
+        // Real ids captured from an event stream on this bundle. The third belongs
+        // to a DIFFERENT suite that merely lives in RepoScannerTests.swift, and the
+        // bare name selected it too: `--filter RepoScannerTests` admitted 2 suites
+        // and 29 ids. Two process-global suites sharing one process is what
+        // SIGSEGVed in CI 35276671883.
+        let suiteIdentifier = "AgentStudioInfrastructureTests.RepoScannerTests"
+        let ownFunctionIdentifier =
+            "AgentStudioInfrastructureTests.RepoScannerTests/"
+            + "cloneRootGitdirIndirectionsOutsideScannedPathAreFilteredOut()/RepoScannerTests.swift:234:6"
+        let siblingIdentifier =
+            "AgentStudioInfrastructureTests.RepoScannerClassificationTests/"
+            + "gitDirectoryIsCloneRoot()/RepoScannerTests.swift:430:6"
+
+        let matches = try runBash(
+            "source scripts/swift-test-helpers.sh; "
+                + "pattern=$(swift_test_isolated_suite_filter_pattern RepoScannerTests); "
+                + "echo \"PATTERN=$pattern\"; "
+                + "for id in '\(suiteIdentifier)' '\(ownFunctionIdentifier)' '\(siblingIdentifier)'; do "
+                + "if printf '%s' \"$id\" | /usr/bin/grep -Eq \"$pattern\"; "
+                + "then echo MATCH; else echo NOMATCH; fi; done"
+        )
+        .split(separator: "\n").map(String.init)
+
+        #expect(matches.first == "PATTERN=\\.RepoScannerTests(/|$)")
+        // The suite's own id and its own functions are selected...
+        #expect(matches.dropFirst().first == "MATCH")
+        #expect(matches.dropFirst(2).first == "MATCH")
+        // ...and the neighbour sharing the source file is not.
+        #expect(matches.dropFirst(3).first == "NOMATCH")
+    }
+
+    @Test("every isolated per-process invocation anchors its suite filter")
+    func everyIsolatedPerProcessInvocationAnchorsItsSuiteFilter() throws {
+        let helperScript = try String(contentsOfFile: "scripts/swift-test-helpers.sh", encoding: .utf8)
+
+        // The three places that start one process for one suite must all go
+        // through the helper; a bare name at any of them reopens the crash.
+        #expect(
+            helperScript.contains(
+                "--filter \"$(swift_test_isolated_suite_filter_pattern \"$aggregate_serial_suite_filter\")\""
+            ))
+        #expect(
+            helperScript.contains(
+                "--filter \"$(swift_test_isolated_suite_filter_pattern \"$large_process_global_suite_filter\")\""
+            ))
+        #expect(
+            helperScript.contains(
+                "--filter \"$(swift_test_isolated_suite_filter_pattern \"$(fast_serial_process_filter_pattern)\")\""
+            ))
+        // The fast lane's skip is the mirror of the same defect.
+        #expect(helperScript.contains("--skip \"$(fast_non_webkit_skip_pattern)\""))
+        // Substring families must NOT be anchored: they match many suites by
+        // prefix, and anchoring them would drop whole suites out of their lane.
+        let skipBuilder = try shellFunction(named: "fast_non_webkit_skip_pattern", in: helperScript)
+        #expect(skipBuilder.contains("\"$(large_non_webkit_filter_pattern)\""))
+        #expect(!skipBuilder.contains("swift_test_isolated_suite_skip_pattern \"$(large_non_webkit_filter_pattern)\""))
+    }
+
     @Test("a clean lane reports zero failed isolated suites")
     func cleanLaneReportsZeroFailedIsolatedSuites() throws {
         let count = try runBash(

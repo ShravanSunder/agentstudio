@@ -431,7 +431,9 @@ struct CIFastLaneWorkflowTests {
         let serialRunner = try shellFunction(named: "run_fast_serial_process_swift_tests", in: helperScript)
         let serialFilter = try shellFunction(named: "fast_serial_process_filter_pattern", in: helperScript)
 
-        #expect(fastRunner.contains("$(fast_serial_process_filter_pattern)"))
+        // The serial-process suite reaches its own lane through the anchored helper.
+        #expect(fastRunner.contains("run_fast_serial_process_swift_tests"))
+        #expect(serialRunner.contains("swift_test_isolated_suite_filter_pattern"))
         #expect(fastRunner.contains("run_fast_serial_process_swift_tests"))
         #expect(serialRunner.contains("serial fast process suites"))
         #expect(serialFilter.contains("SQLiteDatabaseFactoryProcessTests"))
@@ -631,18 +633,21 @@ struct CIFastLaneWorkflowTests {
                 "isolated process-global non-WebKit suite: $aggregate_serial_suite_filter"
             )
         )
-        #expect(aggregateRunner.contains("--filter \"$aggregate_serial_suite_filter\""))
+        // Anchored: a bare name also admits every test in a file named after the
+        // suite, which is how two process-global suites shared one process.
+        #expect(
+            aggregateRunner.contains(
+                "--filter \"$(swift_test_isolated_suite_filter_pattern \"$aggregate_serial_suite_filter\")\""
+            ))
         #expect(aggregateRunner.contains("\"$swift_testing_helper\" --test-bundle-path \"$swift_test_bundle\""))
         #expect(aggregateRunner.contains("DYLD_FRAMEWORK_PATH=\"$testing_framework_path\""))
         #expect(aggregateRunner.contains("--testing-library swift-testing"))
         #expect(aggregateRunner.contains("done < <(aggregate_serial_non_webkit_suite_filters)"))
         #expect(aggregateBatchWaiter.contains("swift_test_record_failed_isolated_suite"))
         #expect(aggregateBatchWaiter.contains("return \"$batch_status\""))
-        #expect(
-            fastRunner.contains(
-                "--skip \"GlobalPreferencesBootstrapBenchmarkTests|RepoExplorerNativeTablePilotBenchmarkTests|$(large_non_webkit_filter_pattern)|$(large_serial_non_webkit_filter_pattern)|$(aggregate_serial_non_webkit_filter_pattern)|$(fast_serial_process_filter_pattern)\""
-            )
-        )
+        // The skip moved into one builder so the exact suite names can be
+        // anchored without anchoring the substring families beside them.
+        #expect(fastRunner.contains("--skip \"$(fast_non_webkit_skip_pattern)\""))
         #expect(fastRunner.contains("run_aggregate_serial_non_webkit_swift_tests"))
         #expect(fastRunner.contains("run_fast_serial_process_swift_tests"))
     }
@@ -683,8 +688,9 @@ struct CIFastLaneWorkflowTests {
             )
         )
         #expect(
-            largeProcessGlobalRunner.contains("--filter \"$large_process_global_suite_filter\"")
-        )
+            largeProcessGlobalRunner.contains(
+                "--filter \"$(swift_test_isolated_suite_filter_pattern \"$large_process_global_suite_filter\")\""
+            ))
         for suiteName in [
             "AgentStudioOTLPBootstrapSmokeTests",
             "DarwinCompositeFSEventContinuityTests",
