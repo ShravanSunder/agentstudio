@@ -48,6 +48,9 @@ test('retains the scrolled selected File through sixteen distinct worktree edits
 		server = await startBridgeViewerOwnedViteProductServer(fixture.oracle);
 		browser = await chromium.launch({ channel: 'chrome', headless: true });
 		page = await browser.newPage({ viewport: { width: 1728, height: 980 } });
+		// The vitest hang bound is the only clock this journey is allowed.
+		page.setDefaultTimeout(0);
+		page.setDefaultNavigationTimeout(0);
 		page.on('pageerror', (error: Error): void => {
 			pageErrors.push(error.message);
 		});
@@ -170,28 +173,24 @@ async function observeFileScrollRetention(page: Page): Promise<JSHandle<FileScro
 }
 
 async function waitForPaintedFileHash(page: Page, expectedSha256: string): Promise<void> {
-	await page.waitForFunction(
-		(expected: string): boolean => {
-			const canvas = document.querySelector('[data-testid="bridge-file-viewer-code-canvas"]');
-			const painted = canvas?.querySelector(
-				'diffs-container[data-bridge-painted-source-correlations]',
-			);
-			const correlations: unknown = JSON.parse(
-				painted?.getAttribute('data-bridge-painted-source-correlations') ?? '[]',
-			);
-			return (
-				canvas?.getAttribute('data-worktree-open-file-state') === 'ready' &&
-				Array.isArray(correlations) &&
-				correlations.some(
-					(correlation: unknown): boolean =>
-						typeof correlation === 'object' &&
-						correlation !== null &&
-						'observedSha256' in correlation &&
-						correlation.observedSha256 === expected,
-				)
-			);
-		},
-		expectedSha256,
-		{ timeout: 20_000 },
-	);
+	await page.waitForFunction((expected: string): boolean => {
+		const canvas = document.querySelector('[data-testid="bridge-file-viewer-code-canvas"]');
+		const painted = canvas?.querySelector(
+			'diffs-container[data-bridge-painted-source-correlations]',
+		);
+		const correlations: unknown = JSON.parse(
+			painted?.getAttribute('data-bridge-painted-source-correlations') ?? '[]',
+		);
+		return (
+			canvas?.getAttribute('data-worktree-open-file-state') === 'ready' &&
+			Array.isArray(correlations) &&
+			correlations.some(
+				(correlation: unknown): boolean =>
+					typeof correlation === 'object' &&
+					correlation !== null &&
+					'observedSha256' in correlation &&
+					correlation.observedSha256 === expected,
+			)
+		);
+	}, expectedSha256);
 }

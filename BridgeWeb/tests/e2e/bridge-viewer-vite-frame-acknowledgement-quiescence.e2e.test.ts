@@ -7,7 +7,6 @@ import { expect, test } from 'vitest';
 import { observeFrameAcknowledgementQuiescence } from './bridge-viewer-vite-frame-acknowledgement-quiescence.ts';
 
 const acknowledgementCommandPath = '/__bridge-product/command';
-const acknowledgementObserverTimeoutMilliseconds = 30_000;
 
 interface HeldAcknowledgementOrigin {
 	readonly close: () => Promise<void>;
@@ -122,10 +121,7 @@ test('frame acknowledgement quiescence forgets a destroyed document’s acknowle
 	const browser: Browser = await chromium.launch({ channel: 'chrome', headless: true });
 	try {
 		const page = await browser.newPage();
-		const observer = observeFrameAcknowledgementQuiescence(
-			page,
-			acknowledgementObserverTimeoutMilliseconds,
-		);
+		const observer = observeFrameAcknowledgementQuiescence(page);
 		await page.goto(`${origin.origin}/`, { waitUntil: 'load' });
 		await issueHeldAcknowledgement({ origin, page });
 		expect(observer.pendingAcknowledgementCount()).toBe(1);
@@ -148,10 +144,7 @@ test('frame acknowledgement quiescence still observes the document created by th
 	const browser: Browser = await chromium.launch({ channel: 'chrome', headless: true });
 	try {
 		const page = await browser.newPage();
-		const observer = observeFrameAcknowledgementQuiescence(
-			page,
-			acknowledgementObserverTimeoutMilliseconds,
-		);
+		const observer = observeFrameAcknowledgementQuiescence(page);
 		await page.goto(`${origin.origin}/`, { waitUntil: 'load' });
 		await issueHeldAcknowledgement({ origin, page });
 		await page.reload({ waitUntil: 'load' });

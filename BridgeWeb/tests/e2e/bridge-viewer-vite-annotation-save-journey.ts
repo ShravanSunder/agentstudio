@@ -305,7 +305,12 @@ export async function runAnnotationSaveJourney(props: {
 					)}.`,
 				);
 			}
-			await settleBrowserFrames(page, 2);
+			// The projection is still gated here, so the committed overlay and the cleared Saving control
+			// ARE the claim. Wait for those two owner-published states instead of guessing two frames;
+			// the counts below then assert the part a barrier cannot give us — that there is exactly one
+			// committed body and no second Saving control.
+			await page.getByText(savedBody, { exact: true }).first().waitFor({ state: 'visible' });
+			await page.getByRole('button', { name: 'Saving annotation' }).waitFor({ state: 'detached' });
 			savingControlCountAfterCommit = await page
 				.getByRole('button', { name: 'Saving annotation' })
 				.count();
@@ -696,17 +701,6 @@ export async function selectRangeForAnnotation(props: {
 	await props.page
 		.getByRole('textbox', { name: 'Write an annotation in Markdown' })
 		.waitFor({ state: 'visible' });
-}
-
-async function settleBrowserFrames(page: Page, frameCount: number): Promise<void> {
-	for (let frameIndex = 0; frameIndex < frameCount; frameIndex += 1) {
-		// oxlint-disable-next-line no-await-in-loop -- Each frame is an ordered browser settlement boundary.
-		await page.evaluate(async (): Promise<void> => {
-			await new Promise<void>((resolve): void => {
-				requestAnimationFrame((): void => resolve());
-			});
-		});
-	}
 }
 
 export async function waitForCommittedAnnotationCommand(

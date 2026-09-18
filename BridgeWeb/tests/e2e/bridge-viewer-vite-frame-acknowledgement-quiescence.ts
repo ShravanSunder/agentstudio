@@ -1,17 +1,20 @@
 import type { Frame, Page, Request } from 'playwright';
-import { expect } from 'vitest';
 
 import { settleBrowserFrames } from './bridge-viewer-vite-annotation-catalog-performance.ts';
 
-export function observeFrameAcknowledgementQuiescence(
-	page: Page,
-	timeoutMilliseconds: number,
-): {
+export function observeFrameAcknowledgementQuiescence(page: Page): {
 	readonly pendingAcknowledgementCount: () => number;
 	readonly wait: () => Promise<void>;
 } {
 	const pendingRequestDocumentEpochs = new Map<Request, number>();
 	let currentDocumentEpoch = 0;
+	const pendingAcknowledgementCount = (): number => {
+		let count = 0;
+		for (const documentEpoch of pendingRequestDocumentEpochs.values()) {
+			if (documentEpoch === currentDocumentEpoch) count += 1;
+		}
+		return count;
+	};
 	const isFrameAcknowledgement = (request: Request): boolean => {
 		if (new URL(request.url()).pathname !== '/__bridge-product/command') return false;
 		try {
@@ -30,8 +33,14 @@ export function observeFrameAcknowledgementQuiescence(
 			pendingRequestDocumentEpochs.set(request, currentDocumentEpoch);
 		}
 	});
+	const quiescenceWaiters: Array<() => void> = [];
+	const releaseWaitersIfQuiescent = (): void => {
+		if (pendingAcknowledgementCount() !== 0) return;
+		for (const resolveWaiter of quiescenceWaiters.splice(0)) resolveWaiter();
+	};
 	const settleRequest = (request: Request): void => {
 		pendingRequestDocumentEpochs.delete(request);
+		releaseWaitersIfQuiescent();
 	};
 	page.on('requestfinished', settleRequest);
 	page.on('requestfailed', settleRequest);
@@ -45,29 +54,26 @@ export function observeFrameAcknowledgementQuiescence(
 		for (const [request, documentEpoch] of pendingRequestDocumentEpochs) {
 			if (documentEpoch !== currentDocumentEpoch) pendingRequestDocumentEpochs.delete(request);
 		}
+		releaseWaitersIfQuiescent();
 	});
-	const pendingAcknowledgementCount = (): number => {
-		let count = 0;
-		for (const documentEpoch of pendingRequestDocumentEpochs.values()) {
-			if (documentEpoch === currentDocumentEpoch) count += 1;
-		}
-		return count;
+	/** Resolves on the observer's own terminal events, immediately when nothing is outstanding. */
+	const whenQuiescent = async (): Promise<void> => {
+		if (pendingAcknowledgementCount() === 0) return;
+		await new Promise<void>((resolve): void => {
+			quiescenceWaiters.push(resolve);
+		});
 	};
 
 	return {
 		pendingAcknowledgementCount,
 		wait: async (): Promise<void> => {
-			await expect
-				.poll(pendingAcknowledgementCount, {
-					timeout: timeoutMilliseconds,
-				})
-				.toBe(0);
+			await whenQuiescent();
+			// The remaining claim is "and no further acknowledgement started", which is the absence of a
+			// future event and therefore not expressible without waiting some amount. Two animation
+			// frames give the current document its rendering opportunities to start one, then the second
+			// quiescence wait re-establishes the claim. This is the one wall-clock-ish wait left here.
 			await settleBrowserFrames(page, 2);
-			await expect
-				.poll(pendingAcknowledgementCount, {
-					timeout: timeoutMilliseconds,
-				})
-				.toBe(0);
+			await whenQuiescent();
 		},
 	};
 }
