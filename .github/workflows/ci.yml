@@ -253,8 +253,10 @@ jobs:
       - name: Test BridgeWeb Swift integration
         run: pnpm --dir BridgeWeb run test:integration:node:prepared
 
+      # The 1,699-item backpressure journey asserts responsiveness (long-task count,
+      # annotation ages under a lease) and runs in the post-merge benchmarks workflow, not here.
       - name: Test BridgeWeb Swift E2E
-        run: pnpm --dir BridgeWeb run test:e2e:prepared
+        run: pnpm --dir BridgeWeb run test:e2e:prepared:ordinary
 
   swift-test-suite:
     name: Swift test suite

@@ -128,7 +128,10 @@ struct CIFastLaneWorkflowTests {
         #expect(!bridgeWebLaneStep.contains("pnpm --dir BridgeWeb run test:integration\n"))
         #expect(!bridgeWebLaneStep.contains("pnpm --dir BridgeWeb run test:e2e"))
         #expect(backendJob.contains("pnpm --dir BridgeWeb run test:integration:node:prepared"))
-        #expect(backendJob.contains("pnpm --dir BridgeWeb run test:e2e:prepared"))
+        // The pull-request gate runs the ordinary journeys only; the 1,699-item
+        // backpressure journey asserts responsiveness and belongs post-merge.
+        #expect(backendJob.contains("pnpm --dir BridgeWeb run test:e2e:prepared:ordinary"))
+        #expect(!backendJob.contains("run test:e2e:prepared\n"))
         #expect(!backendJob.contains("pnpm --dir BridgeWeb run test:integration:node\n"))
         #expect(!backendJob.contains("pnpm --dir BridgeWeb run test:e2e\n"))
         #expect(!swiftJob.contains("test:integration:node"))
@@ -236,6 +239,13 @@ struct CIFastLaneWorkflowTests {
         #expect(cacheStep.contains("restore-keys: |\n            benchmark-swift-build-ci-${{ runner.os }}-"))
         #expect(!cacheStep.contains("swift-benchmark-"))
         #expect(!benchmarksJob.contains(".build-benchmark"))
+        // The responsiveness journey lives in this post-merge lane and nowhere in
+        // the pull-request workflow.
+        #expect(benchmarksJob.contains("mise run test:bridge-web:e2e:stress"))
+        #expect(
+            !(try String(contentsOfFile: ".github/workflows/ci.yml", encoding: .utf8))
+                .contains("test:bridge-web:e2e:stress")
+        )
     }
 
     @Test("benchmark lane executes a current Swift benchmark and rejects empty output")
