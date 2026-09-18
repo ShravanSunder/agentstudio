@@ -36,7 +36,9 @@ actor BridgeProductSchemeSessionRouter {
     private var drainWaiters: [CheckedContinuation<Void, Never>] = []
     private var latestCapabilityAuthenticator: BridgeProductCapabilityAuthenticator?
     private let productAdmissionGate: BridgeProductAdmissionGate
-    private var streamDrainWaiters: [CheckedContinuation<Void, Never>] = []
+    private var streamDrainWaitersById: [UInt64: CheckedContinuation<Void, Never>] = [:]
+    private var nextStreamDrainWaiterId: UInt64 = 0
+    private var cancelledStreamDrainWaiterIds: Set<UInt64> = []
     private var transportClaimMintCount = 0
 
     /// Reachable without an actor hop because `onTermination` is synchronous.
@@ -73,6 +75,7 @@ actor BridgeProductSchemeSessionRouter {
 
     func clear() {
         activeInstallation = nil
+        resumeAllStreamDrainWaiters()
     }
 
     /// - Parameters:
@@ -124,9 +127,52 @@ actor BridgeProductSchemeSessionRouter {
     /// that only needs the stream's transport to be gone.
     func waitForStreamClaimDrain() async {
         guard !activeStreamClaimIds.isEmpty else { return }
-        await withCheckedContinuation { continuation in
-            streamDrainWaiters.append(continuation)
+        let waiterId = mintStreamDrainWaiterId()
+        // Cancellation-safe and lost-wakeup-free. The handler can run BEFORE the
+        // continuation is stored, so storing re-checks whether this id was already
+        // cancelled and resumes immediately; every resume path removes the id
+        // first, so exactly one resume happens on every interleaving.
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                storeStreamDrainWaiter(continuation, id: waiterId)
+            }
+        } onCancel: {
+            Task { await self.resumeStreamDrainWaiter(id: waiterId) }
         }
+    }
+
+    private func mintStreamDrainWaiterId() -> UInt64 {
+        nextStreamDrainWaiterId += 1
+        return nextStreamDrainWaiterId
+    }
+
+    private func storeStreamDrainWaiter(
+        _ continuation: CheckedContinuation<Void, Never>,
+        id waiterId: UInt64
+    ) {
+        if cancelledStreamDrainWaiterIds.remove(waiterId) != nil {
+            // The cancellation handler already ran for this id.
+            continuation.resume()
+            return
+        }
+        streamDrainWaitersById[waiterId] = continuation
+    }
+
+    private func resumeStreamDrainWaiter(id waiterId: UInt64) {
+        guard let continuation = streamDrainWaitersById.removeValue(forKey: waiterId) else {
+            // The handler beat the store; the store will resume immediately.
+            cancelledStreamDrainWaiterIds.insert(waiterId)
+            return
+        }
+        continuation.resume()
+    }
+
+    /// Resumes every parked stream-drain waiter. Called on every teardown path so
+    /// a waiter can never outlive the router that would have woken it.
+    private func resumeAllStreamDrainWaiters() {
+        let parkedWaiters = streamDrainWaitersById
+        streamDrainWaitersById.removeAll()
+        for (_, continuation) in parkedWaiters { continuation.resume() }
     }
 
     var snapshot: BridgeProductSchemeSessionRouterSnapshot {
@@ -141,9 +187,7 @@ actor BridgeProductSchemeSessionRouter {
         activeSchemeTaskIds.remove(claim.id)
         activeTransportClaimIds.remove(claim.id)
         if activeStreamClaimIds.remove(claim.id) != nil, activeStreamClaimIds.isEmpty {
-            let streamWaiters = streamDrainWaiters
-            streamDrainWaiters.removeAll()
-            for waiter in streamWaiters { waiter.resume() }
+            resumeAllStreamDrainWaiters()
         }
         guard snapshot.hasZeroResidue else { return }
         let waiters = drainWaiters
