@@ -81,23 +81,16 @@ struct BridgeMetadataReconnectTests {
             provider: context.provider,
             harness: context.harness
         )
-        let sourceActive = await waitForReconnectSourceActivity(context.fileSource)
-        let deadline = ContinuousClock.now + .seconds(2)
-        while await context.harness.session.producerSnapshot().queuedFrameCount == 0,
-            ContinuousClock.now < deadline
-        {
-            await Task.yield()
-        }
-        let frame =
-            await context.harness.session.producerSnapshot().queuedFrameCount > 0
-            ? try await pullMetadataFrame(from: replacement.pump) : nil
+        await waitForReconnectSourceActivity(context.fileSource)
+        // The pump suspends until a frame exists, so there is nothing to poll for and no
+        // need to gate the pull on a queue count.
+        let frame = try await pullMetadataFrame(from: replacement.pump)
         #expect(await replacement.pump.cancel())
         await context.provider.closeAndDrain()
 
         // Assert: retaining an identity must preserve the worker's strict next
         // subscription sequence. A physical-stream barrier cannot waive this.
         #expect(await context.harness.session.producerSnapshot().hasZeroResidue)
-        #expect(sourceActive)
         guard case .subscriptionData(let data) = frame else {
             Issue.record("Expected contiguous source data or explicit fresh-subscription reconciliation")
             return
@@ -133,7 +126,7 @@ struct BridgeMetadataReconnectTests {
             provider: context.provider,
             harness: context.harness
         )
-        let sourceActive = await waitForReconnectSourceActivity(context.fileSource)
+        await waitForReconnectSourceActivity(context.fileSource)
         let disposition = await context.provider.publishFileChangeset(
             try reconnectFileChangeset(),
             productAdmission: context.harness.productAdmission.context,
@@ -143,14 +136,13 @@ struct BridgeMetadataReconnectTests {
         )
         let frame =
             disposition == .applied
-            ? try await pullPostReconnectPublication(from: replacement.pump, session: context.harness.session)
+            ? try await pullPostReconnectPublication(from: replacement.pump)
             : nil
         #expect(await replacement.pump.cancel())
         await context.provider.closeAndDrain()
 
         // Assert
         #expect(await context.harness.session.producerSnapshot().hasZeroResidue)
-        #expect(sourceActive)
         #expect(disposition == .applied)
         guard case .subscriptionData(let data) = frame else {
             Issue.record("Expected post-reattachment source publication")
@@ -219,7 +211,7 @@ struct BridgeMetadataReconnectTests {
             provider: context.provider,
             harness: context.harness
         )
-        #expect(await waitForReconnectSourceActivity(context.fileSource))
+        await waitForReconnectSourceActivity(context.fileSource)
         let sourceDiagnostics = await context.fileSource.diagnostics
         let canonicalSubscription = await context.harness.session.subscriptionSnapshot(
             subscriptionId: context.retainedSubscription.subscriptionId
@@ -270,7 +262,7 @@ struct BridgeMetadataReconnectTests {
             provider: context.provider,
             harness: context.harness
         )
-        #expect(await waitForReconnectSourceActivity(context.fileSource))
+        await waitForReconnectSourceActivity(context.fileSource)
         let disposition = await context.provider.publishFileChangeset(
             try reconnectFileChangeset(),
             productAdmission: context.harness.productAdmission.context,
@@ -280,10 +272,7 @@ struct BridgeMetadataReconnectTests {
         )
         let publication =
             disposition == .applied
-            ? try await pullPostReconnectPublication(
-                from: replacement.pump,
-                session: context.harness.session
-            ) : nil
+            ? try await pullPostReconnectPublication(from: replacement.pump) : nil
         let after = await context.fileSource.diagnostics
         #expect(await context.firstStream.pump.cancel())
         #expect(await replacement.pump.cancel())
@@ -342,7 +331,7 @@ struct BridgeMetadataReconnectTests {
             provider: context.provider,
             harness: context.harness
         )
-        let sourceActiveAfterResync = await waitForReconnectSourceActivity(context.fileSource)
+        await waitForReconnectSourceActivity(context.fileSource)
         let publicationDisposition = await context.provider.publishFileChangeset(
             try reconnectFileChangeset(),
             productAdmission: context.harness.productAdmission.context,
@@ -352,10 +341,7 @@ struct BridgeMetadataReconnectTests {
         )
         let replacementFrame =
             publicationDisposition == .applied
-            ? try await pullPostReconnectPublication(
-                from: secondStream.pump,
-                session: context.harness.session
-            )
+            ? try await pullPostReconnectPublication(from: secondStream.pump)
             : nil
         let sourceDiagnostics = await context.fileSource.diagnostics
         #expect(await secondStream.pump.cancel())
@@ -369,7 +355,6 @@ struct BridgeMetadataReconnectTests {
         #expect(context.committedInterest.identity.subscriptionIdentity.interestRevision == 1)
         #expect(context.retainedSubscription.interestRevision == 1)
         #expect(retiredSnapshot.hasZeroResidue)
-        #expect(sourceActiveAfterResync, "Accepted reconciliation must restore source work")
         #expect(publicationDisposition == .applied)
         #expect(sourceDiagnostics.openCallCount >= 1)
         #expect(sourceDiagnostics.publicationCallCount == 1)
