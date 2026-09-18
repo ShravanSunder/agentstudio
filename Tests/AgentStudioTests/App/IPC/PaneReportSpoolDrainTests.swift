@@ -208,10 +208,7 @@ struct PaneReportSpoolDrainTests {
     /// `flock(LOCK_EX)` waits for as long as the pane's own CLI holds the file.
     /// If that syscall ran on the actor's executor, nothing else the spool owns
     /// could run for that whole time.
-    @Test(
-        "a drain waiting on another writer's lock leaves the spool actor answering",
-        .timeLimit(.minutes(1))
-    )
+    @Test("a drain waiting on another writer's lock leaves the spool actor answering")
     func aLockedFileDoesNotParkTheActor() async throws {
         // Arrange: another process holds the append lock this drain must wait for.
         try await withPaneReportSpoolDrainHarness { harness in

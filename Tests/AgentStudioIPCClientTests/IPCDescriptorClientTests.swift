@@ -147,7 +147,7 @@ struct IPCDescriptorClientTests {
     }
 
     @Test("invalid typed authentication result prevents command submission")
-    func invalidTypedAuthenticationResultPreventsCommandSubmission() throws {
+    func invalidTypedAuthenticationResultPreventsCommandSubmission() async throws {
         let catalog = try IPCDescriptorClientFixtureCatalog.make()
         let endpoint = UnixSocketEndpoint(path: temporaryIPCDescriptorClientSocketPath())
         let listener = UnixSocketListener(endpoint: endpoint)
@@ -191,14 +191,14 @@ struct IPCDescriptorClientTests {
 
         #expect(failure.disposition == .notSubmitted)
         #expect(failure.reason == .authenticationResponse)
-        #expect(callbackCompleted.wait(timeout: .now() + 5) == .success)
+        #expect(await awaitIPCDescriptorClientCallback(callbackCompleted) == .success)
         #expect(bytesAfterAuthentication.value()?.isEmpty == true)
         #expect(!String(describing: failure).contains(privateValue))
         #expect(!String(describing: failure).contains("privateUnexpectedField"))
     }
 
     @Test("authentication error or typed unauthenticated result prevents command submission", arguments: [false, true])
-    func typedUnauthenticatedResultPreventsCommandSubmission(remoteRPCError: Bool) throws {
+    func typedUnauthenticatedResultPreventsCommandSubmission(remoteRPCError: Bool) async throws {
         let catalog = try IPCDescriptorClientFixtureCatalog.make()
         let endpoint = UnixSocketEndpoint(path: temporaryIPCDescriptorClientSocketPath())
         let listener = UnixSocketListener(endpoint: endpoint)
@@ -242,7 +242,7 @@ struct IPCDescriptorClientTests {
 
         #expect(failure.disposition == .authenticationRejected)
         #expect(failure.reason == .authenticationResponse)
-        #expect(callbackCompleted.wait(timeout: .now() + 5) == .success)
+        #expect(await awaitIPCDescriptorClientCallback(callbackCompleted) == .success)
         #expect(bytesAfterAuthentication.value()?.isEmpty == true)
     }
 
@@ -484,4 +484,27 @@ private struct IPCDescriptorClientSocketFixture {
     let listener: UnixSocketListener
     let client: AgentStudioIPCClient
     let invocation: IPCDescriptorInvocation
+}
+
+/// Waits for the listener callback on a thread of its own and suspends the
+/// caller.
+///
+/// Swift Testing runs a test body on the cooperative executor, whose width is
+/// the machine's core count, so a `DispatchSemaphore.wait` there removes one of
+/// three threads on a CI runner for as long as it blocks. This target cannot
+/// see `AgentStudioTestSupport`, so it carries the same continuation hop
+/// locally.
+///
+/// The deadline is a liveness backstop, not the verdict. What the callback
+/// actually observed is asserted from the state it recorded, so a slow machine
+/// cannot turn a passing run into a failing one.
+private func awaitIPCDescriptorClientCallback(
+    _ callbackCompleted: DispatchSemaphore,
+    deadline: DispatchTimeInterval = .seconds(120)
+) async -> DispatchTimeoutResult {
+    await withCheckedContinuation { continuation in
+        Thread.detachNewThread {
+            continuation.resume(returning: callbackCompleted.wait(timeout: .now() + deadline))
+        }
+    }
 }
