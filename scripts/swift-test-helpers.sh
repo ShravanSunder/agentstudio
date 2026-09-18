@@ -185,6 +185,12 @@ aggregate_serial_non_webkit_suite_filters() {
     printf '%s:%s\n' \
       'Tests/AgentStudioAppIPCTests/AgentStudioAppIPCCommandExecuteContractTests.swift' \
       'AgentStudioAppIPCCommandExecuteContractTests'
+    printf '%s:%s\n' \
+      'Tests/AgentStudioAppIPCTests/AppIPCDynamicCommandClientTests.swift' \
+      'AppIPCDynamicCommandClientTests'
+    printf '%s:%s\n' \
+      'Tests/AgentStudioAppIPCTests/AppIPCErrorCorrectionTests.swift' \
+      'AppIPCErrorCorrectionTests'
   } | while IFS=: read -r source_file suite_name; do
     case "$source_file" in
       *"/App/WebKit/"*) continue ;;
