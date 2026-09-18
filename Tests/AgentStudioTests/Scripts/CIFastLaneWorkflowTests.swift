@@ -622,7 +622,9 @@ struct CIFastLaneWorkflowTests {
         #expect(aggregateRunner.contains("while IFS= read -r aggregate_serial_suite_filter"))
         #expect(aggregateRunner.contains("swift_test_isolated_process_concurrency"))
         #expect(!aggregateRunner.contains("local process_global_concurrency=4"))
-        #expect(aggregateRunner.contains("process_global_batch_pids+=(\"$!\")"))
+        // Pid AND filter, so a crashed child can be named rather than swallowed.
+        #expect(aggregateRunner.contains("process_global_batch_pids+=(\"$!\" \"$aggregate_serial_suite_filter\")"))
+        #expect(aggregateRunner.contains("inventory_status=1"))
         #expect(aggregateRunner.contains("wait_for_process_global_suite_batch"))
         #expect(
             aggregateRunner.contains(
@@ -634,7 +636,7 @@ struct CIFastLaneWorkflowTests {
         #expect(aggregateRunner.contains("DYLD_FRAMEWORK_PATH=\"$testing_framework_path\""))
         #expect(aggregateRunner.contains("--testing-library swift-testing"))
         #expect(aggregateRunner.contains("done < <(aggregate_serial_non_webkit_suite_filters)"))
-        #expect(aggregateBatchWaiter.contains("if ! wait \"$suite_process_pid\""))
+        #expect(aggregateBatchWaiter.contains("swift_test_record_failed_isolated_suite"))
         #expect(aggregateBatchWaiter.contains("return \"$batch_status\""))
         #expect(
             fastRunner.contains(

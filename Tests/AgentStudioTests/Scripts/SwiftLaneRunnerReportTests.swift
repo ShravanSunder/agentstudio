@@ -1,3 +1,4 @@
+import AgentStudioInfrastructure
 import Foundation
 import Testing
 
@@ -93,6 +94,7 @@ struct SwiftLaneRunnerReportTests {
             "lane-report cpu_utilization=",
             "lane-report peak_started_tests=",
             "lane-report peak_running_parameterized_cases=",
+            "lane-report failed_isolated_suites=",
         ] {
             #expect(closingReport.contains(closingLabel))
         }
@@ -104,6 +106,8 @@ struct SwiftLaneRunnerReportTests {
                 "cpu_seconds",
                 "cpu_utilization",
                 "exit_status",
+                "failed_isolated_suite",
+                "failed_isolated_suites",
                 "isolated_process_concurrency",
                 "memory_bytes",
                 "parallelization_width",
@@ -118,6 +122,78 @@ struct SwiftLaneRunnerReportTests {
         // A failing lane is the one whose load numbers matter most, so the
         // closing block hangs off EXIT rather than the end of the happy path.
         #expect(laneRunnerScript.contains("trap print_closing_lane_report EXIT"))
+    }
+
+    @Test("a child that dies by signal is named instead of swallowed")
+    func childThatDiesBySignalIsNamedInsteadOfSwallowed() throws {
+        // A process that passes its tests and then crashes used to leave only
+        // "ERROR task failed" and bash's job-table line; the captured output was
+        // deleted before anyone could read why.
+        let laneOutput = try runBashAllowingFailure(
+            "LOG_PREFIX=lane; TIMEOUT_SECONDS=60; BUILD_PATH=.build-agent-1; "
+                + "source scripts/swift-test-helpers.sh; set +e; "
+                + "run_swift_with_timeout 'isolated suite: FakeSuite' 60 /bin/bash -c "
+                + #"'echo \"Test run with 1 test in 1 suite passed\"; kill -SEGV $$' "#
+                + "|| returned=$?; echo \"RETURNED=${returned:-0}\""
+        )
+
+        #expect(laneOutput.contains("exit_status=139"))
+        #expect(laneOutput.contains("signal=SEGV"))
+        #expect(laneOutput.contains("raw output tail for 'isolated suite: FakeSuite'"))
+        // The tail is the point: the child's own output survives to the log.
+        #expect(laneOutput.contains("Test run with 1 test in 1 suite passed"))
+        #expect(laneOutput.contains("RETURNED=139"))
+    }
+
+    @Test("signal names are resolved only for signalled exits")
+    func signalNamesAreResolvedOnlyForSignalledExits() throws {
+        let names = try runBash(
+            "source scripts/swift-test-helpers.sh; "
+                + "swift_test_signal_name 139; swift_test_signal_name 133; "
+                + "swift_test_signal_name 1; swift_test_signal_name 0"
+        )
+        .split(separator: "\n").map(String.init)
+
+        #expect(names == ["SEGV", "TRAP", "none", "none"])
+    }
+
+    @Test("one crashed isolated suite does not hide the suites after it")
+    func oneCrashedIsolatedSuiteDoesNotHideTheSuitesAfterIt() throws {
+        // Two batched children: the first crashes, the second must still run and
+        // still be observable. Stopping at the first is what hid 324 of 336
+        // suites behind one crash.
+        let tallyPath = NSTemporaryDirectory() + "agentstudio-s2d-tally-\(UUIDv7.generate())"
+        defer { try? FileManager.default.removeItem(atPath: tallyPath) }
+        let laneOutput = try runBashAllowingFailure(
+            "LOG_PREFIX=lane; export SWIFT_TEST_FAILED_ISOLATED_SUITES_FILE='\(tallyPath)'; "
+                + ": >\"$SWIFT_TEST_FAILED_ISOLATED_SUITES_FILE\"; "
+                + "source scripts/swift-test-helpers.sh; set +e; "
+                + "/bin/bash -c 'kill -SEGV $$' & first=$!; "
+                + "/bin/bash -c 'echo SECOND_BATCH_RAN; exit 0' & second=$!; "
+                + "batch=0; "
+                + "wait_for_process_global_suite_batch \"$first\" CrashingSuite \"$second\" HealthySuite "
+                + "|| batch=$?; echo \"BATCH=$batch\"; "
+                + "echo \"COUNT=$(swift_test_failed_isolated_suite_count)\"; "
+                + "cat \"$SWIFT_TEST_FAILED_ISOLATED_SUITES_FILE\""
+        )
+
+        // Both children ran; only the crashing one is recorded.
+        #expect(laneOutput.contains("SECOND_BATCH_RAN"))
+        #expect(laneOutput.contains("isolated suite failed: CrashingSuite"))
+        #expect(!laneOutput.contains("isolated suite failed: HealthySuite"))
+        #expect(laneOutput.contains("BATCH=1"))
+        #expect(laneOutput.contains("COUNT=1"))
+        #expect(laneOutput.contains("CrashingSuite\t139\tSEGV"))
+    }
+
+    @Test("a clean lane reports zero failed isolated suites")
+    func cleanLaneReportsZeroFailedIsolatedSuites() throws {
+        let count = try runBash(
+            "source scripts/swift-test-helpers.sh; swift_test_failed_isolated_suite_count"
+        )
+
+        // No tally file exported at all is the clean-lane case.
+        #expect(count.trimmingCharacters(in: .whitespacesAndNewlines) == "0")
     }
 
     @Test("the inactivity timeout names the test cases that were still running")
@@ -338,6 +414,23 @@ private func runBash(_ command: String) throws -> String {
     let renderedOutput = try #require(String(bytes: data, encoding: .utf8))
     #expect(process.terminationStatus == 0, Comment(rawValue: renderedOutput))
     return renderedOutput
+}
+
+/// Like `runBash`, but for scripts that deliberately fail: these tests drive
+/// crashing children, so a non-zero status is the expected outcome.
+private func runBashAllowingFailure(_ command: String) throws -> String {
+    let process = Process()
+    let output = Pipe()
+    process.executableURL = URL(fileURLWithPath: "/bin/bash")
+    process.arguments = ["-c", command]
+    process.currentDirectoryURL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+    process.standardOutput = output
+    process.standardError = output
+
+    try process.run()
+    let data = output.fileHandleForReading.readDataToEndOfFile()
+    process.waitUntilExit()
+    return try #require(String(bytes: data, encoding: .utf8))
 }
 
 private func runBashStatus(_ command: String) throws -> Int32 {

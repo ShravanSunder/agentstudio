@@ -467,6 +467,7 @@ run_aggregate_serial_non_webkit_swift_tests() {
   testing_framework_path="$(swift_testing_framework_path)"
   local aggregate_serial_suite_filter
   local -a process_global_batch_pids=()
+  local inventory_status=0
   while IFS= read -r aggregate_serial_suite_filter; do
     [ -n "$aggregate_serial_suite_filter" ] || continue
     (
@@ -479,17 +480,20 @@ run_aggregate_serial_non_webkit_swift_tests() {
         --filter "$aggregate_serial_suite_filter" \
         "$swift_test_bundle" --testing-library swift-testing
     ) &
-    process_global_batch_pids+=("$!")
+    process_global_batch_pids+=("$!" "$aggregate_serial_suite_filter")
 
-    if [ "${#process_global_batch_pids[@]}" -eq "$process_global_concurrency" ]; then
-      wait_for_process_global_suite_batch "${process_global_batch_pids[@]}" || return $?
+    if [ "${#process_global_batch_pids[@]}" -eq $((process_global_concurrency * 2)) ]; then
+      # Record the failure and keep going: stopping here is what hid 324 of 336
+      # suites behind one crashed process.
+      wait_for_process_global_suite_batch "${process_global_batch_pids[@]}" || inventory_status=1
       process_global_batch_pids=()
     fi
   done < <(aggregate_serial_non_webkit_suite_filters)
 
   if [ "${#process_global_batch_pids[@]}" -gt 0 ]; then
-    wait_for_process_global_suite_batch "${process_global_batch_pids[@]}"
+    wait_for_process_global_suite_batch "${process_global_batch_pids[@]}" || inventory_status=1
   fi
+  return "$inventory_status"
 }
 
 run_large_process_global_swift_tests() {
@@ -535,12 +539,50 @@ swift_testing_framework_path() {
   printf '%s/Developer/Library/Frameworks\n' "$platform_path"
 }
 
+# Appends one failing isolated suite to the lane's tally. The lane reports every
+# failure at the end rather than stopping at the first, so one crashed process
+# cannot hide whether the suites after it would also have failed.
+swift_test_record_failed_isolated_suite() {
+  local suite_filter="$1"
+  local status="$2"
+
+  [ -n "${SWIFT_TEST_FAILED_ISOLATED_SUITES_FILE:-}" ] || return 0
+  printf '%s\t%s\t%s\n' \
+    "$suite_filter" "$status" "$(swift_test_signal_name "$status")" \
+    >>"$SWIFT_TEST_FAILED_ISOLATED_SUITES_FILE" 2>/dev/null || true
+}
+
+swift_test_failed_isolated_suite_count() {
+  local tally_file="${SWIFT_TEST_FAILED_ISOLATED_SUITES_FILE:-}"
+
+  if [ -z "$tally_file" ] || [ ! -s "$tally_file" ]; then
+    echo 0
+    return 0
+  fi
+  /usr/bin/awk 'END { print NR + 0 }' "$tally_file"
+}
+
+# Takes interleaved `pid filter` pairs rather than bare pids, so a failing child
+# can be named. Pairs, not a delimiter, because suite filters are regexes.
 wait_for_process_global_suite_batch() {
   local suite_process_pid
+  local suite_filter
+  local suite_status
   local batch_status=0
-  for suite_process_pid in "$@"; do
-    if ! wait "$suite_process_pid"; then
+
+  while [ "$#" -gt 0 ]; do
+    suite_process_pid="$1"
+    suite_filter="$2"
+    shift 2
+    # `|| suite_status=$?` rather than toggling `set -e`: toggling it here would
+    # silently re-enable it for a caller that had turned it off.
+    suite_status=0
+    wait "$suite_process_pid" || suite_status=$?
+    if [ "$suite_status" -ne 0 ]; then
       batch_status=1
+      echo "[$LOG_PREFIX] isolated suite failed: $suite_filter" \
+        "status=$suite_status signal=$(swift_test_signal_name "$suite_status")" >&2
+      swift_test_record_failed_isolated_suite "$suite_filter" "$suite_status"
     fi
   done
   return "$batch_status"
@@ -783,11 +825,44 @@ run_swift_with_timeout() {
   if [ "$command_status" -eq 0 ] && swift_test_output_has_failures "$output_file"; then
     echo "[$LOG_PREFIX] ERROR: '$label' emitted Swift Testing failure output despite exit 0" >&2
     command_status=1
+  elif [ "$command_status" -ne 0 ] && ! swift_test_output_has_failures "$output_file"; then
+    # A child that died without recording a Swift Testing failure — a signal, or a
+    # runtime abort after its tests passed. Without this the lane printed only
+    # "ERROR task failed" and bash's job-table line, and the reason was gone with
+    # the output file.
+    print_failed_child_diagnostics "$label" "$command_status" "$output_file"
   fi
 
   swift_test_record_lane_peaks "$output_file" "$event_stream_file"
   rm -f "$output_file" ${event_stream_file:+"$event_stream_file"}
   return "$command_status"
+}
+
+# The signal that killed a child, or `none` when the status is an ordinary exit
+# code. Shells report a signalled child as 128 + signal number.
+swift_test_signal_name() {
+  local status="${1:-0}"
+
+  if [ "$status" -gt 128 ]; then
+    kill -l $((status - 128)) 2>/dev/null || echo "unknown"
+  else
+    echo none
+  fi
+}
+
+# Mirrors the timeout branch's diagnostics for a child that exited non-zero
+# without an ✘ marker, and must run BEFORE the captured output is deleted.
+print_failed_child_diagnostics() {
+  local label="$1"
+  local status="$2"
+  local output_file="$3"
+  local signal_name
+  signal_name="$(swift_test_signal_name "$status")"
+
+  echo "[$LOG_PREFIX] ERROR: '$label' exited $status with no recorded test failure" >&2
+  echo "[$LOG_PREFIX] exit_status=$status signal=$signal_name" >&2
+  echo "[$LOG_PREFIX] raw output tail for '$label':" >&2
+  tail -n 120 "$output_file" >&2 || true
 }
 
 swift_test_output_has_failures() {

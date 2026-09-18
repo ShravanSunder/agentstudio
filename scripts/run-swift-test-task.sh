@@ -93,14 +93,30 @@ print_closing_lane_report() {
     swift_test_peak_total_from_file "${SWIFT_TEST_PEAK_RUNNING_FILE:-}"
   )"
 
-  rm -f "$LANE_TIMES_FILE" "${SWIFT_TEST_PEAK_STARTED_FILE:-}" "${SWIFT_TEST_PEAK_RUNNING_FILE:-}"
+  # The whole truth about the isolated inventory: how many suites failed, and
+  # which. A crashed process no longer hides the suites that ran after it.
+  echo "[$LOG_PREFIX] lane-report failed_isolated_suites=$(swift_test_failed_isolated_suite_count)"
+  if [ -s "${SWIFT_TEST_FAILED_ISOLATED_SUITES_FILE:-}" ]; then
+    while IFS=$'\t' read -r failed_suite_filter failed_suite_status failed_suite_signal; do
+      [ -n "$failed_suite_filter" ] || continue
+      echo "[$LOG_PREFIX] lane-report failed_isolated_suite=$failed_suite_filter" \
+        "status=$failed_suite_status signal=$failed_suite_signal"
+    done <"$SWIFT_TEST_FAILED_ISOLATED_SUITES_FILE"
+  fi
+
+  rm -f "$LANE_TIMES_FILE" "${SWIFT_TEST_PEAK_STARTED_FILE:-}" "${SWIFT_TEST_PEAK_RUNNING_FILE:-}" \
+    "${SWIFT_TEST_FAILED_ISOLATED_SUITES_FILE:-}"
 }
 
 LANE_START_SECONDS="$SECONDS"
 LANE_TIMES_FILE="$(mktemp "${TMPDIR:-/tmp}/agentstudio-lane-times.XXXXXX")"
 SWIFT_TEST_PEAK_STARTED_FILE="$(mktemp "${TMPDIR:-/tmp}/agentstudio-lane-peak-started.XXXXXX")"
 SWIFT_TEST_PEAK_RUNNING_FILE="$(mktemp "${TMPDIR:-/tmp}/agentstudio-lane-peak-running.XXXXXX")"
+SWIFT_TEST_FAILED_ISOLATED_SUITES_FILE="$(
+  mktemp "${TMPDIR:-/tmp}/agentstudio-lane-failed-isolated-suites.XXXXXX"
+)"
 export SWIFT_TEST_PEAK_STARTED_FILE SWIFT_TEST_PEAK_RUNNING_FILE
+export SWIFT_TEST_FAILED_ISOLATED_SUITES_FILE
 trap print_closing_lane_report EXIT
 
 if [ "${SWIFT_TEST_SKIP_PREBUILD:-0}" = "1" ]; then
