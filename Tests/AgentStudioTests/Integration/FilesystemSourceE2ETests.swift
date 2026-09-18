@@ -78,6 +78,7 @@ extension E2ESerializedTests {
                 gitStatusPhysicalGate: gitStatusPhysicalGate,
                 filesystemSource: filesystemSource,
                 windowLifecycleStore: WindowLifecycleAtom(),
+                ipcLifecycle: .testUnavailable,
                 bridgePaneAttendance: BridgePaneAttendanceAtom()
             )
             coordinator.syncFilesystemRootsAndActivity()

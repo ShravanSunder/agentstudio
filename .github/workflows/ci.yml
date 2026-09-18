@@ -420,3 +420,18 @@ jobs:
           name: test-results
           path: test-results-*.xml
           if-no-files-found: warn
+
+      - name: Upload crash reports
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: swift-crash-reports-${{ github.run_id }}
+          # A test process can die of a signal after its last flushed line, so the
+          # job log shows a passing run and then nothing. Traps raised by
+          # libdispatch and os_unfair_lock report through os_log rather than
+          # stderr, so the .ips "Application Specific Information" field is the
+          # only place their reason survives.
+          path: |
+            ~/Library/Logs/DiagnosticReports/*.ips
+            ~/Library/Logs/DiagnosticReports/*.crash
+          if-no-files-found: ignore

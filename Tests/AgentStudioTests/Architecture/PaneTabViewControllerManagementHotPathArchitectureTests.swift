@@ -101,7 +101,7 @@ struct PaneTabManagementHotPathTests {
         )
         let handler = try #require(
             source.architectureSlice(
-                from: "private func handleManagementCommand(", to: "private func isManagementCommand(")
+                from: "func handleManagementCommand(", to: "private func isManagementCommand(")
         )
         #expect(!handler.contains("store.tabLayoutAtom.tabs"))
     }

@@ -91,6 +91,11 @@ extension WorkspaceSQLiteDatastoreActor {
         case failed(CoreDatabasePreparationFailure)
     }
 
+    package enum OptionalApplicationLocalSchemaPreparationResult: Equatable, Sendable {
+        case ready
+        case unavailable(WorkspaceSQLiteDatastoreFailure)
+    }
+
     package enum ProbeEvent: Equatable, Sendable {
         case saveWorkspaceSnapshot
         case saveWorkspaceSnapshotSucceeded

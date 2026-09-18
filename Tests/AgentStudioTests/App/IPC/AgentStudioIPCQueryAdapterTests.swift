@@ -8,42 +8,8 @@ import Testing
 @testable import AgentStudioTestSupport
 
 @MainActor
-@Suite("AgentStudio IPC query adapter")
+@Suite("AgentStudio IPC query adapter", .serialized)
 struct AgentStudioIPCQueryAdapterTests {
-    @Test("system capabilities mirror the app-composed phase-a registry without backend namespaces")
-    func systemCapabilitiesMirrorAppComposedPhaseARegistryWithoutBackendNamespaces() throws {
-        let harness = try QueryAdapterHarness()
-
-        let capabilities = try harness.adapter.systemCapabilities()
-        let methodNames = capabilities.methods.map(\.name)
-
-        #expect(methodNames.contains("system.identify"))
-        #expect(methodNames.contains("pane.snapshot"))
-        #expect(methodNames.contains("terminal.send"))
-        #expect(!methodNames.contains { $0.hasPrefix("zmx.") })
-        #expect(methodNames == methodNames.sorted())
-    }
-
-    @Test("pane snapshot contribution declares the sensitive fields it excludes")
-    func paneSnapshotContributionDeclaresTheSensitiveFieldsItExcludes() throws {
-        let contribution = try #require(
-            try AgentStudioIPCContributionRegistry.phaseAComposition().methodContributions.first {
-                $0.definition.name == "pane.snapshot"
-            }
-        )
-
-        #expect(
-            contribution.securityContract.sensitiveDataExclusions == [
-                "cwd",
-                "paneTitle",
-                "rawTerminalOutput",
-                "rawRuntimePayload",
-                "tabTitle",
-                "url",
-                "zmxSessionIdentifier",
-            ])
-    }
-
     @Test("current window fails closed when no workspace window is active")
     func currentWindowFailsClosedWhenNoWorkspaceWindowIsActive() throws {
         let harness = try QueryAdapterHarness(windowSnapshot: .empty)
@@ -167,7 +133,6 @@ private struct QueryAdapterHarness {
             runtimeId: UUID(),
             accessMode: .agentStudioOnly,
             appVersion: "test",
-            methodRegistry: try AgentStudioIPCContributionRegistry.phaseARegistry(),
             workspaceStore: store,
             windowLifecycleReader: FakeWorkspaceWindowLifecycleReader(snapshot: windowSnapshot)
         )

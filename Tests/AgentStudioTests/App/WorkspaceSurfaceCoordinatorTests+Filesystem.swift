@@ -142,6 +142,7 @@ extension WorkspaceSurfaceCoordinatorTests {
             gitStatusPhysicalGate: gitStatusPhysicalGate,
             filesystemSource: filesystemSource,
             windowLifecycleStore: WindowLifecycleAtom(),
+            ipcLifecycle: .testUnavailable,
             bridgePaneAttendance: BridgePaneAttendanceAtom()
         )
 
@@ -205,6 +206,7 @@ extension WorkspaceSurfaceCoordinatorTests {
             gitStatusPhysicalGate: gitStatusPhysicalGate,
             filesystemSource: filesystemSource,
             windowLifecycleStore: WindowLifecycleAtom(),
+            ipcLifecycle: .testUnavailable,
             bridgePaneAttendance: BridgePaneAttendanceAtom()
         )
         _ = coordinator

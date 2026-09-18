@@ -138,6 +138,11 @@ struct AgentStudioPathClassifier {
             return .core
         case "AgentStudioInfrastructure":
             return .infrastructure
+        case "AgentStudioPrimitives":
+            // Pure Foundation-only leaf that Infrastructure re-exports. It sits
+            // at the same depth as Infrastructure, so every layer that may
+            // import Infrastructure may import it directly too.
+            return .infrastructure
         case "AgentStudioSharedComponents":
             return .sharedComponents
         case "AgentStudioTestSupport":

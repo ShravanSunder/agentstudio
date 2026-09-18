@@ -8,6 +8,7 @@ extension WorkspaceSurfaceCoordinator {
         try await store.discardPane(
             target: .backgroundedPane(paneID: paneId), time: try await undoClock(),
             willPublish: { [self] removedIDs in
+                ipcLifecycle.finalRevokePaneIDs(removedIDs)
                 for removedID in removedIDs {
                     retireZoomCompanion(forSourcePane: removedID)
                     teardownView(for: removedID)
@@ -34,6 +35,7 @@ extension WorkspaceSurfaceCoordinator {
         try await store.discardPane(
             target: .drawerPane(parentID: parentPaneId, paneID: drawerPaneId), time: try await undoClock(),
             willPublish: { [self] removedIDs in
+                ipcLifecycle.finalRevokePaneIDs(removedIDs)
                 restoreFocus = closingPaneOwnedFocus && window?.firstResponder === originalResponder
                 if restoreFocus {
                     prepareDrawerFocusForDiscard(parentPaneId: parentPaneId, drawerPaneId: drawerPaneId)

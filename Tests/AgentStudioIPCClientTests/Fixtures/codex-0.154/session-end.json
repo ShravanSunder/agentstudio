@@ -1,0 +1,7 @@
+{
+  "session_id": "01994d2f-8f1a-7c3b-9d44-2a6f5b8c1e07",
+  "transcript_path": "/tmp/codex/transcript-01994d2f.jsonl",
+  "cwd": "/Users/example/dev/project",
+  "hook_event_name": "SessionEnd",
+  "reason": "exit"
+}

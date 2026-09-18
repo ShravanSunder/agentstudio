@@ -35,7 +35,8 @@ struct WorkspacePaneDiscardFocusTests {
         let coordinator = WorkspaceSurfaceCoordinator(
             store: store, viewRegistry: registry, runtime: SessionRuntime(store: store),
             surfaceManager: HarnessSurfaceManager(), runtimeRegistry: RuntimeRegistry(),
-            windowLifecycleStore: WindowLifecycleAtom(), bridgePaneAttendance: BridgePaneAttendanceAtom())
+            windowLifecycleStore: WindowLifecycleAtom(), ipcLifecycle: .testUnavailable,
+            bridgePaneAttendance: BridgePaneAttendanceAtom())
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 600, height: 400), styleMask: [.titled], backing: .buffered,
             defer: true)

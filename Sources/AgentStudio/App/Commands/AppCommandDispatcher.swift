@@ -1,6 +1,7 @@
 import AgentStudioCommandBar
 import AgentStudioCore
 import AgentStudioInfrastructure
+import AgentStudioProgrammaticControl
 import AgentStudioRepoExplorer
 import Foundation
 import Observation
@@ -59,13 +60,7 @@ final class AppCommandDispatcher: AppCommandDispatching {
             Self.logger.warning("Command request rejected: \(request.command.rawValue, privacy: .public)")
             return .unsupportedCommand
         }
-        switch request.arguments {
-        case .noArguments:
-            break
-        case .inboxRowStateFilter, .inboxContentMode:
-            guard let appCommandRouter else { return .unsupportedCommand }
-            return appCommandRouter.execute(request)
-        }
+        guard request.arguments == .noArguments else { return .unsupportedCommand }
 
         if let appCommandRouter {
             let outcome = appCommandRouter.execute(request)
@@ -121,6 +116,65 @@ final class AppCommandDispatcher: AppCommandDispatching {
         }
         handler.execute(command, target: target, targetType: targetType)
         return true
+    }
+
+    /// Typed `command.execute` delivery. The adapter has already admitted the
+    /// command for this channel and canonicalized its identities; this gate
+    /// re-checks the projection's exposure, execution mode and target kinds plus
+    /// the one current workspace window, then routes to the shell owner before
+    /// the workspace owner, exactly as the interactive path does.
+    ///
+    /// It deliberately does not apply the interactive `canExecute` enablement
+    /// validators. Those answer "is this command enabled for the current focus
+    /// and selection"; a typed request names its identities explicitly, so
+    /// enablement is the owner's own capability check plus
+    /// `WorkspaceCommandValidator` inside `WorkspaceActionExecutor`.
+    func dispatchHeadlessIPC(_ request: AppCommandExecutionRequest) async -> AppCommandExecutionOutcome {
+        guard case .headlessIPC(let admitsDebugTestingCommands) = request.executionContext,
+            let arguments = request.typedIPCArguments
+        else {
+            return .unsupportedCommand
+        }
+        guard let definition = definitions[request.command],
+            Self.supportsHeadlessIPCDispatch(
+                definition: definition,
+                admitsDebugTestingCommands: admitsDebugTestingCommands,
+                targetType: arguments.durableTarget?.type
+            )
+        else {
+            return .unsupportedCommand
+        }
+        if let workspaceWindowId = arguments.workspaceWindowId {
+            let shellOwnsWindow = appCommandRouter?.ownsWorkspaceWindow(workspaceWindowId) ?? false
+            let handlerOwnsWindow = handler?.ownsWorkspaceWindow(workspaceWindowId) ?? false
+            guard shellOwnsWindow || handlerOwnsWindow else { return .stateUnavailable }
+        }
+        if let outcome = appCommandRouter?.execute(request), outcome != .unsupportedCommand {
+            return outcome
+        }
+        guard let handler else { return .stateUnavailable }
+        return await handler.executeHeadlessIPC(request)
+    }
+
+    /// The projection decides what a channel may reach. Stable and beta keep
+    /// the admitted headless commands; debug additionally reaches interactive
+    /// and presentation-only commands through their typed variants.
+    static func supportsHeadlessIPCDispatch(
+        definition: AppCommandSpec,
+        admitsDebugTestingCommands: Bool,
+        targetType: SearchItemType?
+    ) -> Bool {
+        let ipcSpec = definition.command.ipcSpec
+        switch ipcSpec.exposure {
+        case .allChannels:
+            break
+        case .debugTesting:
+            guard admitsDebugTestingCommands else { return false }
+        }
+        guard ipcSpec.executionMode == .headless || admitsDebugTestingCommands else { return false }
+        guard let targetType else { return true }
+        guard let targetKind = ipcHandleKind(for: targetType) else { return true }
+        return ipcSpec.allowedTargetKinds.contains(targetKind)
     }
 
     func dispatchExtractPaneToTab(tabId: UUID, paneId: UUID, targetTabInsertionIndex: Int?) {
@@ -223,15 +277,26 @@ final class AppCommandDispatcher: AppCommandDispatching {
     ) -> Bool {
         switch executionContext {
         case .interactive:
-            definition.targeting.supports(targetType: targetType)
-        case .headlessIPC:
-            switch definition.command.ipcSpec.exposure {
-            case .headless(let durableTarget, _),
-                .headlessAndInteractive(let durableTarget, _):
-                durableTarget.supports(targetType: targetType)
-            case .notExposed, .interactive, .uiPresentation:
-                false
-            }
+            return definition.targeting.supports(targetType: targetType)
+        case .headlessIPC(let admitsDebugTestingCommands):
+            return supportsHeadlessIPCDispatch(
+                definition: definition,
+                admitsDebugTestingCommands: admitsDebugTestingCommands,
+                targetType: targetType
+            )
+        }
+    }
+
+    private static func ipcHandleKind(for targetType: SearchItemType) -> IPCHandleKind? {
+        switch targetType {
+        case .repo:
+            .repo
+        case .tab:
+            .tab
+        case .pane:
+            .pane
+        case .worktree, .floatingTerminal:
+            nil
         }
     }
 

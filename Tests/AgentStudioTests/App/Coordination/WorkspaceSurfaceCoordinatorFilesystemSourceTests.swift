@@ -69,6 +69,7 @@ struct WorkspaceSurfaceCoordinatorFilesystemSourceTests {
             filesystemSource: source,
             filesystemProjectionIndex: FilesystemProjectionIndex(),
             windowLifecycleStore: WindowLifecycleAtom(),
+            ipcLifecycle: .testUnavailable,
             bridgePaneAttendance: BridgePaneAttendanceAtom(),
             performanceTraceRecorder: recorder
         )
@@ -617,6 +618,7 @@ struct WorkspaceSurfaceCoordinatorFilesystemSourceTests {
             filesystemSource: source,
             filesystemProjectionIndex: index,
             windowLifecycleStore: WindowLifecycleAtom(),
+            ipcLifecycle: .testUnavailable,
             bridgePaneAttendance: BridgePaneAttendanceAtom()
         )
     }

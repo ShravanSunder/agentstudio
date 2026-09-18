@@ -1,5 +1,6 @@
 import AgentStudioAppIPC
 import AgentStudioProgrammaticControl
+import AppKit
 import Foundation
 import Testing
 
@@ -8,7 +9,7 @@ import Testing
 @testable import AgentStudioTestSupport
 
 @MainActor
-@Suite("AgentStudio IPC layout adapter")
+@Suite("AgentStudio IPC layout adapter", .serialized)
 struct AgentStudioIPCLayoutAdapterTests {
     @Test("pane focus fails closed when no workspace window is active")
     func paneFocusFailsClosedWhenNoWorkspaceWindowIsActive() async throws {
@@ -212,6 +213,46 @@ struct AgentStudioIPCLayoutAdapterTests {
         }
     }
 
+    @Test("a retained pane focus control rejects its shut down owner without changing selection")
+    func retainedPaneFocusControlRejectsShutdownOwner() async throws {
+        try await withAsyncTestCoreAtoms { _ in
+            let harness = makeHarness()
+            let firstPane = harness.store.createPane(title: "First")
+            let secondPane = harness.store.createPane(title: "Second")
+            let tab = makeTab(paneIds: [firstPane.id, secondPane.id], activePaneId: firstPane.id)
+            harness.store.appendTab(tab)
+            harness.store.setActiveTab(tab.id)
+            harness.store.setActivePane(firstPane.id, inTab: tab.id)
+            let focusControl = PaneTabViewControllerPaneFocusAppControl(
+                paneTabViewController: harness.controller, workspaceStore: harness.store)
+            harness.controller.shutdown()
+
+            #expect(throws: PaneFocusAppControlError.validationRejected) {
+                try focusControl.focusPane(secondPane.id)
+            }
+            #expect(harness.store.tab(tab.id)?.activePaneId == firstPane.id)
+        }
+    }
+
+    @Test("App focus composition resolves the current window on every call")
+    func appFocusCompositionDoesNotCaptureReplacedWindow() throws {
+        let delegate = AppDelegate()
+        delegate.store = makeIPCLayoutWorkspaceStore()
+        let firstWindow = RecordingIPCFocusWindowController(window: nil)
+        let secondWindow = RecordingIPCFocusWindowController(window: nil)
+        let paneId = delegate.store.createPane(title: "Target").id
+        delegate.mainWindowController = firstWindow
+        try delegate.focusPane(paneId)
+        delegate.mainWindowController = secondWindow
+        try delegate.focusPane(paneId)
+
+        #expect(firstWindow.focusControl.focusedPaneIds == [paneId])
+        #expect(secondWindow.focusControl.focusedPaneIds == [paneId])
+        delegate.mainWindowController = nil
+        #expect(throws: AppIPCLayoutError.self) { try delegate.focusPane(paneId) }
+        #expect(secondWindow.focusControl.focusedPaneIds == [paneId])
+    }
+
     @Test("concrete layout actions register hosts before exposing created panes")
     func concreteLayoutActionsRegisterHostsBeforeExposingCreatedPanes() async throws {
         try await withAsyncTestCoreAtoms { _ in
@@ -351,4 +392,13 @@ private func makeIPCLayoutWorkspaceStore() -> WorkspaceStore {
     let tempDir = FileManager.default.temporaryDirectory
         .appending(path: "agentstudio-ipc-layout-adapter-\(UUID().uuidString)")
     return WorkspaceStore()
+}
+
+@MainActor
+private final class RecordingIPCFocusWindowController: MainWindowController {
+    let focusControl = RecordingPaneFocusAppControl()
+    override var acceptsIPCCommands: Bool { true }
+    override func makePaneFocusAppControl(store _: WorkspaceStore) -> (any PaneFocusAppControlling)? {
+        focusControl
+    }
 }

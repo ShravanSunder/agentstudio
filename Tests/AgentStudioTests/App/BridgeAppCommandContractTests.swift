@@ -54,9 +54,9 @@ struct BridgeAppCommandContractTests {
         #expect(definition.visibleWhen == [.supportsTerminalZoom])
         #expect(definition.shortcut?.rawValue == "zoomPane")
         #expect(definition.shortcut?.trigger.displayString == "⌘⇧↵")
-        #expect(definition.ipcExposure.executionModes == [.headless])
-        #expect(definition.ipcCommandListEntry.targetKinds == [.pane])
-        #expect(definition.ipcExposure.requiredPrivileges == [.layoutMutate])
+        #expect(zoomPane.ipcSpec.executionMode == .headless)
+        #expect(zoomPane.ipcSpec.allowedTargetKinds == [.window, .pane])
+        #expect(zoomPane.ipcSpec.requiredPrivilege == .layoutMutate)
     }
 
     @Test("Viewer is a Zoom-entry and Zoom-local toggle command")
@@ -85,9 +85,9 @@ struct BridgeAppCommandContractTests {
         #expect(definition.visibleWhen == [.supportsTerminalZoom])
         #expect(definition.shortcut?.rawValue == "showViewer")
         #expect(definition.shortcut?.trigger.displayString == "⌘O")
-        #expect(definition.ipcExposure.executionModes.isEmpty)
-        #expect(definition.ipcCommandListEntry.targetKinds.isEmpty)
-        #expect(definition.ipcExposure.requiredPrivileges.isEmpty)
+        #expect(showViewer.ipcSpec.exposure == .debugTesting)
+        #expect(showViewer.ipcSpec.allowedTargetKinds == [.window, .pane])
+        #expect(showViewer.ipcSpec.requiredPrivilege == .layoutMutate)
     }
 
     @Test("Bridge Web View Reload is a no-shortcut browser presentation escape hatch")
@@ -112,9 +112,9 @@ struct BridgeAppCommandContractTests {
         #expect(definition.visibleWhen == [.hasActivePane, .paneIsBridge])
         #expect(definition.shortcut == nil)
         #expect(definition.keyBinding == nil)
-        #expect(definition.ipcExposure.executionModes == [.headless])
-        #expect(definition.ipcCommandListEntry.targetKinds == [.pane])
-        #expect(definition.ipcExposure.requiredPrivileges == [.workspaceRead])
+        #expect(reloadBridgeWebView.ipcSpec.executionMode == .headless)
+        #expect(reloadBridgeWebView.ipcSpec.allowedTargetKinds == [.window, .pane])
+        #expect(reloadBridgeWebView.ipcSpec.requiredPrivilege == .workspaceRead)
     }
 
     @Test("Command-R remains exclusively the Management Layer toggle")

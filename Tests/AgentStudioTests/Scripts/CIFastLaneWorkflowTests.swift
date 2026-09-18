@@ -358,7 +358,7 @@ struct CIFastLaneWorkflowTests {
         #expect(testHelperScript.contains("AgentStudioIPCBridgeServiceTests"))
         #expect(testHelperScript.contains("AgentStudioAppIPCServiceCommandTests"))
         #expect(testHelperScript.contains("AgentStudioAppIPCServiceContributionTests"))
-        #expect(largeSerialFilter.contains("PaneAgentLaunchOwnerTests"))
+        #expect(!largeSerialFilter.contains("PaneAgentLaunchOwnerTests"))
         #expect(fastLaneMode.contains("run_fast_non_webkit_swift_tests"))
         #expect(largeLaneMode.contains("run_large_non_webkit_swift_tests"))
         #expect(nonSerializedRunner.contains("--parallel"))

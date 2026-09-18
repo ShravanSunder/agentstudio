@@ -381,10 +381,10 @@ public enum JSONRPCCodec {
             guard id.isFinite, id.rounded() == id else {
                 throw JSONRPCError(reason: .invalidRequest, message: "JSON-RPC numeric id must be an integer")
             }
-            guard id >= Double(Int.min), id <= Double(Int.max) else {
+            guard let integerID = Int(exactly: id) else {
                 throw JSONRPCError(reason: .invalidRequest, message: "JSON-RPC numeric id is out of range")
             }
-            return .number(Int(id))
+            return .number(integerID)
         case .null:
             return .null
         default:

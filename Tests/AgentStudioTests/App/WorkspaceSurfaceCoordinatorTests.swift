@@ -37,6 +37,7 @@ struct WorkspaceSurfaceCoordinatorTests {
         let coordinator = WorkspaceSurfaceCoordinator(
             store: store, viewRegistry: viewRegistry, runtime: runtime,
             windowLifecycleStore: WindowLifecycleAtom(),
+            ipcLifecycle: .testUnavailable,
             bridgePaneAttendance: BridgePaneAttendanceAtom()
         )
         return WorkspaceSurfaceCoordinatorHarness(
@@ -84,6 +85,7 @@ struct WorkspaceSurfaceCoordinatorTests {
             gitStatusPhysicalGate: gitStatusPhysicalGate,
             filesystemSource: filesystemSource,
             windowLifecycleStore: WindowLifecycleAtom(),
+            ipcLifecycle: .testUnavailable,
             bridgePaneAttendance: BridgePaneAttendanceAtom()
         )
     }

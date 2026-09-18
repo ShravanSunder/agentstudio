@@ -46,6 +46,29 @@ struct WorkspaceSQLiteDatastorePreparationTests {
         #expect(try preparationQuarantineArtifacts(in: fixture.rootDirectory).isEmpty)
     }
 
+    @Test("boot preparation excludes optional schema until explicit optional preparation")
+    func optionalSchemaRequiresExplicitPreparation() async throws {
+        let fixture = try makePreparationFixture(name: "optional-schema")
+        defer { try? FileManager.default.removeItem(at: fixture.rootDirectory) }
+        let datastore = fixture.makeDatastore()
+        guard case .prepared = await datastore.prepareDatabasesForBoot() else {
+            Issue.record("Expected boot preparation")
+            return
+        }
+
+        let beforeOptional = try await datastore.performApplicationLocalRead { database in
+            try database.tableExists("local_ipc_credential")
+        }
+        let optionalResult = await datastore.prepareOptionalApplicationLocalSchema()
+        let afterOptional = try await datastore.performApplicationLocalRead { database in
+            try database.tableExists("local_ipc_credential")
+        }
+
+        #expect(!beforeOptional)
+        #expect(optionalResult == .ready)
+        #expect(afterOptional)
+    }
+
     @Test("concurrent preparation callers share one terminal receipt")
     func concurrentPreparationCallersShareOneReceipt() async throws {
         let fixture = try makePreparationFixture(name: "concurrent-callers")
@@ -222,6 +245,16 @@ struct WorkspaceSQLiteDatastorePreparationTests {
             case .unavailable = receipt.local
         else {
             Issue.record("Expected unclassified local open failure")
+            return
+        }
+        #expect(try Data(contentsOf: fixture.localDatabaseURL) == databaseBytes)
+        #expect(try Data(contentsOf: walURL) == walBytes)
+        #expect(try Data(contentsOf: shmURL) == shmBytes)
+        #expect(try preparationQuarantineArtifacts(in: fixture.rootDirectory).isEmpty)
+
+        let optionalResult = await datastore.prepareOptionalApplicationLocalSchema()
+        guard case .unavailable = optionalResult else {
+            Issue.record("Expected optional schema to remain unavailable")
             return
         }
         #expect(try Data(contentsOf: fixture.localDatabaseURL) == databaseBytes)

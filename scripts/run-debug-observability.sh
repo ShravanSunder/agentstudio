@@ -256,7 +256,7 @@ PY
 retire_debug_candidate() {
   local state_path="${1:?missing state path}"
   local expected_code="${2:?missing debug code}"
-  local expected_debug_root="${3:?missing debug root}"
+  local expected_artifact_root="${3:?missing debug artifact root}"
   local expected_data_root="${4:?missing data root}"
   local operation="${5:-retire}"
   [ -f "$state_path" ] || {
@@ -279,7 +279,7 @@ retire_debug_candidate() {
   state_zmx_dir="$(read_state_value AGENTSTUDIO_OBSERVABILITY_ZMX_DIR "$state_path")"
 
   local expected_bundle_identifier="com.agentstudio.app.debug.d$expected_code"
-  local expected_app="$expected_debug_root/apps/AgentStudio Debug $expected_code.app"
+  local expected_app="$expected_artifact_root/AgentStudio Debug $expected_code.app"
   local expected_executable="$expected_app/Contents/MacOS/AgentStudio"
   local expected_zmx_dir="$expected_data_root/z"
   case "$state_pid" in
@@ -366,8 +366,13 @@ retire_debug_candidate() {
     echo "candidate identity mismatch: process start changed before graceful quit" >&2
     return 1
   fi
+  # AppKit reports the canonical path; the state file stores what the launcher
+  # was given. The surrounding tuple check already compares realpaths, so the
+  # quit request must too or any artifact root reached through a symlink
+  # (/tmp, /var) is unretirable.
   if ! request_normal_candidate_quit \
-    "$state_pid" "$state_bundle_identifier" "$state_app" "$state_executable"
+    "$state_pid" "$state_bundle_identifier" \
+    "$(realpath_value "$state_app")" "$(realpath_value "$state_executable")"
   then
     echo "graceful quit request failed for exact candidate PID $state_pid" >&2
     return 1
@@ -713,11 +718,21 @@ copy_debug_bundle() {
   local marketing_version="${APP_MARKETING_VERSION:-0.0.1-debug+$code}"
   local build_version="${APP_BUILD_VERSION:-$(git rev-list --count HEAD)}"
 
-  mkdir -p "$app_dir/MacOS" "$app_dir/Resources"
+  mkdir -p "$app_dir/MacOS" "$app_dir/Resources" "$app_dir/Helpers"
+  chmod 755 "$app_dir/Helpers"
   "$DITTO_BIN" "$source_binary" "$app_dir/MacOS/AgentStudio"
 
   if [ -f "vendor/zmx/zig-out/bin/zmx" ]; then
     "$DITTO_BIN" "vendor/zmx/zig-out/bin/zmx" "$app_dir/MacOS/zmx"
+  fi
+
+  # agentstudio CLI — bundled as Contents/Helpers/agentstudio because
+  # Contents/MacOS/agentstudio collides with the app executable on
+  # case-insensitive volumes. The pane environment advertises this exact path.
+  local cli_source_binary="$build_root/debug/agentstudio-cli"
+  if [ -f "$cli_source_binary" ]; then
+    "$DITTO_BIN" "$cli_source_binary" "$app_dir/Helpers/agentstudio"
+    chmod 755 "$app_dir/Helpers/agentstudio"
   fi
 
   "$DITTO_BIN" "Sources/AgentStudio/Resources/Info.plist" "$plist_path"
@@ -737,6 +752,13 @@ copy_debug_bundle() {
     "$DITTO_BIN" "Sources/AgentStudio/Resources/terminfo" "$app_dir/Resources/terminfo"
   [ -d "Sources/AgentStudio/Resources/ghostty" ] &&
     "$DITTO_BIN" "Sources/AgentStudio/Resources/ghostty" "$app_dir/Resources/ghostty"
+  # AgentPackage — provider hooks, installer resources and the model skill. The
+  # installer resolves this tree from Contents/Helpers/agentstudio, so the path
+  # Contents/Resources/AgentPackage is load-bearing.
+  if [ -d "Sources/AgentStudio/Resources/AgentPackage" ]; then
+    "$DITTO_BIN" "Sources/AgentStudio/Resources/AgentPackage" "$app_dir/Resources/AgentPackage"
+    find "$app_dir/Resources/AgentPackage" -name '*.sh' -exec chmod 755 {} +
+  fi
 
   local resource_bundle
   resource_bundle="$(find "$build_root" -path '*/debug/AgentStudio_AgentStudio.bundle' -type d | head -1)"
@@ -750,6 +772,9 @@ copy_debug_bundle() {
   fi
   if [ -f "$app_dir/MacOS/zmx" ]; then
     codesign_debug_item "$app_dir/MacOS/zmx" "$signing_identity" "$entitlements"
+  fi
+  if [ -f "$app_dir/Helpers/agentstudio" ]; then
+    codesign_debug_item "$app_dir/Helpers/agentstudio" "$signing_identity" "$entitlements"
   fi
   codesign_debug_item "$app_path" "$signing_identity" "$entitlements"
   "$CODESIGN_BIN" --verify --deep --strict "$app_path"
@@ -868,6 +893,7 @@ cd "$PROJECT_ROOT"
 
 debug_code="$(worktree_debug_code)"
 debug_root="$HOME/.agentstudio-db/$debug_code"
+debug_artifact_root="${AGENTSTUDIO_DEBUG_ARTIFACT_DIR:-$debug_root/apps}"
 launch_data_root="${AGENTSTUDIO_DEBUG_DATA_DIR:-$debug_root}"
 debug_zmx_dir="$launch_data_root/z"
 state_file="${AGENTSTUDIO_OBSERVABILITY_STATE_FILE:-$PROJECT_ROOT/tmp/debug-observability/latest-observability.env}"
@@ -877,11 +903,11 @@ if [ "$retire_candidate" = true ] && [ "$validate_candidate" = true ]; then
   exit 2
 fi
 if [ "$retire_candidate" = true ]; then
-  retire_debug_candidate "$state_file" "$debug_code" "$debug_root" "$launch_data_root" retire
+  retire_debug_candidate "$state_file" "$debug_code" "$debug_artifact_root" "$launch_data_root" retire
   exit $?
 fi
 if [ "$validate_candidate" = true ]; then
-  retire_debug_candidate "$state_file" "$debug_code" "$debug_root" "$launch_data_root" validate
+  retire_debug_candidate "$state_file" "$debug_code" "$debug_artifact_root" "$launch_data_root" validate
   exit $?
 fi
 
@@ -1104,10 +1130,9 @@ if ! trace_name_is_safe_path_component "$trace_name"; then
 fi
 
 if [ -n "${AGENTSTUDIO_DEBUG_ARTIFACT_DIR:-}" ]; then
-  app_path="$(copy_debug_bundle "$binary_path" "$build_path" "$debug_code" "$AGENTSTUDIO_DEBUG_ARTIFACT_DIR")"
+  app_path="$(copy_debug_bundle "$binary_path" "$build_path" "$debug_code" "$debug_artifact_root")"
 else
-  default_artifact_root="$debug_root/apps"
-  app_path="$(publish_debug_bundle "$binary_path" "$build_path" "$debug_code" "$default_artifact_root")"
+  app_path="$(publish_debug_bundle "$binary_path" "$build_path" "$debug_code" "$debug_artifact_root")"
 fi
 app_binary_path="$app_path/Contents/MacOS/AgentStudio"
 
