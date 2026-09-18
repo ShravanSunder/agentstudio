@@ -82,7 +82,7 @@ final class ZmxBackendTests {
 
     @Test
 
-    func test_attachCommand_format() throws {
+    func test_attachCommand_format() async throws {
         // Arrange
         let expectedShell = SessionConfiguration.defaultShell()
         let handle = makePaneSessionHandle(
@@ -95,7 +95,7 @@ final class ZmxBackendTests {
         // Assert
         #expect(!(cmd.contains("ZMX_DIR=")))
         #expect(
-            try shellParsedArguments(from: cmd) == [
+            try await shellParsedArguments(from: cmd) == [
                 "/usr/local/bin/zmx",
                 "attach",
                 "as-a1b2c3d4e5f6a7b8-00112233aabbccdd-aabbccdd11223344",
@@ -111,7 +111,7 @@ final class ZmxBackendTests {
 
     @Test
 
-    func test_attachCommand_escapesPathsWithSpaces() throws {
+    func test_attachCommand_escapesPathsWithSpaces() async throws {
         // Arrange
         let expectedShell = SessionConfiguration.defaultShell()
         let spacedBackend = ZmxBackend(
@@ -129,7 +129,7 @@ final class ZmxBackendTests {
         // Assert
         #expect(!(cmd.contains("/Users/test user/.agentstudio/zmx")))
         #expect(
-            try shellParsedArguments(from: cmd) == [
+            try await shellParsedArguments(from: cmd) == [
                 "/Users/test user/bin/zmx",
                 "attach",
                 "as-a1b2c3d4e5f6a7b8-00112233aabbccdd-aabbccdd11223344",
@@ -204,7 +204,7 @@ final class ZmxBackendTests {
     }
 
     @Test
-    func test_shellEscape_roundTripsOpaqueArgumentsThroughZsh() throws {
+    func test_shellEscape_roundTripsOpaqueArgumentsThroughZsh() async throws {
         // Arrange
         let opaqueArguments = [
             "legacy!id",
@@ -216,25 +216,28 @@ final class ZmxBackendTests {
             "`pwd`",
         ]
         let command = "printf '%s\\n' \(opaqueArguments.map(ZmxBackend.shellEscape).joined(separator: " "))"
-        let outputPipe = Pipe()
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/bin/zsh")
-        process.arguments = ["-c", command]
-        process.standardOutput = outputPipe
 
-        // Act
-        try process.run()
-        process.waitUntilExit()
-        let output = outputPipe.fileHandleForReading.readDataToEndOfFile()
-        let decodedArguments = try #require(String(data: output, encoding: .utf8))
+        // Act — the shared executor drains stdout concurrently with the child and joins on
+        // exit plus EOF. Waiting for exit before reading deadlocks once the child outgrows
+        // the pipe buffer, and it parks a cooperative-pool thread the lane needs.
+        let result = try await Self.zshExecutor.execute(
+            command: "/bin/zsh",
+            args: ["-c", command],
+            cwd: nil,
+            environment: nil
+        )
+        let decodedArguments = result.stdout
             .split(separator: "\n", omittingEmptySubsequences: false)
-            .dropLast()
             .map(String.init)
 
         // Assert
-        #expect(process.terminationStatus == 0)
+        #expect(result.exitCode == 0)
         #expect(decodedArguments == opaqueArguments)
     }
+
+    /// A hang bound, not a wait: far above any healthy `printf`, so the verdict stays a
+    /// function of zsh's quoting rather than of machine speed.
+    private static let zshExecutor = DefaultProcessExecutor(timeout: 120)
 
     // MARK: - healthCheck
 
@@ -592,22 +595,23 @@ final class ZmxBackendTests {
     }
 }
 
-private func shellParsedArguments(from command: String) throws -> [String] {
-    let outputPipe = Pipe()
-    let process = Process()
-    process.executableURL = URL(fileURLWithPath: "/bin/zsh")
-    process.arguments = ["-c", "set -- \(command); printf '%s\\n' \"$@\""]
-    process.standardOutput = outputPipe
+/// Shares the drain-before-wait shape of the round-trip test above: the executor reads
+/// stdout concurrently with the child and joins on exit plus EOF, so no pool thread is
+/// parked and no pipe-capacity deadlock is possible.
+private func shellParsedArguments(from command: String) async throws -> [String] {
+    let result = try await shellParserExecutor.execute(
+        command: "/bin/zsh",
+        args: ["-c", "set -- \(command); printf '%s\\n' \"$@\""],
+        cwd: nil,
+        environment: nil
+    )
 
-    try process.run()
-    process.waitUntilExit()
-
-    let output = outputPipe.fileHandleForReading.readDataToEndOfFile()
-    let decodedOutput = try #require(String(data: output, encoding: .utf8))
-    #expect(process.terminationStatus == 0)
+    #expect(result.exitCode == 0)
     return
-        decodedOutput
+        result.stdout
         .split(separator: "\n", omittingEmptySubsequences: false)
-        .dropLast()
         .map(String.init)
 }
+
+/// A hang bound, not a wait; see `ZmxBackendTests.zshExecutor`.
+private let shellParserExecutor = DefaultProcessExecutor(timeout: 120)

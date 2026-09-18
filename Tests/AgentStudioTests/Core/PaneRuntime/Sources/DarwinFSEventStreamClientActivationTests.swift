@@ -50,10 +50,11 @@ struct DarwinFSEventStreamClientActivationTests {
         // Act
         client.register(worktreeId: secondWorktreeId, repoId: repositoryId, rootPath: secondRoot)
 
-        // Assert
-        let batch = try #require(
-            await firstCompletedValue(from: deliveredBatch, timeout: .seconds(1))
-        )
+        // Assert — `deliveredBatch` is already the waiter: it returns the instant the
+        // matching batch arrives, and nil if `client.events()` finishes. Racing a clock
+        // against it only added a machine-speed verdict, which matters here because the
+        // fake parks a cooperative thread on a semaphore during replacement.
+        let batch = try #require(await deliveredBatch.value)
         #expect(batch.paths.contains(where: { $0.hasSuffix("/Changed.swift") }))
     }
 
@@ -100,25 +101,6 @@ struct DarwinFSEventStreamClientActivationTests {
         #expect(Set(settledBarrier.bindings.map(\.worktreeId)) == [firstWorktreeId, secondWorktreeId])
     }
 
-    private func firstCompletedValue<Value: Sendable>(
-        from task: Task<Value?, Never>,
-        timeout: Duration
-    ) async -> Value? {
-        await withTaskGroup(of: Value?.self) { group in
-            group.addTask { await task.value }
-            group.addTask {
-                try? await AsyncDelay.taskSleep.wait(timeout)
-                return nil
-            }
-            guard let value = await group.next() else {
-                task.cancel()
-                return nil
-            }
-            group.cancelAll()
-            task.cancel()
-            return value
-        }
-    }
 }
 
 private final class PendingReplacementLocalFSEventStreamFactory: @unchecked Sendable {

@@ -1,0 +1,1121 @@
+LANE C — WebKit hosted-pane journeys, and the six suites that recur in blocked runs
+Repo: /Users/shravansunder/Documents/dev/project-dev/agent-studio.issues-perf-again
+Method: read the test, its helpers, and the production code it drives. Every factual statement carries path:line.
+READ-ONLY. No edits, no builds, no test runs.
+
+
+================================================================================
+PART 1a — THE TWO-PANE JOURNEY, AND EVERY OTHER TEST IN THAT FILE
+================================================================================
+
+File under study: Tests/AgentStudioTests/App/WebKit/Bridge/BridgeProductRealGitFileAndReviewWebKitTests.swift (841 lines)
+Suite: WebKitSerializedTests.BridgeProductRealGitFileAndReviewWebKitTests
+Suite traits: @MainActor + @Suite(.serialized) (:11-13), nested in @Suite(.serialized) WebKitSerializedTests
+  (Tests/AgentStudioTests/App/WebKit/WebKitSerializedTests.swift:3-4). Four tests.
+
+
+--------------------------------------------------------------------------------
+TEST: BridgeProductRealGitFileAndReviewWebKitTests / "two hosted panes isolate native hidden
+      admission and retain worker state"
+FILE: Tests/AgentStudioTests/App/WebKit/Bridge/BridgeProductRealGitFileAndReviewWebKitTests.swift:145-197
+SIZE: 53 lines of test body + 858 lines of single-purpose support
+      (TestSupport/BridgeProductWebKitTwoPaneJourneyTestSupport.swift) + 50 lines of diagnostic
+      (TestSupport/BridgeProductWebKitMetadataStormDiagnostic.swift) = ~961 lines for one @Test.
+TRAITS: serialized (suite + umbrella suite), @MainActor, no timeLimit, not parameterized, WebKit lane.
+CLAIM (as written, four claims in one test):
+  1. A pane moved to .loadedHidden admits no product work — no new foreground admission, no Review
+     comparison, no refresh pass, no product data frames — while its worker instance and its in-page
+     File/Review state survive intact across hide → foreground return.
+  2. A second, independent pane is completely unaffected by pane one's whole journey (worker id,
+     activity, selection, scroll positions).
+  3. "Updating…" chrome is isolated to the active surface only.
+  4. A dormant pane opens a worker but starts no refresh pass and has no review selection.
+  Who is hurt if 1/2 break: a user with two Bridge panes open — the background pane burns git reads and
+  CPU while hidden, or loses its selection/worker when another pane is touched.
+LAYER TODAY: E2E. REAL: two BridgePaneController instances, two real NSWindow + BridgePaneMountView hosts
+  (:507-523), two real WKWebView content processes running the packaged BridgeWeb bundle, the real comm
+  worker, the real scheme handler / BridgeProductSession transport, two real on-disk git repos with 36+
+  seeded files each (:593-611), real agentstudio-git reads, real telemetry recorder.
+  FAKE: only the Review source provider is wrapped — BridgeProductWebKitGatedReviewSourceProvider (:56-151)
+  is a pass-through decorator that can block exactly one comparison (`armNextComparison` :84-86,
+  `recordAndBlockComparisonIfArmed` :113-122). That gate is the one genuinely good seam in this file.
+STIMULUS: scripted sequence + storm. Scripted: mount both panes, foreground pane two, round-trip pane one
+  through File/Review modes, arm and block a real Review comparison, invalidate, hide, release, return to
+  foreground. Storm: two back-to-back `handleWorktreeProductInvalidation(.filesChanged(...))` with
+  batchSeq 702 and 703 (:353-370) while hidden.
+ORACLE: 24 `#expect`s of four different classes. Full breakdown:
+
+  # | line     | assertion                                        | who produces the value        | class
+  --+----------+--------------------------------------------------+-------------------------------+----------------
+  1 | :151     | dormantDefaults.activeMode == "review"            | page DOM                      | DOM
+  2 | :152     | dormantDefaults.reviewSelectedPath == nil         | page DOM                      | DOM
+  3 | :153     | staleForegroundAdmissionWasRejected                | BridgePaneRefreshWorkAdmission| OWNER — good
+    |          |                                                   | .withValidAdmission (support  |
+    |          |                                                   | :344-345); gate at Bridge-    |
+    |          |                                                   | PaneRefreshAdmissionCoordi-   |
+    |          |                                                   | nator.swift:753 / :858        |
+  4 | :154-155 | hiddenStatus.file/reviewStatusText == nil          | page DOM                      | DOM — DEAD (see below)
+  5 | :156     | hiddenDirtyGeneration != nil                       | refreshAdmissionCoordinator   | OWNER — good but weak
+    |          |                                                   | .diagnosticSnapshot (support  | (only non-nil)
+    |          |                                                   | :371, :408)                   |
+  6 | :157     | hiddenRefreshPassCountAfter == Before              | same diagnosticSnapshot;      | OWNER — THE real
+    |          |                                                   | counter bumped at BridgePane- | invariant
+    |          |                                                   | RefreshAdmissionCoordinator   |
+    |          |                                                   | .swift:535                    |
+  7 | :158-162 | hiddenMetadataSequenceAfter == Before              | producerRegistry              | AGGREGATE COUNTER
+    |          |                                                   | .nextMetadataStreamSequence   | MIXING CAUSES — the
+    |          |                                                   | (CarrierTestSupport:911)      | known bad one
+  8 | :163-166 | hiddenReviewPublicationCountAfterLateRelease       | trace recorder                | telemetry-derived,
+    |          |   == Before                                       | .completedReviewPublication-  | cause-scoped — OK
+    |          |                                                   | Count (support :419-422)      |
+  9 | :169     | paneOneFinalRefreshPassCount ==                    | same aggregate refreshPass-   | AGGREGATE COUNTER +
+    |          |   paneOneForegroundRefreshPassCount + 3            | Count, exact arithmetic       | MAGIC CONSTANT —
+    |          |                                                   | across the whole journey      | SECOND OFFENDER
+ 10 | :170-172 | updatingReviewStatus.*StatusText == nil            | page DOM                      | DOM — DEAD
+ 11 | :173-174 | updatingFileStatus.fileStatusText == "Updating     | page DOM                      | DOM — DEAD
+    |          |   files…", reviewStatusText == nil                |                               |
+ 12 | :175     | paneOneWorkerIdBeforeHide == AfterReturn           | session installation bootstrap| OWNER — core claim
+    |          |                                                   | (CarrierTestSupport:917)      |
+ 13 | :176     | paneOne worker id != paneTwo worker id             | same                          | OWNER — good
+ 14 | :177     | paneTwoWorkerIdBefore == After                     | same                          | OWNER — core claim
+ 15 | :178     | paneTwoActivityAfterJourney == .foreground         | diagnosticSnapshot.activity   | OWNER — good
+ 16 | :179-187 | paneTwoState after == before (activeMode,          | page DOM                      | DOM — good
+    |          |   reviewSelectedItemId, reviewSelectedPath)       |                               | (isolation claim)
+ 17 | :188-195 | reviewStateAfterReturn == initialReviewState       | page DOM                      | DOM — good
+    |          |   (item id, path)                                 |                               | (retention claim)
+ 18 | :196     | fileStateAfterReturn.activeMode == "file"          | page DOM                      | DOM — DEAD
+
+  ANSWER TO "are there others of the same kind?" — YES, one, plus a family of dead assertions:
+
+  (i) #9 at :169, `paneOneFinalRefreshPassCount == paneOneForegroundRefreshPassCount + 3`, is the same
+      family as the known bad one and is arguably worse. `refreshPassCount` is incremented once per
+      claimed reservation at Sources/AgentStudio/Features/Bridge/Runtime/BridgePaneRefreshAdmission-
+      Coordinator.swift:535, and dirty facts are MERGED per lane before a pass claims them
+      (`dirtyFactByLane` :136, `mergingInvalidation` :306/:323, merge body :562-577, claim+consume
+      :508-535). Whether N invalidations become 1 pass or 2 therefore depends on whether the second
+      invalidation lands before or after the first reservation is claimed — a legal interleaving
+      difference, not a product difference. The test drives four invalidations (batchSeq 701 at
+      support :448-456, 702/703 at :353-370, 704 at :472-481) plus a hidden→foreground catch-up, and
+      then asserts the total is exactly +3. The in-code comment at :167-168 ("contributes one additional
+      pass beyond the initial Review + hidden/foreground recovery") is a reconstruction of scheduler
+      behaviour, which is exactly the thing the brief says a test should not rebuild on the side.
+      I have NOT observed this one fail in the five logged runs — the logged failures are all the
+      metadata counter. Classifying it as the same defect class is grounded in the merge code above;
+      calling it an active flake source is a HYPOTHESIS.
+
+  (ii) The same contaminated counter appears once more in this file's fourth test, in the opposite
+      direction: TestSupport/BridgeProductWebKitSurfaceSelectionJourneyTestSupport.swift:124,
+      `finalMetadataSequence >= initialMetadataSequence + 3`. A lower bound on a transport-wide frame
+      counter cannot flake, but it also cannot fail for any product reason — any three frames from any
+      cause satisfy it. Near-vacuous rather than wrong.
+
+  (iii) Seven assertions are DEAD — they restate a condition a `require*` helper already enforced by
+      throwing. #4 (:154-155) restates `requireNoUpdatingStatus` (support :769-781, which returns only
+      when `fileStatusText == nil && reviewStatusText == nil`). #10 (:170-172) restates the same helper
+      called at support :460. #11 (:173-174) restates `requireStatus(activeMode:"file",
+      expectedText:"Updating files…")` (support :739-767, which returns only when active text equals the
+      expected text and the inactive text is nil). #18 (:196) restates `activateFileMode` returning true
+      at support :395-397. These can never fail; the failure they were written for surfaces earlier as
+      `JourneyError.conditionFailed`, which is a thrown error, not a named expectation.
+
+WAIT: mixed, and this is the crux. Real awaitable barriers used correctly: `applyBridgePaneActivity(...)?.value`
+  (support :340-341; the transition is built at Sources/.../BridgePaneController+RefreshAdmission.swift:82-95),
+  `awaitRetiringFileOperations` + a `schedulePresentationTransition { _ in }` ordering barrier
+  (support :715-726). Then 6 wall-clock polls and 7 turn-budget polls:
+    requireNoUpdatingStatus          support :769-781   10 s deadline
+    requireNativeControlQuiescence   support :684-700   10 s deadline
+    requireHiddenRefreshSettled      support :702-713   10 s deadline
+    requireRefreshIdle               support :728-737   20 s deadline
+    requireReadyReview               support :649-672   20 s deadline
+    requireBlockedComparison         support :674-682   10 s deadline
+    requireMountedApp                support :640-647   15 s deadline
+  all through `BridgeProductWebKitCarrierTestSupport.waitUntil`
+  (Tests/AgentStudioTests/App/WebKit/Bridge/TestSupport/BridgeProductWebKitCarrierTestSupport.swift:715-727),
+  which is `ContinuousClock.now + timeout` with a `Task.yield()` busy spin — a wall-clock deadline poll.
+  Plus a fixed 80-iteration `Task.yield()` teardown spin at support :546-548.
+  There is NO control-quiescence wait between the hide and the "before" sample. The test proves it knows
+  this hazard exists: it uses `requireNativeControlQuiescence` at support :492-495 immediately after the
+  JS `activateReviewMode()` click, precisely because a page click provokes a follow-up control request.
+  The identical hazard after the hide transition (support :340-348) is unguarded.
+SPEED DEPENDENCE: precise and verified. `nextMetadataStreamSequence` counts every frame on the metadata
+  stream. Protocol lifecycle acknowledgements advance it: Sources/AgentStudio/Features/Bridge/Transport/
+  BridgeProductSession.swift:583-586 admits the required lifecycle frame (:584) and completes the control
+  replay (:586) inside one critical section; :584 reaches `admitSubscriptionInterestsCommittedFrame`
+  (BridgeProductSession+ProtocolLifecycle.swift:198-228), which calls `enqueueRequiredProtocolLifecycle-
+  Frame` (:270-283) → `producerRegistry.enqueueNonterminalFrame`, bumping the sequence. That path is
+  gated ONLY on `productAdmission` — a teardown/epoch claim, not pane activity
+  (BridgeProductAdmissionGate.swift:78-102). Product DATA frames are separately and correctly gated:
+  `enqueueSubscriptionData` (BridgeProductSession+ProtocolLifecycle.swift:70-78) wraps the whole body in
+  `foregroundWorkAdmission.withValidAdmission`, which fails for a .foregroundOnly token while hidden.
+  So: the page's own re-render after the hidden presentation frame lands can emit one
+  `subscriptionUpdateBatch`; native must answer it; the answer is +1 on the counter the test watches.
+  The test's last barrier before sampling (`requireNoUpdatingStatus`) unblocks on the DOM text going nil
+  — the visible half of that render — while the control request travels worker → scheme → session actor.
+  Fast machine: the ack lands before the "before" sample, delta 0, pass. Slower machine: it lands between
+  the two samples, delta +1, fail. Product identical in both.
+  Corroborating field data (docs/wip/2026-09-17-ci-reliability-evidence/lane-webkit-hosted-panes.md §1,
+  from CI logs): delta is always exactly +1, and the absolute "before" value swings 30 → 81 across runs
+  of the same journey, with the slowest run (12.8 s) carrying the highest count. A counter that swings
+  2.7x across identical journeys is not measuring the journey.
+WHEN IT FAILS YOU SEE: "Expectation failed: proof.hiddenMetadataSequenceAfterStorm == proof.hidden-
+  MetadataSequenceBeforeStorm" plus the diagnostic comment built by BridgeProductWebKitMetadataStorm-
+  Diagnostic.message (TestSupport/BridgeProductWebKitMetadataStormDiagnostic.swift:3-32), e.g.
+  "sequence=81->82, control=next:66->67/inFlight:nil->nil, frames=queued:0->1/inFlight:0->1, pane=+0[],
+  file=+0[], review=+0[]". The broken thing is NOT named — the message names a number that moved. It
+  takes reading five production files to learn that `pane=+0, file=+0, review=+0` in that same message is
+  the proof that nothing product-shaped happened. The diagnostic is good work pointed at the wrong oracle.
+VALUE: real and specific for a subset of its assertions — #12/#13/#14 (worker identity survives hide and
+  is not shared between panes) and #16/#17 (in-page selection survives) can only be proved with two live
+  WKWebViews; no cheaper test covers worker-instance survival across a real hide/return. #6 (refresh pass
+  count frozen while hidden) and #3 (stale foreground admission rejected) are real invariants but are
+  ALREADY proved more cheaply and more directly — see BETTER DESIGN. #7 and #9 catch nothing: #7's
+  invariant (no product work while hidden) is fully covered by
+  Tests/AgentStudioTests/Features/Bridge/BridgePaneProductMetadataActivityAdmissionTests.swift:69-78,
+  which asserts openCallCount/updateCallCount/statusPublicationCallCount/descriptorSourceCallCount/
+  reserveCallCount/deliverCallCount all == 0 AND `queuedFrameCount == 0` with no WebKit at all.
+BETTER DESIGN:
+  layer:    split. Keep ONE thin WebKit journey for the wiring claims that need two live pages
+            (#12-#17). Push the admission claims (#3, #5, #6, #7) down to the existing
+            BridgeProductSessionLifecycleHarness suites.
+  stimulus: for the admission claims, force the interleaving instead of storming. The seam already
+            exists and is already used: BridgePaneProductMetadataActivityAdmissionTests.swift:86-123
+            ("hiding after metadata source admission suppresses its pending File frame") constructs the
+            source with `suspendFileSourceBeforeEmission: true` (:90-93), waits on
+            `waitUntilEmissionReady()` (:102, real continuation at :297-302), flips activity to
+            .loadedHidden at the exact suspended point (:106), then `releaseEmission()` (:107). That is
+            the controlled interleaving the brief asks for, already written, already passing.
+  oracle:   for "the hidden pane did no product work", use the source call counts and
+            `producerSnapshot().queuedFrameCount` (BridgePaneProductMetadataActivityAdmissionTests.swift
+            :69-78) — owner-reported, immune to protocol traffic. For the WebKit journey that remains,
+            if a frame-level oracle is still wanted, the smallest honest change is to assert on trace
+            `fileMetadataPhases.count` / `reviewMetadataPhases.count` before and after — the exact
+            counters the existing diagnostic already reports as +0 IN THE FAILING RUNS
+            (BridgeProductWebKitMetadataStormDiagnostic.swift:12-20). No new production surface needed.
+  wait:     for the pushed-down tests, the harness gives exact frames synchronously:
+            `pullMetadataFrame(from: pump)` in BridgePaneProductMetadataCoordinatorTests.swift:710/:730/
+            :747 returns the next frame with an exact `streamSequence`, asserted as ==1, ==2, ==3 at
+            :758-764. No deadline, no turn budget. For the WebKit journey that stays, the missing
+            barrier is a native "no further inbound control requests pending" signal, and it CANNOT
+            exist — an inbound request is unannounced by construction. That is the design fact the
+            current assertion collides with, and it is why the fix is to drop the oracle, not to add a
+            wait.
+  keeps:    one WebKit journey asserting only: both workers open, pane one's worker id survives
+            hide→return, pane two's worker id and in-page selection are untouched, pane one's Review
+            selection is restored, teardown has zero residue. That is roughly assertions #12-#17 plus
+            the teardown check — about 8 expectations instead of 24, and every one of them needs a real
+            page.
+  cost:     no new production seam. Deleting #7 and #9 loses nothing that the pushed-down suites do not
+            already prove. Deleting the seven dead assertions loses nothing at all. The support file
+            should shrink by the `hiddenMetadataSequence*` proof fields (support :33-34), the diagnostic
+            file (50 lines) becomes unused, and the `beginBlockedRefresh` machinery for the +3 assertion
+            can go with it.
+VERDICT: split-and-push-down (plus fix-oracle on what remains).   CONFIDENCE: high — the ack path
+  (BridgeProductSession.swift:583-586 → ProtocolLifecycle.swift:198-228) and the data path
+  (ProtocolLifecycle.swift:70-78) were read directly, and the cheaper covering suite was read directly.
+  Medium confidence only on the claim that :169's +3 is an active flake source, as stated above.
+
+
+--------------------------------------------------------------------------------
+TEST: BridgeProductRealGitFileAndReviewWebKitTests / "bundled comm worker carries real-git File and
+      Review product data through production WebKit"
+FILE: BridgeProductRealGitFileAndReviewWebKitTests.swift:102-124 (assertions :753-838)
+SIZE: 23 lines of test + ~86 lines of assertProof + collectLiveProof in
+      BridgeProductRealGitFileAndReviewWebKitLiveProof.swift (176 lines) ≈ 285 lines.
+TRAITS: serialized, @MainActor, WebKit lane.
+CLAIM: the shipped BridgeWeb bundle, loaded in a real WKWebView, opens a product session, receives real
+  agentstudio-git File AND Review metadata over the real transport, mounts both viewer hosts, and renders
+  the actual bytes of a real file. This is the W0 product seam. If it breaks, the app ships a Bridge pane
+  that shows nothing.
+LAYER TODAY: E2E. REAL: everything — packaged bundle, WKWebView, comm worker, scheme handler, a git repo
+  with 128 tracked files modified (:640-674). FAKE: none.
+STIMULUS: single scripted run: load, wait for Review ready, switch to File mode, select a path, snapshot.
+ORACLE: mostly DOM presence/content plus a live-git source oracle. `LiveSourceOracle` (:33-36,
+  :108) names the file and the canary string "updated" seeded at :662-668, and :831 asserts the rendered
+  File DOM contains that canary. That is a genuine end-to-end content oracle — the best one in this file.
+  Two aggregate-counter assertions appear at :787 and :791 (`nextControlRequestSequence > 1`,
+  `nextMetadataStreamSequence > 1`), but as strict lower bounds of 1 they are effectively liveness checks,
+  not flake sources.
+WAIT: `waitUntil` deadline polls throughout LiveProof; teardown residue check at :834-837.
+SPEED DEPENDENCE: none found in the assertions themselves — every comparison is a presence check, a
+  content-equality check, or a lower bound. The risk is timeouts, not verdict inversion. Checked all 18
+  expectations at :758-837.
+WHEN IT FAILS YOU SEE: the best messages in the lane. Each expectation names the seam and dumps the
+  relevant snapshot, e.g. :768 "W0 product seam: the worker did not open canonical eager File+Review
+  subscriptions; trace=…", :816 "G0 PACKAGED SELECTED IDENTITY MISSING: selected Review path did not match
+  the live-git oracle; selected=…, expected=…". This is the model the rest of the lane should copy.
+VALUE: high and irreplaceable. Nothing cheaper can prove the shipped bundle talks to the shipped transport.
+BETTER DESIGN: none needed.
+VERDICT: keep-as-is.   CONFIDENCE: high — read every assertion.
+
+--------------------------------------------------------------------------------
+TEST: BridgeProductRealGitFileAndReviewWebKitTests / "Review publication failure replays committed B
+      without replacing File or the pane worker"
+FILE: BridgeProductRealGitFileAndReviewWebKitTests.swift:126-143 (helpers :208-627)
+SIZE: 18 lines of test + ~420 lines of private harness and assertions in the same file.
+TRAITS: serialized, @MainActor, WebKit lane.
+CLAIM: when a Review publication fails at the worker, the transport replays the exact committed successor
+  publication once, and neither the File subscription, the File worker derivation epoch, nor the worker
+  instance is replaced. A user whose Review refresh hiccups must not lose their File pane.
+LAYER TODAY: integration-through-WebKit. REAL: controller, session, transport, real git repo (70 seeded
+  files, :629-638), real file metadata source. FAKE: `BridgeWebKitFailingReviewMetadataSource`
+  (armFailure at :469, releaseReplay at :506/:515/:526) — a genuine injected-failure seam, and
+  `BridgeProductWebKitCarrierControllerTarget` as the worker stand-in.
+STIMULUS: scripted with a forced failure at an exact publication id (`armFailure(after:)` :469). This is
+  controlled interleaving, not a storm. Good.
+ORACLE: owner-reported and exact. Application receipts compared to exact arrays including publication ids
+  (:564-585), `didCorruptFinalWindow` + `corruptedPublicationId` (:586-587), opened/cancelled subscription
+  counts as before+1 (:588-595), exact package equality on the last two delivery attempts (:596-602),
+  File snapshot equality (:603), epoch and worker-instance equality (:604-611), publication-coordinator
+  active/retiring state (:617-625). The +1 deltas here are on cause-scoped counters owned by the injected
+  fake (its own opened/cancelled lists), not on a transport-wide counter — materially different from the
+  two-pane journey's mistake.
+WAIT: three `waitUntil` deadline polls (:431-438 15 s, :449-454 15 s, :528-531 15 s) plus
+  `waitForReplayFailureState(timeout: .seconds(15))` (:494). Deadline polls, but each waits for a
+  specific owner-reported state, and each has a rich failure record (:497-505).
+SPEED DEPENDENCE: none found. Every assertion is exact equality on owned identifiers or on fake-owned
+  counts that only the injected failure can move. Checked all 16 expectations at :564-626.
+WHEN IT FAILS YOU SEE: named and specific — ":571 transport-acknowledged invalid B must not produce an
+  application receipt", ":584 the worker must apply exact A then exact replayed B once", ":601 Review
+  reopen must replay the exact committed B publication and payload". Plus the pre-assertion `Issue.record`
+  at :497-505 dumping status, corruption, opens, cancels, delivery generations and native snapshot.
+VALUE: high. This is the transactional-publication invariant and the failure is injected, not hoped for.
+BETTER DESIGN: it does not need real WebKit — no `page.callJavaScript`, no DOM, the worker is already a
+  stand-in (`BridgeProductWebKitCarrierControllerTarget`). It is in this lane because it constructs
+  `BridgePaneController(` (which constructs a `WebPage`, see PART 1c). Moving it out would require a
+  controller seam that does not build a page; that is a needs-owner-decision change, not a free one.
+VERDICT: keep-as-is (flag: lane placement is a cost question, not a correctness one).   CONFIDENCE: high.
+
+--------------------------------------------------------------------------------
+TEST: BridgeProductRealGitFileAndReviewWebKitTests / "native named surfaces retain independent hosted
+      File and Review state"
+FILE: BridgeProductRealGitFileAndReviewWebKitTests.swift:199-206
+SIZE: 8 lines of test + 450 lines of TestSupport/BridgeProductWebKitSurfaceSelectionJourneyTestSupport.swift.
+TRAITS: serialized, @MainActor, WebKit lane.
+CLAIM: native-initiated surface selection (file → review → file) keeps one worker, produces one receipt per
+  selection with distinct request ids on one pane session, and both viewer hosts stay mounted with their
+  own selection and content state.
+LAYER TODAY: E2E, one page. REAL: controller, page, bundle, transport. FAKE: none named.
+STIMULUS: scripted sequence of three native surface selections.
+ORACLE: 27 expectations at SurfaceSelectionJourneyTestSupport:122-186. Mostly good — receipt surface
+  sequence `[.file, .review, .file]` (:125), distinct request ids (:126), single pane session id (:128),
+  worker identity stable (:123), DOM state per host (:141-186). ONE offender: `:124`
+  `finalMetadataSequence >= initialMetadataSequence + 3` — the same transport-wide counter as the two-pane
+  journey, used as a lower bound. It cannot flake, but any three frames from any cause satisfy it, so it
+  proves nothing the receipt assertions at :125-128 do not already prove exactly.
+WAIT: six `waitUntil` deadline polls, 10-25 s (:201-202, :222-223, :251-252, :265, :287, :316-317, :340-341).
+SPEED DEPENDENCE: none found in the verdict — :124 is a lower bound on a counter that only grows, and the
+  rest are exact receipt/DOM comparisons. Checked all 27.
+WHEN IT FAILS YOU SEE: bare expectation text for most; the DOM ones do not carry snapshots the way the
+  live-proof test does.
+VALUE: real for the "two hosts coexist and retain independent state" claim. :124 adds nothing.
+BETTER DESIGN: delete :124 (the receipt assertions at :125-128 are the exact form of the same claim).
+  Everything else stays.
+VERDICT: fix-oracle (one line).   CONFIDENCE: high.
+
+
+================================================================================
+PART 1b — THE "STORM", AND WHETHER THE ISOLATION CLAIM CAN BE PROVED DETERMINISTICALLY
+================================================================================
+
+WHAT THE STORM IS HOPING TO PROVOKE
+-----------------------------------
+Mechanically the storm is two `await paneOne.handleWorktreeProductInvalidation(.filesChanged(...))` calls
+with batchSeq 702 and 703, on the same path "tracked.txt", back to back on MainActor
+(BridgeProductWebKitTwoPaneJourneyTestSupport.swift:353-370). There is a third and fourth invalidation
+earlier in the journey (701 at :448-456, 704 at :472-481).
+
+Two events, same path, same lane, sequential `await`s on one actor is not a storm in any concurrency sense
+— nothing races. What the sequence is actually hoping for is a *scheduling* outcome: that an invalidation
+arriving while the pane is `.loadedHidden` is merged into the dirty fact and NOT allowed to claim a
+refresh reservation. The relevant production code is `dirtyFactByLane` merge at BridgePaneRefreshAdmission-
+Coordinator.swift:306/:323 and :562-577, the acquisition guard `guard activity == .foreground` at :753,
+and the pass counter at :535. The second invalidation exists to prove merging (two events, one dirty
+fact, zero passes) rather than to provoke a race.
+
+So the honest reading: the storm is not probing an interleaving at all. It is asserting a scheduling
+policy — and three of its four oracles (refreshPassCount frozen at :157, dirtyGeneration present at :156,
+provider comparisonCount frozen at support :375-380) measure exactly that policy correctly. Only the
+fourth (the metadata sequence at :158-162) reaches for a transport counter that the policy does not own.
+
+CAN THE HIDDEN-PANE ISOLATION CLAIM BE PROVED DETERMINISTICALLY AT BridgeProductSession LEVEL?
+----------------------------------------------------------------------------------------------
+Yes. Half of it is already written and passing, and the other half needs about 40 lines using existing
+seams. No new production code, no new atom, store or bus event.
+
+Half already written — "offer a product frame to a hidden pane → refused":
+  Tests/AgentStudioTests/Features/Bridge/BridgePaneProductMetadataActivityAdmissionTests.swift:9-84,
+  "loaded-hidden metadata retains File and Review intent without source or replay work".
+  It builds `BridgePaneRefreshAdmissionCoordinator(initialActivity: .loadedHidden)` (:154-156), a real
+  `BridgeProductSessionLifecycleHarness.opened()` (:170), a real `BridgeProductSchemeFramePump` (:184-189)
+  and real provider (:162-169), with only the two metadata sources faked (:212-399). It then commits
+  subscription interest updates for File and Review while hidden (:34-55) and asserts:
+    :69-76  every source call count == 0 (open, update, statusPublication, descriptorSource, reserve,
+            deliver)
+    :77     the review publication replay probe was never called
+    :78     `producerSnapshot().queuedFrameCount == 0`  ← no product frames, at the transport
+    :81-82  cancellation still reaches both sources → subscription intent was retained, not dropped
+  That is strictly stronger than the WebKit assertion at :158-162, has no WebKit, no DOM, no wall clock.
+  Its second test (:86-123) additionally FORCES the exact hide-mid-admission interleaving through
+  `suspendFileSourceBeforeEmission` / `waitUntilEmissionReady` / `releaseEmission` (:90-93, :102, :106-108)
+  — the same controlled-interleaving shape as the good example named in the brief.
+
+Half not yet written — "complete a control request while hidden → acknowledgement admitted":
+  The template is Tests/AgentStudioTests/Features/Bridge/BridgePaneProductMetadataCoordinatorTests.swift
+  :681-767, "control commit admits one ordered subscription lifecycle before replay". It drives
+  `harness.begin(request)` → `claimControlProviderDispatch` → `completeControl(token:exactResponseBytes:)`
+  → `pullMetadataFrame(from: pump)` for open, updateBatch and cancel, then asserts the EXACT stream
+  sequences 1, 2, 3 and subscription sequences 0, 1, 2 (:758-764) and the replayable request sequence
+  (:765). Every value is owner-reported and every wait is a real frame pull. No deadline, no turn budget.
+  The missing test is that same script with the admission coordinator set to `.loadedHidden`, asserting:
+    - the `.subscriptionInterestsCommitted` frame IS delivered and its `streamSequence` advances by
+      exactly 1 (the obligation at BridgeProductSession.swift:584, admitted through
+      BridgeProductSession+ProtocolLifecycle.swift:198-228 and :270-283, gated only on productAdmission
+      per BridgeProductAdmissionGate.swift:78-102);
+    - and in the same window, the source call counts and product data frames stay at 0 (the guard at
+      BridgeProductSession+ProtocolLifecycle.swift:70-78, `foregroundWorkAdmission.withValidAdmission`).
+  Those two assertions side by side are the real invariant in product terms: "protocol acknowledgements
+  are exempt from pane activity; product data is not." Today no test states it, which is precisely why
+  the WebKit journey encoded the opposite belief and went red on correct behaviour.
+
+  Cost: one new test in an existing suite, using two existing harnesses. The only thing it needs that is
+  not already there is wiring the `BridgePaneRefreshAdmissionCoordinator` from the ActivityMetadata
+  context into the Coordinator-tests harness — both files already build both objects, so this is
+  assembly, not new seam. Flag: if the owner prefers the ack assertion to read off a named counter rather
+  than the frame's own `streamSequence`, that needs a new field on
+  `BridgeProductProducerRegistrySnapshot` separating product-data admissions from lifecycle admissions —
+  that IS a new production surface and needs owner decision. It is not required; the frame pull already
+  gives the exact sequence.
+
+  With those two in place the WebKit journey keeps only thin wiring proof: both pages mount, both workers
+  open, pane one's worker id survives hide→return, pane two is untouched, selection is restored, zero
+  teardown residue.
+
+
+================================================================================
+PART 1c — SURVEY OF THE SERIALIZED WEBKIT LANE (WebKitSerializedTests)
+================================================================================
+
+LANE MEMBERSHIP IS TEXTUAL, NOT BEHAVIOURAL — the most important fact in this section.
+Tests/AgentStudioTests/Architecture/WebKitTestIsolationArchitectureTests.swift:8-16 defines membership by
+substring search for seven constructor names ("WebPage(", "BridgePaneController(", "WebviewPaneController(",
+"BridgePaneMountView(", "WebviewPaneMountView(", "createBridgePaneView(",
+"installBridgeControllerAndEnterForeground("); any `*Tests.swift` containing one of them must nest under
+`extension WebKitSerializedTests` (:37-45). That yields 44 files. The rule is sound as far as it goes —
+`BridgePaneController.init` does construct a real `WebPage`
+(Sources/AgentStudio/Features/Bridge/Runtime/BridgePaneController.swift:246, :287), so a WebContent
+process can be spawned — but it does not distinguish constructing a page from navigating one.
+
+Measured across all 44 files (counts of `loadApp()`, `callJavaScript`, `withHostedController`,
+mount-view construction):
+  - 6 files actually load the packaged app and/or execute JS in a real page:
+      BridgeProductPackagedShareJourneyTestSupport.swift, BridgeProductRealGitEmptyReviewWebKitTests.swift,
+      BridgeProductRealGitFileAndReviewWebKitLiveProof.swift, BridgeProductRealGitFileAndReviewWebKitTests.swift,
+      BridgeTransportIntegrationTests.swift, BridgeWebKitSpikeTests.swift
+      (+ 2 that run JS without loading the app: BridgeContentWorldIsolationTests.swift,
+       BridgePaneControllerIPCRenderStateDiagnosticsTests.swift, PaneTabViewControllerBridgeCommandTests.swift)
+  - the remaining ~35 construct a controller/page and drive Swift-side logic only.
+This is a lane-cost finding for whoever owns the serialized-WebKit runtime budget, not a correctness one.
+Whether a constructed-but-never-navigated `WebPage` is worth serialization is an owner decision.
+
+Suites in the lane, with test counts and what each claims. "JOURNEY" flags a suite whose tests carry many
+unrelated assertions in one run. (Counts are `@Test` declarations per type; names read from source.)
+
+REAL-PAGE SUITES (these belong here)
+  BridgeProductRealGitFileAndReviewWebKitTests ........ 4  the four analysed above.            JOURNEY ×2
+  BridgeProductRealGitEmptyReviewWebKitTests .......... 1  a clean repo publishes the loaded empty Review
+                                                          presentation.
+  BridgeProductPackagedShareJourneyTestSupport ........ 1  packaged File+Review Share performs exact App
+                                                          effects and durable unhandle.        JOURNEY
+  (BridgeProductStreamWebKitFeasibilityWebKitTests.swift is not its own suite — its single @Test extends
+   WebKitSerializedTests.BridgeWebKitSpikeTests, :8-9. Counted under that suite above.)
+  "packaged worker proves product 256 KiB POST timing and abort-causal teardown"  ← 1 test, and the
+                                                          heaviest in the lane: 100 measured 256 KiB POSTs
+                                                          plus a warmup through a real WKWebView, 30 s
+                                                          timeout (:21-23), then a second 8 s re-entry run
+                                                          (:24-27). ~45 expectations.
+                                                          I checked whether its timing claim is a boolean
+                                                          gate on duration. IT IS NOT — `verifyProduct-
+                                                          ContractTiming` asserts only sample counts == 100
+                                                          and percentile monotonicity (p50 <= p95 <= p99 <=
+                                                          max) and PRINTS the microsecond values. No
+                                                          absolute threshold is asserted anywhere. So the
+                                                          verdict is NOT "move to benchmark lane": the
+                                                          exposure is runtime cost and the two timeouts,
+                                                          not verdict inversion. Two smaller notes: the
+                                                          monotonicity assertions are tautologies over a
+                                                          percentile summary (p95 cannot be below p50 by
+                                                          construction — see the summary's own unit test at
+                                                          BridgeProductStreamWebKitFeasibilityTests.swift
+                                                          :29-33), and the exact call-count assertions
+                                                          (bodyReadCount == 112, decodeCallCount == 111,
+                                                          providerCallCount == 109) are magic constants
+                                                          derived from the script — pattern P1's cousin,
+                                                          though here the counters ARE owned by the thing
+                                                          under test, so they are legitimate.
+                                                          VERDICT: keep-as-is; consider emitting the
+                                                          timings as a benchmark artifact rather than
+                                                          printing them from a gate test.
+  BridgeURLSchemeEnvelopeCapacityTests ................ 1  real URL scheme preserves response and POST bytes
+                                                          across the 256 KiB boundary.
+  BridgeTransportIntegrationTests ..................... 5  bridgeReady gating/idempotence, teardown reset,
+                                                          scheme handler serves the packaged React app,
+                                                          smoke provider renders the Review shell, source-
+                                                          backed initial Review renders the shell.
+  BridgeWebKitSpikeTests .............................. 7  6 in-file (:95, :110, :128, :200, :272, :312):
+                                                          content-world identity, isolation of globals and
+                                                          user scripts, message-handler reachability from
+                                                          bridge world vs page world. Platform-behaviour
+                                                          spikes; they assert WebKit's contract, not ours.
+                                                          + 1 extended in from
+                                                          BridgeProductStreamWebKitFeasibilityWebKitTests.swift:9
+                                                          (detailed below).
+  BridgeContentWorldIsolationTests .................... 1  content-world isolation + ready bootstrap is the
+                                                          only script-message RPC.
+  BridgeSchemeHandlerSpikeTests ....................... 1  custom scheme handler serves an HTML page whose
+                                                          title is readable. Spike.
+  WebviewPaneControllerTests .......................... 13 webview pane init/snapshot/URL normalisation
+                                                          (7 of the 13 are pure string-normalisation tests
+                                                          at :121-157 that need no WebKit at all).
+
+CONTROLLER-LOGIC SUITES (in the lane because they construct a controller/page)
+  BridgePaneControllerRefreshAdmissionIntegrationTests  21 the refresh-admission state machine: hidden
+                                                          coalescing, foreground catch-up, stale publication
+                                                          suppression, File retry/unavailable recovery,
+                                                          teardown gate closure. Dense and well-named;
+                                                          the single best Swift-side coverage of the
+                                                          invariants the two-pane journey re-proves badly.
+  BridgePaneControllerInitialLoadTests ................ 18 initial Review package load, baseline/target
+                                                          resolution, failure scrubbing and non-retry.
+  BridgePaneControllerIPCProjectionTests .............. 16 IPC package/content/selection projections and
+                                                          their rejection cases.
+  BridgePaneProductActiveViewerModeTests .............. 15 committed active-viewer mode acceptance, stale
+                                                          generation/stream rejection, receipt admission.
+  BridgePaneControllerDiffLoadTests ................... 10 contribution refresh lineage, supersession,
+                                                          coalescing, stale-generation commits.
+  BridgePaneControllerIPCRenderStateDiagnosticsTests ... 9 IPC render-state projection and its bounds.
+  BridgePaneControllerReviewComparisonPresentationTests  7 comparison target adoption, predecessor staleness,
+                                                          settled presentation identity.
+  BridgePaneControllerProductBootstrapDeliveryTests ..... 7 committed Review survives bootstrap failure and
+                                                          worker replacement; queued command ownership.
+  BridgePaneControllerContentAuthorityTests ............ 6 content authority preserved across failed/in-flight
+                                                          reload; teardown revokes it synchronously.
+  BridgePaneControllerTests ............................ 5 bridgeReady lifecycle, teardown closes admission,
+                                                          loadDiff registers handles.
+  BridgePaneControllerTelemetryTests ................... 3 correlated Swift review telemetry; release policy
+                                                          disables wiring.
+  BridgePaneControllerTelemetryBootstrapDeliveryTests ... 2 telemetry-off bootstrap; rotation revokes the old
+                                                          session.
+  BridgePaneControllerRealGitReviewLoadTests ........... 2 a real single-commit repo publishes a ready Review
+                                                          snapshot; a real contribution publishes complete
+                                                          dirty state.
+  BridgeReviewContentStreamTransportTests .............. 1 modified review file streams base and head content.
+  BridgePaneControllerInitialLoadSupersessionTests ..... 1 invalidation supersedes an initial Review load.
+  BridgeProductReviewIntakeLockOrderTests .............. 1 Review intake closes product admission before
+                                                          foreground scheduling.
+  BridgePaneProductActiveViewerModeTelemetryTests ...... 1 accepted File mode emits once per mode/source edge.
+
+APP-COMPOSITION SUITES (in the lane because they mount panes)
+  WorkspaceSurfaceCoordinatorZoomCompanionTests ....... 15 Zoom companion creation, retention, retargeting,
+                                                          retirement.                            JOURNEY-ish
+  WorkspaceSurfaceCoordinatorViewFactoryTests ......... 18 view factory registration per content type,
+                                                          teardown, restore, identity derivation.
+  WorkspaceActionExecutorWebKitTests .................. 15 open-in-new-tab worktree context inheritance,
+                                                          webview insertion/teardown/repair.
+  WorkspaceBridgeConstructionIntegrationTests ......... 10 shared construction coordinator, topology replay,
+                                                          freshness advance ordering.            JOURNEY-ish
+  WorkspaceBridgePaneActivityIntegrationTests ......... 10 canonical activity derivation: dormant until
+                                                          selection, deactivation, close/undo authority.
+  WorkspaceBridgePaneRefreshIntegrationTests ........... 8 activity + raw worktree events reach the refresh
+                                                          gate; cross-worktree invalidation rules.
+  PaneTabViewControllerBridgeCommandTests .............. 8 Bridge pane commands: create-once/reuse, new-tab
+                                                          independence, Web View Reload availability.
+  WorkspaceSurfaceCoordinatorZoomOwnershipTransitionTests 7 Zoom ownership transfer on move/extract/breakup/
+                                                          merge.
+  WorkspaceSurfaceCoordinatorZoomLifecycleTests ........ 5 closing/moving/backgrounding a Zoom source retires
+                                                          its companions.
+  WorkspaceSurfaceCoordinatorZoomLifecycleTransitionTests 4 tab switching and shutdown preserve/retire Zoom.
+  WorkspaceBridgePaneActivityRemediationTests .......... 4 last-pane close/undo, drawer and minimized Zoom
+                                                          sources.
+  WorkspaceSurfaceCoordinatorZoomRecoveryTests ......... 3 worktree change/removal retires the stale companion.
+  RepositoryBridgeObservationLifetimeTests ............. 2 checkout absence retires the zoom viewer; old Git
+                                                          snapshots cannot cross same-ID return
+                                                          (parameterized, 2 cases).
+  WorkspaceBridgeGitReadActivityOrderingTests .......... 1 Git read activity follows canonical pane order.
+  PreparedNonterminalContentMountTests ................. 1 prepared mount uses the exact accepted pane.
+  WebKitTestIsolationArchitectureTests ................. 1 the membership rule itself (see above).
+
+JOURNEYS CARRYING MANY UNRELATED ASSERTIONS — flagged:
+  1. BridgeProductRealGitFileAndReviewWebKitTests / "two hosted panes…" — 24 assertions across four
+     unrelated claims; analysed in full above. Worst in the lane.
+  2. BridgeProductRealGitFileAndReviewWebKitTests / "native named surfaces…" — 27 assertions in one run
+     (SurfaceSelectionJourneyTestSupport:122-186). Coherent (all about surface retention) but a single
+     failure anywhere aborts the whole sequence.
+  3. BridgeProductPackagedShareJourneyTestSupport / "packaged File and Review Share…" — one @Test over a
+     495-line support file; same shape.
+  4. BridgeProductRealGitFileAndReviewWebKitTests / "bundled comm worker carries real-git…" — 18
+     assertions, but each names its own seam and the sequence is genuinely one claim (the product seam
+     end to end). This one earns its length.
+
+
+================================================================================
+PART 2 — THE SIX SUITES LEFT UNFINISHED IN 10-15 OF 15 BLOCKED LOCAL FAST-LANE RUNS
+================================================================================
+
+Recurrence counts read from tmp/plan-workflows/receipts/width-map/rep/blocked-suite-recurrence.txt:
+  15 ArchitectureSwiftLintRulesTests · 13 PaneTests · 13 CommandBarStateTests · 11 AppPoliciesBridgeTests ·
+  10 "Worktree annotation transport adapter" · 10 "Watched-folder scan scheduler validation custody".
+
+MECHANICAL SURVEY FIRST — counts and citations only, no theory of the hang.
+
+  suite                                   file                                                              tests  serialized  MainActor  subprocess  blocking-thread-wait  await  FileManager  param  confirmation  withKnownIssue
+  ArchitectureSwiftLintRulesTests         Tests/AgentStudioTests/Scripts/ArchitectureSwiftLintRulesTests.swift   5      yes(:4)      no      2 (:73, :87)   1 (:132 waitUntilExit)   0        15        no          no              no
+  PaneTests                               Tests/AgentStudioTests/Core/Models/PaneTests.swift                   38      yes(:8)      no      0              0                        0         0        no          no              no
+  CommandBarStateTests                    Tests/AgentStudioTests/Features/CommandBar/CommandBarStateTests.swift 79     yes(:9)      no      0              0                        0         0        no          no              no
+  AppPoliciesBridgeTests                  Tests/AgentStudioTests/Features/Bridge/AppPoliciesBridgeTests.swift   6      yes(:7)      no      0              0                        1         0        no          no              no
+  "Worktree annotation transport adapter" Tests/AgentStudioTests/Features/Bridge/WorktreeAnnotations/WorktreeAnnotationTransportAdapterTests.swift  9   no   yes(:9)  0   0   56   9  1   no   no
+  "Watched-folder scan scheduler …"       Tests/AgentStudioTests/Core/PaneRuntime/Sources/WatchedFolderScanSchedulerValidationTests.swift  3   no   no   0   0   38   3   no   no   no
+
+  What is mechanically unusual, per suite, with citations:
+
+  ArchitectureSwiftLintRulesTests
+    - Spawns two real subprocesses through a private `runProcess` helper (:105-137). One runs
+      `swiftlint lint --strict --config .swiftlint.yml <tmpfile>` (:73-75). The other runs
+      `swift run --package-path Tools/AgentStudioArchitectureLint --build-path <SWIFT_BUILD_DIR>/architecture-lint
+      agentstudio-architecture-lint --print-rules` (:87-93) — i.e. a full SwiftPM resolve+compile+link of a
+      second package, inside a unit test.
+    - `process.waitUntilExit()` at :132 — a synchronous blocking wait on the calling thread, inside a
+      non-async test. Both subprocess tests hold a thread for the whole subprocess duration.
+    - Requires the `SWIFT_BUILD_DIR` environment variable (:83, `try #require`).
+    - 15 `FileManager` calls; creates and deletes temp directories and two log files per invocation
+      (:106-115, :64-72).
+    - Reads four repo files by relative path (:8-11): `.mise.toml`, `scripts/lint-swift.sh`,
+      `.github/workflows/ci.yml`, `.swiftlint.yml` — cwd-dependent.
+    - `@Suite(.serialized)` at :4.
+
+  PaneTests
+    - Nothing unusual. 38 synchronous tests, zero `await`, zero `FileManager`, zero subprocess, no
+      `@MainActor`, no shared state (grep for installTestCoreAtoms / CoreAtomScope / static / shared
+      returns nothing). `final class` (:9) so a fresh instance per test; a `JSONEncoder`/`JSONDecoder`
+      pair per instance (:11-16).
+    - The only structural fact: `@Suite(.serialized)` at :8 on a 38-test suite of pure value assertions.
+
+  CommandBarStateTests
+    - Mutates PROCESS-GLOBAL `UserDefaults.standard` in `init()` (:19-21) and `deinit` (:25-27), removing
+      keys "CommandBarRecentItemIds" and "CommandBarRecentCommands" (:14-15). That is shared process
+      state, per the repo's own rule in CLAUDE.md ("Suites that share process-global state … must be
+      excluded from that concurrent invocation"). `@Suite(.serialized)` serializes only WITHIN the suite;
+      it does not isolate it from other suites in the same process.
+    - 79 tests, zero `await`, zero FileManager, no `@MainActor`. `CommandBarState` is `@Observable
+      package final class` with no actor isolation
+      (Sources/AgentStudio/Features/CommandBar/CommandBarState.swift:15) although its doc comment says
+      "Always accessed on the main thread".
+    - `@Suite(.serialized)` at :9 on a 79-test suite.
+
+  AppPoliciesBridgeTests
+    - Allocates a 16 MiB + 1 byte Swift String via `String(repeating: "a", count:)` at :40-41
+      (`AppPolicies.Bridge.contentMaxBytesPerItem` is 16 * 1024 * 1024, asserted at :29), then passes it
+      through a fake provider and a loader cache (:49-66). Peak resident cost is several multiples of
+      16 MiB once the String is bridged to Data and hashed (`bridgeSHA256ContentHash(oversizedBody)` at
+      :46 hashes all 16 MiB).
+    - Reads `BridgeWeb/src/core/demand/bridge-content-demand-policy.ts` by relative path (:83-85) —
+      cwd-dependent, and couples a Swift unit test to a TypeScript source file.
+    - `@Suite(.serialized)` at :7 on a `final class` (:8). One `await` (:64).
+
+  "Worktree annotation transport adapter"
+    - `@MainActor` on the suite (:9) — every one of the 9 tests runs its whole body on MainActor, with 56
+      `await` suspension points.
+    - Each test builds a harness that creates a temp directory and TWO real SQLite databases through
+      GRDB — `WorkspaceSQLiteDatastoreFactory(coreDatabaseURL: root/"core.sqlite",
+      localDatabaseURL: root/"local.sqlite").makeDatastore()` then `prepareDatabasesForBoot()`
+      (TestSupport file WorktreeAnnotationTransportAdapterTestSupport.swift:236-246), i.e. schema
+      migration per test.
+    - One test opens a THIRD pool on the same file: `SQLiteDatabaseFactory.makeFileBackedPool(at:
+      root/"local.sqlite", label: "annotation-viewed-adapter-test")` (Tests…AdapterTests.swift:17-20) and
+      writes raw SQL to it (:21-26), while the harness's own datastore still holds that file open.
+    - Teardown is `defer { try? FileManager.default.removeItem(at: harness.root) }` — 9 occurrences
+      (:15, :100, :194, :284, :349, :438, :471, :552, :608). Grep for `close`/`shutdown` across the test
+      file and its support file returns NOTHING: the GRDB pools are never explicitly closed; the files are
+      deleted while pools are still open, and pool teardown depends on deallocation.
+    - Registers a real change observer and iterates its AsyncStream (:125-126, :161), removed at :170.
+    - One parameterized `@Test` (`arguments:` appears once).
+    - Imports GRDB directly into the test (:4).
+
+  "Watched-folder scan scheduler validation custody"
+    - `waitForState` (fixture, :286-305) polls with a TURN BUDGET OF 10,000: `for _ in 0..<10_000 { …
+      await Task.yield() }`, then `Issue.record` + throw. Called 3 times in test 1 (:16, :25, :35).
+      This is the largest turn budget I found in the six suites and is the pattern the owner has rejected.
+    - Runs a real `RepoScanner()` session over a real temp directory tree (:217) — real filesystem
+      traversal, not a fake.
+    - Creates real directories including a fake `.git` marker directory per request
+      (:237-247), 3 `FileManager` calls, and does NOT delete them (no `removeItem`, no `defer` cleanup
+      anywhere in the file) — every run leaks temp directories under
+      `FileManager.default.temporaryDirectory`.
+    - 38 `await`s across 3 tests; a private actor with checked continuations
+      (`ControlledSchedulerValidationClient`, :146-182) — that part is a genuine controlled seam.
+    - No `@Suite(.serialized)`, no `@MainActor`, no subprocess, no sleep.
+
+  NOT FOUND in any of the six: `Thread.sleep`, `Task.sleep`, `DispatchSemaphore`, `DispatchGroup.wait`,
+  `confirmation(...)`, `withKnownIssue`, `timeLimit`. Only `ArchitectureSwiftLintRulesTests` blocks a
+  thread, and it does so through `Process.waitUntilExit()` (:132).
+
+Now the per-suite records.
+
+--------------------------------------------------------------------------------
+TEST: ArchitectureSwiftLintRulesTests / all 5 tests (they share one design)
+FILE: Tests/AgentStudioTests/Scripts/ArchitectureSwiftLintRulesTests.swift:1-156     SIZE: 156 lines
+TRAITS: serialized (:4), not MainActor, not parameterized, fast lane (Scripts/).
+CLAIM: the repository's lint wiring is the one we agreed on — `mise lint` shells to
+  `scripts/lint-swift.sh`, which runs stock `swiftlint --strict` plus the local SwiftPM architecture tool;
+  the old external runner and the old build tool are gone; the tool package is pinned; the tool exposes
+  the expected rules; and stock SwiftLint honours the repo's regex custom rules. Who is hurt if it breaks:
+  everyone — architecture rules silently stop running and the import-direction boundary rots.
+LAYER TODAY: mixed. Tests 1-3 (:6-59) are file-content assertions — unit tests against repo text.
+  Tests 4-5 (:61-103) are E2E subprocess tests. REAL: real swiftlint binary, real SwiftPM build of
+  Tools/AgentStudioArchitectureLint, real filesystem. FAKE: none.
+STIMULUS: single call each; tests 4-5 spawn a process.
+ORACLE: substring containment. Tests 1-3 assert `.contains("…")` on four repo files, including three
+  NEGATIVE assertions (:20-22, :32-33, :58) and three obfuscated literals built by string concatenation
+  (:139-155, e.g. `"baz" + "el" + "isk"`) so the test file does not itself trip the lint rule that bans
+  the legacy names. Test 4 asserts a non-zero exit code and a rule id in stdout-or-stderr (:77-78).
+  Test 5 asserts exit 0 and seven `--print-rules` substrings (:95-102).
+WAIT: `process.waitUntilExit()` (:132) — synchronous, unbounded, no timeout.
+SPEED DEPENDENCE: no verdict inversion found — exit codes and substrings are deterministic. The dependence
+  is on duration and environment, not on interleaving: test 5's `swift run` at :87-93 performs a SwiftPM
+  dependency resolve and a build of the architecture-lint package (pinned to swift-syntax `exact: "602.0.0"`,
+  :57) into `$SWIFT_BUILD_DIR/architecture-lint`. Cold, that is minutes; and it does it from inside a test
+  process whose thread is blocked at :132 for the duration.
+WHEN IT FAILS YOU SEE: for tests 1-3, bare `#expect(miseConfig.contains("…"))` with no message — the
+  broken thing is NOT named; the reader gets a false boolean and must diff four files by hand. Test 5 is
+  better: `#expect(result.exitCode == 0, Comment(rawValue: result.stderr))` (:95) surfaces the build error.
+VALUE: tests 1-3 catch a real class of bug (someone edits `.mise.toml` or `lint-swift.sh` and the
+  architecture lint silently stops running) and nothing cheaper covers it. Test 4 (stock SwiftLint honours
+  the repo regex custom rules) is real and I found no duplicate.
+  Test 5 IS A DUPLICATE, and a strictly weaker one. `Tools/AgentStudioArchitectureLint/Tests/
+  AgentStudioArchitectureLintTests/RuleInventoryTests.swift:7-14` asserts the FULL 30-rule inventory with
+  exact severities (`ExpectedRuleInventory.rules`, :26-58) by direct comparison against
+  `ArchitectureRuleRegistry.rules` — in-process, no subprocess. And
+  `Tools/…/ArchitectureLintCommandTests.swift:81` already invokes `--print-rules` through the command
+  layer. Both run under `mise run test:architecture` (.mise.toml:343-349), which is already part of the
+  aggregate `mise run test` (.mise.toml:322). Test 5 re-proves 7 of those 30 rules by substring, at the
+  cost of a full second-package build inside the app test process.
+BETTER DESIGN:
+  layer:    tests 1-3 stay where they are (repo-wiring assertions belong next to the repo). Test 4 moves
+            to the architecture-tool package's own test target or to a `scripts/` lane that already owns
+            subprocess proof. Test 5 is deleted.
+  stimulus: unchanged for 1-3. For test 4, the fixture-corpus approach the tool package already uses
+            (`lintFixtureCorpus("Bad")` / `("Good")`, RuleParityTests.swift:9-13, :17-30, :33-38) proves
+            rule firing without spawning swiftlint per test; if the point is specifically that STOCK
+            swiftlint reads the repo's custom-rule regexes, keep one subprocess — but one per suite, not
+            one per test, and give it a timeout.
+  oracle:   for test 5, `ArchitectureRuleRegistry.rules` compared to an expected inventory — which
+            already exists verbatim at RuleInventoryTests.swift:9-13.
+  wait:     `waitUntilExit()` is acceptable for a script-lane test that owns a subprocess; it is not
+            acceptable inside the concurrent Swift fast lane. Whichever survive should carry an explicit
+            process timeout — the repo has no helper for this today (MISSING).
+  keeps:    test 4 as the single subprocess proof that the repo's `.swiftlint.yml` custom rules fire under
+            stock swiftlint.
+  cost:     deleting test 5 loses nothing (the tool package proves more). Moving test 4 costs one new
+            home; that is an owner call about lane ownership.
+VERDICT: test 5 delete-as-duplicate; test 4 move-to-script-lane; tests 1-3 keep-as-is but add failure
+  messages.   CONFIDENCE: high for test 5 (read RuleInventoryTests.swift and ArchitectureLintCommandTests
+  :81 and .mise.toml:322/:343 directly). High for tests 1-3.
+
+--------------------------------------------------------------------------------
+TEST: PaneTests / all 38 tests (one design)
+FILE: Tests/AgentStudioTests/Core/Models/PaneTests.swift:1-612     SIZE: 612 lines
+TRAITS: serialized (:8), `final class`, synchronous, no parameterization.
+CLAIM: the `Pane` domain model is correct — v7 id generation, content-kind accessors returning nil for the
+  wrong kind, content-type mapping, and Codable round-trips. Who is hurt if it breaks: persistence. A
+  Codable drift silently corrupts saved workspaces.
+LAYER TODAY: unit. REAL: everything (pure value types + JSONEncoder/JSONDecoder). FAKE: none.
+STIMULUS: single call per test.
+ORACLE: owner-reported — the value under test and its own round-trip. `#expect(UUIDv7.isV7(pane.id))`
+  (:29), accessor nil-ness (:51-53), encode/decode equality. The right oracle for the claim.
+WAIT: none. No async at all.
+SPEED DEPENDENCE: NONE FOUND. I checked for `await` (0 occurrences), `FileManager` (0), shared statics (0),
+  `UserDefaults` (0), `installTestCoreAtomsIfNeeded` (0), MainActor (0). There is no clock, no I/O and no
+  shared mutable state in this suite. Its verdict is a pure function of the code under test.
+WHEN IT FAILS YOU SEE: bare `#expect` with no messages throughout (e.g. :29-30, :39-41, :51-53). The
+  expression is printed, which for value assertions is usually enough to name the break.
+VALUE: solid, cheap coverage of a persistence-critical model. No overlap found.
+BETTER DESIGN:
+  layer:    unchanged — this is already at the cheapest layer that can prove the claim.
+  stimulus: unchanged.
+  oracle:   unchanged.
+  wait:     unchanged (none needed).
+  keeps:    everything.
+  cost:     the ONE change worth proposing is removing `@Suite(.serialized)` at :8. Nothing in this suite
+            touches shared state, so serialization buys no isolation; it only forces 38 independent
+            synchronous tests to run one after another, holding one scheduling slot for the whole suite.
+            Per CLAUDE.md, `.serialized` is for suites that share process-global state — this one does
+            not. FLAG: I am reporting the trait as unjustified by the suite's own contents; whether
+            removing it is safe under the current runner topology is the runner owner's call.
+VERDICT: keep-as-is on content; fix-trait (drop `.serialized`).   CONFIDENCE: high on content (read the
+  whole file's structure and sampled bodies), medium on the trait recommendation (I have not traced why
+  `.serialized` was added — there is no comment explaining it).
+
+--------------------------------------------------------------------------------
+TEST: CommandBarStateTests / all 79 tests (one design)
+FILE: Tests/AgentStudioTests/Features/CommandBar/CommandBarStateTests.swift:1-982     SIZE: 982 lines
+TRAITS: serialized (:9), `final class` with `init`/`deinit` fixtures, synchronous.
+CLAIM: command-bar state behaves correctly — visibility, prefix parsing and normalisation, navigation
+  stack, selection index, and recents persistence. Who is hurt if it breaks: anyone typing in the command
+  bar; wrong prefix normalisation sends a keystroke to the wrong scope.
+LAYER TODAY: unit, EXCEPT for the recents tests, which reach `UserDefaults.standard`.
+  REAL: `CommandBarState` (Sources/AgentStudio/Features/CommandBar/CommandBarState.swift:15) and the real
+  `UserDefaults.standard`. FAKE: none.
+STIMULUS: single call per test.
+ORACLE: owner-reported — the state object's own published properties (:36-41, :49-53). Correct oracle.
+WAIT: none.
+SPEED DEPENDENCE: none found within a test. The exposure is cross-suite, not speed: `init` (:19-21) and
+  `deinit` (:25-27) remove two keys from the process-wide `UserDefaults.standard`. Any other suite in the
+  same process that reads or writes those keys concurrently would race. `.serialized` (:9) does not
+  prevent that — it orders tests within this suite only. I did NOT find another suite touching those two
+  keys (they are named only at :14-15 in the whole test tree), so today this is a latent hazard rather
+  than an observed one. Stated as a hazard, not a cause.
+WHEN IT FAILS YOU SEE: bare `#expect` with Arrange/Act/Assert comments but no failure messages. Acceptable
+  for single-property assertions.
+VALUE: genuine and broad. 79 focused tests over prefix/navigation/selection logic is exactly the shape the
+  testing pyramid wants. No duplicates found.
+BETTER DESIGN:
+  layer:    unchanged for 70-odd of the tests. The recents tests are the only ones that need persistence
+            and they should not use the shared suite.
+  stimulus: unchanged.
+  oracle:   unchanged.
+  wait:     none needed.
+  keeps:    everything.
+  cost:     two changes, both small. (1) Inject the defaults store instead of touching
+            `UserDefaults.standard`: `CommandBarState.init()` takes no parameters today
+            (CommandBarState.swift:16), so this needs a `UserDefaults` (or a small protocol) parameter —
+            a production signature change, therefore NEEDS OWNER DECISION. With it, each test gets
+            `UserDefaults(suiteName:)` and the process-global mutation disappears, and `.serialized`
+            becomes unnecessary for 79 tests. (2) Absent that, at minimum the suite should be declared as
+            process-global-state-sharing so the runner's `aggregate_serial_non_webkit_suite_filters`
+            classification is accurate — CLAUDE.md requires exactly that for suites in this position, and
+            today only `.serialized` (which is not sufficient) is present.
+VERDICT: keep-as-is on content; fix-isolation (inject the defaults store — needs owner decision).
+  CONFIDENCE: high on the mechanics (read init/deinit and the production class), medium on impact (no
+  second consumer of those keys found).
+
+--------------------------------------------------------------------------------
+TEST: AppPoliciesBridgeTests / all 6 tests (two designs)
+FILE: Tests/AgentStudioTests/Features/Bridge/AppPoliciesBridgeTests.swift:1-120     SIZE: 120 lines
+TRAITS: serialized (:7), `final class`, one async test.
+CLAIM: two different things wearing one suite name.
+  (a) Tests 1-4 (:9-36) and 6 (:81-119): named `AppPolicies.Bridge` constants have specific values, and
+      the TypeScript mirror `BridgeWeb/src/core/demand/bridge-content-demand-policy.ts` carries the same
+      numbers. Who is hurt: whoever changes a budget on one side of the Swift/TS boundary and not the
+      other — the apply pump then paces differently in the worker than Swift believes.
+  (b) Test 5 (:38-79): the content store actually REJECTS one byte over the per-item cap with
+      `BridgeProviderFailure.oversizedContent`. That is a behaviour claim, not a constant claim.
+LAYER TODAY: (a) unit + file-text assertion; (b) unit with a fake provider.
+  REAL: `AppPolicies.Bridge`, `BridgeReviewContentLoaderCache`, the TS source file on disk.
+  FAKE: `BridgeReviewSourceProviderFake` (:49-58).
+STIMULUS: single call.
+ORACLE: (a) literal equality against hard-coded numbers (:11-12, :17-18, :23-24, :29-35) and substring
+  containment on the TS file after `_`-stripping (:87, :89-118). (b) typed error equality (:70-75) — the
+  right oracle, exact failure identity rather than "it threw".
+  Note the derived assertions at :31-35 (`contentMaxBytesPerItem < contentCacheMaxBytes`, ratio >= 8) are
+  better than the literal ones: they state a relationship that must hold rather than a number someone
+  chose.
+WAIT: none.
+SPEED DEPENDENCE: NONE FOUND — no clock, no concurrency, no shared state. What test 5 does have is a
+  MEMORY cost: `String(repeating: "a", count: 16 * 1024 * 1024 + 1)` at :40-41, then
+  `bridgeSHA256ContentHash(oversizedBody)` at :46 hashing all of it, then the same body stored in the fake
+  provider's result (:55-57) and pushed through the loader cache (:64-66). On a machine already running
+  many test processes this is a real allocation spike, but it does not change the verdict.
+WHEN IT FAILS YOU SEE: for the constant tests, bare `#expect(AppPolicies.Bridge.X == N)` — adequate, the
+  expression names the constant. For the mirror test (:89-118), `#expect(normalizedMirrorSource.contains("…"))`
+  — the broken thing is NOT named: you learn a string was absent, not which side drifted or what the TS
+  file actually says. Test 5's failure path uses `Issue.record` with the actual error (:67, :77) — good.
+VALUE:
+  - Test 6 (Swift/TS mirror parity) is the valuable one and has no cheaper equivalent. It is the only
+    thing stopping a silent cross-language policy drift.
+  - Test 5 is a real behaviour test and belongs with the content loader, not in a policy suite.
+  - Tests 1-4 are tautologies over constants: `#expect(AppPolicies.Bridge.operationLifecycleTerminalWindow
+    == .seconds(30))` restates the declaration. They catch an accidental edit, which is a thin but
+    non-zero value — the same value a code-review diff gives. The derived relationships at :31-35 are the
+    exception and should be kept.
+BETTER DESIGN:
+  layer:    split the suite in three. (1) Test 5 moves next to the content loader's own tests — it is a
+            rejection-behaviour test. (2) Test 6 becomes its own named parity check; it is the only test
+            here that reads another language's source. (3) Tests 1-4 shrink to the derived-relationship
+            assertions (:31-35) plus whatever bounds actually matter.
+  stimulus: for test 5, the 16 MiB body is unnecessary. The cap is read from `AppPolicies` at :40, so the
+            test could instead exercise the boundary with an injected small cap if the loader cache takes
+            one — `BridgeReviewContentLoaderCache(provider:)` (:59) takes only a provider today, so
+            lowering the cap for the test would be a production signature change. NEEDS OWNER DECISION.
+            Absent that, the 16 MiB allocation is the price of proving the real cap, and the test is
+            honest to pay it.
+  oracle:   for the mirror test, parsing the TS constants and comparing numbers would name the drifted key
+            on failure instead of reporting an absent substring. Cheap, local to the test.
+  wait:     none needed.
+  keeps:    everything, relocated.
+  cost:     `.serialized` (:7) is unjustified by the suite's contents (no shared state found) — same
+            observation as PaneTests.
+VERDICT: split-and-push-down (test 5 out, test 6 standalone); fix-oracle on the mirror check.
+  CONFIDENCE: high.
+
+--------------------------------------------------------------------------------
+TEST: "Worktree annotation transport adapter" / all 9 tests (one design)
+FILE: Tests/AgentStudioTests/Features/Bridge/WorktreeAnnotations/WorktreeAnnotationTransportAdapterTests.swift:1-648
+      + TestSupport/…/WorktreeAnnotationTransportAdapterTestSupport.swift (harness :233-316)
+SIZE: 648 lines of tests + ~320 lines of harness.
+TRAITS: @MainActor on the suite (:9), NOT serialized, one parameterized test.
+CLAIM: the annotation transport adapter returns exact typed outcomes for each command (viewed, root.create,
+  save, output history, prepare output, scope completion), persists durable detail, publishes a change
+  exactly when state actually changed and not when it did not, and fails typed-and-correlated when the
+  service mutation fails. Who is hurt if it breaks: a reviewer's annotation is lost, duplicated, or
+  published as changed when nothing changed (which re-renders the pane).
+LAYER TODAY: integration — correctly so. REAL: the adapter, the `WorktreeAnnotationServiceActor`, and TWO
+  real SQLite databases with real migrations per test (harness :240-249). FAKE: the source resolver
+  (harness :256-290) and the output effect actor (support :294+). That split is right: the thing under
+  test is the adapter-over-storage path, and storage is real.
+STIMULUS: scripted sequences of decoded JSON commands (e.g. :31-42, :101-121) — the real wire shape,
+  decoded through the production decoder. Good.
+ORACLE: owner-reported and exact. Typed status equality including disposition (:53-62, :79-88), projection
+  revision arithmetic `after == before + 1` (:67) and `afterRepeated == afterChanged` (:93) — this is the
+  idempotence claim stated as an equality on an owner-reported revision, which is the correct shape. Also
+  exact receipt field equality (:146-152), JSON re-encoding checks (:153-160), and change-record fields
+  (:161-169). This suite's oracles are among the best in the repo.
+WAIT: awaited events and real awaits throughout — `await changes.next()` on the store's own change
+  observer stream (:161), `await harness.adapter.apply(...)`. NO polling, NO deadline, NO turn budget in
+  the test bodies. This is the pattern the owner asked for.
+SPEED DEPENDENCE: none found in the verdicts. Every assertion is an equality on an owner-reported value
+  and every wait is a real await on an owned stream. I checked all 9 tests for deadline/turn-budget
+  helpers and found none. What I DID find is a resource-lifetime problem, not a verdict problem:
+  teardown deletes the directory (`defer { try? FileManager.default.removeItem(at: harness.root) }`, 9
+  sites) but never closes the GRDB pools — no `close`, `shutdown` or `deinit` appears in either file. One
+  test (:17-26) opens a third pool on `local.sqlite` while the harness datastore still holds it. So each
+  test leaves open file descriptors and GRDB writer threads behind whose lifetime is tied to
+  deallocation, and the SQLite files (plus their -wal/-shm siblings) are unlinked underneath them.
+WHEN IT FAILS YOU SEE: mostly bare `#expect` on rich typed values — the printed expression names the
+  broken field. `Issue.record("Expected a complete created-message receipt")` at :140 is explicit. Good.
+VALUE: high. This is the only coverage of the annotation wire contract over real storage, and the
+  changed/unchanged publication distinction (:67, :93) is exactly the class of bug that causes pane
+  re-render storms. No duplicates found.
+BETTER DESIGN:
+  layer:    unchanged. This claim needs real SQLite; a fake store would prove nothing about migrations,
+            revisions or observer publication.
+  stimulus: unchanged.
+  oracle:   unchanged — do not touch these.
+  wait:     unchanged — the change-observer stream (:125-126, :161) is already the right signal.
+  keeps:    everything.
+  cost:     one change worth making: give the harness a teardown that closes the datastore before the
+            directory is removed, and have the tests use it instead of nine copies of
+            `defer { try? removeItem }`. Whether `WorkspaceSQLiteDatastoreFactory`'s datastore exposes a
+            close is something I did not verify — if it does not, that is a NEEDS OWNER DECISION on the
+            datastore's surface. Second, the third pool at :17-26 should reuse the harness datastore's
+            own write path rather than opening a competing pool on the same file.
+            Third, `@MainActor` on the suite (:9): the harness is MainActor (support :232, :220, :212) so
+            this is consistent with the existing design, but it means 9 tests × real SQLite migrations
+            execute with MainActor hops throughout. Whether the harness needs MainActor at all is worth a
+            look; I did not trace it and do not propose changing it here.
+VERDICT: keep-as-is on the test design; fix-teardown (resource lifetime).   CONFIDENCE: high on oracles
+  and waits (read all 9 tests and the harness); medium on the pool-close recommendation (I did not read
+  the datastore's close surface).
+
+--------------------------------------------------------------------------------
+TEST: "Watched-folder scan scheduler validation custody" / all 3 tests (one design)
+FILE: Tests/AgentStudioTests/Core/PaneRuntime/Sources/WatchedFolderScanSchedulerValidationTests.swift:1-311
+SIZE: 311 lines (144 of tests + 167 of fixture/actor).
+TRAITS: not serialized, not MainActor, not parameterized.
+CLAIM: the watched-folder scan scheduler keeps custody correctly across repository validation —
+  (1) a request awaiting validation releases its traversal credit so an unrelated request can run, and the
+  exact completion resumes the same run with the right counts; (2) logical validation saturation yields a
+  non-authoritative `.partial` result rather than blocking or lying; (3) re-registering a root drains the
+  stale validation before advancing to the new generation. Who is hurt if it breaks: repo discovery
+  either stalls behind one slow validation or reports a folder as a repository on stale evidence.
+LAYER TODAY: integration. REAL: `WatchedFolderScanScheduler`, `RepoScannerValidationExecutor`, a real
+  `RepoScanner()` walking a real temp directory (:217). FAKE: `ControlledSchedulerValidationClient`
+  (:146-182) — a proper actor with checked continuations that lets the test hold a validation open and
+  release it at an exact point; and `InertSchedulerValidationDeadline` (:184-191), which makes deadlines
+  a no-op so no wall clock enters the verdict. Both are excellent choices.
+STIMULUS: forced interleaving. `nextCandidate()` (:169-172) blocks until the scheduler actually asks for a
+  validation; `complete(_:with:)` (:174-181) releases exactly that one. Test 3 (:97-143) holds a stale
+  validation open, submits the replacement, completes the stale one, and then asserts the CURRENT
+  candidate is the same URL (:133) — that is a precise custody claim proved by controlled ordering, not by
+  hope. This is the good pattern.
+ORACLE: owner-reported. `scheduler.stateSnapshot()` counts (:293-298), lease contents including
+  `scanRunGeneration` (:47, :140) and `request.sourceID` (:43, :79, :92), and scanner-result counts
+  (:49-51). Exactly right.
+WAIT: THE ONE DEFECT. `waitForState` (:286-305) is `for _ in 0..<10_000 { if <state matches> { return };
+  await Task.yield() }`. A 10,000-turn budget is a load-dependent budget by definition: the same
+  scheduler under more concurrent processes needs more turns to reach the same state. Test 1 calls it
+  three times (:16, :25, :35). Tests 2 and 3 do not use it at all — they rely purely on
+  `nextCandidate()` / `nextLease()`, which are real awaits. So the suite already demonstrates the better
+  pattern in two of its three tests.
+SPEED DEPENDENCE: precise. The verdicts themselves are load-independent (all owner-reported equalities,
+  deadline scheduler is inert). The only way a slower machine changes the outcome is `waitForState`
+  exhausting 10,000 turns and recording "scheduler did not reach expected validation custody state"
+  (:303) — a false red. Secondarily, the suite creates temp directories and never removes them (no
+  `removeItem` anywhere in the file), so repeated runs accumulate directories that the real
+  `RepoScanner` at :217 must then traverse in unrelated runs if roots ever overlap; in this file each
+  root is UUID-suffixed (:238) so overlap is not possible today.
+WHEN IT FAILS YOU SEE: `Issue.record("scheduler did not reach expected validation custody state")` (:303)
+  — the broken thing is NOT named. Which of the four counts (ready/active/awaitingValidation/pending) was
+  wrong, and what it actually was, is not reported. The other failure messages are better
+  ("production-shaped validation must finish authoritatively" :53, "logical validation saturation must
+  produce partial evidence" :83).
+VALUE: high, and it is the right layer — this scheduler's custody rules cannot be proved by a unit test on
+  a pure function. No duplicates found.
+BETTER DESIGN:
+  layer:    unchanged.
+  stimulus: unchanged — tests 2 and 3 are already model citizens.
+  oracle:   unchanged, but `waitForState`'s failure should record the observed snapshot alongside the
+            expected one; the snapshot is already in hand at :293.
+  wait:     replace the 10,000-turn poll with an awaited state signal. The scheduler exposes
+            `stateSnapshot()` (:293) but no change stream, so the awaitable seam is MISSING — this needs
+            either a scheduler-side quiescence/state-change signal (a production surface change, NEEDS
+            OWNER DECISION) or a restructuring of test 1 to use only the two real awaits the other two
+            tests use (`nextCandidate()` at :169-172, `nextLease()` at :267-274). Look first at whether
+            test 1's three state checks are load-bearing: assertion #1 (:16-21, "awaitingValidation == 1")
+            is implied by `nextCandidate()` at :22 returning, and assertion #3 (:35-40, "ready == 1")
+            is implied by the subsequent `nextLease()` at :42 succeeding. Only the middle check (:25-30,
+            that submitting `unrelated` leaves it pending while validation is outstanding) states
+            something the awaits do not — and that one could be a single non-blocking snapshot read taken
+            after `submit` returns, with no loop at all, if `submit` is ordered with respect to the
+            scheduler's queue admission. I did not verify that ordering; flag it as the thing to check.
+  keeps:    everything else.
+  cost:     if the three `waitForState` calls can be reduced as above, zero new production surface. If
+            the middle check genuinely needs to observe a later state, a scheduler state-change signal is
+            required — owner decision.
+VERDICT: fix-wait.   CONFIDENCE: high on the mechanics and oracles; medium on the specific reduction of
+  test 1's three waits (turns on a `submit` ordering guarantee I did not trace).
+
+
+================================================================================
+(1) SUMMARY TABLE
+================================================================================
+
+test / suite                                                  | verdict                  | one-line better design
+--------------------------------------------------------------+--------------------------+------------------------------------------------------------
+WebKit "two hosted panes isolate native hidden admission"      | split-and-push-down      | Drop the transport-wide metadata counter (:158-162) and the
+                                                              |                          | +3 pass-count constant (:169); prove hidden admission in
+                                                              |                          | BridgePaneProductMetadataActivityAdmissionTests (already
+                                                              |                          | does, :69-78); keep ~8 wiring assertions needing two pages.
+WebKit "bundled comm worker carries real-git File and Review"  | keep-as-is               | Model for the lane: live-git canary oracle, seam-naming
+                                                              |                          | failure messages.
+WebKit "Review publication failure replays committed B"        | keep-as-is               | Injected failure at an exact publication id; only lane
+                                                              |                          | placement is a cost question.
+WebKit "native named surfaces retain independent state"        | fix-oracle               | Delete SurfaceSelectionJourney:124 (`>= +3` on the same
+                                                              |                          | contaminated counter); :125-128 already prove it exactly.
+WebKit lane membership rule                                    | (finding, no verdict)    | Textual constructor grep puts ~35 non-navigating suites in
+                                                              |                          | the serialized lane; 6 files actually drive a page.
+"packaged worker proves product 256 KiB POST timing"           | keep-as-is               | CORRECTED: it asserts percentile MONOTONICITY only and
+  (in BridgeWebKitSpikeTests)                                 |                          | prints the microseconds — no absolute duration gate.
+                                                              |                          | Heaviest test in the lane (100×256 KiB through a real
+                                                              |                          | page); cost, not correctness. Emit timings as an artifact.
+ArchitectureSwiftLintRulesTests test 5 (rule inventory)        | delete-as-duplicate      | RuleInventoryTests.swift:7-14 proves all 30 rules with
+                                                              |                          | severities in-process; this spawns a SwiftPM build for 7.
+ArchitectureSwiftLintRulesTests test 4 (stock swiftlint)       | move-to-script-lane      | One subprocess per suite with a timeout, not per test.
+ArchitectureSwiftLintRulesTests tests 1-3 (repo wiring)        | keep-as-is + messages    | Add failure messages naming which file/line drifted.
+PaneTests (38)                                                 | keep-as-is; fix-trait    | Nothing shared; `.serialized` (:8) buys no isolation.
+CommandBarStateTests (79)                                      | keep-as-is; fix-isolation| Inject a UserDefaults store instead of mutating
+                                                              |                          | `UserDefaults.standard` in init/deinit (owner decision).
+AppPoliciesBridgeTests (6)                                     | split-and-push-down      | Test 5 → content-loader tests; test 6 → standalone
+                                                              |                          | Swift/TS parity with a parsing oracle; keep :31-35.
+"Worktree annotation transport adapter" (9)                    | keep-as-is; fix-teardown | Best oracles/waits in this lane; close the GRDB pools
+                                                              |                          | before deleting the directory; drop the competing pool.
+"Watched-folder scan scheduler validation custody" (3)         | fix-wait                 | Replace the 10,000-turn `waitForState` (:286-305) with the
+                                                              |                          | real awaits tests 2 and 3 already use.
+
+
+================================================================================
+(2) PATTERNS SEEN MORE THAN ONCE
+================================================================================
+
+P1. AGGREGATE TRANSPORT COUNTER USED AS A PRODUCT ORACLE — 3 sites.
+    `nextMetadataStreamSequence` counts every frame on the metadata stream, protocol acknowledgements
+    included (BridgeProductSession.swift:584 → +ProtocolLifecycle.swift:198-228 → :270-283).
+      · BridgeProductRealGitFileAndReviewWebKitTests.swift:158-162 (equality — the live flake)
+      · BridgeProductWebKitSurfaceSelectionJourneyTestSupport.swift:124 (`>= +3` — vacuous, not flaky)
+      · BridgeProductRealGitFileAndReviewWebKitTests.swift:791 (`> 1` — liveness only, harmless)
+    The same family, one step removed, on a different aggregate:
+      · BridgeProductRealGitFileAndReviewWebKitTests.swift:169 (`== foreground + 3` on `refreshPassCount`,
+        a counter whose value depends on dirty-fact merging, BridgePaneRefreshAdmissionCoordinator.swift
+        :306/:323/:562-577/:535).
+    The tell in every case: the counter is owned by a component that is NOT the component whose behaviour
+    the test names.
+
+P2. DEAD ASSERTIONS THAT RESTATE A `require*` PRECONDITION — 7 sites, all in one test.
+    BridgeProductRealGitFileAndReviewWebKitTests.swift:154-155, :170-172, :173-174, :196 restate
+    conditions that BridgeProductWebKitTwoPaneJourneyTestSupport.swift:769-781, :739-767 and :395-397
+    already enforce by throwing. They cannot fail. The real failure surfaces as
+    `JourneyError.conditionFailed`, a thrown error rather than a named expectation — so the assertion
+    list reads as thorough while the actual diagnosis lives in an error string.
+
+P3. TURN-BUDGET AND DEADLINE POLLS SUBSTITUTING FOR AN AWAITABLE SIGNAL — 15+ sites across the lane.
+    Deadline polls: `BridgeProductWebKitCarrierTestSupport.waitUntil` (:715-727, ContinuousClock deadline
+    + `Task.yield()` spin), used 7× in the two-pane journey and 7× in the surface journey.
+    Turn budgets: `waitForState` 10,000 turns (WatchedFolderScanSchedulerValidationTests.swift:292),
+    `waitForActivityMetadataSourceScheduling` / `waitForActivityMetadataState` 2,000 turns
+    (BridgePaneProductMetadataActivityAdmissionTests.swift:578, :598),
+    `BridgePaneRefreshAdmissionAssertionTestSupport.swift` 200-2,000 turns, teardown spin of 80 yields
+    (TwoPaneJourneyTestSupport:546-548).
+    Counter-examples in the same tree prove the budgets are avoidable: `pullMetadataFrame(from: pump)`
+    (BridgePaneProductMetadataCoordinatorTests.swift:710/:730/:747) and `nextCandidate()` /
+    `nextLease()` (WatchedFolderScanSchedulerValidationTests.swift:169-172, :267-274) are real awaits on
+    owned signals in the very same files.
+
+P4. `.serialized` APPLIED TO SUITES WITH NO SHARED STATE — 2 of the 6 recurring suites.
+    PaneTests:8 (38 synchronous value tests, zero await, zero I/O, zero statics) and AppPoliciesBridgeTests:7
+    (constants + one fake-backed test). Meanwhile CommandBarStateTests:9 carries `.serialized` AND
+    genuinely mutates `UserDefaults.standard` (:19-21, :25-27) — where `.serialized` is the wrong tool,
+    because per Swift Testing it orders only within the suite, not against other suites in the process.
+    So the trait is present where it is not needed and insufficient where it is.
+
+P5. REAL RESOURCES CREATED PER TEST AND NEVER RELEASED — 2 suites.
+    "Worktree annotation transport adapter": 2-3 GRDB pools per test, directory deleted underneath them,
+    no close anywhere (9 `defer removeItem` sites, 0 close sites).
+    "Watched-folder scan scheduler": temp directories with `.git` markers created per request
+    (:237-247), never removed.
+
+P6. FILE-TEXT SUBSTRING ASSERTIONS AS THE ORACLE FOR A WIRING CLAIM — 2 suites, ~25 assertions.
+    ArchitectureSwiftLintRulesTests:13-39 (four repo files) and AppPoliciesBridgeTests:87-118 (a
+    TypeScript source). The claims are legitimate; the oracle names nothing on failure. Both would be
+    materially better parsing the value and comparing it.
+
+
+================================================================================
+(3) WHAT SURPRISED ME
+================================================================================
+
+S1. The deterministic test the WebKit journey should have been already exists, already passes, and is
+    strictly stronger. BridgePaneProductMetadataActivityAdmissionTests.swift:69-78 asserts every product
+    source call count is 0 AND `queuedFrameCount == 0` for a `.loadedHidden` pane, with no WebKit, no
+    DOM, no wall clock — and its sibling at :86-123 forces the exact hide-mid-admission interleaving
+    through a suspend/release seam. The WebKit journey is not filling a coverage gap; it is re-proving a
+    covered invariant with a worse instrument. I expected to find a gap and argue for a new test. There
+    is no gap.
+
+S2. The failing test's own diagnostic already contains the exonerating evidence. The message printed on
+    every failure carries `pane=+0[], file=+0[], review=+0[]`
+    (BridgeProductWebKitMetadataStormDiagnostic.swift:12-20, :30-32) — the product-work counters, at zero,
+    in the failing window. Someone built a good instrument and then asserted on the wrong field next to it.
+    Changing which number the `#expect` reads, using values the proof already computes
+    (TwoPaneJourneyTestSupport:349, :374), would have fixed this without touching production code.
+
+S3. `ArchitectureSwiftLintRulesTests` runs a full SwiftPM build of a second package (`swift run
+    --package-path Tools/AgentStudioArchitectureLint`, :87-93) inside a unit test, blocking a thread on
+    `waitUntilExit()` (:132) — to assert seven substrings that the tool package's own
+    `RuleInventoryTests.swift:7-14` already proves for all thirty rules with exact severities, in-process,
+    in a lane (`mise run test:architecture`, .mise.toml:343-349) that the aggregate already runs
+    (.mise.toml:322). The most expensive test in the six is also the only outright duplicate.
+
+S4. Two of the six most-recurring suites — PaneTests (38 tests) and CommandBarStateTests (79 tests) —
+    contain literally zero `await`, zero I/O, zero shared state (PaneTests) and are marked `.serialized`.
+    I went looking for something exotic and found the opposite: the plainest possible synchronous unit
+    tests, with a trait that forces 117 of them through a single ordered lane.
+
+S5. The serialized WebKit lane is defined by a substring grep over constructor names
+    (WebKitTestIsolationArchitectureTests.swift:8-16), which is honest about `BridgePaneController.init`
+    building a real `WebPage` (BridgePaneController.swift:246, :287) but cannot tell a constructed page
+    from a navigated one. Result: 44 files in the serialized lane, of which 6 actually load the packaged
+    app or run JS in a page.
+
+S6. The best-designed tests in this lane are not the WebKit ones. "Worktree annotation transport adapter"
+    (real SQLite, awaited change-observer stream, exact typed-status oracles, zero polling) and
+    "Watched-folder scan scheduler validation custody" tests 2 and 3 (continuation-controlled validation
+    client, inert deadline scheduler, exact custody assertions) are closer to what the brief asks for than
+    anything in the WebKit suite — and both are on the recurring-blocked list anyway.
