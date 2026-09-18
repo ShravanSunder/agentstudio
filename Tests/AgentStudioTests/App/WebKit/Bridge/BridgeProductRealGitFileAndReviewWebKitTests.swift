@@ -155,9 +155,20 @@ extension WebKitSerializedTests {
             #expect(proof.hiddenStatus.reviewStatusText == nil)
             #expect(proof.hiddenDirtyGeneration != nil)
             #expect(proof.hiddenRefreshPassCountAfterStorm == proof.hiddenRefreshPassCountBeforeStorm)
+            // The metadata stream sequence also counts protocol acknowledgements,
+            // which must keep flowing while a pane is hidden or the page's
+            // subscription.update() promise strands. So the isolation invariant is
+            // stated on the product frames a hidden pane must not admit.
             #expect(
-                proof.hiddenMetadataSequenceAfterStorm
-                    == proof.hiddenMetadataSequenceBeforeStorm,
+                proof.hiddenStormProductDeltas.panePresentationEventCount == 0,
+                Comment(rawValue: proof.hiddenMetadataStormDiagnostic)
+            )
+            #expect(
+                proof.hiddenStormProductDeltas.fileMetadataPhaseCount == 0,
+                Comment(rawValue: proof.hiddenMetadataStormDiagnostic)
+            )
+            #expect(
+                proof.hiddenStormProductDeltas.reviewMetadataPhaseCount == 0,
                 Comment(rawValue: proof.hiddenMetadataStormDiagnostic)
             )
             #expect(

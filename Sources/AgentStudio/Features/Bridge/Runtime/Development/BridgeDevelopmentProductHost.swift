@@ -81,7 +81,15 @@ package actor BridgeDevelopmentProductHost {
         makeReviewProvider: @Sendable (URL, BridgeGitReadContext) -> any BridgeReviewSourceProvider,
         // Production passes nothing. A test supplies a census with a termination
         // observer to pin the window this host's bootstrap gate now handles.
-        schemeTaskCensus: BridgeProductSchemeTaskCensus = BridgeProductSchemeTaskCensus()
+        schemeTaskCensus: BridgeProductSchemeTaskCensus = BridgeProductSchemeTaskCensus(),
+        // Production passes nothing. A test supplies an observer of the Review commit,
+        // which is the only moment the publication's existence is published rather than
+        // merely readable, so the test can await it instead of sampling. It carries no
+        // payload because this initializer is `package` while
+        // `BridgeReviewCommittedPublication` is internal, and widening that type's
+        // visibility is not worth a signal that only says "a commit happened"; a caller
+        // that needs the publication reads it back from the host.
+        didCommitReviewPublication: (@MainActor @Sendable () -> Void)? = nil
     ) async throws {
         let source = try Self.validatedFilesystemSource(source)
         let paneId = source.paneID
@@ -98,8 +106,16 @@ package actor BridgeDevelopmentProductHost {
             provider: reviewProvider
         )
 
+        // Adapts the payload-free `package` signal to the coordinator-level hook, which
+        // carries the committed publication for callers that can see that internal type.
+        var reviewCommitObservation: (@MainActor @Sendable (BridgeReviewCommittedPublication) -> Void)?
+        if let observeCommit = didCommitReviewPublication {
+            reviewCommitObservation = { _ in observeCommit() }
+        }
+
         let productPreparation = try await Self.makeProductProviderPreparation(
             .init(
+                didCommitReviewPublication: reviewCommitObservation,
                 gitReadContext: gitReadContext,
                 reviewInitialization: reviewInitialization,
                 reviewProvider: reviewProvider,
@@ -849,6 +865,28 @@ final class BridgeDevelopmentProductCommittedCallTarget {
 }
 
 extension BridgeDevelopmentProductHost {
+    /// Waits out an in-flight metadata retirement and requires it to have finished.
+    ///
+    /// One place, used by both `.initial` arms: the arm that found retirement
+    /// already recorded, and the arm that had to drain a torn-down transport
+    /// first. A retirement that FAILS still refuses — the session is still held.
+    private func awaitRetirementBarriers(
+        _ retirementBarriers: [BridgeProductProducerRetirementBarrier],
+        of installation: BridgeProductSessionInstallation
+    ) async throws {
+        for retirementBarrier in retirementBarriers {
+            guard await retirementBarrier.wait() else {
+                throw BridgeDevelopmentProductHostError.sessionAlreadyOpen
+            }
+            try Task.checkCancellation()
+        }
+        guard
+            await installation.session.metadataRetirementBarriersForReload()?.isEmpty == true
+        else {
+            throw BridgeDevelopmentProductHostError.sessionAlreadyOpen
+        }
+    }
+
     private func validateBootstrapTransition(
         _ request: BridgeDevelopmentProductBootstrapRequest
     ) async throws {
@@ -873,27 +911,21 @@ extension BridgeDevelopmentProductHost {
                     }
                     await productSessionOwner.schemeRouter.waitForStreamClaimDrain()
                     try Task.checkCancellation()
+                    // The drain proves the transport is gone, not that retirement
+                    // has COMPLETED. A non-empty barrier set here means retirement
+                    // is in flight, which is the same legitimate state the outer
+                    // arm waits on — refusing it would reinstate exactly the
+                    // terminal refusal this path exists to remove.
                     guard
-                        await installation.session.metadataRetirementBarriersForReload()?.isEmpty
-                            == true
+                        let drainedBarriers = await installation.session
+                            .metadataRetirementBarriersForReload()
                     else {
-                        // Retirement ran and failed, so the session is still held.
                         throw BridgeDevelopmentProductHostError.sessionAlreadyOpen
                     }
+                    try await awaitRetirementBarriers(drainedBarriers, of: installation)
                     return
                 }
-                for retirementBarrier in retirementBarriers {
-                    guard await retirementBarrier.wait() else {
-                        throw BridgeDevelopmentProductHostError.sessionAlreadyOpen
-                    }
-                    try Task.checkCancellation()
-                }
-                guard
-                    await installation.session.metadataRetirementBarriersForReload()?.isEmpty
-                        == true
-                else {
-                    throw BridgeDevelopmentProductHostError.sessionAlreadyOpen
-                }
+                try await awaitRetirementBarriers(retirementBarriers, of: installation)
             }
         case .workerReplacement:
             guard request.paneSessionId == paneSessionId else {

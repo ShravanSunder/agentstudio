@@ -67,13 +67,12 @@ extension WebKitSerializedTests {
                 // Act — load a page on the custom scheme
                 let testURL = URL(string: "agentstudio://app/test.html")!
                 _ = page.load(testURL)
-                let didResolveTitle = await waitForTitle(page, equals: "Spike Test")
+                await waitForTitle(page, equals: "Spike Test")
 
                 // Assert — scheme handler served the page
                 #expect(
                     page.url?.absoluteString == "agentstudio://app/test.html",
                     "Page URL should reflect the custom scheme URL")
-                #expect(didResolveTitle, "page.title should resolve after the custom-scheme page load")
                 #expect(page.title == "Spike Test", "page.title should reflect <title> from scheme handler HTML")
             }
         }
@@ -91,18 +90,8 @@ extension WebKitSerializedTests {
             )
         }
 
-        private func waitForTitle(
-            _ page: WebPage,
-            equals expectedTitle: String,
-            timeout: Duration = .seconds(2)
-        ) async -> Bool {
-            for _ in 0..<200_000 {
-                if page.title == expectedTitle {
-                    return true
-                }
-                await Task.yield()
-            }
-            return page.title == expectedTitle
+        private func waitForTitle(_ page: WebPage, equals expectedTitle: String) async {
+            await WebPageEventWaits.waitForTitle(page, equals: expectedTitle)
         }
 
         private func isWebKitSpikeModeEnabled() -> Bool {

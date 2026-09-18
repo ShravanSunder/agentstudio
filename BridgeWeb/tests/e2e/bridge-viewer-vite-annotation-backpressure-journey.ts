@@ -434,10 +434,7 @@ async function runAnnotationBackpressureJourney(props: {
 	try {
 		const createdPage = await browser.newPage({ viewport: { height: 980, width: 1728 } });
 		page = createdPage;
-		const frameAcknowledgementQuiescence = observeFrameAcknowledgementQuiescence(
-			createdPage,
-			stressOperationTimeoutMilliseconds,
-		);
+		const frameAcknowledgementQuiescence = observeFrameAcknowledgementQuiescence(createdPage);
 		const selectedItemApplyObservation = observeSelectedItemApplies(createdPage);
 		const observedReviewFile = props.oracle.reviewFiles[0];
 		if (observedReviewFile === undefined)

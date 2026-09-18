@@ -1,5 +1,4 @@
 import { act } from 'react';
-import { expect } from 'vitest';
 
 import type { BridgeProductWorktreeAnnotationOperation } from '../core/comm-worker/bridge-product-call-contracts.js';
 import type { RecordingAnnotationBrowserSurface } from './worktree-annotation-browser-test-support.js';
@@ -67,8 +66,29 @@ export async function settleInteraction(): Promise<void> {
 }
 
 export async function waitForShareShelfOpeningMotion(shelf: HTMLElement): Promise<void> {
-	await expect.poll(() => shelf.hasAttribute('data-starting-style')).toBe(false);
+	await waitForShareShelfStartingStyleCleared(shelf);
+	// Clearing the attribute is what changes the computed style; the transitions themselves are only
+	// created by the style recalculation that change schedules. Force that recalculation synchronously
+	// so `getAnimations()` returns the opening motion instead of an empty list, then let the motion's
+	// own completion be the wait.
+	shelf.getBoundingClientRect();
 	await Promise.all(shelf.getAnimations().map((animation) => animation.finished));
+}
+
+/**
+ * Resolves on the shelf's own attribute mutation — immediately when the opening state has already
+ * cleared — so nothing here is bounded by a clock.
+ */
+async function waitForShareShelfStartingStyleCleared(shelf: HTMLElement): Promise<void> {
+	if (!shelf.hasAttribute('data-starting-style')) return;
+	await new Promise<void>((resolve): void => {
+		const observer = new MutationObserver((): void => {
+			if (shelf.hasAttribute('data-starting-style')) return;
+			observer.disconnect();
+			resolve();
+		});
+		observer.observe(shelf, { attributeFilter: ['data-starting-style'], attributes: true });
+	});
 }
 
 export async function finishShareShelfMotion(shelf: HTMLElement): Promise<void> {

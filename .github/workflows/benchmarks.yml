@@ -29,10 +29,11 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Select Xcode 26.3
+      - name: Select Xcode
+        id: select-xcode
         uses: maxim-lobanov/setup-xcode@v1
         with:
-          xcode-version: "26.3"
+          xcode-version: "26.6"
 
       - name: Setup mise
         uses: jdx/mise-action@v3
@@ -136,6 +137,11 @@ jobs:
           SWIFT_TEST_TIMEOUT_SECONDS: "600"
           _XCB_BYPASS: "1"
         run: mise run test:swift:large
+
+      # Runs here, after the Swift toolchain, vendors and dev resources are in place,
+      # because the journey needs the Swift development backend the mise task builds.
+      - name: BridgeWeb Vite E2E stress journey
+        run: mise run test:bridge-web:e2e:stress
 
       - name: Swift benchmark tests
         run: |

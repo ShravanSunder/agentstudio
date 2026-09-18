@@ -23,6 +23,17 @@ actor BridgePaneProductFileMetadataSource: BridgePaneProductFileMetadataProducin
         let subscription: BridgeProductSubscriptionSnapshot
     }
 
+    private struct InstalledContextBootstrapRequest: Sendable {
+        let context: SubscriptionContext
+        let emit: BridgePaneProductFileMetadataEventSink
+        let foregroundWorkAdmission: BridgePaneRefreshWorkAdmission
+        let pathScope: [String]
+        let productAdmission: BridgeProductAdmissionContext
+        let productSource: BridgeProductFileSourceIdentity
+        let sourceSpec: BridgeProductFileSourceSpec
+        let subscription: BridgeProductSubscriptionSnapshot
+    }
+
     fileprivate struct InitialTreeEnumerationRequest: Sendable {
         let emit: BridgePaneProductFileMetadataEventSink
         let foregroundWorkAdmission: BridgePaneRefreshWorkAdmission
@@ -180,73 +191,20 @@ actor BridgePaneProductFileMetadataSource: BridgePaneProductFileMetadataProducin
             )
         else { return }
         let productSource = context.productSource
-        guard foregroundWorkAdmission.withValidAdmission({ true }) == true,
-            (productAdmission.withValidAdmission { true }) == true
-        else { return }
-        try await emit(.sourceAccepted(.init(source: productSource)))
-        await sourceAcceptedObserver(productSource)
-        let constructionLease = try await sharedConstructionBinder.acquire(
-            openedSource: context.openedSource
-        )
-        guard
-            attachConstructionLease(
-                constructionLease,
-                subscriptionId: subscription.subscriptionId,
-                productSource: productSource,
-                productAdmission: productAdmission,
-                foregroundWorkAdmission: foregroundWorkAdmission
-            )
-        else {
-            await sharedConstructionBinder.release(constructionLease)
-            return
-        }
+        let retainsInstalledContext: Bool
         do {
-            let preparation = try await sharedConstructionBinder.preparation(for: constructionLease)
-            guard
-                let preparedContext = applyPreparation(
-                    preparation,
-                    subscriptionId: subscription.subscriptionId,
-                    productSource: productSource,
-                    productAdmission: productAdmission,
-                    foregroundWorkAdmission: foregroundWorkAdmission
-                )
-            else {
-                await releaseContext(
-                    subscriptionId: subscription.subscriptionId,
-                    expectedSource: productSource
-                )
-                return
-            }
-            if sourceSpec.includeStatuses {
-                try await publishCurrentStatus(
-                    preparation.statusResult,
+            retainsInstalledContext = try await bootstrapInstalledContext(
+                .init(
+                    context: context,
                     emit: emit,
+                    foregroundWorkAdmission: foregroundWorkAdmission,
+                    pathScope: interestState.pathScope,
                     productAdmission: productAdmission,
                     productSource: productSource,
-                    foregroundWorkAdmission: foregroundWorkAdmission
+                    sourceSpec: sourceSpec,
+                    subscription: subscription
                 )
-            }
-            guard
-                try await enumerateInitialTree(
-                    .init(
-                        emit: emit,
-                        foregroundWorkAdmission: foregroundWorkAdmission,
-                        manifestIndex: preparedContext.manifestIndex,
-                        openedSource: preparedContext.openedSource,
-                        pathScope: interestState.pathScope,
-                        productAdmission: productAdmission,
-                        productSource: productSource,
-                        subscription: subscription
-                    ),
-                    constructionLease: constructionLease
-                )
-            else {
-                await releaseContext(
-                    subscriptionId: subscription.subscriptionId,
-                    expectedSource: productSource
-                )
-                return
-            }
+            )
         } catch {
             await releaseContext(
                 subscriptionId: subscription.subscriptionId,
@@ -254,6 +212,76 @@ actor BridgePaneProductFileMetadataSource: BridgePaneProductFileMetadataProducin
             )
             throw error
         }
+        guard retainsInstalledContext else {
+            await releaseContext(
+                subscriptionId: subscription.subscriptionId,
+                expectedSource: productSource
+            )
+            return
+        }
+    }
+
+    /// Bootstraps an already-installed context, reporting whether the installed context
+    /// survives. Every give-up exit returns `false` so `open` can release the context it
+    /// installed; `open` owns that release for both the thrown and the given-up paths.
+    private func bootstrapInstalledContext(
+        _ request: InstalledContextBootstrapRequest
+    ) async throws -> Bool {
+        let productSource = request.productSource
+        let subscriptionId = request.subscription.subscriptionId
+        guard request.foregroundWorkAdmission.withValidAdmission({ true }) == true,
+            (request.productAdmission.withValidAdmission { true }) == true
+        else { return false }
+        try await request.emit(.sourceAccepted(.init(source: productSource)))
+        await sourceAcceptedObserver(productSource)
+        let constructionLease = try await sharedConstructionBinder.acquire(
+            openedSource: request.context.openedSource
+        )
+        guard
+            attachConstructionLease(
+                constructionLease,
+                subscriptionId: subscriptionId,
+                productSource: productSource,
+                productAdmission: request.productAdmission,
+                foregroundWorkAdmission: request.foregroundWorkAdmission
+            )
+        else {
+            // The lease never reached the context, so `releaseContext` cannot release it.
+            await sharedConstructionBinder.release(constructionLease)
+            return false
+        }
+        let preparation = try await sharedConstructionBinder.preparation(for: constructionLease)
+        guard
+            let preparedContext = applyPreparation(
+                preparation,
+                subscriptionId: subscriptionId,
+                productSource: productSource,
+                productAdmission: request.productAdmission,
+                foregroundWorkAdmission: request.foregroundWorkAdmission
+            )
+        else { return false }
+        if request.sourceSpec.includeStatuses {
+            try await publishCurrentStatus(
+                preparation.statusResult,
+                emit: request.emit,
+                productAdmission: request.productAdmission,
+                productSource: productSource,
+                foregroundWorkAdmission: request.foregroundWorkAdmission
+            )
+        }
+        return try await enumerateInitialTree(
+            .init(
+                emit: request.emit,
+                foregroundWorkAdmission: request.foregroundWorkAdmission,
+                manifestIndex: preparedContext.manifestIndex,
+                openedSource: preparedContext.openedSource,
+                pathScope: request.pathScope,
+                productAdmission: request.productAdmission,
+                productSource: productSource,
+                subscription: request.subscription
+            ),
+            constructionLease: constructionLease
+        )
     }
 
     private func enumerateInitialTree(
