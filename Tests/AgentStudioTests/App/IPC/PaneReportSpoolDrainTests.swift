@@ -1,4 +1,5 @@
 import AgentStudioAppIPC
+import AgentStudioIPCClientCore
 import AgentStudioIPCTransport
 import AgentStudioInfrastructure
 import AgentStudioProgrammaticControl
@@ -288,12 +289,45 @@ struct PaneReportSpoolDrainTests {
         }
     }
 
+    /// A replacement the filesystem refuses may not cost a line. The drain
+    /// rewrites a partial file by renaming a replacement over it, so a failure
+    /// anywhere before the rename has to leave the original whole — including
+    /// the lines it already admitted, which the next drain re-reads and drops
+    /// as duplicate correlations rather than admitting twice.
+    @Test("a replacement the spool directory refuses leaves every spooled line intact")
+    func failedReplacementLeavesTheOriginalFileIntact() async throws {
+        // Arrange: one admissible line, one that must be retried, and a spool
+        // directory that can no longer take a new file.
+        try await withPaneReportSpoolDrainHarness { harness in
+            let paneId = UUIDv7.generate()
+            let messageLine = try harness.messageLine(text: "deploy finished")
+            let needsYouLine = try harness.reportLine(kind: .needsYou, explanation: "approve the plan")
+            try harness.writeSpoolFile(paneId: paneId, lines: [messageLine, needsYouLine])
+            let expectedByteCount = try harness.spoolFileByteCount(paneId: paneId)
+            defer { harness.restoreSpoolDirectoryPermissions() }
+            try harness.makeSpoolDirectoryReadOnly()
+
+            // Act
+            let report = await harness.drain()
+
+            // Assert
+            #expect(report.admittedLineCount == 1)
+            #expect(report.retainedFileCount == 1)
+            #expect(report.truncatedFileCount == 0)
+            #expect(try harness.spoolFileLines(paneId: paneId) == [messageLine, needsYouLine])
+            #expect(try harness.spoolFileByteCount(paneId: paneId) == expectedByteCount)
+        }
+    }
+
     /// Both the drain and a pane's CLI end up waiting on the same lock, and
     /// whichever wins leaves the same file: if the append lands first the drain
-    /// retains it, and if the rewrite lands first the append follows it. The
-    /// rewrite therefore cannot swallow a line, which renaming a replacement
-    /// over the path would, because the writer opens before it blocks in
-    /// `flock` and would be left appending to an unlinked inode.
+    /// retains it, and if the replacement lands first the append follows it.
+    ///
+    /// The second half is what the writer's inode check buys. `flock` holds an
+    /// open file description, not a name, so a writer that opened before the
+    /// rename wakes up holding a lock on an unlinked inode. Appending there
+    /// would lose the line with no error, which is why the real
+    /// `PaneNotificationSpoolWriter` — not a stand-in — appends here.
     @Test("a concurrent append during a partial drain is not lost")
     func concurrentAppendDuringPartialDrainIsNotLost() async throws {
         // Arrange
@@ -303,13 +337,13 @@ struct PaneReportSpoolDrainTests {
             let needsYouLine = try harness.reportLine(kind: .needsYou, explanation: "approve the plan")
             let appendedLine = try harness.reportLine(kind: .needsYou, explanation: "second approval")
             try harness.writeSpoolFile(paneId: paneId, lines: [messageLine, needsYouLine])
-            let spoolFilePath = harness.spoolFileURL(paneId: paneId).path
+            let spoolLocation = harness.spoolLocation(paneId: paneId)
             let heldLock = try harness.holdExclusiveLock(paneId: paneId)
 
             // Act: both contenders block on the held lock, then race for it.
             // swiftlint:disable:next no_task_detached
             let writer = Task.detached {
-                appendSpoolLineUnderLock(appendedLine, atPath: spoolFilePath)
+                appendSpoolLineUnderLock(appendedLine, to: spoolLocation)
             }
             async let drained = harness.drain()
             heldLock.release()
@@ -324,28 +358,23 @@ struct PaneReportSpoolDrainTests {
     }
 }
 
-/// Appends exactly the way the pane CLI does: open the path, take the exclusive
-/// lock, append, synchronize, release.
-private func appendSpoolLineUnderLock(_ line: String, atPath path: String) -> Bool {
-    let descriptor = open(path, O_WRONLY | O_APPEND)
-    guard descriptor >= 0 else { return false }
-    defer { close(descriptor) }
-    guard flock(descriptor, LOCK_EX) == 0 else { return false }
-    defer { flock(descriptor, LOCK_UN) }
-    let bytes = Array("\(line)\n".utf8)
-    var writtenCount = 0
-    while writtenCount < bytes.count {
-        let result = bytes.withUnsafeBytes { pointer -> Int in
-            guard let baseAddress = pointer.baseAddress else { return -1 }
-            return write(descriptor, baseAddress.advanced(by: writtenCount), bytes.count - writtenCount)
-        }
-        if result < 0 {
-            if errno == EINTR { continue }
-            return false
-        }
-        writtenCount += result
+/// Appends through the very writer a pane's CLI uses, so the drain is raced by
+/// the real locking, inode verification and synchronization rather than by a
+/// stand-in that could agree with the drain by accident.
+private func appendSpoolLineUnderLock(
+    _ line: String,
+    to location: PaneNotificationSpoolLocation
+) -> Bool {
+    do {
+        try PaneNotificationSpoolWriter().append(
+            requestLine: line,
+            to: location,
+            maximumLineBytes: AppPolicies.IPC.spoolDrainMaximumLineBytes
+        )
+        return true
+    } catch {
+        return false
     }
-    return fsync(descriptor) == 0
 }
 
 /// The harness owns a live ingestion consumer, so every case shuts it down
@@ -555,11 +584,34 @@ private final class PaneReportSpoolDrainHarness {
 
     func tearDown() async {
         await ingestion.finish()
+        restoreSpoolDirectoryPermissions()
         try? FileManager.default.removeItem(at: rootDirectory)
     }
 
     func spoolFileURL(paneId: UUID) -> URL {
         spoolDirectory.appendingPathComponent("\(paneId.uuidString).notifications.ndjson")
+    }
+
+    /// The same location the pane's CLI resolves from its own environment, so a
+    /// case can append through the real writer.
+    func spoolLocation(paneId: UUID) -> PaneNotificationSpoolLocation {
+        PaneNotificationSpoolLocation(spoolDirectory: spoolDirectory, paneIdentifier: paneId)
+    }
+
+    /// A directory that still opens its existing files but can no longer take a
+    /// new entry, which is what stops the drain creating its replacement.
+    func makeSpoolDirectoryReadOnly() throws {
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o500],
+            ofItemAtPath: spoolDirectory.path
+        )
+    }
+
+    func restoreSpoolDirectoryPermissions() {
+        try? FileManager.default.setAttributes(
+            [.posixPermissions: 0o700],
+            ofItemAtPath: spoolDirectory.path
+        )
     }
 
     /// The line is encoded exactly as the CLI encodes a wire request, so the

@@ -108,6 +108,49 @@ struct PaneNotificationSpoolWriterTests {
         #expect(try Set(fixture.spooledLines()) == Set([firstLine, secondLine]))
     }
 
+    /// The drain replaces a partially drained spool file by renaming a
+    /// replacement over the path. `flock` holds an open file description rather
+    /// than a name, so a writer that opened before that rename wakes up holding
+    /// an exclusive lock on an inode with no directory entry. Writing there
+    /// succeeds, synchronizes, and is never read by anyone: the queued reply the
+    /// CLI already gave the model would be a lie.
+    ///
+    /// Whichever way the two orderings fall, the line has to end up in the file
+    /// the path names, alongside the replacement's own line.
+    @Test("an append racing a spool file replacement lands in the file the path names")
+    func appendRacingAReplacementLandsInTheSurvivingFile() async throws {
+        // Arrange: a spooled line, a replacement to rename over it, and the
+        // exclusive lock held the way a drain holds it.
+        let fixture = try PaneNotificationSpoolFixture()
+        defer { fixture.remove() }
+        let existing = try fixture.invocation(["message", "already spooled"])
+        _ = try fixture.handler.handleUnreachableApp(invocation: existing) {
+            try fixture.client.requestFrame(existing)
+        }
+        let racing = try fixture.invocation(["message", "raced the replacement"])
+        let racingLine = try fixture.client.requestFrame(racing)
+        let retainedLine = try fixture.client.requestFrame(
+            try fixture.invocation(["message", "retained by the drain"]))
+        let location = fixture.location
+        let heldLock = try fixture.holdExclusiveLock()
+
+        // Act: the append blocks in `flock` until the lock is released, so the
+        // replacement lands while it is waiting. This suite is nonisolated, so
+        // the task carries no isolation for the blocking call to inherit.
+        let append = Task {
+            try PaneNotificationSpoolWriter().append(
+                requestLine: racingLine, to: location, maximumLineBytes: 1_048_576)
+        }
+        for _ in 0..<200 { await Task.yield() }
+        let replacementInode = try fixture.replaceNotificationFile(withLines: [retainedLine])
+        heldLock.release()
+        try await append.value
+
+        // Assert
+        #expect(try fixture.spooledLines() == [retainedLine, racingLine])
+        #expect(try fixture.notificationFileInode() == replacementInode)
+    }
+
     @Test("a missing socket path and a refused connection both permit queuing")
     func unreachableEndpointsPermitQueuing() throws {
         // Arrange
@@ -209,6 +252,27 @@ struct PaneNotificationSpoolWriterTests {
     }
 }
 
+private enum PaneNotificationSpoolFixtureError: Error {
+    case exclusiveLockUnavailable
+    case replacementFailed
+}
+
+/// An exclusive `flock` the fixture holds until it says otherwise.
+private final class HeldNotificationFileLock: @unchecked Sendable {
+    private var descriptor: Int32?
+
+    init(descriptor: Int32) {
+        self.descriptor = descriptor
+    }
+
+    func release() {
+        guard let descriptor else { return }
+        flock(descriptor, LOCK_UN)
+        close(descriptor)
+        self.descriptor = nil
+    }
+}
+
 private struct PaneNotificationSpoolFixture {
     let rootDirectory: URL
     let location: PaneNotificationSpoolLocation
@@ -262,6 +326,36 @@ private struct PaneNotificationSpoolFixture {
     func spooledLines() throws -> [String] {
         let contents = try String(contentsOf: location.notificationFileURL, encoding: .utf8)
         return contents.split(separator: "\n").map(String.init)
+    }
+
+    /// The same exclusive lock the drain takes across a whole file rewrite.
+    func holdExclusiveLock() throws -> HeldNotificationFileLock {
+        let descriptor = open(location.notificationFileURL.path, O_RDWR)
+        guard descriptor >= 0, flock(descriptor, LOCK_EX) == 0 else {
+            if descriptor >= 0 { close(descriptor) }
+            throw PaneNotificationSpoolFixtureError.exclusiveLockUnavailable
+        }
+        return HeldNotificationFileLock(descriptor: descriptor)
+    }
+
+    /// Replaces the spool file exactly the way a partial drain does, and answers
+    /// with the inode the path names afterwards.
+    func replaceNotificationFile(withLines lines: [String]) throws -> ino_t {
+        let temporaryURL = location.spoolDirectory.appendingPathComponent(
+            "replacement-\(UUIDv7.generate().uuidString).partial")
+        try Data(lines.map { "\($0)\n" }.joined().utf8).write(to: temporaryURL)
+        guard rename(temporaryURL.path, location.notificationFileURL.path) == 0 else {
+            throw PaneNotificationSpoolFixtureError.replacementFailed
+        }
+        return try notificationFileInode()
+    }
+
+    func notificationFileInode() throws -> ino_t {
+        var status = stat()
+        guard stat(location.notificationFileURL.path, &status) == 0 else {
+            throw PaneNotificationSpoolFixtureError.replacementFailed
+        }
+        return status.st_ino
     }
 
     func notificationFileMode() throws -> mode_t {

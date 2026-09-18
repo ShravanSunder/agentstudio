@@ -131,13 +131,22 @@ actor PaneReportSpool {
                 guard retainedLines.isEmpty else { break }
             }
             guard retainedLines.isEmpty else {
-                // Only the retried lines stay. Rewriting instead of leaving the
+                // Only the retried lines stay. Replacing instead of leaving the
                 // file whole is what stops an admitted record being re-read and
-                // re-deduped on every launch, without bound.
+                // re-deduped on every launch, without bound. The file is
+                // retained either way: a replacement that could not be made
+                // leaves the original whole, and its admitted lines are dropped
+                // as duplicate correlations by the next drain rather than
+                // admitted twice.
                 report.retainedFileCount = 1
-                _ = await Self.rewrite(descriptor: descriptor, lines: retainedLines)
+                await Self.replaceSpoolFile(at: url, retaining: retainedLines)
                 return report
             }
+            // The all-admitted case truncates in place rather than renaming an
+            // empty replacement. There is nothing left to lose — every line is
+            // already durable in Sessions — and keeping one inode means a writer
+            // waiting on this lock appends to the file the next drain reads,
+            // with no reopen.
             guard await Self.truncateToEmpty(descriptor) else {
                 report.retainedFileCount = 1
                 return report
@@ -175,26 +184,49 @@ actor PaneReportSpool {
             ftruncate(descriptor, 0) == 0
         }
 
-        /// Rewrites in place on the descriptor the exclusive lock is held on,
-        /// rather than renaming a replacement over the path.
+        /// Leaves the path holding exactly `retainedLines`, or holding exactly
+        /// what it held before. There is no third outcome, which is the whole
+        /// point: rewriting in place cannot promise that.
         ///
-        /// The writer opens the path and only then blocks in `flock`, so a
-        /// rename landing in that window would leave it appending to an
-        /// unlinked inode and its line would be lost with no error. Writing
-        /// through this descriptor keeps one inode, so a writer already waiting
-        /// on this lock appends to the same file the moment the drain releases
-        /// it. A torn write leaves a partial trailing line, which the reader
-        /// already counts as unreadable.
-        @concurrent private nonisolated static func rewrite(
-            descriptor: Int32,
-            lines: [String]
-        ) async -> Bool {
+        /// An in-place rewrite seeks to zero and overwrites. A failure partway
+        /// through leaves the head replaced and the tail stale, and both halves
+        /// are notifications nobody can get back — an `lseek`, `write` or
+        /// `ftruncate` that reported an error had already destroyed the file it
+        /// was rewriting. Writing a replacement and renaming it over the path
+        /// either lands whole or never touches the original.
+        ///
+        /// The cost is one inode change. `flock` holds an open file description
+        /// rather than a name, so a writer that opened before the rename wakes
+        /// up locking an inode with no directory entry;
+        /// `PaneNotificationSpoolWriter` answers that by comparing the inode it
+        /// locked against the one the path names and reopening when they differ.
+        @concurrent private nonisolated static func replaceSpoolFile(
+            at url: URL,
+            retaining retainedLines: [String]
+        ) async {
             var contents = Data()
-            for line in lines {
+            for line in retainedLines {
                 contents.append(contentsOf: Array(line.utf8))
                 contents.append(0x0a)
             }
-            guard lseek(descriptor, 0, SEEK_SET) == 0 else { return false }
+            let directoryURL = url.deletingLastPathComponent()
+            let replacementURL = directoryURL.appendingPathComponent(
+                ".\(url.lastPathComponent).\(UUIDv7.generate().uuidString).replacement"
+            )
+            let descriptor = open(replacementURL.path, O_WRONLY | O_CREAT | O_EXCL, 0o600)
+            guard descriptor >= 0 else { return }
+            let written = writeAllBytes(contents, to: descriptor) && fsync(descriptor) == 0
+            close(descriptor)
+            guard written, rename(replacementURL.path, url.path) == 0 else {
+                unlink(replacementURL.path)
+                return
+            }
+            // The replacement's own bytes are durable, but the directory entry
+            // that now points at it is not until the directory is synchronized.
+            _ = synchronizeDirectoryEntry(at: directoryURL.path)
+        }
+
+        private nonisolated static func writeAllBytes(_ contents: Data, to descriptor: Int32) -> Bool {
             var writtenCount = 0
             while writtenCount < contents.count {
                 let result = contents.withUnsafeBytes { pointer -> Int in
@@ -209,9 +241,16 @@ actor PaneReportSpool {
                     if errno == EINTR { continue }
                     return false
                 }
+                guard result > 0 else { return false }
                 writtenCount += result
             }
-            guard ftruncate(descriptor, off_t(contents.count)) == 0 else { return false }
+            return true
+        }
+
+        private nonisolated static func synchronizeDirectoryEntry(at path: String) -> Bool {
+            let descriptor = open(path, O_RDONLY)
+            guard descriptor >= 0 else { return false }
+            defer { close(descriptor) }
             return fsync(descriptor) == 0
         }
 

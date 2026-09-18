@@ -49,6 +49,10 @@ package struct PaneNotificationSpoolWriteError: Error, Equatable, Sendable {
         case appendFailed
         case synchronizeFailed
         case lineEncodingFailed
+        /// The spool file kept being replaced under this writer. Reporting it
+        /// is the honest outcome: appending to the inode it locked would have
+        /// succeeded, synchronized, and been read by nobody.
+        case spoolFileRepeatedlyReplaced
     }
 
     package let reason: Reason
@@ -80,6 +84,12 @@ package enum PaneNotificationOfflineOutcome: Equatable, Sendable {
 /// notification file under an exclusive lock. The writer never encodes the
 /// authentication frame and never sees the pane token.
 package struct PaneNotificationSpoolWriter: Sendable {
+    /// A drain replaces the file at most once per pass, so one reopen is
+    /// already enough. The extra attempts cover a drain that starts again
+    /// immediately; a writer that loses this many times in a row is not racing
+    /// a drain, and reporting beats looping.
+    private static let lockedAppendAttemptLimit = 3
+
     package init() {}
 
     /// Eligibility is descriptor metadata, not a method name: the clear verb
@@ -107,9 +117,31 @@ package struct PaneNotificationSpoolWriter: Sendable {
                 throw PaneNotificationSpoolWriteError(reason: .lineEncodingFailed)
             }
             try prepareSpoolDirectory(location.spoolDirectory)
-            let fileExistedBeforeAppend = FileManager.default.fileExists(
-                atPath: location.notificationFileURL.path)
-            let descriptor = open(location.notificationFileURL.path, O_WRONLY | O_APPEND | O_CREAT, 0o600)
+            for _ in 0..<Self.lockedAppendAttemptLimit {
+                if case .appended = try appendUnderExclusiveLock(frame: frame, to: location) { return }
+            }
+            throw PaneNotificationSpoolWriteError(reason: .spoolFileRepeatedlyReplaced)
+        #else
+            throw PaneNotificationSpoolWriteError(reason: .notificationFileUnavailable)
+        #endif
+    }
+
+    #if canImport(Darwin)
+        /// What one locked append attempt settled.
+        private enum LockedAppendOutcome {
+            case appended
+            case spoolFileReplaced
+        }
+
+        /// The drain holds this same lock across a whole file rewrite, so the
+        /// wait here can be as long as a drain takes.
+        private func appendUnderExclusiveLock(
+            frame: Data,
+            to location: PaneNotificationSpoolLocation
+        ) throws -> LockedAppendOutcome {
+            let path = location.notificationFileURL.path
+            let fileExistedBeforeAppend = FileManager.default.fileExists(atPath: path)
+            let descriptor = open(path, O_WRONLY | O_APPEND | O_CREAT, 0o600)
             guard descriptor >= 0 else {
                 throw PaneNotificationSpoolWriteError(reason: .notificationFileUnavailable, errnoCode: errno)
             }
@@ -118,6 +150,9 @@ package struct PaneNotificationSpoolWriter: Sendable {
                 throw PaneNotificationSpoolWriteError(reason: .exclusiveLockUnavailable, errnoCode: errno)
             }
             defer { flock(descriptor, LOCK_UN) }
+            guard try lockedDescriptorStillAnswersToPath(descriptor, path: path) else {
+                return .spoolFileReplaced
+            }
             _ = fchmod(descriptor, 0o600)
             try appendAllBytes(frame, to: descriptor)
             guard fsync(descriptor) == 0 else {
@@ -126,12 +161,28 @@ package struct PaneNotificationSpoolWriter: Sendable {
             if !fileExistedBeforeAppend {
                 try synchronizeDirectoryEntry(location.spoolDirectory)
             }
-        #else
-            throw PaneNotificationSpoolWriteError(reason: .notificationFileUnavailable)
-        #endif
-    }
+            return .appended
+        }
 
-    #if canImport(Darwin)
+        /// `flock` holds an open file description, not a name. A drain that
+        /// renames its replacement over the path while this writer was waiting
+        /// leaves the locked descriptor addressing an inode with no directory
+        /// entry: the append there would succeed, `fsync` would succeed, and no
+        /// drain would ever read the line. Comparing the locked inode against
+        /// the one the path now names is what keeps the append somewhere the
+        /// next drain looks.
+        private func lockedDescriptorStillAnswersToPath(_ descriptor: Int32, path: String) throws -> Bool {
+            var lockedStatus = stat()
+            guard fstat(descriptor, &lockedStatus) == 0 else {
+                throw PaneNotificationSpoolWriteError(reason: .notificationFileUnavailable, errnoCode: errno)
+            }
+            var pathStatus = stat()
+            // An absent path is the same answer as a replaced one: reopening
+            // creates the file this writer's line belongs in.
+            guard stat(path, &pathStatus) == 0 else { return false }
+            return lockedStatus.st_ino == pathStatus.st_ino && lockedStatus.st_dev == pathStatus.st_dev
+        }
+
         private func prepareSpoolDirectory(_ directory: URL) throws {
             guard !FileManager.default.fileExists(atPath: directory.path) else { return }
             do {
