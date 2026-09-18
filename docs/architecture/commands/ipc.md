@@ -133,15 +133,26 @@ AgentStudio/App/Boot + AgentStudio/App/IPCComposition
 AgentStudioIPCClientCore
   Owns:     CLI socket discovery, command-to-JSON-RPC request mapping, and
             Unix socket calls/streams for smoke/use.
-  Imports:  AgentStudioIPCTransport and AgentStudioProgrammaticControl.
-  Must not: Import AgentStudioAppIPC or the AgentStudio executable target.
+  Imports:  AgentStudioIPCTransport, AgentStudioPrimitives, and
+            AgentStudioProgrammaticControl.
+  Must not: Import AgentStudioAppIPC, AgentStudioInfrastructure, or the
+            AgentStudio executable target.
 
 AgentStudioIPCClient
   Owns:     Thin `agentstudio-cli` executable entrypoint.
-  Imports:  AgentStudioIPCClientCore, AgentStudioInfrastructure and
+  Imports:  AgentStudioIPCClientCore, AgentStudioPrimitives and
             AgentStudioProgrammaticControl.
-  Must not: Import app/runtime owner targets.
+  Must not: Import app/runtime owner targets, or AgentStudioInfrastructure.
 ```
+
+The bundled helper is a leaf-only binary by design. `AgentStudioInfrastructure`
+depends on GRDB, Logging, Metrics, Tracing, OTel, ServiceLifecycle and
+`AgentStudioGit` (libgit2), so one import of it from the CLI side relinks the
+app's entire base — AppKit, SwiftUI, WebKit, libsqlite3 — into a process that
+only speaks JSON-RPC over a Unix socket. Pure, Foundation-only helpers the app
+and the CLI both need live in `AgentStudioPrimitives`, which Infrastructure
+re-exports. `CommandLineClientLeafTargetArchitectureTests` pins the allowed
+imports of all four CLI-side targets.
 
 The target split is intentionally stricter than the folder split. A file in
 `AgentStudioProgrammaticControl` cannot accidentally call app code because the
