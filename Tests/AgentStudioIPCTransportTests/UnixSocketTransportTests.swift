@@ -5,7 +5,7 @@ import Testing
 @Suite("Unix socket transport")
 struct UnixSocketTransportTests {
     @Test("connects, sends, reads, and closes against a temp Unix socket")
-    func connectsSendsReadsAndCloses() throws {
+    func connectsSendsReadsAndCloses() async throws {
         let fixture = try UnixSocketFixture()
         defer { fixture.cleanup() }
 
@@ -29,15 +29,15 @@ struct UnixSocketTransportTests {
         defer { client.close() }
 
         try client.send(Data("ping\n".utf8))
-        let response = try client.receive(maxBytes: 64)
+        let response = try await awaitBlocking { try client.receive(maxBytes: 64) }
 
         #expect(String(data: response, encoding: .utf8) == "pong\n")
-        #expect(accepted.wait(timeout: .now() + 2) == .success)
+        #expect(await awaitSignal(accepted) == .success)
         #expect(receivedFrame.value() == "ping\n")
     }
 
     @Test("reads Darwin same-user peer credentials from accepted sockets")
-    func readsDarwinPeerCredentials() throws {
+    func readsDarwinPeerCredentials() async throws {
         let fixture = try UnixSocketFixture()
         defer { fixture.cleanup() }
 
@@ -59,7 +59,7 @@ struct UnixSocketTransportTests {
         let client = try UnixSocketClient.connect(endpoint: fixture.endpoint)
         defer { client.close() }
 
-        #expect(accepted.wait(timeout: .now() + 2) == .success)
+        #expect(await awaitSignal(accepted) == .success)
         #expect(credentials.value()?.userIdentifier == getuid())
     }
 
@@ -67,11 +67,14 @@ struct UnixSocketTransportTests {
     /// descriptor number, otherwise the loop can call `accept` on a number the
     /// kernel has already handed to somebody else's `open`.
     ///
-    /// The ordering is asserted through a handler the test holds open: while a
-    /// connection is being served the loop cannot have exited, so a `stop()`
-    /// that joins the loop cannot have returned either.
+    /// Every claim here is read from inside the held handler, the one place
+    /// where the loop is provably still alive, so no verdict depends on how
+    /// fast the machine is. An earlier version asserted the ordering from the
+    /// test body behind a one-second timeout and failed on a three-core runner,
+    /// where the concurrent lane stretched this test from one second to two
+    /// minutes without anything being wrong with `stop()`.
     @Test("stop retires the accept loop before freeing its descriptor")
-    func stopRetiresAcceptLoopBeforeFreeingDescriptor() throws {
+    func stopRetiresAcceptLoopBeforeFreeingDescriptor() async throws {
         #if canImport(Darwin)
             let fixture = try UnixSocketFixture()
             defer { fixture.cleanup() }
@@ -79,47 +82,53 @@ struct UnixSocketTransportTests {
             let listener = UnixSocketListener(endpoint: fixture.endpoint)
             let handlerEntered = DispatchSemaphore(value: 0)
             let releaseHandler = DispatchSemaphore(value: 0)
+            let stopEntered = DispatchSemaphore(value: 0)
+            let stopReturned = DispatchSemaphore(value: 0)
             let acceptedCount = LockedValue(0)
+            let listeningDescriptor = LockedValue<Int32>(-1)
+            let pathSeenWhileLoopAlive = LockedValue<String?>(nil)
+            let stopHadReturnedWhileLoopAlive = LockedValue(true)
 
             try listener.start { connection in
                 acceptedCount.set(acceptedCount.value() + 1)
                 handlerEntered.signal()
                 releaseHandler.wait()
+                // This closure is the accept loop's current work item, so the
+                // loop cannot have exited and `stop()` cannot have finished
+                // joining it. Both readings are therefore ordering facts, not
+                // timing observations. The poll is non-blocking on purpose.
+                stopHadReturnedWhileLoopAlive.set(stopReturned.wait(timeout: .now()) == .success)
+                pathSeenWhileLoopAlive.set(unixSocketPath(ofDescriptor: listeningDescriptor.value()))
                 connection.close()
             }
 
-            let listeningDescriptor = try #require(
-                findUnixSocketDescriptor(boundTo: fixture.endpoint.path))
+            listeningDescriptor.set(
+                try #require(findUnixSocketDescriptor(boundTo: fixture.endpoint.path)))
 
-            // Arrange: occupy the loop inside the handler, which is the only
-            // state in which "the loop has not exited" is knowable from here.
+            // Arrange: occupy the loop inside the handler.
             let served = try UnixSocketClient.connect(endpoint: fixture.endpoint)
             defer { served.close() }
-            #expect(handlerEntered.wait(timeout: .now() + 5) == .success)
+            #expect(await awaitSignal(handlerEntered) == .success)
 
             // Act
-            let stopReturned = DispatchSemaphore(value: 0)
-            DispatchQueue.global().async {
+            Thread.detachNewThread {
+                stopEntered.signal()
                 listener.stop()
                 stopReturned.signal()
             }
-
-            // Assert: `stop()` is still joining the loop, not racing past it,
-            // and crucially the listening descriptor is still open while it
-            // waits. Closing before the join is what frees the number for an
-            // unrelated `open` while the loop may still call `accept` on it.
-            #expect(stopReturned.wait(timeout: .now() + 1) == .timedOut)
-            #expect(unixSocketPath(ofDescriptor: listeningDescriptor) == fixture.endpoint.path)
-
-            // Act: let the loop finish its handler and observe the stop.
+            #expect(await awaitSignal(stopEntered) == .success)
             releaseHandler.signal()
 
-            // Assert: it returns rather than deadlocking. A `shutdown`-first
-            // wake would hang here, because BSD leaves `accept` blocked.
-            #expect(stopReturned.wait(timeout: .now() + 10) == .success)
+            // Assert: `stop()` completes once the handler returns.
+            #expect(await awaitSignal(stopReturned) == .success)
 
-            // Assert: the loop is gone, so a descriptor opened now cannot be
-            // closed behind our back, and the socket admits nothing further.
+            // Assert: while the loop was alive, `stop()` had not returned and
+            // had not freed the descriptor. This is the ordering contract.
+            #expect(stopHadReturnedWhileLoopAlive.value() == false)
+            #expect(pathSeenWhileLoopAlive.value() == fixture.endpoint.path)
+
+            // Assert: afterwards the loop is gone, the descriptor is released,
+            // and a descriptor opened now is nobody else's to close.
             let probe = try TemporaryFileDescriptor()
             defer { probe.cleanup() }
             #expect(probe.isOpen)
@@ -128,7 +137,7 @@ struct UnixSocketTransportTests {
                 _ = try UnixSocketClient.connect(endpoint: fixture.endpoint)
             }
             #expect(acceptedCount.value() == 1)
-            #expect(unixSocketPath(ofDescriptor: listeningDescriptor) != fixture.endpoint.path)
+            #expect(unixSocketPath(ofDescriptor: listeningDescriptor.value()) != fixture.endpoint.path)
         #endif
     }
 
@@ -352,4 +361,40 @@ private func findUnixSocketDescriptor(boundTo path: String) -> Int32? {
         }
     #endif
     return nil
+}
+
+/// Waits for a semaphore on a thread of its own and suspends the caller.
+///
+/// Swift Testing runs a test body on the cooperative executor, whose width is
+/// the machine's core count, so a `DispatchSemaphore.wait` there removes one of
+/// three threads on a CI runner for as long as it blocks. The concurrent lane
+/// can crowd `DispatchQueue.global()` as well, so this takes a thread of its
+/// own, which is always schedulable. The deadline is a liveness backstop rather
+/// than a verdict about speed: every caller asserts success, and a machine
+/// being slow cannot turn a passing run into a failing one.
+private func awaitSignal(
+    _ semaphore: DispatchSemaphore,
+    deadline: DispatchTimeInterval = .seconds(120)
+) async -> DispatchTimeoutResult {
+    await withCheckedContinuation { continuation in
+        Thread.detachNewThread {
+            continuation.resume(returning: semaphore.wait(timeout: .now() + deadline))
+        }
+    }
+}
+
+/// The same hop for a blocking socket call, which parks a cooperative thread
+/// for as long as the peer takes to answer.
+private func awaitBlocking<Value: Sendable>(
+    _ blockingWork: @escaping @Sendable () throws -> Value
+) async throws -> Value {
+    try await withCheckedThrowingContinuation { continuation in
+        Thread.detachNewThread {
+            do {
+                continuation.resume(returning: try blockingWork())
+            } catch {
+                continuation.resume(throwing: error)
+            }
+        }
+    }
 }

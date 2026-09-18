@@ -225,6 +225,12 @@ public final class UnixSocketListener: @unchecked Sendable {
     private var fileDescriptor: Int32?
     private var isStopping = false
 
+    /// How long each half of `stop()` waits for the accept loop to finish the
+    /// handler it is running. Long enough that an ordinary in-flight handler
+    /// completes the ordered teardown, short enough that a stuck one cannot
+    /// hold the caller forever.
+    private static let acceptLoopJoinDeadline = DispatchTimeInterval.seconds(10)
+
     public init(endpoint: UnixSocketEndpoint) {
         self.endpoint = endpoint
         acceptQueue.setSpecific(key: acceptQueueSpecificKey, value: true)
@@ -298,24 +304,39 @@ public final class UnixSocketListener: @unchecked Sendable {
             var hasJoinedAcceptLoop = isOnAcceptQueue
 
             if descriptor != nil, !isOnAcceptQueue, wakeAcceptLoop() {
-                acceptQueue.sync {}
-                hasJoinedAcceptLoop = true
+                hasJoinedAcceptLoop = joinAcceptLoop()
             }
 
             if let descriptor {
                 _ = Darwin.close(descriptor)
             }
 
-            if !hasJoinedAcceptLoop {
-                // The wake could not connect, so the close above was the only
-                // thing left that could release a blocked `accept`. Joining
-                // after it keeps the caller from hanging, at the cost of the
-                // reuse window the wake normally removes.
-                acceptQueue.sync {}
+            if !hasJoinedAcceptLoop, !isOnAcceptQueue {
+                // Either the wake could not connect or the loop is still inside
+                // a handler that has outstayed the deadline. The close above is
+                // the remaining way to release a blocked `accept`, so join once
+                // more behind it. That path keeps the descriptor-reuse window
+                // the wake normally removes, and it is bounded like the first,
+                // so a handler that never returns delays this caller instead of
+                // stranding it.
+                _ = joinAcceptLoop()
             }
 
             _ = endpoint.path.withCString { Darwin.unlink($0) }
         #endif
+    }
+
+    /// Waits for the accept loop to finish, bounded.
+    ///
+    /// `acceptQueue` is serial, so a block appended behind the running accept
+    /// loop can only run once that loop has returned. Waiting on that block
+    /// rather than calling `sync` keeps the wait bounded: the loop finishes its
+    /// current handler on its own schedule, and a handler that never returns is
+    /// a caller bug that must not strand whoever is retiring the listener.
+    private func joinAcceptLoop() -> Bool {
+        let acceptLoopFinished = DispatchSemaphore(value: 0)
+        acceptQueue.async { acceptLoopFinished.signal() }
+        return acceptLoopFinished.wait(timeout: .now() + Self.acceptLoopJoinDeadline) == .success
     }
 
     /// Hands the accept loop one connection so it can observe `isStopping` and
