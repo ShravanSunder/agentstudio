@@ -886,9 +886,11 @@ extension BridgePaneProductMetadataCoordinator {
 
     /// Drops the coordinator's own tracking for subscriptions the session retired.
     ///
-    /// Uses the same per-subscription retirement a reset takes, so a producer the
-    /// coordinator still owns for one of these ids is cancelled and drained rather
-    /// than left running against a client that no longer knows the id.
+    /// Uses the same per-subscription retirement a reset takes. The producers for
+    /// these ids were already cancelled and drained by `performInstall` before the
+    /// stale set was captured, and nothing can restart them for a captured id; this
+    /// is defence in depth for the coordinator's bookkeeping, not the teardown
+    /// itself. Do not delete the install-time teardown on the strength of this call.
     private func forgetSubscriptions(_ subscriptionIds: [String]) async {
         for subscriptionId in subscriptionIds {
             await retireSubscriptionAfterReset(subscriptionId: subscriptionId)
