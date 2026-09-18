@@ -15,6 +15,7 @@ enum VendorInvalidPrimarySource: String, CaseIterable {
     case missingFramework
     case symlinkedFramework
     case nestedFrameworkSymlink
+    case missingFrameworkSliceHeader
     case frameworkIsFile
     case missingZmxOutput
     case zmxIsNotExecutable
@@ -260,6 +261,9 @@ struct VendorWorktreeFixture {
             try fileManager.createSymbolicLink(
                 at: nestedLibrary,
                 withDestinationURL: externalLibrary)
+        case .missingFrameworkSliceHeader:
+            try fileManager.removeItem(
+                at: primaryFrameworkURL.appending(path: "macos-arm64/Headers"))
         case .frameworkIsFile:
             try fileManager.removeItem(at: primaryFrameworkURL)
             try Data("not a framework".utf8).write(to: primaryFrameworkURL)
@@ -308,8 +312,9 @@ struct VendorWorktreeFixture {
             contents: """
                 #!/bin/bash
                 set -euo pipefail
-                mkdir -p Frameworks/GhosttyKit.xcframework/macos-arm64
+                mkdir -p Frameworks/GhosttyKit.xcframework/macos-arm64/Headers
                 printf 'local framework\\n' > Frameworks/GhosttyKit.xcframework/macos-arm64/libghostty.a
+                printf '// local ghostty header\\n' > Frameworks/GhosttyKit.xcframework/macos-arm64/Headers/ghostty.h
                 mkdir -p vendor/zmx/zig-out/bin
                 printf '#!/bin/bash\\necho local-zmx\\n' > vendor/zmx/zig-out/bin/zmx
                 chmod 700 vendor/zmx/zig-out/bin/zmx
@@ -333,6 +338,19 @@ struct VendorWorktreeFixture {
         return directory
     }
 
+    /// Builds a faithful minimal XCFramework slice: the static library AND the
+    /// slice header. `vendor-worktree.sh` preflights the header, so a fixture
+    /// with only the library is not a valid stand-in for a real vendor build.
+    static func populateFrameworkSlice(at framework: URL, using fileManager: FileManager) throws {
+        let sliceRoot = framework.appending(path: "macos-arm64")
+        let headerDirectory = sliceRoot.appending(path: "Headers")
+        try fileManager.createDirectory(at: headerDirectory, withIntermediateDirectories: true)
+        try Data("primary ghostty library".utf8)
+            .write(to: sliceRoot.appending(path: "libghostty.a"))
+        try Data("// fixture ghostty header\n".utf8)
+            .write(to: headerDirectory.appending(path: "ghostty.h"))
+    }
+
     private func updateGitlink(worktree: URL, path: String, commit: String) throws {
         try requireSuccess(
             Self.runGit(
@@ -342,11 +360,7 @@ struct VendorWorktreeFixture {
     }
 
     private func publishPrimaryOutputs() throws {
-        let frameworkLibrary = primaryFrameworkURL.appending(path: "macos-arm64/libghostty.a")
-        try fileManager.createDirectory(
-            at: frameworkLibrary.deletingLastPathComponent(),
-            withIntermediateDirectories: true)
-        try Data("primary ghostty library".utf8).write(to: frameworkLibrary)
+        try Self.populateFrameworkSlice(at: primaryFrameworkURL, using: fileManager)
 
         let zmxBinary = primaryZmxOutputURL.appending(path: "bin/zmx")
         try fileManager.createDirectory(
