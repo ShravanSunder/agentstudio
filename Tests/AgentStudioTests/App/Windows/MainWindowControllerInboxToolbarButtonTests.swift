@@ -417,6 +417,7 @@ private func withMainWindowControllerHarness<T>(
         surfaceManager: InboxToolbarTestSurfaceManager(),
         runtimeRegistry: RuntimeRegistry(),
         windowLifecycleStore: atoms.core.windowLifecycle,
+        ipcLifecycle: .testUnavailable,
         bridgePaneAttendance: atoms.bridgePaneAttendance
     )
     let workspaceActionExecutor = WorkspaceActionExecutor(coordinator: coordinator, store: store)

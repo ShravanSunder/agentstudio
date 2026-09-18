@@ -218,7 +218,7 @@ final class AppCommandTests {
     func test_zoomPane_presentsForSinglePaneTabsWithNarrowHeadlessIPC() {
         let zoomPane = AppCommandDispatcher.shared.definition(for: .zoomPane)
         let expandPane = AppCommandDispatcher.shared.definition(for: .expandPane)
-        let ipcEntry = zoomPane.ipcCommandListEntry
+        let ipcSpec = AppCommand.zoomPane.ipcSpec
         let canonicalZoomSymbol = SystemSymbol(
             rawValue: "square.arrowtriangle.4.outward"
         )
@@ -237,9 +237,9 @@ final class AppCommandTests {
         #expect(zoomPane.icon == canonicalZoomSymbol.map(CommandIcon.system))
         #expect(expandPane.icon == .system(.arrowUpLeftAndArrowDownRight))
         #expect(zoomPane.icon != expandPane.icon)
-        #expect(ipcEntry.executionModes == [.headless])
-        #expect(ipcEntry.targetKinds == [.pane])
-        #expect(ipcEntry.requiredPrivileges == [.layoutMutate])
+        #expect(ipcSpec.executionMode == .headless)
+        #expect(ipcSpec.allowedTargetKinds == [.window, .pane])
+        #expect(ipcSpec.requiredPrivilege == .layoutMutate)
     }
 
     @Test

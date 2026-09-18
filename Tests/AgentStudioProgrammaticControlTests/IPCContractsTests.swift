@@ -31,6 +31,7 @@ struct IPCContractsTests {
         let tabId = UUID()
         let paneId = UUID()
         let params = IPCArrangementsOpenParams(
+            workspaceWindowId: workspaceWindowId,
             targetPaneHandle: "pane:\(paneId.uuidString)",
             correlationId: correlationId
         )

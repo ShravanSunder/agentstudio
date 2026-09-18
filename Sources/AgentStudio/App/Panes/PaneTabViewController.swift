@@ -97,14 +97,14 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
 
     // MARK: - Dependencies (injected)
 
-    private let store: WorkspaceStore
+    let store: WorkspaceStore
     private let repoCache: RepoCacheAtom
     private let applicationLifecycleMonitor: ApplicationLifecycleMonitor
     private let appLifecycleStore: AppLifecycleAtom
     private let windowLifecycleStore: WindowLifecycleAtom
     private let workspaceWindowId: UUID?
-    private let executor: WorkspaceActionExecutor
-    private let runtimeCommandDispatcher: any PaneRuntimeCommandDispatching
+    let executor: WorkspaceActionExecutor
+    let runtimeCommandDispatcher: any PaneRuntimeCommandDispatching
     private let tabBarAdapter: TabBarAdapter
     private let viewRegistry: ViewRegistry
     private let bridgePaneAttendance: BridgePaneAttendanceAtom
@@ -128,10 +128,10 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
     private let openFinderHandler: @MainActor (URL) -> Bool
     private let openExternalURLHandler: @MainActor (URL) -> Bool
     private let copyPathHandler: @MainActor (URL) -> Void
-    private let paneNotePresentation: PaneNotePresentation
+    let paneNotePresentation: PaneNotePresentation
     private let bridgeViewerSurfaceRequestHandler: BridgeViewerSurfaceRequestHandler
     private let bridgeViewerOpenTelemetryAnchorFactory: @MainActor () -> BridgeViewerOpenTelemetryAnchor
-    private var arrangementView: WorkspaceArrangementViewDerived {
+    var arrangementView: WorkspaceArrangementViewDerived {
         WorkspaceArrangementViewDerived(
             tabLayoutAtom: store.tabLayoutAtom,
             paneAtom: store.paneAtom,
@@ -632,6 +632,8 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         }
         notificationTasks.removeAll()
     }
+
+    var acceptsIPCCommands: Bool { !hasShutdown }
 
     isolated deinit {
         let monitor = arrangementBarEventMonitor
@@ -1147,7 +1149,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         return managementNavigationScope
     }
 
-    private func normalizedWorkspaceNavigationScopeState() -> WorkspaceFocusOwner {
+    func normalizedWorkspaceNavigationScopeState() -> WorkspaceFocusOwner {
         WorkspaceFocusOwnerNormalizer.normalize(
             requested: atom(\.workspaceFocusOwner).owner,
             context: currentWorkspaceFocusOwnerContext()
@@ -2359,7 +2361,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         }
     }
 
-    private func canExecuteManagementCommand(_ command: AppCommand) -> Bool {
+    func canExecuteManagementCommand(_ command: AppCommand) -> Bool {
         let navigationScope = normalizedWorkspaceNavigationFocusScope()
 
         switch command {
@@ -2811,7 +2813,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         dispatchAction(action)
     }
 
-    private func makeMovePaneToTabAction(
+    func makeMovePaneToTabAction(
         sourcePaneId: UUID,
         sourceTabId: UUID?,
         targetTabId: UUID
@@ -2992,7 +2994,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         return candidatePaneId
     }
 
-    private func handleManagementCommand(_ command: AppCommand) -> Bool {
+    func handleManagementCommand(_ command: AppCommand) -> Bool {
         guard isManagementCommand(command) else { return false }
 
         let clock = ContinuousClock()
@@ -3118,7 +3120,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         return resolvedBridgeCommandMountView(paneId: paneId)
     }
 
-    private func resolvedBridgeCommandMountView(paneId: UUID) -> BridgePaneMountView? {
+    func resolvedBridgeCommandMountView(paneId: UUID) -> BridgePaneMountView? {
         guard
             let pane = store.paneAtom.pane(paneId),
             case .bridgePanel = pane.content
@@ -3133,7 +3135,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         return bridgeMountView
     }
 
-    private func enterZoomAndShowViewer(explicitPaneId: UUID?) -> Bool {
+    func enterZoomAndShowViewer(explicitPaneId: UUID?) -> Bool {
         let canEnterZoomWithViewer =
             if let explicitPaneId {
                 canExecutePaneSurfaceViewerCommand(sourcePaneId: explicitPaneId)
@@ -3169,12 +3171,12 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         }
     }
 
-    private enum ZoomLocalViewerCommandResult {
+    enum ZoomLocalViewerCommandResult {
         case notZoomLocal
         case toggled(Bool)
     }
 
-    private func executeZoomLocalViewerCommand(
+    func executeZoomLocalViewerCommand(
         explicitPaneId: UUID?
     ) -> ZoomLocalViewerCommandResult {
         guard
@@ -3258,7 +3260,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
     }
 
     @discardableResult
-    private func executeZoomCommand(explicitPaneId: UUID?) -> Bool {
+    func executeZoomCommand(explicitPaneId: UUID?) -> Bool {
         guard let capability = zoomCommandCapability(explicitPaneId: explicitPaneId) else {
             return false
         }
@@ -3347,7 +3349,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         )?.worktree.id
     }
 
-    private func executeBridgeSurfaceCommand(_ command: AppCommand, worktreeId: UUID?) -> Bool {
+    func executeBridgeSurfaceCommand(_ command: AppCommand, worktreeId: UUID?) -> Bool {
         let surface: BridgeProductSurface
         let alwaysCreate: Bool
         switch command {
@@ -3662,7 +3664,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         }
     }
 
-    private func focusTargetedPane(_ paneId: UUID) {
+    func focusTargetedPane(_ paneId: UUID) {
         if let parentPaneId = store.paneAtom.pane(paneId)?.parentPaneId {
             focusTargetedDrawerPane(parentPaneId: parentPaneId, drawerPaneId: paneId)
             return
@@ -3672,7 +3674,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         handlePaneFocusTrigger(.command(.focusPane(tabId: tab.id, paneId: paneId)))
     }
 
-    private func canFocusTargetedPane(_ paneId: UUID) -> Bool {
+    func canFocusTargetedPane(_ paneId: UUID) -> Bool {
         guard let pane = store.paneAtom.pane(paneId) else { return false }
         if let parentPaneId = pane.parentPaneId {
             return store.tabLayoutAtom.tabContaining(paneId: parentPaneId) != nil
@@ -3692,7 +3694,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         store.tabLayoutAtom.switchArrangement(to: containingArrangement.id, inTab: tabId)
     }
 
-    private func focusTargetedDrawerPane(parentPaneId: UUID, drawerPaneId: UUID) {
+    func focusTargetedDrawerPane(parentPaneId: UUID, drawerPaneId: UUID) {
         dispatchGesture { [self] execute in
             await focusDrawerPaneAfterAdmission(
                 parentPaneId: parentPaneId, drawerPaneId: drawerPaneId, execute: execute)
@@ -4019,7 +4021,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         )
     }
 
-    private func targetedPaneWorkspaceAction(
+    func targetedPaneWorkspaceAction(
         command: AppCommand,
         paneId: UUID,
         targetType: SearchItemType
@@ -4221,7 +4223,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         return store.tabLayoutAtom.activeTabId == owningTabId
     }
 
-    private func arrangementTarget(
+    func arrangementTarget(
         _ arrangementId: UUID
     ) -> (tab: AgentStudioCore.Tab, arrangement: PaneArrangement)? {
         for tab in store.tabLayoutAtom.tabs {
@@ -4232,7 +4234,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         return nil
     }
 
-    private func targetedTabAction(
+    func targetedTabAction(
         command: AppCommand,
         target: UUID,
         targetType: SearchItemType
@@ -4269,7 +4271,11 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         }
     }
 
-    private func targetedSidebarAction(
+    func ownsWorkspaceWindow(_ workspaceWindowId: UUID) -> Bool {
+        acceptsIPCCommands && self.workspaceWindowId == workspaceWindowId
+    }
+
+    func targetedSidebarAction(
         command: AppCommand,
         target: UUID,
         targetType: SearchItemType
@@ -4785,22 +4791,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         switch command {
         case .openPaneLocationInBookmarkedEditor:
             guard let targetPath = selectedPaneManagementContext()?.targetPath else { return false }
-            let installedTargets = installedEditorTargetsProvider()
-            var resolution = ExternalEditorTarget.resolveBookmarkedOrDefault(
-                bookmarkedEditorId: editorChooser.bookmarkedEditorId,
-                installedTargets: installedTargets
-            )
-            if case .bookmarkedEditorNotInstalled = resolution {
-                // A saved bookmark that is no longer installed should heal back to
-                // the implicit default launch order on the same key press.
-                editorChooser.setBookmarkedEditor(nil)
-                resolution = ExternalEditorTarget.resolveBookmarkedOrDefault(
-                    bookmarkedEditorId: nil,
-                    installedTargets: installedTargets
-                )
-            }
-            guard case .resolved(let target) = resolution else { return false }
-            return openEditorHandler(target.id, targetPath, installedTargets)
+            return openPaneLocationInBookmarkedEditor(targetPath: targetPath)
         case .openPaneLocationInFinder:
             guard let targetPath = selectedPaneManagementContext()?.targetPath else { return false }
             return openFinderHandler(targetPath)
@@ -4824,6 +4815,28 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         default:
             return false
         }
+    }
+
+    /// Launch the bookmarked external editor for an already-resolved path. The
+    /// caller owns path selection, so both keyboard focus and an explicit
+    /// programmatic pane reach the same editor-resolution owner.
+    func openPaneLocationInBookmarkedEditor(targetPath: URL) -> Bool {
+        let installedTargets = installedEditorTargetsProvider()
+        var resolution = ExternalEditorTarget.resolveBookmarkedOrDefault(
+            bookmarkedEditorId: editorChooser.bookmarkedEditorId,
+            installedTargets: installedTargets
+        )
+        if case .bookmarkedEditorNotInstalled = resolution {
+            // A saved bookmark that is no longer installed should heal back to
+            // the implicit default launch order on the same key press.
+            editorChooser.setBookmarkedEditor(nil)
+            resolution = ExternalEditorTarget.resolveBookmarkedOrDefault(
+                bookmarkedEditorId: nil,
+                installedTargets: installedTargets
+            )
+        }
+        guard case .resolved(let target) = resolution else { return false }
+        return openEditorHandler(target.id, targetPath, installedTargets)
     }
 
     private func pullRequestURL(forPaneId paneId: UUID) -> URL? {
@@ -4859,7 +4872,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         }
     }
 
-    private func targetedPaneLocationPath(paneId: UUID) -> URL? {
+    func targetedPaneLocationPath(paneId: UUID) -> URL? {
         guard
             targetedPaneCommandTarget(
                 paneId: paneId,
@@ -4874,7 +4887,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         ).targetPath
     }
 
-    private func targetedPaneExternalCommandCapability(
+    func targetedPaneExternalCommandCapability(
         _ command: AppCommand,
         paneId: UUID
     ) -> Bool {
@@ -4888,7 +4901,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         }
     }
 
-    private func handleTargetedPaneExternalCommand(
+    func handleTargetedPaneExternalCommand(
         _ command: AppCommand,
         paneId: UUID
     ) -> Bool {

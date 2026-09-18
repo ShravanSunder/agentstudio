@@ -1,5 +1,6 @@
 import AgentStudioAppIPC
 import AgentStudioIPCTransport
+import AgentStudioInfrastructure
 import AgentStudioProgrammaticControl
 import Foundation
 import Testing
@@ -16,11 +17,7 @@ struct AgentStudioAppIPCSidebarServiceTests {
                 repoGrouping: .activity,
                 inboxGrouping: .noGrouping,
                 surface: .inbox
-            ),
-            debugTokenEscrowEnabled: true,
-            debugTokenEscrowPermissionScopes: [
-                IPCPermissionScope(privilege: .workspaceRead, target: .app, dataScope: .unspecified)
-            ]
+            )
         )
         defer {
             fixture.cleanup()
@@ -61,10 +58,7 @@ struct AgentStudioAppIPCSidebarServiceTests {
 
     @Test("removed sidebar write routes are not method registry entries")
     func removedSidebarWriteRoutesAreNotMethodRegistryEntries() async throws {
-        let fixture = try LiveServerFixture(
-            channel: .debug,
-            debugTokenEscrowEnabled: true
-        )
+        let fixture = try LiveServerFixture(channel: .debug)
         defer {
             fixture.cleanup()
         }
@@ -99,20 +93,28 @@ struct AgentStudioAppIPCSidebarServiceTests {
             let response = try await reader.receiveResponseWithoutBlockingMainActor(connection: connection)
 
             #expect(response.id == .number(requestId))
-            #expect(response.error?.code == -32_603)
+            #expect(response.error?.code == -32_601)
             #expect(response.error?.message == "method not found")
         }
     }
 
-    @Test("debug unsafe no-auth denies sidebar read methods")
-    func debugUnsafeNoAuthDeniesSidebarReadMethods() async throws {
-        let fixture = try LiveServerFixture(accessMode: .unsafeDebug, channel: .debug)
+    @Test("debug unsafe no-auth reads sidebar grouping and surface without login")
+    func debugUnsafeNoAuthReadsSidebarGroupingAndSurfaceWithoutLogin() async throws {
+        let fixture = try LiveServerFixture(
+            accessMode: .unsafeDebug,
+            channel: .debug,
+            sidebarPort: FakeSidebarPort(
+                repoGrouping: .activity,
+                inboxGrouping: .noGrouping,
+                surface: .inbox
+            )
+        )
         defer {
             fixture.cleanup()
         }
         try fixture.server.start()
 
-        let response = try await sendRequestWithoutBlockingMainActor(
+        let groupingResponse = try await sendRequestWithoutBlockingMainActor(
             socketPath: fixture.paths.socketURL.path,
             request: JSONRPCClientRequest(
                 id: .number(74),
@@ -122,20 +124,32 @@ struct AgentStudioAppIPCSidebarServiceTests {
                 )
             )
         )
+        let grouping = try decodeResponseResult(IPCSidebarGroupingResult.self, from: groupingResponse)
 
-        #expect(response.id == .number(74))
-        #expect(response.error?.code == -32_002)
-        #expect(response.error?.message == "unauthorized")
+        let surfaceResponse = try await sendRequestWithoutBlockingMainActor(
+            socketPath: fixture.paths.socketURL.path,
+            request: JSONRPCClientRequest(
+                id: .number(75),
+                method: "sidebar.surface.get",
+                params: try JSONRPCCodec.encodeJSONValue(IPCSidebarSurfaceGetParams())
+            )
+        )
+        let surface = try decodeResponseResult(IPCSidebarSurfaceResult.self, from: surfaceResponse)
+
+        #expect(groupingResponse.id == .number(74))
+        #expect(groupingResponse.error == nil)
+        #expect(grouping.surface == .repo)
+        #expect(grouping.mode == .activity)
+        #expect(surfaceResponse.id == .number(75))
+        #expect(surfaceResponse.error == nil)
+        #expect(surface.surface == .inbox)
     }
 
     private func authenticatedConnection(
         for fixture: LiveServerFixture,
         tokenRequestId: Int
     ) async throws -> UnixSocketConnection {
-        let token = AgentStudioIPCSubjectToken(
-            rawValue: try String(contentsOf: fixture.paths.debugTokenURL, encoding: .utf8)
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-        )
+        let token = fixture.installDebugCredential()
         let connection = try UnixSocketClient.connect(endpoint: UnixSocketEndpoint(path: fixture.paths.socketURL.path))
         var reader = TestFrameReader()
         try await loginWithoutBlockingMainActor(

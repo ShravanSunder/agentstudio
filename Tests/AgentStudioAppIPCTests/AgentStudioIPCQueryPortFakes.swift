@@ -2,64 +2,16 @@ import AgentStudioAppIPC
 import AgentStudioProgrammaticControl
 import Foundation
 
-struct MethodCapabilitiesQueryPort: AppIPCQueryPort {
-    let base: any AppIPCQueryPort
-    let methodDefinitions: [IPCMethodDefinition]
-
-    func systemIdentify() throws -> IPCSystemIdentifyResult {
-        try base.systemIdentify()
-    }
-
-    func systemVersion() throws -> IPCSystemVersionResult {
-        try base.systemVersion()
-    }
-
-    func systemCapabilities() throws -> IPCSystemCapabilitiesResult {
-        IPCSystemCapabilitiesResult(methods: makeMethodCapabilities(from: methodDefinitions))
-    }
-
-    func listWindows() throws -> IPCWindowListResult {
-        try base.listWindows()
-    }
-
-    func currentWindow() throws -> IPCCurrentWindowResult {
-        try base.currentWindow()
-    }
-
-    func listWorkspaces() throws -> IPCWorkspaceListResult {
-        try base.listWorkspaces()
-    }
-
-    func currentWorkspace() throws -> IPCCurrentWorkspaceResult {
-        try base.currentWorkspace()
-    }
-
-    func listPanes() throws -> IPCPaneListResult {
-        try base.listPanes()
-    }
-
-    func currentPane() throws -> IPCPaneSnapshotResult {
-        try base.currentPane()
-    }
-
-    func snapshotPane(_ paneId: UUID) throws -> IPCPaneSnapshotResult {
-        try base.snapshotPane(paneId)
-    }
-}
-
 struct FakeQueryPort: AppIPCQueryPort {
     let runtimeId: UUID
     let panes: [IPCPaneSummary]
-    let methodDefinitions: [IPCMethodDefinition]
 
     nonisolated init(
         runtimeId: UUID = UUID(),
-        panes: [IPCPaneSummary] = [],
-        methodDefinitions: [IPCMethodDefinition] = []
+        panes: [IPCPaneSummary] = []
     ) {
         self.runtimeId = runtimeId
         self.panes = panes
-        self.methodDefinitions = methodDefinitions
     }
 
     func systemIdentify() throws -> IPCSystemIdentifyResult {
@@ -68,10 +20,6 @@ struct FakeQueryPort: AppIPCQueryPort {
 
     func systemVersion() throws -> IPCSystemVersionResult {
         IPCSystemVersionResult(appVersion: "test")
-    }
-
-    func systemCapabilities() throws -> IPCSystemCapabilitiesResult {
-        IPCSystemCapabilitiesResult(methods: makeMethodCapabilities(from: methodDefinitions))
     }
 
     func listWindows() throws -> IPCWindowListResult {
@@ -98,26 +46,26 @@ struct FakeQueryPort: AppIPCQueryPort {
         throw AppIPCQueryError(reason: .noActiveWindow)
     }
 
-    func snapshotPane(_: UUID) throws -> IPCPaneSnapshotResult {
-        throw AppIPCQueryError(reason: .targetNotFound)
+    func snapshotPane(_ paneId: UUID) throws -> IPCPaneSnapshotResult {
+        guard let pane = panes.first(where: { $0.id == paneId }) else {
+            throw AppIPCQueryError(reason: .targetNotFound)
+        }
+        return makePaneSnapshotResult(pane: pane, paneCount: panes.count)
     }
 }
 
 final class RecordingSnapshotQueryPort: AppIPCQueryPort, @unchecked Sendable {
     let runtimeId: UUID
     let panes: [IPCPaneSummary]
-    let methodDefinitions: [IPCMethodDefinition]
     private let lock = NSLock()
     nonisolated(unsafe) private var snapshotPaneIdsStorage: [UUID] = []
 
     nonisolated init(
         runtimeId: UUID = UUID(),
-        panes: [IPCPaneSummary],
-        methodDefinitions: [IPCMethodDefinition] = []
+        panes: [IPCPaneSummary]
     ) {
         self.runtimeId = runtimeId
         self.panes = panes
-        self.methodDefinitions = methodDefinitions
     }
 
     nonisolated var snapshotPaneIds: [UUID] {
@@ -132,10 +80,6 @@ final class RecordingSnapshotQueryPort: AppIPCQueryPort, @unchecked Sendable {
 
     func systemVersion() throws -> IPCSystemVersionResult {
         IPCSystemVersionResult(appVersion: "test")
-    }
-
-    func systemCapabilities() throws -> IPCSystemCapabilitiesResult {
-        IPCSystemCapabilitiesResult(methods: makeMethodCapabilities(from: methodDefinitions))
     }
 
     func listWindows() throws -> IPCWindowListResult {
@@ -174,18 +118,4 @@ final class RecordingSnapshotQueryPort: AppIPCQueryPort, @unchecked Sendable {
         }
         return makePaneSnapshotResult(pane: pane, paneCount: panes.count)
     }
-}
-
-private func makeMethodCapabilities(from methodDefinitions: [IPCMethodDefinition]) -> [IPCMethodCapability] {
-    methodDefinitions
-        .sorted { lhs, rhs in lhs.name < rhs.name }
-        .map { definition in
-            IPCMethodCapability(
-                name: definition.name,
-                privilegeClasses: definition.privilegeClasses.sorted { lhs, rhs in lhs.rawValue < rhs.rawValue },
-                principalAvailability: definition.principalAvailability,
-                executionOwner: definition.executionOwner,
-                resultSemantics: definition.resultSemantics
-            )
-        }
 }

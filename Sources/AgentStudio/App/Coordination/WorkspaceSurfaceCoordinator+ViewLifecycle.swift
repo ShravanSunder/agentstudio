@@ -394,6 +394,7 @@ extension WorkspaceSurfaceCoordinator {
         treatAsRestoredSessionStart: Bool,
         context: TerminalSurfaceStartupContext
     ) -> TerminalSurfaceStartupPreparation? {
+        let paneIPCEnvironment = ipcLifecycle.environment(pane.id, store.identityAtom.workspaceId)
         switch pane.provider {
         case .zmx:
             let diagnostics = terminalRestoreRuntime.zmxAttachDiagnostics(for: pane)
@@ -405,11 +406,10 @@ extension WorkspaceSurfaceCoordinator {
             if let attachCommand = terminalRestoreRuntime.zmxAttachCommand(for: pane) {
                 traceZmxAttachPrepared(pane: pane, diagnostics: diagnostics)
                 // Prevent nested Agent Studio launches from inheriting an outer zmx session.
-                let environmentVariables: [String: String] = [
-                    "ZMX_DIR": sessionConfig.zmxDir,
-                    "ZMX_SESSION": "",
-                    "ZMX_SESSION_PREFIX": "",
-                ]
+                var environmentVariables = paneIPCEnvironment
+                environmentVariables["ZMX_DIR"] = sessionConfig.zmxDir
+                environmentVariables["ZMX_SESSION"] = ""
+                environmentVariables["ZMX_SESSION_PREFIX"] = ""
                 return TerminalSurfaceStartupPreparation(
                     strategy: .surfaceCommand(attachCommand),
                     showsRestorePresentationDuringStartup: treatAsRestoredSessionStart,
@@ -433,14 +433,14 @@ extension WorkspaceSurfaceCoordinator {
             return TerminalSurfaceStartupPreparation(
                 strategy: .surfaceCommand(shellCommand),
                 showsRestorePresentationDuringStartup: false,
-                environmentVariables: [:]
+                environmentVariables: paneIPCEnvironment
             )
 
         case .ghostty:
             return TerminalSurfaceStartupPreparation(
                 strategy: .surfaceCommand(shellCommand),
                 showsRestorePresentationDuringStartup: false,
-                environmentVariables: [:]
+                environmentVariables: paneIPCEnvironment
             )
 
         case .none:

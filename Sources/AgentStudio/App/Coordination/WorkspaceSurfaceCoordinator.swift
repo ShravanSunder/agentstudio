@@ -37,6 +37,12 @@ protocol WorkspaceSurfaceManaging: AnyObject {
 
 extension SurfaceManager: WorkspaceSurfaceManaging {}
 
+struct WorkspaceSurfaceIPCLifecycle {
+    let environment: @MainActor (UUID, UUID) -> [String: String]
+    let invalidatePaneIDs: @MainActor (Set<UUID>) -> Void
+    let finalRevokePaneIDs: @MainActor (Set<UUID>) -> Void
+}
+
 @MainActor
 final class WorkspaceSurfaceCoordinator {
     nonisolated static let logger = Logger(subsystem: "com.agentstudio", category: "WorkspaceSurfaceCoordinator")
@@ -85,6 +91,7 @@ final class WorkspaceSurfaceCoordinator {
     let traceRuntime: AgentStudioTraceRuntime?
     let performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
     let traceIdentityRefreshHandler: (@MainActor @Sendable () -> Void)?
+    let ipcLifecycle: WorkspaceSurfaceIPCLifecycle
     #if DEBUG
         var bridgeReviewSourceProviderOverridesByPaneId: [UUID: any BridgeReviewSourceProvider] = [:]
     #endif
@@ -176,6 +183,7 @@ final class WorkspaceSurfaceCoordinator {
         runtime: SessionRuntime,
         windowLifecycleStore: WindowLifecycleAtom,
         appLifecycleStore: AppLifecycleAtom = AppLifecycleAtom(),
+        ipcLifecycle: WorkspaceSurfaceIPCLifecycle,
         bridgePaneAttendance: BridgePaneAttendanceAtom,
         worktreeAnnotationStore: WorktreeAnnotationServiceActor? = nil,
         worktreeAnnotationOutputCoordinator: WorktreeAnnotationOutputCoordinatorActor? = nil
@@ -190,6 +198,7 @@ final class WorkspaceSurfaceCoordinator {
             runtimeCommandClock: ContinuousClock(),
             windowLifecycleStore: windowLifecycleStore,
             appLifecycleStore: appLifecycleStore,
+            ipcLifecycle: ipcLifecycle,
             bridgePaneAttendance: bridgePaneAttendance,
             worktreeAnnotationStore: worktreeAnnotationStore,
             worktreeAnnotationOutputCoordinator: worktreeAnnotationOutputCoordinator
@@ -215,6 +224,7 @@ final class WorkspaceSurfaceCoordinator {
         filesystemProjectionIndex: (any WorkspaceFilesystemProjectionIndexing)? = nil,
         windowLifecycleStore: WindowLifecycleAtom,
         appLifecycleStore: AppLifecycleAtom = AppLifecycleAtom(),
+        ipcLifecycle: WorkspaceSurfaceIPCLifecycle,
         bridgePaneAttendance: BridgePaneAttendanceAtom,
         worktreeAnnotationStore: WorktreeAnnotationServiceActor? = nil,
         worktreeAnnotationOutputCoordinator: WorktreeAnnotationOutputCoordinatorActor? = nil,
@@ -261,6 +271,7 @@ final class WorkspaceSurfaceCoordinator {
         self.undoDelay = undoDelay
         self.viewRegistry = viewRegistry
         self.runtime = runtime
+        self.ipcLifecycle = ipcLifecycle
         self.surfaceManager = surfaceManager
         self.startupTraceRecorder = startupTraceRecorder
         self.runtimeRegistry = runtimeRegistry
@@ -425,6 +436,9 @@ final class WorkspaceSurfaceCoordinator {
         let retiredCloseIDs = Set(retirements.map(\.closeID))
         undoCloses.removeAll { retiredCloseIDs.contains($0.closeID) }
         let unownedPaneIDs = Set(retirements.flatMap(\.unownedPaneIDs))
+        if !unownedPaneIDs.isEmpty {
+            ipcLifecycle.finalRevokePaneIDs(unownedPaneIDs)
+        }
         surfaceManager.releaseUndoSurfaces(forPaneIDs: unownedPaneIDs)
         for paneID in unownedPaneIDs { viewRegistry.retireSlot(for: paneID) }
         signalTerminalSessionCleanup()

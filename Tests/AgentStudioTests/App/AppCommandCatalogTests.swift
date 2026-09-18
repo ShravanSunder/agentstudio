@@ -156,9 +156,9 @@ final class AppCommandCatalogTests {
                 )
         )
         #expect(def.visibleWhen == [.supportsTerminalZoom])
-        #expect(def.ipcCommandListEntry.executionModes == [.headless])
-        #expect(def.ipcCommandListEntry.targetKinds == [.pane])
-        #expect(def.ipcCommandListEntry.requiredPrivileges == [.layoutMutate])
+        #expect(AppCommand.zoomPane.ipcSpec.executionMode == .headless)
+        #expect(AppCommand.zoomPane.ipcSpec.allowedTargetKinds == [.window, .pane])
+        #expect(AppCommand.zoomPane.ipcSpec.requiredPrivilege == .layoutMutate)
     }
 
     @MainActor

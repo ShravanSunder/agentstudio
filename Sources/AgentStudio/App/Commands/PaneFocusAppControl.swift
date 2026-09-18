@@ -22,6 +22,9 @@ final class PaneTabViewControllerPaneFocusAppControl: PaneFocusAppControlling, @
     }
 
     func focusPane(_ paneId: UUID) throws {
+        guard paneTabViewController.acceptsIPCCommands else {
+            throw PaneFocusAppControlError.validationRejected
+        }
         let snapshot = workspaceStore.programmaticControlSnapshot()
         guard let pane = snapshot.panes.first(where: { $0.id == paneId }) else {
             throw PaneFocusAppControlError.targetNotFound

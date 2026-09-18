@@ -1,3 +1,4 @@
+import AgentStudioInfrastructure
 import AgentStudioTestSupport
 import Foundation
 import Testing
@@ -429,7 +430,9 @@ struct BridgePaneProductSessionOwnerTests {
             installation.capabilityBytes
         )
         let postFenceAdmission = await schemeRouter.claimActiveAdapter(
-            presentedCapability: retiredCapability
+            presentedCapability: retiredCapability,
+            schemeTaskId: UUIDv7.generate(),
+            route: .metadataStream
         )
 
         // Assert

@@ -1,0 +1,12 @@
+{
+  "session_id": "01994d2f-8f1a-7c3b-9d44-2a6f5b8c1e07",
+  "turn_id": "01994d30-1b22-7a55-8e91-4c7d0f2a6b13",
+  "transcript_path": "/tmp/codex/transcript-01994d2f.jsonl",
+  "cwd": "/Users/example/dev/project",
+  "hook_event_name": "PreToolUse",
+  "model": "gpt-5.5-codex",
+  "permission_mode": "default",
+  "tool_name": "shell",
+  "tool_input": { "command": ["ls"] },
+  "tool_use_id": "call_9f2c41ab"
+}

@@ -52,6 +52,7 @@ extension WebKitSerializedTests {
                 viewRegistry: viewRegistry,
                 runtime: SessionRuntime(store: store),
                 windowLifecycleStore: WindowLifecycleAtom(),
+                ipcLifecycle: .testUnavailable,
                 bridgePaneAttendance: BridgePaneAttendanceAtom()
             )
             viewRegistry.installPreparedContentMountCohort(
