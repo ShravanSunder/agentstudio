@@ -4,8 +4,8 @@ import Foundation
 
 @MainActor
 protocol AgentStudioIPCUIPresenting: AnyObject {
-    func presentCommandBar(scope: IPCCommandBarScope) throws -> IPCCommandBarOpenResult
-    func presentArrangements(contextPaneId: UUID?) throws -> IPCArrangementsOpenResult
+    func presentCommandBar(workspaceWindowId: UUID, scope: IPCCommandBarScope) throws -> IPCCommandBarOpenResult
+    func presentArrangements(workspaceWindowId: UUID, contextPaneId: UUID?) throws -> IPCArrangementsOpenResult
 }
 
 @MainActor
@@ -22,7 +22,7 @@ struct AgentStudioIPCUIPresentationAdapter: AppIPCUIPresentationPort, @unchecked
     }
 
     func openCommandBar(_ params: IPCCommandBarOpenParams) throws -> IPCCommandBarOpenResult {
-        let result = try presenter.presentCommandBar(scope: params.scope)
+        let result = try presenter.presentCommandBar(workspaceWindowId: params.workspaceWindowId, scope: params.scope)
         return IPCCommandBarOpenResult(
             workspaceWindowId: result.workspaceWindowId,
             scope: result.scope,
@@ -32,7 +32,8 @@ struct AgentStudioIPCUIPresentationAdapter: AppIPCUIPresentationPort, @unchecked
 
     func openArrangements(_ params: IPCArrangementsOpenParams) throws -> IPCArrangementsOpenResult {
         let contextPaneId = try durablePaneId(from: params.targetPaneHandle)
-        let result = try presenter.presentArrangements(contextPaneId: contextPaneId)
+        let result = try presenter.presentArrangements(
+            workspaceWindowId: params.workspaceWindowId, contextPaneId: contextPaneId)
         return IPCArrangementsOpenResult(
             workspaceWindowId: result.workspaceWindowId,
             tabId: result.tabId,

@@ -133,14 +133,26 @@ AgentStudio/App/Boot + AgentStudio/App/IPCComposition
 AgentStudioIPCClientCore
   Owns:     CLI socket discovery, command-to-JSON-RPC request mapping, and
             Unix socket calls/streams for smoke/use.
-  Imports:  AgentStudioIPCTransport and AgentStudioProgrammaticControl.
-  Must not: Import AgentStudioAppIPC or the AgentStudio executable target.
+  Imports:  AgentStudioIPCTransport, AgentStudioPrimitives, and
+            AgentStudioProgrammaticControl.
+  Must not: Import AgentStudioAppIPC, AgentStudioInfrastructure, or the
+            AgentStudio executable target.
 
 AgentStudioIPCClient
-  Owns:     Thin `agentstudio-ipc` executable entrypoint.
-  Imports:  AgentStudioIPCClientCore.
-  Must not: Import app/runtime owner targets.
+  Owns:     Thin `agentstudio-cli` executable entrypoint.
+  Imports:  AgentStudioIPCClientCore, AgentStudioPrimitives and
+            AgentStudioProgrammaticControl.
+  Must not: Import app/runtime owner targets, or AgentStudioInfrastructure.
 ```
+
+The bundled helper is a leaf-only binary by design. `AgentStudioInfrastructure`
+depends on GRDB, Logging, Metrics, Tracing, OTel, ServiceLifecycle and
+`AgentStudioGit` (libgit2), so one import of it from the CLI side relinks the
+app's entire base — AppKit, SwiftUI, WebKit, libsqlite3 — into a process that
+only speaks JSON-RPC over a Unix socket. Pure, Foundation-only helpers the app
+and the CLI both need live in `AgentStudioPrimitives`, which Infrastructure
+re-exports. `CommandLineClientLeafTargetArchitectureTests` pins the allowed
+imports of all four CLI-side targets.
 
 The target split is intentionally stricter than the folder split. A file in
 `AgentStudioProgrammaticControl` cannot accidentally call app code because the
@@ -477,11 +489,16 @@ so new clients cannot race shutdown.
 
 ## CLI Boundary
 
-The phase-1 CLI ships as the `agentstudio-ipc` Swift executable product. Its
+The phase-1 CLI ships as the `agentstudio-cli` Swift executable product,
+bundled at `AgentStudio.app/Contents/Helpers/agentstudio`. The product name
+must stay distinct from `AgentStudio`: on a case-insensitive volume a product
+named `agentstudio` shares one build-directory file with the app executable,
+and `Contents/MacOS/agentstudio` is the same path as `Contents/MacOS/AgentStudio`.
+Its
 implementation is split so tests can prove the dependency boundary:
 
 ```
-agentstudio-ipc executable
+agentstudio-cli executable (bundled as Contents/Helpers/agentstudio)
   -> AgentStudioIPCClientCore
        discovers socket from --socket, AGENTSTUDIO_IPC_SOCKET,
        AGENTSTUDIO_IPC_SOCKET_PATH, or --metadata runtime.json
@@ -545,9 +562,13 @@ Debug channel composition has two explicit proof modes:
 - unsafe no-auth: `AGENTSTUDIO_IPC_UNSAFE_NO_AUTH=1` creates an
   `.unsafeDebugClient` principal per connection only when the server channel is
   debug.
-- debug token escrow: `AGENTSTUDIO_IPC_DEBUG_TOKEN_ESCROW=1` writes a one-shot
-  owner-only token file at the debug IPC path, exercises the same `auth.login`
-  path as real clients, and removes the file after successful login.
+- debug credential escrow: `AGENTSTUDIO_IPC_DEBUG_TOKEN_ESCROW` names an
+  owner-only 0600 file. When the debug IPC service becomes ready the app mints
+  one reusable credential, admits its SHA-256 verifier to the in-memory
+  principal registry for the runtime's lifetime, and writes the runtime ID,
+  socket path and raw credential into that file as JSON. The credential is
+  never persisted; shutdown drops the verifier and deletes the file. Every CLI
+  call exercises the same `auth.login` path as real clients.
 
 Both modes use the debug unsafe method allowlist, cannot grant
 `.debugUnsafe`, and must be ignored by beta/stable channel composition.

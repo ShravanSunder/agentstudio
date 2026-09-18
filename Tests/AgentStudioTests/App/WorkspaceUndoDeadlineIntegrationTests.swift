@@ -29,7 +29,8 @@ struct WorkspaceUndoDeadlineIntegrationTests {
         let coordinator = WorkspaceSurfaceCoordinator(
             store: store, viewRegistry: ViewRegistry(), runtime: SessionRuntime(store: store),
             surfaceManager: manager, runtimeRegistry: RuntimeRegistry(),
-            windowLifecycleStore: WindowLifecycleAtom(), bridgePaneAttendance: BridgePaneAttendanceAtom(),
+            windowLifecycleStore: WindowLifecycleAtom(), ipcLifecycle: .testUnavailable,
+            bridgePaneAttendance: BridgePaneAttendanceAtom(),
             undoClock: {
                 let elapsed = Int64(origin.duration(to: clock.now).nanosecondsForTaskSleep)
                 return .init(

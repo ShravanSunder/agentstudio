@@ -157,6 +157,7 @@ struct SurfaceRendererVisibilityIntegrationTests {
                 runtimeRegistry: RuntimeRegistry(),
                 paneEventBus: EventBus<RuntimeEnvelope>(),
                 windowLifecycleStore: windowLifecycleStore,
+                ipcLifecycle: .testUnavailable,
                 bridgePaneAttendance: BridgePaneAttendanceAtom()
             )
 
@@ -236,6 +237,7 @@ struct SurfaceRendererVisibilityIntegrationTests {
                 runtimeRegistry: RuntimeRegistry(),
                 paneEventBus: EventBus<RuntimeEnvelope>(),
                 windowLifecycleStore: windowLifecycleStore,
+                ipcLifecycle: .testUnavailable,
                 bridgePaneAttendance: BridgePaneAttendanceAtom(),
                 performanceTraceRecorder: recorder
             )

@@ -4,6 +4,7 @@ import AgentStudioCommandBar
 import AgentStudioCore
 import AgentStudioInboxNotification
 import AgentStudioInfrastructure
+import AgentStudioSessions
 import AgentStudioTerminal
 import AppKit
 import SwiftUI
@@ -83,6 +84,25 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     var executor: WorkspaceActionExecutor!
     var runtime: SessionRuntime!
     var appIPCServer: AgentStudioAppIPCServer?
+    var appIPCInitializationTask: Task<Void, Never>?
+    var appIPCRuntimeID: UUID!
+    var appIPCPaths: AgentStudioIPCPaths!
+    var appIPCContinuityRepository: IPCContinuityRepository!
+    var appIPCCredentialResolver: IPCContinuityCredentialResolver!
+    var appIPCPrincipalRegistry: AgentStudioIPCPrincipalRegistry!
+    /// The owner-only file the debug launcher named for this runtime's reusable
+    /// credential, resolved once when IPC identity is composed. Stable and beta
+    /// leave it nil and never hand a credential out.
+    var appIPCDebugCredentialEscrowURL: URL?
+    var paneIPCIdentityOwner: PaneIPCIdentityOwner!
+    var appIPCSessionsIngestion: SessionsIngestion?
+    var paneReportSpoolDrainTask: Task<Void, Never>?
+    /// Exact provider profiles are composition input. Only the releases listed
+    /// here grant provider-reported authority; every other provider, version or
+    /// mode reports as unqualified. Composition happens here because the
+    /// Claude Code profile is App-owned and the shipped list is Feature-owned.
+    var appIPCSessionsProviderProfiles: [SessionsProviderProfile] =
+        SessionsProviderProfile.shippedProfiles + [.claudeCodeCommandLine, .cursorCommandLine]
     var appLifecycleStore: AppLifecycleAtom!
     var windowLifecycleStore: WindowLifecycleAtom!
     var applicationLifecycleMonitor: ApplicationLifecycleMonitor!
@@ -203,11 +223,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         mainWindowController?.completeLaunchPresentation()
         if AgentStudioStartupDiagnosticAction.fromEnvironment()?.suppressesAutomaticLaunchPaneRestore == true {
             launchRestoreObservationState.complete()
+            scheduleAppIPCInitialization()
         } else {
             observeLaunchRestoreReadiness()
         }
         wireLifecycleConsumers()
-        startAppIPCServer()
         if let window = mainWindowController?.window {
             RestoreTrace.log(
                 "mainWindow showWindow frame=\(NSStringFromRect(window.frame)) content=\(NSStringFromRect(window.contentLayoutRect))"
@@ -230,6 +250,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     isolated deinit {
         appIPCServer?.stop()
+        appIPCInitializationTask?.cancel()
         filesystemPipelineBootTask?.cancel()
         initialTopologySyncTask?.cancel()
         persistenceObservationBootTask?.cancel()
@@ -272,15 +293,27 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
         guard terminationDrainTask == nil else { return .terminateLater }
         terminationDrainTask = Task { @MainActor [weak self] in
-            await self?.executor?.stopAcceptingCommandsAndDrain()
-            await self?.flushApplicationStateBeforeTermination(store: store)
-            self?.mainWindowController?.shutdown()
-            self?.cancelAllRepositoryFactUpdates()
-            if let workspaceSurfaceCoordinator = self?.workspaceSurfaceCoordinator {
-                await workspaceSurfaceCoordinator.shutdown()
-            }
-            await self?.waitForRepositoryFactUpdatesToSettle()
-            sender.reply(toApplicationShouldTerminate: true)
+            await replyToApplicationTerminationAfterBoundedDrain(
+                timeout: AppPolicies.IPC.shutdownDrainTimeout,
+                drain: { [weak self] in
+                    await self?.executor?.stopAcceptingCommandsAndDrain()
+                    await self?.flushApplicationStateBeforeTermination(store: store)
+                    self?.mainWindowController?.shutdown()
+                    self?.cancelAllRepositoryFactUpdates()
+                    if let workspaceSurfaceCoordinator = self?.workspaceSurfaceCoordinator {
+                        await workspaceSurfaceCoordinator.shutdown()
+                    }
+                    await self?.waitForRepositoryFactUpdatesToSettle()
+                },
+                reply: { outcome in
+                    if outcome == .timedOut {
+                        appLogger.warning(
+                            "Termination drain exceeded its deadline; replying to AppKit without it"
+                        )
+                    }
+                    sender.reply(toApplicationShouldTerminate: true)
+                }
+            )
         }
         return .terminateLater
     }

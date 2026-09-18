@@ -1,0 +1,9 @@
+{
+  "cwd": "/tmp/agentstudio-fixture",
+  "hook_event_name": "Notification",
+  "message": "Claude is waiting for your input",
+  "notification_type": "idle_prompt",
+  "prompt_id": "e58db972-d5f6-4cd5-950f-529703d0cd0a",
+  "session_id": "11111111-2222-4333-8444-555555555555",
+  "transcript_path": "/tmp/agentstudio-fixture"
+}

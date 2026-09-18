@@ -34,7 +34,9 @@ struct WorkspaceSurfaceTerminalRestoreIntegrationTests {
         let tempDir: URL
     }
 
-    private func makeHarness() -> Harness {
+    private func makeHarness(
+        ipcLifecycle: WorkspaceSurfaceIPCLifecycle = .testUnavailable
+    ) -> Harness {
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-luna295-tests-\(UUID().uuidString)")
         let store: WorkspaceStore
@@ -52,6 +54,7 @@ struct WorkspaceSurfaceTerminalRestoreIntegrationTests {
             surfaceManager: surfaceManager,
             runtimeRegistry: .shared,
             windowLifecycleStore: windowLifecycleStore,
+            ipcLifecycle: ipcLifecycle,
             bridgePaneAttendance: BridgePaneAttendanceAtom()
         )
         coordinator.sessionConfig = fixtureSessionConfiguration
@@ -82,6 +85,66 @@ struct WorkspaceSurfaceTerminalRestoreIntegrationTests {
     }
 
     private let trustedBounds = CGRect(x: 0, y: 0, width: 1000, height: 600)
+
+    @Test("fresh Ghostty shell receives the pane IPC environment")
+    func freshGhosttyShellReceivesPaneIPCEnvironment() throws {
+        let expectedEnvironment = [
+            "AGENTSTUDIO_PANE_ID": "pane-id",
+            "AGENTSTUDIO_WORKSPACE_ID": "workspace-id",
+            "AGENTSTUDIO_PANE_TOKEN": "pane-token",
+        ]
+        let harness = makeHarness(
+            ipcLifecycle: WorkspaceSurfaceIPCLifecycle(
+                environment: { _, _ in expectedEnvironment },
+                invalidatePaneIDs: { _ in },
+                finalRevokePaneIDs: { _ in }
+            )
+        )
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+        let pane = harness.store.createPane(
+            launchDirectory: harness.tempDir,
+            provider: .ghostty
+        )
+
+        _ = harness.coordinator.createViewForContent(
+            pane: pane,
+            initialFrame: NSRect(x: 0, y: 0, width: 1000, height: 600)
+        )
+
+        #expect(harness.surfaceManager.lastConfig?.environmentVariables == expectedEnvironment)
+    }
+
+    @Test("existing zmx attach configuration keeps pane IPC values while isolation keys win")
+    func existingZmxAttachConfigurationMergesPaneIPCEnvironment() throws {
+        let harness = makeHarness(
+            ipcLifecycle: WorkspaceSurfaceIPCLifecycle(
+                environment: { _, _ in
+                    [
+                        "AGENTSTUDIO_PANE_TOKEN": "pane-token",
+                        "ZMX_DIR": "/tmp/inherited-zmx-dir",
+                        "ZMX_SESSION": "inherited-session",
+                        "ZMX_SESSION_PREFIX": "inherited-prefix",
+                    ]
+                },
+                invalidatePaneIDs: { _ in },
+                finalRevokePaneIDs: { _ in }
+            )
+        )
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+        let pane = harness.store.createPane(zmxSessionID: .generateUUIDv7())
+
+        _ = harness.coordinator.createViewForContent(
+            pane: pane,
+            initialFrame: NSRect(x: 0, y: 0, width: 1000, height: 600)
+        )
+
+        let config = try #require(harness.surfaceManager.lastConfig)
+        #expect(config.startupStrategy.startupCommandForSurface?.contains(" attach ") == true)
+        #expect(config.environmentVariables["AGENTSTUDIO_PANE_TOKEN"] == "pane-token")
+        #expect(config.environmentVariables["ZMX_DIR"] == fixtureSessionConfiguration.zmxDir)
+        #expect(config.environmentVariables["ZMX_SESSION"]?.isEmpty == true)
+        #expect(config.environmentVariables["ZMX_SESSION_PREFIX"]?.isEmpty == true)
+    }
 
     @Test
     func preparedTerminalCohort_publishesEveryPlaceholderBeforeSurfaceCreation() async throws {

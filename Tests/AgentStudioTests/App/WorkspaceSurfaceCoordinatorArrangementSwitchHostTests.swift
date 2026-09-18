@@ -77,6 +77,7 @@ struct WorkspaceSurfaceArrangementSwitchHostTests {
             surfaceManager: ArrangementSwitchSurfaceManager(),
             runtimeRegistry: RuntimeRegistry(),
             windowLifecycleStore: windowLifecycleStore,
+            ipcLifecycle: .testUnavailable,
             bridgePaneAttendance: BridgePaneAttendanceAtom()
         )
         return Harness(

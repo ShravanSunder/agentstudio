@@ -34,6 +34,7 @@ struct WorkspaceSurfaceCoordinatorRendererVisibilityTests {
             runtimeRegistry: RuntimeRegistry(),
             paneEventBus: EventBus<RuntimeEnvelope>(),
             windowLifecycleStore: windowLifecycleStore,
+            ipcLifecycle: .testUnavailable,
             bridgePaneAttendance: BridgePaneAttendanceAtom()
         )
     }

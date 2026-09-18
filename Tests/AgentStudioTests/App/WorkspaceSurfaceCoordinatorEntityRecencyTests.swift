@@ -34,6 +34,7 @@ struct WorkspaceSurfaceCoordinatorEntityRecencyTests {
                 viewRegistry: ViewRegistry(),
                 runtime: SessionRuntime(store: store),
                 windowLifecycleStore: coreAtoms.windowLifecycle,
+                ipcLifecycle: .testUnavailable,
                 bridgePaneAttendance: BridgePaneAttendanceAtom()
             )
 
@@ -66,6 +67,7 @@ struct WorkspaceSurfaceCoordinatorEntityRecencyTests {
                 viewRegistry: ViewRegistry(),
                 runtime: SessionRuntime(store: store),
                 windowLifecycleStore: coreAtoms.windowLifecycle,
+                ipcLifecycle: .testUnavailable,
                 bridgePaneAttendance: BridgePaneAttendanceAtom()
             )
             let executor = WorkspaceActionExecutor(coordinator: coordinator, store: store)
@@ -100,6 +102,7 @@ struct WorkspaceSurfaceCoordinatorEntityRecencyTests {
                 viewRegistry: ViewRegistry(),
                 runtime: SessionRuntime(store: store),
                 windowLifecycleStore: coreAtoms.windowLifecycle,
+                ipcLifecycle: .testUnavailable,
                 bridgePaneAttendance: BridgePaneAttendanceAtom()
             )
             let executor = WorkspaceActionExecutor(coordinator: coordinator, store: store)
