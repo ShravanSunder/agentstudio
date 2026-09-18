@@ -737,46 +737,62 @@ enum BridgeProductWebKitTwoPaneJourneyTestSupport {
         guard idle else { throw JourneyError.conditionFailed("foreground catch-up did not settle") }
     }
 
+    /// Suspends until the active surface shows `expectedText` and the inactive one
+    /// shows no status at all.
+    ///
+    /// Both the active-mode marker and the two status texts live in the light DOM,
+    /// so the arrival of this state IS a mutation the observer sees. A deadline here
+    /// would be a verdict about machine speed on a page that renders no frames.
     private static func requireStatus(
         _ page: WebPage,
         activeMode: String,
         expectedText: String
     ) async throws -> BridgeProductWebKitTwoPanePositionSnapshot {
-        var observed: BridgeProductWebKitTwoPanePositionSnapshot?
-        let found = await BridgeProductWebKitCarrierTestSupport.waitUntil(timeout: .seconds(10)) {
-            observed = try? await positionSnapshot(page)
-            guard let observed else { return false }
-            let activeText = activeMode == "file" ? observed.fileStatusText : observed.reviewStatusText
-            let inactiveText = activeMode == "file" ? observed.reviewStatusText : observed.fileStatusText
-            return observed.activeMode == activeMode
-                && activeText == expectedText
-                && inactiveText == nil
-        }
-        guard found, let observed else {
-            let observedActiveMode = observed?.activeMode ?? "nil"
-            let observedFileStatusText = observed?.fileStatusText ?? "nil"
-            let observedReviewStatusText = observed?.reviewStatusText ?? "nil"
+        do {
+            _ = try await WebPageEventWaits.waitForDocumentValue(
+                page,
+                reader: """
+                    const statusTextFor = (mode) => document.querySelector(
+                      `[data-testid="bridge-viewer-mode-host-${mode}"]`
+                    )?.querySelector('[data-testid="bridge-viewer-content-status"]')?.textContent ?? null;
+                    const activeHost = document.querySelector('[data-bridge-viewer-mode-active="true"]');
+                    if (activeHost?.getAttribute('data-bridge-viewer-mode-host') !== activeMode) {
+                      return null;
+                    }
+                    const inactiveMode = activeMode === 'file' ? 'review' : 'file';
+                    if (statusTextFor(activeMode) !== expectedText) { return null; }
+                    if (statusTextFor(inactiveMode) !== null) { return null; }
+                    return true;
+                    """,
+                arguments: ["activeMode": activeMode, "expectedText": expectedText]
+            )
+        } catch {
             throw JourneyError.conditionFailed(
-                "active-surface updating chrome was not isolated "
-                    + "(expectedActiveMode: \(activeMode), expectedText: \(expectedText), "
-                    + "observedActiveMode: \(observedActiveMode), "
-                    + "fileStatusText: \(observedFileStatusText), "
-                    + "reviewStatusText: \(observedReviewStatusText))"
+                "active-surface updating chrome could not be read "
+                    + "(expectedActiveMode: \(activeMode), expectedText: \(expectedText)): \(error)"
             )
         }
-        return observed
+        return try await requirePositionSnapshot(page)
     }
 
+    /// Asserts, with one read, that neither surface is showing updating chrome.
+    ///
+    /// Every caller reaches this only after the owner's own barrier has been awaited
+    /// (`requireHiddenFileRetirementBoundary`, `requireBlockedComparison`). This is a
+    /// NEGATIVE claim, so it is read once: polling until the chrome disappears would
+    /// accept a pane that showed "Updating…" it was never supposed to show.
     private static func requireNoUpdatingStatus(
         _ page: WebPage
     ) async throws -> BridgeProductWebKitTwoPanePositionSnapshot {
-        var observed: BridgeProductWebKitTwoPanePositionSnapshot?
-        let found = await BridgeProductWebKitCarrierTestSupport.waitUntil(timeout: .seconds(10)) {
-            observed = try? await positionSnapshot(page)
-            return observed?.fileStatusText == nil && observed?.reviewStatusText == nil
-        }
-        guard found, let observed else {
-            throw JourneyError.conditionFailed("loaded-hidden pane retained updating chrome")
+        let observed = try await requirePositionSnapshot(page)
+        guard observed.fileStatusText == nil, observed.reviewStatusText == nil else {
+            let observedFileStatusText = observed.fileStatusText ?? "nil"
+            let observedReviewStatusText = observed.reviewStatusText ?? "nil"
+            throw JourneyError.conditionFailed(
+                "loaded-hidden pane retained updating chrome "
+                    + "(fileStatusText: \(observedFileStatusText), "
+                    + "reviewStatusText: \(observedReviewStatusText))"
+            )
         }
         return observed
     }

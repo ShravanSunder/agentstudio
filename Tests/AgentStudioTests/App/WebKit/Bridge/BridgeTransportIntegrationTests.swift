@@ -72,19 +72,13 @@ extension WebKitSerializedTests {
             try await WebPageTestHarness.withManagedPage(controller.page) { page in
                 // Act
                 controller.loadApp()
-                let didNavigateToAppURL = await waitUntil {
-                    page.url?.absoluteString == "agentstudio://app/index.html"
-                }
-                try await waitForPageLoad(page)
-                let didResolveTitle = await waitForTitle(page, equals: "AgentStudio Bridge")
-                let didCompleteBridgeReadyHandshake = await waitUntil {
-                    controller.isBridgeReady
-                }
+                await WebPageEventWaits.waitForNavigationToFinish(page)
+                let didNavigateToAppURL = page.url?.absoluteString == "agentstudio://app/index.html"
+                await WebPageEventWaits.waitForTitle(page, equals: "AgentStudio Bridge")
+                await WebPageEventWaits.waitForBridgeReady(controller)
 
                 // Assert
                 #expect(didNavigateToAppURL)
-                #expect(didResolveTitle)
-                #expect(didCompleteBridgeReadyHandshake)
 
                 _ = try await page.callJavaScript(
                     """
@@ -93,7 +87,7 @@ extension WebKitSerializedTests {
                       : 'AgentStudio Bridge Missing Shell'
                     """
                 )
-                #expect(await waitForTitle(page, equals: "AgentStudio Bridge Visible"))
+                await WebPageEventWaits.waitForTitle(page, equals: "AgentStudio Bridge Visible")
             }
 
             await teardownBridgeControllerForTest(controller)
@@ -114,8 +108,8 @@ extension WebKitSerializedTests {
 
             try await WebPageTestHarness.withManagedPage(controller.page) { page in
                 controller.loadApp()
-                try await waitForPageLoad(page)
-                #expect(await waitUntil { controller.isBridgeReady })
+                await WebPageEventWaits.waitForNavigationToFinish(page)
+                await WebPageEventWaits.waitForBridgeReady(controller)
                 try await installPageErrorProbe(page)
 
                 // Act
@@ -136,11 +130,9 @@ extension WebKitSerializedTests {
                     Issue.record("Expected smoke provider diff command to succeed")
                     return
                 }
-                #expect(
-                    await waitUntil(timeout: .seconds(1)) {
-                        (try? await controller.renderStateForIPC().summary.hasReviewShell) == true
-                    }
-                )
+                // The assertion reads `hasReviewShell`, which is computed from this
+                // exact element, so the wait and the assertion read the same thing.
+                try await WebPageEventWaits.waitForDocumentSelector(page, bridgeReviewShellSelector)
                 let renderState = try await controller.renderStateForIPC()
                 #expect(renderState.summary.hasReviewShell)
                 #expect(!renderState.summary.hasEmptyShell)
@@ -181,16 +173,14 @@ extension WebKitSerializedTests {
 
             try await WebPageTestHarness.withManagedPage(controller.page) { page in
                 controller.loadApp()
-                try await waitForPageLoad(page)
-                #expect(await waitUntil { controller.isBridgeReady })
+                await WebPageEventWaits.waitForNavigationToFinish(page)
+                await WebPageEventWaits.waitForBridgeReady(controller)
                 try await installPageErrorProbe(page)
 
                 // Act / Assert
-                #expect(
-                    await waitUntil(timeout: .seconds(1)) {
-                        (try? await controller.renderStateForIPC().summary.hasReviewShell) == true
-                    }
-                )
+                // The assertion reads `hasReviewShell`, which is computed from this
+                // exact element, so the wait and the assertion read the same thing.
+                try await WebPageEventWaits.waitForDocumentSelector(page, bridgeReviewShellSelector)
                 let renderState = try await controller.renderStateForIPC()
                 #expect(renderState.summary.hasReviewShell)
                 #expect(!renderState.summary.hasEmptyShell)
@@ -200,52 +190,6 @@ extension WebKitSerializedTests {
             }
         }
     }
-}
-
-@MainActor
-private func waitForTitle(
-    _ page: WebPage,
-    equals expectedTitle: String,
-    timeout: Duration = .seconds(2)
-) async -> Bool {
-    let deadline = ContinuousClock.now + timeout
-    while ContinuousClock.now < deadline {
-        if page.title == expectedTitle {
-            return true
-        }
-        await Task.yield()
-    }
-    return page.title == expectedTitle
-}
-
-@MainActor
-private func waitForPageLoad(_ page: WebPage, timeout: Duration = .seconds(2)) async throws {
-    let deadline = ContinuousClock.now + timeout
-    while ContinuousClock.now < deadline {
-        if !page.isLoading {
-            break
-        }
-        await Task.yield()
-    }
-    try #require(!page.isLoading, "Page did not finish loading within \(timeout)")
-    for _ in 0..<40 {
-        await Task.yield()
-    }
-}
-
-@MainActor
-private func waitUntil(
-    timeout: Duration = .seconds(2),
-    _ condition: @escaping () async -> Bool
-) async -> Bool {
-    let deadline = ContinuousClock.now + timeout
-    while ContinuousClock.now < deadline {
-        if await condition() {
-            return true
-        }
-        await Task.yield()
-    }
-    return await condition()
 }
 
 @MainActor

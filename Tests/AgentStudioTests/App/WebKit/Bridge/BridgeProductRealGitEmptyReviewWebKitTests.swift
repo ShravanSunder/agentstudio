@@ -46,34 +46,34 @@ extension WebKitSerializedTests.BridgeProductRealGitFileAndReviewWebKitTests {
                     return true;
                     """
                 ) as? Bool) == true
-            let didMountReviewMode = await BridgeProductWebKitCarrierTestSupport.waitUntil(
-                timeout: .seconds(10)
-            ) {
-                guard
-                    let dom = await BridgeProductWebKitCarrierTestSupport.domSnapshot(
-                        hostedController.page
-                    )
-                else {
-                    return false
-                }
-                return didActivateReview && dom.hasReviewModeHost
-            }
-            let didRenderEmptyShell = await BridgeProductWebKitCarrierTestSupport.waitUntil(
-                timeout: .seconds(15)
-            ) {
-                guard
-                    let dom = await BridgeProductWebKitCarrierTestSupport.domSnapshot(
-                        hostedController.page
-                    )
-                else {
-                    return false
-                }
-                guard didMountReviewMode, dom.hasReviewShell else { return false }
-                return
-                    (try? await hostedController.page.callJavaScript(
-                        "return document.querySelector('[data-testid=\\\"bridge-review-empty-canvas\\\"]')?.textContent === 'Nothing to review'"
-                    ) as? Bool) == true
-            }
+
+            // Each DOM step waits on the mutation that produces it. A deadline here
+            // would be a verdict about machine speed: the hosted page is hidden, so
+            // nothing it renders has a sound upper bound.
+            try await WebPageEventWaits.waitForDocumentSelector(
+                hostedController.page,
+                "[data-testid=\"bridge-viewer-mode-host-review\"]"
+            )
+            let didMountReviewMode = didActivateReview
+
+            // Wait for the empty canvas to exist, then read its copy ONCE. The
+            // barrier is the element's arrival; the text is the claim.
+            try await WebPageEventWaits.waitForDocumentSelector(
+                hostedController.page,
+                bridgeReviewShellSelector
+            )
+            try await WebPageEventWaits.waitForDocumentSelector(
+                hostedController.page,
+                "[data-testid=\"bridge-review-empty-canvas\"]"
+            )
+            let didRenderEmptyShell =
+                (try? await hostedController.page.callJavaScript(
+                    """
+                    return document.querySelector(
+                      '[data-testid="bridge-review-empty-canvas"]'
+                    )?.textContent === 'Nothing to review';
+                    """
+                ) as? Bool) == true
             return (didLoadEmptyPackage && didMountReviewMode, didRenderEmptyShell)
         }
 
