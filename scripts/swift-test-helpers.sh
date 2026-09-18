@@ -187,6 +187,69 @@ swift_test_running_case_ids_from_events() {
 
 # Names what was still executing when the inactivity bound fired, under the same
 # greppable lane-report prefix as the rest of the lane load numbers.
+# Where a wedged run's event stream is kept, and how many per label survive.
+#
+# The event stream is the only authoritative record of which test cases started
+# and which ended. Deleting it on the timeout path forced regex archaeology over
+# console output, which produced two contradictory unfinished-suite counts (3 and
+# 21) for the same runs; the preserved ledger named the one parked function
+# instead.
+LANE_EVENT_STREAM_DIR="${LANE_EVENT_STREAM_DIR:-tmp/plan-workflows/ci-runs}"
+LANE_EVENT_STREAM_KEEP_PER_LABEL="${LANE_EVENT_STREAM_KEEP_PER_LABEL:-5}"
+
+# Lane labels are prose ("native-concurrent fast non-WebKit suites"), so they are
+# slugged before reaching a filename.
+lane_event_stream_label_slug() {
+  printf '%s' "${1:-lane}" \
+    | tr '[:upper:]' '[:lower:]' \
+    | tr -cs 'a-z0-9' '-' \
+    | sed -E 's/^-+//; s/-+$//'
+}
+
+# Copies the event stream somewhere durable and prints where. Called on the paths
+# where the run ended without Swift Testing recording a failure — a timeout, or a
+# child that died without an ✘ — because those are exactly the runs whose console
+# output cannot say what was still executing. A clean run keeps nothing.
+#
+# A COPY, not a move, and on the timeout path it is taken before anything is
+# signalled: the child still holds the stream open, so the original must stay
+# where its fd points. The caller deletes that original as usual once the run is
+# over.
+preserve_lane_event_stream() {
+  local label="$1"
+  local event_stream_file="${2:-}"
+
+  if [ -z "$event_stream_file" ] || [ ! -r "$event_stream_file" ]; then
+    echo "[$LOG_PREFIX] lane-report event_stream=unavailable"
+    return 0
+  fi
+
+  local label_slug
+  label_slug="$(lane_event_stream_label_slug "$label")"
+  mkdir -p "$LANE_EVENT_STREAM_DIR"
+  local preserved_path
+  preserved_path="$LANE_EVENT_STREAM_DIR/lane-$label_slug-$(date +%Y%m%dT%H%M%S)-$$.events.jsonl"
+  if cp "$event_stream_file" "$preserved_path" 2>/dev/null; then
+    echo "[$LOG_PREFIX] lane-report event_stream=$preserved_path"
+    prune_lane_event_streams "$label_slug"
+  else
+    echo "[$LOG_PREFIX] lane-report event_stream=unavailable"
+  fi
+}
+
+# Keeps the newest `LANE_EVENT_STREAM_KEEP_PER_LABEL` ledgers for one label.
+prune_lane_event_streams() {
+  local label_slug="$1"
+  local surplus_file
+
+  # shellcheck disable=SC2012
+  ls -1t "$LANE_EVENT_STREAM_DIR"/lane-"$label_slug"-*.events.jsonl 2>/dev/null \
+    | tail -n +$((LANE_EVENT_STREAM_KEEP_PER_LABEL + 1)) \
+    | while IFS= read -r surplus_file; do
+      rm -f "$surplus_file"
+    done
+}
+
 print_running_parameterized_cases_at_timeout() {
   local event_stream_file="${1:-}"
   local running_case_ids=""
@@ -443,12 +506,62 @@ fast_serial_process_filter_pattern() {
   echo "SQLiteDatabaseFactoryProcessTests"
 }
 
+# Anchors a suite TYPE name so `--filter`/`--skip` selects that type and nothing
+# that merely lives in a file named after it.
+#
+# Swift Testing matches these as regexes with `contains` over the test's id, and a
+# FUNCTION's id ends with its source location. Captured from a real event stream
+# on this branch:
+#   suite:    AgentStudioInfrastructureTests.RepoScannerTests
+#   function: AgentStudioInfrastructureTests.RepoScannerTests/cloneRootGitdirIndirectionsOutsideScannedPathAreFilteredOut()/RepoScannerTests.swift:234:6
+#   sibling:  AgentStudioInfrastructureTests.RepoScannerClassificationTests/gitDirectoryIsCloneRoot()/RepoScannerTests.swift:430:6
+# The third id belongs to a DIFFERENT suite that happens to live in
+# RepoScannerTests.swift, so the bare name `RepoScannerTests` selected it too:
+# `--filter RepoScannerTests` admits 2 suites and 29 ids on this bundle. That is
+# how two process-global suites ended up sharing one process and the process
+# SIGSEGVed at exit (CI 35276671883).
+#
+# `\.<name>(/|$)` matches only the type component: the module separator `.` before
+# it, and either the function separator `/` or end-of-id after it. A file
+# component is always preceded by `/`, never `.`, so it can never match — and the
+# leading `.` also stops a name matching a longer type it is a prefix of.
+swift_test_isolated_suite_filter_pattern() {
+  local suite_type_name="$1"
+  local escaped_type_name
+
+  # Escape every non-identifier character. Suite names are Swift identifiers
+  # today; the anchor must not silently depend on that staying true.
+  escaped_type_name="$(printf '%s' "$suite_type_name" | /usr/bin/sed 's/[^A-Za-z0-9_]/\\&/g')"
+  printf '\\.%s(/|$)' "$escaped_type_name"
+}
+
+# The same anchor across a `|`-joined list of EXACT suite type names.
+#
+# Only for lists of exact names. `large_non_webkit_filter_pattern` deliberately
+# carries substring families (`Script`, `Smoke`, `Integration`, `SourceScan`) that
+# are meant to match many suites by prefix, and anchoring those would silently
+# drop whole suites out of their lane — the same class of bug in the opposite
+# direction.
+swift_test_isolated_suite_skip_pattern() {
+  local joined_type_names="${1:-}"
+  local anchored_patterns=()
+  local type_name
+  local IFS='|'
+
+  [ -n "$joined_type_names" ] || return 0
+  for type_name in $joined_type_names; do
+    [ -n "$type_name" ] || continue
+    anchored_patterns+=("$(swift_test_isolated_suite_filter_pattern "$type_name")")
+  done
+  printf '%s' "${anchored_patterns[*]}"
+}
+
 run_fast_serial_process_swift_tests() {
   run_swift_with_timeout \
     "serial fast process suites" \
     "$TIMEOUT_SECONDS" \
     env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" $(swift_test_parallelization_env_word) swift test ${EXTRA_SWIFT_TEST_ARGS:-} --skip-build \
-    --filter "$(fast_serial_process_filter_pattern)" \
+    --filter "$(swift_test_isolated_suite_filter_pattern "$(fast_serial_process_filter_pattern)")" \
     --skip WebKitSerializedTests --skip E2ESerializedTests --skip ZmxE2ETests --build-path "$BUILD_PATH"
 }
 
@@ -482,7 +595,7 @@ run_aggregate_serial_non_webkit_swift_tests() {
         env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" $(swift_test_parallelization_env_word) \
         DYLD_FRAMEWORK_PATH="$testing_framework_path" \
         "$swift_testing_helper" --test-bundle-path "$swift_test_bundle" \
-        --filter "$aggregate_serial_suite_filter" \
+        --filter "$(swift_test_isolated_suite_filter_pattern "$aggregate_serial_suite_filter")" \
         "$swift_test_bundle" --testing-library swift-testing
     ) &
     process_global_batch_pids+=("$!" "$aggregate_serial_suite_filter")
@@ -517,7 +630,7 @@ run_large_process_global_swift_tests() {
       env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" $(swift_test_parallelization_env_word) \
       DYLD_FRAMEWORK_PATH="$testing_framework_path" \
       "$swift_testing_helper" --test-bundle-path "$swift_test_bundle" \
-      --filter "$large_process_global_suite_filter" \
+      --filter "$(swift_test_isolated_suite_filter_pattern "$large_process_global_suite_filter")" \
       "$swift_test_bundle" --testing-library swift-testing
   done < <(large_process_global_suite_filters)
 }
@@ -615,6 +728,27 @@ run_non_serialized_swift_tests() {
   fi
 }
 
+# What the fast inventory skips because another phase owns it.
+#
+# The exact suite names are ANCHORED for the same reason the isolated `--filter`
+# is: an unanchored name also skips anything living in a file named after it, so
+# a fast-lane suite sharing a file with an isolated suite was silently dropped
+# from the lane and run nowhere. `large_non_webkit_filter_pattern` stays
+# unanchored on purpose — it carries substring families (`Script`, `Smoke`,
+# `Integration`, `SourceScan`) meant to match many suites by prefix, and
+# anchoring those would drop whole suites instead.
+fast_non_webkit_skip_pattern() {
+  local exact_suite_names
+  exact_suite_names="GlobalPreferencesBootstrapBenchmarkTests|RepoExplorerNativeTablePilotBenchmarkTests"
+  exact_suite_names="$exact_suite_names|$(large_serial_non_webkit_filter_pattern)"
+  exact_suite_names="$exact_suite_names|$(aggregate_serial_non_webkit_filter_pattern)"
+  exact_suite_names="$exact_suite_names|$(fast_serial_process_filter_pattern)"
+
+  printf '%s|%s' \
+    "$(swift_test_isolated_suite_skip_pattern "$exact_suite_names")" \
+    "$(large_non_webkit_filter_pattern)"
+}
+
 run_fast_non_webkit_swift_tests() {
   # Swift Testing provides in-process case concurrency, bounded by the explicit
   # SWT_EXPERIMENTAL_MAXIMUM_PARALLELIZATION_WIDTH exported below. SwiftPM's
@@ -625,7 +759,7 @@ run_fast_non_webkit_swift_tests() {
     "$TIMEOUT_SECONDS" \
     env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" $(swift_test_parallelization_env_word) swift test ${EXTRA_SWIFT_TEST_ARGS:-} --skip-build \
     --skip WebKitSerializedTests --skip E2ESerializedTests --skip ZmxE2ETests \
-    --skip "GlobalPreferencesBootstrapBenchmarkTests|RepoExplorerNativeTablePilotBenchmarkTests|$(large_non_webkit_filter_pattern)|$(large_serial_non_webkit_filter_pattern)|$(aggregate_serial_non_webkit_filter_pattern)|$(fast_serial_process_filter_pattern)" --build-path "$BUILD_PATH"
+    --skip "$(fast_non_webkit_skip_pattern)" --build-path "$BUILD_PATH"
 
   run_aggregate_serial_non_webkit_swift_tests
   run_fast_serial_process_swift_tests
@@ -768,9 +902,19 @@ run_swift_with_timeout() {
 
   # Run command piped through xcbeautify in a subshell so we track one PID.
   # Subshell inherits pipefail from parent — swift exit code propagates.
+  #
+  # `set -m` puts that subshell in its OWN process group, whose id is its pid.
+  # The timeout path needs that: it used to signal by walking live parent links,
+  # so a descendant that re-parented when its parent died was missed and outlived
+  # the lane. That is how wedged `swiftpm-testing-helper` processes kept holding
+  # build slots and made the NEXT run fail with "all 2 slots are busy". A process
+  # group is stable across re-parenting, and this one contains only the lane's
+  # own child.
+  set -m
   # shellcheck disable=SC2086
   ( "$@" 2>&1 | tee "$output_file" | $xcb_pipe ) &
   local command_pid=$!
+  set +m
 
   while kill -0 "$command_pid" 2>/dev/null; do
     sleep 1
@@ -813,11 +957,32 @@ run_swift_with_timeout() {
     print_timeout_process_diagnostics "$label" "$command_pid"
     echo "[$LOG_PREFIX] raw output tail for '$label':"
     tail -n 120 "$output_file" || true
-    terminate_process_tree TERM "$command_pid"
-    sleep 2
-    terminate_process_tree KILL "$command_pid"
-    wait "$command_pid" 2>/dev/null || true
+    # Copy the ledger BEFORE anything is signalled, while the writer is still
+    # alive: the child holds the stream open and a copy taken after termination
+    # can miss records it had not flushed. Copying rather than moving also keeps
+    # the writer's fd pointing at a file that still exists, which a
+    # cross-filesystem move would not — it would leave the child appending to an
+    # unlinked inode.
+    preserve_lane_event_stream "$label" "$event_stream_file"
+    terminate_lane_process_group TERM "$command_pid"
+    # Writing the report IS the grace period. It is work the lane must do anyway,
+    # so a child that honours TERM exits while it happens and no `sleep` has to
+    # guess how long that takes.
     swift_test_record_lane_peaks "$output_file" "$event_stream_file"
+
+    if lane_process_group_is_gone "$command_pid"; then
+      echo "[$LOG_PREFIX] lane-report timeout_reap=terminated"
+      wait "$command_pid" 2>/dev/null || true
+    else
+      terminate_lane_process_group KILL "$command_pid"
+      # SIGKILL can be neither caught nor ignored, so this returns as soon as the
+      # kernel has finished tearing the group down — however long that takes on
+      # this machine. The only thing that could hold it is a process wedged in an
+      # uninterruptible kernel wait, which is a kernel fault outside this
+      # runner's remit and is already covered by the job-level timeout.
+      wait "$command_pid" 2>/dev/null || true
+      echo "[$LOG_PREFIX] lane-report timeout_reap=killed"
+    fi
     rm -f "$output_file" ${event_stream_file:+"$event_stream_file"}
     return 124
   fi
@@ -826,6 +991,7 @@ run_swift_with_timeout() {
   wait "$command_pid"
   local command_status=$?
   set -e
+  local should_preserve_event_stream=0
 
   if [ "$command_status" -eq 0 ] && swift_test_output_has_failures "$output_file"; then
     echo "[$LOG_PREFIX] ERROR: '$label' emitted Swift Testing failure output despite exit 0" >&2
@@ -836,9 +1002,16 @@ run_swift_with_timeout() {
     # "ERROR task failed" and bash's job-table line, and the reason was gone with
     # the output file.
     print_failed_child_diagnostics "$label" "$command_status" "$output_file"
+    # Same reason as the timeout path: a child that died without recording a
+    # Swift Testing failure leaves the event stream as the only record of what
+    # had actually started, and console output cannot reconstruct it.
+    should_preserve_event_stream=1
   fi
 
   swift_test_record_lane_peaks "$output_file" "$event_stream_file"
+  if [ "$should_preserve_event_stream" -eq 1 ]; then
+    preserve_lane_event_stream "$label" "$event_stream_file"
+  fi
   rm -f "$output_file" ${event_stream_file:+"$event_stream_file"}
   return "$command_status"
 }
@@ -976,15 +1149,33 @@ sample_stuck_swift_test_process() {
   rm -f "$sample_file"
 }
 
-terminate_process_tree() {
+# Signals the process GROUP the lane created for its own child, never the lane's
+# own group: `run_swift_with_timeout` launches under `set -m`, so the group id is
+# the child subshell's pid and the negative pid below can only reach that group.
+#
+# This replaces walking live parent links on the timeout path. That walk read
+# `pgrep -P` before signalling, so a `swiftpm-testing-helper` that re-parented
+# when `swift test` died was never in the second pass and survived the lane still
+# holding a build slot.
+terminate_lane_process_group() {
   local signal="$1"
-  local root_pid="$2"
-  local child_pid
+  local group_pid="$2"
 
-  for child_pid in $(pgrep -P "$root_pid" 2>/dev/null || true); do
-    terminate_process_tree "$signal" "$child_pid"
-  done
-  kill -"$signal" "$root_pid" 2>/dev/null || true
+  kill -"$signal" -"$group_pid" 2>/dev/null || true
+}
+
+# True when nothing in the lane's child group is alive.
+#
+# ONE check, deliberately. Retrying a fixed number of times would be a wall clock
+# in disguise, and a machine-speed-dependent one: a few hundred builtin
+# invocations are milliseconds on a fast laptop and longer on a loaded runner, so
+# a group that was merely slow to tear down would be reported as unreapable. The
+# caller needs no retry — after SIGKILL it simply waits, because SIGKILL can be
+# neither caught nor ignored.
+lane_process_group_is_gone() {
+  local group_pid="$1"
+
+  ! kill -0 -"$group_pid" 2>/dev/null
 }
 
 run_webkit_suite_with_retry() {

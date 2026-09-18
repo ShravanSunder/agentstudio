@@ -144,7 +144,13 @@ struct ObservabilityLaunchScriptsTests {
                 "WebKitSerializedTests/BridgeProductRealGitFileAndReviewWebKitTests"
             ))
         #expect(!testHelperScript.contains("\nWebKitSerializedTests/BridgeTransportIntegrationTests\n"))
-        #expect(testHelperScript.contains("terminate_process_tree TERM \"$command_pid\""))
+        // The timeout path signals the lane's OWN child process group, and only
+        // that group. It used to walk live parent links, which missed any
+        // descendant that re-parented when its parent died — the survivor held a
+        // build slot and made the next run fail with "all 2 slots are busy".
+        #expect(testHelperScript.contains("terminate_lane_process_group TERM \"$command_pid\""))
+        #expect(testHelperScript.contains("terminate_lane_process_group KILL \"$command_pid\""))
+        #expect(!testHelperScript.contains("terminate_process_tree"))
         #expect(!testHelperScript.contains("pkill -9 -f"))
         #expect(!agentInstructions.contains("pkill -f \"swift-build\""))
         #expect(ciWorkflow.contains("SWIFT_TEST_TIMEOUT_SECONDS: \"600\""))
