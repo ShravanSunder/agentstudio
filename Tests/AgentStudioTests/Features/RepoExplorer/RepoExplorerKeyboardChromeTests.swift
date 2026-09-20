@@ -249,7 +249,21 @@ struct RepoExplorerKeyboardChromeTests {
         pinWindow.setContentSize(pinHost.frame.size)
         pinHost.layoutSubtreeIfNeeded()
         let pinBitmap = try captureBitmap(in: pinHost)
-        let pinGlyphBounds = try #require(trailingRenderedBounds(in: pinBitmap))
+        let transparentPinHost = NSHostingView(
+            rootView: worktreeRowContent(
+                pinPresentation: pinPresentation,
+                shortcutDisplay: nil,
+                isPinned: true,
+                iconColor: .clear,
+                onTogglePinned: {}
+            )
+        )
+        transparentPinHost.frame = pinHost.frame
+        transparentPinHost.layoutSubtreeIfNeeded()
+        let transparentPinBitmap = try captureBitmap(in: transparentPinHost)
+        let pinGlyphBounds = try #require(
+            trailingDifferenceBounds(pinBitmap, transparentPinBitmap)
+        )
         let pinPixelScale = CGFloat(pinBitmap.pixelsWide) / pinHost.bounds.width
         let pinControlPoint = NSPoint(
             x: pinGlyphBounds.midX / pinPixelScale,
@@ -279,6 +293,8 @@ struct RepoExplorerKeyboardChromeTests {
     private func worktreeRowContent(
         pinPresentation: RepoExplorerPresentedCommand,
         shortcutDisplay: ShortcutDisplayText?,
+        isPinned: Bool = false,
+        iconColor: Color = .accentColor,
         onTogglePinned: @escaping () -> Void
     ) -> some View {
         RepoExplorerWorktreeRowContent(
@@ -286,9 +302,10 @@ struct RepoExplorerKeyboardChromeTests {
             checkoutTitle: "A deliberately long repository title proving the trailing slot",
             branchName: "main",
             checkoutIconKind: .mainCheckout,
-            iconColor: .accentColor,
+            iconColor: iconColor,
             branchStatus: .unknown,
             showsPinnedControl: true,
+            isPinned: isPinned,
             pinnedCommandPresentation: pinPresentation,
             onTogglePinned: onTogglePinned,
             shortcutDisplay: shortcutDisplay
@@ -444,14 +461,18 @@ struct RepoExplorerKeyboardChromeTests {
         return bounds
     }
 
-    private func trailingRenderedBounds(in bitmap: NSBitmapImageRep) -> CGRect? {
+    private func trailingDifferenceBounds(
+        _ first: NSBitmapImageRep,
+        _ second: NSBitmapImageRep
+    ) -> CGRect? {
         var bounds: CGRect?
-        let xStart = max(0, bitmap.pixelsWide - 56)
-        for y in 0..<bitmap.pixelsHigh {
-            for x in xStart..<bitmap.pixelsWide {
-                guard let color = bitmap.colorAt(x: x, y: y), color.alphaComponent > 0.2 else {
-                    continue
-                }
+        let xStart = max(0, first.pixelsWide - 56)
+        for y in 0..<min(first.pixelsHigh, second.pixelsHigh) {
+            for x in xStart..<min(first.pixelsWide, second.pixelsWide) {
+                guard let firstColor = first.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB),
+                    let secondColor = second.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB),
+                    pixelColorDifference(firstColor, secondColor) > 0.12
+                else { continue }
                 let pixel = CGRect(x: x, y: y, width: 1, height: 1)
                 bounds = bounds.map { $0.union(pixel) } ?? pixel
             }
@@ -468,13 +489,13 @@ struct RepoExplorerKeyboardChromeTests {
         let xEnd = max(xStart, bitmap.pixelsWide - 112)
         let yStart = max(0, Int(nearY.rounded(.down)) - 12)
         let yEnd = min(bitmap.pixelsHigh, Int(nearY.rounded(.up)) + 13)
+        let backgroundColor = bitmap.colorAt(x: xStart, y: 0)?.usingColorSpace(.deviceRGB)
         for y in yStart..<yEnd {
             for x in xStart..<xEnd {
                 guard let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB),
-                    color.redComponent > 0.8,
-                    color.greenComponent > 0.8,
-                    color.blueComponent > 0.8,
-                    color.alphaComponent > 0.5
+                    let backgroundColor,
+                    color.alphaComponent > 0.5,
+                    pixelColorDifference(color, backgroundColor) > 0.25
                 else { continue }
                 let pixel = CGRect(x: x, y: y, width: 1, height: 1)
                 bounds = bounds.map { $0.union(pixel) } ?? pixel
