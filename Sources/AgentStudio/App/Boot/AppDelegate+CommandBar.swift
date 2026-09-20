@@ -61,17 +61,12 @@ extension AppDelegate: AgentStudioIPCUIPresenting {
         keyWindow?.parent ?? keyWindow ?? fallbackWindow
     }
 
-    func presentCommandBar(scope: IPCCommandBarScope) throws -> IPCCommandBarOpenResult {
-        guard
-            let window = Self.commandBarPresentationWindow(
-                keyWindow: NSApp.keyWindow,
-                fallbackWindow: mainWindowController?.window
-            )
-        else {
+    func presentCommandBar(workspaceWindowId: UUID, scope: IPCCommandBarScope) throws -> IPCCommandBarOpenResult {
+        guard let controller = mainWindowController, let window = controller.window else {
             throw AppIPCUIPresentationError(reason: .noActiveWindow)
         }
-        guard let workspaceWindowId = windowLifecycleStore.preferredWorkspaceWindowId else {
-            throw AppIPCUIPresentationError(reason: .noActiveWindow)
+        guard controller.workspaceWindowId == workspaceWindowId else {
+            throw AppIPCUIPresentationError(reason: .targetNotFound)
         }
 
         switch scope {

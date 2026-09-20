@@ -36,7 +36,9 @@ struct ObservabilityLaunchScriptsTests {
         let script = try String(contentsOfFile: "scripts/run-debug-observability.sh", encoding: .utf8)
 
         #expect(script.contains("publish_debug_bundle()"))
-        #expect(script.contains("default_artifact_root=\"$debug_root/apps\""))
+        #expect(
+            script.contains("debug_artifact_root=\"${AGENTSTUDIO_DEBUG_ARTIFACT_DIR:-$debug_root/apps}\"")
+        )
         #expect(script.contains("renameatx_np"))
         #expect(!script.contains("$debug_root/apps/app-$(date"))
         #expect(script.contains("AGENTSTUDIO_DEBUG_ARTIFACT_DIR"))

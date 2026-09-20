@@ -58,6 +58,7 @@ struct PaneTabViewControllerEditorChooserCommandTests {
             surfaceManager: surfaceManager,
             runtimeRegistry: runtimeRegistry,
             windowLifecycleStore: windowLifecycleStore,
+            ipcLifecycle: .testUnavailable,
             bridgePaneAttendance: bridgePaneAttendance
         )
         let controller = PaneTabViewController(

@@ -19,6 +19,7 @@ struct MainSplitViewControllerHarness {
     let controller: MainSplitViewController
     let window: NSWindow
     let tempDir: URL
+    let surfaceManager: MainSplitViewControllerTestSurfaceManager
 }
 
 typealias MainSplitViewControllerTestSidebarBuilder =
@@ -59,13 +60,15 @@ private func makeMainSplitViewControllerHarness(
 
     let viewRegistry = ViewRegistry()
     let runtime = SessionRuntime(atom: atoms.core.sessionRuntime, store: store)
+    let surfaceManager = MainSplitViewControllerTestSurfaceManager()
     let coordinator = WorkspaceSurfaceCoordinator(
         store: store,
         viewRegistry: viewRegistry,
         runtime: runtime,
-        surfaceManager: MainSplitViewControllerTestSurfaceManager(),
+        surfaceManager: surfaceManager,
         runtimeRegistry: RuntimeRegistry(),
         windowLifecycleStore: WindowLifecycleAtom(),
+        ipcLifecycle: .testUnavailable,
         bridgePaneAttendance: atoms.bridgePaneAttendance
     )
     let workspaceActionExecutor = WorkspaceActionExecutor(coordinator: coordinator, store: store)
@@ -115,7 +118,8 @@ private func makeMainSplitViewControllerHarness(
         coordinator: coordinator,
         controller: controller,
         window: window,
-        tempDir: tempDir
+        tempDir: tempDir,
+        surfaceManager: surfaceManager
     )
 }
 
@@ -168,6 +172,7 @@ func withUnloadedMainSplitViewControllerHarness<T>(
     configureUIState: @escaping @MainActor (WorkspaceSidebarState) -> Void = { _ in },
     configureWorkspaceWindowMemory:
         @escaping @MainActor (WorkspaceWindowMemoryAtom) -> Void = { _ in },
+    configureSidebarDependencies: @escaping @MainActor (SidebarRootViewDependencies) -> Void = { _ in },
     sidebarRootViewBuilder: @escaping MainSplitViewControllerTestSidebarBuilder = { uiState, onEscape in
         AnyView(MainSplitViewControllerTestSidebarView(uiState: uiState, onEscape: onEscape))
     },
@@ -180,7 +185,7 @@ func withUnloadedMainSplitViewControllerHarness<T>(
         configuration: MainSplitViewControllerHarnessConfiguration(
             configureUIState: configureUIState,
             configureWorkspaceWindowMemory: configureWorkspaceWindowMemory,
-            configureSidebarDependencies: { _ in }
+            configureSidebarDependencies: configureSidebarDependencies
         ),
         sidebarRootViewBuilder: sidebarRootViewBuilder
     )
@@ -316,7 +321,25 @@ struct MainSplitViewControllerTestInboxView: NSViewRepresentable {
     }
 }
 
-private final class MainSplitViewControllerTestSurfaceManager: WorkspaceSurfaceManaging {
+final class MainSplitViewControllerTestSurfaceManager: WorkspaceSurfaceManaging {
+    private var bindings: [UUID: UUID] = [:]
+    private var bindingsChangeHandler: (() -> Void)?
+
+    func setAttachedBindingsChangeHandler(_ handler: (() -> Void)?) {
+        bindingsChangeHandler = handler
+    }
+
+    func attachPreviewBinding(surfaceID: UUID, paneID: UUID) {
+        bindings[surfaceID] = paneID
+        bindingsChangeHandler?()
+    }
+
+    func reconcileAttachedVisibility(
+        _ visibilityForPaneID: (UUID) -> Bool
+    ) -> SurfaceVisibilityReconciliationResult {
+        _ = bindings.mapValues(visibilityForPaneID)
+        return SurfaceVisibilityReconciliationResult(applied: bindings.count, equal: 0, missing: 0)
+    }
     func retainSurfacesForUndo(forPaneIDs paneIDs: Set<UUID>) {}
     func retireActiveAndHiddenSurfaces(forPaneIDs paneIDs: Set<UUID>) {}
 

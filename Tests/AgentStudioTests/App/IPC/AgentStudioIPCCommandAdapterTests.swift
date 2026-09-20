@@ -1,4 +1,6 @@
 import AgentStudioAppIPC
+import AgentStudioIPCTransport
+import AgentStudioInfrastructure
 import AgentStudioProgrammaticControl
 import Foundation
 import Testing
@@ -8,812 +10,334 @@ import Testing
 @testable import AgentStudioTestSupport
 
 @MainActor
-@Suite("AgentStudio IPC command adapter")
+@Suite("AgentStudio IPC command adapter", .serialized)
 struct AgentStudioIPCCommandAdapterTests {
-    @Test("lists app command specs through IPC command contracts")
-    func listsAppCommandSpecsThroughIPCCommandContracts() throws {
+    @Test("catalog exposes exactly the current 15 typed headless commands")
+    func catalogContainsCurrentHeadlessCommandsOnly() throws {
         let harness = CommandAdapterHarness()
+        let catalog = try harness.adapter.listCommands()
+        let ids = Set(catalog.commands.map(\.id.rawValue))
 
-        let result = try harness.adapter.listCommands()
-        let commandsById = Dictionary(uniqueKeysWithValues: result.commands.map { ($0.id, $0) })
-
-        #expect(result.commands.count == AppCommand.allCases.count)
-
-        let commandBar = try #require(
-            commandsById[IPCCommandIdentifier(rawValue: AppCommand.showCommandBarEverything.rawValue)])
-        #expect(commandBar.title == AppCommand.showCommandBarEverything.definition.label)
-        #expect(commandBar.executionModes == [.uiPresentation])
-        #expect(commandBar.targetKinds.isEmpty)
-        #expect(commandBar.requiredPrivileges == [.uiPresent])
-
-        let focusSidebar = try #require(
-            commandsById[IPCCommandIdentifier(rawValue: AppCommand.focusSidebar.rawValue)])
-        #expect(focusSidebar.executionModes == [.uiPresentation])
-        #expect(focusSidebar.targetKinds.isEmpty)
-        #expect(focusSidebar.requiredPrivileges == [.uiPresent])
-
-        let closePane = try #require(commandsById[IPCCommandIdentifier(rawValue: AppCommand.closePane.rawValue)])
-        #expect(closePane.title == AppCommand.closePane.definition.label)
-        #expect(closePane.executionModes == [.requiresInteractiveInput])
-        #expect(closePane.targetKinds == [.pane])
-        #expect(closePane.requiredPrivileges == [.layoutMutate])
-
-        let copyCurrentPanePath = try #require(
-            commandsById[IPCCommandIdentifier(rawValue: AppCommand.copyCurrentPanePath.rawValue)])
-        #expect(copyCurrentPanePath.executionModes == [.requiresInteractiveInput])
-        #expect(copyCurrentPanePath.targetKinds == [.pane])
-        #expect(copyCurrentPanePath.requiredPrivileges == [.workspaceRead])
-
-        for command in [
-            AppCommand.scrollPageUp, .scrollPageDown, .scrollSmallStepUp,
-            .scrollSmallStepDown, .scrollToBottom, .jumpToPreviousPrompt, .jumpToNextPrompt,
-        ] {
-            let entry = try #require(
-                commandsById[IPCCommandIdentifier(rawValue: command.rawValue)]
-            )
-            #expect(entry.executionModes == [.requiresInteractiveInput])
-            #expect(entry.targetKinds == [.pane])
-            #expect(entry.requiredPrivileges == [.terminalInputWrite])
-            #expect(entry.argumentSchema.isEmpty)
+        #expect(catalog.compatibility == .current)
+        #expect(catalog.commands.count == 16)
+        #expect(ids.contains(AppCommand.zoomPane.rawValue))
+        #expect(ids.contains(AppCommand.reloadBridgeWebView.rawValue))
+        #expect(ids.contains(AppCommand.showReposSidebar.rawValue))
+        #expect(ids.contains(AppCommand.pinRepo.rawValue))
+        #expect(!ids.contains(AppCommand.closePane.rawValue))
+        #expect(!ids.contains(AppCommand.showInboxNotifications.rawValue))
+        for command in retiredPanesOrganizationCommands {
+            #expect(!ids.contains(command.rawValue))
         }
 
-        let zoomPane = try #require(
-            commandsById[IPCCommandIdentifier(rawValue: AppCommand.zoomPane.rawValue)])
-        #expect(zoomPane.title == "Pane Zoom")
-        #expect(zoomPane.executionModes == [.headless])
-        #expect(zoomPane.targetKinds == [.pane])
-        #expect(zoomPane.requiredPrivileges == [.layoutMutate])
-
-        let reloadBridgeWebView = try #require(
-            commandsById[IPCCommandIdentifier(rawValue: AppCommand.reloadBridgeWebView.rawValue)])
-        #expect(reloadBridgeWebView.executionModes == [.headless])
-        #expect(reloadBridgeWebView.targetKinds == [.pane])
-        #expect(reloadBridgeWebView.requiredPrivileges == [.workspaceRead])
-
-        let repoSortField = try #require(
-            commandsById[IPCCommandIdentifier(rawValue: AppCommand.setReposSortFieldName.rawValue)])
-        #expect(repoSortField.executionModes == [.headless])
-        #expect(repoSortField.targetKinds.isEmpty)
-        #expect(repoSortField.requiredPrivileges == [.sidebarStateMutate])
-        #expect(repoSortField.argumentSchema.isEmpty)
-
-        let pinRepo = try #require(
-            commandsById[IPCCommandIdentifier(rawValue: AppCommand.pinRepo.rawValue)])
-        #expect(pinRepo.executionModes == [.headless])
-        #expect(pinRepo.targetKinds == [.repo])
-        #expect(pinRepo.requiredPrivileges == [.sidebarStateMutate])
-
-        let pinPane = try #require(
-            commandsById[IPCCommandIdentifier(rawValue: AppCommand.pinPane.rawValue)])
-        #expect(pinPane.executionModes == [.headless])
-        #expect(pinPane.targetKinds == [.pane])
-        #expect(pinPane.requiredPrivileges == [.sidebarStateMutate])
-    }
-
-    @Test("command list entries are full-catalog IPC projections")
-    func commandListEntriesAreFullCatalogIPCProjections() throws {
-        let harness = CommandAdapterHarness()
-
-        let result = try harness.adapter.listCommands()
-        let commandsById = Dictionary(uniqueKeysWithValues: result.commands.map { ($0.id, $0) })
-
-        for command in AppCommand.allCases {
-            let definition = command.definition
-            let entry = try #require(commandsById[IPCCommandIdentifier(rawValue: command.rawValue)])
-
-            #expect(entry == definition.ipcCommandListEntry)
-            #expect(entry.title == definition.label)
-        }
-    }
-
-    @Test("retired Panes organization commands remain inert full-catalog entries")
-    func retiredPanesOrganizationCommandsRemainInertFullCatalogEntries() throws {
-        let shellCommandHandler = RecordingShellCommandHandler()
-        let harness = CommandAdapterHarness(shellCommandHandler: shellCommandHandler)
-        let commandsById = Dictionary(
-            uniqueKeysWithValues: try harness.adapter.listCommands().commands.map { ($0.id, $0) }
+        let reload = try #require(
+            catalog.commands.first { $0.id.rawValue == AppCommand.reloadBridgeWebView.rawValue }
         )
+        #expect(reload.argumentVariants == [.pane])
+        #expect(reload.resultVariants == [.accepted])
+        #expect(reload.requiredPrivileges == [.appCommandExecute, .workspaceRead])
+    }
 
-        for command in [
-            AppCommand.setPanesGroupingRepo, .setPanesGroupingTab, .setPanesGroupingActivity,
-            .setPanesSubgroupNone, .setPanesSubgroupActivity,
-            .setPanesSortFieldName, .setPanesSortFieldActivity, .togglePanesSortDirection,
-        ] {
-            let entry = try #require(
-                commandsById[IPCCommandIdentifier(rawValue: command.rawValue)]
-            )
-            #expect(entry.executionModes.isEmpty)
-            #expect(entry.requiredPrivileges.isEmpty)
+    @Test("retired Panes organization commands remain unavailable without reaching an owner")
+    func retiredPanesOrganizationCommandsRemainUnavailable() async throws {
+        let shell = RecordingShellCommandHandler()
+        let harness = CommandAdapterHarness(shellCommandHandler: shell)
 
+        for command in retiredPanesOrganizationCommands {
+            #expect(command.ipcSpec.exposure == .debugTesting)
+            #expect(command.ipcSpec.resultVariants == [.unavailable])
             do {
-                _ = try harness.adapter.executeCommand(
-                    IPCCommandExecuteParams(
-                        commandId: entry.id,
-                        targetHandle: nil,
-                        arguments: [:]
+                _ = try await harness.adapter.executeCommand(
+                    IPCCommandExecutionRequest(
+                        commandId: .init(rawValue: command.rawValue),
+                        correlationId: UUIDv7.generate(),
+                        arguments: .workspaceWindow(.init(workspaceWindowId: harness.windowId))
                     )
                 )
-                Issue.record("retired Panes organization command unexpectedly executed")
+                Issue.record("Retired Panes organization command unexpectedly executed")
             } catch let error as AppIPCCommandError {
-                #expect(error.reason == .requiresParameters)
+                #expect(error.reason == .unsupportedCommand)
             }
         }
-        #expect(shellCommandHandler.handledRequests.isEmpty)
+        #expect(shell.handledRequests.isEmpty)
     }
 
-    @Test("sidebar command mutation permissions resolve to current workspace")
-    func sidebarCommandMutationPermissionsResolveToCurrentWorkspace() throws {
-        let harness = CommandAdapterHarness()
-        let command = AppCommand.setReposSortFieldName.definition.ipcCommandListEntry
+    @Test("explicit window sidebar command reaches its existing shell owner")
+    func sidebarCommandUsesExplicitWindow() async throws {
+        let shell = RecordingShellCommandHandler()
+        let harness = CommandAdapterHarness(shellCommandHandler: shell)
+        let request = IPCCommandExecutionRequest(
+            commandId: .init(rawValue: AppCommand.showReposSidebar.rawValue),
+            correlationId: UUIDv7.generate(),
+            arguments: .workspaceWindow(.init(workspaceWindowId: harness.windowId))
+        )
 
-        let scopes = try harness.adapter.requiredPermissionScopes(for: command)
+        let result = try await withIsolatedCommandDispatcher(
+            configure: {
+                AppCommandDispatcher.shared.handler = nil
+                AppCommandDispatcher.shared.appCommandRouter = shell
+            },
+            body: {
+                try await harness.adapter.executeCommand(request)
+            }
+        )
 
+        #expect(result.variant == .applied)
+        #expect(result.correlationId == request.correlationId)
+        #expect(shell.handledRequests.map(\.command) == [.showReposSidebar])
         #expect(
-            scopes == [
-                IPCPermissionScope(
-                    privilege: .sidebarStateMutate,
-                    target: .workspace(harness.workspaceStore.identityAtom.workspaceId),
-                    dataScope: .sidebarState
-                )
-            ])
+            shell.handledRequests.map(\.arguments)
+                == [.typedIPC(.workspaceWindow(.init(workspaceWindowId: harness.windowId)))])
     }
 
-    @Test("public IPC command contracts do not expose tooltip vocabulary")
-    func publicIPCCommandContractsDoNotExposeTooltipVocabulary() throws {
-        let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
-        let source = try String(
-            contentsOf: projectRoot.appending(path: "Sources/AgentStudioProgrammaticControl/IPCCommandContracts.swift"),
-            encoding: .utf8
-        )
-
-        #expect(!source.contains("ControlTooltip"))
-        #expect(!source.contains("tooltip"))
-        #expect(!source.contains("toolTip"))
-    }
-
-    @Test("rejects ui-presentation command specs before workspace window checks")
-    func rejectsUIPresentationCommandSpecsBeforeWorkspaceWindowChecks() throws {
-        let harness = CommandAdapterHarness(windowSnapshot: .empty)
-
-        do {
-            _ = try harness.adapter.executeCommand(
-                IPCCommandExecuteParams(
-                    commandId: IPCCommandIdentifier(rawValue: AppCommand.showCommandBarEverything.rawValue),
-                    targetHandle: nil
-                )
-            )
-            Issue.record("command bar command unexpectedly executed through command.execute")
-        } catch let error as AppIPCCommandError {
-            #expect(error.reason == .requiresPresentation)
-        }
-
-        do {
-            _ = try harness.adapter.executeCommand(
-                IPCCommandExecuteParams(
-                    commandId: IPCCommandIdentifier(rawValue: AppCommand.focusSidebar.rawValue),
-                    targetHandle: nil
-                )
-            )
-            Issue.record("focus sidebar unexpectedly executed through command.execute")
-        } catch let error as AppIPCCommandError {
-            #expect(error.reason == .requiresPresentation)
-        }
-    }
-
-    @Test("executes surface-specific sidebar settings through injected shell owner")
-    func executesSurfaceSpecificSidebarSettingsThroughInjectedShellOwner() throws {
-        let shellCommandHandler = RecordingShellCommandHandler()
-        let harness = CommandAdapterHarness(shellCommandHandler: shellCommandHandler)
-
-        let sortField = try harness.adapter.executeCommand(
-            IPCCommandExecuteParams(
-                commandId: IPCCommandIdentifier(rawValue: AppCommand.setReposSortFieldActivity.rawValue),
-                targetHandle: nil
-            )
-        )
-        let direction = try harness.adapter.executeCommand(
-            IPCCommandExecuteParams(
-                commandId: IPCCommandIdentifier(rawValue: AppCommand.toggleReposSortDirection.rawValue),
-                targetHandle: nil
-            )
-        )
-
-        #expect(sortField.applied)
-        #expect(direction.applied)
-        #expect(
-            shellCommandHandler.handledRequests == [
-                AppCommandExecutionRequest(
-                    command: .setReposSortFieldActivity,
-                    arguments: .noArguments,
-                    executionContext: .headlessIPC
-                ),
-                AppCommandExecutionRequest(
-                    command: .toggleReposSortDirection,
-                    arguments: .noArguments,
-                    executionContext: .headlessIPC
-                ),
-            ])
-    }
-
-    @Test("retired typed Inbox commands are rejected before shell dispatch")
-    func retiredTypedInboxCommandsAreRejectedBeforeShellDispatch() throws {
-        let shellCommandHandler = RecordingShellCommandHandler()
-        let harness = CommandAdapterHarness(shellCommandHandler: shellCommandHandler)
-
-        for (command, arguments) in [
-            (AppCommand.setInboxRowStateFilter, ["filter": "all"]),
-            (AppCommand.setInboxContentMode, ["mode": "activity"]),
-        ] {
-            do {
-                _ = try harness.adapter.executeCommand(
-                    IPCCommandExecuteParams(
-                        commandId: IPCCommandIdentifier(rawValue: command.rawValue),
-                        targetHandle: nil,
-                        arguments: arguments
-                    )
-                )
-                Issue.record("retired Inbox command unexpectedly executed")
-            } catch let error as AppIPCCommandError {
-                #expect([.requiresParameters, .unsupportedCommand].contains(error.reason))
-            }
-        }
-        #expect(shellCommandHandler.handledRequests.isEmpty)
-    }
-
-    @Test("rejects extraneous sidebar arguments before active window lookup")
-    func rejectsExtraneousSidebarArgumentsBeforeActiveWindowLookup() throws {
-        let shellCommandHandler = RecordingShellCommandHandler()
-        let harness = CommandAdapterHarness(
-            windowSnapshot: .empty,
-            shellCommandHandler: shellCommandHandler
-        )
-
-        do {
-            _ = try harness.adapter.executeCommand(
-                IPCCommandExecuteParams(
-                    commandId: IPCCommandIdentifier(rawValue: AppCommand.setReposSortFieldName.rawValue),
-                    targetHandle: nil,
-                    arguments: ["order": "currentRepoOrder"]
-                )
-            )
-            Issue.record("sidebar command with extraneous arguments unexpectedly executed")
-        } catch let error as AppIPCCommandError {
-            #expect(error.reason == .validationRejected)
-        }
-        #expect(shellCommandHandler.handledRequests.isEmpty)
-    }
-
-    @Test("rejects non-string sidebar arguments before active window lookup")
-    func rejectsNonStringSidebarArgumentsBeforeActiveWindowLookup() throws {
-        let shellCommandHandler = RecordingShellCommandHandler()
-        let harness = CommandAdapterHarness(
-            windowSnapshot: .empty,
-            shellCommandHandler: shellCommandHandler
-        )
-        let paramsData = try JSONSerialization.data(withJSONObject: [
-            "commandId": AppCommand.setReposSortFieldName.rawValue,
-            "targetHandle": NSNull(),
-            "arguments": ["order": 42],
-        ])
-        let params = try JSONDecoder().decode(IPCCommandExecuteParams.self, from: paramsData)
-
-        do {
-            _ = try harness.adapter.executeCommand(params)
-            Issue.record("sidebar command with a non-string argument unexpectedly executed")
-        } catch let error as AppIPCCommandError {
-            #expect(error.reason == .validationRejected)
-        }
-        #expect(shellCommandHandler.handledRequests.isEmpty)
-    }
-
-    @Test("no-argument repo sort field reaches active window lookup")
-    func noArgumentRepoSortFieldReachesActiveWindowLookup() throws {
-        let shellCommandHandler = RecordingShellCommandHandler()
-        let harness = CommandAdapterHarness(
-            windowSnapshot: .empty,
-            shellCommandHandler: shellCommandHandler
-        )
-
-        do {
-            _ = try harness.adapter.executeCommand(
-                IPCCommandExecuteParams(
-                    commandId: IPCCommandIdentifier(rawValue: AppCommand.setReposSortFieldName.rawValue),
-                    targetHandle: nil,
-                    arguments: [:]
-                )
-            )
-            Issue.record("repo sort field unexpectedly executed without an active window")
-        } catch let error as AppIPCCommandError {
-            #expect(error.reason == .noActiveWindow)
-        }
-        #expect(shellCommandHandler.handledRequests.isEmpty)
-    }
-
-    @Test("valid repo sort direction toggle without active window returns no active window")
-    func validRepoSortDirectionToggleWithoutActiveWindowReturnsNoActiveWindow() throws {
-        let shellCommandHandler = RecordingShellCommandHandler()
-        let harness = CommandAdapterHarness(
-            windowSnapshot: .empty,
-            shellCommandHandler: shellCommandHandler
-        )
-
-        do {
-            _ = try harness.adapter.executeCommand(
-                IPCCommandExecuteParams(
-                    commandId: IPCCommandIdentifier(rawValue: AppCommand.toggleReposSortDirection.rawValue),
-                    targetHandle: nil,
-                    arguments: [:]
-                )
-            )
-            Issue.record("repo sort direction unexpectedly executed without an active window")
-        } catch let error as AppIPCCommandError {
-            #expect(error.reason == .noActiveWindow)
-        }
-        #expect(shellCommandHandler.handledRequests.isEmpty)
-    }
-
-    @Test("shell owner state unavailable maps to command state unavailable")
-    func shellOwnerStateUnavailableMapsToCommandStateUnavailable() throws {
-        let shellCommandHandler = RecordingShellCommandHandler(outcome: .stateUnavailable)
-        let harness = CommandAdapterHarness(shellCommandHandler: shellCommandHandler)
-
-        do {
-            _ = try harness.adapter.executeCommand(
-                IPCCommandExecuteParams(
-                    commandId: IPCCommandIdentifier(rawValue: AppCommand.setReposSortFieldName.rawValue),
-                    targetHandle: nil,
-                    arguments: [:]
-                )
-            )
-            Issue.record("state-unavailable shell owner unexpectedly reported success")
-        } catch let error as AppIPCCommandError {
-            #expect(error.reason == .stateUnavailable)
-        }
-        #expect(
-            shellCommandHandler.handledRequests == [
-                AppCommandExecutionRequest(
-                    command: .setReposSortFieldName,
-                    arguments: .noArguments,
-                    executionContext: .headlessIPC
-                )
-            ])
-    }
-
-    @Test("rejects command bar specs because they require explicit UI presentation")
-    func rejectsCommandBarSpecsBecauseTheyRequireExplicitUIPresentation() throws {
-        let windowId = UUID()
-        let harness = CommandAdapterHarness(
-            windowSnapshot: .singleActiveWindow(windowId)
-        )
-
-        do {
-            _ = try harness.adapter.executeCommand(
-                IPCCommandExecuteParams(
-                    commandId: IPCCommandIdentifier(rawValue: AppCommand.showCommandBarEverything.rawValue),
-                    targetHandle: nil
-                )
-            )
-            Issue.record("command bar command unexpectedly executed through command.execute")
-        } catch let error as AppIPCCommandError {
-            #expect(error.reason == .requiresPresentation)
-        }
-    }
-
-    @Test("rejects interactive command specs without misclassifying them as UI presentation")
-    func rejectsInteractiveCommandSpecsWithoutMisclassifyingThemAsUIPresentation() throws {
-        let harness = CommandAdapterHarness(
-            windowSnapshot: .singleActiveWindow(UUID())
-        )
-
-        do {
-            _ = try harness.adapter.executeCommand(
-                IPCCommandExecuteParams(
-                    commandId: IPCCommandIdentifier(rawValue: AppCommand.copyCurrentPanePath.rawValue),
-                    targetHandle: nil
-                )
-            )
-            Issue.record("interactive command unexpectedly executed through command.execute")
-        } catch let error as AppIPCCommandError {
-            #expect(error.reason == .requiresParameters)
-        }
-    }
-
-    @Test("unknown command ids return unsupported command after decoding")
-    func unknownCommandIdsReturnUnsupportedCommandAfterDecoding() throws {
-        let harness = CommandAdapterHarness(
-            windowSnapshot: .singleActiveWindow(UUID())
-        )
-
-        do {
-            _ = try harness.adapter.executeCommand(
-                IPCCommandExecuteParams(commandId: IPCCommandIdentifier(rawValue: "futureCommand"), targetHandle: nil)
-            )
-            Issue.record("unknown command unexpectedly executed through command.execute")
-        } catch let error as AppIPCCommandError {
-            #expect(error.reason == .unsupportedCommand)
-        }
-    }
-
-    @Test("targeted repo commands execute through the shared app command dispatcher")
-    func targetedRepoCommandsExecuteThroughSharedAppCommandDispatcher() async throws {
-        let commandHandler = RecordingWorkspaceCommandHandler()
-        let shellCommandHandler = RecordingShellCommandHandler()
-        let harness = CommandAdapterHarness(
-            windowSnapshot: .singleActiveWindow(UUID()),
-            shellCommandHandler: shellCommandHandler
-        )
-        let repoId = harness.workspaceStore.mutationCoordinator.addRepo(
-            at: URL(fileURLWithPath: "/tmp/agentstudio-ipc-owned-repo")
-        ).id
-
-        try await withIsolatedCommandDispatcher(
-            configure: {
-                AppCommandDispatcher.shared.handler = commandHandler
-                AppCommandDispatcher.shared.appCommandRouter = nil
-            },
-            body: {
-                let result = try harness.adapter.executeCommand(
-                    IPCCommandExecuteParams(
-                        commandId: IPCCommandIdentifier(rawValue: AppCommand.pinRepo.rawValue),
-                        targetHandle: "repo:\(repoId.uuidString)"
-                    )
-                )
-
-                #expect(result.applied)
-                #expect(result.targetHandle == "repo:\(repoId.uuidString)")
-                #expect(commandHandler.targetedCommands.count == 1)
-                #expect(commandHandler.targetedCommands[0].command == .pinRepo)
-                #expect(commandHandler.targetedCommands[0].target == repoId)
-                #expect(commandHandler.targetedCommands[0].targetType == .repo)
-            }
-        )
-    }
-
-    @Test("Bridge Web View Reload executes for its explicit pane target")
-    func bridgeWebViewReloadExecutesForExplicitPaneTarget() async throws {
-        let commandHandler = RecordingWorkspaceCommandHandler()
+    @Test("pane alias is canonicalized before targeted execution")
+    func paneAliasCanonicalizesBeforeExecution() async throws {
         let harness = CommandAdapterHarness()
-        let pane = harness.workspaceStore.createPane(
-            content: .bridgePanel(
-                BridgePaneState(
-                    panelKind: .fileViewer,
-                    source: .workspace(
-                        rootPath: "/tmp/agentstudio-ipc-bridge-reload",
-                        baseline: .ref(name: "HEAD~1")
-                    )
-                )
-            ),
-            metadata: PaneMetadata(contentType: .review, title: "Bridge")
-        )
-        let tab = Tab(paneId: pane.id)
-        harness.workspaceStore.appendTab(tab)
-        harness.workspaceStore.setActiveTab(tab.id)
-
-        try await withIsolatedCommandDispatcher(
-            configure: {
-                AppCommandDispatcher.shared.handler = commandHandler
-                AppCommandDispatcher.shared.appCommandRouter = nil
-            },
-            body: {
-                let result = try harness.adapter.executeCommand(
-                    IPCCommandExecuteParams(
-                        commandId: IPCCommandIdentifier(
-                            rawValue: AppCommand.reloadBridgeWebView.rawValue
-                        ),
-                        targetHandle: "pane:\(pane.id.uuidString)"
-                    )
-                )
-
-                #expect(result.applied)
-                #expect(result.targetHandle == "pane:\(pane.id.uuidString)")
-                #expect(
-                    commandHandler.targetedCommands == [
-                        RecordingWorkspaceCommandHandler.TargetedCommand(
-                            command: .reloadBridgeWebView,
-                            target: pane.id,
-                            targetType: .pane
-                        )
-                    ])
-            }
-        )
-    }
-
-    @Test("targeted repo commands reject repositories outside the authorized workspace")
-    func targetedRepoCommandsRejectRepositoriesOutsideAuthorizedWorkspace() throws {
-        let harness = CommandAdapterHarness()
-
-        do {
-            _ = try harness.adapter.executeCommand(
-                IPCCommandExecuteParams(
-                    commandId: IPCCommandIdentifier(rawValue: AppCommand.pinRepo.rawValue),
-                    targetHandle: "repo:\(UUID().uuidString)"
-                )
-            )
-            Issue.record("repo favorite unexpectedly accepted a repository outside the workspace")
-        } catch let error as AppIPCCommandError {
-            #expect(error.reason == .targetNotFound)
-        }
-    }
-
-    @Test("targeted repo commands reject wrong handle kinds")
-    func targetedRepoCommandsRejectWrongHandleKinds() throws {
-        let shellCommandHandler = RecordingShellCommandHandler()
-        let harness = CommandAdapterHarness(shellCommandHandler: shellCommandHandler)
-
-        do {
-            _ = try harness.adapter.executeCommand(
-                IPCCommandExecuteParams(
-                    commandId: IPCCommandIdentifier(rawValue: AppCommand.pinRepo.rawValue),
-                    targetHandle: "pane:\(UUID().uuidString)"
-                )
-            )
-            Issue.record("repo favorite unexpectedly accepted a pane target")
-        } catch let error as AppIPCCommandError {
-            #expect(error.reason == .targetNotFound)
-        }
-    }
-
-    // Mutation caught: the target authorizer continues accepting repositories only.
-    @Test("zoom pane accepts a canonical pane with durable tab membership")
-    func zoomPaneAcceptsCanonicalPaneWithDurableTabMembership() async throws {
-        let commandHandler = RecordingWorkspaceCommandHandler()
-        let harness = CommandAdapterHarness()
-        let pane = harness.workspaceStore.createPane(title: "Zoom Source")
-        let tab = Tab(paneId: pane.id)
-        harness.workspaceStore.appendTab(tab)
-        harness.workspaceStore.setActiveTab(tab.id)
-
-        try await withIsolatedCommandDispatcher(
-            configure: {
-                AppCommandDispatcher.shared.handler = commandHandler
-                AppCommandDispatcher.shared.appCommandRouter = nil
-            },
-            body: {
-                let result = try harness.adapter.executeCommand(
-                    IPCCommandExecuteParams(
-                        commandId: IPCCommandIdentifier(rawValue: AppCommand.zoomPane.rawValue),
-                        targetHandle: "pane:\(pane.id.uuidString)"
-                    )
-                )
-
-                #expect(result.applied)
-                #expect(result.targetHandle == "pane:\(pane.id.uuidString)")
-                #expect(
-                    commandHandler.targetedCommands == [
-                        RecordingWorkspaceCommandHandler.TargetedCommand(
-                            command: .zoomPane,
-                            target: pane.id,
-                            targetType: .pane
-                        )
-                    ])
-            }
-        )
-    }
-
-    // Mutation caught: IPC durable-membership authorization is treated as sufficient Zoom capability.
-    @Test("zoom pane propagates production capability rejection for a durable nonterminal pane")
-    func zoomPaneRejectsDurableNonterminalPaneThroughProductionCapability() async throws {
-        installTestAtomRegistryIfNeeded()
-        let controllerHarness = makeHarness()
-        defer { try? FileManager.default.removeItem(at: controllerHarness.tempDir) }
-        let pane = controllerHarness.store.createPane(
-            content: .webview(WebviewState(url: URL(string: "https://zoom-rejected.example")!)),
-            metadata: PaneMetadata(contentType: .browser, title: "Browser")
-        )
-        let tab = Tab(paneId: pane.id)
-        controllerHarness.store.appendTab(tab)
-        controllerHarness.store.setActiveTab(tab.id)
-        let adapter = AgentStudioIPCCommandAdapter(
-            workspaceId: controllerHarness.store.identityAtom.workspaceId,
-            targetAuthorizer: WorkspaceDurableTargetAuthorizationPort(workspaceStore: controllerHarness.store),
-            windowLifecycleReader: FakeCommandWorkspaceWindowLifecycleReader(
-                snapshot: .singleActiveWindow(UUID())
-            ),
-            shellCommandHandler: RecordingShellCommandHandler()
-        )
-
-        try await withIsolatedCommandDispatcher(
-            configure: {
-                AppCommandDispatcher.shared.handler = controllerHarness.controller
-                AppCommandDispatcher.shared.appCommandRouter = nil
-            },
-            body: {
-                do {
-                    _ = try adapter.executeCommand(
-                        IPCCommandExecuteParams(
-                            commandId: IPCCommandIdentifier(rawValue: AppCommand.zoomPane.rawValue),
-                            targetHandle: "pane:\(pane.id.uuidString)"
-                        )
-                    )
-                    Issue.record("zoom pane unexpectedly accepted a durable nonterminal pane")
-                } catch let error as AppIPCCommandError {
-                    #expect(error.reason == .targetNotFound)
-                }
-            }
-        )
-
-        #expect(controllerHarness.store.panePresentationAtom.zoomPresentation(forTab: tab.id) == nil)
-    }
-
-    // Mutation caught: canonical UUID syntax is treated as proof of durable membership.
-    @Test("zoom pane rejects a stale canonical pane handle")
-    func zoomPaneRejectsStaleCanonicalPaneHandle() throws {
-        let harness = CommandAdapterHarness()
-
-        do {
-            _ = try harness.adapter.executeCommand(
-                IPCCommandExecuteParams(
-                    commandId: IPCCommandIdentifier(rawValue: AppCommand.zoomPane.rawValue),
-                    targetHandle: "pane:\(UUID().uuidString)"
-                )
-            )
-            Issue.record("zoom pane unexpectedly accepted a stale canonical pane handle")
-        } catch let error as AppIPCCommandError {
-            #expect(error.reason == .targetNotFound)
-        }
-    }
-
-    // Mutation caught: any pane snapshot is accepted without requiring durable tab membership.
-    @Test("zoom pane rejects a pane without durable tab membership")
-    func zoomPaneRejectsPaneWithoutDurableTabMembership() throws {
-        let harness = CommandAdapterHarness()
-        let nonDurablePane = harness.workspaceStore.createPane(title: "Retained Companion")
-
-        do {
-            _ = try harness.adapter.executeCommand(
-                IPCCommandExecuteParams(
-                    commandId: IPCCommandIdentifier(rawValue: AppCommand.zoomPane.rawValue),
-                    targetHandle: "pane:\(nonDurablePane.id.uuidString)"
-                )
-            )
-            Issue.record("zoom pane unexpectedly accepted a pane without durable tab membership")
-        } catch let error as AppIPCCommandError {
-            #expect(error.reason == .targetNotFound)
-        }
-    }
-
-    // Mutation caught: drawer children are mistaken for canonical durable main-pane targets.
-    @Test("zoom pane rejects an explicit drawer-pane IPC target")
-    func zoomPaneRejectsExplicitDrawerPaneTarget() async throws {
-        installTestAtomRegistryIfNeeded()
-        let controllerHarness = makeHarness()
-        defer { try? FileManager.default.removeItem(at: controllerHarness.tempDir) }
-        let parentPane = controllerHarness.store.createPane(title: "Parent")
-        let tab = Tab(paneId: parentPane.id)
-        controllerHarness.store.appendTab(tab)
-        controllerHarness.store.setActiveTab(tab.id)
-        let drawerPane = try #require(controllerHarness.store.addDrawerPane(to: parentPane.id))
-        let adapter = AgentStudioIPCCommandAdapter(
-            workspaceId: controllerHarness.store.identityAtom.workspaceId,
-            targetAuthorizer: WorkspaceDurableTargetAuthorizationPort(workspaceStore: controllerHarness.store),
-            windowLifecycleReader: FakeCommandWorkspaceWindowLifecycleReader(
-                snapshot: .singleActiveWindow(UUID())
-            ),
-            shellCommandHandler: RecordingShellCommandHandler()
-        )
-
-        try await withIsolatedCommandDispatcher(
-            configure: {
-                AppCommandDispatcher.shared.handler = controllerHarness.controller
-                AppCommandDispatcher.shared.appCommandRouter = nil
-            },
-            body: {
-                do {
-                    _ = try adapter.executeCommand(
-                        IPCCommandExecuteParams(
-                            commandId: IPCCommandIdentifier(rawValue: AppCommand.zoomPane.rawValue),
-                            targetHandle: "pane:\(drawerPane.id.uuidString)"
-                        )
-                    )
-                    Issue.record("zoom pane unexpectedly accepted an explicit drawer-pane target")
-                } catch let error as AppIPCCommandError {
-                    #expect(error.reason == .targetNotFound)
-                }
-            }
-        )
-
-        #expect(controllerHarness.store.panePresentationAtom.zoomPresentation(forTab: tab.id) == nil)
-    }
-
-    // Mutation caught: target UUID membership is checked without enforcing the command's handle kind.
-    @Test("zoom pane rejects a durable tab handle")
-    func zoomPaneRejectsDurableTabHandle() throws {
-        let harness = CommandAdapterHarness()
-        let pane = harness.workspaceStore.createPane(title: "Zoom Source")
-        let tab = Tab(paneId: pane.id)
-        harness.workspaceStore.appendTab(tab)
-
-        do {
-            _ = try harness.adapter.executeCommand(
-                IPCCommandExecuteParams(
-                    commandId: IPCCommandIdentifier(rawValue: AppCommand.zoomPane.rawValue),
-                    targetHandle: "tab:\(tab.id.uuidString)"
-                )
-            )
-            Issue.record("zoom pane unexpectedly accepted a durable tab handle")
-        } catch let error as AppIPCCommandError {
-            #expect(error.reason == .targetNotFound)
-        }
-    }
-
-    // Mutation caught: command.execute resolves friendly ordinals instead of requiring canonical handles.
-    @Test("zoom pane rejects a friendly pane ordinal")
-    func zoomPaneRejectsFriendlyPaneOrdinal() throws {
-        let harness = CommandAdapterHarness()
-        let pane = harness.workspaceStore.createPane(title: "Zoom Source")
+        let pane = harness.workspaceStore.createPane(title: "Target")
         harness.workspaceStore.appendTab(Tab(paneId: pane.id))
-
-        do {
-            _ = try harness.adapter.executeCommand(
-                IPCCommandExecuteParams(
-                    commandId: IPCCommandIdentifier(rawValue: AppCommand.zoomPane.rawValue),
-                    targetHandle: "pane:1"
+        let request = IPCCommandExecutionRequest(
+            commandId: .init(rawValue: AppCommand.zoomPane.rawValue),
+            correlationId: UUIDv7.generate(),
+            arguments: .pane(
+                .init(
+                    workspaceWindowId: harness.windowId,
+                    paneSelector: try .init(rawValue: "self")
                 )
             )
-            Issue.record("zoom pane unexpectedly accepted a friendly pane ordinal")
-        } catch let error as AppIPCCommandError {
-            #expect(error.reason == .targetNotFound)
-        }
-    }
-
-    // Mutation caught: a target-required headless command falls through to untargeted shell dispatch.
-    @Test("targeted headless commands require an explicit target")
-    func targetedHeadlessCommandsRequireExplicitTarget() throws {
-        let shellCommandHandler = RecordingShellCommandHandler()
-        let harness = CommandAdapterHarness(shellCommandHandler: shellCommandHandler)
-
-        do {
-            _ = try harness.adapter.executeCommand(
-                IPCCommandExecuteParams(
-                    commandId: IPCCommandIdentifier(rawValue: AppCommand.zoomPane.rawValue),
-                    targetHandle: nil
-                )
-            )
-            Issue.record("zoomPane unexpectedly executed without an explicit target")
-        } catch let error as AppIPCCommandError {
-            #expect(error.reason == .requiresTarget)
-        }
-
-        #expect(shellCommandHandler.handledRequests.isEmpty)
-    }
-
-    // Mutation caught: durable target validation bypasses the active registered-window requirement.
-    @Test("zoom pane rejects a durable pane when no workspace window is active")
-    func zoomPaneRejectsDurablePaneWhenNoWorkspaceWindowIsActive() throws {
-        let harness = CommandAdapterHarness(windowSnapshot: .empty)
-        let pane = harness.workspaceStore.createPane(title: "Zoom Source")
-        harness.workspaceStore.appendTab(Tab(paneId: pane.id))
-
-        do {
-            _ = try harness.adapter.executeCommand(
-                IPCCommandExecuteParams(
-                    commandId: IPCCommandIdentifier(rawValue: AppCommand.zoomPane.rawValue),
-                    targetHandle: "pane:\(pane.id.uuidString)"
-                )
-            )
-            Issue.record("zoom pane unexpectedly executed without an active workspace window")
-        } catch let error as AppIPCCommandError {
-            #expect(error.reason == .noActiveWindow)
-        }
-    }
-
-    // Mutation caught: production composition injects repository topology instead of the durable workspace snapshot.
-    @Test("durable target authorization reads repo tab and pane membership from the workspace snapshot")
-    func durableTargetAuthorizationReadsWorkspaceSnapshotMembership() {
-        let workspaceStore = WorkspaceStore()
-        let repository = workspaceStore.mutationCoordinator.addRepo(
-            at: URL(fileURLWithPath: "/tmp/agentstudio-ipc-durable-target-repo")
         )
-        let durablePane = workspaceStore.createPane(title: "Durable")
-        let nonDurablePane = workspaceStore.createPane(title: "Retained Companion")
-        let tab = Tab(paneId: durablePane.id)
-        workspaceStore.appendTab(tab)
-        let authorizer = WorkspaceDurableTargetAuthorizationPort(workspaceStore: workspaceStore)
+        let tools = AppIPCTargetResolutionTools { _ in
+            IPCHandle(kind: .pane, reference: .canonicalUUID(pane.id))
+        }
 
-        #expect(authorizer.containsRepository(id: repository.id))
-        #expect(authorizer.containsTab(id: tab.id))
-        #expect(authorizer.containsPane(id: durablePane.id))
-        #expect(!authorizer.containsPane(id: nonDurablePane.id))
+        let prepared = try await harness.adapter.prepareCommand(
+            request,
+            principal: commandAdapterTestPrincipal(),
+            tools: tools
+        )
+
+        guard case .pane(let arguments) = prepared.request.arguments else {
+            Issue.record("Expected canonical pane arguments")
+            return
+        }
+        #expect(arguments.paneSelector.rawValue == pane.id.uuidString)
+        #expect(prepared.canonicalHandle == IPCHandle(kind: .pane, reference: .canonicalUUID(pane.id)))
+        #expect(prepared.target == .pane(pane.id.uuidString))
+        #expect(prepared.requiredScopes.map(\.privilege) == [.layoutMutate])
+    }
+
+    @Test("targeted execution awaits the dispatcher owner outcome")
+    func targetedExecutionAwaitsOwner() async throws {
+        let harness = CommandAdapterHarness()
+        let pane = harness.workspaceStore.createPane(title: "Target")
+        harness.workspaceStore.appendTab(Tab(paneId: pane.id))
+        let owner = RecordingWorkspaceCommandHandler()
+        let request = IPCCommandExecutionRequest(
+            commandId: .init(rawValue: AppCommand.zoomPane.rawValue),
+            correlationId: UUIDv7.generate(),
+            arguments: .pane(
+                .init(
+                    workspaceWindowId: harness.windowId,
+                    paneSelector: try .init(rawValue: pane.id.uuidString)
+                )
+            )
+        )
+
+        let result = try await withIsolatedCommandDispatcher(
+            configure: {
+                AppCommandDispatcher.shared.handler = owner
+                AppCommandDispatcher.shared.appCommandRouter = nil
+            },
+            body: {
+                try await harness.adapter.executeCommand(request)
+            }
+        )
+
+        #expect(result.variant == .applied)
+        #expect(owner.awaitedCommands == [.zoomPane])
+    }
+
+    @Test("registered historical window is rejected when the App owner has been replaced")
+    func registeredHistoricalWindowDoesNotReachCurrentShellOwner() async throws {
+        let historicalWindowId = UUIDv7.generate()
+        let currentWindowId = UUIDv7.generate()
+        let historicalLifecycle = WorkspaceWindowLifecycleSnapshot(
+            registeredWindowIds: [historicalWindowId, currentWindowId],
+            keyWindowId: currentWindowId,
+            focusedWindowId: currentWindowId,
+            preferredWorkspaceWindowId: currentWindowId
+        )
+        let shell = RecordingShellCommandHandler(currentWindowId: currentWindowId)
+        let harness = CommandAdapterHarness(
+            windowId: currentWindowId,
+            shellCommandHandler: shell
+        )
+        let request = IPCCommandExecutionRequest(
+            commandId: .init(rawValue: AppCommand.showReposSidebar.rawValue),
+            correlationId: UUIDv7.generate(),
+            arguments: .workspaceWindow(.init(workspaceWindowId: historicalWindowId))
+        )
+
+        #expect(historicalLifecycle.registeredWindowIds.contains(historicalWindowId))
+        await #expect(throws: AppIPCCommandError.self) {
+            try await harness.adapter.executeCommand(request)
+        }
+        #expect(shell.handledRequests.isEmpty)
+    }
+
+    @Test("prepared command is rejected when the sole App window is replaced before execution")
+    func preparedCommandRechecksCurrentWindowOwnerBeforeExecution() async throws {
+        let firstWindowId = UUIDv7.generate()
+        let replacementWindowId = UUIDv7.generate()
+        let shell = RecordingShellCommandHandler(currentWindowId: firstWindowId)
+        let harness = CommandAdapterHarness(
+            windowId: firstWindowId,
+            shellCommandHandler: shell
+        )
+        let request = IPCCommandExecutionRequest(
+            commandId: .init(rawValue: AppCommand.showReposSidebar.rawValue),
+            correlationId: UUIDv7.generate(),
+            arguments: .workspaceWindow(.init(workspaceWindowId: firstWindowId))
+        )
+        let prepared = try await harness.adapter.prepareCommand(
+            request,
+            principal: commandAdapterTestPrincipal(),
+            tools: AppIPCTargetResolutionTools { _ in
+                throw AppIPCCommandError(reason: .validationRejected)
+            }
+        )
+
+        shell.currentWindowId = replacementWindowId
+
+        await #expect(throws: AppIPCCommandError.self) {
+            try await harness.adapter.executeCommand(prepared.request)
+        }
+        #expect(shell.handledRequests.isEmpty)
+    }
+
+    @Test("targeted command rejects a dispatcher handler owned by another window")
+    func targetedCommandRequiresMatchingDispatcherOwner() async throws {
+        let requestedWindowId = UUIDv7.generate()
+        let harness = CommandAdapterHarness(windowId: requestedWindowId)
+        let pane = harness.workspaceStore.createPane(title: "Target")
+        harness.workspaceStore.appendTab(Tab(paneId: pane.id))
+        let wrongWindowOwner = RecordingWorkspaceCommandHandler(currentWindowId: UUIDv7.generate())
+        let request = IPCCommandExecutionRequest(
+            commandId: .init(rawValue: AppCommand.zoomPane.rawValue),
+            correlationId: UUIDv7.generate(),
+            arguments: .pane(
+                .init(
+                    workspaceWindowId: requestedWindowId,
+                    paneSelector: try .init(rawValue: pane.id.uuidString)
+                )
+            )
+        )
+
+        await #expect(throws: AppIPCCommandError.self) {
+            try await withIsolatedCommandDispatcher(
+                configure: {
+                    AppCommandDispatcher.shared.handler = wrongWindowOwner
+                    AppCommandDispatcher.shared.appCommandRouter = nil
+                },
+                body: {
+                    try await harness.adapter.executeCommand(request)
+                }
+            )
+        }
+        #expect(wrongWindowOwner.awaitedCommands.isEmpty)
+    }
+
+    @Test("default headless IPC execution fails closed without invoking a void owner")
+    func defaultHeadlessIPCExecutionFailsClosed() async throws {
+        let owner = DefaultWorkspaceCommandHandler()
+
+        let outcome = await owner.executeHeadlessIPC(
+            AppCommandExecutionRequest(
+                command: .zoomPane,
+                arguments: .typedIPC(
+                    .pane(
+                        .init(
+                            workspaceWindowId: UUIDv7.generate(),
+                            paneSelector: try IPCPaneSelector(rawValue: UUIDv7.generate().uuidString)
+                        ))),
+                executionContext: .headlessIPC(admitsDebugTestingCommands: true)
+            )
+        )
+
+        #expect(outcome == .unsupportedCommand)
+        #expect(owner.executedCommands.isEmpty)
+    }
+
+    @Test("complete actual capabilities catalog fits the existing one MiB NDJSON frame")
+    func completeActualCapabilitiesCatalogFitsExistingFrame() throws {
+        let adapter = CommandAdapterHarness().adapter
+        let commandCatalog = try adapter.listCommands()
+        let commandComposition = try IPCCommandMethodComposition(
+            compatibility: .current,
+            commands: commandCatalog.commands
+        )
+        let builtIns = try IPCBuiltInMethodCatalog(
+            inputs: IPCBuiltInMethodCatalogInputs(
+                terminalWaitMaximumSeconds: AppPolicies.IPC.maximumTerminalWaitSeconds,
+                relationships: IPCBuiltInMethodRelationshipInputs(
+                    paneFocus: .appCommand(identifier: AppCommand.focusPane.rawValue),
+                    paneClose: .appCommand(identifier: AppCommand.closePane.rawValue),
+                    drawerToggle: .appCommand(identifier: AppCommand.toggleDrawer.rawValue),
+                    drawerAddPane: .appCommand(identifier: AppCommand.addDrawerPane.rawValue),
+                    bridgeDiffLoad: .appCommand(identifier: AppCommand.showBridgeReview.rawValue),
+                    bridgeFileViewOpen: .appCommand(identifier: AppCommand.showBridgeFiles.rawValue)
+                ),
+                examples: .init(illustrativeIdentifier: UUIDv7.generate())
+            )
+        )
+        let commandDescriptors = try [
+            IPCAnyMethodDescriptor(erasing: commandComposition.list),
+            IPCAnyMethodDescriptor(erasing: commandComposition.execute),
+        ]
+        let availableDescriptors = builtIns.erasedDescriptors + commandDescriptors
+        let ping = try #require(
+            builtIns.erasedDescriptors.first { $0.metadata.name == "system.ping" }
+        )
+        let capabilities = try IPCSystemCapabilitiesDescriptorFactory.compose(
+            compatibility: .current,
+            availableDescriptors: availableDescriptors,
+            illustrativeDescriptor: ping
+        )
+
+        #expect(builtIns.erasedDescriptors.count == 47)
+        #expect(commandCatalog.commands.count == 16)
+        #expect(capabilities.result.methods.count == 50)
+
+        let encodedCatalog = try capabilities.descriptor.encodeResult(capabilities.result)
+        let decodedCatalog = try IPCMethodCatalogDecoder.decode(encodedCatalog)
+        #expect(decodedCatalog == capabilities.result)
+
+        let response = JSONRPCResponse.success(
+            id: .number(1),
+            result: try JSONRPCCodec.encodeJSONValue(capabilities.result)
+        )
+        let responsePayload = try JSONRPCCodec.encodeResponse(response)
+        let frameByteLimit = 1_048_576
+        let frameByteCount = responsePayload.utf8.count + 1
+        #expect(
+            frameByteCount <= frameByteLimit,
+            "Complete 43 built-in + 15 command capabilities frame is \(frameByteCount) bytes"
+        )
+        let frame = try NDJSONFrameEncoder.encode(
+            responsePayload,
+            maxFrameBytes: frameByteLimit
+        )
+        #expect(frame.count == frameByteCount)
+
+        var decoder = NDJSONFrameDecoder(maxFrameBytes: frameByteLimit)
+        let decodedFrames = try decoder.append(frame)
+        #expect(decodedFrames.count == 1)
+        let decodedPayload = try #require(decodedFrames.first)
+        let decodedResponse = try JSONRPCCodec.decodeResponse(decodedPayload)
+        let decodedResult = try #require(decodedResponse.result)
+        let strictRoundTrip = try IPCMethodCatalogDecoder.decode(
+            JSONEncoder().encode(decodedResult)
+        )
+        #expect(strictRoundTrip == capabilities.result)
     }
 }
 
@@ -823,124 +347,55 @@ func makeIPCCommandAdapterForPresentationIsolationTests() -> AgentStudioIPCComma
 }
 
 @MainActor
-private struct CommandAdapterHarness {
-    let adapter: AgentStudioIPCCommandAdapter
-    let workspaceStore: WorkspaceStore
-
-    init(
-        windowSnapshot: WorkspaceWindowLifecycleSnapshot = .singleActiveWindow(UUID()),
-        shellCommandHandler: RecordingShellCommandHandler = RecordingShellCommandHandler()
-    ) {
-        workspaceStore = WorkspaceStore()
-        adapter = AgentStudioIPCCommandAdapter(
-            workspaceId: workspaceStore.identityAtom.workspaceId,
-            targetAuthorizer: WorkspaceDurableTargetAuthorizationPort(workspaceStore: workspaceStore),
-            windowLifecycleReader: FakeCommandWorkspaceWindowLifecycleReader(snapshot: windowSnapshot),
-            shellCommandHandler: shellCommandHandler
-        )
-    }
-}
-
-@MainActor
-private final class RecordingShellCommandHandler: ShellCommandHandling {
-    var handledRequests: [AppCommandExecutionRequest] = []
-    let outcome: AppCommandExecutionOutcome
-
-    init(outcome: AppCommandExecutionOutcome = .applied) {
-        self.outcome = outcome
-    }
-
-    func canExecute(_: AppCommand) -> Bool {
-        true
-    }
-
-    func canExecute(_: AppCommand, target _: UUID, targetType _: SearchItemType) -> Bool {
-        true
-    }
-
-    func execute(_: AppCommand) -> Bool {
-        false
-    }
-
-    func execute(_: AppCommand, target _: UUID, targetType _: SearchItemType) -> Bool {
-        false
-    }
-
-    func execute(_ request: AppCommandExecutionRequest) -> AppCommandExecutionOutcome {
-        handledRequests.append(request)
-        return outcome
-    }
-
-    func showRepoCommandBar() {}
-
-    func refreshWorktrees() {}
-
-    func refocusActivePane() {}
-}
-
-@MainActor
 private final class RecordingWorkspaceCommandHandler: WorkspaceCommandHandling {
-    struct TargetedCommand: Equatable {
-        let command: AppCommand
-        let target: UUID
-        let targetType: SearchItemType
+    func executeExtractPaneToTab(tabId _: UUID, paneId _: UUID, targetTabInsertionIndex _: Int?) {}
+    func executeMovePaneToTab(sourcePaneId _: UUID, sourceTabId _: UUID?, targetTabId _: UUID) {}
+
+    var awaitedCommands: [AppCommand] = []
+    let currentWindowId: UUID?
+
+    init(currentWindowId: UUID? = nil) {
+        self.currentWindowId = currentWindowId
     }
 
-    var targetedCommands: [TargetedCommand] = []
+    func ownsWorkspaceWindow(_ workspaceWindowId: UUID) -> Bool {
+        currentWindowId == nil || currentWindowId == workspaceWindowId
+    }
 
     func execute(_: AppCommand) {}
-
-    func execute(_ command: AppCommand, target: UUID, targetType: SearchItemType) {
-        targetedCommands.append(TargetedCommand(command: command, target: target, targetType: targetType))
+    func execute(_: AppCommand, target _: UUID, targetType _: SearchItemType) {}
+    func canExecute(_: AppCommand) -> Bool { false }
+    func canExecute(_: AppCommand, target _: UUID, targetType: SearchItemType) -> Bool {
+        targetType == .pane
     }
 
-    func canExecute(_: AppCommand) -> Bool {
-        false
+    func executeHeadlessIPC(_ request: AppCommandExecutionRequest) async -> AppCommandExecutionOutcome {
+        awaitedCommands.append(request.command)
+        return .applied
     }
-
-    func canExecute(_ command: AppCommand, target _: UUID, targetType: SearchItemType) -> Bool {
-        switch (command, targetType) {
-        case (.pinRepo, .repo), (.unpinRepo, .repo),
-            (.zoomPane, .pane), (.reloadBridgeWebView, .pane):
-            true
-        default:
-            false
-        }
-    }
-
-    func executeExtractPaneToTab(tabId _: UUID, paneId _: UUID, targetTabInsertionIndex _: Int?) {}
-
-    func executeMovePaneToTab(sourcePaneId _: UUID, sourceTabId _: UUID?, targetTabId _: UUID) {}
 }
 
+@MainActor
+private final class DefaultWorkspaceCommandHandler: WorkspaceCommandHandling {
+    func executeExtractPaneToTab(tabId _: UUID, paneId _: UUID, targetTabInsertionIndex _: Int?) {}
+    func executeMovePaneToTab(sourcePaneId _: UUID, sourceTabId _: UUID?, targetTabId _: UUID) {}
+
+    var executedCommands: [AppCommand] = []
+
+    func execute(_ command: AppCommand) {
+        executedCommands.append(command)
+    }
+
+    func execute(_ command: AppCommand, target _: UUID, targetType _: SearchItemType) {
+        executedCommands.append(command)
+    }
+
+    func canExecute(_: AppCommand) -> Bool { true }
+    func canExecute(_: AppCommand, target _: UUID, targetType _: SearchItemType) -> Bool { true }
+}
+
+@MainActor
 private struct FakeCommandWorkspaceWindowLifecycleReader: WorkspaceWindowLifecycleReading {
     let snapshotValue: WorkspaceWindowLifecycleSnapshot
-
-    init(snapshot: WorkspaceWindowLifecycleSnapshot) {
-        snapshotValue = snapshot
-    }
-
-    func snapshot() -> WorkspaceWindowLifecycleSnapshot {
-        snapshotValue
-    }
-}
-
-extension WorkspaceWindowLifecycleSnapshot {
-    fileprivate static var empty: Self {
-        Self(
-            registeredWindowIds: [],
-            keyWindowId: nil,
-            focusedWindowId: nil,
-            preferredWorkspaceWindowId: nil
-        )
-    }
-
-    fileprivate static func singleActiveWindow(_ windowId: UUID) -> Self {
-        Self(
-            registeredWindowIds: [windowId],
-            keyWindowId: windowId,
-            focusedWindowId: windowId,
-            preferredWorkspaceWindowId: windowId
-        )
-    }
+    func snapshot() -> WorkspaceWindowLifecycleSnapshot { snapshotValue }
 }

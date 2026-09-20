@@ -20,6 +20,7 @@ struct WorkspaceProjectedDividerResizeIntegrationTests {
             viewRegistry: viewRegistry,
             runtime: runtime,
             windowLifecycleStore: WindowLifecycleAtom(),
+            ipcLifecycle: .testUnavailable,
             bridgePaneAttendance: BridgePaneAttendanceAtom()
         )
         let executor = WorkspaceActionExecutor(coordinator: coordinator, store: store)

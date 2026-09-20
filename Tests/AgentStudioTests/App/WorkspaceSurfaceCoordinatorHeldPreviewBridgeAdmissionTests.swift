@@ -103,6 +103,7 @@ extension WebKitSerializedTests {
                 paneEventBus: makeTestPaneRuntimeEventBus(),
                 windowLifecycleStore: windowLifecycleStore,
                 appLifecycleStore: appLifecycleStore,
+                ipcLifecycle: .testUnavailable,
                 bridgePaneAttendance: BridgePaneAttendanceAtom()
             )
             coordinator.startBridgePaneActivityObservation()

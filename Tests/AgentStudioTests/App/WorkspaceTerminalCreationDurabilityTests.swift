@@ -77,6 +77,7 @@ struct WorkspaceTerminalCreationDurabilityTests {
             surfaceManager: manager,
             runtimeRegistry: RuntimeRegistry(),
             windowLifecycleStore: WindowLifecycleAtom(),
+            ipcLifecycle: .testUnavailable,
             bridgePaneAttendance: BridgePaneAttendanceAtom()
         )
         coordinator.windowLifecycleStore.recordTerminalContainerBounds(
@@ -132,7 +133,8 @@ struct WorkspaceTerminalCreationDurabilityTests {
         let coordinator = WorkspaceSurfaceCoordinator(
             store: store, viewRegistry: registry, runtime: SessionRuntime(store: store),
             surfaceManager: manager, runtimeRegistry: RuntimeRegistry(),
-            windowLifecycleStore: WindowLifecycleAtom(), bridgePaneAttendance: BridgePaneAttendanceAtom())
+            windowLifecycleStore: WindowLifecycleAtom(), ipcLifecycle: .testUnavailable,
+            bridgePaneAttendance: BridgePaneAttendanceAtom())
         coordinator.windowLifecycleStore.recordTerminalContainerBounds(
             CGRect(x: 0, y: 0, width: 1000, height: 600))
         // This is the synchronous observation boundary used by layout readers.
@@ -191,7 +193,8 @@ struct WorkspaceTerminalCreationDurabilityTests {
         let coordinator = WorkspaceSurfaceCoordinator(
             store: store, viewRegistry: registry, runtime: SessionRuntime(store: store),
             surfaceManager: manager, runtimeRegistry: RuntimeRegistry(),
-            windowLifecycleStore: WindowLifecycleAtom(), bridgePaneAttendance: BridgePaneAttendanceAtom())
+            windowLifecycleStore: WindowLifecycleAtom(), ipcLifecycle: .testUnavailable,
+            bridgePaneAttendance: BridgePaneAttendanceAtom())
         coordinator.sessionConfig = SessionConfiguration(
             isEnabled: true, zmxPath: "/test/zmx", zmxDir: "/tmp/unused-creation-regression",
             healthCheckInterval: 30, maxCheckpointAge: 3600)
@@ -229,7 +232,8 @@ struct WorkspaceTerminalCreationDurabilityTests {
         let coordinator = WorkspaceSurfaceCoordinator(
             store: store, viewRegistry: registry, runtime: SessionRuntime(store: store),
             surfaceManager: manager, runtimeRegistry: RuntimeRegistry(),
-            windowLifecycleStore: WindowLifecycleAtom(), bridgePaneAttendance: BridgePaneAttendanceAtom())
+            windowLifecycleStore: WindowLifecycleAtom(), ipcLifecycle: .testUnavailable,
+            bridgePaneAttendance: BridgePaneAttendanceAtom())
         coordinator.windowLifecycleStore.recordTerminalContainerBounds(
             CGRect(x: 0, y: 0, width: 1000, height: 600))
         let surfaceID = UUIDv7.generate()

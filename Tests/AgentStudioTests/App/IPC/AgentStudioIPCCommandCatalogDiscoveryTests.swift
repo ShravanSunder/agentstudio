@@ -1,0 +1,198 @@
+import AgentStudioAppIPC
+import AgentStudioIPCClientCore
+import AgentStudioIPCTransport
+import AgentStudioInfrastructure
+import AgentStudioProgrammaticControl
+import Foundation
+import Testing
+
+@testable import AgentStudio
+@testable import AgentStudioCore
+@testable import AgentStudioTestSupport
+
+/// The CLI recomposes `command.list` and `command.execute` from the catalog the
+/// server advertised and requires the result to match it exactly. Only a real
+/// debug-channel catalog exercises that: a fixture catalog is composed by the
+/// same process that checks it, so it cannot show a difference the wire
+/// introduces.
+@MainActor
+@Suite("App IPC command catalog discovery", .serialized)
+struct AgentStudioIPCCommandCatalogDiscoveryTests {
+    init() { installTestCoreAtomsIfNeeded() }
+
+    @Test("the live debug catalog decodes into an invocable command catalog")
+    func liveDebugCatalogDecodes() async throws {
+        let harness = try await SessionsVerticalHarness.make()
+        defer { harness.tearDown() }
+
+        let methodCatalog = try await harness.methodCatalog()
+        let discovery = try IPCCommandDiscovery(methodCatalog: methodCatalog)
+        let commandListResult = try await harness.resultData(
+            method: "command.list", params: .object([:]))
+
+        let discovered = try discovery.decodeCommandCatalog(from: commandListResult)
+
+        #expect(discovered.executeDescriptor.metadata.name == "command.execute")
+        let invocation = try discovered.makeInvocation(
+            commandId: IPCCommandIdentifier(rawValue: "showReposSidebar"),
+            correlationId: UUIDv7.generate(),
+            arguments: .workspaceWindow(
+                IPCWorkspaceWindowCommandArguments(workspaceWindowId: harness.workspaceWindowId))
+        )
+        #expect(invocation.descriptor.metadata.name == "command.execute")
+    }
+
+    @Test("every advertised command survives the client's descriptor round trip")
+    func everyAdvertisedCommandSurvivesTheRoundTrip() async throws {
+        let harness = try await SessionsVerticalHarness.make()
+        defer { harness.tearDown() }
+
+        let methodCatalog = try await harness.methodCatalog()
+        let advertisedList = try #require(
+            methodCatalog.methods.first { $0.name == "command.list" })
+        let commandListResult = try await harness.resultData(
+            method: "command.list", params: .object([:]))
+        let catalog = try JSONDecoder().decode(
+            IPCCommandCatalogResult.self,
+            from: try advertisedList.resultSchema.normalize(commandListResult))
+
+        // Names the command that drifts instead of failing on the whole
+        // catalog: one command with a defaulted URL argument broke all 146.
+        var driftedCommandIdentifiers: [String] = []
+        for command in catalog.commands {
+            let recomposed = try IPCCommandDescriptorFactory.make(
+                IPCCommandDescriptorInput(
+                    id: command.id,
+                    title: command.title,
+                    description: command.description,
+                    exposure: command.exposure,
+                    executionMode: command.executionMode,
+                    argumentVariants: command.argumentVariants,
+                    requiredPrivileges: Set(command.requiredPrivileges),
+                    dataScope: command.dataScope,
+                    allowedTargetKinds: Set(command.allowedTargetKinds),
+                    resultVariants: command.resultVariants,
+                    examples: command.examples
+                ))
+            if recomposed != command { driftedCommandIdentifiers.append(command.id.rawValue) }
+        }
+
+        #expect(catalog.commands.count == 152)
+        #expect(driftedCommandIdentifiers.isEmpty, "drifted: \(driftedCommandIdentifiers)")
+    }
+    @Test("the bundled CLI reaches the server for command.list and command.execute")
+    func bundledCLIReachesTheServerForCommands() async throws {
+        let harness = try await SessionsVerticalHarness.make()
+        defer { harness.tearDown() }
+        let cli = try commandLineExecutableURL()
+
+        let environment = [
+            "AGENTSTUDIO_IPC_SOCKET": harness.socketPath,
+            "AGENTSTUDIO_PANE_TOKEN": harness.token.rawValue,
+            "PATH": "/usr/bin:/bin",
+        ]
+        let listing = try await runCommandLineInterface(
+            executableURL: cli, arguments: ["command.list"], environment: environment)
+
+        #expect(listing.exitCode == 0, "command.list stderr: \(listing.standardError)")
+        #expect(listing.standardOutput.contains("showReposSidebar"))
+
+        let executionPayload = """
+            {"commandId":"showReposSidebar","correlationId":"\(UUIDv7.generate().uuidString)",            "arguments":{"kind":"workspaceWindow",            "workspaceWindowId":"\(harness.workspaceWindowId.uuidString)"}}
+            """
+        let execution = try await runCommandLineInterface(
+            executableURL: cli,
+            arguments: ["command.execute", "--json", executionPayload],
+            environment: environment)
+
+        // Only the app's command owner produces `stateUnavailable` on
+        // `$.commandId`, so this answer proves the CLI composed the invocation
+        // from the live catalog and the frame reached the server. Applying a
+        // sidebar command needs a real window this headless harness does not
+        // build; the decode path it exercises is what round 2 could not reach.
+        #expect(execution.standardError.contains("\"reason\":\"stateUnavailable\""))
+        #expect(execution.standardError.contains("\"fieldPath\":\"$.commandId\""))
+    }
+
+    private func commandLineExecutableURL() throws -> URL {
+        let buildDirectory = try #require(ProcessInfo.processInfo.environment["SWIFT_BUILD_DIR"])
+        let testFileURL = URL(fileURLWithPath: #filePath)
+        let projectRoot =
+            testFileURL
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let resolvedBuildDirectory =
+            buildDirectory.hasPrefix("/")
+            ? URL(fileURLWithPath: buildDirectory)
+            : projectRoot.appending(path: buildDirectory)
+        return resolvedBuildDirectory.appending(path: "debug/agentstudio-cli")
+    }
+
+    /// Runs off the MainActor and writes both streams to files.
+    ///
+    /// The harness server dispatches commands on the MainActor, so blocking it
+    /// here would deadlock against the very request the CLI is making. Files
+    /// rather than pipes because `command.list` returns far more than a pipe
+    /// buffer holds, and a single-threaded pipe drain would stall on it.
+    private nonisolated func runCommandLineInterface(
+        executableURL: URL,
+        arguments: [String],
+        environment: [String: String]
+    ) async throws -> (exitCode: Int32, standardOutput: String, standardError: String) {
+        let outputURL = FileManager.default.temporaryDirectory
+            .appending(path: "as-cli-out-\(UUIDv7.generate().uuidString)")
+        let errorURL = FileManager.default.temporaryDirectory
+            .appending(path: "as-cli-err-\(UUIDv7.generate().uuidString)")
+        defer {
+            try? FileManager.default.removeItem(at: outputURL)
+            try? FileManager.default.removeItem(at: errorURL)
+        }
+        FileManager.default.createFile(atPath: outputURL.path, contents: nil)
+        FileManager.default.createFile(atPath: errorURL.path, contents: nil)
+
+        let exitCode: Int32 = try await withCheckedThrowingContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                do {
+                    let outputHandle = try FileHandle(forWritingTo: outputURL)
+                    let errorHandle = try FileHandle(forWritingTo: errorURL)
+                    let process = Process()
+                    process.executableURL = executableURL
+                    process.arguments = arguments
+                    process.environment = environment
+                    process.standardOutput = outputHandle
+                    process.standardError = errorHandle
+                    try process.run()
+                    process.waitUntilExit()
+                    try? outputHandle.close()
+                    try? errorHandle.close()
+                    continuation.resume(returning: process.terminationStatus)
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+        return (
+            exitCode,
+            String(data: (try? Data(contentsOf: outputURL)) ?? Data(), encoding: .utf8) ?? "",
+            String(data: (try? Data(contentsOf: errorURL)) ?? Data(), encoding: .utf8) ?? ""
+        )
+    }
+}
+
+extension SessionsVerticalHarness {
+    /// The advertised method catalog, read over the socket exactly as the CLI
+    /// reads it.
+    func methodCatalog() async throws -> IPCMethodCatalogResult {
+        try JSONDecoder().decode(
+            IPCMethodCatalogResult.self,
+            from: try await resultData(method: "system.capabilities", params: .object([:])))
+    }
+
+    func resultData(method: String, params: JSONValue) async throws -> Data {
+        let message = try JSONRPCCodec.decodeResponse(
+            try await responseFrame(method: method, params: params))
+        #expect(message.error == nil, "\(method) failed: \(String(describing: message.error))")
+        return try JSONEncoder().encode(try #require(message.result))
+    }
+}

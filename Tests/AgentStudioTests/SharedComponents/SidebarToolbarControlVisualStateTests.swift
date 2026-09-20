@@ -86,6 +86,19 @@ struct SidebarToolbarControlVisualStateTests {
         #expect(!source.contains("AnyTransition.offset"))
     }
 
+    @Test("entity shortcuts are rendered below the selected label, never over the icon")
+    func entityShortcutPlacementUsesExistingStampPrimitive() throws {
+        let toggleSource = try String(
+            contentsOfFile: "Sources/AgentStudio/SharedComponents/SidebarEntityToggle.swift", encoding: .utf8)
+        let controlSource = try String(
+            contentsOfFile: "Sources/AgentStudio/SharedComponents/SidebarToolbarSegmentedControl.swift", encoding: .utf8
+        )
+        #expect(toggleSource.contains("shortcutDisplay: shortcutDisplay"))
+        #expect(!toggleSource.contains("sidebarShortcutHint(shortcutDisplay(value)"))
+        #expect(controlSource.contains("VStack(spacing: 1)"))
+        #expect(controlSource.contains("SidebarShortcutHint(shortcut, style: .toolbarStamp)"))
+    }
+
     @Test("organization popovers render command-catalog tooltips")
     func organizationPopoversRenderCommandCatalogTooltips() throws {
         let controlSource = try String(

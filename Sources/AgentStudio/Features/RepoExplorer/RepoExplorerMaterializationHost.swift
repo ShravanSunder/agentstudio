@@ -56,19 +56,6 @@ final class RepoExplorerMaterializationHost: NSView {
     }
 
     override func keyDown(with event: NSEvent) {
-        if Self.isSpaceKeyDown(event) {
-            guard isPresentationReady, let keyboardInteraction,
-                keyboardInteraction.isListKeyboardActive
-            else {
-                super.keyDown(with: event)
-                return
-            }
-            keyboardInteraction.spaceKeyDown(
-                isRepeat: event.isARepeat,
-                selectedPaneTarget: selectedPaneTarget()
-            )
-            return
-        }
         guard isPresentationReady, keyboardInteraction?.isListKeyboardActive == true,
             let trigger = ShortcutDecoder.decode(event: event)
         else {
@@ -84,28 +71,6 @@ final class RepoExplorerMaterializationHost: NSView {
             return
         }
         super.keyDown(with: event)
-    }
-
-    override func keyUp(with event: NSEvent) {
-        // Space-up is the physical end of the gesture. Its modifier snapshot
-        // and current list readiness may differ from the corresponding key-down
-        // (for example, Shift or Caps Lock can change while Space is held).
-        if event.keyCode == 49 {
-            keyboardInteraction?.spaceKeyUp()
-            return
-        }
-        super.keyUp(with: event)
-    }
-
-    private static func isSpaceKeyDown(_ event: NSEvent) -> Bool {
-        guard event.keyCode == 49 else { return false }
-        let conventionalCommandModifiers: NSEvent.ModifierFlags = [
-            .command,
-            .control,
-            .option,
-            .shift,
-        ]
-        return event.modifierFlags.isDisjoint(with: conventionalCommandModifiers)
     }
 
     private let makeContentChild: @MainActor () -> any RepoExplorerMaterializationContentChild

@@ -6,6 +6,7 @@ package struct SidebarShortcutHint: View {
     package enum Style: Equatable {
         case keycap
         case accentGlyph
+        case toolbarStamp
     }
 
     private let displayText: ShortcutDisplayText
@@ -19,7 +20,11 @@ package struct SidebarShortcutHint: View {
     package var body: some View {
         Text(displayText.value)
             .lineLimit(1)
-            .font(.system(size: AppStyles.Shell.Sidebar.KeyboardHint.fontSize, weight: .medium, design: .monospaced))
+            .font(
+                .system(
+                    size: style == .toolbarStamp ? 12 : AppStyles.Shell.Sidebar.KeyboardHint.fontSize,
+                    weight: style == .toolbarStamp ? .semibold : .medium, design: .monospaced)
+            )
             .foregroundStyle(style == .accentGlyph ? Color.accentColor : Color.primary)
             .padding(.horizontal, AppStyles.Shell.Sidebar.KeyboardHint.horizontalPadding)
             .frame(

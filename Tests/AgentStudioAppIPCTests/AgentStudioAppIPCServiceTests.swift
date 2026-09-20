@@ -1,33 +1,25 @@
 import AgentStudioAppIPC
 import AgentStudioIPCTransport
+import AgentStudioInfrastructure
 import AgentStudioProgrammaticControl
 import Foundation
 import Testing
 
 @testable import AgentStudio
 
-#if canImport(Darwin)
-    import Darwin
-#endif
-
 @Suite("AgentStudio App IPC service shell", .serialized)
 struct AgentStudioAppIPCServiceTests {
     @Test("composes service from configuration and protocol ports")
     func composesServiceFromConfigurationAndProtocolPorts() throws {
-        let method = try IPCMethodDefinition(
-            name: "system.identify",
-            privilegeClasses: [.systemRead],
-            executionOwner: .queryReader,
-            resultSemantics: .applied
-        )
-        let runtimeId = UUID()
+        let fixture = BuiltInMethodRegistrationsFixture()
+        let runtimeId = UUIDv7.generate()
         let configuration = AgentStudioAppIPCConfiguration(
             runtimeId: runtimeId,
-            accessMode: .agentStudioOnly,
-            methodDefinitions: [method]
+            accessMode: .agentStudioOnly
         )
 
         let eventBroker = IPCEventBroker()
+        let registry = try AppIPCMethodRegistry(registrations: fixture.registrations(), channel: .debug)
         let service = AgentStudioAppIPCService(
             configuration: configuration,
             ports: AgentStudioAppIPCPorts(
@@ -38,14 +30,19 @@ struct AgentStudioAppIPCServiceTests {
                 commandPort: FakeCommandPort(),
                 uiPresentationPort: FakeUIPresentationPort(),
                 sidebarPort: FakeSidebarPort(),
+                sessionsPort: RecordingSessionsPort(),
                 permissionApprovalPort: FakePermissionApprovalPort()
             ),
+            methodRegistry: registry,
             eventBroker: eventBroker
         )
 
         #expect(service.configuration.runtimeId == runtimeId)
         #expect(service.configuration.accessMode == .agentStudioOnly)
-        #expect(service.configuration.methodDefinitions == [method])
+        #expect(service.methodRegistry.capabilities.methods.count == 48)
+        #expect(
+            service.methodRegistry.capabilities.methods.filter { $0.name == "system.capabilities" }.count == 1
+        )
         #expect(service.eventBroker === eventBroker)
     }
 
@@ -84,14 +81,13 @@ struct AgentStudioAppIPCServiceTests {
             fixture.cleanup()
         }
         try fixture.server.start()
-        let principal = IPCPrincipal(
-            principalId: UUID(),
-            runtimeId: fixture.runtimeId,
-            accessMode: .agentStudioOnly,
-            kind: .spawnedPaneAgent(boundPaneId: fixture.boundPaneId.uuidString, boundWorkspaceId: nil),
-            approvalAuthority: .noApprovalAuthority
+        let token = try fixture.issueTestCredential(
+            for: .pane(
+                paneId: fixture.boundPaneId,
+                credentialRecordId: UUIDv7.generate(),
+                status: .registered
+            )
         )
-        let token = try fixture.server.principalRegistry.issueSubjectToken(for: principal)
         let connection = try UnixSocketClient.connect(
             endpoint: UnixSocketEndpoint(path: fixture.paths.socketURL.path)
         )
@@ -198,6 +194,7 @@ struct AgentStudioAppIPCServiceTests {
                 params: .object([
                     "handle": .string("pane:1"),
                     "input": .string("echo unsafe-debug\n"),
+                    "correlationId": .string(UUIDv7.generate().uuidString),
                 ])
             )
         )
@@ -249,6 +246,7 @@ struct AgentStudioAppIPCServiceTests {
                 params: .object([
                     "handle": .string("pane:1"),
                     "input": .string("echo should-not-run\n"),
+                    "correlationId": .string(UUIDv7.generate().uuidString),
                 ])
             )
         )
@@ -350,101 +348,45 @@ struct AgentStudioAppIPCServiceTests {
         }
         #expect(statusResult["authenticated"] == .bool(false))
 
-        let send = try sendRequest(
+        let version = try sendRequest(
             socketPath: fixture.paths.socketURL.path,
             request: JSONRPCClientRequest(
                 id: .number(63),
-                method: "terminal.send",
-                params: .object(["handle": .string("pane:1"), "input": .string("echo denied\n")])
+                method: "system.version",
+                params: .object([:])
             )
         )
-        #expect(send.error?.code == -32_001)
-        #expect(send.error?.message == "unauthenticated")
+        #expect(version.error?.code == -32_001)
+        #expect(version.error?.message == "unauthenticated")
     }
 
-    @Test("debug unsafe no-auth denies permission methods by default")
-    func debugUnsafeNoAuthDeniesPermissionMethodsByDefault() throws {
-        let fixture = try LiveServerFixture(accessMode: .unsafeDebug, channel: .debug)
+    @Test("explicit diagnostic credential can authenticate two connections")
+    func explicitDiagnosticCredentialAuthenticatesTwoConnections() throws {
+        let fixture = try LiveServerFixture(channel: .debug)
         defer {
             fixture.cleanup()
         }
         try fixture.server.start()
+        let token = fixture.installDebugCredential()
 
-        let requestParams = IPCPermissionRequestParams(
-            scope: IPCPermissionScope(
-                privilege: .terminalInputWrite, target: .pane(UUID().uuidString), dataScope: .terminalInput),
-            reason: "unsafe debug must not request grants",
-            approvalRoute: .humanPrompt
-        )
-        let response = try sendRequest(
-            socketPath: fixture.paths.socketURL.path,
-            request: JSONRPCClientRequest(
-                id: .number(64),
-                method: "permission.request",
-                params: try JSONRPCCodec.encodeJSONValue(requestParams)
+        for requestId in [65, 66] {
+            let connection = try UnixSocketClient.connect(
+                endpoint: UnixSocketEndpoint(path: fixture.paths.socketURL.path)
             )
-        )
-
-        #expect(response.id == .number(64))
-        #expect(response.error?.code == -32_002)
-        #expect(response.error?.message == "unauthorized")
-    }
-
-    @Test("debug token escrow writes owner-only token and removes it after login")
-    func debugTokenEscrowWritesOwnerOnlyTokenAndRemovesItAfterLogin() throws {
-        let fixture = try LiveServerFixture(
-            channel: .debug,
-            debugTokenEscrowEnabled: true
-        )
-        defer {
-            fixture.cleanup()
-        }
-        try fixture.server.start(processIdentifier: 12_346, startedAt: Date(timeIntervalSince1970: 1_800_000_001))
-
-        #expect(FileManager.default.fileExists(atPath: fixture.paths.debugTokenURL.path))
-        #expect(try fileMode(for: fixture.paths.debugTokenURL) & 0o777 == 0o600)
-
-        let token = try String(contentsOf: fixture.paths.debugTokenURL, encoding: .utf8)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        #expect(!token.isEmpty)
-
-        let metadata = try String(contentsOf: fixture.paths.metadataURL, encoding: .utf8)
-        #expect(!metadata.contains(token))
-        #expect(!metadata.contains(fixture.paths.debugTokenURL.path))
-
-        let connection = try UnixSocketClient.connect(endpoint: UnixSocketEndpoint(path: fixture.paths.socketURL.path))
-        defer {
-            connection.close()
-        }
-        var reader = TestFrameReader()
-        try sendRequest(
-            connection: connection,
-            request: JSONRPCClientRequest(
-                id: .number(65),
-                method: "auth.login",
-                params: .object(["token": .string(token)])
+            defer { connection.close() }
+            var reader = TestFrameReader()
+            try login(connection: connection, token: token, requestId: requestId, reader: &reader)
+            try sendRequest(
+                connection: connection,
+                request: JSONRPCClientRequest(
+                    id: .number(requestId + 1),
+                    method: "auth.status",
+                    params: .object([:])
+                )
             )
-        )
-        let loginResponse = try reader.receiveResponse(connection: connection)
-        #expect(loginResponse.error == nil)
-        guard case .object(let loginResult)? = loginResponse.result else {
-            Issue.record("expected auth login result")
-            return
+            let response = try reader.receiveResponse(connection: connection)
+            #expect(response.error == nil)
         }
-        #expect(loginResult["authenticated"] == .bool(true))
-        #expect(loginResult["accessMode"] == .string(IPCAccessMode.unsafeDebug.rawValue))
-        #expect(!FileManager.default.fileExists(atPath: fixture.paths.debugTokenURL.path))
-
-        let replay = try sendRequest(
-            socketPath: fixture.paths.socketURL.path,
-            request: JSONRPCClientRequest(
-                id: .number(66),
-                method: "auth.login",
-                params: .object(["token": .string(token)])
-            )
-        )
-        #expect(replay.error?.code == -32_001)
-        #expect(replay.error?.message == "unauthenticated")
     }
 
     @Test("unsafe debug client can invoke semantic layout control methods")
@@ -466,7 +408,8 @@ struct AgentStudioAppIPCServiceTests {
                 id: .number(71),
                 method: "pane.split",
                 params: try JSONRPCCodec.encodeJSONValue(
-                    IPCPaneSplitParams(handle: "pane:1", direction: .right, correlationId: nil)
+                    IPCPaneSplitParams(
+                        handle: "pane:1", direction: .right, correlationId: UUIDv7.generate())
                 )
             )
         )
@@ -481,7 +424,7 @@ struct AgentStudioAppIPCServiceTests {
                 id: .number(74),
                 method: "pane.close",
                 params: try JSONRPCCodec.encodeJSONValue(
-                    IPCPaneCloseParams(handle: "pane:1", correlationId: nil)
+                    IPCPaneCloseParams(handle: "pane:1", correlationId: UUIDv7.generate())
                 )
             )
         )
@@ -495,7 +438,8 @@ struct AgentStudioAppIPCServiceTests {
                 id: .number(75),
                 method: "drawer.addPane",
                 params: try JSONRPCCodec.encodeJSONValue(
-                    IPCDrawerAddPaneParams(parentPaneHandle: "pane:1", correlationId: nil)
+                    IPCDrawerAddPaneParams(
+                        parentPaneHandle: "pane:1", correlationId: UUIDv7.generate())
                 )
             )
         )
@@ -509,7 +453,8 @@ struct AgentStudioAppIPCServiceTests {
                 id: .number(76),
                 method: "drawer.toggle",
                 params: try JSONRPCCodec.encodeJSONValue(
-                    IPCDrawerToggleParams(parentPaneHandle: "pane:1", correlationId: nil)
+                    IPCDrawerToggleParams(
+                        parentPaneHandle: "pane:1", correlationId: UUIDv7.generate())
                 )
             )
         )
@@ -518,69 +463,23 @@ struct AgentStudioAppIPCServiceTests {
         #expect(drawerToggleResult.parentPaneId == paneId)
     }
 
-    @Test("debug unsafe privilege cannot be requested through permission broker")
-    func debugUnsafePrivilegeCannotBeRequestedThroughPermissionBroker() throws {
-        let fixture = try LiveServerFixture()
+    @Test("server canonicalizes friendly pane ordinals before cross-pane command authorization")
+    func serverCanonicalizesFriendlyPaneOrdinalsBeforeCrossPaneCommandAuthorization() throws {
+        let scenario = try OrdinalCommandAuthorizationScenario.make()
         defer {
-            fixture.cleanup()
+            scenario.fixture.cleanup()
         }
-        try fixture.server.start()
-        let principal = IPCPrincipal(
-            principalId: UUID(),
-            runtimeId: fixture.runtimeId,
-            accessMode: .agentStudioOnly,
-            kind: .spawnedPaneAgent(boundPaneId: fixture.boundPaneId.uuidString, boundWorkspaceId: nil),
-            approvalAuthority: .noApprovalAuthority
-        )
-        let token = try fixture.server.principalRegistry.issueSubjectToken(for: principal)
-        let connection = try UnixSocketClient.connect(endpoint: UnixSocketEndpoint(path: fixture.paths.socketURL.path))
-        defer {
-            connection.close()
-        }
-        var reader = TestFrameReader()
-        try login(connection: connection, token: token, requestId: 71, reader: &reader)
+        try scenario.fixture.server.start()
 
-        let requestParams = IPCPermissionRequestParams(
-            scope: IPCPermissionScope(privilege: .debugUnsafe, target: .app, dataScope: .unspecified),
-            reason: "commands are not grantable",
-            approvalRoute: .humanPrompt
-        )
-        try sendRequest(
-            connection: connection,
-            request: JSONRPCClientRequest(
-                id: .number(72),
-                method: "permission.request",
-                params: try JSONRPCCodec.encodeJSONValue(requestParams)
+        let token = try scenario.fixture.issueTestCredential(
+            for: .pane(
+                paneId: scenario.secondPaneId,
+                credentialRecordId: UUIDv7.generate(),
+                status: .registered
             )
         )
-        let response = try reader.receiveResponse(connection: connection)
-        #expect(response.error?.code == -32_002)
-        #expect(response.error?.message == "unauthorized")
-    }
-
-    @Test("server authorizes friendly pane ordinals as concrete panes before terminal dispatch")
-    func serverAuthorizesFriendlyPaneOrdinalsAsConcretePanesBeforeTerminalDispatch() throws {
-        let firstPaneId = UUID()
-        let secondPaneId = UUID()
-        let fixture = try LiveServerFixture(panes: [
-            makePaneSummary(id: firstPaneId, ordinal: 1),
-            makePaneSummary(id: secondPaneId, ordinal: 2),
-        ])
-        defer {
-            fixture.cleanup()
-        }
-        try fixture.server.start()
-
-        let principal = IPCPrincipal(
-            principalId: UUID(),
-            runtimeId: fixture.runtimeId,
-            accessMode: .agentStudioOnly,
-            kind: .spawnedPaneAgent(boundPaneId: secondPaneId.uuidString, boundWorkspaceId: nil),
-            approvalAuthority: .noApprovalAuthority
-        )
-        let token = try fixture.server.principalRegistry.issueSubjectToken(for: principal)
         let connection = try UnixSocketClient.connect(
-            endpoint: UnixSocketEndpoint(path: fixture.paths.socketURL.path)
+            endpoint: UnixSocketEndpoint(path: scenario.fixture.paths.socketURL.path)
         )
         defer {
             connection.close()
@@ -592,18 +491,44 @@ struct AgentStudioAppIPCServiceTests {
             connection: connection,
             request: JSONRPCClientRequest(
                 id: .number(41),
-                method: "terminal.send",
-                params: .object([
-                    "handle": .string("pane:1"),
-                    "input": .string("echo should-not-dispatch\n"),
-                ])
+                method: "command.execute",
+                params: try JSONRPCCodec.encodeJSONValue(
+                    IPCCommandExecutionRequest(
+                        commandId: scenario.commandId,
+                        correlationId: scenario.correlationId,
+                        arguments: .pane(
+                            IPCPaneCommandArguments(
+                                workspaceWindowId: scenario.workspaceWindowId,
+                                paneSelector: try IPCPaneSelector(rawValue: "pane:1")
+                            )
+                        )
+                    )
+                )
             )
         )
 
         let response = try reader.receiveResponse(connection: connection)
         #expect(response.id == .number(41))
         #expect(response.error?.code == -32_002)
-        #expect(response.error?.message == "unauthorized")
+        #expect(response.error?.message == "missing grant")
+        guard case .object(let correction)? = response.error?.data,
+            let requiredScopeValue = correction["requiredScope"]
+        else {
+            Issue.record("Expected canonical missing-grant correction")
+            return
+        }
+        let requiredScope = try decodeJSONValue(IPCPermissionScope.self, from: requiredScopeValue)
+        #expect(correction["reason"] == .string("missingGrant"))
+        #expect(correction["fieldPath"] == .string("$.authorization"))
+        #expect(requiredScope.target == .pane(scenario.firstPaneId.uuidString))
+        #expect(requiredScope.privilege == .appCommandExecute)
+        #expect(requiredScope.dataScope == .unspecified)
+        guard case .pane(let preparedArguments)? = scenario.commandPort.preparedRequests.first?.arguments else {
+            Issue.record("Expected the command port to receive canonical pane arguments")
+            return
+        }
+        #expect(preparedArguments.paneSelector.rawValue == scenario.firstPaneId.uuidString)
+        #expect(scenario.underlyingCommandPort.receivedExecutionRequests.isEmpty)
     }
 
     @Test("server stop closes existing authenticated socket sessions")
@@ -613,14 +538,13 @@ struct AgentStudioAppIPCServiceTests {
             fixture.cleanup()
         }
         try fixture.server.start()
-        let principal = IPCPrincipal(
-            principalId: UUID(),
-            runtimeId: fixture.runtimeId,
-            accessMode: .agentStudioOnly,
-            kind: .spawnedPaneAgent(boundPaneId: fixture.boundPaneId.uuidString, boundWorkspaceId: nil),
-            approvalAuthority: .noApprovalAuthority
+        let token = try fixture.issueTestCredential(
+            for: .pane(
+                paneId: fixture.boundPaneId,
+                credentialRecordId: UUIDv7.generate(),
+                status: .registered
+            )
         )
-        let token = try fixture.server.principalRegistry.issueSubjectToken(for: principal)
         let connection = try UnixSocketClient.connect(
             endpoint: UnixSocketEndpoint(path: fixture.paths.socketURL.path)
         )
@@ -674,14 +598,13 @@ struct AgentStudioAppIPCServiceTests {
             fixture.cleanup()
         }
         try fixture.server.start()
-        let principal = IPCPrincipal(
-            principalId: UUID(),
-            runtimeId: fixture.runtimeId,
-            accessMode: .agentStudioOnly,
-            kind: .spawnedPaneAgent(boundPaneId: fixture.boundPaneId.uuidString, boundWorkspaceId: nil),
-            approvalAuthority: .noApprovalAuthority
+        let token = try fixture.issueTestCredential(
+            for: .pane(
+                paneId: fixture.boundPaneId,
+                credentialRecordId: UUIDv7.generate(),
+                status: .registered
+            )
         )
-        let token = try fixture.server.principalRegistry.issueSubjectToken(for: principal)
         let connection = try UnixSocketClient.connect(
             endpoint: UnixSocketEndpoint(path: fixture.paths.socketURL.path)
         )
@@ -705,78 +628,174 @@ struct AgentStudioAppIPCServiceTests {
         }
     }
 
-    @Test("server routes delegated approval authority through authenticated sockets")
-    func serverRoutesDelegatedApprovalAuthorityThroughAuthenticatedSockets() throws {
+    @Test("authenticated pane requests recheck canonical membership")
+    func authenticatedPaneRequestsRecheckCanonicalMembership() throws {
+        let membership = PaneMembershipGate()
+        let fixture = try LiveServerFixture(
+            canonicalPaneMembership: { _, _ in membership.isMember }
+        )
+        defer { fixture.cleanup() }
+        try fixture.server.start()
+        let token = try fixture.issueTestCredential(
+            for: .pane(
+                paneId: fixture.boundPaneId,
+                credentialRecordId: UUIDv7.generate(),
+                status: .registered
+            )
+        )
+        let connection = try UnixSocketClient.connect(
+            endpoint: UnixSocketEndpoint(path: fixture.paths.socketURL.path)
+        )
+        defer { connection.close() }
+        var reader = TestFrameReader()
+        try login(connection: connection, token: token, requestId: 60, reader: &reader)
+
+        membership.setMember(false)
+        try sendRequest(
+            connection: connection,
+            request: JSONRPCClientRequest(id: .number(61), method: "system.version", params: .object([:]))
+        )
+        let response = try reader.receiveResponse(connection: connection)
+
+        #expect(response.error?.code == -32_001)
+        #expect(response.error?.message == "unauthenticated")
+    }
+
+    @Test("pane authentication uses canonical fixture credential metadata")
+    func paneAuthenticationUsesCanonicalFixtureCredentialMetadata() throws {
         let fixture = try LiveServerFixture()
         defer {
             fixture.cleanup()
         }
         try fixture.server.start()
-
-        let scenario = try makeDelegatedApprovalSocketScenario(fixture: fixture)
-
-        let requesterConnection = try UnixSocketClient.connect(
+        let token = try fixture.issueTestCredential(
+            for: .pane(
+                paneId: fixture.boundPaneId,
+                credentialRecordId: UUIDv7.generate(),
+                status: .registered
+            )
+        )
+        let connection = try UnixSocketClient.connect(
             endpoint: UnixSocketEndpoint(path: fixture.paths.socketURL.path)
         )
-        defer {
-            requesterConnection.close()
-        }
-        var requesterReader = TestFrameReader()
-        try login(
-            connection: requesterConnection, token: scenario.requesterToken, requestId: 20, reader: &requesterReader)
+        defer { connection.close() }
+        var reader = TestFrameReader()
+        try login(connection: connection, token: token, requestId: 67, reader: &reader)
+        try sendRequest(
+            connection: connection,
+            request: JSONRPCClientRequest(id: .number(68), method: "system.identify", params: .object([:]))
+        )
+        let response = try reader.receiveResponse(connection: connection)
+        #expect(response.error == nil)
+    }
+}
 
-        let permissionResult = try requestDelegatedPermission(
-            connection: requesterConnection,
-            reader: &requesterReader,
-            scenario: scenario
-        )
+private final class PaneMembershipGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storedIsMember = true
 
-        let approverConnection = try UnixSocketClient.connect(
-            endpoint: UnixSocketEndpoint(path: fixture.paths.socketURL.path)
-        )
-        defer {
-            approverConnection.close()
-        }
-        var approverReader = TestFrameReader()
-        try login(connection: approverConnection, token: scenario.approverToken, requestId: 30, reader: &approverReader)
-        try resolveDelegatedPermission(
-            connection: approverConnection,
-            reader: &approverReader,
-            permissionResult: permissionResult
-        )
+    var isMember: Bool { lock.withLock { storedIsMember } }
 
-        try assertGrantIsActive(
-            connection: requesterConnection,
-            reader: &requesterReader,
-            permissionResult: permissionResult
-        )
+    func setMember(_ isMember: Bool) {
+        lock.withLock { storedIsMember = isMember }
+    }
+}
+
+private final class PreparedCommandRecordingPort: AppIPCCommandPort, @unchecked Sendable {
+    private let underlying: FakeCommandPort
+    private let lock = NSLock()
+    nonisolated(unsafe) private var preparedRequestsStorage: [IPCCommandExecutionRequest] = []
+
+    nonisolated init(underlying: FakeCommandPort) {
+        self.underlying = underlying
     }
 
-    @Test("pane bootstrap delivers token through inherited fd metadata only")
-    func paneBootstrapDeliversTokenThroughInheritedFDMetadataOnly() throws {
-        let fixture = try LiveServerFixture()
-        defer {
-            fixture.cleanup()
-        }
+    nonisolated var preparedRequests: [IPCCommandExecutionRequest] {
+        lock.withLock { preparedRequestsStorage }
+    }
 
-        let bootstrap = try fixture.server.makePaneBootstrap(
-            boundPaneId: fixture.boundPaneId.uuidString,
-            boundWorkspaceId: nil
+    func listCommands() throws -> IPCCommandCatalogResult {
+        try underlying.listCommands()
+    }
+
+    func prepareCommand(
+        _ params: IPCCommandExecutionRequest,
+        principal: IPCPrincipal,
+        tools: AppIPCTargetResolutionTools
+    ) async throws -> AppIPCPreparedCommand {
+        let prepared = try await underlying.prepareCommand(params, principal: principal, tools: tools)
+        lock.withLock { preparedRequestsStorage.append(prepared.request) }
+        return prepared
+    }
+
+    func executeCommand(_ params: IPCCommandExecutionRequest) async throws -> IPCCommandExecutionResult {
+        try await underlying.executeCommand(params)
+    }
+}
+
+private struct OrdinalCommandAuthorizationScenario {
+    let firstPaneId: UUID
+    let secondPaneId: UUID
+    let workspaceWindowId: UUID
+    let commandId: IPCCommandIdentifier
+    let correlationId: UUID
+    let commandPort: PreparedCommandRecordingPort
+    let underlyingCommandPort: FakeCommandPort
+    let fixture: LiveServerFixture
+
+    static func make() throws -> Self {
+        let firstPaneId = UUIDv7.generate()
+        let secondPaneId = UUIDv7.generate()
+        let workspaceWindowId = UUIDv7.generate()
+        let commandId = IPCCommandIdentifier(rawValue: "fixtureOrdinalCommand")
+        let correlationId = UUIDv7.generate()
+        let result = IPCCommandExecutionResult.applied(
+            IPCCommandAppliedResult(commandId: commandId, correlationId: correlationId)
         )
-        defer {
-            bootstrap.closeTokenReadFileDescriptor()
-        }
-
-        let environment = bootstrap.descriptor.environment.variables
-        #expect(environment["AGENTSTUDIO_IPC_SOCKET"] == fixture.paths.socketURL.path)
-        #expect(environment["AGENTSTUDIO_IPC_RUNTIME_ID"] == fixture.runtimeId.uuidString)
-        #expect(environment["AGENTSTUDIO_IPC_BOOTSTRAP_FD"] == String(bootstrap.descriptor.tokenReadFileDescriptor))
-        #expect(!environment.keys.contains("AGENTSTUDIO_IPC_TOKEN"))
-        #expect(try isCloseOnExec(fileDescriptor: bootstrap.descriptor.tokenReadFileDescriptor))
-
-        let token = try readBootstrapToken(fileDescriptor: bootstrap.descriptor.tokenReadFileDescriptor)
-        #expect(environment.values.allSatisfy { !$0.contains(token.rawValue) })
-        let principal = try fixture.server.principalRegistry.authenticate(subjectToken: token)
-        #expect(principal.kind == .spawnedPaneAgent(boundPaneId: fixture.boundPaneId.uuidString, boundWorkspaceId: nil))
+        let descriptor = try makeFakeCommandDescriptor(
+            FakeCommandDescriptorInput(
+                id: commandId,
+                executionMode: .headless,
+                arguments: .pane(
+                    IPCPaneCommandArguments(
+                        workspaceWindowId: workspaceWindowId,
+                        paneSelector: try IPCPaneSelector(rawValue: "pane:1")
+                    )
+                ),
+                requiredPrivileges: [.appCommandExecute, .layoutMutate],
+                dataScope: .paneContext,
+                allowedTargetKinds: [.pane],
+                result: result
+            )
+        )
+        let underlyingCommandPort = FakeCommandPort(
+            commands: [descriptor],
+            executionResultsByCommandId: [commandId.rawValue: result],
+            requiredPermissionTargetByPrivilege: [
+                .appCommandExecute: .pane(firstPaneId.uuidString),
+                .layoutMutate: .pane(firstPaneId.uuidString),
+            ]
+        )
+        let commandPort = PreparedCommandRecordingPort(underlying: underlyingCommandPort)
+        return try Self(
+            firstPaneId: firstPaneId,
+            secondPaneId: secondPaneId,
+            workspaceWindowId: workspaceWindowId,
+            commandId: commandId,
+            correlationId: correlationId,
+            commandPort: commandPort,
+            underlyingCommandPort: underlyingCommandPort,
+            fixture: LiveServerFixture(
+                panes: [
+                    makePaneSummary(id: firstPaneId, ordinal: 1),
+                    makePaneSummary(id: secondPaneId, ordinal: 2),
+                ],
+                commandPort: commandPort,
+                commandComposition: IPCCommandMethodComposition(
+                    compatibility: .current,
+                    commands: [descriptor]
+                )
+            )
+        )
     }
 }

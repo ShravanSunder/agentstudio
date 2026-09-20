@@ -150,6 +150,7 @@ func makePaneTabViewControllerCommandHarness(
         bridgeGitReadScheduler: bridgeGitReadScheduler,
         windowLifecycleStore: windowLifecycleStore,
         appLifecycleStore: appLifecycleStore,
+        ipcLifecycle: .testUnavailable,
         bridgePaneAttendance: atomRegistry.bridgePaneAttendance,
         traceRuntime: traceRuntime
     )

@@ -5,8 +5,6 @@ import Observation
 @MainActor
 struct RepoExplorerKeyboardCallbacks {
     var canInterpretListInput: () -> Bool = { false }
-    var onSpaceKeyDown: (Bool, RepoExplorerSelectedPaneTarget?) -> Void = { _, _ in }
-    var onSpaceKeyUp: () -> Void = {}
     var onSelectedPaneTargetChange: (RepoExplorerSelectedPaneTarget?) -> Void = { _ in }
     var onPreviewEligibilityLoss: () -> Void = {}
     var onPreviewCommit: () -> Void = {}
@@ -75,14 +73,6 @@ final class RepoExplorerKeyboardInteraction {
     func listDidResignFirstResponder(_ host: RepoExplorerMaterializationHost) {
         guard listHost === host, focusedRegion == .list else { return }
         setFocusedRegion(.unfocused)
-    }
-
-    func spaceKeyDown(isRepeat: Bool, selectedPaneTarget: RepoExplorerSelectedPaneTarget?) {
-        callbacks.onSpaceKeyDown(isRepeat, selectedPaneTarget)
-    }
-
-    func spaceKeyUp() {
-        callbacks.onSpaceKeyUp()
     }
 
     func selectedPaneTargetDidChange(_ target: RepoExplorerSelectedPaneTarget?) {

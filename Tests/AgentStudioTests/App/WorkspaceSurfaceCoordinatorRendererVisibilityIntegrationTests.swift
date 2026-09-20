@@ -157,6 +157,7 @@ struct SurfaceRendererVisibilityIntegrationTests {
                 runtimeRegistry: RuntimeRegistry(),
                 paneEventBus: EventBus<RuntimeEnvelope>(),
                 windowLifecycleStore: windowLifecycleStore,
+                ipcLifecycle: .testUnavailable,
                 bridgePaneAttendance: BridgePaneAttendanceAtom()
             )
 
@@ -236,6 +237,7 @@ struct SurfaceRendererVisibilityIntegrationTests {
                 runtimeRegistry: RuntimeRegistry(),
                 paneEventBus: EventBus<RuntimeEnvelope>(),
                 windowLifecycleStore: windowLifecycleStore,
+                ipcLifecycle: .testUnavailable,
                 bridgePaneAttendance: BridgePaneAttendanceAtom(),
                 performanceTraceRecorder: recorder
             )
@@ -332,6 +334,7 @@ struct SurfaceRendererVisibilityIntegrationTests {
                 runtimeRegistry: RuntimeRegistry(),
                 paneEventBus: EventBus<RuntimeEnvelope>(),
                 windowLifecycleStore: windowLifecycleStore,
+                ipcLifecycle: .testUnavailable,
                 bridgePaneAttendance: BridgePaneAttendanceAtom()
             )
             let heldState = HeldPanePreviewState()

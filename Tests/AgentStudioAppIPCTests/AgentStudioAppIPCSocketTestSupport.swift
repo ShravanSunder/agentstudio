@@ -1,12 +1,10 @@
 import AgentStudioAppIPC
+import AgentStudioIPCClientCore
 import AgentStudioIPCTransport
 import AgentStudioProgrammaticControl
+import AgentStudioTestSupport
 import Foundation
 import Testing
-
-#if canImport(Darwin)
-    import Darwin
-#endif
 
 func sendRequest(socketPath: String, request: JSONRPCClientRequest) throws -> JSONRPCResponseMessage {
     let connection = try UnixSocketClient.connect(endpoint: UnixSocketEndpoint(path: socketPath))
@@ -118,7 +116,7 @@ func decodeJSONValue<T: Decodable>(_ type: T.Type, from value: JSONValue) throws
 }
 
 struct TestFrameReader {
-    var decoder = NDJSONFrameDecoder(maxFrameBytes: 65_536)
+    var decoder = NDJSONFrameDecoder(maxFrameBytes: 1_048_576)
     var queuedFrames: [String] = []
 
     mutating func receiveResponse(connection: UnixSocketConnection) throws -> JSONRPCResponseMessage {
@@ -170,41 +168,51 @@ struct TestFrameReader {
     }
 }
 
-func readBootstrapToken(fileDescriptor: Int32) throws -> AgentStudioIPCSubjectToken {
-    #if canImport(Darwin)
-        var buffer = [UInt8](repeating: 0, count: 128)
-        let bytesRead = Darwin.read(fileDescriptor, &buffer, buffer.count)
-        guard bytesRead > 0 else {
-            throw AgentStudioIPCPaneBootstrapError(reason: .tokenWriteFailed, errnoCode: errno)
-        }
-        guard
-            let rawValue = String(bytes: buffer.prefix(bytesRead), encoding: .utf8)?
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-        else {
-            throw AgentStudioIPCPaneBootstrapError(reason: .tokenWriteFailed, errnoCode: errno)
-        }
-        return AgentStudioIPCSubjectToken(rawValue: rawValue)
-    #else
-        throw AgentStudioIPCPaneBootstrapError(reason: .unsupportedPlatform)
-    #endif
-}
-
-func isCloseOnExec(fileDescriptor: Int32) throws -> Bool {
-    #if canImport(Darwin)
-        let flags = fcntl(fileDescriptor, F_GETFD)
-        guard flags >= 0 else {
-            throw AgentStudioIPCPaneBootstrapError(reason: .pipeConfigurationFailed, errnoCode: errno)
-        }
-        return flags & FD_CLOEXEC == FD_CLOEXEC
-    #else
-        throw AgentStudioIPCPaneBootstrapError(reason: .unsupportedPlatform)
-    #endif
-}
-
-func fileMode(for url: URL) throws -> mode_t {
-    var statBuffer = stat()
-    guard lstat(url.path, &statBuffer) == 0 else {
-        throw POSIXError(.ENOENT)
+/// `AgentStudioIPCClient` is synchronous: every call sends a frame and then
+/// blocks in `UnixSocketConnection.receive` until the app answers. From a test
+/// body that block lands on the cooperative executor, which is where the
+/// server's own connection handler needs to run, so these shims move the wait
+/// to a libdispatch thread. See `withoutBlockingCooperativePool`.
+extension AgentStudioIPCClient {
+    func discoverCatalogWithoutBlockingCooperativePool(
+        requestID: Int = 1
+    ) async throws -> IPCMethodCatalogResult {
+        try await withoutBlockingCooperativePool { try discoverCatalog(requestID: requestID) }
     }
-    return statBuffer.st_mode
+
+    func callWithoutBlockingCooperativePool(
+        _ invocation: IPCDescriptorInvocation,
+        requestID: Int = 1
+    ) async throws -> IPCDescriptorClientCallResult {
+        try await withoutBlockingCooperativePool { try call(invocation, requestID: requestID) }
+    }
+}
+
+/// The socket-path form of `sendRequest`, off the cooperative pool. The
+/// connection is opened, used and closed inside the one hop.
+func sendRequestWithoutBlockingCooperativePool(
+    socketPath: String,
+    request: JSONRPCClientRequest
+) async throws -> JSONRPCResponseMessage {
+    try await withoutBlockingCooperativePool { try sendRequest(socketPath: socketPath, request: request) }
+}
+
+/// Reads one request inside a `UnixSocketListener.start` handler.
+///
+/// This blocking receive is correct where it is used: the listener invokes its
+/// handler on its own serial dispatch queue, never on the cooperative executor,
+/// so parking here costs a libdispatch thread rather than one the IPC server
+/// needs. It lives in this file so the blocking primitive stays in the handful
+/// of allowlisted places the lint rule knows about.
+func receiveListenerHandlerRequest(
+    connection: UnixSocketConnection,
+    decoder: inout NDJSONFrameDecoder
+) throws -> JSONRPCRequest {
+    while true {
+        let data = try connection.receive(maxBytes: 4096)
+        let frames = try decoder.append(data)
+        if let frame = frames.first {
+            return try JSONRPCCodec.decodeRequest(frame)
+        }
+    }
 }

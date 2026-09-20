@@ -47,27 +47,16 @@ private final class ExternalSidebarTestResponder: NSView {
 }
 
 @MainActor
-private final class SpaceCallbackRecorder {
-    var downs: [(isRepeat: Bool, target: RepoExplorerSelectedPaneTarget?)] = []
-    var ups = 0
-}
-
-@MainActor
 @Suite("Repo Explorer materialization host window", .serialized)
 struct RepoExplorerMaterializationHostWindowTests {
-    @Test("a real list responder reports Space down, repeat, and key-up separately")
-    func realListResponderReportsHeldSpaceCallbacks() throws {
-        let recorder = SpaceCallbackRecorder()
+    @Test("a real list responder ignores retired Space input")
+    func realListResponderIgnoresRetiredSpaceInput() throws {
+        var previewTargetChangeCount = 0
         let interaction = RepoExplorerKeyboardInteraction()
         interaction.configure(
             RepoExplorerKeyboardCallbacks(
                 canInterpretListInput: { true },
-                onSpaceKeyDown: { isRepeat, target in
-                    recorder.downs.append((isRepeat, target))
-                },
-                onSpaceKeyUp: {
-                    recorder.ups += 1
-                }
+                onSelectedPaneTargetChange: { _ in previewTargetChangeCount += 1 }
             )
         )
         let host = RepoExplorerMaterializationHost(
@@ -91,6 +80,7 @@ struct RepoExplorerMaterializationHostWindowTests {
             window.close()
         }
         #expect(window.makeFirstResponder(host))
+        let callbackCountBeforeSpace = previewTargetChangeCount
 
         let down = try #require(
             NSEvent.keyEvent(
@@ -138,24 +128,17 @@ struct RepoExplorerMaterializationHostWindowTests {
         host.keyDown(with: down)
         host.keyDown(with: repeatDown)
         host.keyUp(with: up)
-
-        #expect(recorder.downs.map(\.isRepeat) == [false, true])
-        #expect(recorder.ups == 1)
+        #expect(previewTargetChangeCount == callbackCountBeforeSpace)
     }
 
-    @Test("a physical Space key-up releases after modifiers change and readiness is lost")
-    func realListResponderReleasesModifiedSpaceKeyUp() throws {
-        let recorder = SpaceCallbackRecorder()
+    @Test("a modified retired Space key-up does not invoke preview")
+    func realListResponderIgnoresModifiedRetiredSpaceKeyUp() throws {
+        var previewTargetChangeCount = 0
         let interaction = RepoExplorerKeyboardInteraction()
         interaction.configure(
             RepoExplorerKeyboardCallbacks(
                 canInterpretListInput: { true },
-                onSpaceKeyDown: { isRepeat, target in
-                    recorder.downs.append((isRepeat, target))
-                },
-                onSpaceKeyUp: {
-                    recorder.ups += 1
-                }
+                onSelectedPaneTargetChange: { _ in previewTargetChangeCount += 1 }
             )
         )
         let host = RepoExplorerMaterializationHost(
@@ -179,6 +162,7 @@ struct RepoExplorerMaterializationHostWindowTests {
             window.close()
         }
         #expect(window.makeFirstResponder(host))
+        let callbackCountBeforeSpace = previewTargetChangeCount
 
         let down = try #require(
             NSEvent.keyEvent(
@@ -212,21 +196,17 @@ struct RepoExplorerMaterializationHostWindowTests {
         host.keyDown(with: down)
         host.suspendDemand()
         host.keyUp(with: modifiedUp)
-
-        #expect(recorder.downs.map(\.isRepeat) == [false])
-        #expect(recorder.ups == 1)
+        #expect(previewTargetChangeCount == callbackCountBeforeSpace)
     }
 
-    @Test("Caps Lock does not disable Space preview on a real list responder")
-    func capsLockDoesNotDisableSpacePreview() throws {
-        let recorder = SpaceCallbackRecorder()
+    @Test("Caps Lock Space remains a non-preview input")
+    func capsLockSpaceRemainsNonPreviewInput() throws {
+        var previewTargetChangeCount = 0
         let interaction = RepoExplorerKeyboardInteraction()
         interaction.configure(
             RepoExplorerKeyboardCallbacks(
                 canInterpretListInput: { true },
-                onSpaceKeyDown: { isRepeat, target in
-                    recorder.downs.append((isRepeat, target))
-                }
+                onSelectedPaneTargetChange: { _ in previewTargetChangeCount += 1 }
             )
         )
         let host = RepoExplorerMaterializationHost(
@@ -250,6 +230,7 @@ struct RepoExplorerMaterializationHostWindowTests {
             window.close()
         }
         #expect(window.makeFirstResponder(host))
+        let callbackCountBeforeSpace = previewTargetChangeCount
 
         let capsLockDown = try #require(
             NSEvent.keyEvent(
@@ -267,8 +248,7 @@ struct RepoExplorerMaterializationHostWindowTests {
         )
 
         host.keyDown(with: capsLockDown)
-
-        #expect(recorder.downs.map(\.isRepeat) == [false])
+        #expect(previewTargetChangeCount == callbackCountBeforeSpace)
     }
 
     @Test("rowless sidebar host owns keyboard focus across empty result changes")

@@ -128,7 +128,7 @@ for a new file:
 - `App/` — composition root, shells, pane/window controllers, lifecycle, cross-slice orchestration
 - `Core/` — shared domain state and contracts (models, atoms, persistence, actions, runtime, shared split/drawer)
 - `SharedComponents/` — reusable UI that does not own host placement
-- `Features/` — Terminal, Bridge, Webview, CodeViewer, CommandBar, RepoExplorer, InboxNotification, EditorChooser
+- `Features/` — Terminal, Bridge, Webview, CodeViewer, CommandBar, RepoExplorer, InboxNotification, EditorChooser, Sessions
 - `Infrastructure/` — domain-agnostic utilities. `AtomLib/` is generic observation primitives only. Core owns `CoreAtoms`, `CoreAtomScope`, and `atom(\...)`. App owns `AtomRegistry`.
 
 **Shared UI.** When two surfaces need the same control, extract a

@@ -55,6 +55,7 @@ extension WebKitSerializedTests {
                 viewRegistry: viewRegistry,
                 runtime: SessionRuntime(store: store),
                 windowLifecycleStore: WindowLifecycleAtom(),
+                ipcLifecycle: .testUnavailable,
                 bridgePaneAttendance: BridgePaneAttendanceAtom()
             )
             viewRegistry.installPreparedContentMountCohort(
@@ -110,12 +111,12 @@ extension WebKitSerializedTests {
 
         @Test("held preview publishes an installed nonterminal target through the real sidebar callback")
         func heldPreviewPublishesInstalledNonterminalTargetThroughSidebarCallback() async throws {
-            var onSpaceKeyDown: (@MainActor (Bool, RepoExplorerSelectedPaneTarget?) -> Void)?
+            var onSelectedPaneTargetChange: (@MainActor (RepoExplorerSelectedPaneTarget?) -> Void)?
 
             try await withMainSplitViewControllerHarness(
                 withRepos: false,
                 configureSidebarDependencies: { dependencies in
-                    onSpaceKeyDown = dependencies.onSpaceKeyDown
+                    onSelectedPaneTargetChange = dependencies.onSelectedPaneTargetChange
                 },
                 body: { harness in
                     let pane = harness.store.createPane(
@@ -145,7 +146,7 @@ extension WebKitSerializedTests {
                         owningTabID: tab.id
                     )
 
-                    onSpaceKeyDown?(false, selectedTarget)
+                    onSelectedPaneTargetChange?(selectedTarget)
 
                     let heldState = try #require(harness.controller.heldPanePreviewState)
                     #expect(heldState.requestedTarget?.paneID == pane.id)
@@ -163,7 +164,7 @@ extension WebKitSerializedTests {
                     )
 
                     heldState.endSpaceHold()
-                    onSpaceKeyDown?(false, selectedTarget)
+                    onSelectedPaneTargetChange?(selectedTarget)
                     #expect(heldState.presentedTarget?.paneID == pane.id)
                     #expect(harness.coordinator.viewRegistry.webviewView(for: pane.id) === installedView)
                 }
@@ -179,6 +180,7 @@ extension WebKitSerializedTests {
                 viewRegistry: viewRegistry,
                 runtime: SessionRuntime(store: store),
                 windowLifecycleStore: WindowLifecycleAtom(),
+                ipcLifecycle: .testUnavailable,
                 bridgePaneAttendance: BridgePaneAttendanceAtom()
             )
             let pane = store.createPane(
@@ -191,7 +193,7 @@ extension WebKitSerializedTests {
             coordinator.windowLifecycleStore.recordTerminalContainerBounds(
                 CGRect(x: 0, y: 0, width: 1000, height: 700)
             )
-            coordinator.preparedContentVisibilitySignalHandler = { _ in
+            coordinator.preparedContentVisibilitySignalHandler = { (_: PreparedContentVisibleQueuedSet) in
                 Set([PaneId(existingUUID: pane.id)])
             }
 

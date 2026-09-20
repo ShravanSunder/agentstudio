@@ -32,15 +32,22 @@ actor BridgeProductSchemeSessionRouter {
     private(set) var activeInstallation: BridgeProductSessionInstallation?
     private var activeSchemeTaskIds: Set<UUID> = []
     private var activeTransportClaimIds: Set<UUID> = []
+    private var activeStreamClaimIds: Set<UUID> = []
     private var drainWaiters: [CheckedContinuation<Void, Never>] = []
     private var latestCapabilityAuthenticator: BridgeProductCapabilityAuthenticator?
     private let productAdmissionGate: BridgeProductAdmissionGate
+    private var streamDrainWaiters: [CheckedContinuation<Void, Never>] = []
     private var transportClaimMintCount = 0
+
+    /// Reachable without an actor hop because `onTermination` is synchronous.
+    nonisolated let schemeTaskCensus: BridgeProductSchemeTaskCensus
 
     init(
         activeInstallation: BridgeProductSessionInstallation? = nil,
-        productAdmissionGate: BridgeProductAdmissionGate
+        productAdmissionGate: BridgeProductAdmissionGate,
+        schemeTaskCensus: BridgeProductSchemeTaskCensus = BridgeProductSchemeTaskCensus()
     ) {
+        self.schemeTaskCensus = schemeTaskCensus
         precondition(
             activeInstallation == nil
                 || activeInstallation?.productAdmissionGate === productAdmissionGate
@@ -68,8 +75,15 @@ actor BridgeProductSchemeSessionRouter {
         activeInstallation = nil
     }
 
+    /// - Parameters:
+    ///   - schemeTaskId: minted by the scheme handler before the reply task so
+    ///     the census and the claim are the same identity.
+    ///   - route: only a metadata stream joins the stream-scoped drain; a live
+    ///     content stream must never hold a bootstrap open.
     func claimActiveAdapter(
-        presentedCapability: String
+        presentedCapability: String,
+        schemeTaskId: UUID,
+        route: BridgeProductSchemeRoute?
     ) -> BridgeProductSchemeTransportAdmission {
         guard latestCapabilityAuthenticator?.matches(presentedCapability) == true else {
             return .unauthorized
@@ -79,9 +93,12 @@ actor BridgeProductSchemeSessionRouter {
         else {
             return .conflict
         }
-        let claimId = UUID()
+        let claimId = schemeTaskId
         activeSchemeTaskIds.insert(claimId)
         activeTransportClaimIds.insert(claimId)
+        if route == .metadataStream {
+            activeStreamClaimIds.insert(claimId)
+        }
         transportClaimMintCount += 1
         return .admitted(
             BridgeProductSchemeTransportClaim(
@@ -100,6 +117,18 @@ actor BridgeProductSchemeSessionRouter {
         }
     }
 
+    /// Resolves when no metadata-stream claim remains.
+    ///
+    /// Deliberately narrower than `waitForDrain()`: a command or content claim
+    /// can legitimately outlive a stream, and waiting on one would hang a caller
+    /// that only needs the stream's transport to be gone.
+    func waitForStreamClaimDrain() async {
+        guard !activeStreamClaimIds.isEmpty else { return }
+        await withCheckedContinuation { continuation in
+            streamDrainWaiters.append(continuation)
+        }
+    }
+
     var snapshot: BridgeProductSchemeSessionRouterSnapshot {
         .init(
             activeSchemeTaskCount: activeSchemeTaskIds.count,
@@ -111,6 +140,11 @@ actor BridgeProductSchemeSessionRouter {
     fileprivate func finish(_ claim: BridgeProductSchemeTransportClaim) {
         activeSchemeTaskIds.remove(claim.id)
         activeTransportClaimIds.remove(claim.id)
+        if activeStreamClaimIds.remove(claim.id) != nil, activeStreamClaimIds.isEmpty {
+            let streamWaiters = streamDrainWaiters
+            streamDrainWaiters.removeAll()
+            for waiter in streamWaiters { waiter.resume() }
+        }
         guard snapshot.hasZeroResidue else { return }
         let waiters = drainWaiters
         drainWaiters.removeAll()

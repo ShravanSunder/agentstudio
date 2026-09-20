@@ -107,6 +107,13 @@ Sources/AgentStudio/
 │   ├── RepoExplorer/                 # (renamed from Features/Sidebar/ in LUNA-361; the repo
 │   │                                 #   explorer feature. The sidebar itself is composition
 │   │                                 #   in App/, not a feature)
+│   ├── Sessions/                     # Agent session evidence: provider adapters, ingestion,
+│   │                                 #   reducer and the SQLite-backed repository
+│   │   ├── Models/                   # Session domain types
+│   │   ├── Providers/                # Provider profiles and qualification
+│   │   ├── Runtime/                  # Ingestion and evidence reduction
+│   │   └── State/                    # Repository and SQLite access
+│   │
 │   ├── Terminal/                     # Everything Ghostty-specific
 │   │   ├── Diagnostics/              # Terminal-owned diagnostic helpers
 │   │   ├── Ghostty/                  # C API bridge, SurfaceManager, SurfaceTypes
@@ -165,6 +172,7 @@ AgentStudio executable
   ├── AgentStudioEditorChooser
   ├── AgentStudioInboxNotification
   ├── AgentStudioRepoExplorer
+  ├── AgentStudioSessions
   ├── AgentStudioTerminal
   ├── AgentStudioWebview
   ├── AgentStudioCore
@@ -179,8 +187,19 @@ AgentStudioCore ──► AgentStudioSharedComponents
                 └─► AgentStudioInfrastructure
 
 AgentStudioSharedComponents ──► AgentStudioInfrastructure
-AgentStudioInfrastructure     ──► AgentStudioGit (external package; see [agentstudio-git](../state/agentstudio_git.md#agentstudio-git))
+AgentStudioInfrastructure     ──► AgentStudioPrimitives (re-exported)
+                              └─► AgentStudioGit (external package; see [agentstudio-git](../state/agentstudio_git.md#agentstudio-git))
+
+AgentStudioPrimitives ──► (nothing; Foundation only)
+
+AgentStudioSessions ──► AgentStudioCore
+                    ├─► AgentStudioInfrastructure
+                    └─► GRDB (external package)
 ```
+
+`AgentStudioSessions` is a Feature target like any other: it imports no sibling
+Feature, no `AgentStudioAppIPC` and no `AgentStudioProgrammaticControl`. The IPC
+admission adapter that feeds it lives in App, not in the Feature.
 
 There are no sibling Feature dependencies. App is the only product target that
 may import multiple Features and perform cross-Feature composition. Compiled
@@ -205,9 +224,27 @@ module-local implementation and `package` for declarations intentionally shared
 between targets in this package. Reserve `public` for a real external-module
 contract; compilation errors are not a reason to promote a broad surface.
 
+`AgentStudioPrimitives` is the package's only dependency-free leaf. It owns pure,
+Foundation-only value types and functions that both the app and the
+`agentstudio-cli` executable need — today `UUIDv7`, and where future pure helpers
+of that shape belong. `AgentStudioInfrastructure` depends on it and re-exports it
+([`AgentStudioPrimitivesReexport.swift`](../../../Sources/AgentStudio/Infrastructure/AgentStudioPrimitivesReexport.swift)),
+so app-side code keeps reaching these helpers through
+`import AgentStudioInfrastructure` unchanged. The CLI-side targets depend on
+`AgentStudioPrimitives` directly, which is what keeps the bundled helper off
+Infrastructure's GRDB/OTel/libgit2 base. Do not put I/O, logging, tracing,
+persistence, or anything with a package dependency here — that is
+Infrastructure's job.
+
 The existing programmatic-control targets remain separate lower-level modules:
 
 ```
+Sources/AgentStudioPrimitives/
+  Pure, Foundation-only value types and functions shared by the app and the
+  `agentstudio-cli` executable (today: UUIDv7).
+  No package dependencies and nothing internal. Re-exported by
+  AgentStudioInfrastructure for app-side consumers.
+
 Sources/AgentStudioIPCTransport/
   Unix sockets, peer credentials, NDJSON framing, JSON-RPC codec.
   No AgentStudio product imports.
@@ -226,21 +263,21 @@ Sources/AgentStudioAppIPC/
 Sources/AgentStudioIPCClientCore/
   CLI socket discovery, command-to-JSON-RPC request mapping, and one-shot
   Unix socket client calls.
-  Depends only on transport and public programmatic-control contracts.
+  Depends only on transport, primitives, and public programmatic-control
+  contracts.
 
 Sources/AgentStudioIPCClient/
-  Thin `agentstudio-ipc` executable entrypoint.
-  Depends only on the client core.
-
-Sources/AgentStudioPaneAgent/
-  Thin `agentstudio-pane-agent` helper. Reads the app-supplied bootstrap fd
-  once, authenticates with `auth.login`, and verifies runtime identity.
-  Depends only on the client core.
+  Thin `agentstudio-cli` executable entrypoint, bundled as
+  `Contents/Helpers/agentstudio`.
+  Depends only on the client core, primitives, and programmatic-control
+  contracts. Never on AgentStudioInfrastructure: that single edge relinks the
+  whole GRDB/OTel/libgit2 base into the helper. Pinned by
+  Tests/AgentStudioTests/Architecture/CommandLineClientLeafTargetArchitectureTests.swift.
 
 Sources/AgentStudio/App/IPCComposition/
   Concrete adapters from AgentStudioAppIPC protocol ports into WorkspaceSurfaceCoordinator,
-  RuntimeRegistry, PaneRuntime, app-owned state, and app-owned method
-  contribution files such as `Panes/PaneSnapshotIPCContribution.swift`.
+  RuntimeRegistry, PaneRuntime, app-owned state, and the app-owned method
+  contribution files that sit beside them.
   Feature-specific IPC contributions belong in subfolders here, not in
   `Sources/AgentStudioAppIPC/` and not inside `Features/*`.
 

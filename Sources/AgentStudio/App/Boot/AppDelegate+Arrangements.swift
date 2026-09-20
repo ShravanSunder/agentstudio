@@ -4,7 +4,13 @@ import Foundation
 
 @MainActor
 extension AppDelegate {
-    func presentArrangements(contextPaneId: UUID?) throws -> IPCArrangementsOpenResult {
+    func presentArrangements(workspaceWindowId: UUID, contextPaneId: UUID?) throws -> IPCArrangementsOpenResult {
+        guard let controller = mainWindowController, controller.window != nil else {
+            throw AppIPCUIPresentationError(reason: .noActiveWindow)
+        }
+        guard controller.workspaceWindowId == workspaceWindowId else {
+            throw AppIPCUIPresentationError(reason: .targetNotFound)
+        }
         guard let paneTabViewController = paneTabViewController() else {
             throw AppIPCUIPresentationError(reason: .noActiveWindow)
         }

@@ -52,8 +52,6 @@ struct SidebarSurfaceHost: View {
     let bridgeAttendanceSnapshot: BridgeAttendanceSnapshot
     let performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
     let onRefocusActivePane: () -> Void
-    let onSpaceKeyDown: @MainActor (Bool, RepoExplorerSelectedPaneTarget?) -> Void
-    let onSpaceKeyUp: @MainActor () -> Void
     let onSelectedPaneTargetChange: @MainActor (RepoExplorerSelectedPaneTarget?) -> Void
     let onPreviewEligibilityLoss: @MainActor () -> Void
     let onPreviewCommit: @MainActor () -> Void
@@ -73,8 +71,6 @@ struct SidebarSurfaceHost: View {
         bridgeAttendanceSnapshot: @escaping BridgeAttendanceSnapshot,
         performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?,
         onRefocusActivePane: @escaping () -> Void,
-        onSpaceKeyDown: @escaping @MainActor (Bool, RepoExplorerSelectedPaneTarget?) -> Void = { _, _ in },
-        onSpaceKeyUp: @escaping @MainActor () -> Void = {},
         onSelectedPaneTargetChange:
             @escaping @MainActor (RepoExplorerSelectedPaneTarget?) -> Void = { _ in },
         onPreviewEligibilityLoss: @escaping @MainActor () -> Void = {},
@@ -95,8 +91,6 @@ struct SidebarSurfaceHost: View {
         self.bridgeAttendanceSnapshot = bridgeAttendanceSnapshot
         self.performanceTraceRecorder = performanceTraceRecorder
         self.onRefocusActivePane = onRefocusActivePane
-        self.onSpaceKeyDown = onSpaceKeyDown
-        self.onSpaceKeyUp = onSpaceKeyUp
         self.onSelectedPaneTargetChange = onSelectedPaneTargetChange
         self.onPreviewEligibilityLoss = onPreviewEligibilityLoss
         self.onPreviewCommit = onPreviewCommit
@@ -123,8 +117,6 @@ struct SidebarSurfaceHost: View {
                 commandPresentationDelta: repoCommandPresentationBatch?.latestDelta,
                 visibleSnapshotConsumerToken: repoCommandPresentationBatch?.consumerToken,
                 onRefocusActivePane: onRefocusActivePane,
-                onSpaceKeyDown: onSpaceKeyDown,
-                onSpaceKeyUp: onSpaceKeyUp,
                 onSelectedPaneTargetChange: onSelectedPaneTargetChange,
                 onPreviewEligibilityLoss: onPreviewEligibilityLoss,
                 onPreviewCommit: onPreviewCommit,

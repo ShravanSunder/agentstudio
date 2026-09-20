@@ -17,8 +17,6 @@ struct SidebarRootViewDependencies {
     let bridgeAttendanceSnapshot: BridgeAttendanceSnapshot
     let performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
     let onRefocusActivePane: () -> Void
-    let onSpaceKeyDown: @MainActor (Bool, RepoExplorerSelectedPaneTarget?) -> Void
-    let onSpaceKeyUp: @MainActor () -> Void
     let onSelectedPaneTargetChange: @MainActor (RepoExplorerSelectedPaneTarget?) -> Void
     let onPreviewEligibilityLoss: @MainActor () -> Void
     let onPreviewCommit: @MainActor () -> Void
@@ -56,8 +54,6 @@ class MainSplitViewController: NSSplitViewController {
                 bridgeAttendanceSnapshot: dependencies.bridgeAttendanceSnapshot,
                 performanceTraceRecorder: dependencies.performanceTraceRecorder,
                 onRefocusActivePane: dependencies.onRefocusActivePane,
-                onSpaceKeyDown: dependencies.onSpaceKeyDown,
-                onSpaceKeyUp: dependencies.onSpaceKeyUp,
                 onSelectedPaneTargetChange: dependencies.onSelectedPaneTargetChange,
                 onPreviewEligibilityLoss: dependencies.onPreviewEligibilityLoss,
                 onPreviewCommit: dependencies.onPreviewCommit,
@@ -286,21 +282,6 @@ class MainSplitViewController: NSSplitViewController {
                 performanceTraceRecorder: performanceTraceRecorder,
                 onRefocusActivePane: { [weak self] in
                     self?.restoreSidebarReturnFocusOrigin()
-                },
-                onSpaceKeyDown: { [weak self] isRepeat, target in
-                    guard let self else { return }
-                    let didBeginHold =
-                        self.heldPanePreviewState?.beginSpaceHold(
-                            requestedTarget: self.validatedPreviewTarget(for: target),
-                            isRepeat: isRepeat
-                        ) == true
-                    if didBeginHold {
-                        self.workspaceActionExecutor.prepareHeldPanePreview()
-                    }
-                },
-                onSpaceKeyUp: { [weak self] in
-                    self?.heldPanePreviewState?.endSpaceHold()
-                    self?.workspaceActionExecutor.prepareHeldPanePreview()
                 },
                 onSelectedPaneTargetChange: { [weak self] target in
                     guard let self else { return }
@@ -754,3 +735,11 @@ extension NSView {
         return nil
     }
 }
+
+#if DEBUG
+    extension MainSplitViewController {
+        func syncTabContentHostsForTesting() {
+            paneTabViewController?.syncTabContentHostsForTesting()
+        }
+    }
+#endif

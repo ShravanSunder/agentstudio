@@ -104,6 +104,7 @@ func makeBridgePaneActivityTestHarness(
         filesystemProjectionIndex: filesystemProjectionIndex,
         windowLifecycleStore: windowLifecycleStore,
         appLifecycleStore: appLifecycleStore,
+        ipcLifecycle: .testUnavailable,
         bridgePaneAttendance: BridgePaneAttendanceAtom()
     )
     coordinator.startBridgePaneActivityObservation()

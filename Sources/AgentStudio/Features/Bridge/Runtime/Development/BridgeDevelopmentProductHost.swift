@@ -78,7 +78,10 @@ package actor BridgeDevelopmentProductHost {
             @escaping @MainActor @Sendable (WorkspaceReviewContributionTarget) ->
             BridgePaneStateMutationResult,
         statusPhysicalGate: AgentStudioGitStatusPhysicalGate = AgentStudioGitStatusPhysicalGate(),
-        makeReviewProvider: @Sendable (URL, BridgeGitReadContext) -> any BridgeReviewSourceProvider
+        makeReviewProvider: @Sendable (URL, BridgeGitReadContext) -> any BridgeReviewSourceProvider,
+        // Production passes nothing. A test supplies a census with a termination
+        // observer to pin the window this host's bootstrap gate now handles.
+        schemeTaskCensus: BridgeProductSchemeTaskCensus = BridgeProductSchemeTaskCensus()
     ) async throws {
         let source = try Self.validatedFilesystemSource(source)
         let paneId = source.paneID
@@ -100,6 +103,7 @@ package actor BridgeDevelopmentProductHost {
                 gitReadContext: gitReadContext,
                 reviewInitialization: reviewInitialization,
                 reviewProvider: reviewProvider,
+                schemeTaskCensus: schemeTaskCensus,
                 source: source,
                 statusPhysicalGate: statusPhysicalGate,
                 worktreeAnnotationOutputCoordinator: worktreeAnnotationOutputCoordinator,
@@ -855,7 +859,28 @@ extension BridgeDevelopmentProductHost {
                     let retirementBarriers = await installation.session
                         .metadataRetirementBarriersForReload()
                 else {
-                    throw BridgeDevelopmentProductHostError.sessionAlreadyOpen
+                    // A lease exists with no retirement recorded. That is either a
+                    // genuinely live stream, which is refused immediately and
+                    // without waiting, or a stream whose transport has already
+                    // torn down and whose retirement write is still in flight —
+                    // the app's own reload path retires and drains rather than
+                    // refusing, and so must this one.
+                    guard
+                        await productSessionOwner.schemeRouter.schemeTaskCensus
+                            .everyStartedStreamTaskTerminated
+                    else {
+                        throw BridgeDevelopmentProductHostError.sessionAlreadyOpen
+                    }
+                    await productSessionOwner.schemeRouter.waitForStreamClaimDrain()
+                    try Task.checkCancellation()
+                    guard
+                        await installation.session.metadataRetirementBarriersForReload()?.isEmpty
+                            == true
+                    else {
+                        // Retirement ran and failed, so the session is still held.
+                        throw BridgeDevelopmentProductHostError.sessionAlreadyOpen
+                    }
+                    return
                 }
                 for retirementBarrier in retirementBarriers {
                     guard await retirementBarrier.wait() else {

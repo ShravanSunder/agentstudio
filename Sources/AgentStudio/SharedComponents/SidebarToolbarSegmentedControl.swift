@@ -5,6 +5,7 @@ import SwiftUI
 package struct SidebarToolbarSegmentedControl<Value: Hashable, Icon: View>: View {
     let model: SidebarToggleModel<Value>
     @ViewBuilder let icon: (Value) -> Icon
+    let shortcutDisplay: (Value) -> ShortcutDisplayText?
     let onSelect: (Value) -> Void
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -13,10 +14,12 @@ package struct SidebarToolbarSegmentedControl<Value: Hashable, Icon: View>: View
         selection: Value?,
         content: SidebarToggleModel<Value>.Content = .selectedLabel,
         @ViewBuilder icon: @escaping (Value) -> Icon,
+        shortcutDisplay: @escaping (Value) -> ShortcutDisplayText? = { _ in nil },
         onSelect: @escaping (Value) -> Void
     ) {
         self.model = SidebarToggleModel(segments: segments, selection: selection, content: content)
         self.icon = icon
+        self.shortcutDisplay = shortcutDisplay
         self.onSelect = onSelect
     }
 
@@ -40,28 +43,34 @@ package struct SidebarToolbarSegmentedControl<Value: Hashable, Icon: View>: View
                         SidebarToolbarLabelLayout(
                             revealFraction: model.showsLabel(for: segment.value) ? 1 : 0
                         ) {
-                            Text(segment.label)
-                                .font(
-                                    .system(
-                                        size: AppStyles.General.Typography.textXs,
-                                        weight: .medium
+                            VStack(spacing: 1) {
+                                Text(segment.label)
+                                    .font(
+                                        .system(
+                                            size: AppStyles.General.Typography.textXs,
+                                            weight: .medium
+                                        )
                                     )
-                                )
-                                .lineLimit(1)
-                                .padding(
-                                    model.showsIcons ? .trailing : .horizontal,
-                                    AppStyles.Shell.Sidebar.ToolbarControl.groupingHorizontalPadding
-                                )
-                                .padding(
-                                    .leading,
-                                    model.showsIcons ? AppStyles.Shell.Sidebar.ToolbarControl.groupingContentSpacing : 0
-                                )
-                                .opacity(model.showsLabel(for: segment.value) ? 1 : 0)
-                                .animation(
-                                    reduceMotion
-                                        ? nil : labelAnimation(isShowing: model.showsLabel(for: segment.value)),
-                                    value: model.selection
-                                )
+                                    .lineLimit(1)
+                                    .padding(
+                                        model.showsIcons ? .trailing : .horizontal,
+                                        AppStyles.Shell.Sidebar.ToolbarControl.groupingHorizontalPadding
+                                    )
+                                    .padding(
+                                        .leading,
+                                        model.showsIcons
+                                            ? AppStyles.Shell.Sidebar.ToolbarControl.groupingContentSpacing : 0
+                                    )
+                                    .opacity(model.showsLabel(for: segment.value) ? 1 : 0)
+                                    .animation(
+                                        reduceMotion
+                                            ? nil : labelAnimation(isShowing: model.showsLabel(for: segment.value)),
+                                        value: model.selection
+                                    )
+                                if let shortcut = shortcutDisplay(segment.value) {
+                                    SidebarShortcutHint(shortcut, style: .toolbarStamp)
+                                }
+                            }
                         }
                         .clipped()
                         .accessibilityHidden(true)

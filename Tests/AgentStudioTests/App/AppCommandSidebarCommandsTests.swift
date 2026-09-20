@@ -16,8 +16,6 @@ struct AppCommandSidebarCommandsTests {
         #expect(definition.shortcut == .focusSidebar)
         #expect(definition.surfacePolicy == .exposed([.commandBar, .inlineControl]))
         #expect(definition.targeting == .contextual)
-        #expect(definition.ipcExposure == .uiPresentation)
-        #expect(definition.argumentSchema.isEmpty)
     }
 
     @Test("sidebar settings expose compact surface-specific command specs")
@@ -40,13 +38,6 @@ struct AppCommandSidebarCommandsTests {
             #expect(definition.icon == icon)
             #expect(definition.surfacePolicy.exposes(.inlineControl))
             #expect(definition.targeting == .contextual)
-            let expectedExecutionModes: [IPCCommandExecutionMode] =
-                command == .showReposSidebar || command == .showPanesSidebar
-                ? [.headless, .requiresInteractiveInput]
-                : [.headless]
-            #expect(definition.ipcExposure.executionModes == expectedExecutionModes)
-            #expect(definition.ipcExposure.requiredPrivileges == [.sidebarStateMutate])
-            #expect(definition.argumentSchema.isEmpty)
         }
     }
 
@@ -59,8 +50,6 @@ struct AppCommandSidebarCommandsTests {
         ] {
             let definition = AppCommandDispatcher.shared.definition(for: command)
             #expect(definition.surfacePolicy == .notPresented)
-            #expect(definition.ipcExposure.requiredPrivileges.isEmpty)
-            #expect(definition.ipcExposure.executionModes.isEmpty)
         }
     }
 
@@ -69,14 +58,10 @@ struct AppCommandSidebarCommandsTests {
         for command in [AppCommand.pinRepo, .unpinRepo] {
             let definition = AppCommandDispatcher.shared.definition(for: command)
             #expect(definition.targeting == .targeted([.repo]))
-            #expect(definition.ipcExposure.executionModes == [.headless])
-            #expect(definition.ipcExposure.requiredPrivileges == [.sidebarStateMutate])
         }
         for command in [AppCommand.pinPane, .unpinPane] {
             let definition = AppCommandDispatcher.shared.definition(for: command)
             #expect(definition.targeting == .targeted([.pane]))
-            #expect(definition.ipcExposure.executionModes == [.headless])
-            #expect(definition.ipcExposure.requiredPrivileges == [.sidebarStateMutate])
         }
     }
 
@@ -100,8 +85,6 @@ struct AppCommandSidebarCommandsTests {
         for command in commands {
             let definition = AppCommandDispatcher.shared.definition(for: command)
             #expect(definition.surfacePolicy == .notPresented)
-            #expect(definition.ipcExposure.requiredPrivileges.isEmpty)
-            #expect(definition.ipcExposure.executionModes.isEmpty)
         }
     }
 }

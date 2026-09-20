@@ -1,761 +1,428 @@
 import AgentStudioIPCClientCore
 import AgentStudioIPCTransport
+import AgentStudioPrimitives
 import AgentStudioProgrammaticControl
 import Foundation
 import Testing
 
 @Suite("AgentStudio IPC CLI client core", .serialized)
 struct AgentStudioIPCClientCoreTests {
-    @Test("discovers socket path from explicit flag before environment and metadata")
-    func discoversSocketPathFromExplicitFlagBeforeEnvironmentAndMetadata() throws {
-        let metadataURL = try writeMetadata(socketPath: "/tmp/metadata.sock")
-
-        let socketPath = try AgentStudioIPCClientDiscovery.socketPath(
-            explicitSocketPath: "/tmp/explicit.sock",
-            environment: ["AGENTSTUDIO_IPC_SOCKET": "/tmp/env.sock"],
-            metadataURL: metadataURL
-        )
-
-        #expect(socketPath == "/tmp/explicit.sock")
-    }
-
-    @Test("discovers socket path from metadata when flags and environment are absent")
-    func discoversSocketPathFromMetadataWhenFlagsAndEnvironmentAreAbsent() throws {
-        let metadataURL = try writeMetadata(socketPath: "/tmp/metadata.sock")
-
-        let socketPath = try AgentStudioIPCClientDiscovery.socketPath(
-            explicitSocketPath: nil,
-            environment: [:],
-            metadataURL: metadataURL
-        )
-
-        #expect(socketPath == "/tmp/metadata.sock")
-    }
-
-    @Test("parses terminal wait and event subscribe commands")
-    func parsesTerminalWaitAndEventSubscribeCommands() throws {
-        let statusInvocation = try AgentStudioIPCClientArguments.parse(
-            ["--socket", "/tmp/app.sock", "terminal-status", "pane:1"],
-            environment: [:]
-        )
-        let waitInvocation = try AgentStudioIPCClientArguments.parse(
-            ["--socket", "/tmp/app.sock", "terminal-wait", "pane:1", "commandFinished", "5"],
-            environment: [:]
-        )
-        let subscribeInvocation = try AgentStudioIPCClientArguments.parse(
-            ["--socket", "/tmp/app.sock", "events-subscribe", "terminal.commandFinished,permission.requestCreated"],
-            environment: [:]
-        )
-
-        #expect(statusInvocation.command == .terminalStatus(handle: "pane:1"))
-        #expect(waitInvocation.configuration.socketPath == "/tmp/app.sock")
+    @Test("explicit endpoint takes precedence over pane environment and runtime metadata")
+    func explicitEndpointPrecedesEnvironment() throws {
         #expect(
-            waitInvocation.command
-                == .terminalWait(handle: "pane:1", condition: .commandFinished, timeoutSeconds: 5, afterSequence: nil)
-        )
-        #expect(
-            subscribeInvocation.command
-                == .eventsSubscribe(eventNames: [.terminalCommandFinished, .permissionRequestCreated])
-        )
+            try AgentStudioIPCClientDiscovery.socketPath(
+                explicitSocketPath: "/tmp/explicit.sock", environment: ["AGENTSTUDIO_IPC_SOCKET": "/tmp/env.sock"],
+                metadataURL: URL(fileURLWithPath: "/tmp/not-read.json")
+            ) == "/tmp/explicit.sock")
     }
 
-    @Test("parses pane snapshot command and builds request frame")
-    func parsesPaneSnapshotCommandAndBuildsRequestFrame() throws {
+    @Test("runtime metadata supplies the endpoint without flags or pane context")
+    func metadataSuppliesEndpoint() throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "ipc-metadata-\(UUIDv7.generate()).json")
+        defer { try? FileManager.default.removeItem(at: url) }
+        try Data(#"{"socketPath":"/tmp/metadata.sock","protocol":"agentstudio-ipc-jsonrpc-2"}"#.utf8).write(to: url)
+        #expect(
+            try AgentStudioIPCClientDiscovery.socketPath(explicitSocketPath: nil, environment: [:], metadataURL: url)
+                == "/tmp/metadata.sock")
+    }
+
+    @Test("every compiled method example preserves its typed body through CLI framing")
+    func examplesSurviveInvocationAndWireFraming() throws {
+        let descriptors = try makeCatalog().erasedDescriptors
+        let client = AgentStudioIPCClient(
+            configuration: .init(socketPath: "/tmp/unused.sock"), descriptors: descriptors)
+        for descriptor in descriptors {
+            let metadata = try #require(
+                JSONSerialization.jsonObject(with: JSONEncoder().encode(descriptor.metadata)) as? [String: Any])
+            let examples = try #require(metadata["examples"] as? [[String: Any]])
+            for example in examples {
+                let parameters = try #require(example["parameters"])
+                let data = try JSONSerialization.data(withJSONObject: parameters, options: [.sortedKeys])
+                let invocation = try parse(
+                    [descriptor.metadata.name, "--stdin"], descriptors: descriptors, input: data
+                ).descriptorInvocation
+                let request = try JSONRPCCodec.decodeRequest(client.requestFrame(invocation, requestID: 14))
+                #expect(request.id == .number(14))
+                #expect(request.method == descriptor.metadata.name)
+                #expect(
+                    try request.params == JSONDecoder().decode(JSONValue.self, from: invocation.normalizedParameters))
+            }
+        }
+    }
+
+    @Test("terminal scalar fields preserve private text correlation and wait cursor")
+    func terminalArgumentsRemainTyped() throws {
+        let catalog = try makeCatalog().erasedDescriptors
+        let correlation = UUIDv7.generate()
+        let send = try parse(
+            [
+                "terminal.send", "--handle", "pane:1", "--input", "echo 雪\n", "--correlation-id",
+                correlation.uuidString,
+            ], descriptors: catalog
+        ).descriptorInvocation
+        let sendParams = try JSONDecoder().decode(IPCTerminalSendParams.self, from: send.normalizedParameters)
+        #expect(sendParams.input == "echo 雪\n")
+        #expect(sendParams.correlationId == correlation)
+        let wait = try parse(
+            [
+                "terminal.wait", "--handle", "self", "--condition", "commandFinished", "--timeout-seconds", "5",
+                "--after-sequence", "41",
+            ], descriptors: catalog
+        ).descriptorInvocation
+        let waitParams = try JSONDecoder().decode(IPCTerminalWaitParams.self, from: wait.normalizedParameters)
+        #expect(waitParams.afterSequence == 41)
+        #expect(waitParams.timeoutSeconds == 5)
+    }
+
+    @Test("Bridge filter alternatives preserve semantic fields and reject invalid enum or bool")
+    func bridgeFilterAlternativesRemainStrict() throws {
+        let descriptors = try makeCatalog().erasedDescriptors
+        let candidates: [IPCBridgeFileTreeFilterCandidate] = [
+            .review(gitStatusFilter: .modified, categoryFilter: .source, showBinary: true, showLarge: false),
+            .files(categoryFilter: .docs),
+        ]
+        for candidate in candidates {
+            let params = IPCBridgeFileTreeSetFilterParams(
+                handle: "pane:2", candidate: candidate, correlationId: UUIDv7.generate())
+            let invocation = try parse(
+                ["bridge.fileTree.setFilter", "--stdin"], descriptors: descriptors, input: JSONEncoder().encode(params)
+            ).descriptorInvocation
+            #expect(
+                try JSONDecoder().decode(IPCBridgeFileTreeSetFilterParams.self, from: invocation.normalizedParameters)
+                    == params)
+        }
+        let invalidCandidates: [[String: Any]] = [
+            ["surface": "files", "categoryFilter": "binary"],
+            [
+                "surface": "review", "gitStatusFilter": "changed", "categoryFilter": "source", "showBinary": true,
+                "showLarge": false,
+            ],
+            [
+                "surface": "review", "gitStatusFilter": "modified", "categoryFilter": "source", "showBinary": "yes",
+                "showLarge": false,
+            ],
+        ]
+        for candidate in invalidCandidates {
+            let data = try JSONSerialization.data(withJSONObject: ["handle": "pane:2", "candidate": candidate])
+            #expect(throws: IPCDescriptorInvocationError.self) {
+                try parse(["bridge.fileTree.setFilter", "--stdin"], descriptors: descriptors, input: data)
+            }
+        }
+    }
+
+    @Test("token stdin authenticates without argv credentials and stdin consumers cannot conflict")
+    func tokenInputAndMethodInputRemainSeparate() throws {
+        let descriptors = try makeCatalog().erasedDescriptors
         let invocation = try AgentStudioIPCClientArguments.parse(
-            ["--socket", "/tmp/app.sock", "pane-snapshot", "pane:1"],
-            environment: [:]
+            ["--socket", "/tmp/app.sock", "--token-stdin", "auth.login"], descriptors: descriptors, environment: [:],
+            correlationIDGenerator: { UUIDv7.generate() }, standardInputProvider: { Data("fixture-token\n".utf8) }
         )
-        let client = AgentStudioIPCClient(configuration: invocation.configuration)
-
-        #expect(invocation.command == .paneSnapshot(handle: "pane:1"))
-        let frame = try client.requestFrame(invocation.command, requestId: 14)
-        let request = try JSONRPCCodec.decodeRequest(frame)
-
-        #expect(request.id == .number(14))
-        #expect(request.method == "pane.snapshot")
-        guard case .object(let params)? = request.params else {
-            Issue.record("expected object params")
-            return
+        #expect(invocation.configuration.authToken == "fixture-token")
+        #expect(
+            try JSONDecoder().decode(
+                IPCAuthLoginParams.self, from: invocation.descriptorInvocation.normalizedParameters
+            ).token == "fixture-token")
+        for args in [
+            ["--token", "secret", "auth.login"],
+            ["auth.login", "--token", "secret"],
+            ["auth.login", "secret"],
+            ["--token-stdin", "terminal.send", "--stdin"],
+        ] {
+            #expect(throws: AgentStudioIPCClientError.self) {
+                try AgentStudioIPCClientArguments.parse(
+                    ["--socket", "/tmp/app.sock"] + args, descriptors: descriptors, environment: [:],
+                    correlationIDGenerator: { UUIDv7.generate() },
+                    standardInputProvider: {
+                        Issue.record("Invalid global options must not consume input")
+                        return Data()
+                    }
+                )
+            }
         }
-        #expect(params["handle"] == .string("pane:1"))
     }
 
-    @Test("terminal wait can include an after sequence for replayable runtime facts")
-    func terminalWaitCanIncludeAfterSequenceForReplayableRuntimeFacts() throws {
+    @Test("pane environment supplies canonical endpoint and credential without input")
+    func paneEnvironmentSuppliesIdentity() throws {
         let invocation = try AgentStudioIPCClientArguments.parse(
-            ["--socket", "/tmp/app.sock", "terminal-wait", "pane:1", "commandFinished", "5", "41"],
-            environment: [:]
+            ["system.identify"], descriptors: makeCatalog().erasedDescriptors,
+            environment: ["AGENTSTUDIO_IPC_SOCKET": "/tmp/pane.sock", "AGENTSTUDIO_PANE_TOKEN": "fixture-token"],
+            correlationIDGenerator: { UUIDv7.generate() },
+            standardInputProvider: {
+                Issue.record("No stdin requested")
+                return Data()
+            }
         )
-        let client = AgentStudioIPCClient(configuration: invocation.configuration)
-
-        #expect(
-            invocation.command
-                == .terminalWait(handle: "pane:1", condition: .commandFinished, timeoutSeconds: 5, afterSequence: 41)
-        )
-        let frame = try client.requestFrame(invocation.command, requestId: 12)
-        let request = try JSONRPCCodec.decodeRequest(frame)
-
-        #expect(request.id == .number(12))
-        #expect(request.method == "terminal.wait")
-        guard case .object(let params)? = request.params else {
-            Issue.record("expected object params")
-            return
-        }
-        #expect(params["handle"] == .string("pane:1"))
-        #expect(params["condition"] == .string("commandFinished"))
-        #expect(params["timeoutSeconds"] == .number(5))
-        #expect(params["afterSequence"] == .number(41))
+        #expect(invocation.configuration.socketPath == "/tmp/pane.sock")
+        #expect(invocation.configuration.authToken == "fixture-token")
     }
 
-    @Test("parses auth status and command control commands")
-    func parsesAuthStatusAndCommandControlCommands() throws {
-        let statusInvocation = try AgentStudioIPCClientArguments.parse(
-            ["--socket", "/tmp/app.sock", "auth-status"],
-            environment: [:]
-        )
-        let listInvocation = try AgentStudioIPCClientArguments.parse(
-            ["--socket", "/tmp/app.sock", "command-list"],
-            environment: [:]
-        )
-        let executeInvocation = try AgentStudioIPCClientArguments.parse(
-            ["--socket", "/tmp/app.sock", "command-execute", "showCommandBarCommands"],
-            environment: [:]
-        )
-        let unknownExecuteInvocation = try AgentStudioIPCClientArguments.parse(
-            ["--socket", "/tmp/app.sock", "command-execute", "futureCommand"],
-            environment: [:]
-        )
-
-        #expect(statusInvocation.command == .authStatus)
-        #expect(listInvocation.command == .commandList)
-        #expect(
-            executeInvocation.command
-                == .commandExecute(
-                    IPCCommandExecuteParams(
-                        commandId: IPCCommandIdentifier(rawValue: "showCommandBarCommands"),
-                        targetHandle: nil
-                    )
-                )
-        )
-        #expect(
-            unknownExecuteInvocation.command
-                == .commandExecute(
-                    IPCCommandExecuteParams(
-                        commandId: IPCCommandIdentifier(rawValue: "futureCommand"),
-                        targetHandle: nil
-                    )
-                )
-        )
-    }
-
-    @Test("parses bridge diff commands")
-    func parsesBridgeDiffCommands() throws {
-        let worktreeId = UUID(uuidString: "00000000-0000-0000-0000-000000000701")!
-        let openInvocation = try parseIPCInvocation("bridge-diff-load", worktreeId.uuidString)
-        let openFileViewInvocation = try parseIPCInvocation(
-            "bridge-file-view-open",
-            worktreeId.uuidString
-        )
-        let refreshInvocation = try parseIPCInvocation("bridge-diff-refresh", "pane:2")
-        let packageInvocation = try parseIPCInvocation("bridge-diff-get-package", "pane:2")
-        let renderStateInvocation = try parseIPCInvocation("bridge-diff-render-state", "pane:2")
-        let selectInvocation = try parseIPCInvocation(
-            "bridge-diff-select-file",
-            "pane:2",
-            "item-source"
-        )
-        let scrollInvocation = try parseIPCInvocation(
-            "bridge-diff-scroll-to-file",
-            "pane:2",
-            "item-source"
-        )
-        let searchInvocation = try parseIPCInvocation(
-            "bridge-file-tree-search",
-            "pane:2",
-            "BridgePaneController"
-        )
-        let revealInvocation = try parseIPCInvocation(
-            "bridge-file-tree-reveal-path",
-            "pane:2",
-            "Sources/App/View.swift"
-        )
-        let markdownInvocation = try parseIPCInvocation(
-            "bridge-file-view-show-markdown-preview",
-            "pane:2",
-            "item-source"
-        )
-        let telemetryFlushInvocation = try parseIPCInvocation("bridge-telemetry-flush", "pane:2")
-        let telemetrySnapshotInvocation = try parseIPCInvocation("bridge-telemetry-snapshot", "pane:2")
-
-        #expect(
-            openInvocation.command
-                == .bridgeDiffLoad(IPCBridgeReviewOpenParams(worktreeId: worktreeId))
-        )
-        #expect(
-            openFileViewInvocation.command
-                == .bridgeFileViewOpen(IPCBridgeFileViewOpenParams(worktreeId: worktreeId))
-        )
-        #expect(refreshInvocation.command == .bridgeDiffRefresh(IPCBridgeReviewRefreshParams(handle: "pane:2")))
-        #expect(packageInvocation.command == .bridgeDiffGetPackage(handle: "pane:2"))
-        #expect(renderStateInvocation.command == .bridgeDiffRenderState(handle: "pane:2"))
-        #expect(
-            selectInvocation.command
-                == .bridgeDiffSelectFile(
-                    IPCBridgeReviewSelectFileParams(handle: "pane:2", itemId: "item-source")
-                )
-        )
-        #expect(
-            scrollInvocation.command
-                == .bridgeDiffScrollToFile(
-                    IPCBridgeDiffScrollToFileParams(handle: "pane:2", itemId: "item-source")
-                )
-        )
-        #expect(
-            searchInvocation.command
-                == .bridgeFileTreeSearch(
-                    IPCBridgeFileTreeSearchParams(handle: "pane:2", searchText: "BridgePaneController")
-                )
-        )
-        #expect(
-            revealInvocation.command
-                == .bridgeFileTreeRevealPath(
-                    IPCBridgeFileTreeRevealPathParams(handle: "pane:2", path: "Sources/App/View.swift")
-                )
-        )
-        #expect(
-            markdownInvocation.command
-                == .bridgeFileViewShowMarkdownPreview(
-                    IPCBridgeFileViewShowMarkdownPreviewParams(handle: "pane:2", itemId: "item-source")
-                )
-        )
-        #expect(telemetrySnapshotInvocation.command == .bridgeTelemetrySnapshot(handle: "pane:2"))
-        #expect(telemetryFlushInvocation.command == .bridgeTelemetryFlush(handle: "pane:2"))
-    }
-
-    @Test("parses surface-specific bridge file tree filter commands")
-    func parsesSurfaceSpecificBridgeFileTreeFilterCommands() throws {
-        let reviewInvocation = try parseIPCInvocation(
-            "bridge-file-tree-set-filter",
-            "pane:2",
-            "review",
-            "modified",
-            "source",
-            "true",
-            "false"
-        )
-        let filesInvocation = try parseIPCInvocation(
-            "bridge-file-tree-set-filter",
-            "pane:2",
-            "files",
-            "docs"
-        )
-
-        #expect(
-            reviewInvocation.command
-                == .bridgeFileTreeSetFilter(
-                    IPCBridgeFileTreeSetFilterParams(
-                        handle: "pane:2",
-                        candidate: .review(
-                            gitStatusFilter: .modified,
-                            categoryFilter: .source,
-                            showBinary: true,
-                            showLarge: false
-                        )
-                    )
-                )
-        )
-        #expect(
-            filesInvocation.command
-                == .bridgeFileTreeSetFilter(
-                    IPCBridgeFileTreeSetFilterParams(
-                        handle: "pane:2",
-                        candidate: .files(categoryFilter: .docs)
-                    )
-                )
-        )
-    }
-
-    @Test("parses bridge diff expand and collapse commands")
-    func parsesBridgeDiffExpandAndCollapseCommands() throws {
-        let expandInvocation = try AgentStudioIPCClientArguments.parse(
-            ["--socket", "/tmp/app.sock", "bridge-diff-expand-file", "pane:2", "item-source"],
-            environment: [:]
-        )
-        let collapseInvocation = try AgentStudioIPCClientArguments.parse(
-            ["--socket", "/tmp/app.sock", "bridge-diff-collapse-file", "pane:2", "item-source"],
-            environment: [:]
-        )
-
-        #expect(
-            expandInvocation.command
-                == .bridgeDiffExpandFile(
-                    IPCBridgeDiffExpandFileParams(handle: "pane:2", itemId: "item-source")
-                )
-        )
-        #expect(
-            collapseInvocation.command
-                == .bridgeDiffCollapseFile(
-                    IPCBridgeDiffCollapseFileParams(handle: "pane:2", itemId: "item-source")
-                )
-        )
-    }
-
-    @Test("builds semantic bridge control request frames")
-    func buildsSemanticBridgeControlRequestFrames() throws {
-        let client = AgentStudioIPCClient(
-            configuration: AgentStudioIPCClientConfiguration(socketPath: "/tmp/app.sock")
-        )
-
-        let frame = try client.requestFrame(
-            .bridgeFileTreeSetFilter(
-                IPCBridgeFileTreeSetFilterParams(
-                    handle: "pane:2",
-                    candidate: .review(
-                        gitStatusFilter: .modified,
-                        categoryFilter: .source,
-                        showBinary: true,
-                        showLarge: false
-                    )
-                )
-            ),
-            requestId: 16
-        )
-        let request = try JSONRPCCodec.decodeRequest(frame)
-
-        #expect(request.id == .number(16))
-        #expect(request.method == "bridge.fileTree.setFilter")
-        guard case .object(let params)? = request.params else {
-            Issue.record("expected object params")
-            return
-        }
-        #expect(params["handle"] == .string("pane:2"))
-        #expect(
-            params["candidate"]
-                == .object([
-                    "surface": .string("review"),
-                    "gitStatusFilter": .string("modified"),
-                    "categoryFilter": .string("source"),
-                    "showBinary": .bool(true),
-                    "showLarge": .bool(false),
-                ])
-        )
-        #expect(params["gitStatusFilter"] == nil)
-        #expect(params["fileClassFilter"] == nil)
-    }
-
-    @Test("rejects invalid bridge file tree filter enum and boolean arguments")
-    func rejectsInvalidBridgeFileTreeFilterArguments() {
-        #expect(throws: AgentStudioIPCClientError.self) {
-            try parseIPCInvocation(
-                "bridge-file-tree-set-filter",
-                "pane:2",
-                "files",
-                "binary"
+    @Test("the debug escrow file supplies both endpoint and credential with no flags")
+    func debugEscrowSuppliesEndpointAndCredential() throws {
+        let fixture = try DebugEscrowFixture(
+            document: IPCDebugCredentialEscrowDocument(
+                runtimeId: UUIDv7.generate(),
+                socketPath: "/tmp/debug-escrow.sock",
+                token: "escrow-token"
             )
-        }
-        #expect(throws: AgentStudioIPCClientError.self) {
-            try parseIPCInvocation(
-                "bridge-file-tree-set-filter",
-                "pane:2",
-                "review",
-                "changed",
-                "source",
-                "true",
-                "false"
-            )
-        }
-        #expect(throws: AgentStudioIPCClientError.self) {
-            try parseIPCInvocation(
-                "bridge-file-tree-set-filter",
-                "pane:2",
-                "review",
-                "modified",
-                "source",
-                "yes",
-                "false"
-            )
-        }
+        )
+        defer { fixture.cleanup() }
+
+        let invocation = try AgentStudioIPCClientArguments.parse(
+            ["system.identify"], descriptors: makeCatalog().erasedDescriptors,
+            environment: fixture.environment,
+            correlationIDGenerator: { UUIDv7.generate() },
+            standardInputProvider: {
+                Issue.record("No stdin requested")
+                return Data()
+            }
+        )
+
+        #expect(invocation.configuration.socketPath == "/tmp/debug-escrow.sock")
+        #expect(invocation.configuration.authToken == "escrow-token")
     }
 
-    @Test("builds bridge file view open request frame")
-    func buildsBridgeFileViewOpenRequestFrame() throws {
-        let worktreeId = UUID(uuidString: "00000000-0000-0000-0000-000000000702")!
-        let client = AgentStudioIPCClient(
-            configuration: AgentStudioIPCClientConfiguration(socketPath: "/tmp/app.sock")
+    @Test("pane authority answers before the debug escrow file is read")
+    func paneEnvironmentPrecedesDebugEscrow() throws {
+        let fixture = try DebugEscrowFixture(
+            document: IPCDebugCredentialEscrowDocument(
+                runtimeId: UUIDv7.generate(),
+                socketPath: "/tmp/debug-escrow.sock",
+                token: "escrow-token"
+            )
+        )
+        defer { fixture.cleanup() }
+        var environment = fixture.environment
+        environment["AGENTSTUDIO_IPC_SOCKET"] = "/tmp/pane.sock"
+        environment["AGENTSTUDIO_PANE_TOKEN"] = "pane-token"
+
+        let invocation = try AgentStudioIPCClientArguments.parse(
+            ["system.identify"], descriptors: makeCatalog().erasedDescriptors,
+            environment: environment,
+            correlationIDGenerator: { UUIDv7.generate() },
+            standardInputProvider: {
+                Issue.record("No stdin requested")
+                return Data()
+            }
         )
 
-        let frame = try client.requestFrame(
-            .bridgeFileViewOpen(IPCBridgeFileViewOpenParams(worktreeId: worktreeId)),
-            requestId: 17
-        )
-        let request = try JSONRPCCodec.decodeRequest(frame)
-
-        #expect(request.id == .number(17))
-        #expect(request.method == "bridge.fileView.open")
-        guard case .object(let params)? = request.params else {
-            Issue.record("expected object params")
-            return
-        }
-        #expect(params["worktreeId"] == .string(worktreeId.uuidString))
+        #expect(invocation.configuration.socketPath == "/tmp/pane.sock")
+        #expect(invocation.configuration.authToken == "pane-token")
     }
 
-    @Test("builds bridge file view content request frame")
-    func buildsBridgeFileViewContentRequestFrame() throws {
-        let client = AgentStudioIPCClient(
-            configuration: AgentStudioIPCClientConfiguration(socketPath: "/tmp/app.sock")
+    @Test("an explicit endpoint answers before the debug escrow file is read")
+    func explicitEndpointPrecedesDebugEscrow() throws {
+        let fixture = try DebugEscrowFixture(
+            document: IPCDebugCredentialEscrowDocument(
+                runtimeId: UUIDv7.generate(),
+                socketPath: "/tmp/debug-escrow.sock",
+                token: "escrow-token"
+            )
+        )
+        defer { fixture.cleanup() }
+
+        let invocation = try AgentStudioIPCClientArguments.parse(
+            ["--socket", "/tmp/explicit.sock", "system.identify"],
+            descriptors: makeCatalog().erasedDescriptors,
+            environment: fixture.environment,
+            correlationIDGenerator: { UUIDv7.generate() },
+            standardInputProvider: {
+                Issue.record("No stdin requested")
+                return Data()
+            }
         )
 
-        let frame = try client.requestFrame(
-            .bridgeFileViewGetContent(
-                IPCBridgeContentGetParams(
-                    handle: "pane:2",
-                    contentHandleId: "content-123",
-                    reviewGeneration: 7
+        #expect(invocation.configuration.socketPath == "/tmp/explicit.sock")
+        #expect(invocation.configuration.authToken == nil)
+    }
+
+    /// A stale escrow names a socket nobody is listening on. The CLI has to know
+    /// the endpoint came from that file to answer "the debug app is gone" rather
+    /// than a raw transport failure.
+    @Test("an escrow-supplied endpoint is marked as such and an explicit one is not")
+    func escrowSuppliedEndpointIsMarked() throws {
+        // Arrange
+        let fixture = try DebugEscrowFixture(
+            document: IPCDebugCredentialEscrowDocument(
+                runtimeId: UUIDv7.generate(),
+                socketPath: "/tmp/debug-escrow.sock",
+                token: "escrow-token"
+            )
+        )
+        defer { fixture.cleanup() }
+        var paneEnvironment = fixture.environment
+        paneEnvironment["AGENTSTUDIO_IPC_SOCKET"] = "/tmp/pane.sock"
+
+        // Act
+        let fromEscrow = try AgentStudioIPCClientArguments.parseGlobal(
+            ["system.identify"], environment: fixture.environment,
+            standardInputProvider: {
+                Issue.record("No stdin requested")
+                return Data()
+            }
+        )
+        let fromPaneEnvironment = try AgentStudioIPCClientArguments.parseGlobal(
+            ["system.identify"], environment: paneEnvironment,
+            standardInputProvider: {
+                Issue.record("No stdin requested")
+                return Data()
+            }
+        )
+
+        // Assert
+        #expect(fromEscrow.endpointCameFromDebugEscrow)
+        #expect(fromPaneEnvironment.endpointCameFromDebugEscrow == false)
+    }
+
+    @Test("an escrow file without a usable runtime identity reports that the debug app is not running")
+    func escrowWithoutARuntimeIdentityReportsNotRunning() throws {
+        // Arrange
+        let fixture = try DebugEscrowFixture(
+            document: IPCDebugCredentialEscrowDocument(
+                runtimeId: UUIDv7.generate(),
+                socketPath: "/tmp/debug-escrow.sock",
+                token: "escrow-token"
+            )
+        )
+        defer { fixture.cleanup() }
+        let withoutRuntimeId = #"{"socketPath":"/tmp/debug-escrow.sock","token":"escrow-token"}"#
+        let unparsableRuntimeId =
+            #"{"runtimeId":"not-a-uuid","socketPath":"/tmp/debug-escrow.sock","token":"escrow-token"}"#
+
+        // Act / Assert
+        for contents in [withoutRuntimeId, unparsableRuntimeId] {
+            try Data(contents.utf8).write(to: fixture.escrowURL)
+            let error = #expect(throws: AgentStudioIPCClientError.self) {
+                try AgentStudioIPCClientArguments.parseGlobal(
+                    ["system.identify"], environment: fixture.environment,
+                    standardInputProvider: {
+                        Issue.record("No stdin requested")
+                        return Data()
+                    }
                 )
-            ),
-            requestId: 14
-        )
-        let request = try JSONRPCCodec.decodeRequest(frame)
-
-        #expect(request.id == .number(14))
-        #expect(request.method == "bridge.fileView.getContent")
-        guard case .object(let params)? = request.params else {
-            Issue.record("expected object params")
-            return
+            }
+            #expect(error?.reason == .debugAppNotRunning)
         }
-        #expect(params["handle"] == .string("pane:2"))
-        #expect(params["contentHandleId"] == .string("content-123"))
-        #expect(params["reviewGeneration"] == .number(7))
     }
 
-    @Test("builds bridge telemetry flush request frame")
-    func buildsBridgeTelemetryFlushRequestFrame() throws {
-        let client = AgentStudioIPCClient(
-            configuration: AgentStudioIPCClientConfiguration(socketPath: "/tmp/app.sock")
-        )
-
-        let frame = try client.requestFrame(.bridgeTelemetryFlush(handle: "pane:2"), requestId: 15)
-        let request = try JSONRPCCodec.decodeRequest(frame)
-
-        #expect(request.id == .number(15))
-        #expect(request.method == "bridge.telemetry.flush")
-        guard case .object(let params)? = request.params else {
-            Issue.record("expected object params")
-            return
-        }
-        #expect(params["handle"] == .string("pane:2"))
-    }
-
-    @Test("parses auth token stdin mode without accepting argv bearer tokens")
-    func parsesAuthTokenStdinModeWithoutAcceptingArgvBearerTokens() throws {
-        let loginInvocation = try AgentStudioIPCClientArguments.parse(
-            ["--socket", "/tmp/app.sock", "--token-stdin", "auth-login"],
-            environment: [:]
-        )
-
-        #expect(loginInvocation.readsAuthTokenFromStandardInput)
-        #expect(loginInvocation.configuration.authToken == nil)
-        #expect(loginInvocation.command == .authLogin)
-        #expect(throws: AgentStudioIPCClientError.self) {
-            try AgentStudioIPCClientArguments.parse(
-                ["--socket", "/tmp/app.sock", "--token", "secret-token", "auth-login"],
-                environment: [:]
+    @Test("a missing or unreadable escrow file reports that the debug app is not running")
+    func missingOrCorruptDebugEscrowReportsNotRunning() throws {
+        let fixture = try DebugEscrowFixture(
+            document: IPCDebugCredentialEscrowDocument(
+                runtimeId: UUIDv7.generate(),
+                socketPath: "/tmp/debug-escrow.sock",
+                token: "escrow-token"
             )
-        }
-        #expect(throws: AgentStudioIPCClientError.self) {
-            try AgentStudioIPCClientArguments.parse(
-                ["--socket", "/tmp/app.sock", "auth-login", "secret-token"],
-                environment: [:]
-            )
-        }
-    }
-
-    @Test("builds machine-readable JSON-RPC request frames")
-    func buildsMachineReadableJSONRPCRequestFrames() throws {
-        let client = AgentStudioIPCClient(
-            configuration: AgentStudioIPCClientConfiguration(socketPath: "/tmp/app.sock")
         )
+        defer { fixture.cleanup() }
+        try Data("not an escrow document".utf8).write(to: fixture.escrowURL)
 
-        let frame = try client.requestFrame(
-            .terminalSend(
-                handle: "pane:1",
-                input: "echo hello\n",
-                correlationId: UUID(uuidString: "00000000-0000-0000-0000-000000000201")
-            ),
-            requestId: 9
-        )
-        let request = try JSONRPCCodec.decodeRequest(frame)
-
-        #expect(request.id == .number(9))
-        #expect(request.method == "terminal.send")
-        guard case .object(let params)? = request.params else {
-            Issue.record("expected object params")
-            return
-        }
-        #expect(params["handle"] == .string("pane:1"))
-        #expect(params["input"] == .string("echo hello\n"))
-        #expect(params["correlationId"] == .string("00000000-0000-0000-0000-000000000201"))
-    }
-
-    @Test("builds command execute request frame")
-    func buildsCommandExecuteRequestFrame() throws {
-        let client = AgentStudioIPCClient(
-            configuration: AgentStudioIPCClientConfiguration(socketPath: "/tmp/app.sock")
-        )
-
-        let frame = try client.requestFrame(
-            .commandExecute(
-                IPCCommandExecuteParams(
-                    commandId: IPCCommandIdentifier(rawValue: "showCommandBarPanes"),
-                    targetHandle: nil
+        for environment in [fixture.environment, fixture.environmentWithoutFile] {
+            let error = #expect(throws: AgentStudioIPCClientError.self) {
+                try AgentStudioIPCClientArguments.parse(
+                    ["system.identify"], descriptors: makeCatalog().erasedDescriptors,
+                    environment: environment,
+                    correlationIDGenerator: { UUIDv7.generate() },
+                    standardInputProvider: {
+                        Issue.record("No stdin requested")
+                        return Data()
+                    }
                 )
-            ),
-            requestId: 10
-        )
-        let request = try JSONRPCCodec.decodeRequest(frame)
-
-        #expect(request.id == .number(10))
-        #expect(request.method == "command.execute")
-        guard case .object(let params)? = request.params else {
-            Issue.record("expected object params")
-            return
+            }
+            #expect(error?.reason == .debugAppNotRunning)
         }
-        #expect(params["commandId"] == .string("showCommandBarPanes"))
-        #expect(params["targetHandle"] == .null)
-        #expect(params["arguments"] == .object([:]))
     }
 
-    @Test("round trips one request against a local Unix socket test server")
-    func roundTripsOneRequestAgainstLocalUnixSocketTestServer() throws {
-        let endpoint = UnixSocketEndpoint(path: temporarySocketPath())
+    @Test("live capabilities validates before compiled method selection over the same protocol")
+    func liveCapabilitiesBuildsTypedInvocationCatalog() throws {
+        let catalog = try makeCatalog()
+        let ping = try IPCAnyMethodDescriptor(erasing: catalog.systemAndAuth.systemPing)
+        let composition = try IPCSystemCapabilitiesDescriptorFactory.compose(
+            compatibility: .current, availableDescriptors: catalog.erasedDescriptors, illustrativeDescriptor: ping
+        )
+        let endpoint = UnixSocketEndpoint(path: temporaryIPCDescriptorClientSocketPath())
         let listener = UnixSocketListener(endpoint: endpoint)
-        let handledRequest = LockedBox<JSONRPCRequest?>(nil)
         try listener.start { connection in
-            var decoder = NDJSONFrameDecoder(maxFrameBytes: 65_536)
-            let data = try connection.receive(maxBytes: 4096)
-            let frame = try #require(try decoder.append(data).first)
-            let request = try JSONRPCCodec.decodeRequest(frame)
-            handledRequest.set(request)
-            let response = JSONRPCResponse.success(
-                id: request.id,
-                result: .object(["appVersion": .string("test")])
-            )
+            defer { connection.close() }
+            var decoder = NDJSONFrameDecoder(maxFrameBytes: 1_048_576)
+            let request = try receiveIPCDescriptorClientRequest(connection: connection, decoder: &decoder)
+            #expect(request.method == "system.capabilities")
+            #expect(request.params == .object([:]))
+            let result = try JSONRPCCodec.encodeJSONValue(composition.result)
             try connection.send(
-                try NDJSONFrameEncoder.encode(
-                    JSONRPCCodec.encodeResponse(response),
-                    maxFrameBytes: 65_536
+                NDJSONFrameEncoder.encode(
+                    JSONRPCCodec.encodeResponse(.success(id: request.id, result: result)), maxFrameBytes: 1_048_576
                 ))
-            connection.close()
         }
-        defer {
-            listener.stop()
-        }
-
+        defer { listener.stop() }
         let client = AgentStudioIPCClient(
-            configuration: AgentStudioIPCClientConfiguration(socketPath: endpoint.path, maxFrameBytes: 65_536)
+            configuration: .init(socketPath: endpoint.path), descriptors: catalog.erasedDescriptors
         )
-        let response = try client.call(.identify, requestId: 3)
-
-        #expect(response.id == .number(3))
-        #expect(response.result == .object(["appVersion": .string("test")]))
-        #expect(handledRequest.value()?.method == "system.identify")
-    }
-
-    @Test("authenticates and calls command on the same Unix socket connection")
-    func authenticatesAndCallsCommandOnSameUnixSocketConnection() throws {
-        let endpoint = UnixSocketEndpoint(path: temporarySocketPath())
-        let listener = UnixSocketListener(endpoint: endpoint)
-        let handledMethods = LockedBox<[String]>([])
-        try listener.start { connection in
-            var decoder = NDJSONFrameDecoder(maxFrameBytes: 65_536)
-            let loginRequest = try receiveRequest(connection: connection, decoder: &decoder)
-            handledMethods.set(handledMethods.value() + [loginRequest.method])
-            try connection.send(responseFrame(id: loginRequest.id, result: .object(["ok": .bool(true)])))
-
-            let commandRequest = try receiveRequest(connection: connection, decoder: &decoder)
-            handledMethods.set(handledMethods.value() + [commandRequest.method])
-            try connection.send(
-                responseFrame(
-                    id: commandRequest.id,
-                    result: .object(["appVersion": .string("authenticated")])
-                ))
-            connection.close()
-        }
-        defer {
-            listener.stop()
-        }
-
-        let client = AgentStudioIPCClient(
-            configuration: AgentStudioIPCClientConfiguration(
-                socketPath: endpoint.path,
-                authToken: "secret-token",
-                maxFrameBytes: 65_536
-            )
+        let discovered = try client.discoverCatalog()
+        #expect(discovered == composition.result)
+        let matched = try IPCBuiltInMethodCatalog.matchingDiscoveredMethods(
+            discovered, examples: .init(illustrativeIdentifier: UUIDv7.generate())
         )
-        let response = try client.call(.identify, requestId: 5)
-
-        #expect(response.id == .number(6))
-        #expect(response.result == .object(["appVersion": .string("authenticated")]))
-        #expect(handledMethods.value() == ["auth.login", "system.identify"])
+        #expect(matched.count == 47)
+        let wait = try parse(
+            [
+                "terminal.wait", "--handle", "self", "--condition", "commandFinished", "--timeout-seconds", "9",
+            ], descriptors: matched)
+        #expect(wait.descriptorInvocation.descriptor.metadata.name == "terminal.wait")
+        #expect(throws: IPCDescriptorInvocationError.self) {
+            try parse(
+                [
+                    "terminal.wait", "--handle", "self", "--condition", "commandFinished", "--timeout-seconds", "10",
+                ], descriptors: matched)
+        }
     }
 
-    @Test("automatic authentication error prevents follow-up command")
-    func automaticAuthenticationErrorPreventsFollowupCommand() throws {
-        let endpoint = UnixSocketEndpoint(path: temporarySocketPath())
-        let listener = UnixSocketListener(endpoint: endpoint)
-        let handledMethods = LockedBox<[String]>([])
-        try listener.start { connection in
-            var decoder = NDJSONFrameDecoder(maxFrameBytes: 65_536)
-            let loginRequest = try receiveRequest(connection: connection, decoder: &decoder)
-            handledMethods.set(handledMethods.value() + [loginRequest.method])
-            try connection.send(
-                errorFrame(
-                    id: loginRequest.id,
-                    code: -32_001,
-                    message: "unauthenticated"
-                ))
-            connection.close()
-        }
-        defer {
-            listener.stop()
-        }
-
-        let client = AgentStudioIPCClient(
-            configuration: AgentStudioIPCClientConfiguration(
-                socketPath: endpoint.path,
-                authToken: "bad-token",
-                maxFrameBytes: 65_536
-            )
+    private func parse(_ arguments: [String], descriptors: [IPCAnyMethodDescriptor], input: Data = Data()) throws
+        -> AgentStudioIPCClientInvocation
+    {
+        try AgentStudioIPCClientArguments.parse(
+            ["--socket", "/tmp/app.sock"] + arguments, descriptors: descriptors, environment: [:],
+            correlationIDGenerator: { UUIDv7.generate() }, standardInputProvider: { input }
         )
-
-        do {
-            _ = try client.call(.identify, requestId: 9)
-            Issue.record("client unexpectedly sent follow-up command after auth error")
-        } catch let error as AgentStudioIPCClientError {
-            #expect(error.reason == .authenticationFailed)
-        }
-        #expect(handledMethods.value() == ["auth.login"])
     }
 
-    @Test("event subscribe keeps the socket open and surfaces notification frames")
-    func eventSubscribeKeepsSocketOpenAndSurfacesNotificationFrames() throws {
-        let endpoint = UnixSocketEndpoint(path: temporarySocketPath())
-        let listener = UnixSocketListener(endpoint: endpoint)
-        try listener.start { connection in
-            var decoder = NDJSONFrameDecoder(maxFrameBytes: 65_536)
-            let request = try receiveRequest(connection: connection, decoder: &decoder)
-            try connection.send(
-                responseFrame(
-                    id: request.id,
-                    result: .object([
-                        "subscriptionId": .string("00000000-0000-0000-0000-000000000301")
-                    ])
-                )
-                    + notificationFrame()
-            )
-            connection.close()
-        }
-        defer {
-            listener.stop()
-        }
-
-        let client = AgentStudioIPCClient(
-            configuration: AgentStudioIPCClientConfiguration(socketPath: endpoint.path, maxFrameBytes: 65_536)
-        )
-        var frames: [String] = []
-
-        try client.stream(.eventsSubscribe(eventNames: [.terminalCommandFinished]), requestId: 7) { frame in
-            frames.append(frame)
-        }
-
-        #expect(frames.count == 2)
-        #expect(try JSONRPCCodec.decodeResponse(frames[0]).id == .number(7))
-        #expect(frames[1].contains(#""method":"events.notification""#))
+    private func makeCatalog() throws -> IPCBuiltInMethodCatalog {
+        try IPCBuiltInMethodCatalog(
+            inputs: .init(
+                terminalWaitMaximumSeconds: 9,
+                relationships: .init(
+                    paneFocus: .noInteractiveIdentity, paneClose: .noInteractiveIdentity,
+                    drawerToggle: .noInteractiveIdentity, drawerAddPane: .noInteractiveIdentity,
+                    bridgeDiffLoad: .noInteractiveIdentity, bridgeFileViewOpen: .noInteractiveIdentity),
+                examples: .init(illustrativeIdentifier: UUIDv7.generate())
+            ))
     }
 }
 
-private func writeMetadata(socketPath: String) throws -> URL {
-    let directory = FileManager.default.temporaryDirectory
-        .appendingPathComponent("agentstudio-ipc-client-tests-\(UUID().uuidString)", isDirectory: true)
-    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-    let url = directory.appendingPathComponent("runtime.json")
-    let data = Data(#"{"socketPath":"\#(socketPath)","protocol":"agentstudio-ipc-jsonrpc-2"}"#.utf8)
-    try data.write(to: url)
-    return url
-}
+private struct DebugEscrowFixture {
+    let directory: URL
+    let escrowURL: URL
 
-private func parseIPCInvocation(_ arguments: String...) throws -> AgentStudioIPCClientInvocation {
-    try AgentStudioIPCClientArguments.parse(
-        ["--socket", "/tmp/app.sock"] + arguments,
-        environment: [:]
-    )
-}
-
-private func temporarySocketPath() -> String {
-    let suffix = UUID().uuidString.prefix(8)
-    return "/tmp/asipc-\(suffix).sock"
-}
-
-private func receiveRequest(
-    connection: UnixSocketConnection,
-    decoder: inout NDJSONFrameDecoder
-) throws -> JSONRPCRequest {
-    while true {
-        let data = try connection.receive(maxBytes: 4096)
-        let frames = try decoder.append(data)
-        if let frame = frames.first {
-            return try JSONRPCCodec.decodeRequest(frame)
-        }
-    }
-}
-
-private func responseFrame(id: JSONRPCIdentifier?, result: JSONValue) throws -> Data {
-    try NDJSONFrameEncoder.encode(
-        JSONRPCCodec.encodeResponse(JSONRPCResponse.success(id: id, result: result)),
-        maxFrameBytes: 65_536
-    )
-}
-
-private func errorFrame(id: JSONRPCIdentifier?, code: Int, message: String) throws -> Data {
-    try NDJSONFrameEncoder.encode(
-        JSONRPCCodec.encodeResponse(
-            JSONRPCResponse.failure(
-                id: id,
-                error: JSONRPCErrorPayload(code: code, message: message)
-            )),
-        maxFrameBytes: 65_536
-    )
-}
-
-private func notificationFrame() throws -> Data {
-    try NDJSONFrameEncoder.encode(
-        JSONRPCCodec.encodeNotification(
-            JSONRPCNotification(
-                method: "events.notification",
-                params: .object(["name": .string(IPCEventName.terminalCommandFinished.rawValue)])
-            )
-        ),
-        maxFrameBytes: 65_536
-    )
-}
-
-private final class LockedBox<Value>: @unchecked Sendable {
-    private let lock = NSLock()
-    private var storedValue: Value
-
-    init(_ value: Value) {
-        storedValue = value
+    init(document: IPCDebugCredentialEscrowDocument) throws {
+        directory = FileManager.default.temporaryDirectory
+            .appending(path: "ipc-escrow-\(UUIDv7.generate().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        escrowURL = directory.appending(path: "debug-credential.json")
+        try JSONEncoder().encode(document).write(to: escrowURL)
     }
 
-    func set(_ value: Value) {
-        lock.withLock {
-            storedValue = value
-        }
+    var environment: [String: String] {
+        [IPCDebugCredentialEscrowDocument.environmentVariableName: escrowURL.path]
     }
 
-    func value() -> Value {
-        lock.withLock {
-            storedValue
-        }
+    var environmentWithoutFile: [String: String] {
+        [
+            IPCDebugCredentialEscrowDocument.environmentVariableName:
+                directory.appending(path: "absent.json").path
+        ]
+    }
+
+    func cleanup() {
+        try? FileManager.default.removeItem(at: directory)
     }
 }

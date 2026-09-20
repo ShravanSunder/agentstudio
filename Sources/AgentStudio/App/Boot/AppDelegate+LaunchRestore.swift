@@ -68,6 +68,7 @@ extension AppDelegate {
             outcome: firstFrameDeferralOutcome
         )
         await preparedMountOwners.coordinator.releaseTerminalActivation()
+        scheduleAppIPCInitialization()
         let settlement = await deferredSettlement
         if let terminalDeferralOutcome = await preparedMountOwners.coordinator.terminalActivationDeferralOutcome() {
             performanceTraceRecorder?.recordStartupDeferral(

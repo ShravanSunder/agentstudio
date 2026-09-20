@@ -26,8 +26,6 @@ package struct RepoExplorerView: View {
     let commandPresentationDelta: RepoExplorerCommandPresentationDelta?
     let visibleSnapshotConsumerToken: UUID?
     let onRefocusActivePane: () -> Void
-    let onSpaceKeyDown: @MainActor (Bool, RepoExplorerSelectedPaneTarget?) -> Void
-    let onSpaceKeyUp: @MainActor () -> Void
     let onSelectedPaneTargetChange: @MainActor (RepoExplorerSelectedPaneTarget?) -> Void
     let onPreviewEligibilityLoss: @MainActor () -> Void
     let onPreviewCommit: @MainActor () -> Void
@@ -53,8 +51,6 @@ package struct RepoExplorerView: View {
         commandPresentationDelta: RepoExplorerCommandPresentationDelta? = nil,
         visibleSnapshotConsumerToken: UUID? = nil,
         onRefocusActivePane: @escaping () -> Void,
-        onSpaceKeyDown: @escaping @MainActor (Bool, RepoExplorerSelectedPaneTarget?) -> Void = { _, _ in },
-        onSpaceKeyUp: @escaping @MainActor () -> Void = {},
         onSelectedPaneTargetChange:
             @escaping @MainActor (RepoExplorerSelectedPaneTarget?) -> Void = { _ in },
         onPreviewEligibilityLoss: @escaping @MainActor () -> Void = {},
@@ -85,8 +81,6 @@ package struct RepoExplorerView: View {
         self.commandPresentationDelta = commandPresentationDelta
         self.visibleSnapshotConsumerToken = visibleSnapshotConsumerToken
         self.onRefocusActivePane = onRefocusActivePane
-        self.onSpaceKeyDown = onSpaceKeyDown
-        self.onSpaceKeyUp = onSpaceKeyUp
         self.onSelectedPaneTargetChange = onSelectedPaneTargetChange
         self.onPreviewEligibilityLoss = onPreviewEligibilityLoss
         self.onPreviewCommit = onPreviewCommit
@@ -291,8 +285,6 @@ package struct RepoExplorerView: View {
                 )
                 return isProjectionDemanded && openOrganizationSelector == nil && context.isStableSidebar
             },
-            onSpaceKeyDown: onSpaceKeyDown,
-            onSpaceKeyUp: onSpaceKeyUp,
             onSelectedPaneTargetChange: onSelectedPaneTargetChange,
             onPreviewEligibilityLoss: onPreviewEligibilityLoss,
             onPreviewCommit: onPreviewCommit,

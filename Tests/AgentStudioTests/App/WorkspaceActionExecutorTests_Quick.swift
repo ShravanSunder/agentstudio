@@ -27,6 +27,7 @@ private func makeWorkspaceActionExecutorHarness() throws -> WorkspaceActionExecu
         viewRegistry: viewRegistry,
         runtime: runtime,
         windowLifecycleStore: WindowLifecycleAtom(),
+        ipcLifecycle: .testUnavailable,
         bridgePaneAttendance: BridgePaneAttendanceAtom()
     )
     let executor = WorkspaceActionExecutor(coordinator: coordinator, store: store)

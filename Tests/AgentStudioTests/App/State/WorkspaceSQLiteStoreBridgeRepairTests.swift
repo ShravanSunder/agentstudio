@@ -91,6 +91,7 @@ struct WorkspaceSQLiteStoreBridgePersistenceTests {
             viewRegistry: viewRegistry,
             runtime: runtime,
             windowLifecycleStore: WindowLifecycleAtom(),
+            ipcLifecycle: .testUnavailable,
             bridgePaneAttendance: BridgePaneAttendanceAtom()
         )
 
