@@ -190,7 +190,9 @@ struct RepoExplorerKeyboardChromeTests {
             to: URL(fileURLWithPath: "tmp/sidekick-work/worktree-overlay-\(Int(width)).png")
         )
         let shortcutGlyphBounds = try #require(trailingDarkGlyphBounds(in: bitmap))
-        let titleGlyphBounds = try #require(primaryTitleGlyphBounds(in: bitmap))
+        let titleGlyphBounds = try #require(
+            primaryTitleGlyphBounds(in: bitmap, nearY: shortcutGlyphBounds.midY)
+        )
 
         #expect(cell.frame.height == baselineCellHeight)
         #expect(cell.hostingView.fittingSize == baselineFittingSize)
@@ -261,10 +263,6 @@ struct RepoExplorerKeyboardChromeTests {
             onTogglePinned: { pinPressCount += 1 }
         )
         pinHost.layoutSubtreeIfNeeded()
-        #expect(
-            SidebarTrailingActionVisibility(shortcutDisplay: ShortcutDisplayText(value: "1"))
-                .accessibilityHidden
-        )
         try click(pinControlPoint, in: pinHost, window: pinWindow)
         #expect(pinPressCount == 1)
 
@@ -274,7 +272,6 @@ struct RepoExplorerKeyboardChromeTests {
             onTogglePinned: { pinPressCount += 1 }
         )
         pinHost.layoutSubtreeIfNeeded()
-        #expect(!SidebarTrailingActionVisibility(shortcutDisplay: nil).accessibilityHidden)
         try click(pinControlPoint, in: pinHost, window: pinWindow)
         #expect(pinPressCount == 2)
     }
@@ -283,7 +280,7 @@ struct RepoExplorerKeyboardChromeTests {
         pinPresentation: RepoExplorerPresentedCommand,
         shortcutDisplay: ShortcutDisplayText?,
         onTogglePinned: @escaping () -> Void
-    ) -> RepoExplorerWorktreeRowContent {
+    ) -> some View {
         RepoExplorerWorktreeRowContent(
             octiconLoader: makeRepoExplorerTestOcticonLoader(),
             checkoutTitle: "A deliberately long repository title proving the trailing slot",
@@ -296,6 +293,7 @@ struct RepoExplorerKeyboardChromeTests {
             onTogglePinned: onTogglePinned,
             shortcutDisplay: shortcutDisplay
         )
+        .accessibilityElement(children: .contain)
     }
 
     private func verifyNumberStampLayout(at width: CGFloat, artifactDirectory: URL) throws {
@@ -340,6 +338,8 @@ struct RepoExplorerKeyboardChromeTests {
         #expect(unassociatedRowRect.height == unassociatedBaselineHeight)
         #expect(associatedCell.hostingView.rootView.slot.keyboardPresentation.shortcutDisplay?.value == "1")
         #expect(unassociatedCell.hostingView.rootView.slot.keyboardPresentation.shortcutDisplay?.value == "2")
+        try expectShortcutAlignedWithFirstTitleLine(in: associatedBitmap)
+        try expectShortcutAlignedWithFirstTitleLine(in: unassociatedBitmap)
         try writeSpaceChipArtifacts(
             SpaceChipCapture(
                 width: width,
@@ -459,11 +459,16 @@ struct RepoExplorerKeyboardChromeTests {
         return bounds
     }
 
-    private func primaryTitleGlyphBounds(in bitmap: NSBitmapImageRep) -> CGRect? {
+    private func primaryTitleGlyphBounds(
+        in bitmap: NSBitmapImageRep,
+        nearY: CGFloat
+    ) -> CGRect? {
         var bounds: CGRect?
         let xStart = min(bitmap.pixelsWide, 72)
         let xEnd = max(xStart, bitmap.pixelsWide - 112)
-        for y in 0..<(bitmap.pixelsHigh / 2) {
+        let yStart = max(0, Int(nearY.rounded(.down)) - 12)
+        let yEnd = min(bitmap.pixelsHigh, Int(nearY.rounded(.up)) + 13)
+        for y in yStart..<yEnd {
             for x in xStart..<xEnd {
                 guard let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB),
                     color.redComponent > 0.8,
@@ -476,6 +481,14 @@ struct RepoExplorerKeyboardChromeTests {
             }
         }
         return bounds
+    }
+
+    private func expectShortcutAlignedWithFirstTitleLine(in bitmap: NSBitmapImageRep) throws {
+        let shortcutBounds = try #require(trailingDarkGlyphBounds(in: bitmap))
+        let titleBounds = try #require(
+            primaryTitleGlyphBounds(in: bitmap, nearY: shortcutBounds.midY)
+        )
+        #expect(abs(shortcutBounds.midY - titleBounds.midY) <= 7)
     }
 
     private func click(_ point: NSPoint, in view: NSView, window: NSWindow) throws {

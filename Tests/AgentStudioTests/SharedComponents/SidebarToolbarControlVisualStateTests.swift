@@ -59,8 +59,8 @@ struct SidebarToolbarControlVisualStateTests {
             #expect(filterWithHint.hostSize == filterWithoutHint.hostSize)
             #expect(filterWithHint.textFieldFrameInHost == filterWithoutHint.textFieldFrameInHost)
             let badgeBounds = try #require(filterWithHint.badgeBounds)
-            #expect(abs(badgeBounds.midY - filterWithHint.hostSize.height) <= 2)
-            #expect(badgeBounds.maxX <= filterWithHint.hostSize.width * 2)
+            #expect(abs(badgeBounds.midY - filterWithHint.hostSize.height / 2) <= 1)
+            #expect(badgeBounds.maxX <= filterWithHint.hostSize.width)
             #expect(filterWithoutHint.badgeBounds == nil)
         }
     }
@@ -77,6 +77,10 @@ struct SidebarToolbarControlVisualStateTests {
         let withHint = try mountedSearchFieldGeometry(showsHint: true, width: 250, model: model)
         try click(at: clearPoint, in: withHint)
         #expect(model.text == "filter with clear button")
+
+        let restored = try mountedSearchFieldGeometry(showsHint: false, width: 250, model: model)
+        try click(at: clearPoint, in: restored)
+        #expect(model.text.isEmpty)
     }
 
     @Test("shared trailing action visibility disables paint, hit testing, and accessibility together")
@@ -338,36 +342,29 @@ struct SidebarToolbarControlVisualStateTests {
         let textField = try #require(firstDescendant(NSTextField.self, in: hostingView))
         let bitmap = try #require(hostingView.bitmapImageRepForCachingDisplay(in: hostingView.bounds))
         hostingView.cacheDisplay(in: hostingView.bounds, to: bitmap)
+        let bitmapBadgeBounds = accentBadgeBounds(
+            in: bitmap,
+            xRange: max(0, bitmap.pixelsWide - 96)..<bitmap.pixelsWide,
+            yRange: 0..<bitmap.pixelsHigh
+        )
+        let pixelScaleX = CGFloat(bitmap.pixelsWide) / hostingView.bounds.width
+        let pixelScaleY = CGFloat(bitmap.pixelsHigh) / hostingView.bounds.height
+        let badgeBounds = bitmapBadgeBounds.map { bitmapBounds in
+            CGRect(
+                x: bitmapBounds.minX / pixelScaleX,
+                y: hostingView.bounds.height - bitmapBounds.maxY / pixelScaleY,
+                width: bitmapBounds.width / pixelScaleX,
+                height: bitmapBounds.height / pixelScaleY
+            )
+        }
         return SearchFieldGeometry(
             hostSize: hostingView.bounds.size,
             textFieldFrameInHost: hostingView.convert(textField.bounds, from: textField),
-            badgeBounds: accentBadgeBounds(
-                in: bitmap,
-                xRange: max(0, bitmap.pixelsWide - 96)..<bitmap.pixelsWide,
-                yRange: 0..<bitmap.pixelsHigh
-            ),
+            badgeBounds: badgeBounds,
             accessibilityLabels: accessibilityLabels(in: hostingView),
             hostingView: hostingView,
             window: window
         )
-    }
-
-    @MainActor
-    private func clickTrailingControl(
-        in geometry: SearchFieldGeometry,
-        until condition: () -> Bool
-    ) throws -> NSPoint {
-        for x in stride(
-            from: geometry.hostingView.bounds.maxX - 4,
-            through: geometry.hostingView.bounds.maxX - 48,
-            by: -2
-        ) {
-            let point = NSPoint(x: x, y: geometry.hostingView.bounds.midY)
-            try click(at: point, in: geometry)
-            if condition() { return point }
-        }
-        Issue.record("No trailing clear-action hit target was found")
-        return .zero
     }
 
     @MainActor
@@ -390,6 +387,24 @@ struct SidebarToolbarControlVisualStateTests {
                 )
             )
         }
+    }
+
+    @MainActor
+    private func clickTrailingControl(
+        in geometry: SearchFieldGeometry,
+        until condition: () -> Bool
+    ) throws -> NSPoint {
+        for x in stride(
+            from: geometry.hostingView.bounds.maxX - 4,
+            through: geometry.hostingView.bounds.maxX - 48,
+            by: -2
+        ) {
+            let point = NSPoint(x: x, y: geometry.hostingView.bounds.midY)
+            try click(at: point, in: geometry)
+            if condition() { return point }
+        }
+        Issue.record("No trailing clear-action hit target was found")
+        return .zero
     }
 
     private func accentBadgeBounds(

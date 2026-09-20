@@ -1,7 +1,7 @@
 # Keyboard sidebar and coherent arrangement visibility — Requirements
 
 Owner: Shravan. Authority: explicit choices and corrections in this conversation,
-2026-09-11/12. This is the single Requirements home. The [keyboard map](keyboard-map.md)
+2026-09-11 through 2026-09-20. This is the single Requirements home. The [keyboard map](keyboard-map.md)
 is the current human review entry point. Historical discussion and withdrawn
 contracts are outside that review path.
 
@@ -54,8 +54,8 @@ are not promoted by appearing beside an authorized need.
 | U12 | A coherent command/shortcut system. | Current sidebar/arrangement slice; broad restructuring deferred |
 | U13 | General visible follow-up action families. | Earlier assistant advisory proposal; not an app-wide requirement |
 | U14 | Option-Shift-Up/Down from terminal switches previous/next pinned pane. | Authorized; current; sidebar pinned order and wrap confirmed |
-| U15 | Temporarily show a selected pane in Preview; Enter takes the user there. | Authorized; Space-held, full pane area, follows selection; load existing panes as needed |
-| U16 | Show sidebar keyboard ownership and contextual floating key hints within existing UI. | Authorized; current; exact visual/reveal details proposed |
+| U15 | Temporarily show a selected pane in Preview; Enter takes the user there. | Authorized; eligible arrow selection previews in the full pane area; Enter/digits commit; cancellation restores canonical presentation; load existing panes as needed |
+| U16 | Show sidebar keyboard ownership and contextual floating key hints within existing UI. | Authorized; compact true overlays with one blue/bold/borderless appearance and unchanged underlying geometry |
 | U17 | Navigate terminal content with a coherent shortcut family. | Owner-revised design: Command-Shift-I/K scrolls up/down 90%; Command-Shift-J/L scrolls up/down 33%; Option-Shift-J/L moves previous/next shell prompt; Command-Option-K jumps to bottom. Option-Shift-I/K is reserved for later agent-TUI navigation and unassigned now. |
 | U18 | Spatial Option-J/L navigation stays among visible panes without revealing hidden/minimized panes. | Authorized correction; supersedes the existing expand-minimized spatial behavior |
 
@@ -74,18 +74,23 @@ thresholds or input-event telemetry.
 | Decision | Meaning |
 | --- | --- |
 | Command-S | Show/hide sidebar; preserve selected surface |
-| Command-Shift-S | Reveal sidebar if hidden and give it keyboard focus; do nothing while Management is active |
-| P / R with list focus | Select Panes / Repos |
+| Command-Shift-S | Reveal sidebar if hidden and give it keyboard focus; repeat returns to the recorded prior responder and cancels preview; do nothing while Management is active |
+| P / R with list focus | Select Panes / Repos; accepted dispatch exits temporary navigation and restores prior focus; rejection keeps navigation active |
 | F | Enter the existing current-list filter; viewer search stays separate |
 | Filter Enter | Keep query/results and focus table; do not open a result |
 | Digits 1–9 | Address first nine list results; open the numbered result immediately |
-| Held-preview hint | Do not add a Space chip to row chrome. Arrow selection of an eligible pane automatically previews the newly highlighted pane through the existing custody path; numbered shortcuts remain right-aligned and recency/metadata remain visible. |
+| Arrow preview | Do not add a Space chip to row chrome. Arrow selection of an eligible pane automatically previews the newly highlighted pane through the existing custody path; numbered shortcuts remain right-aligned and recency/metadata remain visible. |
+| Up/Down in list | Traverse only numbered destinations in accepted result order, stopping at edges; skip headers and unnumbered rows |
+| Shortcut badge paint | One appearance for every badge: product primary blue fill, dark glyph, 12pt monospaced bold, compact 4pt corners, no border or gradient; no selected/unselected variant |
+| Shortcut placement | F inside filter trailing center; R/P below label bounds with border behind badges; digits aligned to first title line and one trailing column; no extra row or geometry change |
+| Covered trailing controls | Hide normal pin/clear affordances in the badge slot while hints show; preserve layout space and restore them when hints hide. Hidden controls must not receive clicks or accessibility activation. |
+| Full screen terminology | Pane Zoom only; native macOS fullscreen eligibility is unchanged |
 | Option-Shift-Up/Down from terminal | Direct previous/next pinned-pane navigation in sidebar pinned order, wrapping at ends |
 | Creation | Current arrangement plus Default visible; unrelated custom arrangements do not reveal new pane |
 | Committed reveal | Current if visible; otherwise first visible custom in arrangement order; otherwise Default |
 | Drawer destination | Reveal parent, expand drawer and reach child |
-| Preview versus commit | Hold Space: full pane area, follows selected pane; non-pane rows keep canonical presentation; release cancels, Enter commits |
-| Unloaded preview target | Restore/load the existing pane as needed; if its old session ended, normal restore may start a fresh shell under the same pane identity; it may remain warm after release; no substitute pane |
+| Preview versus commit | Deliberate eligible arrow selection previews; opening/focusing/refreshing alone does not. Enter/digits commit; Escape, repeated CmdShiftS and eligibility loss cancel. No Space trigger or row chip. |
+| Unloaded preview target | Restore/load the existing pane as needed; if its old session ended, normal restore may start a fresh shell under the same pane identity; it may remain warm after cancellation; no substitute pane |
 
 ## Source constraints and review gaps
 

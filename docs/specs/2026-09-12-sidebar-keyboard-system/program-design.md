@@ -179,10 +179,9 @@ key equivalents. Preserve emptyDrawer's existing raw P alternate and all other c
 
 The existing SidebarEntityToggle/segmented-control primitive receives optional resolved
 shortcut display per segment. Shared keycaps overlay existing control bounds, never
-intercept pointer events and do not duplicate accessibility elements. Numbered row
-keycaps overlay the leading identity-icon column, preserving title, pins and chips.
-The single catalog-backed focus glyph occupies existing leading space in repoToolbarRow.
-It and list hints follow effective list eligibility; no new header or help strip.
+intercept pointer events and do not duplicate accessibility elements. Numbered row keycaps overlay the first-title-line trailing edge. Pin/clear affordances under a hint retain their layout footprint but lose paint, hit testing and accessibility while replaced. Shared `SidebarShortcutHint` owns one blue/bold/borderless paint recipe through `AppStyles`; its modifier owns local alignment only. Group border paint is behind segment hints. No new header or help strip. List hints follow effective list eligibility.
+
+`AppCommandSpec.sidebarKeyboardCompletion` declares `returnToOrigin` for R/P and `preserveCommandFocus` for F/default. Contextual `AppCommandDispatching.dispatch` returns accepted/rejected, not asynchronous completion. Shell-owned no-op commands are rejected by the workspace capability owner. `RepoExplorerKeyboardInteraction.requestCommand` records list origin, dispatches once, and applies the declared completion only after acceptance. The materialization host contains no R/P command-name condition; F keeps its command-owned filter focus.
 
 Leaf selection uses SidebarRowShell's existing isSelected paint. Group header selection
 uses the same style through its existing shared header. Native selection/accessibility
@@ -301,10 +300,7 @@ coordinator, event, poll, timer, or observation family is introduced.
 The sidebar remains the input owner. `RepoExplorerMaterializationHost` is the native
 list responder and owns the accepted selected row (`RepoExplorerMaterializationHost.swift:6-72,
 408-508`). Its existing `RepoExplorerKeyboardInteraction` callback seam reports
-Space down/up, selected pane target changes, focus loss, and pre-commit invalidation
-through `RepoExplorerView` and `SidebarSurfaceHost`; App composition owns the
-presentation transition. Space is a transient gesture and does not become an
-`AppCommand`. Enter and digits continue through the existing activation callbacks.
+selected pane target changes with explicit passive/arrow origin, focus loss, and pre-commit invalidation through `RepoExplorerView` and `SidebarSurfaceHost`; App composition owns presentation. Only deliberate eligible arrow navigation begins preview. Passive reconciliation may update an existing preview but cannot start one. Enter/digits retain existing activation callbacks. Space is not an input trigger.
 
 The presentation owner carries only the transient session and validated target:
 
@@ -312,7 +308,6 @@ The presentation owner carries only the transient session and validated target:
 HeldPanePreviewState
   idle(nextGeneration)
   held(generation, requestedTarget: optional ValidatedPanePreviewTarget)
-  suppressedUntilSpaceRelease(generation)
 
 ValidatedPanePreviewTarget
   paneID, owningTabID, provider/session identity captured for validation
@@ -353,14 +348,14 @@ introduced.
 
 ## State transitions and the sole presentation branch
 
-The held-session lifecycle is:
+The preview-session lifecycle is (internal `held` and `beginSpaceHold` names are retained identifiers, not a Space input contract):
 
 | State/transition | Guard and owner action | Resulting presentation |
 | --- | --- | --- |
 | `idle` → `held(g, requestedTarget?)` | Arrow selection while the actual first responder is the eligible list; mint one generation and resolve the current selected row | Canonical set until the requested pane's presentation mount is ready; a non-pane request stays `nil` |
-| `held(g, requestedTarget?)` → `held(g, requestedTarget?)` | Accepted selection or snapshot reconciliation replaces the requested target; clear the presented target until the new presentation mount is ready; Space autorepeat does not mint `g+1` | The requested target with a ready mount replaces the presented set; `nil` returns to canonical presentation |
-| `held(g, requestedTarget)` → `suppressedUntilSpaceRelease(g)` | Enter or digit invalidates the requested and presented targets synchronously before invoking its existing activation effect | Canonical presentation while `PaneCommittedFocusOperation` owns committed reveal/focus |
-| `held`/`suppressed` → `idle` | Matching Space key-up, list focus loss, host detach, sidebar hide, Management/transient takeover, window resign, or window close | Current canonical presentation; no durable rollback |
+| `held(g, requestedTarget?)` → `held(g, requestedTarget?)` | Accepted selection or snapshot reconciliation replaces the requested target; clear the presented target until the new presentation mount is ready; unchanged selection does not mint another generation | The requested target with a ready mount replaces the presented set; `nil` returns to canonical presentation |
+| `held(g, requestedTarget)` → `idle(nextGeneration)` | Enter or digit invalidates the requested and presented targets synchronously before invoking its existing activation effect | Canonical presentation while `PaneCommittedFocusOperation` owns committed reveal/focus |
+| `held` → `idle` | Escape, repeated CmdShiftS, list focus loss, host detach, sidebar hide, Management/transient takeover, window resign, or window close | Current canonical presentation; no durable rollback |
 | any held target → canonical | Pane removal, stale generation, provider/session mismatch, missing bounds, or preparation failure | No substitute row/pane; the canonical set remains visible |
 
 `SingleTabContent` currently selects exactly one Zoom or ordinary arrangement branch
@@ -375,15 +370,14 @@ mounted host. Once the mount is ready, the branch renders that host's one stable
 does not become a keyboard owner; existing pane hit behavior remains unchanged. If
 an existing pointer interaction changes the first responder, the same responder-loss
 cancellation path invalidates preview. There is no click-to-commit behavior.
-The held-preview affordance reuses the existing compact keycap presentation and inserts
-no Space hint to pane-row metadata/chip composition; held preview remains an input-only
-no header row, help panel, or workspace dimming.
-
-The prior Space keycap display path is removed; `LocalActionSpec.previewPane` remains the input owner without a row-local presentation. Numbered hints remain right-aligned through existing row presentation and recency remains in composition. Worktree rows do not gain preview affordances. The old preview shortcut display and trailing overlay paths are removed together.
-
-`RepoExplorerPaneRowContent` keeps the numbered keycap in its existing right-aligned row presentation
-(`RepoExplorerPaneNavigation.swift`, `RepoExplorerPaneRowContent.body`), while
-`SidebarShortcutHint` remains fixed-size, accessibility-hidden and non-pointer-interactive where used elsewhere. No Space affordance consumes row width, changes row height, hides recency, or changes input eligibility; the pane row retains existing alignment and dense metadata behavior.
+The preview adds no Space row affordance, header, help panel or workspace dimming.
+`RepoExplorerPaneRowContent` and worktree row content apply the shared numbered
+keycap overlay to their first title-line container. Geometry stays owned by the
+normal content. `SidebarShortcutHint` is fixed-size, accessibility-hidden and
+non-pointer-interactive. Normal trailing pin/clear controls stay mounted but are
+hidden and noninteractive while their hint is present; no pin-dependent digit shift
+or filter-width reservation is introduced. Up/Down resolve only through the accepted
+navigation index's numbered destinations; group traversal remains a separate Left/Right action.
 
 The preview branch also participates in the existing rendered-surface union. It
 registers a stable preview surface identity with
@@ -471,7 +465,7 @@ preserved owners:
 
 | Behavior | Current source path | Proposed path and delta |
 | --- | --- | --- |
-| Space/selection input | `RepoExplorerMaterializationHost.keyDown` → `handleListKeyboardAction` → selection/activation; no Space key-up or semantic target callback (`RepoExplorerMaterializationHost.swift:57-72, 408-508`) | **Added:** host key-down/up and selection reconciliation → existing keyboard callback chain → window-local requested target. The current requested target keeps the existing prepared visibility signal while the presented target waits for a ready mount. **Changed:** Enter/digits invalidate preview before the unchanged activation effect. Sync callbacks; exact target and generation checks reject stale results. |
+| Arrow/selection input | `RepoExplorerMaterializationHost.keyDown` → `handleListKeyboardAction` → selection/activation; no Space key-up or semantic target callback (`RepoExplorerMaterializationHost.swift:57-72, 408-508`) | **Changed:** deliberate arrow input and passive selection reconciliation with distinct origins → existing keyboard callback chain → window-local requested target. The current requested target keeps the existing prepared visibility signal while the presented target waits for a ready mount. **Changed:** Enter/digits invalidate preview before the unchanged activation effect. Sync callbacks; exact target and generation checks reject stale results. |
 | Pane presentation | `PaneTabViewController.buildTabContentHost` → `SingleTabContent` → Zoom or ordinary arrangement (`PaneTabViewController.swift:1241-1284`; `SingleTabContent.swift:75-129`) | **Added:** injected presentation → owning-tab preview branch → slot host → one stable representable. **Changed:** `updateVisibleTabHost` selects the preview owning tab while its mount is ready. **Unchanged/preservation-critical:** Zoom/ordinary mutual exclusion and `ViewRegistry` slot custody. |
 | Cold existing pane | `restoreVisiblePaneIfNeeded` requires durable active tab, resolves all-tab frames, then `createViewForContent` (`WorkspaceSurfaceCoordinator+ViewHelpers.swift:128-174`) | **Added:** target/provider/session validation → trusted bounds and identity capture → existing full-area preparation/custody owner → slot registration. **Changed:** preview uses the current full `terminalContainerBounds` directly and does not use active-tab restore or per-layout frame derivation; the requested target remains in the existing prepared visibility signal while pending. **Unchanged:** `createViewForContent` terminal/nonterminal authority and error return. |
 | Hidden terminal surface | `reattachForViewSwitch` restores through the active-tab helper before calling `SurfaceManager.attach` and `TerminalPaneMountView.displaySurface` (`WorkspaceSurfaceCoordinator+ViewLifecycle.swift:534-560`) | **Added/changed:** preview's existing-pane preparation calls the same attach/display owner for a validated hidden surface without the active-tab restore step. **Unchanged/preservation-critical:** `SurfaceManager.attach` moves the surface to `activeSurfaces`; release leaves the attached resource warm and canonical visibility controls delivery. |
@@ -482,7 +476,7 @@ preserved owners:
 The target presentation precedence is exact:
 
 ```text
-idle / held(requested=nil) / suppressedUntilSpaceRelease -> canonical presented set
+idle / held(requested=nil)                              -> canonical presented set
 held(requested=P, presented-ready=P)                      -> presented set exactly {P}
 held(requested=P, presented-ready=nil while preparing)    -> canonical set until P's mount is ready
 ```
@@ -521,7 +515,7 @@ close callback. The next window receives a fresh local presentation value.
 
 ## Failure, ordering, and custody rules
 
-- **Generation wins.** One Space hold mints one generation. Autorepeat is consumed;
+- **Generation wins.** Starting an eligible arrow-preview session mints one generation;
   selection replacements and all preparation, host, renderer, Bridge, and geometry
   callbacks compare that generation before publishing.
 - **Current structure wins.** Before preparation and before presentation, validate
@@ -529,10 +523,7 @@ close callback. The next window receives a fresh local presentation value.
   Removed or stale targets are rejected without selecting a successor or opening a
   substitute pane; the preview surface registration is cleared before the slot can
   retire.
-- **Commit wins before key-up.** Enter/digit first transitions to
-  `suppressedUntilSpaceRelease` and clears the transient presentation, then invokes
-  the existing `activateSelectedRow`/`activateNumberedDestination` effect and its
-  `PaneCommittedFocusOperation`. A later key-up is idempotent.
+- **Commit invalidates preview first.** Enter/digit calls the existing cancellation transition to idle, clears transient presentation, then invokes `activateSelectedRow`/`activateNumberedDestination` and its `PaneCommittedFocusOperation`. No Space release is required.
 - **Focus loss cancels.** List resign, host detach, sidebar collapse or surface loss,
   Management/transient takeover, window resign, and window close all use the same
   generation invalidation and canonical-presented transition. The sidebar remains
@@ -561,13 +552,13 @@ The design's proof map extends the existing quality table as follows:
 
 | Contract | Structural proof seam |
 | --- | --- |
-| R-S9 held lifecycle | Pure transition coverage for begin/repeat/replace/release, optional non-pane target, stale generation, invalid target, commit-before-key-up, and canonical-on-release. |
-| R-S9 sidebar boundary | Real AppKit window and materialization host: Space down/up, selection follow, accepted snapshot replacement/removal, Enter/digit ordering, list focus retention, and cancellation on detach/focus loss. |
+| R-S9 held lifecycle | Pure transition coverage for begin/replace/cancel, optional non-pane target, stale generation, invalid target, commit ordering and canonical-on-cancel. |
+| R-S9 sidebar boundary | Real AppKit window and materialization host: deliberate arrow preview versus passive synchronization, selection follow, accepted snapshot replacement/removal, Enter/digit ordering, list focus retention, and cancellation on detach/focus loss. |
 | R-S9 single mount | Existing composition harness with loaded and late-registered hosts: preview/Zoom/ordinary mutual exclusion, target replacement, same stable container identity, and no second rendered host. |
 | R-S9 existing-pane restore | Real mounted terminal, hidden attached terminal, prepared cold terminal absent from the active custom layout, drawer child whose parent is absent from that layout, ended-session normal restore, and cold Bridge; inspect pane/provider/session identity, slot custody, existing attach/display path, durable arrangement, and warm completion after release. |
 | R-S9 visibility/activity | Recording renderer reconciliation plus Bridge activity projection: canonical while the requested mount prepares, exact ready-mount target replacement, covered installed peers `loadedHidden`, closed/dormant/no-controller/inactive guards, canonical restoration on release, equality suppression, and terminal window occlusion/miniaturization. |
 | R-S9 geometry | Real allocation and `forceGeometrySync` for the trusted full-pane-area frame and release resize, including background-tab and drawer targets; keep frame proof separate from renderer visibility proof. |
-| R-S6/U16 Space chip | Native associated and unassociated pane rows at 250- and 320-point widths with `Space` first in the metadata/chip row and the simultaneous leading digit hint when eligible; inspect recency retained in composition, title/digit separation, unchanged row height and pointer behavior. At 250 points, dense trailing metadata may clip while the leading identity and `Space` remain visible and non-overlapping. |
+| R-S6/U16 overlays | Native/hosted Repos/Panes, associated/unassociated and worktree rows at 250/320 points: one shared blue/bold/borderless style, first-title-line trailing digits, centered F, R/P clear of labels/border, unchanged normal geometry and actual pin/clear OFF/ON/OFF behavior. Native verification must observe active hints and accessibility visibility/restoration; inactive captures do not establish those claims. |
 
 Mocks may replace external filesystem/runtime dependencies at pure policy seams;
 native responder, custody, renderer, Bridge, and allocation proof remains real. The
@@ -581,7 +572,7 @@ path; preview adds no second host or shared-slot reparenting.
 - [Snapshot construction](../../../Sources/AgentStudio/Features/RepoExplorer/Models/RepoExplorerMaterializationSnapshot.swift), [update planning](../../../Sources/AgentStudio/Features/RepoExplorer/Models/RepoExplorerNativeUpdatePlan.swift) and [pane organization](../../../Sources/AgentStudio/Features/RepoExplorer/Models/RepoExplorerProjection+Organization.swift).
 - [Shortcut context/display](../../../Sources/AgentStudio/Core/Actions/Commands/AppShortcut.swift) and [dispatch policy](../../../Sources/AgentStudio/Core/Actions/Commands/AppShortcutDispatchPolicy.swift).
 - [Row shell](../../../Sources/AgentStudio/SharedComponents/SidebarRowShell.swift), [surface toggle](../../../Sources/AgentStudio/SharedComponents/SidebarEntityToggle.swift) and [toolbar](../../../Sources/AgentStudio/Features/RepoExplorer/RepoExplorerView+CommandToolbar.swift).
-- [Pane row](../../../Sources/AgentStudio/Features/RepoExplorer/RepoExplorerPaneNavigation.swift), [sidebar chips](../../../Sources/AgentStudio/Core/Views/SidebarChips.swift), and [shortcut hint](../../../Sources/AgentStudio/SharedComponents/SidebarShortcutHint.swift): existing leading digit anchor and ordered metadata/chip row.
+- [Pane row](../../../Sources/AgentStudio/Features/RepoExplorer/RepoExplorerPaneNavigation.swift), [sidebar chips](../../../Sources/AgentStudio/Core/Views/SidebarChips.swift), and [shortcut hint](../../../Sources/AgentStudio/SharedComponents/SidebarShortcutHint.swift): first-title-line trailing digit overlays and preserved metadata/chip row.
 - [Committed focus](../../../Sources/AgentStudio/App/Panes/PaneCommittedFocusOperation.swift) remains the arrangement effect owner.
 - [Persistent tab host](../../../Sources/AgentStudio/App/Panes/PersistentTabHostView.swift), [view registry](../../../Sources/AgentStudio/App/Panes/ViewRegistry.swift) and [pane representable](../../../Sources/AgentStudio/App/Panes/Hosting/PaneViewRepresentable.swift) preserve pane-lifetime host/container custody.
 - [Terminal geometry](../../../Sources/AgentStudio/Features/Terminal/Restore/TerminalPaneGeometryResolver.swift), [terminal restore](../../../Sources/AgentStudio/Features/Terminal/Restore/TerminalRestoreRuntime.swift) and [zmx backend](../../../Sources/AgentStudio/Core/RuntimeEventSystem/Runtime/ZmxBackend.swift) provide the canonical geometry foundation and same-identity normal restore/fresh-shell behavior.
