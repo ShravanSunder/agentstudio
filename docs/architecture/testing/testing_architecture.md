@@ -17,10 +17,10 @@ is never raised to make a test pass.**
 Two weeks of red CI came from ignoring that. The tests were not wrong about the
 product; they were wrong about the machine. Here is the machine:
 
-| | This Mac | GitHub runner |
+| | A developer Mac (the one this was diagnosed on) | GitHub runner (`macos-26`) |
 | --- | --- | --- |
 | CPU count | 16 | 3 |
-| Swift cooperative-pool threads | 16 | 3 |
+| Swift cooperative-pool threads | one per core: 16 | one per core: 3 |
 | Test lane entry point | `mise run test` → [`scripts/run-swift-test-task.sh`](../../../scripts/run-swift-test-task.sh) | the same `mise run test:swift:*` tasks ([`ci.yml`](../../../.github/workflows/ci.yml)) |
 | In-process case concurrency | unbounded | unbounded |
 | Isolated suite processes at once | `min(ncpu, 4)` = 4 | `min(ncpu, 4)` = 3 |
@@ -35,8 +35,8 @@ with no failure message, only a ten-minute silence. A test that polls with a
 there, because the work it is waiting for is queued behind the loop that is
 waiting for it.
 
-So: **a green local run is evidence that the logic works on sixteen threads. It
-is not evidence that CI will pass.** The lane reports are how you tell the
+So: **a green local run is evidence that the logic works on as many threads as
+your Mac has. It is not evidence that CI will pass on three.** The lane reports are how you tell the
 difference; see [When a run is red](#when-a-run-is-red).
 
 The concurrency width is opt-in with no default, deliberately. Setting
