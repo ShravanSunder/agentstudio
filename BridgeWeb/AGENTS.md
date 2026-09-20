@@ -50,6 +50,23 @@ tables here or in another design.md.
 - A second agent/onlook should inspect screenshots and relevant source paths
   before a visible UX checkpoint is treated as ready.
 
+## Test Waits
+
+- A wait completes because an application event or a DOM condition occurred,
+  never because time passed.
+- `testTimeout` is a hang bound, declared once in shared configuration. Never
+  rely on an undeclared library default, and never tune it per test to obtain a
+  pass — a wait that needs a longer bound is telling you what it waits on has no
+  signal.
+- An awaited animation is driven to completion by the test, or its cancellation
+  is handled. Never await one unbounded or uncaught.
+- Dependency-optimizer cold start stays outside a journey's bounded steps, and a
+  retry must not repeat the cost that made the first attempt fail. Each live Vite
+  server owns its own cache directory.
+
+The standard is
+[Testing Architecture — BridgeWeb](../docs/architecture/testing/testing_architecture.md#bridgeweb).
+
 ## Rendering Ownership
 
 - FileViewer and ReviewViewer must render through Pierre FileTree plus

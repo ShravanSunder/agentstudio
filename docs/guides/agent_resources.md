@@ -179,7 +179,7 @@ swift test --build-path "$SWIFT_BUILD_DIR" --filter "CommandBarState"
 
 **SIGKILL leaks.** If a calling shell is `kill -9`'d, the EXIT trap doesn't fire and `.slot-claim` is left behind. Run `mise run clean-agent-builds` to reap stale claims (it removes `.slot-claim` from any slot whose `lsof +D` shows no open file descriptors, so it's safe to run while other agents are working).
 
-**Timeouts are mandatory.** `60000` (60s) for test, `30000` (30s) for build. Tests complete in ~15s, builds in ~5s. Anything longer means lock contention.
+**Slot contention shows up as a stalled command, not a failure.** If a `mise run build` or `mise run test:*` invocation produces no output for minutes, suspect a leaked `.slot-claim` rather than a hung compile. The lanes carry their own hang bounds — `SWIFT_TEST_TIMEOUT_SECONDS` defaults to 600 and `SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS` to 1200 in [`scripts/run-swift-test-task.sh`](../../scripts/run-swift-test-task.sh), matching CI — so do not impose a shorter shell-tool timeout to "detect" contention; a short bound kills a correct cold compile instead of a wedged one. Reduce a hang bound only to reproduce a wedge deliberately, as in [Testing Architecture — When a run is red](../architecture/testing/testing_architecture.md#when-a-run-is-red).
 
 **Lock recovery:** Do not blanket-kill SwiftPM or `swift-build`; another agent
 may own that process. First run `mise run clean-agent-builds` for leaked
