@@ -79,7 +79,7 @@ struct RepoExplorerPaneRowContent: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                 Spacer(minLength: 0)
                 if let shortcutDisplay {
-                    SidebarShortcutHint(shortcutDisplay, style: .accentGlyph)
+                    SidebarShortcutHint(shortcutDisplay, style: .toolbarStamp)
                 }
 
             }

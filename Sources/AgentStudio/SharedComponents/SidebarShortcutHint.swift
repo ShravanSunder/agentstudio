@@ -22,8 +22,14 @@ package struct SidebarShortcutHint: View {
             .lineLimit(1)
             .font(
                 .system(
-                    size: style == .toolbarStamp ? 12 : AppStyles.Shell.Sidebar.KeyboardHint.fontSize,
-                    weight: style == .toolbarStamp ? .semibold : .medium, design: .monospaced)
+                    size: style == .toolbarStamp
+                        ? AppStyles.Shell.Sidebar.KeyboardHint.stampFontSize
+                        : AppStyles.Shell.Sidebar.KeyboardHint.fontSize,
+                    weight: style == .toolbarStamp
+                        ? AppStyles.Shell.Sidebar.KeyboardHint.stampFontWeight
+                        : .medium,
+                    design: .monospaced
+                )
             )
             .foregroundStyle(style == .accentGlyph ? Color.accentColor : Color.primary)
             .padding(.horizontal, AppStyles.Shell.Sidebar.KeyboardHint.horizontalPadding)

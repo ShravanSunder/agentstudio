@@ -43,34 +43,28 @@ package struct SidebarToolbarSegmentedControl<Value: Hashable, Icon: View>: View
                         SidebarToolbarLabelLayout(
                             revealFraction: model.showsLabel(for: segment.value) ? 1 : 0
                         ) {
-                            VStack(spacing: 1) {
-                                Text(segment.label)
-                                    .font(
-                                        .system(
-                                            size: AppStyles.General.Typography.textXs,
-                                            weight: .medium
-                                        )
+                            Text(segment.label)
+                                .font(
+                                    .system(
+                                        size: AppStyles.General.Typography.textXs,
+                                        weight: .medium
                                     )
-                                    .lineLimit(1)
-                                    .padding(
-                                        model.showsIcons ? .trailing : .horizontal,
-                                        AppStyles.Shell.Sidebar.ToolbarControl.groupingHorizontalPadding
-                                    )
-                                    .padding(
-                                        .leading,
-                                        model.showsIcons
-                                            ? AppStyles.Shell.Sidebar.ToolbarControl.groupingContentSpacing : 0
-                                    )
-                                    .opacity(model.showsLabel(for: segment.value) ? 1 : 0)
-                                    .animation(
-                                        reduceMotion
-                                            ? nil : labelAnimation(isShowing: model.showsLabel(for: segment.value)),
-                                        value: model.selection
-                                    )
-                                if let shortcut = shortcutDisplay(segment.value) {
-                                    SidebarShortcutHint(shortcut, style: .toolbarStamp)
-                                }
-                            }
+                                )
+                                .lineLimit(1)
+                                .padding(
+                                    model.showsIcons ? .trailing : .horizontal,
+                                    AppStyles.Shell.Sidebar.ToolbarControl.groupingHorizontalPadding
+                                )
+                                .padding(
+                                    .leading,
+                                    model.showsIcons ? AppStyles.Shell.Sidebar.ToolbarControl.groupingContentSpacing : 0
+                                )
+                                .opacity(model.showsLabel(for: segment.value) ? 1 : 0)
+                                .animation(
+                                    reduceMotion
+                                        ? nil : labelAnimation(isShowing: model.showsLabel(for: segment.value)),
+                                    value: model.selection
+                                )
                         }
                         .clipped()
                         .accessibilityHidden(true)
@@ -80,6 +74,15 @@ package struct SidebarToolbarSegmentedControl<Value: Hashable, Icon: View>: View
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(SidebarToolbarSegmentButtonStyle(isSelected: isSelected))
+                .overlay(alignment: .bottom) {
+                    if let shortcut = shortcutDisplay(segment.value) {
+                        SidebarShortcutHint(shortcut, style: .toolbarStamp)
+                            .offset(
+                                y: AppStyles.Shell.Sidebar.KeyboardHint.height
+                                    + AppStyles.General.Spacing.tight
+                            )
+                    }
+                }
                 .disabled(!segment.isEnabled)
                 .accessibilityLabel(segment.label)
                 .accessibilityIdentifier(segment.accessibilityIdentifier)
@@ -92,6 +95,10 @@ package struct SidebarToolbarSegmentedControl<Value: Hashable, Icon: View>: View
                 .stroke(AppStyles.General.Stroke.controlGroupColor, lineWidth: 1)
                 .allowsHitTesting(false)
         }
+        .padding(
+            .bottom,
+            shortcutRailHeight
+        )
         .animation(
             reduceMotion
                 ? nil
@@ -107,6 +114,12 @@ package struct SidebarToolbarSegmentedControl<Value: Hashable, Icon: View>: View
                 .delay(AppStyles.Shell.Sidebar.ToolbarControl.labelFadeInDelay)
         }
         return .easeInOut(duration: AppStyles.Shell.Sidebar.ToolbarControl.labelFadeOutDuration)
+    }
+
+    private var shortcutRailHeight: CGFloat {
+        model.segments.contains { shortcutDisplay($0.value) != nil }
+            ? AppStyles.Shell.Sidebar.KeyboardHint.height + AppStyles.General.Spacing.tight
+            : 0
     }
 
 }

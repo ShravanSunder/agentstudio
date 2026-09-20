@@ -94,9 +94,33 @@ struct SidebarToolbarControlVisualStateTests {
             contentsOfFile: "Sources/AgentStudio/SharedComponents/SidebarToolbarSegmentedControl.swift", encoding: .utf8
         )
         #expect(toggleSource.contains("shortcutDisplay: shortcutDisplay"))
+        #expect(toggleSource.contains("content: .selectedLabel"))
         #expect(!toggleSource.contains("sidebarShortcutHint(shortcutDisplay(value)"))
-        #expect(controlSource.contains("VStack(spacing: 1)"))
         #expect(controlSource.contains("SidebarShortcutHint(shortcut, style: .toolbarStamp)"))
+        #expect(controlSource.contains(".overlay(alignment: .bottom)"))
+    }
+
+    @Test("Repo Explorer toolbar has no standalone keyboard glyph")
+    func repoExplorerToolbarOmitsStandaloneKeyboardGlyph() throws {
+        let source = try String(
+            contentsOfFile: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerView+CommandToolbar.swift",
+            encoding: .utf8
+        )
+        #expect(!source.contains("AppCommand.focusSidebar.definition.icon.swiftUIImage"))
+
+        let searchSource = try String(
+            contentsOfFile: "Sources/AgentStudio/SharedComponents/SidebarSearchField.swift",
+            encoding: .utf8
+        )
+        #expect(searchSource.contains("SidebarShortcutHint(shortcutDisplay, style: .toolbarStamp)"))
+        #expect(!searchSource.contains(".sidebarShortcutHint(shortcutDisplay)"))
+
+        let paneRowSource = try String(
+            contentsOfFile: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerPaneNavigation.swift",
+            encoding: .utf8
+        )
+        #expect(paneRowSource.contains("SidebarShortcutHint(shortcutDisplay, style: .toolbarStamp)"))
+        #expect(!paneRowSource.contains("style: .accentGlyph"))
     }
 
     @Test("organization popovers render command-catalog tooltips")

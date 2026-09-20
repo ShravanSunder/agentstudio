@@ -55,17 +55,6 @@ extension RepoExplorerView {
                 )
             }
         }
-        .overlay(alignment: .leading) {
-            if showsListKeyboardHints {
-                AppCommand.focusSidebar.definition.icon.swiftUIImage(
-                    loader: octiconLoader,
-                    size: AppStyles.General.Icon.compact
-                )
-                .foregroundStyle(AppStyles.General.Accent.primaryColor)
-                .allowsHitTesting(false)
-                .accessibilityHidden(true)
-            }
-        }
         .accessibilityIdentifier("repoSidebarToolbarRow")
         .onChange(of: repoExplorerPrefs.sidebarSurface) { _, _ in openOrganizationSelector = nil }
     }

@@ -178,6 +178,8 @@ package enum AppStyles {
 
             package enum KeyboardHint {
                 package static let fontSize: CGFloat = AppStyles.General.Typography.textXs
+                package static let stampFontSize: CGFloat = 12
+                package static let stampFontWeight: Font.Weight = .semibold
                 package static let minimumWidth: CGFloat = AppStyles.Shell.Sidebar.rowLeadingIconColumnWidth
                 package static let height: CGFloat = AppStyles.Shell.Sidebar.nativePrimaryTextLineHeight
                 package static let horizontalPadding: CGFloat = AppStyles.Shell.Sidebar.rowHorizontalInset

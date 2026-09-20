@@ -37,10 +37,13 @@ package struct SidebarSearchField<FocusValue: Hashable>: View {
 
     package var body: some View {
         HStack(spacing: AppStyles.Shell.Sidebar.SearchField.contentSpacing) {
-            Image(systemName: "magnifyingglass")
-                .font(.system(size: AppStyles.Shell.Sidebar.SearchField.iconSize))
-                .foregroundStyle(.tertiary)
-                .sidebarShortcutHint(shortcutDisplay)
+            if let shortcutDisplay {
+                SidebarShortcutHint(shortcutDisplay, style: .toolbarStamp)
+            } else {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: AppStyles.Shell.Sidebar.SearchField.iconSize))
+                    .foregroundStyle(.tertiary)
+            }
 
             TextField(placeholder, text: $text)
                 .textFieldStyle(.plain)
