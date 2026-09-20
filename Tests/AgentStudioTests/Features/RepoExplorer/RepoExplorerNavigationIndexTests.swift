@@ -126,6 +126,10 @@ struct RepoExplorerNavigationIndexTests {
         #expect(snapshot.navigationIndex.nextSelectableRowID(after: lastRowID) == nil)
         #expect(snapshot.navigationIndex.previousSelectableRowID(before: unknownRowID) == nil)
         #expect(snapshot.navigationIndex.nextSelectableRowID(after: unknownRowID) == nil)
+        #expect(snapshot.navigationIndex.previousNumberedDestinationRowID(before: firstRowID) == nil)
+        #expect(snapshot.navigationIndex.nextNumberedDestinationRowID(after: firstRowID) == middleRowID)
+        #expect(snapshot.navigationIndex.previousNumberedDestinationRowID(before: lastRowID) == middleRowID)
+        #expect(snapshot.navigationIndex.nextNumberedDestinationRowID(after: lastRowID) == nil)
     }
 
     @Test("group relationships use the first visible destination and skip activity labels")

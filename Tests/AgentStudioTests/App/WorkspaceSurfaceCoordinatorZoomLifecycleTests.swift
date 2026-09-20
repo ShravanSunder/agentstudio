@@ -80,7 +80,8 @@ extension WebKitSerializedTests {
                     sourceTabId: sourceTab.id,
                     companionPaneId: companionPaneId,
                     runtimeCountBeforeZoom: runtimeCountBeforeZoom,
-                    slotPaneIdsBeforeZoom: slotPaneIdsBeforeZoom
+                    slotPaneIdsBeforeZoom: slotPaneIdsBeforeZoom,
+                    expectedSourcePaneIdsAfterCleanup: []
                 ),
                 in: harness
             )
@@ -324,7 +325,8 @@ extension WebKitSerializedTests {
                     sourceTabId: sourceTab.id,
                     companionPaneId: companionPaneId,
                     runtimeCountBeforeZoom: runtimeCountBeforeZoom,
-                    slotPaneIdsBeforeZoom: slotPaneIdsBeforeZoom
+                    slotPaneIdsBeforeZoom: slotPaneIdsBeforeZoom,
+                    expectedSourcePaneIdsAfterCleanup: [sourcePane.id]
                 ),
                 in: harness
             )
@@ -399,7 +401,8 @@ extension WebKitSerializedTests {
                     sourceTabId: sourceTab.id,
                     companionPaneId: companionPaneId,
                     runtimeCountBeforeZoom: runtimeCountBeforeZoom,
-                    slotPaneIdsBeforeZoom: slotPaneIdsBeforeZoom
+                    slotPaneIdsBeforeZoom: slotPaneIdsBeforeZoom,
+                    expectedSourcePaneIdsAfterCleanup: [siblingPane.id]
                 ),
                 in: harness
             )
@@ -415,6 +418,7 @@ private struct ZoomLifecycleCompanionCleanupExpectation {
     let companionPaneId: UUID
     let runtimeCountBeforeZoom: Int
     let slotPaneIdsBeforeZoom: Set<UUID>
+    let expectedSourcePaneIdsAfterCleanup: Set<UUID>
 }
 
 private struct ZoomLifecycleCompanionMoveExpectation {
@@ -440,7 +444,9 @@ private func expectZoomLifecycleCompanionRetired(
     #expect(harness.runtimeRegistry.count == expectation.runtimeCountBeforeZoom)
     #expect(
         harness.viewRegistry.slotPaneIdsForTesting
-            == expectation.slotPaneIdsBeforeZoom
+            == expectation.slotPaneIdsBeforeZoom.union(
+                expectation.expectedSourcePaneIdsAfterCleanup
+            )
     )
     #expect(
         harness.coordinator.bridgePaneActivityAuthorityIdentity(

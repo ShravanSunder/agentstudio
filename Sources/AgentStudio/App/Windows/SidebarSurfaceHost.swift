@@ -52,7 +52,8 @@ struct SidebarSurfaceHost: View {
     let bridgeAttendanceSnapshot: BridgeAttendanceSnapshot
     let performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
     let onRefocusActivePane: () -> Void
-    let onSelectedPaneTargetChange: @MainActor (RepoExplorerSelectedPaneTarget?) -> Void
+    let onSelectedPaneTargetChange:
+        @MainActor (RepoExplorerSelectedPaneTarget?, RepoExplorerSelectedPaneTargetChangeOrigin) -> Void
     let onPreviewEligibilityLoss: @MainActor () -> Void
     let onPreviewCommit: @MainActor () -> Void
     let onSidebarVisibleWorktreesChanged: @MainActor @Sendable () -> Void
@@ -72,7 +73,9 @@ struct SidebarSurfaceHost: View {
         performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?,
         onRefocusActivePane: @escaping () -> Void,
         onSelectedPaneTargetChange:
-            @escaping @MainActor (RepoExplorerSelectedPaneTarget?) -> Void = { _ in },
+            @escaping @MainActor (
+                RepoExplorerSelectedPaneTarget?, RepoExplorerSelectedPaneTargetChangeOrigin
+            ) -> Void = { _, _ in },
         onPreviewEligibilityLoss: @escaping @MainActor () -> Void = {},
         onPreviewCommit: @escaping @MainActor () -> Void = {},
         onSidebarVisibleWorktreesChanged: @escaping @MainActor @Sendable () -> Void,

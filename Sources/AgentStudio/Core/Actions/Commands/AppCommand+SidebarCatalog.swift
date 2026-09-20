@@ -54,7 +54,8 @@ extension AppCommand {
             shortcut: .showReposSidebar,
             label: "Repos",
             icon: .octicon(.repo),
-            helpText: "Show repositories and worktrees in the sidebar"
+            helpText: "Show repositories and worktrees in the sidebar",
+            sidebarKeyboardCompletion: .returnToOrigin
         )
     }
 
@@ -63,7 +64,8 @@ extension AppCommand {
             shortcut: .showPanesSidebar,
             label: "Panes",
             icon: .system(.squareSplit2x1),
-            helpText: "Show pane destinations in the sidebar"
+            helpText: "Show pane destinations in the sidebar",
+            sidebarKeyboardCompletion: .returnToOrigin
         )
     }
 

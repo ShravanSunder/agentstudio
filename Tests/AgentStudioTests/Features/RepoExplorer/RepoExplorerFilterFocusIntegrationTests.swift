@@ -276,11 +276,12 @@ private final class ColdFocusRecordingCommandDispatcher: AppCommandDispatching {
     weak var listHost: RepoExplorerMaterializationHost?
     private(set) var commands: [AppCommand] = []
 
-    func dispatch(_ command: AppCommand) {
+    func dispatch(_ command: AppCommand) -> Bool {
         commands.append(command)
         if command == .filterSidebar, let listHost {
             _ = RepoExplorerView.requestFilterFocus(on: listHost)
         }
+        return true
     }
 
     func dispatch(_: AppCommand, target _: UUID, targetType _: SearchItemType) {}

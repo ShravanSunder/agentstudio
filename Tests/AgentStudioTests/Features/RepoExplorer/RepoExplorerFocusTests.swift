@@ -81,16 +81,49 @@ struct RepoExplorerFocusTests {
         #expect(harness.uiState.sidebarHasFocus)
     }
 
-    @Test("list commands require both the native responder and current routing permission")
-    func listCommandsRespectResponderAndRouting() throws {
+    @Test("sidebar command specs complete accepted list input and preserve rejected input")
+    func sidebarCommandCompletionFollowsAcceptedDispatch() throws {
         let harness = SidebarKeyboardWindowHarness()
         defer { harness.close() }
         #expect(harness.window.makeFirstResponder(harness.host))
 
         harness.host.keyDown(with: try harness.event("p", keyCode: 35))
+        #expect(harness.commands == [.showPanesSidebar])
+        #expect(harness.returnRequests == 1)
+        #expect(harness.window.firstResponder === harness.field.currentEditor())
+        #expect(!harness.interaction.isListKeyboardActive)
+
+        #expect(harness.interaction.requestListFocus())
+        harness.host.keyDown(with: try harness.event("p", keyCode: 35))
+        #expect(harness.commands == [.showPanesSidebar, .showPanesSidebar])
+        #expect(harness.returnRequests == 2)
+        #expect(!harness.interaction.isListKeyboardActive)
+
+        #expect(harness.interaction.requestListFocus())
         harness.host.keyDown(with: try harness.event("r", keyCode: 15))
+        #expect(harness.commands == [.showPanesSidebar, .showPanesSidebar, .showReposSidebar])
+        #expect(harness.returnRequests == 3)
+        #expect(!harness.interaction.isListKeyboardActive)
+
+        #expect(harness.interaction.requestListFocus())
         harness.host.keyDown(with: try harness.event("f", keyCode: 3))
-        #expect(harness.commands == [.showPanesSidebar, .showReposSidebar, .filterSidebar])
+        #expect(
+            harness.commands
+                == [.showPanesSidebar, .showPanesSidebar, .showReposSidebar, .filterSidebar]
+        )
+        #expect(harness.returnRequests == 3)
+        #expect(harness.window.firstResponder === harness.field.currentEditor())
+        #expect(harness.interaction.focusedRegion == .filter)
+        #expect(!harness.interaction.isListKeyboardActive)
+
+        #expect(harness.interaction.requestListFocus())
+        harness.acceptsCommands = false
+        harness.host.keyDown(with: try harness.event("p", keyCode: 35))
+        #expect(harness.commands.count == 4)
+        #expect(harness.returnRequests == 3)
+        #expect(harness.window.firstResponder === harness.host)
+        #expect(harness.interaction.isListKeyboardActive)
+        harness.acceptsCommands = true
 
         harness.commands.removeAll()
         harness.permitsNavigation = false
@@ -127,6 +160,7 @@ private final class SidebarKeyboardWindowHarness {
     let window: NSWindow
     let field = NSTextField(frame: NSRect(x: 0, y: 440, width: 300, height: 28))
     var permitsNavigation = true
+    var acceptsCommands = true
     var commands: [AppCommand] = []
     var filterRequests = 0
     var returnRequests = 0
@@ -160,9 +194,20 @@ private final class SidebarKeyboardWindowHarness {
                     _ = window.makeFirstResponder(field)
                     interaction.filterFocusDidChange(isFocused: true)
                 },
-                onReturnFocusRequest: { [weak self] in self?.returnRequests += 1 },
+                onReturnFocusRequest: { [weak self] in
+                    guard let self else { return }
+                    returnRequests += 1
+                    _ = window.makeFirstResponder(field)
+                },
                 onSidebarFocusChange: { [weak self] in self?.uiState.setSidebarHasFocus($0) },
-                onCommandRequest: { [weak self] in self?.commands.append($0) }
+                onCommandRequest: { [weak self] command in
+                    guard let self, acceptsCommands else { return false }
+                    commands.append(command)
+                    if command == .filterSidebar {
+                        interaction.requestFilterFocus()
+                    }
+                    return true
+                }
             )
         )
         host.installKeyboardInteraction(interaction)

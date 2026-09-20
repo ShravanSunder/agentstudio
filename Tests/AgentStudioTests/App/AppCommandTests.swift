@@ -553,8 +553,7 @@ final class AppCommandTests {
                 dispatcher.appCommandRouter = nil
             },
             body: {
-                // Act (should not crash)
-                dispatcher.dispatch(.closeTab)
+                #expect(!dispatcher.dispatch(.closeTab))
             }
         )
     }
@@ -620,9 +619,10 @@ final class AppCommandTests {
             },
             body: {
                 // Act
-                dispatcher.dispatch(.closeTab)
+                let accepted = dispatcher.dispatch(.closeTab)
 
                 // Assert
+                #expect(accepted)
                 #expect(handler.executedCommands.count == 1)
                 #expect(handler.executedCommands[0].0 == .closeTab)
                 #expect(handler.executedCommands[0].1 == nil)  // no target
@@ -697,8 +697,9 @@ final class AppCommandTests {
                 dispatcher.appCommandRouter = appRouter
             },
             body: {
-                dispatcher.dispatch(.watchFolder)
+                let accepted = dispatcher.dispatch(.watchFolder)
 
+                #expect(accepted)
                 #expect(appRouter.handledCommands == [.watchFolder])
                 #expect(handler.executedCommands.isEmpty)
             }
@@ -859,6 +860,32 @@ final class AppCommandTests {
                 #expect(handler.executedCommands.isEmpty)
             }
         )
+    }
+
+    @Test
+    func dispatcherDoesNotAcceptRejectedShellSidebarCommandThroughWorkspaceFallback() async throws {
+        let dispatcher = AppCommandDispatcher.shared
+        let shell = MockAppCommandRouter()
+        shell.parameterlessCanExecuteResult = true
+        let harness = makePaneTabViewControllerCommandHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        for command in [AppCommand.showReposSidebar, .showPanesSidebar, .filterSidebar, .toggleSidebar] {
+            #expect(!harness.controller.canExecute(command))
+        }
+
+        try await withIsolatedCommandDispatcher(
+            configure: {
+                dispatcher.handler = harness.controller
+                dispatcher.appCommandRouter = shell
+            },
+            body: {
+                #expect(!dispatcher.dispatch(.showPanesSidebar))
+                #expect(shell.handledCommands.isEmpty)
+            }
+        )
+
+        await harness.coordinator.shutdown()
     }
 
     @MainActor

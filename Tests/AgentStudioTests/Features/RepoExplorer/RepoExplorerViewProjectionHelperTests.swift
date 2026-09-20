@@ -68,7 +68,7 @@ private final class PaneFocusRecordingDispatcher: AppCommandDispatching {
     private(set) var target: UUID?
     private(set) var targetType: SearchItemType?
 
-    func dispatch(_: AppCommand) {}
+    func dispatch(_: AppCommand) -> Bool { false }
 
     func dispatch(_ command: AppCommand, target: UUID, targetType: SearchItemType) {
         self.command = command

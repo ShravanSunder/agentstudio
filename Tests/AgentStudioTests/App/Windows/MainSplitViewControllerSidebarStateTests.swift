@@ -212,9 +212,64 @@ struct MainSplitViewControllerSidebarStateTests {
         )
     }
 
+    @Test("passive sidebar selection synchronization preserves Pane Zoom while arrows begin preview")
+    func passiveSidebarSelectionSynchronizationDoesNotBeginPreview() async throws {
+        var onSelectedPaneTargetChange:
+            (
+                @MainActor (RepoExplorerSelectedPaneTarget?, RepoExplorerSelectedPaneTargetChangeOrigin) -> Void
+            )?
+        try await withMainSplitViewControllerHarness(
+            withRepos: true,
+            configureSidebarDependencies: { dependencies in
+                onSelectedPaneTargetChange = dependencies.onSelectedPaneTargetChange
+            },
+            body: { harness in
+                let canonicalPane = harness.store.createPane()
+                let previewPane = harness.store.createPane()
+                let canonicalTab = Tab(paneId: canonicalPane.id)
+                let previewTab = Tab(paneId: previewPane.id)
+                harness.store.appendTab(canonicalTab)
+                harness.store.appendTab(previewTab)
+                harness.store.setActiveTab(canonicalTab.id)
+                harness.store.panePresentationAtom.enterZoom(
+                    inTab: canonicalTab.id,
+                    sourcePaneId: canonicalPane.id,
+                    viewerPresentation: .unavailable
+                )
+                let selectedTarget = RepoExplorerSelectedPaneTarget(
+                    paneID: previewPane.id,
+                    owningTabID: previewTab.id
+                )
+                let state = try #require(harness.controller.heldPanePreviewState)
+                let sidebarItem = try #require(harness.controller.splitViewItems.first)
+
+                onSelectedPaneTargetChange?(selectedTarget, .passiveSynchronization)
+
+                #expect(!state.isHeld)
+                #expect(state.requestedTarget == nil)
+                #expect(harness.store.tabLayoutAtom.activeTabId == canonicalTab.id)
+                #expect(
+                    harness.store.panePresentationAtom.zoomPresentation(forTab: canonicalTab.id)?
+                        .sourcePaneId == canonicalPane.id
+                )
+                #expect(!sidebarItem.isCollapsed)
+                #expect(sidebarItem.viewController.view.window === harness.window)
+
+                onSelectedPaneTargetChange?(selectedTarget, .arrowNavigation)
+
+                #expect(state.isHeld)
+                #expect(state.requestedTarget?.paneID == previewPane.id)
+                #expect(harness.store.tabLayoutAtom.activeTabId == canonicalTab.id)
+            }
+        )
+    }
+
     @Test("management takeover cancels held preview through the existing pane observation")
     func managementTakeoverCancelsHeldPreviewWithoutAnotherKey() async throws {
-        var onSelectedPaneTargetChange: (@MainActor (RepoExplorerSelectedPaneTarget?) -> Void)?
+        var onSelectedPaneTargetChange:
+            (
+                @MainActor (RepoExplorerSelectedPaneTarget?, RepoExplorerSelectedPaneTargetChangeOrigin) -> Void
+            )?
         var onPreviewEligibilityLoss: (@MainActor () -> Void)?
         try await withMainSplitViewControllerHarness(
             withRepos: true,
@@ -224,7 +279,7 @@ struct MainSplitViewControllerSidebarStateTests {
             },
             body: { harness in
                 let state = try #require(harness.controller.heldPanePreviewState)
-                onSelectedPaneTargetChange?(nil)
+                onSelectedPaneTargetChange?(nil, .arrowNavigation)
                 #expect(state.isHeld)
 
                 harness.atoms.core.managementLayer.toggle()
@@ -244,7 +299,10 @@ struct MainSplitViewControllerSidebarStateTests {
 
     @Test("transient takeover cancels held preview without another key")
     func transientTakeoverCancelsHeldPreviewWithoutAnotherKey() async throws {
-        var onSelectedPaneTargetChange: (@MainActor (RepoExplorerSelectedPaneTarget?) -> Void)?
+        var onSelectedPaneTargetChange:
+            (
+                @MainActor (RepoExplorerSelectedPaneTarget?, RepoExplorerSelectedPaneTargetChangeOrigin) -> Void
+            )?
         var onPreviewEligibilityLoss: (@MainActor () -> Void)?
         try await withMainSplitViewControllerHarness(
             withRepos: true,
@@ -270,7 +328,7 @@ struct MainSplitViewControllerSidebarStateTests {
                 }
 
                 let state = try #require(harness.controller.heldPanePreviewState)
-                onSelectedPaneTargetChange?(nil)
+                onSelectedPaneTargetChange?(nil, .arrowNavigation)
                 #expect(state.isHeld)
                 let token = harness.atoms.core.transientKeyboardSurface.present(
                     .arrangementPanel(tabId: UUIDv7.generate()),
@@ -292,7 +350,10 @@ struct MainSplitViewControllerSidebarStateTests {
 
     @Test("returning to an eligible sidebar does not cancel a new held preview")
     func returningToEligibleSidebarPreservesNewHeldPreview() async throws {
-        var onSelectedPaneTargetChange: (@MainActor (RepoExplorerSelectedPaneTarget?) -> Void)?
+        var onSelectedPaneTargetChange:
+            (
+                @MainActor (RepoExplorerSelectedPaneTarget?, RepoExplorerSelectedPaneTargetChangeOrigin) -> Void
+            )?
         var onPreviewEligibilityLoss: (@MainActor () -> Void)?
         try await withMainSplitViewControllerHarness(
             withRepos: true,
@@ -318,7 +379,7 @@ struct MainSplitViewControllerSidebarStateTests {
                 }
 
                 let state = try #require(harness.controller.heldPanePreviewState)
-                onSelectedPaneTargetChange?(nil)
+                onSelectedPaneTargetChange?(nil, .arrowNavigation)
                 #expect(state.isHeld)
                 let token = harness.atoms.core.transientKeyboardSurface.present(
                     .arrangementPanel(tabId: UUIDv7.generate()),
@@ -349,7 +410,7 @@ struct MainSplitViewControllerSidebarStateTests {
                     return false
                 }
 
-                onSelectedPaneTargetChange?(nil)
+                onSelectedPaneTargetChange?(nil, .arrowNavigation)
                 #expect(state.isHeld)
                 await eventually("a fresh hold should remain active while sidebar stays eligible") {
                     state.lifecycle == .held(generation: 2, requestedTarget: nil)
@@ -360,7 +421,10 @@ struct MainSplitViewControllerSidebarStateTests {
 
     @Test("drawer child preview keeps child identity while resolving its parent tab")
     func drawerChildPreviewResolvesOwningTabThroughParent() async throws {
-        var onSelectedPaneTargetChange: (@MainActor (RepoExplorerSelectedPaneTarget?) -> Void)?
+        var onSelectedPaneTargetChange:
+            (
+                @MainActor (RepoExplorerSelectedPaneTarget?, RepoExplorerSelectedPaneTargetChangeOrigin) -> Void
+            )?
         try await withMainSplitViewControllerHarness(
             withRepos: false,
             configureSidebarDependencies: { dependencies in
@@ -386,7 +450,7 @@ struct MainSplitViewControllerSidebarStateTests {
                     paneID: drawerPane.id,
                     owningTabID: tab.id
                 )
-                onSelectedPaneTargetChange?(selectedTarget)
+                onSelectedPaneTargetChange?(selectedTarget, .arrowNavigation)
 
                 let state = try #require(harness.controller.heldPanePreviewState)
                 #expect(state.requestedTarget?.paneID == drawerPane.id)
@@ -398,7 +462,7 @@ struct MainSplitViewControllerSidebarStateTests {
                     paneID: drawerPane.id,
                     owningTabID: UUIDv7.generate()
                 )
-                onSelectedPaneTargetChange?(wrongOwnerTarget)
+                onSelectedPaneTargetChange?(wrongOwnerTarget, .arrowNavigation)
                 #expect(state.requestedTarget == nil)
             }
         )
@@ -406,7 +470,10 @@ struct MainSplitViewControllerSidebarStateTests {
 
     @Test("identical arrow selection does not reprepare the active preview")
     func identicalArrowSelectionDoesNotReprepareActivePreview() async throws {
-        var onSelectedPaneTargetChange: (@MainActor (RepoExplorerSelectedPaneTarget?) -> Void)?
+        var onSelectedPaneTargetChange:
+            (
+                @MainActor (RepoExplorerSelectedPaneTarget?, RepoExplorerSelectedPaneTargetChangeOrigin) -> Void
+            )?
         try await withMainSplitViewControllerHarness(
             withRepos: false,
             configureSidebarDependencies: { dependencies in
@@ -431,12 +498,12 @@ struct MainSplitViewControllerSidebarStateTests {
                 )
 
                 let state = try #require(harness.controller.heldPanePreviewState)
-                onSelectedPaneTargetChange?(target)
+                onSelectedPaneTargetChange?(target, .arrowNavigation)
                 let preparedCountAfterInitialSelection = preparedSignalCount
                 #expect(state.generation == 1)
                 #expect(state.requestedTarget?.paneID == pane.id)
 
-                onSelectedPaneTargetChange?(target)
+                onSelectedPaneTargetChange?(target, .arrowNavigation)
 
                 #expect(preparedSignalCount == preparedCountAfterInitialSelection)
                 #expect(state.generation == 1)
@@ -447,7 +514,10 @@ struct MainSplitViewControllerSidebarStateTests {
 
     @Test("ready held preview reveals its owning tab without changing durable selection")
     func readyHeldPreviewRevealsOwningTabWithoutChangingDurableSelection() async throws {
-        var onSelectedPaneTargetChange: (@MainActor (RepoExplorerSelectedPaneTarget?) -> Void)?
+        var onSelectedPaneTargetChange:
+            (
+                @MainActor (RepoExplorerSelectedPaneTarget?, RepoExplorerSelectedPaneTargetChangeOrigin) -> Void
+            )?
         try await withMainSplitViewControllerHarness(
             withRepos: true,
             configureUIState: { $0.setSidebarCollapsed(false) },
@@ -494,7 +564,9 @@ struct MainSplitViewControllerSidebarStateTests {
                 )
                 let state = try #require(harness.controller.heldPanePreviewState)
                 onSelectedPaneTargetChange?(
-                    RepoExplorerSelectedPaneTarget(paneID: target.paneID, owningTabID: target.owningTabID))
+                    RepoExplorerSelectedPaneTarget(paneID: target.paneID, owningTabID: target.owningTabID),
+                    .arrowNavigation
+                )
                 #expect(state.requestedTarget == target)
                 harness.coordinator.prepareHeldPanePreview()
                 #expect(state.acceptPresentedTarget(target, generation: 1))
@@ -515,7 +587,10 @@ struct MainSplitViewControllerSidebarStateTests {
 
     @Test("ready held preview reveals its owning tab after a late host registration")
     func readyHeldPreviewRevealsOwningTabAfterLateHostRegistration() async throws {
-        var onSelectedPaneTargetChange: (@MainActor (RepoExplorerSelectedPaneTarget?) -> Void)?
+        var onSelectedPaneTargetChange:
+            (
+                @MainActor (RepoExplorerSelectedPaneTarget?, RepoExplorerSelectedPaneTargetChangeOrigin) -> Void
+            )?
         try await withMainSplitViewControllerHarness(
             withRepos: true,
             configureUIState: { $0.setSidebarCollapsed(false) },
@@ -553,7 +628,9 @@ struct MainSplitViewControllerSidebarStateTests {
                 )
                 let state = try #require(harness.controller.heldPanePreviewState)
                 onSelectedPaneTargetChange?(
-                    RepoExplorerSelectedPaneTarget(paneID: target.paneID, owningTabID: target.owningTabID))
+                    RepoExplorerSelectedPaneTarget(paneID: target.paneID, owningTabID: target.owningTabID),
+                    .arrowNavigation
+                )
                 #expect(state.requestedTarget == target)
                 harness.coordinator.unregisterHostedView(for: previewPane.id)
                 #expect(state.acceptPresentedTarget(target, generation: 1))

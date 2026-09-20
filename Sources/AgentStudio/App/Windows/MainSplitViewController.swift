@@ -17,7 +17,8 @@ struct SidebarRootViewDependencies {
     let bridgeAttendanceSnapshot: BridgeAttendanceSnapshot
     let performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
     let onRefocusActivePane: () -> Void
-    let onSelectedPaneTargetChange: @MainActor (RepoExplorerSelectedPaneTarget?) -> Void
+    let onSelectedPaneTargetChange:
+        @MainActor (RepoExplorerSelectedPaneTarget?, RepoExplorerSelectedPaneTargetChangeOrigin) -> Void
     let onPreviewEligibilityLoss: @MainActor () -> Void
     let onPreviewCommit: @MainActor () -> Void
     let onSidebarVisibleWorktreesChanged: @MainActor @Sendable () -> Void
@@ -283,16 +284,18 @@ class MainSplitViewController: NSSplitViewController {
                 onRefocusActivePane: { [weak self] in
                     self?.restoreSidebarReturnFocusOrigin()
                 },
-                onSelectedPaneTargetChange: { [weak self] target in
+                onSelectedPaneTargetChange: { [weak self] target, origin in
                     guard let self else { return }
                     let validatedTarget = self.validatedPreviewTarget(for: target)
                     let didChangeTarget: Bool
                     if self.heldPanePreviewState?.isHeld == true {
                         didChangeTarget =
                             self.heldPanePreviewState?.updateRequestedTarget(validatedTarget) == true
-                    } else {
+                    } else if origin == .arrowNavigation {
                         didChangeTarget =
                             self.heldPanePreviewState?.beginSpaceHold(requestedTarget: validatedTarget) == true
+                    } else {
+                        didChangeTarget = false
                     }
                     if didChangeTarget {
                         self.workspaceActionExecutor.prepareHeldPanePreview()
@@ -622,6 +625,14 @@ class MainSplitViewController: NSSplitViewController {
         guard isViewLoaded, let window = view.window else {
             shouldFocusSidebarWhenVisible = true
             ensureSidebarVisible()
+            return
+        }
+        if sidebarReturnFocusOrigin.currentResponderBelongsToSidebar(
+            in: window,
+            sidebarRoot: sidebarHostingController?.view
+        ) {
+            sidebarFocusTask?.cancel()
+            restoreSidebarReturnFocusOrigin()
             return
         }
         sidebarReturnFocusOrigin.captureCurrentResponder(

@@ -67,11 +67,13 @@ struct RepoExplorerWorktreeRowContent: View {
     }
 
     var body: some View {
+        let trailingActionVisibility = SidebarTrailingActionVisibility(
+            shortcutDisplay: shortcutDisplay
+        )
         VStack(alignment: .leading, spacing: AppStyles.Shell.Sidebar.rowContentSpacing) {
             HStack(spacing: AppStyles.Shell.Sidebar.groupIconTitleSpacing) {
                 checkoutTypeIcon
                     .frame(width: AppStyles.Shell.Sidebar.rowLeadingIconColumnWidth, alignment: .leading)
-                    .sidebarShortcutHint(shortcutDisplay)
 
                 Text(checkoutTitle)
                     .font(
@@ -105,9 +107,18 @@ struct RepoExplorerWorktreeRowContent: View {
                     .accessibilityLabel(pinnedActionSpec.label)
                     .controlHelp(pinnedActionSpec.controlTooltipRenderValue())
                     .disabled(!pinnedCommandPresentation.isEnabled)
+                    .opacity(trailingActionVisibility.opacity)
+                    .allowsHitTesting(trailingActionVisibility.allowsHitTesting)
+                    .accessibilityHidden(trailingActionVisibility.accessibilityHidden)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+            .sidebarShortcutHint(
+                shortcutDisplay,
+                style: .toolbarStamp,
+                alignment: .trailing,
+                offset: CGSize(width: -AppStyles.Shell.Sidebar.KeyboardHint.rowTrailingInset, height: 0)
+            )
 
             if !branchName.isEmpty {
                 HStack(spacing: AppStyles.Shell.Sidebar.groupIconTitleSpacing) {

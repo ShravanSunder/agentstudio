@@ -292,7 +292,7 @@ private final class RecordingTargetedCommandDispatcher: AppCommandDispatching {
     private(set) var capabilityQueries: [TargetedCommandQuery] = []
     private(set) var dispatchedQueries: [TargetedCommandQuery] = []
 
-    func dispatch(_: AppCommand) {}
+    func dispatch(_: AppCommand) -> Bool { false }
 
     func dispatch(
         _ command: AppCommand,

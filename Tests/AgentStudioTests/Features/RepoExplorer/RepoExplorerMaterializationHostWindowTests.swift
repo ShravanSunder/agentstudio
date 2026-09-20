@@ -56,7 +56,7 @@ struct RepoExplorerMaterializationHostWindowTests {
         interaction.configure(
             RepoExplorerKeyboardCallbacks(
                 canInterpretListInput: { true },
-                onSelectedPaneTargetChange: { _ in previewTargetChangeCount += 1 }
+                onSelectedPaneTargetChange: { _, _ in previewTargetChangeCount += 1 }
             )
         )
         let host = RepoExplorerMaterializationHost(
@@ -138,7 +138,7 @@ struct RepoExplorerMaterializationHostWindowTests {
         interaction.configure(
             RepoExplorerKeyboardCallbacks(
                 canInterpretListInput: { true },
-                onSelectedPaneTargetChange: { _ in previewTargetChangeCount += 1 }
+                onSelectedPaneTargetChange: { _, _ in previewTargetChangeCount += 1 }
             )
         )
         let host = RepoExplorerMaterializationHost(
@@ -206,7 +206,7 @@ struct RepoExplorerMaterializationHostWindowTests {
         interaction.configure(
             RepoExplorerKeyboardCallbacks(
                 canInterpretListInput: { true },
-                onSelectedPaneTargetChange: { _ in previewTargetChangeCount += 1 }
+                onSelectedPaneTargetChange: { _, _ in previewTargetChangeCount += 1 }
             )
         )
         let host = RepoExplorerMaterializationHost(

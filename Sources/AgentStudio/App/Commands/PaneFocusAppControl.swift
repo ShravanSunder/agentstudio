@@ -36,6 +36,6 @@ final class PaneTabViewControllerPaneFocusAppControl: PaneFocusAppControlling, @
             throw PaneFocusAppControlError.validationRejected
         }
 
-        paneTabViewController.execute(.focusPane, target: paneId, targetType: .pane)
+        paneTabViewController.focusTargetedPane(paneId)
     }
 }

@@ -50,6 +50,7 @@ final class RepoExplorerListKeyboardFixture {
     let interaction: RepoExplorerKeyboardInteraction
     let textField: NSTextField
     let window: NSWindow
+    private let visibleSnapshotBox: RepoExplorerVisibleSnapshotBox
 
     init(
         windowWidth: CGFloat = 320,
@@ -58,6 +59,7 @@ final class RepoExplorerListKeyboardFixture {
     ) {
         let lifetimeID = RepoExplorerMaterializationHostLifetimeID(rawValue: UUIDv7.generate())
         let recorder = RepoExplorerListKeyboardRecorder()
+        let visibleSnapshotBox = RepoExplorerVisibleSnapshotBox()
         var interactions = RepoExplorerTableInteractions(
             onCommandRequest: { recorder.recordCommand($0) },
             onToggleGroup: { recorder.recordToggle(groupID: $0) },
@@ -70,7 +72,7 @@ final class RepoExplorerListKeyboardFixture {
             materializationHostLifetimeID: lifetimeID,
             octiconLoader: makeRepoExplorerTestOcticonLoader(),
             interactions: interactions,
-            onVisibleWorktreeSnapshotChange: { _ in }
+            onVisibleWorktreeSnapshotChange: { visibleSnapshotBox.snapshot = $0 }
         )
         let host = RepoExplorerMaterializationHost(
             lifetimeID: lifetimeID,
@@ -110,6 +112,7 @@ final class RepoExplorerListKeyboardFixture {
         self.interaction = interaction
         self.textField = textField
         self.window = window
+        self.visibleSnapshotBox = visibleSnapshotBox
     }
 
     func candidate(
@@ -154,6 +157,39 @@ final class RepoExplorerListKeyboardFixture {
         return snapshot.rows[tableView.selectedRow].id
     }
 
+    func enablePinPresentation(
+        repositoryID: UUID,
+        worktreeID: UUID
+    ) throws -> RepoExplorerCommandPresentationDeltaDisposition {
+        let baseline = try #require(host.acceptedBaseline)
+        let target = RepoExplorerCommandPresentationTarget(
+            materializationHostLifetimeID: host.lifetimeID,
+            materializationGeneration: baseline.visibleGeneration,
+            visibleRevision: baseline.revision
+        )
+        let requests = RepoExplorerWorktreeCommandPresentation.requests(
+            worktreeId: worktreeID,
+            repoId: repositoryID,
+            isPinned: false,
+            showsPinnedControl: true
+        )
+        let snapshot = RepoExplorerCommandPresentationSnapshot(
+            generation: 1,
+            results: Dictionary(uniqueKeysWithValues: requests.map { ($0, true) })
+        )
+        return materializer.applyCommandPresentationDelta(
+            RepoExplorerCommandPresentationDelta(
+                commandGeneration: 1,
+                target: target,
+                snapshot: snapshot,
+                affectedWorktreeIDs: [worktreeID],
+                affectedRepositoryIDs: [repositoryID],
+                affectedRequestIdentities: requests,
+                toolbarChanged: false
+            )
+        )
+    }
+
     func close() {
         host.detach()
         window.close()
@@ -186,6 +222,11 @@ final class RepoExplorerListKeyboardFixture {
             nativeUpdatePlan: plan
         )
     }
+}
+
+@MainActor
+private final class RepoExplorerVisibleSnapshotBox {
+    var snapshot: RepoExplorerVisibleWorktreeSnapshot?
 }
 
 @MainActor

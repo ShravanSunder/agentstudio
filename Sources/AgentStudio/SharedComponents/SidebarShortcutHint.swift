@@ -31,7 +31,7 @@ package struct SidebarShortcutHint: View {
                     design: .monospaced
                 )
             )
-            .foregroundStyle(style == .accentGlyph ? Color.accentColor : Color.primary)
+            .foregroundStyle(foregroundColor)
             .padding(.horizontal, AppStyles.Shell.Sidebar.KeyboardHint.horizontalPadding)
             .frame(
                 minWidth: AppStyles.Shell.Sidebar.KeyboardHint.minimumWidth,
@@ -40,28 +40,70 @@ package struct SidebarShortcutHint: View {
             .fixedSize()
             .background(
                 RoundedRectangle(cornerRadius: AppStyles.Shell.Sidebar.KeyboardHint.cornerRadius)
-                    .fill(style == .accentGlyph ? Color.clear : Color(nsColor: .controlBackgroundColor))
+                    .fill(backgroundColor)
             )
             .overlay {
-                RoundedRectangle(cornerRadius: AppStyles.Shell.Sidebar.KeyboardHint.cornerRadius)
-                    .strokeBorder(
-                        style == .accentGlyph ? Color.clear : AppStyles.General.Stroke.controlGroupColor,
-                        lineWidth: style == .accentGlyph ? 0 : AppStyles.Shell.Sidebar.KeyboardHint.borderWidth
-                    )
+                if style == .keycap {
+                    RoundedRectangle(cornerRadius: AppStyles.Shell.Sidebar.KeyboardHint.cornerRadius)
+                        .strokeBorder(
+                            AppStyles.General.Stroke.controlGroupColor,
+                            lineWidth: AppStyles.Shell.Sidebar.KeyboardHint.keycapBorderWidth
+                        )
+                }
             }
             .allowsHitTesting(false)
             .accessibilityHidden(true)
+    }
+
+    private var foregroundColor: Color {
+        switch style {
+        case .accentGlyph:
+            Color.accentColor
+        case .toolbarStamp:
+            AppStyles.Shell.Sidebar.KeyboardHint.stampForegroundColor
+        case .keycap:
+            Color.primary
+        }
+    }
+
+    private var backgroundColor: Color {
+        switch style {
+        case .accentGlyph:
+            Color.clear
+        case .toolbarStamp:
+            AppStyles.Shell.Sidebar.KeyboardHint.stampBackgroundColor
+        case .keycap:
+            Color(nsColor: .controlBackgroundColor)
+        }
+    }
+}
+
+/// Keeps a trailing action's layout slot stable while a shortcut stamp owns
+/// its visual and interaction position.
+package struct SidebarTrailingActionVisibility: Equatable {
+    package let opacity: Double
+    package let allowsHitTesting: Bool
+    package let accessibilityHidden: Bool
+
+    package init(shortcutDisplay: ShortcutDisplayText?) {
+        let showsTrailingAction = shortcutDisplay == nil
+        opacity = showsTrailingAction ? 1 : 0
+        allowsHitTesting = showsTrailingAction
+        accessibilityHidden = !showsTrailingAction
     }
 }
 
 extension View {
     package func sidebarShortcutHint(
         _ displayText: ShortcutDisplayText?,
-        style: SidebarShortcutHint.Style = .keycap
+        style: SidebarShortcutHint.Style = .keycap,
+        alignment: Alignment = .center,
+        offset: CGSize = .zero
     ) -> some View {
-        overlay {
+        overlay(alignment: alignment) {
             if let displayText {
                 SidebarShortcutHint(displayText, style: style)
+                    .offset(offset)
             }
         }
     }

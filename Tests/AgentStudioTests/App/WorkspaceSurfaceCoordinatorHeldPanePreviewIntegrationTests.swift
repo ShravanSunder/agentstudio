@@ -356,7 +356,7 @@ extension WorkspaceSurfaceTerminalRestoreIntegrationTests {
 
 @MainActor
 private final class TerminalRestoreNoOpAppCommandDispatcher: AppCommandDispatching {
-    func dispatch(_: AppCommand) {}
+    func dispatch(_: AppCommand) -> Bool { false }
     func dispatch(_: AppCommand, target _: UUID, targetType _: SearchItemType) {}
     func canDispatch(_: AppCommand) -> Bool { false }
     func canDispatch(_: AppCommand, target _: UUID, targetType _: SearchItemType) -> Bool { false }

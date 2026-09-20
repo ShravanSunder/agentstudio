@@ -579,6 +579,7 @@ extension WebKitSerializedTests {
             harness.store.setActivePane(firstSourcePane.id, inTab: sourceTab.id)
             enterForegroundZoomEnvironment(harness, owningWindowId: owningWindowId)
             let durablePaneIds = harness.store.paneAtom.graphAtom.paneIDs
+            let expectedSourcePaneIds = Set([firstSourcePane.id, secondSourcePane.id])
             let runtimeCountBeforeZoom = harness.runtimeRegistry.count
             let slotPaneIdsBeforeZoom = harness.viewRegistry.slotPaneIdsForTesting
             let bridgeHostPaneIdsBeforeZoom = Set(harness.viewRegistry.allBridgeViews.keys)
@@ -597,7 +598,7 @@ extension WebKitSerializedTests {
             #expect(harness.runtimeRegistry.count == runtimeCountBeforeZoom + 1)
             #expect(
                 harness.viewRegistry.slotPaneIdsForTesting
-                    == slotPaneIdsBeforeZoom.union([firstCompanionPaneId])
+                    == slotPaneIdsBeforeZoom.union(expectedSourcePaneIds).union([firstCompanionPaneId])
             )
             #expect(
                 Set(harness.viewRegistry.allBridgeViews.keys)
@@ -620,7 +621,10 @@ extension WebKitSerializedTests {
             #expect(harness.runtimeRegistry.count == runtimeCountBeforeZoom + 2)
             #expect(
                 harness.viewRegistry.slotPaneIdsForTesting
-                    == slotPaneIdsBeforeZoom.union(companionPaneIds)
+                    == slotPaneIdsBeforeZoom.union(expectedSourcePaneIds).union([
+                        firstCompanionPaneId,
+                        secondCompanionPaneId,
+                    ])
             )
             #expect(
                 Set(harness.viewRegistry.allBridgeViews.keys)
@@ -821,7 +825,10 @@ extension WebKitSerializedTests {
                 harness.coordinator.runtimeForPane(PaneId(existingUUID: companionPaneId)) == nil
             )
             #expect(harness.runtimeRegistry.count == runtimeCountBeforeZoom)
-            #expect(harness.viewRegistry.slotPaneIdsForTesting == slotPaneIdsBeforeZoom)
+            #expect(
+                harness.viewRegistry.slotPaneIdsForTesting
+                    == slotPaneIdsBeforeZoom.union([sourcePane.id])
+            )
             #expect(
                 harness.coordinator.bridgePaneActivityAuthorityIdentity(for: companionPaneId)
                     == nil

@@ -179,12 +179,18 @@ package enum AppStyles {
             package enum KeyboardHint {
                 package static let fontSize: CGFloat = AppStyles.General.Typography.textXs
                 package static let stampFontSize: CGFloat = 12
-                package static let stampFontWeight: Font.Weight = .semibold
+                package static let stampFontWeight: Font.Weight = .bold
                 package static let minimumWidth: CGFloat = AppStyles.Shell.Sidebar.rowLeadingIconColumnWidth
                 package static let height: CGFloat = AppStyles.Shell.Sidebar.nativePrimaryTextLineHeight
                 package static let horizontalPadding: CGFloat = AppStyles.Shell.Sidebar.rowHorizontalInset
-                package static let cornerRadius: CGFloat = AppStyles.General.CornerRadius.button
-                package static let borderWidth: CGFloat = 0.5
+                package static let cornerRadius: CGFloat = 4
+                package static let keycapBorderWidth: CGFloat = 0.5
+                package static let stampForegroundColor = AppStyles.Shell.Chrome.ToolbarButton.baseFillColor
+                package static let stampBackgroundColor = AppStyles.General.Accent.primaryColor
+                package static let controlTrailingInset: CGFloat = 2
+                package static let toggleVerticalOffset: CGFloat =
+                    height / 2 + AppStyles.General.Spacing.tight
+                package static let rowTrailingInset: CGFloat = 2
             }
 
             package enum SearchField {

@@ -5,13 +5,16 @@ import Observation
 @MainActor
 struct RepoExplorerKeyboardCallbacks {
     var canInterpretListInput: () -> Bool = { false }
-    var onSelectedPaneTargetChange: (RepoExplorerSelectedPaneTarget?) -> Void = { _ in }
+    var onSelectedPaneTargetChange:
+        (
+            RepoExplorerSelectedPaneTarget?, RepoExplorerSelectedPaneTargetChangeOrigin
+        ) -> Void = { _, _ in }
     var onPreviewEligibilityLoss: () -> Void = {}
     var onPreviewCommit: () -> Void = {}
     var onFilterFocusRequest: () -> Void = {}
     var onReturnFocusRequest: () -> Void = {}
     var onSidebarFocusChange: (Bool) -> Void = { _ in }
-    var onCommandRequest: (AppCommand) -> Void = { _ in }
+    var onCommandRequest: (AppCommand) -> Bool = { _ in false }
 }
 
 package struct RepoExplorerSelectedPaneTarget: Equatable, Sendable {
@@ -22,6 +25,14 @@ package struct RepoExplorerSelectedPaneTarget: Equatable, Sendable {
         self.paneID = paneID
         self.owningTabID = owningTabID
     }
+}
+
+/// Distinguishes selection reconciliation from a list-navigation gesture at the
+/// feature-to-shell preview boundary. Reconciliation may refresh an active
+/// preview, but only an arrow gesture may begin one.
+package enum RepoExplorerSelectedPaneTargetChangeOrigin: Equatable, Sendable {
+    case passiveSynchronization
+    case arrowNavigation
 }
 
 /// Reports native list and SwiftUI field focus without owning workspace keyboard routing.
@@ -75,8 +86,11 @@ final class RepoExplorerKeyboardInteraction {
         setFocusedRegion(.unfocused)
     }
 
-    func selectedPaneTargetDidChange(_ target: RepoExplorerSelectedPaneTarget?) {
-        callbacks.onSelectedPaneTargetChange(target)
+    func selectedPaneTargetDidChange(
+        _ target: RepoExplorerSelectedPaneTarget?,
+        origin: RepoExplorerSelectedPaneTargetChangeOrigin
+    ) {
+        callbacks.onSelectedPaneTargetChange(target, origin)
     }
 
     func commitPreviewBeforeActivation() {
@@ -122,7 +136,14 @@ final class RepoExplorerKeyboardInteraction {
     }
 
     func requestCommand(_ command: AppCommand) {
-        callbacks.onCommandRequest(command)
+        let originatedFromActiveList = isListKeyboardActive
+        guard callbacks.onCommandRequest(command), originatedFromActiveList else { return }
+        switch command.definition.sidebarKeyboardCompletion {
+        case .preserveCommandFocus:
+            break
+        case .returnToOrigin:
+            returnFromList()
+        }
     }
 
     func clearFocusReporting(notifyPreviewEligibilityLoss: Bool = true) {

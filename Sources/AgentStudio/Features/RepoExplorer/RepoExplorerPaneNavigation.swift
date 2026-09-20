@@ -77,13 +77,14 @@ struct RepoExplorerPaneRowContent: View {
                     .layoutPriority(1)
                     .foregroundStyle(.primary)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                Spacer(minLength: 0)
-                if let shortcutDisplay {
-                    SidebarShortcutHint(shortcutDisplay, style: .toolbarStamp)
-                }
-
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+            .sidebarShortcutHint(
+                shortcutDisplay,
+                style: .toolbarStamp,
+                alignment: .trailing,
+                offset: CGSize(width: -AppStyles.Shell.Sidebar.KeyboardHint.rowTrailingInset, height: 0)
+            )
             if let branchContextText {
                 SidebarMetadataLine(
                     icon: .octicon(name: "octicon-git-branch", loader: octiconLoader),

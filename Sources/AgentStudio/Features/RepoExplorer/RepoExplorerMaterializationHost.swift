@@ -24,7 +24,9 @@ final class RepoExplorerMaterializationHost: NSView {
             keyboardInteraction = interaction
         }
         interaction.attach(self)
-        interaction.selectedPaneTargetDidChange(selectedPaneTarget())
+        interaction.selectedPaneTargetDidChange(
+            selectedPaneTarget(), origin: .passiveSynchronization
+        )
     }
 
     @discardableResult
@@ -194,7 +196,9 @@ final class RepoExplorerMaterializationHost: NSView {
         self.acceptedBaseline = acceptedBaseline
         selectedRowID = reconciledSelectionRowID
         isPresentationReady = true
-        keyboardInteraction?.selectedPaneTargetDidChange(selectedPaneTarget())
+        keyboardInteraction?.selectedPaneTargetDidChange(
+            selectedPaneTarget(), origin: .passiveSynchronization
+        )
         onFeedback(.accepted(identity: .candidate(candidate.id), baseline: acceptedBaseline))
         return .accepted(acceptedBaseline)
     }
@@ -430,7 +434,9 @@ final class RepoExplorerMaterializationHost: NSView {
             contentChild?.applySelection(rowID: initialRowID, scrollIntoView: true) == true
         else { return }
         selectedRowID = initialRowID
-        keyboardInteraction?.selectedPaneTargetDidChange(selectedPaneTarget())
+        keyboardInteraction?.selectedPaneTargetDidChange(
+            selectedPaneTarget(), origin: .passiveSynchronization
+        )
     }
 
     private func moveSelection(verticalDirection: VerticalSelectionDirection) {
@@ -439,12 +445,12 @@ final class RepoExplorerMaterializationHost: NSView {
         if let selectedRowID {
             switch verticalDirection {
             case .previous:
-                targetRowID = snapshot.navigationIndex.previousSelectableRowID(before: selectedRowID)
+                targetRowID = snapshot.navigationIndex.previousNumberedDestinationRowID(before: selectedRowID)
             case .next:
-                targetRowID = snapshot.navigationIndex.nextSelectableRowID(after: selectedRowID)
+                targetRowID = snapshot.navigationIndex.nextNumberedDestinationRowID(after: selectedRowID)
             }
         } else {
-            targetRowID = snapshot.navigationIndex.initialSelectionRowID
+            targetRowID = snapshot.navigationIndex.numberedDestinationRowIDs.first
         }
         guard let targetRowID else { return }
         applyKeyboardSelection(targetRowID)
@@ -510,7 +516,9 @@ final class RepoExplorerMaterializationHost: NSView {
             contentChild?.applySelection(rowID: rowID, scrollIntoView: true) == true
         else { return }
         selectedRowID = rowID
-        keyboardInteraction?.selectedPaneTargetDidChange(selectedPaneTarget())
+        keyboardInteraction?.selectedPaneTargetDidChange(
+            selectedPaneTarget(), origin: .arrowNavigation
+        )
     }
 
     private func selectedPaneTarget() -> RepoExplorerSelectedPaneTarget? {

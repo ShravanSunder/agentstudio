@@ -36,14 +36,13 @@ package struct SidebarSearchField<FocusValue: Hashable>: View {
     }
 
     package var body: some View {
+        let trailingActionVisibility = SidebarTrailingActionVisibility(
+            shortcutDisplay: shortcutDisplay
+        )
         HStack(spacing: AppStyles.Shell.Sidebar.SearchField.contentSpacing) {
-            if let shortcutDisplay {
-                SidebarShortcutHint(shortcutDisplay, style: .toolbarStamp)
-            } else {
-                Image(systemName: "magnifyingglass")
-                    .font(.system(size: AppStyles.Shell.Sidebar.SearchField.iconSize))
-                    .foregroundStyle(.tertiary)
-            }
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: AppStyles.Shell.Sidebar.SearchField.iconSize))
+                .foregroundStyle(.tertiary)
 
             TextField(placeholder, text: $text)
                 .textFieldStyle(.plain)
@@ -70,13 +69,18 @@ package struct SidebarSearchField<FocusValue: Hashable>: View {
                         .foregroundStyle(.secondary)
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel(clearHelp ?? "")
                 .help(clearHelp ?? "")
+                .opacity(trailingActionVisibility.opacity)
+                .allowsHitTesting(trailingActionVisibility.allowsHitTesting)
+                .accessibilityHidden(trailingActionVisibility.accessibilityHidden)
                 .transition(
                     .opacity.animation(
                         .easeOut(duration: AppStyles.Shell.Sidebar.SearchField.clearTransitionDuration)
                     )
                 )
             }
+
         }
         .frame(maxWidth: .infinity)
         .padding(.horizontal, AppStyles.Shell.Sidebar.SearchField.horizontalPadding)
@@ -95,8 +99,18 @@ package struct SidebarSearchField<FocusValue: Hashable>: View {
         .contentShape(
             RoundedRectangle(cornerRadius: AppStyles.Shell.Sidebar.SearchField.cornerRadius)
         )
+        .sidebarShortcutHint(
+            shortcutDisplay,
+            style: .toolbarStamp,
+            alignment: .trailing,
+            offset: CGSize(
+                width: -AppStyles.Shell.Sidebar.KeyboardHint.controlTrailingInset,
+                height: 0
+            )
+        )
         .onTapGesture {
             focusedField.wrappedValue = focusValue
         }
     }
+
 }

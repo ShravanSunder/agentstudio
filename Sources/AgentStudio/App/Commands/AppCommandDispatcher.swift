@@ -26,19 +26,21 @@ final class AppCommandDispatcher: AppCommandDispatching {
         }
     }
 
-    func dispatch(_ command: AppCommand) {
+    @discardableResult
+    func dispatch(_ command: AppCommand) -> Bool {
         guard canDispatch(command) else {
             Self.logger.warning("Command dispatch rejected: \(command.rawValue, privacy: .public)")
-            return
+            return false
         }
         if appCommandRouter?.execute(command) == true {
-            return
+            return true
         }
-        guard let handler else {
+        guard let handler, handler.canExecute(command) else {
             Self.logger.warning("Command dispatch had no workspace handler: \(command.rawValue, privacy: .public)")
-            return
+            return false
         }
         handler.execute(command)
+        return true
     }
 
     func dispatchKeyboardShortcut(_ shortcut: AppShortcut) {

@@ -111,7 +111,10 @@ extension WebKitSerializedTests {
 
         @Test("held preview publishes an installed nonterminal target through the real sidebar callback")
         func heldPreviewPublishesInstalledNonterminalTargetThroughSidebarCallback() async throws {
-            var onSelectedPaneTargetChange: (@MainActor (RepoExplorerSelectedPaneTarget?) -> Void)?
+            var onSelectedPaneTargetChange:
+                (
+                    @MainActor (RepoExplorerSelectedPaneTarget?, RepoExplorerSelectedPaneTargetChangeOrigin) -> Void
+                )?
 
             try await withMainSplitViewControllerHarness(
                 withRepos: false,
@@ -146,7 +149,7 @@ extension WebKitSerializedTests {
                         owningTabID: tab.id
                     )
 
-                    onSelectedPaneTargetChange?(selectedTarget)
+                    onSelectedPaneTargetChange?(selectedTarget, .arrowNavigation)
 
                     let heldState = try #require(harness.controller.heldPanePreviewState)
                     #expect(heldState.requestedTarget?.paneID == pane.id)
@@ -164,7 +167,7 @@ extension WebKitSerializedTests {
                     )
 
                     heldState.endSpaceHold()
-                    onSelectedPaneTargetChange?(selectedTarget)
+                    onSelectedPaneTargetChange?(selectedTarget, .arrowNavigation)
                     #expect(heldState.presentedTarget?.paneID == pane.id)
                     #expect(harness.coordinator.viewRegistry.webviewView(for: pane.id) === installedView)
                 }

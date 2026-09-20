@@ -74,15 +74,15 @@ package struct SidebarToolbarSegmentedControl<Value: Hashable, Icon: View>: View
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(SidebarToolbarSegmentButtonStyle(isSelected: isSelected))
-                .overlay(alignment: .bottom) {
-                    if let shortcut = shortcutDisplay(segment.value) {
-                        SidebarShortcutHint(shortcut, style: .toolbarStamp)
-                            .offset(
-                                y: AppStyles.Shell.Sidebar.KeyboardHint.height
-                                    + AppStyles.General.Spacing.tight
-                            )
-                    }
-                }
+                .sidebarShortcutHint(
+                    shortcutDisplay(segment.value),
+                    style: .toolbarStamp,
+                    alignment: .bottomTrailing,
+                    offset: CGSize(
+                        width: -AppStyles.Shell.Sidebar.KeyboardHint.controlTrailingInset,
+                        height: AppStyles.Shell.Sidebar.KeyboardHint.toggleVerticalOffset
+                    )
+                )
                 .disabled(!segment.isEnabled)
                 .accessibilityLabel(segment.label)
                 .accessibilityIdentifier(segment.accessibilityIdentifier)
@@ -90,15 +90,11 @@ package struct SidebarToolbarSegmentedControl<Value: Hashable, Icon: View>: View
                 .controlHelp(segment.tooltipValue)
             }
         }
-        .overlay {
+        .background {
             RoundedRectangle(cornerRadius: AppStyles.Shell.Sidebar.ToolbarControl.cornerRadius)
                 .stroke(AppStyles.General.Stroke.controlGroupColor, lineWidth: 1)
                 .allowsHitTesting(false)
         }
-        .padding(
-            .bottom,
-            shortcutRailHeight
-        )
         .animation(
             reduceMotion
                 ? nil
@@ -114,12 +110,6 @@ package struct SidebarToolbarSegmentedControl<Value: Hashable, Icon: View>: View
                 .delay(AppStyles.Shell.Sidebar.ToolbarControl.labelFadeInDelay)
         }
         return .easeInOut(duration: AppStyles.Shell.Sidebar.ToolbarControl.labelFadeOutDuration)
-    }
-
-    private var shortcutRailHeight: CGFloat {
-        model.segments.contains { shortcutDisplay($0.value) != nil }
-            ? AppStyles.Shell.Sidebar.KeyboardHint.height + AppStyles.General.Spacing.tight
-            : 0
     }
 
 }

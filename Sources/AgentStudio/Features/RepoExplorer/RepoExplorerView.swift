@@ -26,7 +26,8 @@ package struct RepoExplorerView: View {
     let commandPresentationDelta: RepoExplorerCommandPresentationDelta?
     let visibleSnapshotConsumerToken: UUID?
     let onRefocusActivePane: () -> Void
-    let onSelectedPaneTargetChange: @MainActor (RepoExplorerSelectedPaneTarget?) -> Void
+    let onSelectedPaneTargetChange:
+        @MainActor (RepoExplorerSelectedPaneTarget?, RepoExplorerSelectedPaneTargetChangeOrigin) -> Void
     let onPreviewEligibilityLoss: @MainActor () -> Void
     let onPreviewCommit: @MainActor () -> Void
     let onSidebarVisibleWorktreesChanged: @MainActor @Sendable () -> Void
@@ -52,7 +53,9 @@ package struct RepoExplorerView: View {
         visibleSnapshotConsumerToken: UUID? = nil,
         onRefocusActivePane: @escaping () -> Void,
         onSelectedPaneTargetChange:
-            @escaping @MainActor (RepoExplorerSelectedPaneTarget?) -> Void = { _ in },
+            @escaping @MainActor (
+                RepoExplorerSelectedPaneTarget?, RepoExplorerSelectedPaneTargetChangeOrigin
+            ) -> Void = { _, _ in },
         onPreviewEligibilityLoss: @escaping @MainActor () -> Void = {},
         onPreviewCommit: @escaping @MainActor () -> Void = {},
         onSidebarVisibleWorktreesChanged: @escaping @MainActor @Sendable () -> Void,
@@ -295,8 +298,8 @@ package struct RepoExplorerView: View {
                 uiState.setSidebarHasFocus(hasFocus)
             },
             onCommandRequest: { command in
-                guard commandDispatcher.canDispatch(command) else { return }
-                commandDispatcher.dispatch(command)
+                guard commandDispatcher.canDispatch(command) else { return false }
+                return commandDispatcher.dispatch(command)
             }
         )
     }

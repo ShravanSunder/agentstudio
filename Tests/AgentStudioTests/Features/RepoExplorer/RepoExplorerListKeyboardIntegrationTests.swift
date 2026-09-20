@@ -92,37 +92,38 @@ struct RepoExplorerListKeyboardIntegrationTests {
         #expect(fixture.nativeSelectedRowID(in: snapshot) == expectedRowID)
     }
 
-    @Test("Up and Down skip static rows and stop at selectable edges")
-    func verticalNavigationSkipsLabelsAndStopsAtEdges() throws {
+    @Test("Up and Down follow numbered destinations and stop at both edges")
+    func verticalNavigationFollowsNumberedDestinations() throws {
         let fixture = RepoExplorerListKeyboardFixture()
         defer { fixture.close() }
-        let paneID = UUIDv7.generate()
+        let paneIDs = (0..<3).map { _ in UUIDv7.generate() }
         let tabID = UUIDv7.generate()
-        let firstGroupRowID = RepoExplorerRowID.group(groupID: "group:first")
-        let paneRowID = RepoExplorerRowID.unassociatedPane(paneID: paneID)
-        let lastGroupRowID = RepoExplorerRowID.group(groupID: "group:last")
+        let numberedRowIDs = paneIDs.map { RepoExplorerRowID.unassociatedPane(paneID: $0) }
         let snapshot = navigationSnapshot([
             .section(.panes),
             .group(id: "group:first", expanded: true),
             .activity(groupID: "group:first", bucket: .active),
-            .unassociatedPane(paneID: paneID, tabID: tabID),
+            .unassociatedPane(paneID: paneIDs[0], tabID: tabID),
             .loadingSection(.repositories),
+            .group(id: "group:middle", expanded: false),
+            .unassociatedPane(paneID: paneIDs[1], tabID: tabID),
             .topologyFault,
             .group(id: "group:last", expanded: false),
+            .unassociatedPane(paneID: paneIDs[2], tabID: tabID),
         ])
         _ = try fixture.apply(snapshot: snapshot, generation: 1)
 
         try fixture.send(.moveSelectionUp)
-        #expect(fixture.host.selectedRowID == firstGroupRowID)
+        #expect(fixture.host.selectedRowID == numberedRowIDs[0])
         try fixture.send(.moveSelectionUp)
-        #expect(fixture.host.selectedRowID == firstGroupRowID)
+        #expect(fixture.host.selectedRowID == numberedRowIDs[0])
         try fixture.send(.moveSelectionDown)
-        #expect(fixture.host.selectedRowID == paneRowID)
+        #expect(fixture.host.selectedRowID == numberedRowIDs[1])
         try fixture.send(.moveSelectionDown)
-        #expect(fixture.host.selectedRowID == lastGroupRowID)
+        #expect(fixture.host.selectedRowID == numberedRowIDs[2])
         try fixture.send(.moveSelectionDown)
-        #expect(fixture.host.selectedRowID == lastGroupRowID)
-        #expect(fixture.nativeSelectedRowID(in: snapshot) == lastGroupRowID)
+        #expect(fixture.host.selectedRowID == numberedRowIDs[2])
+        #expect(fixture.nativeSelectedRowID(in: snapshot) == numberedRowIDs[2])
         #expect(fixture.recorder.focusedPaneIDs.isEmpty)
         #expect(fixture.recorder.commandRequests.isEmpty)
     }
@@ -216,27 +217,41 @@ struct RepoExplorerListKeyboardIntegrationTests {
         #expect(fixture.recorder.focusedPaneIDs == [paneID])
     }
 
-    @Test("accepted pane selection reports its feature-owned tab target")
-    func acceptedPaneSelectionReportsTarget() throws {
+    @Test("passive selection synchronization is distinct from deliberate arrow preview selection")
+    func paneSelectionReportsItsOrigin() throws {
         let fixture = RepoExplorerListKeyboardFixture()
         defer { fixture.close() }
-        let paneID = UUIDv7.generate()
         let tabID = UUIDv7.generate()
-        let expectedTarget = RepoExplorerSelectedPaneTarget(paneID: paneID, owningTabID: tabID)
+        let firstPaneID = UUIDv7.generate()
+        let secondPaneID = UUIDv7.generate()
+        let expectedPassiveTarget = RepoExplorerSelectedPaneTarget(
+            paneID: firstPaneID, owningTabID: tabID
+        )
+        let expectedArrowTarget = RepoExplorerSelectedPaneTarget(
+            paneID: secondPaneID, owningTabID: tabID
+        )
         let snapshot = navigationSnapshot([
-            .unassociatedPane(paneID: paneID, tabID: tabID)
+            .unassociatedPane(paneID: firstPaneID, tabID: tabID),
+            .unassociatedPane(paneID: secondPaneID, tabID: tabID),
         ])
-        var observedTargets: [RepoExplorerSelectedPaneTarget?] = []
+        var observedChanges: [(RepoExplorerSelectedPaneTarget?, RepoExplorerSelectedPaneTargetChangeOrigin)] = []
         fixture.interaction.configure(
             RepoExplorerKeyboardCallbacks(
                 canInterpretListInput: { true },
-                onSelectedPaneTargetChange: { observedTargets.append($0) }
+                onSelectedPaneTargetChange: { target, origin in
+                    observedChanges.append((target, origin))
+                }
             )
         )
 
         _ = try fixture.apply(snapshot: snapshot, generation: 1)
+        #expect(observedChanges.last?.0 == expectedPassiveTarget)
+        #expect(observedChanges.last?.1 == .passiveSynchronization)
 
-        #expect(observedTargets.last == expectedTarget)
+        try fixture.send(.moveSelectionDown)
+
+        #expect(observedChanges.last?.0 == expectedArrowTarget)
+        #expect(observedChanges.last?.1 == .arrowNavigation)
     }
 
     @Test("digit nine activates its accepted destination below the viewport")

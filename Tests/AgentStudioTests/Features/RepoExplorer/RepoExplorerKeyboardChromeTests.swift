@@ -90,8 +90,8 @@ struct RepoExplorerKeyboardChromeTests {
         #expect(secondCell.hostingView.rootView.slot.keyboardPresentation.shortcutDisplay?.value == "2")
     }
 
-    @Test("pane composition omits Space and excludes it from worktree rows")
-    func paneCompositionOmitsSpaceAndExcludesItFromWorktreeRows() throws {
+    @Test("pane and worktree rows omit Space while retaining trailing number stamps")
+    func paneAndWorktreeRowsOmitSpaceWhileRetainingTrailingNumberStamps() throws {
         let projectRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .appending(path: "../../../..")
@@ -112,7 +112,8 @@ struct RepoExplorerKeyboardChromeTests {
         #expect(paneRowSource.components(separatedBy: "RepoExplorerPaneRowContent(").count - 1 == 2)
         #expect(!paneRowSource.contains("SidebarShortcutHint(LocalActionSpec.previewPaneShortcutDisplay)"))
         #expect(!worktreeRowSource.contains("LocalActionSpec.previewPaneShortcutDisplay"))
-        #expect(!worktreeRowSource.contains("SidebarShortcutHint"))
+        #expect(worktreeRowSource.contains(".sidebarShortcutHint("))
+        #expect(worktreeRowSource.contains("alignment: .trailing"))
     }
 
     @Test("pane rows preserve numbered hints and recency at supported widths")
@@ -131,11 +132,173 @@ struct RepoExplorerKeyboardChromeTests {
         )
 
         for width in [CGFloat(250), CGFloat(320)] {
-            try verifySpaceChipLayout(at: width, artifactDirectory: artifactDirectory)
+            try verifyNumberStampLayout(at: width, artifactDirectory: artifactDirectory)
         }
     }
 
-    private func verifySpaceChipLayout(at width: CGFloat, artifactDirectory: URL) throws {
+    @Test("trailing number overlay replaces and restores the pinned row action without reflow")
+    func worktreeNumberOverlayDisablesAndRestoresPinnedAction() throws {
+        for width in [CGFloat(250), CGFloat(320)] {
+            try verifyWorktreeNumberOverlay(at: width)
+        }
+    }
+
+    private func verifyWorktreeNumberOverlay(at width: CGFloat) throws {
+        let fixture = RepoExplorerListKeyboardFixture(windowWidth: width)
+        defer { fixture.close() }
+        let repositoryID = UUIDv7.generate()
+        let worktreeID = UUIDv7.generate()
+        let row = navigationWorktreeRow(
+            groupID: "repo",
+            repositoryID: repositoryID,
+            worktreeID: worktreeID
+        )
+        _ = try fixture.apply(
+            snapshot: RepoExplorerMaterializationSnapshot(rows: [row]),
+            generation: 1
+        )
+        let table = try #require(firstRepoExplorerKeyboardDescendant(NSTableView.self, in: fixture.host))
+        let cell = try #require(
+            table.view(atColumn: 0, row: 0, makeIfNecessary: true) as? RepoExplorerTableRowCell
+        )
+        let pinDisposition = try fixture.enablePinPresentation(
+            repositoryID: repositoryID,
+            worktreeID: worktreeID
+        )
+        guard case .accepted(let reboundRowCount) = pinDisposition else {
+            Issue.record("Current mounted row must accept pin command presentation")
+            return
+        }
+        #expect(reboundRowCount == 1)
+        fixture.window.makeKeyAndOrderFront(nil)
+        fixture.window.layoutIfNeeded()
+        table.layoutSubtreeIfNeeded()
+        let baselineCellHeight = cell.frame.height
+        let baselineFittingSize = cell.hostingView.fittingSize
+        try verifyPinnedActionReplacement(
+            at: width,
+            repositoryID: repositoryID,
+            worktreeID: worktreeID
+        )
+
+        fixture.materializer.setShowsKeyboardHints(true)
+        fixture.window.layoutIfNeeded()
+        table.layoutSubtreeIfNeeded()
+        let bitmap = try captureBitmap(in: cell.hostingView)
+        try writeBitmap(
+            bitmap,
+            to: URL(fileURLWithPath: "tmp/sidekick-work/worktree-overlay-\(Int(width)).png")
+        )
+        let shortcutGlyphBounds = try #require(trailingDarkGlyphBounds(in: bitmap))
+        let titleGlyphBounds = try #require(primaryTitleGlyphBounds(in: bitmap))
+
+        #expect(cell.frame.height == baselineCellHeight)
+        #expect(cell.hostingView.fittingSize == baselineFittingSize)
+        #expect(abs(shortcutGlyphBounds.midY - titleGlyphBounds.midY) <= 4)
+        #expect(shortcutGlyphBounds.maxX <= CGFloat(bitmap.pixelsWide))
+    }
+
+    private func verifyPinnedActionReplacement(
+        at width: CGFloat,
+        repositoryID: UUID,
+        worktreeID: UUID
+    ) throws {
+        let pinRequest = try #require(
+            RepoExplorerWorktreeCommandPresentation.requests(
+                worktreeId: worktreeID,
+                repoId: repositoryID,
+                isPinned: false,
+                showsPinnedControl: true
+            ).first { $0.command == .pinRepo && $0.surface == .inlineControl }
+        )
+        let pinPresentation = try #require(
+            RepoExplorerCommandPresentation.presentedCommand(
+                for: pinRequest,
+                snapshot: RepoExplorerCommandPresentationSnapshot(
+                    generation: 1,
+                    results: [pinRequest: true]
+                )
+            )
+        )
+        var pinPressCount = 0
+        let pinHost = NSHostingView(
+            rootView: worktreeRowContent(
+                pinPresentation: pinPresentation,
+                shortcutDisplay: nil,
+                onTogglePinned: { pinPressCount += 1 }
+            )
+        )
+        pinHost.frame = NSRect(x: 0, y: 0, width: width, height: 80)
+        let pinWindow = NSWindow(
+            contentRect: pinHost.bounds,
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        pinWindow.isReleasedWhenClosed = false
+        pinWindow.contentView = pinHost
+        pinWindow.makeKeyAndOrderFront(nil)
+        defer {
+            pinWindow.orderOut(nil)
+            pinWindow.close()
+        }
+        pinHost.layoutSubtreeIfNeeded()
+        pinHost.frame.size.height = pinHost.fittingSize.height
+        pinWindow.setContentSize(pinHost.frame.size)
+        pinHost.layoutSubtreeIfNeeded()
+        let pinBitmap = try captureBitmap(in: pinHost)
+        let pinGlyphBounds = try #require(trailingRenderedBounds(in: pinBitmap))
+        let pinPixelScale = CGFloat(pinBitmap.pixelsWide) / pinHost.bounds.width
+        let pinControlPoint = NSPoint(
+            x: pinGlyphBounds.midX / pinPixelScale,
+            y: pinGlyphBounds.midY / pinPixelScale
+        )
+        try click(pinControlPoint, in: pinHost, window: pinWindow)
+        #expect(pinPressCount == 1)
+        pinHost.rootView = worktreeRowContent(
+            pinPresentation: pinPresentation,
+            shortcutDisplay: ShortcutDisplayText(value: "1"),
+            onTogglePinned: { pinPressCount += 1 }
+        )
+        pinHost.layoutSubtreeIfNeeded()
+        #expect(
+            SidebarTrailingActionVisibility(shortcutDisplay: ShortcutDisplayText(value: "1"))
+                .accessibilityHidden
+        )
+        try click(pinControlPoint, in: pinHost, window: pinWindow)
+        #expect(pinPressCount == 1)
+
+        pinHost.rootView = worktreeRowContent(
+            pinPresentation: pinPresentation,
+            shortcutDisplay: nil,
+            onTogglePinned: { pinPressCount += 1 }
+        )
+        pinHost.layoutSubtreeIfNeeded()
+        #expect(!SidebarTrailingActionVisibility(shortcutDisplay: nil).accessibilityHidden)
+        try click(pinControlPoint, in: pinHost, window: pinWindow)
+        #expect(pinPressCount == 2)
+    }
+
+    private func worktreeRowContent(
+        pinPresentation: RepoExplorerPresentedCommand,
+        shortcutDisplay: ShortcutDisplayText?,
+        onTogglePinned: @escaping () -> Void
+    ) -> RepoExplorerWorktreeRowContent {
+        RepoExplorerWorktreeRowContent(
+            octiconLoader: makeRepoExplorerTestOcticonLoader(),
+            checkoutTitle: "A deliberately long repository title proving the trailing slot",
+            branchName: "main",
+            checkoutIconKind: .mainCheckout,
+            iconColor: .accentColor,
+            branchStatus: .unknown,
+            showsPinnedControl: true,
+            pinnedCommandPresentation: pinPresentation,
+            onTogglePinned: onTogglePinned,
+            shortcutDisplay: shortcutDisplay
+        )
+    }
+
+    private func verifyNumberStampLayout(at width: CGFloat, artifactDirectory: URL) throws {
         let fixture = RepoExplorerListKeyboardFixture(windowWidth: width)
         defer { fixture.close() }
         let tabID = UUIDv7.generate()
@@ -158,6 +321,8 @@ struct RepoExplorerKeyboardChromeTests {
         table.layoutSubtreeIfNeeded()
         let associatedBaselineHeight = associatedCell.frame.height
         let unassociatedBaselineHeight = unassociatedCell.frame.height
+        let associatedBaselineFittingSize = associatedCell.hostingView.fittingSize
+        let unassociatedBaselineFittingSize = unassociatedCell.hostingView.fittingSize
 
         fixture.materializer.setShowsKeyboardHints(true)
         fixture.window.layoutIfNeeded()
@@ -169,6 +334,8 @@ struct RepoExplorerKeyboardChromeTests {
 
         #expect(associatedCell.frame.height == associatedBaselineHeight)
         #expect(unassociatedCell.frame.height == unassociatedBaselineHeight)
+        #expect(associatedCell.hostingView.fittingSize == associatedBaselineFittingSize)
+        #expect(unassociatedCell.hostingView.fittingSize == unassociatedBaselineFittingSize)
         #expect(associatedRowRect.height == associatedBaselineHeight)
         #expect(unassociatedRowRect.height == unassociatedBaselineHeight)
         #expect(associatedCell.hostingView.rootView.slot.keyboardPresentation.shortcutDisplay?.value == "1")
@@ -257,6 +424,79 @@ struct RepoExplorerKeyboardChromeTests {
         )
         window.sendEvent(mouseDown)
         window.sendEvent(mouseUp)
+    }
+
+    private func trailingDarkGlyphBounds(in bitmap: NSBitmapImageRep) -> CGRect? {
+        var bounds: CGRect?
+        let xStart = max(0, bitmap.pixelsWide - 112)
+        for y in 0..<bitmap.pixelsHigh {
+            for x in xStart..<bitmap.pixelsWide {
+                guard let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB),
+                    color.redComponent < 0.8,
+                    color.greenComponent < 0.8,
+                    color.blueComponent < 0.8,
+                    color.alphaComponent > 0.5
+                else { continue }
+                let pixel = CGRect(x: x, y: y, width: 1, height: 1)
+                bounds = bounds.map { $0.union(pixel) } ?? pixel
+            }
+        }
+        return bounds
+    }
+
+    private func trailingRenderedBounds(in bitmap: NSBitmapImageRep) -> CGRect? {
+        var bounds: CGRect?
+        let xStart = max(0, bitmap.pixelsWide - 56)
+        for y in 0..<bitmap.pixelsHigh {
+            for x in xStart..<bitmap.pixelsWide {
+                guard let color = bitmap.colorAt(x: x, y: y), color.alphaComponent > 0.2 else {
+                    continue
+                }
+                let pixel = CGRect(x: x, y: y, width: 1, height: 1)
+                bounds = bounds.map { $0.union(pixel) } ?? pixel
+            }
+        }
+        return bounds
+    }
+
+    private func primaryTitleGlyphBounds(in bitmap: NSBitmapImageRep) -> CGRect? {
+        var bounds: CGRect?
+        let xStart = min(bitmap.pixelsWide, 72)
+        let xEnd = max(xStart, bitmap.pixelsWide - 112)
+        for y in 0..<(bitmap.pixelsHigh / 2) {
+            for x in xStart..<xEnd {
+                guard let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB),
+                    color.redComponent > 0.8,
+                    color.greenComponent > 0.8,
+                    color.blueComponent > 0.8,
+                    color.alphaComponent > 0.5
+                else { continue }
+                let pixel = CGRect(x: x, y: y, width: 1, height: 1)
+                bounds = bounds.map { $0.union(pixel) } ?? pixel
+            }
+        }
+        return bounds
+    }
+
+    private func click(_ point: NSPoint, in view: NSView, window: NSWindow) throws {
+        let windowPoint = view.convert(point, to: nil)
+        for eventType in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+            window.sendEvent(
+                try #require(
+                    NSEvent.mouseEvent(
+                        with: eventType,
+                        location: windowPoint,
+                        modifierFlags: [],
+                        timestamp: 0,
+                        windowNumber: window.windowNumber,
+                        context: nil,
+                        eventNumber: eventType == .leftMouseDown ? 1 : 2,
+                        clickCount: 1,
+                        pressure: eventType == .leftMouseDown ? 1 : 0
+                    )
+                )
+            )
+        }
     }
 
     private func captureBitmap(in view: NSView) throws -> NSBitmapImageRep {

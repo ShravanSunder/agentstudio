@@ -273,8 +273,9 @@ private final class PaneManagementContextMenuRecordingDispatcher: AppCommandDisp
     private(set) var dispatchedCommands: [AppCommand] = []
     private(set) var dispatchedPaneIDs: [UUID] = []
 
-    func dispatch(_ command: AppCommand) {
+    func dispatch(_ command: AppCommand) -> Bool {
         dispatchedCommands.append(command)
+        return true
     }
 
     func dispatch(

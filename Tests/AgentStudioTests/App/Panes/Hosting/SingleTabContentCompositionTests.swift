@@ -183,6 +183,7 @@ struct SingleTabContentCompositionTests {
             )
             hostingView.frame = CGRect(x: 0, y: 0, width: 640, height: 360)
             let window = NSWindow(contentViewController: NSViewController())
+            window.isReleasedWhenClosed = false
             window.contentView = hostingView
             window.setContentSize(hostingView.frame.size)
             window.makeKeyAndOrderFront(nil)
@@ -254,6 +255,7 @@ struct SingleTabContentCompositionTests {
                 backing: .buffered,
                 defer: false
             )
+            window.isReleasedWhenClosed = false
             window.contentView = hostingView
             window.makeKeyAndOrderFront(nil)
             defer {

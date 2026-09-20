@@ -138,6 +138,22 @@ struct RepoExplorerNavigationIndex: Equatable, Sendable {
         return selectableRowIDs[position + 1]
     }
 
+    func previousNumberedDestinationRowID(before rowID: RepoExplorerRowID) -> RepoExplorerRowID? {
+        guard let position = selectablePositionByRowID[rowID] else { return nil }
+        return numberedDestinationRowIDs.last {
+            guard let candidatePosition = selectablePositionByRowID[$0] else { return false }
+            return candidatePosition < position
+        }
+    }
+
+    func nextNumberedDestinationRowID(after rowID: RepoExplorerRowID) -> RepoExplorerRowID? {
+        guard let position = selectablePositionByRowID[rowID] else { return nil }
+        return numberedDestinationRowIDs.first {
+            guard let candidatePosition = selectablePositionByRowID[$0] else { return false }
+            return candidatePosition > position
+        }
+    }
+
     func parentRowID(for rowID: RepoExplorerRowID) -> RepoExplorerRowID? {
         parentRowIDByChildRowID[rowID]
     }

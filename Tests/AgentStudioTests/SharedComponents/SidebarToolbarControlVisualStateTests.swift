@@ -5,7 +5,7 @@ import Testing
 
 @testable import AgentStudioSharedComponents
 
-@Suite("Sidebar toolbar control visual state")
+@Suite("Sidebar toolbar control visual state", .serialized)
 struct SidebarToolbarControlVisualStateTests {
     @Test("outgoing label fade overlaps shared resizing")
     func labelTimingMatchesApprovedSequence() {
@@ -44,6 +44,54 @@ struct SidebarToolbarControlVisualStateTests {
         let allPanesWidth = mountedSegmentedControlWidth(selection: 1)
 
         #expect(allPanesWidth > repoWidth)
+    }
+
+    @Test("shortcut overlays do not change toggle or filter geometry")
+    @MainActor
+    func shortcutOverlaysPreserveControlGeometry() throws {
+        let toggleWithoutHints = mountedSegmentedControlSize(showsHints: false)
+        let toggleWithHints = mountedSegmentedControlSize(showsHints: true)
+        #expect(toggleWithHints == toggleWithoutHints)
+
+        for width in [CGFloat(250), CGFloat(320)] {
+            let filterWithoutHint = try mountedSearchFieldGeometry(showsHint: false, width: width)
+            let filterWithHint = try mountedSearchFieldGeometry(showsHint: true, width: width)
+            #expect(filterWithHint.hostSize == filterWithoutHint.hostSize)
+            #expect(filterWithHint.textFieldFrameInHost == filterWithoutHint.textFieldFrameInHost)
+            let badgeBounds = try #require(filterWithHint.badgeBounds)
+            #expect(abs(badgeBounds.midY - filterWithHint.hostSize.height) <= 2)
+            #expect(badgeBounds.maxX <= filterWithHint.hostSize.width * 2)
+            #expect(filterWithoutHint.badgeBounds == nil)
+        }
+    }
+
+    @Test("filter shortcut replaces the trailing clear action without leaving it interactive")
+    @MainActor
+    func filterShortcutDisablesAndRestoresTrailingClearAction() throws {
+        let model = SidebarSearchFieldTextModel(text: "filter with clear button")
+        let withoutHint = try mountedSearchFieldGeometry(showsHint: false, width: 250, model: model)
+        let clearPoint = try clickTrailingControl(in: withoutHint) { model.text.isEmpty }
+        #expect(model.text.isEmpty)
+
+        model.text = "filter with clear button"
+        let withHint = try mountedSearchFieldGeometry(showsHint: true, width: 250, model: model)
+        try click(at: clearPoint, in: withHint)
+        #expect(model.text == "filter with clear button")
+    }
+
+    @Test("shared trailing action visibility disables paint, hit testing, and accessibility together")
+    func trailingActionVisibilityIsOneSharedContract() {
+        let visible = SidebarTrailingActionVisibility(shortcutDisplay: nil)
+        #expect(visible.opacity == 1)
+        #expect(visible.allowsHitTesting)
+        #expect(!visible.accessibilityHidden)
+
+        let replaced = SidebarTrailingActionVisibility(
+            shortcutDisplay: ShortcutDisplayText(value: "1")
+        )
+        #expect(replaced.opacity == 0)
+        #expect(!replaced.allowsHitTesting)
+        #expect(replaced.accessibilityHidden)
     }
 
     @Test("selected segment uses accent paint inside one quiet noninteractive group border")
@@ -96,8 +144,35 @@ struct SidebarToolbarControlVisualStateTests {
         #expect(toggleSource.contains("shortcutDisplay: shortcutDisplay"))
         #expect(toggleSource.contains("content: .selectedLabel"))
         #expect(!toggleSource.contains("sidebarShortcutHint(shortcutDisplay(value)"))
-        #expect(controlSource.contains("SidebarShortcutHint(shortcut, style: .toolbarStamp)"))
-        #expect(controlSource.contains(".overlay(alignment: .bottom)"))
+        #expect(controlSource.contains(".sidebarShortcutHint("))
+        #expect(controlSource.contains("alignment: .bottomTrailing"))
+        #expect(!controlSource.contains("shortcutRailHeight"))
+        #expect(AppStyles.Shell.Sidebar.KeyboardHint.stampFontSize == 12)
+        #expect(AppStyles.Shell.Sidebar.KeyboardHint.stampFontWeight == .bold)
+        #expect(
+            AppStyles.Shell.Sidebar.KeyboardHint.stampForegroundColor
+                == AppStyles.Shell.Chrome.ToolbarButton.baseFillColor
+        )
+        #expect(
+            AppStyles.Shell.Sidebar.KeyboardHint.stampBackgroundColor
+                == AppStyles.General.Accent.primaryColor
+        )
+        #expect(
+            AppStyles.Shell.Sidebar.KeyboardHint.horizontalPadding
+                < AppStyles.General.Spacing.standard
+        )
+        #expect(
+            AppStyles.Shell.Sidebar.KeyboardHint.height
+                == AppStyles.Shell.Sidebar.nativePrimaryTextLineHeight
+        )
+
+        let hintSource = try String(
+            contentsOfFile: "Sources/AgentStudio/SharedComponents/SidebarShortcutHint.swift",
+            encoding: .utf8
+        )
+        #expect(!hintSource.contains("isSelected"))
+        #expect(!hintSource.contains("stampBorderColor"))
+        #expect(hintSource.contains("if style == .keycap"))
     }
 
     @Test("Repo Explorer toolbar has no standalone keyboard glyph")
@@ -112,15 +187,23 @@ struct SidebarToolbarControlVisualStateTests {
             contentsOfFile: "Sources/AgentStudio/SharedComponents/SidebarSearchField.swift",
             encoding: .utf8
         )
-        #expect(searchSource.contains("SidebarShortcutHint(shortcutDisplay, style: .toolbarStamp)"))
-        #expect(!searchSource.contains(".sidebarShortcutHint(shortcutDisplay)"))
+        #expect(searchSource.contains(".sidebarShortcutHint("))
+        #expect(searchSource.contains("alignment: .trailing"))
 
         let paneRowSource = try String(
             contentsOfFile: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerPaneNavigation.swift",
             encoding: .utf8
         )
-        #expect(paneRowSource.contains("SidebarShortcutHint(shortcutDisplay, style: .toolbarStamp)"))
+        #expect(paneRowSource.contains(".sidebarShortcutHint("))
+        #expect(paneRowSource.contains("alignment: .trailing"))
         #expect(!paneRowSource.contains("style: .accentGlyph"))
+
+        let worktreeRowSource = try String(
+            contentsOfFile: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerWorktreeRow.swift",
+            encoding: .utf8
+        )
+        #expect(worktreeRowSource.contains(".sidebarShortcutHint("))
+        #expect(worktreeRowSource.contains("alignment: .trailing"))
     }
 
     @Test("organization popovers render command-catalog tooltips")
@@ -181,6 +264,14 @@ struct SidebarToolbarControlVisualStateTests {
     }
     @MainActor
     private func mountedSegmentedControlWidth(selection: Int) -> CGFloat {
+        mountedSegmentedControlSize(selection: selection, showsHints: false).width
+    }
+
+    @MainActor
+    private func mountedSegmentedControlSize(
+        selection: Int = 0,
+        showsHints: Bool
+    ) -> CGSize {
         let segments = [
             SidebarToolbarSegment(
                 value: 0,
@@ -209,11 +300,195 @@ struct SidebarToolbarControlVisualStateTests {
                 segments: segments,
                 selection: selection,
                 icon: { _ in Image(systemName: "folder") },
+                shortcutDisplay: { value in
+                    showsHints ? ShortcutDisplayText(value: value == 0 ? "R" : "P") : nil
+                },
                 onSelect: { _ in }
             )
         )
         hostingView.frame = CGRect(origin: .zero, size: hostingView.fittingSize)
         hostingView.layoutSubtreeIfNeeded()
-        return hostingView.fittingSize.width
+        return hostingView.fittingSize
+    }
+
+    @MainActor
+    private func mountedSearchFieldGeometry(
+        showsHint: Bool,
+        width: CGFloat = 250,
+        model: SidebarSearchFieldTextModel = SidebarSearchFieldTextModel(
+            text: "filter with clear button"
+        )
+    ) throws -> SearchFieldGeometry {
+        let hostingView = NSHostingView(
+            rootView: SidebarSearchFieldGeometryFixture(showsHint: showsHint, model: model)
+        )
+        hostingView.frame = CGRect(x: 0, y: 0, width: width, height: hostingView.fittingSize.height)
+        let window = NSWindow(
+            contentRect: hostingView.bounds,
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.contentView = hostingView
+        window.makeKeyAndOrderFront(nil)
+        window.layoutIfNeeded()
+        hostingView.layoutSubtreeIfNeeded()
+        hostingView.displayIfNeeded()
+        let textField = try #require(firstDescendant(NSTextField.self, in: hostingView))
+        let bitmap = try #require(hostingView.bitmapImageRepForCachingDisplay(in: hostingView.bounds))
+        hostingView.cacheDisplay(in: hostingView.bounds, to: bitmap)
+        return SearchFieldGeometry(
+            hostSize: hostingView.bounds.size,
+            textFieldFrameInHost: hostingView.convert(textField.bounds, from: textField),
+            badgeBounds: accentBadgeBounds(
+                in: bitmap,
+                xRange: max(0, bitmap.pixelsWide - 96)..<bitmap.pixelsWide,
+                yRange: 0..<bitmap.pixelsHigh
+            ),
+            accessibilityLabels: accessibilityLabels(in: hostingView),
+            hostingView: hostingView,
+            window: window
+        )
+    }
+
+    @MainActor
+    private func clickTrailingControl(
+        in geometry: SearchFieldGeometry,
+        until condition: () -> Bool
+    ) throws -> NSPoint {
+        for x in stride(
+            from: geometry.hostingView.bounds.maxX - 4,
+            through: geometry.hostingView.bounds.maxX - 48,
+            by: -2
+        ) {
+            let point = NSPoint(x: x, y: geometry.hostingView.bounds.midY)
+            try click(at: point, in: geometry)
+            if condition() { return point }
+        }
+        Issue.record("No trailing clear-action hit target was found")
+        return .zero
+    }
+
+    @MainActor
+    private func click(at location: NSPoint, in geometry: SearchFieldGeometry) throws {
+        let windowLocation = geometry.hostingView.convert(location, to: nil)
+        for eventType in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+            geometry.window.sendEvent(
+                try #require(
+                    NSEvent.mouseEvent(
+                        with: eventType,
+                        location: windowLocation,
+                        modifierFlags: [],
+                        timestamp: 0,
+                        windowNumber: geometry.window.windowNumber,
+                        context: nil,
+                        eventNumber: eventType == .leftMouseDown ? 1 : 2,
+                        clickCount: 1,
+                        pressure: eventType == .leftMouseDown ? 1 : 0
+                    )
+                )
+            )
+        }
+    }
+
+    private func accentBadgeBounds(
+        in bitmap: NSBitmapImageRep,
+        xRange: Range<Int>,
+        yRange: Range<Int>
+    ) -> CGRect? {
+        var bounds: CGRect?
+        for y in yRange {
+            for x in xRange {
+                guard let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB),
+                    color.redComponent < 0.55,
+                    color.greenComponent > 0.45,
+                    color.blueComponent > 0.75,
+                    color.blueComponent - color.redComponent > 0.3,
+                    color.alphaComponent > 0.98
+                else { continue }
+                let pixel = CGRect(x: x, y: y, width: 1, height: 1)
+                bounds = bounds.map { $0.union(pixel) } ?? pixel
+            }
+        }
+        return bounds
+    }
+
+    @MainActor
+    private func accessibilityLabels(in view: NSView) -> Set<String> {
+        var labels = Set<String>()
+        if let label = view.accessibilityLabel(), !label.isEmpty {
+            labels.insert(label)
+        }
+        for child in view.accessibilityChildren() ?? [] {
+            if let childView = child as? NSView {
+                labels.formUnion(accessibilityLabels(in: childView))
+            } else if let child = child as? NSAccessibilityElement,
+                let label = child.accessibilityLabel(),
+                !label.isEmpty
+            {
+                labels.insert(label)
+            }
+        }
+        return labels
+    }
+
+    @MainActor
+    private func firstDescendant<ViewType: NSView>(
+        _ type: ViewType.Type,
+        in view: NSView
+    ) -> ViewType? {
+        if let match = view as? ViewType { return match }
+        for subview in view.subviews {
+            if let match = firstDescendant(type, in: subview) { return match }
+        }
+        return nil
+    }
+}
+
+private struct SearchFieldGeometry: Equatable {
+    let hostSize: CGSize
+    let textFieldFrameInHost: CGRect
+    let badgeBounds: CGRect?
+    let accessibilityLabels: Set<String>
+    let hostingView: NSHostingView<SidebarSearchFieldGeometryFixture>
+    let window: NSWindow
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.hostSize == rhs.hostSize
+            && lhs.textFieldFrameInHost == rhs.textFieldFrameInHost
+            && lhs.badgeBounds == rhs.badgeBounds
+            && lhs.accessibilityLabels == rhs.accessibilityLabels
+    }
+}
+
+@MainActor
+private final class SidebarSearchFieldTextModel {
+    var text: String
+
+    init(text: String) {
+        self.text = text
+    }
+}
+
+private struct SidebarSearchFieldGeometryFixture: View {
+    private enum FocusTarget: Hashable { case filter }
+
+    @FocusState private var focusedField: FocusTarget?
+    let showsHint: Bool
+    let model: SidebarSearchFieldTextModel
+
+    var body: some View {
+        SidebarSearchField(
+            placeholder: "Filter...",
+            text: Binding(
+                get: { model.text },
+                set: { model.text = $0 }
+            ),
+            focusedField: $focusedField,
+            focusValue: .filter,
+            clearHelp: "Clear filter",
+            shortcutDisplay: showsHint ? ShortcutDisplayText(value: "F") : nil
+        )
     }
 }

@@ -41,6 +41,22 @@ struct AppCommandSidebarCommandsTests {
         }
     }
 
+    @Test("sidebar command specs own keyboard completion after accepted dispatch")
+    func sidebarCommandSpecsOwnKeyboardCompletion() {
+        #expect(
+            AppCommandDispatcher.shared.definition(for: .showReposSidebar).sidebarKeyboardCompletion
+                == .returnToOrigin
+        )
+        #expect(
+            AppCommandDispatcher.shared.definition(for: .showPanesSidebar).sidebarKeyboardCompletion
+                == .returnToOrigin
+        )
+        #expect(
+            AppCommandDispatcher.shared.definition(for: .filterSidebar).sidebarKeyboardCompletion
+                == .preserveCommandFocus
+        )
+    }
+
     @Test("fixed Panes organization has no interactive or IPC setting commands")
     func fixedPanesOrganizationHasNoSettingCommands() {
         for command in [

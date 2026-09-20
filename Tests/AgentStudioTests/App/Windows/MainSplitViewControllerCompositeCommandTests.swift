@@ -1,4 +1,7 @@
+import AgentStudioInfrastructure
+import AgentStudioTerminal
 import AppKit
+import SwiftUI
 import Testing
 
 @testable import AgentStudio
@@ -13,8 +16,29 @@ struct MainSplitViewControllerCompositeCommandTests {
         installTestCoreAtomsIfNeeded()
     }
 
-    @Test("focus sidebar enters a hidden sidebar and Escape restores its origin")
-    func focusSidebarEntersHiddenSidebarAndEscapeRestoresOrigin() async throws {
+    @Test("visibility-only sidebar show preserves the exact external responder")
+    func visibilityOnlySidebarShowPreservesExternalResponder() async throws {
+        try await withMainSplitViewControllerHarness(
+            withRepos: true,
+            configureUIState: { $0.setSidebarCollapsed(true) },
+            body: { harness in
+                let externalResponder = MainSplitViewControllerTestInboxFocusableView()
+                let paneView = try #require(
+                    harness.controller.splitViewItems.last?.viewController.view
+                )
+                paneView.addSubview(externalResponder)
+                #expect(harness.window.makeFirstResponder(externalResponder))
+
+                harness.controller.toggleSidebarFromCommand()
+
+                #expect(!harness.controller.isSidebarCollapsed)
+                #expect(harness.window.firstResponder === externalResponder)
+            }
+        )
+    }
+
+    @Test("repeated focus-sidebar command restores its origin")
+    func repeatedFocusSidebarCommandRestoresOrigin() async throws {
         try await withMainSplitViewControllerHarness(
             withRepos: true,
             configureUIState: { $0.setSidebarCollapsed(true) },
@@ -34,18 +58,46 @@ struct MainSplitViewControllerCompositeCommandTests {
                             == RepoExplorerView.focusTargetIdentifier
                 }
 
-                // Saved UI restoration may clear the runtime fact after focus.
-                harness.atoms.core.workspaceSidebarState.setSidebarHasFocus(false)
                 harness.controller.focusSidebarFromCommand()
-                await eventually("repeated sidebar entry should repair runtime focus publication") {
-                    harness.atoms.core.workspaceSidebarState.sidebarHasFocus
+
+                #expect(!harness.controller.isSidebarCollapsed)
+                #expect(harness.window.firstResponder === externalResponder)
+            }
+        )
+    }
+
+    @Test("Escape from the focused sidebar restores its origin")
+    func escapeFromFocusedSidebarRestoresOrigin() async throws {
+        try await withMainSplitViewControllerHarness(
+            withRepos: true,
+            configureUIState: { $0.setSidebarCollapsed(true) },
+            body: { harness in
+                let externalResponder = MainSplitViewControllerTestInboxFocusableView()
+                let paneView = try #require(
+                    harness.controller.splitViewItems.last?.viewController.view
+                )
+                paneView.addSubview(externalResponder)
+                #expect(harness.window.makeFirstResponder(externalResponder))
+
+                harness.controller.focusSidebarFromCommand()
+                await eventually("focus command should expand and focus the sidebar host") {
+                    !harness.controller.isSidebarCollapsed
+                        && (harness.window.firstResponder as? NSView)?.identifier
+                            == RepoExplorerView.focusTargetIdentifier
                 }
+
                 let escapeEvent = try #require(
                     NSEvent.keyEvent(
-                        with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
-                        windowNumber: harness.window.windowNumber, context: nil,
-                        characters: "\u{1B}", charactersIgnoringModifiers: "\u{1B}",
-                        isARepeat: false, keyCode: 53
+                        with: .keyDown,
+                        location: .zero,
+                        modifierFlags: [],
+                        timestamp: 0,
+                        windowNumber: harness.window.windowNumber,
+                        context: nil,
+                        characters: "\u{1B}",
+                        charactersIgnoringModifiers: "\u{1B}",
+                        isARepeat: false,
+                        keyCode: 53
                     )
                 )
                 harness.window.sendEvent(escapeEvent)
@@ -78,6 +130,110 @@ struct MainSplitViewControllerCompositeCommandTests {
 
                 #expect(harness.controller.isSidebarCollapsed)
                 #expect(harness.window.firstResponder === externalResponder)
+            }
+        )
+    }
+
+    @Test("accepted R and P commands rebuild the sidebar then restore the exact terminal origin")
+    func sidebarScreenCommandsRestoreTerminalOriginAfterSurfaceChange() async throws {
+        let interactionProbe = MainSplitSidebarCommandInteractionProbe()
+        var previewEligibilityLoss: (@MainActor () -> Void)?
+
+        try await withMainSplitViewControllerHarness(
+            withRepos: true,
+            paneTabRegistersAsCommandHandler: true,
+            configureUIState: { $0.setSidebarSurface(.repos) },
+            configureSidebarDependencies: { dependencies in
+                previewEligibilityLoss = dependencies.onPreviewEligibilityLoss
+            },
+            sidebarRootViewBuilder: { uiState, onReturn in
+                AnyView(
+                    MainSplitSidebarCommandTestView(
+                        uiState: uiState,
+                        interactionProbe: interactionProbe,
+                        onReturn: onReturn,
+                        onPreviewEligibilityLoss: { previewEligibilityLoss?() }
+                    )
+                )
+            },
+            body: { harness in
+                let pane = harness.store.createPane()
+                let tab = Tab(paneId: pane.id)
+                harness.store.appendTab(tab)
+                let drawerPane = try #require(
+                    harness.store.paneAtom.addDrawerPane(
+                        to: pane.id,
+                        parentFallbackCWD: nil,
+                        zmxSessionID: .generateUUIDv7()
+                    )
+                )
+                harness.store.panePresentationAtom.enterZoom(
+                    inTab: tab.id,
+                    sourcePaneId: pane.id,
+                    viewerPresentation: .unavailable
+                )
+                let terminalResponder = TerminalPaneMountView(paneId: pane.id, title: "Terminal")
+                terminalResponder.frame = NSRect(x: 0, y: 0, width: 400, height: 300)
+                let paneView = try #require(harness.controller.splitViewItems.last?.viewController.view)
+                paneView.addSubview(terminalResponder)
+                let shellOwner = MainSplitSidebarShellCommandOwner(
+                    controller: harness.controller,
+                    sidebarState: harness.atoms.core.workspaceSidebarState
+                )
+
+                try await withIsolatedCommandDispatcher(
+                    configure: {
+                        AppCommandDispatcher.shared.appCommandRouter = shellOwner
+                    },
+                    body: {
+                        for (key, keyCode, destination) in [
+                            ("p", UInt16(35), SidebarSurface.panes),
+                            ("r", UInt16(15), SidebarSurface.repos),
+                        ] {
+                            #expect(harness.window.makeFirstResponder(terminalResponder))
+                            harness.controller.focusSidebarFromCommand()
+                            await eventually("sidebar list should become the active keyboard owner") {
+                                interactionProbe.interaction?.isListKeyboardActive == true
+                            }
+                            let previewState = try #require(harness.controller.heldPanePreviewState)
+                            #expect(previewState.beginSpaceHold(requestedTarget: nil))
+                            #expect(previewState.isHeld)
+
+                            let host = try #require(
+                                firstMainSplitCommandDescendant(
+                                    RepoExplorerMaterializationHost.self,
+                                    in: harness.controller.view
+                                )
+                            )
+                            host.keyDown(
+                                with: try #require(
+                                    NSEvent.keyEvent(
+                                        with: .keyDown,
+                                        location: .zero,
+                                        modifierFlags: [],
+                                        timestamp: 0,
+                                        windowNumber: harness.window.windowNumber,
+                                        context: nil,
+                                        characters: key,
+                                        charactersIgnoringModifiers: key,
+                                        isARepeat: false,
+                                        keyCode: keyCode
+                                    )
+                                )
+                            )
+
+                            #expect(harness.atoms.core.workspaceSidebarState.sidebarSurface == destination)
+                            #expect(harness.window.firstResponder === terminalResponder)
+                            #expect(interactionProbe.interaction?.isListKeyboardActive == false)
+                            #expect(!previewState.isHeld)
+                            #expect(
+                                harness.store.panePresentationAtom.zoomPresentation(forTab: tab.id)?
+                                    .sourcePaneId == pane.id
+                            )
+                            #expect(harness.store.paneAtom.pane(pane.id)?.drawer?.paneIds == [drawerPane.id])
+                        }
+                    }
+                )
             }
         )
     }
@@ -146,4 +302,111 @@ struct MainSplitViewControllerCompositeCommandTests {
             }
         )
     }
+}
+
+@MainActor
+private func firstMainSplitCommandDescendant<ViewType: NSView>(
+    _ type: ViewType.Type,
+    in view: NSView
+) -> ViewType? {
+    if let match = view as? ViewType { return match }
+    for subview in view.subviews {
+        if let match = firstMainSplitCommandDescendant(type, in: subview) {
+            return match
+        }
+    }
+    return nil
+}
+
+@MainActor
+private final class MainSplitSidebarCommandInteractionProbe {
+    weak var interaction: RepoExplorerKeyboardInteraction?
+}
+
+private struct MainSplitSidebarCommandTestView: NSViewRepresentable {
+    let uiState: WorkspaceSidebarState
+    let interactionProbe: MainSplitSidebarCommandInteractionProbe
+    let onReturn: () -> Void
+    let onPreviewEligibilityLoss: () -> Void
+
+    func makeCoordinator() -> RepoExplorerKeyboardInteraction {
+        let interaction = RepoExplorerKeyboardInteraction()
+        interactionProbe.interaction = interaction
+        return interaction
+    }
+
+    func makeNSView(context: Context) -> RepoExplorerMaterializationHost {
+        let host = RepoExplorerMaterializationHost(
+            lifetimeID: RepoExplorerMaterializationHostLifetimeID(rawValue: UUIDv7.generate()),
+            initialDemandEpoch: 1,
+            initialPresentation: .noRepositories,
+            makeContentChild: { preconditionFailure("Command integration fixture remains rowless") },
+            onFeedback: { _ in }
+        )
+        host.identifier = RepoExplorerView.focusTargetIdentifier
+        configure(context.coordinator)
+        host.installKeyboardInteraction(context.coordinator)
+        return host
+    }
+
+    func updateNSView(_ nsView: RepoExplorerMaterializationHost, context: Context) {
+        configure(context.coordinator)
+    }
+
+    static func dismantleNSView(
+        _ nsView: RepoExplorerMaterializationHost,
+        coordinator: RepoExplorerKeyboardInteraction
+    ) {
+        MainActor.assumeIsolated { nsView.detach() }
+    }
+
+    private func configure(_ interaction: RepoExplorerKeyboardInteraction) {
+        interaction.configure(
+            RepoExplorerKeyboardCallbacks(
+                canInterpretListInput: { true },
+                onPreviewEligibilityLoss: onPreviewEligibilityLoss,
+                onReturnFocusRequest: onReturn,
+                onSidebarFocusChange: { uiState.setSidebarHasFocus($0) },
+                onCommandRequest: { AppCommandDispatcher.shared.dispatch($0) }
+            )
+        )
+    }
+}
+
+@MainActor
+private final class MainSplitSidebarShellCommandOwner: ShellCommandHandling {
+    private weak var controller: MainSplitViewController?
+    private let sidebarState: WorkspaceSidebarState
+
+    init(controller: MainSplitViewController, sidebarState: WorkspaceSidebarState) {
+        self.controller = controller
+        self.sidebarState = sidebarState
+    }
+
+    func canExecute(_ command: AppCommand) -> Bool {
+        command == .showReposSidebar || command == .showPanesSidebar
+    }
+
+    func execute(_ command: AppCommand) -> Bool {
+        let surface: SidebarSurface
+        switch command {
+        case .showReposSidebar:
+            surface = .repos
+        case .showPanesSidebar:
+            surface = .panes
+        default:
+            return false
+        }
+        sidebarState.setSidebarSurface(surface)
+        controller?.expandSidebar()
+        return sidebarState.sidebarSurface == surface && !sidebarState.sidebarCollapsed
+    }
+
+    func execute(_: AppCommand, target _: UUID, targetType _: SearchItemType) -> Bool {
+        false
+    }
+
+    func showRepoCommandBar() {}
+    func refreshWorktrees() {}
+    func refocusActivePane() {}
 }
