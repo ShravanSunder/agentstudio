@@ -30,13 +30,12 @@ struct BridgeProductWebKitTwoPaneJourneyProof: Sendable {
     let fileStateAfterReturn: BridgeProductWebKitTwoPanePositionSnapshot
     let hiddenDirtyGeneration: UInt64?
     let hiddenMetadataStormDiagnostic: String
-    let hiddenMetadataSequenceAfterStorm: Int
-    let hiddenMetadataSequenceBeforeStorm: Int
     let hiddenRefreshPassCountAfterStorm: Int
     let hiddenRefreshPassCountBeforeStorm: Int
     let hiddenReviewPublicationCountAfterLateRelease: Int
     let hiddenReviewPublicationCountBeforeLateRelease: Int
     let hiddenStatus: BridgeProductWebKitTwoPanePositionSnapshot
+    let hiddenStormProductDeltas: BridgeProductWebKitHiddenStormProductDeltas
     let initialReviewState: BridgeProductWebKitTwoPanePositionSnapshot
     let paneOneFinalRefreshPassCount: Int
     let paneOneForegroundRefreshPassCount: Int
@@ -401,19 +400,20 @@ enum BridgeProductWebKitTwoPaneJourneyTestSupport {
         let paneTwoNativeAfterJourney =
             await BridgeProductWebKitCarrierTestSupport.nativeSnapshot(input.paneTwo)
         let paneTwoStateAfterJourney = try await requirePositionSnapshot(input.paneTwo.page)
+        // One reading of the hidden-pane traces feeds both the assertable product
+        // deltas and the printed diagnostic, so the two can never disagree.
+        let hiddenStorm = BridgeProductWebKitMetadataStormDiagnostic.summarize(
+            nativeBefore: hiddenNativeBeforeStorm,
+            nativeAfter: hiddenNativeAfterStorm,
+            traceBefore: hiddenTraceBeforeLateRelease,
+            traceAfter: hiddenTraceAfterStorm
+        )
 
         return BridgeProductWebKitTwoPaneJourneyProof(
             dormantDefaults: preparation.dormantDefaults,
             fileStateAfterReturn: fileStateAfterReturn,
             hiddenDirtyGeneration: hiddenAfterStorm.dirtyFact?.generation,
-            hiddenMetadataStormDiagnostic: BridgeProductWebKitMetadataStormDiagnostic.message(
-                nativeBefore: hiddenNativeBeforeStorm,
-                nativeAfter: hiddenNativeAfterStorm,
-                traceBefore: hiddenTraceBeforeLateRelease,
-                traceAfter: hiddenTraceAfterStorm
-            ),
-            hiddenMetadataSequenceAfterStorm: hiddenNativeAfterStorm.nextMetadataStreamSequence,
-            hiddenMetadataSequenceBeforeStorm: hiddenNativeBeforeStorm.nextMetadataStreamSequence,
+            hiddenMetadataStormDiagnostic: hiddenStorm.message,
             hiddenRefreshPassCountAfterStorm: hiddenAfterStorm.refreshPassCount,
             hiddenRefreshPassCountBeforeStorm: hiddenBeforeStorm.refreshPassCount,
             hiddenReviewPublicationCountAfterLateRelease:
@@ -421,6 +421,7 @@ enum BridgeProductWebKitTwoPaneJourneyTestSupport {
             hiddenReviewPublicationCountBeforeLateRelease:
                 hiddenTraceBeforeLateRelease.completedReviewPublicationCount,
             hiddenStatus: hiddenStatus,
+            hiddenStormProductDeltas: hiddenStorm.productDeltas,
             initialReviewState: preparation.initialReviewState,
             paneOneFinalRefreshPassCount:
                 input.paneOne.refreshAdmissionCoordinator.diagnosticSnapshot.refreshPassCount,
@@ -736,46 +737,62 @@ enum BridgeProductWebKitTwoPaneJourneyTestSupport {
         guard idle else { throw JourneyError.conditionFailed("foreground catch-up did not settle") }
     }
 
+    /// Suspends until the active surface shows `expectedText` and the inactive one
+    /// shows no status at all.
+    ///
+    /// Both the active-mode marker and the two status texts live in the light DOM,
+    /// so the arrival of this state IS a mutation the observer sees. A deadline here
+    /// would be a verdict about machine speed on a page that renders no frames.
     private static func requireStatus(
         _ page: WebPage,
         activeMode: String,
         expectedText: String
     ) async throws -> BridgeProductWebKitTwoPanePositionSnapshot {
-        var observed: BridgeProductWebKitTwoPanePositionSnapshot?
-        let found = await BridgeProductWebKitCarrierTestSupport.waitUntil(timeout: .seconds(10)) {
-            observed = try? await positionSnapshot(page)
-            guard let observed else { return false }
-            let activeText = activeMode == "file" ? observed.fileStatusText : observed.reviewStatusText
-            let inactiveText = activeMode == "file" ? observed.reviewStatusText : observed.fileStatusText
-            return observed.activeMode == activeMode
-                && activeText == expectedText
-                && inactiveText == nil
-        }
-        guard found, let observed else {
-            let observedActiveMode = observed?.activeMode ?? "nil"
-            let observedFileStatusText = observed?.fileStatusText ?? "nil"
-            let observedReviewStatusText = observed?.reviewStatusText ?? "nil"
+        do {
+            _ = try await WebPageEventWaits.waitForDocumentValue(
+                page,
+                reader: """
+                    const statusTextFor = (mode) => document.querySelector(
+                      `[data-testid="bridge-viewer-mode-host-${mode}"]`
+                    )?.querySelector('[data-testid="bridge-viewer-content-status"]')?.textContent ?? null;
+                    const activeHost = document.querySelector('[data-bridge-viewer-mode-active="true"]');
+                    if (activeHost?.getAttribute('data-bridge-viewer-mode-host') !== activeMode) {
+                      return null;
+                    }
+                    const inactiveMode = activeMode === 'file' ? 'review' : 'file';
+                    if (statusTextFor(activeMode) !== expectedText) { return null; }
+                    if (statusTextFor(inactiveMode) !== null) { return null; }
+                    return true;
+                    """,
+                arguments: ["activeMode": activeMode, "expectedText": expectedText]
+            )
+        } catch {
             throw JourneyError.conditionFailed(
-                "active-surface updating chrome was not isolated "
-                    + "(expectedActiveMode: \(activeMode), expectedText: \(expectedText), "
-                    + "observedActiveMode: \(observedActiveMode), "
-                    + "fileStatusText: \(observedFileStatusText), "
-                    + "reviewStatusText: \(observedReviewStatusText))"
+                "active-surface updating chrome could not be read "
+                    + "(expectedActiveMode: \(activeMode), expectedText: \(expectedText)): \(error)"
             )
         }
-        return observed
+        return try await requirePositionSnapshot(page)
     }
 
+    /// Asserts, with one read, that neither surface is showing updating chrome.
+    ///
+    /// Every caller reaches this only after the owner's own barrier has been awaited
+    /// (`requireHiddenFileRetirementBoundary`, `requireBlockedComparison`). This is a
+    /// NEGATIVE claim, so it is read once: polling until the chrome disappears would
+    /// accept a pane that showed "Updating…" it was never supposed to show.
     private static func requireNoUpdatingStatus(
         _ page: WebPage
     ) async throws -> BridgeProductWebKitTwoPanePositionSnapshot {
-        var observed: BridgeProductWebKitTwoPanePositionSnapshot?
-        let found = await BridgeProductWebKitCarrierTestSupport.waitUntil(timeout: .seconds(10)) {
-            observed = try? await positionSnapshot(page)
-            return observed?.fileStatusText == nil && observed?.reviewStatusText == nil
-        }
-        guard found, let observed else {
-            throw JourneyError.conditionFailed("loaded-hidden pane retained updating chrome")
+        let observed = try await requirePositionSnapshot(page)
+        guard observed.fileStatusText == nil, observed.reviewStatusText == nil else {
+            let observedFileStatusText = observed.fileStatusText ?? "nil"
+            let observedReviewStatusText = observed.reviewStatusText ?? "nil"
+            throw JourneyError.conditionFailed(
+                "loaded-hidden pane retained updating chrome "
+                    + "(fileStatusText: \(observedFileStatusText), "
+                    + "reviewStatusText: \(observedReviewStatusText))"
+            )
         }
         return observed
     }

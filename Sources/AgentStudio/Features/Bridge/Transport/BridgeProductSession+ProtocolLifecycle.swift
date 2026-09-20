@@ -122,6 +122,23 @@ extension BridgeProductSession {
         } ?? .rejected(.lifecycleClosed)
     }
 
+    /// Terminates exactly the named subscriptions, for a metadata stream opened fresh
+    /// (no resume): the client that owned those ids no longer exists.
+    ///
+    /// The caller passes the set it captured when the stream was installed rather than
+    /// letting this read the session, so a subscription the NEW client opened in the
+    /// meantime is never swept up. Terminating an id the session no longer holds is a
+    /// no-op.
+    ///
+    /// Deliberately narrower than `revokeWorker()` or `reset(surface:)`: the worker
+    /// session, its control replay and its producers all survive — only the
+    /// subscriptions the new client cannot name are retired.
+    func retireSubscriptions(_ subscriptionIds: [String]) {
+        for subscriptionId in subscriptionIds {
+            terminateProtocolSubscription(subscriptionId: subscriptionId)
+        }
+    }
+
     private func terminateProtocolSubscription(subscriptionId: String) {
         protocolSubscriptionDeliveryById.removeValue(forKey: subscriptionId)
         subscriptionState.terminate(subscriptionId: subscriptionId)

@@ -83,6 +83,25 @@ struct VendorWorktreeScriptTests {
         }
     }
 
+    @Test("a framework without a slice header fails preflight by name")
+    func frameworkWithoutSliceHeaderFailsPreflightByName() throws {
+        // Arrange — an XCFramework directory that has the library but no header.
+        // This is what an interrupted or partial vendor build leaves behind, and
+        // it used to pass preflight and fail much later as
+        // "The file ghostty.h couldn't be opened" from GhosttyEventRoutingCoverageTests.
+        let fixture = try VendorWorktreeFixture()
+        defer { fixture.cleanup() }
+        try fixture.apply(.missingFrameworkSliceHeader)
+
+        // Act
+        let setup = try fixture.runHelper("setup-shared", in: fixture.linkedRoot)
+
+        // Assert — the preflight names the exact missing path.
+        #expect(setup.exitCode != 0)
+        #expect(setup.stderr.contains("GhosttyKit XCFramework has no slice header"))
+        #expect(setup.stderr.contains("Headers/ghostty.h"))
+    }
+
     @Test("invalid primary source types fail without replacing linked collisions")
     func invalidPrimarySourcesAndCollisionsFailClosed() throws {
         for invalidSource in VendorInvalidPrimarySource.allCases {

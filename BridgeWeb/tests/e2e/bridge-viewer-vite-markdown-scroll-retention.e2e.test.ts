@@ -30,6 +30,9 @@ test.each(['mode round-trip', 'content refresh'] as const)(
 			server = await startBridgeViewerOwnedViteProductServer(fixture.oracle);
 			browser = await chromium.launch({ channel: 'chrome', headless: true });
 			const page = await browser.newPage({ viewport: { width: 1728, height: 980 } });
+			// The vitest hang bound is the only clock this journey is allowed.
+			page.setDefaultTimeout(0);
+			page.setDefaultNavigationTimeout(0);
 			diagnostics = observeBrowserRuntimeDiagnostics(page);
 			await page.goto(bridgeViewerViteProductFileUrl(server.origin, 'docs/guide.md'), {
 				waitUntil: 'domcontentloaded',
@@ -110,7 +113,7 @@ test.each(['mode round-trip', 'content refresh'] as const)(
 );
 
 async function waitForGuideRevision(page: Page, revision: number): Promise<void> {
-	await page.waitForFunction(guideRevisionIsReady, revision, { timeout: 20_000 });
+	await page.waitForFunction(guideRevisionIsReady, revision);
 	// Do not accept the retained article in the frame before activation effects run.
 	await page.evaluate(async (): Promise<void> => {
 		await new Promise<void>((resolve): void => {
@@ -119,7 +122,7 @@ async function waitForGuideRevision(page: Page, revision: number): Promise<void>
 			});
 		});
 	});
-	await page.waitForFunction(guideRevisionIsReady, revision, { timeout: 20_000 });
+	await page.waitForFunction(guideRevisionIsReady, revision);
 }
 
 function guideRevisionIsReady(expectedRevision: number): boolean {

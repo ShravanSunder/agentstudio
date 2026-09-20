@@ -3,6 +3,9 @@ import AgentStudioInfrastructure
 import Foundation
 
 struct BridgeDevelopmentProductProviderPreparationInput {
+    // Production passes nothing. A test supplies an observer so it can await the commit
+    // instead of sampling the host's diagnostic read.
+    let didCommitReviewPublication: (@MainActor @Sendable (BridgeReviewCommittedPublication) -> Void)?
     let gitReadContext: BridgeGitReadContext
     let reviewInitialization: BridgeDevelopmentProductReviewInitialization
     let reviewProvider: any BridgeReviewSourceProvider
@@ -80,8 +83,9 @@ extension BridgeDevelopmentProductHost {
         let reviewContentLoaderCache = BridgeReviewContentLoaderCache(
             provider: input.reviewProvider
         )
+        let didCommitReviewPublication = input.didCommitReviewPublication
         let reviewPublicationCoordinator = await MainActor.run {
-            BridgeReviewPublicationCoordinator()
+            BridgeReviewPublicationCoordinator(didCommitPublication: didCommitReviewPublication)
         }
         let committedCallTarget = await MainActor.run {
             BridgeDevelopmentProductCommittedCallTarget()

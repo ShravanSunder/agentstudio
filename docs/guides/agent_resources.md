@@ -27,7 +27,7 @@ lint gate for this repo; the local architecture tool must also pass.
 Run these in order from the project root:
 
 ```bash
-# 1. Install pinned tool versions (zig 0.15.2)
+# 1. Install pinned tool versions (zig 0.16.0)
 mise install
 
 # 2. Check local macOS prerequisites and known env hazards
@@ -136,7 +136,8 @@ App lifecycle, and other boundaries the development server cannot prove.
 
 ### Xcode And Zig Vendor Builds
 
-> **Time-based note (2026-04): Xcode 26.4+ breaks vendored zig 0.15.2 builds.** Apple's Xcode 26.4 `MacOSX.sdk/usr/lib/libSystem.B.tbd` drops `arm64-macos` from top-level targets → zig 0.15.2's linker fails with `undefined symbol: _abort`, `_getenv`, etc. on Apple Silicon when building ghostty/zmx. Xcode 26.5 beta is also affected. Fixed in zig 0.16 (which ghostty hasn't adopted). Workaround for a primary or explicitly authorized local-vendor worktree: install **Xcode 26.3** side-by-side, `sudo xcode-select --switch /Applications/Xcode_26.3.app/Contents/Developer`, `xcodebuild -downloadComponent MetalToolchain`, `rm -rf ~/.cache/zig`. If vendor-producing setup surfaces `undefined symbol: _abort` or similar libSystem errors, this is the cause. Shared linked worktrees do not build the vendors. Refs: [ghostty#11991](https://github.com/ghostty-org/ghostty/issues/11991), [zig#31658](https://codeberg.org/ziglang/zig/issues/31658). Delete this note once ghostty bumps to zig 0.16 or Apple fixes the SDK.
+Vendored Ghostty and zmx build with the zig version pinned in `.mise.toml` and the
+Xcode version the CI workflows select. No Xcode workaround is currently required.
 
 ## Running Swift Commands
 
