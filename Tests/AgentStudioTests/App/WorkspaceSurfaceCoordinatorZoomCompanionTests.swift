@@ -839,6 +839,7 @@ extension WebKitSerializedTests {
                 viewRegistry: viewRegistry,
                 runtime: SessionRuntime(store: store),
                 windowLifecycleStore: WindowLifecycleAtom(),
+                ipcLifecycle: .testUnavailable,
                 bridgePaneAttendance: BridgePaneAttendanceAtom()
             )
             let sourcePane = store.createPane()
@@ -891,6 +892,7 @@ private func makeZoomCompanionHarness() -> ZoomCompanionHarness {
         viewRegistry: viewRegistry,
         runtime: SessionRuntime(store: store),
         windowLifecycleStore: WindowLifecycleAtom(),
+        ipcLifecycle: .testUnavailable,
         bridgePaneAttendance: BridgePaneAttendanceAtom()
     )
     return ZoomCompanionHarness(

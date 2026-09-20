@@ -20,6 +20,16 @@ final class SharedExactItemRealStreamFixture: @unchecked Sendable {
     private let fixtureRoot: URL
     private let streamClient: DarwinFSEventStreamClient
     private let exactItemParent: SharedExactItemParent
+
+    /// `DarwinFSEventIngressBuffer.events()` is ONE AsyncStream with single-consumer
+    /// semantics, and `captureActivityBarrier()` only returns once that consumer
+    /// acknowledges its fence. So the fixture owns the consumer for its whole life:
+    /// it acks fences, and forwards everything else into an unbounded stream the
+    /// tests' collectors read. Unbounded because items that arrive before a
+    /// collector starts must be buffered, not dropped.
+    private let forwardedIngress: AsyncStream<FSEventIngressItem>
+    private let forwardedIngressContinuation: AsyncStream<FSEventIngressItem>.Continuation
+    private var ingressTask: Task<Void, Never>?
     private var sentinelWriteSequence = 0
 
     init(nativeSharedStreamIsEnabled: Bool) throws {
@@ -63,6 +73,25 @@ final class SharedExactItemRealStreamFixture: @unchecked Sendable {
             exactItemParent: exactItemParent
         )
 
+        let (forwardedIngress, forwardedIngressContinuation) = AsyncStream.makeStream(
+            of: FSEventIngressItem.self,
+            bufferingPolicy: .unbounded
+        )
+        self.forwardedIngress = forwardedIngress
+        self.forwardedIngressContinuation = forwardedIngressContinuation
+        // Started BEFORE the streams are registered, so no item can arrive with
+        // nobody draining the ingress.
+        ingressTask = Task { [streamClient, forwardedIngressContinuation] in
+            for await ingressItem in streamClient.events() {
+                if case .activityProcessingFence(let fenceID) = ingressItem {
+                    streamClient.acknowledgeActivityProcessingFence(fenceID)
+                    continue
+                }
+                forwardedIngressContinuation.yield(ingressItem)
+            }
+            forwardedIngressContinuation.finish()
+        }
+
         streamClient.register(
             worktreeId: firstWorktreeId,
             repoId: UUIDv7.generate(),
@@ -90,14 +119,12 @@ final class SharedExactItemRealStreamFixture: @unchecked Sendable {
     func collectFullGitRefreshBatches(
         expectedWorktreeIds: Set<UUID>
     ) -> Task<[UUID: FSEventBatch], Never> {
-        let streamClient = streamClient
+        // Reads the fixture's forwarded stream, not the client's: fences are
+        // already acknowledged by the long-lived consumer, so none reach here.
+        let forwardedIngress = forwardedIngress
         return Task {
             var batchByWorktreeId: [UUID: FSEventBatch] = [:]
-            for await ingressItem in streamClient.events() {
-                if case .activityProcessingFence(let fenceID) = ingressItem {
-                    streamClient.acknowledgeActivityProcessingFence(fenceID)
-                    continue
-                }
+            for await ingressItem in forwardedIngress {
                 guard case .batch(let batch) = ingressItem else { continue }
                 guard expectedWorktreeIds.contains(batch.worktreeId) else { continue }
                 guard batch.requiresFullGitRefresh else { continue }
@@ -110,6 +137,31 @@ final class SharedExactItemRealStreamFixture: @unchecked Sendable {
         }
     }
 
+    /// Waits until everything the kernel had already queued has been delivered
+    /// AND recorded in the continuity ledger.
+    ///
+    /// This is the production drain fence six sibling suites already use, not a
+    /// test-local invention: it flushes every shared exact-item and local physical
+    /// stream, pushes an activity-processing fence through the ingress buffer, and
+    /// re-validates stream generations and the shared topology revision, returning
+    /// nil if anything moved underneath it. Because the ledger is written from the
+    /// raw callback, a returned barrier means no setup-generated event is still in
+    /// flight to bump `mutationEpoch` behind the test's back.
+    ///
+    /// `streamClient` stays private; the barrier is exposed as behaviour instead.
+    func awaitActivityBarrier() async -> Bool {
+        await streamClient.captureActivityBarrier() != nil
+    }
+
+    /// Drives real activity through each freshly bound stream and waits for it to
+    /// come back.
+    ///
+    /// Needed only after `rebindWorktreeRegistrations()`. The activity barrier
+    /// proves QUIESCENCE — nothing the kernel had queued is still in flight — but a
+    /// re-registered stream that has never carried an event cannot yet mint an
+    /// exact-clean authority, so quiescence alone is not enough there. This writes
+    /// a sentinel into each repository and waits for the batch that carries it,
+    /// which is a STIMULUS the barrier deliberately does not provide.
     func awaitLocalStreamSentinelBarrier() async throws -> Bool {
         sentinelWriteSequence += 1
         let sentinelPathByWorktreeId = [
@@ -135,6 +187,39 @@ final class SharedExactItemRealStreamFixture: @unchecked Sendable {
             timeout: .seconds(5)
         )
         return observedWorktreeIds == Set(sentinelPathByWorktreeId.keys)
+    }
+
+    private func collectLocalSentinelBatches(
+        expectedPathByWorktreeId: [UUID: String]
+    ) -> Task<Set<UUID>, Never> {
+        let forwardedIngress = forwardedIngress
+        return Task {
+            var observedWorktreeIds: Set<UUID> = []
+            for await ingressItem in forwardedIngress {
+                guard case .batch(let batch) = ingressItem else { continue }
+                guard let expectedPath = expectedPathByWorktreeId[batch.worktreeId] else {
+                    continue
+                }
+                guard
+                    batch.paths.contains(where: {
+                        DarwinFSEventPathNormalizer.lexicallyNormalizedAbsolutePath($0) == expectedPath
+                    })
+                else {
+                    continue
+                }
+                observedWorktreeIds.insert(batch.worktreeId)
+                if observedWorktreeIds.count == expectedPathByWorktreeId.count {
+                    return observedWorktreeIds
+                }
+            }
+            return observedWorktreeIds
+        }
+    }
+
+    private static func sentinelPath(in repositoryPath: URL) -> URL {
+        repositoryPath
+            .appending(path: ".git", directoryHint: .isDirectory)
+            .appending(path: "agentstudio-real-stream-sentinel")
     }
 
     func waitForNativeCallback(at path: URL) async -> Bool {
@@ -241,6 +326,9 @@ final class SharedExactItemRealStreamFixture: @unchecked Sendable {
 
     func remove() {
         streamClient.shutdown()
+        ingressTask?.cancel()
+        ingressTask = nil
+        forwardedIngressContinuation.finish()
         try? FileManager.default.removeItem(at: fixtureRoot)
     }
 
@@ -336,43 +424,6 @@ final class SharedExactItemRealStreamFixture: @unchecked Sendable {
                 )
             }
         )
-    }
-
-    private func collectLocalSentinelBatches(
-        expectedPathByWorktreeId: [UUID: String]
-    ) -> Task<Set<UUID>, Never> {
-        let streamClient = streamClient
-        return Task {
-            var observedWorktreeIds: Set<UUID> = []
-            for await ingressItem in streamClient.events() {
-                if case .activityProcessingFence(let fenceID) = ingressItem {
-                    streamClient.acknowledgeActivityProcessingFence(fenceID)
-                    continue
-                }
-                guard case .batch(let batch) = ingressItem else { continue }
-                guard let expectedPath = expectedPathByWorktreeId[batch.worktreeId] else {
-                    continue
-                }
-                guard
-                    batch.paths.contains(where: {
-                        DarwinFSEventPathNormalizer.lexicallyNormalizedAbsolutePath($0) == expectedPath
-                    })
-                else {
-                    continue
-                }
-                observedWorktreeIds.insert(batch.worktreeId)
-                if observedWorktreeIds.count == expectedPathByWorktreeId.count {
-                    return observedWorktreeIds
-                }
-            }
-            return observedWorktreeIds
-        }
-    }
-
-    private static func sentinelPath(in repositoryPath: URL) -> URL {
-        repositoryPath
-            .appending(path: ".git", directoryHint: .isDirectory)
-            .appending(path: "agentstudio-real-stream-sentinel")
     }
 
     private static func path(_ candidate: URL, isWithin root: URL) -> Bool {

@@ -18,8 +18,8 @@ extension WebKitSerializedTests {
         @Test
         func test_contentWorldIsolationAndReadyBootstrapOnlyScriptMessageRPC() async throws {
             let bridgeWorld = WKContentWorld.world(name: "agentStudioBridgeProtocolRPCTest")
-            let pageProbe = ContentWorldIsolationMessageHandler()
-            let rpcRecorder = ContentWorldIsolationMessageHandler()
+            let pageProbe = WebKitScriptMessageRecorder()
+            let rpcRecorder = WebKitScriptMessageRecorder()
             let config = WebPageTestHarness.makeConfiguration()
 
             config.userContentController.add(
@@ -42,7 +42,7 @@ extension WebKitSerializedTests {
                 )
             ) { page in
                 _ = page.load(URL(string: "about:blank")!)
-                try await waitForPageLoad(page)
+                await waitForPageLoad(page)
 
                 _ = try await page.callJavaScript(
                     BridgeBootstrap.generateScript(),
@@ -52,8 +52,7 @@ extension WebKitSerializedTests {
                 _ = try await page.callJavaScript(
                     "window.webkit.messageHandlers.pageProbe.postMessage(typeof window.__bridgeInternal)"
                 )
-                let sawProbeMessage = await waitForMessageCount(pageProbe, atLeast: 1)
-                #expect(sawProbeMessage, "Expected page-world probe callback")
+                await pageProbe.waitForMessages(atLeast: 1)
                 #expect(pageProbe.receivedMessages.count == 1, "Page world probe should receive exactly one message")
                 #expect(
                     pageProbe.receivedMessages.first as? String == "undefined",
@@ -73,7 +72,11 @@ extension WebKitSerializedTests {
                     }));
                     """
                 )
-                await settleAsyncCallbacks(turns: 20)
+                // Read once, unbarriered. This can only fail if a forbidden command
+                // reached Swift, which is a real product failure at any speed. The
+                // claim that it NEVER arrives is carried by the ordered assertion
+                // below: `bridge.ready` is dispatched last, and once it has been
+                // delivered anything dispatched before it would already be here.
                 #expect(rpcRecorder.receivedMessages.isEmpty)
 
                 _ = try await page.callJavaScript(
@@ -89,7 +92,6 @@ extension WebKitSerializedTests {
                     }));
                     """
                 )
-                await settleAsyncCallbacks(turns: 20)
                 #expect(rpcRecorder.receivedMessages.isEmpty)
 
                 _ = try await page.callJavaScript(
@@ -100,8 +102,7 @@ extension WebKitSerializedTests {
                     """
                 )
 
-                let didReceiveBridgeReadyRPC = await waitForMessageCount(rpcRecorder, atLeast: 1)
-                #expect(didReceiveBridgeReadyRPC, "Expected one-shot bridge.ready bootstrap to reach Swift")
+                await rpcRecorder.waitForMessages(atLeast: 1)
                 #expect(rpcRecorder.receivedMessages.count == 1)
                 #expect((rpcRecorder.receivedMessages.first as? String)?.contains("bridge.ready") == true)
                 #expect((rpcRecorder.receivedMessages.first as? String)?.contains("bridge-ready-test") == true)
@@ -109,55 +110,8 @@ extension WebKitSerializedTests {
             }
         }
 
-        private func waitForMessageCount(
-            _ handler: ContentWorldIsolationMessageHandler,
-            atLeast expectedCount: Int
-        ) async -> Bool {
-            for _ in 0..<200_000 {
-                if handler.receivedMessages.count >= expectedCount {
-                    return true
-                }
-                await Task.yield()
-            }
-            return handler.receivedMessages.count >= expectedCount
+        private func waitForPageLoad(_ page: WebPage) async {
+            await WebPageEventWaits.waitForNavigationToFinish(page)
         }
-
-        private func waitForPageLoad(_ page: WebPage, timeout: Duration = .seconds(2)) async throws {
-            let deadline = ContinuousClock.now + timeout
-            while ContinuousClock.now < deadline {
-                if !page.isLoading {
-                    break
-                }
-                await Task.yield()
-            }
-            try #require(!page.isLoading, "Page did not finish loading within \(timeout)")
-            await settleAsyncCallbacks(turns: 40)
-        }
-
-        private func settleAsyncCallbacks(turns: Int) async {
-            for _ in 0..<turns {
-                await Task.yield()
-            }
-        }
-    }
-}
-
-final class ContentWorldIsolationMessageHandler: NSObject, WKScriptMessageHandler {
-    private let lock = NSLock()
-    nonisolated(unsafe) private var storage: [Any] = []
-
-    var receivedMessages: [Any] {
-        lock.lock()
-        defer { lock.unlock() }
-        return storage
-    }
-
-    func userContentController(
-        _ userContentController: WKUserContentController,
-        didReceive message: WKScriptMessage
-    ) {
-        lock.lock()
-        storage.append(message.body)
-        lock.unlock()
     }
 }

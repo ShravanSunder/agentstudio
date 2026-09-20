@@ -1,167 +1,65 @@
+import AgentStudioIPCTransport
 import AgentStudioProgrammaticControl
 import Foundation
 
-public struct AppIPCMethodRegistry: Sendable {
-    public let definitions: [IPCMethodDefinition]
-    private let contributionsByMethodName: [String: AppIPCMethodContribution]
+package struct AppIPCMethodRegistry: Sendable {
+    package let channel: AgentStudioIPCChannel
+    package let capabilities: IPCMethodCatalogResult
+    /// The one cache behind `system.capabilities`. Held so a test that drives
+    /// the real socket can prove the catalog is composed and encoded once and
+    /// served from the stored value thereafter.
+    package let capabilitiesTransportResultCache: AppIPCCachedTransportResult
+    private let registrationsByName: [String: AnyAppIPCMethodRegistration]
 
-    public init(definitions: [IPCMethodDefinition]) {
-        self.definitions = definitions
-        self.contributionsByMethodName = [:]
-    }
-
-    package init(
-        baseDefinitions: [IPCMethodDefinition],
-        contributions: [AppIPCMethodContribution]
-    ) throws {
-        var definitionsByMethodName: [String: IPCMethodDefinition] = [:]
-        var mergedDefinitions: [IPCMethodDefinition] = []
-        var contributionsByMethodName: [String: AppIPCMethodContribution] = [:]
-
-        for definition in baseDefinitions {
-            guard definitionsByMethodName[definition.name] == nil else {
-                throw AppIPCMethodRegistryError.duplicateMethodName(definition.name)
-            }
-            definitionsByMethodName[definition.name] = definition
-            mergedDefinitions.append(definition)
-        }
-
-        for contribution in contributions {
-            let definition = contribution.definition
-            try Self.validateContributionDefinition(definition)
-            try Self.validateContributionSecurityContract(contribution)
-            guard definitionsByMethodName[definition.name] == nil else {
-                throw AppIPCMethodRegistryError.duplicateMethodName(definition.name)
-            }
-            guard contributionsByMethodName[definition.name] == nil else {
-                throw AppIPCMethodRegistryError.duplicateMethodName(definition.name)
-            }
-            definitionsByMethodName[definition.name] = definition
-            contributionsByMethodName[definition.name] = contribution
-            mergedDefinitions.append(definition)
-        }
-
-        self.definitions = mergedDefinitions.sorted { $0.name < $1.name }
-        self.contributionsByMethodName = contributionsByMethodName
-    }
-
-    public static func phaseOne() throws -> Self {
-        let definitions = try [
-            Self.method("system.ping", .systemRead, .queryReader, availability: .preAuthentication),
-            Self.method("system.identify", .systemRead, .queryReader),
-            Self.method("system.version", .systemRead, .queryReader),
-            Self.method("system.capabilities", .systemRead, .queryReader),
-            Self.method("auth.login", .systemRead, .queryReader, availability: .preAuthentication),
-            Self.method("auth.status", .systemRead, .queryReader, availability: .preAuthentication),
-            Self.method("window.list", .workspaceRead, .queryReader),
-            Self.method("window.current", .workspaceRead, .queryReader),
-            Self.method("workspace.list", .workspaceRead, .queryReader),
-            Self.method("workspace.current", .workspaceRead, .queryReader),
-            Self.method("pane.list", .paneContextRead, .queryReader),
-            Self.method("pane.current", .paneContextRead, .queryReader),
-            Self.method("pane.focus", .layoutMutate, .workspaceAction),
-            Self.method("pane.split", .layoutMutate, .workspaceAction),
-            Self.method("pane.close", .layoutMutate, .workspaceAction),
-            Self.method("drawer.toggle", .layoutMutate, .workspaceAction),
-            Self.method("drawer.addPane", .layoutMutate, .workspaceAction),
-            Self.method("terminal.status", .terminalStatusRead, .runtimeCommand),
-            Self.method("terminal.send", .terminalInputWrite, .runtimeCommand),
-            Self.method("terminal.snapshot", .terminalSnapshotRead, .runtimeCommand),
-            Self.method("terminal.wait", .terminalWait, .runtimeCommand, resultSemantics: .accepted),
-            Self.method("bridge.diff.load", .layoutMutate, .bridgeCapability),
-            Self.method("bridge.fileView.open", .layoutMutate, .bridgeCapability),
-            Self.method("bridge.diff.refresh", .bridgeControl, .bridgeCapability),
-            Self.method("bridge.diff.getPackage", .bridgeRead, .bridgeCapability),
-            Self.method("bridge.diff.renderState", .bridgeRead, .bridgeCapability),
-            Self.method("bridge.diff.selectFile", .bridgeControl, .bridgeCapability),
-            Self.method("bridge.diff.scrollToFile", .bridgeControl, .bridgeCapability),
-            Self.method("bridge.diff.expandFile", .bridgeControl, .bridgeCapability),
-            Self.method("bridge.diff.collapseFile", .bridgeControl, .bridgeCapability),
-            Self.method("bridge.fileTree.search", .bridgeControl, .bridgeCapability),
-            Self.method("bridge.fileTree.setFilter", .bridgeControl, .bridgeCapability),
-            Self.method("bridge.fileTree.revealPath", .bridgeControl, .bridgeCapability),
-            Self.method("bridge.fileView.getContent", .bridgeContentRead, .bridgeCapability),
-            Self.method("bridge.fileView.showMarkdownPreview", .bridgeControl, .bridgeCapability),
-            Self.method("bridge.telemetry.snapshot", .bridgeTelemetryRead, .bridgeCapability),
-            Self.method("bridge.telemetry.flush", .bridgeTelemetryFlush, .bridgeCapability),
-            Self.method("command.list", .systemRead, .queryReader),
-            Self.method("command.execute", .appCommandExecute, .appCommand),
-            Self.method("ui.commandBar.open", .uiPresent, .uiPresentation),
-            Self.method("ui.arrangements.open", .uiPresent, .uiPresentation),
-            Self.method("sidebar.grouping.get", .workspaceRead, .queryReader),
-            Self.method("sidebar.surface.get", .workspaceRead, .queryReader),
-            Self.method("permission.request", .permissionRequest, .permissionBroker, resultSemantics: .accepted),
-            Self.method("permission.requestStatus", .permissionRead, .permissionBroker),
-            Self.method("permission.grantStatus", .permissionRead, .permissionBroker),
-            Self.method("permission.pendingApprovals", .grantApprove, .permissionBroker),
-            Self.method("permission.resolveRequest", .grantApprove, .permissionBroker),
-            Self.method("events.subscribe", .eventsRead, .eventReader, resultSemantics: .accepted),
-            Self.method("events.unsubscribe", .eventsRead, .eventReader),
-        ]
-
-        return Self(definitions: definitions)
-    }
-
-    public func definition(named methodName: String) -> IPCMethodDefinition? {
-        definitions.first { $0.name == methodName }
-    }
-
-    package func contribution(named methodName: String) -> AppIPCMethodContribution? {
-        contributionsByMethodName[methodName]
-    }
-
-    private static func validateContributionDefinition(_ definition: IPCMethodDefinition) throws {
-        guard definition.name.hasPrefix("pane.") else {
-            throw AppIPCMethodRegistryError.disallowedContributorNamespace(definition.name)
-        }
-        guard definition.principalAvailability == .authenticated else {
-            throw AppIPCMethodRegistryError.preAuthenticationContributor(definition.name)
-        }
-        guard definition.executionOwner == .queryReader else {
-            throw AppIPCMethodRegistryError.unsupportedContributorExecutionOwner(
-                definition.name,
-                definition.executionOwner
-            )
-        }
-    }
-
-    private static func validateContributionSecurityContract(_ contribution: AppIPCMethodContribution) throws {
-        for privilege in contribution.definition.privilegeClasses {
-            let dataScope = PermissionScopeCanonicalizer.dataScope(for: privilege)
-            guard contribution.securityContract.dataScopes.contains(dataScope) else {
-                throw AppIPCMethodRegistryError.contributionDataScopeOutsideSecurityContract(
-                    contribution.definition.name,
-                    dataScope
-                )
+    package init(registrations: [AnyAppIPCMethodRegistration], channel: AgentStudioIPCChannel) throws {
+        var seenNames: Set<String> = []
+        for registration in registrations {
+            let name = registration.descriptor.metadata.name
+            guard seenNames.insert(name).inserted else {
+                throw AppIPCMethodRegistryError.duplicateMethodName(name)
             }
         }
-    }
-
-    private static func method(
-        _ name: String,
-        _ privilege: IPCPrivilegeClass,
-        _ owner: IPCExecutionOwner,
-        availability: IPCPrincipalAvailability = .authenticated,
-        resultSemantics: IPCResultSemantics = .applied
-    ) throws -> IPCMethodDefinition {
-        try IPCMethodDefinition(
-            name: name,
-            paramsSchema: IPCSchemaDescription(name: "\(name).params"),
-            resultSchema: IPCSchemaDescription(name: "\(name).result"),
-            privilegeClasses: [privilege],
-            principalAvailability: availability,
-            executionOwner: owner,
-            resultSemantics: resultSemantics
+        let available = registrations.filter {
+            $0.descriptor.metadata.exposure == .allChannels || channel == .debug
+        }
+        guard let ping = available.first(where: { $0.descriptor.metadata.name == "system.ping" }) else {
+            throw AppIPCMethodRegistryError.missingSystemPing
+        }
+        let composition = try IPCSystemCapabilitiesDescriptorFactory.compose(
+            compatibility: .current, availableDescriptors: available.map(\.descriptor),
+            illustrativeDescriptor: ping.descriptor
         )
+        let capabilityDescriptor = composition.descriptor
+        let capabilityResult = composition.result
+        let capabilitiesTransportResultCache = AppIPCCachedTransportResult {
+            try JSONDecoder().decode(
+                JSONValue.self, from: try capabilityDescriptor.encodeResult(capabilityResult))
+        }
+        let capabilityRegistration = try AppIPCTypedMethodRegistration(
+            descriptor: composition.descriptor,
+            correlation: .notRequired,
+            resolveTarget: { parameters, context, _ in
+                try AppIPCBuiltInRegistrationSupport.principalTarget(parameters, context: context)
+            },
+            connectionHandler: { _, _, _ in capabilityResult },
+            cachedTransportResult: capabilitiesTransportResultCache
+        ).erase()
+        self.capabilitiesTransportResultCache = capabilitiesTransportResultCache
+        self.channel = channel
+        self.capabilities = composition.result
+        self.registrationsByName = Dictionary(
+            uniqueKeysWithValues: (available + [capabilityRegistration]).map { ($0.descriptor.metadata.name, $0) }
+        )
+    }
+
+    package func registration(named methodName: String) -> AnyAppIPCMethodRegistration? {
+        registrationsByName[methodName]
     }
 }
 
 package enum AppIPCMethodRegistryError: Error, Equatable, Sendable {
     case duplicateMethodName(String)
-    case disallowedContributorNamespace(String)
-    case preAuthenticationContributor(String)
-    case contributionDataScopeOutsideSecurityContract(String, IPCDataScope)
-    case unsupportedContributorExecutionOwner(String, IPCExecutionOwner)
+    case missingSystemPing
 }
 
 public struct AuthorizationError: Error, Equatable, Sendable {
@@ -169,12 +67,15 @@ public struct AuthorizationError: Error, Equatable, Sendable {
         case methodNotFound
         case unauthorized
         case noBoundPane
+        case missingGrant
     }
 
     public let reason: Reason
+    public let requiredScope: IPCPermissionScope?
 
-    public init(reason: Reason) {
+    public init(reason: Reason, requiredScope: IPCPermissionScope? = nil) {
         self.reason = reason
+        self.requiredScope = requiredScope
     }
 }
 
@@ -287,7 +188,12 @@ public struct PermissionScopeCanonicalizer: Sendable {
         }
 
         return IPCPermissionScope(
-            privilege: scope.privilege, target: target, dataScope: Self.dataScope(for: scope.privilege))
+            privilege: scope.privilege,
+            target: target,
+            dataScope: scope.dataScope == .unspecified
+                ? Self.dataScope(for: scope.privilege)
+                : scope.dataScope
+        )
     }
 
     public static func dataScope(for privilege: IPCPrivilegeClass) -> IPCDataScope {
@@ -318,6 +224,10 @@ public struct PermissionScopeCanonicalizer: Sendable {
             .unspecified
         case .sidebarStateMutate:
             .sidebarState
+        case .sessionReportWrite:
+            .sessionReport
+        case .sessionStateRead:
+            .sessionState
         case .debugUnsafe:
             .unspecified
         }
@@ -329,7 +239,7 @@ public struct AuthorizationService: Sendable {
     private let grantLedger: GrantLedger
     private let canonicalizer: PermissionScopeCanonicalizer
 
-    public init(
+    package init(
         methodRegistry: AppIPCMethodRegistry,
         grantLedger: GrantLedger,
         canonicalizer: PermissionScopeCanonicalizer
@@ -339,47 +249,42 @@ public struct AuthorizationService: Sendable {
         self.canonicalizer = canonicalizer
     }
 
-    public func authorize(
-        principal: IPCPrincipal,
-        methodName: String,
-        requestedTarget: IPCTargetScope,
-        activePaneId _: String?
-    ) throws {
-        guard let definition = methodRegistry.definition(named: methodName) else {
+    package func authorize(principal: IPCPrincipal, request: AppIPCMethodAuthorizationRequest) throws {
+        guard let registration = methodRegistry.registration(named: request.methodName) else {
             throw AuthorizationError(reason: .methodNotFound)
         }
-
-        if Self.authenticatedAutomationMethodAllowlist.contains(methodName), methodName != "command.execute" {
-            guard isAuthenticatedAutomation(principal) else {
-                throw AuthorizationError(reason: .unauthorized)
-            }
+        let metadata = registration.descriptor.metadata
+        guard Set(metadata.requiredPrivileges) == request.requiredPrivileges,
+            metadata.dataScope == request.dataScope
+        else {
+            throw AuthorizationError(reason: .unauthorized)
         }
-
-        if unsafeDebugAllows(methodName: methodName, definition: definition, for: principal) {
+        if isDiagnostic(principal), methodRegistry.channel == .debug {
             return
         }
+        guard metadata.exposure == .allChannels else { throw AuthorizationError(reason: .unauthorized) }
+        for privilege in request.requiredPrivileges {
+            try authorize(
+                principal: principal,
+                scope: IPCPermissionScope(
+                    privilege: privilege, target: request.target, dataScope: request.dataScope
+                ))
+        }
+        for scope in request.additionalScopes {
+            try authorize(principal: principal, scope: scope)
+        }
+    }
 
-        for privilege in definition.privilegeClasses {
-            let requestedScope = IPCPermissionScope(
-                privilege: privilege,
-                target: requestedTarget,
-                dataScope: PermissionScopeCanonicalizer.dataScope(for: privilege)
-            )
-            let canonicalScope = try canonicalizer.canonicalize(requestedScope, for: principal)
-
-            if baselineAllows(canonicalScope, for: principal) {
-                continue
-            }
-
-            if canonicalScope.privilege == .debugUnsafe {
-                throw AuthorizationError(reason: .unauthorized)
-            }
-
-            if grantLedger.contains(canonicalScope, for: principal.principalId) {
-                continue
-            }
-
-            throw AuthorizationError(reason: .unauthorized)
+    private func isDiagnostic(_ principal: IPCPrincipal) -> Bool {
+        switch (principal.kind, principal.accessMode) {
+        case (.automationClient, .automationSameUser),
+            (.unsafeDebugClient, .unsafeDebug):
+            true
+        case (.automationClient, _),
+            (.unsafeDebugClient, _),
+            (.spawnedPaneAgent, _),
+            (.futureMCPClient, _):
+            false
         }
     }
 
@@ -401,43 +306,7 @@ public struct AuthorizationService: Sendable {
             return
         }
 
-        throw AuthorizationError(reason: .unauthorized)
-    }
-
-    private func unsafeDebugAllows(
-        methodName: String,
-        definition: IPCMethodDefinition,
-        for principal: IPCPrincipal
-    ) -> Bool {
-        guard principal.accessMode == .unsafeDebug else {
-            return false
-        }
-
-        switch principal.kind {
-        case .unsafeDebugClient, .automationClient:
-            break
-        case .spawnedPaneAgent, .futureMCPClient:
-            return false
-        }
-
-        guard Self.unsafeDebugMethodAllowlist.contains(methodName) else {
-            return false
-        }
-
-        return !definition.privilegeClasses.contains(.grantApprove)
-            && !definition.privilegeClasses.contains(.permissionRequest)
-            && !definition.privilegeClasses.contains(.permissionRead)
-            && !definition.privilegeClasses.contains(.eventsRead)
-    }
-
-    private func isAuthenticatedAutomation(_ principal: IPCPrincipal) -> Bool {
-        guard principal.accessMode == .unsafeDebug else {
-            return false
-        }
-        guard case .automationClient = principal.kind else {
-            return false
-        }
-        return true
+        throw AuthorizationError(reason: .missingGrant, requiredScope: canonicalScope)
     }
 
     private func baselineAllows(_ scope: IPCPermissionScope, for principal: IPCPrincipal) -> Bool {
@@ -462,6 +331,8 @@ public struct AuthorizationService: Sendable {
         .bridgeTelemetryFlush,
         .permissionRead,
         .permissionRequest,
+        .sessionReportWrite,
+        .sessionStateRead,
         .systemRead,
         .terminalInputWrite,
         .terminalSnapshotRead,
@@ -469,51 +340,6 @@ public struct AuthorizationService: Sendable {
         .terminalWait,
     ]
 
-    private static let unsafeDebugMethodAllowlist: Set<String> = [
-        "system.identify",
-        "system.version",
-        "system.capabilities",
-        "window.list",
-        "window.current",
-        "workspace.list",
-        "workspace.current",
-        "pane.list",
-        "pane.current",
-        "pane.focus",
-        "pane.split",
-        "pane.close",
-        "pane.snapshot",
-        "drawer.toggle",
-        "drawer.addPane",
-        "terminal.status",
-        "terminal.send",
-        "terminal.snapshot",
-        "terminal.wait",
-        "bridge.diff.load",
-        "bridge.fileView.open",
-        "bridge.diff.refresh",
-        "bridge.diff.getPackage",
-        "bridge.diff.renderState",
-        "bridge.diff.selectFile",
-        "bridge.diff.scrollToFile",
-        "bridge.diff.expandFile",
-        "bridge.diff.collapseFile",
-        "bridge.fileTree.search",
-        "bridge.fileTree.setFilter",
-        "bridge.fileTree.revealPath",
-        "bridge.fileView.getContent",
-        "bridge.fileView.showMarkdownPreview",
-        "bridge.telemetry.snapshot",
-        "bridge.telemetry.flush",
-        "command.list",
-        "ui.commandBar.open",
-    ]
-
-    private static let authenticatedAutomationMethodAllowlist: Set<String> = [
-        "command.execute",
-        "sidebar.grouping.get",
-        "sidebar.surface.get",
-    ]
 }
 
 extension IPCPrincipal {

@@ -227,7 +227,8 @@ struct WorkspaceTerminalSessionCleanupTests {
         let coordinator = WorkspaceSurfaceCoordinator(
             store: store, viewRegistry: ViewRegistry(), runtime: SessionRuntime(store: store),
             surfaceManager: HarnessSurfaceManager(), runtimeRegistry: RuntimeRegistry(),
-            windowLifecycleStore: WindowLifecycleAtom(), bridgePaneAttendance: BridgePaneAttendanceAtom())
+            windowLifecycleStore: WindowLifecycleAtom(), ipcLifecycle: .testUnavailable,
+            bridgePaneAttendance: BridgePaneAttendanceAtom())
         let backend = CleanupRecordingBackend()
         do {
             if startAfterDiscard {
@@ -270,7 +271,8 @@ struct WorkspaceTerminalSessionCleanupTests {
         let coordinator = WorkspaceSurfaceCoordinator(
             store: store, viewRegistry: ViewRegistry(), runtime: SessionRuntime(store: store),
             surfaceManager: manager, runtimeRegistry: RuntimeRegistry(),
-            windowLifecycleStore: WindowLifecycleAtom(), bridgePaneAttendance: BridgePaneAttendanceAtom(),
+            windowLifecycleStore: WindowLifecycleAtom(), ipcLifecycle: .testUnavailable,
+            bridgePaneAttendance: BridgePaneAttendanceAtom(),
             undoClock: { time })
         let backend = CleanupRecordingBackend(sessionAbsent: sessionAbsent)
         do {
@@ -364,7 +366,8 @@ private struct SessionCleanupFixture {
         coordinator = WorkspaceSurfaceCoordinator(
             store: store, viewRegistry: ViewRegistry(), runtime: SessionRuntime(store: store),
             surfaceManager: HarnessSurfaceManager(), runtimeRegistry: RuntimeRegistry(),
-            windowLifecycleStore: WindowLifecycleAtom(), bridgePaneAttendance: BridgePaneAttendanceAtom())
+            windowLifecycleStore: WindowLifecycleAtom(), ipcLifecycle: .testUnavailable,
+            bridgePaneAttendance: BridgePaneAttendanceAtom())
     }
 
     func cleanupFailure() async throws -> String? {

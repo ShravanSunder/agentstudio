@@ -1,32 +1,44 @@
 import AgentStudioProgrammaticControl
 import Foundation
 
-public struct AgentStudioIPCClientInvocation: Equatable, Sendable {
-    public let configuration: AgentStudioIPCClientConfiguration
-    public let readsAuthTokenFromStandardInput: Bool
-    public let command: AgentStudioIPCClientCommand
+package struct AgentStudioIPCClientInvocation: Sendable {
+    package let configuration: AgentStudioIPCClientConfiguration
+    package let descriptorInvocation: IPCDescriptorInvocation
+}
 
-    public init(
+package struct IPCClientGlobalArguments: Sendable {
+    package let configuration: AgentStudioIPCClientConfiguration
+    package let methodArguments: [String]
+    package let consumesTokenInput: Bool
+    /// The endpoint came from the debug escrow file rather than a flag, the pane
+    /// environment or runtime metadata. A stale escrow names a socket nobody is
+    /// listening on, and that reads as "the debug app is gone", not as a
+    /// transport fault the caller should decode.
+    package let endpointCameFromDebugEscrow: Bool
+
+    package init(
         configuration: AgentStudioIPCClientConfiguration,
-        readsAuthTokenFromStandardInput: Bool = false,
-        command: AgentStudioIPCClientCommand
+        methodArguments: [String],
+        consumesTokenInput: Bool,
+        endpointCameFromDebugEscrow: Bool = false
     ) {
         self.configuration = configuration
-        self.readsAuthTokenFromStandardInput = readsAuthTokenFromStandardInput
-        self.command = command
+        self.methodArguments = methodArguments
+        self.consumesTokenInput = consumesTokenInput
+        self.endpointCameFromDebugEscrow = endpointCameFromDebugEscrow
     }
 }
 
-public enum AgentStudioIPCClientArguments {
-    public static func parse(
+package enum AgentStudioIPCClientArguments {
+    package static func parseGlobal(
         _ arguments: [String],
-        environment: [String: String] = ProcessInfo.processInfo.environment
-    ) throws -> AgentStudioIPCClientInvocation {
+        environment: [String: String],
+        standardInputProvider: () throws -> Data
+    ) throws -> IPCClientGlobalArguments {
         var index = 0
         var explicitSocketPath: String?
         var metadataURL: URL?
-        var readsAuthTokenFromStandardInput = false
-
+        var consumesTokenInput = false
         while index < arguments.count, arguments[index].hasPrefix("--") {
             let option = arguments[index]
             index += 1
@@ -36,327 +48,99 @@ public enum AgentStudioIPCClientArguments {
             case "--metadata":
                 metadataURL = URL(fileURLWithPath: try takeValue(arguments, index: &index))
             case "--token-stdin":
-                readsAuthTokenFromStandardInput = true
+                guard !consumesTokenInput else { throw invalidArguments() }
+                consumesTokenInput = true
             default:
-                throw AgentStudioIPCClientError(reason: .invalidArguments)
+                throw invalidArguments()
             }
         }
-
-        guard index < arguments.count else {
-            throw AgentStudioIPCClientError(reason: .invalidArguments)
+        guard index < arguments.count else { throw invalidArguments() }
+        let methodArguments = Array(arguments[index...])
+        guard !(consumesTokenInput && methodArguments.dropFirst().first == "--stdin") else {
+            throw invalidArguments()
         }
-
-        let commandName = arguments[index]
-        index += 1
-        let command = try parseCommand(commandName, remainingArguments: Array(arguments[index...]))
-        let socketPath = try AgentStudioIPCClientDiscovery.socketPath(
-            explicitSocketPath: explicitSocketPath,
-            environment: environment,
-            metadataURL: metadataURL
+        let debugEscrowCredential = try AgentStudioIPCClientDiscovery.debugEscrowCredential(
+            explicitSocketPath: explicitSocketPath, environment: environment, metadataURL: metadataURL
         )
-
-        return AgentStudioIPCClientInvocation(
-            configuration: AgentStudioIPCClientConfiguration(socketPath: socketPath),
-            readsAuthTokenFromStandardInput: readsAuthTokenFromStandardInput,
-            command: command
-        )
-    }
-
-    private static func parseCommand(
-        _ commandName: String,
-        remainingArguments: [String]
-    ) throws -> AgentStudioIPCClientCommand {
-        if let command = try parseAppCommand(commandName, remainingArguments: remainingArguments) {
-            return command
-        }
-        if let command = try parseTerminalCommand(commandName, remainingArguments: remainingArguments) {
-            return command
-        }
-        if let command = try parseEventCommand(commandName, remainingArguments: remainingArguments) {
-            return command
-        }
-        if let command = try parseBridgeCommand(commandName, remainingArguments: remainingArguments) {
-            return command
-        }
-        throw AgentStudioIPCClientError(reason: .invalidArguments)
-    }
-
-    private static func parseAppCommand(
-        _ commandName: String,
-        remainingArguments: [String]
-    ) throws -> AgentStudioIPCClientCommand? {
-        switch commandName {
-        case "auth-login":
-            try requireCount(remainingArguments, 0)
-            return .authLogin
-        case "auth-status":
-            try requireCount(remainingArguments, 0)
-            return .authStatus
-        case "identify":
-            try requireCount(remainingArguments, 0)
-            return .identify
-        case "capabilities":
-            try requireCount(remainingArguments, 0)
-            return .capabilities
-        case "list-windows":
-            try requireCount(remainingArguments, 0)
-            return .listWindows
-        case "list-workspaces":
-            try requireCount(remainingArguments, 0)
-            return .listWorkspaces
-        case "list-panes":
-            try requireCount(remainingArguments, 0)
-            return .listPanes
-        case "current-pane":
-            try requireCount(remainingArguments, 0)
-            return .currentPane
-        case "pane-snapshot":
-            let values = try requireCount(remainingArguments, 1)
-            return .paneSnapshot(handle: values[0])
-        case "pane-focus":
-            let values = try requireCount(remainingArguments, 1)
-            return .paneFocus(handle: values[0])
-        case "command-list":
-            try requireCount(remainingArguments, 0)
-            return .commandList
-        case "command-execute":
-            let values = try requireCount(remainingArguments, 1)
-            let commandId = IPCCommandIdentifier(rawValue: values[0])
-            return .commandExecute(IPCCommandExecuteParams(commandId: commandId, targetHandle: nil))
-        default:
-            return nil
-        }
-    }
-
-    private static func parseTerminalCommand(
-        _ commandName: String,
-        remainingArguments: [String]
-    ) throws -> AgentStudioIPCClientCommand? {
-        switch commandName {
-        case "terminal-status":
-            let values = try requireCount(remainingArguments, 1)
-            return .terminalStatus(handle: values[0])
-        case "terminal-send":
-            let values = try requireCount(remainingArguments, 2)
-            return .terminalSend(handle: values[0], input: values[1], correlationId: nil)
-        case "terminal-wait":
-            guard remainingArguments.count == 3 || remainingArguments.count == 4 else {
-                throw AgentStudioIPCClientError(reason: .invalidArguments)
-            }
-            let values = remainingArguments
-            guard let condition = IPCTerminalWaitCondition(rawValue: values[1]),
-                let timeoutSeconds = Double(values[2])
-            else {
-                throw AgentStudioIPCClientError(reason: .invalidArguments)
-            }
-            let afterSequence: UInt64?
-            if values.count == 4 {
-                guard let parsedAfterSequence = UInt64(values[3]) else {
-                    throw AgentStudioIPCClientError(reason: .invalidArguments)
-                }
-                afterSequence = parsedAfterSequence
-            } else {
-                afterSequence = nil
-            }
-            return .terminalWait(
-                handle: values[0],
-                condition: condition,
-                timeoutSeconds: timeoutSeconds,
-                afterSequence: afterSequence
+        let socket =
+            try debugEscrowCredential?.socketPath
+            ?? AgentStudioIPCClientDiscovery.socketPath(
+                explicitSocketPath: explicitSocketPath, environment: environment, metadataURL: metadataURL
             )
-        default:
-            return nil
-        }
-    }
-
-    private static func parseEventCommand(
-        _ commandName: String,
-        remainingArguments: [String]
-    ) throws -> AgentStudioIPCClientCommand? {
-        switch commandName {
-        case "events-subscribe":
-            let values = try requireCount(remainingArguments, 1)
-            let eventNames = try values[0].split(separator: ",").map { rawName -> IPCEventName in
-                guard let eventName = IPCEventName(rawValue: String(rawName)) else {
-                    throw AgentStudioIPCClientError(reason: .invalidArguments)
-                }
-                return eventName
-            }
-            guard !eventNames.isEmpty else {
-                throw AgentStudioIPCClientError(reason: .invalidArguments)
-            }
-            return .eventsSubscribe(eventNames: eventNames)
-        case "events-unsubscribe":
-            let values = try requireCount(remainingArguments, 1)
-            guard let subscriptionId = UUID(uuidString: values[0]) else {
-                throw AgentStudioIPCClientError(reason: .invalidArguments)
-            }
-            return .eventsUnsubscribe(subscriptionId: subscriptionId)
-        default:
-            return nil
-        }
-    }
-
-    private static func parseBridgeCommand(
-        _ commandName: String,
-        remainingArguments: [String]
-    ) throws -> AgentStudioIPCClientCommand? {
-        switch commandName {
-        case "bridge-diff-load":
-            let worktreeId = try parseOptionalWorktreeId(remainingArguments)
-            return .bridgeDiffLoad(IPCBridgeReviewOpenParams(worktreeId: worktreeId))
-        case "bridge-file-view-open":
-            let worktreeId = try parseOptionalWorktreeId(remainingArguments)
-            return .bridgeFileViewOpen(IPCBridgeFileViewOpenParams(worktreeId: worktreeId))
-        case "bridge-diff-refresh":
-            let values = try requireCount(remainingArguments, 1)
-            return .bridgeDiffRefresh(IPCBridgeReviewRefreshParams(handle: values[0]))
-        case "bridge-diff-get-package":
-            let values = try requireCount(remainingArguments, 1)
-            return .bridgeDiffGetPackage(handle: values[0])
-        case "bridge-diff-render-state":
-            let values = try requireCount(remainingArguments, 1)
-            return .bridgeDiffRenderState(handle: values[0])
-        case "bridge-diff-select-file":
-            let values = try requireCount(remainingArguments, 2)
-            return .bridgeDiffSelectFile(
-                IPCBridgeReviewSelectFileParams(handle: values[0], itemId: values[1])
-            )
-        case "bridge-diff-scroll-to-file":
-            let values = try requireCount(remainingArguments, 2)
-            return .bridgeDiffScrollToFile(
-                IPCBridgeDiffScrollToFileParams(handle: values[0], itemId: values[1])
-            )
-        case "bridge-diff-expand-file":
-            let values = try requireCount(remainingArguments, 2)
-            return .bridgeDiffExpandFile(
-                IPCBridgeDiffExpandFileParams(handle: values[0], itemId: values[1])
-            )
-        case "bridge-diff-collapse-file":
-            let values = try requireCount(remainingArguments, 2)
-            return .bridgeDiffCollapseFile(
-                IPCBridgeDiffCollapseFileParams(handle: values[0], itemId: values[1])
-            )
-        case "bridge-file-tree-search":
-            let values = try requireCount(remainingArguments, 2)
-            return .bridgeFileTreeSearch(
-                IPCBridgeFileTreeSearchParams(handle: values[0], searchText: values[1])
-            )
-        case "bridge-file-tree-set-filter":
-            return try parseBridgeFileTreeFilterCommand(remainingArguments)
-        case "bridge-file-tree-reveal-path":
-            let values = try requireCount(remainingArguments, 2)
-            return .bridgeFileTreeRevealPath(
-                IPCBridgeFileTreeRevealPathParams(handle: values[0], path: values[1])
-            )
-        case "bridge-file-view-get-content":
-            let values = try requireCount(remainingArguments, 3)
-            guard let reviewGeneration = Int(values[2]) else {
-                throw AgentStudioIPCClientError(reason: .invalidArguments)
-            }
-            return .bridgeFileViewGetContent(
-                IPCBridgeContentGetParams(
-                    handle: values[0],
-                    contentHandleId: values[1],
-                    reviewGeneration: reviewGeneration
-                )
-            )
-        case "bridge-file-view-show-markdown-preview":
-            guard remainingArguments.count == 1 || remainingArguments.count == 2 else {
-                throw AgentStudioIPCClientError(reason: .invalidArguments)
-            }
-            return .bridgeFileViewShowMarkdownPreview(
-                IPCBridgeFileViewShowMarkdownPreviewParams(
-                    handle: remainingArguments[0],
-                    itemId: remainingArguments.count == 2 ? remainingArguments[1] : nil
-                )
-            )
-        case "bridge-telemetry-snapshot":
-            let values = try requireCount(remainingArguments, 1)
-            return .bridgeTelemetrySnapshot(handle: values[0])
-        case "bridge-telemetry-flush":
-            let values = try requireCount(remainingArguments, 1)
-            return .bridgeTelemetryFlush(handle: values[0])
-        default:
-            return nil
-        }
-    }
-
-    private static func parseOptionalWorktreeId(_ arguments: [String]) throws -> UUID? {
-        guard arguments.count <= 1 else {
-            throw AgentStudioIPCClientError(reason: .invalidArguments)
-        }
-        guard let rawWorktreeId = arguments.first else {
-            return nil
-        }
-        guard let parsedWorktreeId = UUID(uuidString: rawWorktreeId) else {
-            throw AgentStudioIPCClientError(reason: .invalidArguments)
-        }
-        return parsedWorktreeId
-    }
-
-    private static func parseBridgeFileTreeFilterCommand(
-        _ arguments: [String]
-    ) throws -> AgentStudioIPCClientCommand {
-        guard arguments.count >= 2,
-            let surface = IPCBridgeFileTreeFilterSurface(rawValue: arguments[1])
-        else {
-            throw AgentStudioIPCClientError(reason: .invalidArguments)
-        }
-        let candidate: IPCBridgeFileTreeFilterCandidate
-        switch surface {
-        case .files:
-            let values = try requireCount(arguments, 3)
-            guard let categoryFilter = IPCBridgeFilterCategory(rawValue: values[2]) else {
-                throw AgentStudioIPCClientError(reason: .invalidArguments)
-            }
-            candidate = .files(categoryFilter: categoryFilter)
-        case .review:
-            let values = try requireCount(arguments, 6)
+        let token: String?
+        if consumesTokenInput {
             guard
-                let gitStatusFilter = IPCBridgeGitStatusFilter(rawValue: values[2]),
-                let categoryFilter = IPCBridgeFilterCategory(rawValue: values[3])
-            else {
-                throw AgentStudioIPCClientError(reason: .invalidArguments)
-            }
-            candidate = .review(
-                gitStatusFilter: gitStatusFilter,
-                categoryFilter: categoryFilter,
-                showBinary: try parseBoolean(values[4]),
-                showLarge: try parseBoolean(values[5])
-            )
+                let value = String(data: try standardInputProvider(), encoding: .utf8)?
+                    .trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty
+            else { throw invalidArguments() }
+            token = value
+        } else {
+            token = environment["AGENTSTUDIO_PANE_TOKEN"] ?? debugEscrowCredential?.token
         }
-        return .bridgeFileTreeSetFilter(
-            IPCBridgeFileTreeSetFilterParams(handle: arguments[0], candidate: candidate)
+        return IPCClientGlobalArguments(
+            configuration: .init(socketPath: socket, authToken: token),
+            methodArguments: methodArguments, consumesTokenInput: consumesTokenInput,
+            endpointCameFromDebugEscrow: debugEscrowCredential != nil
         )
     }
 
-    private static func parseBoolean(_ rawValue: String) throws -> Bool {
-        switch rawValue {
-        case "true":
-            return true
-        case "false":
-            return false
-        default:
-            throw AgentStudioIPCClientError(reason: .invalidArguments)
-        }
+    package static func parse(
+        _ arguments: [String],
+        descriptors: [IPCAnyMethodDescriptor],
+        environment: [String: String],
+        correlationIDGenerator: @Sendable () -> UUID,
+        standardInputProvider: () throws -> Data
+    ) throws -> AgentStudioIPCClientInvocation {
+        let global = try parseGlobal(arguments, environment: environment, standardInputProvider: standardInputProvider)
+        return try parseMethod(
+            global, descriptors: descriptors, correlationIDGenerator: correlationIDGenerator,
+            standardInputProvider: standardInputProvider
+        )
     }
 
-    @discardableResult
-    private static func requireCount(_ values: [String], _ count: Int) throws -> [String] {
-        guard values.count == count else {
-            throw AgentStudioIPCClientError(reason: .invalidArguments)
+    package static func parseMethod(
+        _ global: IPCClientGlobalArguments,
+        descriptors: [IPCAnyMethodDescriptor],
+        correlationIDGenerator: @Sendable () -> UUID,
+        standardInputProvider: () throws -> Data
+    ) throws -> AgentStudioIPCClientInvocation {
+        if global.methodArguments == ["auth.login"], let token = global.configuration.authToken,
+            let descriptor = descriptors.first(where: { $0.metadata.name == "auth.login" })
+        {
+            return try AgentStudioIPCClientInvocation(
+                configuration: global.configuration,
+                descriptorInvocation: IPCDescriptorInvocation(
+                    descriptor: descriptor,
+                    normalizedParameters: descriptor.normalizeParameters(
+                        JSONEncoder().encode(IPCAuthLoginParams(token: token))),
+                    presentation: .tooling
+                )
+            )
         }
-        return values
+        if global.methodArguments.first == "auth.login", global.methodArguments != ["auth.login", "--stdin"] {
+            throw invalidArguments()
+        }
+        let readsMethodInput =
+            descriptors.contains { $0.metadata.name == global.methodArguments.first }
+            && global.methodArguments.dropFirst().first == "--stdin"
+        guard !(global.consumesTokenInput && readsMethodInput) else { throw invalidArguments() }
+        let input = try readsMethodInput ? standardInputProvider() : nil
+        return try AgentStudioIPCClientInvocation(
+            configuration: global.configuration,
+            descriptorInvocation: IPCDescriptorInvocationParser.parse(
+                global.methodArguments, descriptors: descriptors, correlationIDGenerator: correlationIDGenerator,
+                standardInput: input
+            )
+        )
     }
 
     private static func takeValue(_ arguments: [String], index: inout Int) throws -> String {
-        guard index < arguments.count else {
-            throw AgentStudioIPCClientError(reason: .invalidArguments)
-        }
-        defer {
-            index += 1
-        }
+        guard index < arguments.count else { throw invalidArguments() }
+        defer { index += 1 }
         return arguments[index]
+    }
+
+    private static func invalidArguments() -> AgentStudioIPCClientError {
+        AgentStudioIPCClientError(reason: .invalidArguments)
     }
 }

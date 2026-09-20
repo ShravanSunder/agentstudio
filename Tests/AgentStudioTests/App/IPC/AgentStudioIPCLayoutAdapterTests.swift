@@ -39,8 +39,8 @@ struct AgentStudioIPCLayoutAdapterTests {
         #expect(focusControl.focusedPaneIds == [secondPane.id])
     }
 
-    @Test("pane focus result waits for the focus owner to complete")
-    func paneFocusResultWaitsForFocusOwnerCompletion() async throws {
+    @Test("pane focus result completes through the synchronous focus owner")
+    func paneFocusResultCompletesThroughSynchronousFocusOwner() async throws {
         let store = makeIPCLayoutWorkspaceStore()
         let pane = store.createPane(title: "Target")
         let tab = Tab(paneId: pane.id)
@@ -48,23 +48,10 @@ struct AgentStudioIPCLayoutAdapterTests {
         store.setActiveTab(tab.id)
         let focusControl = SuspendingPaneFocusAppControl()
         let harness = LayoutAdapterHarness(store: store, focusControl: focusControl)
-        var completed = false
-        let resultTask = Task { @MainActor in
-            let result = try await harness.adapter.focusPane(
-                IPCHandle(kind: .pane, reference: .friendlyOrdinal(1))
-            )
-            completed = true
-            return result
-        }
-        await eventually("the focus owner should receive the IPC target") {
-            focusControl.focusedPaneIDs == [pane.id]
-        }
-        #expect(!completed)
-
-        focusControl.complete()
-        let result = try await resultTask.value
-
-        #expect(completed)
+        let result = try await harness.adapter.focusPane(
+            IPCHandle(kind: .pane, reference: .friendlyOrdinal(1))
+        )
+        #expect(focusControl.focusedPaneIDs == [pane.id])
         #expect(result == IPCPaneFocusResult(paneId: pane.id, focused: true))
     }
 
@@ -260,7 +247,7 @@ struct AgentStudioIPCLayoutAdapterTests {
             )
 
             do {
-                try await focusControl.focusPane(pane.id)
+                try focusControl.focusPane(pane.id)
                 Issue.record("focusPane unexpectedly succeeded without a native pane host")
             } catch let error as PaneFocusAppControlError {
                 #expect(error == .validationRejected)
@@ -347,7 +334,7 @@ private final class RecordingPaneFocusAppControl: PaneFocusAppControlling, @unch
     private(set) var focusedPaneIds: [UUID] = []
     var error: PaneFocusAppControlError?
 
-    func focusPane(_ paneId: UUID) async throws {
+    func focusPane(_ paneId: UUID) throws {
         if let error {
             throw error
         }
@@ -357,18 +344,13 @@ private final class RecordingPaneFocusAppControl: PaneFocusAppControlling, @unch
 
 @MainActor
 private final class SuspendingPaneFocusAppControl: PaneFocusAppControlling, @unchecked Sendable {
-    private let completion = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
     private(set) var focusedPaneIDs: [UUID] = []
 
-    func focusPane(_ paneId: UUID) async throws {
+    func focusPane(_ paneId: UUID) throws {
         focusedPaneIDs.append(paneId)
-        for await _ in completion.stream { break }
     }
 
-    func complete() {
-        completion.continuation.yield(())
-        completion.continuation.finish()
-    }
+    func complete() {}
 }
 
 @MainActor

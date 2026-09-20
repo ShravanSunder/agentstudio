@@ -8,7 +8,6 @@ struct AgentStudioIPCQueryAdapter: AppIPCQueryPort, @unchecked Sendable {
     private let runtimeId: UUID
     private let accessMode: IPCAccessMode
     private let appVersion: String
-    private let methodRegistry: AppIPCMethodRegistry
     private let workspaceStore: WorkspaceStore
     private let windowLifecycleReader: any WorkspaceWindowLifecycleReading
 
@@ -16,14 +15,12 @@ struct AgentStudioIPCQueryAdapter: AppIPCQueryPort, @unchecked Sendable {
         runtimeId: UUID,
         accessMode: IPCAccessMode,
         appVersion: String,
-        methodRegistry: AppIPCMethodRegistry,
         workspaceStore: WorkspaceStore,
         windowLifecycleReader: any WorkspaceWindowLifecycleReading
     ) {
         self.runtimeId = runtimeId
         self.accessMode = accessMode
         self.appVersion = appVersion
-        self.methodRegistry = methodRegistry
         self.workspaceStore = workspaceStore
         self.windowLifecycleReader = windowLifecycleReader
     }
@@ -34,21 +31,6 @@ struct AgentStudioIPCQueryAdapter: AppIPCQueryPort, @unchecked Sendable {
 
     func systemVersion() throws -> IPCSystemVersionResult {
         IPCSystemVersionResult(appVersion: appVersion)
-    }
-
-    func systemCapabilities() throws -> IPCSystemCapabilitiesResult {
-        let methods = methodRegistry.definitions
-            .sorted { lhs, rhs in lhs.name < rhs.name }
-            .map { definition in
-                IPCMethodCapability(
-                    name: definition.name,
-                    privilegeClasses: definition.privilegeClasses.sorted { lhs, rhs in lhs.rawValue < rhs.rawValue },
-                    principalAvailability: definition.principalAvailability,
-                    executionOwner: definition.executionOwner,
-                    resultSemantics: definition.resultSemantics
-                )
-            }
-        return IPCSystemCapabilitiesResult(methods: methods)
     }
 
     func listWindows() throws -> IPCWindowListResult {

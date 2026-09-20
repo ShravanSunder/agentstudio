@@ -34,6 +34,7 @@ final class DrawerCommandIntegrationTests {
             surfaceManager: surfaceManager,
             runtimeRegistry: RuntimeRegistry(),
             windowLifecycleStore: WindowLifecycleAtom(),
+            ipcLifecycle: .testUnavailable,
             bridgePaneAttendance: BridgePaneAttendanceAtom()
         )
         executor = WorkspaceActionExecutor(coordinator: coordinator, store: store)

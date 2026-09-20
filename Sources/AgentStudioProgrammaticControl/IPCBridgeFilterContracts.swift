@@ -1,11 +1,11 @@
 import Foundation
 
-public enum IPCBridgeFileTreeFilterSurface: String, Codable, Equatable, Sendable {
+public enum IPCBridgeFileTreeFilterSurface: String, CaseIterable, Codable, Equatable, Sendable {
     case files
     case review
 }
 
-public enum IPCBridgeFilterCategory: String, Codable, Equatable, Sendable {
+public enum IPCBridgeFilterCategory: String, CaseIterable, Codable, Equatable, Sendable {
     case all
     case source
     case test
@@ -17,7 +17,7 @@ public enum IPCBridgeFilterCategory: String, Codable, Equatable, Sendable {
     case unknown
 }
 
-public enum IPCBridgeGitStatusFilter: String, Codable, Equatable, Sendable {
+public enum IPCBridgeGitStatusFilter: String, CaseIterable, Codable, Equatable, Sendable {
     case all
     case added
     case modified

@@ -58,6 +58,7 @@ private func makeMainSplitViewControllerHarness(
         surfaceManager: MainSplitViewControllerTestSurfaceManager(),
         runtimeRegistry: RuntimeRegistry(),
         windowLifecycleStore: WindowLifecycleAtom(),
+        ipcLifecycle: .testUnavailable,
         bridgePaneAttendance: atoms.bridgePaneAttendance
     )
     let workspaceActionExecutor = WorkspaceActionExecutor(coordinator: coordinator, store: store)

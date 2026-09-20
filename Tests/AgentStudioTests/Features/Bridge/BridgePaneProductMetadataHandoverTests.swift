@@ -33,7 +33,7 @@ struct BridgePaneProductMetadataHandoverTests {
             provider: context.provider,
             harness: context.harness
         )
-        #expect(await waitForReconnectSourceActivity(context.fileSource))
+        await waitForReconnectSourceActivity(context.fileSource)
         let beforeRetry = await context.fileSource.diagnostics
 
         // Act

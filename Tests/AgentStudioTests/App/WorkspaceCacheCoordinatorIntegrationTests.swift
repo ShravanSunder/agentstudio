@@ -1,4 +1,5 @@
 import Foundation
+import Observation
 import Testing
 
 @testable import AgentStudio
@@ -31,12 +32,12 @@ final class WorkspaceCacheCoordinatorIntegrationTests {
 
         await pipeline.start()
         await pipeline.register(worktreeId: UUID(), repoId: UUID(), rootPath: nonGitCWD)
-        for _ in 0..<300 {
-            await Task.yield()
-        }
 
-        #expect(await statusCalls.value == 0)
+        // "Never admits status work" is a negative, so it needs a barrier rather than a
+        // longer look: `shutdown()` awaits every actor in the pipeline, so once it returns
+        // no provider call can still arrive and this single read covers the whole run.
         await pipeline.shutdown()
+        #expect(await statusCalls.value == 0)
     }
 
     private func makeWorkspaceStore() -> WorkspaceStore {
@@ -105,7 +106,7 @@ final class WorkspaceCacheCoordinatorIntegrationTests {
                 backgroundOnlyAutomaticWorktreeIds: []
             )
 
-            let resolved = await eventually("repo enrichment should resolve from projector origin") {
+            let resolved = await waitUntilObserved("repo enrichment should resolve from projector origin") {
                 guard case .some(.resolvedRemote(_, _, let identity, _)) = repoCache.repoEnrichmentByRepoId[repo.id]
                 else {
                     return false
@@ -113,11 +114,8 @@ final class WorkspaceCacheCoordinatorIntegrationTests {
                 return identity.groupKey == "remote:askluna/agent-studio"
             }
             #expect(resolved)
-
-            let scopeSynced = await eventually("scope sync should not register forge repo for origin event path") {
-                let changes = await recordedScopeChanges.values
-                return changes.isEmpty
-            }
+        } afterQuiescence: {
+            let scopeSynced = await recordedScopeChanges.values.isEmpty
             #expect(scopeSynced)
         }
     }
@@ -181,7 +179,7 @@ final class WorkspaceCacheCoordinatorIntegrationTests {
                 backgroundOnlyAutomaticWorktreeIds: []
             )
 
-            let resolved = await eventually("local-only repo enrichment should resolve") {
+            let resolved = await waitUntilObserved("local-only repo enrichment should resolve") {
                 guard case .some(.resolvedLocal(_, let identity, _)) = repoCache.repoEnrichmentByRepoId[repo.id]
                 else {
                     return false
@@ -189,11 +187,8 @@ final class WorkspaceCacheCoordinatorIntegrationTests {
                 return identity.groupKey == "local:\(repo.name)"
             }
             #expect(resolved)
-
-            let scopeSynced = await eventually("scope sync should remain empty for local-only origin event path") {
-                let changes = await recordedScopeChanges.values
-                return changes.isEmpty
-            }
+        } afterQuiescence: {
+            let scopeSynced = await recordedScopeChanges.values.isEmpty
             #expect(scopeSynced)
         }
     }
@@ -239,13 +234,17 @@ final class WorkspaceCacheCoordinatorIntegrationTests {
         #expect(repoCache.worktreeEnrichmentByWorktreeId[worktreeId] == nil)
         #expect(repoCache.pullRequestFactsByBranch.isEmpty)
 
-        // Forge scope should be unregistered
-        let converged = await eventually("forge unregister should fire") {
-            let changes = await recordedScopeChanges.values
-            return changes.contains {
-                if case .unregisterForgeRepo(let id, _) = $0 { return id == repo.id }
-                return false
-            }
+        // Forge scope should be unregistered. The recorder signals the moment the matching
+        // change lands, so this is a barrier on the owner rather than a repeated look.
+        let removedRepoId = repo.id
+        await recordedScopeChanges.waitForChange {
+            if case .unregisterForgeRepo(let id, _) = $0 { return id == removedRepoId }
+            return false
+        }
+        let changes = await recordedScopeChanges.values
+        let converged = changes.contains {
+            if case .unregisterForgeRepo(let id, _) = $0 { return id == repo.id }
+            return false
         }
         #expect(converged)
     }
@@ -322,7 +321,7 @@ final class WorkspaceCacheCoordinatorIntegrationTests {
                 )
             )
 
-            let enriched = await eventually("enrichment should resolve") {
+            let enriched = await waitUntilObserved("enrichment should resolve") {
                 guard case .some(.resolvedRemote(_, _, let identity, _)) = repoCache.repoEnrichmentByRepoId[repo.id]
                 else {
                     return false
@@ -342,13 +341,16 @@ final class WorkspaceCacheCoordinatorIntegrationTests {
             #expect(repoCache.repoEnrichmentByRepoId[repo.id] == nil)
             #expect(repoCache.worktreeEnrichmentByWorktreeId[worktreeId] == nil)
 
-            // Forge unregistered
-            let unregistered = await eventually("forge unregister should fire") {
-                let changes = await recordedScopeChanges.values
-                return changes.contains {
-                    if case .unregisterForgeRepo(let id, _) = $0 { return id == repo.id }
-                    return false
-                }
+            // Forge unregistered — barrier on the recorder's own signal, then read once.
+            let removedRepoId = repo.id
+            await recordedScopeChanges.waitForChange {
+                if case .unregisterForgeRepo(let id, _) = $0 { return id == removedRepoId }
+                return false
+            }
+            let changes = await recordedScopeChanges.values
+            let unregistered = changes.contains {
+                if case .unregisterForgeRepo(let id, _) = $0 { return id == repo.id }
+                return false
             }
             #expect(unregistered)
         }
@@ -496,7 +498,7 @@ final class WorkspaceCacheCoordinatorIntegrationTests {
             )
             #expect(postResult.subscriberCount > 0)
 
-            let converged = await eventually("repo should appear via bus subscription") {
+            let converged = await waitUntilObserved("repo should appear via bus subscription") {
                 workspaceStore.repos.contains { $0.repoPath == repoPath }
             }
             #expect(converged)
@@ -530,7 +532,7 @@ final class WorkspaceCacheCoordinatorIntegrationTests {
                 )
             )
 
-            let bootConverged = await eventually("boot replay should add repo") {
+            let bootConverged = await waitUntilObserved("boot replay should add repo") {
                 workspaceStore.repos.count == 1
             }
             #expect(bootConverged)
@@ -547,9 +549,33 @@ final class WorkspaceCacheCoordinatorIntegrationTests {
                 )
             )
 
-            let remainedDeduplicated = await eventually("duplicate repo discovery should remain deduplicated") {
-                workspaceStore.repos.count == 1
+            // Dedup is a negative: nothing changes, so there is no state to observe and a
+            // longer look would prove nothing. Post a distinct repo AFTER the duplicate and
+            // wait for it instead. The coordinator subscribes `.criticalUnbounded`, which
+            // delivers in order without dropping, so once the later repo has landed the
+            // duplicate ahead of it must already have been consumed. Waiting for quiescence
+            // instead would be vacuous: `shutdown()` cancels the consume task and could
+            // discard the duplicate unread, passing even if dedup were broken.
+            let sentinelPath = URL(fileURLWithPath: "/tmp/boot-rescan-dedup-sentinel")
+            await bus.post(
+                .system(
+                    SystemEnvelope.test(
+                        event: .topology(
+                            .repoDiscovered(
+                                repoPath: sentinelPath,
+                                parentPath: sentinelPath.deletingLastPathComponent()
+                            )
+                        ),
+                        source: .builtin(.filesystemWatcher)
+                    ),
+                )
+            )
+            let sentinelConsumed = await waitUntilObserved("repo posted after the duplicate should arrive") {
+                workspaceStore.repos.contains { $0.repoPath == sentinelPath }
             }
+            #expect(sentinelConsumed)
+
+            let remainedDeduplicated = workspaceStore.repos.count { $0.repoPath == repoPath } == 1
             #expect(remainedDeduplicated)
         }
     }
@@ -588,18 +614,20 @@ final class WorkspaceCacheCoordinatorIntegrationTests {
             #expect(postResult.subscriberCount > 0)
             #expect(postResult.droppedCount == 0)
 
-            let converged = await eventually(
-                "critical subscriber should consume full removal burst",
-                maxTurns: burstCount * 4
-            ) {
-                let diagnostics = await bus.diagnosticsSnapshot()
-                let subscriber = diagnostics.activeSubscribers.first {
-                    $0.subscriberName == "WorkspaceCacheCoordinator"
-                }
-                return subscriber?.consumedCount ?? 0 >= UInt64(burstCount)
-                    && workspaceStore.repos.allSatisfy { workspaceStore.isRepoUnavailable($0.id) }
+            // Wait on the store, which is the observable end of the burst; the bus counter
+            // is an actor read and cannot be observed, so it is checked once afterwards
+            // rather than sampled in a loop. Every repo being unavailable already implies
+            // the critical subscriber consumed the whole burst.
+            let converged = await waitUntilObserved("critical subscriber should consume full removal burst") {
+                workspaceStore.repos.allSatisfy { workspaceStore.isRepoUnavailable($0.id) }
             }
             #expect(converged)
+
+            let burstDiagnostics = await bus.diagnosticsSnapshot()
+            let burstSubscriber = burstDiagnostics.activeSubscribers.first {
+                $0.subscriberName == "WorkspaceCacheCoordinator"
+            }
+            #expect(burstSubscriber?.consumedCount ?? 0 >= UInt64(burstCount))
 
             let diagnostics = await bus.diagnosticsSnapshot()
             let subscriber = diagnostics.activeSubscribers.first {
@@ -818,34 +846,46 @@ final class WorkspaceCacheCoordinatorIntegrationTests {
 
     // MARK: - Helpers
 
-    private func eventually(
+    /// Waits until the owner's observed state satisfies `predicate`, then returns true.
+    ///
+    /// There is no turn budget and no clock here on purpose: the verdict is a function of
+    /// what the coordinator actually published, never of how many yields a 3-vCPU runner
+    /// could fit into an arbitrary budget. The lane's inactivity watchdog is the only hang
+    /// bound. `Observations` re-evaluates the predicate whenever any `@Observable` state it
+    /// read changes, so a real projector origin resolution wakes this wait exactly once.
+    ///
+    /// Returns false only if the observation stream ends before the state converges, which
+    /// is a genuine failure and is recorded as one.
+    @discardableResult
+    private func waitUntilObserved(
         _ description: String,
-        maxTurns: Int = 100,
-        condition: @escaping @MainActor () async -> Bool
+        _ predicate: @escaping @MainActor () -> Bool
     ) async -> Bool {
-        for _ in 0..<maxTurns {
-            if await condition() {
-                return true
-            }
-            await Task.yield()
+        if predicate() {
+            return true
         }
-        Issue.record("\(description) timed out")
+        let satisfiedValues = Observations { predicate() }
+        for await satisfied in satisfiedValues where satisfied {
+            return true
+        }
+        Issue.record("\(description): observation ended before the state converged")
         return false
     }
 
     private func withStartedCoordinator(
         bus: EventBus<RuntimeEnvelope>,
         coordinator: WorkspaceCacheCoordinator,
-        operation: @MainActor () async throws -> Void
+        operation: @MainActor () async throws -> Void,
+        afterQuiescence: @MainActor () async -> Void = {}
     ) async rethrows {
         await coordinator.startConsuming()
         do {
             try await operation()
             await coordinator.shutdown()
-            let busDrained = await eventually("coordinator test world should leave no subscribers behind") {
-                await bus.subscriberCount == 0
-            }
-            #expect(busDrained)
+            // `shutdown()` awaits the consume task, so the subscription is gone by the time
+            // it returns and this is a settled read rather than a sampled one.
+            #expect(await bus.subscriberCount == 0)
+            await afterQuiescence()
         } catch {
             await coordinator.shutdown()
             throw error
@@ -856,7 +896,8 @@ final class WorkspaceCacheCoordinatorIntegrationTests {
         bus: EventBus<RuntimeEnvelope>,
         coordinator: WorkspaceCacheCoordinator,
         projector: GitWorkingDirectoryProjector,
-        operation: @MainActor () async throws -> Void
+        operation: @MainActor () async throws -> Void,
+        afterQuiescence: @MainActor () async -> Void = {}
     ) async rethrows {
         await coordinator.startConsuming()
         await projector.start()
@@ -864,10 +905,11 @@ final class WorkspaceCacheCoordinatorIntegrationTests {
             try await operation()
             await projector.shutdown()
             await coordinator.shutdown()
-            let busDrained = await eventually("coordinator/projector test world should leave no subscribers behind") {
-                await bus.subscriberCount == 0
-            }
-            #expect(busDrained)
+            #expect(await bus.subscriberCount == 0)
+            // Both shutdowns await their in-flight work, so nothing can record a scope
+            // change after this point. Negative claims belong here: read once against a
+            // world that has stopped, which is a total claim rather than a sample.
+            await afterQuiescence()
         } catch {
             await projector.shutdown()
             await coordinator.shutdown()
@@ -885,10 +927,36 @@ private actor StatusCallCount {
 }
 
 private actor RecordedScopeChanges {
+    private typealias MatchWaiter = (
+        predicate: @Sendable (ScopeChange) -> Bool, continuation: CheckedContinuation<Void, Never>
+    )
+
     private var scopeChanges: [ScopeChange] = []
+    private var matchWaiters: [MatchWaiter] = []
 
     func record(_ change: ScopeChange) {
         scopeChanges.append(change)
+        var stillWaiting: [MatchWaiter] = []
+        for waiter in matchWaiters {
+            if waiter.predicate(change) {
+                waiter.continuation.resume()
+            } else {
+                stillWaiting.append(waiter)
+            }
+        }
+        matchWaiters = stillWaiting
+    }
+
+    /// Returns once a matching change has been recorded. The recorder is the owner of this
+    /// fact, so it signals directly instead of being sampled: no budget, no clock, and the
+    /// already-recorded case returns without suspending.
+    func waitForChange(matching predicate: @Sendable @escaping (ScopeChange) -> Bool) async {
+        if scopeChanges.contains(where: predicate) {
+            return
+        }
+        await withCheckedContinuation { continuation in
+            matchWaiters.append((predicate, continuation))
+        }
     }
 
     var count: Int {

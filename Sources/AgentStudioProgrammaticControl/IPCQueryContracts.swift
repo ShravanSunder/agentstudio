@@ -176,7 +176,7 @@ public struct IPCTabSummary: Codable, Equatable, Sendable {
     }
 }
 
-public enum IPCPaneContentKind: String, Codable, Equatable, Sendable {
+public enum IPCPaneContentKind: String, CaseIterable, Codable, Equatable, Sendable {
     case terminal
     case webview
     case bridgePanel
@@ -184,7 +184,7 @@ public enum IPCPaneContentKind: String, Codable, Equatable, Sendable {
     case unsupported
 }
 
-public enum IPCPaneResidency: String, Codable, Equatable, Sendable {
+public enum IPCPaneResidency: String, CaseIterable, Codable, Equatable, Sendable {
     case active
     case pendingUndo
     case backgrounded
@@ -255,7 +255,7 @@ public struct IPCPaneFocusResult: Codable, Equatable, Sendable {
     }
 }
 
-public enum IPCPaneSplitDirection: String, Codable, Equatable, Sendable {
+public enum IPCPaneSplitDirection: String, CaseIterable, Codable, Equatable, Sendable {
     case left
     case right
 }
@@ -344,14 +344,14 @@ public struct IPCDrawerToggleResult: Codable, Equatable, Sendable {
     }
 }
 
-public enum IPCRuntimeLifecycle: String, Codable, Equatable, Sendable {
+public enum IPCRuntimeLifecycle: String, CaseIterable, Codable, Equatable, Sendable {
     case created
     case ready
     case draining
     case terminated
 }
 
-public enum IPCExecutionBackendKind: String, Codable, Equatable, Sendable {
+public enum IPCExecutionBackendKind: String, CaseIterable, Codable, Equatable, Sendable {
     case local
     case docker
     case gondolin
@@ -414,7 +414,7 @@ public struct IPCTerminalSnapshotResult: Codable, Equatable, Sendable {
     }
 }
 
-public enum IPCTerminalSendDisposition: String, Codable, Equatable, Sendable {
+public enum IPCTerminalSendDisposition: String, CaseIterable, Codable, Equatable, Sendable {
     case accepted
     case queued
 }
@@ -441,7 +441,7 @@ public struct IPCTerminalSendInputResult: Codable, Equatable, Sendable {
     }
 }
 
-public enum IPCTerminalWaitCondition: String, Codable, Equatable, Sendable {
+public enum IPCTerminalWaitCondition: String, CaseIterable, Codable, Equatable, Sendable {
     case attachReady
     case commandFinished
     case rendererHealthy

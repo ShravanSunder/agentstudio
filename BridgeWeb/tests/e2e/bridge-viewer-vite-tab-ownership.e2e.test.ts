@@ -25,6 +25,9 @@ test.each(['shared-profile', 'separate-profile'] as const)(
 			server = await startBridgeViewerOwnedViteProductServer(fixture.oracle);
 			browser = await chromium.launch({ channel: 'chrome', headless: true });
 			const context = await browser.newContext({ viewport: { width: 1728, height: 980 } });
+			// The vitest hang bound is the only clock this journey is allowed.
+			context.setDefaultTimeout(0);
+			context.setDefaultNavigationTimeout(0);
 			const pageErrors: string[] = [];
 			context.on('page', (createdPage): void => {
 				createdPage.on('pageerror', (error): void => {
@@ -49,6 +52,8 @@ test.each(['shared-profile', 'separate-profile'] as const)(
 				profileTopology === 'shared-profile'
 					? context
 					: await browser.newContext({ viewport: { width: 1728, height: 980 } });
+			secondContext.setDefaultTimeout(0);
+			secondContext.setDefaultNavigationTimeout(0);
 			const secondTab = await secondContext.newPage();
 			if (secondContext !== context) {
 				secondTab.on('pageerror', (error): void => {
@@ -56,18 +61,14 @@ test.each(['shared-profile', 'separate-profile'] as const)(
 				});
 			}
 			await secondTab.goto(url, { waitUntil: 'domcontentloaded' });
-			await secondTab
-				.getByTestId('bridge-dev-session-inactive')
-				.waitFor({ state: 'visible', timeout: 15_000 });
+			await secondTab.getByTestId('bridge-dev-session-inactive').waitFor({ state: 'visible' });
 			await waitForSelectedReviewReady({ page: firstTab, itemId: reviewFile.itemId });
 			expect(firstBootstrapCount).toBe(1);
 			expect(await secondTab.getByRole('button').count()).toBe(1);
 
 			// Refresh retries admission; it must never take control from the active tab.
 			await secondTab.getByRole('button', { name: 'Refresh', exact: true }).click();
-			await secondTab
-				.getByTestId('bridge-dev-session-inactive')
-				.waitFor({ state: 'visible', timeout: 15_000 });
+			await secondTab.getByTestId('bridge-dev-session-inactive').waitFor({ state: 'visible' });
 			await waitForSelectedReviewReady({ page: firstTab, itemId: reviewFile.itemId });
 			expect(firstBootstrapCount).toBe(1);
 

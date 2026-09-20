@@ -38,15 +38,16 @@ mise run lint                 # Lint (swift-format + SwiftLint + AgentStudio arc
 
 Before pushing, opening, or updating a PR, run `mise run test` from the
 repository root. That aggregate owns Swift lint and architecture lint, the
-architecture-tool package tests, BridgeWeb lint/typecheck/unit/integration/browser/Vite
-E2E tests, the packaged BridgeWeb build, Swift non-serialized, serialized
+architecture-tool package tests, BridgeWeb lint/typecheck/unit/integration/browser/ordinary
+Vite E2E tests, the packaged BridgeWeb build, Swift non-serialized, serialized
 WebKit, and general E2E tests, and `git diff --check`. Use
 `mise run test:<lane>` for focused work, such as
 `mise run test:swift -- --filter "CommandBarState"`,
 `mise run test:bridge-web`, or `mise run test:architecture`. Scope-specific
 manual, packaged, observability, performance, release, or UI proof remains
-additional when the change requires it. Post-merge benchmark/stress tasks and
-the opt-in zmx lifecycle lane are not pull-request gates. Do not claim a branch
+additional when the change requires it. Post-merge benchmark/stress tasks,
+the Vite E2E stress journey (`test:bridge-web:e2e:stress`), and the opt-in zmx
+lifecycle lane are not pull-request gates. Do not claim a branch
 or PR is ready until `mise run test` exits successfully on the current HEAD.
 
 Agents must use plain `mise run setup` by default. It builds vendors in the
@@ -128,7 +129,7 @@ for a new file:
 - `App/` — composition root, shells, pane/window controllers, lifecycle, cross-slice orchestration
 - `Core/` — shared domain state and contracts (models, atoms, persistence, actions, runtime, shared split/drawer)
 - `SharedComponents/` — reusable UI that does not own host placement
-- `Features/` — Terminal, Bridge, Webview, CodeViewer, CommandBar, RepoExplorer, InboxNotification, EditorChooser
+- `Features/` — Terminal, Bridge, Webview, CodeViewer, CommandBar, RepoExplorer, InboxNotification, EditorChooser, Sessions
 - `Infrastructure/` — domain-agnostic utilities. `AtomLib/` is generic observation primitives only. Core owns `CoreAtoms`, `CoreAtomScope`, and `atom(\...)`. App owns `AtomRegistry`.
 
 **Shared UI.** When two surfaces need the same control, extract a

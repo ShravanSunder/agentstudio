@@ -15,6 +15,7 @@ package enum AppEntityIcon: Equatable {
         case squareStackFill = "square.stack.fill"
         case tray
         case clock
+        case pin
     }
 
     enum OcticonSymbol: String, Equatable {
@@ -34,6 +35,7 @@ package enum AppEntityIcon: Equatable {
     case workspace
     case otherSources
     case activity
+    case pin
 
     var symbol: Symbol {
         switch self {
@@ -53,6 +55,8 @@ package enum AppEntityIcon: Equatable {
             return .system(.tray)
         case .activity:
             return .system(.clock)
+        case .pin:
+            return .system(.pin)
         }
     }
 
@@ -75,7 +79,7 @@ package enum AppEntityIcon: Equatable {
         foregroundOverride: Color? = nil
     ) -> some View {
         switch self {
-        case .pane, .drawer, .paneGroup, .tab, .tabGroup, .workspace, .otherSources, .activity:
+        case .pane, .drawer, .paneGroup, .tab, .tabGroup, .workspace, .otherSources, .activity, .pin:
             Image(systemName: symbolName)
                 .font(.system(size: size, weight: .medium))
                 .foregroundStyle(foregroundOverride ?? foregroundStyle)
@@ -111,7 +115,7 @@ package enum AppEntityIcon: Equatable {
             return Color(nsColor: NSColor(hex: colorHex) ?? AppStyles.General.Accent.primaryNSColor)
         case .tabGroup:
             return AppStyles.Shell.Sidebar.tabGroupIconColor
-        case .repo, .pane, .drawer, .paneGroup, .tab, .workspace, .otherSources, .activity:
+        case .repo, .pane, .drawer, .paneGroup, .tab, .workspace, .otherSources, .activity, .pin:
             return .secondary
         }
     }
@@ -120,7 +124,8 @@ package enum AppEntityIcon: Equatable {
         switch self {
         case .checkout(_, let isMain):
             return isMain ? 0 : 180
-        case .repo, .coloredRepo, .pane, .drawer, .paneGroup, .tab, .tabGroup, .workspace, .otherSources, .activity:
+        case .repo, .coloredRepo, .pane, .drawer, .paneGroup, .tab, .tabGroup, .workspace, .otherSources, .activity,
+            .pin:
             return 0
         }
     }

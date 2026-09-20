@@ -9,28 +9,6 @@ import WebKit
 
 // MARK: - Test Helpers
 
-/// Captures `WKScriptMessage` bodies for assertion in content world message handler tests.
-/// WebKit calls the delegate method on the main thread, so MainActor isolation is safe.
-final class SpikeMessageHandler: NSObject, WKScriptMessageHandler {
-    private let lock = NSLock()
-    nonisolated(unsafe) private var storage: [Any] = []
-
-    var receivedMessages: [Any] {
-        lock.lock()
-        defer { lock.unlock() }
-        return storage
-    }
-
-    func userContentController(
-        _ userContentController: WKUserContentController,
-        didReceive message: WKScriptMessage
-    ) {
-        lock.lock()
-        storage.append(message.body)
-        lock.unlock()
-    }
-}
-
 /// Minimal URLSchemeHandler that serves a blank HTML page.
 /// Used for tests that need a proper document context.
 private struct BlankPageSchemeHandler: URLSchemeHandler {
@@ -129,8 +107,8 @@ extension WebKitSerializedTests {
             guard isWebKitSpikeModeEnabled() else { return }
             // Arrange -- handlers in both worlds
             let bridgeWorld = WKContentWorld.world(name: "testBridgeIsolation")
-            let bridgeHandler = SpikeMessageHandler()
-            let pageHandler = SpikeMessageHandler()
+            let bridgeHandler = WebKitScriptMessageRecorder()
+            let pageHandler = WebKitScriptMessageRecorder()
 
             var config = WebPageTestHarness.makeConfiguration()
             // Register handler in bridge world
@@ -147,30 +125,28 @@ extension WebKitSerializedTests {
                 )
             ) { page in
                 _ = page.load(URL(string: "agentstudio://app/blank.html")!)
-                try await waitForPageLoad(page)
+                await waitForPageLoad(page)
 
-                // Act -- set a global in bridge world
+                // Act -- set a global in bridge world. Awaiting callJavaScript is the
+                // barrier; evaluations in one content world are ordered.
                 _ = try await page.callJavaScript(
                     "window.__spikeVar = 'bridge-only'",
                     contentWorld: bridgeWorld
                 )
-                await settleAsyncCallbacks()
 
                 // Read from bridge world -- should see it
                 _ = try await page.callJavaScript(
                     "window.webkit.messageHandlers.bridgeProbe.postMessage(window.__spikeVar || 'NOT_FOUND')",
                     contentWorld: bridgeWorld
                 )
-                let sawBridgeMessage = await waitForMessageCount(bridgeHandler, atLeast: 1)
-                #expect(sawBridgeMessage, "Expected bridge world probe message")
+                await bridgeHandler.waitForMessages(atLeast: 1)
 
                 // Read from page world -- should NOT see it
                 _ = try await page.callJavaScript(
                     "window.webkit.messageHandlers.pageProbe.postMessage(window.__spikeVar || 'NOT_FOUND')"
                     // no contentWorld = page world
                 )
-                let sawPageMessage = await waitForMessageCount(pageHandler, atLeast: 1)
-                #expect(sawPageMessage, "Expected page world probe message")
+                await pageHandler.waitForMessages(atLeast: 1)
 
                 // Assert
                 #expect(bridgeHandler.receivedMessages.count == 1)
@@ -201,8 +177,8 @@ extension WebKitSerializedTests {
             guard isWebKitSpikeModeEnabled() else { return }
             // Arrange
             let world = WKContentWorld.world(name: "testBridgeUserScript")
-            let bridgeHandler = SpikeMessageHandler()
-            let pageHandler = SpikeMessageHandler()
+            let bridgeHandler = WebKitScriptMessageRecorder()
+            let pageHandler = WebKitScriptMessageRecorder()
 
             var config = WebPageTestHarness.makeConfiguration()
 
@@ -229,23 +205,21 @@ extension WebKitSerializedTests {
             ) { page in
                 // Act -- load page to trigger user script injection
                 _ = page.load(URL(string: "agentstudio://app/blank.html")!)
-                try await waitForPageLoad(page)
+                await waitForPageLoad(page)
 
                 // Read flag from bridge world
                 _ = try await page.callJavaScript(
                     "window.webkit.messageHandlers.bridgeProbe.postMessage(String(window.__testFlag))",
                     contentWorld: world
                 )
-                let sawBridgeMessage = await waitForMessageCount(bridgeHandler, atLeast: 1)
-                #expect(sawBridgeMessage, "Expected bridge world script-injection probe message")
+                await bridgeHandler.waitForMessages(atLeast: 1)
 
                 // Read flag from page world
                 _ = try await page.callJavaScript(
                     "window.webkit.messageHandlers.pageProbe.postMessage(String(window.__testFlag))"
                     // no contentWorld = page world
                 )
-                let sawPageMessage = await waitForMessageCount(pageHandler, atLeast: 1)
-                #expect(sawPageMessage, "Expected page world script-injection probe message")
+                await pageHandler.waitForMessages(atLeast: 1)
 
                 // Assert -- bridge world should see the flag
                 #expect(bridgeHandler.receivedMessages.count == 1)
@@ -273,7 +247,7 @@ extension WebKitSerializedTests {
             guard isWebKitSpikeModeEnabled() else { return }
             // Arrange
             let world = WKContentWorld.world(name: "testBridgeMsgHandler")
-            let handler = SpikeMessageHandler()
+            let handler = WebKitScriptMessageRecorder()
 
             let config = WebPageTestHarness.makeConfiguration()
             config.userContentController.add(handler, contentWorld: world, name: "rpc")
@@ -286,15 +260,14 @@ extension WebKitSerializedTests {
                 )
             ) { page in
                 _ = page.load(URL(string: "about:blank")!)
-                try await waitForPageLoad(page)
+                await waitForPageLoad(page)
 
                 // Act -- post message FROM the bridge world
                 _ = try await page.callJavaScript(
                     "window.webkit.messageHandlers.rpc.postMessage('hello')",
                     contentWorld: world
                 )
-                let sawMessage = await waitForMessageCount(handler, atLeast: 1)
-                #expect(sawMessage, "Expected bridge-world handler message")
+                await handler.waitForMessages(atLeast: 1)
 
                 // Assert -- handler received the message
                 #expect(
@@ -313,7 +286,7 @@ extension WebKitSerializedTests {
             guard isWebKitSpikeModeEnabled() else { return }
             // Arrange
             let world = WKContentWorld.world(name: "testBridgeMsgHandlerIsolation")
-            let handler = SpikeMessageHandler()
+            let handler = WebKitScriptMessageRecorder()
 
             let config = WebPageTestHarness.makeConfiguration()
             config.userContentController.add(handler, contentWorld: world, name: "rpc")
@@ -326,7 +299,7 @@ extension WebKitSerializedTests {
                 )
             ) { page in
                 _ = page.load(URL(string: "about:blank")!)
-                try await waitForPageLoad(page)
+                await waitForPageLoad(page)
 
                 // Act -- attempt to access the handler from page world using optional chaining
                 // to avoid throwing if the handler doesn't exist
@@ -334,12 +307,25 @@ extension WebKitSerializedTests {
                     "window.webkit?.messageHandlers?.rpc?.postMessage('evil')"
                     // no contentWorld = page world
                 )
-                await settleAsyncCallbacks()
+
+                // Barrier -- post a LEGAL message from the bridge world and await it.
+                // Delivery to one handler is ordered and the page-world attempt was
+                // awaited first, so anything it managed to post would already be here
+                // by the time this arrives. That is an ordering fact; a yield budget
+                // or a sleep would only have been a guess about machine speed.
+                _ = try await page.callJavaScript(
+                    "window.webkit.messageHandlers.rpc.postMessage('bridge-world-probe')",
+                    contentWorld: world
+                )
+                await handler.waitForMessages(atLeast: 1)
 
                 // Assert -- handler should NOT have received a message from page world
                 #expect(
-                    handler.receivedMessages.isEmpty,
+                    handler.receivedMessages.count == 1,
                     "Page world should NOT be able to post to a bridge-world-scoped message handler")
+                #expect(
+                    handler.receivedMessages.first as? String == "bridge-world-probe",
+                    "The only message delivered should be the bridge world's own probe")
             }
         }
 
@@ -357,36 +343,9 @@ extension WebKitSerializedTests {
             )
         }
 
-        /// Wait for page load to complete, throwing on timeout.
-        /// Polls `page.isLoading` and enforces a hard deadline so tests
-        /// fail explicitly rather than asserting against an unready page.
-        private func waitForPageLoad(_ page: WebPage, timeout: Duration = .seconds(5)) async throws {
-            for _ in 0..<50_000 {
-                if !page.isLoading { break }
-                await Task.yield()
-            }
-            try #require(!page.isLoading, "Page did not finish loading within \(timeout)")
-            await settleAsyncCallbacks(turns: 40)
-        }
-
-        private func waitForMessageCount(
-            _ handler: SpikeMessageHandler,
-            atLeast expectedCount: Int,
-            timeout: Duration = .seconds(2)
-        ) async -> Bool {
-            for _ in 0..<20_000 {
-                if handler.receivedMessages.count >= expectedCount {
-                    return true
-                }
-                await Task.yield()
-            }
-            return handler.receivedMessages.count >= expectedCount
-        }
-
-        private func settleAsyncCallbacks(turns: Int = 50) async {
-            for _ in 0..<turns {
-                await Task.yield()
-            }
+        /// Suspends until the page's own navigation completes.
+        private func waitForPageLoad(_ page: WebPage) async {
+            await WebPageEventWaits.waitForNavigationToFinish(page)
         }
 
         private func isWebKitSpikeModeEnabled() -> Bool {

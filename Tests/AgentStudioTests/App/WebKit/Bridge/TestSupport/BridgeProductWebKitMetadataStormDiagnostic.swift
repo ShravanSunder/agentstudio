@@ -1,24 +1,47 @@
+/// Product frames a hidden pane admitted between two carrier traces.
+///
+/// These are the frames the isolation invariant is actually about. The metadata
+/// stream sequence is deliberately absent: it also counts protocol
+/// acknowledgements, which must keep flowing while a pane is hidden.
+struct BridgeProductWebKitHiddenStormProductDeltas: Sendable, Equatable {
+    let panePresentationEventCount: Int
+    let fileMetadataPhaseCount: Int
+    let reviewMetadataPhaseCount: Int
+}
+
+/// What a hidden pane admitted during the storm, as both an assertable value and
+/// the human-readable line. Built together from one reading of the traces so the
+/// assertion and the diagnostic can never disagree.
+struct BridgeProductWebKitHiddenStormSummary: Sendable {
+    let message: String
+    let productDeltas: BridgeProductWebKitHiddenStormProductDeltas
+}
+
 /// Formats bounded existing telemetry for the hidden-pane journey failure.
 enum BridgeProductWebKitMetadataStormDiagnostic {
-    static func message(
+    static func summarize(
         nativeBefore: BridgeProductWebKitCarrierNativeSnapshot,
         nativeAfter: BridgeProductWebKitCarrierNativeSnapshot,
         traceBefore: BridgeProductWebKitCarrierTrace,
         traceAfter: BridgeProductWebKitCarrierTrace
+    ) -> BridgeProductWebKitHiddenStormSummary {
+        let admitted = admittedFrames(traceBefore: traceBefore, traceAfter: traceAfter)
+        return BridgeProductWebKitHiddenStormSummary(
+            message: message(nativeBefore: nativeBefore, nativeAfter: nativeAfter, admitted: admitted),
+            productDeltas: BridgeProductWebKitHiddenStormProductDeltas(
+                panePresentationEventCount: admitted.paneEvents.count,
+                fileMetadataPhaseCount: admitted.filePhases.count,
+                reviewMetadataPhaseCount: admitted.reviewPhases.count
+            )
+        )
+    }
+
+    private static func message(
+        nativeBefore: BridgeProductWebKitCarrierNativeSnapshot,
+        nativeAfter: BridgeProductWebKitCarrierNativeSnapshot,
+        admitted: AdmittedFrames
     ) -> String {
-        let paneEvents = appendedValues(
-            traceAfter.panePresentationEvents,
-            after: traceBefore.panePresentationEvents
-        )
-        let filePhases = appendedValues(
-            traceAfter.fileMetadataPhases,
-            after: traceBefore.fileMetadataPhases
-        )
-        let reviewPhases = appendedValues(
-            traceAfter.reviewMetadataPhases,
-            after: traceBefore.reviewMetadataPhases
-        )
-        return "hidden metadata storm: sequence=\(nativeBefore.nextMetadataStreamSequence)"
+        "hidden metadata storm: sequence=\(nativeBefore.nextMetadataStreamSequence)"
             + "->\(nativeAfter.nextMetadataStreamSequence), "
             + "control=next:\(nativeBefore.nextControlRequestSequence)"
             + "->\(nativeAfter.nextControlRequestSequence)"
@@ -27,9 +50,36 @@ enum BridgeProductWebKitMetadataStormDiagnostic {
             + "frames=queued:\(nativeBefore.queuedFrameCount)->\(nativeAfter.queuedFrameCount)"
             + "/inFlight:\(nativeBefore.inFlightFrameReceiptCount)"
             + "->\(nativeAfter.inFlightFrameReceiptCount), "
-            + "pane=\(boundedDescription(paneEvents)), "
-            + "file=\(boundedDescription(filePhases)), "
-            + "review=\(boundedDescription(reviewPhases))"
+            + "pane=\(boundedDescription(admitted.paneEvents)), "
+            + "file=\(boundedDescription(admitted.filePhases)), "
+            + "review=\(boundedDescription(admitted.reviewPhases))"
+    }
+
+    private struct AdmittedFrames {
+        let paneEvents: ArraySlice<BridgeProductWebKitCarrierPanePresentationTrace>
+        let filePhases: ArraySlice<String>
+        let reviewPhases: ArraySlice<String>
+    }
+
+    /// The one place "what did the hidden pane admit" is computed.
+    private static func admittedFrames(
+        traceBefore: BridgeProductWebKitCarrierTrace,
+        traceAfter: BridgeProductWebKitCarrierTrace
+    ) -> AdmittedFrames {
+        AdmittedFrames(
+            paneEvents: appendedValues(
+                traceAfter.panePresentationEvents,
+                after: traceBefore.panePresentationEvents
+            ),
+            filePhases: appendedValues(
+                traceAfter.fileMetadataPhases,
+                after: traceBefore.fileMetadataPhases
+            ),
+            reviewPhases: appendedValues(
+                traceAfter.reviewMetadataPhases,
+                after: traceBefore.reviewMetadataPhases
+            )
+        )
     }
 
     private static func appendedValues<Element>(

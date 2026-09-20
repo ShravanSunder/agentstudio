@@ -248,14 +248,11 @@ enum BridgeProductWebKitSurfaceJourneyTestSupport {
         page: WebPage
     ) async throws {
         let expectedMode = surface == .file ? "file" : "review"
-        let activated = await BridgeProductWebKitCarrierTestSupport.waitUntil(
-            timeout: .seconds(10)
-        ) {
-            (try? await state(page))?.activeMode == expectedMode
-        }
-        guard activated else {
-            throw JourneyError.conditionFailed("retained \(expectedMode) host did not activate")
-        }
+        _ = try await awaitState(
+            page,
+            where: "return state.activeMode === expectedMode;",
+            arguments: ["expectedMode": expectedMode]
+        )
     }
 
     private static func requireReadyReview(
@@ -307,95 +304,144 @@ enum BridgeProductWebKitSurfaceJourneyTestSupport {
         return observed
     }
 
+    /// Asserts, with one read, that Review state survived the surface switches.
+    ///
+    /// The barrier is already behind us: `requestSurface` awaited the native
+    /// selection receipt and then the retained host's activation in the DOM. This is
+    /// a RETENTION claim, so it is read exactly once. Polling it until it holds
+    /// would accept a Review host that lost its selection and rebuilt it — the very
+    /// regression the journey exists to catch.
     private static func requireReviewState(
         _ expected: BridgeProductWebKitSurfaceSelectionState,
         activeMode: String,
         page: WebPage
     ) async throws -> BridgeProductWebKitSurfaceSelectionState {
-        var observed: BridgeProductWebKitSurfaceSelectionState?
-        let retained = await BridgeProductWebKitCarrierTestSupport.waitUntil(
-            timeout: .seconds(10)
-        ) {
-            guard let snapshot = try? await state(page) else { return false }
-            observed = snapshot
-            return snapshot.activeMode == activeMode
-                && snapshot.fileHostRetained
-                && snapshot.reviewHostRetained
-                && snapshot.reviewContentState == expected.reviewContentState
-                && snapshot.reviewSelectedItemId == expected.reviewSelectedItemId
-                && snapshot.reviewSelectedPath == expected.reviewSelectedPath
+        guard let observed = try await state(page) else {
+            throw JourneyError.conditionFailed("Review state could not be read after surface switch")
         }
-        guard retained, let observed else {
-            throw JourneyError.conditionFailed("Review state changed during native surface switches")
+        guard observed.activeMode == activeMode,
+            observed.fileHostRetained,
+            observed.reviewHostRetained,
+            observed.reviewContentState == expected.reviewContentState,
+            observed.reviewSelectedItemId == expected.reviewSelectedItemId,
+            observed.reviewSelectedPath == expected.reviewSelectedPath
+        else {
+            throw JourneyError.conditionFailed(
+                "Review state changed during native surface switches; "
+                    + "expected=\(expected) observed=\(observed)"
+            )
         }
         return observed
     }
 
+    /// Asserts, with one read, that BOTH retained hosts kept their state across the
+    /// final switch back to File. Same retention reasoning as `requireReviewState`.
     private static func requireRetainedState(
         fileState: BridgeProductWebKitSurfaceSelectionState,
         reviewState: BridgeProductWebKitSurfaceSelectionState,
         page: WebPage
     ) async throws -> BridgeProductWebKitSurfaceSelectionState {
-        var observed: BridgeProductWebKitSurfaceSelectionState?
-        let retained = await BridgeProductWebKitCarrierTestSupport.waitUntil(
-            timeout: .seconds(10)
-        ) {
-            guard let snapshot = try? await state(page) else { return false }
-            observed = snapshot
-            return snapshot.activeMode == "file"
-                && snapshot.fileHostRetained
-                && snapshot.reviewHostRetained
-                && snapshot.fileDisplayStatus == fileState.fileDisplayStatus
-                && snapshot.fileDisplaySourceId == fileState.fileDisplaySourceId
-                && snapshot.fileDisplayItemCount == fileState.fileDisplayItemCount
-                && snapshot.fileProjectedRowCount == fileState.fileProjectedRowCount
-                && snapshot.fileTotalRowCount == fileState.fileTotalRowCount
-                && snapshot.reviewContentState == reviewState.reviewContentState
-                && snapshot.reviewSelectedItemId == reviewState.reviewSelectedItemId
-                && snapshot.reviewSelectedPath == reviewState.reviewSelectedPath
+        guard let observed = try await state(page) else {
+            throw JourneyError.conditionFailed("retained state could not be read after surface switch")
         }
-        guard retained, let observed else {
-            throw JourneyError.conditionFailed("retained File or Review state changed")
+        guard observed.activeMode == "file",
+            observed.fileHostRetained,
+            observed.reviewHostRetained,
+            observed.fileDisplayStatus == fileState.fileDisplayStatus,
+            observed.fileDisplaySourceId == fileState.fileDisplaySourceId,
+            observed.fileDisplayItemCount == fileState.fileDisplayItemCount,
+            observed.fileProjectedRowCount == fileState.fileProjectedRowCount,
+            observed.fileTotalRowCount == fileState.fileTotalRowCount,
+            observed.reviewContentState == reviewState.reviewContentState,
+            observed.reviewSelectedItemId == reviewState.reviewSelectedItemId,
+            observed.reviewSelectedPath == reviewState.reviewSelectedPath
+        else {
+            throw JourneyError.conditionFailed(
+                "retained File or Review state changed; observed=\(observed)"
+            )
         }
         return observed
     }
 
+    /// JavaScript function body returning the journey's whole observable surface
+    /// state as a plain object.
+    ///
+    /// Every field is derived from the DOM — element presence, attributes, and one
+    /// `textContent` — and from a JS global captured once by `establishHostIdentity`.
+    /// That is what lets `awaitState` re-read it from a `MutationObserver`: each
+    /// field can only change through a mutation the observer sees.
+    private static let stateReaderBody = """
+        const fileHost = document.querySelector('[data-testid="bridge-viewer-mode-host-file"]');
+        const reviewHost = document.querySelector('[data-testid="bridge-viewer-mode-host-review"]');
+        const retained = globalThis.__bridgeHostedSurfaceSelectionHosts;
+        const fileShell = fileHost?.querySelector('[data-testid="bridge-file-viewer-shell"]');
+        const reviewShell = reviewHost?.querySelector('[data-testid="review-viewer-shell"]');
+        const reviewPanel = reviewHost?.querySelector('[data-testid="bridge-code-view-panel"]');
+        const activeHost = document.querySelector('[data-bridge-viewer-mode-active="true"]');
+        const filterCountText = fileHost?.querySelector(
+          '[data-testid="worktree-file-filter-count"]'
+        )?.textContent ?? '';
+        const filterCounts = filterCountText.split('/').map((value) => Number(value));
+        const projectedRowCount = Number(fileShell?.getAttribute('data-file-display-tree-row-count'));
+        return {
+          activeMode: activeHost?.getAttribute('data-bridge-viewer-mode-host') ?? null,
+          fileDisplayItemCount: Number.isSafeInteger(
+            Number(fileShell?.getAttribute('data-file-display-item-count'))
+          ) ? Number(fileShell?.getAttribute('data-file-display-item-count')) : null,
+          fileDisplaySourceId: fileShell?.getAttribute('data-file-display-source-id') ?? null,
+          fileDisplayStatus: fileShell?.getAttribute('data-file-display-status') ?? null,
+          fileHostRetained: retained?.fileHost === fileHost,
+          fileProjectedRowCount: Number.isSafeInteger(projectedRowCount)
+            ? projectedRowCount
+            : null,
+          fileTotalRowCount: filterCounts.length === 2 && Number.isSafeInteger(filterCounts[1])
+            ? filterCounts[1]
+            : null,
+          reviewContentState: reviewShell?.getAttribute('data-selected-content-state') ?? null,
+          reviewHostRetained: retained?.reviewHost === reviewHost,
+          reviewSelectedItemId: reviewPanel?.getAttribute('data-selected-item-id') ?? null,
+          reviewSelectedPath: reviewShell?.getAttribute('data-selected-display-path') ?? null
+        };
+        """
+
+    /// Suspends until the surface state satisfies `predicate`, then answers with it.
+    ///
+    /// `predicate` is a JavaScript function body over an in-scope `state` constant.
+    /// The wait is driven by DOM mutations, never by a clock.
+    private static func awaitState(
+        _ page: WebPage,
+        where predicate: String,
+        arguments: [String: Any] = [:]
+    ) async throws -> BridgeProductWebKitSurfaceSelectionState {
+        let encoded = try await WebPageEventWaits.waitForDocumentValue(
+            page,
+            reader: """
+                const state = (() => { \(stateReaderBody) })();
+                const matches = (() => { \(predicate) })();
+                return matches ? JSON.stringify(state) : null;
+                """,
+            arguments: arguments
+        )
+        guard let encoded = encoded as? String,
+            let data = encoded.data(using: .utf8)
+        else {
+            throw JourneyError.conditionFailed("surface state reader did not answer with JSON")
+        }
+        return try JSONDecoder().decode(BridgeProductWebKitSurfaceSelectionState.self, from: data)
+    }
+
+    /// Reads the surface state once, with no wait of any kind.
+    ///
+    /// Used where a preceding wait has already established the barrier and the
+    /// claim is that the state is a particular value AT that point — a retention
+    /// claim is weakened, not strengthened, by re-sampling until it happens to hold.
     private static func state(
         _ page: WebPage
     ) async throws -> BridgeProductWebKitSurfaceSelectionState? {
         let encoded = try await page.callJavaScript(
             """
-            const fileHost = document.querySelector('[data-testid="bridge-viewer-mode-host-file"]');
-            const reviewHost = document.querySelector('[data-testid="bridge-viewer-mode-host-review"]');
-            const retained = globalThis.__bridgeHostedSurfaceSelectionHosts;
-            const fileShell = fileHost?.querySelector('[data-testid="bridge-file-viewer-shell"]');
-            const reviewShell = reviewHost?.querySelector('[data-testid="review-viewer-shell"]');
-            const reviewPanel = reviewHost?.querySelector('[data-testid="bridge-code-view-panel"]');
-            const activeHost = document.querySelector('[data-bridge-viewer-mode-active="true"]');
-            const filterCountText = fileHost?.querySelector(
-              '[data-testid="worktree-file-filter-count"]'
-            )?.textContent ?? '';
-            const filterCounts = filterCountText.split('/').map((value) => Number(value));
-            const projectedRowCount = Number(fileShell?.getAttribute('data-file-display-tree-row-count'));
-            return JSON.stringify({
-              activeMode: activeHost?.getAttribute('data-bridge-viewer-mode-host') ?? null,
-              fileDisplayItemCount: Number.isSafeInteger(
-                Number(fileShell?.getAttribute('data-file-display-item-count'))
-              ) ? Number(fileShell?.getAttribute('data-file-display-item-count')) : null,
-              fileDisplaySourceId: fileShell?.getAttribute('data-file-display-source-id') ?? null,
-              fileDisplayStatus: fileShell?.getAttribute('data-file-display-status') ?? null,
-              fileHostRetained: retained?.fileHost === fileHost,
-              fileProjectedRowCount: Number.isSafeInteger(projectedRowCount)
-                ? projectedRowCount
-                : null,
-              fileTotalRowCount: filterCounts.length === 2 && Number.isSafeInteger(filterCounts[1])
-                ? filterCounts[1]
-                : null,
-              reviewContentState: reviewShell?.getAttribute('data-selected-content-state') ?? null,
-              reviewHostRetained: retained?.reviewHost === reviewHost,
-              reviewSelectedItemId: reviewPanel?.getAttribute('data-selected-item-id') ?? null,
-              reviewSelectedPath: reviewShell?.getAttribute('data-selected-display-path') ?? null
-            });
+            const readSurfaceState = () => { \(stateReaderBody) };
+            return JSON.stringify(readSurfaceState());
             """
         )
         guard let encoded = encoded as? String,

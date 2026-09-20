@@ -16,6 +16,7 @@ extension WorkspaceSurfaceCoordinator {
         try await store.closeForUndo(
             tabID: tabID, paneID: paneID, closeID: UUIDv7.generate(), time: time,
             willPublish: { [self] proposal, _ in
+                ipcLifecycle.invalidatePaneIDs(proposal.removedPaneIDs)
                 retireZoomCompanions(forSourcePanes: proposal.removedPaneIDs)
                 surfaceManager.retainSurfacesForUndo(forPaneIDs: proposal.removedPaneIDs)
                 for pane in proposal.snapshot.panes where proposal.removedPaneIDs.contains(pane.id) {

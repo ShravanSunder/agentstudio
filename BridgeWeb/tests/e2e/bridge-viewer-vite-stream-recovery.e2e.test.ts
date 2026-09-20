@@ -35,6 +35,9 @@ test.each(['direct', 'healthy', 'disconnected'] as const)(
 			if (streamState !== 'direct') proxy = await startBridgeStreamFaultProxy(server.origin);
 			browser = await chromium.launch({ channel: 'chrome', headless: true });
 			page = await browser.newPage({ viewport: { height: 980, width: 1728 } });
+			// The vitest hang bound is the only clock this journey is allowed.
+			page.setDefaultTimeout(0);
+			page.setDefaultNavigationTimeout(0);
 			diagnostics = observeBrowserRuntimeDiagnostics(page);
 			failures = await observeInteractionProfileFailures(page);
 			await page.goto(
@@ -59,30 +62,26 @@ test.each(['direct', 'healthy', 'disconnected'] as const)(
 			const updatedContent = await fixture.mutateLargeFile();
 
 			// Assert — no second click, explicit subscribe, reload, or replacement call from the test.
-			await page.waitForFunction(
-				(expectedSha256: string): boolean => {
-					const canvas = document.querySelector('[data-testid="bridge-file-viewer-code-canvas"]');
-					const painted = canvas?.querySelector(
-						'diffs-container[data-bridge-painted-source-correlations]',
-					);
-					const correlations: unknown = JSON.parse(
-						painted?.getAttribute('data-bridge-painted-source-correlations') ?? '[]',
-					);
-					return (
-						canvas?.getAttribute('data-worktree-open-file-state') === 'ready' &&
-						Array.isArray(correlations) &&
-						correlations.some(
-							(correlation: unknown): boolean =>
-								typeof correlation === 'object' &&
-								correlation !== null &&
-								'observedSha256' in correlation &&
-								correlation.observedSha256 === expectedSha256,
-						)
-					);
-				},
-				updatedContent.sha256,
-				{ timeout: 20_000 },
-			);
+			await page.waitForFunction((expectedSha256: string): boolean => {
+				const canvas = document.querySelector('[data-testid="bridge-file-viewer-code-canvas"]');
+				const painted = canvas?.querySelector(
+					'diffs-container[data-bridge-painted-source-correlations]',
+				);
+				const correlations: unknown = JSON.parse(
+					painted?.getAttribute('data-bridge-painted-source-correlations') ?? '[]',
+				);
+				return (
+					canvas?.getAttribute('data-worktree-open-file-state') === 'ready' &&
+					Array.isArray(correlations) &&
+					correlations.some(
+						(correlation: unknown): boolean =>
+							typeof correlation === 'object' &&
+							correlation !== null &&
+							'observedSha256' in correlation &&
+							correlation.observedSha256 === expectedSha256,
+					)
+				);
+			}, updatedContent.sha256);
 			if (proxy !== null && before !== undefined && streamState === 'healthy') {
 				expect(proxy.snapshot().metadataRequestCount).toBe(before.metadataRequestCount);
 			} else if (proxy !== null && before !== undefined) {
