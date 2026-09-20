@@ -61,7 +61,6 @@ enum ArchitectureAllowlists {
         "/Tests/AgentStudioTests/Features/RepoExplorer/RepoExplorerProjectionBrokerTests.swift",
         "/Tests/AgentStudioTests/Infrastructure/AtomLib/EagerDerivedAtomTestSupport.swift",
         "/Tests/AgentStudioTests/Infrastructure/ProcessExecutorTests.swift",
-        "/Tests/AgentStudioTests/Infrastructure/SQLite/SQLiteDatabaseFactoryTests.swift",
         "/Tests/AgentStudioTests/Integration/RepositoryRetentionCommitBoundaryRecoveryTests.swift",
         "/Tests/AgentStudioTests/Scripts/ObservabilityLaunchScriptTestSupport.swift",
     ]
