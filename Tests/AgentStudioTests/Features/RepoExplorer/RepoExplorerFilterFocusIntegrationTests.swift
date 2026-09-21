@@ -2,6 +2,7 @@ import AgentStudioCore
 import AgentStudioInfrastructure
 import AgentStudioTestSupport
 import AppKit
+import Observation
 import SwiftUI
 import Testing
 
@@ -32,8 +33,8 @@ struct RepoExplorerFilterFocusIntegrationTests {
             onRefocusActivePane: {},
             onSidebarVisibleWorktreesChanged: {}
         )
-        let hostingView = NSHostingView(rootView: AnyView(view))
-        let window = NSWindow(
+        let hostingView = RepoExplorerFilterHostingView(rootView: AnyView(view))
+        let window = RepoExplorerFilterWindow(
             contentRect: NSRect(x: 0, y: 0, width: 360, height: 480),
             styleMask: [.titled],
             backing: .buffered,
@@ -52,19 +53,26 @@ struct RepoExplorerFilterFocusIntegrationTests {
         }
         window.layoutIfNeeded()
         hostingView.layoutSubtreeIfNeeded()
-        #expect(
-            await waitForFilterState {
-                firstFilterDescendant(RepoExplorerMaterializationHost.self, in: hostingView) != nil
-            })
-        let listHost = try #require(firstFilterDescendant(RepoExplorerMaterializationHost.self, in: hostingView))
-        let textField = try #require(firstFilterDescendant(NSTextField.self, in: hostingView))
+        let listHost = try #require(
+            await hostingView.descendant(RepoExplorerMaterializationHost.self)
+        )
+        let textField = try #require(await hostingView.descendant(NSTextField.self))
 
         // Use the production FocusState request and the native shared field editor.
-        #expect(RepoExplorerView.requestFilterFocus(on: listHost))
-        #expect(await waitForFilterState { textField.currentEditor() === window.firstResponder })
+        var filterFocusAccepted = false
+        #expect(
+            await window.performAndWaitForFirstResponder(
+                matching: { textField.currentEditor() === window.firstResponder },
+                action: { filterFocusAccepted = RepoExplorerView.requestFilterFocus(on: listHost) }
+            )
+        )
+        #expect(filterFocusAccepted)
         let editor = try #require(textField.currentEditor() as? NSTextView)
+        let filterTextWaiter = RepoExplorerFilterObservableConditionWaiter {
+            sidebarState.filterText == "prf123-no-match"
+        }
         editor.insertText("prf123-no-match", replacementRange: NSRange(location: NSNotFound, length: 0))
-        #expect(await waitForFilterState { sidebarState.filterText == "prf123-no-match" })
+        #expect(await filterTextWaiter.wait())
 
         let enterEvent = try #require(
             NSEvent.keyEvent(
@@ -79,11 +87,13 @@ struct RepoExplorerFilterFocusIntegrationTests {
                 isARepeat: false,
                 keyCode: 36
             ))
-        window.sendEvent(enterEvent)
-        #expect(await waitForFilterState { textField.currentEditor() == nil })
-        // Flush the real SwiftUI focus update before inspecting the native responder.
-        hostingView.layoutSubtreeIfNeeded()
-        #expect(await waitForFilterState { window.firstResponder === listHost })
+        #expect(
+            await window.performAndWaitForFirstResponder(
+                matching: { window.firstResponder === listHost },
+                action: { window.sendEvent(enterEvent) }
+            )
+        )
+        #expect(textField.currentEditor() == nil)
         #expect(sidebarState.filterText == "prf123-no-match")
         #expect(sidebarState.sidebarHasFocus)
     }
@@ -215,7 +225,7 @@ struct RepoExplorerFilterFocusIntegrationTests {
                 onRefocusActivePane: {},
                 onSidebarVisibleWorktreesChanged: {}
             )
-            let hostingView = NSHostingView(rootView: AnyView(view))
+            let hostingView = RepoExplorerFilterHostingView(rootView: AnyView(view))
             let window = makeColdFocusWindow(hostingView)
             defer {
                 hostingView.rootView = AnyView(EmptyView())
@@ -228,39 +238,35 @@ struct RepoExplorerFilterFocusIntegrationTests {
             )
             dispatcher.listHost = listHost
 
-            switch entry {
-            case .initialNativeFieldFocus:
-                #expect(window.makeFirstResponder(textField))
-            case .explicitFocusStateRequest, .filterAfterRuntimeFocusReset:
-                #expect(RepoExplorerView.requestFilterFocus(on: listHost))
-            }
-            #expect(
-                await waitForFilterState {
-                    textField.currentEditor() === window.firstResponder
-                }
+            await focusColdFilter(
+                entry: entry,
+                window: window,
+                textField: textField,
+                listHost: listHost
             )
 
             if entry == .filterAfterRuntimeFocusReset {
-                #expect(await waitForFilterState { sidebarState.sidebarHasFocus })
+                #expect(sidebarState.sidebarHasFocus)
                 // Exact runtime effect of the post-presentation UIStateStore hydration.
                 sidebarState.setSidebarHasFocus(false)
             }
             #expect(window.makeFirstResponder(listHost))
             hostingView.layoutSubtreeIfNeeded()
-            #expect(await waitForFilterState { window.firstResponder === listHost })
+            #expect(window.firstResponder === listHost)
             #expect(sidebarState.sidebarHasFocus)
 
             window.sendEvent(try coldFocusKeyEvent("p", keyCode: 35, window: window))
             #expect(dispatcher.commands == [.showPanesSidebar])
             #expect(window.firstResponder === listHost)
 
-            window.sendEvent(try coldFocusKeyEvent("f", keyCode: 3, window: window))
-            #expect(dispatcher.commands == [.showPanesSidebar, .filterSidebar])
+            let filterEvent = try coldFocusKeyEvent("f", keyCode: 3, window: window)
             #expect(
-                await waitForFilterState {
-                    textField.currentEditor() === window.firstResponder
-                }
+                await window.performAndWaitForFirstResponder(
+                    matching: { textField.currentEditor() === window.firstResponder },
+                    action: { window.sendEvent(filterEvent) }
+                )
             )
+            #expect(dispatcher.commands == [.showPanesSidebar, .filterSidebar])
         }
     }
 }
@@ -301,17 +307,10 @@ private func firstFilterDescendant<ViewType: NSView>(_ type: ViewType.Type, in v
 }
 
 @MainActor
-private func waitForFilterState(_ predicate: @MainActor () -> Bool) async -> Bool {
-    for _ in 0..<10_000 {
-        if predicate() { return true }
-        await Task.yield()
-    }
-    return predicate()
-}
-
-@MainActor
-private func makeColdFocusWindow(_ hostingView: NSHostingView<AnyView>) -> NSWindow {
-    let window = NSWindow(
+private func makeColdFocusWindow(
+    _ hostingView: RepoExplorerFilterHostingView
+) -> RepoExplorerFilterWindow {
+    let window = RepoExplorerFilterWindow(
         contentRect: NSRect(x: 0, y: 0, width: 360, height: 480),
         styleMask: [.titled],
         backing: .buffered,
@@ -326,16 +325,135 @@ private func makeColdFocusWindow(_ hostingView: NSHostingView<AnyView>) -> NSWin
 
 @MainActor
 private func coldFocusListHost(
-    in hostingView: NSView
+    in hostingView: RepoExplorerFilterHostingView
 ) async throws -> RepoExplorerMaterializationHost {
-    #expect(
-        await waitForFilterState {
-            firstFilterDescendant(RepoExplorerMaterializationHost.self, in: hostingView) != nil
+    try #require(await hostingView.descendant(RepoExplorerMaterializationHost.self))
+}
+
+@MainActor
+private final class RepoExplorerFilterHostingView: NSHostingView<AnyView> {
+    private var descendantCondition: (() -> Bool)?
+    private var descendantContinuation: CheckedContinuation<Void, Never>?
+
+    func descendant<ViewType: NSView>(_ type: ViewType.Type) async -> ViewType? {
+        layoutSubtreeIfNeeded()
+        if let match = firstFilterDescendant(type, in: self) { return match }
+        await withCheckedContinuation { continuation in
+            precondition(descendantContinuation == nil)
+            descendantCondition = { [weak self] in
+                guard let self else { return false }
+                return firstFilterDescendant(type, in: self) != nil
+            }
+            descendantContinuation = continuation
+            needsLayout = true
         }
-    )
-    return try #require(
-        firstFilterDescendant(RepoExplorerMaterializationHost.self, in: hostingView)
-    )
+        return firstFilterDescendant(type, in: self)
+    }
+
+    override func layout() {
+        super.layout()
+        guard descendantCondition?() == true else { return }
+        descendantCondition = nil
+        descendantContinuation?.resume()
+        descendantContinuation = nil
+    }
+}
+
+@MainActor
+private final class RepoExplorerFilterWindow: NSWindow {
+    private var responderCondition: (() -> Bool)?
+    private var responderContinuation: CheckedContinuation<Bool, Never>?
+
+    func performAndWaitForFirstResponder(
+        matching condition: @escaping () -> Bool,
+        action: () -> Void
+    ) async -> Bool {
+        await withCheckedContinuation { continuation in
+            precondition(responderContinuation == nil)
+            responderCondition = condition
+            responderContinuation = continuation
+            action()
+            resolveResponderWaitIfSatisfied()
+        }
+    }
+
+    override func makeFirstResponder(_ responder: NSResponder?) -> Bool {
+        let accepted = super.makeFirstResponder(responder)
+        resolveResponderWaitIfSatisfied()
+        return accepted
+    }
+
+    private func resolveResponderWaitIfSatisfied() {
+        guard responderCondition?() == true else { return }
+        responderCondition = nil
+        responderContinuation?.resume(returning: true)
+        responderContinuation = nil
+    }
+}
+
+@MainActor
+private func focusColdFilter(
+    entry: ColdFilterFocusEntry,
+    window: RepoExplorerFilterWindow,
+    textField: NSTextField,
+    listHost: RepoExplorerMaterializationHost
+) async {
+    switch entry {
+    case .initialNativeFieldFocus:
+        var nativeFocusAccepted = false
+        #expect(
+            await window.performAndWaitForFirstResponder(
+                matching: { textField.currentEditor() === window.firstResponder },
+                action: { nativeFocusAccepted = window.makeFirstResponder(textField) }
+            )
+        )
+        #expect(nativeFocusAccepted)
+    case .explicitFocusStateRequest, .filterAfterRuntimeFocusReset:
+        var filterFocusAccepted = false
+        #expect(
+            await window.performAndWaitForFirstResponder(
+                matching: { textField.currentEditor() === window.firstResponder },
+                action: {
+                    filterFocusAccepted = RepoExplorerView.requestFilterFocus(on: listHost)
+                }
+            )
+        )
+        #expect(filterFocusAccepted)
+    }
+}
+
+@MainActor
+private final class RepoExplorerFilterObservableConditionWaiter {
+    private let condition: @MainActor () -> Bool
+    private var continuation: CheckedContinuation<Bool, Never>?
+
+    init(condition: @escaping @MainActor () -> Bool) {
+        self.condition = condition
+    }
+
+    func wait() async -> Bool {
+        if condition() { return true }
+        return await withCheckedContinuation { continuation in
+            self.continuation = continuation
+            observeCondition()
+        }
+    }
+
+    private func observeCondition() {
+        guard continuation != nil else { return }
+        if condition() {
+            continuation?.resume(returning: true)
+            continuation = nil
+            return
+        }
+        withObservationTracking {
+            _ = condition()
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                self?.observeCondition()
+            }
+        }
+    }
 }
 
 @MainActor

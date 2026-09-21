@@ -17,20 +17,21 @@ extension WorkspaceSurfaceCoordinator {
         restartRendererVisibilityObservation()
     }
 
-    func prepareHeldPanePreview() {
+    @discardableResult
+    func prepareHeldPanePreview() -> Task<Void, Never>? {
         guard let state = heldPanePreviewState,
             state.isHeld,
             let generation = state.generation,
             let target = state.requestedTarget
         else {
             heldPanePreviewPreparationCapture = nil
-            return
+            return nil
         }
 
         guard let pane = currentPane(for: target) else {
             heldPanePreviewPreparationCapture = nil
             _ = state.invalidateTarget(generation: generation, target: target)
-            return
+            return nil
         }
 
         let terminalContainerBounds = windowLifecycleStore.terminalContainerBounds
@@ -38,7 +39,7 @@ extension WorkspaceSurfaceCoordinator {
         else {
             heldPanePreviewPreparationCapture = nil
             _ = state.markPresentationUnavailable(generation: generation, target: target)
-            return
+            return nil
         }
 
         let capture = HeldPanePreviewPreparationCapture(
@@ -57,17 +58,17 @@ extension WorkspaceSurfaceCoordinator {
             guard let surfaceView = surfaceManager.attach(surfaceID, to: pane.id) else {
                 heldPanePreviewPreparationCapture = nil
                 _ = state.markPresentationUnavailable(generation: generation, target: target)
-                return
+                return nil
             }
             terminalView.displaySurface(surfaceView, geometryVerificationReason: "heldPanePreview")
             terminalView.forceGeometrySync(reason: "heldPanePreview")
             acceptHeldPanePreviewIfCurrent(capture)
-            return
+            return nil
         }
 
         if previewMountIsReady(for: pane) {
             acceptHeldPanePreviewIfCurrent(capture)
-            return
+            return nil
         }
 
         _ = createViewForContent(
@@ -78,25 +79,26 @@ extension WorkspaceSurfaceCoordinator {
 
         if previewMountIsReady(for: pane) {
             acceptHeldPanePreviewIfCurrent(capture)
+            return nil
         } else {
-            scheduleHeldPreviewDeferredTerminalGeometryReevaluation(capture)
+            return scheduleHeldPreviewDeferredTerminalGeometryReevaluation(capture)
         }
     }
 
     private func scheduleHeldPreviewDeferredTerminalGeometryReevaluation(
         _ capture: HeldPanePreviewPreparationCapture
-    ) {
+    ) -> Task<Void, Never>? {
         guard let preparedGeneration = acceptedPreparedContentMountGeneration,
             viewRegistry.preparedContentMountState(
                 for: PaneId(existingUUID: capture.target.paneID),
                 generation: preparedGeneration
             ) == .deferredGeometry(owner: .terminal)
         else {
-            return
+            return nil
         }
 
         let scheduledPreparedGeneration = preparedGeneration
-        Task { @MainActor [weak self] in
+        return Task { @MainActor [weak self] in
             guard let self,
                 self.isCurrentHeldPreviewCapture(capture),
                 self.acceptedPreparedContentMountGeneration == scheduledPreparedGeneration,

@@ -56,8 +56,10 @@ extension WorkspaceGeometryReevaluationIntegrationTests {
             )
             #expect(heldState.beginSpaceHold(requestedTarget: target))
 
-            harness.coordinator.prepareHeldPanePreview()
-            for _ in 0..<50 { await Task.yield() }
+            let deferredReevaluation = try #require(
+                harness.coordinator.prepareHeldPanePreview()
+            )
+            await deferredReevaluation.value
 
             #expect(reevaluationCallCount == 1)
             #expect(reevaluatedFrames[deferredPaneID] == trustedBounds)
@@ -107,7 +109,9 @@ extension WorkspaceGeometryReevaluationIntegrationTests {
                 sessionID: deferredPane.terminalState?.zmxSessionID
             )
             #expect(heldState.beginSpaceHold(requestedTarget: target))
-            harness.coordinator.prepareHeldPanePreview()
+            let deferredReevaluation = try #require(
+                harness.coordinator.prepareHeldPanePreview()
+            )
 
             let successorGeneration = WorkspaceContentMountGeneration()
             let successorDescriptor = try geometryReevaluationTerminalDescriptor(
@@ -130,7 +134,7 @@ extension WorkspaceGeometryReevaluationIntegrationTests {
                 )
             )
             harness.coordinator.acceptedPreparedContentMountGeneration = successorGeneration
-            for _ in 0..<50 { await Task.yield() }
+            await deferredReevaluation.value
 
             #expect(reevaluationCallCount == 0)
             withExtendedLifetime(mounted) {}
@@ -177,10 +181,12 @@ extension WorkspaceGeometryReevaluationIntegrationTests {
                 sessionID: deferredPane.terminalState?.zmxSessionID
             )
             #expect(heldState.beginSpaceHold(requestedTarget: target))
-            harness.coordinator.prepareHeldPanePreview()
+            let deferredReevaluation = try #require(
+                harness.coordinator.prepareHeldPanePreview()
+            )
 
             mutate(harness, heldState, target)
-            for _ in 0..<50 { await Task.yield() }
+            await deferredReevaluation.value
 
             #expect(reevaluationCallCount == 0)
             #expect(harness.surfaceManager.createdPaneIds.contains(deferredPane.id) == false)

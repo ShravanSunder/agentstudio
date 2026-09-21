@@ -16,23 +16,19 @@ struct MainSplitViewControllerCompositeCommandTests {
         installTestCoreAtomsIfNeeded()
     }
 
-    @Test("visibility-only sidebar show preserves the exact external responder")
-    func visibilityOnlySidebarShowPreservesExternalResponder() async throws {
+    @Test("visibility-only sidebar show preserves the exact terminal responder")
+    func visibilityOnlySidebarShowPreservesTerminalResponder() async throws {
         try await withMainSplitViewControllerHarness(
             withRepos: true,
             configureUIState: { $0.setSidebarCollapsed(true) },
             body: { harness in
-                let externalResponder = MainSplitViewControllerTestInboxFocusableView()
-                let paneView = try #require(
-                    harness.controller.splitViewItems.last?.viewController.view
-                )
-                paneView.addSubview(externalResponder)
-                #expect(harness.window.makeFirstResponder(externalResponder))
+                let terminalResponder = try installMainSplitTerminalResponder(in: harness)
+                #expect(harness.window.makeFirstResponder(terminalResponder))
 
                 harness.controller.toggleSidebarFromCommand()
 
                 #expect(!harness.controller.isSidebarCollapsed)
-                #expect(harness.window.firstResponder === externalResponder)
+                #expect(harness.window.firstResponder === terminalResponder)
             }
         )
     }
@@ -43,12 +39,8 @@ struct MainSplitViewControllerCompositeCommandTests {
             withRepos: true,
             configureUIState: { $0.setSidebarCollapsed(true) },
             body: { harness in
-                let externalResponder = MainSplitViewControllerTestInboxFocusableView()
-                let paneView = try #require(
-                    harness.controller.splitViewItems.last?.viewController.view
-                )
-                paneView.addSubview(externalResponder)
-                #expect(harness.window.makeFirstResponder(externalResponder))
+                let terminalResponder = try installMainSplitTerminalResponder(in: harness)
+                #expect(harness.window.makeFirstResponder(terminalResponder))
 
                 harness.controller.focusSidebarFromCommand()
 
@@ -61,7 +53,7 @@ struct MainSplitViewControllerCompositeCommandTests {
                 harness.controller.focusSidebarFromCommand()
 
                 #expect(!harness.controller.isSidebarCollapsed)
-                #expect(harness.window.firstResponder === externalResponder)
+                #expect(harness.window.firstResponder === terminalResponder)
             }
         )
     }
@@ -72,12 +64,8 @@ struct MainSplitViewControllerCompositeCommandTests {
             withRepos: true,
             configureUIState: { $0.setSidebarCollapsed(true) },
             body: { harness in
-                let externalResponder = MainSplitViewControllerTestInboxFocusableView()
-                let paneView = try #require(
-                    harness.controller.splitViewItems.last?.viewController.view
-                )
-                paneView.addSubview(externalResponder)
-                #expect(harness.window.makeFirstResponder(externalResponder))
+                let terminalResponder = try installMainSplitTerminalResponder(in: harness)
+                #expect(harness.window.makeFirstResponder(terminalResponder))
 
                 harness.controller.focusSidebarFromCommand()
                 await eventually("focus command should expand and focus the sidebar host") {
@@ -103,22 +91,18 @@ struct MainSplitViewControllerCompositeCommandTests {
                 harness.window.sendEvent(escapeEvent)
 
                 #expect(!harness.controller.isSidebarCollapsed)
-                #expect(harness.window.firstResponder === externalResponder)
+                #expect(harness.window.firstResponder === terminalResponder)
             }
         )
     }
 
-    @Test("hiding a focused sidebar restores the external responder")
-    func hidingFocusedSidebarRestoresExternalResponder() async throws {
+    @Test("hiding a focused sidebar restores the terminal responder")
+    func hidingFocusedSidebarRestoresTerminalResponder() async throws {
         try await withMainSplitViewControllerHarness(
             withRepos: true,
             body: { harness in
-                let externalResponder = MainSplitViewControllerTestInboxFocusableView()
-                let paneView = try #require(
-                    harness.controller.splitViewItems.last?.viewController.view
-                )
-                paneView.addSubview(externalResponder)
-                #expect(harness.window.makeFirstResponder(externalResponder))
+                let terminalResponder = try installMainSplitTerminalResponder(in: harness)
+                #expect(harness.window.makeFirstResponder(terminalResponder))
 
                 harness.controller.focusSidebarFromCommand()
                 await eventually("focus command should focus the sidebar host") {
@@ -129,7 +113,7 @@ struct MainSplitViewControllerCompositeCommandTests {
                 harness.controller.toggleSidebarFromCommand()
 
                 #expect(harness.controller.isSidebarCollapsed)
-                #expect(harness.window.firstResponder === externalResponder)
+                #expect(harness.window.firstResponder === terminalResponder)
             }
         )
     }
@@ -302,6 +286,23 @@ struct MainSplitViewControllerCompositeCommandTests {
             }
         )
     }
+}
+
+@MainActor
+private func installMainSplitTerminalResponder(
+    in harness: MainSplitViewControllerHarness
+) throws -> TerminalPaneMountView {
+    let pane = harness.store.createPane()
+    let tab = Tab(paneId: pane.id)
+    harness.store.appendTab(tab)
+    harness.store.setActiveTab(tab.id)
+    let terminalResponder = TerminalPaneMountView(paneId: pane.id, title: "Terminal")
+    terminalResponder.frame = NSRect(x: 0, y: 0, width: 400, height: 300)
+    let paneView = try #require(
+        harness.controller.splitViewItems.last?.viewController.view
+    )
+    paneView.addSubview(terminalResponder)
+    return terminalResponder
 }
 
 @MainActor

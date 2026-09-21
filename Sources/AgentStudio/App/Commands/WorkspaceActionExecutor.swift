@@ -220,7 +220,7 @@ final class WorkspaceActionExecutor {
     }
 
     func prepareHeldPanePreview() {
-        coordinator.prepareHeldPanePreview()
+        _ = coordinator.prepareHeldPanePreview()
     }
 
     private func drawerParentByPaneId() -> [UUID: UUID] {

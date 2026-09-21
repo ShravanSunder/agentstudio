@@ -383,9 +383,41 @@ func attachPaneHost(
 
 @MainActor
 final class FocusablePaneTabCommandMountedContentView: NSView, PaneMountedContent {
+    private let focusEvents: AsyncStream<Void>
+    private let focusEventContinuation: AsyncStream<Void>.Continuation
+
+    override init(frame frameRect: NSRect) {
+        (focusEvents, focusEventContinuation) = AsyncStream.makeStream(
+            of: Void.self,
+            bufferingPolicy: .bufferingNewest(1)
+        )
+        super.init(frame: frameRect)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        nil
+    }
+
     override var acceptsFirstResponder: Bool { true }
 
+    override func becomeFirstResponder() -> Bool {
+        let accepted = super.becomeFirstResponder()
+        if accepted {
+            focusEventContinuation.yield()
+        }
+        return accepted
+    }
+
+    func makeFocusEventIterator() -> AsyncStream<Void>.AsyncIterator {
+        focusEvents.makeAsyncIterator()
+    }
+
     func setContentInteractionEnabled(_: Bool) {}
+
+    deinit {
+        focusEventContinuation.finish()
+    }
 }
 
 final class MockPaneTabCommandSurfaceManager: WorkspaceSurfaceManaging {

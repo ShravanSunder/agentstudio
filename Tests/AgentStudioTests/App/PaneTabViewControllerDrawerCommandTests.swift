@@ -584,6 +584,7 @@ struct PaneTabViewControllerDrawerCommandTests {
 
             // This is the existing drawer-selection owner callback. It mutates
             // the cursor before it updates its private navigation scope.
+            var secondDrawerFocusEvents = secondDrawerContent.makeFocusEventIterator()
             harness.controller.handlePaneFocusTrigger(
                 .drawer(
                     .selectPane(
@@ -592,14 +593,13 @@ struct PaneTabViewControllerDrawerCommandTests {
                     )
                 )
             )
-            await eventually("drawer selection should focus the selected child") {
+            let observedFocus = await secondDrawerFocusEvents.next(isolation: #isolation)
+            #expect(observedFocus != nil)
+            #expect(
                 atom(\.workspaceFocusOwner).owner
                     == .drawerPane(parentPaneId: parent.id, paneId: secondDrawerPane.id)
-                    && (window.firstResponder === secondDrawerContent || window.firstResponder === secondDrawerHost)
-            }
-            for _ in 0..<3 {
-                await Task.yield()
-            }
+            )
+            #expect(window.firstResponder === secondDrawerContent || window.firstResponder === secondDrawerHost)
 
             // No tab/graph/preview event follows. This child-cursor-only write
             // must be observed through the canonical active parent drawer key.
@@ -611,7 +611,10 @@ struct PaneTabViewControllerDrawerCommandTests {
                 arrangementId: activeArrangementId,
                 drawerId: drawerId
             )
+            var firstDrawerFocusEvents = firstDrawerContent.makeFocusEventIterator()
             harness.store.setActiveDrawerPane(firstDrawerPane.id, in: parent.id)
+            let observedRefocus = await firstDrawerFocusEvents.next(isolation: #isolation)
+            #expect(observedRefocus != nil)
             #expect(
                 harness.store.tabArrangementAtom.cursorAtom.drawerCursorRevision(
                     arrangementId: activeArrangementId,
@@ -623,9 +626,7 @@ struct PaneTabViewControllerDrawerCommandTests {
                 harness.controller.normalizedWorkspaceNavigationScopeState()
                     == .drawerPane(parentPaneId: parent.id, paneId: firstDrawerPane.id)
             )
-            await eventually("child-only cursor change should refocus the new child") {
-                window.firstResponder === firstDrawerContent || window.firstResponder === firstDrawerHost
-            }
+            #expect(window.firstResponder === firstDrawerContent || window.firstResponder === firstDrawerHost)
         }
     }
 
