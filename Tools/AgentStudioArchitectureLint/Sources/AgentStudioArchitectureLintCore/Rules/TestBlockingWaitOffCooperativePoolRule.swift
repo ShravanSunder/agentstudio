@@ -94,7 +94,7 @@ private final class TestBlockingWaitVisitor: SyntaxVisitor {
             for parameter in function.signature.parameterClause.parameters {
                 let localName = parameter.secondName?.text ?? parameter.firstName.text
                 if localName != "_" {
-                    bindings[localName] = false
+                    bindings[localName] = parameter.type.isFoundationProcessType
                 }
             }
         }
@@ -118,7 +118,7 @@ private final class TestBlockingWaitVisitor: SyntaxVisitor {
                 for parameter in clause.parameters {
                     let localName = parameter.secondName?.text ?? parameter.firstName.text
                     if localName != "_" {
-                        bindings[localName] = false
+                        bindings[localName] = parameter.type?.isFoundationProcessType == true
                     }
                 }
             }
@@ -208,6 +208,20 @@ private final class TestBlockingWaitVisitor: SyntaxVisitor {
             }
         }
         return false
+    }
+}
+
+extension TypeSyntax {
+    fileprivate var isFoundationProcessType: Bool {
+        if let identifier = self.as(IdentifierTypeSyntax.self) {
+            return identifier.name.text == "Process"
+        }
+        guard let member = self.as(MemberTypeSyntax.self), member.name.text == "Process",
+            let base = member.baseType.as(IdentifierTypeSyntax.self)
+        else {
+            return false
+        }
+        return base.name.text == "Foundation"
     }
 }
 

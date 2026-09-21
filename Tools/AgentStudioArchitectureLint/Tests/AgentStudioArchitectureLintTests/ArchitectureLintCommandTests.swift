@@ -61,6 +61,10 @@ struct ArchitectureLintCommandTests {
 
         #expect(badResult.exitCode == 1)
         #expect(badResult.output.contains("Wrap this Process.waitUntilExit call"))
+        #expect(
+            badResult.output.components(separatedBy: "Wrap this Process.waitUntilExit call").count - 1 == 4,
+            Comment(rawValue: badResult.output)
+        )
         #expect(goodResult.exitCode == 0, Comment(rawValue: goodResult.output))
         #expect(goodResult.output.isEmpty)
     }
