@@ -1,3 +1,4 @@
+import Foundation
 import SwiftSyntax
 
 /// A polling wait is a loop that repeats around a scheduler yield, a sleep, or a
@@ -23,6 +24,24 @@ struct TestPollingWaitRule: ArchitectureRule {
 
     static let staleBaselineMessage =
         "File no longer polls; remove it from ArchitectureAllowlists.pollingWaitKnownDebt (baseline is shrink-only)"
+
+    static let missingBaselineMessage =
+        "Baseline path no longer exists; remove it from ArchitectureAllowlists.pollingWaitKnownDebt (baseline is shrink-only)"
+
+    private let missingBaselineEntries: [String]
+    private let missingBaselineReportContextPath: String?
+
+    init() {
+        self.init(missingBaselineEntries: [], missingBaselineReportContextPath: nil)
+    }
+
+    private init(
+        missingBaselineEntries: [String],
+        missingBaselineReportContextPath: String?
+    ) {
+        self.missingBaselineEntries = missingBaselineEntries
+        self.missingBaselineReportContextPath = missingBaselineReportContextPath
+    }
 
     /// What the rule does with a file once its loops have been inspected.
     ///
@@ -50,32 +69,88 @@ struct TestPollingWaitRule: ArchitectureRule {
         return violations.isEmpty ? .staleBaselineEntry : .suppressedByBaseline
     }
 
+    /// Listed files that are gone from disk. Empty when none of the listed files
+    /// exist: that is a fixture tree or the lint-tool package, not the app
+    /// workspace, so a missing-entry diagnostic would be a false positive.
+    static func missingBaselineEntries(
+        knownDebt: [String],
+        fileExists: (String) -> Bool
+    ) -> [String] {
+        guard knownDebt.contains(where: fileExists) else {
+            return []
+        }
+        return knownDebt.filter { !fileExists($0) }
+    }
+
+    func prepared(for contexts: [ArchitectureLintContext]) -> any ArchitectureRule {
+        guard let context = contexts.first,
+            let workspaceRootPath = Self.workspaceRootPath(from: context),
+            !workspaceRootPath.contains("/Fixtures/")
+        else {
+            return self
+        }
+
+        let missingEntries = Self.missingBaselineEntries(
+            knownDebt: ArchitectureAllowlists.pollingWaitKnownDebt
+        ) { entry in
+            FileManager.default.fileExists(atPath: workspaceRootPath + entry)
+        }
+        guard !missingEntries.isEmpty else {
+            return self
+        }
+        return Self(
+            missingBaselineEntries: missingEntries,
+            missingBaselineReportContextPath: context.path
+        )
+    }
+
     func validate(context: ArchitectureLintContext) -> [ArchitectureDiagnostic] {
+        var diagnostics: [ArchitectureDiagnostic] = []
+        if context.path == missingBaselineReportContextPath {
+            diagnostics.append(
+                contentsOf: missingBaselineEntries.map { entry in
+                    ArchitectureDiagnostic(
+                        path: String(entry.drop(while: { $0 == "/" })),
+                        line: 1,
+                        column: 1,
+                        severity: severity,
+                        ruleID: id,
+                        message: Self.missingBaselineMessage
+                    )
+                }
+            )
+        }
+
         guard let targetPath = Self.targetPath(for: context),
             targetPath.contains("/Tests/"), targetPath.hasSuffix(".swift")
         else {
-            return []
+            return diagnostics
         }
 
-        let visitor = TestPollingWaitVisitor()
+        let clockBindingNames = ClockBindingCollector.names(in: context.sourceFile)
+        let visitor = TestPollingWaitVisitor(clockBindingNames: clockBindingNames)
         visitor.walk(context.sourceFile)
         let isBaselined = ArchitectureAllowlists.pollingWaitKnownDebt.contains(where: targetPath.hasSuffix)
 
         switch Self.pollingWaitOutcome(violations: visitor.violations, isBaselined: isBaselined) {
         case .clean, .suppressedByBaseline:
-            return []
+            return diagnostics
         case .report(let violations):
-            return violations.map {
-                diagnostic(context: context, position: $0.position, message: $0.message)
-            }
+            diagnostics.append(
+                contentsOf: violations.map {
+                    diagnostic(context: context, position: $0.position, message: $0.message)
+                }
+            )
+            return diagnostics
         case .staleBaselineEntry:
-            return [
+            diagnostics.append(
                 diagnostic(
                     context: context,
                     position: AbsolutePosition(utf8Offset: 0),
                     message: Self.staleBaselineMessage
                 )
-            ]
+            )
+            return diagnostics
         }
     }
 
@@ -92,6 +167,18 @@ struct TestPollingWaitRule: ArchitectureRule {
         }
         return relativePath.hasPrefix("/") ? relativePath : "/\(relativePath)"
     }
+
+    private static func workspaceRootPath(from context: ArchitectureLintContext) -> String? {
+        guard let relativePath = context.workspaceRelativePath, !relativePath.isEmpty else {
+            return nil
+        }
+        let normalized = context.normalizedPath
+        let suffix = "/\(relativePath)"
+        guard normalized.hasSuffix(suffix) else {
+            return nil
+        }
+        return String(normalized.dropLast(suffix.count))
+    }
 }
 
 /// Finds loops that own a polling signal at their own nesting level.
@@ -101,9 +188,11 @@ struct TestPollingWaitRule: ArchitectureRule {
 /// that actually polls, and the inner loop still gets its own diagnostic.
 private final class TestPollingWaitVisitor: SyntaxVisitor {
     private(set) var violations: [ArchitectureViolation] = []
+    private let clockBindingNames: Set<String>
 
-    override init(viewMode: SyntaxTreeViewMode = .sourceAccurate) {
-        super.init(viewMode: viewMode)
+    init(clockBindingNames: Set<String>) {
+        self.clockBindingNames = clockBindingNames
+        super.init(viewMode: .sourceAccurate)
     }
 
     override func visit(_ node: WhileStmtSyntax) -> SyntaxVisitorContinueKind {
@@ -111,7 +200,10 @@ private final class TestPollingWaitVisitor: SyntaxVisitor {
         // signals anywhere inside it is the wait.
         recordIfPolling(
             keyword: node.whileKeyword,
-            signals: PollingSignalVisitor.signals(in: [Syntax(node.conditions), Syntax(node.body)])
+            signals: PollingSignalVisitor.signals(
+                in: [Syntax(node.conditions), Syntax(node.body)],
+                clockBindingNames: clockBindingNames
+            )
         )
         return .visitChildren
     }
@@ -130,9 +222,13 @@ private final class TestPollingWaitVisitor: SyntaxVisitor {
         if let whereClause = node.whereClause {
             controlExpressions.append(Syntax(whereClause))
         }
-        var signals = PollingSignalVisitor.signals(in: controlExpressions)
+        var signals = PollingSignalVisitor.signals(
+            in: controlExpressions,
+            clockBindingNames: clockBindingNames
+        )
         signals.formUnion(
-            PollingSignalVisitor.signals(in: [Syntax(node.body)]).subtracting([.clockRead])
+            PollingSignalVisitor.signals(in: [Syntax(node.body)], clockBindingNames: clockBindingNames)
+                .subtracting([.clockRead])
         )
         recordIfPolling(keyword: node.forKeyword, signals: signals)
         return .visitChildren
@@ -141,7 +237,10 @@ private final class TestPollingWaitVisitor: SyntaxVisitor {
     override func visit(_ node: RepeatStmtSyntax) -> SyntaxVisitorContinueKind {
         recordIfPolling(
             keyword: node.repeatKeyword,
-            signals: PollingSignalVisitor.signals(in: [Syntax(node.body), Syntax(node.condition)])
+            signals: PollingSignalVisitor.signals(
+                in: [Syntax(node.body), Syntax(node.condition)],
+                clockBindingNames: clockBindingNames
+            )
         )
         return .visitChildren
     }
@@ -168,23 +267,64 @@ private enum PollingSignal {
     case clockRead
 }
 
+/// Names bound to a clock construction or a clock-typed parameter/annotation in
+/// this file. `.now` on those bindings is a wall-clock read even when the
+/// identifier does not contain `clock`.
+private enum ClockBindingCollector {
+    static func names(in sourceFile: SourceFileSyntax) -> Set<String> {
+        let collector = ClockBindingVisitor()
+        collector.walk(sourceFile)
+        return collector.names
+    }
+}
+
+private final class ClockBindingVisitor: SyntaxVisitor {
+    private(set) var names: Set<String> = []
+
+    override init(viewMode: SyntaxTreeViewMode = .sourceAccurate) {
+        super.init(viewMode: viewMode)
+    }
+
+    override func visitPost(_ node: PatternBindingSyntax) {
+        guard let identifier = node.pattern.as(IdentifierPatternSyntax.self)?.identifier.text else {
+            return
+        }
+        if node.initializer?.value.isClockConstruction == true {
+            names.insert(identifier)
+        }
+        if node.typeAnnotation?.type.namesAClockType == true {
+            names.insert(identifier)
+        }
+    }
+
+    override func visitPost(_ node: FunctionParameterSyntax) {
+        let parameterName = node.secondName?.text ?? node.firstName.text
+        guard parameterName != "_", node.type.namesAClockType else {
+            return
+        }
+        names.insert(parameterName)
+    }
+}
+
 /// Collects the polling signals present in the searched syntax, without
 /// descending into a nested loop — each loop is judged on what it owns itself.
 private final class PollingSignalVisitor: SyntaxVisitor {
     private(set) var signals: Set<PollingSignal> = []
+    private let clockBindingNames: Set<String>
 
-    static func signals(in searched: [Syntax]) -> Set<PollingSignal> {
+    static func signals(in searched: [Syntax], clockBindingNames: Set<String>) -> Set<PollingSignal> {
         var found: Set<PollingSignal> = []
         for syntax in searched {
-            let visitor = PollingSignalVisitor()
+            let visitor = PollingSignalVisitor(clockBindingNames: clockBindingNames)
             visitor.walk(syntax)
             found.formUnion(visitor.signals)
         }
         return found
     }
 
-    override init(viewMode: SyntaxTreeViewMode = .sourceAccurate) {
-        super.init(viewMode: viewMode)
+    init(clockBindingNames: Set<String>) {
+        self.clockBindingNames = clockBindingNames
+        super.init(viewMode: .sourceAccurate)
     }
 
     override func visit(_ node: WhileStmtSyntax) -> SyntaxVisitorContinueKind { .skipChildren }
@@ -228,28 +368,93 @@ private final class PollingSignalVisitor: SyntaxVisitor {
             signals.insert(.clockRead)
             return
         }
-        guard node.declName.baseName.text == "now", node.base?.namesAClock == true else {
+        guard node.declName.baseName.text == "now" else {
             return
         }
-        signals.insert(.clockRead)
+        if node.base?.namesAClock == true {
+            signals.insert(.clockRead)
+            return
+        }
+        if let reference = node.base?.as(DeclReferenceExprSyntax.self),
+            clockBindingNames.contains(reference.baseName.text)
+        {
+            signals.insert(.clockRead)
+        }
     }
 }
 
+private enum ClockTypeName {
+    static let exact: Set<String> = [
+        "ContinuousClock",
+        "SuspendingClock",
+        "DispatchTime",
+        "Date",
+    ]
+    static let constructable: Set<String> = [
+        "ContinuousClock",
+        "SuspendingClock",
+    ]
+}
+
 extension ExprSyntax {
-    /// The expression names something a wall-clock instant can be read from:
-    /// a concrete clock type, `DispatchTime`, or a binding whose name says clock.
+    /// The expression names a type a wall-clock instant can be read from:
+    /// `ContinuousClock`, `SuspendingClock`, `DispatchTime`, `Date`, or a
+    /// spelling that contains `clock`. Bindings of those types are collected
+    /// separately so `ticker.now` is a clock read without relying on the local
+    /// name.
     fileprivate var namesAClock: Bool {
         if let reference = self.as(DeclReferenceExprSyntax.self) {
             let name = reference.baseName.text
-            return name == "ContinuousClock" || name == "SuspendingClock" || name == "DispatchTime"
+            return ClockTypeName.exact.contains(name)
                 || name.localizedCaseInsensitiveContains("clock")
         }
         if let call = self.as(FunctionCallExprSyntax.self) {
             return call.calledExpression.namesAClock
         }
         if let memberAccess = self.as(MemberAccessExprSyntax.self) {
-            return memberAccess.declName.baseName.text.localizedCaseInsensitiveContains("clock")
+            let name = memberAccess.declName.baseName.text
+            return ClockTypeName.exact.contains(name)
+                || name.localizedCaseInsensitiveContains("clock")
                 || memberAccess.base?.namesAClock == true
+        }
+        return false
+    }
+
+    fileprivate var isClockConstruction: Bool {
+        guard let call = self.as(FunctionCallExprSyntax.self) else {
+            return false
+        }
+        if let reference = call.calledExpression.as(DeclReferenceExprSyntax.self) {
+            return ClockTypeName.constructable.contains(reference.baseName.text)
+        }
+        if let memberAccess = call.calledExpression.as(MemberAccessExprSyntax.self) {
+            return ClockTypeName.constructable.contains(memberAccess.declName.baseName.text)
+        }
+        return false
+    }
+}
+
+extension TypeSyntax {
+    fileprivate var namesAClockType: Bool {
+        if let identifier = self.as(IdentifierTypeSyntax.self) {
+            let name = identifier.name.text
+            return ClockTypeName.exact.contains(name)
+                || name.localizedCaseInsensitiveContains("clock")
+        }
+        if let member = self.as(MemberTypeSyntax.self) {
+            let name = member.name.text
+            return ClockTypeName.exact.contains(name)
+                || name.localizedCaseInsensitiveContains("clock")
+                || member.baseType.namesAClockType
+        }
+        if let someOrAny = self.as(SomeOrAnyTypeSyntax.self) {
+            return someOrAny.constraint.namesAClockType
+        }
+        if let attributed = self.as(AttributedTypeSyntax.self) {
+            return attributed.baseType.namesAClockType
+        }
+        if let optional = self.as(OptionalTypeSyntax.self) {
+            return optional.wrappedType.namesAClockType
         }
         return false
     }

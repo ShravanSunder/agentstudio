@@ -72,8 +72,10 @@ enum ArchitectureAllowlists {
     ///
     /// Not an endorsement. Each file is converted under PR 2; the list only
     /// shrinks. A file listed here that no longer polls fails the gate until its
-    /// entry is removed. A new polling wait in a listed file still slips
-    /// through — prefer removing the file to adding a wait to it.
+    /// entry is removed. A listed path that no longer exists also fails, so a
+    /// deleted or renamed test cannot leave a dead baseline entry. A new polling
+    /// wait in a listed file still slips through — prefer removing the file to
+    /// adding a wait to it.
     static let pollingWaitKnownDebt: [String] = [
         "/Tests/AgentStudioBridgeDevelopmentServerTests/BridgeDevelopmentSeededWorktreeObservationTests.swift",
         "/Tests/AgentStudioIPCClientTests/PaneNotificationSpoolWriterTests.swift",

@@ -112,7 +112,7 @@ It must not be reconnected without a new product decision.
 | Fail direct atom access from IPC services and adapters. | Blocking | `agentstudio_ipc_no_direct_atom_access` |
 | Fail production `Task.sleep(for:)` and generic `.sleep(for:)` outside the approved delay seam. | Blocking | `agentstudio_no_generic_clock_sleep` |
 | Fail direct `Task.sleep(...)` calls in test files. | Blocking | `agentstudio_no_task_sleep_in_tests` |
-| Fail a loop in a test file whose own condition or body yields, sleeps, or reads a clock, unless the file is in the shrink-only polling baseline. | Blocking | `agentstudio_no_polling_wait_in_tests` |
+| Fail a loop in a test file whose own condition or body yields, sleeps, or reads a clock, unless the file is in the shrink-only polling baseline. A listed path that is gone or no longer polls fails until its entry is removed. | Blocking | `agentstudio_no_polling_wait_in_tests` |
 | Fail production EventBus subscriptions or wait helpers that omit semantic subscriber policy, use raw buffering policy, or hide a default policy in a wrapper. | Blocking | `agentstudio_eventbus_subscriber_policy_required` |
 | Fail Terminal-local Ghostty disposition branches that directly publish or can fall through to the shared exact semantic publication edge. | Blocking | `agentstudio_terminal_local_disposition_publication` |
 | Print repo-cache dictionary read inventory. | Reclassified to review-only | The old script's report-only inventory is replaced by this document plus blocking rules for the hot-path violation class. Broad inventory reports were noisy and not a required CI gate. |
