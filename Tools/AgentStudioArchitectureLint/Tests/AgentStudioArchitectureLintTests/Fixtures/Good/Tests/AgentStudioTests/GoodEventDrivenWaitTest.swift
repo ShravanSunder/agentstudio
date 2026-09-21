@@ -25,4 +25,13 @@ struct GoodEventDrivenWaitTest {
         }
         return total
     }
+
+    /// A fixed `Date` is a fixture value, not a wall-clock read.
+    func stampsRecordedEvents(events: [Int]) -> [Date] {
+        var stamps: [Date] = []
+        for _ in events {
+            stamps.append(Date(timeIntervalSince1970: 0))
+        }
+        return stamps
+    }
 }

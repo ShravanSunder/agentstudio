@@ -51,7 +51,7 @@ struct SwiftLaneIsolationListGateTests {
         for suite in try discoveredSerializedMainActorSuites() {
             guard !isolatedSuiteNames.contains(suite.name) else { continue }
             #expect(
-                lanePatternExcludes(suiteName: suite.name),
+                suite.isRoutedOnDedicatedLane,
                 """
                 \(suite.name) (\(suite.sourcePath)) is marked @MainActor + @Suite(.serialized) but appears in no \
                 isolated lane inventory. Add it to the lane it belongs to in scripts/swift-test-helpers.sh, or it \
@@ -59,6 +59,53 @@ struct SwiftLaneIsolationListGateTests {
                 """
             )
         }
+    }
+
+    @Test("E2E and zmx name substrings do not skip isolation without a dedicated-lane parent")
+    func e2eAndZmxNameSubstringsDoNotSkipIsolationWithoutDedicatedLaneParent() {
+        let nested = serializedMainActorSuites(
+            in: [
+                "extension E2ESerializedTests {",
+                "@MainActor",
+                "@Suite(.serialized)",
+                "struct FilesystemSourceE2ETests {}",
+                "}",
+            ].joined(separator: "\n")
+        )
+        #expect(nested.map(\.name) == ["FilesystemSourceE2ETests"])
+        #expect(nested.first?.enclosingTypeNames == ["E2ESerializedTests"])
+        #expect(nested.first?.isRoutedOnDedicatedLane == true)
+
+        let zmxChild = serializedMainActorSuites(
+            in: [
+                "extension E2ESerializedTests {",
+                "@Suite(.serialized)",
+                "@MainActor",
+                "struct ZmxBackendIntegrationTests {}",
+                "}",
+            ].joined(separator: "\n")
+        )
+        #expect(zmxChild.first?.isRoutedOnDedicatedLane == true)
+
+        let standalone = serializedMainActorSuites(
+            in: [
+                "@MainActor",
+                "@Suite(.serialized)",
+                "struct NewE2ETests {}",
+            ].joined(separator: "\n")
+        )
+        #expect(standalone.map(\.name) == ["NewE2ETests"])
+        #expect(standalone.first?.enclosingTypeNames.isEmpty == true)
+        #expect(standalone.first?.isRoutedOnDedicatedLane == false)
+
+        let zmxSubstring = serializedMainActorSuites(
+            in: [
+                "@MainActor",
+                "@Suite(\"Workspace SQLite zmx session ID storage\", .serialized)",
+                "struct WorkspaceSQLiteZmxSessionIDStorageTests {}",
+            ].joined(separator: "\n")
+        )
+        #expect(zmxSubstring.first?.isRoutedOnDedicatedLane == false)
     }
 
     // MARK: - Lane inventories
@@ -83,24 +130,33 @@ struct SwiftLaneIsolationListGateTests {
         return names
     }
 
-    /// Suites the lane inventories deliberately route elsewhere: the E2E and zmx
-    /// lanes, and the post-merge benchmark lane. These are the same names the
-    /// helper's own excluded pattern carries.
-    private func lanePatternExcludes(suiteName: String) -> Bool {
-        if suiteName.contains("E2E") || suiteName.contains("Zmx") {
-            return true
-        }
-        return [
-            "GlobalPreferencesBootstrapBenchmarkTests",
-            "RepoExplorerNativeTablePilotBenchmarkTests",
-        ].contains(suiteName)
-    }
-
     // MARK: - Independent discovery
 
     private struct DiscoveredSuite {
         let name: String
         let sourcePath: String
+        let enclosingTypeNames: [String]
+
+        /// The runner skips `E2ESerializedTests` and `ZmxE2ETests` by those exact
+        /// type names; nested children inherit that skip. A substring such as
+        /// `NewE2ETests` is not a dedicated lane.
+        var isRoutedOnDedicatedLane: Bool {
+            Self.isRoutedOnDedicatedLane(name: name, enclosingTypeNames: enclosingTypeNames)
+        }
+
+        static func isRoutedOnDedicatedLane(name: String, enclosingTypeNames: [String]) -> Bool {
+            let dedicatedLaneSuites: Set<String> = ["E2ESerializedTests", "ZmxE2ETests"]
+            if dedicatedLaneSuites.contains(name) {
+                return true
+            }
+            if enclosingTypeNames.contains(where: dedicatedLaneSuites.contains) {
+                return true
+            }
+            return [
+                "GlobalPreferencesBootstrapBenchmarkTests",
+                "RepoExplorerNativeTablePilotBenchmarkTests",
+            ].contains(name)
+        }
     }
 
     /// Scans `Tests/` for types carrying both `@MainActor` and a `@Suite(...)`
@@ -127,20 +183,38 @@ struct SwiftLaneIsolationListGateTests {
                 fileURL.path.hasPrefix(FileManager.default.currentDirectoryPath + "/")
                 ? String(fileURL.path.dropFirst(FileManager.default.currentDirectoryPath.count + 1))
                 : fileURL.path
-            for suiteName in serializedMainActorSuiteNames(in: source) {
-                discovered.append(DiscoveredSuite(name: suiteName, sourcePath: relativePath))
+            for suite in serializedMainActorSuites(in: source) {
+                discovered.append(
+                    DiscoveredSuite(
+                        name: suite.name,
+                        sourcePath: relativePath,
+                        enclosingTypeNames: suite.enclosingTypeNames
+                    )
+                )
             }
         }
         return discovered
     }
 
+    private struct SerializedMainActorSuite {
+        let name: String
+        let enclosingTypeNames: [String]
+
+        var isRoutedOnDedicatedLane: Bool {
+            DiscoveredSuite.isRoutedOnDedicatedLane(name: name, enclosingTypeNames: enclosingTypeNames)
+        }
+    }
+
     /// Attribute lines accumulate until a declaration consumes them; anything
     /// else clears them, so a nested type inside a serialized suite is not
-    /// mistaken for the suite.
-    private func serializedMainActorSuiteNames(in source: String) -> [String] {
-        var suiteNames: [String] = []
+    /// mistaken for the suite. Brace depth tracks `extension` / type parents so
+    /// dedicated-lane membership is the enclosing type, not a name substring.
+    private func serializedMainActorSuites(in source: String) -> [SerializedMainActorSuite] {
+        var suiteNames: [SerializedMainActorSuite] = []
         var pendingAttributes = ""
         var openParenthesisDepth = 0
+        var enclosingTypes: [(name: String, braceDepth: Int)] = []
+        var braceDepth = 0
 
         for line in source.components(separatedBy: "\n") {
             let trimmedLine = line.trimmingCharacters(in: .whitespaces)
@@ -148,6 +222,11 @@ struct SwiftLaneIsolationListGateTests {
             if openParenthesisDepth > 0 {
                 pendingAttributes += "\n" + trimmedLine
                 openParenthesisDepth += parenthesisDelta(in: trimmedLine)
+                braceDepth += braceDelta(in: trimmedLine)
+                popClosedEnclosingTypes(
+                    enclosingTypes: &enclosingTypes,
+                    braceDepth: braceDepth
+                )
                 continue
             }
             if trimmedLine.hasPrefix("@") {
@@ -156,19 +235,57 @@ struct SwiftLaneIsolationListGateTests {
                 continue
             }
             if trimmedLine.isEmpty || trimmedLine.hasPrefix("//") {
+                braceDepth += braceDelta(in: trimmedLine)
+                popClosedEnclosingTypes(
+                    enclosingTypes: &enclosingTypes,
+                    braceDepth: braceDepth
+                )
                 continue
             }
             let attributes = pendingAttributes
             pendingAttributes = ""
-            guard let declaredTypeName = declaredTypeName(in: trimmedLine),
-                attributes.contains("@MainActor"),
-                declaresSerializedSuite(in: attributes)
-            else {
-                continue
+            if let declaredTypeName = declaredTypeName(in: trimmedLine) {
+                if attributes.contains("@MainActor"), declaresSerializedSuite(in: attributes) {
+                    suiteNames.append(
+                        SerializedMainActorSuite(
+                            name: declaredTypeName,
+                            enclosingTypeNames: enclosingTypes.map(\.name)
+                        )
+                    )
+                }
+                enclosingTypes.append((declaredTypeName, braceDepth))
+            } else if let extensionName = declaredExtensionName(in: trimmedLine) {
+                enclosingTypes.append((extensionName, braceDepth))
             }
-            suiteNames.append(declaredTypeName)
+            braceDepth += braceDelta(in: trimmedLine)
+            popClosedEnclosingTypes(
+                enclosingTypes: &enclosingTypes,
+                braceDepth: braceDepth
+            )
         }
         return suiteNames
+    }
+
+    private func popClosedEnclosingTypes(
+        enclosingTypes: inout [(name: String, braceDepth: Int)],
+        braceDepth: Int
+    ) {
+        while let last = enclosingTypes.last, braceDepth <= last.braceDepth {
+            enclosingTypes.removeLast()
+        }
+    }
+
+    private func braceDelta(in line: String) -> Int {
+        line.filter { $0 == "{" }.count - line.filter { $0 == "}" }.count
+    }
+
+    private func declaredExtensionName(in line: String) -> String? {
+        guard let keywordRange = line.range(of: "extension ") else {
+            return nil
+        }
+        let identifier = line[keywordRange.upperBound...]
+            .prefix { $0.isLetter || $0.isNumber || $0 == "_" }
+        return identifier.isEmpty ? nil : String(identifier)
     }
 
     private func parenthesisDelta(in line: String) -> Int {

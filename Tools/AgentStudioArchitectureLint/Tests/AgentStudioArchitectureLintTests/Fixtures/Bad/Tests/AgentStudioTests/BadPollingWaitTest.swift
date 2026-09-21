@@ -26,4 +26,27 @@ struct BadPollingWaitTest {
             try await clock.sleep(for: .milliseconds(5))
         } while !condition()
     }
+
+    /// Clock-only: `Date.now` is a wall-clock read even though the type name
+    /// does not contain `clock`.
+    func waitsUntilDateNowDeadline(condition: () -> Bool) {
+        let deadline = Date.now.addingTimeInterval(10)
+        while Date.now < deadline {
+            if condition() {
+                return
+            }
+        }
+    }
+
+    /// Clock-only: `.now` on a `ContinuousClock` binding is a wall-clock read
+    /// even when the local name does not contain `clock`.
+    func waitsUntilBoundClockDeadline(condition: () -> Bool) {
+        let ticker = ContinuousClock()
+        let deadline = ticker.now.advanced(by: .seconds(10))
+        while ticker.now < deadline {
+            if condition() {
+                return
+            }
+        }
+    }
 }

@@ -386,8 +386,9 @@ need process isolation, the lint baselines — must be verified by a gate, so th
 a member cannot silently fall out. The isolation list has
 [`SwiftLaneIsolationListGateTests`](../../../Tests/AgentStudioTests/Scripts/SwiftLaneIsolationListGateTests.swift).
 The polling baseline, `ArchitectureAllowlists.pollingWaitKnownDebt`, is
-shrink-only: a file outside it that polls fails the gate, and a file inside it
-that no longer polls fails the gate until its entry is removed.
+shrink-only: a file outside it that polls fails the gate, a file inside it
+that no longer polls fails the gate until its entry is removed, and a listed
+path that no longer exists fails the gate until its entry is removed.
 
 ## BridgeWeb
 
