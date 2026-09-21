@@ -53,11 +53,11 @@ struct BridgeProductWebKitSurfaceSelectionJourneyProof: Sendable {
 @MainActor
 enum BridgeProductWebKitSurfaceJourneyTestSupport {
     static func run() async throws -> BridgeProductWebKitSurfaceSelectionJourneyProof {
-        let repoURL = try FilesystemTestGitRepo.create(
+        let repoURL = try await FilesystemTestGitRepo.create(
             named: "bridge-product-native-surface-selection-webkit"
         )
         defer { FilesystemTestGitRepo.destroy(repoURL) }
-        try FilesystemTestGitRepo.seedTrackedAndUntrackedChanges(at: repoURL)
+        try await FilesystemTestGitRepo.seedTrackedAndUntrackedChanges(at: repoURL)
 
         let controller = makeController(repoURL: repoURL)
         let run = try await BridgeProductWebKitCarrierTestSupport.withHostedController(

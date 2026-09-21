@@ -191,14 +191,14 @@ enum BridgeProductWebKitTwoPaneJourneyTestSupport {
     private static var retainedPages: [WebPage] = []
 
     static func run() async throws -> BridgeProductWebKitTwoPaneJourneyProof {
-        let paneOneRepoURL = try FilesystemTestGitRepo.create(named: "bridge-two-pane-one-webkit")
-        let paneTwoRepoURL = try FilesystemTestGitRepo.create(named: "bridge-two-pane-two-webkit")
+        let paneOneRepoURL = try await FilesystemTestGitRepo.create(named: "bridge-two-pane-one-webkit")
+        let paneTwoRepoURL = try await FilesystemTestGitRepo.create(named: "bridge-two-pane-two-webkit")
         defer {
             FilesystemTestGitRepo.destroy(paneOneRepoURL)
             FilesystemTestGitRepo.destroy(paneTwoRepoURL)
         }
-        try seedPositionFixture(at: paneOneRepoURL, prefix: "pane-one")
-        try seedPositionFixture(at: paneTwoRepoURL, prefix: "pane-two")
+        try await seedPositionFixture(at: paneOneRepoURL, prefix: "pane-one")
+        try await seedPositionFixture(at: paneTwoRepoURL, prefix: "pane-two")
 
         let paneOneTrace = BridgeProductWebKitCarrierTraceRecorder()
         let paneTwoTrace = BridgeProductWebKitCarrierTraceRecorder()
@@ -591,8 +591,8 @@ enum BridgeProductWebKitTwoPaneJourneyTestSupport {
         )
     }
 
-    private static func seedPositionFixture(at repoURL: URL, prefix: String) throws {
-        try FilesystemTestGitRepo.seedTrackedAndUntrackedChanges(at: repoURL)
+    private static func seedPositionFixture(at repoURL: URL, prefix: String) async throws {
+        try await FilesystemTestGitRepo.seedTrackedAndUntrackedChanges(at: repoURL)
         for index in 0..<36 {
             let directory = repoURL.appending(path: String(format: "Sources/Group%02d", index / 9))
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)

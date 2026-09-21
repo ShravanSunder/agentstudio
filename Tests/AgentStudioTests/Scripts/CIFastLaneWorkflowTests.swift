@@ -1,3 +1,5 @@
+import AgentStudioInfrastructure
+import AgentStudioTestSupport
 import Foundation
 import Testing
 
@@ -488,31 +490,31 @@ struct CIFastLaneWorkflowTests {
     }
 
     @Test("Swift command watchdog advances only when output grows")
-    func swiftCommandWatchdogAdvancesOnlyWhenOutputGrows() throws {
-        let growingOutput = try runBash(
+    func swiftCommandWatchdogAdvancesOnlyWhenOutputGrows() async throws {
+        let growingOutput = try await runBash(
             "source scripts/swift-test-helpers.sh; swift_test_watchdog_state 41 42 100 900"
         )
-        let unchangedOutput = try runBash(
+        let unchangedOutput = try await runBash(
             "source scripts/swift-test-helpers.sh; swift_test_watchdog_state 42 42 100 900"
         )
 
         #expect(growingOutput == "42 900\n")
         #expect(unchangedOutput == "42 100\n")
         #expect(
-            try runBashStatus(
+            try await runBashStatus(
                 "source scripts/swift-test-helpers.sh; swift_test_watchdog_timeout_status 100 399 300"
             ) == 0
         )
         #expect(
-            try runBashStatus(
+            try await runBashStatus(
                 "source scripts/swift-test-helpers.sh; swift_test_watchdog_timeout_status 100 400 300"
             ) == 124
         )
     }
 
     @Test("Swift output filter normalizes UTF-8 and preserves actionable diagnostics")
-    func swiftOutputFilterNormalizesUTF8AndPreservesActionableDiagnostics() throws {
-        let filteredOutput = try runBash(
+    func swiftOutputFilterNormalizesUTF8AndPreservesActionableDiagnostics() async throws {
+        let filteredOutput = try await runBash(
             "printf $'ok\\xffbad\\nlibghostty-fat.a(ext.o) _ImGuiStyle_ImGuiStyle\\nreal diagnostic\\n'"
                 + " | bash scripts/filter-known-linker-warnings.sh"
         )
@@ -521,9 +523,9 @@ struct CIFastLaneWorkflowTests {
     }
 
     @Test("Swift formatted pipeline normalizes UTF-8 before mise consumes it")
-    func swiftFormattedPipelineNormalizesUTF8BeforeMiseConsumesIt() throws {
+    func swiftFormattedPipelineNormalizesUTF8BeforeMiseConsumesIt() async throws {
         let helperScript = try String(contentsOfFile: "scripts/xcb-helpers.sh", encoding: .utf8)
-        let filteredOutput = try runBash(
+        let filteredOutput = try await runBash(
             "source scripts/xcb-helpers.sh; printf $'raw\\xff input\\n' | _xcb_pipe"
         )
 
@@ -536,8 +538,8 @@ struct CIFastLaneWorkflowTests {
     }
 
     @Test("Swift failure scanner preserves failure detection across invalid UTF-8")
-    func swiftFailureScannerPreservesFailureDetectionAcrossInvalidUTF8() throws {
-        let scannerStatus = try runBashStatus(
+    func swiftFailureScannerPreservesFailureDetectionAcrossInvalidUTF8() async throws {
+        let scannerStatus = try await runBashStatus(
             "source scripts/swift-test-helpers.sh; "
                 + "swift_test_output_has_failures <(printf $'ok\\xffrecorded an issue\\n')"
         )
@@ -546,7 +548,7 @@ struct CIFastLaneWorkflowTests {
     }
 
     @Test("aggregate lane isolates executor-sensitive and AppKit-global tests")
-    func aggregateLaneIsolatesExecutorSensitiveAndAppKitGlobalTests() throws {
+    func aggregateLaneIsolatesExecutorSensitiveAndAppKitGlobalTests() async throws {
         let helperScript = try String(contentsOfFile: "scripts/swift-test-helpers.sh", encoding: .utf8)
         let aggregateFilter = try shellFunction(
             named: "aggregate_serial_non_webkit_filter_pattern",
@@ -566,11 +568,11 @@ struct CIFastLaneWorkflowTests {
         )
         let fullRunner = try shellFunction(named: "run_non_serialized_swift_tests", in: helperScript)
         let fastRunner = try shellFunction(named: "run_fast_non_webkit_swift_tests", in: helperScript)
-        let discoveredSuiteFilters = try runBash(
+        let discoveredSuiteFilters = try await runBash(
             "LOG_PREFIX=test TIMEOUT_SECONDS=60 PREBUILD_TIMEOUT_SECONDS=60 BUILD_PATH=.build-agent-1 "
                 + "bash -c 'source scripts/swift-test-helpers.sh; aggregate_serial_non_webkit_suite_filters'"
         )
-        let webKitSuiteFilters = try runBash(
+        let webKitSuiteFilters = try await runBash(
             "source scripts/swift-test-helpers.sh; webkit_suite_filters"
         )
         let discoveredSuiteNames = Set(discoveredSuiteFilters.split(separator: "\n").map(String.init))
@@ -653,7 +655,7 @@ struct CIFastLaneWorkflowTests {
     }
 
     @Test("large lane process-isolates suites that retain process-global runtimes")
-    func largeLaneProcessIsolatesProcessGlobalRuntimeSuites() throws {
+    func largeLaneProcessIsolatesProcessGlobalRuntimeSuites() async throws {
         let helperScript = try String(contentsOfFile: "scripts/swift-test-helpers.sh", encoding: .utf8)
         let largeRunner = try shellFunction(named: "run_large_non_webkit_swift_tests", in: helperScript)
         let largeProcessGlobalRunner = try shellFunction(
@@ -661,7 +663,7 @@ struct CIFastLaneWorkflowTests {
             in: helperScript
         )
         let discoveredLargeProcessGlobalSuites = Set(
-            try runBash(
+            try await runBash(
                 "source scripts/swift-test-helpers.sh; large_process_global_suite_filters"
             ).split(separator: "\n").map(String.init)
         )
@@ -724,7 +726,7 @@ struct CIFastLaneWorkflowTests {
     }
 
     @Test("serialized suite discovery respects formatted declaration boundaries")
-    func serializedSuiteDiscoveryRespectsFormattedDeclarationBoundaries() throws {
+    func serializedSuiteDiscoveryRespectsFormattedDeclarationBoundaries() async throws {
         let mainActorAttribute = "@Main" + "Actor"
         let suiteAttribute = "@Su" + "ite"
         let serializedTrait = ".serial" + "ized"
@@ -754,15 +756,15 @@ struct CIFastLaneWorkflowTests {
             private struct NotActuallySerialized {}
             """
 
-        let mainActorFirstMatches = try discoveredSuiteNames(
+        let mainActorFirstMatches = try await discoveredSuiteNames(
             annotationOrder: "main-actor-first",
             source: mainActorFirstSource
         )
-        let suiteFirstMatches = try discoveredSuiteNames(
+        let suiteFirstMatches = try await discoveredSuiteNames(
             annotationOrder: "suite-first",
             source: suiteFirstSource
         )
-        let traitPrefixMatches = try discoveredSuiteNames(
+        let traitPrefixMatches = try await discoveredSuiteNames(
             annotationOrder: "main-actor-first",
             source: traitPrefixSource
         )
@@ -880,8 +882,8 @@ private func miseTask(named taskName: String, in config: String) throws -> Strin
     return try namedBlock(startingWith: marker, endingBefore: "\n[tasks.", in: config)
 }
 
-private func discoveredSuiteNames(annotationOrder: String, source: String) throws -> String {
-    try runBash(
+private func discoveredSuiteNames(annotationOrder: String, source: String) async throws -> String {
+    try await runBash(
         "source scripts/swift-test-helpers.sh; "
             + "serialized_main_actor_suite_names_from_stdin \(annotationOrder)",
         standardInput: source
@@ -902,38 +904,56 @@ private func namedBlock(startingWith marker: String, endingBefore terminator: St
     return String(tail[..<endRange.lowerBound])
 }
 
-private func runBash(_ command: String, standardInput: String? = nil) throws -> String {
-    let process = Process()
-    let output = Pipe()
-    let input = standardInput.map { _ in Pipe() }
-    process.executableURL = URL(fileURLWithPath: "/bin/bash")
-    process.arguments = ["-c", command]
-    process.currentDirectoryURL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-    process.standardInput = input
-    process.standardOutput = output
-    process.standardError = output
+private func runBash(_ command: String, standardInput: String? = nil) async throws -> String {
+    let result = try await withoutBlockingCooperativePool {
+        let outputURL = FileManager.default.temporaryDirectory
+            .appending(path: "ci-fast-lane-output-\(UUIDv7.generate().uuidString).log")
+        FileManager.default.createFile(atPath: outputURL.path, contents: nil)
+        let outputHandle = try FileHandle(forWritingTo: outputURL)
+        defer {
+            try? outputHandle.close()
+            try? FileManager.default.removeItem(at: outputURL)
+        }
+        let process = Process()
+        let input = standardInput.map { _ in Pipe() }
+        process.executableURL = URL(fileURLWithPath: "/bin/bash")
+        process.arguments = ["-c", command]
+        process.currentDirectoryURL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        process.standardInput = input
+        process.standardOutput = outputHandle
+        process.standardError = outputHandle
 
-    try process.run()
-    if let standardInput, let input {
-        input.fileHandleForWriting.write(Data(standardInput.utf8))
-        try input.fileHandleForWriting.close()
+        try process.run()
+        if let standardInput, let input {
+            input.fileHandleForWriting.write(Data(standardInput.utf8))
+            try input.fileHandleForWriting.close()
+        }
+        process.waitUntilExit()
+        try outputHandle.close()
+        return BashCommandResult(
+            exitCode: process.terminationStatus,
+            output: try String(contentsOf: outputURL, encoding: .utf8)
+        )
     }
-    process.waitUntilExit()
-    let data = output.fileHandleForReading.readDataToEndOfFile()
-    let renderedOutput = try #require(String(bytes: data, encoding: .utf8))
-    #expect(process.terminationStatus == 0, Comment(rawValue: renderedOutput))
-    return renderedOutput
+    #expect(result.exitCode == 0, Comment(rawValue: result.output))
+    return result.output
 }
 
-private func runBashStatus(_ command: String) throws -> Int32 {
-    let process = Process()
-    process.executableURL = URL(fileURLWithPath: "/bin/bash")
-    process.arguments = ["-c", command]
-    process.currentDirectoryURL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+private func runBashStatus(_ command: String) async throws -> Int32 {
+    try await withoutBlockingCooperativePool {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/bash")
+        process.arguments = ["-c", command]
+        process.currentDirectoryURL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        try process.run()
+        process.waitUntilExit()
+        return process.terminationStatus
+    }
+}
 
-    try process.run()
-    process.waitUntilExit()
-    return process.terminationStatus
+private struct BashCommandResult: Sendable {
+    let exitCode: Int32
+    let output: String
 }
 
 private enum CIFastLaneWorkflowError: Error {

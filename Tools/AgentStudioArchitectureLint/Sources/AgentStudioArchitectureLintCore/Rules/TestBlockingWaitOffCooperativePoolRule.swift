@@ -3,10 +3,10 @@ import SwiftSyntax
 /// Swift Testing runs each test body as a task on the cooperative executor,
 /// whose width is the machine's core count, and `AgentStudioAppIPCServer`
 /// answers every accepted connection from a `Task` on that same pool. A test
-/// that parks a cooperative thread in a socket read or a semaphore wait is
-/// starving the server it is waiting on: on a three-core CI runner three such
-/// tests at once deadlocked the whole fast lane, with no failure message,
-/// only a ten-minute silence.
+/// that parks a cooperative thread in a socket read, a semaphore wait, or a
+/// process wait is starving work on that same pool: on a three-core CI runner
+/// three blocking tests at once deadlocked the whole fast lane, with no failure
+/// message, only a ten-minute silence.
 ///
 /// The blocking primitives are allowed in the few support files that own them
 /// and document where the block lands. Everywhere else in `Tests/` the wait
@@ -81,10 +81,62 @@ private final class DispatchSemaphoreBindingVisitor: SyntaxVisitor {
 private final class TestBlockingWaitVisitor: SyntaxVisitor {
     private(set) var violations: [ArchitectureViolation] = []
     private let semaphoreNames: Set<String>
+    private var processBindingScopes: [[String: Bool]] = [[:]]
 
     init(semaphoreNames: Set<String>) {
         self.semaphoreNames = semaphoreNames
         super.init(viewMode: .sourceAccurate)
+    }
+
+    override func visit(_ node: CodeBlockSyntax) -> SyntaxVisitorContinueKind {
+        var bindings: [String: Bool] = [:]
+        if let function = node.parent?.as(FunctionDeclSyntax.self) {
+            for parameter in function.signature.parameterClause.parameters {
+                let localName = parameter.secondName?.text ?? parameter.firstName.text
+                if localName != "_" {
+                    bindings[localName] = false
+                }
+            }
+        }
+        processBindingScopes.append(bindings)
+        return .visitChildren
+    }
+
+    override func visitPost(_: CodeBlockSyntax) {
+        processBindingScopes.removeLast()
+    }
+
+    override func visit(_ node: ClosureExprSyntax) -> SyntaxVisitorContinueKind {
+        var bindings: [String: Bool] = [:]
+        if let parameterClause = node.signature?.parameterClause {
+            switch parameterClause {
+            case .simpleInput(let parameters):
+                for parameter in parameters where parameter.name.text != "_" {
+                    bindings[parameter.name.text] = false
+                }
+            case .parameterClause(let clause):
+                for parameter in clause.parameters {
+                    let localName = parameter.secondName?.text ?? parameter.firstName.text
+                    if localName != "_" {
+                        bindings[localName] = false
+                    }
+                }
+            }
+        }
+        processBindingScopes.append(bindings)
+        return .visitChildren
+    }
+
+    override func visitPost(_: ClosureExprSyntax) {
+        processBindingScopes.removeLast()
+    }
+
+    override func visitPost(_ node: PatternBindingSyntax) {
+        guard let identifier = node.pattern.as(IdentifierPatternSyntax.self)?.identifier.text else {
+            return
+        }
+        processBindingScopes[processBindingScopes.index(before: processBindingScopes.endIndex)][identifier] =
+            node.initializer?.value.isFoundationProcessConstruction == true
     }
 
     /// A blocking call is only a problem on a cooperative thread. Inside the
@@ -113,6 +165,25 @@ private final class TestBlockingWaitVisitor: SyntaxVisitor {
             )
             return
         }
+        if memberAccess.declName.baseName.text == "waitUntilExit",
+            let base = memberAccess.base
+        {
+            let isProcessWait =
+                base.isFoundationProcessConstruction
+                || (base.as(DeclReferenceExprSyntax.self).map {
+                    isFoundationProcessBinding(named: $0.baseName.text)
+                } ?? false)
+            guard isProcessWait else { return }
+            violations.append(
+                ArchitectureViolation(
+                    position: memberAccess.positionAfterSkippingLeadingTrivia,
+                    message:
+                        "Wrap this Process.waitUntilExit call in withoutBlockingCooperativePool so it does not "
+                        + "park a cooperative thread"
+                )
+            )
+            return
+        }
         guard memberAccess.declName.baseName.text == "wait", let base = memberAccess.base else {
             return
         }
@@ -128,6 +199,15 @@ private final class TestBlockingWaitVisitor: SyntaxVisitor {
                     + "a cooperative thread the IPC server needs"
             )
         )
+    }
+
+    private func isFoundationProcessBinding(named name: String) -> Bool {
+        for scope in processBindingScopes.reversed() {
+            if let isProcess = scope[name] {
+                return isProcess
+            }
+        }
+        return false
     }
 }
 
@@ -166,6 +246,20 @@ extension ExprSyntax {
 }
 
 extension ExprSyntax {
+    fileprivate var isFoundationProcessConstruction: Bool {
+        guard let call = self.as(FunctionCallExprSyntax.self) else { return false }
+        if let reference = call.calledExpression.as(DeclReferenceExprSyntax.self) {
+            return reference.baseName.text == "Process"
+        }
+        guard let memberAccess = call.calledExpression.as(MemberAccessExprSyntax.self),
+            memberAccess.declName.baseName.text == "Process",
+            let baseReference = memberAccess.base?.as(DeclReferenceExprSyntax.self)
+        else {
+            return false
+        }
+        return baseReference.baseName.text == "Foundation"
+    }
+
     fileprivate var isDispatchSemaphoreConstruction: Bool {
         guard let call = self.as(FunctionCallExprSyntax.self) else { return false }
         if let reference = call.calledExpression.as(DeclReferenceExprSyntax.self) {

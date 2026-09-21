@@ -8,7 +8,7 @@ import Testing
 struct DarwinSharedExactItemRealStreamIntegrationTests {
     @Test("native shared stream routes sibling misses and exact hits to every dependent")
     func nativeSharedStreamRoutesSiblingMissesAndExactHits() async throws {
-        let fixture = try SharedExactItemRealStreamFixture(nativeSharedStreamIsEnabled: true)
+        let fixture = try await SharedExactItemRealStreamFixture(nativeSharedStreamIsEnabled: true)
         defer { fixture.remove() }
         // Two different facts, both required. The sentinel proves each stream is
         // LIVE — a stream that has never carried an event cannot mint an
@@ -100,7 +100,7 @@ struct DarwinSharedExactItemRealStreamIntegrationTests {
     func nativeSharedStreamFailsReplacementClosed(
         mutation: SharedExactItemReplacementMutation
     ) async throws {
-        let fixture = try SharedExactItemRealStreamFixture(nativeSharedStreamIsEnabled: true)
+        let fixture = try await SharedExactItemRealStreamFixture(nativeSharedStreamIsEnabled: true)
         defer { fixture.remove() }
         // Arrange. Everything down to `perform(mutation)` is setup, so it is
         // `#require`d: a failure here means the fixture never reached a quiescent
@@ -184,7 +184,7 @@ struct DarwinSharedExactItemRealStreamIntegrationTests {
 
     @Test("native watched-parent replacement requires rebinding and a new exact scan")
     func nativeWatchedParentReplacementRequiresRebinding() async throws {
-        let fixture = try SharedExactItemRealStreamFixture(nativeSharedStreamIsEnabled: true)
+        let fixture = try await SharedExactItemRealStreamFixture(nativeSharedStreamIsEnabled: true)
         defer { fixture.remove() }
         // Two different facts, both required. The sentinel proves each stream is
         // LIVE — a stream that has never carried an event cannot mint an
@@ -235,7 +235,7 @@ struct DarwinSharedExactItemRealStreamIntegrationTests {
         )
         #expect(Set(fullGitBatches.keys) == [fixture.firstWorktreeId, fixture.secondWorktreeId])
 
-        try fixture.pointRepositoriesToExternalParent(replacementParent)
+        try await fixture.pointRepositoriesToExternalParent(replacementParent)
         fixture.rebindWorktreeRegistrations()
         // A re-registered stream that has never carried an event cannot yet mint
         // an exact-clean authority, so quiescence alone is not enough here: this

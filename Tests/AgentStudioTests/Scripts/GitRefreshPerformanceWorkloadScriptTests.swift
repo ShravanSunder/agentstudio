@@ -1,3 +1,4 @@
+import AgentStudioTestSupport
 import Foundation
 import Testing
 
@@ -8,11 +9,11 @@ import Testing
 @Suite(.serialized)
 struct GitRefreshPerformanceWorkloadScriptTests {
     @Test("workload proof script has stable safety contract and bash syntax")
-    func workloadProofScriptHasStableSafetyContractAndBashSyntax() throws {
-        let syntax = try runScript(arguments: ["-n", scriptPath])
-        let cleanupSyntax = try runScript(arguments: ["-n", cleanupScriptPath])
-        let comparisonSyntax = try runScript(arguments: ["-n", comparisonScriptPath])
-        let comparisonPythonSyntax = try runScript(arguments: [
+    func workloadProofScriptHasStableSafetyContractAndBashSyntax() async throws {
+        let syntax = try await runScript(arguments: ["-n", scriptPath])
+        let cleanupSyntax = try await runScript(arguments: ["-n", cleanupScriptPath])
+        let comparisonSyntax = try await runScript(arguments: ["-n", comparisonScriptPath])
+        let comparisonPythonSyntax = try await runScript(arguments: [
             "-c", "/usr/bin/python3 -m py_compile \(comparisonPythonScriptPath)",
         ])
         #expect(syntax.exitCode == 0)
@@ -30,7 +31,7 @@ struct GitRefreshPerformanceWorkloadScriptTests {
     }
 
     @Test("owned zmx cleanup kills exact IDs and fails closed on prefix collisions")
-    func ownedZmxCleanupKillsExactIDsAndFailsClosedOnPrefixCollisions() throws {
+    func ownedZmxCleanupKillsExactIDsAndFailsClosedOnPrefixCollisions() async throws {
         let fixtureRoot = URL(fileURLWithPath: "/tmp/asw.test-\(UUID().uuidString)")
         let fakeZmx = fixtureRoot.appendingPathComponent("zmx")
         let inventory = fixtureRoot.appendingPathComponent("inventory")
@@ -56,7 +57,7 @@ struct GitRefreshPerformanceWorkloadScriptTests {
         """.write(to: fakeZmx, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeZmx.path)
 
-        let result = try runScript(
+        let result = try await runScript(
             arguments: [cleanupScriptPath, fakeZmx.path, fixtureRoot.path, artifact.path, "owned", "independent"],
             environment: [
                 "FAKE_ZMX_INVENTORY": inventory.path,
@@ -73,7 +74,7 @@ struct GitRefreshPerformanceWorkloadScriptTests {
     }
 
     @Test("owned zmx cleanup recognizes padded inventory names and verifies exact IDs are absent")
-    func ownedZmxCleanupRecognizesPaddedInventoryNames() throws {
+    func ownedZmxCleanupRecognizesPaddedInventoryNames() async throws {
         let fixtureRoot = URL(fileURLWithPath: "/tmp/asw.padded-\(UUIDv7.generate().uuidString)")
         let fakeZmx = fixtureRoot.appendingPathComponent("zmx")
         let inventory = fixtureRoot.appendingPathComponent("inventory")
@@ -101,7 +102,7 @@ struct GitRefreshPerformanceWorkloadScriptTests {
         """.write(to: fakeZmx, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeZmx.path)
 
-        let result = try runScript(
+        let result = try await runScript(
             arguments: [cleanupScriptPath, fakeZmx.path, fixtureRoot.path, artifact.path, "owned", "independent"],
             environment: [
                 "FAKE_ZMX_INVENTORY": inventory.path,
@@ -119,13 +120,13 @@ struct GitRefreshPerformanceWorkloadScriptTests {
     }
 
     @Test("owned zmx cleanup rejects production beta and ordinary debug roots before inspection")
-    func ownedZmxCleanupRejectsProtectedRootsBeforeInspection() throws {
+    func ownedZmxCleanupRejectsProtectedRootsBeforeInspection() async throws {
         for protectedRoot in [
             "/Users/test/.agentstudio/z",
             "/Users/test/.agent-studio-b/z",
             "/Users/test/.agentstudio-db/abcd/z",
         ] {
-            let result = try runScript(
+            let result = try await runScript(
                 arguments: [
                     cleanupScriptPath, "/must-not-run/zmx", protectedRoot, "/tmp/protected-root-cleanup.env", "owned",
                 ]
@@ -357,14 +358,14 @@ struct GitRefreshPerformanceWorkloadScriptTests {
     }
 
     @Test("prepare-only summary emits comparable Victoria metric fields")
-    func prepareOnlySummaryEmitsComparableVictoriaMetricFields() throws {
+    func prepareOnlySummaryEmitsComparableVictoriaMetricFields() async throws {
         let proofRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent("agentstudio-workload-summary-\(UUID().uuidString)")
         defer {
             try? FileManager.default.removeItem(at: proofRoot)
         }
 
-        let result = try runScript(
+        let result = try await runScript(
             arguments: [scriptPath, "--prepare-only"],
             environment: [
                 "AGENTSTUDIO_PERF_PROOF_ROOT": proofRoot.path,
@@ -409,12 +410,12 @@ struct GitRefreshPerformanceWorkloadScriptTests {
     }
 
     @Test("prepare-only workload proof rejects duplicate and missing tab bar lifecycle sequences")
-    func prepareOnlyWorkloadProofRejectsInvalidTabBarLifecycleSequences() throws {
+    func prepareOnlyWorkloadProofRejectsInvalidTabBarLifecycleSequences() async throws {
         let proofRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent("agentstudio-workload-lifecycle-rejection-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: proofRoot) }
 
-        let result = try runScript(
+        let result = try await runScript(
             arguments: [scriptPath, "--prepare-only"],
             environment: [
                 "AGENTSTUDIO_PERF_PROOF_ROOT": proofRoot.path,
@@ -448,12 +449,12 @@ struct GitRefreshPerformanceWorkloadScriptTests {
     }
 
     @Test("prepare-only workload proof rejects missing trace queue completeness metrics")
-    func prepareOnlyWorkloadProofRejectsMissingTraceQueueCompletenessMetrics() throws {
+    func prepareOnlyWorkloadProofRejectsMissingTraceQueueCompletenessMetrics() async throws {
         let proofRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent("agentstudio-workload-trace-queue-rejection-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: proofRoot) }
 
-        let result = try runScript(
+        let result = try await runScript(
             arguments: [scriptPath, "--prepare-only"],
             environment: [
                 "AGENTSTUDIO_PERF_PROOF_ROOT": proofRoot.path,
@@ -481,12 +482,12 @@ struct GitRefreshPerformanceWorkloadScriptTests {
     }
 
     @Test("prepare-only workload proof reports lifecycle query transport failure")
-    func prepareOnlyWorkloadProofReportsLifecycleQueryTransportFailure() throws {
+    func prepareOnlyWorkloadProofReportsLifecycleQueryTransportFailure() async throws {
         let proofRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent("agentstudio-workload-lifecycle-transport-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: proofRoot) }
 
-        let result = try runScript(
+        let result = try await runScript(
             arguments: [scriptPath, "--prepare-only"],
             environment: [
                 "AGENTSTUDIO_PERF_PROOF_ROOT": proofRoot.path,
@@ -508,14 +509,14 @@ struct GitRefreshPerformanceWorkloadScriptTests {
     }
 
     @Test("workload proof rejects canned query responses outside prepare-only tests")
-    func workloadProofRejectsCannedQueryResponsesOutsidePrepareOnlyTests() throws {
+    func workloadProofRejectsCannedQueryResponsesOutsidePrepareOnlyTests() async throws {
         let proofRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent("agentstudio-workload-test-response-guard-\(UUID().uuidString)")
         defer {
             try? FileManager.default.removeItem(at: proofRoot)
         }
 
-        let result = try runScript(
+        let result = try await runScript(
             arguments: [scriptPath],
             environment: [
                 "AGENTSTUDIO_PERF_PROOF_ROOT": proofRoot.path,
@@ -654,39 +655,45 @@ struct GitRefreshPerformanceWorkloadScriptTests {
     private func runScript(
         arguments: [String],
         environment: [String: String] = [:]
-    ) throws -> ScriptRunResult {
-        let stdoutURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("agentstudio-script-stdout-\(UUID().uuidString).log")
-        let stderrURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("agentstudio-script-stderr-\(UUID().uuidString).log")
-        FileManager.default.createFile(atPath: stdoutURL.path, contents: nil)
-        FileManager.default.createFile(atPath: stderrURL.path, contents: nil)
-        let stdoutHandle = try FileHandle(forWritingTo: stdoutURL)
-        let stderrHandle = try FileHandle(forWritingTo: stderrURL)
-        defer {
-            try? stdoutHandle.close()
-            try? stderrHandle.close()
-            try? FileManager.default.removeItem(at: stdoutURL)
-            try? FileManager.default.removeItem(at: stderrURL)
+    ) async throws -> ScriptRunResult {
+        let processOutput = try await withoutBlockingCooperativePool {
+            let stdoutURL = FileManager.default.temporaryDirectory
+                .appendingPathComponent("agentstudio-script-stdout-\(UUIDv7.generate().uuidString).log")
+            let stderrURL = FileManager.default.temporaryDirectory
+                .appendingPathComponent("agentstudio-script-stderr-\(UUIDv7.generate().uuidString).log")
+            FileManager.default.createFile(atPath: stdoutURL.path, contents: nil)
+            FileManager.default.createFile(atPath: stderrURL.path, contents: nil)
+            let stdoutHandle = try FileHandle(forWritingTo: stdoutURL)
+            let stderrHandle = try FileHandle(forWritingTo: stderrURL)
+            defer {
+                try? stdoutHandle.close()
+                try? stderrHandle.close()
+                try? FileManager.default.removeItem(at: stdoutURL)
+                try? FileManager.default.removeItem(at: stderrURL)
+            }
+
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/bin/bash")
+            process.arguments = arguments
+            process.currentDirectoryURL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+            process.environment = ProcessInfo.processInfo.environment.merging(environment) { _, newValue in newValue }
+            process.standardOutput = stdoutHandle
+            process.standardError = stderrHandle
+
+            try process.run()
+            process.waitUntilExit()
+            try stdoutHandle.close()
+            try stderrHandle.close()
+            return GitWorkloadProcessOutput(
+                exitCode: process.terminationStatus,
+                stdout: try String(contentsOf: stdoutURL, encoding: .utf8),
+                stderr: try String(contentsOf: stderrURL, encoding: .utf8)
+            )
         }
-
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/bin/bash")
-        process.arguments = arguments
-        process.currentDirectoryURL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-        process.environment = ProcessInfo.processInfo.environment.merging(environment) { _, newValue in newValue }
-        process.standardOutput = stdoutHandle
-        process.standardError = stderrHandle
-
-        try process.run()
-        process.waitUntilExit()
-        try stdoutHandle.close()
-        try stderrHandle.close()
-
         return ScriptRunResult(
-            exitCode: process.terminationStatus,
-            stdout: try String(contentsOf: stdoutURL, encoding: .utf8),
-            stderr: try String(contentsOf: stderrURL, encoding: .utf8)
+            exitCode: processOutput.exitCode,
+            stdout: processOutput.stdout,
+            stderr: processOutput.stderr
         )
     }
 
@@ -697,6 +704,12 @@ struct GitRefreshPerformanceWorkloadScriptTests {
         return root
     }
 
+}
+
+private struct GitWorkloadProcessOutput: Sendable {
+    let exitCode: Int32
+    let stdout: String
+    let stderr: String
 }
 
 private struct FixtureCounts {

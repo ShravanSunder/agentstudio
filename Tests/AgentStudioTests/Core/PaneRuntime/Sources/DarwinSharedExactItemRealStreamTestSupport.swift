@@ -1,4 +1,5 @@
 import AgentStudioGit
+import AgentStudioTestSupport
 import CoreServices
 import Foundation
 
@@ -32,7 +33,7 @@ final class SharedExactItemRealStreamFixture: @unchecked Sendable {
     private var ingressTask: Task<Void, Never>?
     private var sentinelWriteSequence = 0
 
-    init(nativeSharedStreamIsEnabled: Bool) throws {
+    init(nativeSharedStreamIsEnabled: Bool) async throws {
         fixtureRoot = FileManager.default.temporaryDirectory.appending(
             path: "darwin-shared-real-stream-\(UUIDv7.generate().uuidString)",
             directoryHint: .isDirectory
@@ -44,21 +45,26 @@ final class SharedExactItemRealStreamFixture: @unchecked Sendable {
         unrelatedSiblingPath = externalParent.appending(path: "unrelated.txt")
         excludesFilePath = externalParent.appending(path: "global-excludes")
 
-        try FileManager.default.createDirectory(at: fixtureRoot, withIntermediateDirectories: true)
-        try FileManager.default.createDirectory(at: externalParent, withIntermediateDirectories: true)
-        try "ignored.txt\n".write(
-            to: excludesFilePath,
-            atomically: true,
-            encoding: .utf8
-        )
-        try Self.initializeRepository(
-            at: firstRepositoryPath,
-            excludesFilePath: excludesFilePath
-        )
-        try Self.initializeRepository(
-            at: secondRepositoryPath,
-            excludesFilePath: excludesFilePath
-        )
+        do {
+            try FileManager.default.createDirectory(at: fixtureRoot, withIntermediateDirectories: true)
+            try FileManager.default.createDirectory(at: externalParent, withIntermediateDirectories: true)
+            try "ignored.txt\n".write(
+                to: excludesFilePath,
+                atomically: true,
+                encoding: .utf8
+            )
+            try await Self.initializeRepository(
+                at: firstRepositoryPath,
+                excludesFilePath: excludesFilePath
+            )
+            try await Self.initializeRepository(
+                at: secondRepositoryPath,
+                excludesFilePath: excludesFilePath
+            )
+        } catch {
+            try? FileManager.default.removeItem(at: fixtureRoot)
+            throw error
+        }
 
         externalParentPath = DarwinFSEventPathCanonicalizer.canonicalURL(externalParent).path
         nativeStreamRecorder = NativeSharedExactItemStreamRecorder(
@@ -279,11 +285,11 @@ final class SharedExactItemRealStreamFixture: @unchecked Sendable {
         return replacementParent
     }
 
-    func pointRepositoriesToExternalParent(_ replacementParent: URL) throws {
+    func pointRepositoriesToExternalParent(_ replacementParent: URL) async throws {
         let replacementExcludes = replacementParent.appending(path: excludesFilePath.lastPathComponent)
         for repositoryPath in [firstRepositoryPath, secondRepositoryPath] {
             let git = IsolatedGitProcess(repositoryPath: repositoryPath)
-            try git.run(["config", "core.excludesFile", replacementExcludes.path])
+            try await git.run(["config", "core.excludesFile", replacementExcludes.path])
         }
         exactItemParent.replace(with: replacementParent)
     }
@@ -335,18 +341,18 @@ final class SharedExactItemRealStreamFixture: @unchecked Sendable {
     private static func initializeRepository(
         at repositoryPath: URL,
         excludesFilePath: URL
-    ) throws {
+    ) async throws {
         try FileManager.default.createDirectory(at: repositoryPath, withIntermediateDirectories: true)
         let git = IsolatedGitProcess(repositoryPath: repositoryPath)
-        try git.run(["init"])
+        try await git.run(["init"])
         try "initial\n".write(
             to: repositoryPath.appending(path: "README.md"),
             atomically: true,
             encoding: .utf8
         )
-        try git.run(["add", "README.md"])
-        try git.run(["commit", "-m", "initial"])
-        try git.run(["config", "core.excludesFile", excludesFilePath.path])
+        try await git.run(["add", "README.md"])
+        try await git.run(["commit", "-m", "initial"])
+        try await git.run(["config", "core.excludesFile", excludesFilePath.path])
     }
 
     private static func makeProvider(
@@ -571,43 +577,54 @@ final class GitPhysicalReadRecorder: @unchecked Sendable {
 private struct IsolatedGitProcess {
     let repositoryPath: URL
 
-    func run(_ arguments: [String]) throws {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        process.arguments =
-            [
-                "git",
-                "-c", "user.name=AgentStudio Test",
-                "-c", "user.email=agentstudio@example.invalid",
-                "-c", "commit.gpgsign=false",
-                "-c", "init.defaultBranch=main",
-            ] + arguments
-        process.currentDirectoryURL = repositoryPath
-        process.environment = ProcessInfo.processInfo.environment.merging(
-            [
-                "GIT_CONFIG_NOSYSTEM": "1",
-                "GIT_CONFIG_GLOBAL": "/dev/null",
-                "GIT_CONFIG_XDG": "/dev/null",
-                "GIT_TERMINAL_PROMPT": "0",
-                "LC_ALL": "C",
-            ]
-        ) { _, testValue in testValue }
-        process.standardInput = FileHandle.nullDevice
-        process.standardOutput = FileHandle.nullDevice
-        let standardError = Pipe()
-        process.standardError = standardError
+    func run(_ arguments: [String]) async throws {
+        let repositoryPath = repositoryPath
+        try await withoutBlockingCooperativePool {
+            let outputDirectory = FileManager.default.temporaryDirectory
+                .appending(path: "darwin-real-stream-git-\(UUIDv7.generate().uuidString)")
+            try FileManager.default.createDirectory(at: outputDirectory, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: outputDirectory) }
+            let stderrURL = outputDirectory.appending(path: "stderr.log")
+            FileManager.default.createFile(atPath: stderrURL.path, contents: nil)
+            let stderrHandle = try FileHandle(forWritingTo: stderrURL)
+            defer { try? stderrHandle.close() }
 
-        try process.run()
-        process.waitUntilExit()
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+            process.arguments =
+                [
+                    "git",
+                    "-c", "user.name=AgentStudio Test",
+                    "-c", "user.email=agentstudio@example.invalid",
+                    "-c", "commit.gpgsign=false",
+                    "-c", "init.defaultBranch=main",
+                ] + arguments
+            process.currentDirectoryURL = repositoryPath
+            process.environment = ProcessInfo.processInfo.environment.merging(
+                [
+                    "GIT_CONFIG_NOSYSTEM": "1",
+                    "GIT_CONFIG_GLOBAL": "/dev/null",
+                    "GIT_CONFIG_XDG": "/dev/null",
+                    "GIT_TERMINAL_PROMPT": "0",
+                    "LC_ALL": "C",
+                ]
+            ) { _, testValue in testValue }
+            process.standardInput = FileHandle.nullDevice
+            process.standardOutput = FileHandle.nullDevice
+            process.standardError = stderrHandle
 
-        guard process.terminationStatus == 0 else {
-            let errorData = standardError.fileHandleForReading.readDataToEndOfFile()
-            let errorText = String(data: errorData, encoding: .utf8) ?? ""
-            throw IsolatedGitProcessError(
-                arguments: arguments,
-                exitCode: process.terminationStatus,
-                errorText: errorText
-            )
+            try process.run()
+            process.waitUntilExit()
+            try stderrHandle.close()
+
+            guard process.terminationStatus == 0 else {
+                let errorText = try String(contentsOf: stderrURL, encoding: .utf8)
+                throw IsolatedGitProcessError(
+                    arguments: arguments,
+                    exitCode: process.terminationStatus,
+                    errorText: errorText
+                )
+            }
         }
     }
 }

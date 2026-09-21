@@ -44,7 +44,7 @@ struct FileAnnotationSourceWitnessTests {
         // Arrange
         let fixture = try ProductFileSourceFixture(fileCount: 1)
         defer { fixture.remove() }
-        try FilesystemTestGitRepo.runGit(at: fixture.rootURL, args: ["init"])
+        try await FilesystemTestGitRepo.runGit(at: fixture.rootURL, args: ["init"])
         let source = fixture.makeSource()
         let snapshot = try fixture.openSnapshot()
         let collector = ProductFileMetadataEventCollector()

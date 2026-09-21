@@ -134,11 +134,11 @@ struct GitWorkingDirectoryProjectorTests {
 
     @Test("real SDK provider emits initial git snapshot")
     func realSDKProviderEmitsInitialGitSnapshot() async throws {
-        let repoURL = try FilesystemTestGitRepo.create(named: "projector-real-sdk-provider")
+        let repoURL = try await FilesystemTestGitRepo.create(named: "projector-real-sdk-provider")
         defer { FilesystemTestGitRepo.destroy(repoURL) }
         try "initial\n".write(to: repoURL.appending(path: "tracked.txt"), atomically: true, encoding: .utf8)
-        try FilesystemTestGitRepo.runGit(at: repoURL, args: ["add", "tracked.txt"])
-        try FilesystemTestGitRepo.runGit(at: repoURL, args: ["commit", "-m", "Seed projector SDK"])
+        try await FilesystemTestGitRepo.runGit(at: repoURL, args: ["add", "tracked.txt"])
+        try await FilesystemTestGitRepo.runGit(at: repoURL, args: ["commit", "-m", "Seed projector SDK"])
         try "initial\nupdated\n".write(to: repoURL.appending(path: "tracked.txt"), atomically: true, encoding: .utf8)
 
         let bus = EventBus<RuntimeEnvelope>()

@@ -1,3 +1,5 @@
+import AgentStudioInfrastructure
+import AgentStudioTestSupport
 import Foundation
 import Testing
 
@@ -24,7 +26,7 @@ struct ZmxBackendTypedIdentityTests {
         try await backend.destroyPaneSession(handle)
 
         #expect(
-            try shellParsedTypedIdentityArguments(from: attachCommand) == [
+            try await shellParsedTypedIdentityArguments(from: attachCommand) == [
                 "/usr/local/bin/zmx",
                 "attach",
                 storedText,
@@ -58,22 +60,37 @@ struct ZmxBackendTypedIdentityTests {
     }
 }
 
-private func shellParsedTypedIdentityArguments(from command: String) throws -> [String] {
-    let outputPipe = Pipe()
-    let process = Process()
-    process.executableURL = URL(fileURLWithPath: "/bin/zsh")
-    process.arguments = ["-c", "set -- \(command); printf '%s\\n' \"$@\""]
-    process.standardOutput = outputPipe
-
-    try process.run()
-    process.waitUntilExit()
-
-    let output = outputPipe.fileHandleForReading.readDataToEndOfFile()
-    let decodedOutput = try #require(String(data: output, encoding: .utf8))
-    #expect(process.terminationStatus == 0)
+private func shellParsedTypedIdentityArguments(from command: String) async throws -> [String] {
+    let processOutput = try await withoutBlockingCooperativePool {
+        let stdoutURL = FileManager.default.temporaryDirectory
+            .appending(path: "zmx-typed-identity-stdout-\(UUIDv7.generate().uuidString).log")
+        FileManager.default.createFile(atPath: stdoutURL.path, contents: nil)
+        let stdoutHandle = try FileHandle(forWritingTo: stdoutURL)
+        defer {
+            try? stdoutHandle.close()
+            try? FileManager.default.removeItem(at: stdoutURL)
+        }
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/zsh")
+        process.arguments = ["-c", "set -- \(command); printf '%s\\n' \"$@\""]
+        process.standardOutput = stdoutHandle
+        try process.run()
+        process.waitUntilExit()
+        try stdoutHandle.close()
+        return ShellProcessOutput(
+            exitCode: process.terminationStatus,
+            stdout: try String(contentsOf: stdoutURL, encoding: .utf8)
+        )
+    }
+    #expect(processOutput.exitCode == 0)
     return
-        decodedOutput
+        processOutput.stdout
         .split(separator: "\n", omittingEmptySubsequences: false)
         .dropLast()
         .map(String.init)
+}
+
+private struct ShellProcessOutput: Sendable {
+    let exitCode: Int32
+    let stdout: String
 }
