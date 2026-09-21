@@ -46,6 +46,7 @@ enum ExpectedRuleInventory {
         ExpectedRule(id: "agentstudio_no_forbidden_architecture_marker", severity: .error),
         ExpectedRule(id: "agentstudio_no_generic_clock_sleep", severity: .error),
         ExpectedRule(id: "agentstudio_no_task_sleep_in_tests", severity: .error),
+        ExpectedRule(id: "agentstudio_no_polling_wait_in_tests", severity: .error),
         ExpectedRule(id: "agentstudio_test_blocking_wait_off_cooperative_pool", severity: .error),
         ExpectedRule(id: "agentstudio_test_core_atom_fallback_ownership", severity: .error),
         ExpectedRule(id: "agentstudio_toolbar_tooltip_source", severity: .error),

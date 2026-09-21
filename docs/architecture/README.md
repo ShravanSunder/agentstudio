@@ -23,7 +23,8 @@ doc to open ([Observability And Traceability — Proof Model](observability/obse
 | Question | Start here | What you get wrong if you skip | Then verify in code |
 | --- | --- | --- | --- |
 | Where does a file or new type go? | [Directory Structure — Decision Process](structure/directory_structure.md#decision-process-where-does-this-file-go) | You put a Feature type in [`Core/Models/`](../../Sources/AgentStudio/Core/Models) or skip the four-test process. Trees and compiled DAG: [Repository Root](structure/directory_structure.md#repository-root), [Source And Target Structure](structure/directory_structure.md#source-and-target-structure), [SwiftPM Module Graph](structure/directory_structure.md#swiftpm-module-graph). | [`Sources/AgentStudio/`](../../Sources/AgentStudio) placement and import direction |
-| Where should a file or module test live? | [Directory Structure — Test Target Ownership](structure/directory_structure.md#test-target-ownership) | You park a module test on the executable target or infer ownership from `swift test --filter`. | [`Package.swift`](../../Package.swift) target and source lists |
+| Where should a file or module test live? | [Testing Architecture — Test Target Ownership](testing/testing_architecture.md#test-target-ownership) | You park a module test on the executable target or infer ownership from `swift test --filter`. | [`Package.swift`](../../Package.swift) target and source lists |
+| How does a test wait, which lane runs it, and what do I do with a red CI run? | [Testing Architecture](testing/testing_architecture.md) | You add a polling wait or a per-test time budget, leave a process-global suite out of isolation, or rerun CI instead of reading the lane report and event-stream ledger. | [`scripts/swift-test-helpers.sh`](../../scripts/swift-test-helpers.sh) lane inventories; the polling-wait lint baseline |
 | Do I need an atom, a derived node, an eager projection, or a repository? | [Atom Persistence Boundaries — Need An Atom?](state/atom_persistence_boundaries.md#need-an-atom) | You wrap CRUD in an atom, assume every atom is a SQL table, or reach for `EagerDerivedAtomFamily` as a default. | Product owner vs `*Repository` vs `TabBarAdapter` / `RepoExplorerProjectionAdapter` |
 | Which command path, shortcut display, or dense-control tooltip source should I use? | [Command Specs And Execution Owners](commands/command_specs.md#command-specs-and-execution-owners), then [Files to load](commands/command_specs.md#files-to-load), [Adding a new command — decision tree](commands/command_specs.md#adding-a-new-command-decision-tree), and [Exhaustive interactive and IPC projections](commands/command_specs.md#exhaustive-interactive-and-ipc-projections) | You put a label, icon, tooltip, shortcut, or IPC method on a view instead of the spec catalog. Display: [Tooltips, help text, and compact control copy](commands/command_specs.md#tooltips-help-text-and-compact-control-copy). | The [file table](commands/command_specs.md#files-to-load); never infer paths from this index |
 | Which shared UI primitive or dense-control visual pattern should I use? | [Style Guide — Shared Shell Controls](../guides/style_guide.md#shared-shell-controls) | You copy styling into a feature, or you put a behavior constant in `AppStyles`. | [`SharedComponents/`](../../Sources/AgentStudio/SharedComponents), [`AppStyles.swift`](../../Sources/AgentStudio/Infrastructure/AppStyles.swift), [`AppPolicies.swift`](../../Sources/AgentStudio/Infrastructure/AppPolicies.swift) |
@@ -289,6 +290,12 @@ only under [`archive/`](archive/README.md).
 | [Bridge Native Runtime](bridge/bridge_native_runtime_architecture.md) | Swift/WebKit Bridge runtime |
 | [Bridge Web Runtime](bridge/bridge_web_runtime_architecture.md) | BridgeWeb runtime |
 | [BridgeWeb Design Tokens and Component Language](bridge/bridgeweb_design_token_architecture.md#component-language-contract) | Visual hierarchy, composition, token ownership and proof |
+
+### testing/
+
+| Document | Ownership |
+|----------|-----------|
+| [Testing Architecture](testing/testing_architecture.md) | Test pyramid, lanes, waiting standard, quiescence, harnesses, red-run protocol |
 
 ### observability/
 
