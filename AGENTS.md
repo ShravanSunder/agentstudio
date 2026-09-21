@@ -50,6 +50,14 @@ the Vite E2E stress journey (`test:bridge-web:e2e:stress`), and the opt-in zmx
 lifecycle lane are not pull-request gates. Do not claim a branch
 or PR is ready until `mise run test` exits successfully on the current HEAD.
 
+CI runs these same mise tasks on a 3-core runner, so the Swift cooperative pool
+has three threads there and sixteen on a developer Mac. A wait that polls or
+blocks passes locally and starves in CI; a local green proves the logic, not the
+CI verdict. A red CI run is diagnosed from its lane report and the
+`swift-lane-event-streams-<run_id>` artifact and fixed at its owner. It is never
+rerun, and no budget or `.timeLimit` is raised to make it pass. The protocol is
+[Testing Architecture — When a run is red](docs/architecture/testing/testing_architecture.md#when-a-run-is-red).
+
 Agents must use plain `mise run setup` by default. It builds vendors in the
 primary worktree and reuses those prepared inputs from linked worktrees. Do not
 hydrate submodules or invoke low-level vendor tasks directly. Use
@@ -93,7 +101,8 @@ organization, always load command specs and directory structure together.
 | How the app is organized | Always load [Source And Target Structure](docs/architecture/structure/directory_structure.md#source-and-target-structure) and [Command Specs And Execution Owners](docs/architecture/commands/command_specs.md#command-specs-and-execution-owners) (then [Files to load](docs/architecture/commands/command_specs.md#files-to-load)) | You put a type in the wrong slice, invent a parallel command path, or guess owners from this file. |
 | Any architecture question | [Architecture Overview — How To Read](docs/architecture/README.md#how-to-read-this-index) | You search the tree instead of the owning doc. That index is the one architecture catalog. |
 | File or new type placement | [Directory Structure — Decision Process](docs/architecture/structure/directory_structure.md#decision-process-where-does-this-file-go) | A Feature type lands in `Core/Models/`. Named component → slice lookup is [Component Architecture §7](docs/architecture/structure/component_architecture.md#7-key-files). Repo tree and SwiftPM DAG: [Repository Root](docs/architecture/structure/directory_structure.md#repository-root), [Source And Target Structure](docs/architecture/structure/directory_structure.md#source-and-target-structure), [SwiftPM Module Graph](docs/architecture/structure/directory_structure.md#swiftpm-module-graph). |
-| File or module test placement | [Directory Structure — Test Target Ownership](docs/architecture/structure/directory_structure.md#test-target-ownership) | A module test parks on the executable target, or you infer ownership from `swift test --filter`. |
+| File or module test placement | [Testing Architecture — Test Target Ownership](docs/architecture/testing/testing_architecture.md#test-target-ownership) | A module test parks on the executable target, or you infer ownership from `swift test --filter`. |
+| How to write a test, wait in it, choose its lane, or diagnose a red CI run | [Testing Architecture](docs/architecture/testing/testing_architecture.md) | You add a polling wait, a per-test time budget, or a process-global suite outside isolation; you rerun CI instead of reading the lane report and the event-stream ledger. |
 | Do I need an atom, derived node, eager projection, or a repository? | [Need An Atom?](docs/architecture/state/atom_persistence_boundaries.md#need-an-atom) | You wrap CRUD in an atom, assume every atom is a SQL table, or reach for `EagerDerivedAtomFamily` as a default. |
 | Write-owner vs derived vs SQLite row | [Atom Persistence Boundaries — Roles](docs/architecture/state/atom_persistence_boundaries.md#roles) | A `Codable` convenience type becomes both live state and the storage contract. Survey does not mean persist. |
 | Command, shortcut, tooltip, or IPC | [Command Specs And Execution Owners](docs/architecture/commands/command_specs.md#command-specs-and-execution-owners), then [Files to load](docs/architecture/commands/command_specs.md#files-to-load), [Adding a new command — decision tree](docs/architecture/commands/command_specs.md#adding-a-new-command-decision-tree), and [Exhaustive interactive and IPC projections](docs/architecture/commands/command_specs.md#exhaustive-interactive-and-ipc-projections) | You invent a button, label, icon, tooltip, shortcut, or IPC method off the spec catalog. Display hops: [Tooltips, help text, and compact control copy](docs/architecture/commands/command_specs.md#tooltips-help-text-and-compact-control-copy). |
@@ -371,22 +380,32 @@ then Peekaboo. A wrong UX assumption wastes Swift compile time.
 
 ### No Wall-Clock Tests
 
-Wall-clock sleeps make tests flaky. CI machines run at different speeds, so
-"sleep 50ms and expect X" is not a contract.
+A test's verdict is a function of program logic, never of machine speed. The
+only elapsed-time bound a test may carry is the runner-owned hang bound, and it
+is never raised to make a test pass. The standard is
+[Testing Architecture — How a test may wait](docs/architecture/testing/testing_architecture.md#how-a-test-may-wait);
+the lint rule `agentstudio_no_polling_wait_in_tests` enforces it.
 
 Do not:
-- use `Task.sleep(...)` in test bodies to wait for async work
+- use `Task.sleep(...)` in a test body to wait for async work
+- loop around `Task.yield()`, a sleep, or a clock deadline until a condition holds
+- give a wait a turn, poll, or time budget (`minimumTurns`, `iterations`, `timeout:`)
+- use `.timeLimit` as a correctness budget; it is a hang bound, and its failure
+  must name what was being awaited
+- assert intermediate state after an arbitrary delay
+- rely on suite serialization to hide leaked async work
 - use `Task.sleep(for:)` in AgentStudio code. It has caused crash issues in this
   app; use `Task.sleep(nanoseconds:)` with explicit `Duration` conversion only
   when a sleep is unavoidable, and prefer event/state waits or injected clocks.
-- assert intermediate state after an arbitrary delay
-- rely on suite serialization to hide leaked async work
 
 Instead:
-- wait for the exact event or state you care about, with a bounded timeout
-- use injected clocks for debounce/timer behavior
+- await the exact event, the observed state change, or the owner's quiescence seam
+- drive time-as-subject through a controlled clock (`TestPushClock`)
+- to prove a negative, await quiescence, then assert once
 - fully shut down tasks, streams, actors, and observers before the test returns
 - use explicit protocol seams and fakes for testability
+- if nothing announces completion, the production owner is missing a signal:
+  add it as a production contract; never poll
 - do not add new `#if DEBUG` test hooks in production files
 
 ### Definition of Done

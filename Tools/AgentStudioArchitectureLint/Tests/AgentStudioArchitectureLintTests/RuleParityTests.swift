@@ -1,5 +1,6 @@
 import Foundation
 import SwiftParser
+import SwiftSyntax
 import Testing
 
 @testable import AgentStudioArchitectureLintCore
@@ -299,6 +300,79 @@ struct RuleParityTests {
         #expect(testDiagnostics.map(\.ruleID) == ["agentstudio_no_task_sleep_in_tests"])
         #expect(sourceDiagnostics.isEmpty)
         #expect(externalSourceUnderTestsParentDiagnostics.isEmpty)
+    }
+
+    @Test("polling wait rule diagnoses one violation per polling loop keyword")
+    func pollingWaitRuleDiagnosesOneViolationPerPollingLoopKeyword() throws {
+        let pollingWaitFixture = fixtureRoot()
+            .appendingPathComponent("Bad")
+            .appendingPathComponent("Tests")
+            .appendingPathComponent("AgentStudioTests")
+            .appendingPathComponent("BadPollingWaitTest.swift")
+            .path
+
+        let diagnostics = try lint(files: [pollingWaitFixture])
+            .filter { $0.ruleID == "agentstudio_no_polling_wait_in_tests" }
+
+        #expect(diagnostics.map(\.line) == [7, 16, 25])
+        #expect(
+            diagnostics.allSatisfy {
+                $0.message.contains("docs/architecture/testing/testing_architecture.md#how-a-test-may-wait")
+            })
+    }
+
+    @Test("polling wait rule leaves event-driven waits and ordinary loops alone")
+    func pollingWaitRuleLeavesEventDrivenWaitsAndOrdinaryLoopsAlone() throws {
+        let eventDrivenFixture = fixtureRoot()
+            .appendingPathComponent("Good")
+            .appendingPathComponent("Tests")
+            .appendingPathComponent("AgentStudioTests")
+            .appendingPathComponent("GoodEventDrivenWaitTest.swift")
+            .path
+
+        let diagnostics = try lint(files: [eventDrivenFixture])
+            .filter { $0.ruleID == "agentstudio_no_polling_wait_in_tests" }
+
+        #expect(diagnostics.isEmpty)
+    }
+
+    @Test("polling wait rule scopes to test sources and reports the innermost polling loop")
+    func pollingWaitRuleScopesToTestSourcesAndReportsInnermostPollingLoop() {
+        let nestedLoopSource = """
+            func drainsEveryPane(paneIds: [Int], isDrained: (Int) -> Bool) async {
+                for paneId in paneIds {
+                    while !isDrained(paneId) {
+                        await Task.yield()
+                    }
+                }
+            }
+            """
+        let testDiagnostics = TestPollingWaitRule().validate(
+            context: context(path: "Tests/AgentStudioTests/BadNestedPollingTest.swift", source: nestedLoopSource)
+        )
+        let productionDiagnostics = TestPollingWaitRule().validate(
+            context: context(path: "Sources/AgentStudio/App/PollingProduction.swift", source: nestedLoopSource)
+        )
+
+        #expect(testDiagnostics.map(\.line) == [3])
+        #expect(productionDiagnostics.isEmpty)
+    }
+
+    @Test("polling wait baseline suppresses listed debt and fails once the debt is gone")
+    func pollingWaitBaselineSuppressesListedDebtAndFailsOnceDebtIsGone() {
+        let pollingViolation = ArchitectureViolation(
+            position: AbsolutePosition(utf8Offset: 0),
+            message: "polling"
+        )
+
+        #expect(
+            TestPollingWaitRule.pollingWaitOutcome(violations: [pollingViolation], isBaselined: false)
+                == .report([pollingViolation]))
+        #expect(
+            TestPollingWaitRule.pollingWaitOutcome(violations: [pollingViolation], isBaselined: true)
+                == .suppressedByBaseline)
+        #expect(TestPollingWaitRule.pollingWaitOutcome(violations: [], isBaselined: true) == .staleBaselineEntry)
+        #expect(TestPollingWaitRule.pollingWaitOutcome(violations: [], isBaselined: false) == .clean)
     }
 
     @Test("EventBus subscriber policy rule diagnoses every denied fixture call shape")

@@ -664,38 +664,11 @@ Manages the top-level split between sidebar and content area. Feature-agnostic b
 
 ## Test Target Ownership
 
-Product modules have paired SwiftPM test targets:
+Test target ownership moved to
+[Testing Architecture — Test Target Ownership](../testing/testing_architecture.md#test-target-ownership),
+which owns it beside the lanes, the waiting standard, and the red-run protocol.
 
-```text
-AgentStudioInfrastructureTests     ──► AgentStudioInfrastructure
-AgentStudioSharedComponentsTests   ──► AgentStudioSharedComponents
-AgentStudioCoreTests               ──► AgentStudioCore + AgentStudioTestSupport
-AgentStudio<Feature>Tests          ──► matching Feature + lower modules
-AgentStudioTests                   ──► AgentStudio executable + product modules
-```
-
-`AgentStudioTestSupport` depends only on `AgentStudioCore`. Its sources live at
-[`Tests/AgentStudioTests/TestSupport`](../../../Tests/AgentStudioTests/TestSupport) (a nested path under the executable test
-folder, a separate SwiftPM target). It provides Core-level fixtures and helpers
-without becoming an App or Feature registry. Infrastructure and SharedComponents
-tests do not depend on it. Each paired test target owns unit and module-boundary
-tests for its product module.
-
-Additional paired targets cover non-Feature modules:
-`AgentStudioBridgeDevelopmentServerTests`, `AgentStudioIPCTransportTests`,
-`AgentStudioProgrammaticControlTests`, `AgentStudioAppIPCTests`, and
-`AgentStudioIPCClientTests`.
-
-The executable-level `AgentStudioTests` target owns App composition,
-cross-Feature integration, executable resources, WebKit integration, zmx
-integration, and packaged/runtime proof that cannot be expressed by a lower
-module test. This ownership does not replace the existing execution lanes:
-`mise run test:swift:fast`, `mise run test:swift:large`,
-`mise run test:swift:webkit`, `mise run test:swift:e2e`, and
-`mise run test:swift:zmx-e2e` retain their filter,
-serialization, prebuild, timeout, and retry semantics. `swift test --filter`
-selects tests to execute; it does not redefine module ownership or guarantee
-that unrelated same-package test products avoid compilation.
+This heading stays because other documents anchor to it.
 
 ---
 
