@@ -324,7 +324,7 @@ struct PrimarySidebarPipelineIntegrationTests {
 
     @Test("project-dev shape converges remote grouping and PR enrichment across sibling checkouts")
     func projectDevShapeConvergesGroupingAndPullRequestCounts() async throws {
-        let tempRoot = try makeProjectDevShapeFixture()
+        let tempRoot = try await makeProjectDevShapeFixture()
         defer { try? FileManager.default.removeItem(at: tempRoot) }
 
         let discoveredRepoPaths = await RepoScanner().scanForGitRepos(in: tempRoot, maxDepth: 4)
@@ -577,7 +577,7 @@ struct PrimarySidebarPipelineIntegrationTests {
         return (forgeActor, coordinator, projector)
     }
 
-    private func makeProjectDevShapeFixture() throws -> URL {
+    private func makeProjectDevShapeFixture() async throws -> URL {
         let root = FileManager.default.temporaryDirectory
             .appending(path: "project-dev-shape-\(UUID().uuidString)")
 
@@ -589,21 +589,23 @@ struct PrimarySidebarPipelineIntegrationTests {
         ]
 
         for path in repoPaths {
-            try initializeGitRepository(at: root.appending(path: path))
+            try await initializeGitRepository(at: root.appending(path: path))
         }
 
         return root
     }
 
-    private func initializeGitRepository(at path: URL) throws {
+    private func initializeGitRepository(at path: URL) async throws {
         try FileManager.default.createDirectory(at: path, withIntermediateDirectories: true)
-
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        process.arguments = ["git", "-C", path.path, "init"]
-        try process.run()
-        process.waitUntilExit()
-        #expect(process.terminationStatus == 0)
+        let exitCode = try await withoutBlockingCooperativePool {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+            process.arguments = ["git", "-C", path.path, "init"]
+            try process.run()
+            process.waitUntilExit()
+            return process.terminationStatus
+        }
+        #expect(exitCode == 0)
     }
 
     private func canonicalPath(_ url: URL) -> String {

@@ -16,9 +16,9 @@ extension E2ESerializedTests {
         @Test("filesystem actor events flow through coordinator into workspace stores")
         func filesystemEventsFlowThroughCoordinatorIntoStores() async throws {
             installTestCoreAtomsIfNeeded()
-            let repoURL = try FilesystemTestGitRepo.create(named: "filesystem-e2e")
+            let repoURL = try await FilesystemTestGitRepo.create(named: "filesystem-e2e")
             defer { FilesystemTestGitRepo.destroy(repoURL) }
-            try FilesystemTestGitRepo.seedTrackedAndUntrackedChanges(at: repoURL)
+            try await FilesystemTestGitRepo.seedTrackedAndUntrackedChanges(at: repoURL)
 
             let workspaceDir = repoURL.deletingLastPathComponent().appending(path: "workspace-\(UUID().uuidString)")
             defer { try? FileManager.default.removeItem(at: workspaceDir) }

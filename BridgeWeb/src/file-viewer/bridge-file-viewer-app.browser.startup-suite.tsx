@@ -14,6 +14,8 @@ import { terminateBridgePierreWorkerPoolSingletonForTest } from '../review-viewe
 import {
 	actInteractAndSettleFileViewerCheckedMenuOption,
 	actClickAndSettleFileViewerMenu,
+	type FileFilterActDiagnostic,
+	recordFileFilterActDiagnostic,
 	waitForFileViewerHTMLElement,
 	waitForFileViewerMenuOptionContaining,
 	waitForFileViewerTreeItemButtonInAct,
@@ -39,7 +41,6 @@ import {
 	actClick,
 	actFrame,
 	actUpdate,
-	bridgeFileViewerNoopResizeObserverIsInstalled,
 	interactAndWaitForBridgeFileViewerQueryCompletion,
 	metadataInterestPathsForLane,
 	makeTestTelemetryRecorder,
@@ -950,53 +951,6 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		).toBe(false);
 	});
 });
-
-interface FileFilterActDiagnostic {
-	oldCheckedIndicator: Element | null;
-	selectedOption: HTMLElement | null;
-}
-
-function recordFileFilterActDiagnostic(
-	diagnostic: FileFilterActDiagnostic | null,
-	phase: string,
-): void {
-	if (diagnostic === null) return;
-
-	const popup = document.querySelector('[data-testid="worktree-file-filter-menu-popover"]');
-	const popupAnimations =
-		popup instanceof HTMLElement ? popup.getAnimations({ subtree: true }) : [];
-	const selectedIndicator = diagnostic.selectedOption?.querySelector('[data-checked]') ?? null;
-	const activeElement = document.activeElement;
-	const activeElementOwner =
-		activeElement === null
-			? 'none'
-			: popup instanceof HTMLElement && popup.contains(activeElement)
-				? 'popup'
-				: activeElement.getAttribute('data-testid') === 'worktree-file-filter-menu'
-					? 'trigger'
-					: 'other';
-	const animationPlayStateCounts = popupAnimations.reduce<Record<AnimationPlayState, number>>(
-		(counts, animation) => {
-			counts[animation.playState] += 1;
-			return counts;
-		},
-		{ finished: 0, idle: 0, paused: 0, running: 0 },
-	);
-
-	console.info(
-		'[file-filter-act-diagnostic]',
-		JSON.stringify({
-			activeElementOwner,
-			animationCount: popupAnimations.length,
-			animationPlayStateCounts,
-			noOpResizeObserverInstalled: bridgeFileViewerNoopResizeObserverIsInstalled(),
-			oldCheckedIndicatorConnected: diagnostic.oldCheckedIndicator?.isConnected ?? null,
-			phase,
-			popupConnected: popup?.isConnected ?? false,
-			selectedIndicatorConnected: selectedIndicator?.isConnected ?? false,
-		}),
-	);
-}
 
 async function waitForFileFilterCount(expectedCount: string, attempt = 0): Promise<void> {
 	if (fileFilterCount() === expectedCount) return;

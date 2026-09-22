@@ -12,15 +12,15 @@ extension WebKitSerializedTests.BridgeProductRealGitFileAndReviewWebKitTests {
     @Test("clean real-git Review publishes the loaded empty presentation")
     func cleanRealGitReviewPublishesLoadedEmptyPresentation() async throws {
         // Arrange
-        let repoURL = try FilesystemTestGitRepo.create(named: "bridge-product-empty-review-webkit")
+        let repoURL = try await FilesystemTestGitRepo.create(named: "bridge-product-empty-review-webkit")
         defer { FilesystemTestGitRepo.destroy(repoURL) }
         try "tracked\n".write(
             to: repoURL.appending(path: "tracked.txt"),
             atomically: true,
             encoding: .utf8
         )
-        try FilesystemTestGitRepo.runGit(at: repoURL, args: ["add", "tracked.txt"])
-        try FilesystemTestGitRepo.runGit(at: repoURL, args: ["commit", "-m", "Initial commit"])
+        try await FilesystemTestGitRepo.runGit(at: repoURL, args: ["add", "tracked.txt"])
+        try await FilesystemTestGitRepo.runGit(at: repoURL, args: ["commit", "-m", "Initial commit"])
         let traceRecorder = BridgeProductWebKitCarrierTraceRecorder()
         let controller = makeController(repoURL: repoURL, traceRecorder: traceRecorder)
 

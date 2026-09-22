@@ -22,7 +22,7 @@ struct BridgeDevelopmentHostBootstrapAdmissionTests {
     @Test("a live metadata stream refuses a fresh initial bootstrap")
     func liveMetadataStreamRefusesAFreshInitialBootstrap() async throws {
         // Arrange
-        let repositoryURL = try FilesystemTestGitRepo.create(
+        let repositoryURL = try await FilesystemTestGitRepo.create(
             named: "bridge-development-host-bootstrap-admission-live"
         )
         defer { FilesystemTestGitRepo.destroy(repositoryURL) }
@@ -64,7 +64,7 @@ struct BridgeDevelopmentHostBootstrapAdmissionTests {
         // exactly the point where the stream is recorded terminated and its
         // retirement has not been written. Without the fix the bootstrap gate
         // sees "a lease with no retirement" and refuses.
-        let repositoryURL = try FilesystemTestGitRepo.create(
+        let repositoryURL = try await FilesystemTestGitRepo.create(
             named: "bridge-development-host-bootstrap-admission-join"
         )
         defer { FilesystemTestGitRepo.destroy(repositoryURL) }

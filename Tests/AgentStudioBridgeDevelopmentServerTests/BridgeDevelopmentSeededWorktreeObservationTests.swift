@@ -189,14 +189,14 @@ struct BridgeDevelopmentSeededWorktreeObservationTests {
     @Test("real Darwin observation routes a post-start Git worktree edit")
     func realDarwinObservationRoutesPostStartEdit() async throws {
         // Arrange
-        let root = try FilesystemTestGitRepo.create(
+        let root = try await FilesystemTestGitRepo.create(
             named: "bridge-development-live-observation"
         )
         defer { FilesystemTestGitRepo.destroy(root) }
         let trackedFile = root.appending(path: "tracked.txt")
         try "initial\n".write(to: trackedFile, atomically: true, encoding: .utf8)
-        try FilesystemTestGitRepo.runGit(at: root, args: ["add", "tracked.txt"])
-        try FilesystemTestGitRepo.runGit(at: root, args: ["commit", "-m", "Initial"])
+        try await FilesystemTestGitRepo.runGit(at: root, args: ["add", "tracked.txt"])
+        try await FilesystemTestGitRepo.runGit(at: root, args: ["commit", "-m", "Initial"])
         let source = BridgeDevelopmentObservationFixture.makeSource(root: root)
         let probe = BridgeDevelopmentObservationProbe()
         let bus = EventBus<RuntimeEnvelope>(name: "BridgeDevelopmentRealObservation")
@@ -247,14 +247,14 @@ struct BridgeDevelopmentSeededWorktreeObservationTests {
     @Test("real Darwin deletion emits a file invalidation and refreshes Review")
     func realDarwinDeletionEmitsInvalidationAndRefreshesReview() async throws {
         // Arrange
-        let root = try FilesystemTestGitRepo.create(
+        let root = try await FilesystemTestGitRepo.create(
             named: "bridge-development-live-review"
         )
         defer { FilesystemTestGitRepo.destroy(root) }
         let trackedFile = root.appending(path: "tracked.txt")
         try "initial\n".write(to: trackedFile, atomically: true, encoding: .utf8)
-        try FilesystemTestGitRepo.runGit(at: root, args: ["add", "tracked.txt"])
-        try FilesystemTestGitRepo.runGit(at: root, args: ["commit", "-m", "Initial"])
+        try await FilesystemTestGitRepo.runGit(at: root, args: ["add", "tracked.txt"])
+        try await FilesystemTestGitRepo.runGit(at: root, args: ["commit", "-m", "Initial"])
         try "initial\nupdated\n".write(to: trackedFile, atomically: false, encoding: .utf8)
         let source = BridgeDevelopmentObservationFixture.makeSource(root: root)
         let probe = BridgeDevelopmentObservationProbe()

@@ -112,7 +112,13 @@ extension E2ESerializedTests {
                 }
                 try #require(extinct)
                 let socketPath = "\(harness.zmxDir)/\(sessionID.rawValue)"
-                let socketInode = try makeStaleCleanupSocket(at: socketPath)
+                let staleSocketIdentity = try makeStaleCleanupSocket(at: socketPath)
+                defer {
+                    removeOwnedStaleCleanupSocket(
+                        at: socketPath,
+                        expectedIdentity: staleSocketIdentity
+                    )
+                }
                 let databaseURL = URL(fileURLWithPath: harness.zmxDir).appendingPathComponent("stale-socket.sqlite")
                 do {
                     let database = try SQLiteDatabaseFactory.makeFileBackedPool(at: databaseURL)
@@ -136,7 +142,9 @@ extension E2ESerializedTests {
                 #expect(try await datastore.terminalSessionCleanupBatch(after: nil).isEmpty)
                 var remainingSocket = stat()
                 #expect(lstat(socketPath, &remainingSocket) == 0)
-                #expect(remainingSocket.st_ino == socketInode)
+                #expect(remainingSocket.st_ino == staleSocketIdentity.inode)
+                #expect(remainingSocket.st_dev == staleSocketIdentity.device)
+                #expect(remainingSocket.st_mode & S_IFMT == staleSocketIdentity.fileType)
             }
         }
 
@@ -159,7 +167,7 @@ extension E2ESerializedTests {
             throw ZmxSessionControlFailure.timeout
         }
 
-        private func makeStaleCleanupSocket(at path: String) throws -> ino_t {
+        private func makeStaleCleanupSocket(at path: String) throws -> StaleCleanupSocketIdentity {
             let descriptor = socket(AF_UNIX, SOCK_STREAM, 0)
             guard descriptor >= 0 else { throw POSIXError(.EIO) }
             defer { Darwin.close(descriptor) }
@@ -177,7 +185,33 @@ extension E2ESerializedTests {
             guard bound == 0 else { throw POSIXError(.EIO) }
             var information = stat()
             guard lstat(path, &information) == 0 else { throw POSIXError(.EIO) }
-            return information.st_ino
+            return StaleCleanupSocketIdentity(
+                device: information.st_dev,
+                inode: information.st_ino,
+                fileType: information.st_mode & S_IFMT
+            )
+        }
+
+        private func removeOwnedStaleCleanupSocket(
+            at path: String,
+            expectedIdentity: StaleCleanupSocketIdentity
+        ) {
+            var currentIdentity = stat()
+            guard lstat(path, &currentIdentity) == 0 else {
+                Issue.record("owned stale cleanup socket disappeared before fixture teardown: \(path)")
+                return
+            }
+            guard currentIdentity.st_dev == expectedIdentity.device,
+                currentIdentity.st_ino == expectedIdentity.inode,
+                currentIdentity.st_mode & S_IFMT == expectedIdentity.fileType
+            else {
+                Issue.record("refusing to remove a replacement at the stale cleanup socket path: \(path)")
+                return
+            }
+            guard unlink(path) == 0 else {
+                Issue.record("failed to remove owned stale cleanup socket at \(path): errno \(errno)")
+                return
+            }
         }
 
         @MainActor
@@ -495,7 +529,7 @@ extension E2ESerializedTests {
         private func withRealBackend(
             _ test: @escaping @Sendable (ZmxTestHarness, ZmxBackend) async throws -> Void
         ) async throws {
-            let harness = ZmxTestHarness()
+            let harness = await ZmxTestHarness()
             let backend = try #require(
                 harness.createBackend(),
                 "ZmxTestHarness failed to resolve zmx path; integration test requires zmx"
@@ -526,4 +560,10 @@ extension E2ESerializedTests {
             }
         }
     }
+}
+
+private struct StaleCleanupSocketIdentity {
+    let device: dev_t
+    let inode: ino_t
+    let fileType: mode_t
 }

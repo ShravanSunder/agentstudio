@@ -7,8 +7,11 @@ import Testing
 struct ZmxTestHarnessTests {
 
     @Test("independent harnesses use distinct short session roots")
-    func independentHarnessesUseDistinctSessionRoots() {
-        let roots = (0..<3).map { _ in ZmxTestHarness().zmxDir }
+    func independentHarnessesUseDistinctSessionRoots() async {
+        var roots: [String] = []
+        for _ in 0..<3 {
+            roots.append(await ZmxTestHarness().zmxDir)
+        }
         #expect(Set(roots).count == roots.count)
         #expect(roots.allSatisfy { $0.hasPrefix("/tmp/zt-") && $0.utf8.count < 30 })
     }

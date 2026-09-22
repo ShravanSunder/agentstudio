@@ -1,5 +1,6 @@
 import AgentStudioGit
 import AgentStudioInfrastructure
+import AgentStudioTestSupport
 import Foundation
 import Testing
 
@@ -9,7 +10,7 @@ import Testing
 struct WorktreeAnnotationGitSourceMaterialProviderTests {
     @Test("an unrelated symlink read failure preserves an exact annotation")
     func unrelatedSymlinkReadFailurePreservesExactAnnotation() async throws {
-        let repositoryURL = try makeGitSourceFixture()
+        let repositoryURL = try await makeGitSourceFixture()
         defer { WorktreeAnnotationGitFixture.destroy(repositoryURL) }
         try FileManager.default.createSymbolicLink(
             atPath: repositoryURL.appending(path: "Instructions.md").path,
@@ -51,7 +52,7 @@ struct WorktreeAnnotationGitSourceMaterialProviderTests {
 
     @Test("working-tree material drives exact relocation and ambiguous placement")
     func workingTreeMaterialDrivesPlacement() async throws {
-        let repositoryURL = try makeGitSourceFixture()
+        let repositoryURL = try await makeGitSourceFixture()
         defer { WorktreeAnnotationGitFixture.destroy(repositoryURL) }
         let provider = GitWorktreeAnnotationSourceMaterialProvider(
             client: LibGit2AgentStudioGitLocalClient()
@@ -151,7 +152,7 @@ struct WorktreeAnnotationGitSourceMaterialProviderTests {
 
     @Test("working-tree material places a Review head origin on the File surface")
     func workingTreeMaterialPlacesReviewHeadOrigin() async throws {
-        let repositoryURL = try makeGitSourceFixture()
+        let repositoryURL = try await makeGitSourceFixture()
         defer { WorktreeAnnotationGitFixture.destroy(repositoryURL) }
         let provider = GitWorktreeAnnotationSourceMaterialProvider(
             client: LibGit2AgentStudioGitLocalClient()
@@ -193,19 +194,28 @@ struct WorktreeAnnotationGitSourceMaterialProviderTests {
 
     @Test("review material reads the exact base and head commits")
     func reviewMaterialReadsBaseAndHeadCommits() async throws {
-        let repositoryURL = try makeGitSourceFixture()
+        let repositoryURL = try await makeGitSourceFixture()
         defer { WorktreeAnnotationGitFixture.destroy(repositoryURL) }
-        let baseOID = try WorktreeAnnotationGitFixture.runGit(at: repositoryURL, args: ["rev-parse", "HEAD"])
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let baseOID = try await WorktreeAnnotationGitFixture.runGit(
+            at: repositoryURL,
+            args: ["rev-parse", "HEAD"]
+        )
+        .trimmingCharacters(in: .whitespacesAndNewlines)
         try "before\nhead line\nafter\n".write(
             to: repositoryURL.appending(path: "Sources/Feature.swift"),
             atomically: true,
             encoding: .utf8
         )
-        try WorktreeAnnotationGitFixture.runGit(at: repositoryURL, args: ["add", "Sources/Feature.swift"])
-        try WorktreeAnnotationGitFixture.runGit(at: repositoryURL, args: ["commit", "-m", "Head material"])
-        let headOID = try WorktreeAnnotationGitFixture.runGit(at: repositoryURL, args: ["rev-parse", "HEAD"])
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        try await WorktreeAnnotationGitFixture.runGit(at: repositoryURL, args: ["add", "Sources/Feature.swift"])
+        try await WorktreeAnnotationGitFixture.runGit(
+            at: repositoryURL,
+            args: ["commit", "-m", "Head material"]
+        )
+        let headOID = try await WorktreeAnnotationGitFixture.runGit(
+            at: repositoryURL,
+            args: ["rev-parse", "HEAD"]
+        )
+        .trimmingCharacters(in: .whitespacesAndNewlines)
         let provider = GitWorktreeAnnotationSourceMaterialProvider(
             client: LibGit2AgentStudioGitLocalClient()
         )
@@ -240,7 +250,7 @@ struct WorktreeAnnotationGitSourceMaterialProviderTests {
 
     @Test("missing oversized and over-capacity material fail closed")
     func unavailableAndBoundedReadsFailClosed() async throws {
-        let repositoryURL = try makeGitSourceFixture()
+        let repositoryURL = try await makeGitSourceFixture()
         defer { WorktreeAnnotationGitFixture.destroy(repositoryURL) }
         let client = LibGit2AgentStudioGitLocalClient()
         let provider = GitWorktreeAnnotationSourceMaterialProvider(
@@ -300,8 +310,8 @@ struct WorktreeAnnotationGitSourceMaterialProviderTests {
     }
 }
 
-private func makeGitSourceFixture() throws -> URL {
-    let repositoryURL = try WorktreeAnnotationGitFixture.create()
+private func makeGitSourceFixture() async throws -> URL {
+    let repositoryURL = try await WorktreeAnnotationGitFixture.create()
     let sourcesURL = repositoryURL.appending(path: "Sources")
     try FileManager.default.createDirectory(at: sourcesURL, withIntermediateDirectories: true)
     try "before\nselected line\nafter\n".write(
@@ -309,8 +319,11 @@ private func makeGitSourceFixture() throws -> URL {
         atomically: true,
         encoding: .utf8
     )
-    try WorktreeAnnotationGitFixture.runGit(at: repositoryURL, args: ["add", "Sources/Feature.swift"])
-    try WorktreeAnnotationGitFixture.runGit(at: repositoryURL, args: ["commit", "-m", "Source fixture"])
+    try await WorktreeAnnotationGitFixture.runGit(at: repositoryURL, args: ["add", "Sources/Feature.swift"])
+    try await WorktreeAnnotationGitFixture.runGit(
+        at: repositoryURL,
+        args: ["commit", "-m", "Source fixture"]
+    )
     return repositoryURL
 }
 
@@ -369,16 +382,16 @@ private func makeGitSourceThread(
 }
 
 private enum WorktreeAnnotationGitFixture {
-    static func create() throws -> URL {
+    static func create() async throws -> URL {
         let repositoryURL = FileManager.default.temporaryDirectory.appending(
             path: "annotation-source-material-\(UUIDv7.generate().uuidString)"
         )
         try FileManager.default.createDirectory(at: repositoryURL, withIntermediateDirectories: true)
-        try runGit(at: repositoryURL, args: ["init"])
-        try runGit(at: repositoryURL, args: ["symbolic-ref", "HEAD", "refs/heads/main"])
-        try runGit(at: repositoryURL, args: ["config", "user.email", "annotations@example.invalid"])
-        try runGit(at: repositoryURL, args: ["config", "user.name", "Annotation Tests"])
-        try runGit(at: repositoryURL, args: ["config", "commit.gpgsign", "false"])
+        try await runGit(at: repositoryURL, args: ["init"])
+        try await runGit(at: repositoryURL, args: ["symbolic-ref", "HEAD", "refs/heads/main"])
+        try await runGit(at: repositoryURL, args: ["config", "user.email", "annotations@example.invalid"])
+        try await runGit(at: repositoryURL, args: ["config", "user.name", "Annotation Tests"])
+        try await runGit(at: repositoryURL, args: ["config", "commit.gpgsign", "false"])
         return repositoryURL
     }
 
@@ -387,31 +400,41 @@ private enum WorktreeAnnotationGitFixture {
     }
 
     @discardableResult
-    static func runGit(at repositoryURL: URL, args: [String]) throws -> String {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        process.arguments = ["git", "-C", repositoryURL.path] + args
-        let standardOutput = Pipe()
-        let standardError = Pipe()
-        process.standardOutput = standardOutput
-        process.standardError = standardError
-        try process.run()
-        process.waitUntilExit()
-        guard process.terminationStatus == 0 else {
-            let errorText =
-                String(
-                    data: standardError.fileHandleForReading.readDataToEndOfFile(),
-                    encoding: .utf8
-                ) ?? ""
-            throw NSError(
-                domain: "WorktreeAnnotationGitFixture",
-                code: Int(process.terminationStatus),
-                userInfo: [NSLocalizedDescriptionKey: errorText]
-            )
+    static func runGit(at repositoryURL: URL, args: [String]) async throws -> String {
+        try await withoutBlockingCooperativePool {
+            let outputDirectory = FileManager.default.temporaryDirectory
+                .appending(path: "annotation-git-output-\(UUIDv7.generate().uuidString)")
+            try FileManager.default.createDirectory(at: outputDirectory, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: outputDirectory) }
+            let stdoutURL = outputDirectory.appending(path: "stdout.log")
+            let stderrURL = outputDirectory.appending(path: "stderr.log")
+            FileManager.default.createFile(atPath: stdoutURL.path, contents: nil)
+            FileManager.default.createFile(atPath: stderrURL.path, contents: nil)
+            let stdoutHandle = try FileHandle(forWritingTo: stdoutURL)
+            let stderrHandle = try FileHandle(forWritingTo: stderrURL)
+            defer {
+                try? stdoutHandle.close()
+                try? stderrHandle.close()
+            }
+
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+            process.arguments = ["git", "-C", repositoryURL.path] + args
+            process.standardOutput = stdoutHandle
+            process.standardError = stderrHandle
+            try process.run()
+            process.waitUntilExit()
+            try stdoutHandle.close()
+            try stderrHandle.close()
+            guard process.terminationStatus == 0 else {
+                let errorText = try String(contentsOf: stderrURL, encoding: .utf8)
+                throw NSError(
+                    domain: "WorktreeAnnotationGitFixture",
+                    code: Int(process.terminationStatus),
+                    userInfo: [NSLocalizedDescriptionKey: errorText]
+                )
+            }
+            return try String(contentsOf: stdoutURL, encoding: .utf8)
         }
-        return String(
-            data: standardOutput.fileHandleForReading.readDataToEndOfFile(),
-            encoding: .utf8
-        ) ?? ""
     }
 }

@@ -1,7 +1,10 @@
 import { act } from 'react';
 
 import { findBridgeViewerTreeItemButton } from '../review-viewer/test-support/bridge-viewer-browser-dom.js';
-import { actFrame } from './bridge-file-viewer-browser-test-harness.js';
+import {
+	actFrame,
+	bridgeFileViewerNoopResizeObserverIsInstalled,
+} from './bridge-file-viewer-browser-test-harness.js';
 
 interface FileViewerUiTraceEntry {
 	readonly contentStateText: string | null;
@@ -11,6 +14,53 @@ interface FileViewerUiTraceEntry {
 	readonly metadataTreeRowCount: string | null;
 	readonly timestampMilliseconds: number;
 	readonly visibleText: string;
+}
+
+export interface FileFilterActDiagnostic {
+	oldCheckedIndicator: Element | null;
+	selectedOption: HTMLElement | null;
+}
+
+export function recordFileFilterActDiagnostic(
+	diagnostic: FileFilterActDiagnostic | null,
+	phase: string,
+): void {
+	if (diagnostic === null) return;
+
+	const popup = document.querySelector('[data-testid="worktree-file-filter-menu-popover"]');
+	const popupAnimations =
+		popup instanceof HTMLElement ? popup.getAnimations({ subtree: true }) : [];
+	const selectedIndicator = diagnostic.selectedOption?.querySelector('[data-checked]') ?? null;
+	const activeElement = document.activeElement;
+	const activeElementOwner =
+		activeElement === null
+			? 'none'
+			: popup instanceof HTMLElement && popup.contains(activeElement)
+				? 'popup'
+				: activeElement.getAttribute('data-testid') === 'worktree-file-filter-menu'
+					? 'trigger'
+					: 'other';
+	const animationPlayStateCounts = popupAnimations.reduce<Record<AnimationPlayState, number>>(
+		(counts, animation) => {
+			counts[animation.playState] += 1;
+			return counts;
+		},
+		{ finished: 0, idle: 0, paused: 0, running: 0 },
+	);
+
+	console.info(
+		'[file-filter-act-diagnostic]',
+		JSON.stringify({
+			activeElementOwner,
+			animationCount: popupAnimations.length,
+			animationPlayStateCounts,
+			noOpResizeObserverInstalled: bridgeFileViewerNoopResizeObserverIsInstalled(),
+			oldCheckedIndicatorConnected: diagnostic.oldCheckedIndicator?.isConnected ?? null,
+			phase,
+			popupConnected: popup?.isConnected ?? false,
+			selectedIndicatorConnected: selectedIndicator?.isConnected ?? false,
+		}),
+	);
 }
 
 declare global {
