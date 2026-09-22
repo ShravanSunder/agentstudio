@@ -4,6 +4,7 @@ import Testing
 @testable import AgentStudio
 @testable import AgentStudioCore
 @testable import AgentStudioInfrastructure
+@testable import AgentStudioTerminal
 @testable import AgentStudioTestSupport
 
 @MainActor
@@ -184,6 +185,55 @@ struct PaneTabViewControllerTargetedFocusCommandTests {
         #expect(harness.store.drawerView(forParent: parentPane.id)?.minimizedPaneIds.contains(drawerPane.id) == false)
         #expect(atom(\.workspaceFocusOwner).owner == .drawerPane(parentPaneId: parentPane.id, paneId: drawerPane.id))
         #expect(window.firstResponder === childHost)
+    }
+
+    @Test("targeted drawer focus reattaches a child revealed by an arrangement switch")
+    func executeFocusDrawerPaneReattachesChildRevealedByArrangementSwitch() async throws {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+        let parentPane = harness.store.createPane()
+        let tab = Tab(paneId: parentPane.id)
+        harness.store.appendTab(tab)
+        harness.store.setActiveTab(tab.id)
+        let drawerPane = try #require(harness.store.addDrawerPane(to: parentPane.id))
+        let visibleCustomID = try #require(harness.store.createArrangement(name: "Visible", inTab: tab.id))
+        let minimizedCurrentID = try #require(harness.store.createArrangement(name: "Current", inTab: tab.id))
+        #expect(visibleCustomID != minimizedCurrentID)
+
+        let window = makePaneTabViewControllerCommandWindow(for: harness.controller)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        try attachPaneHost(paneId: parentPane.id, in: harness, to: window)
+        let surfaceID = UUIDv7.generate()
+        let terminalView = TerminalPaneMountView(
+            restoredSurfaceId: surfaceID,
+            paneId: drawerPane.id
+        )
+        try attachPaneHost(
+            paneId: drawerPane.id,
+            in: harness,
+            to: window,
+            mountedContent: terminalView
+        )
+        let didMinimize = await harness.executor.submitGesture { execute in
+            await execute(
+                .minimizeDrawerPane(parentPaneId: parentPane.id, drawerPaneId: drawerPane.id)
+            )
+        }.value
+        #expect(didMinimize)
+        #expect(harness.surfaceManager.detachedSurfaceRequests.map(\.surfaceId) == [surfaceID])
+        let attachRequestCountBeforeFocus = harness.surfaceManager.attachedSurfaceRequests.count
+
+        await harness.executeCommand(.focusPane, target: drawerPane.id, targetType: .pane)
+
+        #expect(harness.store.tab(tab.id)?.activeArrangementId == visibleCustomID)
+        #expect(harness.store.drawerView(forParent: parentPane.id)?.minimizedPaneIds.contains(drawerPane.id) == false)
+        #expect(atom(\.workspaceFocusOwner).owner == .drawerPane(parentPaneId: parentPane.id, paneId: drawerPane.id))
+        #expect(window.firstResponder === terminalView)
+        #expect(
+            Array(harness.surfaceManager.attachedSurfaceRequests.dropFirst(attachRequestCountBeforeFocus))
+                .contains { $0.surfaceId == surfaceID && $0.paneId == drawerPane.id }
+        )
     }
 
     @Test("spatial focus keeps focus when the only neighbor is minimized")
