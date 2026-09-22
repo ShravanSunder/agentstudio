@@ -10,11 +10,9 @@ struct DarwinSharedExactItemRealStreamIntegrationTests {
     func nativeSharedStreamRoutesSiblingMissesAndExactHits() async throws {
         let fixture = try await SharedExactItemRealStreamFixture(nativeSharedStreamIsEnabled: true)
         defer { fixture.remove() }
-        // Two different facts, both required. The sentinel proves each stream is
-        // LIVE — a stream that has never carried an event cannot mint an
-        // exact-clean authority. The barrier then proves QUIESCENCE: nothing the
-        // kernel had queued, including the sentinel's own siblings, is still in
-        // flight to bump `mutationEpoch` behind the test's back.
+        // The sentinel proves each local event path is live. The coverage barrier
+        // then proves the local and shared bindings are current and quiescent
+        // before the first exact read.
         try #require(
             await fixture.awaitLocalStreamSentinelBarrier(),
             "fixture not live: sentinel batch never arrived"
@@ -112,11 +110,9 @@ struct DarwinSharedExactItemRealStreamIntegrationTests {
         // flight could bump `mutationEpoch` from the raw callback and make the
         // renewals below fail closed — the product being right, reported as the
         // product being wrong.
-        // Two different facts, both required. The sentinel proves each stream is
-        // LIVE — a stream that has never carried an event cannot mint an
-        // exact-clean authority. The barrier then proves QUIESCENCE: nothing the
-        // kernel had queued, including the sentinel's own siblings, is still in
-        // flight to bump `mutationEpoch` behind the test's back.
+        // The sentinel proves each local event path is live. The coverage barrier
+        // then proves the local and shared bindings are current and quiescent
+        // before the first exact read.
         try #require(
             await fixture.awaitLocalStreamSentinelBarrier(),
             "fixture not live: sentinel batch never arrived"
@@ -186,11 +182,9 @@ struct DarwinSharedExactItemRealStreamIntegrationTests {
     func nativeWatchedParentReplacementRequiresRebinding() async throws {
         let fixture = try await SharedExactItemRealStreamFixture(nativeSharedStreamIsEnabled: true)
         defer { fixture.remove() }
-        // Two different facts, both required. The sentinel proves each stream is
-        // LIVE — a stream that has never carried an event cannot mint an
-        // exact-clean authority. The barrier then proves QUIESCENCE: nothing the
-        // kernel had queued, including the sentinel's own siblings, is still in
-        // flight to bump `mutationEpoch` behind the test's back.
+        // The sentinel proves each local event path is live. The coverage barrier
+        // then proves the local and shared bindings are current and quiescent
+        // before the first exact read.
         try #require(
             await fixture.awaitLocalStreamSentinelBarrier(),
             "fixture not live: sentinel batch never arrived"
@@ -236,10 +230,9 @@ struct DarwinSharedExactItemRealStreamIntegrationTests {
         #expect(Set(fullGitBatches.keys) == [fixture.firstWorktreeId, fixture.secondWorktreeId])
 
         try await fixture.pointRepositoriesToExternalParent(replacementParent)
-        fixture.rebindWorktreeRegistrations()
-        // A re-registered stream that has never carried an event cannot yet mint
-        // an exact-clean authority, so quiescence alone is not enough here: this
-        // site needs the sentinel's STIMULUS, not just the barrier.
+        try await fixture.rebindWorktreeRegistrations()
+        // Prove the replacement registrations' local event paths are live before
+        // the coverage barrier verifies their current local and shared bindings.
         try #require(
             await fixture.awaitLocalStreamSentinelBarrier(),
             "fixture not live after rebinding: sentinel batch never arrived"

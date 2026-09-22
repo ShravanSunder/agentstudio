@@ -137,6 +137,66 @@ struct BridgeProductSchemeFramePumpTests {
         #expect((await fixture.harness.session.producerSnapshot()).hasZeroResidue)
     }
 
+    @Test("completed retirement clears a frame claimed after initial abandonment")
+    func completedRetirementClearsLateFrameObservation() async throws {
+        // Arrange
+        let harness = try await BridgeProductSessionProducerHarness.opened()
+        let completionGate = FramePumpProducerCompletionGate()
+        let request = try bridgeProductFileContentRequest(identitySuffix: "late-observation")
+        let registration = await harness.session.registerContentProducer(
+            request: request,
+            productAdmission: harness.productAdmission
+        ) { _ in
+            await completionGate.waitForRelease()
+        }
+        let lease = try bridgeProductAcceptedLease(registration)
+        _ = try await harness.session.enqueueRequiredProducerOpeningFrame(
+            for: lease,
+            productAdmission: harness.productAdmission,
+            build: { _ in
+                .content(
+                    .init(
+                        header: .accepted(for: request.admission),
+                        payload: Data()
+                    )
+                )
+            }
+        )
+        let pump = BridgeProductSchemeFramePump(
+            session: harness.session,
+            producerLease: lease,
+            productAdmission: harness.productAdmission,
+            acknowledgeLifecycle: { _ in true }
+        )
+
+        // Act
+        async let cancellationSucceeded = pump.cancel()
+        await completionGate.waitUntilCancelled()
+        let lateDelivery = frameDelivery(await pump.nextFrame())
+        let registeredReceipt: BridgeProductProducerFrameReceipt?
+        if lateDelivery != nil {
+            registeredReceipt = await harness.session.producerFrameObservationReceipt(
+                for: lease
+            )
+        } else {
+            registeredReceipt = nil
+        }
+        await completionGate.release()
+        let cancellationResult = await cancellationSucceeded
+        let requiredLateDelivery = try #require(lateDelivery)
+        let lateAcknowledgementAccepted =
+            await harness.session.acknowledgeProducerFrameObserved(requiredLateDelivery.receipt)
+        let observationRemains = await harness.session.hasProducerFrameObservation(for: lease)
+        let finalSnapshot = await harness.session.producerSnapshot()
+
+        // Assert
+        #expect(registeredReceipt == requiredLateDelivery.receipt)
+        #expect(cancellationResult)
+        #expect(!lateAcknowledgementAccepted)
+        #expect(!observationRemains)
+        #expect(finalSnapshot.hasZeroResidue)
+    }
+
     @Test("claimed queue head remains resident until its exact receipt is consumed")
     func claimedFrameRequiresExactConsumptionReceipt() async throws {
         // Arrange
@@ -494,13 +554,26 @@ private actor FramePumpReentrantRevocationLifecycleProbe {
 }
 
 private actor FramePumpProducerCompletionGate {
+    private var cancellationWaiters: [CheckedContinuation<Void, Never>] = []
     private var continuation: CheckedContinuation<Void, Never>?
     private var isReleased = false
+    private var wasCancelled = false
 
     func waitForRelease() async {
-        if isReleased { return }
+        await withTaskCancellationHandler {
+            if isReleased { return }
+            await withCheckedContinuation { continuation in
+                self.continuation = continuation
+            }
+        } onCancel: {
+            Task { await self.recordCancellation() }
+        }
+    }
+
+    func waitUntilCancelled() async {
+        if wasCancelled { return }
         await withCheckedContinuation { continuation in
-            self.continuation = continuation
+            cancellationWaiters.append(continuation)
         }
     }
 
@@ -508,6 +581,15 @@ private actor FramePumpProducerCompletionGate {
         isReleased = true
         continuation?.resume()
         continuation = nil
+    }
+
+    private func recordCancellation() {
+        wasCancelled = true
+        let waiters = cancellationWaiters
+        cancellationWaiters.removeAll()
+        for waiter in waiters {
+            waiter.resume()
+        }
     }
 }
 
@@ -553,4 +635,18 @@ private func frameDelivery(
 ) -> BridgeProductProducerFrameDelivery? {
     guard case .frame(let delivery) = result else { return nil }
     return delivery
+}
+
+extension BridgeProductSession {
+    fileprivate func producerFrameObservationReceipt(
+        for lease: BridgeProductProducerLease
+    ) -> BridgeProductProducerFrameReceipt? {
+        producerFrameObservationByLease[lease]?.receipt
+    }
+
+    fileprivate func hasProducerFrameObservation(
+        for lease: BridgeProductProducerLease
+    ) -> Bool {
+        producerFrameObservationByLease[lease] != nil
+    }
 }

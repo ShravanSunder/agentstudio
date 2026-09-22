@@ -21,6 +21,7 @@ final class SharedExactItemRealStreamFixture: @unchecked Sendable {
     private let fixtureRoot: URL
     private let streamClient: DarwinFSEventStreamClient
     private let exactItemParent: SharedExactItemParent
+    private let gitClient: AgentStudioGit.LibGit2AgentStudioGitLocalClient
 
     /// `DarwinFSEventIngressBuffer.events()` is ONE AsyncStream with single-consumer
     /// semantics, and `captureActivityBarrier()` only returns once that consumer
@@ -73,10 +74,12 @@ final class SharedExactItemRealStreamFixture: @unchecked Sendable {
         streamClient = DarwinFSEventStreamClient(
             sharedExactItemStreamFactory: nativeStreamRecorder.makeStream
         )
+        gitClient = AgentStudioGit.LibGit2AgentStudioGitLocalClient()
         provider = Self.makeProvider(
             continuityWitness: streamClient,
             readRecorder: readRecorder,
-            exactItemParent: exactItemParent
+            exactItemParent: exactItemParent,
+            gitClient: gitClient
         )
 
         let (forwardedIngress, forwardedIngressContinuation) = AsyncStream.makeStream(
@@ -108,18 +111,57 @@ final class SharedExactItemRealStreamFixture: @unchecked Sendable {
             repoId: UUIDv7.generate(),
             rootPath: secondRepositoryPath
         )
+        do {
+            try await installIntendedObservationBindings()
+        } catch {
+            remove()
+            throw error
+        }
     }
 
     func establishAuthority(
         worktreeId: UUID,
         repositoryPath: URL
     ) async -> GitCleanContinuityAuthority? {
+        let worktreeLabel =
+            if worktreeId == firstWorktreeId {
+                "first"
+            } else if worktreeId == secondWorktreeId {
+                "second"
+            } else {
+                "unknown"
+            }
         let result = await provider.exactCleanStatusFactsResult(
             for: worktreeId,
             rootPath: repositoryPath
         )
-        guard case .available(let facts) = result else { return nil }
-        return facts.exactCleanAuthority
+        switch result {
+        case .available(let facts):
+            guard let authority = facts.exactCleanAuthority else {
+                print(
+                    "[darwin-shared-exact-item] authority label=\(worktreeLabel) "
+                        + "outcome=available_without_authority"
+                )
+                return nil
+            }
+            print(
+                "[darwin-shared-exact-item] authority label=\(worktreeLabel) "
+                    + "outcome=authoritative"
+            )
+            return authority
+        case .requiresExact(let reason):
+            print(
+                "[darwin-shared-exact-item] authority label=\(worktreeLabel) "
+                    + "outcome=requires_exact reason=\(reason.rawValue)"
+            )
+            return nil
+        case .unavailable(let unavailable):
+            print(
+                "[darwin-shared-exact-item] authority label=\(worktreeLabel) "
+                    + "outcome=unavailable reason=\(unavailable.reason.rawValue)"
+            )
+            return nil
+        }
     }
 
     func collectFullGitRefreshBatches(
@@ -156,18 +198,37 @@ final class SharedExactItemRealStreamFixture: @unchecked Sendable {
     ///
     /// `streamClient` stays private; the barrier is exposed as behaviour instead.
     func awaitActivityBarrier() async -> Bool {
-        await streamClient.captureActivityBarrier() != nil
+        guard let barrier = await streamClient.captureActivityBarrier() else { return false }
+
+        let expectedWorktreeIds: Set<UUID> = [firstWorktreeId, secondWorktreeId]
+        let localBindings = barrier.bindings.filter {
+            $0.participant.scopeKey == "local:\($0.worktreeId.uuidString)"
+        }
+        guard Set(localBindings.map(\.worktreeId)) == expectedWorktreeIds else { return false }
+
+        let currentParentPath = DarwinFSEventPathCanonicalizer.canonicalURL(
+            exactItemParent.currentURL
+        ).path
+        guard
+            let volumeSystemNumber = DarwinFSEventBindingPlanner.volumeSystemNumber(
+                for: currentParentPath
+            )
+        else { return false }
+        let expectedSharedScopeKey = "shared:\(volumeSystemNumber):\(currentParentPath)"
+        let sharedBindings = barrier.bindings.filter {
+            $0.participant.scopeKey == expectedSharedScopeKey
+        }
+        guard Set(sharedBindings.map(\.worktreeId)) == expectedWorktreeIds else { return false }
+        return Set(sharedBindings.map(\.participant)).count == 1
     }
 
     /// Drives real activity through each freshly bound stream and waits for it to
     /// come back.
     ///
-    /// Needed only after `rebindWorktreeRegistrations()`. The activity barrier
-    /// proves QUIESCENCE — nothing the kernel had queued is still in flight — but a
-    /// re-registered stream that has never carried an event cannot yet mint an
-    /// exact-clean authority, so quiescence alone is not enough there. This writes
-    /// a sentinel into each repository and waits for the batch that carries it,
-    /// which is a STIMULUS the barrier deliberately does not provide.
+    /// Initially and after `rebindWorktreeRegistrations()`, the sentinel proves
+    /// each local stream delivers real events. The final activity barrier checks
+    /// that current local and shared coverage is quiescent; exact authority belongs
+    /// to the subsequent status read's prepare/commit sequence.
     func awaitLocalStreamSentinelBarrier() async throws -> Bool {
         sentinelWriteSequence += 1
         let sentinelPathByWorktreeId = [
@@ -294,7 +355,7 @@ final class SharedExactItemRealStreamFixture: @unchecked Sendable {
         exactItemParent.replace(with: replacementParent)
     }
 
-    func rebindWorktreeRegistrations() {
+    func rebindWorktreeRegistrations() async throws {
         for (worktreeId, repositoryPath) in [
             (firstWorktreeId, firstRepositoryPath),
             (secondWorktreeId, secondRepositoryPath),
@@ -306,6 +367,7 @@ final class SharedExactItemRealStreamFixture: @unchecked Sendable {
                 rootPath: repositoryPath
             )
         }
+        try await installIntendedObservationBindings()
     }
 
     func firstCompletedValue<TValue: Sendable>(
@@ -358,38 +420,18 @@ final class SharedExactItemRealStreamFixture: @unchecked Sendable {
     private static func makeProvider(
         continuityWitness: DarwinFSEventStreamClient,
         readRecorder: GitPhysicalReadRecorder,
-        exactItemParent: SharedExactItemParent
+        exactItemParent: SharedExactItemParent,
+        gitClient: AgentStudioGit.LibGit2AgentStudioGitLocalClient
     ) -> AgentStudioGitWorkingTreeStatusProvider {
-        let gitClient = AgentStudioGit.LibGit2AgentStudioGitLocalClient()
-        return AgentStudioGitWorkingTreeStatusProvider(
+        AgentStudioGitWorkingTreeStatusProvider(
             physicalGate: AgentStudioGitStatusPhysicalGate(),
             continuityWitness: continuityWitness,
             statusObservationPlanReader: { repositoryPath in
-                readRecorder.recordObservationPlanRead()
-                let resolvedPlan = try await gitClient.statusObservationPlan(for: repositoryPath)
-                let canonicalRepositoryPath = DarwinFSEventPathCanonicalizer.canonicalURL(
-                    repositoryPath
-                ).path
-                let currentExactItemParent = exactItemParent.currentURL
-                let productionScopes = resolvedPlan.scopes.filter { scope in
-                    switch scope.kind {
-                    case .item:
-                        path(scope.path, isWithin: currentExactItemParent)
-                    case .subtree:
-                        DarwinFSEventPathCanonicalizer.canonicalURL(scope.path).path
-                            == canonicalRepositoryPath
-                    }
-                }
-                return AgentStudioGit.GitStatusObservationPlan(
-                    identity: AgentStudioGit.GitStatusObservationIdentity(
-                        rawValue:
-                            productionScopes
-                            .map { "\($0.kind.rawValue):\($0.path.path)" }
-                            .sorted()
-                            .joined(separator: "\u{0}")
-                    ),
-                    scopes: productionScopes,
-                    support: resolvedPlan.support
+                try await filteredObservationPlan(
+                    repositoryPath: repositoryPath,
+                    exactItemParent: exactItemParent,
+                    gitClient: gitClient,
+                    readRecorder: readRecorder
                 )
             },
             verifiedStatusFactsReader: { repositoryPath, options, observationPlan in
@@ -432,12 +474,114 @@ final class SharedExactItemRealStreamFixture: @unchecked Sendable {
         )
     }
 
+    private func installIntendedObservationBindings() async throws {
+        for (worktreeId, repositoryPath) in [
+            (firstWorktreeId, firstRepositoryPath),
+            (secondWorktreeId, secondRepositoryPath),
+        ] {
+            let observationPlan = try await Self.validatedObservationPlan(
+                repositoryPath: repositoryPath,
+                exactItemName: excludesFilePath.lastPathComponent,
+                exactItemParent: exactItemParent,
+                gitClient: gitClient,
+                readRecorder: readRecorder
+            )
+            _ = await streamClient.prepare(
+                worktreeId: worktreeId,
+                rootPath: repositoryPath,
+                observationPlan: observationPlan
+            )
+        }
+    }
+
+    private static func validatedObservationPlan(
+        repositoryPath: URL,
+        exactItemName: String,
+        exactItemParent: SharedExactItemParent,
+        gitClient: AgentStudioGit.LibGit2AgentStudioGitLocalClient,
+        readRecorder: GitPhysicalReadRecorder
+    ) async throws -> AgentStudioGit.GitStatusObservationPlan {
+        let observationPlan = try await filteredObservationPlan(
+            repositoryPath: repositoryPath,
+            exactItemParent: exactItemParent,
+            gitClient: gitClient,
+            readRecorder: readRecorder
+        )
+        guard observationPlan.support == .supported else {
+            throw SharedExactItemFixtureSetupError(
+                reason: "Git status observation is unsupported for the fixture repository"
+            )
+        }
+
+        let canonicalRepositoryPath = DarwinFSEventPathCanonicalizer.canonicalURL(
+            repositoryPath
+        ).path
+        let expectedExactItemPath = DarwinFSEventPathCanonicalizer.canonicalURL(
+            exactItemParent.currentURL.appending(path: exactItemName)
+        ).path
+        guard
+            observationPlan.scopes.contains(where: {
+                $0.kind == .subtree
+                    && DarwinFSEventPathCanonicalizer.canonicalURL($0.path).path
+                        == canonicalRepositoryPath
+            }),
+            observationPlan.scopes.contains(where: {
+                $0.kind == .item
+                    && DarwinFSEventPathCanonicalizer.canonicalURL($0.path).path
+                        == expectedExactItemPath
+            })
+        else {
+            throw SharedExactItemFixtureSetupError(
+                reason: "Git status observation omitted the fixture repository or current excludes item"
+            )
+        }
+        return observationPlan
+    }
+
+    private static func filteredObservationPlan(
+        repositoryPath: URL,
+        exactItemParent: SharedExactItemParent,
+        gitClient: AgentStudioGit.LibGit2AgentStudioGitLocalClient,
+        readRecorder: GitPhysicalReadRecorder
+    ) async throws -> AgentStudioGit.GitStatusObservationPlan {
+        readRecorder.recordObservationPlanRead()
+        let resolvedPlan = try await gitClient.statusObservationPlan(for: repositoryPath)
+        let canonicalRepositoryPath = DarwinFSEventPathCanonicalizer.canonicalURL(
+            repositoryPath
+        ).path
+        let currentExactItemParent = exactItemParent.currentURL
+        let productionScopes = resolvedPlan.scopes.filter { scope in
+            switch scope.kind {
+            case .item:
+                path(scope.path, isWithin: currentExactItemParent)
+            case .subtree:
+                DarwinFSEventPathCanonicalizer.canonicalURL(scope.path).path
+                    == canonicalRepositoryPath
+            }
+        }
+        return AgentStudioGit.GitStatusObservationPlan(
+            identity: AgentStudioGit.GitStatusObservationIdentity(
+                rawValue:
+                    productionScopes
+                    .map { "\($0.kind.rawValue):\($0.path.path)" }
+                    .sorted()
+                    .joined(separator: "\u{0}")
+            ),
+            scopes: productionScopes,
+            support: resolvedPlan.support
+        )
+    }
+
     private static func path(_ candidate: URL, isWithin root: URL) -> Bool {
         let canonicalCandidate = DarwinFSEventPathCanonicalizer.canonicalURL(candidate).path
         let canonicalRoot = DarwinFSEventPathCanonicalizer.canonicalURL(root).path
         return canonicalCandidate == canonicalRoot
             || canonicalCandidate.hasPrefix(canonicalRoot + "/")
     }
+}
+
+private struct SharedExactItemFixtureSetupError: Error {
+    let reason: String
 }
 
 final class SharedExactItemParent: @unchecked Sendable {

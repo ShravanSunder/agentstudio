@@ -539,6 +539,7 @@ extension BridgeProductSession {
         else {
             return false
         }
+        abandonProducerFrameDelivery(for: lease)
         contentAdmissionByProducerLease.removeValue(forKey: lease)
         productAdmissionByProducerLease.removeValue(forKey: lease)
         clearContentFrameObservationReplay(for: lease)
