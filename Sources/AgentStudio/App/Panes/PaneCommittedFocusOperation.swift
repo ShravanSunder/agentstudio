@@ -59,7 +59,9 @@ struct PaneCommittedFocusOperation {
                 else { return false }
             }
 
-            if selection.requiresDrawerChildExpansion {
+            if selection.requiresDrawerChildExpansion
+                || selection.arrangementID != snapshot.activeArrangementID
+            {
                 guard
                     await execute(
                         .expandDrawerPane(parentPaneId: parentPaneID, drawerPaneId: drawerPaneID)
