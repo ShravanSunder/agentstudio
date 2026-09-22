@@ -30,6 +30,10 @@ import {
 	BridgeViewerProductOnlyJourneyFailure,
 } from './product-only-real-router-failure.ts';
 import { installBridgeViewerBrowserErrorCapture } from './product-only-real-router-page-error.ts';
+import {
+	BridgeViewerReloadJoinDiagnosticRecorder,
+	type BridgeViewerReloadJoinResponses,
+} from './product-only-real-router-reload-join-diagnostics.ts';
 import { GenerationScopedResponseParsers } from './product-only-real-router-response-parsers.ts';
 import {
 	proveFreshReviewRoute,
@@ -177,18 +181,7 @@ export async function runBridgeViewerProductOnlyJourney(props: {
 		const fileAfterReviewFirstSwitch = await readFileProductState(page);
 
 		pageUrl.searchParams.set('viewer', 'file');
-		const firstAcknowledgementResponse = page.waitForResponse(
-			(response): boolean => responseIsFrameObservation(response),
-			{ timeout: productJourneyTimeoutMilliseconds },
-		);
-		const fileSubscriptionResponse = page.waitForResponse(
-			(response): boolean => responseIsSubscriptionOpen(response, 'file.metadata'),
-			{ timeout: productJourneyTimeoutMilliseconds },
-		);
-		const reviewSubscriptionResponse = page.waitForResponse(
-			(response): boolean => responseIsSubscriptionOpen(response, 'review.metadata'),
-			{ timeout: productJourneyTimeoutMilliseconds },
-		);
+		const reloadJoinResponses = routeObserver.armReloadJoinWaiters();
 		await page.goto(pageUrl.toString(), {
 			timeout: productJourneyTimeoutMilliseconds,
 			waitUntil: 'domcontentloaded',
@@ -197,9 +190,9 @@ export async function runBridgeViewerProductOnlyJourney(props: {
 			timeout: productJourneyTimeoutMilliseconds,
 		});
 		const [acknowledgementResponse, fileOpenResponse, reviewOpenResponse] = await Promise.all([
-			firstAcknowledgementResponse,
-			fileSubscriptionResponse,
-			reviewSubscriptionResponse,
+			reloadJoinResponses.frameAcknowledgement,
+			reloadJoinResponses.fileMetadataOpen,
+			reloadJoinResponses.reviewMetadataOpen,
 		]);
 		if (
 			acknowledgementResponse.status() === 204 &&
@@ -297,6 +290,7 @@ export async function runBridgeViewerProductOnlyJourney(props: {
 		pageClosed: page.isClosed(),
 	};
 	if (journeyFailure !== null) {
+		routeObserver.emitReloadJoinFailureDiagnostics(observedWorkers);
 		throw new BridgeViewerProductOnlyJourneyFailure({
 			cause: journeyFailureCause,
 			checkpoint: {
@@ -430,6 +424,7 @@ export class BridgeViewerRealRouterObserver {
 	readonly #responseParsers = new GenerationScopedResponseParsers();
 	readonly #productResponseClosureWaiters = new Set<() => void>();
 	readonly #unfinishedProductRequests = new Set<PlaywrightRequest>();
+	readonly #reloadJoinDiagnostics = new BridgeViewerReloadJoinDiagnosticRecorder();
 	#productActivityRevision = 0;
 	#nextOrdinal = 1;
 	#resolveLegacyCompletion: (() => void) | null = null;
@@ -448,6 +443,18 @@ export class BridgeViewerRealRouterObserver {
 
 	productRouteTranscript(): readonly BridgeViewerProductRouteTranscriptEntry[] {
 		return this.#productEntries.map((entry) => ({ ...entry }));
+	}
+
+	armReloadJoinWaiters(): BridgeViewerReloadJoinResponses {
+		return this.#reloadJoinDiagnostics.arm(
+			this.#page,
+			this.#nextOrdinal,
+			productJourneyTimeoutMilliseconds,
+		);
+	}
+
+	emitReloadJoinFailureDiagnostics(workers: readonly MutableObservedWorker[]): void {
+		this.#reloadJoinDiagnostics.emitFailure(this.#productEntries, workers);
 	}
 
 	failureTransportSnapshot(): BridgeViewerProductFailureTransportSnapshot {
@@ -533,9 +540,15 @@ export class BridgeViewerRealRouterObserver {
 	}
 
 	#observeResponse(response: PlaywrightResponse): void {
+		const responseDocumentGeneration = this.#documentGeneration();
 		const productEntry = this.#productEntryByRequest.get(response.request());
 		if (productEntry !== undefined) {
 			productEntry.httpStatus = response.status();
+			this.#reloadJoinDiagnostics.observeResponse(
+				response,
+				productEntry,
+				responseDocumentGeneration,
+			);
 			this.#productActivityRevision += 1;
 			this.#resolveProductResponseClosureWaitersIfQuiescent();
 			if (productEntry.path === '/__bridge-product/command' && response.status() !== 204) {
@@ -895,25 +908,6 @@ function sha256OrNull(value: string | null): string | null {
 	return value === null || value.length === 0
 		? null
 		: createHash('sha256').update(value).digest('hex');
-}
-
-function responseIsFrameObservation(response: PlaywrightResponse): boolean {
-	if (new URL(response.url()).pathname !== '/__bridge-product/command') return false;
-	const body = unknownRecord(parseJSONOrNull(response.request().postData()));
-	return body?.['kind'] === 'stream.frameObserved';
-}
-
-function responseIsSubscriptionOpen(
-	response: PlaywrightResponse,
-	subscriptionKind: 'file.metadata' | 'review.metadata',
-): boolean {
-	if (new URL(response.url()).pathname !== '/__bridge-product/command') return false;
-	const body = unknownRecord(parseJSONOrNull(response.request().postData()));
-	const subscription = unknownRecord(body?.['subscription']);
-	return (
-		body?.['kind'] === 'subscription.open' &&
-		subscription?.['subscriptionKind'] === subscriptionKind
-	);
 }
 
 function classifyObservedWorker(url: string, documentGeneration: number): MutableObservedWorker {
