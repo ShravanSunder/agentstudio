@@ -65,3 +65,14 @@ Production Swift/native Git belongs to
 [agentstudio-git](../docs/architecture/state/agentstudio_git.md#agentstudio-git).
 TypeScript git helpers are allowed only in clearly marked Vite dev-server or
 test fixture utilities.
+
+## Test Waits
+
+A BridgeWeb test wait completes because an application event or a DOM condition
+occurred, never because time passed. Vitest and Playwright `timeout` /
+`testTimeout` values are hang bounds declared once in shared configuration; do
+not set or raise one per test to obtain a pass. Drive an awaited animation to
+completion or handle its cancellation; never await it unbounded or uncaught.
+E2E journeys keep dependency-optimizer cold start outside their measured steps,
+and each live Vite server owns its cache directory. Standard:
+[Testing Architecture — BridgeWeb](../docs/architecture/testing/testing_architecture.md#bridgeweb).
