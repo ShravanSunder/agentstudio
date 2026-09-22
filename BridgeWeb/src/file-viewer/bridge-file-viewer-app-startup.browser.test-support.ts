@@ -149,10 +149,13 @@ export async function waitForFileViewerMenuOptionContaining(props: {
 
 export async function actInteractAndSettleFileViewerCheckedMenuOption(props: {
 	readonly interaction: () => Promise<void>;
+	readonly onDiagnosticPhase?: (phase: FileViewerCheckedMenuDiagnosticPhase) => void;
 	readonly option: HTMLElement;
 }): Promise<void> {
+	props.onDiagnosticPhase?.('before-interaction-act');
 	await act(props.interaction);
-	await settleBaseUiTransitionMachine();
+	props.onDiagnosticPhase?.('after-interaction-act');
+	await settleBaseUiTransitionMachine(props.onDiagnosticPhase);
 
 	const checkedIndicator = props.option.querySelector(
 		'[data-slot="dropdown-menu-checkbox-item-indicator"] [data-checked]',
@@ -173,6 +176,13 @@ export async function actInteractAndSettleFileViewerCheckedMenuOption(props: {
 	}
 }
 
+export type FileViewerCheckedMenuDiagnosticPhase =
+	| 'before-interaction-act'
+	| 'after-interaction-act'
+	| 'before-transition-frame-1'
+	| 'after-transition-frame-1'
+	| 'after-transition-frame-2';
+
 export async function actClickAndSettleFileViewerMenu(element: HTMLElement): Promise<void> {
 	const expectedExpandedState = element.getAttribute('aria-expanded') === 'true' ? 'false' : 'true';
 	await act(async (): Promise<void> => {
@@ -182,13 +192,18 @@ export async function actClickAndSettleFileViewerMenu(element: HTMLElement): Pro
 	await settleBaseUiTransitionMachine();
 }
 
-async function settleBaseUiTransitionMachine(): Promise<void> {
+async function settleBaseUiTransitionMachine(
+	onDiagnosticPhase?: (phase: FileViewerCheckedMenuDiagnosticPhase) => void,
+): Promise<void> {
 	// Base UI schedules transitionStatus='starting' cleanup on an animation frame. Its
 	// animation-complete hook starts on another frame and can synchronously unmount an
 	// ending indicator. Each frame gets its own act boundary so React commits the first
 	// transition before Base UI schedules work from the next state.
+	onDiagnosticPhase?.('before-transition-frame-1');
 	await actFrame();
+	onDiagnosticPhase?.('after-transition-frame-1');
 	await actFrame();
+	onDiagnosticPhase?.('after-transition-frame-2');
 }
 
 async function waitForFileViewerMenuState(props: {
