@@ -131,7 +131,7 @@ enum WorkspaceTerminalCreationComposition {
                 tabId: original.id, allPaneIds: original.allPaneIds,
                 arrangements: original.arrangements, activeArrangementId: original.activeArrangementId)
             guard
-                let inserted = TabArrangementMutationRules.insertingPane(
+                let inserted = TabArrangementMutationRules.insertingNewPane(
                     pane.id, in: state, at: anchorID, direction: direction, position: position, sizingMode: sizingMode)
             else { throw WorkspaceUndoCompositionFailure.invalidComposition }
             tab = Tab(
@@ -154,7 +154,7 @@ enum WorkspaceTerminalCreationComposition {
                 tabId: original.id, allPaneIds: original.allPaneIds,
                 arrangements: original.arrangements, activeArrangementId: original.activeArrangementId)
             guard
-                let inserted = TabArrangementMutationRules.insertingDrawerPane(
+                let inserted = TabArrangementMutationRules.insertingNewDrawerPane(
                     pane.id, in: state,
                     insertion: .init(
                         parentPaneId: parentID, drawerId: drawerID,

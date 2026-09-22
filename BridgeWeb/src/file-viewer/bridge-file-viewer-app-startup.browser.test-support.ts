@@ -1,7 +1,10 @@
 import { act } from 'react';
 
 import { findBridgeViewerTreeItemButton } from '../review-viewer/test-support/bridge-viewer-browser-dom.js';
-import { actFrame } from './bridge-file-viewer-browser-test-harness.js';
+import {
+	actFrame,
+	bridgeFileViewerNoopResizeObserverIsInstalled,
+} from './bridge-file-viewer-browser-test-harness.js';
 
 interface FileViewerUiTraceEntry {
 	readonly contentStateText: string | null;
@@ -11,6 +14,53 @@ interface FileViewerUiTraceEntry {
 	readonly metadataTreeRowCount: string | null;
 	readonly timestampMilliseconds: number;
 	readonly visibleText: string;
+}
+
+export interface FileFilterActDiagnostic {
+	oldCheckedIndicator: Element | null;
+	selectedOption: HTMLElement | null;
+}
+
+export function recordFileFilterActDiagnostic(
+	diagnostic: FileFilterActDiagnostic | null,
+	phase: string,
+): void {
+	if (diagnostic === null) return;
+
+	const popup = document.querySelector('[data-testid="worktree-file-filter-menu-popover"]');
+	const popupAnimations =
+		popup instanceof HTMLElement ? popup.getAnimations({ subtree: true }) : [];
+	const selectedIndicator = diagnostic.selectedOption?.querySelector('[data-checked]') ?? null;
+	const activeElement = document.activeElement;
+	const activeElementOwner =
+		activeElement === null
+			? 'none'
+			: popup instanceof HTMLElement && popup.contains(activeElement)
+				? 'popup'
+				: activeElement.getAttribute('data-testid') === 'worktree-file-filter-menu'
+					? 'trigger'
+					: 'other';
+	const animationPlayStateCounts = popupAnimations.reduce<Record<AnimationPlayState, number>>(
+		(counts, animation) => {
+			counts[animation.playState] += 1;
+			return counts;
+		},
+		{ finished: 0, idle: 0, paused: 0, running: 0 },
+	);
+
+	console.info(
+		'[file-filter-act-diagnostic]',
+		JSON.stringify({
+			activeElementOwner,
+			animationCount: popupAnimations.length,
+			animationPlayStateCounts,
+			noOpResizeObserverInstalled: bridgeFileViewerNoopResizeObserverIsInstalled(),
+			oldCheckedIndicatorConnected: diagnostic.oldCheckedIndicator?.isConnected ?? null,
+			phase,
+			popupConnected: popup?.isConnected ?? false,
+			selectedIndicatorConnected: selectedIndicator?.isConnected ?? false,
+		}),
+	);
 }
 
 declare global {
@@ -149,10 +199,13 @@ export async function waitForFileViewerMenuOptionContaining(props: {
 
 export async function actInteractAndSettleFileViewerCheckedMenuOption(props: {
 	readonly interaction: () => Promise<void>;
+	readonly onDiagnosticPhase?: (phase: FileViewerCheckedMenuDiagnosticPhase) => void;
 	readonly option: HTMLElement;
 }): Promise<void> {
+	props.onDiagnosticPhase?.('before-interaction-act');
 	await act(props.interaction);
-	await settleBaseUiTransitionMachine();
+	props.onDiagnosticPhase?.('after-interaction-act');
+	await settleBaseUiTransitionMachine(props.onDiagnosticPhase);
 
 	const checkedIndicator = props.option.querySelector(
 		'[data-slot="dropdown-menu-checkbox-item-indicator"] [data-checked]',
@@ -173,6 +226,13 @@ export async function actInteractAndSettleFileViewerCheckedMenuOption(props: {
 	}
 }
 
+export type FileViewerCheckedMenuDiagnosticPhase =
+	| 'before-interaction-act'
+	| 'after-interaction-act'
+	| 'before-transition-frame-1'
+	| 'after-transition-frame-1'
+	| 'after-transition-frame-2';
+
 export async function actClickAndSettleFileViewerMenu(element: HTMLElement): Promise<void> {
 	const expectedExpandedState = element.getAttribute('aria-expanded') === 'true' ? 'false' : 'true';
 	await act(async (): Promise<void> => {
@@ -182,13 +242,18 @@ export async function actClickAndSettleFileViewerMenu(element: HTMLElement): Pro
 	await settleBaseUiTransitionMachine();
 }
 
-async function settleBaseUiTransitionMachine(): Promise<void> {
+async function settleBaseUiTransitionMachine(
+	onDiagnosticPhase?: (phase: FileViewerCheckedMenuDiagnosticPhase) => void,
+): Promise<void> {
 	// Base UI schedules transitionStatus='starting' cleanup on an animation frame. Its
 	// animation-complete hook starts on another frame and can synchronously unmount an
 	// ending indicator. Each frame gets its own act boundary so React commits the first
 	// transition before Base UI schedules work from the next state.
+	onDiagnosticPhase?.('before-transition-frame-1');
 	await actFrame();
+	onDiagnosticPhase?.('after-transition-frame-1');
 	await actFrame();
+	onDiagnosticPhase?.('after-transition-frame-2');
 }
 
 async function waitForFileViewerMenuState(props: {

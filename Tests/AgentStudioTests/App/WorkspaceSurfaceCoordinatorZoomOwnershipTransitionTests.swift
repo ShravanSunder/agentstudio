@@ -8,7 +8,7 @@ import Testing
 extension WebKitSerializedTests.WorkspaceSurfaceCoordinatorZoomLifecycleTests {
     @Test("moving an active Zoom source cancels Zoom and transfers retained companion ownership")
     func movePaneCancelsActiveZoomAndTransfersRetainedCompanionOwnership() async throws {
-        let context = try makeActiveZoomOwnershipTransitionContext()
+        let context = try await makeActiveZoomOwnershipTransitionContext()
         let harness = context.harness
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
         let destinationPane = makeZoomLifecycleSourcePane(
@@ -43,7 +43,7 @@ extension WebKitSerializedTests.WorkspaceSurfaceCoordinatorZoomLifecycleTests {
 
     @Test("extracting an active Zoom source cancels Zoom and transfers retained companion ownership")
     func extractPaneCancelsActiveZoomAndTransfersRetainedCompanionOwnership() async throws {
-        let context = try makeActiveZoomOwnershipTransitionContext()
+        let context = try await makeActiveZoomOwnershipTransitionContext()
         let harness = context.harness
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
@@ -66,7 +66,7 @@ extension WebKitSerializedTests.WorkspaceSurfaceCoordinatorZoomLifecycleTests {
 
     @Test("breaking up an active Zoom tab cancels Zoom and transfers retained companion ownership")
     func breakUpTabCancelsActiveZoomAndTransfersRetainedCompanionOwnership() async throws {
-        let context = try makeActiveZoomOwnershipTransitionContext()
+        let context = try await makeActiveZoomOwnershipTransitionContext()
         let harness = context.harness
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
@@ -84,7 +84,7 @@ extension WebKitSerializedTests.WorkspaceSurfaceCoordinatorZoomLifecycleTests {
 
     @Test("merging an active Zoom tab cancels Zoom and transfers retained companion ownership")
     func mergeTabCancelsActiveZoomAndTransfersRetainedCompanionOwnership() async throws {
-        let context = try makeActiveZoomOwnershipTransitionContext()
+        let context = try await makeActiveZoomOwnershipTransitionContext()
         let harness = context.harness
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
         let targetPane = makeZoomLifecycleSourcePane(
@@ -115,7 +115,7 @@ extension WebKitSerializedTests.WorkspaceSurfaceCoordinatorZoomLifecycleTests {
 
     @Test("extracting a canceled Zoom source transfers its retained companion ownership")
     func extractPaneTransfersRetainedZoomCompanionOwnership() async throws {
-        let context = try makeCanceledZoomOwnershipTransitionContext()
+        let context = try await makeCanceledZoomOwnershipTransitionContext()
         let harness = context.harness
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
@@ -138,7 +138,7 @@ extension WebKitSerializedTests.WorkspaceSurfaceCoordinatorZoomLifecycleTests {
 
     @Test("breaking up a canceled Zoom tab transfers retained companion ownership")
     func breakUpTabTransfersRetainedZoomCompanionOwnership() async throws {
-        let context = try makeCanceledZoomOwnershipTransitionContext()
+        let context = try await makeCanceledZoomOwnershipTransitionContext()
         let harness = context.harness
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
@@ -156,7 +156,7 @@ extension WebKitSerializedTests.WorkspaceSurfaceCoordinatorZoomLifecycleTests {
 
     @Test("merging a canceled Zoom tab transfers retained companion ownership")
     func mergeTabTransfersRetainedZoomCompanionOwnership() async throws {
-        let context = try makeCanceledZoomOwnershipTransitionContext()
+        let context = try await makeCanceledZoomOwnershipTransitionContext()
         let harness = context.harness
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
         let targetPane = makeZoomLifecycleSourcePane(
@@ -196,23 +196,23 @@ private struct ZoomOwnershipTransitionContext {
 }
 
 @MainActor
-private func makeActiveZoomOwnershipTransitionContext() throws
+private func makeActiveZoomOwnershipTransitionContext() async throws
     -> ZoomOwnershipTransitionContext
 {
-    try makeZoomOwnershipTransitionContext(cancelZoomBeforeTransition: false)
+    try await makeZoomOwnershipTransitionContext(cancelZoomBeforeTransition: false)
 }
 
 @MainActor
-private func makeCanceledZoomOwnershipTransitionContext() throws
+private func makeCanceledZoomOwnershipTransitionContext() async throws
     -> ZoomOwnershipTransitionContext
 {
-    try makeZoomOwnershipTransitionContext(cancelZoomBeforeTransition: true)
+    try await makeZoomOwnershipTransitionContext(cancelZoomBeforeTransition: true)
 }
 
 @MainActor
 private func makeZoomOwnershipTransitionContext(
     cancelZoomBeforeTransition: Bool
-) throws -> ZoomOwnershipTransitionContext {
+) async throws -> ZoomOwnershipTransitionContext {
     let owningWindowId = UUID()
     let harness = makeHarness(workspaceWindowId: owningWindowId)
     let (_, worktree) = makeRepoAndWorktree(harness.store, root: harness.tempDir)
@@ -243,7 +243,7 @@ private func makeZoomOwnershipTransitionContext(
         owningWindowId: owningWindowId
     )
 
-    harness.controller.execute(
+    await harness.executeCommand(
         .zoomPane,
         target: sourcePane.id,
         targetType: .pane
@@ -259,7 +259,7 @@ private func makeZoomOwnershipTransitionContext(
         )
     )
     if cancelZoomBeforeTransition {
-        harness.controller.execute(
+        await harness.executeCommand(
             .zoomPane,
             target: sourcePane.id,
             targetType: .pane

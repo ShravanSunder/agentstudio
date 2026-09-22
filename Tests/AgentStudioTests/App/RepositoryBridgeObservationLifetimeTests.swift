@@ -55,6 +55,7 @@ extension WebKitSerializedTests {
                     harness.store.setActiveTab(sourceTab.id)
                     harness.store.setActivePane(sourcePane.id, inTab: sourceTab.id)
                     harness.controller.execute(.zoomPane)
+                    _ = await harness.executor.submitGesture { _ in true }.value
                     let companionID = try #require(
                         harness.store.panePresentationAtom.zoomCompanion(forSourcePane: sourcePane.id)?.companionPaneId)
                     #expect(harness.viewRegistry.allBridgeViews[companionID] != nil)

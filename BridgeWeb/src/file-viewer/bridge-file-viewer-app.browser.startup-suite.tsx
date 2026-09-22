@@ -14,6 +14,8 @@ import { terminateBridgePierreWorkerPoolSingletonForTest } from '../review-viewe
 import {
 	actInteractAndSettleFileViewerCheckedMenuOption,
 	actClickAndSettleFileViewerMenu,
+	type FileFilterActDiagnostic,
+	recordFileFilterActDiagnostic,
 	waitForFileViewerHTMLElement,
 	waitForFileViewerMenuOptionContaining,
 	waitForFileViewerTreeItemButtonInAct,
@@ -60,13 +62,21 @@ import {
 } from './bridge-file-viewer-browser-test-harness.js';
 
 describe('BridgeFileViewerApp Browser Mode', () => {
+	let fileFilterActDiagnostic: FileFilterActDiagnostic | null = null;
+
 	afterEach(async () => {
+		recordFileFilterActDiagnostic(fileFilterActDiagnostic, 'local-teardown-before-settle');
 		await settleBridgeFileViewerBrowserUpdates();
+		recordFileFilterActDiagnostic(fileFilterActDiagnostic, 'local-teardown-after-settle');
 		await act(async (): Promise<void> => {
+			recordFileFilterActDiagnostic(fileFilterActDiagnostic, 'local-teardown-before-cleanup');
 			await cleanup();
 			await Promise.resolve();
 		});
+		recordFileFilterActDiagnostic(fileFilterActDiagnostic, 'local-teardown-after-cleanup');
 		await actFrame();
+		recordFileFilterActDiagnostic(fileFilterActDiagnostic, 'local-teardown-complete');
+		fileFilterActDiagnostic = null;
 		document.body.replaceChildren();
 		terminateBridgePierreWorkerPoolSingletonForTest();
 	});
@@ -407,12 +417,18 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 	});
 
 	test('filters metadata-only rows by native file class before descriptor metadata arrives', async () => {
+		fileFilterActDiagnostic = {
+			oldCheckedIndicator: null,
+			selectedOption: null,
+		};
+		recordFileFilterActDiagnostic(fileFilterActDiagnostic, 'test-before-render');
 		await render(
 			<BridgeFileViewerApp
 				codeViewWorkerPoolEnabled={false}
 				initialMetadataEvents={makeTreeRowsOnlyMetadataEvents()}
 			/>,
 		);
+		recordFileFilterActDiagnostic(fileFilterActDiagnostic, 'test-after-render');
 
 		await waitForFileViewerTreeItemButtonInAct({
 			path: 'Sources/AgentStudio/App/AppDelegate.swift',
@@ -422,24 +438,37 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 				'[data-worktree-file-path="Sources/AgentStudio/App/AppDelegate.swift"]',
 			),
 		).toBeNull();
-		await actClickAndSettleFileViewerMenu(
-			requireBridgeViewerHTMLElement(
-				document.querySelector('[data-testid="worktree-file-filter-menu"]'),
-			),
+		const filterMenuTrigger = requireBridgeViewerHTMLElement(
+			document.querySelector('[data-testid="worktree-file-filter-menu"]'),
 		);
+		recordFileFilterActDiagnostic(fileFilterActDiagnostic, 'test-before-menu-open');
+		await actClickAndSettleFileViewerMenu(filterMenuTrigger);
+		recordFileFilterActDiagnostic(fileFilterActDiagnostic, 'test-after-menu-open');
 		const sourceFilterOption = await waitForFileViewerMenuOptionContaining({ text: 'Source' });
+		fileFilterActDiagnostic.selectedOption = sourceFilterOption;
+		fileFilterActDiagnostic.oldCheckedIndicator = document.querySelector(
+			'[data-testid="worktree-file-filter-menu-option"][aria-checked="true"] [data-checked]',
+		);
+		recordFileFilterActDiagnostic(fileFilterActDiagnostic, 'test-before-source-interaction');
 		await actInteractAndSettleFileViewerCheckedMenuOption({
 			interaction: async (): Promise<void> => {
+				recordFileFilterActDiagnostic(fileFilterActDiagnostic, 'test-before-source-click');
 				await interactAndWaitForBridgeFileViewerQueryCompletion((): void => {
 					sourceFilterOption.click();
 				});
+				recordFileFilterActDiagnostic(fileFilterActDiagnostic, 'test-after-query-completion');
+			},
+			onDiagnosticPhase: (phase): void => {
+				recordFileFilterActDiagnostic(fileFilterActDiagnostic, `helper-${phase}`);
 			},
 			option: sourceFilterOption,
 		});
+		recordFileFilterActDiagnostic(fileFilterActDiagnostic, 'test-after-checked-helper');
 		await waitForFileFilterCount('1/6');
 		await waitForFileViewerTreeItemButtonInAct({
 			path: 'Sources/AgentStudio/App/AppDelegate.swift',
 		});
+		recordFileFilterActDiagnostic(fileFilterActDiagnostic, 'test-before-final-assertions');
 
 		expect(
 			document.querySelector(
@@ -447,6 +476,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 			),
 		).toBeNull();
 		expect(fileFilterCount()).toBe('1/6');
+		recordFileFilterActDiagnostic(fileFilterActDiagnostic, 'test-after-final-assertions');
 	});
 
 	test('keeps the requested path selected while metadata interest reconciliation retries', async () => {

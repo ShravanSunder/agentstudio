@@ -43,7 +43,7 @@ public struct AppIPCLayoutError: Error, Equatable, Sendable {
 
 @MainActor
 public protocol AppIPCLayoutPort: Sendable {
-    func focusPane(_ handle: IPCHandle) throws -> IPCPaneFocusResult
+    func focusPane(_ handle: IPCHandle) async throws -> IPCPaneFocusResult
     func splitPane(_ params: IPCPaneSplitParams) async throws -> IPCPaneSplitResult
     func closePane(_ params: IPCPaneCloseParams) async throws -> IPCPaneCloseResult
     func addDrawerPane(_ params: IPCDrawerAddPaneParams) async throws -> IPCDrawerAddPaneResult

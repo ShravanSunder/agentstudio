@@ -52,7 +52,14 @@ extension PaneTabViewController {
         case .openWorktree:
             return await applyWorkspaceAction(.openWorktree(worktreeId: worktreeId), for: command)
         case .showBridgeReview, .showBridgeFiles, .openBridgeReviewInNewTab, .openBridgeFilesInNewTab:
-            guard executeBridgeSurfaceCommand(command, worktreeId: worktreeId) else {
+            let applied = await dispatchGesture { [self] execute in
+                await executeBridgeSurfaceCommandAfterAdmission(
+                    command,
+                    worktreeId: worktreeId,
+                    execute: execute
+                )
+            }.value
+            guard applied else {
                 return .stateUnavailable
             }
             // The Bridge surface mount starts here and finishes once the web

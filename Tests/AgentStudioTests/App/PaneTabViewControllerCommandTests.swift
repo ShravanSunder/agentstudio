@@ -419,6 +419,12 @@ struct PaneTabViewControllerCommandTests {
         harness.store.toggleDrawer(for: parentPane.id)
         #expect(harness.store.pane(parentPane.id)?.drawer?.isExpanded == false)
 
+        let window = makePaneTabViewControllerCommandWindow(for: harness.controller)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        try attachPaneHost(paneId: parentPane.id, in: harness, to: window)
+        let childHost = try attachPaneHost(paneId: drawerPane.id, in: harness, to: window)
+
         await harness.executeCommand(.focusPane, target: drawerPane.id, targetType: .pane)
 
         #expect(harness.store.activeTabId == parentTab.id)
@@ -426,6 +432,7 @@ struct PaneTabViewControllerCommandTests {
         #expect(harness.store.pane(parentPane.id)?.drawer?.isExpanded == true)
         #expect(harness.store.drawerView(forParent: parentPane.id)?.activeChildId == drawerPane.id)
         #expect(atom(\.workspaceFocusOwner).owner == .drawerPane(parentPaneId: parentPane.id, paneId: drawerPane.id))
+        #expect(window.firstResponder === childHost)
     }
 
     @Test("openPaneLocationInFinder forwards the selected pane path to Finder")

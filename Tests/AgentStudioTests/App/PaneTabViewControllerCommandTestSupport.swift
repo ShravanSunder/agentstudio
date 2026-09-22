@@ -1,3 +1,4 @@
+import AgentStudioProgrammaticControl
 import AppKit
 import Foundation
 import GhosttyKit
@@ -65,6 +66,27 @@ struct PaneTabViewControllerCommandHarness {
     func executeCommand(_ command: AppCommand, target: UUID, targetType: SearchItemType) async {
         controller.execute(command, target: target, targetType: targetType)
         _ = await executor.submitGesture { _ in true }.value
+    }
+
+    func executeHeadlessPaneCommand(
+        _ command: AppCommand,
+        paneId: UUID
+    ) async throws -> AppCommandExecutionOutcome {
+        let paneSelector = try IPCPaneSelector(rawValue: paneId.uuidString)
+        return await controller.executeHeadlessIPC(
+            AppCommandExecutionRequest(
+                command: command,
+                arguments: .typedIPC(
+                    .pane(
+                        .init(
+                            workspaceWindowId: UUIDv7.generate(),
+                            paneSelector: paneSelector
+                        )
+                    )
+                ),
+                executionContext: .headlessIPC(admitsDebugTestingCommands: true)
+            )
+        )
     }
 }
 
@@ -396,6 +418,7 @@ final class MockPaneTabCommandSurfaceManager: WorkspaceSurfaceManaging {
     private(set) var createSurfaceCallCount = 0
     private(set) var lastCreatedSurfaceMetadata: SurfaceMetadata?
     private(set) var attachedSurfaceRequests: [(surfaceId: UUID, paneId: UUID)] = []
+    private(set) var detachedSurfaceRequests: [(surfaceId: UUID, reason: SurfaceDetachReason)] = []
 
     init(createSurfaceResult: Result<ManagedSurface, SurfaceError>) {
         self.createSurfaceResult = createSurfaceResult
@@ -418,7 +441,9 @@ final class MockPaneTabCommandSurfaceManager: WorkspaceSurfaceManaging {
         return nil
     }
 
-    func detach(_ surfaceId: UUID, reason: SurfaceDetachReason) {}
+    func detach(_ surfaceId: UUID, reason: SurfaceDetachReason) {
+        detachedSurfaceRequests.append((surfaceId: surfaceId, reason: reason))
+    }
 
     func undoClose(forPaneId paneId: UUID) -> ManagedSurface? { nil }
 

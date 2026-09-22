@@ -239,6 +239,25 @@ package final class WorkspaceTabLayoutAtom {
         )
     }
 
+    @discardableResult
+    package func insertNewPane(
+        _ paneId: UUID,
+        inTab tabId: UUID,
+        at targetPaneId: UUID,
+        direction: Layout.SplitDirection,
+        position: Layout.Position,
+        sizingMode: DropSizingMode
+    ) -> Bool {
+        arrangementAtom.insertNewPane(
+            paneId,
+            inTab: tabId,
+            at: targetPaneId,
+            direction: direction,
+            position: position,
+            sizingMode: sizingMode
+        )
+    }
+
     package func removePaneFromLayout(_ paneId: UUID, inTab tabId: UUID, removingDrawerId drawerId: UUID? = nil) {
         arrangementAtom.removePaneFromLayout(paneId, inTab: tabId, removingDrawerId: drawerId)
         removeEmptyTabs()

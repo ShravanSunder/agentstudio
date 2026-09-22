@@ -14,7 +14,7 @@ struct PaneTabViewControllerZoomCommandTests {
     }
 
     @Test("targeted Zoom enters Zoom on the target tab's active durable pane")
-    func targetedZoomUsesTargetTabActivePane() throws {
+    func targetedZoomUsesTargetTabActivePane() async throws {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
         let sourcePane = harness.store.createPane()
@@ -35,7 +35,11 @@ struct PaneTabViewControllerZoomCommandTests {
         harness.store.setActivePane(targetActivePane.id, inTab: targetTab.id)
         harness.store.setActiveTab(sourceTab.id)
 
-        harness.controller.execute(.zoomPane, target: targetActivePane.id, targetType: .pane)
+        let window = makePaneTabViewControllerCommandWindow(for: harness.controller)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        try attachPaneHost(paneId: targetActivePane.id, in: harness, to: window)
+        await harness.executeCommand(.zoomPane, target: targetActivePane.id, targetType: .pane)
 
         #expect(harness.store.panePresentationAtom.zoomPresentation(forTab: sourceTab.id) == nil)
         #expect(
@@ -46,7 +50,7 @@ struct PaneTabViewControllerZoomCommandTests {
     }
 
     @Test("Arrangement-panel Zoom toggle cancels the active Zoom source instead of retargeting")
-    func arrangementPanelZoomToggleCancelsActiveZoom() throws {
+    func arrangementPanelZoomToggleCancelsActiveZoom() async throws {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
         let sourcePane = harness.store.createPane()
@@ -69,13 +73,14 @@ struct PaneTabViewControllerZoomCommandTests {
             tabId: tab.id,
             sourcePaneId: nil
         )
+        _ = await harness.executor.submitGesture { _ in true }.value
 
         #expect(harness.store.panePresentationAtom.zoomPresentation(forTab: tab.id) == nil)
         #expect(harness.store.tab(tab.id)?.activePaneId == durableActivePane.id)
     }
 
     @Test("untargeted Zoom enters and cancels without changing durable arrangement state")
-    func untargetedZoomEntersAndCancelsWithoutDurableMutation() throws {
+    func untargetedZoomEntersAndCancelsWithoutDurableMutation() async throws {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
         let pane = harness.store.createPane()
@@ -87,7 +92,7 @@ struct PaneTabViewControllerZoomCommandTests {
         let durableActivePaneId = try #require(harness.store.tab(tab.id)?.activePaneId)
 
         #expect(harness.controller.canExecute(.zoomPane))
-        harness.controller.execute(.zoomPane)
+        await harness.executeCommand(.zoomPane)
 
         let enteredPresentation = try #require(
             harness.store.panePresentationAtom.zoomPresentation(forTab: tab.id)
@@ -97,7 +102,7 @@ struct PaneTabViewControllerZoomCommandTests {
         #expect(harness.store.tab(tab.id)?.activeArrangementId == durableArrangementId)
         #expect(harness.store.tab(tab.id)?.activePaneId == durableActivePaneId)
 
-        harness.controller.execute(.zoomPane)
+        await harness.executeCommand(.zoomPane)
 
         #expect(harness.store.panePresentationAtom.zoomPresentation(forTab: tab.id) == nil)
         #expect(harness.store.tab(tab.id)?.activeArrangementId == durableArrangementId)
@@ -105,7 +110,7 @@ struct PaneTabViewControllerZoomCommandTests {
     }
 
     @Test("Worktree Viewer outside watched worktrees enters Zoom and toggles its unavailable surface")
-    func worktreeViewerShowsUnavailableSurfaceOutsideWatchedWorktrees() throws {
+    func worktreeViewerShowsUnavailableSurfaceOutsideWatchedWorktrees() async throws {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
         let sourcePane = harness.store.createPane(
@@ -117,14 +122,14 @@ struct PaneTabViewControllerZoomCommandTests {
         harness.store.setActivePane(sourcePane.id, inTab: tab.id)
 
         #expect(harness.controller.canExecute(.showViewer))
-        harness.controller.execute(.showViewer)
+        await harness.executeCommand(.showViewer)
 
         #expect(
             harness.store.panePresentationAtom.zoomPresentation(forTab: tab.id)?
                 .viewerPresentation == .unavailableVisible
         )
 
-        harness.controller.execute(.showViewer)
+        await harness.executeCommand(.showViewer)
 
         #expect(
             harness.store.panePresentationAtom.zoomPresentation(forTab: tab.id)?
@@ -133,7 +138,7 @@ struct PaneTabViewControllerZoomCommandTests {
     }
 
     @Test("Zoom reattaches a minimized terminal source without expanding its durable arrangement")
-    func zoomReattachesMinimizedTerminalSource() throws {
+    func zoomReattachesMinimizedTerminalSource() async throws {
         // Mutation caught: Zoom enters presentation state without reattaching the hidden terminal surface.
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
@@ -162,7 +167,7 @@ struct PaneTabViewControllerZoomCommandTests {
         paneHost.mountContentView(terminalView)
         harness.viewRegistry.register(paneHost, for: minimizedPane.id)
 
-        harness.controller.execute(
+        await harness.executeCommand(
             .zoomPane,
             target: minimizedPane.id,
             targetType: .pane
@@ -181,7 +186,7 @@ struct PaneTabViewControllerZoomCommandTests {
     }
 
     @Test("Zoom Viewer does not replace a missing explicit worktree with an unrelated sole worktree")
-    func zoomViewerRejectsUnrelatedSoleWorktreeFallback() throws {
+    func zoomViewerRejectsUnrelatedSoleWorktreeFallback() async throws {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
         let (sourceRepo, sourceWorktree) = makeRepoAndWorktree(
@@ -199,7 +204,7 @@ struct PaneTabViewControllerZoomCommandTests {
         harness.store.setActivePane(sourcePane.id, inTab: sourceTab.id)
         harness.store.reconcileDiscoveredWorktrees(sourceRepo.id, worktrees: [])
 
-        harness.controller.execute(.zoomPane)
+        await harness.executeCommand(.zoomPane)
 
         #expect(harness.store.repositoryTopologyAtom.worktree(sourceWorktree.id) == nil)
         #expect(harness.store.repositoryTopologyAtom.worktree(unrelatedWorktree.id) != nil)
@@ -210,7 +215,7 @@ struct PaneTabViewControllerZoomCommandTests {
     }
 
     @Test("Zoom Viewer renders unavailable for a dangling association without CWD recovery")
-    func zoomViewerDoesNotRecoverDanglingAssociationFromCWD() throws {
+    func zoomViewerDoesNotRecoverDanglingAssociationFromCWD() async throws {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
         let (staleRepo, staleWorktree) = makeRepoAndWorktree(
@@ -248,7 +253,7 @@ struct PaneTabViewControllerZoomCommandTests {
         harness.store.reconcileDiscoveredWorktrees(staleRepo.id, worktrees: [])
 
         #expect(harness.store.repositoryTopologyAtom.worktree(staleWorktree.id) == nil)
-        harness.controller.execute(.zoomPane, target: sourcePane.id, targetType: .pane)
+        await harness.executeCommand(.zoomPane, target: sourcePane.id, targetType: .pane)
 
         #expect(
             harness.store.panePresentationAtom.zoomPresentation(forTab: sourceTab.id)?
@@ -257,7 +262,7 @@ struct PaneTabViewControllerZoomCommandTests {
     }
 
     @Test("same-tab explicit Zoom retargets, then an equal target cancels")
-    func explicitSameTabZoomRetargetsThenCancels() throws {
+    func explicitSameTabZoomRetargetsThenCancels() async throws {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
         let firstPane = harness.store.createPane()
@@ -274,11 +279,11 @@ struct PaneTabViewControllerZoomCommandTests {
         )
         harness.store.setActiveTab(tab.id)
         harness.store.setActivePane(firstPane.id, inTab: tab.id)
-        harness.controller.execute(.zoomPane)
+        await harness.executeCommand(.zoomPane)
         let durableActivePaneId = try #require(harness.store.tab(tab.id)?.activePaneId)
 
         #expect(harness.controller.canExecute(.zoomPane, target: secondPane.id, targetType: .pane))
-        harness.controller.execute(.zoomPane, target: secondPane.id, targetType: .pane)
+        await harness.executeCommand(.zoomPane, target: secondPane.id, targetType: .pane)
 
         #expect(
             harness.store.panePresentationAtom.zoomPresentation(forTab: tab.id)?.sourcePaneId
@@ -286,14 +291,14 @@ struct PaneTabViewControllerZoomCommandTests {
         )
         #expect(harness.store.tab(tab.id)?.activePaneId == durableActivePaneId)
 
-        harness.controller.execute(.zoomPane, target: secondPane.id, targetType: .pane)
+        await harness.executeCommand(.zoomPane, target: secondPane.id, targetType: .pane)
 
         #expect(harness.store.panePresentationAtom.zoomPresentation(forTab: tab.id) == nil)
         #expect(harness.store.tab(tab.id)?.activePaneId == durableActivePaneId)
     }
 
     @Test("cross-tab explicit Zoom preserves source Zoom and enters, resumes, or retargets destination")
-    func explicitCrossTabZoomPreservesSourceAndResolvesDestination() throws {
+    func explicitCrossTabZoomPreservesSourceAndResolvesDestination() async throws {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
         let sourcePane = harness.store.createPane()
@@ -313,9 +318,14 @@ struct PaneTabViewControllerZoomCommandTests {
         )
         harness.store.setActiveTab(sourceTab.id)
         harness.store.setActivePane(sourcePane.id, inTab: sourceTab.id)
-        harness.controller.execute(.zoomPane)
+        await harness.executeCommand(.zoomPane)
+        let window = makePaneTabViewControllerCommandWindow(for: harness.controller)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        try attachPaneHost(paneId: destinationFirstPane.id, in: harness, to: window)
+        try attachPaneHost(paneId: destinationSecondPane.id, in: harness, to: window)
 
-        harness.controller.execute(.zoomPane, target: destinationFirstPane.id, targetType: .pane)
+        await harness.executeCommand(.zoomPane, target: destinationFirstPane.id, targetType: .pane)
 
         #expect(
             harness.store.panePresentationAtom.zoomPresentation(forTab: sourceTab.id)?.sourcePaneId == sourcePane.id)
@@ -326,7 +336,7 @@ struct PaneTabViewControllerZoomCommandTests {
         #expect(harness.store.activeTabId == destinationTab.id)
 
         harness.store.setActiveTab(sourceTab.id)
-        harness.controller.execute(.zoomPane, target: destinationFirstPane.id, targetType: .pane)
+        await harness.executeCommand(.zoomPane, target: destinationFirstPane.id, targetType: .pane)
 
         #expect(
             harness.store.panePresentationAtom.zoomPresentation(forTab: destinationTab.id)?.sourcePaneId
@@ -335,7 +345,7 @@ struct PaneTabViewControllerZoomCommandTests {
         #expect(harness.store.activeTabId == destinationTab.id)
 
         harness.store.setActiveTab(sourceTab.id)
-        harness.controller.execute(.zoomPane, target: destinationSecondPane.id, targetType: .pane)
+        await harness.executeCommand(.zoomPane, target: destinationSecondPane.id, targetType: .pane)
 
         #expect(
             harness.store.panePresentationAtom.zoomPresentation(forTab: destinationTab.id)?.sourcePaneId
@@ -469,7 +479,7 @@ struct PaneTabViewControllerZoomCommandTests {
     }
 
     @Test("Zoom-local Viewer toggles only the retained source companion")
-    func zoomLocalViewerTogglesRetainedSourceCompanion() throws {
+    func zoomLocalViewerTogglesRetainedSourceCompanion() async throws {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
         let sourcePane = harness.store.createPane()
@@ -493,7 +503,7 @@ struct PaneTabViewControllerZoomCommandTests {
             viewerPresentation: .retainedVisible(companionPaneId: companion.companionPaneId)
         )
 
-        harness.controller.execute(.showViewer)
+        await harness.executeCommand(.showViewer)
 
         #expect(
             harness.store.panePresentationAtom.zoomPresentation(forTab: tab.id)?.viewerPresentation
@@ -504,7 +514,7 @@ struct PaneTabViewControllerZoomCommandTests {
                 == .hidden
         )
 
-        harness.controller.execute(.showViewer, target: sourcePane.id, targetType: .pane)
+        await harness.executeCommand(.showViewer, target: sourcePane.id, targetType: .pane)
 
         #expect(
             harness.store.panePresentationAtom.zoomPresentation(forTab: tab.id)?.viewerPresentation
@@ -593,7 +603,7 @@ struct PaneTabViewControllerZoomCommandTests {
     }
 
     @Test("untargeted Viewer enters Zoom and ensures the Viewer is visible")
-    func untargetedViewerEntersZoomAndEnsuresViewerIsVisible() throws {
+    func untargetedViewerEntersZoomAndEnsuresViewerIsVisible() async throws {
         let activePaneHarness = makeHarness()
         defer { try? FileManager.default.removeItem(at: activePaneHarness.tempDir) }
         _ = makeRepoAndWorktree(activePaneHarness.store, root: activePaneHarness.tempDir)
@@ -605,7 +615,7 @@ struct PaneTabViewControllerZoomCommandTests {
         activePaneHarness.store.setActivePane(activePane.id, inTab: activeTab.id)
 
         #expect(activePaneHarness.controller.canExecute(.showViewer))
-        activePaneHarness.controller.execute(.showViewer)
+        await activePaneHarness.executeCommand(.showViewer)
 
         let presentation = try #require(
             activePaneHarness.store.panePresentationAtom.zoomPresentation(forTab: activeTab.id)
@@ -750,7 +760,7 @@ struct PaneTabViewControllerZoomCommandTests {
     }
 
     @Test("rejected Review request preserves a reused durable Viewer")
-    func rejectedReviewRequestPreservesReusedDurableViewer() throws {
+    func rejectedReviewRequestPreservesReusedDurableViewer() async throws {
         var requestedPaneIds: [UUID] = []
         let harness = makeHarness(
             bridgeViewerSurfaceRequestHandler: { surface, paneId in
@@ -782,7 +792,7 @@ struct PaneTabViewControllerZoomCommandTests {
         let paneIdsBefore = harness.store.paneAtom.graphAtom.paneIDs
         let tabIdsBefore = Set(harness.store.tabLayoutAtom.tabs.map(\.id))
 
-        harness.controller.execute(.showBridgeReview, target: worktree.id, targetType: .worktree)
+        await harness.executeCommand(.showBridgeReview, target: worktree.id, targetType: .worktree)
 
         #expect(requestedPaneIds == [durableViewerPane.id])
         #expect(harness.store.paneAtom.graphAtom.paneIDs == paneIdsBefore)
@@ -794,7 +804,7 @@ struct PaneTabViewControllerZoomCommandTests {
     }
 
     @Test("reusing a durable Viewer preserves active Pane Zoom")
-    func reusedDurableViewerPreservesActivePaneZoom() throws {
+    func reusedDurableViewerPreservesActivePaneZoom() async throws {
         let harness = makeHarness(
             bridgeViewerSurfaceRequestHandler: { _, _ in true }
         )
@@ -830,7 +840,7 @@ struct PaneTabViewControllerZoomCommandTests {
         )
         window.makeKeyAndOrderFront(nil)
 
-        harness.controller.execute(.showBridgeFiles, target: worktree.id, targetType: .worktree)
+        await harness.executeCommand(.showBridgeFiles, target: worktree.id, targetType: .worktree)
 
         #expect(
             harness.store.panePresentationAtom.zoomPresentation(forTab: zoomTab.id)?
