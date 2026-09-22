@@ -77,6 +77,7 @@ struct WorkspaceTerminalCreationDurabilityTests {
             surfaceManager: manager,
             runtimeRegistry: RuntimeRegistry(),
             windowLifecycleStore: WindowLifecycleAtom(),
+            ipcLifecycle: .testUnavailable,
             bridgePaneAttendance: BridgePaneAttendanceAtom()
         )
         coordinator.windowLifecycleStore.recordTerminalContainerBounds(

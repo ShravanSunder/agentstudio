@@ -1,3 +1,4 @@
+import AgentStudioProgrammaticControl
 import AppKit
 import Foundation
 import GhosttyKit
@@ -65,6 +66,27 @@ struct PaneTabViewControllerCommandHarness {
     func executeCommand(_ command: AppCommand, target: UUID, targetType: SearchItemType) async {
         controller.execute(command, target: target, targetType: targetType)
         _ = await executor.submitGesture { _ in true }.value
+    }
+
+    func executeHeadlessPaneCommand(
+        _ command: AppCommand,
+        paneId: UUID
+    ) async throws -> AppCommandExecutionOutcome {
+        let paneSelector = try IPCPaneSelector(rawValue: paneId.uuidString)
+        return await controller.executeHeadlessIPC(
+            AppCommandExecutionRequest(
+                command: command,
+                arguments: .typedIPC(
+                    .pane(
+                        .init(
+                            workspaceWindowId: UUIDv7.generate(),
+                            paneSelector: paneSelector
+                        )
+                    )
+                ),
+                executionContext: .headlessIPC(admitsDebugTestingCommands: true)
+            )
+        )
     }
 }
 
