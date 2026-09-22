@@ -102,9 +102,9 @@ extension WebKitSerializedTests {
         @Test("bundled comm worker carries real-git File and Review product data through production WebKit")
         func bundledWorkerCarriesRealGitFileAndReviewProductData() async throws {
             // Arrange
-            let repoURL = try FilesystemTestGitRepo.create(named: "bridge-product-file-review-webkit")
+            let repoURL = try await FilesystemTestGitRepo.create(named: "bridge-product-file-review-webkit")
             defer { FilesystemTestGitRepo.destroy(repoURL) }
-            try seedHeavyReviewChanges(at: repoURL, trackedFileCount: 128)
+            try await seedHeavyReviewChanges(at: repoURL, trackedFileCount: 128)
             let sourceOracle = LiveSourceOracle(canaryText: "updated", path: "tracked.txt")
             let traceRecorder = BridgeProductWebKitCarrierTraceRecorder()
             let controller = makeController(
@@ -126,9 +126,9 @@ extension WebKitSerializedTests {
         @Test("Review publication failure replays committed B without replacing File or the pane worker")
         func reviewPublicationFailureReplaysCommittedBWithoutReplacingFileOrWorker() async throws {
             // Arrange
-            let repoURL = try FilesystemTestGitRepo.create(named: "bridge-product-review-replay-webkit")
+            let repoURL = try await FilesystemTestGitRepo.create(named: "bridge-product-review-replay-webkit")
             defer { FilesystemTestGitRepo.destroy(repoURL) }
-            try FilesystemTestGitRepo.seedTrackedAndUntrackedChanges(at: repoURL)
+            try await FilesystemTestGitRepo.seedTrackedAndUntrackedChanges(at: repoURL)
             try seedMultiWindowReviewChanges(at: repoURL)
             let harness = makeTransactionalPublicationHarness(repoURL: repoURL)
 
@@ -651,7 +651,7 @@ extension WebKitSerializedTests {
         private func seedHeavyReviewChanges(
             at repoURL: URL,
             trackedFileCount: Int
-        ) throws {
+        ) async throws {
             precondition(trackedFileCount >= 128)
             let trackedPaths =
                 ["tracked.txt"]
@@ -665,8 +665,8 @@ extension WebKitSerializedTests {
                     encoding: .utf8
                 )
             }
-            try FilesystemTestGitRepo.runGit(at: repoURL, args: ["add"] + trackedPaths)
-            try FilesystemTestGitRepo.runGit(
+            try await FilesystemTestGitRepo.runGit(at: repoURL, args: ["add"] + trackedPaths)
+            try await FilesystemTestGitRepo.runGit(
                 at: repoURL,
                 args: ["commit", "-m", "Seed heavy Review fixture"]
             )

@@ -475,12 +475,12 @@ extension AppDelegate {
 }
 
 extension AppDelegate: PaneFocusAppControlling {
-    func focusPane(_ paneId: UUID) throws {
+    func focusPane(_ paneId: UUID) async throws {
         guard let controller = mainWindowController, controller.acceptsIPCCommands,
             let focusControl = controller.makePaneFocusAppControl(store: store)
         else {
             throw AppIPCLayoutError(reason: .noActiveWindow)
         }
-        try focusControl.focusPane(paneId)
+        try await focusControl.focusPane(paneId)
     }
 }

@@ -3891,16 +3891,6 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         )
     }
 
-    func focusTargetedPane(_ paneId: UUID) {
-        if let parentPaneId = store.paneAtom.pane(paneId)?.parentPaneId {
-            focusTargetedDrawerPane(parentPaneId: parentPaneId, drawerPaneId: paneId)
-            return
-        }
-
-        guard let tab = store.tabLayoutAtom.tabContaining(paneId: paneId) else { return }
-        handlePaneFocusTrigger(.command(.focusPane(tabId: tab.id, paneId: paneId)))
-    }
-
     private func revealArrangementContainingPane(tabId: UUID, paneId: UUID) {
         guard let tab = store.tabLayoutAtom.tab(tabId),
             !tab.activeArrangement.layout.contains(paneId),

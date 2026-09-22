@@ -5,19 +5,19 @@ import Testing
 @Suite("Vendor worktree helper")
 struct VendorWorktreeScriptTests {
     @Test("primary and shared roles work in registered worktrees whose paths contain spaces")
-    func primaryAndSharedRolesWithSpaces() throws {
+    func primaryAndSharedRolesWithSpaces() async throws {
         // Arrange
-        let fixture = try VendorWorktreeFixture()
+        let fixture = try await VendorWorktreeFixture()
         defer { fixture.cleanup() }
         let primaryBefore = try fixture.primaryOutputSnapshot()
         let trackedTerminfoBefore = try Data(contentsOf: fixture.primaryTrackedTerminfoURL)
 
         // Act
-        let primaryRole = try fixture.runHelper("role", in: fixture.primaryRoot)
-        let initialLinkedRole = try fixture.runHelper("role", in: fixture.linkedRoot)
-        let setup = try fixture.runHelper("setup-shared", in: fixture.linkedRoot)
-        let sharedRole = try fixture.runHelper("role", in: fixture.linkedRoot)
-        let verification = try fixture.runHelper("verify", in: fixture.linkedRoot)
+        let primaryRole = try await fixture.runHelper("role", in: fixture.primaryRoot)
+        let initialLinkedRole = try await fixture.runHelper("role", in: fixture.linkedRoot)
+        let setup = try await fixture.runHelper("setup-shared", in: fixture.linkedRoot)
+        let sharedRole = try await fixture.runHelper("role", in: fixture.linkedRoot)
+        let verification = try await fixture.runHelper("verify", in: fixture.linkedRoot)
 
         // Assert
         #expect(primaryRole.exitCode == 0)
@@ -31,24 +31,24 @@ struct VendorWorktreeScriptTests {
         try fixture.expectExactSharedProjection()
         #expect(try fixture.primaryOutputSnapshot() == primaryBefore)
         #expect(try Data(contentsOf: fixture.primaryTrackedTerminfoURL) == trackedTerminfoBefore)
-        #expect(try fixture.gitStatus(in: fixture.linkedRoot).isEmpty)
+        #expect(try await fixture.gitStatus(in: fixture.linkedRoot).isEmpty)
     }
 
     @Test("shared setup is idempotent and repairs stale regular resource copies")
-    func sharedSetupRepairsStaleCopies() throws {
+    func sharedSetupRepairsStaleCopies() async throws {
         // Arrange
-        let fixture = try VendorWorktreeFixture()
+        let fixture = try await VendorWorktreeFixture()
         defer { fixture.cleanup() }
-        try fixture.requireSuccess(fixture.runHelper("setup-shared", in: fixture.linkedRoot))
+        try fixture.requireSuccess(await fixture.runHelper("setup-shared", in: fixture.linkedRoot))
         let firstProjection = try fixture.sharedProjectionSnapshot()
         try Data("stale shell integration".utf8).write(
             to: fixture.linkedGhosttyResourcesURL.appending(path: "shell-integration/ghostty.sh"))
 
         // Act
-        let staleVerification = try fixture.runHelper("verify", in: fixture.linkedRoot)
-        let repair = try fixture.runHelper("setup-shared", in: fixture.linkedRoot)
-        let repairedVerification = try fixture.runHelper("verify", in: fixture.linkedRoot)
-        let secondSetup = try fixture.runHelper("setup-shared", in: fixture.linkedRoot)
+        let staleVerification = try await fixture.runHelper("verify", in: fixture.linkedRoot)
+        let repair = try await fixture.runHelper("setup-shared", in: fixture.linkedRoot)
+        let repairedVerification = try await fixture.runHelper("verify", in: fixture.linkedRoot)
+        let secondSetup = try await fixture.runHelper("setup-shared", in: fixture.linkedRoot)
 
         // Assert
         #expect(staleVerification.exitCode != 0)
@@ -60,17 +60,17 @@ struct VendorWorktreeScriptTests {
     }
 
     @Test("pin mismatches fail without changing primary outputs")
-    func pinMismatchesFailWithoutPrimaryMutation() throws {
+    func pinMismatchesFailWithoutPrimaryMutation() async throws {
         for mismatch in VendorPinMismatch.allCases {
             // Arrange
-            let fixture = try VendorWorktreeFixture()
+            let fixture = try await VendorWorktreeFixture()
             defer { fixture.cleanup() }
-            try fixture.requireSuccess(fixture.runHelper("setup-shared", in: fixture.linkedRoot))
+            try fixture.requireSuccess(await fixture.runHelper("setup-shared", in: fixture.linkedRoot))
             let primaryBefore = try fixture.primaryOutputSnapshot()
-            try fixture.apply(mismatch)
+            try await fixture.apply(mismatch)
 
             // Act
-            let verification = try fixture.runHelper("verify", in: fixture.linkedRoot)
+            let verification = try await fixture.runHelper("verify", in: fixture.linkedRoot)
 
             // Assert
             #expect(
@@ -84,17 +84,17 @@ struct VendorWorktreeScriptTests {
     }
 
     @Test("a framework without a slice header fails preflight by name")
-    func frameworkWithoutSliceHeaderFailsPreflightByName() throws {
+    func frameworkWithoutSliceHeaderFailsPreflightByName() async throws {
         // Arrange — an XCFramework directory that has the library but no header.
         // This is what an interrupted or partial vendor build leaves behind, and
         // it used to pass preflight and fail much later as
         // "The file ghostty.h couldn't be opened" from GhosttyEventRoutingCoverageTests.
-        let fixture = try VendorWorktreeFixture()
+        let fixture = try await VendorWorktreeFixture()
         defer { fixture.cleanup() }
         try fixture.apply(.missingFrameworkSliceHeader)
 
         // Act
-        let setup = try fixture.runHelper("setup-shared", in: fixture.linkedRoot)
+        let setup = try await fixture.runHelper("setup-shared", in: fixture.linkedRoot)
 
         // Assert — the preflight names the exact missing path.
         #expect(setup.exitCode != 0)
@@ -103,16 +103,16 @@ struct VendorWorktreeScriptTests {
     }
 
     @Test("invalid primary source types fail without replacing linked collisions")
-    func invalidPrimarySourcesAndCollisionsFailClosed() throws {
+    func invalidPrimarySourcesAndCollisionsFailClosed() async throws {
         for invalidSource in VendorInvalidPrimarySource.allCases {
             // Arrange
-            let fixture = try VendorWorktreeFixture()
+            let fixture = try await VendorWorktreeFixture()
             defer { fixture.cleanup() }
             try fixture.apply(invalidSource)
             let primaryBefore = try fixture.primaryOutputSnapshot(allowMissing: true)
 
             // Act
-            let setup = try fixture.runHelper("setup-shared", in: fixture.linkedRoot)
+            let setup = try await fixture.runHelper("setup-shared", in: fixture.linkedRoot)
 
             // Assert
             #expect(setup.exitCode != 0, "Expected \(invalidSource.rawValue) to fail setup")
@@ -124,7 +124,7 @@ struct VendorWorktreeScriptTests {
         }
 
         // Arrange
-        let collisionFixture = try VendorWorktreeFixture()
+        let collisionFixture = try await VendorWorktreeFixture()
         defer { collisionFixture.cleanup() }
         try FileManager.default.createDirectory(
             at: collisionFixture.linkedFrameworkURL,
@@ -133,7 +133,7 @@ struct VendorWorktreeScriptTests {
         try Data("collision".utf8).write(to: sentinel)
 
         // Act
-        let collisionSetup = try collisionFixture.runHelper("setup-shared", in: collisionFixture.linkedRoot)
+        let collisionSetup = try await collisionFixture.runHelper("setup-shared", in: collisionFixture.linkedRoot)
 
         // Assert
         #expect(collisionSetup.exitCode != 0)
@@ -141,15 +141,15 @@ struct VendorWorktreeScriptTests {
     }
 
     @Test("shared setup never hydrates submodules or invokes Zig")
-    func sharedSetupDoesNotHydrateOrInvokeZig() throws {
+    func sharedSetupDoesNotHydrateOrInvokeZig() async throws {
         // Arrange
-        let fixture = try VendorWorktreeFixture()
+        let fixture = try await VendorWorktreeFixture()
         defer { fixture.cleanup() }
         let commandLog = fixture.temporaryRoot.appending(path: "command log.txt")
         let spyDirectory = try fixture.makeCommandSpies(logURL: commandLog)
 
         // Act
-        let setup = try fixture.runHelper(
+        let setup = try await fixture.runHelper(
             "setup-shared",
             in: fixture.linkedRoot,
             environment: ["PATH": "\(spyDirectory.path):/usr/bin:/bin:/usr/sbin:/sbin"])
@@ -164,18 +164,18 @@ struct VendorWorktreeScriptTests {
     }
 
     @Test("producer guard resolves the superproject when invoked inside a partial zmx submodule")
-    func producerGuardRejectsPartialStateFromNestedSubmodule() throws {
+    func producerGuardRejectsPartialStateFromNestedSubmodule() async throws {
         // Arrange
-        let fixture = try VendorWorktreeFixture()
+        let fixture = try await VendorWorktreeFixture()
         defer { fixture.cleanup() }
         try fixture.requireSuccess(
-            VendorWorktreeFixture.runGit(
+            await VendorWorktreeFixture.runGit(
                 ["submodule", "update", "--init", "--", "vendor/ghostty", "vendor/zmx"],
                 in: fixture.linkedRoot))
         let nestedZmxRoot = fixture.linkedRoot.appending(path: "vendor/zmx")
 
         // Act
-        let guardResult = try fixture.runHelper(
+        let guardResult = try await fixture.runHelper(
             "require-producer",
             in: fixture.linkedRoot,
             currentDirectory: nestedZmxRoot)
@@ -187,40 +187,40 @@ struct VendorWorktreeScriptTests {
     }
 
     @Test("explicit local setup builds divergent committed vendor pins without mutating primary")
-    func localSetupSupportsDivergentPins() throws {
+    func localSetupSupportsDivergentPins() async throws {
         // Arrange
-        let fixture = try VendorWorktreeFixture()
+        let fixture = try await VendorWorktreeFixture()
         defer { fixture.cleanup() }
         let primaryBefore = try fixture.primaryOutputSnapshot()
-        try fixture.apply(.linkedGhosttyGitlink)
+        try await fixture.apply(.linkedGhosttyGitlink)
         let spyDirectory = try fixture.makeLocalProducerSpies()
 
         // Act
-        let conversion = try fixture.runHelper(
+        let conversion = try await fixture.runHelper(
             "setup-local",
             in: fixture.linkedRoot,
             environment: [
                 "PATH": "\(spyDirectory.path):/usr/bin:/bin:/usr/sbin:/sbin",
                 "GIT_ALLOW_PROTOCOL": "file",
             ])
-        let verification = try fixture.runHelper("verify", in: fixture.linkedRoot)
+        let verification = try await fixture.runHelper("verify", in: fixture.linkedRoot)
 
         // Assert
         #expect(conversion.exitCode == 0, Comment(rawValue: conversion.stderr))
         #expect(verification.exitCode == 0, Comment(rawValue: verification.stderr))
         #expect(
-            try fixture.checkedOutRevision(path: "vendor/ghostty", in: fixture.linkedRoot)
+            try await fixture.checkedOutRevision(path: "vendor/ghostty", in: fixture.linkedRoot)
                 == fixture.ghosttySecondCommit)
         #expect(
-            try fixture.checkedOutRevision(path: "vendor/ghostty", in: fixture.primaryRoot)
+            try await fixture.checkedOutRevision(path: "vendor/ghostty", in: fixture.primaryRoot)
                 == fixture.ghosttyFirstCommit)
         #expect(try fixture.primaryOutputSnapshot() == primaryBefore)
     }
 
     @Test("local setup rejects partial output and resource collisions before mutation")
-    func localSetupRejectsPartialCollisionsBeforeMutation() throws {
+    func localSetupRejectsPartialCollisionsBeforeMutation() async throws {
         // Arrange
-        let outputFixture = try VendorWorktreeFixture()
+        let outputFixture = try await VendorWorktreeFixture()
         defer { outputFixture.cleanup() }
         let frameworkSentinel = outputFixture.linkedFrameworkURL.appending(path: "keep-me")
         try FileManager.default.createDirectory(
@@ -230,7 +230,7 @@ struct VendorWorktreeScriptTests {
         let outputSpies = try outputFixture.makeLocalProducerSpies()
 
         // Act
-        let outputCollision = try outputFixture.runHelper(
+        let outputCollision = try await outputFixture.runHelper(
             "setup-local",
             in: outputFixture.linkedRoot,
             environment: ["PATH": "\(outputSpies.path):/usr/bin:/bin:/usr/sbin:/sbin"])
@@ -243,7 +243,7 @@ struct VendorWorktreeScriptTests {
                 atPath: outputFixture.linkedRoot.appending(path: "vendor/ghostty/.git").path))
 
         // Arrange
-        let resourceFixture = try VendorWorktreeFixture()
+        let resourceFixture = try await VendorWorktreeFixture()
         defer { resourceFixture.cleanup() }
         try FileManager.default.createDirectory(
             at: resourceFixture.linkedGhosttyTerminfoURL,
@@ -253,7 +253,7 @@ struct VendorWorktreeScriptTests {
         let resourceSpies = try resourceFixture.makeLocalProducerSpies()
 
         // Act
-        let resourceCollision = try resourceFixture.runHelper(
+        let resourceCollision = try await resourceFixture.runHelper(
             "setup-local",
             in: resourceFixture.linkedRoot,
             environment: ["PATH": "\(resourceSpies.path):/usr/bin:/bin:/usr/sbin:/sbin"])
@@ -266,12 +266,12 @@ struct VendorWorktreeScriptTests {
     }
 
     @Test("flagged setup repairs an interrupted hydrated local transition")
-    func localSetupRepairsInterruptedHydratedTransition() throws {
+    func localSetupRepairsInterruptedHydratedTransition() async throws {
         // Arrange
-        let fixture = try VendorWorktreeFixture()
+        let fixture = try await VendorWorktreeFixture()
         defer { fixture.cleanup() }
         try fixture.requireSuccess(
-            VendorWorktreeFixture.runGit(
+            await VendorWorktreeFixture.runGit(
                 ["submodule", "update", "--init", "--", "vendor/ghostty", "vendor/zmx"],
                 in: fixture.linkedRoot))
         let partialFramework = fixture.linkedFrameworkURL.appending(path: "partial-output")
@@ -283,7 +283,7 @@ struct VendorWorktreeScriptTests {
         let producerSpies = try fixture.makeLocalProducerSpies()
 
         // Act
-        let recovery = try fixture.runHelper(
+        let recovery = try await fixture.runHelper(
             "setup-local",
             in: fixture.linkedRoot,
             environment: ["PATH": "\(producerSpies.path):/usr/bin:/bin:/usr/sbin:/sbin"])
@@ -295,9 +295,9 @@ struct VendorWorktreeScriptTests {
     }
 
     @Test("local setup rejects symlinked destination ancestors before external mutation")
-    func localSetupRejectsDestinationAncestorEscape() throws {
+    func localSetupRejectsDestinationAncestorEscape() async throws {
         // Arrange
-        let fixture = try VendorWorktreeFixture()
+        let fixture = try await VendorWorktreeFixture()
         defer { fixture.cleanup() }
         let linkedTerminfo67 = fixture.linkedRoot.appending(
             path: "Sources/AgentStudio/Resources/terminfo/67")
@@ -316,7 +316,7 @@ struct VendorWorktreeScriptTests {
         let producerSpies = try fixture.makeLocalProducerSpies()
 
         // Act
-        let conversion = try fixture.runHelper(
+        let conversion = try await fixture.runHelper(
             "setup-local",
             in: fixture.linkedRoot,
             environment: ["PATH": "\(producerSpies.path):/usr/bin:/bin:/usr/sbin:/sbin"])
@@ -329,9 +329,9 @@ struct VendorWorktreeScriptTests {
     }
 
     @Test("shared setup rejects wrong resource types before projection mutation")
-    func sharedSetupRejectsWrongResourceTypesBeforeMutation() throws {
+    func sharedSetupRejectsWrongResourceTypesBeforeMutation() async throws {
         // Arrange
-        let resourcesFixture = try VendorWorktreeFixture()
+        let resourcesFixture = try await VendorWorktreeFixture()
         defer { resourcesFixture.cleanup() }
         try FileManager.default.createDirectory(
             at: resourcesFixture.linkedGhosttyResourcesURL.deletingLastPathComponent(),
@@ -340,7 +340,7 @@ struct VendorWorktreeScriptTests {
             to: resourcesFixture.linkedGhosttyResourcesURL)
 
         // Act
-        let resourcesFailure = try resourcesFixture.runHelper(
+        let resourcesFailure = try await resourcesFixture.runHelper(
             "setup-shared",
             in: resourcesFixture.linkedRoot)
 
@@ -353,7 +353,7 @@ struct VendorWorktreeScriptTests {
         #expect(!FileManager.default.fileExists(atPath: resourcesFixture.linkedZmxOutputURL.path))
 
         // Arrange
-        let terminfoFixture = try VendorWorktreeFixture()
+        let terminfoFixture = try await VendorWorktreeFixture()
         defer { terminfoFixture.cleanup() }
         try FileManager.default.createDirectory(
             at: terminfoFixture.linkedGhosttyTerminfoURL,
@@ -362,7 +362,7 @@ struct VendorWorktreeScriptTests {
         try Data("user-owned terminfo directory".utf8).write(to: terminfoSentinel)
 
         // Act
-        let terminfoFailure = try terminfoFixture.runHelper(
+        let terminfoFailure = try await terminfoFixture.runHelper(
             "setup-shared",
             in: terminfoFixture.linkedRoot)
 
@@ -376,9 +376,9 @@ struct VendorWorktreeScriptTests {
     }
 
     @Test("shared setup rejects primary source paths that escape through symlinked ancestors")
-    func sharedSetupRejectsPrimarySourceAncestorEscapes() throws {
+    func sharedSetupRejectsPrimarySourceAncestorEscapes() async throws {
         // Arrange
-        let frameworkFixture = try VendorWorktreeFixture()
+        let frameworkFixture = try await VendorWorktreeFixture()
         defer { frameworkFixture.cleanup() }
         let foreignFrameworks = frameworkFixture.temporaryRoot.appending(path: "foreign Frameworks")
         try FileManager.default.moveItem(
@@ -389,7 +389,7 @@ struct VendorWorktreeScriptTests {
             withDestinationURL: foreignFrameworks)
 
         // Act
-        let frameworkEscape = try frameworkFixture.runHelper(
+        let frameworkEscape = try await frameworkFixture.runHelper(
             "setup-shared",
             in: frameworkFixture.linkedRoot)
 
@@ -399,7 +399,7 @@ struct VendorWorktreeScriptTests {
         #expect(!FileManager.default.fileExists(atPath: frameworkFixture.linkedFrameworkURL.path))
 
         // Arrange
-        let zmxFixture = try VendorWorktreeFixture()
+        let zmxFixture = try await VendorWorktreeFixture()
         defer { zmxFixture.cleanup() }
         let primaryZmxBin = zmxFixture.primaryZmxOutputURL.appending(path: "bin")
         let foreignZmxBin = zmxFixture.temporaryRoot.appending(path: "foreign zmx bin")
@@ -409,7 +409,7 @@ struct VendorWorktreeScriptTests {
             withDestinationURL: foreignZmxBin)
 
         // Act
-        let zmxEscape = try zmxFixture.runHelper("setup-shared", in: zmxFixture.linkedRoot)
+        let zmxEscape = try await zmxFixture.runHelper("setup-shared", in: zmxFixture.linkedRoot)
 
         // Assert
         #expect(zmxEscape.exitCode != 0)
@@ -418,19 +418,19 @@ struct VendorWorktreeScriptTests {
     }
 
     @Test("GitHub Actions verification accepts workflow-owned resources without local terminfo projection")
-    func githubActionsVerificationMatchesWorkflowOutputs() throws {
+    func githubActionsVerificationMatchesWorkflowOutputs() async throws {
         // Arrange
-        let fixture = try VendorWorktreeFixture()
+        let fixture = try await VendorWorktreeFixture()
         defer { fixture.cleanup() }
         try FileManager.default.removeItem(at: fixture.primaryGhosttyTerminfoURL)
 
         // Act
-        let workflowVerification = try fixture.runHelper(
+        let workflowVerification = try await fixture.runHelper(
             "verify",
             in: fixture.primaryRoot,
             environment: ["GITHUB_ACTIONS": "true"])
         try FileManager.default.removeItem(at: fixture.primaryFrameworkURL)
-        let missingFrameworkVerification = try fixture.runHelper(
+        let missingFrameworkVerification = try await fixture.runHelper(
             "verify",
             in: fixture.primaryRoot,
             environment: ["GITHUB_ACTIONS": "true"])
@@ -441,9 +441,9 @@ struct VendorWorktreeScriptTests {
     }
 
     @Test("producer guard rejects symlinked primary sources outputs and ancestors")
-    func producerGuardRejectsSymlinkedPrimaryPaths() throws {
+    func producerGuardRejectsSymlinkedPrimaryPaths() async throws {
         // Arrange: generated zmx output is a symlink.
-        let zmxOutputFixture = try VendorWorktreeFixture()
+        let zmxOutputFixture = try await VendorWorktreeFixture()
         defer { zmxOutputFixture.cleanup() }
         let externalZmxOutput = zmxOutputFixture.temporaryRoot.appending(path: "external zmx output")
         try FileManager.default.createDirectory(at: externalZmxOutput, withIntermediateDirectories: true)
@@ -455,7 +455,7 @@ struct VendorWorktreeScriptTests {
             withDestinationURL: externalZmxOutput)
 
         // Act
-        let zmxOutputGuard = try zmxOutputFixture.runHelper(
+        let zmxOutputGuard = try await zmxOutputFixture.runHelper(
             "require-producer",
             in: zmxOutputFixture.primaryRoot)
 
@@ -464,7 +464,7 @@ struct VendorWorktreeScriptTests {
         #expect(try Data(contentsOf: zmxSentinel) == Data("zmx sentinel".utf8))
 
         // Arrange: zmx's exact installation directory is a symlink.
-        let zmxBinFixture = try VendorWorktreeFixture()
+        let zmxBinFixture = try await VendorWorktreeFixture()
         defer { zmxBinFixture.cleanup() }
         let externalZmxBin = zmxBinFixture.temporaryRoot.appending(path: "external zmx bin")
         try FileManager.default.createDirectory(at: externalZmxBin, withIntermediateDirectories: true)
@@ -477,7 +477,7 @@ struct VendorWorktreeScriptTests {
             withDestinationURL: externalZmxBin)
 
         // Act
-        let zmxBinGuard = try zmxBinFixture.runHelper(
+        let zmxBinGuard = try await zmxBinFixture.runHelper(
             "require-producer",
             in: zmxBinFixture.primaryRoot)
 
@@ -486,7 +486,7 @@ struct VendorWorktreeScriptTests {
         #expect(try Data(contentsOf: zmxBinSentinel) == Data("zmx bin sentinel".utf8))
 
         // Arrange: the zmx submodule root is a symlink.
-        let zmxSourceFixture = try VendorWorktreeFixture()
+        let zmxSourceFixture = try await VendorWorktreeFixture()
         defer { zmxSourceFixture.cleanup() }
         let externalZmxSource = zmxSourceFixture.temporaryRoot.appending(path: "external zmx source")
         try FileManager.default.createDirectory(at: externalZmxSource, withIntermediateDirectories: true)
@@ -499,7 +499,7 @@ struct VendorWorktreeScriptTests {
             withDestinationURL: externalZmxSource)
 
         // Act
-        let zmxSourceGuard = try zmxSourceFixture.runHelper(
+        let zmxSourceGuard = try await zmxSourceFixture.runHelper(
             "require-producer",
             in: zmxSourceFixture.primaryRoot)
 
@@ -508,7 +508,7 @@ struct VendorWorktreeScriptTests {
         #expect(try Data(contentsOf: sourceSentinel) == Data("source sentinel".utf8))
 
         // Arrange: Ghostty's exact adaptation file is a symlink.
-        let ghosttySourceFixture = try VendorWorktreeFixture()
+        let ghosttySourceFixture = try await VendorWorktreeFixture()
         defer { ghosttySourceFixture.cleanup() }
         let externalLibtoolStep = ghosttySourceFixture.temporaryRoot.appending(path: "external LibtoolStep.zig")
         try Data("ghostty source sentinel".utf8).write(to: externalLibtoolStep)
@@ -523,7 +523,7 @@ struct VendorWorktreeScriptTests {
             withDestinationURL: externalLibtoolStep)
 
         // Act
-        let ghosttySourceGuard = try ghosttySourceFixture.runHelper(
+        let ghosttySourceGuard = try await ghosttySourceFixture.runHelper(
             "require-producer",
             in: ghosttySourceFixture.primaryRoot)
 
@@ -534,7 +534,7 @@ struct VendorWorktreeScriptTests {
                 == Data("ghostty source sentinel".utf8))
 
         // Arrange: a generated-output ancestor is a symlink.
-        let frameworkFixture = try VendorWorktreeFixture()
+        let frameworkFixture = try await VendorWorktreeFixture()
         defer { frameworkFixture.cleanup() }
         let externalFrameworks = frameworkFixture.temporaryRoot.appending(path: "external Frameworks")
         try FileManager.default.createDirectory(at: externalFrameworks, withIntermediateDirectories: true)
@@ -547,7 +547,7 @@ struct VendorWorktreeScriptTests {
             withDestinationURL: externalFrameworks)
 
         // Act
-        let frameworkGuard = try frameworkFixture.runHelper(
+        let frameworkGuard = try await frameworkFixture.runHelper(
             "require-producer",
             in: frameworkFixture.primaryRoot)
 
@@ -557,14 +557,14 @@ struct VendorWorktreeScriptTests {
     }
 
     @Test("failed shared copy publication removes only its temporary artifact")
-    func failedSharedCopyPublicationCleansTemporaryArtifact() throws {
+    func failedSharedCopyPublicationCleansTemporaryArtifact() async throws {
         // Arrange
-        let fixture = try VendorWorktreeFixture()
+        let fixture = try await VendorWorktreeFixture()
         defer { fixture.cleanup() }
         let copySpies = try fixture.makeFailingCopySpy()
 
         // Act
-        let setup = try fixture.runHelper(
+        let setup = try await fixture.runHelper(
             "setup-shared",
             in: fixture.linkedRoot,
             environment: ["PATH": "\(copySpies.path):/usr/bin:/bin:/usr/sbin:/sbin"])
@@ -578,11 +578,11 @@ struct VendorWorktreeScriptTests {
     }
 
     @Test("local conversion removes only exact shared links and plain setup preserves local state")
-    func localConversionAndPreservation() throws {
+    func localConversionAndPreservation() async throws {
         // Arrange
-        let fixture = try VendorWorktreeFixture()
+        let fixture = try await VendorWorktreeFixture()
         defer { fixture.cleanup() }
-        try fixture.requireSuccess(fixture.runHelper("setup-shared", in: fixture.linkedRoot))
+        try fixture.requireSuccess(await fixture.runHelper("setup-shared", in: fixture.linkedRoot))
         let unrelatedSentinel = fixture.linkedRoot.appending(path: "unrelated-link")
         try FileManager.default.createSymbolicLink(
             at: unrelatedSentinel,
@@ -591,16 +591,16 @@ struct VendorWorktreeScriptTests {
         let spyDirectory = try fixture.makeLocalProducerSpies()
 
         // Act
-        let conversion = try fixture.runHelper(
+        let conversion = try await fixture.runHelper(
             "setup-local",
             in: fixture.linkedRoot,
             environment: [
                 "PATH": "\(spyDirectory.path):/usr/bin:/bin:/usr/sbin:/sbin",
                 "GIT_ALLOW_PROTOCOL": "file",
             ])
-        let localRole = try fixture.runHelper("role", in: fixture.linkedRoot)
+        let localRole = try await fixture.runHelper("role", in: fixture.linkedRoot)
         let localSnapshot = try fixture.localProjectionSnapshot()
-        let laterSetup = try fixture.runHelper(
+        let laterSetup = try await fixture.runHelper(
             "setup-shared",
             in: fixture.linkedRoot,
             environment: ["PATH": "\(spyDirectory.path):/usr/bin:/bin:/usr/sbin:/sbin"])

@@ -9,6 +9,48 @@ import Testing
 @MainActor
 @Suite("AgentStudio IPC UI presentation adapter", .serialized)
 struct AgentStudioIPCUIPresentationAdapterTests {
+    @Test("adapter does not retain the App-owned UI presenter")
+    func adapterDoesNotRetainUIPresenter() throws {
+        let paneId = UUIDv7.generate()
+        var presenter: RecordingIPCUIPresenter? = RecordingIPCUIPresenter()
+        let presenterWitness = WeakUIPresentationOwnerReference(presenter)
+        let adapter = AgentStudioIPCUIPresentationAdapter(
+            presenter: try #require(presenter),
+            targetAuthorizer: RecordingDurableTargetAuthorizer(paneIds: [paneId])
+        )
+
+        presenter = nil
+
+        #expect(presenterWitness.value == nil)
+        #expect(throws: AppIPCUIPresentationError(reason: .noActiveWindow)) {
+            try adapter.openCommandBar(
+                IPCCommandBarOpenParams(
+                    workspaceWindowId: UUIDv7.generate(),
+                    scope: .commands,
+                    correlationId: nil
+                )
+            )
+        }
+        #expect(throws: AppIPCUIPresentationError(reason: .targetNotFound)) {
+            try adapter.openArrangements(
+                IPCArrangementsOpenParams(
+                    workspaceWindowId: UUIDv7.generate(),
+                    targetPaneHandle: "pane:1",
+                    correlationId: nil
+                )
+            )
+        }
+        #expect(throws: AppIPCUIPresentationError(reason: .noActiveWindow)) {
+            try adapter.openArrangements(
+                IPCArrangementsOpenParams(
+                    workspaceWindowId: UUIDv7.generate(),
+                    targetPaneHandle: "pane:\(paneId.uuidString)",
+                    correlationId: nil
+                )
+            )
+        }
+    }
+
     @Test("opens command bar through presenter-owned result for every scope")
     func opensCommandBarThroughPresenterOwnedResultForEveryScope() throws {
         let windowId = UUID()
@@ -61,6 +103,7 @@ struct AgentStudioIPCUIPresentationAdapterTests {
         } catch let error as AppIPCUIPresentationError {
             #expect(error.reason == .noActiveWindow)
         }
+        withExtendedLifetime(presenter) {}
     }
 
     @Test("opens Arrangements for an authorized durable pane and preserves correlation")
@@ -199,5 +242,13 @@ private final class RecordingDurableTargetAuthorizer: WorkspaceDurableTargetAuth
 
     func containsArrangement(tabId _: UUID, arrangementId _: UUID) -> Bool {
         false
+    }
+}
+
+private final class WeakUIPresentationOwnerReference<Owner: AnyObject> {
+    weak var value: Owner?
+
+    init(_ value: Owner?) {
+        self.value = value
     }
 }

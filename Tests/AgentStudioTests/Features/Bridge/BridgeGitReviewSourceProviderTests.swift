@@ -432,7 +432,7 @@ struct BridgeGitReviewSourceProviderTests {
 
     @Test("AgentStudioGit adapter falls back to tree and filesystem when status also hits a volatile file")
     func agentStudioGitAdapterFallsBackToTreeAndFilesystemWhenStatusAlsoHitsVolatileFile() async throws {
-        let repositoryPath = try FilesystemTestGitRepo.create(named: "bridge-review-tree-filesystem-fallback")
+        let repositoryPath = try await FilesystemTestGitRepo.create(named: "bridge-review-tree-filesystem-fallback")
         defer { FilesystemTestGitRepo.destroy(repositoryPath) }
         let filePath = "Sources/App/View.swift"
         let baseContent = "old source"
@@ -630,9 +630,9 @@ struct BridgeGitReviewSourceProviderTests {
 
     @Test("AgentStudioGit adapter builds a review package for HEAD against a dirty working tree")
     func agentStudioGitAdapterBuildsReviewPackageForHeadAgainstDirtyWorkingTree() async throws {
-        let repositoryPath = try FilesystemTestGitRepo.create(named: "bridge-review-head-working-tree")
+        let repositoryPath = try await FilesystemTestGitRepo.create(named: "bridge-review-head-working-tree")
         defer { FilesystemTestGitRepo.destroy(repositoryPath) }
-        try FilesystemTestGitRepo.seedTrackedAndUntrackedChanges(at: repositoryPath)
+        try await FilesystemTestGitRepo.seedTrackedAndUntrackedChanges(at: repositoryPath)
         let baseEndpoint = BridgeSourceEndpoint(
             endpointId: "baseline-head",
             kind: .gitRef,
