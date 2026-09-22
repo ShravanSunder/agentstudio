@@ -32,6 +32,10 @@ extension AppDelegate {
         case .newWindow:
             newWindow()
             return .applied
+        case .focusSidebar:
+            guard let mainWindowController else { return .stateUnavailable }
+            mainWindowController.focusSidebarFromCommand()
+            return .applied
         case .showInboxNotifications, .toggleInboxNotificationSort,
             .clearReadInboxNotifications, .clearAllInboxNotifications,
             .showPaneInboxNotifications, .clearPaneInboxNotifications,
@@ -63,6 +67,10 @@ extension AppDelegate {
             guard let mainWindowController else { return .stateUnavailable }
             mainWindowController.showSidebarFilter()
             return .presented
+        case .focusSidebar:
+            guard let mainWindowController else { return .stateUnavailable }
+            mainWindowController.focusSidebarFromCommand()
+            return .applied
         case .showCommandBarEverything, .showCommandBarQuickOpen, .showCommandBarCommands,
             .showCommandBarPanes, .showCommandBarRepos:
             guard execute(command) else { return .stateUnavailable }

@@ -89,6 +89,7 @@ struct PaneTabViewControllerLaunchRestoreTests {
             viewRegistry: viewRegistry,
             bridgePaneAttendance: atomRegistry.bridgePaneAttendance,
             editorChooser: atomRegistry.editorChooser,
+            heldPanePreviewState: HeldPanePreviewState(),
             registersAsCommandHandler: false
         )
         let window = NSWindow(

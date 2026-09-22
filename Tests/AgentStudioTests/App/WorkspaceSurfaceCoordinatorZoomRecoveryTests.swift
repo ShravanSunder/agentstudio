@@ -95,6 +95,7 @@ extension WebKitSerializedTests {
             )
             expectZoomRecoveryResourcesRetired(
                 companionPaneId,
+                sourcePaneId: sourcePane.id,
                 baseline: baseline,
                 in: harness
             )
@@ -269,6 +270,7 @@ extension WebKitSerializedTests {
             )
             expectZoomRecoveryResourcesRetired(
                 companionPaneId,
+                sourcePaneId: sourcePane.id,
                 baseline: baseline,
                 in: harness
             )
@@ -333,6 +335,7 @@ private func installZoomRecoveryCompanion(
 @MainActor
 private func expectZoomRecoveryResourcesRetired(
     _ companionPaneId: UUID,
+    sourcePaneId: UUID,
     baseline: ZoomRecoveryResourceBaseline,
     in harness: PaneTabViewControllerCommandHarness
 ) {
@@ -344,7 +347,10 @@ private func expectZoomRecoveryResourcesRetired(
         ) == nil
     )
     #expect(harness.runtimeRegistry.count == baseline.runtimeCount)
-    #expect(harness.viewRegistry.slotPaneIdsForTesting == baseline.slotPaneIds)
+    #expect(
+        harness.viewRegistry.slotPaneIdsForTesting
+            == baseline.slotPaneIds.union([sourcePaneId])
+    )
     #expect(
         harness.coordinator.bridgePaneActivityAuthorityIdentity(
             for: companionPaneId
@@ -423,7 +429,7 @@ private func expectZoomRecoveryReplacementInstalled(
     #expect(harness.runtimeRegistry.count == baseline.runtimeCount + 1)
     #expect(
         harness.viewRegistry.slotPaneIdsForTesting
-            == baseline.slotPaneIds.union([companionPaneId])
+            == baseline.slotPaneIds.union([sourcePaneId, companionPaneId])
     )
 }
 

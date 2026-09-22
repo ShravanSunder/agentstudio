@@ -192,7 +192,7 @@ private final class DrawerCloseTransitionCommandDispatcher: AppCommandDispatchin
         self.performClose = performClose
     }
 
-    func dispatch(_: AppCommand) {}
+    func dispatch(_: AppCommand) -> Bool { false }
 
     func dispatch(
         _ command: AppCommand,

@@ -154,6 +154,25 @@ struct PreparedContentMountStartupBoundaryTests {
         )
     }
 
+    @Test("held preview preparation uses trusted bounds and existing mount owners")
+    func heldPreviewPreparationUsesTrustedBoundsAndExistingMountOwners() throws {
+        let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
+        let source = try String(
+            contentsOf: projectRoot.appending(
+                path: "Sources/AgentStudio/App/Coordination/WorkspaceSurfaceCoordinator+HeldPanePreview.swift"
+            ),
+            encoding: .utf8
+        )
+
+        #expect(source.contains("windowLifecycleStore.terminalContainerBounds"))
+        #expect(source.contains("createViewForContent("))
+        #expect(source.contains("surfaceManager.attach("))
+        #expect(source.contains("displaySurface("))
+        #expect(!source.contains("resolveInitialFramesByTabId("))
+        #expect(!source.contains("restoreVisiblePaneIfNeeded("))
+        #expect(!source.contains("Task.sleep"))
+    }
+
     private func swiftSourceFiles(under root: URL) throws -> [URL] {
         let enumerator = try #require(
             FileManager.default.enumerator(

@@ -227,6 +227,9 @@ extension PaneTabViewController {
             return await executeViewerCommand(command, paneId: paneId)
         case .scrollToBottom, .scrollPageUp, .jumpToPreviousPrompt, .jumpToNextPrompt:
             return await executeTerminalRuntimeCommand(command, paneId: paneId)
+        case .scrollPageDown, .scrollSmallStepUp, .scrollSmallStepDown,
+            .focusPreviousPinnedPane, .focusNextPinnedPane:
+            return .stateUnavailable
         case .reloadBridgeWebView:
             guard let mountView = resolvedBridgeCommandMountView(paneId: paneId),
                 mountView.controller.reloadWebView()
@@ -293,7 +296,7 @@ extension PaneTabViewController {
         let runtimeCommand: PaneRuntimeCommand
         switch command {
         case .scrollToBottom: runtimeCommand = .terminal(.scrollToBottom)
-        case .scrollPageUp: runtimeCommand = .terminal(.scrollPageUp)
+        case .scrollPageUp: runtimeCommand = .terminal(.scrollPageFractional(fraction: -1))
         case .jumpToPreviousPrompt: runtimeCommand = .terminal(.jumpToPrompt(delta: -1))
         case .jumpToNextPrompt: runtimeCommand = .terminal(.jumpToPrompt(delta: 1))
         default: return .unsupportedCommand

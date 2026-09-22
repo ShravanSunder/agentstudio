@@ -17,11 +17,15 @@ extension AppDelegate: ShellCommandHandling {
     }
 
     func canExecute(_ command: AppCommand) -> Bool {
+        if command == .focusSidebar {
+            guard let atomStore else { return false }
+            return !atomStore.core.managementLayer.isActive
+        }
         if let sidebarCapability = sidebarCommandCapability(command) {
             return sidebarCapability
         }
         return switch command {
-        case .watchFolder, .toggleSidebar, .filterSidebar,
+        case .watchFolder, .toggleSidebar, .focusSidebar, .filterSidebar,
             .showReposSidebar, .showPanesSidebar,
             .signInGitHub, .signInGoogle, .newWindow, .closeWindow,
             .showCommandBarEverything, .showCommandBarQuickOpen, .showCommandBarCommands,
@@ -32,10 +36,12 @@ extension AppDelegate: ShellCommandHandling {
             .selectTab1, .selectTab2, .selectTab3, .selectTab4, .selectTab5,
             .selectTab6, .selectTab7, .selectTab8, .selectTab9,
             .closePane, .extractPaneToTab, .movePaneToTab, .focusPane, .scrollToBottom,
-            .scrollPageUp, .jumpToPreviousPrompt, .jumpToNextPrompt,
+            .scrollPageUp, .scrollPageDown, .scrollSmallStepUp, .scrollSmallStepDown,
+            .jumpToPreviousPrompt, .jumpToNextPrompt,
             .splitRight, .splitLeft, .equalizePanes,
             .focusPaneLeft, .focusPaneRight, .focusPaneUp, .focusPaneDown,
-            .focusNextPane, .focusPrevPane, .zoomPane, .minimizePane, .expandPane,
+            .focusNextPane, .focusPrevPane, .focusPreviousPinnedPane, .focusNextPinnedPane, .zoomPane, .minimizePane,
+            .expandPane,
             .focusPane1, .focusPane2, .focusPane3, .focusPane4, .focusPane5,
             .focusPane6, .focusPane7, .focusPane8, .focusPane9,
             .switchArrangement, .previousArrangement, .nextArrangement, .cycleArrangement,
@@ -93,16 +99,15 @@ extension AppDelegate: ShellCommandHandling {
         case .toggleSidebar:
             mainWindowController?.toggleSidebar()
             return true
+        case .focusSidebar:
+            guard let atomStore, !atomStore.core.managementLayer.isActive else { return false }
+            mainWindowController?.focusSidebarFromCommand()
+            return true
         case .filterSidebar:
             mainWindowController?.showSidebarFilter()
             return true
-        case .showInboxNotifications:
-            return false
-        case .toggleInboxNotificationSort:
-            return false
-        case .clearReadInboxNotifications:
-            return false
-        case .clearAllInboxNotifications:
+        case .showInboxNotifications, .toggleInboxNotificationSort,
+            .clearReadInboxNotifications, .clearAllInboxNotifications:
             return false
         case .showReposSidebar:
             return executeSidebarScreenCommand(.repos) == .applied
@@ -145,10 +150,12 @@ extension AppDelegate: ShellCommandHandling {
             .selectTab1, .selectTab2, .selectTab3, .selectTab4, .selectTab5,
             .selectTab6, .selectTab7, .selectTab8, .selectTab9,
             .closePane, .extractPaneToTab, .movePaneToTab, .focusPane, .scrollToBottom,
-            .scrollPageUp, .jumpToPreviousPrompt, .jumpToNextPrompt,
+            .scrollPageUp, .scrollPageDown, .scrollSmallStepUp, .scrollSmallStepDown,
+            .jumpToPreviousPrompt, .jumpToNextPrompt,
             .splitRight, .splitLeft, .equalizePanes,
             .focusPaneLeft, .focusPaneRight, .focusPaneUp, .focusPaneDown,
-            .focusNextPane, .focusPrevPane, .zoomPane, .minimizePane, .expandPane,
+            .focusNextPane, .focusPrevPane, .focusPreviousPinnedPane, .focusNextPinnedPane, .zoomPane, .minimizePane,
+            .expandPane,
             .focusPane1, .focusPane2, .focusPane3, .focusPane4, .focusPane5,
             .focusPane6, .focusPane7, .focusPane8, .focusPane9,
             .switchArrangement, .previousArrangement, .nextArrangement, .cycleArrangement,
@@ -192,10 +199,12 @@ extension AppDelegate: ShellCommandHandling {
             .selectTab1, .selectTab2, .selectTab3, .selectTab4, .selectTab5,
             .selectTab6, .selectTab7, .selectTab8, .selectTab9,
             .closePane, .extractPaneToTab, .movePaneToTab, .focusPane, .scrollToBottom,
-            .scrollPageUp, .jumpToPreviousPrompt, .jumpToNextPrompt,
+            .scrollPageUp, .scrollPageDown, .scrollSmallStepUp, .scrollSmallStepDown,
+            .jumpToPreviousPrompt, .jumpToNextPrompt,
             .splitRight, .splitLeft, .equalizePanes,
             .focusPaneLeft, .focusPaneRight, .focusPaneUp, .focusPaneDown,
-            .focusNextPane, .focusPrevPane, .zoomPane, .minimizePane, .expandPane,
+            .focusNextPane, .focusPrevPane, .focusPreviousPinnedPane, .focusNextPinnedPane, .zoomPane, .minimizePane,
+            .expandPane,
             .focusPane1, .focusPane2, .focusPane3, .focusPane4, .focusPane5,
             .focusPane6, .focusPane7, .focusPane8, .focusPane9,
             .switchArrangement, .previousArrangement, .nextArrangement, .cycleArrangement,
@@ -216,7 +225,7 @@ extension AppDelegate: ShellCommandHandling {
             .managementLayerEnterDrawer, .managementLayerExitDrawer,
             .managementLayerOpenDrawer, .managementLayerCreateTerminal, .managementLayerCreateBrowser,
             .managementLayerExit,
-            .toggleSidebar, .showInboxNotifications, .toggleInboxNotificationSort,
+            .toggleSidebar, .focusSidebar, .showInboxNotifications, .toggleInboxNotificationSort,
             .clearReadInboxNotifications, .clearAllInboxNotifications,
             .showPaneInboxNotifications, .clearPaneInboxNotifications, .showReposSidebar, .showPanesSidebar,
             .setReposGroupingRepo, .setReposGroupingActivity,

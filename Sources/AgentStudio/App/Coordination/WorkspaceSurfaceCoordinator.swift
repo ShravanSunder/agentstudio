@@ -154,6 +154,8 @@ final class WorkspaceSurfaceCoordinator {
     var repositoryFactDemandObservationGeneration: UInt64 = 0
     var rendererVisibilityOwningWindowId: UUID?
     var rendererVisibilityObservationGeneration: UInt64 = 0
+    var heldPanePreviewState: HeldPanePreviewState?
+    var heldPanePreviewPreparationCapture: HeldPanePreviewPreparationCapture?
     lazy var repositoryFactDemandCoordinator = RepositoryFactDemandCoordinator(
         performanceRecorder: performanceTraceRecorder
     ) { [weak self] snapshot in

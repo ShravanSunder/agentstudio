@@ -236,8 +236,8 @@ struct PaneTabViewControllerTargetedFocusCommandTests {
         )
     }
 
-    @Test("spatial focus expands a minimized neighbor without changing arrangements")
-    func spatialFocusPreservesCurrentArrangementWhileExpandingNeighbor() async throws {
+    @Test("spatial focus keeps focus when the only neighbor is minimized")
+    func spatialFocusKeepsMinimizedNeighborHidden() async throws {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
         let firstPane = harness.store.createPane()
@@ -251,7 +251,68 @@ struct PaneTabViewControllerTargetedFocusCommandTests {
         await harness.executeCommand(.focusPaneRight)
 
         #expect(harness.store.tab(tab.id)?.activeArrangementId == customID)
-        #expect(harness.store.tab(tab.id)?.activeMinimizedPaneIds.contains(secondPane.id) == false)
-        #expect(harness.store.tab(tab.id)?.activePaneId == secondPane.id)
+        #expect(harness.store.tab(tab.id)?.activeMinimizedPaneIds.contains(secondPane.id) == true)
+        #expect(harness.store.tab(tab.id)?.activePaneId == firstPane.id)
+    }
+
+    @Test("spatial focus skips a minimized pane in either direction", arguments: [false, true])
+    func spatialFocusSkipsMinimizedPane(movingLeft: Bool) async throws {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+        let leftPane = harness.store.createPane()
+        let minimizedPane = harness.store.createPane()
+        let rightPane = harness.store.createPane()
+        let origin = movingLeft ? rightPane : leftPane
+        let destination = movingLeft ? leftPane : rightPane
+        let tab = makeTab(
+            paneIds: [leftPane.id, minimizedPane.id, rightPane.id], activePaneId: origin.id
+        )
+        harness.store.appendTab(tab)
+        harness.store.setActiveTab(tab.id)
+        let customID = try #require(harness.store.createArrangement(name: "Spatial", inTab: tab.id))
+        #expect(harness.store.minimizePane(minimizedPane.id, inTab: tab.id))
+        let window = makePaneTabViewControllerCommandWindow(for: harness.controller)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        let originHost = try attachPaneHost(paneId: origin.id, in: harness, to: window)
+        let destinationHost = try attachPaneHost(paneId: destination.id, in: harness, to: window)
+        #expect(window.makeFirstResponder(originHost))
+
+        await harness.executeCommand(movingLeft ? .focusPaneLeft : .focusPaneRight)
+
+        #expect(harness.store.tab(tab.id)?.activeArrangementId == customID)
+        #expect(harness.store.tab(tab.id)?.activeMinimizedPaneIds == [minimizedPane.id])
+        #expect(harness.store.tab(tab.id)?.activePaneId == destination.id)
+        #expect(window.firstResponder === destinationHost)
+
+        // The edge is a no-op, including after another command in the same direction.
+        await harness.executeCommand(movingLeft ? .focusPaneLeft : .focusPaneRight)
+        #expect(harness.store.tab(tab.id)?.activePaneId == destination.id)
+        #expect(window.firstResponder === destinationHost)
+        #expect(harness.store.tab(tab.id)?.activeMinimizedPaneIds == [minimizedPane.id])
+    }
+
+    @Test("spatial focus skips a backgrounded pane retained in the arrangement")
+    func spatialFocusSkipsBackgroundedPane() async throws {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+        let firstPane = harness.store.createPane()
+        let backgroundedPane = harness.store.createPane()
+        let lastPane = harness.store.createPane()
+        let tab = makeTab(paneIds: [firstPane.id, backgroundedPane.id, lastPane.id], activePaneId: firstPane.id)
+        harness.store.appendTab(tab)
+        harness.store.setActiveTab(tab.id)
+        harness.store.paneAtom.setResidency(.backgrounded, for: backgroundedPane.id)
+        let window = makePaneTabViewControllerCommandWindow(for: harness.controller)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        let destinationHost = try attachPaneHost(paneId: lastPane.id, in: harness, to: window)
+
+        await harness.executeCommand(.focusPaneRight)
+
+        #expect(harness.store.tab(tab.id)?.activeArrangementId == tab.activeArrangementId)
+        #expect(harness.store.tab(tab.id)?.activePaneId == lastPane.id)
+        #expect(harness.store.paneAtom.pane(backgroundedPane.id)?.residency == .backgrounded)
+        #expect(window.firstResponder === destinationHost)
     }
 }

@@ -539,6 +539,97 @@ struct PaneTabViewControllerDrawerCommandTests {
         }
     }
 
+    @Test("expanded drawer cursor changes rearm observation after main-pane focus")
+    func expandedDrawerCursorChangeAfterMainPaneFocus_rearmsSelectionObservation() async throws {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+        try await withWorkspaceCommandHarness(harness) {
+            let (parent, drawerPanes) = try makeDrawerOrdinalPaneSet(in: harness, paneCount: 2)
+            let firstDrawerPane = drawerPanes[0]
+            let secondDrawerPane = drawerPanes[1]
+            let tab = try #require(harness.store.tabContaining(paneId: parent.id))
+
+            // The drawer helper leaves the existing drawer expanded. Return
+            // ownership to the main row without collapsing that drawer.
+            #expect(harness.store.tabLayoutAtom.activePaneID(forTab: tab.id) == parent.id)
+            #expect(harness.store.pane(parent.id)?.drawer?.isExpanded == true)
+
+            let window = makePaneTabViewControllerCommandWindow(for: harness.controller)
+            let parentContent = FocusablePaneTabCommandMountedContentView()
+            let firstDrawerContent = FocusablePaneTabCommandMountedContentView()
+            let secondDrawerContent = FocusablePaneTabCommandMountedContentView()
+            _ = try attachPaneHost(
+                paneId: parent.id,
+                in: harness,
+                to: window,
+                mountedContent: parentContent
+            )
+            let firstDrawerHost = try attachPaneHost(
+                paneId: firstDrawerPane.id,
+                in: harness,
+                to: window,
+                mountedContent: firstDrawerContent
+            )
+            let secondDrawerHost = try attachPaneHost(
+                paneId: secondDrawerPane.id,
+                in: harness,
+                to: window,
+                mountedContent: secondDrawerContent
+            )
+
+            harness.controller.handlePaneFocusTrigger(
+                .command(.focusPane(tabId: tab.id, paneId: parent.id))
+            )
+            #expect(atom(\.workspaceFocusOwner).owner == .mainPane(paneId: parent.id))
+
+            // This is the existing drawer-selection owner callback. It mutates
+            // the cursor before it updates its private navigation scope.
+            var secondDrawerFocusEvents = secondDrawerContent.makeFocusEventIterator()
+            harness.controller.handlePaneFocusTrigger(
+                .drawer(
+                    .selectPane(
+                        parentPaneId: parent.id,
+                        drawerPaneId: secondDrawerPane.id
+                    )
+                )
+            )
+            let observedFocus = await secondDrawerFocusEvents.next(isolation: #isolation)
+            #expect(observedFocus != nil)
+            #expect(
+                atom(\.workspaceFocusOwner).owner
+                    == .drawerPane(parentPaneId: parent.id, paneId: secondDrawerPane.id)
+            )
+            #expect(window.firstResponder === secondDrawerContent || window.firstResponder === secondDrawerHost)
+
+            // No tab/graph/preview event follows. This child-cursor-only write
+            // must be observed through the canonical active parent drawer key.
+            let activeArrangementId = try #require(
+                harness.store.tabArrangementAtom.cursorAtom.activeArrangementId(forTab: tab.id)
+            )
+            let drawerId = try #require(harness.store.pane(parent.id)?.drawer?.drawerId)
+            let drawerRevisionBefore = harness.store.tabArrangementAtom.cursorAtom.drawerCursorRevision(
+                arrangementId: activeArrangementId,
+                drawerId: drawerId
+            )
+            var firstDrawerFocusEvents = firstDrawerContent.makeFocusEventIterator()
+            harness.store.setActiveDrawerPane(firstDrawerPane.id, in: parent.id)
+            let observedRefocus = await firstDrawerFocusEvents.next(isolation: #isolation)
+            #expect(observedRefocus != nil)
+            #expect(
+                harness.store.tabArrangementAtom.cursorAtom.drawerCursorRevision(
+                    arrangementId: activeArrangementId,
+                    drawerId: drawerId
+                ) != drawerRevisionBefore
+            )
+            #expect(harness.store.drawerView(forParent: parent.id)?.activeChildId == firstDrawerPane.id)
+            #expect(
+                harness.controller.normalizedWorkspaceNavigationScopeState()
+                    == .drawerPane(parentPaneId: parent.id, paneId: firstDrawerPane.id)
+            )
+            #expect(window.firstResponder === firstDrawerContent || window.firstResponder === firstDrawerHost)
+        }
+    }
+
     @Test("navigateDrawerPane targeted command updates canonical focus owner and keeps option-j in drawer scope")
     func targetedNavigateDrawerPane_updatesFocusOwnerAndDrawerKeyboardScope() async throws {
         let harness = makeHarness()

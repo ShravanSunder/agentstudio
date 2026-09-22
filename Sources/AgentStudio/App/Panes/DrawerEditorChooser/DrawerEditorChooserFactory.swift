@@ -9,7 +9,7 @@ enum DrawerEditorChooserFactory {
     private static let maxButtonTitleLength = 20
     static let directLaunchHintText = "Launch bookmarked"
     static let directLaunchShortcutText =
-        AppCommand.openPaneLocationInBookmarkedEditor.definition.keyBinding?.displayString ?? ""
+        AppCommand.openPaneLocationInBookmarkedEditor.definition.globalKeyBinding?.displayString ?? ""
 
     static func buttonTitle(
         bookmarkedEditorId: EditorTargetId?,

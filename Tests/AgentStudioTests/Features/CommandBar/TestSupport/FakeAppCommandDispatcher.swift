@@ -13,8 +13,9 @@ final class FakeAppCommandDispatcher: AppCommandDispatching {
     var bridgeTargetLookupWorktreeIds: [UUID] = []
     var movePaneDispatches: [(sourcePaneId: UUID, sourceTabId: UUID?, targetTabId: UUID)] = []
 
-    func dispatch(_ command: AppCommand) {
+    func dispatch(_ command: AppCommand) -> Bool {
         dispatchedCommands.append(command)
+        return availableCommands.contains(command)
     }
 
     func dispatch(_ command: AppCommand, target: UUID, targetType: SearchItemType) {

@@ -68,7 +68,7 @@ private final class PaneFocusRecordingDispatcher: AppCommandDispatching {
     private(set) var target: UUID?
     private(set) var targetType: SearchItemType?
 
-    func dispatch(_: AppCommand) {}
+    func dispatch(_: AppCommand) -> Bool { false }
 
     func dispatch(_ command: AppCommand, target: UUID, targetType: SearchItemType) {
         self.command = command
@@ -183,63 +183,63 @@ struct RepoExplorerViewProjectionHelperTests {
     @Test("pane title keeps activity titles and falls back to the shell for path-shaped titles")
     func paneSecondaryTextUsesShortFallbackVocabulary() {
         #expect(
-            RepoExplorerView.paneSecondaryText(
+            RepoExplorerPaneTitleNormalizer.normalizedTitle(
                 liveTitle: "  tests running  ",
                 cwd: URL(filePath: "/tmp/agent-studio/Sources"),
                 shellExecutablePath: "/bin/zsh"
             ) == "tests running"
         )
         #expect(
-            RepoExplorerView.paneSecondaryText(
+            RepoExplorerPaneTitleNormalizer.normalizedTitle(
                 liveTitle: "",
                 cwd: URL(filePath: "/tmp/agent-studio/Sources"),
                 shellExecutablePath: "/bin/zsh"
             ) == "zsh"
         )
         #expect(
-            RepoExplorerView.paneSecondaryText(
+            RepoExplorerPaneTitleNormalizer.normalizedTitle(
                 liveTitle: "",
                 cwd: URL(filePath: "/tmp/agent-studio/Sources"),
                 shellExecutablePath: nil
             ) == "zsh"
         )
         #expect(
-            RepoExplorerView.paneSecondaryText(
+            RepoExplorerPaneTitleNormalizer.normalizedTitle(
                 liveTitle: "",
                 cwd: nil,
                 shellExecutablePath: "/bin/zsh"
             ) == "zsh"
         )
         #expect(
-            RepoExplorerView.paneSecondaryText(
+            RepoExplorerPaneTitleNormalizer.normalizedTitle(
                 liveTitle: "/tmp/agent-studio/Sources",
                 cwd: URL(filePath: "/tmp/agent-studio/Sources"),
                 shellExecutablePath: "/bin/zsh"
             ) == "zsh"
         )
         #expect(
-            RepoExplorerView.paneSecondaryText(
+            RepoExplorerPaneTitleNormalizer.normalizedTitle(
                 liveTitle: "~/Documents/dev/agent-studio",
                 cwd: URL(filePath: "/Users/test/Documents/dev/agent-studio"),
                 shellExecutablePath: "/bin/zsh"
             ) == "zsh"
         )
         #expect(
-            RepoExplorerView.paneSecondaryText(
+            RepoExplorerPaneTitleNormalizer.normalizedTitle(
                 liveTitle: "…/dev/project-dev/agent-studio",
                 cwd: URL(filePath: "/Users/test/Documents/dev/project-dev/agent-studio"),
                 shellExecutablePath: "/bin/zsh"
             ) == "zsh"
         )
         #expect(
-            RepoExplorerView.paneSecondaryText(
+            RepoExplorerPaneTitleNormalizer.normalizedTitle(
                 liveTitle: ".../dev/project-dev/agent-studio",
                 cwd: URL(filePath: "/Users/test/Documents/dev/project-dev/agent-studio"),
                 shellExecutablePath: "/bin/zsh"
             ) == "zsh"
         )
         #expect(
-            RepoExplorerView.paneSecondaryText(
+            RepoExplorerPaneTitleNormalizer.normalizedTitle(
                 liveTitle: "tests running",
                 cwd: URL(filePath: "/tmp/agent-studio/Sources"),
                 shellExecutablePath: "/bin/zsh"

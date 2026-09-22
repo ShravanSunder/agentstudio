@@ -8,6 +8,9 @@ struct RepoExplorerPresentationHostView: NSViewRepresentable {
     let commandPresentationDelta: RepoExplorerCommandPresentationDelta?
     let visibleSnapshotConsumerToken: UUID?
     let interactions: RepoExplorerTableInteractions
+    let keyboardInteraction: RepoExplorerKeyboardInteraction?
+    let keyboardCallbacks: RepoExplorerKeyboardCallbacks?
+    let showsKeyboardHints: Bool
     let onVisibleWorktreeSnapshotChange: @MainActor (RepoExplorerVisibleWorktreeSnapshot) -> Void
     let observeCurrentVisibleTarget: @MainActor (RepoExplorerVisibleWorktreeSnapshot) -> Void
 
@@ -17,6 +20,9 @@ struct RepoExplorerPresentationHostView: NSViewRepresentable {
         commandPresentationDelta: RepoExplorerCommandPresentationDelta? = nil,
         visibleSnapshotConsumerToken: UUID? = nil,
         interactions: RepoExplorerTableInteractions = .inert,
+        keyboardInteraction: RepoExplorerKeyboardInteraction? = nil,
+        keyboardCallbacks: RepoExplorerKeyboardCallbacks? = nil,
+        showsKeyboardHints: Bool = false,
         onVisibleWorktreeSnapshotChange: @escaping @MainActor (RepoExplorerVisibleWorktreeSnapshot) -> Void,
         observeCurrentVisibleTarget: @escaping @MainActor (RepoExplorerVisibleWorktreeSnapshot) -> Void = { _ in }
     ) {
@@ -25,6 +31,9 @@ struct RepoExplorerPresentationHostView: NSViewRepresentable {
         self.commandPresentationDelta = commandPresentationDelta
         self.visibleSnapshotConsumerToken = visibleSnapshotConsumerToken
         self.interactions = interactions
+        self.keyboardInteraction = keyboardInteraction
+        self.keyboardCallbacks = keyboardCallbacks
+        self.showsKeyboardHints = showsKeyboardHints
         self.onVisibleWorktreeSnapshotChange = onVisibleWorktreeSnapshotChange
         self.observeCurrentVisibleTarget = observeCurrentVisibleTarget
     }
@@ -34,6 +43,8 @@ struct RepoExplorerPresentationHostView: NSViewRepresentable {
             projectionAdapter: projectionAdapter,
             octiconLoader: octiconLoader,
             interactions: interactions,
+            keyboardInteraction: keyboardInteraction,
+            keyboardCallbacks: keyboardCallbacks,
             onVisibleWorktreeSnapshotChange: onVisibleWorktreeSnapshotChange,
             observeCurrentVisibleTarget: observeCurrentVisibleTarget,
             visibleSnapshotConsumerToken: visibleSnapshotConsumerToken
@@ -50,10 +61,7 @@ struct RepoExplorerPresentationHostView: NSViewRepresentable {
     ) {
         context.coordinator.update(
             materializationHost: materializationHost,
-            commandPresentationDelta: commandPresentationDelta,
-            onVisibleWorktreeSnapshotChange: onVisibleWorktreeSnapshotChange,
-            observeCurrentVisibleTarget: observeCurrentVisibleTarget,
-            visibleSnapshotConsumerToken: visibleSnapshotConsumerToken
+            presentation: self
         )
     }
 
@@ -71,6 +79,7 @@ struct RepoExplorerPresentationHostView: NSViewRepresentable {
         private weak var tableMaterializer: RepoExplorerTableMaterializer?
         private let octiconLoader: OcticonLoader
         private let interactions: RepoExplorerTableInteractions
+        private let keyboardInteraction: RepoExplorerKeyboardInteraction?
         private var onVisibleWorktreeSnapshotChange: @MainActor (RepoExplorerVisibleWorktreeSnapshot) -> Void
         private var observeCurrentVisibleTarget: @MainActor (RepoExplorerVisibleWorktreeSnapshot) -> Void
         private var currentVisibleSnapshot: RepoExplorerVisibleWorktreeSnapshot?
@@ -82,6 +91,8 @@ struct RepoExplorerPresentationHostView: NSViewRepresentable {
             projectionAdapter: RepoExplorerProjectionAdapter,
             octiconLoader: OcticonLoader,
             interactions: RepoExplorerTableInteractions,
+            keyboardInteraction: RepoExplorerKeyboardInteraction?,
+            keyboardCallbacks: RepoExplorerKeyboardCallbacks?,
             onVisibleWorktreeSnapshotChange: @escaping @MainActor (RepoExplorerVisibleWorktreeSnapshot) -> Void,
             observeCurrentVisibleTarget: @escaping @MainActor (RepoExplorerVisibleWorktreeSnapshot) -> Void,
             visibleSnapshotConsumerToken: UUID?
@@ -89,6 +100,10 @@ struct RepoExplorerPresentationHostView: NSViewRepresentable {
             self.projectionAdapter = projectionAdapter
             self.octiconLoader = octiconLoader
             self.interactions = interactions
+            self.keyboardInteraction = keyboardInteraction
+            if let keyboardCallbacks {
+                keyboardInteraction?.configure(keyboardCallbacks)
+            }
             self.onVisibleWorktreeSnapshotChange = onVisibleWorktreeSnapshotChange
             self.observeCurrentVisibleTarget = observeCurrentVisibleTarget
             self.visibleSnapshotConsumerToken = visibleSnapshotConsumerToken
@@ -120,12 +135,17 @@ struct RepoExplorerPresentationHostView: NSViewRepresentable {
                         }
                     )
                     self?.tableMaterializer = materializer
+                    materializer.setShowsKeyboardHints(self?.keyboardInteraction?.isListKeyboardActive == true)
                     return materializer
                 },
                 onFeedback: { [weak projectionAdapter] feedback in
                     projectionAdapter?.receiveMaterializationFeedback(feedback)
                 }
             )
+            host.identifier = RepoExplorerView.focusTargetIdentifier
+            if let keyboardInteraction {
+                host.installKeyboardInteraction(keyboardInteraction)
+            }
             guard projectionAdapter.registerMaterializationHost(host) else {
                 host.detach()
                 preconditionFailure("Repo Explorer materialization host registration failed")
@@ -145,15 +165,16 @@ struct RepoExplorerPresentationHostView: NSViewRepresentable {
 
         func update(
             materializationHost: RepoExplorerMaterializationHost,
-            commandPresentationDelta: RepoExplorerCommandPresentationDelta?,
-            onVisibleWorktreeSnapshotChange: @escaping @MainActor (RepoExplorerVisibleWorktreeSnapshot) -> Void,
-            observeCurrentVisibleTarget: @escaping @MainActor (RepoExplorerVisibleWorktreeSnapshot) -> Void,
-            visibleSnapshotConsumerToken: UUID?
+            presentation: RepoExplorerPresentationHostView
         ) {
             precondition(self.materializationHost === materializationHost)
-            self.onVisibleWorktreeSnapshotChange = onVisibleWorktreeSnapshotChange
-            self.observeCurrentVisibleTarget = observeCurrentVisibleTarget
-            self.visibleSnapshotConsumerToken = visibleSnapshotConsumerToken
+            if let keyboardCallbacks = presentation.keyboardCallbacks {
+                keyboardInteraction?.configure(keyboardCallbacks)
+            }
+            tableMaterializer?.setShowsKeyboardHints(presentation.showsKeyboardHints)
+            onVisibleWorktreeSnapshotChange = presentation.onVisibleWorktreeSnapshotChange
+            observeCurrentVisibleTarget = presentation.observeCurrentVisibleTarget
+            visibleSnapshotConsumerToken = presentation.visibleSnapshotConsumerToken
             if let currentVisibleSnapshot,
                 currentVisibleSnapshot != lastPublishedVisibleSnapshot
                     || visibleSnapshotConsumerToken != lastPublishedConsumerToken
@@ -162,7 +183,7 @@ struct RepoExplorerPresentationHostView: NSViewRepresentable {
                 lastPublishedConsumerToken = visibleSnapshotConsumerToken
                 onVisibleWorktreeSnapshotChange(currentVisibleSnapshot)
             }
-            if let commandPresentationDelta {
+            if let commandPresentationDelta = presentation.commandPresentationDelta {
                 _ = tableMaterializer?.applyCommandPresentationDelta(commandPresentationDelta)
             }
         }

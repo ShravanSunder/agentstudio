@@ -12,7 +12,7 @@ import Testing
 
 @MainActor
 private final class FakeInboxAppCommandDispatcher: AppCommandDispatching {
-    func dispatch(_: AppCommand) {}
+    func dispatch(_: AppCommand) -> Bool { false }
     func dispatch(_: AppCommand, target _: UUID, targetType _: SearchItemType) {}
     func canDispatch(_: AppCommand) -> Bool { true }
     func canDispatch(_: AppCommand, target _: UUID, targetType _: SearchItemType) -> Bool { true }

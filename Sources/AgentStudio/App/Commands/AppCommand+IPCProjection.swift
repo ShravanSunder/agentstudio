@@ -71,7 +71,8 @@ extension AppCommand {
             .clearReadInboxNotifications, .clearAllInboxNotifications,
             .showPaneInboxNotifications, .clearPaneInboxNotifications,
             .setInboxGroupingTab, .setInboxGroupingRepo, .setInboxGroupingPane,
-            .setInboxGroupingNone, .setInboxRowStateFilter, .setInboxContentMode:
+            .setInboxGroupingNone, .setInboxRowStateFilter, .setInboxContentMode,
+            .focusSidebar:
             [.noArguments]
 
         case .undoCloseTab,
@@ -107,7 +108,10 @@ extension AppCommand {
 
         case .closePane, .extractPaneToTab, .splitRight, .splitLeft,
             .minimizePane, .expandPane, .focusPane, .zoomPane,
-            .scrollToBottom, .scrollPageUp, .jumpToPreviousPrompt, .jumpToNextPrompt,
+            .scrollToBottom, .scrollPageUp, .scrollPageDown,
+            .scrollSmallStepUp, .scrollSmallStepDown,
+            .focusPreviousPinnedPane, .focusNextPinnedPane,
+            .jumpToPreviousPrompt, .jumpToNextPrompt,
             .openPaneLocationInBookmarkedEditor, .openPaneLocationInFinder,
             .openPaneLocationInEditorMenu, .editPaneNote, .copyCurrentPanePath,
             .openPullRequest, .reloadBridgeWebView, .showViewer:
@@ -168,6 +172,8 @@ extension AppCommand {
     }
     private var ipcExposure: IPCMethodExposure {
         switch self {
+        case .focusSidebar:
+            .allChannels
         case .zoomPane, .reloadBridgeWebView,
             .showReposSidebar, .showPanesSidebar,
             .setReposGroupingRepo, .setReposGroupingActivity,
@@ -185,7 +191,8 @@ extension AppCommand {
             .scrollToBottom, .scrollPageUp, .jumpToPreviousPrompt, .jumpToNextPrompt,
             .splitRight, .splitLeft, .equalizePanes,
             .focusPaneLeft, .focusPaneRight, .focusPaneUp, .focusPaneDown,
-            .focusNextPane, .focusPrevPane,
+            .focusNextPane, .focusPrevPane, .focusPreviousPinnedPane, .focusNextPinnedPane,
+            .scrollPageDown, .scrollSmallStepUp, .scrollSmallStepDown,
             .focusPane1, .focusPane2, .focusPane3, .focusPane4, .focusPane5,
             .focusPane6, .focusPane7, .focusPane8, .focusPane9,
             .minimizePane, .expandPane,
@@ -230,6 +237,8 @@ extension AppCommand {
     }
     private var ipcExecutionMode: IPCCommandExecutionMode {
         switch self {
+        case .focusSidebar:
+            .uiPresentation
         case .openPaneLocationInEditorMenu, .editPaneNote,
             .showCommandBarEverything, .showCommandBarQuickOpen,
             .showCommandBarCommands, .showCommandBarPanes, .showCommandBarRepos,
@@ -241,10 +250,11 @@ extension AppCommand {
             .selectTab1, .selectTab2, .selectTab3, .selectTab4, .selectTab5,
             .selectTab6, .selectTab7, .selectTab8, .selectTab9,
             .closePane, .extractPaneToTab, .movePaneToTab, .focusPane,
-            .scrollToBottom, .scrollPageUp, .jumpToPreviousPrompt, .jumpToNextPrompt,
+            .scrollToBottom, .scrollPageUp, .scrollPageDown,
+            .scrollSmallStepUp, .scrollSmallStepDown, .jumpToPreviousPrompt, .jumpToNextPrompt,
             .splitRight, .splitLeft, .equalizePanes,
             .focusPaneLeft, .focusPaneRight, .focusPaneUp, .focusPaneDown,
-            .focusNextPane, .focusPrevPane,
+            .focusNextPane, .focusPrevPane, .focusPreviousPinnedPane, .focusNextPinnedPane,
             .focusPane1, .focusPane2, .focusPane3, .focusPane4, .focusPane5,
             .focusPane6, .focusPane7, .focusPane8, .focusPane9,
             .zoomPane, .minimizePane, .expandPane,
@@ -291,11 +301,15 @@ extension AppCommand {
     }
     private var ipcRequiredPrivilege: IPCPrivilegeClass {
         switch self {
+        case .focusSidebar:
+            .uiPresent
         case .showCommandBarEverything, .showCommandBarCommands,
             .showCommandBarPanes, .showCommandBarRepos:
             .uiPresent
 
-        case .scrollToBottom, .scrollPageUp,
+        case .scrollToBottom, .scrollPageUp, .scrollPageDown,
+            .scrollSmallStepUp, .scrollSmallStepDown,
+            .focusPreviousPinnedPane, .focusNextPinnedPane,
             .jumpToPreviousPrompt, .jumpToNextPrompt:
             .terminalInputWrite
 
@@ -360,6 +374,8 @@ extension AppCommand {
     }
     private var ipcAllowedTargetKinds: Set<IPCHandleKind> {
         switch self {
+        case .focusSidebar:
+            []
         case .newWindow,
             .showInboxNotifications, .toggleInboxNotificationSort,
             .clearReadInboxNotifications, .clearAllInboxNotifications,
@@ -400,10 +416,11 @@ extension AppCommand {
             [.window, .tab]
 
         case .closePane, .extractPaneToTab, .focusPane,
-            .scrollToBottom, .scrollPageUp, .jumpToPreviousPrompt, .jumpToNextPrompt,
+            .scrollToBottom, .scrollPageUp, .scrollPageDown,
+            .scrollSmallStepUp, .scrollSmallStepDown, .jumpToPreviousPrompt, .jumpToNextPrompt,
             .splitRight, .splitLeft, .minimizePane, .expandPane, .zoomPane,
             .focusPaneLeft, .focusPaneRight, .focusPaneUp, .focusPaneDown,
-            .focusNextPane, .focusPrevPane,
+            .focusNextPane, .focusPrevPane, .focusPreviousPinnedPane, .focusNextPinnedPane,
             .enterDrawer,
             .focusDrawerPaneUp, .focusDrawerPaneLeft,
             .focusDrawerPaneDown, .focusDrawerPaneRight,
@@ -432,6 +449,8 @@ extension AppCommand {
     }
     private var ipcResultVariants: [IPCCommandResultVariant] {
         switch self {
+        case .focusSidebar:
+            [.presented]
         case .showInboxNotifications, .toggleInboxNotificationSort,
             .clearReadInboxNotifications, .clearAllInboxNotifications,
             .showPaneInboxNotifications, .clearPaneInboxNotifications,
@@ -456,9 +475,10 @@ extension AppCommand {
 
         case .selectTab1, .selectTab2, .selectTab3, .selectTab4, .selectTab5,
             .selectTab6, .selectTab7, .selectTab8, .selectTab9,
-            .scrollToBottom, .scrollPageUp, .jumpToPreviousPrompt, .jumpToNextPrompt,
+            .scrollToBottom, .scrollPageUp, .scrollPageDown,
+            .scrollSmallStepUp, .scrollSmallStepDown, .jumpToPreviousPrompt, .jumpToNextPrompt,
             .focusPaneLeft, .focusPaneRight, .focusPaneUp, .focusPaneDown,
-            .focusNextPane, .focusPrevPane,
+            .focusNextPane, .focusPrevPane, .focusPreviousPinnedPane, .focusNextPinnedPane,
             .focusPane1, .focusPane2, .focusPane3, .focusPane4, .focusPane5,
             .focusPane6, .focusPane7, .focusPane8, .focusPane9,
             .previousArrangement, .nextArrangement, .cycleArrangement,

@@ -13,7 +13,7 @@ struct AgentStudioIPCCommandPresentationIsolationTests {
         let catalog = try makeIPCCommandAdapterForPresentationIsolationTests().listCommands()
         let ids = Set(catalog.commands.map(\.id.rawValue))
 
-        #expect(catalog.commands.count == 15)
+        #expect(catalog.commands.count == 16)
         #expect(ids.contains(AppCommand.zoomPane.rawValue))
         #expect(ids.contains(AppCommand.showReposSidebar.rawValue))
         #expect(!ids.contains(AppCommand.showCommandBarEverything.rawValue))
