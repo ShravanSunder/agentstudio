@@ -35,8 +35,8 @@ struct PaneTabViewControllerTargetedFocusCommandTests {
         )
     }
 
-    @Test("targeted focusPane selects the exact non-current pane")
-    func executeFocusPaneSelectsExactNonCurrentPane() async throws {
+    @Test("headless focusPane applies only after selecting the exact pane in an inactive tab")
+    func headlessFocusPaneAwaitsExactInactiveTabSelection() async throws {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
@@ -63,12 +63,48 @@ struct PaneTabViewControllerTargetedFocusCommandTests {
         let window = makePaneTabViewControllerCommandWindow(for: harness.controller)
         window.isReleasedWhenClosed = false
         defer { window.close() }
-        try attachPaneHost(paneId: targetPane.id, in: harness, to: window)
+        let targetHost = try attachPaneHost(paneId: targetPane.id, in: harness, to: window)
+
+        let outcome = try await harness.executeHeadlessPaneCommand(.focusPane, paneId: targetPane.id)
+
+        #expect(outcome == .applied)
+        #expect(harness.store.activeTabId == secondTab.id)
+        #expect(harness.store.tab(secondTab.id)?.activePaneId == targetPane.id)
+        #expect(window.firstResponder === targetHost)
+    }
+
+    @Test("targeted focusPane selects the exact non-current pane")
+    func executeFocusPaneSelectsExactNonCurrentPane() async throws {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let firstPane = harness.store.createPane()
+        let destinationActivePane = harness.store.createPane()
+        let targetPane = harness.store.createPane()
+        let firstTab = Tab(paneId: firstPane.id)
+        let secondTab = Tab(paneId: destinationActivePane.id)
+        harness.store.appendTab(firstTab)
+        harness.store.appendTab(secondTab)
+        harness.store.insertPane(
+            targetPane.id,
+            inTab: secondTab.id,
+            at: destinationActivePane.id,
+            direction: .horizontal,
+            position: .after,
+            sizingMode: .halveTarget
+        )
+        harness.store.setActivePane(destinationActivePane.id, inTab: secondTab.id)
+        harness.store.setActiveTab(firstTab.id)
+        let window = makePaneTabViewControllerCommandWindow(for: harness.controller)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        let targetHost = try attachPaneHost(paneId: targetPane.id, in: harness, to: window)
 
         await harness.executeCommand(.focusPane, target: targetPane.id, targetType: .pane)
 
         #expect(harness.store.activeTabId == secondTab.id)
         #expect(harness.store.tab(secondTab.id)?.activePaneId == targetPane.id)
+        #expect(window.firstResponder === targetHost)
     }
 
     @Test("targeted focusPane rejects a stale pane without changing selection")

@@ -127,8 +127,7 @@ extension PaneTabViewController {
             return .unavailable(.noApplicableTarget)
         }
         guard canFocusTargetedPane(paneId) else { return .unavailable(.stateUnavailable) }
-        focusTargetedPane(paneId)
-        return .applied
+        return headlessIPCOutcome(await submitTargetedPaneFocus(paneId).value, for: command)
     }
 
     private func executeArrangementCycle(
@@ -216,12 +215,16 @@ extension PaneTabViewController {
             )
         case .focusPane:
             guard canFocusTargetedPane(paneId) else { return .stateUnavailable }
-            focusTargetedPane(paneId)
-            return .applied
+            return headlessIPCOutcome(await submitTargetedPaneFocus(paneId).value, for: command)
         case .zoomPane:
-            return headlessIPCOutcome(executeZoomCommand(explicitPaneId: paneId), for: command)
+            return headlessIPCOutcome(
+                await dispatchGesture { [self] execute in
+                    await executeZoomCommandAfterAdmission(explicitPaneId: paneId, execute: execute)
+                }.value,
+                for: command
+            )
         case .showViewer:
-            return executeViewerCommand(command, paneId: paneId)
+            return await executeViewerCommand(command, paneId: paneId)
         case .scrollToBottom, .scrollPageUp, .jumpToPreviousPrompt, .jumpToNextPrompt:
             return await executeTerminalRuntimeCommand(command, paneId: paneId)
         case .scrollPageDown, .scrollSmallStepUp, .scrollSmallStepDown,
@@ -253,7 +256,9 @@ extension PaneTabViewController {
             return .presented
         case .editPaneNote:
             guard store.paneAtom.pane(paneId) != nil else { return .stateUnavailable }
-            focusTargetedPane(paneId)
+            guard await submitTargetedPaneFocus(paneId).value else {
+                return .unavailable(.stateUnavailable)
+            }
             paneNotePresentation.present(paneId)
             // Presentation only. The note the user later writes is not this
             // command's completion.
@@ -266,13 +271,19 @@ extension PaneTabViewController {
     private func executeViewerCommand(
         _ command: AppCommand,
         paneId: UUID
-    ) -> AppCommandExecutionOutcome {
-        switch executeZoomLocalViewerCommand(explicitPaneId: paneId) {
-        case .notZoomLocal:
-            return headlessIPCOutcome(enterZoomAndShowViewer(explicitPaneId: paneId), for: command)
-        case .toggled(let didToggle):
-            return headlessIPCOutcome(didToggle, for: command)
-        }
+    ) async -> AppCommandExecutionOutcome {
+        let applied = await dispatchGesture { [self] execute in
+            switch executeZoomLocalViewerCommand(explicitPaneId: paneId) {
+            case .notZoomLocal:
+                return await enterZoomAndShowViewerAfterAdmission(
+                    explicitPaneId: paneId,
+                    execute: execute
+                )
+            case .toggled(let didToggle):
+                return didToggle
+            }
+        }.value
+        return headlessIPCOutcome(applied, for: command)
     }
 
     /// Await the runtime owner. The interactive shortcut path schedules an

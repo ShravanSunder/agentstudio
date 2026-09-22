@@ -349,7 +349,7 @@ large_process_global_suite_filters() {
   large_suite_pattern="$(large_non_webkit_filter_pattern)"
   local webkit_leaf_suite_pattern
   webkit_leaf_suite_pattern="$(webkit_leaf_suite_filters | /usr/bin/paste -sd'|' -)"
-  local excluded_suite_pattern="E2E|Zmx|$webkit_leaf_suite_pattern"
+  local excluded_suite_pattern="$webkit_leaf_suite_pattern"
 
   {
     serialized_main_actor_suite_matches main-actor-first
@@ -385,6 +385,9 @@ large_process_global_suite_filters() {
     case "$source_file" in
       *"/App/WebKit/"*) continue ;;
     esac
+    if is_dedicated_e2e_or_zmx_lane_suite "$source_file" "$suite_name"; then
+      continue
+    fi
     if printf '%s\n' "$suite_name" | grep -Eq "$excluded_suite_pattern"; then
       continue
     fi
@@ -444,12 +447,24 @@ serialized_main_actor_suite_names_from_stdin() {
   '
 }
 
+# The ordinary lanes skip these parents by exact type name. Nested children live
+# in `extension E2ESerializedTests` files; a name that merely contains E2E or
+# Zmx is not a dedicated-lane suite.
+is_dedicated_e2e_or_zmx_lane_suite() {
+  local source_file="$1"
+  local suite_name="$2"
+  case "$suite_name" in
+    E2ESerializedTests|ZmxE2ETests) return 0 ;;
+  esac
+  grep -Eq '(^|[[:space:]])extension[[:space:]]+E2ESerializedTests([^[:alnum:]_]|$)' "$source_file"
+}
+
 aggregate_serial_non_webkit_suite_filters() {
   # Permit formatted multiline Suite arguments, but never cross into the next
   # attribute or type declaration while searching for the serialized trait.
   local webkit_leaf_suite_pattern
   webkit_leaf_suite_pattern="$(webkit_leaf_suite_filters | /usr/bin/paste -sd'|' -)"
-  local excluded_suite_pattern="GlobalPreferencesBootstrapBenchmarkTests|RepoExplorerNativeTablePilotBenchmarkTests|E2E|Zmx|$webkit_leaf_suite_pattern|$(large_non_webkit_filter_pattern)|$(large_serial_non_webkit_filter_pattern)"
+  local excluded_suite_pattern="GlobalPreferencesBootstrapBenchmarkTests|RepoExplorerNativeTablePilotBenchmarkTests|$webkit_leaf_suite_pattern|$(large_non_webkit_filter_pattern)|$(large_serial_non_webkit_filter_pattern)"
 
   {
     serialized_main_actor_suite_matches main-actor-first
@@ -491,6 +506,9 @@ aggregate_serial_non_webkit_suite_filters() {
     case "$source_file" in
       *"/App/WebKit/"*) continue ;;
     esac
+    if is_dedicated_e2e_or_zmx_lane_suite "$source_file" "$suite_name"; then
+      continue
+    fi
     if printf '%s\n' "$suite_name" | grep -Eq "$excluded_suite_pattern"; then
       continue
     fi
