@@ -12,11 +12,11 @@ struct BridgeDevelopmentProductHostDisplayLifecycleTests {
     @Test("File bootstrap Review activation constructs the initial Review publication")
     func fileBootstrapReviewActivationConstructsInitialReviewPublication() async throws {
         // Arrange
-        let repositoryURL = try FilesystemTestGitRepo.create(
+        let repositoryURL = try await FilesystemTestGitRepo.create(
             named: "bridge-development-product-host-file-to-review"
         )
         defer { FilesystemTestGitRepo.destroy(repositoryURL) }
-        try FilesystemTestGitRepo.seedTrackedAndUntrackedChanges(at: repositoryURL)
+        try await FilesystemTestGitRepo.seedTrackedAndUntrackedChanges(at: repositoryURL)
         let commitObserver = ReviewPublicationCommitObserver()
         let host = try await BridgeDevelopmentProductHost(
             source: makeDevelopmentProductSource(worktreeRoot: repositoryURL),
@@ -54,11 +54,11 @@ struct BridgeDevelopmentProductHostDisplayLifecycleTests {
     @Test("fresh and replacement workers preserve bounded Review display installation")
     func freshAndReplacementWorkersPreserveBoundedReviewDisplayInstallation() async throws {
         // Arrange
-        let repositoryURL = try FilesystemTestGitRepo.create(
+        let repositoryURL = try await FilesystemTestGitRepo.create(
             named: "bridge-development-product-host-display-lifecycle"
         )
         defer { FilesystemTestGitRepo.destroy(repositoryURL) }
-        try FilesystemTestGitRepo.seedTrackedAndUntrackedChanges(at: repositoryURL)
+        try await FilesystemTestGitRepo.seedTrackedAndUntrackedChanges(at: repositoryURL)
         let host = try await BridgeDevelopmentProductHost(
             source: makeDevelopmentProductSource(worktreeRoot: repositoryURL),
             contributionTargetCommit: developmentContributionTargetCommit(

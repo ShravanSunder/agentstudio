@@ -1,4 +1,5 @@
 import AgentStudioAppIPC
+import AgentStudioInfrastructure
 import AgentStudioProgrammaticControl
 import AppKit
 import Foundation
@@ -11,6 +12,37 @@ import Testing
 @MainActor
 @Suite("AgentStudio IPC layout adapter", .serialized)
 struct AgentStudioIPCLayoutAdapterTests {
+    @Test("adapter does not retain the App-owned pane focus control")
+    func adapterDoesNotRetainPaneFocusControl() throws {
+        let store = makeIPCLayoutWorkspaceStore()
+        let pane = store.createPane(title: "Target")
+        let tab = makeTab(paneIds: [pane.id], activePaneId: pane.id)
+        store.appendTab(tab)
+        store.setActiveTab(tab.id)
+        var focusControl: RecordingPaneFocusAppControl? = RecordingPaneFocusAppControl()
+        let focusControlWitness = WeakLayoutAdapterOwnerReference(focusControl)
+        let adapter = AgentStudioIPCLayoutAdapter(
+            workspaceStore: store,
+            windowLifecycleReader: FakeLayoutWorkspaceWindowLifecycleReader(
+                snapshot: .singleActiveWindow(UUIDv7.generate())
+            ),
+            paneFocusControl: try #require(focusControl),
+            workspaceActionExecutor: RecordingIPCLayoutActionExecutor()
+        )
+
+        focusControl = nil
+
+        #expect(focusControlWitness.value == nil)
+        do {
+            _ = try adapter.focusPane(
+                IPCHandle(kind: .pane, reference: .canonicalUUID(pane.id))
+            )
+            Issue.record("focusPane unexpectedly retained its App owner")
+        } catch let error as AppIPCLayoutError {
+            #expect(error.reason == .noActiveWindow)
+        }
+    }
+
     @Test("pane focus fails closed when no workspace window is active")
     func paneFocusFailsClosedWhenNoWorkspaceWindowIsActive() async throws {
         let harness = LayoutAdapterHarness(windowSnapshot: .empty)
@@ -267,10 +299,11 @@ struct AgentStudioIPCLayoutAdapterTests {
             harness.store.appendTab(tab)
             harness.store.setActiveTab(tab.id)
             harness.store.setActivePane(parentPane.id, inTab: tab.id)
+            let focusControl = RecordingPaneFocusAppControl()
             let adapter = AgentStudioIPCLayoutAdapter(
                 workspaceStore: harness.store,
                 windowLifecycleReader: FakeLayoutWorkspaceWindowLifecycleReader(snapshot: .singleActiveWindow(UUID())),
-                paneFocusControl: RecordingPaneFocusAppControl(),
+                paneFocusControl: focusControl,
                 workspaceActionExecutor: harness.executor
             )
 
@@ -311,13 +344,16 @@ struct AgentStudioIPCLayoutAdapterTests {
 @MainActor
 private struct LayoutAdapterHarness {
     let adapter: AgentStudioIPCLayoutAdapter
+    let focusControl: any PaneFocusAppControlling & AnyObject
 
     init(
         store: WorkspaceStore = makeIPCLayoutWorkspaceStore(),
         windowSnapshot: WorkspaceWindowLifecycleSnapshot = .singleActiveWindow(UUID()),
-        focusControl: any PaneFocusAppControlling = RecordingPaneFocusAppControl(),
+        focusControl: (any PaneFocusAppControlling & AnyObject)? = nil,
         workspaceActionExecutor: any AgentStudioIPCLayoutActionExecuting = RecordingIPCLayoutActionExecutor()
     ) {
+        let focusControl = focusControl ?? RecordingPaneFocusAppControl()
+        self.focusControl = focusControl
         adapter = AgentStudioIPCLayoutAdapter(
             workspaceStore: store,
             windowLifecycleReader: FakeLayoutWorkspaceWindowLifecycleReader(snapshot: windowSnapshot),
@@ -400,5 +436,13 @@ private final class RecordingIPCFocusWindowController: MainWindowController {
     override var acceptsIPCCommands: Bool { true }
     override func makePaneFocusAppControl(store _: WorkspaceStore) -> (any PaneFocusAppControlling)? {
         focusControl
+    }
+}
+
+private final class WeakLayoutAdapterOwnerReference<Owner: AnyObject> {
+    weak var value: Owner?
+
+    init(_ value: Owner?) {
+        self.value = value
     }
 }

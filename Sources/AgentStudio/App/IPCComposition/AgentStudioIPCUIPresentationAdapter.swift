@@ -10,7 +10,7 @@ protocol AgentStudioIPCUIPresenting: AnyObject {
 
 @MainActor
 struct AgentStudioIPCUIPresentationAdapter: AppIPCUIPresentationPort, @unchecked Sendable {
-    private let presenter: any AgentStudioIPCUIPresenting
+    private weak var presenter: (any AgentStudioIPCUIPresenting)?
     private let targetAuthorizer: any WorkspaceDurableTargetAuthorizing
 
     init(
@@ -22,6 +22,9 @@ struct AgentStudioIPCUIPresentationAdapter: AppIPCUIPresentationPort, @unchecked
     }
 
     func openCommandBar(_ params: IPCCommandBarOpenParams) throws -> IPCCommandBarOpenResult {
+        guard let presenter else {
+            throw AppIPCUIPresentationError(reason: .noActiveWindow)
+        }
         let result = try presenter.presentCommandBar(workspaceWindowId: params.workspaceWindowId, scope: params.scope)
         return IPCCommandBarOpenResult(
             workspaceWindowId: result.workspaceWindowId,
@@ -32,6 +35,9 @@ struct AgentStudioIPCUIPresentationAdapter: AppIPCUIPresentationPort, @unchecked
 
     func openArrangements(_ params: IPCArrangementsOpenParams) throws -> IPCArrangementsOpenResult {
         let contextPaneId = try durablePaneId(from: params.targetPaneHandle)
+        guard let presenter else {
+            throw AppIPCUIPresentationError(reason: .noActiveWindow)
+        }
         let result = try presenter.presentArrangements(
             workspaceWindowId: params.workspaceWindowId, contextPaneId: contextPaneId)
         return IPCArrangementsOpenResult(

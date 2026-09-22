@@ -11,9 +11,9 @@ struct BridgePaneProductSessionAnnotationRetirementTests {
     @Test("Dev Server worker replacement releases annotation edit ownership without restarting SQLite")
     func developmentWorkerReplacementReleasesAnnotationOwnership() async throws {
         // Arrange — the same real service and repository survive two native worker sessions.
-        let repositoryURL = try FilesystemTestGitRepo.create(named: "bridge-development-annotation-retirement")
+        let repositoryURL = try await FilesystemTestGitRepo.create(named: "bridge-development-annotation-retirement")
         defer { FilesystemTestGitRepo.destroy(repositoryURL) }
-        try FilesystemTestGitRepo.seedTrackedAndUntrackedChanges(at: repositoryURL)
+        try await FilesystemTestGitRepo.seedTrackedAndUntrackedChanges(at: repositoryURL)
         let repository = try makeAnnotationRepository()
         let store = WorktreeAnnotationServiceActor(
             repositoryAccess: RepositoryBackedWorktreeAnnotationAccess(repository: repository)

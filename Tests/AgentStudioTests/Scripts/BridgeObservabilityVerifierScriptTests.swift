@@ -1,3 +1,5 @@
+import AgentStudioInfrastructure
+import AgentStudioTestSupport
 import Foundation
 import Testing
 
@@ -305,20 +307,20 @@ struct BridgeObservabilityVerifierScriptTests {
     }
 
     @Test("viewer TTFI report-only gate logs pass/over-budget but never exits non-zero")
-    func viewerTtfiReportOnlyGateNeverExitsNonZero() throws {
+    func viewerTtfiReportOnlyGateNeverExitsNonZero() async throws {
         // Arrange / Act: p95 far above the default 300ms budget.
-        let overBudget = try runTtfiGateSelfTest(p95: "1500", gateMilliseconds: nil)
+        let overBudget = try await runTtfiGateSelfTest(p95: "1500", gateMilliseconds: nil)
         // Assert: report-only means over-budget still succeeds, with an over-budget log.
         #expect(overBudget.exitCode == 0, "stdout: \(overBudget.stdout)")
         #expect(overBudget.stdout.contains("REPORT (over budget"))
 
         // Under budget logs PASS and also succeeds.
-        let underBudget = try runTtfiGateSelfTest(p95: "120", gateMilliseconds: nil)
+        let underBudget = try await runTtfiGateSelfTest(p95: "120", gateMilliseconds: nil)
         #expect(underBudget.exitCode == 0, "stdout: \(underBudget.stdout)")
         #expect(underBudget.stdout.contains("TTFI gate PASS"))
 
         // The budget threshold is env-tunable.
-        let customBudget = try runTtfiGateSelfTest(p95: "250", gateMilliseconds: "200")
+        let customBudget = try await runTtfiGateSelfTest(p95: "250", gateMilliseconds: "200")
         #expect(customBudget.exitCode == 0, "stdout: \(customBudget.stdout)")
         #expect(customBudget.stdout.contains("REPORT (over budget"))
     }
@@ -326,25 +328,45 @@ struct BridgeObservabilityVerifierScriptTests {
     private func runTtfiGateSelfTest(
         p95: String,
         gateMilliseconds: String?
-    ) throws -> (exitCode: Int32, stdout: String) {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/bin/bash")
-        process.arguments = ["scripts/verify-debug-observability.sh"]
-        var environment = ProcessInfo.processInfo.environment
-        environment["AGENTSTUDIO_BRIDGE_TTFI_GATE_SELFTEST_P95"] = p95
-        if let gateMilliseconds {
-            environment["AGENTSTUDIO_BRIDGE_TTFI_GATE_MS"] = gateMilliseconds
-        } else {
-            environment.removeValue(forKey: "AGENTSTUDIO_BRIDGE_TTFI_GATE_MS")
+    ) async throws -> TtfiGateSelfTestResult {
+        try await withoutBlockingCooperativePool {
+            let outputDirectory = FileManager.default.temporaryDirectory
+                .appending(path: "bridge-ttfi-gate-\(UUIDv7.generate().uuidString)")
+            try FileManager.default.createDirectory(at: outputDirectory, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: outputDirectory) }
+            let stdoutURL = outputDirectory.appending(path: "stdout.log")
+            let stderrURL = outputDirectory.appending(path: "stderr.log")
+            FileManager.default.createFile(atPath: stdoutURL.path, contents: nil)
+            FileManager.default.createFile(atPath: stderrURL.path, contents: nil)
+            let stdoutHandle = try FileHandle(forWritingTo: stdoutURL)
+            let stderrHandle = try FileHandle(forWritingTo: stderrURL)
+            defer {
+                try? stdoutHandle.close()
+                try? stderrHandle.close()
+            }
+
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/bin/bash")
+            process.arguments = ["scripts/verify-debug-observability.sh"]
+            var environment = ProcessInfo.processInfo.environment
+            environment["AGENTSTUDIO_BRIDGE_TTFI_GATE_SELFTEST_P95"] = p95
+            if let gateMilliseconds {
+                environment["AGENTSTUDIO_BRIDGE_TTFI_GATE_MS"] = gateMilliseconds
+            } else {
+                environment.removeValue(forKey: "AGENTSTUDIO_BRIDGE_TTFI_GATE_MS")
+            }
+            process.environment = environment
+            process.standardOutput = stdoutHandle
+            process.standardError = stderrHandle
+            try process.run()
+            process.waitUntilExit()
+            try stdoutHandle.close()
+            try stderrHandle.close()
+            return TtfiGateSelfTestResult(
+                exitCode: process.terminationStatus,
+                stdout: try String(contentsOf: stdoutURL, encoding: .utf8)
+            )
         }
-        process.environment = environment
-        let outputPipe = Pipe()
-        process.standardOutput = outputPipe
-        process.standardError = Pipe()
-        try process.run()
-        process.waitUntilExit()
-        let data = outputPipe.fileHandleForReading.readDataToEndOfFile()
-        return (process.terminationStatus, String(data: data, encoding: .utf8) ?? "")
     }
 
     @Test("BridgeWeb does not contain direct browser OTLP exporter hooks")
@@ -378,22 +400,16 @@ struct BridgeObservabilityVerifierScriptTests {
     }
 
     @Test("BridgeWeb direct OTLP scanner keeps default roots when extra targets are supplied")
-    func bridgeWebDirectOTLPScannerKeepsDefaultRootsWhenExtraTargetsAreSupplied() throws {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/bin/bash")
-        process.arguments = ["scripts/verify-bridge-web-no-direct-otlp.sh"]
-        process.environment = [
+    func bridgeWebDirectOTLPScannerKeepsDefaultRootsWhenExtraTargetsAreSupplied() async throws {
+        let exitCode = try await runBridgeWebOTLPScanner(environment: [
             "BRIDGE_WEB_OTLP_SCAN_TARGETS": "/dev/null"
-        ]
+        ])
 
-        try process.run()
-        process.waitUntilExit()
-
-        #expect(process.terminationStatus == 0)
+        #expect(exitCode == 0)
     }
 
     @Test("BridgeWeb direct OTLP scanner fails on seeded browser exporter markers")
-    func bridgeWebDirectOTLPScannerFailsOnSeededMarkers() throws {
+    func bridgeWebDirectOTLPScannerFailsOnSeededMarkers() async throws {
         let temporaryDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("bridge-web-direct-otlp-scan-\(UUID().uuidString)")
         try FileManager.default.createDirectory(
@@ -406,16 +422,27 @@ struct BridgeObservabilityVerifierScriptTests {
         let seededFile = temporaryDirectory.appendingPathComponent("bad.ts")
         try "@opentelemetry/exporter-trace-otlp-http".write(to: seededFile, atomically: true, encoding: .utf8)
 
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/bin/bash")
-        process.arguments = ["scripts/verify-bridge-web-no-direct-otlp.sh"]
-        process.environment = [
+        let exitCode = try await runBridgeWebOTLPScanner(environment: [
             "BRIDGE_WEB_OTLP_SCAN_TARGETS": temporaryDirectory.path
-        ]
+        ])
 
-        try process.run()
-        process.waitUntilExit()
-
-        #expect(process.terminationStatus != 0)
+        #expect(exitCode != 0)
     }
+
+    private func runBridgeWebOTLPScanner(environment: [String: String]) async throws -> Int32 {
+        try await withoutBlockingCooperativePool {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/bin/bash")
+            process.arguments = ["scripts/verify-bridge-web-no-direct-otlp.sh"]
+            process.environment = environment
+            try process.run()
+            process.waitUntilExit()
+            return process.terminationStatus
+        }
+    }
+}
+
+private struct TtfiGateSelfTestResult: Sendable {
+    let exitCode: Int32
+    let stdout: String
 }

@@ -1,6 +1,7 @@
-import AgentStudioIPCTransport
 import Foundation
 import Testing
+
+@testable import AgentStudioIPCTransport
 
 @Suite("Unix socket transport")
 struct UnixSocketTransportTests {
@@ -63,81 +64,249 @@ struct UnixSocketTransportTests {
         #expect(credentials.value()?.userIdentifier == getuid())
     }
 
-    /// `stop()` must retire the accept loop before it frees the listening
-    /// descriptor number, otherwise the loop can call `accept` on a number the
-    /// kernel has already handed to somebody else's `open`.
-    ///
-    /// Every claim here is read from inside the held handler, the one place
-    /// where the loop is provably still alive, so no verdict depends on how
-    /// fast the machine is. An earlier version asserted the ordering from the
-    /// test body behind a one-second timeout and failed on a three-core runner,
-    /// where the concurrent lane stretched this test from one second to two
-    /// minutes without anything being wrong with `stop()`.
-    @Test("stop retires the accept loop before freeing its descriptor")
-    func stopRetiresAcceptLoopBeforeFreeingDescriptor() async throws {
+    /// The normal wake-and-join branch must retain the listening descriptor
+    /// until the real accept-queue barrier runs. The controlled wait blocks on
+    /// that actual barrier, so success is never fabricated by the test.
+    @Test("normal stop joins the accept loop before freeing its descriptor")
+    func normalStopJoinsAcceptLoopBeforeFreeingDescriptor() async throws {
         #if canImport(Darwin)
             let fixture = try UnixSocketFixture()
             defer { fixture.cleanup() }
 
-            let listener = UnixSocketListener(endpoint: fixture.endpoint)
             let handlerEntered = DispatchSemaphore(value: 0)
             let releaseHandler = DispatchSemaphore(value: 0)
-            let stopEntered = DispatchSemaphore(value: 0)
+            let stopDidReturn = LockedValue(false)
             let stopReturned = DispatchSemaphore(value: 0)
             let acceptedCount = LockedValue(0)
             let listeningDescriptor = LockedValue<Int32>(-1)
-            let pathSeenWhileLoopAlive = LockedValue<String?>(nil)
-            let stopHadReturnedWhileLoopAlive = LockedValue(true)
+            let joinWait = UnixSocketShutdownWaitController(
+                mode: .waitForFirstBarrier,
+                firstEntryOwnsEndpoint: {
+                    unixSocketPath(ofDescriptor: listeningDescriptor.value())
+                        == fixture.endpoint.path
+                }
+            )
+            let listener = UnixSocketListener(
+                endpoint: fixture.endpoint,
+                acceptLoopJoinWait: { barrier in joinWait.wait(for: barrier) }
+            )
 
             try listener.start { connection in
                 acceptedCount.set(acceptedCount.value() + 1)
                 handlerEntered.signal()
                 releaseHandler.wait()
-                // This closure is the accept loop's current work item, so the
-                // loop cannot have exited and `stop()` cannot have finished
-                // joining it. Both readings are therefore ordering facts, not
-                // timing observations. The poll is non-blocking on purpose.
-                stopHadReturnedWhileLoopAlive.set(stopReturned.wait(timeout: .now()) == .success)
-                pathSeenWhileLoopAlive.set(unixSocketPath(ofDescriptor: listeningDescriptor.value()))
                 connection.close()
             }
+            defer { listener.stop() }
 
-            listeningDescriptor.set(
-                try #require(findUnixSocketDescriptor(boundTo: fixture.endpoint.path)))
+            do {
+                listeningDescriptor.set(
+                    try #require(findUnixSocketDescriptor(boundTo: fixture.endpoint.path)))
 
-            // Arrange: occupy the loop inside the handler.
-            let served = try UnixSocketClient.connect(endpoint: fixture.endpoint)
-            defer { served.close() }
-            #expect(await awaitSignal(handlerEntered) == .success)
+                // Arrange: occupy the loop inside the handler.
+                let served = try UnixSocketClient.connect(endpoint: fixture.endpoint)
+                defer { served.close() }
+                #expect(await awaitSignal(handlerEntered) == .success)
 
-            // Act
-            Thread.detachNewThread {
-                stopEntered.signal()
+                // Act
+                Thread.detachNewThread {
+                    listener.stop()
+                    stopDidReturn.set(true)
+                    stopReturned.signal()
+                }
+                let joinEntry = await joinWait.waitUntilFirstEntry()
+                let stopReturnedBeforeRelease = stopDidReturn.value()
+                let pathWhileJoinWaits = unixSocketPath(ofDescriptor: listeningDescriptor.value())
+                releaseHandler.signal()
+                let stopCompletion = await awaitSignal(stopReturned)
+
+                // Assert: afterwards the loop is gone, the descriptor is released,
+                // and a descriptor opened now is nobody else's to close.
+                #expect(joinEntry == .success)
+                #expect(joinWait.firstEntryOwnedEndpoint == true)
+                #expect(!stopReturnedBeforeRelease)
+                #expect(pathWhileJoinWaits == fixture.endpoint.path)
+                #expect(stopCompletion == .success)
+                let probe = try TemporaryFileDescriptor()
+                defer { probe.cleanup() }
+                #expect(probe.isOpen)
+                #expect(probe.readBack() == "listener must not own this descriptor")
+                #expect(throws: (any Error).self) {
+                    _ = try UnixSocketClient.connect(endpoint: fixture.endpoint)
+                }
+                #expect(acceptedCount.value() == 1)
+                #expect(
+                    unixSocketPath(ofDescriptor: listeningDescriptor.value()) != fixture.endpoint.path)
+            } catch {
+                let fixtureError = error
+                releaseHandler.signal()
+                do {
+                    try await awaitBlocking { listener.stop() }
+                } catch {
+                    Issue.record("listener cleanup unexpectedly failed: \(error)")
+                }
+                throw fixtureError
+            }
+        #endif
+    }
+
+    /// When the first bounded join expires, production closes the descriptor
+    /// before its second join. That fallback cannot promise normal-path
+    /// retention, only that the old descriptor no longer owns this endpoint.
+    @Test("fallback closes before its second accept-loop join")
+    func fallbackClosesBeforeSecondAcceptLoopJoin() async throws {
+        #if canImport(Darwin)
+            let fixture = try UnixSocketFixture()
+            defer { fixture.cleanup() }
+
+            let handlerEntered = DispatchSemaphore(value: 0)
+            let releaseHandler = DispatchSemaphore(value: 0)
+            let stopDidReturn = LockedValue(false)
+            let stopReturned = DispatchSemaphore(value: 0)
+            let listeningDescriptor = LockedValue<Int32>(-1)
+            let joinWait = UnixSocketShutdownWaitController(
+                mode: .timeOutFirstAndWaitForSecondBarrier,
+                firstEntryOwnsEndpoint: {
+                    unixSocketPath(ofDescriptor: listeningDescriptor.value())
+                        == fixture.endpoint.path
+                }
+            )
+            let listener = UnixSocketListener(
+                endpoint: fixture.endpoint,
+                acceptLoopJoinWait: { barrier in joinWait.wait(for: barrier) }
+            )
+
+            try listener.start { connection in
+                handlerEntered.signal()
+                releaseHandler.wait()
+                connection.close()
+            }
+            defer { listener.stop() }
+
+            do {
+                listeningDescriptor.set(
+                    try #require(findUnixSocketDescriptor(boundTo: fixture.endpoint.path)))
+                let served = try UnixSocketClient.connect(endpoint: fixture.endpoint)
+                defer { served.close() }
+                #expect(await awaitSignal(handlerEntered) == .success)
+
+                // Act
+                Thread.detachNewThread {
+                    listener.stop()
+                    stopDidReturn.set(true)
+                    stopReturned.signal()
+                }
+                let firstJoinEntry = await joinWait.waitUntilFirstEntry()
+                let secondJoinEntry = await joinWait.waitUntilSecondEntry()
+                let pathAtSecondJoin = unixSocketPath(ofDescriptor: listeningDescriptor.value())
+                let stopReturnedAtSecondJoin = stopDidReturn.value()
+                releaseHandler.signal()
+                let stopCompletion = await awaitSignal(stopReturned)
+                let firstBarrierDrain = await joinWait.drainBarrier(at: 0)
+
+                // Assert
+                #expect(firstJoinEntry == .success)
+                #expect(secondJoinEntry == .success)
+                #expect(joinWait.firstEntryOwnedEndpoint == true)
+                #expect(pathAtSecondJoin != fixture.endpoint.path)
+                #expect(!stopReturnedAtSecondJoin)
+                #expect(stopCompletion == .success)
+                #expect(firstBarrierDrain == .success)
+                #expect(joinWait.invocationCount == 2)
+                #expect(throws: (any Error).self) {
+                    _ = try UnixSocketClient.connect(endpoint: fixture.endpoint)
+                }
+            } catch {
+                let fixtureError = error
+                releaseHandler.signal()
+                do {
+                    try await awaitBlocking { listener.stop() }
+                } catch {
+                    Issue.record("listener cleanup unexpectedly failed: \(error)")
+                }
+                throw fixtureError
+            }
+        #endif
+    }
+
+    /// A handler that outlives both existing join budgets cannot strand the
+    /// stop caller. This selects both deadline-exceeded results without using
+    /// elapsed time as the verdict, then drains both real queue barriers.
+    @Test("stop returns after both bounded accept-loop joins expire")
+    func stopReturnsAfterBothBoundedAcceptLoopJoinsExpire() async throws {
+        #if canImport(Darwin)
+            let fixture = try UnixSocketFixture()
+            defer { fixture.cleanup() }
+
+            let handlerEntered = DispatchSemaphore(value: 0)
+            let releaseHandler = DispatchSemaphore(value: 0)
+            let stopReturned = DispatchSemaphore(value: 0)
+            let listeningDescriptor = LockedValue<Int32>(-1)
+            let joinWait = UnixSocketShutdownWaitController(
+                mode: .timeOutBothBarriers,
+                firstEntryOwnsEndpoint: {
+                    unixSocketPath(ofDescriptor: listeningDescriptor.value())
+                        == fixture.endpoint.path
+                }
+            )
+            let listener = UnixSocketListener(
+                endpoint: fixture.endpoint,
+                acceptLoopJoinWait: { barrier in joinWait.wait(for: barrier) }
+            )
+
+            try listener.start { connection in
+                handlerEntered.signal()
+                releaseHandler.wait()
+                connection.close()
+            }
+            defer { listener.stop() }
+
+            do {
+                listeningDescriptor.set(
+                    try #require(findUnixSocketDescriptor(boundTo: fixture.endpoint.path)))
+                let served = try UnixSocketClient.connect(endpoint: fixture.endpoint)
+                defer { served.close() }
+                #expect(await awaitSignal(handlerEntered) == .success)
+
+                // Act
+                Thread.detachNewThread {
+                    listener.stop()
+                    stopReturned.signal()
+                }
+                let firstJoinEntry = await joinWait.waitUntilFirstEntry()
+                let secondJoinEntry = await joinWait.waitUntilSecondEntry()
+                let pathAtSecondJoin = unixSocketPath(ofDescriptor: listeningDescriptor.value())
+                let stopCompletionWhileHandlerHeld = await awaitSignal(stopReturned)
+                releaseHandler.signal()
+                let firstBarrierDrain = await joinWait.drainBarrier(at: 0)
+                let secondBarrierDrain = await joinWait.drainBarrier(at: 1)
+                let selectedJoinCount = joinWait.invocationCount
                 listener.stop()
-                stopReturned.signal()
+                let joinCountAfterRepeatedStop = joinWait.invocationCount
+
+                // Assert
+                #expect(firstJoinEntry == .success)
+                #expect(secondJoinEntry == .success)
+                #expect(joinWait.firstEntryOwnedEndpoint == true)
+                #expect(pathAtSecondJoin != fixture.endpoint.path)
+                #expect(stopCompletionWhileHandlerHeld == .success)
+                #expect(firstBarrierDrain == .success)
+                #expect(secondBarrierDrain == .success)
+                #expect(selectedJoinCount == 2)
+                #expect(joinCountAfterRepeatedStop == 3)
+                #expect(throws: (any Error).self) {
+                    _ = try UnixSocketClient.connect(endpoint: fixture.endpoint)
+                }
+            } catch {
+                let fixtureError = error
+                releaseHandler.signal()
+                do {
+                    try await awaitBlocking { listener.stop() }
+                } catch {
+                    Issue.record("listener cleanup unexpectedly failed: \(error)")
+                }
+                throw fixtureError
             }
-            #expect(await awaitSignal(stopEntered) == .success)
-            releaseHandler.signal()
-
-            // Assert: `stop()` completes once the handler returns.
-            #expect(await awaitSignal(stopReturned) == .success)
-
-            // Assert: while the loop was alive, `stop()` had not returned and
-            // had not freed the descriptor. This is the ordering contract.
-            #expect(stopHadReturnedWhileLoopAlive.value() == false)
-            #expect(pathSeenWhileLoopAlive.value() == fixture.endpoint.path)
-
-            // Assert: afterwards the loop is gone, the descriptor is released,
-            // and a descriptor opened now is nobody else's to close.
-            let probe = try TemporaryFileDescriptor()
-            defer { probe.cleanup() }
-            #expect(probe.isOpen)
-            #expect(probe.readBack() == "listener must not own this descriptor")
-            #expect(throws: (any Error).self) {
-                _ = try UnixSocketClient.connect(endpoint: fixture.endpoint)
-            }
-            #expect(acceptedCount.value() == 1)
-            #expect(unixSocketPath(ofDescriptor: listeningDescriptor.value()) != fixture.endpoint.path)
         #endif
     }
 

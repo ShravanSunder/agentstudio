@@ -1,4 +1,5 @@
 import AgentStudioInfrastructure
+import AgentStudioTestSupport
 import Foundation
 import Testing
 
@@ -34,29 +35,29 @@ struct SwiftLaneRunnerReportTests {
     }
 
     @Test("the width reaches the environment only when it is set")
-    func widthReachesTheEnvironmentOnlyWhenItIsSet() throws {
+    func widthReachesTheEnvironmentOnlyWhenItIsSet() async throws {
         // Absence and empty are different to Swift Testing: absence means
         // unlimited, and we never want to depend on how it parses "" or 0.
-        let unsetWord = try runBash(
+        let unsetWord = try await runBash(
             "env -u SWIFT_TEST_PARALLELIZATION_WIDTH bash -c "
                 + "'source scripts/swift-test-helpers.sh; swift_test_parallelization_env_word'"
         )
-        let setWord = try runBash(
+        let setWord = try await runBash(
             "SWIFT_TEST_PARALLELIZATION_WIDTH=7 bash -c "
                 + "'source scripts/swift-test-helpers.sh; swift_test_parallelization_env_word'"
         )
         // The word is used unquoted, so an empty helper must contribute no
         // argument at all to the invocation.
-        let unsetArgumentCount = try runBash(
+        let unsetArgumentCount = try await runBash(
             "env -u SWIFT_TEST_PARALLELIZATION_WIDTH bash -c "
                 + "'source scripts/swift-test-helpers.sh; "
                 + "set -- $(swift_test_parallelization_env_word); echo $#'"
         )
-        let unsetLabel = try runBash(
+        let unsetLabel = try await runBash(
             "env -u SWIFT_TEST_PARALLELIZATION_WIDTH bash -c "
                 + "'source scripts/swift-test-helpers.sh; swift_test_parallelization_width_label'"
         )
-        let setLabel = try runBash(
+        let setLabel = try await runBash(
             "SWIFT_TEST_PARALLELIZATION_WIDTH=7 bash -c "
                 + "'source scripts/swift-test-helpers.sh; swift_test_parallelization_width_label'"
         )
@@ -129,11 +130,11 @@ struct SwiftLaneRunnerReportTests {
     }
 
     @Test("a child that dies by signal is named instead of swallowed")
-    func childThatDiesBySignalIsNamedInsteadOfSwallowed() throws {
+    func childThatDiesBySignalIsNamedInsteadOfSwallowed() async throws {
         // A process that passes its tests and then crashes used to leave only
         // "ERROR task failed" and bash's job-table line; the captured output was
         // deleted before anyone could read why.
-        let laneOutput = try runBashAllowingFailure(
+        let laneOutput = try await runBashAllowingFailure(
             "LOG_PREFIX=lane; TIMEOUT_SECONDS=60; BUILD_PATH=.build-agent-1; "
                 + "source scripts/swift-test-helpers.sh; set +e; "
                 + "run_swift_with_timeout 'isolated suite: FakeSuite' 60 /bin/bash -c "
@@ -150,8 +151,8 @@ struct SwiftLaneRunnerReportTests {
     }
 
     @Test("signal names are resolved only for signalled exits")
-    func signalNamesAreResolvedOnlyForSignalledExits() throws {
-        let names = try runBash(
+    func signalNamesAreResolvedOnlyForSignalledExits() async throws {
+        let names = try await runBash(
             "source scripts/swift-test-helpers.sh; "
                 + "swift_test_signal_name 139; swift_test_signal_name 133; "
                 + "swift_test_signal_name 1; swift_test_signal_name 0"
@@ -162,13 +163,13 @@ struct SwiftLaneRunnerReportTests {
     }
 
     @Test("one crashed isolated suite does not hide the suites after it")
-    func oneCrashedIsolatedSuiteDoesNotHideTheSuitesAfterIt() throws {
+    func oneCrashedIsolatedSuiteDoesNotHideTheSuitesAfterIt() async throws {
         // Two batched children: the first crashes, the second must still run and
         // still be observable. Stopping at the first is what hid 324 of 336
         // suites behind one crash.
         let tallyPath = NSTemporaryDirectory() + "agentstudio-s2d-tally-\(UUIDv7.generate())"
         defer { try? FileManager.default.removeItem(atPath: tallyPath) }
-        let laneOutput = try runBashAllowingFailure(
+        let laneOutput = try await runBashAllowingFailure(
             "LOG_PREFIX=lane; export SWIFT_TEST_FAILED_ISOLATED_SUITES_FILE='\(tallyPath)'; "
                 + ": >\"$SWIFT_TEST_FAILED_ISOLATED_SUITES_FILE\"; "
                 + "source scripts/swift-test-helpers.sh; set +e; "
@@ -191,14 +192,14 @@ struct SwiftLaneRunnerReportTests {
     }
 
     @Test("a timed out child that ignores TERM is still reaped, and the report is still written")
-    func timedOutChildThatIgnoresTermIsStillReaped() throws {
+    func timedOutChildThatIgnoresTermIsStillReaped() async throws {
         // The shape that survived the old parent-link walk: a child that traps
         // TERM, so only a group-wide KILL removes it. One of these left alive
         // holds a build slot, and the NEXT run dies with "all 2 slots are busy",
         // which reads like an unrelated slot error rather than this timeout.
         let workDirectory = NSTemporaryDirectory() + "agentstudio-s2e-reap-\(UUIDv7.generate())"
         defer { try? FileManager.default.removeItem(atPath: workDirectory) }
-        let laneOutput = try runBashAllowingFailure(
+        let laneOutput = try await runBashAllowingFailure(
             "mkdir -p '\(workDirectory)'; "
                 + "LOG_PREFIX=lane; TIMEOUT_SECONDS=2; BUILD_PATH=.build-agent-1; "
                 + "export LANE_EVENT_STREAM_DIR='\(workDirectory)/ci-runs'; "
@@ -225,7 +226,7 @@ struct SwiftLaneRunnerReportTests {
     }
 
     @Test("a grandchild that outlives its parent is still reaped")
-    func grandchildThatOutlivesItsParentIsStillReaped() throws {
+    func grandchildThatOutlivesItsParentIsStillReaped() async throws {
         // The real defect. The parent honours TERM and dies; its child ignores
         // TERM and re-parents, so it is no longer reachable by walking live parent
         // links from the lane's own pid. That survivor is the `swiftpm-testing-helper`
@@ -234,7 +235,7 @@ struct SwiftLaneRunnerReportTests {
         // still find it — which is why the KILL path sweeps that token.
         let workDirectory = NSTemporaryDirectory() + "agentstudio-s2e-orphan-\(UUIDv7.generate())"
         defer { try? FileManager.default.removeItem(atPath: workDirectory) }
-        let laneOutput = try runBashAllowingFailure(
+        let laneOutput = try await runBashAllowingFailure(
             "mkdir -p '\(workDirectory)'; "
                 + "LOG_PREFIX=lane; TIMEOUT_SECONDS=2; BUILD_PATH=.build-agent-1; "
                 + "export LANE_EVENT_STREAM_DIR='\(workDirectory)/ci-runs'; "
@@ -269,7 +270,7 @@ struct SwiftLaneRunnerReportTests {
     }
 
     @Test("a wedged run keeps its event-stream ledger, and a clean run does not")
-    func wedgedRunKeepsItsEventStreamLedger() throws {
+    func wedgedRunKeepsItsEventStreamLedger() async throws {
         // The ledger is the only authoritative record of which cases started and
         // ended. Without it the same wedged runs produced two contradictory
         // unfinished-suite counts from console archaeology.
@@ -278,7 +279,7 @@ struct SwiftLaneRunnerReportTests {
         let ledgerDirectory = workDirectory + "/ci-runs"
         // The child writes real records to the path the runner handed it, then
         // stalls without output, which is exactly how a wedged suite behaves.
-        let wedgedOutput = try runBashAllowingFailure(
+        let wedgedOutput = try await runBashAllowingFailure(
             "mkdir -p '\(workDirectory)'; "
                 + "LOG_PREFIX=lane; TIMEOUT_SECONDS=2; BUILD_PATH=.build-agent-1; "
                 + "export LANE_EVENT_STREAM_DIR='\(ledgerDirectory)'; "
@@ -300,7 +301,7 @@ struct SwiftLaneRunnerReportTests {
         #expect(wedgedOutput.contains("LEDGER_RECORD_TWO"))
 
         let cleanDirectory = workDirectory + "/clean-runs"
-        let cleanOutput = try runBash(
+        let cleanOutput = try await runBash(
             "LOG_PREFIX=lane; TIMEOUT_SECONDS=60; BUILD_PATH=.build-agent-1; "
                 + "export LANE_EVENT_STREAM_DIR='\(cleanDirectory)'; "
                 + "source scripts/swift-test-helpers.sh; "
@@ -314,7 +315,7 @@ struct SwiftLaneRunnerReportTests {
     }
 
     @Test("an isolated suite filter matches its type, never a file named after it")
-    func isolatedSuiteFilterMatchesItsTypeNeverAFileNamedAfterIt() throws {
+    func isolatedSuiteFilterMatchesItsTypeNeverAFileNamedAfterIt() async throws {
         // Real ids captured from an event stream on this bundle. The third belongs
         // to a DIFFERENT suite that merely lives in RepoScannerTests.swift, and the
         // bare name selected it too: `--filter RepoScannerTests` admitted 2 suites
@@ -328,7 +329,7 @@ struct SwiftLaneRunnerReportTests {
             "AgentStudioInfrastructureTests.RepoScannerClassificationTests/"
             + "gitDirectoryIsCloneRoot()/RepoScannerTests.swift:430:6"
 
-        let matches = try runBash(
+        let matches = try await runBash(
             "source scripts/swift-test-helpers.sh; "
                 + "pattern=$(swift_test_isolated_suite_filter_pattern RepoScannerTests); "
                 + "echo \"PATTERN=$pattern\"; "
@@ -374,8 +375,8 @@ struct SwiftLaneRunnerReportTests {
     }
 
     @Test("a clean lane reports zero failed isolated suites")
-    func cleanLaneReportsZeroFailedIsolatedSuites() throws {
-        let count = try runBash(
+    func cleanLaneReportsZeroFailedIsolatedSuites() async throws {
+        let count = try await runBash(
             "source scripts/swift-test-helpers.sh; swift_test_failed_isolated_suite_count"
         )
 
@@ -384,7 +385,7 @@ struct SwiftLaneRunnerReportTests {
     }
 
     @Test("the inactivity timeout names the test cases that were still running")
-    func inactivityTimeoutNamesTheTestCasesThatWereStillRunning() throws {
+    func inactivityTimeoutNamesTheTestCasesThatWereStillRunning() async throws {
         let helperScript = try String(contentsOfFile: "scripts/swift-test-helpers.sh", encoding: .utf8)
         let timeoutRunner = try shellFunction(named: "run_swift_with_timeout", in: helperScript)
         // Case 1 of alpha ends; case 2 and beta do not, and the truncated final
@@ -396,15 +397,15 @@ struct SwiftLaneRunnerReportTests {
             #"{\"kind\":\"testCaseStarted\",\"testID\":\"S/beta()\"}"#,
             #"{\"kind\":\"testCase"#,
         ].joined(separator: #"\n"#)
-        let stillRunning = try runBash(
+        let stillRunning = try await runBash(
             "LOG_PREFIX=lane; source scripts/swift-test-helpers.sh; "
                 + "print_running_parameterized_cases_at_timeout <(printf '\(streamRecords)\\n')"
         )
-        let withoutStream = try runBash(
+        let withoutStream = try await runBash(
             "LOG_PREFIX=lane; source scripts/swift-test-helpers.sh; "
                 + "print_running_parameterized_cases_at_timeout /nonexistent/event-stream"
         )
-        let emptyStream = try runBash(
+        let emptyStream = try await runBash(
             "LOG_PREFIX=lane; source scripts/swift-test-helpers.sh; "
                 + "print_running_parameterized_cases_at_timeout /dev/null"
         )
@@ -423,10 +424,10 @@ struct SwiftLaneRunnerReportTests {
     }
 
     @Test("the at-timeout case list is capped so one wedged lane cannot bury its log")
-    func atTimeoutCaseListIsCappedSoOneWedgedLaneCannotBuryItsLog() throws {
+    func atTimeoutCaseListIsCappedSoOneWedgedLaneCannotBuryItsLog() async throws {
         let helperScript = try String(contentsOfFile: "scripts/swift-test-helpers.sh", encoding: .utf8)
         let idsFunction = try shellFunction(named: "swift_test_running_case_ids_from_events", in: helperScript)
-        let cappedIDs = try runBash(
+        let cappedIDs = try await runBash(
             "source scripts/swift-test-helpers.sh; swift_test_running_case_ids_from_events "
                 + #"<(for index in $(seq 1 60); do printf '{"kind":"testCaseStarted","testID":"S/t%s()"}\n' "$index"; done)"#
         )
@@ -454,16 +455,16 @@ struct SwiftLaneRunnerReportTests {
     }
 
     @Test("isolated suite process fan-out never exceeds the core count")
-    func isolatedSuiteProcessFanOutNeverExceedsCoreCount() throws {
+    func isolatedSuiteProcessFanOutNeverExceedsCoreCount() async throws {
         let helperScript = try String(contentsOfFile: "scripts/swift-test-helpers.sh", encoding: .utf8)
         let concurrencyFunction = try shellFunction(
             named: "swift_test_isolated_process_concurrency",
             in: helperScript
         )
-        let observedConcurrency = try runBash(
+        let observedConcurrency = try await runBash(
             "source scripts/swift-test-helpers.sh; swift_test_isolated_process_concurrency"
         )
-        let reportedCoreCount = try runBash("sysctl -n hw.ncpu")
+        let reportedCoreCount = try await runBash("sysctl -n hw.ncpu")
         let concurrency = try #require(
             Int(observedConcurrency.trimmingCharacters(in: .whitespacesAndNewlines))
         )
@@ -477,10 +478,10 @@ struct SwiftLaneRunnerReportTests {
     }
 
     @Test("started-test counter tracks posted start events, not the cap")
-    func startedTestCounterTracksPostedStartEvents() throws {
+    func startedTestCounterTracksPostedStartEvents() async throws {
         // a and b overlap (peak 2), a closes, then c opens (2 again). The
         // run-level and suite-level events are not tests.
-        let observedPeak = try runBash(
+        let observedPeak = try await runBash(
             "source scripts/swift-test-helpers.sh; swift_test_peak_started_from_output "
                 + "<(printf '◇ Test run started.\\n"
                 + "◇ Suite \"S\" started.\\n"
@@ -495,9 +496,9 @@ struct SwiftLaneRunnerReportTests {
     }
 
     @Test("running-test-case counter reads the post-serializer event stream")
-    func runningTestCaseCounterReadsPostSerializerEventStream() throws {
+    func runningTestCaseCounterReadsPostSerializerEventStream() async throws {
         // Two cases overlap before either ends, so the cap-observing peak is 2.
-        let observedPeak = try runBash(
+        let observedPeak = try await runBash(
             "source scripts/swift-test-helpers.sh; swift_test_peak_running_cases_from_events "
                 + "<(printf '{\"kind\":\"testCaseStarted\"}\\n"
                 + "{\"kind\":\"testCaseStarted\"}\\n"
@@ -506,7 +507,7 @@ struct SwiftLaneRunnerReportTests {
                 + "{\"kind\":\"testCaseEnded\"}\\n"
                 + "{\"kind\":\"testCaseEnded\"}\\n')"
         )
-        let emptyStreamPeak = try runBash(
+        let emptyStreamPeak = try await runBash(
             "source scripts/swift-test-helpers.sh; swift_test_peak_running_cases_from_events /dev/null"
         )
 
@@ -515,7 +516,7 @@ struct SwiftLaneRunnerReportTests {
     }
 
     @Test("event-stream flags reach every test invocation but not the prebuild")
-    func eventStreamFlagsReachEveryTestInvocationButNotThePrebuild() throws {
+    func eventStreamFlagsReachEveryTestInvocationButNotThePrebuild() async throws {
         let helperScript = try String(contentsOfFile: "scripts/swift-test-helpers.sh", encoding: .utf8)
         let timeoutRunner = try shellFunction(named: "run_swift_with_timeout", in: helperScript)
         let acceptsEventStream = try shellFunction(
@@ -528,13 +529,13 @@ struct SwiftLaneRunnerReportTests {
         // `swift build` rejects the flags, so the prebuild must be excluded.
         #expect(acceptsEventStream.contains("\"$argument\" = \"build\""))
         #expect(
-            try runBashStatus(
+            try await runBashStatus(
                 "source scripts/swift-test-helpers.sh; "
                     + "swift_test_command_accepts_event_stream swift build --build-tests"
             ) == 1
         )
         #expect(
-            try runBashStatus(
+            try await runBashStatus(
                 "source scripts/swift-test-helpers.sh; "
                     + "swift_test_command_accepts_event_stream swift test --skip-build"
             ) == 0
@@ -586,49 +587,51 @@ private func namedBlock(startingWith marker: String, endingBefore terminator: St
     return String(tail[..<endRange.lowerBound])
 }
 
-private func runBash(_ command: String) throws -> String {
-    let process = Process()
-    let output = Pipe()
-    process.executableURL = URL(fileURLWithPath: "/bin/bash")
-    process.arguments = ["-c", command]
-    process.currentDirectoryURL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-    process.standardOutput = output
-    process.standardError = output
-
-    try process.run()
-    process.waitUntilExit()
-    let data = output.fileHandleForReading.readDataToEndOfFile()
-    let renderedOutput = try #require(String(bytes: data, encoding: .utf8))
-    #expect(process.terminationStatus == 0, Comment(rawValue: renderedOutput))
-    return renderedOutput
+private func runBash(_ command: String) async throws -> String {
+    let result = try await runBashCommand(command)
+    #expect(result.exitCode == 0, Comment(rawValue: result.output))
+    return result.output
 }
 
 /// Like `runBash`, but for scripts that deliberately fail: these tests drive
 /// crashing children, so a non-zero status is the expected outcome.
-private func runBashAllowingFailure(_ command: String) throws -> String {
-    let process = Process()
-    let output = Pipe()
-    process.executableURL = URL(fileURLWithPath: "/bin/bash")
-    process.arguments = ["-c", command]
-    process.currentDirectoryURL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-    process.standardOutput = output
-    process.standardError = output
-
-    try process.run()
-    let data = output.fileHandleForReading.readDataToEndOfFile()
-    process.waitUntilExit()
-    return try #require(String(bytes: data, encoding: .utf8))
+private func runBashAllowingFailure(_ command: String) async throws -> String {
+    (try await runBashCommand(command)).output
 }
 
-private func runBashStatus(_ command: String) throws -> Int32 {
-    let process = Process()
-    process.executableURL = URL(fileURLWithPath: "/bin/bash")
-    process.arguments = ["-c", command]
-    process.currentDirectoryURL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+private func runBashStatus(_ command: String) async throws -> Int32 {
+    (try await runBashCommand(command)).exitCode
+}
 
-    try process.run()
-    process.waitUntilExit()
-    return process.terminationStatus
+private func runBashCommand(_ command: String) async throws -> BashCommandResult {
+    try await withoutBlockingCooperativePool {
+        let outputURL = FileManager.default.temporaryDirectory
+            .appending(path: "swift-lane-runner-output-\(UUIDv7.generate().uuidString).log")
+        FileManager.default.createFile(atPath: outputURL.path, contents: nil)
+        let outputHandle = try FileHandle(forWritingTo: outputURL)
+        defer {
+            try? outputHandle.close()
+            try? FileManager.default.removeItem(at: outputURL)
+        }
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/bash")
+        process.arguments = ["-c", command]
+        process.currentDirectoryURL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        process.standardOutput = outputHandle
+        process.standardError = outputHandle
+        try process.run()
+        process.waitUntilExit()
+        try outputHandle.close()
+        return BashCommandResult(
+            exitCode: process.terminationStatus,
+            output: try String(contentsOf: outputURL, encoding: .utf8)
+        )
+    }
+}
+
+private struct BashCommandResult: Sendable {
+    let exitCode: Int32
+    let output: String
 }
 
 private enum SwiftLaneRunnerReportError: Error {

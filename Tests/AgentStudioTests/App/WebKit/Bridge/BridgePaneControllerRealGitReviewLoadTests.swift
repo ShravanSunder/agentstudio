@@ -24,9 +24,9 @@ extension WebKitSerializedTests {
         @Test("a real single-commit repo publishes a ready Review product snapshot")
         func realGitSingleCommitRepoPublishesReadyReviewProductSnapshot() async throws {
             // Arrange
-            let repoURL = try FilesystemTestGitRepo.create(named: "bridge-review-controller-load")
+            let repoURL = try await FilesystemTestGitRepo.create(named: "bridge-review-controller-load")
             defer { FilesystemTestGitRepo.destroy(repoURL) }
-            try FilesystemTestGitRepo.seedTrackedAndUntrackedChanges(at: repoURL)
+            try await FilesystemTestGitRepo.seedTrackedAndUntrackedChanges(at: repoURL)
             let harness = try await RealGitReviewLoadHarness.make(repositoryURL: repoURL)
             defer {
                 harness.controller.teardown()
@@ -115,9 +115,9 @@ extension WebKitSerializedTests {
         @Test("a real contribution publishes complete dirty state and excludes target-only movement")
         func realContributionPublishesCompleteDirtyStateAndExcludesTargetOnlyMovement() async throws {
             // Arrange
-            let repoURL = try FilesystemTestGitRepo.create(named: "bridge-review-contribution")
+            let repoURL = try await FilesystemTestGitRepo.create(named: "bridge-review-contribution")
             defer { FilesystemTestGitRepo.destroy(repoURL) }
-            let fixture = try seedCompleteContribution(at: repoURL)
+            let fixture = try await seedCompleteContribution(at: repoURL)
             let harness = try await RealGitReviewLoadHarness.make(repositoryURL: repoURL)
             defer {
                 harness.controller.teardown()
@@ -162,7 +162,7 @@ extension WebKitSerializedTests {
                 provider: harness.reviewSourceProvider
             )
 
-            let successorTargetOID = try advanceTargetOnlyHistory(at: repoURL)
+            let successorTargetOID = try await advanceTargetOnlyHistory(at: repoURL)
             let successorEventsTask = Task { @MainActor in
                 let reset = try await harness.nextReviewMetadataEvent(for: metadataLease)
                 let sourceAccepted = try await harness.nextReviewMetadataEvent(for: metadataLease)
@@ -230,49 +230,49 @@ private struct CompleteContributionFixture {
     let sharedBaseOID: String
 }
 
-private func seedCompleteContribution(at repositoryURL: URL) throws -> CompleteContributionFixture {
+private func seedCompleteContribution(at repositoryURL: URL) async throws -> CompleteContributionFixture {
     try "initial\n".write(
         to: repositoryURL.appending(path: "tracked.txt"),
         atomically: true,
         encoding: .utf8
     )
-    try FilesystemTestGitRepo.runGit(at: repositoryURL, args: ["add", "tracked.txt"])
-    try FilesystemTestGitRepo.runGit(at: repositoryURL, args: ["commit", "-m", "shared base"])
+    try await FilesystemTestGitRepo.runGit(at: repositoryURL, args: ["add", "tracked.txt"])
+    try await FilesystemTestGitRepo.runGit(at: repositoryURL, args: ["commit", "-m", "shared base"])
     let sharedBaseOID = try normalizedGitOID(
-        FilesystemTestGitRepo.runGit(at: repositoryURL, args: ["rev-parse", "HEAD"])
+        await FilesystemTestGitRepo.runGit(at: repositoryURL, args: ["rev-parse", "HEAD"])
     )
 
-    try FilesystemTestGitRepo.runGit(at: repositoryURL, args: ["switch", "-c", "feature/review"])
+    try await FilesystemTestGitRepo.runGit(at: repositoryURL, args: ["switch", "-c", "feature/review"])
     try "committed\n".write(
         to: repositoryURL.appending(path: "committed.txt"),
         atomically: true,
         encoding: .utf8
     )
-    try FilesystemTestGitRepo.runGit(at: repositoryURL, args: ["add", "committed.txt"])
-    try FilesystemTestGitRepo.runGit(at: repositoryURL, args: ["commit", "-m", "reviewed commit"])
+    try await FilesystemTestGitRepo.runGit(at: repositoryURL, args: ["add", "committed.txt"])
+    try await FilesystemTestGitRepo.runGit(at: repositoryURL, args: ["commit", "-m", "reviewed commit"])
     let reviewedHeadOID = try normalizedGitOID(
-        FilesystemTestGitRepo.runGit(at: repositoryURL, args: ["rev-parse", "HEAD"])
+        await FilesystemTestGitRepo.runGit(at: repositoryURL, args: ["rev-parse", "HEAD"])
     )
 
-    try FilesystemTestGitRepo.runGit(at: repositoryURL, args: ["switch", "main"])
+    try await FilesystemTestGitRepo.runGit(at: repositoryURL, args: ["switch", "main"])
     try "target only\n".write(
         to: repositoryURL.appending(path: "target-only.txt"),
         atomically: true,
         encoding: .utf8
     )
-    try FilesystemTestGitRepo.runGit(at: repositoryURL, args: ["add", "target-only.txt"])
-    try FilesystemTestGitRepo.runGit(at: repositoryURL, args: ["commit", "-m", "target-only commit"])
+    try await FilesystemTestGitRepo.runGit(at: repositoryURL, args: ["add", "target-only.txt"])
+    try await FilesystemTestGitRepo.runGit(at: repositoryURL, args: ["commit", "-m", "target-only commit"])
     let initialTargetOID = try normalizedGitOID(
-        FilesystemTestGitRepo.runGit(at: repositoryURL, args: ["rev-parse", "HEAD"])
+        await FilesystemTestGitRepo.runGit(at: repositoryURL, args: ["rev-parse", "HEAD"])
     )
 
-    try FilesystemTestGitRepo.runGit(at: repositoryURL, args: ["switch", "feature/review"])
+    try await FilesystemTestGitRepo.runGit(at: repositoryURL, args: ["switch", "feature/review"])
     try "staged\n".write(
         to: repositoryURL.appending(path: "staged.txt"),
         atomically: true,
         encoding: .utf8
     )
-    try FilesystemTestGitRepo.runGit(at: repositoryURL, args: ["add", "staged.txt"])
+    try await FilesystemTestGitRepo.runGit(at: repositoryURL, args: ["add", "staged.txt"])
     try "initial\nunstaged\n".write(
         to: repositoryURL.appending(path: "tracked.txt"),
         atomically: true,
@@ -291,20 +291,20 @@ private func seedCompleteContribution(at repositoryURL: URL) throws -> CompleteC
     )
 }
 
-private func advanceTargetOnlyHistory(at repositoryURL: URL) throws -> String {
+private func advanceTargetOnlyHistory(at repositoryURL: URL) async throws -> String {
     let targetTreeOID = try normalizedGitOID(
-        FilesystemTestGitRepo.runGit(at: repositoryURL, args: ["rev-parse", "main^{tree}"])
+        await FilesystemTestGitRepo.runGit(at: repositoryURL, args: ["rev-parse", "main^{tree}"])
     )
     let targetParentOID = try normalizedGitOID(
-        FilesystemTestGitRepo.runGit(at: repositoryURL, args: ["rev-parse", "main"])
+        await FilesystemTestGitRepo.runGit(at: repositoryURL, args: ["rev-parse", "main"])
     )
     let successorTargetOID = try normalizedGitOID(
-        FilesystemTestGitRepo.runGit(
+        await FilesystemTestGitRepo.runGit(
             at: repositoryURL,
             args: ["commit-tree", targetTreeOID, "-p", targetParentOID, "-m", "advance target only"]
         )
     )
-    try FilesystemTestGitRepo.runGit(
+    try await FilesystemTestGitRepo.runGit(
         at: repositoryURL,
         args: ["update-ref", "refs/heads/main", successorTargetOID, targetParentOID]
     )

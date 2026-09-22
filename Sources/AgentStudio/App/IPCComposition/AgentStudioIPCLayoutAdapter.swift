@@ -14,13 +14,13 @@ extension WorkspaceActionExecutor: AgentStudioIPCLayoutActionExecuting {}
 struct AgentStudioIPCLayoutAdapter: AppIPCLayoutPort, @unchecked Sendable {
     private let workspaceStore: WorkspaceStore
     private let windowLifecycleReader: any WorkspaceWindowLifecycleReading
-    private let paneFocusControl: any PaneFocusAppControlling
+    private weak var paneFocusControl: (any PaneFocusAppControlling & AnyObject)?
     private let workspaceActionExecutor: any AgentStudioIPCLayoutActionExecuting
 
     init(
         workspaceStore: WorkspaceStore,
         windowLifecycleReader: any WorkspaceWindowLifecycleReading,
-        paneFocusControl: any PaneFocusAppControlling,
+        paneFocusControl: any PaneFocusAppControlling & AnyObject,
         workspaceActionExecutor: any AgentStudioIPCLayoutActionExecuting
     ) {
         self.workspaceStore = workspaceStore
@@ -39,6 +39,9 @@ struct AgentStudioIPCLayoutAdapter: AppIPCLayoutPort, @unchecked Sendable {
 
         let snapshot = workspaceStore.programmaticControlSnapshot()
         let paneId = try resolvePaneId(handle, in: snapshot)
+        guard let paneFocusControl else {
+            throw AppIPCLayoutError(reason: .noActiveWindow)
+        }
 
         do {
             try paneFocusControl.focusPane(paneId)

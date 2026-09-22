@@ -222,6 +222,7 @@ public final class UnixSocketListener: @unchecked Sendable {
     private let stateLock = NSLock()
     private let acceptQueue = DispatchQueue(label: "com.agentstudio.ipc.unix-socket-listener")
     private let acceptQueueSpecificKey = DispatchSpecificKey<Bool>()
+    private let acceptLoopJoinWait: @Sendable (DispatchSemaphore) -> DispatchTimeoutResult
     private var fileDescriptor: Int32?
     private var isStopping = false
 
@@ -231,8 +232,21 @@ public final class UnixSocketListener: @unchecked Sendable {
     /// hold the caller forever.
     private static let acceptLoopJoinDeadline = DispatchTimeInterval.seconds(10)
 
-    public init(endpoint: UnixSocketEndpoint) {
+    public convenience init(endpoint: UnixSocketEndpoint) {
+        self.init(
+            endpoint: endpoint,
+            acceptLoopJoinWait: { semaphore in
+                semaphore.wait(timeout: .now() + Self.acceptLoopJoinDeadline)
+            }
+        )
+    }
+
+    init(
+        endpoint: UnixSocketEndpoint,
+        acceptLoopJoinWait: @escaping @Sendable (DispatchSemaphore) -> DispatchTimeoutResult
+    ) {
         self.endpoint = endpoint
+        self.acceptLoopJoinWait = acceptLoopJoinWait
         acceptQueue.setSpecific(key: acceptQueueSpecificKey, value: true)
     }
 
@@ -336,7 +350,7 @@ public final class UnixSocketListener: @unchecked Sendable {
     private func joinAcceptLoop() -> Bool {
         let acceptLoopFinished = DispatchSemaphore(value: 0)
         acceptQueue.async { acceptLoopFinished.signal() }
-        return acceptLoopFinished.wait(timeout: .now() + Self.acceptLoopJoinDeadline) == .success
+        return acceptLoopJoinWait(acceptLoopFinished) == .success
     }
 
     /// Hands the accept loop one connection so it can observe `isStopping` and
