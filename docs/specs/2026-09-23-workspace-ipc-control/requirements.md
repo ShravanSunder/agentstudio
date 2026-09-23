@@ -78,6 +78,7 @@ acted.
 | S27 | After evidence showed the terminal's Bridge exists today only as the transient full-screen companion (no stable per-terminal Bridge, no files outside the worktree, no line targeting): moving file opening, ⌘-click and Open view to the Bridge stack — "yes make sense". |
 | S28 | "We're not gonna have settings in app; we use agent to write settings for now through IPC commands with approval." |
 | S29 | On the A1 design: "overall it looks good." Popovers and UI: "You need to follow app styles and our standards for styles… we should make it keyboard-nav navigable. Everything should be through the command spec. For any kind of notifications or even the PR stuff, I should be able to use the arrow keys, approve and disapprove with the arrow keys." |
+| S30 | On an agent closing its own drawer child while it is focused or visible (review finding F1): "let's allow it for now." |
 | S25 | Fast follow: "If I have a chief of staff agent and I want to open other panes and other tabs, that is a functionality that needs approval and it would probably open a bunch at the same time… that can be a separate work tree and a fast follow. But with approval system." |
 
 ## User requirements

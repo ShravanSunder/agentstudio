@@ -1,7 +1,7 @@
 # Workspace IPC Control (A1) — Specification
 
 Governing needs: [Requirements](./requirements.md) (U-IC-01, U-IC-02, U-IC-04,
-U-IC-08, U-IC-09, U-IC-10; owner statements S1–S28). Program Design:
+U-IC-08, U-IC-09, U-IC-10; owner statements S1–S30). Program Design:
 [program-design.md](./program-design.md).
 
 This is layer A1 of stack A. An agent drives only its own pane — its terminal
@@ -115,6 +115,11 @@ No A1 command run by an agent MUST change which window, tab or pane is
 selected or focused, whether a drawer is expanded, Pane Zoom, or whether a
 Bridge is shown. Observable effects stay inside the agent's own terminal and
 drawer children.
+
+The one exception is closing an agent's own drawer child (owner decision S30):
+it is allowed even when that child is focused or selected in an expanded
+drawer, and focus and selection then move exactly as they do when the human
+closes the same child (`WorkspaceSurfaceCoordinator+PaneDiscard.swift:23–71`).
 
 Basis: U-IC-09, S21, S22. Proof: V-IC-1, V-IC-2.
 

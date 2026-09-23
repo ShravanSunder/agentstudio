@@ -70,9 +70,25 @@ for pane agents?
 | **Per-command agent eligibility + own-pane target check (selected)** | Exactly the Specification's table; one declaration per command; A2 widens the same field | One new field on command and method metadata; one new authorization branch; one App port | A command whose effect depends on arguments rather than identity (handled by argument rules below) |
 | A separate agent-only method set | Isolated | A second command surface beside the catalog — forbidden by the one-catalog rule | — |
 
-For pane-bound agents, eligibility replaces the privilege/grant check. Other
-principals (CLI automation, debug diagnostic) keep today's path unchanged. This
-is a hard cutover for pane agents: no fallback to the baseline privilege set.
+For pane-bound agents, eligibility replaces the privilege/grant check for every
+method that declares an eligibility. Other principals (CLI automation, debug
+diagnostic) keep today's path unchanged. Established Agent IPC v2 methods keep
+their existing admission (see "Method classes and ordering" below). There is no
+fallback from a failed eligibility check to the old privilege baseline.
+
+### Method classes and ordering
+
+| Class | Methods | Admission for a pane agent |
+| --- | --- | --- |
+| Pre-authentication | `auth.login`, `auth.status` | Unchanged; runs before a principal exists |
+| Established v2 | `session.report`, `session.message`, `session.event`, `session.query`, `events.subscribe`, `events.unsubscribe` | Unchanged v2 path: bound-pane baseline privileges and target isolation exactly as today (`AppIPCSessionMethodRegistrations.swift:52–145`, `AppIPCBuiltInPresentationAndEventRegistrations.swift:89–124`). They do not declare an eligibility and are not widened to drawer children. |
+| A1 eligibility | every other built-in method and every `command.execute` command | Eligibility branch below |
+
+Ordering for a pane agent: authenticate → method recognized? → class. For the
+eligibility class: eligibility → own-pane membership of every resolved target →
+argument rules → handler. This ordering applies on every channel; see
+"Recognized but not allowed" for how channel filtering no longer hides a
+disallowed method from a pane agent.
 
 ## Components and ownership
 
@@ -82,7 +98,7 @@ is a hard cutover for pane agents: no fallback to the baseline privilege set.
 | Built-in method descriptors (`AgentStudioProgrammaticControl/BuiltInDescriptors`) | Per-method metadata | Same field on the method metadata; discovery (`system.capabilities`, `command.list`) reports it. |
 | `AppIPCMethodAuthorization` (`AgentStudioAppIPC`) | The authorization decision | New branch for `.spawnedPaneAgent`: eligibility, then own-pane membership of every resolved target identity, then argument rules. Produces the new outcomes. |
 | `AppIPCOwnPaneScopePort` (new port, declared in `AgentStudioAppIPC`, implemented in App) | Answering "is pane X inside agent pane P's own pane?" | Reads the pane graph on the main actor: P itself; if P is a main-layout pane, its drawer children; later (B1) P's stable Bridge. No I/O. |
-| Layout adapter / executor (`AgentStudioIPCLayoutAdapter`, `WorkspaceSurfaceCoordinator`) | Drawer child creation | New background variant: content `terminal` or `browser(url)`, drawer expansion and focus unchanged, returns the created pane. |
+| Layout adapter / executor (`AgentStudioIPCLayoutAdapter`, `WorkspaceSurfaceCoordinator`) | Drawer child creation | New background variant: content `terminal` or `browser(url)`; drawer expansion, drawer selection (`activeChildId`) and keyboard focus unchanged; returns the created pane. Changed owners: the forced expansion in `WorkspaceTerminalCreationComposition.swift:168–170`, the child selection in `TabArrangementMutationRules.swift:158–177`, and the explicit focus in `WorkspaceSurfaceCoordinator+PaneInsertion.swift:223–230` each take the background flag and leave their value unchanged. |
 | Workspace action validation (`ActionValidator`) | Drawer child content rule | Shared rule from the drawer design: terminal or webview only. |
 | Error taxonomy (`AgentStudioAppIPCRequestError`, `AuthorizationError.Reason`) | Wire outcomes | New reasons `notYetAllowed` (with command name) and `refusedForAgent`, each with its own error code, distinct from `unauthorized`, `missingGrant` and `targetNotFound`. |
 
@@ -94,16 +110,62 @@ port pattern (`service.ports`).
 | Eligibility | Commands and methods |
 | --- | --- |
 | `ownPane` | `terminal.status`, `terminal.snapshot`, `terminal.send`, `terminal.wait`, `pane.snapshot`; `command.execute` for `scrollToBottom`, `scrollPageUp`, `scrollPageDown`, `scrollSmallStepUp`, `scrollSmallStepDown`, `jumpToPreviousPrompt`, `jumpToNextPrompt`, `closeDrawerPane`; `drawer.addPane` (background variant); `pane.close` only for an own drawer child (argument rule) |
-| `anyTarget` | `system.ping`, `system.identify`, `system.version`, `system.capabilities`, `window.list`, `window.current`, `workspace.list`, `workspace.current`, `pane.list`, `pane.current`, `command.list`, `sidebar.grouping.get`, `sidebar.surface.get` |
-| unchanged, already open to agents | `auth.*`, `events.subscribe`/`unsubscribe` (own-pane scoped as today), `session.report`/`message`/`event`/`query` |
-| `notYetAllowed` | every other `command.execute` command and every other method, including all `bridge.*` methods until B1 (their target, the terminal's Bridge, is not addressable in A1) |
+| `anyTarget` | `system.ping`, `system.identify`, `system.version`, `system.capabilities`, `window.list`, `window.current`, `workspace.list`, `workspace.current`, `pane.list`, `pane.current`, `command.list` |
+| established v2 (no eligibility; unchanged admission) | `auth.*`, `events.subscribe`/`unsubscribe`, `session.report`/`message`/`event`/`query` |
+| `notYetAllowed` | every other `command.execute` command and every other method, including `sidebar.*.get` (app-wide UI state, not a listing) and all `bridge.*` methods until B1 (their target, the terminal's Bridge, is not addressable in A1) |
+
+**Headless gaps closed.** Three own-pane commands have no headless
+implementation today: `scrollPageDown`, `scrollSmallStepUp` and
+`scrollSmallStepDown` return `stateUnavailable`
+(`App/Panes/PaneTabViewController+HeadlessIPCCommands.swift:228–232`). Add them to
+`executeTerminalRuntimeCommand` (`:292–303`) beside `scrollPageUp`, mapping to the
+same terminal runtime scroll commands the interactive path uses. No other A1
+command lacks a headless path.
 
 **Argument rules** (evaluated after eligibility, same branch):
 - `pane.close`: refused when the target is the agent's bound pane; allowed only
   for its own drawer child.
 - `drawer.addPane`: target must be the agent's own main-layout pane; refused for
   an agent in a drawer terminal (drawers do not nest); content must be terminal
-  or browser, else refused.
+  or browser, else refused. A browser URL must parse and use `http` or `https`;
+  anything else is refused before a pane is created.
+- `closeDrawerPane` / `pane.close` on an own drawer child: allowed in every
+  state (owner decision S30); the existing close owner moves focus and selection
+  as for a human close. This is the only A1 effect that may change focus.
+
+### Recognized but not allowed
+
+Today a pane agent calling a debug-only method on beta/stable gets
+method-not-found, because the registry drops `.debugTesting` methods from
+non-debug channels (`AgentStudioIPCRegistryAuthorization.swift:22–24`); typed
+registration rejects debug-only methods for non-diagnostic principals
+(`AppIPCTypedMethodRegistration.swift:183–196`); and the command adapter rejects
+channel-hidden commands before authorization (`AgentStudioIPCCommandAdapter.swift:55–57, 92–104`).
+A1 keeps those gates for automation clients and changes only what a pane agent
+receives: the registry keeps a recognized-name index of every method and
+command on every channel (names and eligibility only, not handlers). When a pane
+agent names a recognized method or command that its channel does not expose or
+whose eligibility is not yet allowed, routing returns `notYetAllowed` naming it,
+before schema validation and with no effect. An unknown name still returns
+method-not-found. Discovery for pane agents lists recognized names with their
+eligibility so an agent can see what is not yet allowed.
+
+### Scope holds through the effect
+
+Authorization runs before the handler, and each step awaits
+(`AppIPCTypedMethodRegistration.swift:140–172`); existing re-validation checks that
+a target exists, not that it is still inside the agent's own pane
+(`AgentStudioIPCCommandTargetResolution.swift:50–55, 169–174`,
+`AgentStudioIPCRuntimeAdapter.swift:61–74`). A drawer child detached to a tab
+between authorization and execution would still receive input. A1 carries the
+authorization result into the handler as an own-pane assertion (bound pane +
+resolved target identities). Each App handler that applies an agent effect —
+command adapter, runtime adapter, layout adapter — re-evaluates the assertion
+through the same `AppIPCOwnPaneScopePort` on the main actor in the same
+synchronous step that applies the effect. If any target has left the agent's own
+pane, the effect is not applied and the agent receives `notYetAllowed`
+("target left own pane"). No lock, journal or coordinator is added: the check and
+the effect share one main-actor turn, which is where the pane graph changes.
 
 ## Call path: agent runs a command
 
@@ -156,7 +218,7 @@ sequenceDiagram
   L->>X: add drawer child, background (added edge)
   X->>V: validate parent + content kind
   V-->>X: ok
-  X->>W: create pane as drawer child, expansion and focus unchanged (changed edge)
+  X->>W: create pane as drawer child, expansion, selection and focus unchanged (changed edge)
   W-->>X: created pane
   X-->>L: created pane identity (added edge; today discarded)
   L-->>CLI: done (parentPaneId, childPaneId, childHandle)
@@ -171,10 +233,9 @@ variant.
 - **Target disappears between authorization and execution:** the handler's
   existing re-validation returns its existing not-found failure; nothing
   partial is created.
-- **Scope changes during a request:** the scope port and handler both run on
-  the main actor in one request's turn sequence; a pane closed before the
-  scope read is outside scope (not yet allowed); after the read, the handler's
-  re-validation applies.
+- **Target leaves the own pane between authorization and execution** (detached,
+  moved, parent changed): the effect-time scope re-check refuses with
+  `notYetAllowed`; nothing is applied.
 - **Principal outlives its pane:** Agent IPC v2 already invalidates the pane
   credential; the scope port also answers "no" for a missing bound pane.
 - **Browser URL invalid:** validation failure, no pane created.
