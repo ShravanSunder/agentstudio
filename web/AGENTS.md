@@ -11,10 +11,11 @@ Read these before changing the website's structure, behavior, or stack:
 - [Program Design](../docs/specs/2026-08-17-marketing-site/2026-08-17-marketing-site-program-design.md)
 - [Visual Design](../docs/specs/2026-08-17-marketing-site/2026-08-17-marketing-site-visual-design.md)
 - [Static Design Board](../docs/specs/2026-08-17-marketing-site/website-design-board.html)
+- [Website motion narrative (2026-09-23; governs over the 2026-08-17 set where they differ)](../docs/specs/2026-09-23-website-motion-narrative/2026-09-23-website-motion-narrative.md)
 - [Mandatory website update quality SOP](../docs/wip/2026-08-20-website-update-quality-sop.md)
 - [Mandatory website release and visual verification SOP](../docs/wip/2026-08-20-website-visual-verification-sop.md)
 
-The current product README, semantic app theme, and canonical icon own product claims and brand evidence. Files under `web/images/` remain README/reference assets. Website product imagery comes from the approved WebsiteCaptureSuite. Herdr is prior art for hierarchy and a clickable product plate, not a source for Agent Studio copy, colors, fixtures, or accessibility behavior.
+The current product README, semantic app theme, and canonical icon own product claims and brand evidence. Files under `web/images/` remain README/reference assets. Website product imagery comes from the approved WebsiteCaptureSuite. Herdr is prior art for hierarchy, not a source for Agent Studio copy, colors, fixtures, or accessibility behavior.
 
 ## Marketing copy
 
@@ -47,7 +48,7 @@ React is allowed. Hydration is the boundary that must be justified, not the mere
 
 ### Client interaction
 
-- Use a small TypeScript controller when behavior is one bounded state owner over pre-rendered DOM, such as selecting one of a closed set of product-demo panels or copying the install command.
+- Use a small TypeScript controller when behavior is one bounded state owner over pre-rendered DOM, such as selecting one of a closed set of chapter steps or copying the install command.
 - Do not build a custom component framework, synthetic lifecycle, generalized store, virtual DOM, event bus, or synchronization layer to avoid React.
 - Use a hydrated React island when the interaction has nested independently stateful controls, substantial conditional composition, asynchronous data, shared client state, or a component tree whose state transitions and tests are materially clearer in React.
 - Hydrate the smallest owning island. Keep surrounding page content in Astro.
@@ -67,41 +68,25 @@ Before adding or refusing React, answer:
 
 If the answers do not make one direction clear, return to the Program Design rather than improvising a new frontend architecture.
 
-## Interactive product plate
+## Page structure: hero, chapters, rail
 
-- The initial plate is an Astro-rendered fixture enhanced by one TypeScript controller.
-- Each state displays a frozen purpose-made Agent Studio capture. Do not reconstruct, redraw, or approximate app UI in HTML/CSS.
-- Its approved states are Parallel agents, Watch folders, Command bar, Files, and Review.
-- State changes are local and deterministic. They do not navigate, change the URL, persist state, call a backend, access local files, or connect to Agent Studio.
-- Use semantic buttons/tabs and panels with visible focus, keyboard operation, `aria-selected`, and explicit control/panel relationships. Do not copy Herdr's pointer-only `div` and `span` controls.
-- Before the controller validates and activates, expose only Parallel work; keep selectors disabled, outside the focus order, and free of live tablist/tab semantics. Validate the complete state/control/panel correspondence before any DOM mutation, then synchronously enable listeners, tab relationships, and roving focus without moving focus. Initialization failure restores the disabled static contract.
-- Exactly one selector and one panel are current at a time. Unknown state identifiers preserve the last valid state.
-- Ambient timers and status activity are illustrative presentation only. Stop them while hidden and when reduced motion is requested.
-- If controller complexity crosses the React threshold above, migrate this one boundary to a React island; do not add a parallel controller path.
-- Parallel agents shows the Pane/All Panes sidebar. Command bar, Review, Files,
-  Pane Zoom, and full-screen views hide the global Agent Studio sidebar;
-  Review and Files keep their own file tree visible.
-- Persistent workspace is not a product-plate state. It belongs in the
-  expandable feature-detail section after the plate.
+Governing design: [Website motion narrative](../docs/specs/2026-09-23-website-motion-narrative/2026-09-23-website-motion-narrative.md)
+(decisions D1–D7) and its [build plan](../docs/specs/2026-09-23-website-motion-narrative/plans/2026-09-23-website-motion-build.md).
+Where the 2026-08-17 design set disagrees, the motion narrative governs.
 
-## Product proof
+- The page is: hero → five glass chapters built from `web/src/chapters/chapter-catalog.ts` → final install call to action → footer. There is one section system (`ChapterSurface` on `ScrollMaterialSurface`). Do not add a second section format.
+- The catalog is the single inventory of workflows and matches the media team's video menu. Add, rename, or regroup workflows there, not in page markup. Every step claim must trace to the README.
+- Chapter section `id`s are their `ChapterId`s (`#many-agents`, `#context-with-task`, `#find-and-focus`, `#review`, `#come-back`). They are public link targets used by social posts; do not rename them casually.
+- The chapter rail (`web/src/chapter-rail/`) is one vertical git lane on the left at every width. Dots align with `data-rail-anchor` eyebrows. On wide/laptop, each branch joins its glass's left edge. On phone, it runs down the gutter, turns below the copy block, and drops into the media stage's top edge on the text line. No rail segment may cross text. Place rail hooks only through the constants in `web/src/chapters/chapter-dom-contract.ts`.
+- Steps follow the WAI-ARIA tabs pattern and double as scene timeline labels.
 
-The page uses two complementary proof surfaces:
+## Scenes and the recreation kit
 
-1. recognizable Agent Studio imagery in the hero, replaced by the approved
-   silent website loop when that shared launch asset is ready;
-2. one clickable product plate that owns the complete Parallel agents, Watch
-   folders, Command bar, Files, and Review explanation;
-3. one feature-detail list that begins with the session-restore video and may
-   add navigation, task-owned drawers, Git context, and layout details without
-   repeating the plate.
-
-Do not repeat those five stories in long-form sections below the plate. After
-the clickable explainer, proceed directly to the final install call to action.
-Product footage and screenshots must remain readable rather than becoming
-tilted decoration.
-
-Preserve the existing `web/images/` paths because the root README references them directly. Do not use them as final website imagery or move/rename them without updating and verifying every README consumer.
+- Chapter stages may show an animated HTML recreation of the app (owner decision D2), built only from `web/src/recreation-kit/`. Kit tokens come from real captures or BridgeWeb palette values, with source comments. Do not draw app UI freehand in a scene.
+- **Show, then prove.** Each scene ends on the chapter's real capture (the catalog's proof image). A recreation never shows a capability or result the real app does not.
+- Scene markup is the settled final frame. Modules add `fromTo()` tweens to a host-owned paused timeline (`SceneModule.buildScene`). They must be deterministic and seek-safe: no `requestAnimationFrame`, `Math.random`, `Date.now`, `performance.now`, or `gsap.utils.random` (a test enforces this). The same modules feed HyperFrames through the scene-bundle build, so a website scene change is also a media change.
+- Scenes loop while their media stage is centered, reusing the scroll-autoplay heuristic: playback progress is measured on the stage (`data-scroll-playback-stage`), not the whole surface. Manual pause/play wins. A scene that fails to build falls back to its settled or proof frame and never throws.
+- Fixture text is curated. No quota or usage banners, permission-mode labels, personal paths or emails, or invented metrics.
 
 ## Capture suite
 
@@ -149,10 +134,10 @@ Preserve the existing `web/images/` paths because the root README references the
 
 ## Accessibility and motion
 
-- The static page, default product screen, installation command, and primary actions must work before client enhancement.
+- The static page, every chapter's settled frame, installation command, and primary actions must work before client enhancement.
 - Follow the WAI-ARIA tabs pattern when the selector behaves as tabs, including arrow keys, Home/End, activation semantics, and roving focus.
 - Color is never the only selection, status, or focus signal.
-- Respect `prefers-reduced-motion` in CSS, TypeScript, timers, observers, and media. Reduced motion shows the hero poster first and does not autoplay video.
+- Respect `prefers-reduced-motion` in CSS, TypeScript, timers, observers, and media. Reduced motion shows the hero poster first, does not autoplay video, and shows each scene chapter's real proof image instead of animating.
 - Video playback remains controllable. Media failure preserves the poster and surrounding explanation.
 - Maintain WCAG AA contrast for rendered text and controls.
 
@@ -162,8 +147,9 @@ Follow the mandatory website update quality SOP while making every visual,
 copy, layout, interaction, responsive, metadata, or campaign change. It is the
 ordered admission gate for each candidate and the complete update. Follow the
 release and visual verification SOP after owner acceptance when deployment is
-in scope. Verification must open all five product states locally and on the
-deployed site; the default state never proves the suite.
+in scope. Verification must view every chapter, including each step and the
+proof beat, at wide, laptop, and phone sizes, locally and on the deployed site.
+The first chapter or the default step never proves the suite.
 
 Browser tests must prove user-visible behavior or an intentional design
 contract. Do not restate Tailwind classes, CSS declarations, theme-token
@@ -185,7 +171,7 @@ Website work is incomplete until the changed scope has evidence for:
 - Astro and strict TypeScript checking;
 - formatting and linting with the repository's Oxlint/Oxfmt conventions;
 - static production build output;
-- interactive-demo state and invalid-state behavior;
+- chapter step, scene playback, and invalid-state behavior;
 - keyboard and accessibility semantics;
 - reduced-motion and media failure behavior;
 - desktop and narrow-screen visual proof;
