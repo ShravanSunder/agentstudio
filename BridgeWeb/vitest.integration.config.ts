@@ -4,6 +4,8 @@ import { fileURLToPath } from 'node:url';
 import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vitest/config';
 
+import { nodeIntegrationTestTimeoutMilliseconds } from './tests/vitest-hang-bounds.ts';
+
 const bridgeWebPackageRoot = dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
@@ -26,6 +28,7 @@ export default defineConfig({
 			'tests/**/*.integration.test.ts',
 		],
 		setupFiles: ['./tests/console-error-guard.ts'],
+		testTimeout: nodeIntegrationTestTimeoutMilliseconds,
 		exclude: ['**/node_modules/**', '**/dist/**'],
 	},
 });

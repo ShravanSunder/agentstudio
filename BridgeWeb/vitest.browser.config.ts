@@ -6,6 +6,10 @@ import { playwright } from '@vitest/browser-playwright';
 import { defineConfig, type TestUserConfig } from 'vitest/config';
 
 import { bridgeViteOptimizedDependencies } from './bridge-vite-optimized-dependencies.js';
+import {
+	browserBenchmarkTestTimeoutMilliseconds,
+	browserIntegrationTestTimeoutMilliseconds,
+} from './tests/vitest-hang-bounds.ts';
 
 const bridgeWebPackageRoot = dirname(fileURLToPath(import.meta.url));
 const repositoryTemporaryRoot = resolve(bridgeWebPackageRoot, '..', 'tmp');
@@ -65,7 +69,7 @@ export default defineConfig({
 					name: 'integration-browser',
 					setupFiles: ['./tests/console-error-guard.ts', './tests/vitest-browser-setup.ts'],
 					browser: browserConfig,
-					testTimeout: 60_000,
+					testTimeout: browserIntegrationTestTimeoutMilliseconds,
 					include: [
 						'src/**/*.browser.test.ts',
 						'src/**/*.browser.test.tsx',
@@ -96,6 +100,7 @@ export default defineConfig({
 				},
 				test: {
 					name: 'benchmarks-browser',
+					testTimeout: browserBenchmarkTestTimeoutMilliseconds,
 					setupFiles: ['./tests/console-error-guard.ts', './tests/vitest-browser-setup.ts'],
 					browser: {
 						...browserConfig,
