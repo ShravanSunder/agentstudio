@@ -192,7 +192,8 @@ package struct IPCCommandDiscovery: Sendable {
         do {
             composition = try IPCCommandMethodComposition(
                 compatibility: catalog.compatibility,
-                commands: validatedCommands
+                commands: validatedCommands,
+                recognizedUnexposedCommands: catalog.recognizedUnexposedCommands
             )
             erasedList = try IPCAnyMethodDescriptor(erasing: composition.list)
             erasedExecute = try IPCAnyMethodDescriptor(erasing: composition.execute)
@@ -215,6 +216,7 @@ package struct IPCCommandDiscovery: Sendable {
 
         return IPCDiscoveredCommandCatalog(
             commands: validatedCommands,
+            recognizedUnexposedCommands: catalog.recognizedUnexposedCommands,
             executeDescriptor: erasedExecute
         )
     }
@@ -302,14 +304,20 @@ package struct IPCDiscoveredCommandCatalog: Sendable {
     package let executeDescriptor: IPCAnyMethodDescriptor
 
     private let commandsByIdentifier: [IPCCommandIdentifier: IPCCommandDescriptor]
+    /// Commands the app recognizes but this channel hides. The app, not this
+    /// client, answers them: a pane agent hears `notYetAllowed` by name.
+    private let recognizedUnexposedIdentifiers: Set<IPCCommandIdentifier>
 
     fileprivate init(
         commands: [IPCCommandDescriptor],
+        recognizedUnexposedCommands: [IPCRecognizedUnexposedName],
         executeDescriptor: IPCAnyMethodDescriptor
     ) {
         commandsByIdentifier = Dictionary(
             uniqueKeysWithValues: commands.map { ($0.id, $0) }
         )
+        recognizedUnexposedIdentifiers = Set(
+            recognizedUnexposedCommands.map { IPCCommandIdentifier(rawValue: $0.name) })
         self.executeDescriptor = executeDescriptor
     }
 
@@ -318,11 +326,25 @@ package struct IPCDiscoveredCommandCatalog: Sendable {
         correlationId: UUID,
         arguments: IPCCommandArguments
     ) throws -> IPCDescriptorInvocation {
+        let request = IPCCommandExecutionRequest(
+            commandId: commandId,
+            correlationId: correlationId,
+            arguments: arguments
+        )
         guard let command = commandsByIdentifier[commandId] else {
-            throw IPCCommandDiscovery.failure(
-                .unknownCommandIdentifier,
-                fieldPath: "$.commandId",
-                expected: "an identifier advertised by command.list"
+            guard recognizedUnexposedIdentifiers.contains(commandId) else {
+                throw IPCCommandDiscovery.failure(
+                    .unknownCommandIdentifier,
+                    fieldPath: "$.commandId",
+                    expected: "an identifier advertised by command.list"
+                )
+            }
+            // No descriptor to validate against here; the app refuses the
+            // hidden command by name before it validates arguments.
+            return IPCDescriptorInvocation(
+                descriptor: executeDescriptor,
+                normalizedParameters: try JSONEncoder().encode(request),
+                presentation: .tooling
             )
         }
         guard command.argumentVariants.contains(arguments.variant) else {
@@ -332,11 +354,6 @@ package struct IPCDiscoveredCommandCatalog: Sendable {
                 expected: "an argument variant advertised for the selected command"
             )
         }
-        let request = IPCCommandExecutionRequest(
-            commandId: commandId,
-            correlationId: correlationId,
-            arguments: arguments
-        )
         let normalizedParameters: Data
         do {
             normalizedParameters = try executeDescriptor.normalizeParameters(

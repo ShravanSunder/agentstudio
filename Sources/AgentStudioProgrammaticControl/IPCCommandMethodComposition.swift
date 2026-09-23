@@ -51,7 +51,8 @@ package struct IPCCommandMethodComposition: Sendable {
 
     package init(
         compatibility: IPCProtocolCatalogCompatibility,
-        commands: [IPCCommandDescriptor]
+        commands: [IPCCommandDescriptor],
+        recognizedUnexposedCommands: [IPCRecognizedUnexposedName] = []
     ) throws {
         guard compatibility == .current else {
             throw IPCCommandMethodCompositionError.incompatibleIdentity
@@ -67,7 +68,8 @@ package struct IPCCommandMethodComposition: Sendable {
         let commands = commands.sorted { $0.id.rawValue < $1.id.rawValue }
         let catalogResult = IPCCommandCatalogResult(
             compatibility: compatibility,
-            commands: commands
+            commands: commands,
+            recognizedUnexposedCommands: recognizedUnexposedCommands.sorted { $0.name < $1.name }
         )
         let catalogSchema = try IPCCommandCatalogResult.schema(
             compatibility: compatibility,

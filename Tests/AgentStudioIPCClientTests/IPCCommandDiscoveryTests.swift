@@ -66,6 +66,40 @@ struct IPCCommandDiscoveryTests {
         #expect(wrongVariant.fieldPath == "$.arguments.kind")
     }
 
+    @Test("a recognized command the channel hides is sent for the app to refuse, not refused locally")
+    func recognizedHiddenCommandIsSentToTheApp() throws {
+        let hiddenCommandId = IPCCommandIdentifier(rawValue: "fixture.hidden")
+        let fixture = try IPCCommandDiscoveryFixture.make(recognizedUnexposedCommands: [
+            IPCRecognizedUnexposedName(name: hiddenCommandId.rawValue, agentEligibility: .notYetAllowed)
+        ])
+        let catalog = try IPCCommandDiscovery(methodCatalog: fixture.methodCatalog)
+            .decodeCommandCatalog(from: JSONEncoder().encode(fixture.commandComposition.catalogResult))
+
+        let invocation = try catalog.makeInvocation(
+            commandId: hiddenCommandId,
+            correlationId: fixture.correlationId,
+            arguments: try fixture.paneArguments()
+        )
+        let unknown = try captureIPCCommandDiscoveryError {
+            _ = try catalog.makeInvocation(
+                commandId: IPCCommandIdentifier(rawValue: "future.private.command"),
+                correlationId: fixture.correlationId,
+                arguments: .noArguments
+            )
+        }
+
+        #expect(invocation.descriptor.metadata.name == "command.execute")
+        #expect(
+            try JSONDecoder().decode(IPCCommandExecutionRequest.self, from: invocation.normalizedParameters)
+                == IPCCommandExecutionRequest(
+                    commandId: hiddenCommandId,
+                    correlationId: fixture.correlationId,
+                    arguments: try fixture.paneArguments()
+                )
+        )
+        #expect(unknown.reason == .unknownCommandIdentifier)
+    }
+
     @Test("command result decoding preserves typed identity and correlation")
     func resultIdentityAndCorrelationRemainTyped() throws {
         let fixture = try IPCCommandDiscoveryFixture.make()
@@ -138,7 +172,7 @@ private struct IPCCommandDiscoveryFixture {
     let commandComposition: IPCCommandMethodComposition
     let methodCatalog: IPCMethodCatalogResult
 
-    static func make() throws -> Self {
+    static func make(recognizedUnexposedCommands: [IPCRecognizedUnexposedName] = []) throws -> Self {
         let noArgumentsCommandId = IPCCommandIdentifier(rawValue: "fixture.noArguments")
         let paneCommandId = IPCCommandIdentifier(rawValue: "fixture.pane")
         let correlationId = UUIDv7.generate()
@@ -218,7 +252,8 @@ private struct IPCCommandDiscoveryFixture {
         ]
         let commandComposition = try IPCCommandMethodComposition(
             compatibility: .current,
-            commands: commands
+            commands: commands,
+            recognizedUnexposedCommands: recognizedUnexposedCommands
         )
         return Self(
             noArgumentsCommandId: noArgumentsCommandId,

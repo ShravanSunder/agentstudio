@@ -369,9 +369,11 @@ extension AppDelegate {
         var registrations = try AppIPCBuiltInMethodRegistrations.make(
             inputs: .init(catalog: catalog, runtimeId: runtimeId, ports: ports, eventBroker: eventBroker)
         )
+        let commandListing = try ports.commandPort.listCommands()
         let commandComposition = try IPCCommandMethodComposition(
             compatibility: .current,
-            commands: ports.commandPort.listCommands().commands
+            commands: commandListing.commands,
+            recognizedUnexposedCommands: commandListing.recognizedUnexposedCommands
         )
         registrations += try AppIPCCommandMethodRegistrations.make(
             composition: commandComposition,

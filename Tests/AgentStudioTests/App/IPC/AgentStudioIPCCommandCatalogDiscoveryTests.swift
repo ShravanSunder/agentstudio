@@ -115,6 +115,35 @@ struct AgentStudioIPCCommandCatalogDiscoveryTests {
         #expect(execution.standardError.contains("\"fieldPath\":\"$.commandId\""))
     }
 
+    @Test("the bundled CLI takes a pane agent's hidden stable command to the app's named refusal")
+    func bundledCLIReachesTheAppForAHiddenStableCommand() async throws {
+        let harness = try await PaneAgentControlHarness.make(channel: .stable)
+        defer { harness.tearDown() }
+        let cli = try commandLineExecutableURL()
+        let environment = [
+            "AGENTSTUDIO_IPC_SOCKET": harness.socketPath,
+            "AGENTSTUDIO_PANE_TOKEN": try harness.agentToken(boundTo: harness.mainPaneId).rawValue,
+            "PATH": "/usr/bin:/bin",
+        ]
+        let executionPayload = try #require(
+            String(
+                bytes: try JSONEncoder().encode(
+                    harness.command(.splitRight, arguments: try harness.paneArguments(harness.mainPaneId))),
+                encoding: .utf8))
+
+        let execution = try await runCommandLineInterface(
+            executableURL: cli,
+            arguments: ["command.execute", "--json", executionPayload],
+            environment: environment)
+
+        // `splitRight` is not in the stable command list; the CLI must still
+        // send it so the app, not the client, answers with the named refusal.
+        #expect(execution.exitCode != 0)
+        #expect(execution.standardError.contains("\"reason\":\"notYetAllowed\""), "\(execution.standardError)")
+        #expect(execution.standardError.contains("\"refusedName\":\"splitRight\""), "\(execution.standardError)")
+        #expect(!execution.standardError.contains("\"reason\":\"unknownCommand\""))
+    }
+
     private func commandLineExecutableURL() throws -> URL {
         let buildDirectory = try #require(ProcessInfo.processInfo.environment["SWIFT_BUILD_DIR"])
         let testFileURL = URL(fileURLWithPath: #filePath)

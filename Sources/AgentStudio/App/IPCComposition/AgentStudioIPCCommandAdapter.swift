@@ -45,7 +45,12 @@ struct AgentStudioIPCCommandAdapter: AppIPCCommandPort, @unchecked Sendable {
             .admittedCommands(on: channel)
             .map(AgentStudioIPCCommandCatalogProjection.makeDescriptor)
             .sorted { $0.id.rawValue < $1.id.rawValue }
-        return IPCCommandCatalogResult(compatibility: .current, commands: commands)
+        return IPCCommandCatalogResult(
+            compatibility: .current,
+            commands: commands,
+            recognizedUnexposedCommands: AgentStudioIPCCommandCatalogProjection.recognizedUnexposedCommands(
+                on: channel)
+        )
     }
 
     func prepareCommand(

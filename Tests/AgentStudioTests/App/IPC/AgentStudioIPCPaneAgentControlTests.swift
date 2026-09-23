@@ -102,6 +102,36 @@ struct AgentStudioIPCPaneAgentControlTests {
         #expect(harness.workspaceFacts() == before)
     }
 
+    @Test("stable discovery names the methods and commands it hides, with their eligibility")
+    func stableDiscoveryNamesHiddenEntries() async throws {
+        let harness = try await PaneAgentControlHarness.make(channel: .stable)
+        defer { harness.tearDown() }
+        let token = try harness.agentToken(boundTo: harness.mainPaneId)
+
+        let capabilities = try await harness.response(
+            token: token, method: "system.capabilities", params: .object([:]))
+        let commandList = try await harness.response(token: token, method: "command.list", params: .object([:]))
+        let methodCatalog = try JSONDecoder().decode(
+            IPCMethodCatalogResult.self,
+            from: JSONEncoder().encode(try #require(capabilities.result, "\(String(describing: capabilities.error))")))
+        let commandCatalog = try JSONDecoder().decode(
+            IPCCommandCatalogResult.self,
+            from: JSONEncoder().encode(try #require(commandList.result, "\(String(describing: commandList.error))")))
+
+        // Hidden on stable: listed by name, never as an invocable entry.
+        #expect(
+            methodCatalog.recognizedUnexposedMethods.contains(
+                IPCRecognizedUnexposedName(name: "pane.focus", agentEligibility: .notYetAllowed)))
+        #expect(!methodCatalog.methods.contains { $0.name == "pane.focus" })
+        #expect(
+            commandCatalog.recognizedUnexposedCommands.contains(
+                IPCRecognizedUnexposedName(name: "splitRight", agentEligibility: .notYetAllowed)))
+        #expect(!commandCatalog.commands.contains { $0.id.rawValue == "splitRight" })
+        // Exposed on stable: invocable, not listed as hidden.
+        #expect(!methodCatalog.recognizedUnexposedMethods.contains { $0.name == "terminal.send" })
+        #expect(!commandCatalog.recognizedUnexposedCommands.contains { $0.name == "scrollToBottom" })
+    }
+
     @Test(
         "a drawer-terminal agent owns only itself and cannot add drawer children",
         arguments: [AgentStudioIPCChannel.debug, .stable]

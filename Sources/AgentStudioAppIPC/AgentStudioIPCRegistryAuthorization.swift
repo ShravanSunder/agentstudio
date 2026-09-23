@@ -34,9 +34,15 @@ package struct AppIPCMethodRegistry: Sendable {
         guard let ping = available.first(where: { $0.descriptor.metadata.name == "system.ping" }) else {
             throw AppIPCMethodRegistryError.missingSystemPing
         }
+        let availableNames = Set(available.map(\.descriptor.metadata.name))
         let composition = try IPCSystemCapabilitiesDescriptorFactory.compose(
             compatibility: .current, availableDescriptors: available.map(\.descriptor),
-            illustrativeDescriptor: ping.descriptor
+            illustrativeDescriptor: ping.descriptor,
+            recognizedUnexposedMethods: registrations.map(\.descriptor.metadata)
+                .filter { !availableNames.contains($0.name) }
+                .map {
+                    IPCRecognizedUnexposedName(name: $0.name, agentEligibility: $0.agentEligibility ?? .notYetAllowed)
+                }
         )
         let capabilityDescriptor = composition.descriptor
         let capabilityResult = composition.result
