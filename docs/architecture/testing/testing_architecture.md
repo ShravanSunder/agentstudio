@@ -202,8 +202,13 @@ socket accept queue, a thread from `valueFromDedicatedThread`) uses
 `arriveBlocking(_:)`; called from inside a task it parks nothing and fails naming
 the step. No harness wait has a deadline: a step that is never reached leaves the
 test waiting for the hang bound, whose cancellation makes the wait throw
-`HeldStepNeverReached` with the step's name. Do not add a new gate type; the
-existing ones are frozen by the lint baseline and move onto `HeldStep`.
+`HeldStepNeverReached` with the step's name. A lane's own hang bound kills the
+process instead of cancelling the task, so when `AGENTSTUDIO_HELD_STEP_LOG` names a
+file every step appends `waiting` and `arrived` lines there
+([`HeldStepEventLog.swift`](../../../Tests/AgentStudioTestHarness/HeldStepEventLog.swift)),
+and a step with a wait and no arrival is the one never reached. Do not add a new
+gate type; the existing ones are frozen by the lint baseline and move onto
+`HeldStep`.
 
 **Causal replies: `proveReplyDependsOnStep`.** Where a boundary's held
 dependency can report failure through its own contract, prove that the reply
