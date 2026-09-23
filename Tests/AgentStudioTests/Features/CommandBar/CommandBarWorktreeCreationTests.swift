@@ -102,7 +102,8 @@ struct CommandBarWorktreeCreationTests {
     func resolverMapsModifiersToCommands() throws {
         let sourceId = UUIDv7.generate()
         let branchName = try WorktreeBranchName.validated("feature/resolve").get()
-        let draft = CommandBarWorktreeCreationDraft(sourceWorktreeId: sourceId, branchName: .success(branchName))
+        let draft = CommandBarWorktreeCreationDraft(
+            sourceWorktreeId: sourceId, branchName: .success(branchName), forkEligibility: .available)
 
         #expect(
             CommandBarWorktreeCreationResolver.resolve(draft: draft, modifier: .plain)
@@ -247,6 +248,51 @@ struct CommandBarWorktreeCreationTests {
         #expect(dispatcher.worktreeCreationDispatches.map(\.kind) == [.fork])
     }
 
+    @Test("while eligibility is pending, Fork Returns wait and Option-Return creates a clean checkout now")
+    func pendingEligibilityHoldsForkReturns() throws {
+        let sourceId = UUIDv7.generate()
+        let branchName = try WorktreeBranchName.validated("feature/pending").get()
+        let pending = CommandBarWorktreeCreationDraft(sourceWorktreeId: sourceId, branchName: .success(branchName))
+
+        #expect(
+            CommandBarWorktreeCreationResolver.resolve(draft: pending, modifier: .plain) == .awaitingForkEligibility)
+        #expect(
+            CommandBarWorktreeCreationResolver.resolve(draft: pending, modifier: .command) == .awaitingForkEligibility)
+        #expect(
+            CommandBarWorktreeCreationResolver.resolve(draft: pending, modifier: .option)
+                == .dispatch(.init(kind: .cleanCheckout, sourceWorktreeId: sourceId, branchName: branchName)))
+    }
+
+    @Test(
+        "Return while eligibility is pending dispatches nothing until the answer, then the answered command",
+        arguments: [
+            (WorktreeForkEligibility.available, WorktreeCreationKind.fork),
+            (WorktreeForkEligibility.unavailable(reason: "the volume cannot clone files"), .cleanCheckout),
+        ]
+    )
+    func pendingReturnDispatchesAfterAnswer(
+        answer: WorktreeForkEligibility,
+        expectedKind: WorktreeCreationKind
+    ) async throws {
+        let fixture = Self.makeFixture()
+        let dispatcher = FakeAppCommandDispatcher()
+        let gate = GatedForkEligibilityChecker()
+        let controller = Self.makeController(
+            store: fixture.store, dispatcher: dispatcher, worktreeForkEligibility: gate)
+        try Self.openBranchLevel(controller: controller, store: fixture.store, source: fixture.worktree)
+        controller.state.rawInput = "feature/pending"
+        let pendingRow = try #require(
+            Self.snapshot(controller: controller, store: fixture.store, dispatcher: dispatcher).displayedItems.first)
+
+        controller.executeItem(pendingRow, modifier: .plain)
+        let dispatchesBeforeAnswer = dispatcher.worktreeCreationDispatches
+        await gate.answer(answer)
+        await controller.pendingWorktreeCreation?.value
+
+        #expect(dispatchesBeforeAnswer.isEmpty)
+        #expect(dispatcher.worktreeCreationDispatches.map(\.kind) == [expectedKind])
+    }
+
     // MARK: - Fixtures
 
     private static func makeFixture() -> (store: WorkspaceStore, worktree: Worktree) {
@@ -342,6 +388,27 @@ private func awaitForkEligibility(of sourceWorktreeId: UUID, in state: CommandBa
             } onChange: {
                 continuation.resume()
             }
+        }
+    }
+}
+
+/// Holds the eligibility answer until the test releases it; an answer released before the
+/// query arrives is kept and returned when it does.
+private actor GatedForkEligibilityChecker: WorktreeForkEligibilityChecking {
+    private var waiter: CheckedContinuation<WorktreeForkEligibility, Never>?
+    private var releasedAnswer: WorktreeForkEligibility?
+
+    func forkEligibility(sourceWorktreePath _: URL, destinationDirectory _: URL) async -> WorktreeForkEligibility {
+        if let releasedAnswer { return releasedAnswer }
+        return await withCheckedContinuation { waiter = $0 }
+    }
+
+    func answer(_ eligibility: WorktreeForkEligibility) {
+        if let waiter {
+            self.waiter = nil
+            waiter.resume(returning: eligibility)
+        } else {
+            releasedAnswer = eligibility
         }
     }
 }

@@ -68,6 +68,8 @@ package final class CommandBarPanelController {
     private let interactionProbe: AgentStudioInteractionPerformanceProbe?
     private let animatePanelDismissal: Bool
     let worktreeForkEligibility: (any WorktreeForkEligibilityChecking)?
+    var forkEligibilityQueriesBySourceWorktreeId: [UUID: Task<Void, Never>] = [:]
+    var pendingWorktreeCreation: Task<Void, Never>?
     private let resultSession: CommandBarResultSession
     private var activationGenerationGate = CommandBarActivationGenerationGate()
     private var pendingOpenAcknowledgement: PendingOpenAcknowledgement?
@@ -453,7 +455,10 @@ package final class CommandBarPanelController {
             guard
                 let request = CommandBarWorktreeCreationResolver.dispatchableRequest(
                     draft: draft, modifier: modifier, dispatcher: dispatcher)
-            else { return }
+            else {
+                resumeWorktreeCreationAfterForkEligibility(item: item, draft: draft, modifier: modifier)
+                return
+            }
             dismiss(measureNonExecutingClose: false)
             dispatcher.dispatchWorktreeCreation(request)
         }

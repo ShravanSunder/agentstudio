@@ -19,23 +19,30 @@ package struct CommandBarWorktreeCreationDraft: Equatable, Sendable {
         self.forkEligibility = forkEligibility
     }
 
-    /// Fork is offered while eligibility is pending or available; the SDK's own fork
-    /// rejection stays authoritative either way.
+    /// The row reads as Fork while eligibility is pending or available; only an
+    /// `.unavailable` answer switches it to the clean fallback.
     var offersFork: Bool {
         guard case .unavailable = forkEligibility else { return true }
         return false
+    }
+
+    func answering(_ eligibility: WorktreeForkEligibility) -> Self {
+        Self(sourceWorktreeId: sourceWorktreeId, branchName: branchName, forkEligibility: eligibility)
     }
 }
 
 enum CommandBarWorktreeCreationResolution: Equatable, Sendable {
     case dispatch(WorktreeCreationRequest)
+    /// A Fork Return arrived before the eligibility answer; it resolves once the answer lands.
+    case awaitingForkEligibility
     case notActionable
 }
 
 /// Resolves the one Create row to one of two command identities at selection time.
 /// Return and Command-Return fork and Option-Return creates a clean checkout; where fork
 /// is unavailable for the source, every Return creates a clean checkout, and the row says
-/// so before the user presses it.
+/// so before the user presses it. A Fork Return never dispatches before the eligibility
+/// answer, so an unsupported fork is never attempted.
 enum CommandBarWorktreeCreationResolver {
     static func resolve(
         draft: CommandBarWorktreeCreationDraft,
@@ -44,8 +51,11 @@ enum CommandBarWorktreeCreationResolver {
             CommandBarCommandPresentation.targetedSpec(for: command, targetType: targetType)
         }
     ) -> CommandBarWorktreeCreationResolution {
-        guard case .success(let branchName) = draft.branchName,
-            let commandSpec = targetedSpecResolver(command(for: modifier, draft: draft), .worktree),
+        guard case .success(let branchName) = draft.branchName else { return .notActionable }
+        if draft.forkEligibility == nil, modifier != .option {
+            return .awaitingForkEligibility
+        }
+        guard let commandSpec = targetedSpecResolver(command(for: modifier, draft: draft), .worktree),
             let kind = WorktreeCreationKind(command: commandSpec.command)
         else {
             return .notActionable
