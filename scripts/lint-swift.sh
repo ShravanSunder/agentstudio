@@ -46,9 +46,11 @@ run_architecture_lint() {
 }
 
 # Every tracked agent instruction document; the architecture lint checks that
-# each path and anchor it references exists.
+# each path and anchor it references exists. The lint tool's own fixture
+# documents are deliberately broken and are linted by its tests instead.
 agent_documents() {
-  git ls-files -- 'AGENTS.md' '*/AGENTS.md'
+  git ls-files -- 'AGENTS.md' '*/AGENTS.md' \
+    ':(exclude)Tools/AgentStudioArchitectureLint/Tests/AgentStudioArchitectureLintTests/Fixtures/**'
 }
 
 run_release_script_checks() {

@@ -68,29 +68,43 @@ struct AgentDocReferenceRule: ArchitectureDocumentRule {
         resolver: RepositoryReferenceResolver,
         anchorsByTargetPath: inout [String: Set<String>]
     ) -> String? {
-        let anchors: Set<String>
-        if reference.path.isEmpty {
-            anchors = scan.anchors
-        } else {
-            guard let resolvedPath = resolver.resolve(reference.path) else {
-                return
-                    "\(reference.written) does not exist (resolved against \(document.workspaceRelativePath ?? document.path)'s folder and the repository root)"
-            }
-            guard reference.anchor != nil, resolvedPath.hasSuffix(".md") else {
+        guard let anchor = reference.anchor else {
+            if reference.path.isEmpty || !resolver.existingCandidates(for: reference.path).isEmpty {
                 return nil
             }
-            if let cached = anchorsByTargetPath[resolvedPath] {
-                anchors = cached
-            } else {
-                let contents = (try? String(contentsOfFile: resolvedPath, encoding: .utf8)) ?? ""
-                anchors = MarkdownReferenceScan(contents: contents).anchors
-                anchorsByTargetPath[resolvedPath] = anchors
-            }
+            return missingTarget(reference, document: document)
         }
-        guard let anchor = reference.anchor, !anchors.contains(anchor) else {
+        if reference.path.isEmpty {
+            return scan.anchors.contains(anchor) ? nil : missingAnchor(reference, anchor: anchor)
+        }
+        let candidates = resolver.existingCandidates(for: reference.path)
+        guard !candidates.isEmpty else {
+            return missingTarget(reference, document: document)
+        }
+        // An anchor into a non-Markdown file (a source line) is not checked.
+        let markdownCandidates = candidates.filter { $0.hasSuffix(".md") }
+        guard !markdownCandidates.isEmpty else {
             return nil
         }
-        return "\(reference.written) names #\(anchor), which is not a heading or explicit anchor in its target"
+        let anchorFound = markdownCandidates.contains { candidate in
+            if let cached = anchorsByTargetPath[candidate] {
+                return cached.contains(anchor)
+            }
+            let contents = (try? String(contentsOfFile: candidate, encoding: .utf8)) ?? ""
+            let anchors = MarkdownReferenceScan(contents: contents).anchors
+            anchorsByTargetPath[candidate] = anchors
+            return anchors.contains(anchor)
+        }
+        return anchorFound ? nil : missingAnchor(reference, anchor: anchor)
+    }
+
+    private func missingTarget(_ reference: MarkdownReference, document: AgentDocumentContext) -> String {
+        let documentName = document.workspaceRelativePath ?? document.path
+        return "\(reference.written) does not exist (resolved against \(documentName)'s folder and the repository root)"
+    }
+
+    private func missingAnchor(_ reference: MarkdownReference, anchor: String) -> String {
+        "\(reference.written) names #\(anchor), which is not a heading or explicit anchor in its target"
     }
 }
 
@@ -98,18 +112,16 @@ private struct RepositoryReferenceResolver {
     let workspaceRootPath: String
     let documentDirectoryPath: String
 
-    /// The existing absolute path the reference names, trying the document's
-    /// folder first and then the repository root.
-    func resolve(_ path: String) -> String? {
+    /// The existing absolute paths the reference can name: relative to the
+    /// document's folder, and relative to the repository root.
+    func existingCandidates(for path: String) -> [String] {
         let decoded = path.removingPercentEncoding ?? path
-        for base in [documentDirectoryPath, workspaceRootPath] {
-            let candidate = URL(fileURLWithPath: decoded, relativeTo: URL(fileURLWithPath: base, isDirectory: true))
+        let candidates = [documentDirectoryPath, workspaceRootPath].map { base in
+            URL(fileURLWithPath: decoded, relativeTo: URL(fileURLWithPath: base, isDirectory: true))
                 .standardizedFileURL.path
-            if FileManager.default.fileExists(atPath: candidate) {
-                return candidate
-            }
         }
-        return nil
+        var seen: Set<String> = []
+        return candidates.filter { seen.insert($0).inserted && FileManager.default.fileExists(atPath: $0) }
     }
 }
 
