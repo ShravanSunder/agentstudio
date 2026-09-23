@@ -14,7 +14,7 @@ package enum WorkspaceLocalMigrations {
         registerActivityAndAnnotationMigrations(in: &migrator)
         registerReviewedSubjectMigrations(in: &migrator)
         registerPerScreenSidebarOrganizationMigration(in: &migrator)
-        registerDrawerPresentationSchema(in: &migrator, legacyImport: legacyDrawerPresentationImport)
+        registerDrawerPresentationMigrations(in: &migrator, legacyImport: legacyDrawerPresentationImport)
         return migrator
     }
 

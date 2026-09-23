@@ -175,6 +175,67 @@ struct WorkspaceDrawerPresentationPersistenceTests {
         #expect(legacyValue.value == nil)
     }
 
+    @Test("an owner capture failure keeps the legacy key and import pending until a later capture imports")
+    func legacyImportWaitsForSuccessfulOwnerCapture() async throws {
+        // Arrange: a populated pre-upgrade database and a legacy global height.
+        let databases = try DrawerPresentationDatabases()
+        defer { databases.remove() }
+        let store = try await databases.bootStore()
+        let paneA = appendTabbedPane(to: store)
+        let paneB = appendTabbedPane(to: store)
+        #expect(await store.flushAsync() == .persisted)
+        try databases.rewindLocalSchemaBeforeDrawerPresentation()
+        let legacyValue = LegacyHeightValueBox(value: 0.45)
+        let configuration = WorkspaceSQLiteDatastoreConfiguration(
+            coreDatabaseURL: databases.coreDatabaseURL,
+            localDatabaseURL: databases.localDatabaseURL,
+            legacyDrawerPresentationSource: legacyValue.source
+        )
+
+        // Act 1: owner enumeration fails.
+        let failedCapture = LegacyDrawerPresentationImportCapture.capture(
+            source: legacyValue.source,
+            enumerateOwners: { throw CocoaError(.fileReadUnknown) }
+        )
+        _ = try WorkspaceSQLiteDatastoreActor.openConfiguredLocalRepository(
+            workspaceId: UUIDv7.generate(),
+            configuration: configuration,
+            legacyDrawerPresentationCapture: failedCapture
+        )
+
+        // Assert 1: schema migrated, import pending, key kept.
+        #expect(failedCapture == .ownerEnumerationFailed)
+        #expect(legacyValue.value == 0.45)
+        #expect(try databases.storedOwnerPaneIds(workspaceId: store.identityAtom.workspaceId).isEmpty)
+        #expect(
+            !(try databases.appliedLocalMigrationIdentifiers())
+                .contains(WorkspaceLocalMigrations.legacyDrawerHeightImportMigrationIdentifier)
+        )
+
+        // Act 2: a later boot captures the real persisted owners.
+        let coreRepository = WorkspaceCoreRepository(
+            databaseWriter: try DatabaseQueue(path: databases.coreDatabaseURL.path)
+        )
+        let capture = LegacyDrawerPresentationImportCapture.capture(
+            source: legacyValue.source,
+            enumerateOwners: { try coreRepository.fetchOwningLayoutPaneIDsByWorkspace() }
+        )
+        _ = try WorkspaceSQLiteDatastoreActor.openConfiguredLocalRepository(
+            workspaceId: UUIDv7.generate(),
+            configuration: configuration,
+            legacyDrawerPresentationCapture: capture
+        )
+
+        // Assert 2: every owning pane imported at the legacy height; key cleared.
+        #expect(capture.importToApply != nil)
+        #expect(try databases.storedOwnerPaneIds(workspaceId: store.identityAtom.workspaceId) == [paneA.id, paneB.id])
+        #expect(legacyValue.value == nil)
+        #expect(
+            try databases.appliedLocalMigrationIdentifiers()
+                .contains(WorkspaceLocalMigrations.legacyDrawerHeightImportMigrationIdentifier)
+        )
+    }
+
     @Test("unknown side and non-finite ratio fall back to each field's default")
     func invalidStoredFieldsFallBackToDefaults() async throws {
         let databases = try DrawerPresentationDatabases()
@@ -254,6 +315,13 @@ private struct DrawerPresentationDatabases {
             )
         }
         return Set(ids.compactMap(UUID.init(uuidString:)))
+    }
+
+    func appliedLocalMigrationIdentifiers() throws -> Set<String> {
+        let queue = try DatabaseQueue(path: localDatabaseURL.path)
+        return try queue.read { database in
+            Set(try String.fetchAll(database, sql: "SELECT identifier FROM grdb_migrations"))
+        }
     }
 
     /// Returns the local database to its exact pre-upgrade shape: every other

@@ -18,6 +18,38 @@ package struct LegacyDrawerPresentationImport: Equatable, Sendable {
     }
 }
 
+/// Outcome of capturing the legacy import inputs before local migration.
+package enum LegacyDrawerPresentationImportCapture: Equatable, Sendable {
+    /// No finite legacy height exists; nothing to import or clear.
+    case noLegacyValue
+    case captured(LegacyDrawerPresentationImport)
+    /// Owning panes could not be read. The import stays pending and the
+    /// legacy key is kept for a later boot; the schema still migrates.
+    case ownerEnumerationFailed
+
+    package static func capture(
+        source: LegacyDrawerPresentationSource?,
+        enumerateOwners: () throws -> [UUID: Set<UUID>]
+    ) -> Self {
+        guard let legacyHeightRatio = source?.readHeightRatio(),
+            DrawerPresentationPreference.validatedNormalHeightRatio(legacyHeightRatio) != nil
+        else { return .noLegacyValue }
+        guard let owningPaneIdsByWorkspaceId = try? enumerateOwners() else { return .ownerEnumerationFailed }
+        guard
+            let legacyImport = LegacyDrawerPresentationImport(
+                legacyHeightRatio: legacyHeightRatio,
+                owningPaneIdsByWorkspaceId: owningPaneIdsByWorkspaceId
+            )
+        else { return .noLegacyValue }
+        return .captured(legacyImport)
+    }
+
+    package var importToApply: LegacyDrawerPresentationImport? {
+        guard case .captured(let legacyImport) = self else { return nil }
+        return legacyImport
+    }
+}
+
 /// Where the retired global drawer height is read from and cleared after the
 /// import commits. Production uses the app's standard defaults; tests inject
 /// their own value so they never touch a developer's defaults domain.
@@ -47,6 +79,7 @@ package struct LegacyDrawerPresentationSource: Sendable {
 
 extension WorkspaceLocalMigrations {
     package static let drawerPresentationMigrationIdentifier = "015_create_local_drawer_presentation"
+    package static let legacyDrawerHeightImportMigrationIdentifier = "016_import_legacy_drawer_height"
 
     package static func migrateBootRequired(
         _ writer: any DatabaseWriter,
@@ -55,13 +88,19 @@ extension WorkspaceLocalMigrations {
         try bootRequiredMigrator(legacyDrawerPresentationImport: legacyDrawerPresentationImport).migrate(writer)
     }
 
-    /// Creates per-owner drawer presentation rows, separate from the cursor
-    /// replace-rows set. The legacy import runs inside this migration so the
-    /// schema version records completion only after the imported rows commit.
-    static func registerDrawerPresentationSchema(
+    static func registerDrawerPresentationMigrations(
         in migrator: inout DatabaseMigrator,
         legacyImport: LegacyDrawerPresentationImport?
     ) {
+        registerDrawerPresentationSchema(in: &migrator)
+        if let legacyImport {
+            registerLegacyDrawerHeightImport(in: &migrator, legacyImport: legacyImport)
+        }
+    }
+
+    /// Creates per-owner drawer presentation rows, separate from the cursor
+    /// replace-rows set.
+    static func registerDrawerPresentationSchema(in migrator: inout DatabaseMigrator) {
         migrator.registerMigration(drawerPresentationMigrationIdentifier) { database in
             try database.execute(
                 sql: """
@@ -75,13 +114,23 @@ extension WorkspaceLocalMigrations {
                     )
                     """
             )
-            guard let legacyImport else { return }
+        }
+    }
+
+    /// Registered only when the legacy height and every persisted owning pane
+    /// were captured, so the schema version records the import only after its
+    /// rows commit. Rows already written by a later save are kept.
+    static func registerLegacyDrawerHeightImport(
+        in migrator: inout DatabaseMigrator,
+        legacyImport: LegacyDrawerPresentationImport
+    ) {
+        migrator.registerMigration(legacyDrawerHeightImportMigrationIdentifier) { database in
             let importedAt = Date().timeIntervalSince1970
             for (workspaceId, owningPaneIds) in legacyImport.owningPaneIdsByWorkspaceId {
                 for ownerPaneId in owningPaneIds {
                     try database.execute(
                         sql: """
-                            INSERT INTO local_drawer_presentation(
+                            INSERT OR IGNORE INTO local_drawer_presentation(
                                 workspace_id, owner_pane_id, normal_height_ratio, zoom_side, updated_at
                             )
                             VALUES (?, ?, ?, ?, ?)
