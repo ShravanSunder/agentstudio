@@ -17,6 +17,9 @@ describe("chapter DOM contract", () => {
         "data-scroll-playback-stage",
         "data-scene-root",
         "data-scene-step",
+        "data-scene-proof",
+        "data-scene-proof-state",
+        "data-scene-proof-transition",
       ]),
     );
     expect(new Set(attributeNames).size).toBe(attributeNames.length);

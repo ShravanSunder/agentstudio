@@ -22,3 +22,12 @@ export const sceneRootAttribute = "data-scene-root";
 
 /** `data-scene-step="<stepId>"`: optional step-scoped elements inside a scene. */
 export const sceneStepTargetAttribute = "data-scene-step";
+
+/** `data-scene-proof="<sceneId>"`: the real-capture layer shown after the scene completes. */
+export const sceneProofAttribute = "data-scene-proof";
+
+/** `data-scene-proof-state="hidden|shown"`: set by ScenePlayback on the proof layer. */
+export const sceneProofStateAttribute = "data-scene-proof-state";
+
+/** `data-scene-proof-transition="fade|instant"`: how the latest proof change should render. */
+export const sceneProofTransitionAttribute = "data-scene-proof-transition";

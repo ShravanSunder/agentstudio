@@ -53,6 +53,34 @@ interface FakeSceneFixture {
   readonly toggle: HTMLButtonElement;
 }
 
+// The real-capture layer a scene stage renders beside its recreation, hidden until proof.
+const proofLayerMarkup = `
+  <div data-scene-proof="chapter-many-agents" data-scene-proof-state="hidden" aria-hidden="true">
+    <img alt="Agent Studio with two agents" src="data:," />
+    <span>Real capture</span>
+  </div>
+`;
+
+interface ProofObservation {
+  readonly labelText: string;
+  readonly proofAriaHidden: string | null;
+  readonly recreationAriaHidden: string | null;
+  readonly state: string | undefined;
+  readonly transition: string | undefined;
+}
+
+function observeProof(surface: HTMLElement): ProofObservation {
+  const proof = requiredHtmlElement(surface, "[data-scene-proof]");
+  const sceneRoot = requiredHtmlElement(surface, "[data-scene-root]");
+  return {
+    labelText: proof.textContent.trim(),
+    proofAriaHidden: proof.getAttribute("aria-hidden"),
+    recreationAriaHidden: sceneRoot.getAttribute("aria-hidden"),
+    state: proof.dataset["sceneProofState"],
+    transition: proof.dataset["sceneProofTransition"],
+  };
+}
+
 // A test-local scene: two labelled beats, each fading one settled element in.
 function createFakeSceneFixture(): FakeSceneFixture {
   const fixture = addFixture(`
@@ -61,6 +89,7 @@ function createFakeSceneFixture(): FakeSceneFixture {
         <p data-beat="first">First beat</p>
         <p data-beat="second">Second beat</p>
       </div>
+      ${proofLayerMarkup}
       <button
         type="button"
         data-scene-playback-toggle
@@ -285,6 +314,92 @@ describe("scene playback", () => {
     expect(requiredHtmlElement(scene.sceneRoot, '[data-beat="first"]').getAttribute("style")).toBe(
       null,
     );
+    // Real pixels are the static view: the proof shows and the recreation steps back.
+    expect(observeProof(scene.surface)).toMatchObject({
+      proofAriaHidden: null,
+      recreationAriaHidden: "true",
+      state: "shown",
+    });
+    playback.dispose();
+  });
+
+  it("crossfades to the real capture when the scene completes and back on replay", () => {
+    // Arrange
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    stubReducedMotion(false);
+    const scene = createFakeSceneFixture();
+    const playback = createScenePlayback({
+      resolveModule: () => scene.module,
+      sceneRoot: scene.sceneRoot,
+      surface: scene.surface,
+    });
+    const reachedSteps: string[] = [];
+    scene.surface.addEventListener(sceneStepReachedEventName, (event: Event): void => {
+      reachedSteps.push(readChapterStepEventStepId(event) ?? "unreadable");
+    });
+    playback.synchronize(1, true);
+    const whilePlaying = observeProof(scene.surface);
+
+    // Act: the timeline completes, then the replay hold elapses.
+    scene.timeline().progress(1);
+    const atProofBeat = observeProof(scene.surface);
+    const lastStepAtProofBeat = reachedSteps.at(-1);
+    vi.advanceTimersByTime(3000);
+    const afterReplay = observeProof(scene.surface);
+
+    // Assert
+    expect(whilePlaying).toMatchObject({
+      proofAriaHidden: "true",
+      recreationAriaHidden: null,
+      state: "hidden",
+    });
+    expect(atProofBeat).toEqual({
+      labelText: "Real capture",
+      proofAriaHidden: null,
+      recreationAriaHidden: "true",
+      state: "shown",
+      transition: "fade",
+    });
+    expect(lastStepAtProofBeat).toBe("watch-folders");
+    expect(afterReplay).toMatchObject({
+      proofAriaHidden: "true",
+      recreationAriaHidden: null,
+      state: "hidden",
+      transition: "fade",
+    });
+    expect(scene.playbackState()).toBe("playing");
+    expect(scene.timeline().progress()).toBe(0);
+    playback.dispose();
+  });
+
+  it("hides the proof at once and seeks when a step is chosen during the proof beat", () => {
+    // Arrange
+    stubReducedMotion(false);
+    const scene = createFakeSceneFixture();
+    const playback = createScenePlayback({
+      resolveModule: () => scene.module,
+      sceneRoot: scene.sceneRoot,
+      surface: scene.surface,
+    });
+    playback.synchronize(1, true);
+    scene.timeline().progress(1);
+
+    // Act
+    scene.surface.dispatchEvent(
+      new CustomEvent("agentstudio:chapter-step-requested", {
+        detail: { stepId: "watch-folders" },
+      }),
+    );
+
+    // Assert
+    expect(observeProof(scene.surface)).toMatchObject({
+      proofAriaHidden: "true",
+      recreationAriaHidden: null,
+      state: "hidden",
+      transition: "instant",
+    });
+    expect(scene.playbackState()).toBe("playing");
+    expect(scene.timeline().time()).toBe(scene.timeline().labels["beat-watch"]);
     playback.dispose();
   });
 
@@ -318,6 +433,7 @@ describe("scene playback", () => {
     const fixture = addFixture(`
       <section data-surface>
         <div data-scene-root="chapter-many-agents"><p data-settled>Settled frame</p></div>
+        ${proofLayerMarkup}
         <button type="button" data-scene-playback-toggle hidden>Play animation</button>
       </section>
     `);
@@ -348,6 +464,11 @@ describe("scene playback", () => {
     expect(requiredHtmlElement(sceneRoot, "[data-settled]").getAttribute("style")).toBe(null);
     expect(warn).toHaveBeenCalledTimes(1);
     expect(String(warn.mock.calls[0]?.[0])).toContain("chapter-many-agents");
+    expect(observeProof(surface)).toMatchObject({
+      proofAriaHidden: null,
+      recreationAriaHidden: "true",
+      state: "shown",
+    });
     playback.dispose();
   });
 

@@ -14,6 +14,7 @@ import {
   type SceneTimeline,
 } from "../motion-scenes/scene-contract";
 import { resolveSceneModule } from "../motion-scenes/scene-registry";
+import { findSceneProofLayer, type SceneProofTransition } from "./scene-proof-layer";
 import { combineSurfacePlaybacks, type SurfacePlayback } from "./surface-playback";
 
 // Same thresholds and replay delay as the scroll-autoplay video, so a scene and
@@ -83,14 +84,16 @@ function findStepAtTime(module: SceneModule, timeline: SceneTimeline): string | 
  * Plays one scene module inside a glass surface with the scroll-autoplay
  * video's semantics: play when centered, pause with hysteresis when leaving,
  * replay after a delay while still centered, and let manual intent win.
- * Reduced motion or an unregistered module never builds tweens, so the
- * settled markup stays.
+ * Each completed pass hands the stage to the real capture until the replay.
+ * Reduced motion or an unregistered module never builds tweens; reduced
+ * motion shows the real capture as the static view.
  */
 export function createScenePlayback(props: ScenePlaybackProps): SurfacePlayback {
   const { sceneRoot, surface } = props;
   const sceneModule = readSceneModule(sceneRoot, props.resolveModule ?? resolveSceneModule);
   const motionPreference = window.matchMedia(reducedMotionQuery);
   const toggle = surface.querySelector<HTMLButtonElement>(scenePlaybackToggleSelector);
+  const proofLayer = findSceneProofLayer(surface, sceneRoot);
   const lifecycle = new AbortController();
   const state: ScenePlaybackState = {
     autoplayEnabled: true,
@@ -107,9 +110,22 @@ export function createScenePlayback(props: ScenePlaybackProps): SurfacePlayback 
   const motionAllowed = (): boolean =>
     sceneModule !== undefined && !state.buildFailed && !motionPreference.matches;
 
-  const renderPhase = (phase: ScenePlaybackPhase): void => {
+  // Show, then prove: the real capture holds the stage between loops, and it is
+  // the static view whenever a registered scene cannot move (reduced motion or
+  // a failed build). An unregistered module keeps the settled recreation.
+  const proofBelongsToPhase = (phase: ScenePlaybackPhase): boolean =>
+    phase === "awaiting-replay" ||
+    (phase === "settled" &&
+      sceneModule !== undefined &&
+      (state.buildFailed || motionPreference.matches));
+
+  const renderPhase = (
+    phase: ScenePlaybackPhase,
+    proofTransition: SceneProofTransition = "fade",
+  ): void => {
     state.phase = phase;
     sceneRoot.dataset["scenePlaybackState"] = phase;
+    proofLayer.render(proofBelongsToPhase(phase), proofTransition);
     if (toggle === null) {
       return;
     }
@@ -271,6 +287,8 @@ export function createScenePlayback(props: ScenePlaybackProps): SurfacePlayback 
     if (step === undefined || timeline === undefined) {
       return;
     }
+    // A step chosen during the proof beat drops the proof at once, then seeks.
+    proofLayer.render(false, "instant");
     timeline.pause(step.timelineLabel);
     playManually(timeline);
   };
@@ -279,7 +297,7 @@ export function createScenePlayback(props: ScenePlaybackProps): SurfacePlayback 
   surface.addEventListener(chapterStepRequestedEventName, handleStepRequest, {
     signal: lifecycle.signal,
   });
-  renderPhase("settled");
+  renderPhase("settled", "instant");
 
   return {
     dispose: (): void => {
@@ -289,6 +307,8 @@ export function createScenePlayback(props: ScenePlaybackProps): SurfacePlayback 
     synchronize: (progress: number, autoplayEnabled: boolean): void => {
       state.latestProgress = progress;
       state.autoplayEnabled = autoplayEnabled;
+      // Follows a reduced-motion change that happens before any timeline exists.
+      proofLayer.render(proofBelongsToPhase(state.phase), "instant");
 
       if (!motionAllowed()) {
         if (state.timeline !== undefined) {
