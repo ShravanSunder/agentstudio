@@ -3,151 +3,438 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 import {
+  railBendHorizontalControlRatio,
+  railBendHorizontalLiftRatio,
+  railBendVerticalControlRatio,
+} from "../src/chapter-rail/chapter-rail-bend-path";
+import { phoneRailRowUnit, railRowUnit } from "../src/chapter-rail/chapter-rail-grid";
+import {
   chapterRailPhoneBreakpointWidth,
   layoutChapterRail,
-  railTargetCornerInset,
   railNodeStateAt,
+  railTargetCornerInset,
   selectCurrentRailNodeIndex,
+  type ChapterRailLayout,
   type ChapterRailLayoutProps,
+  type RailPoint,
   type RailRect,
 } from "../src/chapter-rail/chapter-rail-layout";
+
+type DrawnRailLayout = Extract<ChapterRailLayout, { readonly kind: "drawn" }>;
 
 function rect(left: number, top: number, width: number, height: number): RailRect {
   return { left, top, width, height };
 }
 
-function wideChapterPage(): ChapterRailLayoutProps {
+function drawn(layout: ChapterRailLayout): DrawnRailLayout {
+  if (layout.kind !== "drawn") {
+    throw new Error("Expected a drawn rail");
+  }
+  return layout;
+}
+
+interface ChapterFixture {
+  readonly id: string;
+  readonly anchor: RailRect;
+  readonly surface: RailRect;
+  readonly media: RailRect;
+  readonly copy: RailRect;
+}
+
+interface RailPageFixture {
+  readonly name: string;
+  readonly props: ChapterRailLayoutProps;
+  readonly textRects: readonly RailRect[];
+  readonly rowUnit: number;
+  readonly columnCount: number;
+  readonly heroAccents: readonly string[];
+}
+
+function railPageFixture(props: {
+  readonly name: string;
+  readonly viewportWidth: number;
+  readonly pageHeight: number;
+  readonly chapters: readonly ChapterFixture[];
+  readonly rowUnit: number;
+  readonly columnCount: number;
+  readonly heroAccents: readonly string[];
+}): RailPageFixture {
   return {
-    viewportWidth: 1280,
-    pageHeight: 3000,
-    anchors: [
-      { id: "hero", rect: rect(300, 150, 400, 16) },
-      { id: "many-agents", rect: rect(160, 1100, 200, 16) },
-    ],
-    surfaceTargets: new Map([
-      ["hero", rect(240, 520, 960, 600)],
-      ["many-agents", rect(120, 1060, 1040, 640)],
-    ]),
-    mediaTargets: new Map([
-      ["hero", rect(240, 520, 960, 600)],
-      ["many-agents", rect(520, 1300, 600, 380)],
-    ]),
-    copyBlocks: new Map(),
+    name: props.name,
+    props: {
+      viewportWidth: props.viewportWidth,
+      pageHeight: props.pageHeight,
+      anchors: props.chapters.map((chapter) => ({ id: chapter.id, rect: chapter.anchor })),
+      surfaceTargets: new Map(props.chapters.map((chapter) => [chapter.id, chapter.surface])),
+      mediaTargets: new Map(props.chapters.map((chapter) => [chapter.id, chapter.media])),
+      copyBlocks: new Map(props.chapters.map((chapter) => [chapter.id, chapter.copy])),
+    },
+    textRects: props.chapters.flatMap((chapter) => [chapter.anchor, chapter.copy]),
+    rowUnit: props.rowUnit,
+    columnCount: props.columnCount,
+    heroAccents: props.heroAccents,
   };
 }
 
-interface PathSegmentBounds {
+const chapterIds = ["many-agents", "context-with-task", "find-and-focus", "review", "come-back"];
+
+// Measured from the built home page (anchor tops, content lefts, page height).
+const wideFixture = railPageFixture({
+  name: "wide 1920",
+  viewportWidth: 1920,
+  pageHeight: 5602,
+  rowUnit: railRowUnit,
+  columnCount: 3,
+  heroAccents: ["peach", "cyan"],
+  chapters: [
+    {
+      id: "hero",
+      anchor: rect(433, 113, 500, 12),
+      surface: rect(383, 541, 1234, 780),
+      media: rect(383, 541, 1234, 780),
+      copy: rect(433, 113, 1000, 380),
+    },
+    ...[1451, 2181, 2911, 3572, 4241].map((anchorTop, index) => ({
+      id: chapterIds[index] ?? "chapter",
+      anchor: rect(437, anchorTop, 90, 12),
+      surface: rect(383, anchorTop - 54, 1154, 620),
+      media: rect(819, anchorTop - 40, 700, 440),
+      copy: rect(437, anchorTop, 340, 120),
+    })),
+  ],
+});
+
+const laptopFixture = railPageFixture({
+  name: "laptop 1280",
+  viewportWidth: 1280,
+  pageHeight: 4869,
+  rowUnit: railRowUnit,
+  columnCount: 2,
+  heroAccents: ["peach"],
+  chapters: [
+    {
+      id: "hero",
+      anchor: rect(149, 98, 400, 12),
+      surface: rect(116, 455, 1106, 690),
+      media: rect(116, 455, 1106, 690),
+      copy: rect(149, 98, 1000, 320),
+    },
+    ...[1258, 1853, 2449, 3034, 3620].map((anchorTop, index) => ({
+      id: chapterIds[index] ?? "chapter",
+      anchor: rect(160, anchorTop, 90, 12),
+      surface: rect(116, anchorTop - 44, 1106, 520),
+      media: rect(507, anchorTop - 36, 700, 440),
+      copy: rect(160, anchorTop, 300, 110),
+    })),
+  ],
+});
+
+const phoneFixture = railPageFixture({
+  name: "phone 390",
+  viewportWidth: 390,
+  pageHeight: 4698,
+  rowUnit: phoneRailRowUnit,
+  columnCount: 2,
+  heroAccents: ["peach"],
+  chapters: [
+    {
+      id: "hero",
+      anchor: rect(40, 91, 300, 12),
+      surface: rect(40, 560, 332, 420),
+      media: rect(40, 560, 332, 420),
+      copy: rect(40, 91, 332, 430),
+    },
+    ...[1027, 1602, 2205, 2734, 3421].map((anchorTop, index) => ({
+      id: chapterIds[index] ?? "chapter",
+      anchor: rect(40, anchorTop, 90, 12),
+      surface: rect(40, anchorTop - 40, 332, 560),
+      media: rect(40, anchorTop + 100, 332, 220),
+      copy: rect(40, anchorTop, 332, 76),
+    })),
+  ],
+});
+
+interface PathCommand {
   readonly command: string;
-  readonly left: number;
-  readonly right: number;
-  readonly top: number;
-  readonly bottom: number;
+  readonly from: RailPoint;
+  readonly points: readonly RailPoint[];
 }
 
-/** Each drawn segment's bounding box. A quarter-circle elbow lies within its endpoints' box. */
-function pathSegmentBounds(pathData: string): readonly PathSegmentBounds[] {
+function pathCommands(pathData: string): readonly PathCommand[] {
   const tokens = pathData.trim().split(/[\s,]+/u);
-  const segments: PathSegmentBounds[] = [];
-  let current = { x: 0, y: 0 };
+  const commands: PathCommand[] = [];
+  let current: RailPoint = { x: Number.NaN, y: Number.NaN };
   let index = 0;
   while (index < tokens.length) {
     const command = tokens[index] ?? "";
-    const argumentCount = command === "A" ? 7 : 2;
-    const values = tokens.slice(index + 1, index + 1 + argumentCount).map(Number);
-    const next = { x: values.at(-2) ?? Number.NaN, y: values.at(-1) ?? Number.NaN };
-    if (command !== "M") {
-      segments.push({
-        command,
-        left: Math.min(current.x, next.x),
-        right: Math.max(current.x, next.x),
-        top: Math.min(current.y, next.y),
-        bottom: Math.max(current.y, next.y),
-      });
-    }
-    current = next;
-    index += 1 + argumentCount;
+    const coordinateCount = command === "C" ? 6 : 2;
+    const values = tokens.slice(index + 1, index + 1 + coordinateCount).map(Number);
+    const points = Array.from({ length: coordinateCount / 2 }, (_, pointIndex) => ({
+      x: values[pointIndex * 2] ?? Number.NaN,
+      y: values[pointIndex * 2 + 1] ?? Number.NaN,
+    }));
+    commands.push({ command, from: current, points });
+    current = points.at(-1) ?? current;
+    index += 1 + coordinateCount;
   }
-  return segments;
+  return commands;
 }
 
-function intersects(segment: PathSegmentBounds, area: RailRect): boolean {
+function endPoint(pathData: string): RailPoint | undefined {
+  return pathCommands(pathData).at(-1)?.points.at(-1);
+}
+
+function near(first: number, second: number): boolean {
+  return Math.abs(first - second) <= 0.02;
+}
+
+function nearPoint(first: RailPoint | undefined, second: RailPoint): boolean {
+  return first !== undefined && near(first.x, second.x) && near(first.y, second.y);
+}
+
+/** True when a cubic is the rail's tight bend, in either direction. */
+function isTightBend(command: PathCommand): boolean {
+  const [firstControl, secondControl, end] = command.points;
+  const start = command.from;
+  if (firstControl === undefined || secondControl === undefined || end === undefined) {
+    return false;
+  }
+  // Horizontal into vertical (the retired localForkPath).
+  const forkCorner = { x: end.x, y: start.y };
+  const forkMatches =
+    nearPoint(firstControl, {
+      x: start.x + (forkCorner.x - start.x) * railBendHorizontalControlRatio,
+      y: forkCorner.y + (end.y - forkCorner.y) * railBendHorizontalLiftRatio,
+    }) &&
+    nearPoint(secondControl, {
+      x: forkCorner.x,
+      y: forkCorner.y + (end.y - forkCorner.y) * railBendVerticalControlRatio,
+    });
+  // Vertical into horizontal (the retired localMergePath).
+  const mergeCorner = { x: start.x, y: end.y };
+  const mergeMatches =
+    nearPoint(firstControl, {
+      x: mergeCorner.x,
+      y: mergeCorner.y + (start.y - mergeCorner.y) * railBendVerticalControlRatio,
+    }) &&
+    nearPoint(secondControl, {
+      x: end.x + (mergeCorner.x - end.x) * railBendHorizontalControlRatio,
+      y: mergeCorner.y + (start.y - mergeCorner.y) * railBendHorizontalLiftRatio,
+    });
+  return forkMatches || mergeMatches;
+}
+
+/** Points along a command every 1% of the way: a straight run or a cubic bend. */
+function commandSamplePoints(command: PathCommand): readonly RailPoint[] {
+  const [firstControl, secondControl, end] =
+    command.command === "C"
+      ? command.points
+      : [command.from, command.points[0] ?? command.from, command.points[0] ?? command.from];
+  if (firstControl === undefined || secondControl === undefined || end === undefined) {
+    return [];
+  }
+  return Array.from({ length: 101 }, (_, step) => {
+    const t = step / 100;
+    const u = 1 - t;
+    const weigh = (start: number, first: number, second: number, last: number): number =>
+      u * u * u * start + 3 * u * u * t * first + 3 * u * t * t * second + t * t * t * last;
+    return {
+      x: weigh(command.from.x, firstControl.x, secondControl.x, end.x),
+      y: weigh(command.from.y, firstControl.y, secondControl.y, end.y),
+    };
+  });
+}
+
+function strictlyInside(point: RailPoint, area: RailRect): boolean {
   return (
-    segment.right > area.left &&
-    segment.left < area.left + area.width &&
-    segment.bottom > area.top &&
-    segment.top < area.top + area.height
+    point.x > area.left &&
+    point.x < area.left + area.width &&
+    point.y > area.top &&
+    point.y < area.top + area.height
   );
 }
 
-function endPoint(pathData: string): { readonly x: number; readonly y: number } {
-  const coordinates = pathData
-    .trim()
-    .split(/[\s,]+/u)
-    .slice(-2)
-    .map(Number);
-  const [x, y] = coordinates;
-  if (x === undefined || y === undefined) {
-    throw new Error(`Path has no end point: ${pathData}`);
+describe("layoutChapterRail grid", () => {
+  for (const fixture of [wideFixture, laptopFixture, phoneFixture]) {
+    describe(fixture.name, () => {
+      const layout = drawn(layoutChapterRail(fixture.props));
+
+      it("gives every row exactly one dot, on one of the lanes", () => {
+        // Assert
+        expect(layout.columnXs).toHaveLength(fixture.columnCount);
+        expect(layout.rows.map((row) => row.rowIndex)).toEqual(
+          layout.rows.map((_, rowIndex) => rowIndex),
+        );
+        expect(new Set(layout.rows.map((row) => row.y)).size).toBe(layout.rows.length);
+        for (const row of layout.rows) {
+          expect(layout.columnXs).toContain(row.x);
+        }
+      });
+
+      it("puts every anchor on its own main-lane row, level with the anchor", () => {
+        // Assert
+        for (const anchor of fixture.props.anchors) {
+          const anchorRow = layout.rows.find((row) => row.anchorId === anchor.id);
+          expect(anchorRow?.y).toBeCloseTo(anchor.rect.top + anchor.rect.height / 2, 1);
+          expect(anchorRow?.x).toBe(layout.railX);
+        }
+      });
+
+      it("keeps the row pitch within a quarter of the base unit", () => {
+        // Assert
+        const pitches = layout.rows
+          .slice(1)
+          .map((row, index) => row.y - (layout.rows[index]?.y ?? 0));
+        expect(pitches.length).toBeGreaterThan(20);
+        for (const pitch of pitches) {
+          expect(pitch).toBeGreaterThanOrEqual(fixture.rowUnit * 0.75);
+          expect(pitch).toBeLessThanOrEqual(fixture.rowUnit * 1.25);
+        }
+      });
+
+      it("builds every branch from straight runs joined by the retired tight bend", () => {
+        // Assert
+        expect(layout.branches.length).toBeGreaterThan(0);
+        for (const branch of layout.branches) {
+          const commands = pathCommands(branch.pathData);
+          expect(commands[0]?.command).toBe("M");
+          for (const command of commands.slice(1)) {
+            expect(["L", "C"]).toContain(command.command);
+            if (command.command === "L") {
+              const end = command.points[0];
+              expect(
+                near(end?.x ?? Number.NaN, command.from.x) ||
+                  near(end?.y ?? Number.NaN, command.from.y),
+              ).toBe(true);
+            } else {
+              expect(isTightBend(command)).toBe(true);
+            }
+          }
+          expect(nearPoint(endPoint(branch.pathData), branch.end)).toBe(true);
+        }
+      });
+
+      it("never routes a branch across the eyebrow, title or copy", () => {
+        // Assert
+        for (const branch of layout.branches) {
+          const crossings = pathCommands(branch.pathData)
+            .slice(1)
+            .flatMap(commandSamplePoints)
+            .filter((point) =>
+              fixture.textRects.some((textRect) => strictlyInside(point, textRect)),
+            );
+          expect(crossings).toEqual([]);
+        }
+      });
+
+      it("forks the hero's worktree lanes into the app frame in their own colors", () => {
+        // Assert
+        const heroBranches = layout.branches.filter((branch) => branch.anchorId === "hero");
+        expect(heroBranches.map((branch) => branch.accent)).toEqual(fixture.heroAccents);
+        const worktreeDotAccents = new Set(
+          layout.rows.filter((row) => row.accent !== "main").map((row) => row.accent),
+        );
+        expect([...worktreeDotAccents].toSorted()).toEqual([...fixture.heroAccents].toSorted());
+        for (const row of layout.rows.filter((dot) => dot.accent !== "main")) {
+          expect(row.x).not.toBe(layout.railX);
+        }
+      });
+    });
   }
-  return { x, y };
+
+  it("enters the hero frame's left edge on wide screens, one lane per worktree column", () => {
+    // Act
+    const layout = drawn(layoutChapterRail(wideFixture.props));
+
+    // Assert
+    const frame = wideFixture.props.surfaceTargets.get("hero");
+    const heroBranches = layout.branches.filter((branch) => branch.anchorId === "hero");
+    expect(layout.columnXs).toEqual([95.5, 191.5, 287.5]);
+    for (const branch of heroBranches) {
+      expect(branch.targetEdge).toBe("left");
+      expect(branch.end.x).toBe(frame?.left);
+      expect(branch.end.y).toBeGreaterThan((frame?.top ?? 0) + railTargetCornerInset);
+    }
+    // Chapters beside their glass get one straight run from the dot.
+    const chapterBranch = layout.branches.find((branch) => branch.anchorId === "many-agents");
+    expect(pathCommands(chapterBranch?.pathData ?? "").map((command) => command.command)).toEqual([
+      "M",
+      "L",
+    ]);
+  });
+
+  it("drops phone branches into the media's top edge, turning below the copy", () => {
+    // Act
+    const layout = drawn(layoutChapterRail(phoneFixture.props));
+
+    // Assert
+    for (const branch of layout.branches) {
+      const media = phoneFixture.props.mediaTargets.get(branch.anchorId);
+      const copy = phoneFixture.props.copyBlocks.get(branch.anchorId);
+      expect(branch.targetEdge).toBe("top");
+      expect(branch.end).toEqual({ x: (media?.left ?? 0) + railTargetCornerInset, y: media?.top });
+      const crossingYs = pathCommands(branch.pathData)
+        .filter((command) => command.command === "C")
+        .map((command) => command.points.at(-1)?.y ?? Number.NaN);
+      const crossingY = crossingYs[1];
+      expect(crossingY).toBeGreaterThan((copy?.top ?? 0) + (copy?.height ?? 0));
+      expect(crossingY).toBeLessThan(media?.top ?? 0);
+    }
+  });
+});
+
+function branchEdgeFor(layout: DrawnRailLayout, anchorId: string): string | undefined {
+  return layout.branches.find((branch) => branch.anchorId === anchorId)?.targetEdge;
 }
 
-describe("layoutChapterRail", () => {
+describe("layoutChapterRail edges", () => {
+  function wideTwoAnchorPage(): ChapterRailLayoutProps {
+    return {
+      viewportWidth: 1280,
+      pageHeight: 3000,
+      anchors: [
+        { id: "hero", rect: rect(300, 150, 400, 16) },
+        { id: "many-agents", rect: rect(160, 1100, 200, 16) },
+      ],
+      surfaceTargets: new Map([
+        ["hero", rect(240, 520, 960, 600)],
+        ["many-agents", rect(120, 1060, 1040, 640)],
+      ]),
+      mediaTargets: new Map([
+        ["hero", rect(240, 520, 960, 600)],
+        ["many-agents", rect(520, 1300, 600, 380)],
+      ]),
+      copyBlocks: new Map(),
+    };
+  }
+
   it("draws nothing when the page has no rail anchors", () => {
     // Arrange
-    const props = { ...wideChapterPage(), anchors: [] };
+    const props = { ...wideTwoAnchorPage(), anchors: [] };
 
-    // Act
-    const layout = layoutChapterRail(props);
-
-    // Assert
-    expect(layout.kind).toBe("empty");
+    // Act / Assert
+    expect(layoutChapterRail(props).kind).toBe("empty");
   });
 
-  it("centers one node per anchor on that anchor, on one lane inside the left gutter", () => {
-    // Arrange
-    const props = wideChapterPage();
+  it("joins a glass straight across whenever the dot clears its rounded corner", () => {
+    // Arrange: the eyebrow sits just inside the glass's top corner radius.
+    const glassTop = 1100;
+    const props: ChapterRailLayoutProps = {
+      ...wideTwoAnchorPage(),
+      anchors: [{ id: "many-agents", rect: rect(160, glassTop + railTargetCornerInset, 200, 16) }],
+      surfaceTargets: new Map([["many-agents", rect(120, glassTop, 1040, 640)]]),
+    };
 
     // Act
-    const layout = layoutChapterRail(props);
+    const layout = drawn(layoutChapterRail(props));
 
     // Assert
-    if (layout.kind !== "drawn") {
-      throw new Error("Expected a drawn rail");
-    }
-    expect(layout.nodes.map((node) => node.anchorId)).toEqual(["hero", "many-agents"]);
-    expect(layout.nodes.map((node) => node.y)).toEqual([158, 1108]);
-    expect(new Set(layout.nodes.map((node) => node.x))).toEqual(new Set([layout.railX]));
-    expect(layout.railX).toBeGreaterThan(0);
-    expect(layout.railX).toBeLessThan(120);
+    const branch = layout.branches[0];
+    expect(branch?.end).toEqual({ x: 120, y: layout.anchorNodes[0]?.y });
+    expect(pathCommands(branch?.pathData ?? "")).toHaveLength(2);
   });
 
-  it("joins each wide branch to its surface target's left edge", () => {
-    // Arrange
-    const props = wideChapterPage();
-
-    // Act
-    const layout = layoutChapterRail(props);
-
-    // Assert
-    if (layout.kind !== "drawn") {
-      throw new Error("Expected a drawn rail");
-    }
-    const [heroNode, chapterNode] = layout.nodes;
-    // The chapter glass spans its eyebrow, so the branch runs straight across.
-    expect(chapterNode?.branch?.targetEdge).toBe("left");
-    expect(chapterNode?.branch?.end).toEqual({ x: 120, y: 1108 });
-    expect(chapterNode?.branch?.pathData.match(/A/gu)).toBeNull();
-    // The hero frame sits below its eyebrow, so the branch forks, runs parallel,
-    // and turns into the frame's left edge.
-    expect(heroNode?.branch?.targetEdge).toBe("left");
-    expect(heroNode?.branch?.end.x).toBe(240);
-    expect(heroNode?.branch?.end.y).toBeGreaterThan(520);
-    expect(heroNode?.branch?.end.y).toBeLessThan(1120);
-    expect(endPoint(heroNode?.branch?.pathData ?? "")).toEqual(heroNode?.branch?.end);
-  });
-
-  it("drops each phone branch into its media target's top edge in line with the chapter text", () => {
+  it("drops a phone branch in line with the chapter text", () => {
     // Arrange
     const props: ChapterRailLayoutProps = {
       viewportWidth: 390,
@@ -159,78 +446,10 @@ describe("layoutChapterRail", () => {
     };
 
     // Act
-    const layout = layoutChapterRail(props);
+    const layout = drawn(layoutChapterRail(props));
 
     // Assert
-    if (layout.kind !== "drawn") {
-      throw new Error("Expected a drawn rail");
-    }
-    const branch = layout.nodes[0]?.branch;
-    expect(branch?.targetEdge).toBe("top");
-    expect(branch?.end).toEqual({ x: 48, y: 1040 });
-    expect(endPoint(branch?.pathData ?? "")).toEqual(branch?.end);
-  });
-
-  it("routes each phone branch around the chapter copy, never through it", () => {
-    // Arrange: the eyebrow and title sit beside the rail; the media stage
-    // starts below the title, with a gap between them.
-    const eyebrow = rect(40, 900, 90, 16);
-    const copyBlock = rect(40, 900, 330, 72);
-    const copyBottom = copyBlock.top + copyBlock.height;
-    const media = rect(40, 996, 330, 220);
-    const props: ChapterRailLayoutProps = {
-      viewportWidth: 390,
-      pageHeight: 4000,
-      anchors: [{ id: "many-agents", rect: eyebrow }],
-      surfaceTargets: new Map([["many-agents", rect(40, 900, 330, 600)]]),
-      mediaTargets: new Map([["many-agents", media]]),
-      copyBlocks: new Map([["many-agents", copyBlock]]),
-    };
-
-    // Act
-    const layout = layoutChapterRail(props);
-
-    // Assert
-    if (layout.kind !== "drawn") {
-      throw new Error("Expected a drawn rail");
-    }
-    const branch = layout.nodes[0]?.branch;
-    expect(branch?.end).toEqual({ x: media.left + railTargetCornerInset, y: media.top });
-    const segments = pathSegmentBounds(branch?.pathData ?? "");
-    for (const segment of segments) {
-      expect(intersects(segment, eyebrow)).toBe(false);
-      expect(intersects(segment, copyBlock)).toBe(false);
-    }
-    // Fork down a parallel lane, turn right in the gap, then drop in: three elbows.
-    expect(branch?.pathData.match(/A/gu)).toHaveLength(3);
-    const crossingRun = segments.findLast(
-      (segment) =>
-        segment.command === "L" && segment.top === segment.bottom && segment.left < segment.right,
-    );
-    expect(crossingRun?.top).toBeGreaterThan(copyBottom);
-    expect(crossingRun?.top).toBeLessThan(media.top);
-    expect(crossingRun?.right).toBeGreaterThan(copyBlock.left);
-  });
-
-  it("joins a glass straight across whenever the dot clears its rounded corner", () => {
-    // Arrange: the eyebrow sits just inside the glass's top corner radius.
-    const glassTop = 1100;
-    const props: ChapterRailLayoutProps = {
-      ...wideChapterPage(),
-      anchors: [{ id: "many-agents", rect: rect(160, glassTop + railTargetCornerInset, 200, 16) }],
-      surfaceTargets: new Map([["many-agents", rect(120, glassTop, 1040, 640)]]),
-    };
-
-    // Act
-    const layout = layoutChapterRail(props);
-
-    // Assert
-    if (layout.kind !== "drawn") {
-      throw new Error("Expected a drawn rail");
-    }
-    const node = layout.nodes[0];
-    expect(node?.branch?.end).toEqual({ x: 120, y: node?.y });
-    expect(node?.branch?.pathData.match(/A/gu)).toBeNull();
+    expect(layout.branches[0]?.end).toEqual({ x: 48, y: 1040 });
   });
 
   it("keeps the phone drop clear of the media target's rounded corner", () => {
@@ -246,56 +465,42 @@ describe("layoutChapterRail", () => {
     };
 
     // Act
-    const layout = layoutChapterRail(props);
+    const layout = drawn(layoutChapterRail(props));
 
     // Assert
-    if (layout.kind !== "drawn") {
-      throw new Error("Expected a drawn rail");
-    }
-    expect(layout.nodes[0]?.branch?.end).toEqual({
-      x: mediaLeft + railTargetCornerInset,
-      y: 1040,
-    });
+    expect(layout.branches[0]?.end).toEqual({ x: mediaLeft + railTargetCornerInset, y: 1040 });
   });
 
   it("switches from left-edge to top-edge branches at the site's phone breakpoint", () => {
     // Arrange
-    const base = wideChapterPage();
+    const base = wideTwoAnchorPage();
 
     // Act
-    const atBreakpoint = layoutChapterRail({
-      ...base,
-      viewportWidth: chapterRailPhoneBreakpointWidth,
-    });
-    const belowBreakpoint = layoutChapterRail({
-      ...base,
-      viewportWidth: chapterRailPhoneBreakpointWidth - 1,
-    });
+    const atBreakpoint = drawn(
+      layoutChapterRail({ ...base, viewportWidth: chapterRailPhoneBreakpointWidth }),
+    );
+    const belowBreakpoint = drawn(
+      layoutChapterRail({ ...base, viewportWidth: chapterRailPhoneBreakpointWidth - 1 }),
+    );
 
     // Assert
-    if (atBreakpoint.kind !== "drawn" || belowBreakpoint.kind !== "drawn") {
-      throw new Error("Expected drawn rails");
-    }
-    expect(atBreakpoint.nodes[1]?.branch?.targetEdge).toBe("left");
-    expect(belowBreakpoint.nodes[1]?.branch?.targetEdge).toBe("top");
+    expect(branchEdgeFor(atBreakpoint, "many-agents")).toBe("left");
+    expect(branchEdgeFor(belowBreakpoint, "many-agents")).toBe("top");
   });
 
-  it("keeps a node without a matching target and gives it no branch", () => {
+  it("keeps a dot for an anchor without a matching target and gives it no branch", () => {
     // Arrange
     const props: ChapterRailLayoutProps = {
-      ...wideChapterPage(),
+      ...wideTwoAnchorPage(),
       anchors: [{ id: "review", rect: rect(160, 2000, 200, 16) }],
     };
 
     // Act
-    const layout = layoutChapterRail(props);
+    const layout = drawn(layoutChapterRail(props));
 
     // Assert
-    if (layout.kind !== "drawn") {
-      throw new Error("Expected a drawn rail");
-    }
-    expect(layout.nodes).toHaveLength(1);
-    expect(layout.nodes[0]?.branch).toBeUndefined();
+    expect(layout.anchorNodes.map((node) => node.anchorId)).toEqual(["review"]);
+    expect(layout.branches).toHaveLength(0);
   });
 
   it("matches the phone breakpoint token that the page layout uses", () => {

@@ -1,9 +1,32 @@
-// Pure geometry for the left chapter rail: one vertical git lane, one dot per
-// rail anchor, and one branch per dot into that anchor's glass. It reads
-// measured rectangles and never decides page layout.
+// Pure geometry for the left chapter rail: a git-graph grid in the left gutter.
+// The main lane (column 0) carries chapter progress; worktree lanes sit in
+// their own columns. Every row has exactly one dot, owned by one lane, and
+// every chapter anchor is a row. Each anchor's branch joins its glass. The
+// module reads measured rectangles and never decides page layout.
 //
-// Git language (from the retired full-page topology): vertical lanes, every
-// turn a quarter-radius elbow, no other curves, plain dots with no tip icons.
+// Grid rules: chapter-rail-grid.ts. Corner shape: chapter-rail-bend-path.ts.
+
+import {
+  railBendPath,
+  railBendSpan,
+  roundRailCoordinate,
+  type RailPoint,
+} from "./chapter-rail-bend-path";
+import {
+  assignRailRowOwners,
+  layoutRailColumns,
+  layoutRailRows,
+  mainRailLaneId,
+  minimumWideRailColumnSpacing,
+  phoneRailColumnCount,
+  phoneRailRowUnit,
+  railRowPitchAt,
+  railRowUnit,
+  wideRailColumnCount,
+  type RailWorktreeRowClaim,
+} from "./chapter-rail-grid";
+
+export type { RailPoint } from "./chapter-rail-bend-path";
 
 /** A measured element rectangle in the rail's own coordinate space (CSS px). */
 export interface RailRect {
@@ -11,11 +34,6 @@ export interface RailRect {
   readonly top: number;
   readonly width: number;
   readonly height: number;
-}
-
-export interface RailPoint {
-  readonly x: number;
-  readonly y: number;
 }
 
 /** One `data-rail-anchor` element, in document order. */
@@ -43,17 +61,35 @@ export interface ChapterRailLayoutProps {
 /** Which target edge a branch lands on: wide and laptop join the glass's left edge; phone drops into the media's top edge. */
 export type RailBranchTargetEdge = "left" | "top";
 
+/**
+ * A lane's color. Chapter progress and chapter branches use `main`; the
+ * worktree lanes that fork into a separate frame (the hero's app frame) use
+ * the parallel-work accents, peach first, then cyan.
+ */
+export type RailLaneAccent = "main" | "peach" | "cyan";
+
 export interface ChapterRailBranchLayout {
+  readonly anchorId: string;
+  readonly accent: RailLaneAccent;
   readonly targetEdge: RailBranchTargetEdge;
   readonly pathData: string;
   readonly end: RailPoint;
 }
 
-export interface ChapterRailNodeLayout {
-  readonly anchorId: string;
+/** One row's single dot. `anchorId` marks a chapter dot on the main lane. */
+export interface ChapterRailRowDot {
+  readonly rowIndex: number;
   readonly x: number;
   readonly y: number;
-  readonly branch: ChapterRailBranchLayout | undefined;
+  readonly accent: RailLaneAccent;
+  readonly anchorId: string | undefined;
+}
+
+export interface ChapterRailAnchorNode {
+  readonly anchorId: string;
+  readonly rowIndex: number;
+  readonly x: number;
+  readonly y: number;
 }
 
 export type ChapterRailLayout =
@@ -61,8 +97,12 @@ export type ChapterRailLayout =
   | {
       readonly kind: "drawn";
       readonly railX: number;
+      readonly columnXs: readonly number[];
+      readonly rowUnit: number;
       readonly lanePath: string;
-      readonly nodes: readonly ChapterRailNodeLayout[];
+      readonly rows: readonly ChapterRailRowDot[];
+      readonly anchorNodes: readonly ChapterRailAnchorNode[];
+      readonly branches: readonly ChapterRailBranchLayout[];
     };
 
 export type RailNodeState = "passed" | "current" | "upcoming";
@@ -74,18 +114,15 @@ export type RailNodeState = "passed" | "current" | "upcoming";
  */
 export const chapterRailPhoneBreakpointWidth = 620;
 
-/** Radius of every git elbow. Shorter segments shrink it so turns never overshoot. */
-export const railElbowRadius = 12;
-
-/** The rail begins this far above the first dot, so it reads as starting under the nav logo. */
+/** The main lane begins this far above the first dot, so it reads as starting under the nav logo. */
 export const railLeadIn = 96;
 
-/** The rail never sits closer than this to the page's left edge, so a whole dot stays visible. */
-export const minimumRailX = 8;
+/** Phone lanes never sit closer than this; the phone gutter always holds two. */
+const minimumPhoneRailColumnSpacing = 16;
 
 /**
- * Wide and laptop: when a glass starts below its dot (the hero frame under its
- * eyebrow), the branch enters the glass's left edge this far below its top.
+ * Wide and laptop: a worktree lane enters its frame's left edge on a row at
+ * least this far inside the frame's top and bottom.
  */
 export const wideBranchEntryInset = 40;
 
@@ -101,138 +138,166 @@ export const railTargetCornerInset = 24;
 /** The fraction of the viewport height whose line decides the current chapter. */
 export const railReadingLineRatio = 0.4;
 
-function roundCoordinate(value: number): number {
-  return Math.round(value * 100) / 100;
-}
+const worktreeAccents = ["peach", "cyan"] as const satisfies readonly RailLaneAccent[];
 
 function clamp(value: number, minimum: number, maximum: number): number {
   return Math.min(Math.max(value, minimum), maximum);
 }
 
-function samePoint(first: RailPoint, second: RailPoint): boolean {
-  return Math.abs(first.x - second.x) < 0.01 && Math.abs(first.y - second.y) < 0.01;
+function bottomOf(rect: RailRect): number {
+  return rect.top + rect.height;
 }
+
+/** A worktree lane that can carry commit dots on the rows where it runs straight. */
+interface RailWorktreeLane {
+  readonly laneId: string;
+  readonly x: number;
+  readonly accent: RailLaneAccent;
+  readonly straightTop: number;
+  readonly straightBottom: number;
+}
+
+interface AnchorRoutes {
+  readonly branches: readonly ChapterRailBranchLayout[];
+  readonly lanes: readonly RailWorktreeLane[];
+  /** Rows this anchor's routes reserve, with the dot each shows. */
+  readonly reservedDots: ReadonlyMap<number, Omit<ChapterRailRowDot, "rowIndex" | "y">>;
+}
+
+interface RailGrid {
+  readonly rowYs: readonly number[];
+  readonly rowUnit: number;
+  readonly mainX: number;
+  readonly worktreeXs: readonly number[];
+}
+
+const noRoutes: AnchorRoutes = { branches: [], lanes: [], reservedDots: new Map() };
 
 /**
- * Builds an orthogonal path through `points`, rounding each turn with a
- * quarter-circle elbow. End segments give their whole length to the one turn
- * they touch; shared segments give each turn half.
+ * Wide and laptop, glass beside its dot: one straight branch at the dot's row
+ * into the glass's left edge.
  */
-export function roundedOrthogonalPath(points: readonly RailPoint[], radius: number): string {
-  const distinctPoints = points.filter(
-    (point, index) => index === 0 || !samePoint(point, points[index - 1] ?? point),
-  );
-  const [start, ...rest] = distinctPoints;
-  if (start === undefined || rest.length === 0) {
-    return "";
-  }
-  const commands = [`M ${roundCoordinate(start.x)} ${roundCoordinate(start.y)}`];
-  const lastIndex = distinctPoints.length - 1;
-  for (let index = 1; index < lastIndex; index += 1) {
-    const previous = distinctPoints[index - 1];
-    const corner = distinctPoints[index];
-    const next = distinctPoints[index + 1];
-    if (previous === undefined || corner === undefined || next === undefined) {
-      continue;
-    }
-    const incomingX = corner.x - previous.x;
-    const incomingY = corner.y - previous.y;
-    const outgoingX = next.x - corner.x;
-    const outgoingY = next.y - corner.y;
-    const incomingLength = Math.hypot(incomingX, incomingY);
-    const outgoingLength = Math.hypot(outgoingX, outgoingY);
-    const turn = incomingX * outgoingY - incomingY * outgoingX;
-    if (Math.abs(turn) < 0.01) {
-      continue;
-    }
-    const elbowRadius = Math.min(
-      radius,
-      index === 1 ? incomingLength : incomingLength / 2,
-      index + 1 === lastIndex ? outgoingLength : outgoingLength / 2,
-    );
-    const elbowStart = {
-      x: corner.x - (incomingX / incomingLength) * elbowRadius,
-      y: corner.y - (incomingY / incomingLength) * elbowRadius,
-    };
-    const elbowEnd = {
-      x: corner.x + (outgoingX / outgoingLength) * elbowRadius,
-      y: corner.y + (outgoingY / outgoingLength) * elbowRadius,
-    };
-    const sweep = turn > 0 ? 1 : 0;
-    commands.push(
-      `L ${roundCoordinate(elbowStart.x)} ${roundCoordinate(elbowStart.y)}`,
-      `A ${roundCoordinate(elbowRadius)} ${roundCoordinate(elbowRadius)} 0 0 ${sweep} ${roundCoordinate(elbowEnd.x)} ${roundCoordinate(elbowEnd.y)}`,
-    );
-  }
-  const end = distinctPoints[lastIndex] ?? start;
-  commands.push(`L ${roundCoordinate(end.x)} ${roundCoordinate(end.y)}`);
-  return commands.join(" ");
-}
-
-function branchFromPoints(
-  targetEdge: RailBranchTargetEdge,
-  points: readonly RailPoint[],
-): ChapterRailBranchLayout | undefined {
-  const end = points.at(-1);
-  if (end === undefined) {
-    return undefined;
-  }
+function straightBranch(anchorId: string, dot: RailPoint, surface: RailRect): AnchorRoutes {
   return {
-    targetEdge,
-    pathData: roundedOrthogonalPath(points, railElbowRadius),
-    end: { x: roundCoordinate(end.x), y: roundCoordinate(end.y) },
+    branches: [
+      {
+        anchorId,
+        accent: "main",
+        targetEdge: "left",
+        pathData: railBendPath([dot, { x: surface.left, y: dot.y }], railRowUnit),
+        end: { x: roundRailCoordinate(surface.left), y: dot.y },
+      },
+    ],
+    lanes: [],
+    reservedDots: new Map(),
   };
 }
 
 /**
- * Wide and laptop: join the glass's left edge. A glass that spans the dot's
- * height gets a straight branch at the dot's y; a glass below the dot gets a
- * git fork: out of the dot, down a parallel lane, and into the left edge.
+ * Wide and laptop, frame below its dot (the hero): worktree lanes fork from
+ * the main lane on consecutive rows starting at the anchor row, outermost
+ * column first, run down their columns, and enter the frame's left edge on
+ * consecutive rows inside it, in the same order. Opening and closing in the
+ * same order keeps every horizontal run clear of the other lanes. Each fork
+ * bends from one row to the next and each entry from the row above, like the
+ * old topology. Without a free worktree column the branch uses a lane midway
+ * to the frame that carries no dots.
  */
-function layoutWideBranch(node: RailPoint, surface: RailRect): ChapterRailBranchLayout | undefined {
-  if (surface.left <= node.x) {
-    return undefined;
+function worktreeEntryRoutes(props: {
+  readonly anchorId: string;
+  readonly anchorRowIndex: number;
+  readonly nextAnchorRowIndex: number;
+  readonly surface: RailRect;
+  readonly grid: RailGrid;
+}): AnchorRoutes {
+  const { anchorId, anchorRowIndex, nextAnchorRowIndex, surface, grid } = props;
+  const bandTop = surface.top + Math.min(wideBranchEntryInset, surface.height / 2);
+  const bandBottom = bottomOf(surface) - Math.min(wideBranchEntryInset, surface.height / 2);
+  const laneXs = grid.worktreeXs.toReversed().filter((x) => x < surface.left);
+  const branches: ChapterRailBranchLayout[] = [];
+  const lanes: RailWorktreeLane[] = [];
+  const reservedDots = new Map<number, Omit<ChapterRailRowDot, "rowIndex" | "y">>();
+  let previousEntryRow = anchorRowIndex;
+  const routeLanes =
+    laneXs.length === 0
+      ? [{ x: grid.mainX + (surface.left - grid.mainX) / 2, carriesDots: false }]
+      : laneXs.map((x) => ({ x, carriesDots: true }));
+  for (const [laneIndex, routeLane] of routeLanes.entries()) {
+    const forkRow = anchorRowIndex + laneIndex;
+    const entryRow = grid.rowYs.findIndex(
+      (rowY, rowIndex) =>
+        rowIndex >= Math.max(forkRow + 2, previousEntryRow + 1) &&
+        rowIndex < nextAnchorRowIndex &&
+        rowY >= bandTop &&
+        rowY <= bandBottom,
+    );
+    const forkY = grid.rowYs[forkRow];
+    const entryY = grid.rowYs[entryRow];
+    if (
+      forkRow >= nextAnchorRowIndex ||
+      entryRow < 0 ||
+      forkY === undefined ||
+      entryY === undefined
+    ) {
+      break;
+    }
+    const accent: RailLaneAccent = routeLane.carriesDots
+      ? (worktreeAccents[laneIndex] ?? "peach")
+      : "main";
+    const pitch = railRowPitchAt(grid.rowYs, forkRow, grid.rowUnit);
+    branches.push({
+      anchorId,
+      accent,
+      targetEdge: "left",
+      pathData: railBendPath(
+        [
+          { x: grid.mainX, y: forkY },
+          { x: routeLane.x, y: forkY },
+          { x: routeLane.x, y: entryY },
+          { x: surface.left, y: entryY },
+        ],
+        pitch,
+      ),
+      end: { x: roundRailCoordinate(surface.left), y: roundRailCoordinate(entryY) },
+    });
+    if (forkRow !== anchorRowIndex) {
+      reservedDots.set(forkRow, { x: grid.mainX, accent: "main", anchorId: undefined });
+    }
+    reservedDots.set(entryRow, { x: grid.mainX, accent: "main", anchorId: undefined });
+    if (routeLane.carriesDots) {
+      const verticalSpan = Math.min(pitch, (entryY - forkY) / 2);
+      lanes.push({
+        laneId: `${anchorId}-${accent}`,
+        x: routeLane.x,
+        accent,
+        straightTop: forkY + verticalSpan,
+        straightBottom: entryY - verticalSpan,
+      });
+    }
+    previousEntryRow = entryRow;
   }
-  const surfaceBottom = surface.top + surface.height;
-  const spansDot =
-    node.y >= surface.top + railTargetCornerInset &&
-    node.y <= surfaceBottom - railTargetCornerInset;
-  if (spansDot) {
-    return branchFromPoints("left", [node, { x: surface.left, y: node.y }]);
-  }
-  const entryInset = Math.min(wideBranchEntryInset, surface.height / 2);
-  const entryY = clamp(node.y, surface.top + entryInset, surfaceBottom - entryInset);
-  const parallelLaneX = node.x + (surface.left - node.x) / 2;
-  return branchFromPoints("left", [
-    node,
-    { x: parallelLaneX, y: node.y },
-    { x: parallelLaneX, y: entryY },
-    { x: surface.left, y: entryY },
-  ]);
+  return { branches, lanes, reservedDots };
 }
 
 /**
- * Phone: the fork out of the dot moves at most this far right onto its
- * parallel lane, and never more than halfway to the text column, so the lane
- * stays inside the gutter.
- */
-export const phoneParallelLaneOffset = 10;
-
-/**
  * Phone: the branch must never cross the chapter's copy, which sits beside the
- * rail. It forks out of the dot onto a short parallel lane inside the gutter,
- * runs down past the copy block, turns right in the gap between the copy's
- * bottom and the media glass's top, and drops into that top edge in line with
- * the text column, clear of the glass's rounded corner.
+ * rail. It forks out of the dot into the worktree column, runs down past the
+ * copy block, turns right in the gap between the copy's bottom and the media
+ * glass's top, and drops into that top edge in line with the text column,
+ * clear of the glass's rounded corner.
  */
-function layoutPhoneBranch(
-  node: RailPoint,
-  anchor: RailRect,
-  copyBlock: RailRect,
-  media: RailRect,
-): ChapterRailBranchLayout | undefined {
-  if (media.top <= node.y) {
-    return undefined;
+function phoneDropRoute(props: {
+  readonly anchorId: string;
+  readonly dot: RailPoint;
+  readonly anchor: RailRect;
+  readonly copyBlock: RailRect;
+  readonly media: RailRect;
+  readonly accent: RailLaneAccent;
+  readonly grid: RailGrid;
+}): AnchorRoutes {
+  const { anchorId, dot, anchor, copyBlock, media, accent, grid } = props;
+  if (media.top <= dot.y) {
+    return noRoutes;
   }
   const mediaRight = media.left + media.width;
   const dropX =
@@ -240,29 +305,56 @@ function layoutPhoneBranch(
       ? clamp(anchor.left, media.left + railTargetCornerInset, mediaRight - railTargetCornerInset)
       : media.left + media.width / 2;
   const textColumnLeft = Math.min(anchor.left, copyBlock.left);
-  const parallelLaneX =
-    node.x + Math.max(0, Math.min(phoneParallelLaneOffset, (textColumnLeft - node.x) / 2));
-  if (dropX <= parallelLaneX) {
-    return undefined;
+  const laneX = grid.worktreeXs[0] ?? dot.x + Math.max(0, (textColumnLeft - dot.x) / 2);
+  if (laneX >= textColumnLeft || dropX <= laneX) {
+    return noRoutes;
   }
   // Turn in the middle of the gap. Copy that reaches the glass leaves no gap,
   // so the turn falls back to the glass's top edge.
-  const gapTop = clamp(copyBlock.top + copyBlock.height, node.y, media.top);
+  const gapTop = clamp(bottomOf(copyBlock), dot.y, media.top);
   const crossingY = gapTop + (media.top - gapTop) / 2;
-  return branchFromPoints("top", [
-    node,
-    { x: parallelLaneX, y: node.y },
-    { x: parallelLaneX, y: crossingY },
-    { x: dropX, y: crossingY },
-    { x: dropX, y: media.top },
-  ]);
+  const verticalSpan = railBendSpan({
+    runLength: crossingY - dot.y,
+    sharedWithAnotherBend: true,
+    vertical: true,
+    verticalSpanLimit: grid.rowUnit,
+  });
+  return {
+    branches: [
+      {
+        anchorId,
+        accent,
+        targetEdge: "top",
+        pathData: railBendPath(
+          [
+            dot,
+            { x: laneX, y: dot.y },
+            { x: laneX, y: crossingY },
+            { x: dropX, y: crossingY },
+            { x: dropX, y: media.top },
+          ],
+          grid.rowUnit,
+        ),
+        end: { x: roundRailCoordinate(dropX), y: roundRailCoordinate(media.top) },
+      },
+    ],
+    lanes:
+      grid.worktreeXs[0] === undefined
+        ? []
+        : [
+            {
+              laneId: `${anchorId}-${accent}`,
+              x: laneX,
+              accent,
+              straightTop: dot.y + verticalSpan,
+              straightBottom: crossingY - verticalSpan,
+            },
+          ],
+    reservedDots: new Map(),
+  };
 }
 
-/**
- * The rail sits centered in the left gutter: halfway between the page's left
- * edge and the leftmost anchor or target it serves.
- */
-function railXForGutter(props: ChapterRailLayoutProps): number {
+function gutterWidthFor(props: ChapterRailLayoutProps): number {
   const contentLefts = [
     ...props.anchors.map((anchor) => anchor.rect.left),
     ...props.anchors.flatMap((anchor) => {
@@ -271,38 +363,126 @@ function railXForGutter(props: ChapterRailLayoutProps): number {
       return [surface?.left, media?.left].filter((left) => left !== undefined);
     }),
   ];
-  return roundCoordinate(Math.max(minimumRailX, Math.min(...contentLefts) / 2));
+  return Math.max(0, Math.min(...contentLefts));
 }
 
 export function layoutChapterRail(props: ChapterRailLayoutProps): ChapterRailLayout {
   if (props.anchors.length === 0) {
     return { kind: "empty" };
   }
-  const railX = railXForGutter(props);
   const phoneLayout = props.viewportWidth < chapterRailPhoneBreakpointWidth;
-  const nodes = props.anchors.map((anchor): ChapterRailNodeLayout => {
-    const node = { x: railX, y: roundCoordinate(anchor.rect.top + anchor.rect.height / 2) };
+  const rowUnit = phoneLayout ? phoneRailRowUnit : railRowUnit;
+  const columnXs = layoutRailColumns({
+    gutterWidth: gutterWidthFor(props),
+    maximumColumnCount: phoneLayout ? phoneRailColumnCount : wideRailColumnCount,
+    minimumSpacing: phoneLayout ? minimumPhoneRailColumnSpacing : minimumWideRailColumnSpacing,
+  }).map(roundRailCoordinate);
+  const mainX = columnXs[0] ?? 0;
+  const anchorYs = props.anchors.map((anchor) =>
+    roundRailCoordinate(anchor.rect.top + anchor.rect.height / 2),
+  );
+  const { rowYs: rawRowYs, anchorRowIndexes } = layoutRailRows({
+    anchorYs,
+    pageEnd: props.pageHeight - rowUnit,
+    rowUnit,
+  });
+  const rowYs = rawRowYs.map(roundRailCoordinate);
+  const grid: RailGrid = { rowYs, rowUnit, mainX, worktreeXs: columnXs.slice(1) };
+
+  const anchorNodes = props.anchors.map((anchor, index): ChapterRailAnchorNode => {
+    const rowIndex = anchorRowIndexes[index] ?? 0;
+    return { anchorId: anchor.id, rowIndex, x: mainX, y: rowYs[rowIndex] ?? 0 };
+  });
+  const routes = props.anchors.map((anchor, index): AnchorRoutes => {
+    const node = anchorNodes[index];
     const surface = props.surfaceTargets.get(anchor.id);
     const media = props.mediaTargets.get(anchor.id);
-    let branch: ChapterRailBranchLayout | undefined;
-    if (phoneLayout) {
-      const copyBlock = props.copyBlocks.get(anchor.id) ?? anchor.rect;
-      branch =
-        media === undefined ? undefined : layoutPhoneBranch(node, anchor.rect, copyBlock, media);
-    } else {
-      branch = surface === undefined ? undefined : layoutWideBranch(node, surface);
+    if (node === undefined) {
+      return noRoutes;
     }
-    return { anchorId: anchor.id, ...node, branch };
+    const dot = { x: node.x, y: node.y };
+    const frameBelowDot = surface !== undefined && surface.top > dot.y;
+    if (phoneLayout) {
+      return media === undefined
+        ? noRoutes
+        : phoneDropRoute({
+            anchorId: anchor.id,
+            dot,
+            anchor: anchor.rect,
+            copyBlock: props.copyBlocks.get(anchor.id) ?? anchor.rect,
+            media,
+            accent: frameBelowDot ? "peach" : "main",
+            grid,
+          });
+    }
+    if (surface === undefined || surface.left <= dot.x) {
+      return noRoutes;
+    }
+    const spansDot =
+      dot.y >= surface.top + railTargetCornerInset &&
+      dot.y <= bottomOf(surface) - railTargetCornerInset;
+    if (spansDot) {
+      return straightBranch(anchor.id, dot, surface);
+    }
+    return worktreeEntryRoutes({
+      anchorId: anchor.id,
+      anchorRowIndex: node.rowIndex,
+      nextAnchorRowIndex: anchorNodes[index + 1]?.rowIndex ?? rowYs.length,
+      surface,
+      grid,
+    });
   });
-  const firstY = nodes[0]?.y ?? 0;
-  const lastY = nodes.at(-1)?.y ?? firstY;
+
+  const reservedDots = new Map<number, Omit<ChapterRailRowDot, "rowIndex" | "y">>();
+  for (const node of anchorNodes) {
+    reservedDots.set(node.rowIndex, { x: mainX, accent: "main", anchorId: node.anchorId });
+  }
+  for (const route of routes) {
+    for (const [rowIndex, dot] of route.reservedDots) {
+      if (!reservedDots.has(rowIndex)) {
+        reservedDots.set(rowIndex, dot);
+      }
+    }
+  }
+  const lanes = routes.flatMap((route) => route.lanes);
+  const worktreeClaims = lanes.map((lane, index): RailWorktreeRowClaim => ({
+    laneId: lane.laneId,
+    priority: lanes.length - index,
+    eligibleRowIndexes: new Set(
+      rowYs.flatMap((rowY, rowIndex) =>
+        rowY >= lane.straightTop - 0.5 && rowY <= lane.straightBottom + 0.5 ? [rowIndex] : [],
+      ),
+    ),
+  }));
+  const owners = assignRailRowOwners({
+    rowCount: rowYs.length,
+    reservedRowOwners: new Map([...reservedDots.keys()].map((rowIndex) => [rowIndex, "reserved"])),
+    worktreeClaims,
+  });
+  const laneById = new Map(lanes.map((lane) => [lane.laneId, lane]));
+  const rows = rowYs.map((y, rowIndex): ChapterRailRowDot => {
+    const reserved = reservedDots.get(rowIndex);
+    if (reserved !== undefined) {
+      return { rowIndex, y, ...reserved };
+    }
+    const lane = laneById.get(owners[rowIndex] ?? mainRailLaneId);
+    return lane === undefined
+      ? { rowIndex, y, x: mainX, accent: "main", anchorId: undefined }
+      : { rowIndex, y, x: lane.x, accent: lane.accent, anchorId: undefined };
+  });
+
+  const firstY = rowYs[0] ?? 0;
+  const lastY = rowYs.at(-1) ?? firstY;
   const laneTop = Math.max(0, firstY - railLeadIn);
-  const laneBottom = Math.min(props.pageHeight, lastY);
   return {
     kind: "drawn",
-    railX,
-    lanePath: `M ${railX} ${roundCoordinate(laneTop)} L ${railX} ${roundCoordinate(laneBottom)}`,
-    nodes,
+    railX: mainX,
+    columnXs,
+    rowUnit,
+    lanePath: `M ${mainX} ${roundRailCoordinate(laneTop)} L ${mainX} ${lastY}`,
+    rows,
+    anchorNodes,
+    branches: routes.flatMap((route) => route.branches),
   };
 }
 

@@ -1,7 +1,8 @@
 ---
-// The page's left progress rail: one git lane with a dot per chapter, drawn
-// behind the content by chapter-rail-controller.ts. Decorative only; without
-// script, or on a page with no rail anchors, the SVG stays empty.
+// The page's left progress rail: a git-graph grid (main lane plus worktree
+// lanes, one dot per row) drawn behind the content by
+// chapter-rail-controller.ts. Decorative only; without script, or on a page
+// with no rail anchors, the SVG stays empty.
 ---
 
 <div
@@ -24,7 +25,9 @@
 
 <style>
   /* The controller creates the lane, branches and dots at runtime, so these
-     selectors reach them through :global() under the scoped container. */
+     selectors reach them through :global() under the scoped container. Lane
+     strokes, node sizes and the terminal halo follow the retired topology
+     artwork (topology-lab/FullPageTopologyArtwork.astro at 721d72458). */
   .chapter-rail {
     --chapter-rail-lane: color-mix(
       in srgb,
@@ -46,18 +49,25 @@
   }
 
   .chapter-rail :global([data-chapter-rail-branch]) {
-    opacity: 0.55;
-    transition:
-      stroke var(--chapter-rail-transition),
-      opacity var(--chapter-rail-transition);
+    transition: stroke var(--chapter-rail-transition);
   }
 
-  .chapter-rail :global([data-chapter-rail-branch][data-chapter-rail-state="current"]) {
+  .chapter-rail
+    :global([data-chapter-rail-branch][data-chapter-rail-accent="main"][data-chapter-rail-state="current"]) {
     stroke: color-mix(in srgb, var(--chapter-rail-current) 78%, transparent);
-    opacity: 1;
   }
 
-  .chapter-rail :global(.chapter-rail-node-ring) {
+  .chapter-rail :global([data-chapter-rail-branch][data-chapter-rail-accent="peach"]) {
+    stroke: color-mix(in srgb, var(--color-parallel) 34%, transparent);
+  }
+
+  .chapter-rail :global([data-chapter-rail-branch][data-chapter-rail-accent="cyan"]) {
+    stroke: color-mix(in srgb, var(--color-glyph) 36%, transparent);
+  }
+
+  /* Commit nodes. Main-lane dots show progress: passed rows are filled,
+     upcoming rows hollow. Worktree dots take their lane's color. */
+  .chapter-rail :global(.chapter-rail-commit) {
     fill: var(--color-canvas);
     stroke: var(--chapter-rail-muted);
     stroke-width: 1.5px;
@@ -66,28 +76,71 @@
       stroke var(--chapter-rail-transition);
   }
 
-  .chapter-rail :global(.chapter-rail-node-core) {
-    fill: var(--chapter-rail-current);
-    opacity: 0;
-    transition: opacity var(--chapter-rail-transition);
-  }
-
-  .chapter-rail :global([data-chapter-rail-state="passed"] .chapter-rail-node-ring) {
+  .chapter-rail :global([data-chapter-rail-state="passed"] .chapter-rail-commit) {
     fill: var(--chapter-rail-muted);
   }
 
-  .chapter-rail :global([data-chapter-rail-state="current"] .chapter-rail-node-ring) {
+  .chapter-rail :global([data-chapter-rail-accent="peach"] .chapter-rail-commit) {
+    fill: var(--color-parallel);
+    stroke: var(--color-parallel);
+  }
+
+  .chapter-rail :global([data-chapter-rail-accent="cyan"] .chapter-rail-commit) {
+    fill: var(--color-glyph);
+    stroke: var(--color-glyph);
+  }
+
+  /* The current chapter is a terminal node: a filled primary disc whose halo
+     ring pulses outward. Other chapter rows show only their commit node. */
+  .chapter-rail :global(.chapter-rail-terminal),
+  .chapter-rail :global(.chapter-rail-terminal-halo) {
+    display: none;
+  }
+
+  .chapter-rail :global([data-chapter-rail-state="current"] .chapter-rail-commit) {
+    display: none;
+  }
+
+  .chapter-rail :global([data-chapter-rail-state="current"] .chapter-rail-terminal) {
+    display: inline;
+    fill: var(--chapter-rail-current);
+    stroke: var(--chapter-rail-current);
+  }
+
+  .chapter-rail :global([data-chapter-rail-state="current"] .chapter-rail-terminal-halo) {
+    display: inline;
+    fill: none;
     stroke: var(--chapter-rail-current);
     stroke-width: 2px;
+    opacity: 0;
+    transform-box: fill-box;
+    transform-origin: center;
+    animation: chapter-rail-terminal-halo 3.2s ease-out infinite;
   }
 
-  .chapter-rail :global([data-chapter-rail-state="current"] .chapter-rail-node-core) {
-    opacity: 1;
+  @keyframes chapter-rail-terminal-halo {
+    0% {
+      opacity: 0.72;
+      transform: scale(1);
+    }
+
+    70%,
+    100% {
+      opacity: 0;
+      transform: scale(2.35);
+    }
   }
 
+  /* Reduced motion: the halo holds still as a ring around the filled disc. */
   @media (prefers-reduced-motion: reduce) {
     .chapter-rail {
       --chapter-rail-transition: 0s;
+    }
+
+    .chapter-rail :global([data-chapter-rail-state="current"] .chapter-rail-terminal-halo) {
+      animation: none;
+      opacity: 0.72;
+      transform: scale(1.6);
     }
   }
 </style>
