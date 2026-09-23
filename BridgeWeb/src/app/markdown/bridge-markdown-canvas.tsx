@@ -1,5 +1,4 @@
 import DOMPurify from 'dompurify';
-import { FileClockIcon, RefreshCwIcon } from 'lucide-react';
 import {
 	memo,
 	useCallback,
@@ -12,9 +11,7 @@ import {
 } from 'react';
 import { createPortal } from 'react-dom';
 
-import { Alert, AlertAction, AlertTitle } from '@/components/ui/alert.js';
 import { Button } from '@/components/ui/button.js';
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip.js';
 
 import type {
 	BridgeMainRenderFulfillmentCoordinator,
@@ -26,6 +23,7 @@ import {
 	useWorktreeAnnotationPrepareActiveEditorsForInstallation,
 	useWorktreeAnnotationProjection,
 } from '../../worktree-annotations/worktree-annotation-surface-provider.js';
+import { BridgeViewerFileChangedAlert } from '../bridge-viewer-file-changed-alert.js';
 import { BridgeMarkdownAnnotationLayer } from './bridge-markdown-annotation-layer.js';
 import {
 	type BridgeMarkdownRenderBinding,
@@ -291,48 +289,14 @@ const BridgeMarkdownReadyDocument = memo(function BridgeMarkdownReadyDocument(pr
 			(presentation.sourcePath === props.presentation.sourcePath &&
 				presentation.identity.requestId !== props.presentation.identity.requestId) ? (
 				<div className="pointer-events-none sticky top-2 z-20 ml-auto h-0 w-fit pr-2">
-					<Alert
-						aria-label={explicitInstallationFailure ? 'Update failed' : 'File changed'}
-						className="pointer-events-auto items-center"
-						layout="floating"
-						role="status"
-						variant="floating"
-					>
-						<FileClockIcon aria-hidden="true" />
-						<AlertTitle>
-							{explicitInstallationFailure ? 'Update failed' : 'File changed'}
-						</AlertTitle>
-						<AlertAction className="self-center">
-							<Tooltip>
-								<TooltipTrigger
-									render={
-										<Button
-											aria-label="Update Markdown file"
-											disabled={installationPending}
-											size="sm"
-											type="button"
-											variant="outline"
-										/>
-									}
-									onClick={(): void => {
-										void installLatestCandidate();
-									}}
-								>
-									<RefreshCwIcon
-										aria-hidden="true"
-										data-busy={installationPending}
-										data-icon="inline-start"
-									/>
-									Update
-								</TooltipTrigger>
-								<TooltipContent side="bottom">
-									{explicitInstallationFailure
-										? 'Finish or cancel the open annotation, then retry.'
-										: 'Keep the draft and load the latest file.'}
-								</TooltipContent>
-							</Tooltip>
-						</AlertAction>
-					</Alert>
+					<BridgeViewerFileChangedAlert
+						installationFailed={explicitInstallationFailure}
+						installationPending={installationPending}
+						onUpdate={(): void => {
+							void installLatestCandidate();
+						}}
+						updateActionLabel="Update Markdown file"
+					/>
 				</div>
 			) : null}
 			{props.presentation.refresh.kind === 'failed' ? (

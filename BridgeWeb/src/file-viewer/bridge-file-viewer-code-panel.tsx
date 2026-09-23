@@ -2,7 +2,7 @@ import type { CodeViewLineSelection, CodeViewOptions, SelectedLineRange } from '
 import { CodeView, type CodeViewHandle } from '@pierre/diffs/react';
 import { useCallback, useLayoutEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 
-import { Alert, AlertDescription } from '../components/ui/alert.js';
+import { BridgeViewerFileChangedAlert } from '../app/bridge-viewer-file-changed-alert.js';
 import type { BridgeMainRenderFulfillmentCoordinator } from '../core/comm-worker/bridge-main-render-fulfillment-coordinator.js';
 import { codeViewSelectionScrollRetryFrameBudget } from '../review-viewer/code-view/bridge-code-view-panel-types.js';
 import {
@@ -30,6 +30,7 @@ import {
 	useWorktreeAnnotationActiveNewMessageEditTokens,
 	useWorktreeAnnotationEditSurfaceToken,
 	useWorktreeAnnotationInteraction,
+	useWorktreeAnnotationPrepareActiveEditorsForInstallation,
 	useWorktreeAnnotationProjection,
 	useWorktreeAnnotationSessionSelection,
 	useWorktreeAnnotationSessionDemand,
@@ -153,7 +154,9 @@ export function BridgeFileViewerCodePanel(props: BridgeFileViewerCodePanelProps)
 	const previousItem = lastDisplayedItemRef.current;
 	const candidateItem = props.selectedCodeViewItem;
 	const previousSourceId = previousItem?.bridgeMetadata.sourceDescriptorId;
+	const sourcePinRelease = useBridgeFileViewerSourcePinRelease();
 	const retainsAnnotationSource =
+		previousSourceId !== sourcePinRelease.releasedSourceDescriptorId &&
 		previousItem !== null &&
 		candidateItem !== null &&
 		previousItem.bridgeMetadata.itemId === candidateItem.bridgeMetadata.itemId &&
@@ -593,19 +596,66 @@ export function BridgeFileViewerCodePanel(props: BridgeFileViewerCodePanelProps)
 				) : null}
 			</BridgePierreWorkerPoolProvider>
 			{props.staleNotice ??
-				(retainsAnnotationSource ? (
+				(retainsAnnotationSource && previousSourceId !== undefined ? (
 					<div className="pointer-events-none absolute right-2 bottom-2">
-						<Alert role="status">
-							<AlertDescription>
-								{annotationProjection.readStatus.kind === 'unavailable'
-									? 'Annotation refresh unavailable. Showing the previous file and comments.'
-									: 'File updated. Keeping your saved comment visible while annotations refresh.'}
-							</AlertDescription>
-						</Alert>
+						<BridgeViewerFileChangedAlert
+							installationFailed={sourcePinRelease.failedSourceDescriptorId === previousSourceId}
+							installationPending={sourcePinRelease.pendingSourceDescriptorId === previousSourceId}
+							onUpdate={(): void => {
+								sourcePinRelease.release(previousSourceId);
+							}}
+							updateActionLabel="Update file"
+						/>
 					</div>
 				) : null)}
 		</section>
 	);
+}
+
+interface BridgeFileViewerSourcePinRelease {
+	readonly failedSourceDescriptorId: string | null;
+	readonly pendingSourceDescriptorId: string | null;
+	/** Leave the pinned source once open annotation editors are prepared, as Markdown does. */
+	readonly release: (pinnedSourceDescriptorId: string) => void;
+	readonly releasedSourceDescriptorId: string | null;
+}
+
+// The code view keeps an older source visible while a command-confirmed comment
+// still references it. This is the user's explicit exit when that never reconciles.
+function useBridgeFileViewerSourcePinRelease(): BridgeFileViewerSourcePinRelease {
+	const prepareEditors = useWorktreeAnnotationPrepareActiveEditorsForInstallation();
+	const [releasedSourceDescriptorId, setReleasedSourceDescriptorId] = useState<string | null>(null);
+	const [pendingSourceDescriptorId, setPendingSourceDescriptorId] = useState<string | null>(null);
+	const [failedSourceDescriptorId, setFailedSourceDescriptorId] = useState<string | null>(null);
+	const releaseRequestRef = useRef(0);
+	useLayoutEffect(
+		(): (() => void) => (): void => {
+			releaseRequestRef.current += 1;
+		},
+		[],
+	);
+	const release = useCallback(
+		(pinnedSourceDescriptorId: string): void => {
+			releaseRequestRef.current += 1;
+			const releaseRequest = releaseRequestRef.current;
+			setPendingSourceDescriptorId(pinnedSourceDescriptorId);
+			setFailedSourceDescriptorId(null);
+			const settle = (prepared: boolean): void => {
+				if (releaseRequestRef.current !== releaseRequest) return;
+				setPendingSourceDescriptorId(null);
+				if (prepared) setReleasedSourceDescriptorId(pinnedSourceDescriptorId);
+				else setFailedSourceDescriptorId(pinnedSourceDescriptorId);
+			};
+			void prepareEditors().then(settle, (): void => settle(false));
+		},
+		[prepareEditors],
+	);
+	return {
+		failedSourceDescriptorId,
+		pendingSourceDescriptorId,
+		release,
+		releasedSourceDescriptorId,
+	};
 }
 
 function fileAnnotationAdmissionIdentity(props: {
