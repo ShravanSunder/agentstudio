@@ -175,7 +175,7 @@ struct WorkspaceDrawerPresentationPersistenceTests {
         #expect(legacyValue.value == nil)
     }
 
-    @Test("an owner capture failure keeps the legacy key and import pending until a later capture imports")
+    @Test("the legacy height boot step waits for a successful owner capture, then becomes a no-op")
     func legacyImportWaitsForSuccessfulOwnerCapture() async throws {
         // Arrange: a populated pre-upgrade database and a legacy global height.
         let databases = try DrawerPresentationDatabases()
@@ -185,6 +185,7 @@ struct WorkspaceDrawerPresentationPersistenceTests {
         let paneB = appendTabbedPane(to: store)
         #expect(await store.flushAsync() == .persisted)
         try databases.rewindLocalSchemaBeforeDrawerPresentation()
+        let workspaceId = store.identityAtom.workspaceId
         let legacyValue = LegacyHeightValueBox(value: 0.45)
         let configuration = WorkspaceSQLiteDatastoreConfiguration(
             coreDatabaseURL: databases.coreDatabaseURL,
@@ -203,14 +204,11 @@ struct WorkspaceDrawerPresentationPersistenceTests {
             legacyDrawerPresentationCapture: failedCapture
         )
 
-        // Assert 1: schema migrated, import pending, key kept.
+        // Assert 1: the schema is migrated, nothing is imported, and the key
+        // stays as the pending marker.
         #expect(failedCapture == .ownerEnumerationFailed)
         #expect(legacyValue.value == 0.45)
-        #expect(try databases.storedOwnerPaneIds(workspaceId: store.identityAtom.workspaceId).isEmpty)
-        #expect(
-            !(try databases.appliedLocalMigrationIdentifiers())
-                .contains(WorkspaceLocalMigrations.legacyDrawerHeightImportMigrationIdentifier)
-        )
+        #expect(try databases.storedOwnerPaneIds(workspaceId: workspaceId).isEmpty)
 
         // Act 2: a later boot captures the real persisted owners.
         let coreRepository = WorkspaceCoreRepository(
@@ -226,14 +224,29 @@ struct WorkspaceDrawerPresentationPersistenceTests {
             legacyDrawerPresentationCapture: capture
         )
 
-        // Assert 2: every owning pane imported at the legacy height; key cleared.
+        // Assert 2: every owning pane is imported at the legacy height; the key is cleared.
         #expect(capture.importToApply != nil)
-        #expect(try databases.storedOwnerPaneIds(workspaceId: store.identityAtom.workspaceId) == [paneA.id, paneB.id])
+        #expect(try databases.storedOwnerPaneIds(workspaceId: workspaceId) == [paneA.id, paneB.id])
+        #expect(try databases.storedRatio(workspaceId: workspaceId, ownerPaneId: paneA.id) == 0.45)
         #expect(legacyValue.value == nil)
-        #expect(
-            try databases.appliedLocalMigrationIdentifiers()
-                .contains(WorkspaceLocalMigrations.legacyDrawerHeightImportMigrationIdentifier)
+
+        // Act 3: a later save changes a row, then a boot with no key runs the step.
+        try databases.writeRawPresentationRow(
+            workspaceId: workspaceId, ownerPaneId: paneA.id, ratioSQL: "0.7", zoomSide: "bridge")
+        let noKeyCapture = LegacyDrawerPresentationImportCapture.capture(
+            source: legacyValue.source,
+            enumerateOwners: { try coreRepository.fetchOwningLayoutPaneIDsByWorkspace() }
         )
+        _ = try WorkspaceSQLiteDatastoreActor.openConfiguredLocalRepository(
+            workspaceId: UUIDv7.generate(),
+            configuration: configuration,
+            legacyDrawerPresentationCapture: noKeyCapture
+        )
+
+        // Assert 3: nothing is imported or overwritten.
+        #expect(noKeyCapture == .noLegacyValue)
+        #expect(try databases.storedRatio(workspaceId: workspaceId, ownerPaneId: paneA.id) == 0.7)
+        #expect(try databases.storedOwnerPaneIds(workspaceId: workspaceId) == [paneA.id, paneB.id])
     }
 
     @Test("unknown side and non-finite ratio fall back to each field's default")
@@ -317,10 +330,17 @@ private struct DrawerPresentationDatabases {
         return Set(ids.compactMap(UUID.init(uuidString:)))
     }
 
-    func appliedLocalMigrationIdentifiers() throws -> Set<String> {
+    func storedRatio(workspaceId: UUID, ownerPaneId: UUID) throws -> Double? {
         let queue = try DatabaseQueue(path: localDatabaseURL.path)
         return try queue.read { database in
-            Set(try String.fetchAll(database, sql: "SELECT identifier FROM grdb_migrations"))
+            try Double.fetchOne(
+                database,
+                sql: """
+                    SELECT normal_height_ratio FROM local_drawer_presentation
+                    WHERE workspace_id = ? AND owner_pane_id = ?
+                    """,
+                arguments: [workspaceId.uuidString, ownerPaneId.uuidString]
+            )
         }
     }
 

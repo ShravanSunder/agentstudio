@@ -1,9 +1,10 @@
 import Foundation
 
 extension WorkspaceSQLiteDatastoreActor {
-    /// Opens and boot-migrates the application local database. The retired
-    /// global drawer height key is cleared only after its import migration
-    /// committed; a failed owner capture keeps the key and the import pending.
+    /// Opens and boot-migrates the application local database, then runs the
+    /// one-time legacy drawer height import as a boot data step outside the
+    /// migrator. The legacy key is the pending marker: it is cleared only after
+    /// the imported rows commit, and kept when capture or the write fails.
     static func openConfiguredLocalRepository(
         workspaceId: UUID,
         configuration: WorkspaceSQLiteDatastoreConfiguration,
@@ -17,11 +18,10 @@ extension WorkspaceSQLiteDatastoreActor {
             workspaceId: workspaceId,
             databaseWriter: localDatabasePool
         )
-        try localRepository.migrateBootRequired(
-            legacyDrawerPresentationImport: legacyDrawerPresentationCapture.importToApply
-        )
-        if legacyDrawerPresentationCapture.importToApply != nil {
-            // The per-owner rows are committed; the global key is no longer a runtime fallback.
+        try localRepository.migrateBootRequired()
+        if let legacyImport = legacyDrawerPresentationCapture.importToApply,
+            (try? localRepository.importLegacyDrawerHeight(legacyImport)) != nil
+        {
             configuration.legacyDrawerPresentationSource?.clear()
         }
         return localRepository

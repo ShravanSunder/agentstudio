@@ -206,11 +206,8 @@ package struct WorkspaceLocalRepository: Sendable {
         try WorkspaceLocalMigrations.migrate(databaseWriter)
     }
 
-    func migrateBootRequired(legacyDrawerPresentationImport: LegacyDrawerPresentationImport? = nil) throws {
-        try WorkspaceLocalMigrations.migrateBootRequired(
-            databaseWriter,
-            legacyDrawerPresentationImport: legacyDrawerPresentationImport
-        )
+    func migrateBootRequired() throws {
+        try WorkspaceLocalMigrations.migrateBootRequired(databaseWriter)
     }
 
     func migrateOptionalSchema() async throws {
