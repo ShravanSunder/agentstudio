@@ -236,17 +236,19 @@ struct ArchitectureLintCommandTests {
         }
     }
 
-    @Test("report-only diagnostics print without failing the command")
-    func reportOnlyDiagnosticsPrintWithoutFailingCommand() throws {
-        let fixture = fixturePath("Good")
-        let result = runCommand(
-            arguments: [fixture],
-            workspaceRootPath: fixture,
-            rules: [AlwaysReportArchitectureRule()]
-        )
+    @Test("every registered rule fails the command when it reports a site")
+    func everyRegisteredRuleFailsTheCommand() throws {
+        let fixture = fixturePath("Bad")
+        let result = runCommand(arguments: [fixture], workspaceRootPath: fixture)
 
-        #expect(result.exitCode == 0, Comment(rawValue: result.output))
-        #expect(result.output.contains("report: [agentstudio_test_report_only]"))
+        #expect(result.exitCode == 1)
+        for expectedRule in ExpectedRuleInventory.rules {
+            #expect(
+                result.output.contains(": \(expectedRule.severity.rawValue): [\(expectedRule.id)]"),
+                Comment(rawValue: expectedRule.id)
+            )
+        }
+        #expect(!result.output.contains(": report: "))
     }
 
     @Test("warning diagnostics continue to fail the command")
@@ -315,21 +317,6 @@ struct ArchitectureLintCommandTests {
         let output = (try? String(contentsOf: outputURL, encoding: .utf8)) ?? ""
         let error = (try? String(contentsOf: errorURL, encoding: .utf8)) ?? ""
         return CommandRunResult(exitCode: exitCode, output: output + error)
-    }
-}
-
-private struct AlwaysReportArchitectureRule: ArchitectureRule {
-    let id = "agentstudio_test_report_only"
-    let severity = ArchitectureSeverity.report
-    let message = "test report-only diagnostic"
-
-    func validate(context: ArchitectureLintContext) -> [ArchitectureDiagnostic] {
-        [
-            diagnostic(
-                context: context,
-                position: context.sourceFile.positionAfterSkippingLeadingTrivia
-            )
-        ]
     }
 }
 

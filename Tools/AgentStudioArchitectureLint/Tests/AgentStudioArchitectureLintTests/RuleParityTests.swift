@@ -14,8 +14,8 @@ struct RuleParityTests {
         #expect(try lintFixtureCorpus("Good").allSatisfy { $0.ruleID != "agentstudio_drawer_toolbar_owned_controls" })
     }
 
-    @Test("performance guard fixtures report all four advisory rules")
-    func performanceGuardFixturesReportAllFourAdvisoryRules() throws {
+    @Test("performance guard fixtures fail all four promoted performance rules")
+    func performanceGuardFixturesFailAllFourPromotedPerformanceRules() throws {
         let diagnostics = try lintFixtureCorpus("Bad")
         let performanceRuleIDs = Set(
             diagnostics.filter {
@@ -27,7 +27,7 @@ struct RuleParityTests {
         )
 
         #expect(performanceRuleIDs.count == 4)
-        #expect(diagnostics.filter { performanceRuleIDs.contains($0.ruleID) }.allSatisfy { $0.severity == .report })
+        #expect(diagnostics.filter { performanceRuleIDs.contains($0.ruleID) }.allSatisfy { $0.severity == .error })
     }
 
     @Test("bad fixture corpus exercises every migrated rule")

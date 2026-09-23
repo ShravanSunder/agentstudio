@@ -104,7 +104,7 @@ public struct ArchitectureLintCommand {
         if arguments.printsTimings {
             writeOutput(run.timings.renderedLines)
         }
-        return diagnostics.contains { $0.severity.affectsExitCode } ? 1 : 0
+        return diagnostics.isEmpty ? 0 : 1
     }
 
     /// A merge base without a ledger has nothing to ratchet against: the

@@ -53,9 +53,9 @@ enum ExpectedRuleInventory {
         ExpectedRule(id: "agentstudio_eventbus_subscriber_policy_required", severity: .error),
         ExpectedRule(id: "agentstudio_terminal_local_disposition_publication", severity: .error),
         ExpectedRule(id: "agentstudio_comparison_target_query_control_production", severity: .error),
-        ExpectedRule(id: "agentstudio_observation_capture_keyed_reads", severity: .report),
-        ExpectedRule(id: "agentstudio_mainactor_unbounded_collection_work", severity: .report),
-        ExpectedRule(id: "agentstudio_performance_constants_in_app_policies", severity: .report),
-        ExpectedRule(id: "agentstudio_nonisolated_async_blocking_io_requires_concurrent", severity: .report),
+        ExpectedRule(id: "agentstudio_observation_capture_keyed_reads", severity: .error),
+        ExpectedRule(id: "agentstudio_mainactor_unbounded_collection_work", severity: .error),
+        ExpectedRule(id: "agentstudio_performance_constants_in_app_policies", severity: .error),
+        ExpectedRule(id: "agentstudio_nonisolated_async_blocking_io_requires_concurrent", severity: .error),
     ]
 }
