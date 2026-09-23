@@ -55,9 +55,12 @@ flowchart LR
   not in the pane graph (`WorkspaceSurfaceCoordinator+ZoomCompanion.swift:194–220`).
 
 **Consequence for scope:** the terminal's Bridge (E-IC-3) is not addressable in
-A1. Controlling it through IPC arrives with stack B, whose B1 layer gives each
-terminal a stable Bridge in the pane graph. A1 designs the own-pane scope so
-that Bridge joins it without a rule change.
+A1. Controlling it through IPC arrives with stack B. B1 does not put the
+companion in the pane graph: an agent targets its Bridge through its own
+terminal's handle (`self`), which is already inside its own pane, and B1's
+Bridge adapter resolves terminal → receiver → current companion controller
+(mounted or not). The A1 own-pane rule therefore needs no change for B1; only
+the Bridge adapter's target resolution does.
 
 ## The structural choice
 
@@ -97,7 +100,7 @@ disallowed method from a pane agent.
 | `AppCommandIPCSpec` (App) | Per-command IPC metadata | New field `agentEligibility`: `ownPane`, `anyTarget`, `notYetAllowed`. Commands marked `ownPane` or `anyTarget` are exposed on all channels. |
 | Built-in method descriptors (`AgentStudioProgrammaticControl/BuiltInDescriptors`) | Per-method metadata | Same field on the method metadata; discovery (`system.capabilities`, `command.list`) reports it. |
 | `AppIPCMethodAuthorization` (`AgentStudioAppIPC`) | The authorization decision | New branch for `.spawnedPaneAgent`: eligibility, then own-pane membership of every resolved target identity, then argument rules. Produces the new outcomes. |
-| `AppIPCOwnPaneScopePort` (new port, declared in `AgentStudioAppIPC`, implemented in App) | Answering "is pane X inside agent pane P's own pane?" | Reads the pane graph on the main actor: P itself; if P is a main-layout pane, its drawer children; later (B1) P's stable Bridge. No I/O. |
+| `AppIPCOwnPaneScopePort` (new port, declared in `AgentStudioAppIPC`, implemented in App) | Answering "is pane X inside agent pane P's own pane?" | Reads the pane graph on the main actor: P itself; if P is a main-layout pane, its drawer children. B1 Bridge methods target P itself and resolve to its receiver downstream, so the port does not change. No I/O. |
 | Layout adapter / executor (`AgentStudioIPCLayoutAdapter`, `WorkspaceSurfaceCoordinator`) | Drawer child creation | New background variant: content `terminal` or `browser(url)`; drawer expansion, drawer selection (`activeChildId`) and keyboard focus unchanged; returns the created pane. Changed owners: the forced expansion in `WorkspaceTerminalCreationComposition.swift:168–170`, the child selection in `TabArrangementMutationRules.swift:158–177`, the terminal-path focus call in `WorkspaceSurfaceCoordinator+ViewHelpers.swift:104` and the browser-path focus in `WorkspaceSurfaceCoordinator+PaneInsertion.swift:223–230` each take the background flag and leave their value unchanged. |
 | Workspace action validation (`ActionValidator`) | Drawer child content rule | Shared rule from the drawer design: terminal or webview only. |
 | Error taxonomy (`AgentStudioAppIPCRequestError`, `AuthorizationError.Reason`) | Wire outcomes | New reasons `notYetAllowed` (with command name) and `refusedForAgent`, each with its own error code, distinct from `unauthorized`, `missingGrant` and `targetNotFound`. |
