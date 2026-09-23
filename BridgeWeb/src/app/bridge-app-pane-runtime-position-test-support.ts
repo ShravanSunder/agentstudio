@@ -142,6 +142,7 @@ function replacementFileTargetPatches(
 						row: {
 							changeStatus: 'modified',
 							depth: 1,
+							documentLocation: null,
 							fileClass: 'source',
 							fileId: bridgePaneReplacementFileItemId,
 							isDirectory: false,
@@ -360,6 +361,7 @@ function makeFileDisplayEvent(fileContents: string): BridgeWorkerFileDisplayPatc
 							row: {
 								changeStatus: rowIndex % 3 === 0 ? ('modified' as const) : null,
 								depth: 1,
+								documentLocation: null,
 								fileId: `position-file-${ordinal}`,
 								fileClass: 'source' as const,
 								isDirectory: false,

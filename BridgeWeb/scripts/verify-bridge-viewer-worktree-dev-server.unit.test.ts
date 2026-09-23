@@ -53,12 +53,11 @@ describe('worktree dev-server verifier Review interaction contract', () => {
 
 	test('reads Worktree/File rows from typed product tree windows', () => {
 		const source = {
-			repoId: '11111111-1111-4111-8111-111111111111',
+			collectionToken: 'root-token-1',
 			rootRevisionToken: 'revision-1',
 			sourceCursor: 'cursor-1',
 			sourceId: 'source-1',
 			subscriptionGeneration: 1,
-			worktreeId: '22222222-2222-4222-8222-222222222222',
 		};
 		expect(
 			worktreeFileTreeRows([

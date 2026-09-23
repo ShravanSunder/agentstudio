@@ -379,6 +379,7 @@ export function makeTreeRow(props: {
 	return {
 		changeStatus: props.changeStatus ?? null,
 		depth: props.depth,
+		documentLocation: null,
 		fileId: props.fileId ?? null,
 		fileClass: props.isDirectory ? null : (props.fileClass ?? 'source'),
 		isDirectory: props.isDirectory,

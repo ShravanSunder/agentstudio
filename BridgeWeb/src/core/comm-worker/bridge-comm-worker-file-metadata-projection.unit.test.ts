@@ -509,6 +509,7 @@ describe('Bridge comm worker File metadata projection', () => {
 				{
 					changeStatus: null,
 					depth: 0,
+					documentLocation: null,
 					fileId: null,
 					fileClass: null,
 					isDirectory: true,
@@ -522,6 +523,7 @@ describe('Bridge comm worker File metadata projection', () => {
 				{
 					changeStatus: 'modified',
 					depth: 1,
+					documentLocation: null,
 					fileId: 'file-1',
 					fileClass: 'source',
 					isDirectory: false,
@@ -708,6 +710,7 @@ function makeFileTreeRow(): Extract<
 	return {
 		changeStatus: 'modified',
 		depth: 1,
+		documentLocation: null,
 		fileId: 'file-1',
 		fileClass: 'source',
 		isDirectory: false,

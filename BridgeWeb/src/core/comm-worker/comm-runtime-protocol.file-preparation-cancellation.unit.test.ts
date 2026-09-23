@@ -570,6 +570,7 @@ function fileTreeWindowEvent(): Parameters<typeof makeFileMetadataDataFrame>[0] 
 			{
 				changeStatus: 'modified',
 				depth: 0,
+				documentLocation: null,
 				fileId: 'file-1',
 				fileClass: 'source',
 				isDirectory: false,

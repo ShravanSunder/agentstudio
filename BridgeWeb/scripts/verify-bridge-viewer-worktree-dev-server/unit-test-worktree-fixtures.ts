@@ -4,6 +4,7 @@ export function makeWorktreeFileTreeRow(path: string, rowId: string): WorktreeFi
 	return {
 		changeStatus: 'modified',
 		depth: 0,
+		documentLocation: null,
 		fileId: `file-${rowId}`,
 		fileClass: 'source',
 		isDirectory: false,

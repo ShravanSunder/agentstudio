@@ -30,6 +30,7 @@ enum BridgePaneProductFileMetadataEncoding {
         try .init(
             changeStatus: row.changeStatus.flatMap(BridgeProductFileChangeStatus.init(rawValue:)),
             depth: row.depth,
+            documentLocation: nil,
             fileId: row.fileId,
             fileClass: row.fileClass,
             isDirectory: row.isDirectory,
@@ -45,12 +46,18 @@ enum BridgePaneProductFileMetadataEncoding {
     static func boundedProductRowChunks(
         _ rows: [BridgeWorktreeTreeRowMetadata]
     ) throws -> [[BridgeProductFileTreeRow]] {
+        try boundedProductRowChunks(productRows: rows.map(productTreeRow))
+    }
+
+    static func boundedProductRowChunks(
+        productRows rows: [BridgeProductFileTreeRow]
+    ) throws -> [[BridgeProductFileTreeRow]] {
         var chunks: [[BridgeProductFileTreeRow]] = []
         var currentChunk: [BridgeProductFileTreeRow] = []
         var currentEncodedByteCount = 0
         let maximumPayloadByteCount = BridgeProductWireContract.maximumMetadataFrameBytes - 4096
         let encoder = JSONEncoder()
-        for row in try rows.map(productTreeRow) {
+        for row in rows {
             let encodedByteCount = try encoder.encode(row).count + 1
             if !currentChunk.isEmpty,
                 currentChunk.count == BridgeProductWireContract.maximumFileMetadataDeltaMemberCount

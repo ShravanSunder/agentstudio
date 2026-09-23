@@ -62,6 +62,12 @@ export const bridgeProductDisplayPathSchema = z
 		}
 	});
 
+/** The canonical absolute location of an individually opened document. */
+export const bridgeProductDocumentLocationSchema = bridgeProductDisplayPathSchema.refine(
+	(value): boolean => value.startsWith('/'),
+	{ message: 'Bridge product document locations must be absolute.' },
+);
+
 export const bridgeProductSafeMessageSchema = z
 	.string()
 	.min(1)

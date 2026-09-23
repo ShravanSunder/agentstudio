@@ -219,6 +219,7 @@ function makeFileTreeRow(index: number): FileTreeRow {
 	return {
 		changeStatus: 'modified',
 		depth: 1,
+		documentLocation: null,
 		fileId: `file-${index}`,
 		fileClass: 'source',
 		isDirectory: false,
@@ -235,6 +236,7 @@ function makeSourcesRow(rowId: string): FileTreeRow {
 	return {
 		changeStatus: null,
 		depth: 0,
+		documentLocation: null,
 		fileId: null,
 		fileClass: null,
 		isDirectory: true,

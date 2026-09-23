@@ -392,6 +392,7 @@ function fileTreeUpsert(
 		row: {
 			changeStatus: 'modified' as const,
 			depth: 1,
+			documentLocation: null,
 			fileId: `file-${rowId}`,
 			fileClass: 'source' as const,
 			isDirectory: false,

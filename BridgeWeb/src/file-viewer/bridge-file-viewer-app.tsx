@@ -484,6 +484,10 @@ export function BridgeFileViewerAppImplementation(
 		isActive,
 	});
 	const contentHeaderTitle = bridgeFileViewerContentHeaderTitle({
+		selectedDocumentLocation:
+			selectedPath === null
+				? null
+				: (displayModel.treeRowByPath.get(selectedPath)?.documentLocation ?? null),
 		selectedPath,
 		sourceId: displayModel.source?.sourceId ?? '',
 	});

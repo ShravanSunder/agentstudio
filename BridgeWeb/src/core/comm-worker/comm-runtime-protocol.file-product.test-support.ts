@@ -185,6 +185,7 @@ export function makeTreeWindowEvent(): Parameters<typeof makeFileMetadataDataFra
 			{
 				changeStatus: 'modified',
 				depth: 0,
+				documentLocation: null,
 				fileId: 'file-1',
 				fileClass: 'source',
 				isDirectory: false,

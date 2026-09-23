@@ -19,6 +19,7 @@ const source = {
 const row = {
 	changeStatus: 'modified',
 	depth: 1,
+	documentLocation: null,
 	fileId: 'file-1',
 	fileClass: 'source',
 	isDirectory: false,
@@ -227,6 +228,40 @@ describe('Bridge product File metadata event contract', () => {
 			},
 		]) {
 			expect(bridgeProductFileMetadataEventSchema.safeParse(invalidEvent).success).toBe(false);
+		}
+	});
+
+	test('accepts an absolute opened-document location only on file rows', () => {
+		const treeWindowWith = (candidateRow: Record<string, unknown>): Record<string, unknown> => ({
+			eventKind: 'file.treeWindow',
+			finalWindow: true,
+			lineage: { lane: 'foreground', loadedBy: 'startup_window' },
+			pathScope: [],
+			rows: [candidateRow],
+			source,
+			startIndex: 0,
+			totalRowCount: 1,
+		});
+		const openedDocumentRow = {
+			...row,
+			documentLocation: '/private/tmp/notes.md',
+			name: 'notes.md',
+			parentPath: 'Open Files',
+			path: 'Open Files/notes.md',
+		};
+		const { documentLocation: _omitted, ...rowWithoutLocation } = row;
+
+		expect(
+			bridgeProductFileMetadataEventSchema.safeParse(treeWindowWith(openedDocumentRow)).success,
+		).toBe(true);
+		for (const invalidRow of [
+			rowWithoutLocation,
+			{ ...openedDocumentRow, documentLocation: 'tmp/notes.md' },
+			{ ...openedDocumentRow, fileClass: null, isDirectory: true },
+		]) {
+			expect(
+				bridgeProductFileMetadataEventSchema.safeParse(treeWindowWith(invalidRow)).success,
+			).toBe(false);
 		}
 	});
 

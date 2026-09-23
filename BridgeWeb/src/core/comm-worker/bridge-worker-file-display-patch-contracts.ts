@@ -3,6 +3,7 @@ import { z } from 'zod';
 import {
 	BRIDGE_PRODUCT_MAXIMUM_CONTENT_BYTES,
 	bridgeProductDisplayPathSchema,
+	bridgeProductDocumentLocationSchema,
 	bridgeProductIdentifierSchema,
 	bridgeProductNonnegativeSequenceSchema,
 	bridgeProductSafeMessageSchema,
@@ -21,6 +22,7 @@ const bridgeWorkerFileTreeDisplayRowSchema = z
 	.object({
 		changeStatus: bridgeProductFileChangeStatusSchema.nullable(),
 		depth: bridgeProductNonnegativeSequenceSchema,
+		documentLocation: bridgeProductDocumentLocationSchema.nullable(),
 		fileId: bridgeProductIdentifierSchema.nullable(),
 		fileClass: bridgeProductFileTreeFileClassSchema.nullable(),
 		isDirectory: z.boolean(),

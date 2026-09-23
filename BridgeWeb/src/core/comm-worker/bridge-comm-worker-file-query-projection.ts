@@ -390,7 +390,7 @@ export class BridgeCommWorkerFileQueryProjection {
 	): boolean {
 		if (querySearchError !== null) return false;
 		if (queryPattern !== null) {
-			if (row.isDirectory || !queryPattern.test(row.path)) return false;
+			if (row.isDirectory || !rowPathOrLocationMatches(row, queryPattern)) return false;
 		}
 		if (row.isDirectory) return query.filterMode === 'all';
 		if (query.filterMode === 'all') return true;
@@ -565,10 +565,20 @@ function fileQueriesEqual(left: BridgeWorkerFileQuery, right: BridgeWorkerFileQu
 	);
 }
 
+/**
+ * A collection row matches on its collection path (which carries the member
+ * worktree group) or, for an individually opened document, on its real location.
+ */
+function rowPathOrLocationMatches(row: FileTreeRow, queryPattern: RegExp): boolean {
+	if (queryPattern.test(row.path)) return true;
+	return row.documentLocation !== null && queryPattern.test(row.documentLocation);
+}
+
 function fileTreeRowsEqual(left: FileTreeRow, right: FileTreeRow): boolean {
 	return (
 		left.changeStatus === right.changeStatus &&
 		left.depth === right.depth &&
+		left.documentLocation === right.documentLocation &&
 		left.fileId === right.fileId &&
 		left.fileClass === right.fileClass &&
 		left.isDirectory === right.isDirectory &&

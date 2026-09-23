@@ -13,10 +13,10 @@ struct BridgeProductFileMetadataContractTests {
                 "finalWindow": true,
                 "lineage": ["lane": "foreground", "loadedBy": "startup_window"],
                 "pathScope": ["src"],
-                "rows": [row],
+                "rows": [row, openedDocumentRow],
                 "source": source,
                 "startIndex": 0,
-                "totalRowCount": 1,
+                "totalRowCount": 2,
             ],
             [
                 "eventKind": "file.treeDelta",
@@ -102,6 +102,13 @@ struct BridgeProductFileMetadataContractTests {
         missingFileClassRow.removeValue(forKey: "fileClass")
         var invalidFileClassRow = row
         invalidFileClassRow["fileClass"] = "text"
+        var missingDocumentLocationRow = row
+        missingDocumentLocationRow.removeValue(forKey: "documentLocation")
+        var relativeDocumentLocationRow = openedDocumentRow
+        relativeDocumentLocationRow["documentLocation"] = "tmp/notes.md"
+        var directoryDocumentLocationRow = openedDocumentRow
+        directoryDocumentLocationRow["isDirectory"] = true
+        directoryDocumentLocationRow["fileClass"] = NSNull()
         let closedStatusWindow: [String: Any] = [
             "eventKind": "file.treeWindow",
             "finalWindow": true,
@@ -142,6 +149,9 @@ struct BridgeProductFileMetadataContractTests {
             closedStatusWindow,
             treeWindow(row: missingFileClassRow),
             treeWindow(row: invalidFileClassRow),
+            treeWindow(row: missingDocumentLocationRow),
+            treeWindow(row: relativeDocumentLocationRow),
+            treeWindow(row: directoryDocumentLocationRow),
             crossWiredStatusPatch,
         ] {
             #expect(throws: (any Error).self) { _ = try decode(event) }
@@ -308,10 +318,28 @@ struct BridgeProductFileMetadataContractTests {
 
     private var row: [String: Any] { treeRow(index: 1) }
 
+    private var openedDocumentRow: [String: Any] {
+        [
+            "changeStatus": NSNull(),
+            "depth": 1,
+            "documentLocation": "/private/tmp/notes.md",
+            "fileId": "opened-file-1",
+            "fileClass": "docs",
+            "isDirectory": false,
+            "lineCount": NSNull(),
+            "name": "notes.md",
+            "parentPath": "Open Files",
+            "path": "Open Files/notes.md",
+            "rowId": "opened-row-1",
+            "sizeBytes": 42,
+        ]
+    }
+
     private func treeRow(index: Int) -> [String: Any] {
         [
             "changeStatus": "modified",
             "depth": 1,
+            "documentLocation": NSNull(),
             "fileId": "file-\(index)",
             "fileClass": "source",
             "isDirectory": false,

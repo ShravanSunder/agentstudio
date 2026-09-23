@@ -190,6 +190,7 @@ function makeFileDisplayPatchEvent(): BridgeWorkerFileDisplayPatchEvent {
 							row: {
 								changeStatus: 'modified',
 								depth: 1,
+								documentLocation: null,
 								fileId: 'file-1',
 								fileClass: 'source',
 								isDirectory: false,

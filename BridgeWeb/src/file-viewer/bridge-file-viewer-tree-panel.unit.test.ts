@@ -11,6 +11,7 @@ const rows: readonly BridgeFileViewerDisplayTreeRow[] = [
 	{
 		changeStatus: null,
 		depth: 0,
+		documentLocation: null,
 		fileId: 'file-a',
 		fileClass: 'source',
 		isDirectory: false,
@@ -25,6 +26,7 @@ const rows: readonly BridgeFileViewerDisplayTreeRow[] = [
 	{
 		changeStatus: 'modified',
 		depth: 0,
+		documentLocation: null,
 		fileId: 'file-b',
 		fileClass: 'source',
 		isDirectory: false,
@@ -88,6 +90,7 @@ describe('Bridge File viewer tree display adapter', () => {
 		const directory: BridgeFileViewerDisplayTreeRow = {
 			changeStatus: null,
 			depth: 0,
+			documentLocation: null,
 			fileId: null,
 			fileClass: null,
 			isDirectory: true,
