@@ -4,6 +4,10 @@ name: CI / Swift width comparison
 # width 3 (this runner's core count) and with the width unset, on that one bundle.
 # Both receipts and every event-stream ledger are kept whether each half passes or
 # fails. Neither result changes the default width, which stays unset.
+#
+# It carries no first-attempt gate on purpose: it is dispatch-only and never a
+# merge gate, so re-running it is another experiment, not a way to hide a red
+# required check.
 on:
   workflow_dispatch:
 

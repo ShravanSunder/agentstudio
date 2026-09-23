@@ -403,10 +403,11 @@ signal.
      `get-task-allow`, and `swift-inspect` exits 0 even then, which is why the
      runner judges success by the dump's content.
    - `….held-steps.log`: the lane hands each test process this path as
-     `AGENTSTUDIO_HELD_STEP_LOG`. The causal-test harness appends
-     `waiting <name> <test>` and `arrived <name>` lines, and the hang report
-     prints every wait that never arrived as
-     `held_step_unarrived name=<name> test=<test>`.
+     `AGENTSTUDIO_HELD_STEP_LOG`. The causal-test harness appends one
+     TAB-separated line per event, because step names contain spaces:
+     `waiting<TAB><name><TAB><fileID function>` and `arrived<TAB><name>`. The
+     hang report prints every wait that never arrived as
+     `held_step_unarrived name=<name> test=<fileID function>`.
    - `….events.jsonl`: the event ledger itself.
 
    The hang verdict is failed whatever evidence was gathered.

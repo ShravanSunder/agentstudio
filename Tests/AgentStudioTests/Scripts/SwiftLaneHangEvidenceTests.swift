@@ -46,7 +46,7 @@ struct SwiftLaneHangEvidenceTests {
         let evidenceDirectory = workDirectory + "/ci-runs"
         try FileManager.default.createDirectory(atPath: workDirectory + "/bin", withIntermediateDirectories: true)
         try """
-        printf 'waiting gateA Suite/first()\\nwaiting gateB Suite/second()\\narrived gateA\\n' \
+        printf 'waiting\\tgate A\\tSuite.swift first()\\nwaiting\\tgate B\\tSuite.swift second()\\narrived\\tgate A\\n' \
           >> "$AGENTSTUDIO_HELD_STEP_LOG"
         while true; do sleep 1; done
 
@@ -77,8 +77,8 @@ struct SwiftLaneHangEvidenceTests {
         // The hang verdict is failed whatever evidence was gathered.
         #expect(laneOutput.contains("RETURNED=124"))
         // Only the wait that never arrived is named, before anything is reaped.
-        #expect(laneOutput.contains("lane-report held_step_unarrived name=gateB test=Suite/second()"))
-        #expect(!laneOutput.contains("held_step_unarrived name=gateA"))
+        #expect(laneOutput.contains("lane-report held_step_unarrived name=gate B test=Suite.swift second()"))
+        #expect(!laneOutput.contains("held_step_unarrived name=gate A"))
         #expect(unarrivedRange.lowerBound < reapRange.lowerBound)
         // Dump, held-step log and ledger share one stem, side by side.
         #expect(evidenceStem.hasPrefix("lane-evidence-probe-"))
@@ -108,8 +108,10 @@ struct SwiftLaneHangEvidenceTests {
 
         let report = try await laneBash(
             "mkdir -p '\(logDirectory)'; "
-                + "printf 'waiting gate Suite/one()\\nwaiting gate Suite/two()\\narrived gate\\n"
-                + "waiting other Suite/three() with spaces\\n' > '\(logDirectory)/held.log'; "
+                // TAB-separated, as the harness writes it: step names contain spaces.
+                + "printf 'waiting\\tsocket stop gate\\tListenerTests.swift one()\\n"
+                + "waiting\\tsocket stop gate\\tListenerTests.swift two()\\narrived\\tsocket stop gate\\n"
+                + "waiting\\tpane focus\\tFocusTests.swift three()\\n' > '\(logDirectory)/held.log'; "
                 + ": > '\(logDirectory)/empty.log'; "
                 + "LOG_PREFIX=lane; source scripts/swift-test-helpers.sh; "
                 + "print_held_steps_unarrived_at_timeout '\(logDirectory)/held.log'; echo MISSING:; "
@@ -121,8 +123,8 @@ struct SwiftLaneHangEvidenceTests {
         #expect(
             laneOutputLines(report) == [
                 // One arrival settles the earliest wait of that name.
-                "[lane] lane-report held_step_unarrived name=gate test=Suite/two()",
-                "[lane] lane-report held_step_unarrived name=other test=Suite/three() with spaces",
+                "[lane] lane-report held_step_unarrived name=socket stop gate test=ListenerTests.swift two()",
+                "[lane] lane-report held_step_unarrived name=pane focus test=FocusTests.swift three()",
                 "MISSING:",
                 "EMPTY:",
                 "UNSET:",

@@ -249,22 +249,22 @@ lane_evidence_stem() {
 }
 
 # The held steps a hung lane was still waiting on. The causal-test harness
-# appends `waiting <name> <test>` when a test parks on a held step and
-# `arrived <name>` when the step is reached; each arrival matches the earliest
-# unmatched wait of that name. Every wait left unmatched is printed. A missing
-# or empty log prints nothing.
+# appends one TAB-separated line per event, with a single O_APPEND write:
+# `waiting<TAB><name><TAB><fileID function>` when a test parks on a held step
+# and `arrived<TAB><name>` when the step is reached. Names contain spaces, so
+# only tabs separate fields. Each arrival matches the earliest unmatched wait of
+# that name, and every wait left unmatched is printed. A missing or empty log
+# prints nothing.
 print_held_steps_unarrived_at_timeout() {
   local held_step_log="${1:-}"
   local held_step_name
   local held_step_test
 
   [ -n "$held_step_log" ] && [ -s "$held_step_log" ] || return 0
-  /usr/bin/awk '
-    $1 == "waiting" && NF >= 2 {
-      waiting_test = $0
-      sub(/^waiting[ \t]+[^ \t]+[ \t]*/, "", waiting_test)
+  /usr/bin/awk -F '\t' '
+    $1 == "waiting" && NF >= 2 && $2 != "" {
       wait_count[$2]++
-      waiting[$2, wait_count[$2]] = waiting_test
+      waiting[$2, wait_count[$2]] = $3
       order_name[++order_count] = $2
       order_index[order_count] = wait_count[$2]
       next
