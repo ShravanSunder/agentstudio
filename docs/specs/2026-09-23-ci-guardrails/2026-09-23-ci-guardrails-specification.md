@@ -51,7 +51,7 @@ The entity table is the normative home. The map below shows relationships only.
 | E10 | Lane receipt | The report one Swift test lane prints for one run | Belongs to one lane run of one candidate tree and one test bundle | States which tree and bundle it tested, whether the bundle was built fresh, and every in-runner retry | `valid` or `invalid` | "lane report", "test receipt" | U1, U14 |
 | E11 | CI run attempt | A GitHub workflow run identifier plus attempt number | Belongs to one commit | — | `first-attempt`, `rerun-overridden` (override label present), `rerun-blocked` | "rerun", "re-run failed jobs" | U11 |
 | E12 | Agent-doc path reference | One repository location written in an agent instruction document — a Markdown link target (path and optional heading anchor) or a backticked token written in repository-path form — identified by document plus written target | Belongs to one agent document | — | `resolves` or `dangling` | "doc link", "referenced file" | U9, U10 |
-| E13 | Page generation | One load of the document in a BridgeWeb browser or E2E journey; a reload starts a new generation | A journey has one or more generations; a response waiter belongs to exactly one | A response from one generation never satisfies a waiter of another | `current` → `superseded` (after reload) | "page load", "document", "g1/g2" | U13 |
+| E13 | Page generation | One document instance in a BridgeWeb browser or E2E journey; a reload or other document replacement starts a new generation, and a same-document (history or hash) navigation does not | A journey has one or more generations; a response waiter belongs to exactly one | A response from one generation never satisfies a waiter of another | `current` → `superseded` (after reload) | "page load", "document", "g1/g2" | U13 |
 | E14 | Width comparison | One paired run of the same built test bundle and candidate tree, once with a stated Swift Testing width and once with the width unset | Belongs to one candidate tree; produces two receipts and two event ledgers | Both halves use the same bundle; neither result changes the default by itself | `not-run` → `recorded` → `decided` (owner) | "width experiment", "cap experiment" | U13, Ev11 |
 
 ```mermaid
@@ -144,7 +144,9 @@ Each requirement is written over the entities above. Proof obligations are in th
   without writing anything, and a call that silently ignores one MUST fail compilation of the repository's own
   targets. U12.
 - **R8** (E5) A caller that neither awaits nor stores a completion handle MUST discard it explicitly and state the
-  reason on the same line; the lint run MUST fail on an explicit discard without a reason. U12.
+  reason; the lint run MUST fail on an explicit discard of a completion handle without a reason, including one
+  obtained by awaiting a call across an actor. Every function that returns a completion handle has a name no
+  non-handle function shares, so the discard check is exact. U12.
 
 ### MainActor shapes
 
@@ -187,7 +189,8 @@ Each requirement is written over the entities above. Proof obligations are in th
     until release, fail or retire while the test can await the cancellation as an event;
   - a synchronous (blocking) arrival made from inside a task is rejected as a test failure naming the step, because
     it would park a cooperative-pool or actor thread;
-  - a step that is never reached leaves the test waiting until the runner's hang bound, whose failure names the step.
+  - a step that is never reached leaves the test waiting until the runner's hang bound, and the lane's hang evidence
+    names the step.
   U7.
 - **R16** (E7) The shared test support MUST provide a three-phase helper for boundaries whose held dependency can
   report failure through the boundary's existing contract: for a fresh instance of the work each time, it holds the
@@ -198,8 +201,9 @@ Each requirement is written over the entities above. Proof obligations are in th
 - **R17** (S16) Every wait helper in the shared harness MUST return the observed value that satisfied it. Existing
   test wait helpers that return nothing are frozen by per-file count (a lint guardrail) and converted in the stacked
   follow-up pull requests; no new one may be added. U7, U8, U13.
-- **R18** (E8) This change MUST migrate onto held steps the gate types used by the causal tests in R19 and every gate
-  type that exists as a duplicate copy under the same or a different name. S4 MUST fail the lint run for a new ad-hoc
+- **R18** (E8) This change MUST migrate onto held steps the gate types used by the causal tests in R19 and every
+  duplicate gate type (same or different name) whose semantics the held-step contract covers; a duplicate that needs
+  more is frozen and migrated in the stacked follow-ups. S4 MUST fail the lint run for a new ad-hoc
   gate type and freeze the rest by per-file count; the stacked follow-up pull requests retire the remainder until the
   baseline is empty. U8.
 - **R19** (E7) Each async boundary whose defect is in the evidence MUST have a causal test at its real entry point
