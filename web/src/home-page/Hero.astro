@@ -1,29 +1,54 @@
 ---
+import { Image } from "astro:assets";
+
+import parallelAgentsImage from "@/assets/captures/parallel-agents.png";
+import parallelWorkPhoneImage from "@/assets/captures/parallel-work-phone.png";
+import {
+  railAnchorAttribute,
+  railMediaTargetAttribute,
+  railSurfaceTargetAttribute,
+} from "@/chapters/chapter-dom-contract";
 import { marketingCopy } from "@/marketing-copy";
 
 import InstallCommand from "./InstallCommand.astro";
+import ScrollMaterialSurface from "./ScrollMaterialSurface.astro";
+
+// The rail treats the hero like a chapter: its dot aligns with the eyebrow and
+// its branch joins the app frame (left edge on wide/laptop, top edge on phone).
+const heroRailId = "hero";
+const railAnchorAttributes = { [railAnchorAttribute]: heroRailId };
+const appFrameRailAttributes = {
+  [railSurfaceTargetAttribute]: heroRailId,
+  [railMediaTargetAttribute]: heroRailId,
+};
 ---
 
 <section
-  class="hero relative overflow-hidden px-page-inline pt-[clamp(72px,8vw,120px)] max-phone:pt-18"
+  class="hero relative pt-[clamp(32px,3.4vw,64px)] pr-page-inline pl-[calc(var(--spacing-page-inline)+var(--hero-rail-gutter))] max-phone:pt-8"
   aria-labelledby="hero-title"
 >
-  <div class="relative z-[2] max-w-hero">
-    <p class="eyebrow m-0 font-mono-product text-eyebrow tracking-eyebrow text-ink-faint uppercase">
+  <div class="relative z-[2] max-w-hero lg:pl-[clamp(24px,2.6vw,56px)]">
+    <p
+      {...railAnchorAttributes}
+      class="eyebrow m-0 font-mono-product text-eyebrow tracking-eyebrow text-ink-faint uppercase"
+    >
       {marketingCopy.hero.eyebrow}
     </p>
     <h1
       id="hero-title"
-      class="mt-6 mb-7.5 max-w-hero font-display text-hero font-extrabold"
+      class="mt-5 mb-6 max-w-hero font-display text-[clamp(36px,5.6vw,96px)] leading-[0.9] font-extrabold tracking-[-0.05em]"
       aria-label={marketingCopy.hero.headline}
     >
-      <span class="block whitespace-nowrap max-phone:text-balance max-phone:whitespace-normal">{marketingCopy.hero.headlineSetupFirst}</span>
+      <span class="block whitespace-nowrap max-phone:text-balance max-phone:whitespace-normal"
+        >{marketingCopy.hero.headlineSetupFirst}</span
+      >
       <span class="block whitespace-nowrap max-phone:text-balance max-phone:whitespace-normal">
         {marketingCopy.hero.headlineSetupSecondBeforeAccent}<span
           >{marketingCopy.hero.headlineSetupSecondAccent}</span
         >
       </span>
-      <span class="mt-[0.5em] block whitespace-nowrap text-hero-payoff text-primary max-phone:text-balance max-phone:whitespace-normal"
+      <span
+        class="mt-[0.3em] block text-[clamp(26px,3.9vw,66px)] leading-[0.96] tracking-[-0.035em] whitespace-nowrap text-primary max-phone:text-balance max-phone:whitespace-normal"
         >{marketingCopy.hero.headlinePayoff}</span
       >
     </h1>
@@ -31,59 +56,60 @@ import InstallCommand from "./InstallCommand.astro";
       {marketingCopy.hero.description}
     </p>
     <div
-      class="hero__actions mt-action flex w-full flex-wrap items-center justify-center gap-3 max-phone:flex-col max-phone:items-stretch"
+      class="hero__actions mt-8 flex w-full flex-wrap items-center gap-3 max-phone:flex-col max-phone:items-stretch"
     >
       <InstallCommand />
     </div>
   </div>
 
-  <div
-    class="hero__planes absolute top-14 right-20 h-55 w-75 origin-top-right scale-[0.78] opacity-90 max-xl:top-13 max-xl:right-16 max-xl:scale-[0.7] max-lg:right-12 max-lg:scale-[0.6] max-md:top-12 max-md:right-6 max-md:scale-[0.46] max-sm:hidden"
-    data-topology-mainline-anchor
-    aria-hidden="true"
+  <ScrollMaterialSurface
+    {...appFrameRailAttributes}
+    staticMaterial
+    class="hero-app-frame relative mt-[clamp(36px,3.4vw,56px)] border p-[clamp(6px,0.7vw,12px)]"
+    data-hero-app-frame
   >
-    <span class="hero__plane hero__plane--rear-one"></span>
-    <span class="hero__plane hero__plane--rear-two"></span>
-    <span class="hero__plane hero__plane--front"><span class="hero__glyph">&gt;_</span></span>
-  </div>
+    <div
+      class="aspect-[16/10] overflow-clip rounded-control bg-product-ground max-phone:aspect-auto"
+    >
+      <slot name="loop">
+        <picture class="block h-full w-full">
+          <source
+            media="(max-width: 620px)"
+            srcset={parallelWorkPhoneImage.src}
+            width={parallelWorkPhoneImage.width}
+            height={parallelWorkPhoneImage.height}
+          />
+          <Image
+            src={parallelAgentsImage}
+            alt={marketingCopy.stories.parallelWork.imageDescription}
+            widths={[720, 1080, 1440, 2160, 2560]}
+            sizes="(max-width: 620px) 100vw, (max-width: 1440px) 90vw, 1296px"
+            format="png"
+            loading="eager"
+            fetchpriority="high"
+            decoding="async"
+            class="block h-full w-full object-cover object-top"
+          />
+        </picture>
+      </slot>
+    </div>
+  </ScrollMaterialSurface>
 </section>
 
 <style>
-  .hero__plane {
-    position: absolute;
-    top: 48px;
-    right: 28px;
-    width: 190px;
-    height: 132px;
-    border-radius: 24px;
-    transform-origin: center;
+  /* The left rail's lane lives in this gutter; keep in step with ChapterSurface. */
+  .hero {
+    --hero-rail-gutter: clamp(40px, 4.5vw, 80px);
   }
 
-  .hero__plane--rear-one {
-    border: 2px solid rgb(239 159 118 / 72%);
-    background: rgb(17 17 27 / 56%);
-    transform: translate(-42px, -18px) rotate(-12deg);
+  /* The rail marks the hero frame while the hero is current; its hairline lights blue. */
+  :global(.hero-app-frame.scroll-material-surface[data-rail-current]) {
+    border-color: rgb(137 180 250 / 88%);
   }
 
-  .hero__plane--rear-two {
-    border: 2px solid rgb(239 159 118 / 82%);
-    background: rgb(21 21 32 / 68%);
-    transform: translate(-20px, 4px) rotate(7deg);
-  }
-
-  .hero__plane--front {
-    display: grid;
-    place-items: center;
-    border: 2px solid var(--color-primary);
-    background: var(--color-ground);
-  }
-
-  .hero__glyph {
-    color: var(--color-glyph);
-    font-family: ui-monospace, "SF Mono", monospace;
-    font-size: 42px;
-    font-weight: 700;
-    letter-spacing: -0.16em;
-    transform: translateX(-0.08em);
+  @media (width < 38.75rem) {
+    .hero {
+      --hero-rail-gutter: 22px;
+    }
   }
 </style>
