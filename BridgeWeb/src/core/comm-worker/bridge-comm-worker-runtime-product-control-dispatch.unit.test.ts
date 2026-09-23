@@ -134,6 +134,76 @@ describe.each(['fileView', 'review'] as const)(
 			}
 		});
 
+		test('reports a Save past its deadline as unknown and still publishes the late committed outcome', async () => {
+			vi.useFakeTimers();
+			try {
+				// Arrange: the transport answers only after the product-control deadline.
+				const action = deferredProductControlAction();
+				const publishedMessages: BridgeWorkerServerToMainMessage[] = [];
+				const requestId = 'request-late-save';
+				dispatchAnnotationOutput({
+					surface,
+					operation: {
+						editToken: '00000000-0000-7000-8000-000000000015',
+						expectedDraftRevision: 1,
+						expectedMessageRevision: 2,
+						kind: 'draft.save',
+						messageId: '00000000-0000-7000-8000-000000000016',
+						sessionId: '00000000-0000-7000-8000-000000000013',
+					},
+					publish: (message): void => {
+						publishedMessages.push(message);
+					},
+					requestId,
+					sendProductControl: action.send,
+					timeoutMilliseconds: 25,
+				});
+
+				// Act: the deadline passes.
+				await vi.advanceTimersByTimeAsync(25);
+				await flushBridgeWorkerRuntimeContinuations();
+
+				// Assert: the outcome is unknown, not failed.
+				expect(publishedMessages).toEqual([
+					expect.objectContaining({
+						deliveryStatus: 'unknownAfterDispatch',
+						kind: 'health',
+						requestId,
+						status: 'degraded',
+					}),
+				]);
+
+				// Act: native commits the Save late.
+				action.resolve({
+					kind: 'completed',
+					outcome: {
+						requestId: `product-${requestId}`,
+						sessionId: '00000000-0000-7000-8000-000000000013',
+						status: { kind: 'committed' },
+						surface: surface === 'review' ? 'review' : 'file',
+					},
+				});
+				await flushBridgeWorkerRuntimeContinuations();
+
+				// Assert: the late committed outcome still reaches main for reconciliation.
+				expect(
+					publishedMessages.filter((message) => message.kind === 'annotationCommandAccepted'),
+				).toEqual([
+					expect.objectContaining({
+						outcome: expect.objectContaining({ status: { kind: 'committed' } }),
+						requestId,
+					}),
+				]);
+				expect(
+					publishedMessages.filter(
+						(message) => message.kind === 'health' && message.status === 'degraded',
+					),
+				).toHaveLength(1);
+			} finally {
+				vi.useRealTimers();
+			}
+		});
+
 		test('retains the ordinary deadline for clipboard output commits', async () => {
 			vi.useFakeTimers();
 			try {

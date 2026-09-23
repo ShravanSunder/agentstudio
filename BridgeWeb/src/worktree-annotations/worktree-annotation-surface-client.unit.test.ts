@@ -3,7 +3,10 @@ import { describe, expect, test, vi } from 'vitest';
 import type { BridgeWorkerAnnotationProjectionSnapshot } from '../core/comm-worker/bridge-comm-worker-annotation-projection-decoder.js';
 import { BRIDGE_WORKER_WIRE_VERSION } from '../core/comm-worker/bridge-worker-contracts.js';
 import { WorktreeAnnotationProjectionStore } from './worktree-annotation-projection-store.js';
-import type { WorktreeAnnotationOutputHistorySummary } from './worktree-annotation-surface-client.js';
+import {
+	worktreeAnnotationOutcomeUnknownMessage,
+	type WorktreeAnnotationOutputHistorySummary,
+} from './worktree-annotation-surface-client.js';
 import {
 	catalogStagingMessages,
 	createSurfaceClientHarness,
@@ -354,6 +357,85 @@ describe('worktree annotation surface command rendezvous', () => {
 			epoch: 0,
 			surface: 'fileView',
 		});
+		harness.client.dispose();
+	});
+
+	test('reports an unknown Save outcome without claiming failure and reconciles its late receipt', async () => {
+		// Arrange
+		const harness = createSurfaceClientHarness();
+		const save = harness.client.execute({
+			editToken: '00000000-0000-7000-8000-000000000014',
+			expectedDraftRevision: 1,
+			expectedMessageRevision: 2,
+			kind: 'draft.save',
+			messageId,
+			sessionId,
+		});
+		const canonicalMessage = projectionSnapshot(3, 12).threads[0]?.messages[0];
+		if (canonicalMessage === undefined) throw new Error('Expected canonical message fixture.');
+
+		// Act: the worker's deadline passes before native answers.
+		harness.publish({
+			deliveryStatus: 'unknownAfterDispatch',
+			direction: 'serverWorkerToMain',
+			kind: 'health',
+			message: 'Bridge comm worker has not received the outcome of file.annotations.command.',
+			requestId: 'worker-save-1',
+			status: 'degraded',
+			transferDescriptors: [],
+			wireVersion: BRIDGE_WORKER_WIRE_VERSION,
+		});
+
+		// Assert: the caller learns the outcome is pending, not that the Save failed.
+		await expect(save).rejects.toThrow(worktreeAnnotationOutcomeUnknownMessage);
+		expect(worktreeAnnotationOutcomeUnknownMessage).not.toMatch(/fail/iu);
+
+		// Act: native commits the Save late.
+		harness.publish({
+			direction: 'serverWorkerToMain',
+			kind: 'annotationCommandAccepted',
+			outcome: {
+				receipt: {
+					context: {
+						diffSide: null,
+						endLine: 4,
+						path: 'Sources/App.swift',
+						resolution: 'open',
+						scope: 'located',
+						sourceIdentity: 'source-1',
+						sourceRole: 'file',
+						startLine: 3,
+						threadId,
+					},
+					kind: 'message',
+					message: {
+						...canonicalMessage,
+						messageRevision: 3,
+						savedBody: 'Saved after the deadline',
+						savedRevision: 2,
+						sessionRevision: 4,
+						status: 'editable',
+					},
+				},
+				requestId: 'product-late-save',
+				sessionId,
+				status: { kind: 'committed' },
+				surface: 'file',
+			},
+			productRequestId: 'product-late-save',
+			requestId: 'worker-save-1',
+			surface: 'fileView',
+			transferDescriptors: [],
+			wireVersion: BRIDGE_WORKER_WIRE_VERSION,
+		});
+
+		// Assert: the committed state is recorded and shown.
+		expect(harness.client.getSnapshot().commandConfirmedThreads).toMatchObject([
+			{ messages: [{ savedBody: 'Saved after the deadline' }] },
+		]);
+		expect(harness.client.getSnapshot().commandOutcomes).toMatchObject([
+			{ requestId: 'product-late-save', status: { kind: 'committed' } },
+		]);
 		harness.client.dispose();
 	});
 

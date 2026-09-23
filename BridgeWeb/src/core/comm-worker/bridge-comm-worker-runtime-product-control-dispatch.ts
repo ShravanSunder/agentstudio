@@ -17,7 +17,10 @@ import {
 	buildBridgeWorkerRuntimeCommandFailedHealthEvent,
 } from './bridge-comm-worker-runtime-health.js';
 import type { BridgeCommWorkerProductControlSender } from './bridge-comm-worker-runtime-protocol-contracts.js';
-import { sendBridgeCommWorkerActionWithTimeout } from './bridge-comm-worker-runtime-support.js';
+import {
+	sendBridgeCommWorkerActionWithOutcomeDeadline,
+	sendBridgeCommWorkerActionWithTimeout,
+} from './bridge-comm-worker-runtime-support.js';
 import type { BridgeProductControlCommand } from './bridge-product-control-contracts.js';
 import type { BridgeProductTransportSession } from './bridge-product-transport.js';
 import type {
@@ -92,14 +95,33 @@ export function dispatchBridgeCommWorkerRuntimeProductControl(props: {
 			props.setActiveComparisonTargetsRequestId(productControlCommand.requestId);
 		}
 		const send = (): Promise<unknown> => props.sendProductControl(productControlCommand.command);
+		let outcomeReportedUnknown = false;
+		const reportUnknownOutcome = (): void => {
+			outcomeReportedUnknown = true;
+			props.publish(
+				buildBridgeWorkerRuntimeCommandFailedHealthEvent({
+					deliveryStatus: 'unknownAfterDispatch',
+					message: `Bridge comm worker has not received the outcome of ${productControlCommand.command.method}.`,
+					requestId: productControlCommand.requestId,
+				}),
+			);
+		};
 		// A native Save panel has a user-controlled lifetime. Timing it out does not
 		// cancel the native effect, and would discard a later successful save.
+		// Other annotation commands may also commit after the deadline: report the
+		// outcome as unknown at the deadline and still deliver the late receipt.
 		const completion = annotationOutputMayOpenSavePanel(productControlCommand.command)
 			? Promise.resolve().then(send)
-			: sendBridgeCommWorkerActionWithTimeout({
-					send,
-					timeoutMilliseconds: props.productControlTimeoutMilliseconds,
-				});
+			: annotationCommandReceiptReconcilesLate(productControlCommand.command)
+				? sendBridgeCommWorkerActionWithOutcomeDeadline({
+						onDeadlineExceeded: reportUnknownOutcome,
+						send,
+						timeoutMilliseconds: props.productControlTimeoutMilliseconds,
+					})
+				: sendBridgeCommWorkerActionWithTimeout({
+						send,
+						timeoutMilliseconds: props.productControlTimeoutMilliseconds,
+					});
 		void completion
 			.then((actionResult): void => {
 				if (
@@ -122,6 +144,8 @@ export function dispatchBridgeCommWorkerRuntimeProductControl(props: {
 				});
 			})
 			.catch((): void => {
+				// Main already holds an unknown outcome; the annotation projection is authoritative.
+				if (outcomeReportedUnknown) return;
 				if (
 					productControlCommand.command.method === 'review.comparisonTargets.query' &&
 					props.getActiveComparisonTargetsRequestId() === productControlCommand.requestId
@@ -175,6 +199,12 @@ export function dispatchBridgeCommWorkerRuntimeProductControl(props: {
 				),
 			);
 	}
+}
+
+function annotationCommandReceiptReconcilesLate(command: BridgeProductControlCommand): boolean {
+	return (
+		command.method === 'file.annotations.command' || command.method === 'review.annotations.command'
+	);
 }
 
 function annotationOutputMayOpenSavePanel(command: BridgeProductControlCommand): boolean {

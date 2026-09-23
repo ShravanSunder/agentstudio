@@ -24,6 +24,10 @@ const maximumRetainedOrphanCorrelationCount = 128;
 // Consecutive demand acquisitions sent before the client waits for the next worker
 // convergence event. Bounds retries without a clock; every worker event re-admits one.
 const maximumConsecutiveDemandAcquireAttempts = 3;
+// The worker's deadline passed after dispatch: native may still commit, and a late
+// receipt reconciles the comments. This copy must not claim the change failed.
+export const worktreeAnnotationOutcomeUnknownMessage =
+	'Still confirming this change. Comments update when it completes.';
 const annotationCatalogStagingEncoder = new TextEncoder();
 export {
 	emptyWorktreeAnnotationProjectionSnapshot,
@@ -327,7 +331,11 @@ export function createWorktreeAnnotationSurfaceClient(
 			) {
 				failWorkerRequest(
 					message.requestId,
-					new Error(message.message ?? 'Bridge annotation command failed.'),
+					new Error(
+						message.deliveryStatus === 'unknownAfterDispatch'
+							? worktreeAnnotationOutcomeUnknownMessage
+							: (message.message ?? 'Bridge annotation command failed.'),
+					),
 				);
 			}
 		},
