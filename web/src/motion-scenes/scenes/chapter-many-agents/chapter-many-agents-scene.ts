@@ -7,11 +7,9 @@ import {
 } from "../scene-timeline-builder";
 import { manyAgentsParts } from "./chapter-many-agents-fixture";
 
-const totalDurationSeconds = 11.5;
+const totalDurationSeconds = 9;
 
 interface ManyAgentsElements {
-  readonly leftPane: HTMLElement;
-  readonly rightPane: HTMLElement;
   readonly leftLines: readonly HTMLElement[];
   readonly rightLines: readonly HTMLElement[];
   readonly filterPlaceholder: HTMLElement;
@@ -26,8 +24,6 @@ interface ManyAgentsElements {
 // markup fails without leaving a half-animated frame behind.
 function resolveManyAgentsElements(root: HTMLElement): ManyAgentsElements {
   return {
-    leftPane: requireScenePart(root, manyAgentsParts.leftPane),
-    rightPane: requireScenePart(root, manyAgentsParts.rightPane),
     leftLines: requireTerminalLines(
       requireScenePart(root, manyAgentsParts.leftTerminal),
       manyAgentsParts.leftTerminal,
@@ -60,40 +56,44 @@ function buildManyAgentsScene(
   const left = (lineIndex: number): HTMLElement => requireLine(elements.leftLines, lineIndex);
   const right = (lineIndex: number): HTMLElement => requireLine(elements.rightLines, lineIndex);
 
-  // Beat 1: two panes open and two agents start work side by side.
+  // Beat 1: both agents already hold their tasks (prompt and request are
+  // static), and both start answering at once.
   builder.label("parallel-agents", 0);
-  builder.reveal(elements.leftPane, 0.15, { duration: 0.45, fromY: 14 });
-  builder.reveal(elements.rightPane, 0.35, { duration: 0.45, fromY: 14 });
-  builder.showAndTypeLine(left(0), 0.6, 12);
-  builder.showAndTypeLine(right(0), 0.85, 12);
-  builder.showAndTypeLine(left(2), 1.15, 42);
-  builder.showAndTypeLine(right(2), 1.4, 42);
-  const agentLineStarts = [2.6, 3.05, 3.5] as const;
-  agentLineStarts.forEach((startSeconds, offset) => {
-    builder.showAndTypeLine(left(4 + offset), startSeconds, 70);
-    builder.showAndTypeLine(right(4 + offset), startSeconds + 0.22, 70);
-  });
+  builder.reveal(left(4), 0.1, { duration: 0.15 });
+  builder.reveal(right(4), 0.2, { duration: 0.15 });
+  builder.showAndTypeLine(left(5), 0.3, 80);
+  builder.showAndTypeLine(right(5), 0.55, 80);
+  builder.showAndTypeLine(left(6), 1.1, 80);
+  builder.showAndTypeLine(right(6), 1.35, 80);
+  builder.reveal(left(7), 1.9, { duration: 0.15 });
+  builder.reveal(right(7), 2.1, { duration: 0.15 });
 
   // Beat 2: the watched folder fills the sidebar with every repo and worktree.
-  builder.label("watch-folders", 4.6);
-  builder.expand(elements.mainWorktree, 4.8, 0.4);
-  builder.expand(elements.agentVmRepo, 5.3, 0.45);
-  elements.agentVmWorktrees.forEach((worktree, offset) => {
-    builder.reveal(worktree, 5.65 + offset * 0.3, { duration: 0.3, fromX: -8 });
+  // The phone crop slides the sidebar over the pane for this beat and the next.
+  builder.label("watch-folders", 2.8);
+  builder.variable(root, {
+    name: "--scene-sidebar-focus",
+    from: 0,
+    to: 1,
+    at: 2.8,
+    duration: 0.35,
   });
-  // The agents keep working while the map fills in.
-  builder.showAndTypeLine(left(7), 6.1, 70);
-  builder.showAndTypeLine(right(7), 6.6, 70);
+  builder.expand(elements.mainWorktree, 2.9, 0.35);
+  builder.expand(elements.agentVmRepo, 3.0, 0.4);
+  elements.agentVmWorktrees.forEach((worktree, offset) => {
+    builder.reveal(worktree, 3.3 + offset * 0.25, { duration: 0.25, fromX: -8 });
+  });
 
   // Beat 3: a filter narrows the sidebar to the worktrees that match.
-  builder.label("navigation", 7.4);
-  builder.conceal(elements.filterPlaceholder, 7.55, { duration: 0.12 });
-  const typedQueryEnd = builder.type(elements.filterQuery, 7.62, builder.vary(9, 0.1));
+  builder.label("navigation", 4.6);
+  builder.conceal(elements.filterPlaceholder, 4.65, { duration: 0.1 });
+  const typedQueryEnd = builder.type(elements.filterQuery, 4.7, builder.vary(10, 0.1));
   builder.reveal(elements.filterClear, typedQueryEnd + 0.05, { duration: 0.2 });
-  builder.collapse(elements.mainWorktree, typedQueryEnd + 0.25, 0.4);
-  builder.collapse(elements.agentVmRepo, typedQueryEnd + 0.32, 0.45);
-  builder.showAndTypeLine(left(8), 8.6, 60);
-  builder.showAndTypeLine(right(8), 9.1, 60);
+  builder.collapse(elements.mainWorktree, typedQueryEnd + 0.2, 0.35);
+  builder.collapse(elements.agentVmRepo, typedQueryEnd + 0.25, 0.4);
+  // Both agents finish while the map narrows.
+  builder.showAndTypeLine(left(8), 6.1, 60);
+  builder.showAndTypeLine(right(8), 6.5, 60);
 
   builder.holdUntil(totalDurationSeconds);
 }

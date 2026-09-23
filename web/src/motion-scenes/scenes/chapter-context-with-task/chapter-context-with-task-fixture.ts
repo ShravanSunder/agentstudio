@@ -1,5 +1,6 @@
 // Settled-frame content for "Context stays with the task". Curated neutral
 // agent output and git lines only; no usage banners, modes, or personal paths.
+import type { ChapterStepId } from "../../../chapters/chapter-ids";
 import type {
   KitCodeToken,
   KitCodeTone,
@@ -13,6 +14,8 @@ import type {
 
 export const contextWithTaskParts = {
   agentTerminal: "agent-terminal",
+  agentFirstMessage: "agent-first-message",
+  drawerLogPrompt: "drawer-log-prompt",
   drawer: "task-drawer",
   drawerTerminal: "drawer-terminal",
   footerBadges: "agent-footer-badges",
@@ -22,6 +25,13 @@ export const contextWithTaskParts = {
   fileTree: "file-tree",
   fileTreeRowPrefix: "tree-row",
 } as const;
+
+/** The element that carries each beat's point; tests require it visible soon after the label. */
+export const chapterContextWithTaskStepKeyParts = {
+  "task-drawers": contextWithTaskParts.agentFirstMessage,
+  "git-context": contextWithTaskParts.drawerLogPrompt,
+  files: contextWithTaskParts.sourceView,
+} as const satisfies Partial<Record<ChapterStepId, string>>;
 
 export const contextWithTaskAccessibleLabel =
   "Recreated Agent Studio window. An agent pane keeps a Git drawer attached, shows its branch and pull request in that drawer, then opens the changed file in Files beside the task.";
@@ -46,21 +56,17 @@ export const contextWithTaskAgentTerminal: readonly KitTerminalLine[] = [
     branchName: toolPortalBranch,
     command: "agent",
   },
+  // The phone crop shares the pane with the drawer, so spacing lines and the input row drop there.
   { kind: "blank", phoneRole: "hidden" },
-  { kind: "user-message", text: "Route tool leases through the controller." },
-  // The phone crop gives the drawer most of the pane, so the agent keeps its prompt and request.
+  { kind: "user-message", text: "Route leases via the controller." },
   { kind: "blank", phoneRole: "hidden" },
-  {
-    kind: "agent-activity",
-    text: "Reading packages/tool-portal/src/lease.ts",
-    phoneRole: "hidden",
-  },
+  { kind: "agent-activity", text: "Reading src/lease.ts" },
   {
     kind: "agent-message",
-    text: "Lease requests now go through the controller client.",
-    phoneRole: "hidden",
+    text: "Leases now use the controller.",
+    scenePart: contextWithTaskParts.agentFirstMessage,
   },
-  { kind: "agent-message", text: "Updated the lease tests to match.", phoneRole: "hidden" },
+  { kind: "agent-message", text: "Updated the lease tests." },
   { kind: "agent-input", phoneRole: "hidden" },
 ];
 
@@ -69,7 +75,7 @@ export const contextWithTaskDrawerTerminal: readonly KitTerminalLine[] = [
     kind: "shell-prompt",
     worktreeName: toolPortalWorktree,
     branchName: toolPortalBranch,
-    command: "git status --short --branch",
+    command: "git status -sb",
   },
   {
     kind: "output",
@@ -85,14 +91,14 @@ export const contextWithTaskDrawerTerminal: readonly KitTerminalLine[] = [
     kind: "output",
     segments: [
       { text: " M ", tone: "hash" },
-      { text: "packages/tool-portal/src/lease.ts", tone: "plain" },
+      { text: "src/lease.ts", tone: "plain" },
     ],
   },
   {
     kind: "output",
     segments: [
       { text: " M ", tone: "hash" },
-      { text: "packages/tool-portal/src/lease.test.ts", tone: "plain" },
+      { text: "src/lease.test.ts", tone: "plain" },
     ],
   },
   {
@@ -107,12 +113,13 @@ export const contextWithTaskDrawerTerminal: readonly KitTerminalLine[] = [
     worktreeName: toolPortalWorktree,
     branchName: toolPortalBranch,
     command: "git log --oneline -2",
+    scenePart: contextWithTaskParts.drawerLogPrompt,
   },
   {
     kind: "output",
     segments: [
       { text: "3f9c2a1 ", tone: "hash" },
-      { text: "Route tool leases through the controller ", tone: "plain" },
+      { text: "Route leases ", tone: "plain" },
       { text: "(#201)", tone: "reference" },
     ],
   },
@@ -120,14 +127,14 @@ export const contextWithTaskDrawerTerminal: readonly KitTerminalLine[] = [
     kind: "output",
     segments: [
       { text: "8d41b07 ", tone: "hash" },
-      { text: "Add the tool portal lease client", tone: "plain" },
+      { text: "Add the lease client", tone: "plain" },
     ],
   },
   { kind: "shell-prompt", worktreeName: toolPortalWorktree, branchName: toolPortalBranch },
 ];
 
 /** Drawer lines scrolled out of view in the phone crop once the log prints. */
-export const contextWithTaskPhoneDrawerScrollLines = 5;
+export const contextWithTaskPhoneDrawerScrollLines = 1;
 
 export const contextWithTaskAgentFooter: KitPaneFooterModel = {
   badges: [
@@ -148,7 +155,7 @@ function codeLine(
 }
 
 export const contextWithTaskSource: KitSourceViewModel = {
-  filePath: "packages/tool-portal/src/lease.ts",
+  filePath: "src/lease.ts",
   lines: [
     codeLine(1, [
       ["keyword", "import type "],
@@ -228,13 +235,11 @@ function treeRowPart(rowIndex: number): string {
 }
 
 export const contextWithTaskFileTree: readonly KitFileTreeRow[] = [
-  { depth: 0, kind: "folder", name: "packages", scenePart: treeRowPart(0) },
-  { depth: 1, kind: "folder", name: "tool-portal", scenePart: treeRowPart(1) },
-  { depth: 2, kind: "folder", name: "src", scenePart: treeRowPart(2) },
-  { depth: 3, kind: "typescript", name: "controller-client.ts", scenePart: treeRowPart(3) },
-  { depth: 3, kind: "typescript", name: "lease.ts", selected: true, scenePart: treeRowPart(4) },
-  { depth: 3, kind: "typescript", name: "lease.test.ts", scenePart: treeRowPart(5) },
-  { depth: 3, kind: "typescript", name: "lease-types.ts", scenePart: treeRowPart(6) },
-  { depth: 0, kind: "folder", name: "docs", expanded: false, scenePart: treeRowPart(7) },
-  { depth: 0, kind: "markdown", name: "README.md", scenePart: treeRowPart(8) },
+  { depth: 0, kind: "folder", name: "src", scenePart: treeRowPart(0) },
+  { depth: 1, kind: "typescript", name: "controller-client.ts", scenePart: treeRowPart(1) },
+  { depth: 1, kind: "typescript", name: "lease.ts", selected: true, scenePart: treeRowPart(2) },
+  { depth: 1, kind: "typescript", name: "lease.test.ts", scenePart: treeRowPart(3) },
+  { depth: 1, kind: "typescript", name: "lease-types.ts", scenePart: treeRowPart(4) },
+  { depth: 0, kind: "folder", name: "docs", expanded: false, scenePart: treeRowPart(5) },
+  { depth: 0, kind: "markdown", name: "README.md", scenePart: treeRowPart(6) },
 ];

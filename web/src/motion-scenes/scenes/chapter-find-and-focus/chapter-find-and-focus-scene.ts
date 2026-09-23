@@ -10,7 +10,7 @@ import {
   findAndFocusTargetLateLineIndexes,
 } from "./chapter-find-and-focus-fixture";
 
-const totalDurationSeconds = 10.5;
+const totalDurationSeconds = 8;
 
 interface FindAndFocusElements {
   readonly arrangementZoom: HTMLElement;
@@ -54,28 +54,32 @@ function buildFindAndFocusScene(
 
   // Beat 1: Cmd+P opens the command bar, a short query finds the pane, Enter jumps to it.
   builder.label("quick-find", 0);
-  builder.reveal(elements.commandBar, 0.4, { duration: 0.3, fromScale: 0.97, fromY: -8 });
-  builder.conceal(elements.commandPlaceholder, 1.0, { duration: 0.1 });
-  const queryTyped = builder.type(elements.commandQuery, 1.05, builder.vary(8, 0.1));
+  builder.reveal(elements.commandBar, 0.1, { duration: 0.25, fromScale: 0.97, fromY: -8 });
+  builder.conceal(elements.commandPlaceholder, 0.45, { duration: 0.1 });
+  const queryTyped = builder.type(elements.commandQuery, 0.5, builder.vary(9, 0.1));
   builder.collapse(elements.recentSection, queryTyped + 0.1, 0.3);
   builder.expand(elements.panesSection, queryTyped + 0.15, 0.3);
   builder.expand(elements.worktreesSection, queryTyped + 0.25, 0.3);
-  const barClosed = builder.conceal(elements.commandBar, 3.0, { duration: 0.2 });
+  const barClosed = builder.conceal(elements.commandBar, 2.3, { duration: 0.2 });
   builder.reveal(elements.targetFocusRing, barClosed + 0.05, { duration: 0.25 });
 
   // Beat 2: Pane Zoom gives the found pane the workspace; its agent keeps going.
-  builder.label("pane-zoom", 4.2);
+  builder.label("pane-zoom", 3.0);
   const zoomed = builder.variable(root, {
     name: "--scene-zoom",
     from: 0,
     to: 1,
-    at: 4.4,
-    duration: 0.6,
+    at: 3.0,
+    duration: 0.5,
   });
-  builder.reveal(elements.arrangementZoom, zoomed - 0.1, { duration: 0.25 });
-  builder.reveal(elements.targetZoomedChip, zoomed, { duration: 0.3, fromY: 4 });
+  builder.reveal(elements.arrangementZoom, 3.1, { duration: 0.25 });
+  builder.reveal(elements.targetZoomedChip, 3.15, { duration: 0.25, fromY: 4 });
   findAndFocusTargetLateLineIndexes.forEach((lineIndex, offset) => {
-    builder.showAndTypeLine(requireLine(elements.targetLines, lineIndex), 5.5 + offset * 0.75, 60);
+    builder.showAndTypeLine(
+      requireLine(elements.targetLines, lineIndex),
+      zoomed + 0.2 + offset * 0.6,
+      60,
+    );
   });
 
   builder.holdUntil(totalDurationSeconds);

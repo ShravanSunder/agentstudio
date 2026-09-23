@@ -37,7 +37,7 @@ function splitShellCommand(command: string): { readonly program: string; readonl
             <div class="kit-terminal__line" {...lineAttributes}>
               <span class="kit-terminal__prompt-glyph">⚡</span>{" "}
               <span class="kit-terminal__arrow">➜</span>{" "}
-              <span class="kit-terminal__path">{line.worktreeName}</span>{" "}
+              <span class="kit-terminal__path">{line.worktreeName}</span><span class="kit-terminal__space"> </span>
               <span class="kit-terminal__branch">
                 (<KitIcon name="branch" /> {line.branchName})
               </span>{" "}
@@ -191,6 +191,14 @@ function splitShellCommand(command: string): { readonly program: string; readonl
     height: 1.15em;
     vertical-align: -0.2em;
     background: rgb(234 234 234 / 85%);
+  }
+
+  @container recreation-kit (max-width: 600px) {
+    /* Narrow prompts keep the branch and the command; the tab already names the worktree. */
+    .kit-terminal__path,
+    .kit-terminal__path + .kit-terminal__space {
+      display: none;
+    }
   }
 
   [data-tone="muted"] {

@@ -1,5 +1,6 @@
 // Settled-frame content for "Find it, focus it". Curated neutral agent output
 // only; no usage banners, modes, or personal paths.
+import type { ChapterStepId } from "../../../chapters/chapter-ids";
 import type {
   KitCommandBarModel,
   KitPaneFooterModel,
@@ -20,6 +21,12 @@ export const findAndFocusParts = {
   targetFocusRing: "target-focus-ring",
   targetZoomedChip: "target-zoomed-chip",
 } as const;
+
+/** The element that carries each beat's point; tests require it visible soon after the label. */
+export const chapterFindAndFocusStepKeyParts = {
+  "quick-find": findAndFocusParts.commandBar,
+  "pane-zoom": findAndFocusParts.targetZoomedChip,
+} as const satisfies Partial<Record<ChapterStepId, string>>;
 
 export const findAndFocusAccessibleLabel =
   "Recreated Agent Studio window. The command bar finds a pane by name, then Pane Zoom gives that pane the whole workspace while the agent keeps working.";
@@ -106,7 +113,7 @@ export const findAndFocusLeftTerminal: readonly KitTerminalLine[] = [
     command: "agent",
   },
   { kind: "blank" },
-  { kind: "user-message", text: "Filter the sidebar by repo and worktree name." },
+  { kind: "user-message", text: "Filter repos and worktrees." },
   { kind: "blank" },
   { kind: "agent-message", text: "Ready for review." },
   { kind: "agent-input" },
@@ -120,16 +127,12 @@ export const findAndFocusTargetTerminal: readonly KitTerminalLine[] = [
     command: "agent",
   },
   { kind: "blank" },
-  { kind: "user-message", text: "Route tool leases through the controller." },
+  { kind: "user-message", text: "Route leases via the controller." },
   { kind: "blank" },
-  {
-    kind: "agent-activity",
-    text: "Reading packages/tool-portal/src/lease.ts",
-    phoneRole: "hidden",
-  },
-  { kind: "agent-message", text: "Lease requests now go through the controller client." },
-  { kind: "agent-message", text: "Updated the lease tests to match." },
-  { kind: "agent-activity", text: "Ran the lease tests", phoneRole: "hidden" },
+  { kind: "agent-activity", text: "Reading src/lease.ts" },
+  { kind: "agent-message", text: "Leases now use the controller." },
+  { kind: "agent-message", text: "Updated the lease tests." },
+  { kind: "agent-activity", text: "Ran the lease tests" },
   { kind: "agent-message", text: "Ready for review." },
   { kind: "agent-input" },
 ];
@@ -145,7 +148,7 @@ export const findAndFocusRightTerminal: readonly KitTerminalLine[] = [
     command: "agent",
   },
   { kind: "blank" },
-  { kind: "user-message", text: "Tighten the install steps in the README." },
+  { kind: "user-message", text: "Tighten the README install steps." },
   { kind: "blank" },
   { kind: "agent-activity", text: "Reading README.md" },
   { kind: "agent-message", text: "Shortened the install section." },

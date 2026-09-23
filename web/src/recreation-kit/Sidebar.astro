@@ -233,10 +233,11 @@ const hasQuery = sidebar.filterQuery !== "";
     padding-left: 1.3em;
   }
 
-  @container recreation-kit (max-width: 540px) {
+  @container recreation-kit (max-width: 600px) {
+    /* The phone crop shows the sidebar or a pane, never both side by side. */
     .kit-sidebar {
-      width: 45%;
-      padding-inline: 0.5em;
+      width: 100%;
+      padding-inline: 0.7em;
     }
 
     .kit-sidebar__controls {

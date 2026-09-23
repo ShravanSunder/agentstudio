@@ -1,5 +1,6 @@
 // Settled-frame content for "Many agents, one map". Curated neutral agent
 // output and repository names only; no usage banners, modes, or personal paths.
+import type { ChapterStepId } from "../../../chapters/chapter-ids";
 import type {
   KitPaneFooterModel,
   KitSidebarModel,
@@ -11,6 +12,7 @@ export const manyAgentsParts = {
   leftPane: "left-pane",
   rightPane: "right-pane",
   leftTerminal: "left-terminal",
+  leftFirstMessage: "left-first-message",
   rightTerminal: "right-terminal",
   filterPlaceholder: "filter-placeholder",
   filterQuery: "filter-query",
@@ -20,6 +22,13 @@ export const manyAgentsParts = {
   agentVmMainWorktree: "worktree-agent-vm-main",
   agentVmToolPortalWorktree: "worktree-agent-vm-tool-portal",
 } as const;
+
+/** The element that carries each beat's point; tests require it visible soon after the label. */
+export const chapterManyAgentsStepKeyParts = {
+  "parallel-agents": manyAgentsParts.leftFirstMessage,
+  "watch-folders": manyAgentsParts.agentVmRepo,
+  navigation: manyAgentsParts.filterQuery,
+} as const satisfies Partial<Record<ChapterStepId, string>>;
 
 export const manyAgentsAccessibleLabel =
   "Recreated Agent Studio window. Two agents work in separate worktrees while the sidebar lists your repositories, then a filter narrows it to the matching worktrees.";
@@ -103,12 +112,16 @@ export const manyAgentsLeftTerminal: readonly KitTerminalLine[] = [
     command: "agent",
   },
   { kind: "blank" },
-  { kind: "user-message", text: "Filter the sidebar by repo and worktree name." },
+  { kind: "user-message", text: "Filter repos and worktrees." },
   { kind: "blank" },
-  { kind: "agent-activity", text: "Reading the sidebar list model", phoneRole: "hidden" },
-  { kind: "agent-message", text: "Matching repo and worktree names as you type." },
-  { kind: "agent-message", text: "Branch and change badges stay on each match." },
-  { kind: "agent-activity", text: "Ran the sidebar tests", phoneRole: "hidden" },
+  { kind: "agent-activity", text: "Reading the sidebar list model" },
+  {
+    kind: "agent-message",
+    text: "Matches repo and worktree names.",
+    scenePart: manyAgentsParts.leftFirstMessage,
+  },
+  { kind: "agent-message", text: "Each match keeps its badges." },
+  { kind: "agent-activity", text: "Ran the sidebar tests" },
   { kind: "agent-message", text: "Ready for review." },
   { kind: "agent-input" },
 ];
@@ -121,11 +134,11 @@ export const manyAgentsRightTerminal: readonly KitTerminalLine[] = [
     command: "agent",
   },
   { kind: "blank" },
-  { kind: "user-message", text: "Group worktrees under their repository." },
+  { kind: "user-message", text: "Group worktrees under their repo." },
   { kind: "blank" },
   { kind: "agent-activity", text: "Reading the sidebar row builder" },
-  { kind: "agent-message", text: "Worktrees now sit under their repository." },
-  { kind: "agent-message", text: "Favorites stay pinned above repositories." },
+  { kind: "agent-message", text: "Worktrees now sit under their repo." },
+  { kind: "agent-message", text: "Favorites stay pinned on top." },
   { kind: "agent-activity", text: "Ran the sidebar tests" },
   { kind: "agent-message", text: "Done. No other files changed." },
   { kind: "agent-input" },
