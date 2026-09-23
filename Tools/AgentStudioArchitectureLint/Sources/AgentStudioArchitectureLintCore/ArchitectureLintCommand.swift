@@ -5,6 +5,7 @@ public struct ArchitectureLintCommand {
     private let standardOutput: FileHandle
     private let standardError: FileHandle
     private let rules: [any ArchitectureRule]
+    private let documentRules: [any ArchitectureDocumentRule]
     private let workspaceRootPath: String
 
     public init(
@@ -26,12 +27,14 @@ public struct ArchitectureLintCommand {
         standardOutput: FileHandle,
         standardError: FileHandle,
         rules: [any ArchitectureRule],
+        documentRules: [any ArchitectureDocumentRule] = ArchitectureRuleRegistry.documentRules,
         workspaceRootPath: String = FileManager.default.currentDirectoryPath
     ) {
         self.fileManager = fileManager
         self.standardOutput = standardOutput
         self.standardError = standardError
         self.rules = rules
+        self.documentRules = documentRules
         self.workspaceRootPath = workspaceRootPath
     }
 
@@ -50,8 +53,10 @@ public struct ArchitectureLintCommand {
                 writeOutput(helpText)
                 return 0
             case .printRules:
-                for rule in rules.sorted(by: { $0.id < $1.id }) {
-                    writeOutput("\(rule.id) \(rule.severity.rawValue)\n")
+                let inventory =
+                    rules.map { ($0.id, $0.severity) } + documentRules.map { ($0.id, $0.severity) }
+                for (id, severity) in inventory.sorted(by: { $0.0 < $1.0 }) {
+                    writeOutput("\(id) \(severity.rawValue)\n")
                 }
                 return 0
             case .checkLedgerRatchet(let basePath):
@@ -68,15 +73,19 @@ public struct ArchitectureLintCommand {
     private func lint(arguments: ArchitectureLintArguments) throws -> Int32 {
         let requestedRoots = arguments.roots.isEmpty ? ["Sources", "Tests"] : arguments.roots
         let discovery = SourceFileDiscovery(fileManager: fileManager)
-        let onlyFiles = try discovery.swiftFiles(under: arguments.onlyPaths.map(workspacePath))
-        let rootFiles = try discovery.swiftFiles(under: requestedRoots.map(workspacePath))
+        let onlyFiles = try discovery.lintedFiles(under: arguments.onlyPaths.map(workspacePath))
+        let rootFiles = try discovery.lintedFiles(under: requestedRoots.map(workspacePath))
         let rootFileSet = Set(rootFiles)
         let files = rootFiles + onlyFiles.filter { !rootFileSet.contains($0) }
-        let run = try ArchitectureLintEngine(rules: rules, workspaceRootPath: workspaceRootPath)
-            .lint(
-                files: files,
-                validatedFiles: arguments.onlyPaths.isEmpty ? nil : Set(onlyFiles)
-            )
+        let run = try ArchitectureLintEngine(
+            rules: rules,
+            documentRules: documentRules,
+            workspaceRootPath: workspaceRootPath
+        )
+        .lint(
+            files: files,
+            validatedFiles: arguments.onlyPaths.isEmpty ? nil : Set(onlyFiles)
+        )
 
         var diagnostics = run.siteDiagnostics
         if let ledgerPath = arguments.ledgerPath {

@@ -45,6 +45,12 @@ run_architecture_lint() {
   fi
 }
 
+# Every tracked agent instruction document; the architecture lint checks that
+# each path and anchor it references exists.
+agent_documents() {
+  git ls-files -- 'AGENTS.md' '*/AGENTS.md'
+}
+
 run_release_script_checks() {
   echo "--- release script checks ---"
   /bin/bash scripts/verify-release-scripts.sh
@@ -70,7 +76,11 @@ if [[ $# -eq 0 ]]; then
     || { echo "swiftlint: FAIL"; exit 1; }
   report_stage_time "swiftlint" "$stage_started_ms"
 
-  run_architecture_lint Sources Tests
+  agent_document_paths=()
+  while IFS= read -r agent_document_path; do
+    agent_document_paths+=("$agent_document_path")
+  done < <(agent_documents)
+  run_architecture_lint Sources Tests "${agent_document_paths[@]}"
   stage_started_ms="$(now_ms)"
   run_release_script_checks
   report_stage_time "release-script-checks" "$stage_started_ms"
@@ -87,11 +97,15 @@ for scoped_path in "${scoped_paths[@]}"; do
 done
 
 swift_scoped_paths=()
+agent_document_scoped_paths=()
 run_release_contract=0
 for scoped_path in "${scoped_paths[@]}"; do
   case "$scoped_path" in
     *.swift)
       swift_scoped_paths+=("$scoped_path")
+      ;;
+    AGENTS.md|*/AGENTS.md)
+      agent_document_scoped_paths+=("$scoped_path")
       ;;
     .github/workflows/release.yml|scripts/release-*|scripts/verify-release-scripts.sh)
       run_release_contract=1
@@ -106,6 +120,7 @@ for scoped_path in "${scoped_paths[@]}"; do
   esac
 done
 
+architecture_only_arguments=()
 if [[ ${#swift_scoped_paths[@]} -gt 0 ]]; then
   echo "--- swift-format lint (scoped) ---"
   swift-format lint --strict --parallel "${swift_scoped_paths[@]}" 2>&1 \
@@ -117,10 +132,15 @@ if [[ ${#swift_scoped_paths[@]} -gt 0 ]]; then
     && echo "swiftlint: OK" \
     || { echo "swiftlint: FAIL"; exit 1; }
 
-  architecture_only_arguments=()
   for swift_scoped_path in "${swift_scoped_paths[@]}"; do
     architecture_only_arguments+=(--only "$swift_scoped_path")
   done
+fi
+for agent_document_scoped_path in "${agent_document_scoped_paths[@]+"${agent_document_scoped_paths[@]}"}"; do
+  architecture_only_arguments+=(--only "$agent_document_scoped_path")
+done
+
+if [[ ${#architecture_only_arguments[@]} -gt 0 ]]; then
   run_architecture_lint Sources Tests "${architecture_only_arguments[@]}"
 else
   echo "lint-swift: no Swift-lintable paths remain"

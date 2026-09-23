@@ -73,4 +73,8 @@ enum ArchitectureRuleRegistry {
         TestAdHocGateRule(),
         TestWaitHelperReturnsObservationRule(),
     ]
+
+    static let documentRules: [any ArchitectureDocumentRule] = [
+        AgentDocReferenceRule()
+    ]
 }

@@ -496,6 +496,38 @@ struct RuleParityTests {
         #expect(!TestWaitHelperReturnsObservationRule.isWaitHelperName("requiredValue"))
     }
 
+    @Test("agent doc references fail for a missing file, anchor, or repository-path token, and nothing else")
+    func agentDocReferencesFailForMissingTargetsOnly() throws {
+        let badDiagnostics = try lintFixtureCorpus("Bad").filter {
+            $0.ruleID == "agentstudio_agent_doc_reference_resolves"
+        }
+        let goodDiagnostics = try lintFixtureCorpus("Good").filter {
+            $0.ruleID == "agentstudio_agent_doc_reference_resolves"
+        }
+
+        #expect(badDiagnostics.map(\.line) == [3, 4, 5, 6, 7])
+        #expect(badDiagnostics.allSatisfy { $0.path.hasSuffix("/Fixtures/Bad/AGENTS.md") })
+        #expect(badDiagnostics[0].message.contains("docs/plans/missing.md does not exist"))
+        #expect(badDiagnostics[1].message.contains("#absent-heading"))
+        #expect(badDiagnostics[3].message.contains("Sources/AgentStudio/Gone.swift:12 does not exist"))
+        #expect(goodDiagnostics.isEmpty, Comment(rawValue: goodDiagnostics.map(\.rendered).joined()))
+    }
+
+    @Test(
+        "heading anchors follow GitHub slug rules",
+        arguments: [
+            ("Testing Architecture — When a run is red", "testing-architecture--when-a-run-is-red"),
+            ("7. Key Files", "7-key-files"),
+            ("Use `mise run lint` (fast)", "use-mise-run-lint-fast"),
+            ("Need An Atom?", "need-an-atom"),
+            ("[Linked](docs/x.md) heading", "linked-heading"),
+            ("snake_case stays", "snake_case-stays"),
+        ]
+    )
+    func headingAnchorsFollowGitHubSlugRules(heading: String, slug: String) {
+        #expect(MarkdownReferenceScan.gitHubSlug(heading) == slug)
+    }
+
     @Test("EventBus subscriber policy rule diagnoses every denied fixture call shape")
     func eventBusSubscriberPolicyRuleDiagnosesEveryDeniedFixtureCallShape() throws {
         let eventBusFixture = fixtureRoot()
@@ -814,7 +846,7 @@ struct RuleParityTests {
     private func lintFixtureCorpus(_ corpus: String) throws -> [ArchitectureDiagnostic] {
         let corpusRoot = fixtureRoot().appendingPathComponent(corpus)
         let files = try SourceFileDiscovery(fileManager: .default)
-            .swiftFiles(under: [corpusRoot.path])
+            .lintedFiles(under: [corpusRoot.path])
         return try lint(files: files, workspaceRootPath: corpusRoot.path)
     }
 
@@ -822,9 +854,13 @@ struct RuleParityTests {
         files: [String],
         workspaceRootPath: String = FileManager.default.currentDirectoryPath
     ) throws -> [ArchitectureDiagnostic] {
-        try ArchitectureLintEngine(rules: ArchitectureRuleRegistry.rules, workspaceRootPath: workspaceRootPath)
-            .lint(files: files)
-            .siteDiagnostics
+        try ArchitectureLintEngine(
+            rules: ArchitectureRuleRegistry.rules,
+            documentRules: ArchitectureRuleRegistry.documentRules,
+            workspaceRootPath: workspaceRootPath
+        )
+        .lint(files: files)
+        .siteDiagnostics
     }
 
     private func context(path: String, source: String) -> ArchitectureLintContext {

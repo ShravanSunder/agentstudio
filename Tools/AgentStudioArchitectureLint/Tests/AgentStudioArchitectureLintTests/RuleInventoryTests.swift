@@ -6,9 +6,9 @@ import Testing
 struct RuleInventoryTests {
     @Test("registry preserves all expected rule ids and severities")
     func registryPreservesExpectedRules() {
-        let actual = ArchitectureRuleRegistry.rules.map { rule in
-            ExpectedRule(id: rule.id, severity: rule.severity)
-        }
+        let actual =
+            ArchitectureRuleRegistry.rules.map { ExpectedRule(id: $0.id, severity: $0.severity) }
+            + ArchitectureRuleRegistry.documentRules.map { ExpectedRule(id: $0.id, severity: $0.severity) }
 
         #expect(actual.sorted() == ExpectedRuleInventory.rules.sorted())
     }
@@ -64,5 +64,6 @@ enum ExpectedRuleInventory {
         ExpectedRule(id: "agentstudio_probe_reports_off_main", severity: .error),
         ExpectedRule(id: "agentstudio_test_ad_hoc_gate", severity: .error),
         ExpectedRule(id: "agentstudio_test_wait_helper_returns_observation", severity: .error),
+        ExpectedRule(id: "agentstudio_agent_doc_reference_resolves", severity: .error),
     ]
 }
