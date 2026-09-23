@@ -4,7 +4,8 @@ import { createScrollAutoplayVideoController } from "./scroll-autoplay-video-con
 import { combineSurfacePlaybacks } from "./surface-playback";
 
 const viewportEdgeInsetRatio = 0.2;
-const phoneMediaQuery = "(max-width: 620px)";
+// The site's phone boundary, spelled like Tailwind's max-phone: variant.
+const phoneMediaQuery = "(width < 38.75rem)";
 
 let disposeActiveController: (() => void) | undefined;
 

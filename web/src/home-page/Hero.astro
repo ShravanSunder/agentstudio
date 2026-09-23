@@ -10,6 +10,8 @@ import {
 } from "@/chapters/chapter-dom-contract";
 import { marketingCopy } from "@/marketing-copy";
 
+import { heroLoopMedia } from "./hero-loop-media";
+import HeroLoopVideo from "./HeroLoopVideo.astro";
 import InstallCommand from "./InstallCommand.astro";
 import ScrollMaterialSurface from "./ScrollMaterialSurface.astro";
 
@@ -21,10 +23,18 @@ const appFrameRailAttributes = {
   [railSurfaceTargetAttribute]: heroRailId,
   [railMediaTargetAttribute]: heroRailId,
 };
+// Lines may break between the eyebrow's sentences, never inside "Repo-aware."
+// or "Terminal-first.".
+const eyebrowPhrases = marketingCopy.hero.eyebrow.split(/(?<=\.)\s+/u);
 ---
 
+<!--
+  Vertical rhythm is kept tight so the app frame shows well above the fold:
+  at least ~300px at 1280x800 and ~220px at 390x844. On wide screens the
+  description sits beside the install command instead of above it.
+-->
 <section
-  class="hero relative pt-[clamp(32px,3.4vw,64px)] pr-page-inline pl-[calc(var(--spacing-page-inline)+var(--hero-rail-gutter))] max-phone:pt-8"
+  class="hero relative pt-[clamp(24px,2.4vw,48px)] pr-page-inline pl-[calc(var(--spacing-page-inline)+var(--spacing-rail-gutter))] max-phone:pt-6"
   aria-labelledby="hero-title"
 >
   <div class="relative z-[2] max-w-hero lg:pl-[clamp(24px,2.6vw,56px)]">
@@ -32,11 +42,18 @@ const appFrameRailAttributes = {
       {...railAnchorAttributes}
       class="eyebrow m-0 font-mono-product text-eyebrow tracking-eyebrow text-ink-faint uppercase"
     >
-      {marketingCopy.hero.eyebrow}
+      {
+        eyebrowPhrases.map((phrase, phraseIndex) => (
+          <>
+            {phraseIndex > 0 && " "}
+            <span class="whitespace-nowrap">{phrase}</span>
+          </>
+        ))
+      }
     </p>
     <h1
       id="hero-title"
-      class="mt-5 mb-6 max-w-hero font-display text-[clamp(36px,5.6vw,96px)] leading-[0.9] font-extrabold tracking-[-0.05em]"
+      class="mt-4 mb-5 max-w-hero font-display text-[clamp(36px,5vw,88px)] leading-[0.9] font-extrabold tracking-[-0.05em]"
       aria-label={marketingCopy.hero.headline}
     >
       <span class="block whitespace-nowrap max-phone:text-balance max-phone:whitespace-normal"
@@ -48,68 +65,63 @@ const appFrameRailAttributes = {
         >
       </span>
       <span
-        class="mt-[0.3em] block text-[clamp(26px,3.9vw,66px)] leading-[0.96] tracking-[-0.035em] whitespace-nowrap text-primary max-phone:text-balance max-phone:whitespace-normal"
+        class="mt-[0.25em] block text-[clamp(26px,3.5vw,60px)] leading-[0.96] tracking-[-0.035em] whitespace-nowrap text-primary max-phone:text-balance max-phone:whitespace-normal"
         >{marketingCopy.hero.headlinePayoff}</span
       >
     </h1>
-    <p class="m-0 max-w-copy text-marketing-body text-ink-muted">
-      {marketingCopy.hero.description}
-    </p>
-    <div
-      class="hero__actions mt-8 flex w-full flex-wrap items-center gap-3 max-phone:flex-col max-phone:items-stretch"
-    >
-      <InstallCommand />
+    <div class="flex flex-col gap-6 lg:flex-row lg:flex-wrap lg:items-center lg:gap-x-10">
+      <p class="m-0 max-w-copy text-marketing-body text-ink-muted lg:max-w-[34rem] lg:flex-[1_1_24rem]">
+        {marketingCopy.hero.description}
+      </p>
+      <div
+        class="hero__actions flex w-full flex-wrap items-center gap-3 max-phone:flex-col max-phone:items-stretch lg:w-auto lg:flex-none"
+      >
+        <InstallCommand />
+      </div>
     </div>
   </div>
 
   <ScrollMaterialSurface
     {...appFrameRailAttributes}
     staticMaterial
-    class="hero-app-frame relative mt-[clamp(36px,3.4vw,56px)] border p-[clamp(6px,0.7vw,12px)]"
+    class="hero-app-frame relative mt-[clamp(28px,2.6vw,44px)] border p-[clamp(6px,0.7vw,12px)]"
     data-hero-app-frame
   >
     <div
       class="aspect-[16/10] overflow-clip rounded-control bg-product-ground max-phone:aspect-auto"
     >
-      <slot name="loop">
-        <picture class="block h-full w-full">
-          <source
-            media="(max-width: 620px)"
-            srcset={parallelWorkPhoneImage.src}
-            width={parallelWorkPhoneImage.width}
-            height={parallelWorkPhoneImage.height}
-          />
-          <Image
-            src={parallelAgentsImage}
-            alt={marketingCopy.stories.parallelWork.imageDescription}
-            widths={[720, 1080, 1440, 2160, 2560]}
-            sizes="(max-width: 620px) 100vw, (max-width: 1440px) 90vw, 1296px"
-            format="png"
-            loading="eager"
-            fetchpriority="high"
-            decoding="async"
-            class="block h-full w-full object-cover object-top"
-          />
-        </picture>
-      </slot>
+      {
+        heroLoopMedia === undefined ? (
+          <picture class="block h-full w-full">
+            <source
+              media="(width < 38.75rem)"
+              srcset={parallelWorkPhoneImage.src}
+              width={parallelWorkPhoneImage.width}
+              height={parallelWorkPhoneImage.height}
+            />
+            <Image
+              src={parallelAgentsImage}
+              alt={marketingCopy.stories.parallelWork.imageDescription}
+              widths={[720, 1080, 1440, 2160, 2560]}
+              sizes="(width < 38.75rem) 100vw, (width <= 90rem) 90vw, 1296px"
+              format="png"
+              loading="eager"
+              fetchpriority="high"
+              decoding="async"
+              class="block h-full w-full object-cover object-top"
+            />
+          </picture>
+        ) : (
+          <HeroLoopVideo media={heroLoopMedia} />
+        )
+      }
     </div>
   </ScrollMaterialSurface>
 </section>
 
 <style>
-  /* The left rail's lane lives in this gutter; keep in step with ChapterSurface. */
-  .hero {
-    --hero-rail-gutter: clamp(40px, 4.5vw, 80px);
-  }
-
   /* The rail marks the hero frame while the hero is current; its hairline lights blue. */
   :global(.hero-app-frame.scroll-material-surface[data-rail-current]) {
     border-color: rgb(137 180 250 / 88%);
-  }
-
-  @media (width < 38.75rem) {
-    .hero {
-      --hero-rail-gutter: 22px;
-    }
   }
 </style>

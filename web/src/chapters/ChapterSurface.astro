@@ -1,5 +1,7 @@
 ---
+import MotionPlaybackToggle from "@/home-page/MotionPlaybackToggle.astro";
 import ScrollMaterialSurface from "@/home-page/ScrollMaterialSurface.astro";
+import { marketingCopy } from "@/marketing-copy";
 
 import type { Chapter } from "./chapter-catalog";
 import {
@@ -13,12 +15,6 @@ interface Props {
   readonly chapter: Chapter;
 }
 
-// Accessible names for the scene's pause control (WCAG 2.2.2: motion that runs
-// longer than five seconds must be pausable). Copy pass: lane D may move these
-// into marketing-copy.ts.
-const scenePauseLabel = "Pause animation";
-const scenePlayLabel = "Play animation";
-
 const { chapter } = Astro.props;
 const titleId = `chapter-${chapter.id}-title`;
 const hasStepSelector = chapter.steps.length > 1;
@@ -28,8 +24,14 @@ const surfaceAttributes = { [railSurfaceTargetAttribute]: chapter.id };
 const stageAttributes = { [railMediaTargetAttribute]: chapter.id, [playbackStageAttribute]: "" };
 ---
 
+<!--
+  The id is the chapter's public URL anchor (/#<chapterId>), promised to media
+  for post links. The scroll margin keeps an anchor jump clear of the floating
+  sticky header (72px anchor plus its 12px floating offset).
+-->
 <article
-  class="chapter-section py-[clamp(48px,5vw,76px)] pr-page-inline pl-[calc(var(--spacing-page-inline)+var(--chapter-rail-gutter))] max-phone:py-10"
+  id={chapter.id}
+  class="chapter-section scroll-mt-24 py-[clamp(48px,5vw,76px)] pr-page-inline pl-[calc(var(--spacing-page-inline)+var(--spacing-rail-gutter))] max-phone:py-10"
   aria-labelledby={titleId}
   data-chapter={chapter.id}
 >
@@ -107,23 +109,12 @@ const stageAttributes = { [railMediaTargetAttribute]: chapter.id, [playbackStage
       <slot name="stage" />
       {
         hasScenePlayback && (
-          <button
-            type="button"
-            class="scene-playback-toggle absolute right-3 bottom-3 z-[3] grid size-9 cursor-pointer place-items-center rounded-full border border-line-strong bg-[rgb(17_17_27/78%)] text-ink-secondary backdrop-blur-md hover:text-ink"
-            data-scene-playback-toggle
-            data-pause-label={scenePauseLabel}
-            data-play-label={scenePlayLabel}
-            aria-label={scenePlayLabel}
-            hidden
-          >
-            <svg class="scene-playback-toggle__pause size-3.5" viewBox="0 0 14 14" aria-hidden="true">
-              <rect x="2.5" y="2" width="3" height="10" rx="1" fill="currentColor" />
-              <rect x="8.5" y="2" width="3" height="10" rx="1" fill="currentColor" />
-            </svg>
-            <svg class="scene-playback-toggle__play size-3.5" viewBox="0 0 14 14" aria-hidden="true">
-              <path d="M4 2.2v9.6a.6.6 0 0 0 .92.5l7.3-4.8a.6.6 0 0 0 0-1L4.92 1.7A.6.6 0 0 0 4 2.2Z" fill="currentColor" />
-            </svg>
-          </button>
+          <MotionPlaybackToggle
+            controlAttribute="data-scene-playback-toggle"
+            pauseLabel={marketingCopy.motionControls.pauseAnimation}
+            playLabel={marketingCopy.motionControls.playAnimation}
+            class="absolute right-3 bottom-3 z-[3]"
+          />
         )
       }
     </div>
@@ -142,11 +133,6 @@ const stageAttributes = { [railMediaTargetAttribute]: chapter.id, [playbackStage
 
 <style>
   @reference "../styles/global.css";
-
-  /* The left rail's lane lives in this gutter; the rail reads positions, never sets them. */
-  .chapter-section {
-    --chapter-rail-gutter: clamp(40px, 4.5vw, 80px);
-  }
 
   /* The step lane: one vertical line behind the dots, like the page rail. */
   .chapter-step-list::before {
@@ -186,26 +172,12 @@ const stageAttributes = { [railMediaTargetAttribute]: chapter.id, [playbackStage
       0 0 0 5px rgb(137 180 250 / 55%);
   }
 
-  .scene-playback-toggle__play,
-  .scene-playback-toggle[data-scene-playback-state="playing"] .scene-playback-toggle__pause {
-    display: block;
-  }
-
-  .scene-playback-toggle__pause,
-  .scene-playback-toggle[data-scene-playback-state="playing"] .scene-playback-toggle__play {
-    display: none;
-  }
-
   /* The rail marks the current chapter's target; its hairline lights blue. */
   :global(.chapter-surface.scroll-material-surface[data-rail-current]) {
     border-color: rgb(137 180 250 / 88%);
   }
 
   @media (width < 38.75rem) {
-    .chapter-section {
-      --chapter-rail-gutter: 22px;
-    }
-
     /* Phone: the copy sits beside the rail and the media stage is the glass. */
     :global(.chapter-surface.scroll-material-surface[data-scroll-material-surface]) {
       border-width: 0;

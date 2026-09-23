@@ -1,8 +1,8 @@
 import type { gsap } from "gsap";
 
-// Type-only in both directions: the chapter catalog names scene ids and scenes
-// name chapter step ids, and neither import survives compilation.
-import type { ChapterStepId } from "../chapters/chapter-catalog";
+// Type-only: scenes name chapter step ids, and the import does not survive
+// compilation.
+import type { ChapterStepId } from "../chapters/chapter-ids";
 
 export const sceneIds = [
   "chapter-many-agents",

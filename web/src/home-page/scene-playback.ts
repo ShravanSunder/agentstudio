@@ -46,6 +46,7 @@ export interface ScenePlaybackProps {
 interface ScenePlaybackState {
   autoplayEnabled: boolean;
   awaitingReplay: boolean;
+  buildFailed: boolean;
   intent: PlaybackIntent;
   lastReportedStepId: string | undefined;
   latestProgress: number;
@@ -94,6 +95,7 @@ export function createScenePlayback(props: ScenePlaybackProps): SurfacePlayback 
   const state: ScenePlaybackState = {
     autoplayEnabled: true,
     awaitingReplay: false,
+    buildFailed: false,
     intent: "auto",
     lastReportedStepId: undefined,
     latestProgress: 0,
@@ -102,7 +104,8 @@ export function createScenePlayback(props: ScenePlaybackProps): SurfacePlayback 
     timeline: undefined,
   };
 
-  const motionAllowed = (): boolean => sceneModule !== undefined && !motionPreference.matches;
+  const motionAllowed = (): boolean =>
+    sceneModule !== undefined && !state.buildFailed && !motionPreference.matches;
 
   const renderPhase = (phase: ScenePlaybackPhase): void => {
     state.phase = phase;
@@ -111,7 +114,7 @@ export function createScenePlayback(props: ScenePlaybackProps): SurfacePlayback 
       return;
     }
     toggle.hidden = !motionAllowed();
-    toggle.dataset["scenePlaybackState"] = phase;
+    toggle.dataset["playbackState"] = phase;
     const label = phase === "playing" ? toggle.dataset["pauseLabel"] : toggle.dataset["playLabel"];
     if (label !== undefined) {
       toggle.setAttribute("aria-label", label);
@@ -156,11 +159,26 @@ export function createScenePlayback(props: ScenePlaybackProps): SurfacePlayback 
       return state.timeline;
     }
     const timeline = gsap.timeline({ paused: true });
-    sceneModule.buildScene(sceneRoot, timeline, {
-      height: sceneRoot.clientHeight,
-      seed: sceneSeed,
-      width: sceneRoot.clientWidth,
-    });
+    try {
+      sceneModule.buildScene(sceneRoot, timeline, {
+        height: sceneRoot.clientHeight,
+        seed: sceneSeed,
+        width: sceneRoot.clientWidth,
+      });
+    } catch (error: unknown) {
+      // Markup that does not match its module (a missing scene part) is treated
+      // like an unregistered module: drop the partial timeline, keep the settled
+      // markup, and never retry this build.
+      timeline.revert();
+      timeline.kill();
+      state.buildFailed = true;
+      console.warn(
+        `Scene "${sceneModule.sceneId}" could not build; showing its settled frame.`,
+        error,
+      );
+      renderPhase("settled");
+      return undefined;
+    }
     timeline.eventCallback("onUpdate", (): void => {
       reportStep(findStepAtTime(sceneModule, timeline));
     });

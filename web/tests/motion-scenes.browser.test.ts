@@ -18,9 +18,8 @@ declare module "vitest" {
   }
 }
 
-// The only route that renders every scene until page integration. When the lab
-// route is removed, point this at the page that mounts the chapter scenes.
-const sceneMarkupPagePath = "lab/scenes/";
+// The home page mounts every chapter scene, so the real page is the markup source.
+const sceneMarkupPagePath = "/";
 
 const desktopStage = { width: 1100, height: 688 } as const;
 const phoneStage = { width: 358, height: 224 } as const;

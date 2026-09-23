@@ -1,14 +1,12 @@
 ---
 // Dev-only fixture for the chapter surface lane: the rewritten hero plus every
-// catalog chapter with a representative stage, inside the real site shell.
-// Not linked, not in the sitemap. Lane D deletes web/src/pages/lab/ before release.
-import { Image } from "astro:assets";
-
+// catalog chapter with its real stage (scene markup, still, or video), inside
+// the real site shell. Not linked, not in the sitemap. No test depends on it;
+// it is kept for visual review and deleted before release.
+import ChapterStage from "@/chapters/ChapterStage.astro";
 import ChapterSurface from "@/chapters/ChapterSurface.astro";
 import { chapterCatalog } from "@/chapters/chapter-catalog";
-import { sceneRootAttribute } from "@/chapters/chapter-dom-contract";
 import Hero from "@/home-page/Hero.astro";
-import ScrollAutoplayVideo from "@/home-page/ScrollAutoplayVideo.astro";
 import SiteShell from "@/site-shell/SiteShell.astro";
 ---
 
@@ -17,39 +15,7 @@ import SiteShell from "@/site-shell/SiteShell.astro";
   {
     chapterCatalog.map((chapter) => (
       <ChapterSurface chapter={chapter}>
-        <div slot="stage" class="w-full">
-          {chapter.stage.kind === "scene" ? (
-            <div {...{ [sceneRootAttribute]: chapter.stage.sceneId }} class="w-full">
-              <Image
-                src={chapter.stage.proofImage}
-                alt={chapter.stage.proofAlt}
-                widths={[720, 1440, 2160]}
-                sizes="(max-width: 1024px) 100vw, 62vw"
-                format="png"
-                class="block h-auto w-full rounded-control"
-              />
-            </div>
-          ) : chapter.stage.kind === "still" ? (
-            <picture class="block overflow-clip rounded-control">
-              <source media="(max-width: 620px)" srcset={chapter.stage.phoneImage.src} />
-              <Image
-                src={chapter.stage.image}
-                alt={chapter.stage.alt}
-                widths={[720, 1440, 2160]}
-                sizes="(max-width: 1024px) 100vw, 62vw"
-                format="png"
-                class="block h-auto w-full"
-              />
-            </picture>
-          ) : (
-            <ScrollAutoplayVideo
-              accessibilityLabel={chapter.stage.label}
-              poster={chapter.stage.poster}
-              source={chapter.stage.source}
-              class="block aspect-video h-auto w-full rounded-control bg-black object-contain"
-            />
-          )}
-        </div>
+        <ChapterStage slot="stage" chapter={chapter} />
       </ChapterSurface>
     ))
   }

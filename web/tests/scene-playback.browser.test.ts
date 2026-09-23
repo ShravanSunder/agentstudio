@@ -7,6 +7,7 @@ import {
 import { createScenePlayback } from "../src/home-page/scene-playback";
 import { initializeScrollMaterialSurfaces } from "../src/home-page/scroll-material-surface-controller";
 import type { SceneModule, SceneTimeline } from "../src/motion-scenes/scene-contract";
+import { resolveSceneModule } from "../src/motion-scenes/scene-registry";
 
 const fixtures: HTMLElement[] = [];
 
@@ -300,6 +301,53 @@ describe("scene playback", () => {
 
     expect(scene.playbackState()).toBe("settled");
     expect(scene.toggle.hidden).toBe(true);
+    playback.dispose();
+  });
+
+  it("keeps the settled markup once, without retrying, when the scene markup lacks a part", () => {
+    // Arrange: the real scene module over markup that has none of its parts.
+    stubReducedMotion(false);
+    const warn = vi.spyOn(console, "warn").mockImplementation((): void => undefined);
+    const realModule = resolveSceneModule("chapter-many-agents");
+    if (realModule === undefined) {
+      throw new Error("chapter-many-agents is not registered");
+    }
+    const buildScene = vi.fn((...buildArguments: Parameters<SceneModule["buildScene"]>): void =>
+      realModule.buildScene(...buildArguments),
+    );
+    const fixture = addFixture(`
+      <section data-surface>
+        <div data-scene-root="chapter-many-agents"><p data-settled>Settled frame</p></div>
+        <button type="button" data-scene-playback-toggle hidden>Play animation</button>
+      </section>
+    `);
+    const surface = requiredHtmlElement(fixture, "[data-surface]");
+    const sceneRoot = requiredHtmlElement(surface, "[data-scene-root]");
+    const toggle = requiredHtmlElement(surface, "[data-scene-playback-toggle]");
+    const playback = createScenePlayback({
+      resolveModule: () => ({ ...realModule, buildScene }),
+      sceneRoot,
+      surface,
+    });
+
+    // Act
+    playback.synchronize(1, true);
+    playback.synchronize(0.5, true);
+    playback.synchronize(1, true);
+    toggle.click();
+    surface.dispatchEvent(
+      new CustomEvent("agentstudio:chapter-step-requested", {
+        detail: { stepId: "watch-folders" },
+      }),
+    );
+
+    // Assert
+    expect(buildScene).toHaveBeenCalledTimes(1);
+    expect(sceneRoot.dataset["scenePlaybackState"]).toBe("settled");
+    expect(toggle.hidden).toBe(true);
+    expect(requiredHtmlElement(sceneRoot, "[data-settled]").getAttribute("style")).toBe(null);
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(String(warn.mock.calls[0]?.[0])).toContain("chapter-many-agents");
     playback.dispose();
   });
 

@@ -1,4 +1,4 @@
-import { isChapterStepId, type ChapterStepId } from "./chapter-catalog";
+import { isChapterStepId, type ChapterStepId } from "./chapter-ids";
 import {
   chapterStepRequestedEventName,
   createChapterStepEvent,
