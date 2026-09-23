@@ -46,7 +46,7 @@ describe("chapter catalog", () => {
     }
   });
 
-  it("keeps the approved working chapter titles", () => {
+  it("keeps the copy-passed chapter titles", () => {
     expect(
       chapterCatalog.map(
         (chapter) =>
@@ -56,8 +56,8 @@ describe("chapter catalog", () => {
       "Many agents, one map.",
       "Context stays with the task.",
       "Find it, focus it.",
-      "Review where it happened.",
-      "Close it. Come back.",
+      "Review without leaving the workspace.",
+      "Close the app. Agents keep running.",
     ]);
   });
 

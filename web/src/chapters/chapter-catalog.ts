@@ -11,31 +11,15 @@ import sessionRestorePoster from "../assets/media/session-restore-poster.jpg";
 import sessionRestoreVideoUrl from "../assets/media/session-restore.mp4?url";
 import { marketingCopy } from "../marketing-copy";
 import type { SceneId } from "../motion-scenes/scene-contract";
+import type { ChapterId, ChapterStepId } from "./chapter-ids";
 
-export const chapterIds = [
-  "many-agents",
-  "context-with-task",
-  "find-and-focus",
-  "review",
-  "come-back",
-] as const;
-
-export type ChapterId = (typeof chapterIds)[number];
-
-export const chapterStepIds = [
-  "parallel-agents",
-  "watch-folders",
-  "navigation",
-  "task-drawers",
-  "git-context",
-  "files",
-  "quick-find",
-  "pane-zoom",
-  "review-diff",
-  "persistence",
-] as const;
-
-export type ChapterStepId = (typeof chapterStepIds)[number];
+export {
+  chapterIds,
+  chapterStepIds,
+  isChapterStepId,
+  type ChapterId,
+  type ChapterStepId,
+} from "./chapter-ids";
 
 export type ChapterStage =
   | {
@@ -76,10 +60,6 @@ export interface Chapter {
   readonly title: ChapterTitle;
   readonly steps: readonly ChapterStep[];
   readonly stage: ChapterStage;
-}
-
-export function isChapterStepId(value: string): value is ChapterStepId {
-  return (chapterStepIds as readonly string[]).includes(value);
 }
 
 type FeatureDetailItem = (typeof marketingCopy.featureDetails.items)[number];
