@@ -1,0 +1,45 @@
+---
+import { sceneRootAttribute } from "@/chapters/chapter-dom-contract";
+import AgentTerminal from "@/recreation-kit/AgentTerminal.astro";
+import AppWindow from "@/recreation-kit/AppWindow.astro";
+import Pane from "@/recreation-kit/Pane.astro";
+import PaneGrid from "@/recreation-kit/PaneGrid.astro";
+import Sidebar from "@/recreation-kit/Sidebar.astro";
+
+import {
+  manyAgentsAccessibleLabel,
+  manyAgentsLeftFooter,
+  manyAgentsLeftTerminal,
+  manyAgentsParts,
+  manyAgentsRightFooter,
+  manyAgentsRightTerminal,
+  manyAgentsSidebar,
+  manyAgentsToolbar,
+} from "./chapter-many-agents-fixture";
+
+const sceneRootAttributes = { [sceneRootAttribute]: "chapter-many-agents" };
+---
+
+<!-- Settled frame of "Many agents, one map"; the scene module animates toward it. -->
+<AppWindow
+  {...sceneRootAttributes}
+  role="img"
+  aria-label={manyAgentsAccessibleLabel}
+  toolbar={manyAgentsToolbar}
+>
+  <Sidebar
+    sidebar={manyAgentsSidebar}
+    phoneRole="shown"
+    filterPlaceholderPart={manyAgentsParts.filterPlaceholder}
+    filterQueryPart={manyAgentsParts.filterQuery}
+    filterClearPart={manyAgentsParts.filterClear}
+  />
+  <PaneGrid>
+    <Pane footer={manyAgentsLeftFooter} phoneRole="shown" scenePart={manyAgentsParts.leftPane}>
+      <AgentTerminal lines={manyAgentsLeftTerminal} scenePart={manyAgentsParts.leftTerminal} />
+    </Pane>
+    <Pane footer={manyAgentsRightFooter} phoneRole="hidden" scenePart={manyAgentsParts.rightPane}>
+      <AgentTerminal lines={manyAgentsRightTerminal} scenePart={manyAgentsParts.rightTerminal} />
+    </Pane>
+  </PaneGrid>
+</AppWindow>
