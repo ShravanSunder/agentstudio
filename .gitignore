@@ -45,6 +45,8 @@ BridgeWeb/.vitest-attachments/
 web/.astro/
 web/.cloudflare
 web/dist/
+# Scene bundles for the media team's HyperFrames projects (pnpm --dir web run build:scene-bundles)
+web/dist-scene-bundles/
 web/.wrangler/
 
 # Generated BridgeWeb app bundle resources. Regenerate with:
