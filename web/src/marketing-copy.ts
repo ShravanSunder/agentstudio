@@ -155,6 +155,29 @@ export const marketingCopy = {
       },
     ],
   },
+  chapters: {
+    manyAgents: {
+      eyebrow: "Chapter 1",
+      title: { beforeAccent: "Many agents, ", accent: "one map", afterAccent: "." },
+    },
+    contextWithTask: {
+      eyebrow: "Chapter 2",
+      title: { beforeAccent: "Context stays with ", accent: "the task", afterAccent: "." },
+    },
+    findAndFocus: {
+      eyebrow: "Chapter 3",
+      title: { beforeAccent: "Find it, ", accent: "focus it", afterAccent: "." },
+    },
+    review: {
+      eyebrow: "Chapter 4",
+      title: { beforeAccent: "Review ", accent: "where it happened", afterAccent: "." },
+    },
+    comeBack: {
+      eyebrow: "Chapter 5",
+      title: { beforeAccent: "Close it. ", accent: "Come back", afterAccent: "." },
+      sessionRestoreVideoLabel: "Agent Studio persistent session restore demonstration",
+    },
+  },
   installation: {
     commands: ["brew tap ShravanSunder/agentstudio", "brew install --cask agent-studio"],
     copyButton: "Copy install commands",

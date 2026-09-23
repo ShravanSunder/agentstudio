@@ -25,6 +25,9 @@
     "verify:cloudflare-discovery": "node --experimental-strip-types scripts/verify-cloudflare-discovery-assets.ts",
     "verify:captures": "node --experimental-strip-types scripts/verify-capture-assets.ts"
   },
+  "dependencies": {
+    "gsap": "3.15.0"
+  },
   "devDependencies": {
     "@astrojs/check": "0.9.10",
     "@cloudflare/vite-plugin": "^1.53.0",
