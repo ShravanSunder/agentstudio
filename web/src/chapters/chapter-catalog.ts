@@ -2,7 +2,7 @@ import type { ImageMetadata } from "astro";
 
 // Relative imports (not the "@/" alias) keep this catalog loadable by the
 // Vitest unit project, which has no alias configuration.
-import commandBarPhoneImage from "../assets/captures/command-bar-phone.png";
+import commandBarPhoneImage from "../assets/captures/command-bar-phone-4x5.png";
 import commandBarImage from "../assets/captures/command-bar.png";
 import parallelAgentsImage from "../assets/captures/parallel-agents.png";
 import parallelWorkPhoneImage from "../assets/captures/parallel-work-phone.png";
