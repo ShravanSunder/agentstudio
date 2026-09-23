@@ -78,6 +78,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     var watchedFolderCommands: (any WatchedFolderCommandHandling)!
     var repositoryFactUpdateSource: (any RepositoryFactUpdateStarting)?
     var repositoryFactUpdateTasksByRepoId: [UUID: Task<Void, Never>] = [:]
+    var worktreeCreationCoordinator: WorktreeCreationCoordinator?
     var viewRegistry: ViewRegistry!
     var workspaceSurfaceCoordinator: WorkspaceSurfaceCoordinator!
     var closeTransitionCoordinator: PaneCloseTransitionCoordinator!

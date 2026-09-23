@@ -65,7 +65,7 @@ final class CommandBarResultSession {
         )
         let searchDocument = CommandBarSearchDocument(
             items: itemSnapshot.items,
-            query: state.isNested ? state.searchQuery : state.normalizedRootQuery,
+            query: searchQuery(for: state),
             recentIds: state.recentItemIds
         )
         let filteredItems = CommandBarSearch.filter(
@@ -120,7 +120,7 @@ final class CommandBarResultSession {
             return CommandBarItemSnapshot(
                 scope: state.currentScope,
                 isNested: true,
-                items: level.items
+                items: level.textEntry?.rowsForText(state.searchQuery) ?? level.items
             )
         }
 
@@ -164,6 +164,12 @@ final class CommandBarResultSession {
             ]
         )
         return snapshot
+    }
+
+    /// A text-entry level's field is input, not a filter, so its rows are never filtered by it.
+    private func searchQuery(for state: CommandBarState) -> String {
+        guard state.isNested else { return state.normalizedRootQuery }
+        return state.currentLevel?.textEntry == nil ? state.searchQuery : ""
     }
 
     private func rootItemSnapshotInvalidationReason(
@@ -227,6 +233,8 @@ final class CommandBarResultSession {
                     dispatcher.canDispatch(command)
                 case .dispatchTargeted(let command, let target, let targetType):
                     dispatcher.canDispatch(command, target: target, targetType: targetType)
+                case .createWorktree(let draft):
+                    CommandBarWorktreeCreationResolver.isActionable(draft, dispatcher: dispatcher)
                 case .navigate, .navigateRepo, .custom, .worktreeAction, .quickOpen, .activateRecent:
                     true
                 }

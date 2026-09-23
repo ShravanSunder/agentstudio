@@ -73,6 +73,8 @@ package enum CommandBarAction {
     case quickOpen(CommandBarQuickOpenTarget)
     /// Re-resolve a typed recent entity against live state immediately before dispatch.
     case activateRecent(CommandBarRecentActivation)
+    /// Create a worktree from typed branch input; the Return modifier picks fork or clean checkout.
+    case createWorktree(CommandBarWorktreeCreationDraft)
 }
 
 package enum CommandBarItemKind {
@@ -184,6 +186,8 @@ package struct CommandBarItem: Identifiable {
             case .worktree: return "Show worktree actions"
             case .pane: return "Focus pane"
             }
+        case .createWorktree:
+            return "Create worktree"
         }
     }
 
@@ -221,7 +225,8 @@ package struct CommandBarItem: Identifiable {
         switch action {
         case .worktreeAction(let presence):
             return presence.openState
-        case .dispatch, .dispatchTargeted, .navigate, .navigateRepo, .custom, .quickOpen, .activateRecent:
+        case .dispatch, .dispatchTargeted, .navigate, .navigateRepo, .custom, .quickOpen, .activateRecent,
+            .createWorktree:
             return nil
         }
     }
@@ -236,7 +241,7 @@ package struct CommandBarItem: Identifiable {
             case .worktree: return .worktree
             case .directory: return .other
             }
-        case .dispatch:
+        case .dispatch, .createWorktree:
             return .command
         case .navigate:
             return command == nil ? .other : .command
@@ -302,6 +307,18 @@ struct CommandBarBreadcrumbItem: Equatable {
     let icon: AppEntityIcon?
 }
 
+/// A nested level whose field is typed input rather than a filter: its rows derive
+/// from the current text and are shown unfiltered.
+package struct CommandBarTextEntry {
+    package let placeholder: String
+    package let rowsForText: @MainActor (String) -> [CommandBarItem]
+
+    package init(placeholder: String, rowsForText: @escaping @MainActor (String) -> [CommandBarItem]) {
+        self.placeholder = placeholder
+        self.rowsForText = rowsForText
+    }
+}
+
 /// A navigation level in the command bar (for nested drill-in).
 ///
 /// `scopeLabel` identifies the level's entity or action kind in the breadcrumb.
@@ -312,6 +329,7 @@ package struct CommandBarLevel: Identifiable {
     package let scopeLabel: String?
     package let breadcrumbIcon: AppEntityIcon?
     package let items: [CommandBarItem]
+    package let textEntry: CommandBarTextEntry?
 
     package init(
         id: String,
@@ -319,7 +337,8 @@ package struct CommandBarLevel: Identifiable {
         parentLabel: String? = nil,
         scopeLabel: String? = nil,
         breadcrumbIcon: AppEntityIcon? = nil,
-        items: [CommandBarItem]
+        items: [CommandBarItem],
+        textEntry: CommandBarTextEntry? = nil
     ) {
         self.id = id
         self.title = title
@@ -327,6 +346,7 @@ package struct CommandBarLevel: Identifiable {
         self.scopeLabel = scopeLabel
         self.breadcrumbIcon = breadcrumbIcon
         self.items = items
+        self.textEntry = textEntry
     }
 }
 
@@ -411,6 +431,9 @@ package enum FooterHintBuilder {
     ) -> [FooterHint] {
         if isNested {
             var hints: [FooterHint] = []
+            if case .createWorktree = item?.action {
+                hints.append(contentsOf: CommandBarWorktreeCreationResolver.footerHints)
+            }
             if item?.hasChildren == true {
                 hints.append(FooterHint(id: "drill-in", key: "⇥", label: "Actions"))
             }

@@ -203,6 +203,23 @@ final class AppCommandDispatcher: AppCommandDispatching {
         )
     }
 
+    /// Creation carries a typed request, so it bypasses the parameterless `execute`
+    /// path and goes straight to the shell owner after the targeted preflight.
+    @discardableResult
+    func dispatchWorktreeCreation(_ request: WorktreeCreationRequest) -> Bool {
+        let command = request.kind.command
+        guard canDispatch(command, target: request.sourceWorktreeId, targetType: .worktree) else {
+            Self.logger.warning("Worktree creation dispatch rejected: \(command.rawValue, privacy: .public)")
+            return false
+        }
+        switch appCommandRouter?.executeWorktreeCreation(request) {
+        case .accepted, .applied:
+            return true
+        case .presented, .unavailable, .stateUnavailable, .unsupportedCommand, nil:
+            return false
+        }
+    }
+
     func dispatchQuickOpenDirectory(
         _ directory: URL,
         placement: QuickOpenDirectoryPlacement

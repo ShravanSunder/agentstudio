@@ -419,6 +419,20 @@ final class FilesystemGitPipeline: WorkspaceFilesystemSourceManaging, WatchedFol
     }
 }
 
+extension FilesystemGitPipeline: WorktreePublicationHolding {
+    func holdPublication(of destination: URL) async -> WatchedFolderPublicationHoldID {
+        await filesystemActor.holdWatchedFolderPublication(of: destination)
+    }
+
+    func releasePublicationHold(_ holdID: WatchedFolderPublicationHoldID) async {
+        await filesystemActor.releaseWatchedFolderPublicationHold(holdID)
+    }
+
+    func refreshWatchedFolder(_ watchedPathID: UUID, among watchedPaths: [WatchedPath]) async {
+        _ = await filesystemActor.refreshWatchedFolders(watchedPaths, scanning: [watchedPathID])
+    }
+}
+
 private final class RemoteReferenceAuthoritySink: @unchecked Sendable {
     typealias Handler = @Sendable (RemoteReferenceAuthorityUpdate) async -> Void
     typealias RecomputationHandler =

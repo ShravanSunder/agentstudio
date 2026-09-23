@@ -675,6 +675,8 @@ extension AppCommand {
                 surfacePolicy: .exposed([.commandBar, .contextMenu]),
                 targetTypes: [.worktree, .pane]
             )
+        case .newWorktree: return newWorktreeDefinition()
+        case .forkWorktree: return forkWorktreeDefinition()
         case .openPaneLocationInBookmarkedEditor:
             return AppCommandSpec(
                 command: self,

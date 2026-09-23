@@ -159,6 +159,9 @@ package final class CommandBarState {
 
     /// Placeholder text for the search field, varies by scope.
     var placeholder: String {
+        if let textEntry = currentLevel?.textEntry {
+            return textEntry.placeholder
+        }
         if isNested {
             return "Filter..."
         }

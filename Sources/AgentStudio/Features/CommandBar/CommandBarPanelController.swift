@@ -445,6 +445,14 @@ package final class CommandBarPanelController {
             executeQuickOpen(target, itemId: item.id, modifier: modifier)
         case .activateRecent(let activation):
             executeRecentActivation(activation, itemId: item.id)
+        case .createWorktree(let draft):
+            guard
+                case .dispatch(let request) = CommandBarWorktreeCreationResolver.resolve(
+                    draft: draft, modifier: modifier),
+                dispatcher.canDispatch(request.kind.command, target: request.sourceWorktreeId, targetType: .worktree)
+            else { return }
+            dismiss(measureNonExecutingClose: false)
+            dispatcher.dispatchWorktreeCreation(request)
         }
     }
 
