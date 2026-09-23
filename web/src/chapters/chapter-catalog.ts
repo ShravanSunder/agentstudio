@@ -3,10 +3,10 @@ import type { ImageMetadata } from "astro";
 // Relative imports (not the "@/" alias) keep this catalog loadable by the
 // Vitest unit project, which has no alias configuration.
 import commandBarImage from "../assets/captures/command-bar.png";
-import paneDrawerImage from "../assets/captures/pane-drawer.png";
 import parallelAgentsImage from "../assets/captures/parallel-agents.png";
 import reviewPhoneImage from "../assets/captures/review-phone.png";
 import reviewImage from "../assets/captures/review.png";
+import taskDrawerToolsImage from "../assets/captures/task-drawer-tools.png";
 import sessionRestorePoster from "../assets/media/session-restore-poster.jpg";
 import sessionRestoreVideoUrl from "../assets/media/session-restore.mp4?url";
 import { marketingCopy } from "../marketing-copy";
@@ -98,6 +98,7 @@ function readFeatureDetail<TFeatureDetailId extends FeatureDetailItem["id"]>(
 }
 
 const navigationDetail = readFeatureDetail("navigation");
+const taskToolsDetail = readFeatureDetail("task-tools");
 const arrangementsDetail = readFeatureDetail("arrangements");
 const { stories, chapters } = marketingCopy;
 
@@ -162,8 +163,8 @@ export const chapterCatalog: readonly Chapter[] = [
     stage: {
       kind: "scene",
       sceneId: "chapter-context-with-task",
-      proofImage: paneDrawerImage,
-      proofAlt: stories.paneDrawer.imageDescription,
+      proofImage: taskDrawerToolsImage,
+      proofAlt: taskToolsDetail.imageDescription,
     },
   },
   {

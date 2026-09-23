@@ -6,6 +6,7 @@ import {
   chapterStepIds,
   isChapterStepId,
 } from "../src/chapters/chapter-catalog";
+import { websiteCaptureSuite } from "../src/content/website-capture-manifest";
 import { sceneIds } from "../src/motion-scenes/scene-contract";
 import { resolveSceneModule } from "../src/motion-scenes/scene-registry";
 
@@ -70,6 +71,21 @@ describe("chapter catalog", () => {
     // Assert
     expect(stageKinds).toEqual(["scene", "scene", "scene", "still", "video"]);
     expect(stagedSceneIds).toEqual([...sceneIds]);
+  });
+
+  it("proves the task-drawer chapter with the approved capture's own description", () => {
+    // Arrange
+    const approvedCapture = websiteCaptureSuite.captures.find(
+      (capture) => capture.id === "task-drawer-tools",
+    );
+    const contextChapter = chapterCatalog.find((chapter) => chapter.id === "context-with-task");
+
+    // Act / Assert
+    expect(contextChapter?.stage).toMatchObject({
+      kind: "scene",
+      proofAlt: approvedCapture?.alternativeText,
+    });
+    expect(approvedCapture?.alternativeText).toBeTruthy();
   });
 
   it("keeps each registered scene's steps in the catalog's step order", () => {
