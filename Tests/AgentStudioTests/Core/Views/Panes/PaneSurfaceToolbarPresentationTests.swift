@@ -50,13 +50,13 @@ struct PaneSurfaceToolbarPresentationTests {
             ),
             (
                 .bridgePanel(
-                    BridgePaneState(panelKind: .fileViewer, source: nil)
+                    BridgePaneState(panelKind: .fileViewer)
                 ),
                 .viewer
             ),
             (
                 .bridgePanel(
-                    BridgePaneState(panelKind: .diffViewer, source: nil)
+                    BridgePaneState(panelKind: .diffViewer)
                 ),
                 .viewer
             ),
@@ -414,8 +414,8 @@ struct PaneSurfaceToolbarPresentationTests {
                     rawState: nil
                 )
             ),
-            .bridgePanel(BridgePaneState(panelKind: .fileViewer, source: nil)),
-            .bridgePanel(BridgePaneState(panelKind: .diffViewer, source: nil)),
+            .bridgePanel(BridgePaneState(panelKind: .fileViewer)),
+            .bridgePanel(BridgePaneState(panelKind: .diffViewer)),
         ]
     }
 }

@@ -75,22 +75,13 @@ extension WebKitSerializedTests {
             let worktreeId = UUIDv7.generate()
             let provider = CanonicalContributionReviewSourceProvider()
             let targetRecorder = AutomaticContributionTargetRecorder()
-            let reviewerState = BridgePaneState(
-                panelKind: .diffViewer,
-                source: .workspace(
-                    rootPath: "/tmp/worktree",
-                    baseline: .branch(name: "reviewer-selected")
-                )
-            )
+            let reviewerComparison = WorkspaceBaseline.branch(name: "reviewer-selected")
             let controller = BridgePaneController(
                 paneId: UUIDv7.generate(),
-                state: BridgePaneState(
-                    panelKind: .diffViewer,
-                    source: .workspace(
-                        rootPath: "/tmp/worktree",
-                        baseline: nil
-                    )
-                ),
+                state: BridgePaneState(panelKind: .diffViewer),
+                sourceConfiguration: BridgePaneSourceConfiguration(
+                    review: BridgeReviewSourceBinding(
+                        worktreeId: UUIDv7.generate(), worktreeRootPath: "/tmp/worktree", comparison: nil)),
                 appRootURL: testBridgeAppRootURL(),
                 metadata: PaneMetadata(
                     contentType: .diff,
@@ -106,7 +97,7 @@ extension WebKitSerializedTests {
                 initialPaneActivity: .foreground,
                 initialContributionTargetCommit: { target in
                     targetRecorder.record(target)
-                    return .unchanged(reviewerState)
+                    return .unchanged(reviewerComparison)
                 }
             )
             defer { controller.teardown() }
@@ -132,11 +123,7 @@ extension WebKitSerializedTests {
                 return
             }
             #expect(origin.symbolicTarget == .branch(name: "reviewer-selected"))
-            guard case .workspace(_, let canonicalBaseline) = controller.bridgePaneState.source else {
-                Issue.record("Expected workspace canonical state")
-                return
-            }
-            #expect(canonicalBaseline?.contributionTarget == .branch(name: "reviewer-selected"))
+            #expect(controller.reviewBinding?.comparison?.contributionTarget == .branch(name: "reviewer-selected"))
             #expect(
                 controller.refreshAdmissionCoordinator.productPresentationSnapshot.reviewComparison?
                     .repositoryDefaultTarget
@@ -249,7 +236,7 @@ extension WebKitSerializedTests {
                 provider: provider,
                 initialContributionTargetCommit: { target in
                     targetRecorder.record(target)
-                    return .paneMissing
+                    return .receiverUnavailable
                 }
             )
             defer { controller.teardown() }
@@ -540,13 +527,11 @@ extension WebKitSerializedTests {
             let gitReadContext = makeBridgeGitReadContext(rootURL: repoURL)
             let controller = BridgePaneController(
                 paneId: paneId,
-                state: BridgePaneState(
-                    panelKind: .diffViewer,
-                    source: .workspace(
-                        rootPath: repoURL.path,
-                        baseline: .localDefaultBranch(branchName: "main")
-                    )
-                ),
+                state: BridgePaneState(panelKind: .diffViewer),
+                sourceConfiguration: BridgePaneSourceConfiguration(
+                    review: BridgeReviewSourceBinding(
+                        worktreeId: UUIDv7.generate(), worktreeRootPath: repoURL.path,
+                        comparison: .localDefaultBranch(branchName: "main"))),
                 appRootURL: testBridgeAppRootURL(),
                 metadata: PaneMetadata(
                     paneId: PaneId(existingUUID: paneId),
@@ -736,17 +721,28 @@ extension WebKitSerializedTests {
 
         private func makeController(
             panelKind: BridgePanelKind = .diffViewer,
-            source: BridgePaneSource?,
+            source: InitialLoadReviewSource?,
             repoId: UUID? = nil,
             worktreeId: UUID?,
             provider: any BridgeReviewSourceProvider,
             initialPaneActivity: BridgePaneActivity = .foreground,
-            initialContributionTargetCommit:
-                (@MainActor @Sendable (WorkspaceReviewContributionTarget) -> BridgePaneStateMutationResult)? = nil
+            initialContributionTargetCommit: BridgeReviewComparisonCommit? = nil
         ) -> BridgePaneController {
             BridgePaneController(
                 paneId: UUIDv7.generate(),
-                state: BridgePaneState(panelKind: panelKind, source: source),
+                state: BridgePaneState(panelKind: panelKind),
+                sourceConfiguration: BridgePaneSourceConfiguration(
+                    review: source.map { source in
+                        switch source {
+                        case .workspace(let rootPath, let baseline):
+                            BridgeReviewSourceBinding(
+                                worktreeId: worktreeId ?? UUIDv7.generate(),
+                                worktreeRootPath: rootPath,
+                                comparison: baseline
+                            )
+                        }
+                    }
+                ),
                 appRootURL: testBridgeAppRootURL(),
                 metadata: PaneMetadata(
                     contentType: .diff,
@@ -966,4 +962,10 @@ private final class AutomaticContributionTargetRecorder {
     func record(_ target: WorkspaceReviewContributionTarget) {
         self.target = target
     }
+}
+
+/// The Review input these tests construct controllers from, in the shape App
+/// derives from a receiver's selected member and retained comparison.
+private enum InitialLoadReviewSource {
+    case workspace(rootPath: String, baseline: WorkspaceBaseline?)
 }

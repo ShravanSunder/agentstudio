@@ -377,7 +377,7 @@ struct WorkspacePaneBoundaryTests {
         let graphAtom = WorkspacePaneGraphAtom()
 
         _ = graphAtom.createPane(
-            content: .bridgePanel(BridgePaneState(panelKind: .diffViewer, source: .commit(sha: "abc123"))),
+            content: .bridgePanel(BridgePaneState(panelKind: .diffViewer)),
             metadata: PaneMetadata(title: "Unlocated review")
         )
 
@@ -393,15 +393,9 @@ struct WorkspacePaneBoundaryTests {
         let bridgePane = try #require(
             graphAtom.createPane(
                 content: .bridgePanel(
-                    BridgePaneState(
-                        panelKind: .fileViewer,
-                        source: .workspace(
-                            rootPath: bridgeRoot.path,
-                            baseline: .ref(name: "HEAD~1")
-                        )
-                    )
+                    BridgePaneState(panelKind: .fileViewer)
                 ),
-                metadata: PaneMetadata(title: "Files")
+                metadata: PaneMetadata(launchDirectory: bridgeRoot, title: "Files")
             )
         )
         let codePane = try #require(
@@ -457,7 +451,7 @@ struct WorkspacePaneBoundaryTests {
         )
         let rejected = graphAtom.addDrawerPane(
             to: parent.id,
-            content: .bridgePanel(BridgePaneState(panelKind: .diffViewer, source: .commit(sha: "abc123"))),
+            content: .bridgePanel(BridgePaneState(panelKind: .diffViewer)),
             metadata: PaneMetadata(title: "Unlocated review")
         )
         let codeFile = URL(filePath: "/tmp/drawer-admission-code/Sources/App.swift")
@@ -472,7 +466,7 @@ struct WorkspacePaneBoundaryTests {
         let rejectedInsert = graphAtom.insertDrawerPane(
             in: parent.id,
             at: repaired.id,
-            content: .bridgePanel(BridgePaneState(panelKind: .fileViewer, source: nil)),
+            content: .bridgePanel(BridgePaneState(panelKind: .fileViewer)),
             metadata: PaneMetadata(title: "Unlocated files")
         )
 

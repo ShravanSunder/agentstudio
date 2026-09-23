@@ -2,20 +2,16 @@ import Foundation
 
 // MARK: - Bridge Pane State
 
-/// State for a bridge-backed panel (diff viewer, code review, etc.).
-/// Unlike WebviewState, this has no user-visible URL or navigation controls.
-/// The panel kind determines which React app/component is loaded, while the
-/// source describes what data the panel is displaying.
-///
-/// Codable for workspace save/restore. Hashable for identity checks.
-///
+/// Durable core payload of a standalone Bridge pane: which React app the pane
+/// loads. What the pane reads — members, opened documents, Files and Review
+/// selections — is the pane's receiver navigation record in local UX memory,
+/// never this payload. The retired `source` field is read only by the ordered
+/// legacy conversion (`LegacyBridgePaneSourceDTO`).
 package struct BridgePaneState: Codable, Hashable, Sendable {
     package let panelKind: BridgePanelKind
-    package var source: BridgePaneSource?
 
-    package init(panelKind: BridgePanelKind, source: BridgePaneSource?) {
+    package init(panelKind: BridgePanelKind) {
         self.panelKind = panelKind
-        self.source = source
     }
 }
 
@@ -27,27 +23,6 @@ package enum BridgePanelKind: String, Codable, Hashable, Sendable {
     case diffViewer
     case fileViewer
     // Future: .agentDashboard, .prStatus, etc.
-}
-
-// MARK: - Bridge Pane Source
-
-/// What the bridge panel is displaying. Serializable for persistence/restore.
-///
-/// Each case captures the minimal parameters needed to reconstruct the panel's
-/// data query on restore. The bridge panel uses this to fetch and render content.
-///
-package enum BridgePaneSource: Codable, Hashable, Sendable {
-    /// A single commit's diff.
-    case commit(sha: String)
-    /// Diff between two branches.
-    case branchDiff(head: String, base: String)
-    /// Working directory changes relative to a baseline.
-    ///
-    /// A nil baseline means the initial contribution target still needs to be
-    /// designated. Staged and unstaged remain the pre-existing narrow modes.
-    case workspace(rootPath: String, baseline: WorkspaceBaseline?)
-    /// Snapshot from an agent task at a specific point in time.
-    case agentSnapshot(taskId: UUID, timestamp: Date)
 }
 
 // MARK: - Workspace Review Contribution Target
@@ -354,148 +329,4 @@ private func decodeExactGitCommitOID<CodingKeyType: CodingKey>(
         )
     }
     return oid
-}
-
-extension BridgePaneSource {
-    private enum CodingKeys: String, CodingKey {
-        case commit
-        case branchDiff
-        case workspace
-        case agentSnapshot
-    }
-
-    private enum CommitCodingKeys: String, CodingKey {
-        case sha
-    }
-
-    private enum BranchDiffCodingKeys: String, CodingKey {
-        case head
-        case base
-    }
-
-    private enum WorkspaceCodingKeys: String, CodingKey {
-        case rootPath
-        case baseline
-        case comparisonTarget
-    }
-
-    private enum AgentSnapshotCodingKeys: String, CodingKey {
-        case taskId
-        case timestamp
-    }
-
-    package init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        guard container.allKeys.count == 1, let sourceKey = container.allKeys.first else {
-            throw DecodingError.dataCorrupted(
-                DecodingError.Context(
-                    codingPath: decoder.codingPath,
-                    debugDescription: "Bridge pane source must contain exactly one recognized case"
-                )
-            )
-        }
-
-        switch sourceKey {
-        case .commit:
-            let commit = try container.nestedContainer(keyedBy: CommitCodingKeys.self, forKey: .commit)
-            self = .commit(sha: try commit.decode(String.self, forKey: .sha))
-        case .branchDiff:
-            let branchDiff = try container.nestedContainer(
-                keyedBy: BranchDiffCodingKeys.self,
-                forKey: .branchDiff
-            )
-            self = .branchDiff(
-                head: try branchDiff.decode(String.self, forKey: .head),
-                base: try branchDiff.decode(String.self, forKey: .base)
-            )
-        case .workspace:
-            let workspace = try container.nestedContainer(
-                keyedBy: WorkspaceCodingKeys.self,
-                forKey: .workspace
-            )
-            let baseline: WorkspaceBaseline?
-            if workspace.contains(.comparisonTarget) {
-                baseline = WorkspaceBaseline(
-                    contributionTarget: try workspace.decode(
-                        WorkspaceReviewContributionTarget.self,
-                        forKey: .comparisonTarget
-                    )
-                )
-            } else if let legacyBaseline = try workspace.decodeIfPresent(
-                WorkspaceBaseline.self,
-                forKey: .baseline
-            ) {
-                baseline = Self.canonicalBaseline(fromLegacy: legacyBaseline)
-            } else {
-                baseline = nil
-            }
-            self = .workspace(
-                rootPath: try workspace.decode(String.self, forKey: .rootPath),
-                baseline: baseline
-            )
-        case .agentSnapshot:
-            let snapshot = try container.nestedContainer(
-                keyedBy: AgentSnapshotCodingKeys.self,
-                forKey: .agentSnapshot
-            )
-            self = .agentSnapshot(
-                taskId: try snapshot.decode(UUID.self, forKey: .taskId),
-                timestamp: try snapshot.decode(Date.self, forKey: .timestamp)
-            )
-        }
-    }
-
-    package func encode(to encoder: Encoder) throws {
-        var container = encoder.container(keyedBy: CodingKeys.self)
-        switch self {
-        case .commit(let sha):
-            var commit = container.nestedContainer(keyedBy: CommitCodingKeys.self, forKey: .commit)
-            try commit.encode(sha, forKey: .sha)
-        case .branchDiff(let head, let base):
-            var branchDiff = container.nestedContainer(
-                keyedBy: BranchDiffCodingKeys.self,
-                forKey: .branchDiff
-            )
-            try branchDiff.encode(head, forKey: .head)
-            try branchDiff.encode(base, forKey: .base)
-        case .workspace(let rootPath, let baseline):
-            var workspace = container.nestedContainer(
-                keyedBy: WorkspaceCodingKeys.self,
-                forKey: .workspace
-            )
-            try workspace.encode(rootPath, forKey: .rootPath)
-            switch baseline {
-            case .staged, .unstaged, .headMinusOne:
-                try workspace.encode(baseline, forKey: .baseline)
-            case .localDefaultBranch, .originDefaultBranch, .branch, .commit, .ref:
-                try workspace.encode(
-                    baseline?.contributionTarget,
-                    forKey: .comparisonTarget
-                )
-            case nil:
-                break
-            }
-        case .agentSnapshot(let taskId, let timestamp):
-            var snapshot = container.nestedContainer(
-                keyedBy: AgentSnapshotCodingKeys.self,
-                forKey: .agentSnapshot
-            )
-            try snapshot.encode(taskId, forKey: .taskId)
-            try snapshot.encode(timestamp, forKey: .timestamp)
-        }
-    }
-
-    private static func canonicalBaseline(
-        fromLegacy baseline: WorkspaceBaseline
-    ) -> WorkspaceBaseline? {
-        switch baseline {
-        case .localDefaultBranch:
-            nil
-        case .ref(let name, _) where name == "HEAD":
-            nil
-        case .originDefaultBranch, .branch, .commit, .ref, .headMinusOne, .staged, .unstaged:
-            baseline
-        }
-    }
-
 }

@@ -143,11 +143,19 @@ extension WebKitSerializedTests {
             #expect(didApplyTarget)
             #expect(hiddenPresentation == .retainedHidden(companionPaneId: companionPaneId))
             #expect(
-                mountedView.controller.bridgePaneState.source
-                    == .workspace(
-                        rootPath: harness.worktree.path.path,
-                        baseline: WorkspaceBaseline(contributionTarget: selectedTarget)
+                mountedView.controller.reviewBinding
+                    == BridgeReviewSourceBinding(
+                        worktreeId: harness.worktree.id,
+                        worktreeRootPath: harness.worktree.path.path,
+                        comparison: WorkspaceBaseline(contributionTarget: selectedTarget)
                     )
+            )
+            // The comparison lives in the terminal receiver's record, not in a
+            // transient companion payload.
+            #expect(
+                harness.store.bridgeNavigationAtom.record(for: .terminal(sourcePane.id))?
+                    .reviewComparisonsByWorktreeId[harness.worktree.id]
+                    == WorkspaceBaseline(contributionTarget: selectedTarget)
             )
             #expect(harness.store.pane(companionPaneId) == nil)
 
@@ -187,18 +195,13 @@ extension WebKitSerializedTests {
                 owningTabId: sourceTab.id
             )
             let companionPaneId = try #require(presentation.companionPaneId)
-            let companionState = try #require(
-                harness.viewRegistry.allBridgeViews[companionPaneId]?.controller.bridgePaneState
+            let companionReview = try #require(
+                harness.viewRegistry.allBridgeViews[companionPaneId]?.controller.reviewBinding,
+                "Expected the Zoom companion to review the terminal's known worktree"
             )
 
-            guard case .workspace(_, let comparisonIntent) = companionState.source else {
-                Issue.record("Expected Zoom companion to use a workspace source")
-                await harness.coordinator.shutdown()
-                return
-            }
-            #expect(
-                comparisonIntent == nil
-            )
+            #expect(companionReview.worktreeId == harness.worktree.id)
+            #expect(companionReview.comparison == nil)
 
             await harness.coordinator.shutdown()
         }
@@ -221,18 +224,13 @@ extension WebKitSerializedTests {
                 owningTabId: sourceTab.id
             )
             let companionPaneId = try #require(presentation.companionPaneId)
-            let companionState = try #require(
-                harness.viewRegistry.allBridgeViews[companionPaneId]?.controller.bridgePaneState
+            let companionReview = try #require(
+                harness.viewRegistry.allBridgeViews[companionPaneId]?.controller.reviewBinding,
+                "Expected the Zoom companion to review the terminal's known worktree"
             )
 
-            guard case .workspace(_, let comparisonIntent) = companionState.source else {
-                Issue.record("Expected Zoom companion to use a workspace source")
-                await harness.coordinator.shutdown()
-                return
-            }
-            #expect(
-                comparisonIntent == nil
-            )
+            #expect(companionReview.worktreeId == harness.worktree.id)
+            #expect(companionReview.comparison == nil)
 
             await harness.coordinator.shutdown()
         }

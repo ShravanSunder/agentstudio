@@ -15,34 +15,32 @@ extension BridgePaneController {
             refreshAdmissionCoordinator.close()
             return false
         }
-        let mutationResult = contributionTargetCommit(request.target)
+        let commitResult = contributionTargetCommit(request.target)
         guard productAdmission.withValidAdmission({ true }) == true else { return false }
-        let canonicalState: BridgePaneState
+        let canonicalBaseline: WorkspaceBaseline
         let replacedLineage: Bool
-        switch mutationResult {
-        case .applied(let state):
-            canonicalState = state
+        switch commitResult {
+        case .applied(let baseline):
+            canonicalBaseline = baseline
             replacedLineage = true
-        case .unchanged(let state):
-            canonicalState = state
+        case .unchanged(let baseline):
+            canonicalBaseline = baseline
             replacedLineage = false
-        case .paneMissing, .notBridgePane, .notWorkspaceSource:
+        case .receiverUnavailable:
             reviewGitRefreshSeedHolder.retire()
             productAdmissionGate.close()
             refreshAdmissionCoordinator.close()
             return false
         }
-        guard case .workspace(_, let canonicalBaseline) = canonicalState.source,
-            canonicalBaseline?.contributionTarget == request.target
-        else {
+        guard reviewBinding != nil, canonicalBaseline.contributionTarget == request.target else {
             reviewGitRefreshSeedHolder.retire()
             productAdmissionGate.close()
             refreshAdmissionCoordinator.close()
             return false
         }
 
-        bridgePaneState = canonicalState
-        reviewComparisonTargetProjection.update(state: canonicalState)
+        reviewBinding?.comparison = canonicalBaseline
+        reviewComparisonTargetProjection.update(reviewBinding: reviewBinding)
         guard replacedLineage else { return true }
         reviewGitRefreshSeedHolder.retire()
         let reviewGeneration = nextReviewGeneration.next()
@@ -65,7 +63,8 @@ extension BridgePaneController {
         productAdmission: BridgeProductAdmissionContext,
         foregroundWorkAdmission: BridgePaneRefreshWorkAdmission
     ) async throws {
-        guard case .workspace(_, let baseline) = bridgePaneState.source else { return }
+        guard let reviewBinding else { return }
+        let baseline = reviewBinding.comparison
         let resolvedDefaultTarget = try await resolveAndPublishReviewComparisonDefaultTargetIfCurrent(
             reset: reset,
             productAdmission: productAdmission,
@@ -76,7 +75,7 @@ extension BridgePaneController {
             let resolvedDefaultTarget,
             let initialContributionTargetCommit
         else { return }
-        let mutationResult = initialContributionTargetCommit(
+        let commitResult = initialContributionTargetCommit(
             .originDefaultBranch(
                 remoteName: resolvedDefaultTarget.remoteName,
                 branchName: resolvedDefaultTarget.branchName,
@@ -90,19 +89,18 @@ extension BridgePaneController {
                 foregroundWorkAdmission: foregroundWorkAdmission
             )
         else { return }
-        switch mutationResult {
-        case .applied(let canonicalState), .unchanged(let canonicalState):
-            bridgePaneState = canonicalState
-            reviewComparisonTargetProjection.update(state: canonicalState)
-            guard case .workspace(_, let canonicalBaseline) = canonicalState.source,
-                let activeTarget = canonicalBaseline?.contributionTarget
-            else { return }
+        switch commitResult {
+        case .applied(let canonicalBaseline), .unchanged(let canonicalBaseline):
+            guard self.reviewBinding != nil else { return }
+            self.reviewBinding?.comparison = canonicalBaseline
+            reviewComparisonTargetProjection.update(reviewBinding: self.reviewBinding)
+            guard let activeTarget = canonicalBaseline.contributionTarget else { return }
             refreshAdmissionCoordinator.beginReviewComparisonAttempt(
                 activeTarget: activeTarget,
                 reviewGeneration: reset.reviewGeneration.rawValue
             )
             _ = scheduleProductPresentationPublication()
-        case .paneMissing, .notBridgePane, .notWorkspaceSource:
+        case .receiverUnavailable:
             break
         }
     }
@@ -142,8 +140,8 @@ extension BridgePaneController {
     func resolveContributionRequestIfNeeded(
         _ request: BridgeReviewPipelineRequest
     ) async throws -> BridgeReviewPipelineRequest {
-        guard case .workspace(_, let baseline) = bridgePaneState.source else { return request }
-        guard let baseline else {
+        guard let reviewBinding else { return request }
+        guard let baseline = reviewBinding.comparison else {
             throw BridgeProviderFailure.providerFailed(
                 message: "Contribution target selection required"
             )

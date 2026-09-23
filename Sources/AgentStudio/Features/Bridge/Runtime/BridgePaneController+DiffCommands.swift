@@ -8,7 +8,7 @@ private let bridgeDiffCommandLogger = Logger(subsystem: "com.agentstudio", categ
 @MainActor
 extension BridgePaneController: BridgeRuntimeCommandHandling {
     func scheduleInitialReviewPackageLoadIfPossible(reason: BridgeReviewPackageBuildReason) {
-        guard case .workspace = bridgePaneState.source,
+        guard reviewBinding != nil,
             runtime.metadata.worktreeId != nil,
             paneState.diff.status == .idle || paneState.diff.status == .loading
                 || paneState.diff.status == .error,
@@ -40,7 +40,7 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
         guard !pendingReviewPackageBuildReasons.isEmpty,
             activeReviewRefreshTask == nil,
             refreshAdmissionCoordinator.acquireForegroundWork() != nil,
-            case .workspace = bridgePaneState.source,
+            reviewBinding != nil,
             let worktreeId = runtime.metadata.worktreeId
         else { return }
 
@@ -91,7 +91,7 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
         correlationId: UUID?,
         reviewAuthorityGeneration: UInt64? = nil
     ) async -> ActionResult? {
-        guard case .workspace = bridgePaneState.source,
+        guard reviewBinding != nil,
             let worktreeId = runtime.metadata.worktreeId,
             paneState.diff.status == .idle || paneState.diff.status == .loading
                 || paneState.diff.status == .error,
@@ -430,8 +430,7 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
             return nil
         }
         if reset.shouldPresentComparisonReplacement,
-            case .workspace(_, let baseline) = bridgePaneState.source,
-            let activeTarget = baseline?.contributionTarget
+            let activeTarget = reviewBinding?.comparison?.contributionTarget
         {
             refreshAdmissionCoordinator.beginReviewComparisonAttempt(
                 activeTarget: activeTarget,

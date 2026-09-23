@@ -10,8 +10,7 @@ package actor BridgeDevelopmentProductHost {
     }
 
     private let constructionCoordinator: BridgeWorktreeProductConstructionCoordinator
-    let contributionTargetCommit:
-        @MainActor @Sendable (WorkspaceReviewContributionTarget) -> BridgePaneStateMutationResult
+    let contributionTargetCommit: BridgeReviewComparisonCommit
     private let committedCallTarget: BridgeDevelopmentProductCommittedCallTarget
     var activeReviewComparisonTask: Task<Void, Never>?
     var activeReviewComparisonTaskAttempt: UInt64?
@@ -30,7 +29,7 @@ package actor BridgeDevelopmentProductHost {
     private let repoId: UUID
     private let reviewedSubjectLabel: String?
     private let reviewContentLoaderCache: BridgeReviewContentLoaderCache
-    var paneState: BridgePaneState
+    var reviewComparison: WorkspaceBaseline?
     private let reviewPipeline: BridgeReviewPipeline
     let reviewProvider: any BridgeReviewSourceProvider
     var reviewGitRefreshSeedHolder = BridgeReviewGitRefreshSeedHolder()
@@ -42,17 +41,15 @@ package actor BridgeDevelopmentProductHost {
     private var nextReviewComparisonTaskAttempt: UInt64 = 0
     var nextReviewGeneration: BridgeReviewGeneration = 1
     private var publishedFileNavigation: FileNavigationPublication?
-    private let worktreeId: UUID
-    private let worktreeRoot: URL
+    let worktreeId: UUID
+    let worktreeRoot: URL
 
     package init(
         source: BridgeDevelopmentProductSource,
         worktreeAnnotationStore: WorktreeAnnotationServiceActor? = nil,
         worktreeAnnotationOutputCoordinator: WorktreeAnnotationOutputCoordinatorActor? = nil,
         statusPhysicalGate: AgentStudioGitStatusPhysicalGate = AgentStudioGitStatusPhysicalGate(),
-        contributionTargetCommit:
-            @escaping @MainActor @Sendable (WorkspaceReviewContributionTarget) ->
-            BridgePaneStateMutationResult
+        contributionTargetCommit: @escaping BridgeReviewComparisonCommit
     ) async throws {
         try await self.init(
             source: source,
@@ -74,9 +71,7 @@ package actor BridgeDevelopmentProductHost {
         source: BridgeDevelopmentProductSource,
         worktreeAnnotationStore: WorktreeAnnotationServiceActor? = nil,
         worktreeAnnotationOutputCoordinator: WorktreeAnnotationOutputCoordinatorActor? = nil,
-        contributionTargetCommit:
-            @escaping @MainActor @Sendable (WorkspaceReviewContributionTarget) ->
-            BridgePaneStateMutationResult,
+        contributionTargetCommit: @escaping BridgeReviewComparisonCommit,
         statusPhysicalGate: AgentStudioGitStatusPhysicalGate = AgentStudioGitStatusPhysicalGate(),
         makeReviewProvider: @Sendable (URL, BridgeGitReadContext) -> any BridgeReviewSourceProvider,
         // Production passes nothing. A test supplies a census with a termination
@@ -102,7 +97,11 @@ package actor BridgeDevelopmentProductHost {
         )
         let reviewProvider = makeReviewProvider(source.worktreeRoot, gitReadContext)
         let reviewInitialization = try await Self.makeReviewInitialization(
-            state: source.paneState,
+            reviewBinding: BridgeReviewSourceBinding(
+                worktreeId: source.worktreeID,
+                worktreeRootPath: source.worktreeRoot.path,
+                comparison: source.reviewComparison
+            ),
             provider: reviewProvider
         )
 
@@ -141,7 +140,7 @@ package actor BridgeDevelopmentProductHost {
         self.repoId = repoId
         self.reviewedSubjectLabel = source.reviewedSubjectLabel
         self.reviewContentLoaderCache = productPreparation.reviewContentLoaderCache
-        self.paneState = source.paneState
+        self.reviewComparison = source.reviewComparison
         self.reviewPipeline = reviewInitialization.pipeline
         self.reviewProvider = reviewProvider
         self.reviewComparisonTargetProjection = reviewInitialization.comparisonTargetProjection
@@ -476,7 +475,7 @@ package actor BridgeDevelopmentProductHost {
             return activePublication
         }
 
-        let target = try Self.reviewTarget(from: paneState)
+        let target = try Self.reviewTarget(from: reviewComparison)
         let initialGeneration = nextReviewGeneration
         await MainActor.run {
             refreshAdmissionCoordinator.beginReviewComparisonAttempt(
@@ -797,24 +796,16 @@ package actor BridgeDevelopmentProductHost {
         guard rootExists, isDirectory.boolValue, gitAuthorityExists else {
             throw BridgeDevelopmentProductHostError.invalidWorktree
         }
-        guard case .workspace(let rootPath, let baseline)? = source.paneState.source else {
-            throw BridgeDevelopmentProductHostError.invalidPaneSource
-        }
-        let restoredRoot = URL(fileURLWithPath: rootPath).standardizedFileURL.resolvingSymlinksInPath()
-        guard restoredRoot.path == source.worktreeRoot.path,
-            baseline?.contributionTarget != nil
-        else {
+        guard source.reviewComparison?.contributionTarget != nil else {
             throw BridgeDevelopmentProductHostError.invalidPaneSource
         }
         return source
     }
 
     static func reviewTarget(
-        from paneState: BridgePaneState
+        from reviewComparison: WorkspaceBaseline?
     ) throws -> WorkspaceReviewContributionTarget {
-        guard case .workspace(_, let baseline)? = paneState.source,
-            let reviewTarget = baseline?.contributionTarget
-        else {
+        guard let reviewTarget = reviewComparison?.contributionTarget else {
             throw BridgeDevelopmentProductHostError.invalidContributionTarget
         }
         return reviewTarget

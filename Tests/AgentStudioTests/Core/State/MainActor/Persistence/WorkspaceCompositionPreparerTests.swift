@@ -728,10 +728,7 @@ private func makePreparedContentPartitionFixture() throws -> PreparedContentPart
     let hiddenBridge = makeCompositionPane(
         title: "Hidden bridge",
         content: .bridgePanel(
-            BridgePaneState(
-                panelKind: .diffViewer,
-                source: .commit(sha: "prepared-content")
-            )
+            BridgePaneState(panelKind: .diffViewer)
         )
     )
     let hiddenUnsupported = makeCompositionPane(

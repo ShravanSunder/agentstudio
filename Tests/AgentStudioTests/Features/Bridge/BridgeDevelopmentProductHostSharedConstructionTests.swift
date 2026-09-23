@@ -163,13 +163,7 @@ struct BridgeDevHostSharedConstructionTests {
 
             // Act
             let pendingPresentation = await host.diagnosticPanePresentation()
-            let canonicalPaneState = await host.paneState
-            let canonicalTarget: WorkspaceReviewContributionTarget?
-            if case .workspace(_, let canonicalBaseline)? = canonicalPaneState.source {
-                canonicalTarget = canonicalBaseline?.contributionTarget
-            } else {
-                canonicalTarget = nil
-            }
+            let canonicalTarget = await host.reviewComparison?.contributionTarget
 
             // Assert
             #expect(await completionRecorder.isComplete)

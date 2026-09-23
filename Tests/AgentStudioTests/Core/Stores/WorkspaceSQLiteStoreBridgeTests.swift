@@ -604,31 +604,16 @@ struct WorkspaceSQLiteStoreBridgeTests {
         )
         let codeViewerFile = URL(filePath: "/tmp/agent-studio-code-viewer/Sources/App.swift")
         let bridgeFilesContent = PaneContent.bridgePanel(
-            BridgePaneState(
-                panelKind: .fileViewer,
-                source: .workspace(
-                    rootPath: bridgeFilesRoot.path,
-                    baseline: .localDefaultBranch(branchName: "main")
-                )
-            )
+            BridgePaneState(panelKind: .fileViewer)
         )
         let bridgeReviewContent = PaneContent.bridgePanel(
-            BridgePaneState(
-                panelKind: .diffViewer,
-                source: .workspace(
-                    rootPath: bridgeReviewRoot.path,
-                    baseline: .originDefaultBranch(remoteName: "origin", branchName: "main")
-                )
-            )
+            BridgePaneState(panelKind: .diffViewer)
         )
         let codeViewerContent = PaneContent.codeViewer(
             CodeViewerState(filePath: codeViewerFile, scrollToLine: 37)
         )
         let degradedBridgeContent = PaneContent.bridgePanel(
-            BridgePaneState(
-                panelKind: .diffViewer,
-                source: .commit(sha: "degraded-without-workspace-root")
-            )
+            BridgePaneState(panelKind: .diffViewer)
         )
         let degradedBridgePaneId = UUIDv7.generate()
         let expectedContentAndCWDByPaneId: [UUID: (content: PaneContent, cwd: URL?)] = [
@@ -649,6 +634,9 @@ struct WorkspaceSQLiteStoreBridgeTests {
                 content: entry.value.content,
                 metadata: PaneMetadata(
                     paneId: PaneId(existingUUID: entry.key),
+                    // Bridge panes repair from their launch location; their
+                    // payload no longer carries a source root.
+                    launchDirectory: entry.value.content.isBridgePanel ? entry.value.cwd : nil,
                     createdAt: createdAt,
                     title: "Required location pane \(index)"
                 )
@@ -899,4 +887,11 @@ func makeWorkspaceSQLiteBridgeFixture(workspaceId: UUID) throws -> WorkspaceSQLi
         localRepository: localRepository,
         backend: backend
     )
+}
+
+extension PaneContent {
+    fileprivate var isBridgePanel: Bool {
+        if case .bridgePanel = self { return true }
+        return false
+    }
 }

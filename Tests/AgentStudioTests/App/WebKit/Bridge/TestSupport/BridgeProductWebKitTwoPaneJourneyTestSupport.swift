@@ -560,13 +560,11 @@ enum BridgeProductWebKitTwoPaneJourneyTestSupport {
         let paneId = UUIDv7.generate()
         return BridgePaneController(
             paneId: paneId,
-            state: BridgePaneState(
-                panelKind: .diffViewer,
-                source: .workspace(
-                    rootPath: input.repoURL.path,
-                    baseline: .localDefaultBranch(branchName: "main")
-                )
-            ),
+            state: BridgePaneState(panelKind: .diffViewer),
+            sourceConfiguration: BridgePaneSourceConfiguration(
+                review: BridgeReviewSourceBinding(
+                    worktreeId: UUIDv7.generate(), worktreeRootPath: input.repoURL.path,
+                    comparison: .localDefaultBranch(branchName: "main"))),
             appRootURL: testBridgeAppRootURL(),
             metadata: PaneMetadata(
                 paneId: PaneId(existingUUID: paneId),

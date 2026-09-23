@@ -309,7 +309,7 @@ private func makeSiblingHTTPDevelopmentProductRuntime(
 ) async throws -> HTTPDevelopmentProductRuntime {
     let source = BridgeDevelopmentProductSource(
         paneID: paneID,
-        paneState: composition.productSource.paneState,
+        reviewComparison: composition.productSource.reviewComparison,
         repoID: composition.productSource.repoID,
         reviewedSubjectLabel: composition.productSource.reviewedSubjectLabel,
         worktreeID: composition.productSource.worktreeID,

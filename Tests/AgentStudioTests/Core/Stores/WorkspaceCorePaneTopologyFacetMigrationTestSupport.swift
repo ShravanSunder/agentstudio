@@ -445,19 +445,13 @@ func insertMigration015Bridge(_ database: Database, ids: Migration015FixtureIDs)
             timestamp: 5.0
         )
     )
-    let bridgeContent = PaneContent.bridgePanel(
-        BridgePaneState(
-            panelKind: .fileViewer,
-            source: .workspace(
-                rootPath: "/tmp/migration-015",
-                baseline: .localDefaultBranch(branchName: "main")
-            )
-        )
-    )
-    let bridgePayload = try JSONEncoder().encode(bridgeContent)
-    guard let bridgePayloadJSON = String(bytes: bridgePayload, encoding: .utf8) else {
-        throw Migration015FixtureError.invalidBridgePayloadUTF8
-    }
+    // Historical fixture: the exact payload an older build stored, including
+    // the retired legacy source that the ordered conversion imports.
+    let bridgePayloadJSON = """
+        {"state":{"panelKind":"fileViewer","source":{"workspace":{"comparisonTarget":\
+        {"basis":"commonCommit","branchName":"main","kind":"localDefaultBranch"},\
+        "rootPath":"/tmp/migration-015"}}},"type":"bridgePanel","version":3}
+        """
     try database.execute(
         sql: """
             INSERT INTO pane_content_payload(pane_id, payload_kind, payload_json)
@@ -850,13 +844,7 @@ func assertMigration015ApplicationState(
     #expect(
         bridgePane.content
             == .bridgePanel(
-                BridgePaneState(
-                    panelKind: .fileViewer,
-                    source: .workspace(
-                        rootPath: "/tmp/migration-015",
-                        baseline: .localDefaultBranch(branchName: "main")
-                    )
-                )
+                BridgePaneState(panelKind: .fileViewer)
             )
     )
 

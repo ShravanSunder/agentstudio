@@ -60,14 +60,14 @@ private func assertFileViewPane(
     #expect(bridgeView?.controller.runtime.metadata.cwd == worktree.path)
     guard case .bridgePanel(let state) = pane.content,
         state.panelKind == .fileViewer,
-        case .workspace(let rootPath, let comparisonIntent) = state.source
+        let navigationRecord = store.bridgeNavigationAtom.record(for: .standalone(pane.id))
     else {
         Issue.record("Expected Bridge file-viewer workspace source")
         return
     }
-    #expect(rootPath == worktree.path.path)
+    #expect(navigationRecord.memberWorktreeIds == [worktree.id])
     #expect(
-        comparisonIntent == nil
+        navigationRecord.selectedReviewComparison == nil
     )
     guard let script = bridgeView?.controller.bootstrapScriptSourceForTesting else {
         Issue.record("Expected mounted Bridge file-viewer bootstrap script")
@@ -171,15 +171,15 @@ extension WebKitSerializedTests {
             #expect(pane?.worktreeId == worktree.id)
             #expect(pane?.metadata.cwd == worktree.path)
             assertDurablePaneAssociation(pane!.id, repo: repo, worktree: worktree, store: store)
-            guard case .bridgePanel(let state) = pane?.content,
-                case .workspace(let rootPath, let comparisonIntent) = state.source
+            guard case .bridgePanel = pane?.content,
+                let navigationRecord = store.bridgeNavigationAtom.record(for: .standalone(pane!.id))
             else {
                 Issue.record("Expected Bridge workspace source")
                 return
             }
-            #expect(rootPath == worktree.path.path)
+            #expect(navigationRecord.memberWorktreeIds == [worktree.id])
             #expect(
-                comparisonIntent == nil
+                navigationRecord.selectedReviewComparison == nil
             )
         }
 
@@ -211,15 +211,15 @@ extension WebKitSerializedTests {
             #expect(bridgeView?.controller.runtime.metadata.worktreeId == worktree.id)
             #expect(bridgeView?.controller.runtime.metadata.repoId == repo.id)
             #expect(bridgeView?.controller.runtime.metadata.cwd == worktree.path)
-            guard case .bridgePanel(let state) = pane?.content,
-                case .workspace(let rootPath, let comparisonIntent) = state.source
+            guard case .bridgePanel = pane?.content,
+                let navigationRecord = store.bridgeNavigationAtom.record(for: .standalone(pane!.id))
             else {
                 Issue.record("Expected Bridge workspace source")
                 return
             }
-            #expect(rootPath == worktree.path.path)
+            #expect(navigationRecord.memberWorktreeIds == [worktree.id])
             #expect(
-                comparisonIntent == nil
+                navigationRecord.selectedReviewComparison == nil
             )
         }
 
@@ -245,14 +245,14 @@ extension WebKitSerializedTests {
 
             let pane = executor.openBridgeReviewInNewTab(worktreeId: worktree.id)
 
-            guard case .bridgePanel(let state) = pane?.content,
-                case .workspace(_, let comparisonIntent) = state.source
+            guard case .bridgePanel = pane?.content,
+                let navigationRecord = store.bridgeNavigationAtom.record(for: .standalone(pane!.id))
             else {
                 Issue.record("Expected Bridge workspace source")
                 return
             }
             #expect(
-                comparisonIntent == nil
+                navigationRecord.selectedReviewComparison == nil
             )
         }
 
@@ -286,15 +286,15 @@ extension WebKitSerializedTests {
             #expect(bridgeView?.controller.runtime.metadata.worktreeId == worktree.id)
             #expect(bridgeView?.controller.runtime.metadata.repoId == repo.id)
             #expect(bridgeView?.controller.runtime.metadata.cwd == worktree.path)
-            guard case .bridgePanel(let state) = pane?.content,
-                case .workspace(let rootPath, let comparisonIntent) = state.source
+            guard case .bridgePanel = pane?.content,
+                let navigationRecord = store.bridgeNavigationAtom.record(for: .standalone(pane!.id))
             else {
                 Issue.record("Expected Bridge workspace source")
                 return
             }
-            #expect(rootPath == worktree.path.path)
+            #expect(navigationRecord.memberWorktreeIds == [worktree.id])
             #expect(
-                comparisonIntent == nil
+                navigationRecord.selectedReviewComparison == nil
             )
         }
 
@@ -331,14 +331,14 @@ extension WebKitSerializedTests {
             #expect(bridgeView?.controller.runtime.metadata.cwd == worktree.path)
             guard case .bridgePanel(let state) = pane?.content,
                 state.panelKind == .fileViewer,
-                case .workspace(let rootPath, let comparisonIntent) = state.source
+                let navigationRecord = store.bridgeNavigationAtom.record(for: .standalone(pane!.id))
             else {
                 Issue.record("Expected Bridge file-viewer workspace source")
                 return
             }
-            #expect(rootPath == worktree.path.path)
+            #expect(navigationRecord.memberWorktreeIds == [worktree.id])
             #expect(
-                comparisonIntent == nil
+                navigationRecord.selectedReviewComparison == nil
             )
         }
 

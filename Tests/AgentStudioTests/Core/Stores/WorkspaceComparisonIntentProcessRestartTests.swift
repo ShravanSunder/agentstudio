@@ -36,16 +36,9 @@ struct WorkspaceComparisonIntentProcessRestartTests {
             Issue.record("Process A expected a pristine isolated workspace")
             return
         }
-        let selectionRequiredState = BridgePaneState(
-            panelKind: .diffViewer,
-            source: .workspace(
-                rootPath: fixture.reviewedWorktreeRoot.path,
-                baseline: nil
-            )
-        )
         let pane = Pane(
             id: fixture.paneID,
-            content: .bridgePanel(selectionRequiredState),
+            content: .bridgePanel(BridgePaneState(panelKind: .diffViewer)),
             metadata: PaneMetadata(
                 paneId: PaneId(existingUUID: fixture.paneID),
                 contentType: .diff,
@@ -56,23 +49,28 @@ struct WorkspaceComparisonIntentProcessRestartTests {
         )
         store.paneAtom.addPane(pane)
         store.appendTab(Tab(paneId: fixture.paneID, name: "Restart comparison intent"))
-        let committedState = BridgePaneState(
-            panelKind: .diffViewer,
-            source: .workspace(
-                rootPath: fixture.reviewedWorktreeRoot.path,
-                baseline: fixture.expectedBaseline
-            )
+        let receiver = BridgeReceiver.standalone(fixture.paneID)
+        store.bridgeNavigationAtom.setRecord(
+            BridgeNavigationRules.seededRecord(knownTerminalWorktreeId: fixture.worktreeID, surface: .review),
+            for: receiver
         )
 
         // Act
-        let initialTargetResult = store.paneAtom.setInitialBridgeContributionTargetIfAbsent(
-            fixture.paneID,
-            target: fixture.expectedTarget
+        let seeded = try #require(store.bridgeNavigationAtom.record(for: receiver))
+        let comparisonResult = BridgeNavigationRules.recordingReviewComparison(
+            fixture.expectedBaseline,
+            for: fixture.worktreeID,
+            in: seeded
         )
+        guard case .applied(let committedRecord) = comparisonResult else {
+            Issue.record("Process A could not record the member comparison")
+            return
+        }
+        store.bridgeNavigationAtom.setRecord(committedRecord, for: receiver)
         let flushOutcome = await store.flushAsync()
 
         // Assert
-        #expect(initialTargetResult == .applied(committedState))
+        #expect(committedRecord.selectedReviewComparison == fixture.expectedBaseline)
         #expect(flushOutcome == .persisted)
         print("COMPARISON_INTENT_PROCESS_A_TEST_PID=\(ProcessInfo.processInfo.processIdentifier)")
         print("COMPARISON_INTENT_PROCESS_A_SELECTION=contribution-target")
@@ -107,34 +105,31 @@ struct WorkspaceComparisonIntentProcessRestartTests {
             return
         }
         #expect(restoredPane.id == fixture.paneID)
-        #expect(
-            restoredState.source
-                == .workspace(
-                    rootPath: fixture.reviewedWorktreeRoot.path,
-                    baseline: fixture.expectedBaseline
-                )
+        #expect(restoredState == BridgePaneState(panelKind: .diffViewer))
+        let restoredRecord = try #require(
+            store.bridgeNavigationAtom.record(for: .standalone(fixture.paneID))
         )
+        #expect(restoredRecord.reviewSelection == .member(worktreeId: fixture.worktreeID))
+        #expect(restoredRecord.reviewComparisonsByWorktreeId == [fixture.worktreeID: fixture.expectedBaseline])
         let payloadObject = try #require(
             JSONSerialization.jsonObject(with: Data(persistedPayload.utf8)) as? [String: Any]
         )
         #expect(Set(payloadObject.keys) == ["type", "version", "state"])
         #expect(payloadObject["type"] as? String == "bridgePanel")
-        #expect(payloadObject["version"] as? Int == 3)
+        #expect(payloadObject["version"] as? Int == 4)
         let stateObject = try #require(payloadObject["state"] as? [String: Any])
-        #expect(Set(stateObject.keys) == ["panelKind", "source"])
-        #expect(stateObject["panelKind"] as? String == "diffViewer")
-        let sourceObject = try #require(stateObject["source"] as? [String: Any])
-        #expect(Set(sourceObject.keys) == ["workspace"])
-        let workspaceObject = try #require(sourceObject["workspace"] as? [String: Any])
-        #expect(Set(workspaceObject.keys) == ["rootPath", "comparisonTarget"])
-        #expect(workspaceObject["rootPath"] as? String == fixture.reviewedWorktreeRoot.path)
-        let comparisonTargetObject = try #require(
-            workspaceObject["comparisonTarget"] as? [String: Any]
+        #expect(Set(stateObject.keys) == ["panelKind"], "the core payload carries no source selection")
+        let navigationPayload = try fixture.readPersistedNavigationPayload()
+        let navigationObject = try #require(
+            JSONSerialization.jsonObject(with: Data(navigationPayload.utf8)) as? [String: Any]
         )
-        #expect(Set(comparisonTargetObject.keys) == ["basis", "kind", "name"])
-        #expect(comparisonTargetObject["kind"] as? String == "branch")
-        #expect(comparisonTargetObject["name"] as? String == "feature/restart-target")
-        #expect(comparisonTargetObject["basis"] as? String == "branchTip")
+        let comparisons = try #require(navigationObject["reviewComparisons"] as? [[String: Any]])
+        #expect(comparisons.count == 1)
+        let comparisonObject = try #require(comparisons.first?["comparison"] as? [String: Any])
+        #expect(Set(comparisonObject.keys) == ["basis", "kind", "name"])
+        #expect(comparisonObject["kind"] as? String == "branch")
+        #expect(comparisonObject["name"] as? String == "feature/restart-target")
+        #expect(comparisonObject["basis"] as? String == "branchTip")
         print("COMPARISON_INTENT_PROCESS_B_TEST_PID=\(ProcessInfo.processInfo.processIdentifier)")
         print("COMPARISON_INTENT_PROCESS_B_RESTORED_PANE_ID=\(restoredPane.id.uuidString)")
         print("COMPARISON_INTENT_PROCESS_B_RESTORED_TARGET=feature/restart-target")
@@ -147,6 +142,8 @@ struct WorkspaceComparisonIntentProcessRestartTests {
 private struct WorkspaceComparisonIntentRestartFixture {
     let dataRoot: URL
     let paneID: UUID
+    /// Stable member identity shared by both processes.
+    let worktreeID = UUID(uuidString: "019c0000-0000-7000-8000-0000000000b1")!
 
     var reviewedWorktreeRoot: URL {
         dataRoot.appending(path: "reviewed-worktree", directoryHint: .isDirectory)
@@ -178,6 +175,25 @@ private struct WorkspaceComparisonIntentRestartFixture {
                 try String.fetchOne(
                     database,
                     sql: "SELECT payload_json FROM pane_content_payload WHERE pane_id = ?",
+                    arguments: [paneID.uuidString]
+                )
+            }
+        )
+    }
+}
+
+extension WorkspaceComparisonIntentRestartFixture {
+    func readPersistedNavigationPayload() throws -> String {
+        let databasePool = try SQLiteDatabaseFactory.makeFileBackedPool(
+            at: dataRoot.appending(path: "local.sqlite"),
+            label: "AgentStudio.sqlite.comparison-intent-process-restart.local"
+        )
+        defer { try? databasePool.close() }
+        return try #require(
+            databasePool.read { database in
+                try String.fetchOne(
+                    database,
+                    sql: "SELECT payload_json FROM local_bridge_navigation WHERE receiver_pane_id = ?",
                     arguments: [paneID.uuidString]
                 )
             }

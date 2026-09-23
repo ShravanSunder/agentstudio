@@ -59,7 +59,7 @@ final class PaneTests {
     func test_contentTypeMapping_bridgePanel_mapsToDiff() {
         let pane = Pane(
             content: .bridgePanel(
-                BridgePaneState(panelKind: .diffViewer, source: .commit(sha: "abc123"))
+                BridgePaneState(panelKind: .diffViewer)
             ),
             metadata: PaneMetadata(title: "Bridge Diff")
         )

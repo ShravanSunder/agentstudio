@@ -6,14 +6,14 @@ import Foundation
 extension WorkspaceSurfaceCoordinator {
     func bridgeReviewSourceProvider(
         for pane: Pane,
-        state: BridgePaneState
+        reviewRootPath: String?
     ) -> any BridgeReviewSourceProvider {
         #if DEBUG
             if let provider = bridgeReviewSourceProviderOverridesByPaneId[pane.id] {
                 return provider
             }
         #endif
-        let location = bridgeReviewRepositoryLocation(for: pane, state: state)
+        let location = bridgeReviewRepositoryLocation(for: pane, reviewRootPath: reviewRootPath)
         return BridgeReviewSourceProviderFactory.gitProvider(
             location: location,
             gitReadContext: bridgeGitReadContext(for: pane, repositoryLocation: location),
@@ -23,11 +23,11 @@ extension WorkspaceSurfaceCoordinator {
 
     func bridgeGitReadContext(
         for pane: Pane,
-        state: BridgePaneState
+        reviewRootPath: String?
     ) -> BridgeGitReadContext? {
         bridgeGitReadContext(
             for: pane,
-            repositoryLocation: bridgeReviewRepositoryLocation(for: pane, state: state)
+            repositoryLocation: bridgeReviewRepositoryLocation(for: pane, reviewRootPath: reviewRootPath)
         )
     }
 
@@ -47,10 +47,10 @@ extension WorkspaceSurfaceCoordinator {
 
     private func bridgeReviewRepositoryLocation(
         for pane: Pane,
-        state: BridgePaneState
+        reviewRootPath: String?
     ) -> BridgeReviewRepositoryLocation {
         BridgeReviewSourceProviderFactory.repositoryLocation(
-            source: state.source,
+            reviewRootPath: reviewRootPath,
             launchDirectory: pane.metadata.launchDirectory,
             currentWorkingDirectory: pane.metadata.cwd
         )

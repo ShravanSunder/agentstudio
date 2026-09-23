@@ -68,13 +68,14 @@ struct PreparedBridgeMountTopologyBoundaryTests {
             )
         }
 
-        #expect(providerSource.contains("source: state.source"))
+        #expect(providerSource.contains("reviewRootPath: reviewRootPath"))
         #expect(providerSource.contains("launchDirectory: pane.metadata.launchDirectory"))
         #expect(providerSource.contains("currentWorkingDirectory: pane.metadata.cwd"))
         #expect(providerSource.contains("StableKey.fromPath(repositoryURL)"))
         #expect(providerSource.contains("scopeKey: BridgeGitReadScopeKey(token: pane.id.uuidString)"))
         #expect(mountSource.contains("func mountPreparedNonterminalContent("))
-        #expect(bridgeLifecycleSource.contains("bridgeReviewSourceProvider(for: pane, state: state)"))
+        #expect(bridgeLifecycleSource.contains("reviewSourceProvider: bridgeReviewSourceProvider("))
+        #expect(bridgeLifecycleSource.contains("reviewRootPath: sourceConfiguration.review?.worktreeRootPath"))
         // Updated for S5 (Hydration): the nonterminal branch gained a
         // `preparedHandledPaneIDs` guard between the case label and the
         // return statement — this text match tracks the current, intended

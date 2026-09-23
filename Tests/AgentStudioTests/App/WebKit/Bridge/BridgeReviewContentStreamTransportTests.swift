@@ -63,12 +63,11 @@ extension WebKitSerializedTests {
             )
             let controller = BridgePaneController(
                 paneId: UUIDv7.generate(),
-                state: BridgePaneState(
-                    panelKind: .diffViewer,
-                    source: .workspace(
-                        rootPath: "/tmp/worktree",
-                        baseline: .ref(name: "HEAD~1"))
-                ),
+                state: BridgePaneState(panelKind: .diffViewer),
+                sourceConfiguration: BridgePaneSourceConfiguration(
+                    review: BridgeReviewSourceBinding(
+                        worktreeId: UUIDv7.generate(), worktreeRootPath: "/tmp/worktree",
+                        comparison: .ref(name: "HEAD~1"))),
                 appRootURL: testBridgeAppRootURL(),
                 reviewSourceProvider: provider,
                 initialPaneActivity: .foreground

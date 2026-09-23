@@ -22,13 +22,9 @@ extension WebKitSerializedTests {
         func preparedBridgeMountUsesExactAcceptedPaneAndSettlesOneClaim() async throws {
             // Arrange
             let generation = try makePreparedBridgeContentMountGeneration()
-            let acceptedState = BridgePaneState(
-                panelKind: .diffViewer,
-                source: .workspace(
-                    rootPath: "/accepted/bridge/source",
-                    baseline: .unstaged
-                )
-            )
+            let acceptedState = BridgePaneState(panelKind: .diffViewer)
+            let acceptedStateReview: BridgeReviewSourceBinding? = BridgeReviewSourceBinding(
+                worktreeId: UUIDv7.generate(), worktreeRootPath: "/accepted/bridge/source", comparison: .unstaged)
             let acceptedPane = Pane(
                 id: UUIDv7.generate(),
                 content: .bridgePanel(acceptedState),

@@ -409,7 +409,7 @@ struct PaneTabViewControllerZoomCommandTests {
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
         let panes = [
             harness.store.createPane(
-                content: .bridgePanel(BridgePaneState(panelKind: .diffViewer, source: nil)),
+                content: .bridgePanel(BridgePaneState(panelKind: .diffViewer)),
                 metadata: PaneMetadata(
                     contentType: .diff,
                     title: "Review",
@@ -871,10 +871,7 @@ private func makeDurableViewerPane(
 ) -> Pane {
     harness.store.createPane(
         content: .bridgePanel(
-            BridgePaneState(
-                panelKind: .diffViewer,
-                source: nil
-            )
+            BridgePaneState(panelKind: .diffViewer)
         ),
         metadata: PaneMetadata(
             contentType: .diff,

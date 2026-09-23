@@ -68,6 +68,7 @@ struct WorkspaceLocalMigrationTests {
             )
         }
         let expectedTableNames: Set<String> = [
+            "local_bridge_navigation",
             "local_workspace_cursor",
             "local_tab_cursor",
             "local_arrangement_cursor",
@@ -752,6 +753,7 @@ private let expectedBootRequiredLocalMigrationIdentifiers = [
     "009_add_worktree_annotation_reviewed_subject_evidence",
     "010_remove_worktree_annotation_workspace_provenance",
     "007_add_per_screen_sidebar_organization",
+    "016_create_bridge_navigation_schema",
 ]
 
 private let expectedFullLocalMigrationIdentifiers =

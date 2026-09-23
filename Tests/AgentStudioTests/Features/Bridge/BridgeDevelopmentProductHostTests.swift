@@ -542,13 +542,7 @@ func makeDevelopmentProductSource(
     let canonicalWorktreeRoot = worktreeRoot.standardizedFileURL.resolvingSymlinksInPath()
     return BridgeDevelopmentProductSource(
         paneID: UUIDv7.generate(),
-        paneState: BridgePaneState(
-            panelKind: .diffViewer,
-            source: .workspace(
-                rootPath: canonicalWorktreeRoot.path,
-                baseline: WorkspaceBaseline(contributionTarget: target)
-            )
-        ),
+        reviewComparison: WorkspaceBaseline(contributionTarget: target),
         repoID: UUIDv7.generate(),
         reviewedSubjectLabel: worktreeRoot.lastPathComponent,
         worktreeID: UUIDv7.generate(),
@@ -557,18 +551,10 @@ func makeDevelopmentProductSource(
 }
 
 func developmentContributionTargetCommit(
-    worktreeRoot: URL
-) -> @MainActor @Sendable (WorkspaceReviewContributionTarget) -> BridgePaneStateMutationResult {
+    worktreeRoot _: URL
+) -> BridgeReviewComparisonCommit {
     { target in
-        .applied(
-            BridgePaneState(
-                panelKind: .diffViewer,
-                source: .workspace(
-                    rootPath: worktreeRoot.path,
-                    baseline: WorkspaceBaseline(contributionTarget: target)
-                )
-            )
-        )
+        .applied(WorkspaceBaseline(contributionTarget: target))
     }
 }
 

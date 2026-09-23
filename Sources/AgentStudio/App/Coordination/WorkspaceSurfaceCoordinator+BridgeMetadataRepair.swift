@@ -18,26 +18,48 @@ extension WorkspaceSurfaceCoordinator {
             guard let pane = store.paneAtom.pane(paneId),
                 case .bridgePanel(let state) = pane.content,
                 let controller = viewRegistry.view(for: paneId)?
-                    .mountedContent(as: BridgePaneMountView.self)?.controller,
-                controller.runtime.metadata.repoId == nil
-                    || controller.runtime.metadata.worktreeId == nil
+                    .mountedContent(as: BridgePaneMountView.self)?.controller
             else { continue }
 
-            let repairedMetadata = bridgePaneControllerMetadata(for: pane, state: state)
-            guard repairedMetadata.repoId != nil,
-                repairedMetadata.worktreeId != nil
-            else { continue }
+            // A member that became known after the controller was built gives
+            // the receiver a Review input it could not have at construction.
+            let reviewBinding = bridgeNavigationCommandHandler.reviewBinding(for: .standalone(paneId))
+            let gainsReviewBinding = controller.reviewBinding == nil && reviewBinding != nil
+            let lacksMetadataIdentity =
+                controller.runtime.metadata.repoId == nil
+                || controller.runtime.metadata.worktreeId == nil
+            guard gainsReviewBinding || lacksMetadataIdentity else { continue }
+            if !gainsReviewBinding {
+                let repairedMetadata = bridgePaneControllerMetadata(
+                    for: pane,
+                    state: state,
+                    reviewRootPath: reviewBinding?.worktreeRootPath
+                )
+                guard repairedMetadata.repoId != nil,
+                    repairedMetadata.worktreeId != nil
+                else { continue }
+            }
 
             submitWorkspaceAction(.repair(.recreateSurface(paneId: paneId)))
         }
     }
 
-    func bridgePaneControllerMetadata(for pane: Pane, state: BridgePaneState) -> PaneMetadata {
+    func bridgePaneControllerMetadata(
+        for pane: Pane,
+        state: BridgePaneState,
+        reviewRootPath: String?
+    ) -> PaneMetadata {
         var metadata = pane.metadata
         guard metadata.repoId == nil || metadata.worktreeId == nil else {
             return metadata
         }
-        guard let rootURL = bridgeMetadataRepairRootURL(metadata: metadata, state: state) else {
+        guard
+            let rootURL = bridgeMetadataRepairRootURL(
+                metadata: metadata,
+                state: state,
+                reviewRootPath: reviewRootPath
+            )
+        else {
             return metadata
         }
         guard let context = bridgeWorkspaceContext(forRootPath: rootURL.path) else {
@@ -59,10 +81,11 @@ extension WorkspaceSurfaceCoordinator {
 
     private func bridgeMetadataRepairRootURL(
         metadata: PaneMetadata,
-        state: BridgePaneState
+        state: BridgePaneState,
+        reviewRootPath: String?
     ) -> URL? {
-        if case .workspace(let rootPath, _)? = state.source {
-            return URL(fileURLWithPath: rootPath).standardizedFileURL.resolvingSymlinksInPath()
+        if let reviewRootPath {
+            return URL(fileURLWithPath: reviewRootPath).standardizedFileURL.resolvingSymlinksInPath()
         }
         guard state.panelKind == .fileViewer else {
             return nil

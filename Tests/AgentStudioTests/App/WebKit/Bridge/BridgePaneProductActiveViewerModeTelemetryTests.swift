@@ -20,13 +20,11 @@ extension WebKitSerializedTests {
             let recorder = ActiveViewerModeTelemetryRecorder()
             let controller = BridgePaneController(
                 paneId: UUIDv7.generate(),
-                state: BridgePaneState(
-                    panelKind: .fileViewer,
-                    source: .workspace(
-                        rootPath: "/tmp/product-file-viewer",
-                        baseline: .unstaged
-                    )
-                ),
+                state: BridgePaneState(panelKind: .fileViewer),
+                sourceConfiguration: BridgePaneSourceConfiguration(
+                    review: BridgeReviewSourceBinding(
+                        worktreeId: UUIDv7.generate(), worktreeRootPath: "/tmp/product-file-viewer",
+                        comparison: .unstaged)),
                 appRootURL: testBridgeAppRootURL(),
                 telemetryRecorder: recorder,
                 initialPaneActivity: .foreground

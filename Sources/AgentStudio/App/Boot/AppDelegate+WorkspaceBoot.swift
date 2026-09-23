@@ -172,6 +172,7 @@ extension AppDelegate {
             workspacePaneAtom: atomStore.core.workspacePane,
             workspaceTabLayoutAtom: atomStore.core.workspaceTabLayout,
             repositoryTopologyAtom: atomStore.core.workspaceRepositoryTopology,
+            bridgeNavigationAtom: atomStore.core.bridgeNavigation,
             sqliteDatastore: sqliteDatastore
         )
         let topologyStore = RepositoryTopologyStore(
@@ -186,6 +187,7 @@ extension AppDelegate {
             paneAtom: atomStore.core.workspacePane,
             tabLayoutAtom: atomStore.core.workspaceTabLayout,
             mutationCoordinator: atomStore.core.workspaceMutationCoordinator,
+            bridgeNavigationAtom: atomStore.core.bridgeNavigation,
             sqliteDatastore: sqliteDatastore,
             sqliteSaveCoordinator: workspaceSQLiteSaveCoordinator,
             recoveryReporter: { [weak self] event in

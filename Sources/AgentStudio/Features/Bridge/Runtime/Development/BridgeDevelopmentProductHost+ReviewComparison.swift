@@ -33,7 +33,7 @@ extension BridgeDevelopmentProductHost {
             productAdmission.withValidAdmission({ true }) == true
         else { return }
 
-        guard let target = try? Self.reviewTarget(from: paneState) else {
+        guard let target = try? Self.reviewTarget(from: reviewComparison) else {
             productAdmissionGate.close()
             return
         }
@@ -68,14 +68,14 @@ extension BridgeDevelopmentProductHost {
     }
 
     static func makeReviewInitialization(
-        state: BridgePaneState,
+        reviewBinding: BridgeReviewSourceBinding,
         provider: any BridgeReviewSourceProvider
     ) async throws -> BridgeDevelopmentProductReviewInitialization {
         let projection = await MainActor.run {
-            BridgeReviewComparisonTargetProjection(state: state)
+            BridgeReviewComparisonTargetProjection(reviewBinding: reviewBinding)
         }
         let pipeline = BridgeReviewPipeline(provider: provider)
-        let initialTarget = try reviewTarget(from: state)
+        let initialTarget = try reviewTarget(from: reviewBinding.comparison)
         let defaultTarget = try await loadReviewComparisonDefaultTarget(from: provider)
         return BridgeDevelopmentProductReviewInitialization(
             comparisonTargetProjection: projection,
@@ -100,7 +100,7 @@ extension BridgeDevelopmentProductHost {
     }
 
     package func handleObservedWorktreeTerminal() async {
-        guard !isShutdown, let activeTarget = try? Self.reviewTarget(from: paneState) else { return }
+        guard !isShutdown, let activeTarget = try? Self.reviewTarget(from: reviewComparison) else { return }
         let reviewGeneration = nextReviewGeneration.next()
         nextReviewGeneration = reviewGeneration
         await MainActor.run {
@@ -129,27 +129,30 @@ extension BridgeDevelopmentProductHost {
         productAdmission: BridgeProductAdmissionContext
     ) async {
         guard !isShutdown, productAdmission.withValidAdmission({ true }) == true else { return }
-        let mutationResult = await contributionTargetCommit(request.target)
+        let commitResult = await contributionTargetCommit(request.target)
         guard productAdmission.withValidAdmission({ true }) == true else { return }
-        let canonicalState: BridgePaneState
-        switch mutationResult {
-        case .applied(let state), .unchanged(let state):
-            canonicalState = state
-        case .paneMissing, .notBridgePane, .notWorkspaceSource:
+        let canonicalBaseline: WorkspaceBaseline
+        switch commitResult {
+        case .applied(let baseline), .unchanged(let baseline):
+            canonicalBaseline = baseline
+        case .receiverUnavailable:
             productAdmissionGate.close()
             return
         }
-        guard case .workspace(_, let baseline)? = canonicalState.source,
-            baseline?.contributionTarget == request.target
-        else {
+        guard canonicalBaseline.contributionTarget == request.target else {
             productAdmissionGate.close()
             return
         }
-        paneState = canonicalState
+        reviewComparison = canonicalBaseline
+        let reviewBinding = BridgeReviewSourceBinding(
+            worktreeId: worktreeId,
+            worktreeRootPath: worktreeRoot.path,
+            comparison: canonicalBaseline
+        )
         await MainActor.run {
-            reviewComparisonTargetProjection.update(state: canonicalState)
+            reviewComparisonTargetProjection.update(reviewBinding: reviewBinding)
         }
-        guard case .applied = mutationResult else { return }
+        guard case .applied = commitResult else { return }
         let reviewGeneration = nextReviewGeneration.next()
         nextReviewGeneration = reviewGeneration
         reviewGitRefreshSeedHolder.retire()
@@ -182,7 +185,7 @@ extension BridgeDevelopmentProductHost {
             let reservation = await MainActor.run(body: {
                 refreshAdmissionCoordinator.reserveForegroundRefreshPass(for: .review)
             }),
-            let target = try? Self.reviewTarget(from: paneState),
+            let target = try? Self.reviewTarget(from: reviewComparison),
             let currentPublication = await MainActor.run(body: {
                 reviewPublicationCoordinator.committedPublicationForReplay(
                     productAdmission: productAdmission

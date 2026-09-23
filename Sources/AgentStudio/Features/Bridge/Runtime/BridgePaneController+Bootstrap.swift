@@ -29,7 +29,7 @@ package typealias BridgeTelemetrySessionBootstrapSink =
 struct BridgeProductSessionDependencyInput {
     let paneSessionId: String
     let runtime: BridgeRuntime
-    let state: BridgePaneState
+    let reviewBinding: BridgeReviewSourceBinding?
     let gitReadContext: BridgeGitReadContext?
     let worktreeProductConstructionCoordinator: BridgeWorktreeProductConstructionCoordinator?
     let worktreeAnnotationStore: WorktreeAnnotationServiceActor?
@@ -611,7 +611,7 @@ extension BridgePaneController {
             let authority = makeProductFileSourceAuthority(
                 paneId: UUID(uuidString: input.paneSessionId),
                 runtime: input.runtime,
-                state: input.state
+                reviewBinding: input.reviewBinding
             ), let gitReadContext = input.gitReadContext,
             let constructionCoordinator = input.worktreeProductConstructionCoordinator,
             let gitWorkingTreeStatusProvider = input.gitWorkingTreeStatusProvider
@@ -757,14 +757,14 @@ extension BridgePaneController {
     private static func makeProductFileSourceAuthority(
         paneId: UUID?,
         runtime: BridgeRuntime,
-        state: BridgePaneState
+        reviewBinding: BridgeReviewSourceBinding?
     ) -> BridgePaneProductFileSourceAuthority? {
         guard let paneId,
             let repoId = runtime.metadata.repoId,
             let worktreeId = runtime.metadata.worktreeId,
             let rootURL = worktreeFileBootstrapRootURL(
                 metadata: runtime.metadata,
-                source: state.source
+                reviewRootPath: reviewBinding?.worktreeRootPath
             )
         else { return nil }
         return BridgePaneProductFileSourceAuthority(
@@ -955,10 +955,10 @@ extension BridgePaneController {
 
     static func worktreeFileBootstrapRootURL(
         metadata: PaneMetadata,
-        source: BridgePaneSource?
+        reviewRootPath: String?
     ) -> URL? {
-        if case .workspace(let rootPath, _)? = source {
-            return URL(fileURLWithPath: rootPath).standardizedFileURL.resolvingSymlinksInPath()
+        if let reviewRootPath {
+            return URL(fileURLWithPath: reviewRootPath).standardizedFileURL.resolvingSymlinksInPath()
         }
         return metadata.cwd?.standardizedFileURL.resolvingSymlinksInPath()
     }

@@ -426,12 +426,9 @@ func makeWorkspaceRefreshTestSetup(
     } else {
         eventWorktree = worktree
     }
-    let paneState = BridgePaneState(
-        panelKind: .diffViewer,
-        source: .workspace(
-            rootPath: worktree.path.path,
-            baseline: baseline)
-    )
+    let paneState = BridgePaneState(panelKind: .diffViewer)
+    let paneStateReview: BridgeReviewSourceBinding? = BridgeReviewSourceBinding(
+        worktreeId: UUIDv7.generate(), worktreeRootPath: worktree.path.path, comparison: baseline)
     let bridgePane = harness.store.createPane(
         content: .bridgePanel(paneState),
         metadata: PaneMetadata(
@@ -452,7 +449,7 @@ func makeWorkspaceRefreshTestSetup(
     harness.viewRegistry.ensureSlot(for: bridgePane.id)
     let controller = BridgePaneController(
         paneId: bridgePane.id,
-        state: paneState,
+        state: paneState, sourceConfiguration: BridgePaneSourceConfiguration(review: paneStateReview),
         appRootURL: testBridgeAppRootURL(),
         metadata: bridgePane.metadata,
         initialPaneActivity: .dormant

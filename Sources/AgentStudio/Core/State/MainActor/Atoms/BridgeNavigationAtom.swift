@@ -19,6 +19,11 @@ package final class BridgeNavigationAtom {
     )
     @ObservationIgnored private let acceptedCommitRevision = AtomRevision()
 
+    /// Runtime only, never persisted: standalone Bridge panes whose legacy
+    /// source could not be imported this launch. They present as unavailable
+    /// and never mount an alternate legacy runtime.
+    package private(set) var conversionUnavailablePaneIds: Set<UUID> = []
+
     package init() {}
 
     /// Advances once per accepted (unequal) change.
@@ -64,6 +69,11 @@ package final class BridgeNavigationAtom {
         recordFamily.removeValue(for: receiver, mutation: mutation)
         mutation.commit()
         return acceptedCommitRevision.value != revisionBefore
+    }
+
+    package func replaceConversionUnavailablePaneIds(_ paneIds: Set<UUID>) {
+        guard conversionUnavailablePaneIds != paneIds else { return }
+        conversionUnavailablePaneIds = paneIds
     }
 
     /// Replace every record at once (hydration). Unchanged records do not wake.

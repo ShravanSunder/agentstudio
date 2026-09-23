@@ -38,12 +38,10 @@ extension WebKitSerializedTests {
             )
             let controller = BridgePaneController(
                 paneId: UUIDv7.generate(),
-                state: BridgePaneState(
-                    panelKind: .diffViewer,
-                    source: .workspace(
-                        rootPath: "/tmp/worktree",
-                        baseline: .unstaged)
-                ),
+                state: BridgePaneState(panelKind: .diffViewer),
+                sourceConfiguration: BridgePaneSourceConfiguration(
+                    review: BridgeReviewSourceBinding(
+                        worktreeId: UUIDv7.generate(), worktreeRootPath: "/tmp/worktree", comparison: .unstaged)),
                 appRootURL: testBridgeAppRootURL(),
                 metadata: PaneMetadata(
                     contentType: .diff,
@@ -88,12 +86,10 @@ extension WebKitSerializedTests {
             )
             let controller = BridgePaneController(
                 paneId: UUIDv7.generate(),
-                state: BridgePaneState(
-                    panelKind: .diffViewer,
-                    source: .workspace(
-                        rootPath: "/tmp/worktree",
-                        baseline: .unstaged)
-                ),
+                state: BridgePaneState(panelKind: .diffViewer),
+                sourceConfiguration: BridgePaneSourceConfiguration(
+                    review: BridgeReviewSourceBinding(
+                        worktreeId: UUIDv7.generate(), worktreeRootPath: "/tmp/worktree", comparison: .unstaged)),
                 appRootURL: testBridgeAppRootURL(),
                 metadata: PaneMetadata(
                     contentType: .diff,
@@ -270,7 +266,8 @@ extension WebKitSerializedTests {
             )
             let controller = BridgePaneController(
                 paneId: UUIDv7.generate(),
-                state: BridgePaneState(panelKind: .diffViewer, source: nil),
+                state: BridgePaneState(panelKind: .diffViewer),
+                sourceConfiguration: BridgePaneSourceConfiguration(review: nil),
                 appRootURL: testBridgeAppRootURL(),
                 reviewSourceProvider: provider,
                 initialPaneActivity: .foreground
@@ -316,7 +313,8 @@ extension WebKitSerializedTests {
             )
             let controller = BridgePaneController(
                 paneId: UUIDv7.generate(),
-                state: BridgePaneState(panelKind: .diffViewer, source: nil),
+                state: BridgePaneState(panelKind: .diffViewer),
+                sourceConfiguration: BridgePaneSourceConfiguration(review: nil),
                 appRootURL: testBridgeAppRootURL(),
                 reviewSourceProvider: provider,
                 initialPaneActivity: .foreground
@@ -357,7 +355,8 @@ extension WebKitSerializedTests {
             )
             let controller = BridgePaneController(
                 paneId: UUIDv7.generate(),
-                state: BridgePaneState(panelKind: .diffViewer, source: nil),
+                state: BridgePaneState(panelKind: .diffViewer),
+                sourceConfiguration: BridgePaneSourceConfiguration(review: nil),
                 appRootURL: testBridgeAppRootURL(),
                 reviewSourceProvider: provider,
                 initialPaneActivity: .foreground
@@ -410,7 +409,8 @@ extension WebKitSerializedTests {
             )
             let controller = BridgePaneController(
                 paneId: UUIDv7.generate(),
-                state: BridgePaneState(panelKind: .diffViewer, source: nil),
+                state: BridgePaneState(panelKind: .diffViewer),
+                sourceConfiguration: BridgePaneSourceConfiguration(review: nil),
                 appRootURL: testBridgeAppRootURL(),
                 reviewSourceProvider: provider,
                 initialPaneActivity: .foreground
@@ -459,7 +459,8 @@ extension WebKitSerializedTests {
             )
             let controller = BridgePaneController(
                 paneId: UUIDv7.generate(),
-                state: BridgePaneState(panelKind: .diffViewer, source: nil),
+                state: BridgePaneState(panelKind: .diffViewer),
+                sourceConfiguration: BridgePaneSourceConfiguration(review: nil),
                 appRootURL: testBridgeAppRootURL(),
                 reviewSourceProvider: provider,
                 initialPaneActivity: .foreground
@@ -502,12 +503,10 @@ extension WebKitSerializedTests {
             )
             let controller = BridgePaneController(
                 paneId: UUIDv7.generate(),
-                state: BridgePaneState(
-                    panelKind: .diffViewer,
-                    source: .workspace(
-                        rootPath: "/tmp/worktree",
-                        baseline: .unstaged)
-                ),
+                state: BridgePaneState(panelKind: .diffViewer),
+                sourceConfiguration: BridgePaneSourceConfiguration(
+                    review: BridgeReviewSourceBinding(
+                        worktreeId: UUIDv7.generate(), worktreeRootPath: "/tmp/worktree", comparison: .unstaged)),
                 appRootURL: testBridgeAppRootURL(),
                 metadata: PaneMetadata(
                     contentType: .diff,
@@ -560,12 +559,10 @@ extension WebKitSerializedTests {
             )
             let controller = BridgePaneController(
                 paneId: UUIDv7.generate(),
-                state: BridgePaneState(
-                    panelKind: .diffViewer,
-                    source: .workspace(
-                        rootPath: "/tmp/worktree",
-                        baseline: .unstaged)
-                ),
+                state: BridgePaneState(panelKind: .diffViewer),
+                sourceConfiguration: BridgePaneSourceConfiguration(
+                    review: BridgeReviewSourceBinding(
+                        worktreeId: UUIDv7.generate(), worktreeRootPath: "/tmp/worktree", comparison: .unstaged)),
                 appRootURL: testBridgeAppRootURL(),
                 metadata: PaneMetadata(
                     contentType: .diff,
@@ -677,12 +674,10 @@ extension WebKitSerializedTests {
             )
             let controller = BridgePaneController(
                 paneId: UUIDv7.generate(),
-                state: BridgePaneState(
-                    panelKind: .diffViewer,
-                    source: .workspace(
-                        rootPath: "/tmp/worktree",
-                        baseline: .unstaged)
-                ),
+                state: BridgePaneState(panelKind: .diffViewer),
+                sourceConfiguration: BridgePaneSourceConfiguration(
+                    review: BridgeReviewSourceBinding(
+                        worktreeId: UUIDv7.generate(), worktreeRootPath: "/tmp/worktree", comparison: .unstaged)),
                 appRootURL: testBridgeAppRootURL(),
                 metadata: PaneMetadata(
                     contentType: .diff,
@@ -709,7 +704,7 @@ extension WebKitSerializedTests {
 private func makeIPCForegroundController() -> BridgePaneController {
     BridgePaneController(
         paneId: UUIDv7.generate(),
-        state: BridgePaneState(panelKind: .diffViewer, source: nil),
+        state: BridgePaneState(panelKind: .diffViewer), sourceConfiguration: BridgePaneSourceConfiguration(review: nil),
         appRootURL: testBridgeAppRootURL(),
         initialPaneActivity: .foreground
     )
@@ -736,11 +731,10 @@ private func makeIPCReviewSelectionController() async throws -> BridgePaneContro
     )
     let controller = BridgePaneController(
         paneId: UUIDv7.generate(),
-        state: BridgePaneState(
-            panelKind: .diffViewer,
-            source: .workspace(
-                rootPath: "/tmp/worktree", baseline: .unstaged)
-        ),
+        state: BridgePaneState(panelKind: .diffViewer),
+        sourceConfiguration: BridgePaneSourceConfiguration(
+            review: BridgeReviewSourceBinding(
+                worktreeId: UUIDv7.generate(), worktreeRootPath: "/tmp/worktree", comparison: .unstaged)),
         appRootURL: testBridgeAppRootURL(),
         metadata: PaneMetadata(
             contentType: .diff,

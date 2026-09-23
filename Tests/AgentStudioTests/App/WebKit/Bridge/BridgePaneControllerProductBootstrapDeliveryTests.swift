@@ -23,12 +23,10 @@ extension WebKitSerializedTests {
             var deliveredInstallations: [BridgeProductSessionInstallation] = []
             let controller = BridgePaneController(
                 paneId: paneId,
-                state: BridgePaneState(
-                    panelKind: .diffViewer,
-                    source: .workspace(
-                        rootPath: "Sources",
-                        baseline: .unstaged)
-                ),
+                state: BridgePaneState(panelKind: .diffViewer),
+                sourceConfiguration: BridgePaneSourceConfiguration(
+                    review: BridgeReviewSourceBinding(
+                        worktreeId: UUIDv7.generate(), worktreeRootPath: "Sources", comparison: .unstaged)),
                 appRootURL: testBridgeAppRootURL(),
                 reviewSourceProvider: reviewFixture.sourceProvider,
                 initialPaneActivity: .foreground,
@@ -136,7 +134,8 @@ extension WebKitSerializedTests {
             var deliveredWorkerInstanceIds: [String] = []
             let controller = BridgePaneController(
                 paneId: paneId,
-                state: BridgePaneState(panelKind: .diffViewer, source: .commit(sha: "close-bootstrap")),
+                state: BridgePaneState(panelKind: .diffViewer),
+                sourceConfiguration: .reviewUnavailable,
                 appRootURL: testBridgeAppRootURL(),
                 initialPaneActivity: .foreground,
                 productSessionDependencies: BridgePaneProductSessionDependencies(
@@ -178,12 +177,10 @@ extension WebKitSerializedTests {
             var deliveredInstallations: [BridgeProductSessionInstallation] = []
             let controller = BridgePaneController(
                 paneId: UUIDv7.generate(),
-                state: BridgePaneState(
-                    panelKind: .fileViewer,
-                    source: .workspace(
-                        rootPath: "Sources", baseline: .unstaged
-                    )
-                ),
+                state: BridgePaneState(panelKind: .fileViewer),
+                sourceConfiguration: BridgePaneSourceConfiguration(
+                    review: BridgeReviewSourceBinding(
+                        worktreeId: UUIDv7.generate(), worktreeRootPath: "Sources", comparison: .unstaged)),
                 appRootURL: testBridgeAppRootURL(),
                 initialPaneActivity: .foreground,
                 productSessionBootstrapSink: { _, _, installation, _, _ in
@@ -245,12 +242,10 @@ extension WebKitSerializedTests {
             var deliveredInstallations: [BridgeProductSessionInstallation] = []
             let controller = BridgePaneController(
                 paneId: UUIDv7.generate(),
-                state: BridgePaneState(
-                    panelKind: .diffViewer,
-                    source: .workspace(
-                        rootPath: "Sources", baseline: .unstaged
-                    )
-                ),
+                state: BridgePaneState(panelKind: .diffViewer),
+                sourceConfiguration: BridgePaneSourceConfiguration(
+                    review: BridgeReviewSourceBinding(
+                        worktreeId: UUIDv7.generate(), worktreeRootPath: "Sources", comparison: .unstaged)),
                 appRootURL: testBridgeAppRootURL(),
                 initialPaneActivity: .foreground,
                 productSessionBootstrapSink: { _, _, installation, _, _ in
@@ -316,12 +311,10 @@ extension WebKitSerializedTests {
             let overlapState = BootstrapReplacementOverlapState()
             let controller = BridgePaneController(
                 paneId: UUIDv7.generate(),
-                state: BridgePaneState(
-                    panelKind: .diffViewer,
-                    source: .workspace(
-                        rootPath: "Sources", baseline: .unstaged
-                    )
-                ),
+                state: BridgePaneState(panelKind: .diffViewer),
+                sourceConfiguration: BridgePaneSourceConfiguration(
+                    review: BridgeReviewSourceBinding(
+                        worktreeId: UUIDv7.generate(), worktreeRootPath: "Sources", comparison: .unstaged)),
                 appRootURL: testBridgeAppRootURL(),
                 initialPaneActivity: .foreground,
                 productSessionBootstrapSink: { _, _, installation, _, productAdmission in
@@ -419,12 +412,10 @@ extension WebKitSerializedTests {
             var deliveredInstallations: [BridgeProductSessionInstallation] = []
             let controller = BridgePaneController(
                 paneId: UUIDv7.generate(),
-                state: BridgePaneState(
-                    panelKind: .diffViewer,
-                    source: .workspace(
-                        rootPath: "Sources", baseline: .unstaged
-                    )
-                ),
+                state: BridgePaneState(panelKind: .diffViewer),
+                sourceConfiguration: BridgePaneSourceConfiguration(
+                    review: BridgeReviewSourceBinding(
+                        worktreeId: UUIDv7.generate(), worktreeRootPath: "Sources", comparison: .unstaged)),
                 appRootURL: testBridgeAppRootURL(),
                 initialPaneActivity: .foreground,
                 productSessionBootstrapSink: { _, _, installation, _, _ in
@@ -589,12 +580,10 @@ extension WebKitSerializedTests {
             let reviewFixture = makeBootstrapCommittedReviewFixture()
             return BridgePaneController(
                 paneId: paneId,
-                state: BridgePaneState(
-                    panelKind: .diffViewer,
-                    source: .workspace(
-                        rootPath: "Sources",
-                        baseline: .unstaged)
-                ),
+                state: BridgePaneState(panelKind: .diffViewer),
+                sourceConfiguration: BridgePaneSourceConfiguration(
+                    review: BridgeReviewSourceBinding(
+                        worktreeId: UUIDv7.generate(), worktreeRootPath: "Sources", comparison: .unstaged)),
                 appRootURL: testBridgeAppRootURL(),
                 metadata: PaneMetadata(
                     paneId: PaneId(existingUUID: paneId),

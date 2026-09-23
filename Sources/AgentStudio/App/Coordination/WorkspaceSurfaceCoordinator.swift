@@ -163,6 +163,10 @@ final class WorkspaceSurfaceCoordinator {
     }
     var bridgeGitReadActivityPropagationTask: Task<Void, Never>?
     var zoomCompanionContinuityBySourcePaneId: [UUID: ZoomCompanionContinuity] = [:]
+    lazy var bridgeNavigationCommandHandler = BridgeNavigationCommandHandler(
+        navigationAtom: store.bridgeNavigationAtom,
+        repositoryTopologyAtom: store.repositoryTopologyAtom
+    )
 
     var arrangementView: WorkspaceArrangementViewDerived {
         WorkspaceArrangementViewDerived(

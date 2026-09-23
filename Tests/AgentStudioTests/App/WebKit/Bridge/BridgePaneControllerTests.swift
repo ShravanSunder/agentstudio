@@ -103,7 +103,8 @@ extension WebKitSerializedTests {
         }
 
         func makeController(
-            state: BridgePaneState = BridgePaneState(panelKind: .diffViewer, source: nil),
+            state: BridgePaneState = BridgePaneState(panelKind: .diffViewer),
+            review: BridgeReviewSourceBinding? = nil,
             reviewSourceProvider: (any BridgeReviewSourceProvider)? = nil,
             telemetryScopeGate: BridgeTelemetryScopeGate? = nil,
             telemetryRecorder: (any BridgePerformanceTraceRecording)? = nil,
@@ -112,6 +113,7 @@ extension WebKitSerializedTests {
             BridgePaneController(
                 paneId: UUIDv7.generate(),
                 state: state,
+                sourceConfiguration: BridgePaneSourceConfiguration(review: review),
                 appRootURL: testBridgeAppRootURL(),
                 reviewSourceProvider: reviewSourceProvider,
                 telemetryScopeGate: telemetryScopeGate,
@@ -218,11 +220,11 @@ extension WebKitSerializedTests {
                 ]
             )
             let controller = makeController(
-                state: BridgePaneState(
-                    panelKind: .diffViewer,
-                    source: .workspace(
-                        rootPath: "Sources",
-                        baseline: .unstaged)
+                state: BridgePaneState(panelKind: .diffViewer),
+                review: BridgeReviewSourceBinding(
+                    worktreeId: UUIDv7.generate(),
+                    worktreeRootPath: "Sources",
+                    comparison: .unstaged
                 ),
                 reviewSourceProvider: provider
             )

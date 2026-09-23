@@ -370,12 +370,7 @@ extension WebKitSerializedTests.BridgePaneControllerTests {
             )
         )
         let controller = makeController(
-            state: BridgePaneState(
-                panelKind: .diffViewer,
-                source: .workspace(
-                    rootPath: "/tmp/worktree",
-                    baseline: .unstaged)
-            ),
+            state: BridgePaneState(panelKind: .diffViewer),
             reviewSourceProvider: provider
         )
         defer { controller.teardown() }
@@ -441,12 +436,10 @@ extension WebKitSerializedTests.BridgePaneControllerTests {
         )
         let controller = BridgePaneController(
             paneId: paneId,
-            state: BridgePaneState(
-                panelKind: .diffViewer,
-                source: .workspace(
-                    rootPath: "/tmp/worktree",
-                    baseline: .unstaged)
-            ),
+            state: BridgePaneState(panelKind: .diffViewer),
+            sourceConfiguration: BridgePaneSourceConfiguration(
+                review: BridgeReviewSourceBinding(
+                    worktreeId: UUIDv7.generate(), worktreeRootPath: "/tmp/worktree", comparison: .unstaged)),
             appRootURL: testBridgeAppRootURL(),
             reviewSourceProvider: reviewSourceProvider,
             initialPaneActivity: .foreground,
@@ -545,13 +538,11 @@ extension WebKitSerializedTests.BridgePaneControllerTests {
         )
         let controller = BridgePaneController(
             paneId: paneId,
-            state: BridgePaneState(
-                panelKind: .diffViewer,
-                source: .workspace(
-                    rootPath: "/tmp/contribution-generation-fence",
-                    baseline: .ref(name: "target")
-                )
-            ),
+            state: BridgePaneState(panelKind: .diffViewer),
+            sourceConfiguration: BridgePaneSourceConfiguration(
+                review: BridgeReviewSourceBinding(
+                    worktreeId: UUIDv7.generate(), worktreeRootPath: "/tmp/contribution-generation-fence",
+                    comparison: .ref(name: "target"))),
             appRootURL: testBridgeAppRootURL(),
             reviewSourceProvider: reviewSourceProvider,
             initialPaneActivity: .foreground,
@@ -613,12 +604,7 @@ extension WebKitSerializedTests.BridgePaneControllerTests {
             contentByHandleId: [:]
         )
         let controller = makeController(
-            state: BridgePaneState(
-                panelKind: .diffViewer,
-                source: .workspace(
-                    rootPath: "/tmp/worktree",
-                    baseline: .unstaged)
-            ),
+            state: BridgePaneState(panelKind: .diffViewer),
             reviewSourceProvider: provider
         )
         defer { controller.teardown() }
@@ -644,12 +630,10 @@ extension WebKitSerializedTests.BridgePaneControllerTests {
     func loadDiff_publishes_typed_provider_unavailable_failure() async {
         let controller = BridgePaneController(
             paneId: UUIDv7.generate(),
-            state: BridgePaneState(
-                panelKind: .diffViewer,
-                source: .workspace(
-                    rootPath: "/tmp/worktree",
-                    baseline: .ref(name: "HEAD~1"))
-            ),
+            state: BridgePaneState(panelKind: .diffViewer),
+            sourceConfiguration: BridgePaneSourceConfiguration(
+                review: BridgeReviewSourceBinding(
+                    worktreeId: UUIDv7.generate(), worktreeRootPath: "/tmp/worktree", comparison: .ref(name: "HEAD~1"))),
             appRootURL: testBridgeAppRootURL(),
             initialPaneActivity: .foreground
         )

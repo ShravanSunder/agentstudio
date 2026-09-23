@@ -191,33 +191,46 @@ extension WorkspaceSurfaceCoordinator {
             )
         }
 
-        let companionPaneId = UUIDv7.generate()
-        let companionState = BridgePaneState(
-            panelKind: .fileViewer,
-            source: .workspace(
-                rootPath: context.worktree.path.path,
-                baseline: nil
-            )
+        let receiver = BridgeReceiver.terminal(sourcePaneId)
+        bridgeNavigationCommandHandler.ensureRecord(
+            for: receiver,
+            seedingKnownWorktreeId: context.worktree.id
         )
+        bridgeNavigationCommandHandler.applyKnownCWDAssociation(
+            context.worktree.id,
+            forTerminalPane: sourcePaneId
+        )
+        // The companion describes what its receiver's record reads, not the
+        // terminal's latest CWD association.
+        let displayed =
+            bridgeNavigationCommandHandler.reviewBinding(for: receiver)
+            .flatMap { binding in
+                store.repositoryTopologyAtom.repositoryId(containing: binding.worktreeId).flatMap {
+                    store.repositoryTopologyAtom.validatedAssociation(repoId: $0, worktreeId: binding.worktreeId)
+                }
+            }
+            ?? (repo: context.repo, worktree: context.worktree)
+        let companionPaneId = UUIDv7.generate()
+        let companionState = BridgePaneState(panelKind: .fileViewer)
         let companionPane = Pane(
             id: companionPaneId,
             content: .bridgePanel(companionState),
             metadata: PaneMetadata(
                 contentType: .diff,
-                launchDirectory: context.worktree.path,
+                launchDirectory: displayed.worktree.path,
                 title: "Files",
                 facets: PaneContextFacets(
-                    repoId: context.repo.id,
-                    repoName: context.repo.name,
-                    worktreeId: context.worktree.id,
-                    worktreeName: context.worktree.name,
-                    cwd: context.sourcePane.metadata.cwd ?? context.worktree.path
+                    repoId: displayed.repo.id,
+                    repoName: displayed.repo.name,
+                    worktreeId: displayed.worktree.id,
+                    worktreeName: displayed.worktree.name,
+                    cwd: displayed.worktree.path
                 )
             )
         )
 
         viewRegistry.ensureSlot(for: companionPaneId)
-        _ = createZoomCompanionBridgePaneView(for: companionPane, state: companionState)
+        _ = createBridgePaneView(for: companionPane, state: companionState, receiver: receiver)
         guard viewerSurfaceRequest(continuity.surface, companionPaneId) else {
             teardownView(for: companionPaneId)
             retireBridgePaneActivityAuthority(for: companionPaneId)
@@ -246,34 +259,6 @@ extension WorkspaceSurfaceCoordinator {
         case .visible:
             return .retainedVisible(companionPaneId: companionPaneId)
         }
-    }
-
-    private func createZoomCompanionBridgePaneView(
-        for companionPane: Pane,
-        state companionState: BridgePaneState
-    ) -> BridgePaneMountView {
-        let transientContributionTargetCommit:
-            @MainActor @Sendable (WorkspaceReviewContributionTarget) -> BridgePaneStateMutationResult =
-                { target in
-                    guard case .workspace(let rootPath, _) = companionState.source else {
-                        return .notWorkspaceSource
-                    }
-                    return .applied(
-                        BridgePaneState(
-                            panelKind: companionState.panelKind,
-                            source: .workspace(
-                                rootPath: rootPath,
-                                baseline: WorkspaceBaseline(contributionTarget: target)
-                            )
-                        )
-                    )
-                }
-        return createBridgePaneView(
-            for: companionPane,
-            state: companionState,
-            initialContributionTargetCommit: transientContributionTargetCommit,
-            contributionTargetCommit: transientContributionTargetCommit
-        )
     }
 
     private func retainedZoomCompanionPresentation(

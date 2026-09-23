@@ -12,13 +12,17 @@ import Foundation
 package enum BridgeNavigationRules {
     // MARK: - Seeding and CWD association
 
-    /// The first record of a receiver: seeded from the owner terminal's known
-    /// worktree when one exists, otherwise empty.
-    package static func seededRecord(knownTerminalWorktreeId: UUID?) -> BridgeNavigationRecord {
-        guard let knownTerminalWorktreeId else { return .empty }
+    /// The first record of a receiver: seeded from the owner's known worktree
+    /// when one exists, otherwise empty, retaining the requested surface.
+    package static func seededRecord(
+        knownTerminalWorktreeId: UUID?,
+        surface: BridgeNavigationSurface = .files
+    ) -> BridgeNavigationRecord {
+        guard let knownTerminalWorktreeId else { return BridgeNavigationRecord(surface: surface) }
         return BridgeNavigationRecord(
             memberWorktreeIds: [knownTerminalWorktreeId],
-            reviewSelection: .member(worktreeId: knownTerminalWorktreeId)
+            reviewSelection: .member(worktreeId: knownTerminalWorktreeId),
+            surface: surface
         )
     }
 

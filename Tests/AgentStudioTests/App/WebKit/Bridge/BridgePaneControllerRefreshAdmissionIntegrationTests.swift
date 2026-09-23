@@ -22,10 +22,10 @@ extension WebKitSerializedTests.BridgePaneControllerTests {
         )
         let controller = BridgePaneController(
             paneId: UUIDv7.generate(),
-            state: BridgePaneState(
-                panelKind: .fileViewer,
-                source: .workspace(rootPath: "/tmp/worktree", baseline: .unstaged)
-            ),
+            state: BridgePaneState(panelKind: .fileViewer),
+            sourceConfiguration: BridgePaneSourceConfiguration(
+                review: BridgeReviewSourceBinding(
+                    worktreeId: UUIDv7.generate(), worktreeRootPath: "/tmp/worktree", comparison: .unstaged)),
             appRootURL: testBridgeAppRootURL(),
             metadata: PaneMetadata(
                 contentType: .diff,
@@ -945,12 +945,7 @@ extension WebKitSerializedTests.BridgePaneControllerTests {
     func controllerTeardownSynchronouslyClosesRefreshWorkGate() async throws {
         // Arrange
         let controller = makeController(
-            state: BridgePaneState(
-                panelKind: .diffViewer,
-                source: .workspace(
-                    rootPath: "/tmp/bridge-refresh-teardown",
-                    baseline: .ref(name: "HEAD~1"))
-            )
+            state: BridgePaneState(panelKind: .diffViewer)
         )
         controller.applyBridgePaneActivity(.foreground)
         controller.reviewGitRefreshSeedHolder.commit(

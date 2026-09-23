@@ -7,12 +7,12 @@ extension BridgePaneController {
         for artifact: DiffArtifact,
         repoId: UUID
     ) -> ReviewEndpointSelection {
-        guard case .workspace(_, let baseline) = bridgePaneState.source else {
+        guard let reviewBinding else {
             return makeFallbackReviewEndpoints(for: artifact, repoId: repoId)
         }
 
         let selection = makeWorkspaceEndpointSelection(
-            baseline: baseline,
+            baseline: reviewBinding.comparison,
             worktreeId: artifact.worktreeId,
             repoId: repoId
         )

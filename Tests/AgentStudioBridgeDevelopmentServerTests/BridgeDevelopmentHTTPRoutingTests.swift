@@ -58,13 +58,7 @@ struct BridgeDevelopmentHTTPRoutingTests {
         #expect(firstSource.repoID == restoredSource.repoID)
         #expect(firstSource.worktreeID == restoredSource.worktreeID)
         #expect(restoredSource.worktreeRoot == worktreeRoot.standardizedFileURL)
-        #expect(
-            restoredSource.paneState.source
-                == .workspace(
-                    rootPath: worktreeRoot.standardizedFileURL.path,
-                    baseline: .ref(name: "refs/heads/original-base")
-                )
-        )
+        #expect(restoredSource.reviewComparison == .ref(name: "refs/heads/original-base"))
     }
 
     @Test("server configuration is fixed to IPv4 loopback")
@@ -497,10 +491,7 @@ private func makeHTTPDevelopmentProductHost(
     let canonicalWorktreeRoot = worktreeRoot.standardizedFileURL.resolvingSymlinksInPath()
     let source = BridgeDevelopmentProductSource(
         paneID: paneID,
-        paneState: BridgePaneState(
-            panelKind: .diffViewer,
-            source: .workspace(rootPath: canonicalWorktreeRoot.path, baseline: .ref(name: "HEAD"))
-        ),
+        reviewComparison: .ref(name: "HEAD"),
         repoID: PaneId.generateUUIDv7().uuid,
         reviewedSubjectLabel: worktreeRoot.lastPathComponent,
         worktreeID: PaneId.generateUUIDv7().uuid,
@@ -509,15 +500,7 @@ private func makeHTTPDevelopmentProductHost(
     return try await BridgeDevelopmentProductHost(
         source: source,
         contributionTargetCommit: { target in
-            .unchanged(
-                BridgePaneState(
-                    panelKind: .diffViewer,
-                    source: .workspace(
-                        rootPath: worktreeRoot.path,
-                        baseline: WorkspaceBaseline(contributionTarget: target)
-                    )
-                )
-            )
+            .unchanged(WorkspaceBaseline(contributionTarget: target))
         },
         makeReviewProvider: { _, _ in BridgeObservabilitySmokeReviewSourceProvider() }
     )

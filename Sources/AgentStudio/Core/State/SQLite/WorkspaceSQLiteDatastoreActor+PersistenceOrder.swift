@@ -53,7 +53,8 @@ extension WorkspaceSQLiteDatastoreActor {
         }
         return WorkspaceSQLiteSaveBundle(
             workspace: workspace,
-            captureRevision: bundle.captureRevision
+            captureRevision: bundle.captureRevision,
+            bridgeNavigation: bundle.bridgeNavigation
         )
     }
 

@@ -141,8 +141,7 @@ func makeRefreshAdmissionIntegrationFixture(
     fileMetadataProducerGate: RefreshAdmissionCancellationIgnoringProducerGate? = nil,
     reviewMetadataReservationGate: RefreshAdmissionReviewReservationGate? = nil,
     initialContributionTarget: WorkspaceReviewContributionTarget? = nil,
-    contributionTargetCommit:
-        (@MainActor @Sendable (WorkspaceReviewContributionTarget) -> BridgePaneStateMutationResult)? = nil
+    contributionTargetCommit: BridgeReviewComparisonCommit? = nil
 ) async throws -> RefreshAdmissionIntegrationFixture {
     let baseEndpoint = makeBridgeEndpoint(endpointId: "baseline-headMinusOne", kind: .gitRef)
     let headEndpoint = makeBridgeEndpoint(endpointId: "working-tree", kind: .workingTree)
@@ -191,7 +190,11 @@ func makeRefreshAdmissionIntegrationFixture(
     )
     let controller = BridgePaneController(
         paneId: paneId,
-        state: makeRefreshAdmissionPaneState(initialContributionTarget: initialContributionTarget),
+        state: BridgePaneState(panelKind: .diffViewer),
+        sourceConfiguration: makeRefreshAdmissionSourceConfiguration(
+            worktreeId: headEndpoint.worktreeId,
+            initialContributionTarget: initialContributionTarget
+        ),
         appRootURL: testBridgeAppRootURL(),
         metadata: PaneMetadata(
             contentType: .diff,
@@ -243,15 +246,16 @@ func makeRefreshAdmissionIntegrationFixture(
     )
 }
 
-private func makeRefreshAdmissionPaneState(
+private func makeRefreshAdmissionSourceConfiguration(
+    worktreeId: UUID,
     initialContributionTarget: WorkspaceReviewContributionTarget?
-) -> BridgePaneState {
-    BridgePaneState(
-        panelKind: .diffViewer,
-        source: .workspace(
-            rootPath: "/tmp/bridge-refresh-admission",
-            baseline: initialContributionTarget.map(WorkspaceBaseline.init(contributionTarget:))
-                ?? .staged)
+) -> BridgePaneSourceConfiguration {
+    BridgePaneSourceConfiguration(
+        review: BridgeReviewSourceBinding(
+            worktreeId: worktreeId,
+            worktreeRootPath: "/tmp/bridge-refresh-admission",
+            comparison: initialContributionTarget.map(WorkspaceBaseline.init(contributionTarget:)) ?? .staged
+        )
     )
 }
 

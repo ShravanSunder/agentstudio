@@ -41,10 +41,7 @@ func makeBridgePaneActivityTestHarness(
         .appending(path: "agentstudio-bridge-pane-activity-\(UUID().uuidString)")
     let bridgePane = store.createPane(
         content: .bridgePanel(
-            BridgePaneState(
-                panelKind: .diffViewer,
-                source: .commit(sha: "activity-integration")
-            )
+            BridgePaneState(panelKind: .diffViewer)
         ),
         metadata: PaneMetadata(
             title: "Review",

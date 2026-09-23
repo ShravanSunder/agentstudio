@@ -109,10 +109,10 @@ extension BridgePaneController {
         case .filesChanged(let changeset):
             let matchesPaneWorktree = changeset.worktreeId == runtime.metadata.worktreeId
             let admitsCrossWorktreeContributionRefresh: Bool
-            if case .workspace(_, let baseline) = bridgePaneState.source {
+            if let reviewBinding {
                 admitsCrossWorktreeContributionRefresh =
                     invalidation.isGitInternalFileInvalidation
-                    && baseline?.contributionTarget != nil
+                    && reviewBinding.comparison?.contributionTarget != nil
             } else {
                 admitsCrossWorktreeContributionRefresh = false
             }

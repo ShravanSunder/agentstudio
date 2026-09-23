@@ -53,16 +53,12 @@ struct BridgeProductReviewComparisonTargetsReservation: Sendable {
 final class BridgeReviewComparisonTargetProjection {
     private(set) var currentTarget: WorkspaceReviewContributionTarget?
 
-    init(state: BridgePaneState) {
-        update(state: state)
+    init(reviewBinding: BridgeReviewSourceBinding?) {
+        update(reviewBinding: reviewBinding)
     }
 
-    func update(state: BridgePaneState) {
-        guard case .workspace(_, let baseline) = state.source else {
-            currentTarget = nil
-            return
-        }
-        currentTarget = baseline?.contributionTarget
+    func update(reviewBinding: BridgeReviewSourceBinding?) {
+        currentTarget = reviewBinding?.comparison?.contributionTarget
     }
 }
 

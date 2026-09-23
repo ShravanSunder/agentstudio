@@ -162,7 +162,7 @@ final class PaneContentTests {
         let json = try JSONSerialization.jsonObject(with: data) as! [String: Any]
         let state = try #require(json["state"] as? [String: Any])
 
-        #expect(json["version"] as? Int == 3)
+        #expect(json["version"] as? Int == 4)
         #expect(state["zmxSessionID"] as? String == storedText)
     }
 

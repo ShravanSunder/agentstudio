@@ -42,6 +42,10 @@ package actor WorkspaceSQLiteDatastoreActor {
     var acceptedRepositoryTopologyCaptureRevision: UInt64?
     var acceptedWorkspaceCaptureRevisions: [UUID: WorkspaceCompositionRevision] = [:]
     var failedStructuralWorkspaceIDs = Set<UUID>()
+    /// Legacy `bridgePanel` core payloads whose local import is not yet
+    /// acknowledged. Ordinary saves write these exact bytes back so the legacy
+    /// field cannot be discarded before the ordered conversion commits locally.
+    var legacyBridgePayloadsAwaitingImport: [UUID: String] = [:]
 
     init(
         configuration: WorkspaceSQLiteDatastoreConfiguration,
@@ -180,8 +184,7 @@ package actor WorkspaceSQLiteDatastoreActor {
             if undoChange != nil {
                 try requireJournalMutationAdmission(reconciling: snapshot.id)
             }
-            journalReceipt = try backend.replaceWorkspaceSnapshot(
-                admittedBundle, updatesActiveSelection: true, undoChange: undoChange)
+            journalReceipt = try replaceCoreWorkspaceSnapshot(admittedBundle, backend: backend, undoChange: undoChange)
             if let revision = admittedBundle.captureRevision {
                 acceptedWorkspaceCaptureRevisions[snapshot.id] = revision
             }
@@ -225,7 +228,7 @@ package actor WorkspaceSQLiteDatastoreActor {
                 workspaceId: snapshot.id,
                 database: .local
             )
-            try backend.writeLocalSnapshot(snapshot, localRepository: localRepository)
+            try writeLocalWorkspaceSnapshot(admittedBundle, backend: backend, localRepository: localRepository)
             await traceRecorder.recordOperation(
                 .workspaceSave,
                 phase: .writeLocal,
@@ -887,7 +890,7 @@ extension WorkspaceSQLiteDatastoreActor {
         try resolvedBackend()
     }
 
-    private func resolvedBackend() throws -> WorkspaceSQLiteStoreBackend {
+    func resolvedBackend() throws -> WorkspaceSQLiteStoreBackend {
         guard case .prepared = databasePreparationState else {
             throw WorkspaceSQLiteDatastoreError.databasesNotPrepared
         }
@@ -940,7 +943,7 @@ extension WorkspaceSQLiteDatastoreActor {
         return localRepository
     }
 
-    private func preparedLocalRepository(workspaceId: UUID) throws -> WorkspaceLocalRepository {
+    func preparedLocalRepository(workspaceId: UUID) throws -> WorkspaceLocalRepository {
         guard case .prepared(let receipt) = databasePreparationState else {
             throw WorkspaceSQLiteDatastoreError.databasesNotPrepared
         }

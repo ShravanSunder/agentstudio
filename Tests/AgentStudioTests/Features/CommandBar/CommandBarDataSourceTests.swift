@@ -577,7 +577,7 @@ struct CommandBarDataSourceTests {
     func test_everythingScope_bridgePaneUsesBridgeFallbackLabel() {
         let store = makeStore()
         let pane = store.createPane(
-            content: .bridgePanel(BridgePaneState(panelKind: .diffViewer, source: nil)),
+            content: .bridgePanel(BridgePaneState(panelKind: .diffViewer)),
             metadata: PaneMetadata(
                 title: "Bridge",
                 facets: PaneContextFacets(cwd: URL(filePath: "/tmp/bridge-panel"))
