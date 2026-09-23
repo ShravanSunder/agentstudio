@@ -513,7 +513,6 @@ package final class BridgePaneController {
     }
 
     /// Called when the pane is being removed or the controller is being deallocated.
-    @discardableResult
     package func teardown() -> Task<Bool, Never> {
         if let lifecycleRetirementTask {
             return lifecycleRetirementTask

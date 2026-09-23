@@ -527,9 +527,12 @@ extension WebKitSerializedTests {
             let currentStreamController = makeColdReviewIntakeController()
             let staleStreamController = makeColdReviewIntakeController()
             defer {
-                nilStreamController.teardown()
-                currentStreamController.teardown()
-                staleStreamController.teardown()
+                // fire-and-forget: defer cannot await; cleanup only
+                _ = nilStreamController.teardown()
+                // fire-and-forget: defer cannot await; cleanup only
+                _ = currentStreamController.teardown()
+                // fire-and-forget: defer cannot await; cleanup only
+                _ = staleStreamController.teardown()
             }
             let nilStreamAdmission = try #require(nilStreamController.productAdmissionGate.acquire())
             let currentStreamAdmission = try #require(

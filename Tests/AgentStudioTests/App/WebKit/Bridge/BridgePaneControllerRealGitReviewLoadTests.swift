@@ -28,9 +28,7 @@ extension WebKitSerializedTests {
             defer { FilesystemTestGitRepo.destroy(repoURL) }
             try await FilesystemTestGitRepo.seedTrackedAndUntrackedChanges(at: repoURL)
             let harness = try await RealGitReviewLoadHarness.make(repositoryURL: repoURL)
-            defer {
-                harness.controller.teardown()
-            }
+            defer { _ = harness.controller.teardown() }  // fire-and-forget: defer cannot await; cleanup only
             let metadataLease = try await harness.openReviewMetadataSubscription()
             let metadataEventsTask = Task { @MainActor in
                 let sourceAcceptedEvent = try await harness.nextReviewMetadataEvent(
@@ -119,9 +117,7 @@ extension WebKitSerializedTests {
             defer { FilesystemTestGitRepo.destroy(repoURL) }
             let fixture = try await seedCompleteContribution(at: repoURL)
             let harness = try await RealGitReviewLoadHarness.make(repositoryURL: repoURL)
-            defer {
-                harness.controller.teardown()
-            }
+            defer { _ = harness.controller.teardown() }  // fire-and-forget: defer cannot await; cleanup only
             let metadataLease = try await harness.openReviewMetadataSubscription()
             let initialEventsTask = Task { @MainActor in
                 let sourceAccepted = try await harness.nextReviewMetadataEvent(for: metadataLease)

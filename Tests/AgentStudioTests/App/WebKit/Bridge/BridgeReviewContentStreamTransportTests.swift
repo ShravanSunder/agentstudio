@@ -73,7 +73,7 @@ extension WebKitSerializedTests {
                 reviewSourceProvider: provider,
                 initialPaneActivity: .foreground
             )
-            defer { controller.teardown() }
+            defer { _ = controller.teardown() }  // fire-and-forget: defer cannot await; cleanup only
 
             let result = await controller.handleDiffCommand(
                 .loadDiff(

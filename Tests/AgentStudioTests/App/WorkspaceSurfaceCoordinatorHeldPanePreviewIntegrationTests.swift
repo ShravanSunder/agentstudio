@@ -118,7 +118,8 @@ extension WorkspaceSurfaceTerminalRestoreIntegrationTests {
             )
             #expect(heldState.beginSpaceHold(requestedTarget: target))
 
-            coordinator.prepareHeldPanePreview()
+            // fire-and-forget: the test asserts preview state; the deferred reevaluation handle is not its claim
+            _ = coordinator.prepareHeldPanePreview()
 
             #expect(surfaceManager.hiddenSurfaceCount == 0)
             #expect(surfaceManager.activeSurfaceCount == 1)
@@ -131,7 +132,8 @@ extension WorkspaceSurfaceTerminalRestoreIntegrationTests {
     func heldPreview_lateValidSurfacePublishesThroughRealAttachment() async throws {
         try await withRealHeldTerminalFixture { fixture in
             #expect(fixture.heldState.beginSpaceHold(requestedTarget: fixture.target))
-            fixture.coordinator.prepareHeldPanePreview()
+            // fire-and-forget: the test asserts preview state; the deferred reevaluation handle is not its claim
+            _ = fixture.coordinator.prepareHeldPanePreview()
 
             let lateView = makeLateTerminalView(for: fixture)
             _ = fixture.coordinator.registerHostedView(mountedView: lateView, for: fixture.pane.id)
@@ -152,7 +154,8 @@ extension WorkspaceSurfaceTerminalRestoreIntegrationTests {
             fixture.store.setActiveTab(backgroundTab.id)
 
             #expect(fixture.heldState.beginSpaceHold(requestedTarget: fixture.target))
-            fixture.coordinator.prepareHeldPanePreview()
+            // fire-and-forget: the test asserts preview state; the deferred reevaluation handle is not its claim
+            _ = fixture.coordinator.prepareHeldPanePreview()
             let lateView = makeLateTerminalView(for: fixture)
             _ = fixture.coordinator.registerHostedView(mountedView: lateView, for: fixture.pane.id)
 
@@ -213,7 +216,8 @@ extension WorkspaceSurfaceTerminalRestoreIntegrationTests {
                 sessionID: drawerPane.terminalState?.zmxSessionID
             )
             #expect(heldState.beginSpaceHold(requestedTarget: target))
-            coordinator.prepareHeldPanePreview()
+            // fire-and-forget: the test asserts preview state; the deferred reevaluation handle is not its claim
+            _ = coordinator.prepareHeldPanePreview()
 
             let lateView = TerminalPaneMountView(
                 restoredSurfaceId: managedSurface.id,
@@ -247,7 +251,8 @@ extension WorkspaceSurfaceTerminalRestoreIntegrationTests {
             )
             #expect(heldState.beginSpaceHold(requestedTarget: target))
 
-            harness.coordinator.prepareHeldPanePreview()
+            // fire-and-forget: the test asserts preview state; the deferred reevaluation handle is not its claim
+            _ = harness.coordinator.prepareHeldPanePreview()
             #expect(heldState.presentedTarget == nil)
 
             let lateView = TerminalPaneMountView(
@@ -266,7 +271,8 @@ extension WorkspaceSurfaceTerminalRestoreIntegrationTests {
     func heldPreview_rejectsLatePreparationAfterReleaseTargetAndBoundsChange() async throws {
         try await withRealHeldTerminalFixture { fixture in
             #expect(fixture.heldState.beginSpaceHold(requestedTarget: fixture.target))
-            fixture.coordinator.prepareHeldPanePreview()
+            // fire-and-forget: the test asserts preview state; the deferred reevaluation handle is not its claim
+            _ = fixture.coordinator.prepareHeldPanePreview()
             let targetWithChangedIdentity = ValidatedPanePreviewTarget(
                 paneID: fixture.pane.id,
                 owningTabID: fixture.tab.id,
@@ -286,7 +292,8 @@ extension WorkspaceSurfaceTerminalRestoreIntegrationTests {
             #expect(fixture.heldState.beginSpaceHold(requestedTarget: fixture.target) == false)
             fixture.heldState.endSpaceHold()
             #expect(fixture.heldState.beginSpaceHold(requestedTarget: fixture.target))
-            fixture.coordinator.prepareHeldPanePreview()
+            // fire-and-forget: the test asserts preview state; the deferred reevaluation handle is not its claim
+            _ = fixture.coordinator.prepareHeldPanePreview()
             fixture.heldState.endSpaceHold()
             let staleReleaseView = makeLateTerminalView(for: fixture)
             _ = fixture.coordinator.registerHostedView(
@@ -297,7 +304,8 @@ extension WorkspaceSurfaceTerminalRestoreIntegrationTests {
             fixture.coordinator.unregisterHostedView(for: fixture.pane.id)
 
             #expect(fixture.heldState.beginSpaceHold(requestedTarget: fixture.target))
-            fixture.coordinator.prepareHeldPanePreview()
+            // fire-and-forget: the test asserts preview state; the deferred reevaluation handle is not its claim
+            _ = fixture.coordinator.prepareHeldPanePreview()
             fixture.coordinator.windowLifecycleStore.recordTerminalContainerBounds(
                 CGRect(x: 0, y: 0, width: 1200, height: 700)
             )
@@ -340,7 +348,8 @@ extension WorkspaceSurfaceTerminalRestoreIntegrationTests {
                 sessionID: previewPane.terminalState?.zmxSessionID
             )
             #expect(heldState.beginSpaceHold(requestedTarget: target))
-            harness.coordinator.prepareHeldPanePreview()
+            // fire-and-forget: the test asserts preview state; the deferred reevaluation handle is not its claim
+            _ = harness.coordinator.prepareHeldPanePreview()
             queuedSets.removeAll()
 
             harness.coordinator.restoreViewsForActiveTabIfNeeded(forceWhenBoundsExist: true)

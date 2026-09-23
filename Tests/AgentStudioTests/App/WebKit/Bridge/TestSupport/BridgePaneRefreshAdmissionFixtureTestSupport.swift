@@ -21,7 +21,8 @@ struct RefreshAdmissionIntegrationFixture {
     let controller: BridgePaneController
 
     func loadInitialReviewPackage() async throws {
-        controller.applyBridgePaneActivity(.foreground)
+        // fire-and-forget: the test asserts admission state; the presentation transition handle is not its claim
+        _ = controller.applyBridgePaneActivity(.foreground)
         await waitForActiveReviewRefreshTaskToFinish(controller)
         #expect(controller.paneState.diff.packageMetadata?.orderedItemIds == ["item-initial"])
     }

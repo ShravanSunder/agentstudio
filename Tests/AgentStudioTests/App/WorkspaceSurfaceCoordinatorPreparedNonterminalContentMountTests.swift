@@ -209,7 +209,8 @@ extension WebKitSerializedTests {
                 sessionID: pane.terminalState?.zmxSessionID
             )
             #expect(heldState.beginSpaceHold(requestedTarget: target))
-            coordinator.prepareHeldPanePreview()
+            // fire-and-forget: the test asserts preview state; the deferred reevaluation handle is not its claim
+            _ = coordinator.prepareHeldPanePreview()
             #expect(heldState.presentedTarget == nil)
 
             let mountedView = WebviewPaneMountView(
