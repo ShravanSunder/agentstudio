@@ -1,14 +1,16 @@
 # Workspace IPC Control (A1) — Specification
 
 Governing needs: [Requirements](./requirements.md) (U-IC-01, U-IC-02, U-IC-04,
-U-IC-08, U-IC-09, U-IC-10; owner statements S1–S28). Program Design: not yet
-written.
+U-IC-08, U-IC-09, U-IC-10; owner statements S1–S28). Program Design:
+[program-design.md](./program-design.md).
 
-This is layer A1 of stack A. An agent drives only its own pane — its terminal,
-that pane's drawer and drawer children, and that terminal's Bridge — through
+This is layer A1 of stack A. An agent drives only its own pane — its terminal
+and that pane's drawer and drawer children — through
 the same command catalog a person uses. Everything else is refused as not yet
-allowed. Approvals and control outside the agent's pane are layer A2. Opening
-files for the human, ⌘-click and Open view are layer B2 of the Bridge stack.
+allowed. Approvals and control outside the agent's pane are layer A2. The
+terminal's Bridge joins the agent's own pane in layer B1, when it becomes a
+stable, addressable pane; opening files for the human, ⌘-click and Open view
+are layer B2.
 
 ## Context
 
@@ -34,8 +36,8 @@ or other vendored projects.
 | ID | Term | Identity | Relationships | Invariants | Observable states |
 | --- | --- | --- | --- | --- | --- |
 | E-IC-1 | Agent | The authenticated pane-bound IPC principal of one terminal pane (Agent IPC v2 pane credential). A terminal inside a drawer is its own agent, bound to that drawer terminal. | bound to exactly 1 home terminal | Never authenticates as the human or as another pane | connected, disconnected |
-| E-IC-2 | Own pane | For an agent in a main-layout terminal: that terminal pane, its drawer and drawer children, and its Bridge (E-IC-3). For an agent in a drawer terminal: that drawer terminal and its owning pane's Bridge; not the owning pane itself, not sibling drawer children. | derived from 1 agent | Never another main-layout pane, tab, window or app-wide UI | — |
-| E-IC-3 | Terminal's Bridge | The Bridge shown for a terminal in Pane Zoom (the full-screen companion) while it exists. Layer B1 replaces this with a stable per-terminal Bridge; the entity keeps its meaning. | 1 terminal → 0..1 | Never a drawer child | present, absent |
+| E-IC-2 | Own pane | For an agent in a main-layout terminal: that terminal pane, its drawer and drawer children, and (from B1) its Bridge (E-IC-3). For an agent in a drawer terminal: that drawer terminal and (from B1) its owning pane's Bridge; not the owning pane itself, not sibling drawer children. | derived from 1 agent | Never another main-layout pane, tab, window or app-wide UI | — |
+| E-IC-3 | Terminal's Bridge | The Bridge in which a terminal's files are shown. Today only the transient full-screen companion, which is not addressable through IPC; layer B1 makes it a stable per-terminal pane and adds it to the agent's own pane. | 1 terminal → 0..1 | Never a drawer child | present, absent |
 | E-IC-4 | Command | One `AppCommand` catalog identity or one IPC control method | has 1 agent eligibility (E-IC-5) | No agent action bypasses the catalog or the IPC method registry | — |
 | E-IC-5 | Agent eligibility | Per command: **own pane** (runs against a target inside the agent's own pane), **any target** (read-only listing of windows, tabs and panes), or **not yet allowed** | 1 per command | Declared once in the catalog; widening it is a catalog change | own pane, any target, not yet allowed |
 | E-IC-6 | Drawer child | As the drawer Specification's E-DP-5: a terminal or a browser inside a drawer | belongs to 1 drawer | Never Bridge, never code viewer | — |
@@ -54,12 +56,12 @@ erDiagram
 ```text
                   INSIDE OWN PANE (A1)                   OUTSIDE OWN PANE
  OBSERVE          its terminal status/snapshot/wait;     list windows/tabs/panes: allowed
-                  its Bridge package/content/render      other panes' contents: A2
-                  state; events; session query
+                  events; session query; its Bridge's    other panes' contents: A2
+                  state and content from B1
  QUIET WRITE      type in and scroll its terminal, jump  A2
-                  to prompt; search, filter, reveal,
-                  select, expand/collapse inside its
-                  Bridge; refresh and reload its Bridge
+                  to prompt; inside its Bridge (search,
+                  filter, reveal, select, refresh,
+                  reload) from B1
  CREATE           add a terminal or browser to its       A2 (panes, tabs, sessions —
                   drawer, added collapsed (R-IC-3)          chief of staff)
  BRING TO VIEW    none — agents cannot toggle or         A2 (focus, select tab, take
@@ -79,8 +81,8 @@ An agent MUST be able to run every command whose eligibility is own pane,
 against a target inside its own pane (E-IC-2), and every command whose
 eligibility is any target, through IPC on every channel (debug, beta, stable).
 Eligibility MUST be declared per command in the catalog, and the table above
-is this layer's set. A target given as the agent's own drawer child or its
-Bridge counts as inside its own pane.
+is this layer's set. A target given as the agent's own drawer child counts as
+inside its own pane.
 
 Basis: U-IC-01, U-IC-09, S1, S3, S5, S16, S22. Proof: V-IC-1.
 
@@ -111,8 +113,8 @@ Basis: U-IC-02, U-IC-04, S2, S15. Proof: V-IC-2.
 
 No A1 command run by an agent MUST change which window, tab or pane is
 selected or focused, whether a drawer is expanded, Pane Zoom, or whether a
-Bridge is shown. Observable effects stay inside the agent's own terminal,
-drawer children and Bridge content.
+Bridge is shown. Observable effects stay inside the agent's own terminal and
+drawer children.
 
 Basis: U-IC-09, S21, S22. Proof: V-IC-1, V-IC-2.
 
@@ -152,7 +154,7 @@ Basis: U-IC-08, U-IC-10, S13, S14, S17. Proof: V-IC-3.
 
 | Need | Entities | Requirement | Evidence |
 | --- | --- | --- | --- |
-| U-IC-01, U-IC-09 | E-IC-1, 2, 3, 4, 5 | R-IC-1, R-IC-2, R-IC-4 | V-IC-1: bundled CLI against a running stable-channel build and debug, for an agent in a main terminal and one in a drawer terminal: each own-pane command succeeds on its own terminal, drawer child and Bridge; listing succeeds; the same commands on another pane, each not-yet-allowed class, and closing its own pane return the right outcome with no workspace change; selection, focus, drawer expansion and Zoom are unchanged afterwards |
+| U-IC-01, U-IC-09 | E-IC-1, 2, 3, 4, 5 | R-IC-1, R-IC-2, R-IC-4 | V-IC-1: bundled CLI against a running stable-channel build and debug, for an agent in a main terminal and one in a drawer terminal: each own-pane command succeeds on its own terminal and drawer child; Bridge methods return not yet allowed; listing succeeds; the same commands on another pane, each not-yet-allowed class, and closing its own pane return the right outcome with no workspace change; selection, focus, drawer expansion and Zoom are unchanged afterwards |
 | U-IC-02, U-IC-04 | E-IC-6 | R-IC-3, R-IC-4 | V-IC-2: CLI adds a terminal and a browser, receives and targets the new child; drawer stays collapsed and focus unchanged (native check on a PID-targeted debug app); Bridge and code-viewer requests refused with no pane created; drawer-terminal agent cannot add |
 | U-IC-08, U-IC-10 | — | R-IC-5 | V-IC-3: marker-scoped main-actor held time for authorization under the current workload; no vendored-project diff |
 | U-IC-03, U-IC-06, U-IC-07 | — | moved to B2 (S27) | Bridge navigation Specification |

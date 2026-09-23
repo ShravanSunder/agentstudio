@@ -6,8 +6,8 @@ authorized for. A person should see an agent's request only when they must act
 on it, in the app's own popover, and never lose their place because an agent
 acted.
 
-[Requirements](./requirements.md) → [Specification](./specification.md) → Program
-Design (not yet written).
+[Requirements](./requirements.md) → [Specification](./specification.md) →
+[Program Design](./program-design.md).
 
 ## Who is affected
 
