@@ -127,14 +127,14 @@ sequenceDiagram
 | --- | --- | --- | --- |
 | Lint speed | Release build + parallel per-file validation in the existing engine | One shared visitor walking each tree once for all rules — larger rewrite of 32 rules; only needed if R11 is still missed after parallelism | Measured architecture stage > 5 s on the reference Mac |
 | Debt format | One ledger file (`rule`, `path`, `count`) read at lint time | Keep Swift arrays — cannot express counts cheaply and cannot be diffed against the merge base without compiling | — |
-| Discarded completion handle (S3) | Type system: the 14 task-returning operations become `async` functions, so an outcome exists only after completion and a synchronous caller cannot obtain one; a declaration-only lint rule forbids new task-returning functions in `Sources` | Lint call-site rule over a name index (needs three renames, name-based); compiler `-Werror` group (Swift 6.3.3: `unknown warning group` for `NoUsage`, probe 2026-09-23); `treatAllWarnings(as: .error)` (the build still has `ActorIsolatedCall` warnings) | A future need to return a cancellable handle; that gets a named handle type whose outcome is still only `async` |
+| Discarded completion handle (S3) | Keep each operation's synchronous admission and returned task; remove `@discardableResult` from the 14; make the repository's own targets treat warnings as errors so a silent discard fails compilation (type-aware, incremental-safe because an error blocks the object file); lint bans `@discardableResult` on task-returning declarations and requires a reason on explicit discards | Make the 14 `async` (rejected: moves load-bearing synchronous prefixes — the teardown generation fence at `BridgePaneController.swift:559`, presentation snapshots, close-time drains — into a later MainActor turn); split each into sync admission + async outcome (14 dual entry points); a name-indexed call-site lint for bare calls (name collisions, renames) | A toolchain release adds warnings in our targets faster than they can be fixed; then downgrade that named group, never disable the policy |
 | Harness home | New Core-free target `AgentStudioTestHarness` | Put it in `AgentStudioTestSupport` — it depends on `AgentStudioCore` and six test targets cannot import it | — |
 | Causal proof | Outcome dependence (fail and release branches) | "Not yet reported while held" — racy without an owner quiescence seam most boundaries lack | — |
 | Rerun gate placement | A composite action as the first step of every job | A separate gate job — jobs have no `needs:` by design (`CIFastLaneWorkflowTests.swift:72-83`), so a separate job cannot stop the others | — |
 
 What stays the same: the rule protocol, rule identifiers, diagnostic format, SwiftLint and swift-format
 configuration, the lane topology, and every existing assertion. What it costs: a cold release compile of SwiftSyntax
-once per build slot, a ledger file that must be kept exact, and about 190 call-site edits to await or explicitly start the 14 operations.
+once per build slot, a ledger file that must be kept exact, and about 190 call-site edits to await, store or explicitly discard the 14 handles, and fixing the build's existing warnings.
 
 ## Lint engine
 
@@ -192,7 +192,7 @@ stateDiagram-v2
 | Shape | Rule | Predicate (syntax only) | Allowlist | Initial ledger |
 | --- | --- | --- | --- | --- |
 | S1, S2 | existing polling and blocking rules | unchanged, now counted per site | owner lists unchanged | current per-file counts |
-| S3 | `agentstudio_no_task_returning_functions` | in `Sources/`, a function or computed property whose declared result type is `Task<…>` or `Task<…>?` | none | none: the 14 declarations become `async` in this change |
+| S3 | `agentstudio_completion_handle_not_discardable` | `@discardableResult` on a declaration returning `Task<…>` or `Task<…>?`; an explicit `_ =` of a call to a task-returning function (whole-repo index) without a `// fire-and-forget:` reason | none | none: all 14 attributes removed and every discard carries a reason in this change |
 | S4 | `agentstudio_test_ad_hoc_gate` | in `Tests/`, outside the harness target, a type named `*Gate`, `*Latch`, `*Barrier`, `*Blocker` or `*Hold` that stores a continuation, a continuation array, a `DispatchSemaphore` or an `NSCondition` | the harness target | per-file counts after this change's migrations |
 | void wait | `agentstudio_test_wait_helper_returns_observation` | in `Tests/`, an `async` function named `wait*`, `require*`, `await*`, `expect*Eventually` or `waitUntil*` with no return type | the harness target | per-file counts |
 | S5–S8 | four existing report rules | predicates unchanged; severity `.error` | unchanged (empty) | 101 / 1 / 13 / 2 sites at merge base |
@@ -208,17 +208,23 @@ only; their false-negative limits are listed in the lint inventory beside each r
 
 ## Completion handles (S3)
 
-The 14 `@discardableResult` declarations that return a task become `async` operations that return the outcome
-directly, for example `submitTargetedPaneFocus(_:) async -> Bool`. Each call site is resolved as one of:
+Each of the 14 operations keeps its synchronous admission step and returns its task, so ordering is unchanged. The
+`@discardableResult` attribute is removed from all 14. Each call site becomes one of:
 
-- **awaited** when the caller reports or depends on the outcome;
-- **started explicitly** with `Task { await … }` in a synchronous caller (AppKit gesture handlers, callbacks) that
-  has no outcome to report.
+- **awaited** (`await handle.value`) when the caller reports or depends on the outcome;
+- **stored** when a later owner awaits or cancels it;
+- **discarded with a reason**: `_ = f() // fire-and-forget: <why no one needs the outcome>`.
 
-A synchronous function can no longer produce a success value from an operation it did not await, so the pane.focus
-defect class does not compile. Callers that stored a handle for cancellation keep a `Task` they create themselves.
-The ~100 test `teardown()` calls await completion, which also makes teardown part of each test. The declaration
-rule keeps new task-returning functions out of `Sources`.
+Compile enforcement: the repository's own SwiftPM targets (app, features, core, infrastructure, shared components,
+test targets and the lint tool) set `.treatAllWarnings(as: .error)`. An unused non-discardable result is a warning,
+so a silent discard fails the build. Existing warnings are fixed in the same change; a group that a future toolchain
+floods may be downgraded by name with `.treatWarning(<group>, as: .warning)`, never by removing the policy. Vendored
+packages are unaffected because the setting is per target.
+
+Lint: `agentstudio_completion_handle_not_discardable` fails on `@discardableResult` over a declaration returning
+`Task<…>`/`Task<…>?`, and on an explicit `_ =` discard of a call to a task-returning function (index built in
+`prepared(for:)`) without a trailing `// fire-and-forget:` reason. Stored-handle accessors that return a task
+(`take*Task`, enum payload `task`) are unaffected: they are neither discardable nor discarded.
 
 ## Causal-test harness
 
@@ -404,7 +410,7 @@ flowchart TB
 | R4 | `--check-ledger-ratchet` in the code-quality job | lint tool test with two ledgers; a CI run on a branch that raises a count |
 | R5 | severity change + merge-base counts in the ledger | ledger inspection; `RuleInventoryTests` severities |
 | R6 | fixtures per rule | lint tool tests |
-| R7, R8 | 14 operations made `async`; declaration rule | compilation of the tree; lint tool tests; a fixture where a synchronous caller of an `async` operation fails to compile is not kept — the compiler is the proof |
+| R7, R8 | attribute removed from 14; warnings-as-errors on our targets; S3 lint | the tree builds with warnings as errors; lint tool tests for both S3 predicates; one temporary bare call (not committed) shown to fail compilation |
 | R9, R10 | S9–S13 rules; owner allowlists with reasons | lint tool tests; ledger inspection |
 | R11, R12, R14 | engine scheduling, release build, timing lines | measurement before/after on the reference Mac; source inspection shows no threshold on an exit path |
 | R13 | scoped mode | lint tool test comparing scoped and full diagnostics for the same files |

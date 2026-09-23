@@ -43,7 +43,7 @@ The entity table is the normative home. The map below shows relationships only.
 | E2 | Mistake shape | A named syntactic or runtime pattern, e.g. "discarded completion handle", "hop per stream element"; two occurrences are the same shape when one guardrail's predicate matches both | Belongs to exactly one guardrail; has zero or more violation sites (E4) | A shape has a written predicate and at least one matching and one non-matching example | — | "pattern", "anti-pattern", "misuse" | U1, U4 |
 | E3 | Debt baseline entry | Guardrail identifier plus repository-relative file path | Belongs to one guardrail; covers the violation sites of that guardrail in that file | Permitted count ≥ 1; a count never increases and no entry is added after this change | `active` (count ≥ 1) → `retired` (entry removed) | "baseline", "known debt", "allowlist" (for debt only; ownership allowlists are not debt) | U1, U2, non-goal on paydown |
 | E4 | Violation site | One occurrence of a mistake shape at one source location; two reports at the same file, line and column for the same guardrail are the same site | Belongs to one file and one guardrail; counted against at most one baseline entry | — | `baselined` (inside a permitted count) or `new` (fails) | "finding", "diagnostic" | U1 |
-| E5 | Completion handle | The outcome of one started asynchronous operation, as seen by the caller that started it | Produced by one operation; consumed by the caller that started it | The outcome exists only after the operation completes; no function hands a caller an outcome it has not awaited | `awaited`, or `started explicitly` (a caller-created task, no outcome reported) | "task", "Task handle", "submission" | U12 |
+| E5 | Completion handle | A task an operation returns after its synchronous admission step, whose awaited value is the operation's outcome | Returned by one operation; consumed by the caller that started it | A caller can never drop it without writing so; its outcome exists only by awaiting it | `awaited`, `stored`, or `discarded-with-reason` at each call site | "task", "Task handle", "submission" | U12 |
 | E6 | Held step | One test-controlled suspension point, for one test run, that the work under test reaches | Belongs to one causal test (E7); reached by one or more arrivals | Resumes only by an explicit test action; never by elapsed time | `waiting` → `held` (first arrival) → `released` \| `failed` \| `retired` | "gate", "latch", "barrier", "hold" | U7, U8 |
 | E7 | Causal test | One test that proves a reply is reported only after its effect commits | Uses one or more held steps | Proves outcome dependence: with the step failed, the reply reports that failure; with the step released, the reply succeeds and the effect is committed | — | "ordering test", "held-gate test" | U7 |
 | E8 | Ad-hoc gate type | A test-support type, outside the shared harness, whose job is to suspend work until a test releases it or to count arrivals | Counted by the S4 debt baseline | No new one is added; the count only falls | `baselined` → `migrated` (replaced by held steps) | the hand-written `*Gate`, `*Latch`, `*Barrier` types | U8 |
@@ -62,7 +62,7 @@ flowchart LR
         E3["E3 Debt baseline entry<br/>id: guardrail + file<br/>active → retired"]
         E4["E4 Violation site<br/>id: guardrail + file:line:col<br/>baselined | new"]
         E9["E9 Lint run<br/>id: one invocation<br/>pass | fail"]
-        E5["E5 Completion handle<br/>id: one started operation<br/>awaited | started explicitly"]
+        E5["E5 Completion handle<br/>id: one returned task<br/>awaited | stored | discarded-with-reason"]
         E12["E12 Agent-doc path reference<br/>id: document + written path<br/>resolves | dangling"]
     end
     subgraph harness["Test harness"]
@@ -98,7 +98,7 @@ running program.
 | --- | --- | --- | --- |
 | S1 Polling wait in a test (existing) | lint, ratcheted per site | Machine-speed verdicts | U1, Ev2 |
 | S2 Blocking wait on the cooperative pool in a test (existing) | lint, ratcheted per site | Pool starvation on 3-core runners | U1, Ev2 |
-| S3 Completion handle returned to callers | type system (async operations) + lint on declarations | Reporting success before commit | U12, Ev3 |
+| S3 Silently discarded completion handle | compiler (warnings are errors) + lint on declarations and explicit discards | Reporting success before commit | U12, Ev3 |
 | S4 Ad-hoc gate type outside the harness | lint | Private, unreviewable hold mechanisms | U8, Ev7 |
 | S5 Unbounded collection work on MainActor (existing, report-only) | lint, promoted, ratcheted | MainActor stalls | U4, Ev8 |
 | S6 Whole-snapshot read in an observation capture (existing, report-only) | lint, promoted, ratcheted | Observation storms | U4, Ev8 |
@@ -140,11 +140,11 @@ Each requirement is written over the entities above. Proof obligations are in th
 
 ### Completion handles
 
-- **R7** (E5) An operation whose outcome a caller may report MUST expose that outcome only through awaiting the
-  operation itself, so that obtaining the outcome without completion does not compile. No function in `Sources`
-  returns a completion handle (a task) to its caller. U12.
-- **R8** (E5) A caller that starts such an operation without awaiting it MUST start it explicitly as a new task at
-  the call site. A lint guardrail MUST fail on any new function declaration in `Sources` that returns a task. U12.
+- **R7** (E5) A function that returns a completion handle MUST NOT be declared so that callers may ignore its result
+  without writing anything, and a call that silently ignores one MUST fail compilation of the repository's own
+  targets. U12.
+- **R8** (E5) A caller that neither awaits nor stores a completion handle MUST discard it explicitly and state the
+  reason on the same line; the lint run MUST fail on an explicit discard without a reason. U12.
 
 ### MainActor shapes
 
@@ -303,10 +303,10 @@ Each requirement is written over the entities above. Proof obligations are in th
 - Valid: a file with baseline count 3 for S1 still has 3 polling waits → pass.
 - Invalid: that file gains a fourth → fail, "count 4 exceeds 3".
 - Invalid: the file drops to 2 → fail, "lower entry to 2".
-- Valid: `let focused = await control.submitTargetedPaneFocus(pane)` → the outcome exists only after completion.
-- Valid: `Task { await executor.submit(action) }` in a synchronous gesture handler → an explicit, visible start.
-- Invalid: a synchronous function calling `submitTargetedPaneFocus` → does not compile.
-- Invalid: a new `func f() -> Task<Bool, Never>` in `Sources` → lint fails.
+- Valid: `let focused = await control.submitTargetedPaneFocus(pane).value` → the outcome exists only after completion.
+- Valid: `_ = executor.submit(action) // fire-and-forget: gesture has no reply to report` → pass.
+- Invalid: `executor.submit(action)` as a bare statement → compile error (unused result, warnings are errors).
+- Invalid: `_ = executor.submit(action)` with no reason → lint fails.
 - Invalid: an E2E waiter from generation g1 receives a response to a g2 request → the waiter stays unresolved and the
   diagnostic names it with `g1`.
 
@@ -328,7 +328,7 @@ Each requirement is written over the entities above. Proof obligations are in th
 | R1–R3, R6, R9, R10, R18 | automated behavior (lint tool tests) | Matching and non-matching examples per guardrail; baseline over, equal and under count |
 | R4 | automated behavior at the CI boundary | A pull request that raises a count fails the required check; lowering passes |
 | R5 | state inspection | Baselines equal the merge-base counts; no rule reports at report severity |
-| R7, R8 | compilation + automated behavior + state inspection | The 14 operations are `async`; no `Sources` function returns a task; lint fails on a new one |
+| R7, R8 | compilation + automated behavior + state inspection | Our targets build with warnings as errors; the 14 declarations are not `@discardableResult`; a bare call fails to compile; lint fails on a reasonless discard and on `@discardableResult` over a task |
 | R11, R12 | performance measurement | Before/after timings on the reference Mac, printed per stage and guardrail |
 | R13 | automated behavior | Scoped and full runs report identical sites for the scoped files |
 | R14 | state inspection | No timing threshold in any exit-code path |
