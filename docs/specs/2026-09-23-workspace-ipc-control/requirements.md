@@ -77,6 +77,7 @@ acted.
 | S26 | Structure: "We can separate them out into two different PR stacks… and you can use work trees for that." Destroying things outside the agent's own pane (step 3): "If we don't have to worry about step three yet, it's not really in scope." |
 | S27 | After evidence showed the terminal's Bridge exists today only as the transient full-screen companion (no stable per-terminal Bridge, no files outside the worktree, no line targeting): moving file opening, ⌘-click and Open view to the Bridge stack — "yes make sense". |
 | S28 | "We're not gonna have settings in app; we use agent to write settings for now through IPC commands with approval." |
+| S29 | On the A1 design: "overall it looks good." Popovers and UI: "You need to follow app styles and our standards for styles… we should make it keyboard-nav navigable. Everything should be through the command spec. For any kind of notifications or even the PR stuff, I should be able to use the arrow keys, approve and disapprove with the arrow keys." |
 | S25 | Fast follow: "If I have a chief of staff agent and I want to open other panes and other tabs, that is a functionality that needs approval and it would probably open a bunch at the same time… that can be a separate work tree and a fast follow. But with approval system." |
 
 ## User requirements
@@ -96,6 +97,7 @@ unranked (owner has not ordered them).
 | U-IC-07 | Pop-ups are used only for things the human can act on now (in this version: Open view) and look like the app's existing bottom-bar native popovers. Informational and session events are not pop-ups. | S9, S10, S11 |
 | U-IC-08 | None of this adds heavy work to the main actor; it follows the Performance Lane Directive in the repo agent instructions (`AGENTS.md` / `CLAUDE.md`) and the documents it links, and reuses the existing IPC, Bridge, EventBus admission and command systems. | S13, S17 |
 | U-IC-10 | No changes to upstream or vendored projects (Ghostty, zmx, other dependencies). | S14 |
+| U-IC-11 | Every agent-related popover (Open view, approvals, multi-PR details) is fully keyboard navigable — arrow keys move between rows; keys open, approve, deny, dismiss and clear — and every such action is a command in the command spec with its label and shortcut from the catalog. Popovers use the app's styles (AppStyles, shared shell controls), not one-off styling. | S29, S11 |
 
 ### What it looks like (storyboard mockups over the current app; not pixel specs)
 
@@ -126,8 +128,8 @@ link actions; the bottom-bar popover mechanism.
 U-IC-02, U-IC-04, U-IC-08, U-IC-09, U-IC-10), A2 approvals and outside-pane
 control (U-IC-05, and settings written by agents with approval, S28); stack B —
 B1 stable per-terminal Bridge with multi-root membership, B2 file opening for
-agents and ⌘-click with Open view (U-IC-03, U-IC-06, U-IC-07), B3 multi-PR
-summary. B2's observable contract lives in the Bridge navigation
+agents and ⌘-click with Open view (U-IC-03, U-IC-06, U-IC-07, U-IC-11), B3
+multi-PR summary (U-IC-11); A2's approval popover also carries U-IC-11. B2's observable contract lives in the Bridge navigation
 Specification; this document remains the source of those needs.
 
 **Non-goals (owner-excluded or owned elsewhere):**
