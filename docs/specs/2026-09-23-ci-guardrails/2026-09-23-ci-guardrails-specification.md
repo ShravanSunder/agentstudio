@@ -240,8 +240,9 @@ Each requirement is written over the entities above. Proof obligations are in th
   dangling reference — a link target or backticked repository path that does not exist, or an anchor that
   matches neither a heading in its target nor an explicit anchor ID declared there — naming the document, line and reference. Tokens that are not written in
   repository-path form (type names, placeholders, repository slugs) are not references. U9.
-- **R26** (E12) No agent document may claim a hook, task or script the repository does not contain; the removed
-  PostToolUse claim MUST stay removed. U10.
+- **R26** (E12) No agent document may claim a hook, task or script, by its repository path, that the repository does
+  not contain (enforced by R25's reference check); the removed PostToolUse claim MUST stay removed. Prose that names a
+  capability without a path is outside the mechanical check. U10.
 
 ### BridgeWeb
 
