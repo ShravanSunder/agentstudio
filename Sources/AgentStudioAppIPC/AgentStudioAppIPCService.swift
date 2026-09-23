@@ -24,7 +24,7 @@ public protocol AppIPCQueryPort: Sendable {
     func currentWorkspace() throws -> IPCCurrentWorkspaceResult
     func listPanes() throws -> IPCPaneListResult
     func currentPane() throws -> IPCPaneSnapshotResult
-    func snapshotPane(_ paneId: UUID) throws -> IPCPaneSnapshotResult
+    func snapshotPane(_ paneId: UUID, ownPaneAssertion: AppIPCOwnPaneAssertion?) throws -> IPCPaneSnapshotResult
 }
 
 public struct AppIPCLayoutError: Error, Equatable, Sendable {
@@ -77,8 +77,12 @@ public struct AppIPCRuntimeError: Error, Equatable, Sendable {
 
 @MainActor
 public protocol AppIPCRuntimePort: Sendable {
-    func terminalStatus(_ handle: IPCHandle) throws -> IPCTerminalStatusResult
-    func terminalSnapshot(_ handle: IPCHandle) throws -> IPCTerminalSnapshotResult
+    func terminalStatus(
+        _ handle: IPCHandle, ownPaneAssertion: AppIPCOwnPaneAssertion?
+    ) throws -> IPCTerminalStatusResult
+    func terminalSnapshot(
+        _ handle: IPCHandle, ownPaneAssertion: AppIPCOwnPaneAssertion?
+    ) throws -> IPCTerminalSnapshotResult
     func sendTerminalInput(
         to handle: IPCHandle,
         input: String,
@@ -89,7 +93,8 @@ public protocol AppIPCRuntimePort: Sendable {
         _ handle: IPCHandle,
         condition: IPCTerminalWaitCondition,
         timeout: Duration,
-        afterSequence: UInt64?
+        afterSequence: UInt64?,
+        ownPaneAssertion: AppIPCOwnPaneAssertion?
     ) async throws -> IPCTerminalWaitResult
 }
 

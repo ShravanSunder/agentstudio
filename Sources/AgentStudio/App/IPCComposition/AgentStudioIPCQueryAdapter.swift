@@ -85,8 +85,16 @@ struct AgentStudioIPCQueryAdapter: AppIPCQueryPort, @unchecked Sendable {
         return try snapshotPane(activePaneId, in: workspace)
     }
 
-    func snapshotPane(_ paneId: UUID) throws -> IPCPaneSnapshotResult {
+    func snapshotPane(_ paneId: UUID, ownPaneAssertion: AppIPCOwnPaneAssertion?) throws -> IPCPaneSnapshotResult {
         _ = try currentWindow()
+        // Checked in the same main-actor step as the read: a pane that left a
+        // pane agent's own pane since authorization is not described to it.
+        if let ownPaneAssertion,
+            !workspaceStore.ownPaneAssertionHolds(
+                WorkspaceOwnPaneAssertion(boundPaneId: ownPaneAssertion.boundPaneId), for: paneId)
+        {
+            throw AuthorizationError.notYetAllowed("pane.snapshot")
+        }
         return try snapshotPane(paneId, in: workspaceStore.programmaticControlSnapshot())
     }
 

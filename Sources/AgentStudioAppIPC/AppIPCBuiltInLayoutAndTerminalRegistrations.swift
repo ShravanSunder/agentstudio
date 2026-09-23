@@ -156,7 +156,9 @@ extension AppIPCBuiltInMethodRegistrations {
         return try [
             terminalPaneReadRegistration(
                 descriptor: descriptors.terminalStatus,
-                handler: { handle in try await inputs.ports.runtimePort.terminalStatus(handle) }
+                handler: { handle, assertion in
+                    try await inputs.ports.runtimePort.terminalStatus(handle, ownPaneAssertion: assertion)
+                }
             ),
             AppIPCTypedMethodRegistration(
                 descriptor: descriptors.terminalSend,
@@ -186,7 +188,9 @@ extension AppIPCBuiltInMethodRegistrations {
             ).erase(),
             terminalPaneReadRegistration(
                 descriptor: descriptors.terminalSnapshot,
-                handler: { handle in try await inputs.ports.runtimePort.terminalSnapshot(handle) }
+                handler: { handle, assertion in
+                    try await inputs.ports.runtimePort.terminalSnapshot(handle, ownPaneAssertion: assertion)
+                }
             ),
             AppIPCTypedMethodRegistration(
                 descriptor: descriptors.terminalWait,
@@ -206,12 +210,13 @@ extension AppIPCBuiltInMethodRegistrations {
                         }
                     )
                 },
-                connectionHandler: { parameters, _, _ in
+                connectionHandler: { parameters, context, _ in
                     try await inputs.ports.runtimePort.waitForTerminal(
                         IPCHandle.parse(parameters.handle),
                         condition: parameters.condition,
                         timeout: AppIPCBuiltInRegistrationSupport.duration(seconds: parameters.timeoutSeconds),
-                        afterSequence: parameters.afterSequence
+                        afterSequence: parameters.afterSequence,
+                        ownPaneAssertion: AppIPCOwnPaneAssertion(principal: context.principal)
                     )
                 }
             ).erase(),
@@ -220,7 +225,7 @@ extension AppIPCBuiltInMethodRegistrations {
 
     private static func terminalPaneReadRegistration<Result>(
         descriptor: IPCMethodDescriptor<IPCPaneSelectorParams, Result>,
-        handler: @escaping @Sendable (IPCHandle) async throws -> Result
+        handler: @escaping @Sendable (IPCHandle, AppIPCOwnPaneAssertion?) async throws -> Result
     ) throws -> AnyAppIPCMethodRegistration
     where Result: Codable & Sendable {
         try AppIPCTypedMethodRegistration(
@@ -236,8 +241,9 @@ extension AppIPCBuiltInMethodRegistrations {
                     }
                 )
             },
-            connectionHandler: { parameters, _, _ in
-                try await handler(IPCHandle.parse(parameters.handle))
+            connectionHandler: { parameters, context, _ in
+                try await handler(
+                    IPCHandle.parse(parameters.handle), AppIPCOwnPaneAssertion(principal: context.principal))
             }
         ).erase()
     }

@@ -171,7 +171,7 @@ struct AgentStudioAppIPCServiceContributionTests {
         let registration = try fixture.registration(named: "pane.snapshot", in: registrations)
         let principal = fixture.diagnosticPrincipal
         let tools = AppIPCTargetResolutionTools(canonicalizePaneHandle: { _ in
-            _ = try await queryPort.snapshotPane(fixture.paneId)
+            _ = try await queryPort.snapshotPane(fixture.paneId, ownPaneAssertion: nil)
             return IPCHandle(kind: .pane, reference: .canonicalUUID(fixture.paneId))
         })
 

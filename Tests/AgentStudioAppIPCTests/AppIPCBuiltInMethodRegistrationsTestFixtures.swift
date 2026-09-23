@@ -264,11 +264,12 @@ final class BuiltInRecordingTerminalWaitPort: AppIPCRuntimePort, @unchecked Send
         lock.withLock { (recordedHandle, recordedTimeout, recordedAfterSequence) }
     }
 
-    func terminalStatus(_: IPCHandle) throws -> IPCTerminalStatusResult {
+    func terminalStatus(_: IPCHandle, ownPaneAssertion _: AppIPCOwnPaneAssertion?) throws -> IPCTerminalStatusResult {
         throw BuiltInMethodRegistrationFailure()
     }
 
-    func terminalSnapshot(_: IPCHandle) throws -> IPCTerminalSnapshotResult {
+    func terminalSnapshot(_: IPCHandle, ownPaneAssertion _: AppIPCOwnPaneAssertion?) throws -> IPCTerminalSnapshotResult
+    {
         throw BuiltInMethodRegistrationFailure()
     }
 
@@ -285,7 +286,8 @@ final class BuiltInRecordingTerminalWaitPort: AppIPCRuntimePort, @unchecked Send
         _ handle: IPCHandle,
         condition: IPCTerminalWaitCondition,
         timeout: Duration,
-        afterSequence: UInt64?
+        afterSequence: UInt64?,
+        ownPaneAssertion _: AppIPCOwnPaneAssertion?
     ) async throws -> IPCTerminalWaitResult {
         lock.withLock {
             recordedHandle = handle

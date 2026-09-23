@@ -109,7 +109,7 @@ package enum WorkspaceCommandValidator {
             [paneId]
         case .removeDrawerPane(let parentPaneId, let drawerPaneId):
             [parentPaneId, drawerPaneId]
-        case .addDrawerPane(let parentPaneId), .addDrawerChildInBackground(let parentPaneId, _, _):
+        case .addDrawerChildInBackground(let parentPaneId, _, _):
             [parentPaneId]
         default:
             nil

@@ -420,7 +420,7 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
             guard kind == .pane else { throw AgentStudioAppIPCRequestError.invalidParams }
             paneId = id
         }
-        _ = try await service.ports.queryPort.snapshotPane(paneId)
+        _ = try await service.ports.queryPort.snapshotPane(paneId, ownPaneAssertion: nil)
         return IPCHandle(kind: .pane, reference: .canonicalUUID(paneId))
     }
 

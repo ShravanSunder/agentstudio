@@ -90,7 +90,7 @@ struct FakeRuntimePort: AppIPCRuntimePort {
         self.successfulPaneId = successfulPaneId
     }
 
-    func terminalStatus(_: IPCHandle) throws -> IPCTerminalStatusResult {
+    func terminalStatus(_: IPCHandle, ownPaneAssertion _: AppIPCOwnPaneAssertion?) throws -> IPCTerminalStatusResult {
         guard let successfulPaneId else {
             throw AppIPCRuntimeError(reason: .noRuntime)
         }
@@ -103,7 +103,8 @@ struct FakeRuntimePort: AppIPCRuntimePort {
         )
     }
 
-    func terminalSnapshot(_: IPCHandle) throws -> IPCTerminalSnapshotResult {
+    func terminalSnapshot(_: IPCHandle, ownPaneAssertion _: AppIPCOwnPaneAssertion?) throws -> IPCTerminalSnapshotResult
+    {
         guard let successfulPaneId else {
             throw AppIPCRuntimeError(reason: .noRuntime)
         }
@@ -142,7 +143,8 @@ struct FakeRuntimePort: AppIPCRuntimePort {
         _: IPCHandle,
         condition _: IPCTerminalWaitCondition,
         timeout _: Duration,
-        afterSequence _: UInt64?
+        afterSequence _: UInt64?,
+        ownPaneAssertion _: AppIPCOwnPaneAssertion?
     ) async throws -> IPCTerminalWaitResult {
         throw AppIPCRuntimeError(reason: .timeout)
     }
@@ -723,11 +725,12 @@ final class RecordingWaitRuntimePort: AppIPCRuntimePort, @unchecked Sendable {
         }
     }
 
-    func terminalStatus(_: IPCHandle) throws -> IPCTerminalStatusResult {
+    func terminalStatus(_: IPCHandle, ownPaneAssertion _: AppIPCOwnPaneAssertion?) throws -> IPCTerminalStatusResult {
         throw AppIPCRuntimeError(reason: .noRuntime)
     }
 
-    func terminalSnapshot(_: IPCHandle) throws -> IPCTerminalSnapshotResult {
+    func terminalSnapshot(_: IPCHandle, ownPaneAssertion _: AppIPCOwnPaneAssertion?) throws -> IPCTerminalSnapshotResult
+    {
         throw AppIPCRuntimeError(reason: .noRuntime)
     }
 
@@ -744,7 +747,8 @@ final class RecordingWaitRuntimePort: AppIPCRuntimePort, @unchecked Sendable {
         _ handle: IPCHandle,
         condition: IPCTerminalWaitCondition,
         timeout _: Duration,
-        afterSequence: UInt64?
+        afterSequence: UInt64?,
+        ownPaneAssertion _: AppIPCOwnPaneAssertion?
     ) async throws -> IPCTerminalWaitResult {
         lock.withLock {
             recordedHandle = handle
