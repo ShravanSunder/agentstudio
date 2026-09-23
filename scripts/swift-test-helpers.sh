@@ -1167,14 +1167,14 @@ swift_test_crash_signal_name() {
     swift_test_signal_name "$status"
     return 0
   fi
-  reported_signal_code="$(
-    grep -Eo "unexpected signal code [0-9]+" <<<"$output" | grep -Eo "[0-9]+" | tail -n 1 || true
-  )"
-  if [ -n "$reported_signal_code" ]; then
-    kill -l "$reported_signal_code" 2>/dev/null || echo unknown
-  else
+  if ! grep -Eq "unexpected signal code [0-9]+" <<<"$output"; then
     echo none
+    return 0
   fi
+  reported_signal_code="$(
+    grep -Eo "unexpected signal code [0-9]+" <<<"$output" | grep -Eo "[0-9]+" | tail -n 1
+  )"
+  kill -l "$reported_signal_code" 2>/dev/null || echo unknown
 }
 
 # Mirrors the timeout branch's diagnostics for a child that exited non-zero
