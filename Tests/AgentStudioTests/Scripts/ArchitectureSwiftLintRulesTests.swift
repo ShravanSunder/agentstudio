@@ -16,9 +16,9 @@ struct ArchitectureSwiftLintRulesTests {
         #expect(lintScript.contains("swiftlint lint --strict"))
         #expect(
             lintScript.contains(
-                "swift run -c release --package-path Tools/AgentStudioArchitectureLint"
+                "swift build -c release --package-path Tools/AgentStudioArchitectureLint"
             ))
-        #expect(lintScript.contains("agentstudio-architecture-lint --timings"))
+        #expect(lintScript.contains("release/agentstudio-architecture-lint\" --timings"))
         #expect(lintScript.contains("--ledger Tools/AgentStudioArchitectureLint/architecture-debt-ledger.tsv"))
         #expect(lintScript.contains("run_architecture_lint Sources Tests"))
         #expect(!miseConfig.contains(legacyRunnerScriptPath))

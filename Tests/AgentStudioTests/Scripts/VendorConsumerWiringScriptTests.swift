@@ -292,24 +292,49 @@ struct VendorConsumerWiringScriptTests {
         let sourcedOnlyHelpers: Set<String> = [
             "scripts/swift-test-helpers.sh"
         ]
+        // Scripts whose Swift commands build only the standalone architecture
+        // lint package, which consumes no vendored framework.
+        let independentToolPackageScripts: Set<String> = [
+            "scripts/lint-swift.sh",
+            "Tools/AgentStudioArchitectureLint/check-ledger-ratchet.sh",
+        ]
         let fileManager = FileManager.default
-        let scripts = try fileManager.contentsOfDirectory(atPath: "scripts")
+        let scripts =
+            try fileManager.contentsOfDirectory(atPath: "scripts")
             .filter { $0.hasSuffix(".sh") }
             .map { "scripts/\($0)" }
+            + fileManager.contentsOfDirectory(atPath: "Tools/AgentStudioArchitectureLint")
+            .filter { $0.hasSuffix(".sh") }
+            .map { "Tools/AgentStudioArchitectureLint/\($0)" }
 
         // Act
         let swiftCommandScripts = try Set(
             scripts.filter { path in
                 let source = try String(contentsOfFile: path, encoding: .utf8)
-                return source.contains("swift build")
-                    || source.contains("swift test")
-                    || source.contains("swift package")
+                return !swiftCommands(in: source).isEmpty
             })
 
         // Assert
         #expect(
-            swiftCommandScripts == expectedScripts.union(sourcedOnlyHelpers),
-            "Classify every script containing a Swift command as a verified entry point or a sourced-only helper")
+            swiftCommandScripts
+                == expectedScripts.union(sourcedOnlyHelpers).union(independentToolPackageScripts),
+            """
+            Classify every script containing a Swift command as a verified entry point, a sourced-only helper, \
+            or an independent tool-package script
+            """)
+        for path in independentToolPackageScripts {
+            let source = try String(contentsOfFile: path, encoding: .utf8)
+            let commands = swiftCommands(in: source)
+            #expect(!commands.isEmpty, "\(path) must still run its Swift command where the inventory can see it")
+            for command in commands {
+                #expect(
+                    command.contains("--package-path Tools/AgentStudioArchitectureLint"),
+                    "\(path) may build only the architecture lint package: \(command)")
+            }
+            #expect(
+                vendorVerificationOffset(in: source) == nil,
+                "\(path) builds no vendor consumer and must not need a vendor verifier")
+        }
         for path in expectedScripts {
             let source = try String(contentsOfFile: path, encoding: .utf8)
             #expect(
@@ -459,6 +484,18 @@ struct VendorConsumerWiringScriptTests {
             return false
         }
         return verification < firstConsumer
+    }
+
+    /// Every shell command that runs `swift build`, `swift test`,
+    /// `swift package` or `swift run`, with `\` continuations joined.
+    private func swiftCommands(in source: String) -> [String] {
+        let commandPrefixes = ["swift build", "swift test", "swift package", "swift run"]
+        let logicalLines = source.replacingOccurrences(of: "\\\n", with: " ")
+            .split(separator: "\n")
+            .map(String.init)
+        return logicalLines.filter { line in
+            commandPrefixes.contains { line.contains($0) }
+        }
     }
 
     private func vendorVerificationOffset(in source: String) -> String.Index? {
