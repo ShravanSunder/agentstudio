@@ -74,6 +74,47 @@ struct PaneTabViewControllerZoomDrawerSideCommandTests {
         )
     }
 
+    @Test("side command with the Zoom companion Bridge focused still targets the Zoom source")
+    func sideCommandFromBridgeCompanionFocus() async throws {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+        let sourcePane = harness.store.createPane()
+        let tab = Tab(paneId: sourcePane.id)
+        harness.store.appendTab(tab)
+        harness.store.setActiveTab(tab.id)
+        _ = try #require(harness.store.addDrawerPane(to: sourcePane.id))
+        let companion = ZoomCompanionMetadata(
+            owningTabId: tab.id,
+            resolvedWorktreeId: UUIDv7.generate(),
+            companionPaneId: UUIDv7.generate(),
+            lastZoomVisibility: .visible
+        )
+        harness.store.panePresentationAtom.cacheZoomCompanion(companion, forSourcePane: sourcePane.id)
+        harness.store.panePresentationAtom.enterZoom(
+            inTab: tab.id,
+            sourcePaneId: sourcePane.id,
+            viewerPresentation: .retainedVisible(companionPaneId: companion.companionPaneId)
+        )
+        let window = makePaneTabViewControllerCommandWindow(for: harness.controller)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        let companionHost = try attachPaneHost(paneId: companion.companionPaneId, in: harness, to: window)
+        #expect(window.makeFirstResponder(companionHost))
+        atom(\.workspaceFocusOwner).focusMainPane(companion.companionPaneId)
+
+        #expect(harness.controller.canExecute(.moveZoomDrawerToBridge))
+        await harness.executeCommand(.moveZoomDrawerToBridge)
+
+        #expect(window.firstResponder === companionHost)
+        #expect(harness.store.paneAtom.drawerPresentationPreference(forOwner: sourcePane.id).zoomSide == .bridge)
+        #expect(
+            harness.store.paneAtom.drawerPresentationPreference(forOwner: companion.companionPaneId) == .default
+        )
+
+        await harness.executeCommand(.moveZoomDrawerToTerminal)
+        #expect(harness.store.paneAtom.drawerPresentationPreference(forOwner: sourcePane.id).zoomSide == .terminal)
+    }
+
     @Test("side commands are unavailable and inert outside Pane Zoom")
     func sideCommandRejectedOutsideZoom() async throws {
         let fixture = try makeZoomDrawerFixture(entersZoom: false)
