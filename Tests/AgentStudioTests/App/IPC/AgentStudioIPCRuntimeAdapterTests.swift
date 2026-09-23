@@ -501,8 +501,6 @@ private struct RuntimeAdapterHarness {
         eventBus: EventBus<RuntimeEnvelope> = makeTestPaneRuntimeEventBus(),
         terminalEventWaitClock: (any Clock<Duration> & Sendable)? = nil
     ) {
-        let tempDir = FileManager.default.temporaryDirectory
-            .appending(path: "agentstudio-ipc-runtime-adapter-\(UUID().uuidString)")
         workspaceStore = WorkspaceStore()
         runtimeRegistry = RuntimeRegistry()
         adapter = AgentStudioIPCRuntimeAdapter(

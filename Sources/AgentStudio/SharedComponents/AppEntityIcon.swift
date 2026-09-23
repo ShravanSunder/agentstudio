@@ -72,6 +72,7 @@ package enum AppEntityIcon: Equatable {
     /// `foregroundOverride` wins over the icon's own baked style. SwiftUI resolves the innermost
     /// `foregroundStyle`, so callers that need a selection color (e.g. the grouping segmented
     /// control) cannot override from outside this view; the override must be applied here.
+    @MainActor
     @ViewBuilder
     package func swiftUIImage(
         loader: OcticonLoader,

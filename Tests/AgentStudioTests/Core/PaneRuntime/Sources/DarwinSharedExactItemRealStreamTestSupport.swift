@@ -101,12 +101,12 @@ final class SharedExactItemRealStreamFixture: @unchecked Sendable {
             forwardedIngressContinuation.finish()
         }
 
-        streamClient.register(
+        _ = streamClient.register(
             worktreeId: firstWorktreeId,
             repoId: UUIDv7.generate(),
             rootPath: firstRepositoryPath
         )
-        streamClient.register(
+        _ = streamClient.register(
             worktreeId: secondWorktreeId,
             repoId: UUIDv7.generate(),
             rootPath: secondRepositoryPath
@@ -361,7 +361,7 @@ final class SharedExactItemRealStreamFixture: @unchecked Sendable {
             (secondWorktreeId, secondRepositoryPath),
         ] {
             streamClient.unregister(worktreeId: worktreeId)
-            streamClient.register(
+            _ = streamClient.register(
                 worktreeId: worktreeId,
                 repoId: UUIDv7.generate(),
                 rootPath: repositoryPath

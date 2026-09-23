@@ -13,7 +13,7 @@ struct WorkspaceCommandGestureOrderingTests {
         "queued ensure-open requests stay open while explicit toggles retain toggle semantics",
         arguments: [false, true])
     func queuedDrawerIntentIsPreserved(explicitToggle: Bool) async throws {
-        try await withAsyncTestCoreAtoms { _ in
+        await withAsyncTestCoreAtoms { _ in
             let harness = makePaneTabViewControllerCommandHarness()
             defer { try? FileManager.default.removeItem(at: harness.tempDir) }
             let pane = harness.store.createPane()
@@ -48,7 +48,7 @@ struct WorkspaceCommandGestureOrderingTests {
 
     @Test("extraction and dependent placement finish before a later queued command")
     func extractionPlacementIsOneOperation() async throws {
-        try await withAsyncTestCoreAtoms { _ in
+        await withAsyncTestCoreAtoms { _ in
             let harness = makePaneTabViewControllerCommandHarness()
             defer { try? FileManager.default.removeItem(at: harness.tempDir) }
             let first = harness.store.createPane()
@@ -74,7 +74,7 @@ struct WorkspaceCommandGestureOrderingTests {
 
     @Test("a rejected command cannot borrow a successful queued command's result")
     func rejectionHasItsOwnResult() async throws {
-        try await withAsyncTestCoreAtoms { _ in
+        await withAsyncTestCoreAtoms { _ in
             let harness = makePaneTabViewControllerCommandHarness()
             defer { try? FileManager.default.removeItem(at: harness.tempDir) }
             let unrelated = harness.executor.submitGesture { _ in true }

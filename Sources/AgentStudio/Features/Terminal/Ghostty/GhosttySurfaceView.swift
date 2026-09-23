@@ -589,7 +589,7 @@ extension Ghostty {
             let result = super.resignFirstResponder()
             if result {
                 focused = false
-                LiveSurfaceRendererStateDelivery.shared.deliverFocus(false, to: self)
+                _ = LiveSurfaceRendererStateDelivery.shared.deliverFocus(false, to: self)
                 applyMouseVisibility(isVisible: true)
                 logSurfaceSnapshot(reason: "resignFirstResponder")
             }
@@ -618,7 +618,7 @@ extension Ghostty {
                     isFocused: focused,
                     isAttachedToWindow: false
                 )
-                LiveSurfaceRendererStateDelivery.shared.deliverFocus(false, to: self)
+                _ = LiveSurfaceRendererStateDelivery.shared.deliverFocus(false, to: self)
                 wasDetachedFromWindow = true
             }
             logSurfaceSnapshot(reason: "viewDidMoveToWindow")

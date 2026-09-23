@@ -421,7 +421,7 @@ private final class CompositeContinuityFixture: @unchecked Sendable {
                 },
             support: .supported
         )
-        client.register(worktreeId: worktreeId, repoId: UUIDv7.generate(), rootPath: worktreeRoot)
+        _ = client.register(worktreeId: worktreeId, repoId: UUIDv7.generate(), rootPath: worktreeRoot)
         ingressTask = Task { [client, weak self] in
             for await item in client.events() {
                 switch item {

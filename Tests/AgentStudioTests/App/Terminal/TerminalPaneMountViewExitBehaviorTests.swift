@@ -73,7 +73,6 @@ struct TerminalPaneMountViewExitBehaviorTests {
             preferenceAtom: editorPreference,
             runtimeAtom: editorChooserRuntime
         )
-        let inboxAtom = InboxNotificationAtom()
         let appEventBus = EventBus<AppEvent>()
         let controller = PaneTabViewController(
             store: store,
