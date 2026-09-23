@@ -2192,15 +2192,15 @@ struct GitWorkingDirectoryProjectorTests {
     func shutdownWhileProviderIsInFlightDoesNotEmitStaleSnapshot() async throws {
         let bus = EventBus<RuntimeEnvelope>()
         let gate = AsyncGate()
-        let cancellationCalls = CallCounter()
+        let providerStartedReceipt = AsyncReceipt()
+        let providerCancelledReceipt = AsyncReceipt()
         let providerReleaseReceipt = AsyncReceipt()
-        let calls = CallCounter()
         let provider = StubGitWorkingTreeStatusProvider { _ in
-            _ = await calls.increment()
+            await providerStartedReceipt.signal()
             await withTaskCancellationHandler {
                 await gate.waitUntilOpen()
             } onCancel: {
-                Task { _ = await cancellationCalls.increment() }
+                Task { await providerCancelledReceipt.signal() }
             }
             await providerReleaseReceipt.signal()
             return GitWorkingTreeStatus(
@@ -2217,7 +2217,6 @@ struct GitWorkingDirectoryProjectorTests {
 
         let worktreeId = UUIDv7.generate()
         let observed = ObservedGitEvents()
-        let collectorBarrierCalls = CallCounter()
         let stream = await bus.subscribe(policy: .criticalUnbounded, subscriberName: #function)
         let collectionTask = Task {
             for await envelope in stream {
@@ -2228,7 +2227,6 @@ struct GitWorkingDirectoryProjectorTests {
                     ) = systemEnvelope.event,
                     unregisteredWorktreeId == worktreeId
                 else { continue }
-                _ = await collectorBarrierCalls.increment()
                 return
             }
         }
@@ -2238,15 +2236,12 @@ struct GitWorkingDirectoryProjectorTests {
             fileURLWithPath: "/tmp/shutdown-inflight-\(UUIDv7.generate().uuidString)"
         )
         await bus.post(makeFilesChangedEnvelope(seq: 1, worktreeId: worktreeId, rootPath: rootPath, batchSeq: 1))
-        let started = await waitUntil { await calls.value() >= 1 }
-        #expect(started)
+        await providerStartedReceipt.wait()
 
         let shutdownTask = Task {
             await actor.shutdown()
         }
-        await assertEventuallyAsync("projector shutdown cancels the in-flight provider") {
-            await cancellationCalls.value() == 1
-        }
+        await providerCancelledReceipt.wait()
         await gate.open()
         await providerReleaseReceipt.wait()
         await shutdownTask.value
@@ -2258,10 +2253,7 @@ struct GitWorkingDirectoryProjectorTests {
                 event: .worktreeUnregistered(worktreeId: worktreeId, repoId: worktreeId)
             )
         )
-        await assertEventuallyAsync("collector drains through the post-shutdown topology barrier") {
-            await collectorBarrierCalls.value() == 1
-        }
-        collectionTask.cancel()
+        // The collector returns at this barrier, after recording every earlier event.
         await collectionTask.value
 
         #expect(await observed.snapshotCount(for: worktreeId) == 0)

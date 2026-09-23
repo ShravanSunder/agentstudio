@@ -206,7 +206,10 @@ describe('Bridge annotation subscription worker-epoch cutover', () => {
 		expect(harness.transport.workerDerivationEpoch('review')).toBe(1);
 	});
 
-	test('does not advance the surface epoch or replace metadata when annotation cancellation fails', async () => {
+	test('advances the surface epoch when native resets the annotation sibling during its cutover cancellation', async () => {
+		// Arrange: the File cutover retires metadata, then native resets the
+		// annotation sibling (for example, its source is unavailable) while the
+		// sibling's cancellation is pending.
 		const scenario = await establishEpochOneSubscriptions();
 		const initialFileAnnotation = requiredSubscriptionOpen(
 			scenario.initialOpenByKind,
@@ -245,6 +248,7 @@ describe('Bridge annotation subscription worker-epoch cutover', () => {
 			initialFileAnnotation.subscriptionId,
 		);
 
+		// Act
 		scenario.harness.server.emitMetadata(
 			subscriptionResetFrame({
 				epoch: 1,
@@ -257,21 +261,36 @@ describe('Bridge annotation subscription worker-epoch cutover', () => {
 		await scenario.harness.server.waitForFrameAcknowledgementCount(7);
 		await reconciliation;
 
-		expect(scenario.harness.transport.workerDerivationEpoch('file')).toBe(1);
-		expect(
-			hasReplacementOpen(
-				scenario.harness.server.controlRequests,
-				'file.metadata',
-				initialFileMetadata.subscriptionId,
-			),
-		).toBe(false);
-		expect(
+		await waitForCondition(() =>
 			hasReplacementOpen(
 				scenario.harness.server.controlRequests,
 				'file.annotations',
 				initialFileAnnotation.subscriptionId,
 			),
-		).toBe(false);
+		);
+
+		// Assert: the reset retired the sibling as completely as a cancellation, so
+		// both File successors open at the advanced epoch without a second cancel.
+		expect(scenario.harness.transport.workerDerivationEpoch('file')).toBe(2);
+		expect(
+			requiredReplacementOpen(
+				scenario.harness.server.controlRequests,
+				'file.metadata',
+				initialFileMetadata.subscriptionId,
+			).workerDerivationEpoch,
+		).toBe(2);
+		expect(
+			requiredReplacementOpen(
+				scenario.harness.server.controlRequests,
+				'file.annotations',
+				initialFileAnnotation.subscriptionId,
+			).workerDerivationEpoch,
+		).toBe(2);
+		expect(
+			cancellationRequests(scenario.harness.server.controlRequests).map(
+				(request) => request.subscriptionId,
+			),
+		).toEqual([initialFileMetadata.subscriptionId, initialFileAnnotation.subscriptionId]);
 	});
 
 	test('holds an annotation subscription request until pending cutover cancellation drains', async () => {
@@ -312,18 +331,12 @@ describe('Bridge annotation subscription worker-epoch cutover', () => {
 		await scenario.harness.server.waitForFrameAcknowledgementCount(6);
 		await scenario.harness.server.waitForControlKind('subscription.cancel', 2);
 
+		// Act: annotations are requested while the sibling cancellation is pending.
 		scenario.controller.ensureAnnotationSubscriptions();
-		await Promise.resolve();
-		await Promise.resolve();
-
-		expect(subscriptionOpenRequests(scenario.harness.server.controlRequests)).toHaveLength(
-			initialOpenCount,
-		);
-		expect(scenario.harness.transport.workerDerivationEpoch('file')).toBe(1);
 
 		let nextStreamSequence = 6;
 		const drainedCancellationIds = new Set<string>([metadataCancellation.subscriptionId]);
-		await drainSurfaceCancellationsUntilReplacementMetadataOpen({
+		const drain = await drainSurfaceCancellationsUntilReplacementMetadataOpen({
 			drainedCancellationIds,
 			harness: scenario.harness,
 			initialFileAnnotation,
@@ -344,6 +357,9 @@ describe('Bridge annotation subscription worker-epoch cutover', () => {
 		);
 		await reconciliation;
 
+		// Assert: no subscription opened until the retiring annotation drained, however
+		// many turns the pending cancellation took.
+		expect(drain.openCountBeforeAnnotationCancellationDrained).toBe(initialOpenCount);
 		expect(drainedCancellationIds).toContain(initialFileAnnotation.subscriptionId);
 		expect(
 			requiredReplacementOpen(
@@ -471,6 +487,14 @@ function requiredReplacementOpen(
 	return request;
 }
 
+function cancellationRequests(
+	requests: readonly BridgeProductControlRequest[],
+): readonly SubscriptionCancelRequest[] {
+	return requests.filter(
+		(request): request is SubscriptionCancelRequest => request.kind === 'subscription.cancel',
+	);
+}
+
 function requiredCancellation(
 	requests: readonly BridgeProductControlRequest[],
 	subscriptionId: string,
@@ -491,7 +515,8 @@ async function drainSurfaceCancellationsUntilReplacementMetadataOpen(props: {
 	readonly nextStreamSequence: () => number;
 	readonly streamRequest: BridgeProductMetadataStreamRequest;
 	readonly useNextStreamSequence: () => number;
-}): Promise<void> {
+}): Promise<{ readonly openCountBeforeAnnotationCancellationDrained: number | null }> {
+	let openCountBeforeAnnotationCancellationDrained: number | null = null;
 	while (
 		!hasReplacementOpen(
 			props.harness.server.controlRequests,
@@ -533,6 +558,11 @@ async function drainSurfaceCancellationsUntilReplacementMetadataOpen(props: {
 			props.useNextStreamSequence();
 			await props.harness.server.waitForFrameAcknowledgementCount(props.nextStreamSequence());
 		}
+		if (cancellation.subscriptionId === props.initialFileAnnotation.subscriptionId) {
+			openCountBeforeAnnotationCancellationDrained = subscriptionOpenRequests(
+				props.harness.server.controlRequests,
+			).length;
+		}
 		const openRequest =
 			cancellation.subscriptionId === props.initialFileAnnotation.subscriptionId
 				? props.initialFileAnnotation
@@ -556,6 +586,7 @@ async function drainSurfaceCancellationsUntilReplacementMetadataOpen(props: {
 		props.useNextStreamSequence();
 		await props.harness.server.waitForFrameAcknowledgementCount(props.nextStreamSequence());
 	}
+	return { openCountBeforeAnnotationCancellationDrained };
 }
 
 function annotationControlChangedFrame(props: {

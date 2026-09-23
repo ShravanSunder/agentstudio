@@ -194,9 +194,14 @@ export class BridgeCommWorkerAnnotationProjectionQueryController {
 				},
 				surface: this.#surface,
 			});
-			return subscription.cancel().then((): void => {
-				this.#retiringSurfaceSubscription = null;
-			});
+			// Settled either way, the sibling is terminal: a reset that races its cancel
+			// retires it just as completely, and the surface epoch may then advance.
+			return subscription
+				.cancel()
+				.catch((): void => {})
+				.then((): void => {
+					this.#retiringSurfaceSubscription = null;
+				});
 		}
 		return undefined;
 	}

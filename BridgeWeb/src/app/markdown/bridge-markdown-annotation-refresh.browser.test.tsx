@@ -1,7 +1,6 @@
 import { act, cloneElement, type ReactElement } from 'react';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { cleanup, render } from 'vitest-browser-react';
-import { page } from 'vitest/browser';
 
 import {
 	annotationHeadThreadId,
@@ -195,7 +194,6 @@ test('offers a neutral floating update action without moving the document', asyn
 	let durableReceipt:
 		| ReturnType<typeof harness.surface.settleMostRecentCommittedWithoutProjection>
 		| undefined;
-	await page.screenshot({ path: '../../../../tmp/bridgeweb-file-change-floating.png' });
 	await act(async (): Promise<void> => {
 		await updateButton.click();
 		durableReceipt = harness.surface.settleMostRecentCommittedWithoutProjection(
@@ -277,18 +275,27 @@ test('keeps the old document when preparation fails and retries the same update'
 	await screen.rerender(harness.wrap(await renderCandidate('Updated document', 2)));
 	await expect.element(screen.getByRole('status', { name: 'File changed' })).toBeVisible();
 	await expect.element(screen.getByRole('button', { name: 'Update Markdown file' })).toBeVisible();
+	// The arriving candidate already flushed the active editor once automatically.
+	const preparationCountBeforeUpdate = preparationCount;
 
 	await act(async (): Promise<void> => {
 		await screen.getByRole('button', { name: 'Update Markdown file' }).click();
 	});
 	await expect.element(screen.getByText('Original document', { exact: true })).toBeVisible();
 	await expect.element(screen.getByRole('status', { name: 'Update failed' })).toBeVisible();
+	expect(preparationCount).toBe(preparationCountBeforeUpdate + 1);
 	preparationSucceeds = true;
 	await act(async (): Promise<void> => {
 		await screen.getByRole('button', { name: 'Update Markdown file' }).click();
 	});
 	await expect.element(screen.getByText('Updated document', { exact: true })).toBeVisible();
-	expect(preparationCount).toBeGreaterThanOrEqual(2);
+	await expect
+		.element(screen.getByRole('status', { name: 'Update failed' }))
+		.not.toBeInTheDocument();
+	await expect
+		.element(screen.getByRole('status', { name: 'File changed' }))
+		.not.toBeInTheDocument();
+	expect(preparationCount).toBe(preparationCountBeforeUpdate + 2);
 });
 
 test('does not carry a failed update label into a later file change', async (): Promise<void> => {

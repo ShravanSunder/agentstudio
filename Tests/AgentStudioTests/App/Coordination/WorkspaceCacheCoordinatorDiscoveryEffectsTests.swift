@@ -158,6 +158,7 @@ struct WorkspaceCacheCoordinatorDiscoveryEffectsTests {
             gitStatusPhysicalGate: gitStatusPhysicalGate,
             filesystemSource: filesystemSource,
             windowLifecycleStore: WindowLifecycleAtom(),
+            ipcLifecycle: .testUnavailable,
             bridgePaneAttendance: BridgePaneAttendanceAtom()
         )
         let topologyEffects = RecordingForwardingTopologyEffectHandler(

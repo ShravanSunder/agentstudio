@@ -176,6 +176,88 @@ describe('Bridge product subscription state', () => {
 	});
 
 	test.each([
+		{ cancelTiming: 'after the failed open settles' },
+		{ cancelTiming: 'while the failing open is in flight' },
+	] as const)(
+		'settles cancellation of a subscription whose open was refused $cancelTiming',
+		async ({ cancelTiming }) => {
+			// Arrange: native refuses the open, as when the worktree annotation source
+			// is unavailable. The subscription becomes terminal through its open failure.
+			const openRefusal = new Error('Annotation source is unavailable.');
+			const openResponse = createBridgeProductDeferred<never>();
+			let cancelControlCount = 0;
+			const terminalErrors: unknown[] = [];
+			const state = new BridgeProductSubscriptionState({
+				controlMux: {
+					cancelSubscription: async (): Promise<void> => {
+						cancelControlCount += 1;
+					},
+					openSubscription: (): Promise<never> => openResponse.promise,
+					updateSubscriptionBatch: async (): Promise<never> => {
+						throw new Error('Refused-open test does not update subscriptions.');
+					},
+				},
+				createIdentifier: (): string => 'unused-refused-open-update',
+				ensureMetadataStream: async (): Promise<void> => {},
+				initialOptions: {},
+				onTerminal: (_subscriptionId, error): void => {
+					terminalErrors.push(error);
+				},
+				protocol: bridgeProductReviewAnnotationMetadataApplicationProtocol,
+				readWorkerDerivationEpochAtAdmission: (): number => 0,
+				subscriptionId: 'refused-open-subscription',
+			});
+			const terminalEvent = state.publicSubscription.events[Symbol.asyncIterator]().next();
+			void terminalEvent.catch((): void => {});
+			state.start();
+
+			// Act
+			let cancellation: Promise<void>;
+			if (cancelTiming === 'while the failing open is in flight') {
+				cancellation = state.cancel();
+				openResponse.reject(openRefusal);
+			} else {
+				openResponse.reject(openRefusal);
+				await expect(terminalEvent).rejects.toBe(openRefusal);
+				cancellation = state.cancel();
+			}
+
+			// Assert: retiring an already-terminal subscription is a local no-op, so a
+			// surface epoch change waiting on it can proceed to open its successor.
+			await expect(cancellation).resolves.toBeUndefined();
+			await expect(terminalEvent).rejects.toBe(openRefusal);
+			expect(cancelControlCount).toBe(0);
+			expect(terminalErrors).toEqual([openRefusal]);
+		},
+	);
+
+	test('still rejects cancellation when native refuses to cancel an active subscription', async () => {
+		// Arrange
+		const harness = createAnnotationControlHarness();
+		const state = new BridgeProductSubscriptionState({
+			controlMux: harness.controlMux,
+			createIdentifier: (): string => 'unused-active-cancel-update',
+			ensureMetadataStream: async (): Promise<void> => {},
+			initialOptions: {},
+			onTerminal: (): void => {},
+			protocol: bridgeProductReviewAnnotationMetadataApplicationProtocol,
+			readWorkerDerivationEpochAtAdmission: (): number => 0,
+			subscriptionId: 'active-cancel-refusal-subscription',
+		});
+		state.start();
+		await harness.capturedOpen;
+		await state.update({});
+
+		// Act
+		const cancellation = state.cancel();
+
+		// Assert: the settle-after-failure rule must not hide a live control failure.
+		await expect(cancellation).rejects.toThrow(
+			'Annotation admission harness does not cancel subscriptions.',
+		);
+	});
+
+	test.each([
 		'interest_mismatch',
 		'producer_overflow',
 		'sequence_gap',

@@ -21,6 +21,21 @@ struct CommandBarItemSearchTests {
     }
 
     @Test
+    func contiguousTitleMatchOutranksContiguousSubtitleMatch() {
+        // Arrange: both match contiguously; only the pane's match is in its subtitle.
+        let items = [
+            makeCommandBarItem(id: "pane", title: "Terminal", subtitle: "agent-studio.ipc-improvements"),
+            makeCommandBarItem(id: "worktree", title: "agent-studio.ipc-improvements"),
+        ]
+
+        // Act
+        let matches = CommandBarSearch.filter(items: items, query: "ipc")
+
+        // Assert: admitting contiguous matches must not flatten field weighting.
+        #expect(matches.map(\.id) == ["worktree", "pane"])
+    }
+
+    @Test
     func test_scoreItem_emptyQuery_returnsZero() {
         // Arrange
         let item = makeCommandBarItem(title: "Close Tab")

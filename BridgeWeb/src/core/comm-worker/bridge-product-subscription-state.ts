@@ -210,9 +210,13 @@ export class BridgeProductSubscriptionState<
 	}
 
 	cancel(): Promise<void> {
+		// Every rejected operation has already made this subscription terminal, so
+		// cancellation waits for the prior operation to settle, not to succeed.
 		return this.#enqueue(async (): Promise<void> => {
 			if (this.#terminal) return;
 			const cancelled = createBridgeProductDeferred<void>();
+			// A refused cancel control fails the subscription before this is awaited.
+			void cancelled.promise.catch((): void => {});
 			this.#pendingCancel = cancelled;
 			await this.#controlMux.cancelSubscription({
 				subscriptionId: this.subscriptionId,
@@ -220,7 +224,7 @@ export class BridgeProductSubscriptionState<
 				workerDerivationEpoch: this.#requiredAdmittedWorkerDerivationEpoch(),
 			});
 			await cancelled.promise;
-		});
+		}, 'afterPriorSettles');
 	}
 
 	acceptFrame(frame: BridgeProductSubscriptionFrame): void {
@@ -535,8 +539,13 @@ export class BridgeProductSubscriptionState<
 		pending.completion.resolve();
 	}
 
-	#enqueue(operation: () => Promise<void>): Promise<void> {
-		const result = this.#operation.then(async (): Promise<void> => {
+	#enqueue(
+		operation: () => Promise<void>,
+		admission: 'afterPriorSucceeds' | 'afterPriorSettles' = 'afterPriorSucceeds',
+	): Promise<void> {
+		const prior =
+			admission === 'afterPriorSettles' ? this.#operation.catch((): void => {}) : this.#operation;
+		const result = prior.then(async (): Promise<void> => {
 			while (this.#recoveryGate !== null) {
 				// eslint-disable-next-line no-await-in-loop -- Recheck admission if another recovery began while this gate resolved.
 				await this.#recoveryGate.promise;

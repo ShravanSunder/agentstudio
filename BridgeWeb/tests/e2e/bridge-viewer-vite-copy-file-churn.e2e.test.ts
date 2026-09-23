@@ -34,6 +34,11 @@ test('copies a current saved File annotation while the next real file refresh is
 			status: 'output',
 		});
 		expect(observations.evidence.fileAnnotationOpenEpochs.length).toBeGreaterThan(0);
+		// File annotations follow the File surface epoch forward; a reopen at an older
+		// epoch is the stale-subscription failure this journey guards against.
+		expect(observations.evidence.fileAnnotationOpenEpochs).toEqual(
+			observations.evidence.fileAnnotationOpenEpochs.toSorted((left, right) => left - right),
+		);
 		expect(observations.evidence.subscriptionUpdateCount).toBeGreaterThan(0);
 		expect(observations.evidence.transportRequests).toContainEqual(
 			expect.objectContaining({
