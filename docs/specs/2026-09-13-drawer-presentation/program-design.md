@@ -377,16 +377,20 @@ retention set, so those entries cannot resurrect a pane. The map is reset on
 workspace composition replacement. This session-lifetime residue avoids adding
 new topology notifications solely to reclaim two preference fields.
 
-**Global preference cutover.** On the local schema upgrade, import the finite,
-clamped legacy global ratio for currently persisted owning panes across existing
-workspaces; new panes use `0.8`. Seed terminal side. Capture core identities and
-the legacy value before the local migration transaction; the local schema
-version records completion only after the rows commit. A failed migration uses
-the existing local-database failure policy. After successful upgrade there is
-one read/write path: local preferences. Remove both runtime global-height
-readers and clear the legacy key after the import commits; it is no longer a
-runtime fallback. No old/new runtime mode or durable
-core/undo-payload migration is introduced.
+**Global preference cutover.** Local migration 015 only creates the
+`local_drawer_presentation` table. The legacy import is a one-time boot data
+step outside the migrator, run after local migrations; the presence of the
+legacy global-height key is its pending marker. When the key holds a finite
+value, the step captures the persisted owning panes across existing workspaces
+from core, then inserts the clamped legacy ratio with terminal side for each of
+them in one local transaction (`INSERT OR IGNORE`, so a row an ordinary save
+already wrote is kept); new panes use `0.8`. The key is removed only after that
+transaction commits. If owner enumeration or the write fails, nothing is
+written, the key is kept, and the next boot tries again; local database opening
+is unaffected. After the import there is one read/write path: local
+preferences. Both runtime global-height readers are removed; the key is never a
+runtime fallback. No conditionally registered migration, old/new runtime mode,
+or durable core/undo-payload migration is introduced.
 
 ## Changed paths and preserved boundaries
 
