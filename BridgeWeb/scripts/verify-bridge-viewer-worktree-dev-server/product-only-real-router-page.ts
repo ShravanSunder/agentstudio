@@ -24,6 +24,7 @@ import {
 	type BridgeViewerProductOnlyJourneyProof,
 	type BridgeViewerProductRouteTranscriptEntry,
 	type BridgeViewerReviewProductStateSnapshot,
+	type BridgeViewerUnresolvedWaiter,
 } from './product-only-real-router-contract.ts';
 import {
 	bridgeViewerJourneyFailureCode,
@@ -445,12 +446,17 @@ export class BridgeViewerRealRouterObserver {
 		return this.#productEntries.map((entry) => ({ ...entry }));
 	}
 
+	// Armed before the reload navigation: the waiters belong to the next page
+	// generation, which begins when the main frame commits the new document.
 	armReloadJoinWaiters(): BridgeViewerReloadJoinResponses {
-		return this.#reloadJoinDiagnostics.arm(
-			this.#page,
-			this.#nextOrdinal,
-			productJourneyTimeoutMilliseconds,
-		);
+		return this.#reloadJoinDiagnostics.arm({
+			armOrdinal: this.#nextOrdinal,
+			page: this.#page,
+			requestDocumentGeneration: (request: PlaywrightRequest): number | null =>
+				this.#productEntryByRequest.get(request)?.documentGeneration ?? null,
+			targetDocumentGeneration: this.#documentGeneration() + 1,
+			timeoutMilliseconds: productJourneyTimeoutMilliseconds,
+		});
 	}
 
 	emitReloadJoinFailureDiagnostics(workers: readonly MutableObservedWorker[]): void {
@@ -468,7 +474,24 @@ export class BridgeViewerRealRouterObserver {
 					return ordinal === undefined ? [] : [ordinal];
 				})
 				.toSorted((left, right): number => left - right),
+			unresolvedWaiters: this.#unresolvedWaiters(),
 		};
+	}
+
+	#unresolvedWaiters(): readonly BridgeViewerUnresolvedWaiter[] {
+		const productResponseQuiescenceWaiters: readonly BridgeViewerUnresolvedWaiter[] =
+			this.#productResponseClosureWaiters.size > 0
+				? [
+						{
+							documentGeneration: this.#documentGeneration(),
+							name: 'product-response-quiescence',
+						},
+					]
+				: [];
+		return [
+			...this.#reloadJoinDiagnostics.unresolvedWaiters(),
+			...productResponseQuiescenceWaiters,
+		];
 	}
 
 	legacyRouteTranscript(): readonly BridgeViewerLegacyRouteTranscriptEntry[] {

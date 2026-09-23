@@ -212,7 +212,55 @@ describe('BridgeViewerRealRouterObserver', () => {
 				}),
 			],
 			unfinishedRequestOrdinals: [],
+			unresolvedWaiters: [],
 		});
+	});
+
+	test('settles a reload waiter only with a response to a request from the next page generation', async () => {
+		// Arrange: the previous document sent a frame acknowledgement before the reload.
+		const harness = makeObserverHarness();
+		let documentGeneration = 1;
+		const observer = new BridgeViewerRealRouterObserver(
+			harness.page,
+			(): number => documentGeneration,
+		);
+		const staleAcknowledgementRequest = makeFrameObservationRequest();
+		harness.emit('request', staleAcknowledgementRequest);
+		const reloadJoin = observer.armReloadJoinWaiters();
+		let settledAcknowledgement: PlaywrightResponse | null = null;
+		const acknowledgement = reloadJoin.frameAcknowledgement.then(
+			(response: PlaywrightResponse): PlaywrightResponse => {
+				settledAcknowledgement = response;
+				return response;
+			},
+		);
+
+		// Act: the new document commits, then the previous document's response arrives first.
+		documentGeneration = 2;
+		harness.emit('response', makeBodylessCommandResponse(staleAcknowledgementRequest));
+		await flushMicrotasks();
+
+		// Assert
+		expect(settledAcknowledgement).toBeNull();
+		expect(observer.failureTransportSnapshot().unresolvedWaiters).toContainEqual({
+			documentGeneration: 2,
+			name: 'frame-acknowledgement',
+		});
+
+		// Act: the new document's own acknowledgement arrives.
+		const currentAcknowledgementRequest = makeFrameObservationRequest();
+		const currentAcknowledgementResponse = makeBodylessCommandResponse(
+			currentAcknowledgementRequest,
+		);
+		harness.emit('request', currentAcknowledgementRequest);
+		harness.emit('response', currentAcknowledgementResponse);
+
+		// Assert
+		await expect(acknowledgement).resolves.toBe(currentAcknowledgementResponse);
+		expect(observer.failureTransportSnapshot().unresolvedWaiters).toEqual([
+			{ documentGeneration: 2, name: 'file-metadata-open' },
+			{ documentGeneration: 2, name: 'review-metadata-open' },
+		]);
 	});
 });
 
@@ -395,6 +443,12 @@ function makeObserverHarness(): {
 	readonly resolveNextAnimationFrame: () => void;
 } {
 	const eventHandlers = new Map<PageEventName, PageEventHandler[]>();
+	// Playwright evaluates each waitForResponse predicate against every later
+	// `response` event and settles the waiter with the first match.
+	const responseWaiters: Array<{
+		readonly predicate: (response: PlaywrightResponse) => boolean;
+		readonly resolve: (response: PlaywrightResponse) => void;
+	}> = [];
 	const animationFrameResolvers: Array<() => void> = [];
 	let activeFrameSettlement:
 		| {
@@ -417,6 +471,12 @@ function makeObserverHarness(): {
 			handlers.push(eventHandler);
 			eventHandlers.set(eventName, handlers);
 		},
+		waitForResponse: async (
+			predicate: (response: PlaywrightResponse) => boolean,
+		): Promise<PlaywrightResponse> =>
+			await new Promise<PlaywrightResponse>((resolve): void => {
+				responseWaiters.push({ predicate, resolve });
+			}),
 		waitForFunction: async (): Promise<void> => {
 			const frameSettlement = activeFrameSettlement;
 			if (frameSettlement === undefined) {
@@ -432,6 +492,13 @@ function makeObserverHarness(): {
 	return {
 		emit: (eventName, event): void => {
 			for (const eventHandler of eventHandlers.get(eventName) ?? []) eventHandler(event);
+			if (eventName !== 'response') return;
+			const response = event as PlaywrightResponse;
+			for (const [waiterIndex, waiter] of [...responseWaiters.entries()].toReversed()) {
+				if (!waiter.predicate(response)) continue;
+				responseWaiters.splice(waiterIndex, 1);
+				waiter.resolve(response);
+			}
 		},
 		page: pageShape as unknown as Page,
 		pendingAnimationFrameCount: (): number => animationFrameResolvers.length,
@@ -472,6 +539,27 @@ function makeProductContentRequest(contentRequestId: string): PlaywrightRequest 
 			}),
 		url: (): string => 'http://127.0.0.1:5173/__bridge-product/content',
 	} as unknown as PlaywrightRequest;
+}
+
+function makeFrameObservationRequest(): PlaywrightRequest {
+	return {
+		method: (): string => 'POST',
+		postData: (): string =>
+			JSON.stringify({
+				kind: 'stream.frameObserved',
+				paneSessionId: 'pane-session-secret',
+				workerInstanceId: 'worker-instance-secret',
+			}),
+		url: (): string => 'http://127.0.0.1:5173/__bridge-product/command',
+	} as unknown as PlaywrightRequest;
+}
+
+function makeBodylessCommandResponse(request: PlaywrightRequest): PlaywrightResponse {
+	return {
+		request: (): PlaywrightRequest => request,
+		status: (): number => 204,
+		url: (): string => request.url(),
+	} as unknown as PlaywrightResponse;
 }
 
 function makeSuccessfulResponse(request: PlaywrightRequest): PlaywrightResponse {
