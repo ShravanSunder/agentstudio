@@ -90,8 +90,29 @@ struct AgentStudioIPCLayoutAdapter: AppIPCLayoutPort, @unchecked Sendable {
         let paneId = try resolvePaneId(try IPCHandle.parse(params.handle), in: snapshot)
         let tabId = try resolveTabId(forPaneId: paneId, in: snapshot)
         try await executeLayoutAction(
-            .closePane(tabId: tabId, paneId: paneId), ownPaneAssertion: ownPaneAssertion, refusedName: "pane.close")
+            closeAction(tabId: tabId, paneId: paneId, in: snapshot, ownPaneAssertion: ownPaneAssertion),
+            ownPaneAssertion: ownPaneAssertion,
+            refusedName: "pane.close"
+        )
         return IPCPaneCloseResult(paneId: paneId, correlationId: params.correlationId)
+    }
+
+    /// A pane agent may close only its own drawer child, whose parent is the
+    /// agent's bound pane. That close takes the drawer-close semantics the
+    /// catalog's `closeDrawerPane` uses, which re-select an unminimized sibling;
+    /// the validator re-checks the parent relationship when the gesture runs.
+    private func closeAction(
+        tabId: UUID,
+        paneId: UUID,
+        in snapshot: ProgrammaticControlWorkspaceSnapshot,
+        ownPaneAssertion: AppIPCOwnPaneAssertion?
+    ) -> WorkspaceActionCommand {
+        guard let ownPaneAssertion,
+            snapshot.panes.contains(where: { $0.id == paneId && $0.isDrawerChild })
+        else {
+            return .closePane(tabId: tabId, paneId: paneId)
+        }
+        return .removeDrawerPane(parentPaneId: ownPaneAssertion.boundPaneId, drawerPaneId: paneId)
     }
 
     func addDrawerPane(
