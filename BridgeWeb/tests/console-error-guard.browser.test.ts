@@ -1,4 +1,5 @@
 import { createElement, type ReactElement, useState } from 'react';
+import { test } from 'vitest';
 import { render } from 'vitest-browser-react';
 
 import { defineConsoleErrorGuardProbe } from './console-error-guard-probe.ts';
@@ -20,4 +21,9 @@ defineConsoleErrorGuardProbe({
 		await render(createElement(ActWarningProbe));
 		setActWarningProbeCount?.(1);
 	},
+});
+
+// The browser suite keeps its broad guard: any console.error fails the test.
+test.fails('fails a browser test on an ordinary console.error', () => {
+	console.error('Bridge browser diagnostic that is not a React act() warning');
 });

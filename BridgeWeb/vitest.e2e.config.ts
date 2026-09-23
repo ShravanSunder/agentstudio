@@ -1,5 +1,6 @@
 import { defineConfig } from 'vitest/config';
 
+import { reactActWarningGuardScope } from './tests/console-error-guard-scope.ts';
 import {
 	endToEndHookTimeoutMilliseconds,
 	endToEndTestTimeoutMilliseconds,
@@ -15,6 +16,7 @@ export default defineConfig({
 			'tests/e2e/**/*.e2e.test.ts',
 			'tests/e2e/**/*.e2e.test.tsx',
 		],
+		provide: reactActWarningGuardScope,
 		setupFiles: ['./tests/console-error-guard.ts'],
 		// The runner's hang bound, and the only clock these journeys are allowed; see
 		// tests/vitest-hang-bounds.ts.

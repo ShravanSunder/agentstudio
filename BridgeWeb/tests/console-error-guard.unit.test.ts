@@ -1,3 +1,5 @@
+import { test } from 'vitest';
+
 import {
 	actWarningProbeComponentName,
 	defineConsoleErrorGuardProbe,
@@ -13,4 +15,8 @@ defineConsoleErrorGuardProbe({
 			actWarningProbeComponentName,
 		);
 	},
+});
+
+test('an ordinary console.error does not fail a unit test; only act() warnings do', () => {
+	console.error('Bridge unit diagnostic that is not a React act() warning');
 });

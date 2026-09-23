@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vitest/config';
 
+import { reactActWarningGuardScope } from './tests/console-error-guard-scope.ts';
 import { unitTestTimeoutMilliseconds } from './tests/vitest-hang-bounds.ts';
 
 const bridgeWebPackageRoot = dirname(fileURLToPath(import.meta.url));
@@ -24,6 +25,7 @@ export default defineConfig({
 			'src/**/*.unit.test.tsx',
 			'tests/**/*.unit.test.ts',
 		],
+		provide: reactActWarningGuardScope,
 		setupFiles: ['./tests/console-error-guard.ts'],
 		testTimeout: unitTestTimeoutMilliseconds,
 		exclude: ['**/node_modules/**', '**/dist/**'],

@@ -1,9 +1,19 @@
-import { afterEach, beforeEach } from 'vitest';
+import { afterEach, beforeEach, inject } from 'vitest';
+
+import type { ConsoleErrorGuardScope } from './console-error-guard-scope.ts';
 
 // One console.error guard for every BridgeWeb Vitest suite (unit, node-integration,
-// browser-integration and E2E). React reports act() warnings, key warnings and
-// render errors through console.error, so a test that emits one fails here and
-// the failure carries the formatted message, which names the component.
+// browser-integration and E2E). Each config declares its scope (see
+// ./console-error-guard-scope.ts): the browser suite fails on every console.error,
+// the node suites only on React act() warnings. The failure carries the
+// formatted message, which names the component.
+const guardScope: ConsoleErrorGuardScope | undefined = inject('consoleErrorGuardScope');
+if (guardScope === undefined) {
+	throw new Error(
+		'BridgeWeb console error guard needs `provide: { consoleErrorGuardScope }` in the Vitest config.',
+	);
+}
+const reactActWarningPattern = /not wrapped in act\(|not configured to support act\(/u;
 const allowedConsoleErrorSubstrings: readonly string[] = [
 	'flushSync was called from inside a lifecycle method',
 ];
@@ -31,7 +41,7 @@ function installConsoleErrorGuard(): void {
 	originalConsoleError = consoleErrorBeforeGuard;
 	console.error = (...args: readonly unknown[]): void => {
 		const message = formatConsoleArguments(args);
-		if (!isAllowedConsoleError(message)) {
+		if (isGuardedConsoleError(message)) {
 			guardedConsoleErrorMessages.push(`console.error: ${message}`);
 		}
 		consoleErrorBeforeGuard(...args);
@@ -48,8 +58,11 @@ function uninstallConsoleErrorGuard(): readonly string[] {
 	return failureMessages;
 }
 
-function isAllowedConsoleError(message: string): boolean {
-	return allowedConsoleErrorSubstrings.some((allowedSubstring: string): boolean =>
+function isGuardedConsoleError(message: string): boolean {
+	if (guardScope === 'react-act-warnings') {
+		return reactActWarningPattern.test(message);
+	}
+	return !allowedConsoleErrorSubstrings.some((allowedSubstring: string): boolean =>
 		message.includes(allowedSubstring),
 	);
 }

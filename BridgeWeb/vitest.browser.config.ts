@@ -6,6 +6,7 @@ import { playwright } from '@vitest/browser-playwright';
 import { defineConfig, type TestUserConfig } from 'vitest/config';
 
 import { bridgeViteOptimizedDependencies } from './bridge-vite-optimized-dependencies.js';
+import { everyConsoleErrorGuardScope } from './tests/console-error-guard-scope.ts';
 import {
 	browserBenchmarkTestTimeoutMilliseconds,
 	browserIntegrationTestTimeoutMilliseconds,
@@ -67,6 +68,7 @@ export default defineConfig({
 				},
 				test: {
 					name: 'integration-browser',
+					provide: everyConsoleErrorGuardScope,
 					setupFiles: ['./tests/console-error-guard.ts', './tests/vitest-browser-setup.ts'],
 					browser: browserConfig,
 					testTimeout: browserIntegrationTestTimeoutMilliseconds,
@@ -101,6 +103,7 @@ export default defineConfig({
 				test: {
 					name: 'benchmarks-browser',
 					testTimeout: browserBenchmarkTestTimeoutMilliseconds,
+					provide: everyConsoleErrorGuardScope,
 					setupFiles: ['./tests/console-error-guard.ts', './tests/vitest-browser-setup.ts'],
 					browser: {
 						...browserConfig,
