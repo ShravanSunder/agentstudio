@@ -190,6 +190,10 @@ package enum WorkspaceActionCommand: Equatable, Hashable {
         direction: SplitNewDirection,
         sizingMode: DropSizingMode
     )
+    /// Commit the owning pane's normal drawer height after a completed resize.
+    case setDrawerNormalHeightRatio(parentPaneId: UUID, ratio: Double)
+    /// Choose the Pane Zoom region the owning pane's drawer covers.
+    case setDrawerZoomSide(parentPaneId: UUID, side: DrawerZoomSide)
     /// Move an existing drawer pane within the same drawer layout.
     case moveDrawerPane(
         parentPaneId: UUID,
