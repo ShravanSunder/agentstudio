@@ -82,13 +82,29 @@ struct AppIPCPaneAgentAuthorizationTests {
         try await scenario.authorize(
             boundPaneId, "pane.close", paneIds: [childPaneId], rule: .closesPane(childPaneId))
         try await scenario.authorize(
-            boundPaneId, "drawer.addPane", paneIds: [boundPaneId], rule: .addsDrawerChild(parentPaneId: boundPaneId))
+            boundPaneId, "drawer.addPane", paneIds: [boundPaneId],
+            rule: .addsDrawerChild(parentPaneId: boundPaneId, content: .terminal))
         let nestedAdd = try await scenario.refusal(
             drawerTerminalId, "drawer.addPane", paneIds: [drawerTerminalId],
-            rule: .addsDrawerChild(parentPaneId: drawerTerminalId))
+            rule: .addsDrawerChild(parentPaneId: drawerTerminalId, content: .terminal))
         let addUnderChild = try await scenario.refusal(
-            boundPaneId, "drawer.addPane", paneIds: [childPaneId], rule: .addsDrawerChild(parentPaneId: childPaneId))
+            boundPaneId, "drawer.addPane", paneIds: [childPaneId],
+            rule: .addsDrawerChild(parentPaneId: childPaneId, content: .terminal))
 
+        for (content, admitted) in [
+            (IPCDrawerChildContent.browser(url: "https://example.com/docs"), true),
+            (.browser(url: "http://localhost:8080"), true),
+            (.browser(url: "file:///etc/passwd"), false),
+            (.browser(url: "javascript:alert(1)"), false),
+            (.browser(url: "not a url"), false),
+            (.bridge, false),
+            (.codeViewer, false),
+        ] {
+            let refusal = try await scenario.refusal(
+                boundPaneId, "drawer.addPane", paneIds: [boundPaneId],
+                rule: .addsDrawerChild(parentPaneId: boundPaneId, content: content))
+            #expect(refusal == (admitted ? nil : .refusedForAgent("drawer.addPane")), "\(content)")
+        }
         #expect(closeSelf == .refusedForAgent("pane.close"))
         #expect(nestedAdd == .refusedForAgent("drawer.addPane"))
         #expect(addUnderChild == .refusedForAgent("drawer.addPane"))

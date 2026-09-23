@@ -109,7 +109,7 @@ package enum WorkspaceCommandValidator {
             [paneId]
         case .removeDrawerPane(let parentPaneId, let drawerPaneId):
             [parentPaneId, drawerPaneId]
-        case .addDrawerPane(let parentPaneId):
+        case .addDrawerPane(let parentPaneId), .addDrawerChildInBackground(let parentPaneId, _, _):
             [parentPaneId]
         default:
             nil
@@ -461,6 +461,15 @@ package enum WorkspaceCommandValidator {
             .addWebviewDrawerPane(let parentPaneId, _):
             guard state.tabShowing(paneId: parentPaneId) != nil else {
                 return .failure(.paneNotFound(paneId: parentPaneId, tabId: state.activeTabId ?? UUID()))
+            }
+            return .success(ValidatedAction(action))
+        case .addDrawerChildInBackground(let parentPaneId, let childPaneId, _):
+            guard state.tabOwning(paneId: parentPaneId) != nil, state.drawerParentPaneId(of: parentPaneId) == nil
+            else {
+                return .failure(.paneNotFound(paneId: parentPaneId, tabId: state.activeTabId ?? UUID()))
+            }
+            guard !state.knownPaneIds.contains(childPaneId) else {
+                return .failure(.paneAlreadyInLayout(paneId: childPaneId))
             }
             return .success(ValidatedAction(action))
         case .removeDrawerPane(let parentPaneId, _):

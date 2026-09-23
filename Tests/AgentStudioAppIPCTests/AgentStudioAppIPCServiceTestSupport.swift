@@ -39,7 +39,8 @@ struct FakeLayoutPort: AppIPCLayoutPort {
         guard case .canonicalUUID(let paneId) = handle.reference else {
             throw AppIPCLayoutError(reason: .targetNotFound)
         }
-        return IPCDrawerAddPaneResult(parentPaneId: paneId, correlationId: params.correlationId)
+        return IPCDrawerAddPaneResult(
+            parentPaneId: paneId, childPaneId: UUID(), correlationId: params.correlationId)
     }
 
     func toggleDrawer(_ params: IPCDrawerToggleParams) throws -> IPCDrawerToggleResult {

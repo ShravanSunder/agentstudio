@@ -43,6 +43,14 @@ struct AppIPCPaneAgentAuthorization: Sendable {
         return methodRegistry.commandAgentEligibility(commandId)
     }
 
+    private static func drawerMayHold(_ content: IPCDrawerChildContent) -> Bool {
+        switch content {
+        case .terminal: true
+        case .browser: content.admissibleBrowserURL != nil
+        case .bridge, .codeViewer: false
+        }
+    }
+
     static func checkArgumentRule(
         _ rule: AppIPCAgentArgumentRule,
         scope: AppIPCOwnPaneScope,
@@ -55,8 +63,8 @@ struct AppIPCPaneAgentAuthorization: Sendable {
             guard paneId != scope.boundPaneId else {
                 throw AuthorizationError.refusedForAgent(refusedName)
             }
-        case .addsDrawerChild(let parentPaneId):
-            guard !scope.isDrawerTerminal, parentPaneId == scope.boundPaneId else {
+        case .addsDrawerChild(let parentPaneId, let content):
+            guard !scope.isDrawerTerminal, parentPaneId == scope.boundPaneId, Self.drawerMayHold(content) else {
                 throw AuthorizationError.refusedForAgent(refusedName)
             }
         }

@@ -158,6 +158,49 @@ struct AgentStudioIPCPaneAgentControlTests {
     }
 
     @Test(
+        "an agent adds a background drawer child, targets it by the returned handle, and cannot add Bridge content",
+        arguments: [AgentStudioIPCChannel.debug, .stable]
+    )
+    func agentAddsAndTargetsBackgroundDrawerChild(channel: AgentStudioIPCChannel) async throws {
+        let harness = try await PaneAgentControlHarness.make(channel: channel)
+        defer { harness.tearDown() }
+        let token = try harness.agentToken(boundTo: harness.mainPaneId)
+        let before = harness.workspaceFacts()
+
+        let add = try await harness.response(
+            token: token, method: "drawer.addPane",
+            params: .object([
+                "parentPaneHandle": .string("self"),
+                "content": .object(["kind": .string("browser"), "url": .string("https://example.com")]),
+                "correlationId": .string(UUIDv7.generate().uuidString),
+            ]))
+        let added = try decodeAddResult(add)
+        let snapshot = try await harness.response(
+            token: token, method: "pane.snapshot", params: .object(["handle": .string(added.childHandle)]))
+        let bridge = try await harness.response(
+            token: token, method: "drawer.addPane",
+            params: .object([
+                "parentPaneHandle": .string("self"), "content": .object(["kind": .string("bridge")]),
+                "correlationId": .string(UUIDv7.generate().uuidString),
+            ]))
+
+        #expect(added.parentPaneId == harness.mainPaneId)
+        #expect(snapshot.error == nil, "pane.snapshot child: \(String(describing: snapshot.error))")
+        #expect(PaneAgentRefusal(bridge) == .refusedForAgent("drawer.addPane"))
+        let after = harness.workspaceFacts()
+        #expect(after.drawerChildIds == before.drawerChildIds + [added.childPaneId])
+        #expect(after.isDrawerExpanded == before.isDrawerExpanded)
+        #expect(after.activeDrawerChildId == before.activeDrawerChildId)
+        #expect(after.activeTabId == before.activeTabId)
+        #expect(after.activePaneId == before.activePaneId)
+    }
+
+    private func decodeAddResult(_ response: JSONRPCResponseMessage) throws -> IPCDrawerAddPaneResult {
+        let result = try #require(response.result, "drawer.addPane: \(String(describing: response.error))")
+        return try JSONDecoder().decode(IPCDrawerAddPaneResult.self, from: JSONEncoder().encode(result))
+    }
+
+    @Test(
         "an agent closes its own drawer child through the catalog command",
         arguments: [AgentStudioIPCChannel.debug, .stable]
     )

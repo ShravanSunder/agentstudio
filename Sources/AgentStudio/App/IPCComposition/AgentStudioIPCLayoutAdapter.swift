@@ -1,5 +1,6 @@
 import AgentStudioAppIPC
 import AgentStudioCore
+import AgentStudioInfrastructure
 import AgentStudioProgrammaticControl
 import Foundation
 
@@ -103,9 +104,43 @@ struct AgentStudioIPCLayoutAdapter: AppIPCLayoutPort, @unchecked Sendable {
         let snapshot = workspaceStore.programmaticControlSnapshot()
         let paneId = try resolvePaneId(try IPCHandle.parse(params.parentPaneHandle), in: snapshot)
         try validateDrawerParent(paneId, in: snapshot)
+        let content = try Self.backgroundDrawerChildContent(params.content ?? .terminal)
+        // IPC creates drawer children in the background: the drawer's
+        // expansion, selection and keyboard focus stay as they were. The child
+        // is named up front so the caller can target it.
+        let childPaneId = UUIDv7.generate()
         try await executeLayoutAction(
-            .addDrawerPane(parentPaneId: paneId), ownPaneAssertion: ownPaneAssertion, refusedName: "drawer.addPane")
-        return IPCDrawerAddPaneResult(parentPaneId: paneId, correlationId: params.correlationId)
+            .addDrawerChildInBackground(parentPaneId: paneId, childPaneId: childPaneId, content: content),
+            ownPaneAssertion: ownPaneAssertion,
+            refusedName: "drawer.addPane"
+        )
+        guard
+            workspaceStore.programmaticControlSnapshot().panes.contains(where: {
+                $0.id == childPaneId && $0.isDrawerChild
+            })
+        else {
+            throw AppIPCLayoutError(reason: .validationRejected)
+        }
+        return IPCDrawerAddPaneResult(
+            parentPaneId: paneId, childPaneId: childPaneId, correlationId: params.correlationId)
+    }
+
+    /// Drawers hold terminals and browsers only; Bridge, code-viewer and
+    /// non-http(s) browser requests are refused before any pane is created.
+    private static func backgroundDrawerChildContent(
+        _ content: IPCDrawerChildContent
+    ) throws -> BackgroundDrawerChildContent {
+        switch content {
+        case .terminal:
+            return .terminal
+        case .browser:
+            guard let url = content.admissibleBrowserURL else {
+                throw AppIPCLayoutError(reason: .validationRejected)
+            }
+            return .webview(WebviewState(url: url))
+        case .bridge, .codeViewer:
+            throw AppIPCLayoutError(reason: .validationRejected)
+        }
     }
 
     func toggleDrawer(_ params: IPCDrawerToggleParams) async throws -> IPCDrawerToggleResult {

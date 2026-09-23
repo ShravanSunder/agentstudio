@@ -48,8 +48,9 @@ package enum AppIPCAgentArgumentRule: Equatable, Sendable {
     /// Closes this pane. An agent never closes its own pane.
     case closesPane(UUID)
     /// Adds a drawer child under this parent. Only an agent in a main-layout
-    /// terminal may add, and only to its own drawer.
-    case addsDrawerChild(parentPaneId: UUID)
+    /// terminal may add, only to its own drawer, and only a terminal or a
+    /// browser with an http or https URL.
+    case addsDrawerChild(parentPaneId: UUID, content: IPCDrawerChildContent)
 }
 
 /// The pane agent an effect was authorized for, handed to the port that

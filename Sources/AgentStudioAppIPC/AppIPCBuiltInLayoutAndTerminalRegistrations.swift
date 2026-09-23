@@ -129,10 +129,13 @@ extension AppIPCBuiltInMethodRegistrations {
                         parameters,
                         rawHandle: parameters.parentPaneHandle,
                         tools: tools,
-                        agentArgumentRule: { .addsDrawerChild(parentPaneId: $0) },
+                        agentArgumentRule: {
+                            .addsDrawerChild(parentPaneId: $0, content: parameters.content ?? .terminal)
+                        },
                         replacingHandle: { original, canonicalHandle in
                             IPCDrawerAddPaneParams(
                                 parentPaneHandle: canonicalHandle,
+                                content: original.content,
                                 correlationId: original.correlationId
                             )
                         }
