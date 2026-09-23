@@ -24,7 +24,7 @@ package actor WorkspaceSQLiteDatastoreActor {
         var database: PreparedLocalDatabase
         var diagnostic: WorkspaceSQLitePreparationTraceRecord?
     }
-    private var backend: WorkspaceSQLiteStoreBackend?
+    private(set) var backend: WorkspaceSQLiteStoreBackend?
     private var applicationLocalRepositoryBundle: ApplicationLocalRepositoryBundle?
     private let configuration: WorkspaceSQLiteDatastoreConfiguration?
     private let beforeFreshLocalDatabaseCreation: (@Sendable () throws -> Void)?
