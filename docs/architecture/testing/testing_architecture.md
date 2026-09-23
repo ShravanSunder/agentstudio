@@ -289,8 +289,8 @@ Everything in [`Tests/AgentStudioTests/TestSupport/`](../../../Tests/AgentStudio
 
 ### Legacy polling helpers — do not add call sites
 
-These exist, they are held by the lint baseline, and they are being converted
-under PR 2. Do not call them from new code.
+These exist, they are counted in the architecture debt ledger, and they are
+being converted under PR 2. Do not call them from new code.
 
 | Helper | Why it is a poll |
 | --- | --- |
@@ -376,19 +376,34 @@ hang bound; skipping the test; quarantining it; bumping a `.timeLimit`; removing
 an assertion without a replacement that states the invariant at least as
 strongly.
 
+**A red lint or ratchet step is diagnosed the same way.** A guardrail diagnostic
+names its rule and site; fix the site. A file over its count in the
+[debt ledger](../../../Tools/AgentStudioArchitectureLint/architecture-debt-ledger.tsv)
+reports every site in that file with both counts — the new site is the fix, not
+the row. A file under its count, or a row whose file is gone, names the row to
+lower or remove (`--lower-ledger-counts` does exactly that, and nothing more).
+The `Debt ledger ratchet` CI step fails when a pull request raises a row or adds
+one compared with the merge base; raising a count is never the response. The
+lint prints per-stage and per-rule timings on every run; a slow rule is a defect
+to fix, and no timing changes the verdict.
+
 ## Workarounds and hand-kept lists
 
 A version pin or a note that exists for a workaround must state the condition
 under which it is removed, and must be removed once that condition is met.
 
 A hand-maintained list that test correctness depends on — the set of suites that
-need process isolation, the lint baselines — must be verified by a gate, so that
+need process isolation, the lint debt — must be verified by a gate, so that
 a member cannot silently fall out. The isolation list has
 [`SwiftLaneIsolationListGateTests`](../../../Tests/AgentStudioTests/Scripts/SwiftLaneIsolationListGateTests.swift).
-The polling baseline, `ArchitectureAllowlists.pollingWaitKnownDebt`, is
-shrink-only: a file outside it that polls fails the gate, a file inside it
-that no longer polls fails the gate until its entry is removed, and a listed
-path that no longer exists fails the gate until its entry is removed.
+Lint debt — polling waits, blocking waits, ad-hoc gates, void wait helpers and
+the MainActor shapes — lives in one file,
+[`architecture-debt-ledger.tsv`](../../../Tools/AgentStudioArchitectureLint/architecture-debt-ledger.tsv),
+as a permitted site count per rule and file. Every lint run requires each file
+to hold exactly its count, so the ledger always states the real debt; the CI
+ratchet rejects a raised count or a new row. The ledger and the ratchet are
+described in the
+[architecture lint inventory](../structure/architecture_lint_inventory.md#debt-ledger).
 
 ## BridgeWeb
 
@@ -418,7 +433,9 @@ See [`BridgeWeb/AGENTS.md` — Test Waits](../../../BridgeWeb/AGENTS.md#test-wai
 | [`TestPollingWaitRule.swift`](../../../Tools/AgentStudioArchitectureLint/Sources/AgentStudioArchitectureLintCore/Rules/TestPollingWaitRule.swift) | `agentstudio_no_polling_wait_in_tests` |
 | [`TestBlockingWaitOffCooperativePoolRule.swift`](../../../Tools/AgentStudioArchitectureLint/Sources/AgentStudioArchitectureLintCore/Rules/TestBlockingWaitOffCooperativePoolRule.swift) | `agentstudio_test_blocking_wait_off_cooperative_pool` |
 | [`TestTaskSleepRule.swift`](../../../Tools/AgentStudioArchitectureLint/Sources/AgentStudioArchitectureLintCore/Rules/TestTaskSleepRule.swift) | `agentstudio_no_task_sleep_in_tests` |
-| [`ArchitectureAllowlists.swift`](../../../Tools/AgentStudioArchitectureLint/Sources/AgentStudioArchitectureLintCore/Paths/ArchitectureAllowlists.swift) | `pollingWaitKnownDebt` and `blockingTestWaitKnownDebt` baselines |
+| [`architecture-debt-ledger.tsv`](../../../Tools/AgentStudioArchitectureLint/architecture-debt-ledger.tsv) | Permitted site counts per lint rule and file; only ever lowered |
+| [`check-ledger-ratchet.sh`](../../../Tools/AgentStudioArchitectureLint/check-ledger-ratchet.sh) | The CI step that rejects a raised count or a new ledger row against the merge base |
+| [`ArchitectureAllowlists.swift`](../../../Tools/AgentStudioArchitectureLint/Sources/AgentStudioArchitectureLintCore/Paths/ArchitectureAllowlists.swift) | Named owners of blocking waits and other allowed sites (ownership, not debt) |
 | [`Tests/AgentStudioTests/TestSupport/`](../../../Tests/AgentStudioTests/TestSupport) | The `AgentStudioTestSupport` harnesses |
 | [`SwiftLaneIsolationListGateTests.swift`](../../../Tests/AgentStudioTests/Scripts/SwiftLaneIsolationListGateTests.swift) | The isolation-list gate |
 | [CI Reliability — Specification](../../specs/2026-09-17-ci-reliability/2026-09-17-ci-reliability.md) | The requirements this document implements |

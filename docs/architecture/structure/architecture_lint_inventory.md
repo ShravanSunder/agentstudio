@@ -16,16 +16,52 @@ custom-SwiftLint toolchain. Do not reintroduce repo-local shell/`rg`
 architecture-lint scripts for rules that SwiftSyntax can express, and do not
 add SwiftSyntax dependencies to the app package.
 
-Architecture diagnostics have three severity channels. `error` and `warning`
-findings print and make the architecture-lint command exit non-zero. `report`
-findings print through the same output path without affecting the exit code.
-Performance-program guard rules begin as `report`; promoting one to blocking
-under R19 is a review-visible severity change recorded in this inventory.
+Architecture diagnostics have two severities, `error` and `warning`, and both
+make the architecture-lint command exit non-zero. There is no report-only
+severity: a new guardrail whose shape already exists in the tree freezes those
+sites in the debt ledger instead.
+
+## Enforcement Points
+
+| Where | What runs | Fails on |
+| --- | --- | --- |
+| `mise run lint` (locally, and the CI `Code quality` job) | swift-format, stock SwiftLint, then [`scripts/lint-swift.sh`](../../../scripts/lint-swift.sh) builds the architecture tool in release inside the build slot and runs it over `Sources`, `Tests` and every tracked `AGENTS.md` with `--ledger` | any `error`/`warning` diagnostic, including ledger drift |
+| `mise run lint -- <files>` (scoped) | the same tool, parsing the whole corpus but validating only the named `.swift` files and `AGENTS.md` files (`--only`) | the same diagnostics a full run reports for those files |
+| CI `Code quality` job, step `Debt ledger ratchet` | [`Tools/AgentStudioArchitectureLint/check-ledger-ratchet.sh`](../../../Tools/AgentStudioArchitectureLint/check-ledger-ratchet.sh) compares the ledger with its copy at the merge base (`--check-ledger-ratchet`) | a raised count or a new row |
+| `mise run test:architecture` (part of `mise run test`) | the lint tool's own tests: rule inventory, Good/Bad fixtures per rule, ledger and ratchet tables, scoped-versus-full parity | a rule that stops matching its Bad fixture or starts matching its Good fixture |
+
+Every run prints `lint-swift timing stage=<stage> ms=<n>` per lint stage and
+`architecture-lint timing rule=<id> ms=<n>` per rule (its `prepared(for:)` plus
+its validation summed across files). Timings are reported, never compared with a
+threshold, and never change the exit code.
+
+## Debt Ledger
+
+[`Tools/AgentStudioArchitectureLint/architecture-debt-ledger.tsv`](../../../Tools/AgentStudioArchitectureLint/architecture-debt-ledger.tsv)
+holds the only debt: one row per rule and repository-relative path with the
+number of violation sites that file may still hold. It is tab-separated with a
+header and sorted by rule, then path; a malformed or unsorted ledger fails the
+run closed.
+
+| Sites found (n) vs row (k) | Result |
+| --- | --- |
+| n = k | pass: known debt |
+| n > k, or no row and n > 0 | every site in the file is reported, with both counts |
+| 0 < n < k | one error naming the count to record |
+| n = 0 < k | one error naming the row to remove |
+| row path gone or not linted (full runs) | one error at the ledger row |
+
+`--lower-ledger-counts` rewrites the ledger down to what the run found and
+removes zero or missing rows; it never raises a count or adds a row. Raising or
+adding is what the CI ratchet rejects. Named-owner allowances are not debt: they
+stay in `ArchitectureAllowlists` with one owner and reason each (for example
+`mainActorPerElementAdapters`).
 
 ## SwiftSyntax Architecture Rules
 
 | Contract | Rule ID | Severity | Source |
 | --- | --- | --- | --- |
+| Drawer toolbar actions render through `ToolbarActionButton`, not raw `Button`s. | `agentstudio_drawer_toolbar_owned_controls` | error | [`docs/guides/style_guide.md`](../../guides/style_guide.md#shared-shell-controls) |
 | Source layers follow the documented import direction. | `agentstudio_import_direction` | error | [`docs/architecture/structure/directory_structure.md`](directory_structure.md) |
 | Product atom state follows the Core, Feature, and App composition boundaries; removed compatibility, resolver, registration, and secondary-scope APIs stay absent. | `agentstudio_product_atom_boundary` | error | [`docs/architecture/structure/directory_structure.md`](directory_structure.md) |
 | Canonical atom-owner classes expose mutable stored state only as `private` or `private(set)` and reject writable bindings. | `agentstudio_canonical_atom_mutation` | error | `AGENTS.md#hard-rules` |
@@ -46,33 +82,45 @@ under R19 is a review-visible severity change recorded in this inventory.
 | Sentinel fixture proves the local architecture rule registry is active. | `agentstudio_no_forbidden_architecture_marker` | error | [`Tools/AgentStudioArchitectureLint/Tests/AgentStudioArchitectureLintTests/Fixtures/Bad/Sources/AgentStudio/App/BadForbiddenArchitectureMarker.swift`](../../../Tools/AgentStudioArchitectureLint/Tests/AgentStudioArchitectureLintTests/Fixtures/Bad/Sources/AgentStudio/App/BadForbiddenArchitectureMarker.swift) |
 | Production async delays avoid generic clock sleep overloads. | `agentstudio_no_generic_clock_sleep` | error | `AGENTS.md#no-wall-clock-tests` |
 | Tests avoid direct wall-clock `Task.sleep(...)` calls and wait for events, state, or injected fake clocks. | `agentstudio_no_task_sleep_in_tests` | error | `AGENTS.md#no-wall-clock-tests` |
-| Tests contain no polling wait: a loop around a scheduler yield, a sleep, or a clock deadline. Baseline `pollingWaitKnownDebt` is shrink-only. | `agentstudio_no_polling_wait_in_tests` | error | [`docs/architecture/testing/testing_architecture.md`](../testing/testing_architecture.md#how-a-test-may-wait) |
+| Tests contain no polling wait: a loop around a scheduler yield, a sleep, or a clock deadline. Existing sites are counted in the debt ledger. | `agentstudio_no_polling_wait_in_tests` | error | [`docs/architecture/testing/testing_architecture.md`](../testing/testing_architecture.md#how-a-test-may-wait) |
+| Tests park a thread in a socket read, semaphore wait or process wait only off the cooperative pool; the owner files in `ArchitectureAllowlists.blockingTestWaitOwners` and the causal-test harness own the blocking primitives. Existing sites are counted in the debt ledger. | `agentstudio_test_blocking_wait_off_cooperative_pool` | error | [`docs/architecture/testing/testing_architecture.md`](../testing/testing_architecture.md#how-a-test-may-wait) |
 | Tests install the shared Core atom fallback only through [`TestAtomRegistry.swift`](../../../Tests/AgentStudioTests/TestSupport/TestAtomRegistry.swift). | `agentstudio_test_core_atom_fallback_ownership` | error | [`docs/architecture/testing/testing_architecture.md`](../testing/testing_architecture.md#test-target-ownership) |
 | Dense action controls use typed tooltip sources instead of raw `.help("...")`, AppKit `toolTip = "..."`, or custom hover strings. Shared components consume resolved render values only. | `agentstudio_toolbar_tooltip_source` | error | `docs/architecture/commands/command_specs.md#tooltips-help-text-and-compact-control-copy` |
 | Production EventBus subscriptions and wait helpers name an explicit semantic subscriber policy; wrappers cannot hide a default or zero-argument policy. | `agentstudio_eventbus_subscriber_policy_required` | error | [`Sources/AgentStudio/Core/RuntimeEventSystem/Events/EventBus.swift`](../../../Sources/AgentStudio/Core/RuntimeEventSystem/Events/EventBus.swift) |
 | Terminal-local `GhosttyActionDisposition` branches contract locally and cannot reach the shared exact semantic publication edge. | `agentstudio_terminal_local_disposition_publication` | error | [Pane Runtime Contract 7](../runtime/pane_runtime_architecture.md#contract-7-typed-ghostty-source-admission-and-contraction) |
 | Bridge comparison-target query control authorizes and reserves content; catalog production belongs to the content task producer. | `agentstudio_comparison_target_query_control_production` | error | [Bridge Product Transport — The three route jobs](../bridge/bridge_product_transport_architecture.md#the-three-route-jobs) |
-| Observation-capture closures use keyed reads instead of named whole-snapshot calls. | `agentstudio_observation_capture_keyed_reads` | report | `docs/specs/2026-08-10-performance-program/program-design.md#report-only-lint-severity-channel-r4` |
-| `@MainActor` types do not perform named collection-wide sort, reduce, grouping, or hash calls without an allowlisted owner. | `agentstudio_mainactor_unbounded_collection_work` | report | `docs/specs/2026-08-10-performance-program/program-design.md#report-only-lint-severity-channel-r4` |
-| Numeric timing and performance-threshold constants live in `AppPolicies`. | `agentstudio_performance_constants_in_app_policies` | report | `docs/specs/2026-08-10-performance-program/program-design.md#report-only-lint-severity-channel-r4` |
-| `nonisolated async` declarations that make syntactically blocking file reads use `@concurrent`. | `agentstudio_nonisolated_async_blocking_io_requires_concurrent` | report | `docs/specs/2026-08-10-performance-program/program-design.md#report-only-lint-severity-channel-r4` |
+| Observation-capture closures use keyed reads instead of named whole-snapshot calls. | `agentstudio_observation_capture_keyed_reads` | error | [`docs/architecture/state/atom_persistence_boundaries.md`](../state/atom_persistence_boundaries.md) |
+| `@MainActor` types do not perform named collection-wide sort, reduce, grouping, or hash calls without an allowlisted owner. | `agentstudio_mainactor_unbounded_collection_work` | error | [EventBus Design — Admission And Hop Shape](../runtime/pane_runtime_eventbus_design.md#admission-and-hop-shape) |
+| Numeric timing and performance-threshold constants live in `AppPolicies`. | `agentstudio_performance_constants_in_app_policies` | error | [`docs/guides/style_guide.md`](../../guides/style_guide.md#shared-shell-controls) |
+| `nonisolated async` declarations that make syntactically blocking file reads use `@concurrent`. | `agentstudio_nonisolated_async_blocking_io_requires_concurrent` | error | `AGENTS.md#swift-concurrency` |
+| A `withObservationTracking` whose `onChange` re-invokes its arming method is controlled by a generation fence (`guard stored == captured`, or the re-arm nested in `if stored == captured`) or an arm latch (`guard !flag`, `flag = true` on arm, `flag = false` in `onChange`). Product sources. | `agentstudio_observation_rearm_guarded` | error | [Demand-Driven Derived-State Refresh](../state/demand_driven_derived_state_refresh.md#selection-rule) |
+| A SwiftUI `body`, and the same-file builders and helpers it reaches, does no dispatcher `canDispatch`, `snapshot(state:)`, `fuzzyMatch`/`score*`, `sorted`/`sort`/`filter`/`reduce`/`grouping:`, and calls no resolver the prepared cross-file index shows calling dispatcher `canDispatch`. Deferred closures (`action:`, `perform:`, `on…:` handlers, `Button`/`.task`/`.on…` trailing closures) and `Optional.map`/`compactMap` are outside it. Product sources. | `agentstudio_swiftui_body_derivation` | error | [`docs/architecture/state/workspace_data_architecture.md`](../state/workspace_data_architecture.md#sidebar-data-flow) |
+| A `*Atom` type under `/State/MainActor/Atoms/` references no `FileManager`, `Process`, `URLSession`, `Timer`, `DispatchQueue` or `sqlite3_*`, starts no `Task`/`Task.detached`, and calls no `withObservationTracking`, `sorted` or `sort`. `*Derived` readers, rule modules and free functions are outside it. | `agentstudio_atom_assign_only` | error | [Need An Atom?](../state/atom_persistence_boundaries.md#need-an-atom) |
+| No `MainActor.run` or `@MainActor` closure inside a `for await` body; a `for await` that runs on MainActor (lexically: a `@MainActor` closure, method or type, through unannotated `Task { }` bodies) starts, after bindings and cancellation checks, with an equality guard on the element. Named-owner allowance: `WorkspaceSurfaceCoordinator.startRuntimeReducerConsumers`. Product sources. | `agentstudio_mainactor_hop_per_element` | error | [EventBus Design — Admission And Hop Shape](../runtime/pane_runtime_eventbus_design.md#admission-and-hop-shape) |
+| Files under `Diagnostics/` or `Telemetry/`, or named `*Recorder*`, `*Telemetry*`, `*Probe*` or `*Sampler*`, report off MainActor: no `MainActor.run`, `@MainActor` closure, or `@MainActor` `*Reporter` type or typealias. | `agentstudio_probe_reports_off_main` | error | [Observability — Proof Model](../observability/observability_and_traceability.md#proof-model) |
+| A `*Gate`, `*Latch`, `*Barrier`, `*Blocker` or `*Hold` type in `Tests/`, outside the causal-test harness target (`AgentStudioTestHarness`), stores no continuation, `DispatchSemaphore` or `NSCondition`; holds use the harness's `HeldStep`. | `agentstudio_test_ad_hoc_gate` | error | [`docs/architecture/testing/testing_architecture.md`](../testing/testing_architecture.md#how-a-test-may-wait) |
+| An `async` test helper named `wait…`, `require…`, `await…`, `waitUntil…` or `expect…Eventually` returns the observation that satisfied it. | `agentstudio_test_wait_helper_returns_observation` | error | [`docs/architecture/testing/testing_architecture.md`](../testing/testing_architecture.md#how-a-test-may-wait) |
+| Every link target and repository-path code token in each `AGENTS.md` exists, and each `#anchor` is a GitHub heading slug or explicit `<a id>`/`<a name>` in its target. | `agentstudio_agent_doc_reference_resolves` | error | `AGENTS.md` |
 
-The four performance guards are intentionally lexical and report-only. They
-recognize only the call, declaration, and literal shapes named above; they do
-not infer collection bounds, types, executor hops, or I/O behavior.
-Exceptions belong in the centralized `ArchitectureAllowlists`, with paired
-Good/Bad fixtures. R19 promotion changes the rule severity from `report` to a
-blocking channel and updates this inventory in the same reviewed change.
+All rules are lexical: they recognize only the call, declaration and literal
+shapes named above and do not resolve types, executors or control flow. Their
+false-negative limits:
 
-Slice 3 checked `agentstudio_performance_constants_in_app_policies`, but its
-current production/test scan still reports pre-existing findings outside the
-slice-3 trigger owners, so R19 forbids its promotion. Slice 4's production scan
-found no keyed-observation diagnostics, but the full lint surface found one
-pre-existing diagnostic outside slice-4 ownership at
-`Tests/AgentStudioTests/Features/CommandBar/CommandBarResultSessionTests.swift:264`.
-The keyed-observation rule therefore also remains report-only. MainActor
-collection-work and nonisolated blocking-I/O remain report-only because neither
-slice owned and cleaned those lexical surfaces.
+- `agentstudio_observation_rearm_guarded` judges the construction, not the call
+  graph: a fenced re-arm with a second, unfenced arm path elsewhere passes, and
+  a re-arm through a differently named helper is not seen.
+- `agentstudio_swiftui_body_derivation` follows only same-file members and
+  `Type.member`/`Type(...)` resolvers; a resolver reached through a protocol-typed
+  variable or a stored closure's later call is not seen.
+- `agentstudio_mainactor_hop_per_element` sees only lexical `@MainActor`; a loop
+  that inherits MainActor from a caller, or a `for try await`, is judged by the
+  same text rules, and an implicitly isolated SwiftUI `View` is not seen.
+- `agentstudio_atom_assign_only` names types, not behaviour: I/O through a helper
+  defined outside the atom type is not seen.
+- `agentstudio_test_ad_hoc_gate` matches the name suffixes only; a gate with
+  another name is caught only when it also becomes a void wait helper.
+- `agentstudio_agent_doc_reference_resolves` checks only `AGENTS.md` files and
+  treats root entries present on disk as repository paths.
 
 The Terminal publication guard is deliberately lexical. In AgentStudio's
 Terminal source, it recognizes switches whose subject is
@@ -112,7 +160,7 @@ It must not be reconnected without a new product decision.
 | Fail direct atom access from IPC services and adapters. | Blocking | `agentstudio_ipc_no_direct_atom_access` |
 | Fail production `Task.sleep(for:)` and generic `.sleep(for:)` outside the approved delay seam. | Blocking | `agentstudio_no_generic_clock_sleep` |
 | Fail direct `Task.sleep(...)` calls in test files. | Blocking | `agentstudio_no_task_sleep_in_tests` |
-| Fail a loop in a test file whose own condition or body yields, sleeps, or reads a clock, unless the file is in the shrink-only polling baseline. A listed path that is gone or no longer polls fails until its entry is removed. | Blocking | `agentstudio_no_polling_wait_in_tests` |
+| Fail a loop in a test file whose own condition or body yields, sleeps, or reads a clock, beyond the file's count in the debt ledger. A ledger row whose path is gone, or whose count is above what remains, fails until it is lowered or removed. | Blocking | `agentstudio_no_polling_wait_in_tests` |
 | Fail production EventBus subscriptions or wait helpers that omit semantic subscriber policy, use raw buffering policy, or hide a default policy in a wrapper. | Blocking | `agentstudio_eventbus_subscriber_policy_required` |
 | Fail Terminal-local Ghostty disposition branches that directly publish or can fall through to the shared exact semantic publication edge. | Blocking | `agentstudio_terminal_local_disposition_publication` |
 | Print repo-cache dictionary read inventory. | Reclassified to review-only | The old script's report-only inventory is replaced by this document plus blocking rules for the hot-path violation class. Broad inventory reports were noisy and not a required CI gate. |
@@ -121,9 +169,9 @@ It must not be reconnected without a new product decision.
 
 | Proof | Covers |
 | --- | --- |
-| `swift test --package-path Tools/AgentStudioArchitectureLint` | Builds the local SwiftPM/SwiftSyntax tool, checks the exact rule inventory and severity map, lints good fixtures, verifies bad fixtures fail, and proves every migrated rule is exercised by the fixture corpus. |
+| `mise run test:architecture` | Builds the local SwiftPM/SwiftSyntax tool, checks the exact rule inventory and severity map, lints good fixtures, verifies bad fixtures fail with each rule's exact lines, proves every rule is exercised by the fixture corpus, and covers every ledger reconciliation state, the ratchet, and scoped-versus-full parity. |
 | `ArchitectureSwiftLintRulesTests` | Verifies AgentStudio's `mise`, CI, stock SwiftLint, local architecture tool, deleted old-runner files, and `no_combine_import` regex custom-rule behavior through stock SwiftLint. |
-| `mise run lint` | Runs swift-format, stock SwiftLint, the local AgentStudio architecture linter, and release script checks. |
+| `mise run lint` | Runs swift-format, stock SwiftLint, the local AgentStudio architecture linter with the debt ledger, and release script checks. |
 
 ## Review-Only Guidance
 
