@@ -8,27 +8,32 @@ import Testing
 struct CompletionHandleNotDiscardableRuleTests {
     private let ruleID = "agentstudio_completion_handle_not_discardable"
 
-    @Test("bad fixture reports the discardable declaration and the reasonless discard only")
-    func badFixtureReportsDiscardableDeclarationAndReasonlessDiscard() throws {
+    @Test("bad fixture reports the discardable declaration, every reasonless discard, and the non-task twin")
+    func badFixtureReportsEveryPredicate() throws {
         // Arrange
         let fixture = fixtureRoot().appendingPathComponent(
             "Bad/Sources/AgentStudio/App/BadCompletionHandleDiscard.swift"
         )
+        let discard = CompletionHandleNotDiscardableRule.reasonlessDiscardMessage
 
         // Act
         let diagnostics = try lint(files: [fixture.path])
 
         // Assert
-        #expect(diagnostics.map(\.line) == [3, 9])
+        #expect(diagnostics.map(\.line) == [3, 13, 14, 15, 20, 27])
         #expect(
             diagnostics.map(\.message) == [
                 CompletionHandleNotDiscardableRule.discardableDeclarationMessage,
-                CompletionHandleNotDiscardableRule.reasonlessDiscardMessage,
+                discard,
+                discard,
+                discard,
+                CompletionHandleNotDiscardableRule.nonTaskTwinMessage(name: "submit"),
+                discard,
             ])
         #expect(diagnostics.allSatisfy { $0.severity == .error })
     }
 
-    @Test("good fixture accepts awaited, stored, reasoned, optional-chained, and ambiguous discards")
+    @Test("good fixture accepts awaited outcomes, stored handles, and reasoned direct and optional discards")
     func goodFixtureAcceptsResolvedCallSites() throws {
         // Arrange
         let fixture = fixtureRoot().appendingPathComponent(
@@ -40,6 +45,30 @@ struct CompletionHandleNotDiscardableRuleTests {
 
         // Assert
         #expect(diagnostics.isEmpty)
+    }
+
+    @Test("the twin predicate spans files, so the index is built over the whole linted tree")
+    func twinPredicateSpansFiles() {
+        // Arrange
+        let taskOwner = """
+            final class HandleOwner {
+                func teardown() -> Task<Bool, Never> { Task { true } }
+            }
+            """
+        let twinOwner = """
+            final class StreamLifecycle {
+                private func teardown() {}
+                func stop() { teardown() }
+            }
+            """
+
+        // Act
+        let diagnostics = lint(sources: [taskOwner, twinOwner])
+
+        // Assert
+        #expect(diagnostics.map(\.path) == ["Sources/AgentStudio/App/Inline1.swift"])
+        #expect(diagnostics.map(\.line) == [2])
+        #expect(diagnostics.map(\.message) == [CompletionHandleNotDiscardableRule.nonTaskTwinMessage(name: "teardown")])
     }
 
     @Test("the reason must be on the discard line or the line directly above it, and must say something")
@@ -99,14 +128,19 @@ struct CompletionHandleNotDiscardableRuleTests {
     }
 
     private func lint(source: String) -> [ArchitectureDiagnostic] {
-        let context = ArchitectureLintContext(
-            path: "Sources/AgentStudio/App/InlineCompletionHandleFixture.swift",
-            source: source,
-            sourceFile: Parser.parse(source: source)
-        )
-        return CompletionHandleNotDiscardableRule()
-            .prepared(for: [context])
-            .validate(context: context)
+        lint(sources: [source])
+    }
+
+    private func lint(sources: [String]) -> [ArchitectureDiagnostic] {
+        let contexts = sources.enumerated().map { index, source in
+            ArchitectureLintContext(
+                path: "Sources/AgentStudio/App/Inline\(index).swift",
+                source: source,
+                sourceFile: Parser.parse(source: source)
+            )
+        }
+        let rule = CompletionHandleNotDiscardableRule().prepared(for: contexts)
+        return contexts.flatMap { rule.validate(context: $0) }.sorted()
     }
 
     private func lint(files: [String]) throws -> [ArchitectureDiagnostic] {

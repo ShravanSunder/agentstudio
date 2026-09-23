@@ -1,27 +1,27 @@
 import SwiftSyntax
 
 /// A function that returns a `Task` hands its caller the only proof that the
-/// operation finished. Two shapes throw that proof away without anyone
+/// operation finished. Three shapes throw that proof away without anyone
 /// deciding to:
 ///
 /// - `@discardableResult` on a task-returning declaration lets every caller
 ///   drop the handle silently, so a synchronous caller can report success for
 ///   work that has not happened yet.
-/// - `_ = f()` where `f` returns a task is an explicit discard. It is allowed
-///   only when the call site says why no one needs the outcome, with a
+/// - `_ = f()`, or `_ = await f()` across an actor, where `f` returns a task,
+///   is an explicit discard of the handle. It is allowed only when the call
+///   site says why no one needs the outcome, with a
 ///   `// fire-and-forget: <reason>` comment on the discard line or directly
-///   above it.
+///   above it. `_ = await f().value` discards the awaited outcome, not the
+///   handle, and is not a discard of a completion handle.
+/// - A task-returning base name that is also declared anywhere with a
+///   non-task result. The discard check resolves callees by base name, so a
+///   shared name would make it inexact; every task-returning name stays
+///   unique instead, and the non-task twin is renamed.
 ///
 /// Compile enforcement (`treatAllWarnings(as: .error)`) already rejects a bare,
 /// unused non-discardable result; this rule covers what the compiler accepts.
-///
-/// Limits (syntax only, no type resolution): the explicit-discard predicate
-/// resolves callees by base name against an index of task-returning function
-/// declarations across every linted file. A base name that is also declared
-/// anywhere with a non-task result (for example a second `submit` or a
-/// `Void` `teardown`) is ambiguous and is not checked; the compiler still
-/// rejects a bare discard of those. `_ = await …` is never flagged, because the
-/// discarded value there is the awaited outcome, not the task.
+/// It is syntax only: the index holds every `func` declaration in the linted
+/// tree, and only a direct call (`f(…)`, `x.f(…)`, `x?.f(…)`) is resolved.
 struct CompletionHandleNotDiscardableRule: ArchitectureRule {
     let id = "agentstudio_completion_handle_not_discardable"
     let severity = ArchitectureSeverity.error
@@ -32,6 +32,10 @@ struct CompletionHandleNotDiscardableRule: ArchitectureRule {
 
     static let reasonlessDiscardMessage =
         "Discarding a Task-returning call needs `// fire-and-forget: <why no one needs the outcome>`; otherwise await .value or store the handle"
+
+    static func nonTaskTwinMessage(name: String) -> String {
+        "'\(name)' is also declared with a Task result; give this non-task declaration its own effect-named name so the completion-handle index stays exact"
+    }
 
     static let fireAndForgetMarker = "// fire-and-forget:"
 
@@ -46,13 +50,11 @@ struct CompletionHandleNotDiscardableRule: ArchitectureRule {
     }
 
     func prepared(for contexts: [ArchitectureLintContext]) -> any ArchitectureRule {
-        let collector = FunctionResultKindCollector()
+        let collector = TaskReturningFunctionCollector()
         for context in contexts {
             collector.walk(context.sourceFile)
         }
-        return Self(
-            taskReturningFunctionNames: collector.taskReturningNames.subtracting(collector.otherResultNames)
-        )
+        return Self(taskReturningFunctionNames: collector.taskReturningNames)
     }
 
     func validate(context: ArchitectureLintContext) -> [ArchitectureDiagnostic] {
@@ -76,21 +78,17 @@ struct CompletionHandleNotDiscardableRule: ArchitectureRule {
     }
 }
 
-/// Indexes function base names by whether any declaration returns a task.
-private final class FunctionResultKindCollector: SyntaxVisitor {
+/// Indexes the base names of function declarations whose result is a task.
+private final class TaskReturningFunctionCollector: SyntaxVisitor {
     private(set) var taskReturningNames: Set<String> = []
-    private(set) var otherResultNames: Set<String> = []
 
     init() {
         super.init(viewMode: .sourceAccurate)
     }
 
     override func visitPost(_ node: FunctionDeclSyntax) {
-        let name = node.name.text
         if node.signature.returnClause?.type.isTaskResultType == true {
-            taskReturningNames.insert(name)
-        } else {
-            otherResultNames.insert(name)
+            taskReturningNames.insert(node.name.text)
         }
     }
 }
@@ -105,17 +103,23 @@ private final class CompletionHandleDiscardVisitor: SyntaxVisitor {
     }
 
     override func visitPost(_ node: FunctionDeclSyntax) {
-        guard node.signature.returnClause?.type.isTaskResultType == true,
-            let attribute = node.attributes.discardableResultAttribute
-        else {
-            return
-        }
-        violations.append(
-            ArchitectureViolation(
-                position: attribute.positionAfterSkippingLeadingTrivia,
-                message: CompletionHandleNotDiscardableRule.discardableDeclarationMessage
+        let returnsTask = node.signature.returnClause?.type.isTaskResultType == true
+        if returnsTask, let attribute = node.attributes.discardableResultAttribute {
+            violations.append(
+                ArchitectureViolation(
+                    position: attribute.positionAfterSkippingLeadingTrivia,
+                    message: CompletionHandleNotDiscardableRule.discardableDeclarationMessage
+                )
             )
-        )
+        }
+        if !returnsTask, taskReturningFunctionNames.contains(node.name.text) {
+            violations.append(
+                ArchitectureViolation(
+                    position: node.name.positionAfterSkippingLeadingTrivia,
+                    message: CompletionHandleNotDiscardableRule.nonTaskTwinMessage(name: node.name.text)
+                )
+            )
+        }
     }
 
     override func visitPost(_ node: SequenceExprSyntax) {
@@ -123,7 +127,7 @@ private final class CompletionHandleDiscardVisitor: SyntaxVisitor {
         guard elements.count == 3,
             let discard = elements[0].as(DiscardAssignmentExprSyntax.self),
             elements[1].is(AssignmentExprSyntax.self),
-            let call = elements[2].as(FunctionCallExprSyntax.self),
+            let call = elements[2].discardedDirectCall,
             let calleeName = call.calledExpression.directCalleeBaseName,
             taskReturningFunctionNames.contains(calleeName)
         else {
@@ -147,6 +151,22 @@ private final class CompletionHandleDiscardVisitor: SyntaxVisitor {
 }
 
 extension ExprSyntax {
+    /// The call whose result a `_ =` discards: the expression itself, or the
+    /// operand of `await` / `try` wrapped around it. `await f().value` is a
+    /// member access, not a call, so it is never returned.
+    fileprivate var discardedDirectCall: FunctionCallExprSyntax? {
+        if let call = self.as(FunctionCallExprSyntax.self) {
+            return call
+        }
+        if let awaitExpression = self.as(AwaitExprSyntax.self) {
+            return awaitExpression.expression.discardedDirectCall
+        }
+        if let tryExpression = self.as(TryExprSyntax.self) {
+            return tryExpression.expression.discardedDirectCall
+        }
+        return nil
+    }
+
     /// The base name of a direct call's callee: `f(...)`, `x.f(...)`,
     /// `x?.f(...)`, or `f { ... }`. `nil` for any other callee shape.
     fileprivate var directCalleeBaseName: String? {

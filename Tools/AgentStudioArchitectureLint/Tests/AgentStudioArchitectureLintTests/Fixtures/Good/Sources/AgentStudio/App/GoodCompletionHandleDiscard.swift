@@ -16,26 +16,26 @@ final class GoodCompletionHandleExecutor {
     }
 
     func storeHandle() {
-        pendingGesture = submitCompletionHandleGesture { true }
+        pendingGesture = submit(1)
     }
 
     func discardWithReason(owner: GoodCompletionHandleExecutor?) {
-        _ = submitCompletionHandleGesture { true }  // fire-and-forget: gesture handler, no caller
-        _ = owner?.submitCompletionHandleGesture { true }  // fire-and-forget: owner drains its tail
+        _ = submit(1)  // fire-and-forget: gesture handler, no caller
+        _ = owner?.submit(2)  // fire-and-forget: owner drains its tail
         // fire-and-forget: menu action; the executor serializes and logs the outcome
         _ = self.submitCompletionHandleGesture { true }
     }
 }
 
-/// A second `submit` with a non-task result makes the name ambiguous for the
-/// syntax-only index; the compiler still rejects a bare discard of either one.
 final class GoodCompletionHandleValidationExecutor {
-    func submit(_ value: Int) -> Bool {
+    func admitValidationRequest(_ value: Int) -> Bool {
         value > 0
     }
+}
 
-    func discardAmbiguousName(executor: GoodCompletionHandleExecutor) {
-        _ = submit(1)
-        _ = executor.submit(1)
+actor GoodCompletionHandleCaller {
+    func dispatchAcrossActor(executor: GoodCompletionHandleExecutor) async -> Bool {
+        _ = await executor.submit(3).value
+        return await executor.submit(4).value
     }
 }
