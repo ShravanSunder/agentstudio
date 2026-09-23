@@ -99,11 +99,13 @@ final class WorktreeCreationCoordinator {
                 await forkSource(source: source, destination: destination.path, branchName: request.branchName)
             }
         await publication.releasePublicationHold(holdID)
+        // Rescan after failure too: fresh discovery reconciles whatever a rolled-back or
+        // partially cleaned creation left, rather than trusting earlier scan evidence.
+        await publication.refreshWatchedFolder(destination.watchedPath.id, among: topology.watchedPaths)
 
         if let failure {
             return .failed(failure)
         }
-        await publication.refreshWatchedFolder(destination.watchedPath.id, among: topology.watchedPaths)
         return .created(destination: destination.path)
     }
 

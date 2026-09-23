@@ -75,6 +75,8 @@ struct FilesystemWatchedFolderScanState: Sendable {
     var manualRefreshState: FilesystemManualWatchedFolderRefreshState = .idle
     /// Canonical destination paths a creation owner is still building; no scan publishes them.
     var publicationHoldPathsByID: [WatchedFolderPublicationHoldID: String] = [:]
+    /// Released holds whose scans were demanded before release; those results stay filtered.
+    var releasedPublicationHoldsByID: [WatchedFolderPublicationHoldID: ReleasedWatchedFolderPublicationHold] = [:]
     var resultDrainState: FilesystemWatchedFolderResultDrainState = .idle
     var fallbackTask: Task<Void, Never>?
 }

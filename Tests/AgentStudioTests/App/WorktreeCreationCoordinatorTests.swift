@@ -44,7 +44,7 @@ struct WorktreeCreationCoordinatorTests {
         #expect(presented.failures.isEmpty)
     }
 
-    @Test("an SDK failure releases the hold, skips the rescan, and presents the failure")
+    @Test("an SDK failure releases the hold, still rescans the owning folder, and presents the failure")
     func sdkFailureReleasesHoldAndPresents() async throws {
         let fixture = try Self.makeFixture()
         let ledger = CreationLedger()
@@ -58,8 +58,7 @@ struct WorktreeCreationCoordinatorTests {
         #expect(outcome == .failed(.gitFailure(gitError)))
         let events = await ledger.events
         #expect(events.first.map { if case .hold = $0 { true } else { false } } == true)
-        #expect(events.last == .release)
-        #expect(!events.contains { if case .refresh = $0 { true } else { false } })
+        #expect(Array(events.suffix(2)) == [.release, .refresh(fixture.watchedPath.id)])
         #expect(presented.failures == [.gitFailure(gitError)])
     }
 
@@ -107,7 +106,7 @@ struct WorktreeCreationCoordinatorTests {
         #expect(presented.failures.isEmpty)
     }
 
-    @Test("a fork preflight rejection releases the hold, skips the rescan, and presents the failure")
+    @Test("a fork preflight rejection releases the hold, still rescans the owning folder, and presents the failure")
     func forkRejectionReleasesHoldAndPresents() async throws {
         let fixture = try Self.makeFixture()
         let ledger = CreationLedger()
@@ -120,8 +119,7 @@ struct WorktreeCreationCoordinatorTests {
 
         #expect(outcome == .failed(.forkFailure(forkError)))
         let events = await ledger.events
-        #expect(events.last == .release)
-        #expect(!events.contains { if case .refresh = $0 { true } else { false } })
+        #expect(Array(events.suffix(2)) == [.release, .refresh(fixture.watchedPath.id)])
         #expect(presented.failures == [.forkFailure(forkError)])
     }
 

@@ -198,6 +198,36 @@ struct FilesystemActorWatchedFolderTests {
         await fixture.actor.shutdown()
     }
 
+    @Test("a scan demanded while a destination was held cannot publish it after the hold is released")
+    func staleHeldScanCannotPublishAfterRelease() async throws {
+        // Arrange
+        let fixture = try await WatchedFolderActorFixture()
+        defer { fixture.removeTemporaryRoot() }
+        let clone = fixture.watchedFolder.appending(path: "repo")
+        let destination = fixture.watchedFolder.appending(path: "repo.feature")
+        _ = await fixture.performInitialRefresh(result: completeResult(entries: [cloneEntry(clone)]))
+        let holdID = await fixture.actor.holdWatchedFolderPublication(of: destination)
+        let heldRefresh = Task { await fixture.actor.refreshWatchedFolders([fixture.watchedPath]) }
+        let heldStart = await fixture.scanner.nextStart()
+
+        // Act: release (the SDK has returned and rolled back), then let the held scan's
+        // evidence of the half-built destination arrive late.
+        await fixture.actor.releaseWatchedFolderPublicationHold(holdID)
+        await fixture.scanner.finish(
+            heldStart,
+            with: completeResult(entries: [cloneEntry(clone), linkedEntry(destination, parentClone: clone)])
+        )
+        let staleSummary = await heldRefresh.value
+        let freshSummary = await fixture.performRefresh(
+            result: completeResult(entries: [cloneEntry(clone), linkedEntry(destination, parentClone: clone)])
+        )
+
+        // Assert
+        #expect(staleSummary.linkedWorktreePaths(in: fixture.watchedFolder).isEmpty)
+        #expect(freshSummary.linkedWorktreePaths(in: fixture.watchedFolder) == [canonicalURL(destination)])
+        await fixture.actor.shutdown()
+    }
+
     @Test("partial and cancelled results merge positives without removing prior inventory")
     func partialAndCancelledResultsAreAdditive() async throws {
         let fixture = try await WatchedFolderActorFixture()
