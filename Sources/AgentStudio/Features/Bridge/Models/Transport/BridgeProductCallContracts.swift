@@ -116,6 +116,13 @@ extension BridgeProductFileSourceSpec {
         self.cwdScope = nil
         self.includeStatuses = true
     }
+
+    /// The spec a collection hands one member worktree's own source.
+    init(memberCollectionToken: String, includeStatuses: Bool) {
+        self.collectionToken = memberCollectionToken
+        self.cwdScope = nil
+        self.includeStatuses = includeStatuses
+    }
 }
 
 struct BridgeProductReviewMarkFileViewedRequest: Codable, Equatable, Sendable {

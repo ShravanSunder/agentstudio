@@ -268,6 +268,41 @@ enum BridgePaneProductFileContentSource {
         )
     }
 
+    /// Classifies one exact file with the same reader and scan that issue
+    /// content descriptors, so document admission and later reads can never
+    /// disagree about what counts as supported content.
+    static func classifyContent(
+        rootURL: URL,
+        relativePath: String
+    ) async throws -> BridgePaneProductFileContentClassification {
+        // swiftlint:disable:next no_task_detached
+        let classificationTask = Task.detached(priority: .userInitiated) {
+            let openedFile = try openValidatedRegularFile(
+                rootURL: rootURL,
+                relativePath: relativePath,
+                beforeOpeningResolvedFile: { _ in },
+                afterOpeningFileDescriptor: { _ in }
+            )
+            defer { try? openedFile.fileHandle.close() }
+            let scan: BridgePaneProductCompleteFileScan
+            do {
+                scan = try scanCompleteFile(
+                    openedFile.fileHandle,
+                    initialIdentity: openedFile.identity
+                )
+            } catch BridgePaneProductFileContentSourceError.sourceTooLarge {
+                return BridgePaneProductFileContentClassification.tooLarge
+            }
+            if scan.isBinary { return .binary }
+            guard scan.isValidUTF8 else { return .unsupportedEncoding }
+            return .supported(byteCount: scan.byteCount)
+        }
+        return try await withTaskCancellationHandler(
+            operation: { try await classificationTask.value },
+            onCancel: { classificationTask.cancel() }
+        )
+    }
+
     private static func unavailableMaterialization(
         _ request: BridgePaneProductFileMaterializationRequest,
         reason: BridgeProductFileDescriptorUnavailableReason
@@ -462,6 +497,13 @@ private actor BridgePaneProductFileContentReadSession: BridgePaneProductFileCont
         self.fileHandle = nil
         try? fileHandle.close()
     }
+}
+
+enum BridgePaneProductFileContentClassification: Equatable, Sendable {
+    case supported(byteCount: Int)
+    case binary
+    case unsupportedEncoding
+    case tooLarge
 }
 
 private struct BridgePaneProductCompleteFileScan {
