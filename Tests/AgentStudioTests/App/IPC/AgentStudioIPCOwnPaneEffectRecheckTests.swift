@@ -18,11 +18,33 @@ struct AgentStudioIPCOwnPaneEffectRecheckTests {
 
     @Test("an agent's close queued behind a detach of its drawer child is refused with nothing applied")
     func queuedDetachThenCloseIsRefused() async throws {
-        let scenario = try OwnPaneEffectScenario()
-        defer { try? FileManager.default.removeItem(at: scenario.harness.tempDir) }
-        let executor = scenario.harness.executor
-        let store = scenario.harness.store
+        // A SQLite-backed store whose core repository the test reads directly,
+        // so "no durable mutation" is checked in the persisted graph.
+        let workspaceID = UUIDv7.generate()
+        let fixture = try makeWorkspaceSQLiteBridgeFixture(workspaceId: workspaceID)
+        let datastore = try preparedWorkspaceSQLiteDatastore(from: fixture.backend)
+        let store = WorkspaceStore(
+            identityAtom: WorkspaceIdentityAtom(workspaceId: workspaceID),
+            sqliteDatastore: datastore, startsObserving: false)
+        let parent = store.createPane(title: "Agent terminal")
+        let tab = Tab(paneId: parent.id)
+        store.appendTab(tab)
+        store.setActiveTab(tab.id)
+        store.setActivePane(parent.id, inTab: tab.id)
+        let child = try #require(store.addDrawerPane(to: parent.id))
+        let childSession = try #require(child.terminalState?.zmxSessionID)
+        #expect(await store.flushAsync() == .persisted)
+        #expect(
+            try persistedPlacement(of: child.id, in: fixture, workspaceID: workspaceID)
+                == .drawerChild(parentPaneId: parent.id))
+        let coordinator = WorkspaceSurfaceCoordinator(
+            store: store, viewRegistry: ViewRegistry(), runtime: SessionRuntime(store: store),
+            surfaceManager: HarnessSurfaceManager(), runtimeRegistry: RuntimeRegistry(),
+            windowLifecycleStore: WindowLifecycleAtom(), ipcLifecycle: .testUnavailable,
+            bridgePaneAttendance: BridgePaneAttendanceAtom())
+        let executor = WorkspaceActionExecutor(coordinator: coordinator, store: store)
         let undoDepthBefore = executor.undoStack.count
+        let durableUndoClosesBefore = try await datastore.fetchAvailableUndoCloses(workspaceID: workspaceID).count
 
         // Causal barrier: hold the gesture queue so both later gestures are
         // queued before either runs, in submission order.
@@ -31,24 +53,40 @@ struct AgentStudioIPCOwnPaneEffectRecheckTests {
             await gate.wait()
             return true
         }
-        let detach = executor.submit(
-            .detachDrawerPane(parentPaneId: scenario.parentPaneId, drawerPaneId: scenario.childPaneId))
+        let detach = executor.submit(.detachDrawerPane(parentPaneId: parent.id, drawerPaneId: child.id))
         let agentClose = executor.submit(
-            .removeDrawerPane(parentPaneId: scenario.parentPaneId, drawerPaneId: scenario.childPaneId),
-            ownPaneAssertion: WorkspaceOwnPaneAssertion(boundPaneId: scenario.parentPaneId)
+            .removeDrawerPane(parentPaneId: parent.id, drawerPaneId: child.id),
+            ownPaneAssertion: WorkspaceOwnPaneAssertion(boundPaneId: parent.id)
         )
         // Authorization ran while the child was still the agent's own; the
         // assertion is only evaluated when the gesture runs.
-        #expect(store.paneAtom.pane(scenario.childPaneId)?.parentPaneId == scenario.parentPaneId)
+        #expect(store.paneAtom.pane(child.id)?.parentPaneId == parent.id)
         gate.open()
 
         #expect(await barrier.value)
         #expect(await detach.value)
         #expect(await agentClose.value == .outsideOwnPane)
-        let detachedChild = try #require(store.paneAtom.pane(scenario.childPaneId))
+        let detachedChild = try #require(store.paneAtom.pane(child.id))
         #expect(detachedChild.parentPaneId == nil)
-        #expect(store.tabLayoutAtom.tab(scenario.tabId)?.allPaneIds.contains(scenario.childPaneId) == true)
+        #expect(store.tabLayoutAtom.tab(tab.id)?.allPaneIds.contains(child.id) == true)
         #expect(executor.undoStack.count == undoDepthBefore)
+
+        // Durable state: the predecessor's detach is persisted, and the refused
+        // close wrote nothing: the pane row survives, no terminal session was
+        // queued for cleanup, and no undo-close was journaled.
+        #expect(await store.flushAsync() == .persisted)
+        #expect(try persistedPlacement(of: child.id, in: fixture, workspaceID: workspaceID) == .layout)
+        #expect(try !fixture.coreRepository.pendingTerminalSessionIDs().contains(childSession))
+        #expect(try await datastore.fetchAvailableUndoCloses(workspaceID: workspaceID).count == durableUndoClosesBefore)
+        await coordinator.shutdown()
+    }
+
+    private func persistedPlacement(
+        of paneId: UUID,
+        in fixture: WorkspaceSQLiteBridgeFixture,
+        workspaceID: UUID
+    ) throws -> WorkspaceCoreRepository.PanePlacementRecord? {
+        try fixture.coreRepository.fetchPaneGraph(workspaceId: workspaceID).panes.first { $0.id == paneId }?.placement
     }
 
     @Test("terminal input to a drawer child detached before handoff reaches no runtime")
