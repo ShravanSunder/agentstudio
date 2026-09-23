@@ -98,7 +98,7 @@ disallowed method from a pane agent.
 | Built-in method descriptors (`AgentStudioProgrammaticControl/BuiltInDescriptors`) | Per-method metadata | Same field on the method metadata; discovery (`system.capabilities`, `command.list`) reports it. |
 | `AppIPCMethodAuthorization` (`AgentStudioAppIPC`) | The authorization decision | New branch for `.spawnedPaneAgent`: eligibility, then own-pane membership of every resolved target identity, then argument rules. Produces the new outcomes. |
 | `AppIPCOwnPaneScopePort` (new port, declared in `AgentStudioAppIPC`, implemented in App) | Answering "is pane X inside agent pane P's own pane?" | Reads the pane graph on the main actor: P itself; if P is a main-layout pane, its drawer children; later (B1) P's stable Bridge. No I/O. |
-| Layout adapter / executor (`AgentStudioIPCLayoutAdapter`, `WorkspaceSurfaceCoordinator`) | Drawer child creation | New background variant: content `terminal` or `browser(url)`; drawer expansion, drawer selection (`activeChildId`) and keyboard focus unchanged; returns the created pane. Changed owners: the forced expansion in `WorkspaceTerminalCreationComposition.swift:168–170`, the child selection in `TabArrangementMutationRules.swift:158–177`, and the explicit focus in `WorkspaceSurfaceCoordinator+PaneInsertion.swift:223–230` each take the background flag and leave their value unchanged. |
+| Layout adapter / executor (`AgentStudioIPCLayoutAdapter`, `WorkspaceSurfaceCoordinator`) | Drawer child creation | New background variant: content `terminal` or `browser(url)`; drawer expansion, drawer selection (`activeChildId`) and keyboard focus unchanged; returns the created pane. Changed owners: the forced expansion in `WorkspaceTerminalCreationComposition.swift:168–170`, the child selection in `TabArrangementMutationRules.swift:158–177`, the terminal-path focus call in `WorkspaceSurfaceCoordinator+ViewHelpers.swift:104` and the browser-path focus in `WorkspaceSurfaceCoordinator+PaneInsertion.swift:223–230` each take the background flag and leave their value unchanged. |
 | Workspace action validation (`ActionValidator`) | Drawer child content rule | Shared rule from the drawer design: terminal or webview only. |
 | Error taxonomy (`AgentStudioAppIPCRequestError`, `AuthorizationError.Reason`) | Wire outcomes | New reasons `notYetAllowed` (with command name) and `refusedForAgent`, each with its own error code, distinct from `unauthorized`, `missingGrant` and `targetNotFound`. |
 
@@ -156,16 +156,29 @@ Authorization runs before the handler, and each step awaits
 (`AppIPCTypedMethodRegistration.swift:140–172`); existing re-validation checks that
 a target exists, not that it is still inside the agent's own pane
 (`AgentStudioIPCCommandTargetResolution.swift:50–55, 169–174`,
-`AgentStudioIPCRuntimeAdapter.swift:61–74`). A drawer child detached to a tab
-between authorization and execution would still receive input. A1 carries the
-authorization result into the handler as an own-pane assertion (bound pane +
-resolved target identities). Each App handler that applies an agent effect —
-command adapter, runtime adapter, layout adapter — re-evaluates the assertion
-through the same `AppIPCOwnPaneScopePort` on the main actor in the same
-synchronous step that applies the effect. If any target has left the agent's own
-pane, the effect is not applied and the agent receives `notYetAllowed`
-("target left own pane"). No lock, journal or coordinator is added: the check and
-the effect share one main-actor turn, which is where the pane graph changes.
+`AgentStudioIPCRuntimeAdapter.swift:61–74`). A1 carries the authorization result
+as an own-pane assertion (bound pane + resolved target identities) to the owner
+that actually applies the effect, and re-checks it there:
+
+- **Layout effects** (close own drawer child, add drawer child): the assertion
+  travels on the `WorkspaceActionCommand`. `WorkspaceActionExecutor.submitGesture`
+  already serializes every gesture: it awaits the predecessor gesture, then runs
+  `executeValidatedAction`, which builds a fresh workspace snapshot and validates
+  before any durable work (`App/Commands/WorkspaceActionExecutor.swift:252–290`).
+  The own-pane re-check is part of that validation (`ActionValidator`), so it
+  runs after every queued predecessor — including a detach queued before the
+  agent's close — and before off-main preparation, SQLite commit and main-actor
+  publication (`WorkspaceSQLiteSaveCoordinator.swift:176–265`). The gesture holds
+  the executor tail until its commit and publication finish, so no later gesture
+  can move the target in between. Failure rejects the action with
+  `notYetAllowed` ("target left own pane"): no durable mutation, no UI effect.
+- **Immediate runtime effects** (terminal input, scroll, jump to prompt): the
+  runtime adapter re-checks the assertion against the current pane graph in the
+  same main-actor step that hands the command to the pane runtime; these effects
+  are not persisted.
+
+No lock, journal or coordinator is added; persistence stays off-main and the
+existing executor serialization carries the guarantee.
 
 ## Call path: agent runs a command
 
@@ -199,9 +212,10 @@ sequenceDiagram
 
 **Changed edges:** `resolveTarget` hands authorization every resolved identity,
 not only the first (drawer commands currently scope to the parent); authorize
-gains the pane-agent branch and the scope port call. **Unchanged:** handler
-execution, `AppCommandDispatcher.dispatchHeadlessIPC`, the diagnostic path,
-automation-client authorization.
+gains the pane-agent branch and the scope port call; the own-pane assertion is
+passed down to `ActionValidator` (layout) and to the runtime adapter (runtime
+effects), which re-check it at effect time. **Unchanged:** the diagnostic path,
+automation-client authorization, executor serialization, persistence ordering.
 
 ## Call path: agent adds a drawer child
 
@@ -216,7 +230,7 @@ sequenceDiagram
   CLI->>Auth: drawer.addPane(self, content)
   Auth->>L: allowed (own main-layout pane, terminal/browser)
   L->>X: add drawer child, background (added edge)
-  X->>V: validate parent + content kind
+  X->>V: validate parent, content kind and own-pane assertion (after queued predecessors)
   V-->>X: ok
   X->>W: create pane as drawer child, expansion, selection and focus unchanged (changed edge)
   W-->>X: created pane
@@ -262,7 +276,8 @@ variant.
 | Requirement | Seam | Real / fake |
 | --- | --- | --- |
 | R-IC-1, R-IC-2 | IPC server integration: real registry, authorization and own-pane port backed by a real pane graph; channel set to stable and debug | Real transport and authorization; App handlers real where the requirement is execution |
-| R-IC-1, R-IC-2, R-IC-4 | CLI E2E against a PID-targeted debug app and a stable-channel build: agent in a main terminal and in a drawer terminal | Real app |
+| R-IC-1, R-IC-2, R-IC-4 | CLI E2E against a PID-targeted debug app and a stable-channel build: agent in a main terminal and in a drawer terminal; selection and focus unchanged after every A1 effect except closing an own drawer child, where focus moves exactly as for a human close (S30) | Real app |
+| R-IC-2 (scope race) | Executor integration: queue a detach of an own drawer child, then the agent's close of that child behind it (causal barrier, no sleeps); assert `notYetAllowed`, no durable mutation and no UI effect | Real executor, validator and SQLite |
 | R-IC-3 | Executor integration for the background variant (created pane returned, expansion and focus unchanged) plus native check on the debug app | Real workspace owners |
 | R-IC-5 | Marker-scoped main-actor held time for authorization under load | Real app |
 
