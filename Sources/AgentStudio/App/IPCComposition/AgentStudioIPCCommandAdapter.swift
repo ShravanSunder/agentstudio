@@ -8,196 +8,129 @@ protocol WorkspaceDurableTargetAuthorizing: AnyObject {
     func containsRepository(id: UUID) -> Bool
     func containsTab(id: UUID) -> Bool
     func containsPane(id: UUID) -> Bool
+    func containsWorktree(id: UUID) -> Bool
+    func containsArrangement(tabId: UUID, arrangementId: UUID) -> Bool
 }
 
+/// The typed `command.execute` port. It owns no command identity and no owner
+/// logic: `AppCommand.ipcSpec` decides exposure, argument variants and the
+/// result boundaries a command may report, and `AppCommandDispatcher` routes
+/// every request to the existing interactive owner.
 @MainActor
 struct AgentStudioIPCCommandAdapter: AppIPCCommandPort, @unchecked Sendable {
-    private let workspaceId: UUID
-    private let targetAuthorizer: any WorkspaceDurableTargetAuthorizing
-    private let windowLifecycleReader: any WorkspaceWindowLifecycleReading
+    private let channel: AgentStudioIPCChannel
+    private let targetResolver: AgentStudioIPCCommandTargetResolver
     private weak var shellCommandHandler: (any ShellCommandHandling)?
 
     init(
         workspaceId: UUID,
+        channel: AgentStudioIPCChannel,
         targetAuthorizer: any WorkspaceDurableTargetAuthorizing,
-        windowLifecycleReader: any WorkspaceWindowLifecycleReading,
         shellCommandHandler: any ShellCommandHandling
     ) {
-        self.workspaceId = workspaceId
-        self.targetAuthorizer = targetAuthorizer
-        self.windowLifecycleReader = windowLifecycleReader
+        self.channel = channel
         self.shellCommandHandler = shellCommandHandler
+        targetResolver = AgentStudioIPCCommandTargetResolver(
+            workspaceId: workspaceId,
+            targetAuthorizer: targetAuthorizer,
+            ownsWorkspaceWindow: { [weak shellCommandHandler] workspaceWindowId in
+                shellCommandHandler?.ownsWorkspaceWindow(workspaceWindowId) ?? false
+            }
+        )
     }
 
-    func listCommands() throws -> IPCCommandListResult {
-        let commands = AppCommand.allCases
-            .map(\.definition)
-            .map(\.ipcCommandListEntry)
-            .sorted { left, right in
-                left.id.rawValue < right.id.rawValue
-            }
-        return IPCCommandListResult(commands: commands)
+    func listCommands() throws -> IPCCommandCatalogResult {
+        let commands =
+            try AgentStudioIPCCommandCatalogProjection
+            .admittedCommands(on: channel)
+            .map(AgentStudioIPCCommandCatalogProjection.makeDescriptor)
+            .sorted { $0.id.rawValue < $1.id.rawValue }
+        return IPCCommandCatalogResult(compatibility: .current, commands: commands)
     }
 
-    func requiredPermissionScopes(for command: IPCCommandListEntry) throws -> [IPCPermissionScope] {
-        guard let appCommand = AppCommand(rawValue: command.id.rawValue) else {
-            throw AppIPCCommandError(reason: .unsupportedCommand)
-        }
-        return appCommand.definition.ipcExposure.requiredPrivileges.map { privilege in
-            IPCPermissionScope(
-                privilege: privilege,
-                target: permissionTarget(for: privilege),
-                dataScope: PermissionScopeCanonicalizer.dataScope(for: privilege)
-            )
-        }
-    }
-
-    func executeCommand(_ params: IPCCommandExecuteParams) throws -> IPCCommandExecuteResult {
-        guard let command = AppCommand(rawValue: params.commandId.rawValue) else {
-            throw AppIPCCommandError(reason: .unsupportedCommand)
-        }
-        let definition = command.definition
-        let exposure = definition.ipcExposure
-        switch exposure {
-        case .headless, .headlessAndInteractive:
-            break
-        case .uiPresentation:
-            throw AppIPCCommandError(reason: .requiresPresentation)
-        case .notExposed, .interactive:
-            throw AppIPCCommandError(reason: .requiresParameters)
-        }
-        let executionArguments: AppCommandExecutionArguments
-        do {
-            executionArguments = try AppCommandExecutionArguments.commandOwnedArguments(
-                contract: command.ipcSpec.argumentContract,
-                rawArguments: params.arguments,
-                argumentsContainOnlyStrings: params.argumentsContainOnlyStrings
-            )
-        } catch AppCommandArgumentDecodingError.validationRejected {
-            throw AppIPCCommandError(reason: .validationRejected)
-        }
-        let durableTarget = exposure.durableTarget
-        switch durableTarget {
-        case .targetless:
-            break
-        case .required:
-            guard params.targetHandle != nil else {
-                throw AppIPCCommandError(reason: .requiresTarget)
-            }
-        }
-
-        let lifecycle = windowLifecycleReader.snapshot()
-        guard
-            let workspaceWindowId = lifecycle.preferredWorkspaceWindowId,
-            lifecycle.registeredWindowIds.contains(workspaceWindowId)
-        else {
-            throw AppIPCCommandError(reason: .noActiveWindow)
-        }
-        switch durableTarget {
-        case .targetless:
-            guard params.targetHandle == nil else {
-                throw AppIPCCommandError(reason: .targetNotFound)
-            }
-        case .required(let primary, let additional):
-            guard let targetHandle = params.targetHandle else {
-                throw AppIPCCommandError(reason: .requiresTarget)
-            }
-            let target = try targetedCommandTarget(
-                rawHandle: targetHandle,
-                primaryKind: primary,
-                additionalKinds: additional
-            )
-            guard
-                AppCommandDispatcher.shared.dispatch(
-                    command,
-                    target: target.id,
-                    targetType: target.type,
-                    executionContext: .headlessIPC
+    func prepareCommand(
+        _ request: IPCCommandExecutionRequest,
+        principal _: IPCPrincipal,
+        tools: AppIPCTargetResolutionTools
+    ) async throws -> AppIPCPreparedCommand {
+        let command = try activeCommand(for: request)
+        let resolved = try await targetResolver.resolve(request.arguments, tools: tools)
+        let privilege = command.ipcSpec.requiredPrivilege
+        return AppIPCPreparedCommand(
+            request: IPCCommandExecutionRequest(
+                commandId: request.commandId,
+                correlationId: request.correlationId,
+                arguments: resolved.arguments
+            ),
+            canonicalHandle: resolved.handle,
+            target: resolved.target,
+            requiredScopes: [
+                IPCPermissionScope(
+                    privilege: privilege,
+                    target: resolved.target,
+                    dataScope: PermissionScopeCanonicalizer.dataScope(for: privilege)
                 )
-            else {
-                throw AppIPCCommandError(reason: .targetNotFound)
-            }
-            return IPCCommandExecuteResult(
-                commandId: params.commandId,
-                applied: true,
-                targetHandle: targetHandle
-            )
-        }
+            ]
+        )
+    }
 
-        guard let shellCommandHandler else {
-            throw AppIPCCommandError(reason: .stateUnavailable)
-        }
+    func executeCommand(_ request: IPCCommandExecutionRequest) async throws -> IPCCommandExecutionResult {
+        let command = try activeCommand(for: request)
+        guard shellCommandHandler != nil else { throw AppIPCCommandError(reason: .stateUnavailable) }
+        try targetResolver.validateForExecution(request.arguments)
 
-        let outcome = shellCommandHandler.execute(
+        let outcome = await AppCommandDispatcher.shared.dispatchHeadlessIPC(
             AppCommandExecutionRequest(
                 command: command,
-                arguments: executionArguments,
-                executionContext: .headlessIPC
+                arguments: .typedIPC(request.arguments),
+                executionContext: .headlessIPC(admitsDebugTestingCommands: channel == .debug)
             )
         )
-        switch outcome {
-        case .applied:
-            return IPCCommandExecuteResult(
-                commandId: params.commandId,
-                applied: true,
-                targetHandle: params.targetHandle
-            )
-        case .stateUnavailable:
-            throw AppIPCCommandError(reason: .stateUnavailable)
-        case .unsupportedCommand:
+        return try makeResult(command: command, request: request, outcome: outcome)
+    }
+
+    private func activeCommand(for request: IPCCommandExecutionRequest) throws -> AppCommand {
+        guard let command = AppCommand(rawValue: request.commandId.rawValue) else {
+            throw AppIPCCommandError(reason: .unknownCommand)
+        }
+        guard AgentStudioIPCCommandCatalogProjection.admitsCommand(command, on: channel) else {
             throw AppIPCCommandError(reason: .unsupportedCommand)
         }
+        guard command.ipcSpec.argumentVariants.contains(request.arguments.variant) else {
+            throw IPCSchemaValidationError(
+                fieldPath: "$.arguments.kind",
+                reason: .invalidValue,
+                expected: "one argument variant declared by the selected command"
+            )
+        }
+        return command
     }
 
-    private func targetedCommandTarget(
-        rawHandle: String,
-        primaryKind: IPCHandleKind,
-        additionalKinds: [IPCHandleKind]
-    ) throws -> (id: UUID, type: SearchItemType) {
-        let handle: IPCHandle
-        do {
-            handle = try IPCHandle.parse(rawHandle)
-        } catch {
-            throw AppIPCCommandError(reason: .targetNotFound)
-        }
-        guard
-            handle.kind == primaryKind || additionalKinds.contains(handle.kind),
-            case .canonicalUUID(let targetId) = handle.reference
-        else {
-            throw AppIPCCommandError(reason: .targetNotFound)
-        }
-        switch handle.kind {
-        case .repo:
-            guard targetAuthorizer.containsRepository(id: targetId) else {
-                throw AppIPCCommandError(reason: .targetNotFound)
-            }
-            return (targetId, .repo)
-        case .tab:
-            guard targetAuthorizer.containsTab(id: targetId) else {
-                throw AppIPCCommandError(reason: .targetNotFound)
-            }
-            return (targetId, .tab)
-        case .pane:
-            guard targetAuthorizer.containsPane(id: targetId) else {
-                throw AppIPCCommandError(reason: .targetNotFound)
-            }
-            return (targetId, .pane)
-        case .window, .workspace:
-            throw AppIPCCommandError(reason: .targetNotFound)
-        }
-    }
-
-    private func permissionTarget(for privilege: IPCPrivilegeClass) -> IPCTargetScope {
-        switch privilege {
-        case .sidebarStateMutate:
-            .workspace(workspaceId)
-        case .systemRead, .workspaceRead, .paneContextRead, .layoutMutate,
-            .bridgeRead, .bridgeContentRead, .bridgeControl, .bridgeTelemetryRead,
-            .bridgeTelemetryFlush, .terminalRead, .terminalWrite, .terminalStatusRead,
-            .terminalSnapshotRead, .terminalInputWrite, .terminalWait, .eventsRead,
-            .uiPresent, .permissionRequest, .permissionRead, .grantApprove,
-            .appCommandExecute, .debugUnsafe:
-            .app
+    /// Owners report the boundary they reached; the projection decides which
+    /// boundaries a command may advertise. An owner outcome the projection does
+    /// not declare is a state failure, never a stronger receipt.
+    private func makeResult(
+        command: AppCommand,
+        request: IPCCommandExecutionRequest,
+        outcome: AppCommandExecutionOutcome
+    ) throws -> IPCCommandExecutionResult {
+        let commandId = request.commandId
+        let correlationId = request.correlationId
+        let declared = command.ipcSpec.resultVariants
+        switch outcome {
+        case .applied where declared.contains(.applied):
+            return .applied(.init(commandId: commandId, correlationId: correlationId))
+        case .accepted(let operationId) where declared.contains(.accepted):
+            return .accepted(
+                .init(commandId: commandId, correlationId: correlationId, operationId: operationId))
+        case .presented where declared.contains(.presented):
+            return .presented(.init(commandId: commandId, correlationId: correlationId))
+        case .unavailable(let reason) where declared.contains(.unavailable):
+            return .unavailable(.init(commandId: commandId, correlationId: correlationId, reason: reason))
+        case .unsupportedCommand:
+            throw AppIPCCommandError(reason: .unsupportedCommand)
+        case .applied, .accepted, .presented, .unavailable, .stateUnavailable:
+            throw AppIPCCommandError(reason: .stateUnavailable)
         }
     }
 }

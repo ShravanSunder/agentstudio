@@ -255,7 +255,9 @@ struct RepoExplorerHotPathArchitectureTests {
             encoding: .utf8
         )
 
-        #expect(materializer.contains("private let tableView = RepoExplorerTableView()"))
+        #expect(materializer.contains("let tableView = RepoExplorerTableView()"))
+        #expect(!materializer.contains("package let tableView"))
+        #expect(!materializer.contains("public let tableView"))
         #expect(materializer.contains("contextMenuPresenter?.makeMenu("))
         #expect(presenter.contains("override func menu(for event: NSEvent) -> NSMenu?"))
         #expect(presenter.contains("isRowCurrent(rowID)"))
@@ -716,8 +718,9 @@ struct RepoExplorerHotPathArchitectureTests {
         #expect(!featureSource.contains("repoExplorerPrefs.toggleSortOrder"))
         #expect(!featureSource.contains("repoExplorerPrefs.setGroupingMode(candidate)"))
         #expect(featureSource.contains(".toggleReposSortDirection"))
-        #expect(featureSource.contains(".togglePanesSortDirection"))
-        #expect(featureSource.contains(".setPanesGroupingActivity"))
+        #expect(!featureSource.contains(".togglePanesSortDirection"))
+        #expect(!featureSource.contains(".setPanesGroupingActivity"))
+        #expect(featureSource.contains(".togglePanesShowsPinned"))
         #expect(featureSource.contains(".setReposGroupingActivity"))
         #expect(featureSource.contains("presentation.command(command)?.isEnabled == true"))
         #expect(featureSource.contains("commandDispatcher.dispatch(command)"))

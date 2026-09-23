@@ -1,4 +1,5 @@
 import AgentStudioGit
+import AgentStudioTestSupport
 import CoreServices
 import Foundation
 
@@ -20,9 +21,20 @@ final class SharedExactItemRealStreamFixture: @unchecked Sendable {
     private let fixtureRoot: URL
     private let streamClient: DarwinFSEventStreamClient
     private let exactItemParent: SharedExactItemParent
+    private let gitClient: AgentStudioGit.LibGit2AgentStudioGitLocalClient
+
+    /// `DarwinFSEventIngressBuffer.events()` is ONE AsyncStream with single-consumer
+    /// semantics, and `captureActivityBarrier()` only returns once that consumer
+    /// acknowledges its fence. So the fixture owns the consumer for its whole life:
+    /// it acks fences, and forwards everything else into an unbounded stream the
+    /// tests' collectors read. Unbounded because items that arrive before a
+    /// collector starts must be buffered, not dropped.
+    private let forwardedIngress: AsyncStream<FSEventIngressItem>
+    private let forwardedIngressContinuation: AsyncStream<FSEventIngressItem>.Continuation
+    private var ingressTask: Task<Void, Never>?
     private var sentinelWriteSequence = 0
 
-    init(nativeSharedStreamIsEnabled: Bool) throws {
+    init(nativeSharedStreamIsEnabled: Bool) async throws {
         fixtureRoot = FileManager.default.temporaryDirectory.appending(
             path: "darwin-shared-real-stream-\(UUIDv7.generate().uuidString)",
             directoryHint: .isDirectory
@@ -34,21 +46,26 @@ final class SharedExactItemRealStreamFixture: @unchecked Sendable {
         unrelatedSiblingPath = externalParent.appending(path: "unrelated.txt")
         excludesFilePath = externalParent.appending(path: "global-excludes")
 
-        try FileManager.default.createDirectory(at: fixtureRoot, withIntermediateDirectories: true)
-        try FileManager.default.createDirectory(at: externalParent, withIntermediateDirectories: true)
-        try "ignored.txt\n".write(
-            to: excludesFilePath,
-            atomically: true,
-            encoding: .utf8
-        )
-        try Self.initializeRepository(
-            at: firstRepositoryPath,
-            excludesFilePath: excludesFilePath
-        )
-        try Self.initializeRepository(
-            at: secondRepositoryPath,
-            excludesFilePath: excludesFilePath
-        )
+        do {
+            try FileManager.default.createDirectory(at: fixtureRoot, withIntermediateDirectories: true)
+            try FileManager.default.createDirectory(at: externalParent, withIntermediateDirectories: true)
+            try "ignored.txt\n".write(
+                to: excludesFilePath,
+                atomically: true,
+                encoding: .utf8
+            )
+            try await Self.initializeRepository(
+                at: firstRepositoryPath,
+                excludesFilePath: excludesFilePath
+            )
+            try await Self.initializeRepository(
+                at: secondRepositoryPath,
+                excludesFilePath: excludesFilePath
+            )
+        } catch {
+            try? FileManager.default.removeItem(at: fixtureRoot)
+            throw error
+        }
 
         externalParentPath = DarwinFSEventPathCanonicalizer.canonicalURL(externalParent).path
         nativeStreamRecorder = NativeSharedExactItemStreamRecorder(
@@ -57,11 +74,32 @@ final class SharedExactItemRealStreamFixture: @unchecked Sendable {
         streamClient = DarwinFSEventStreamClient(
             sharedExactItemStreamFactory: nativeStreamRecorder.makeStream
         )
+        gitClient = AgentStudioGit.LibGit2AgentStudioGitLocalClient()
         provider = Self.makeProvider(
             continuityWitness: streamClient,
             readRecorder: readRecorder,
-            exactItemParent: exactItemParent
+            exactItemParent: exactItemParent,
+            gitClient: gitClient
         )
+
+        let (forwardedIngress, forwardedIngressContinuation) = AsyncStream.makeStream(
+            of: FSEventIngressItem.self,
+            bufferingPolicy: .unbounded
+        )
+        self.forwardedIngress = forwardedIngress
+        self.forwardedIngressContinuation = forwardedIngressContinuation
+        // Started BEFORE the streams are registered, so no item can arrive with
+        // nobody draining the ingress.
+        ingressTask = Task { [streamClient, forwardedIngressContinuation] in
+            for await ingressItem in streamClient.events() {
+                if case .activityProcessingFence(let fenceID) = ingressItem {
+                    streamClient.acknowledgeActivityProcessingFence(fenceID)
+                    continue
+                }
+                forwardedIngressContinuation.yield(ingressItem)
+            }
+            forwardedIngressContinuation.finish()
+        }
 
         streamClient.register(
             worktreeId: firstWorktreeId,
@@ -73,31 +111,68 @@ final class SharedExactItemRealStreamFixture: @unchecked Sendable {
             repoId: UUIDv7.generate(),
             rootPath: secondRepositoryPath
         )
+        do {
+            try await installIntendedObservationBindings()
+        } catch {
+            remove()
+            throw error
+        }
     }
 
     func establishAuthority(
         worktreeId: UUID,
         repositoryPath: URL
     ) async -> GitCleanContinuityAuthority? {
+        let worktreeLabel =
+            if worktreeId == firstWorktreeId {
+                "first"
+            } else if worktreeId == secondWorktreeId {
+                "second"
+            } else {
+                "unknown"
+            }
         let result = await provider.exactCleanStatusFactsResult(
             for: worktreeId,
             rootPath: repositoryPath
         )
-        guard case .available(let facts) = result else { return nil }
-        return facts.exactCleanAuthority
+        switch result {
+        case .available(let facts):
+            guard let authority = facts.exactCleanAuthority else {
+                print(
+                    "[darwin-shared-exact-item] authority label=\(worktreeLabel) "
+                        + "outcome=available_without_authority"
+                )
+                return nil
+            }
+            print(
+                "[darwin-shared-exact-item] authority label=\(worktreeLabel) "
+                    + "outcome=authoritative"
+            )
+            return authority
+        case .requiresExact(let reason):
+            print(
+                "[darwin-shared-exact-item] authority label=\(worktreeLabel) "
+                    + "outcome=requires_exact reason=\(reason.rawValue)"
+            )
+            return nil
+        case .unavailable(let unavailable):
+            print(
+                "[darwin-shared-exact-item] authority label=\(worktreeLabel) "
+                    + "outcome=unavailable reason=\(unavailable.reason.rawValue)"
+            )
+            return nil
+        }
     }
 
     func collectFullGitRefreshBatches(
         expectedWorktreeIds: Set<UUID>
     ) -> Task<[UUID: FSEventBatch], Never> {
-        let streamClient = streamClient
+        // Reads the fixture's forwarded stream, not the client's: fences are
+        // already acknowledged by the long-lived consumer, so none reach here.
+        let forwardedIngress = forwardedIngress
         return Task {
             var batchByWorktreeId: [UUID: FSEventBatch] = [:]
-            for await ingressItem in streamClient.events() {
-                if case .activityProcessingFence(let fenceID) = ingressItem {
-                    streamClient.acknowledgeActivityProcessingFence(fenceID)
-                    continue
-                }
+            for await ingressItem in forwardedIngress {
                 guard case .batch(let batch) = ingressItem else { continue }
                 guard expectedWorktreeIds.contains(batch.worktreeId) else { continue }
                 guard batch.requiresFullGitRefresh else { continue }
@@ -110,6 +185,50 @@ final class SharedExactItemRealStreamFixture: @unchecked Sendable {
         }
     }
 
+    /// Waits until everything the kernel had already queued has been delivered
+    /// AND recorded in the continuity ledger.
+    ///
+    /// This is the production drain fence six sibling suites already use, not a
+    /// test-local invention: it flushes every shared exact-item and local physical
+    /// stream, pushes an activity-processing fence through the ingress buffer, and
+    /// re-validates stream generations and the shared topology revision, returning
+    /// nil if anything moved underneath it. Because the ledger is written from the
+    /// raw callback, a returned barrier means no setup-generated event is still in
+    /// flight to bump `mutationEpoch` behind the test's back.
+    ///
+    /// `streamClient` stays private; the barrier is exposed as behaviour instead.
+    func awaitActivityBarrier() async -> Bool {
+        guard let barrier = await streamClient.captureActivityBarrier() else { return false }
+
+        let expectedWorktreeIds: Set<UUID> = [firstWorktreeId, secondWorktreeId]
+        let localBindings = barrier.bindings.filter {
+            $0.participant.scopeKey == "local:\($0.worktreeId.uuidString)"
+        }
+        guard Set(localBindings.map(\.worktreeId)) == expectedWorktreeIds else { return false }
+
+        let currentParentPath = DarwinFSEventPathCanonicalizer.canonicalURL(
+            exactItemParent.currentURL
+        ).path
+        guard
+            let volumeSystemNumber = DarwinFSEventBindingPlanner.volumeSystemNumber(
+                for: currentParentPath
+            )
+        else { return false }
+        let expectedSharedScopeKey = "shared:\(volumeSystemNumber):\(currentParentPath)"
+        let sharedBindings = barrier.bindings.filter {
+            $0.participant.scopeKey == expectedSharedScopeKey
+        }
+        guard Set(sharedBindings.map(\.worktreeId)) == expectedWorktreeIds else { return false }
+        return Set(sharedBindings.map(\.participant)).count == 1
+    }
+
+    /// Drives real activity through each freshly bound stream and waits for it to
+    /// come back.
+    ///
+    /// Initially and after `rebindWorktreeRegistrations()`, the sentinel proves
+    /// each local stream delivers real events. The final activity barrier checks
+    /// that current local and shared coverage is quiescent; exact authority belongs
+    /// to the subsequent status read's prepare/commit sequence.
     func awaitLocalStreamSentinelBarrier() async throws -> Bool {
         sentinelWriteSequence += 1
         let sentinelPathByWorktreeId = [
@@ -135,6 +254,39 @@ final class SharedExactItemRealStreamFixture: @unchecked Sendable {
             timeout: .seconds(5)
         )
         return observedWorktreeIds == Set(sentinelPathByWorktreeId.keys)
+    }
+
+    private func collectLocalSentinelBatches(
+        expectedPathByWorktreeId: [UUID: String]
+    ) -> Task<Set<UUID>, Never> {
+        let forwardedIngress = forwardedIngress
+        return Task {
+            var observedWorktreeIds: Set<UUID> = []
+            for await ingressItem in forwardedIngress {
+                guard case .batch(let batch) = ingressItem else { continue }
+                guard let expectedPath = expectedPathByWorktreeId[batch.worktreeId] else {
+                    continue
+                }
+                guard
+                    batch.paths.contains(where: {
+                        DarwinFSEventPathNormalizer.lexicallyNormalizedAbsolutePath($0) == expectedPath
+                    })
+                else {
+                    continue
+                }
+                observedWorktreeIds.insert(batch.worktreeId)
+                if observedWorktreeIds.count == expectedPathByWorktreeId.count {
+                    return observedWorktreeIds
+                }
+            }
+            return observedWorktreeIds
+        }
+    }
+
+    private static func sentinelPath(in repositoryPath: URL) -> URL {
+        repositoryPath
+            .appending(path: ".git", directoryHint: .isDirectory)
+            .appending(path: "agentstudio-real-stream-sentinel")
     }
 
     func waitForNativeCallback(at path: URL) async -> Bool {
@@ -194,16 +346,16 @@ final class SharedExactItemRealStreamFixture: @unchecked Sendable {
         return replacementParent
     }
 
-    func pointRepositoriesToExternalParent(_ replacementParent: URL) throws {
+    func pointRepositoriesToExternalParent(_ replacementParent: URL) async throws {
         let replacementExcludes = replacementParent.appending(path: excludesFilePath.lastPathComponent)
         for repositoryPath in [firstRepositoryPath, secondRepositoryPath] {
             let git = IsolatedGitProcess(repositoryPath: repositoryPath)
-            try git.run(["config", "core.excludesFile", replacementExcludes.path])
+            try await git.run(["config", "core.excludesFile", replacementExcludes.path])
         }
         exactItemParent.replace(with: replacementParent)
     }
 
-    func rebindWorktreeRegistrations() {
+    func rebindWorktreeRegistrations() async throws {
         for (worktreeId, repositoryPath) in [
             (firstWorktreeId, firstRepositoryPath),
             (secondWorktreeId, secondRepositoryPath),
@@ -215,6 +367,7 @@ final class SharedExactItemRealStreamFixture: @unchecked Sendable {
                 rootPath: repositoryPath
             )
         }
+        try await installIntendedObservationBindings()
     }
 
     func firstCompletedValue<TValue: Sendable>(
@@ -241,61 +394,44 @@ final class SharedExactItemRealStreamFixture: @unchecked Sendable {
 
     func remove() {
         streamClient.shutdown()
+        ingressTask?.cancel()
+        ingressTask = nil
+        forwardedIngressContinuation.finish()
         try? FileManager.default.removeItem(at: fixtureRoot)
     }
 
     private static func initializeRepository(
         at repositoryPath: URL,
         excludesFilePath: URL
-    ) throws {
+    ) async throws {
         try FileManager.default.createDirectory(at: repositoryPath, withIntermediateDirectories: true)
         let git = IsolatedGitProcess(repositoryPath: repositoryPath)
-        try git.run(["init"])
+        try await git.run(["init"])
         try "initial\n".write(
             to: repositoryPath.appending(path: "README.md"),
             atomically: true,
             encoding: .utf8
         )
-        try git.run(["add", "README.md"])
-        try git.run(["commit", "-m", "initial"])
-        try git.run(["config", "core.excludesFile", excludesFilePath.path])
+        try await git.run(["add", "README.md"])
+        try await git.run(["commit", "-m", "initial"])
+        try await git.run(["config", "core.excludesFile", excludesFilePath.path])
     }
 
     private static func makeProvider(
         continuityWitness: DarwinFSEventStreamClient,
         readRecorder: GitPhysicalReadRecorder,
-        exactItemParent: SharedExactItemParent
+        exactItemParent: SharedExactItemParent,
+        gitClient: AgentStudioGit.LibGit2AgentStudioGitLocalClient
     ) -> AgentStudioGitWorkingTreeStatusProvider {
-        let gitClient = AgentStudioGit.LibGit2AgentStudioGitLocalClient()
-        return AgentStudioGitWorkingTreeStatusProvider(
+        AgentStudioGitWorkingTreeStatusProvider(
             physicalGate: AgentStudioGitStatusPhysicalGate(),
             continuityWitness: continuityWitness,
             statusObservationPlanReader: { repositoryPath in
-                readRecorder.recordObservationPlanRead()
-                let resolvedPlan = try await gitClient.statusObservationPlan(for: repositoryPath)
-                let canonicalRepositoryPath = DarwinFSEventPathCanonicalizer.canonicalURL(
-                    repositoryPath
-                ).path
-                let currentExactItemParent = exactItemParent.currentURL
-                let productionScopes = resolvedPlan.scopes.filter { scope in
-                    switch scope.kind {
-                    case .item:
-                        path(scope.path, isWithin: currentExactItemParent)
-                    case .subtree:
-                        DarwinFSEventPathCanonicalizer.canonicalURL(scope.path).path
-                            == canonicalRepositoryPath
-                    }
-                }
-                return AgentStudioGit.GitStatusObservationPlan(
-                    identity: AgentStudioGit.GitStatusObservationIdentity(
-                        rawValue:
-                            productionScopes
-                            .map { "\($0.kind.rawValue):\($0.path.path)" }
-                            .sorted()
-                            .joined(separator: "\u{0}")
-                    ),
-                    scopes: productionScopes,
-                    support: resolvedPlan.support
+                try await filteredObservationPlan(
+                    repositoryPath: repositoryPath,
+                    exactItemParent: exactItemParent,
+                    gitClient: gitClient,
+                    readRecorder: readRecorder
                 )
             },
             verifiedStatusFactsReader: { repositoryPath, options, observationPlan in
@@ -338,41 +474,102 @@ final class SharedExactItemRealStreamFixture: @unchecked Sendable {
         )
     }
 
-    private func collectLocalSentinelBatches(
-        expectedPathByWorktreeId: [UUID: String]
-    ) -> Task<Set<UUID>, Never> {
-        let streamClient = streamClient
-        return Task {
-            var observedWorktreeIds: Set<UUID> = []
-            for await ingressItem in streamClient.events() {
-                if case .activityProcessingFence(let fenceID) = ingressItem {
-                    streamClient.acknowledgeActivityProcessingFence(fenceID)
-                    continue
-                }
-                guard case .batch(let batch) = ingressItem else { continue }
-                guard let expectedPath = expectedPathByWorktreeId[batch.worktreeId] else {
-                    continue
-                }
-                guard
-                    batch.paths.contains(where: {
-                        DarwinFSEventPathNormalizer.lexicallyNormalizedAbsolutePath($0) == expectedPath
-                    })
-                else {
-                    continue
-                }
-                observedWorktreeIds.insert(batch.worktreeId)
-                if observedWorktreeIds.count == expectedPathByWorktreeId.count {
-                    return observedWorktreeIds
-                }
-            }
-            return observedWorktreeIds
+    private func installIntendedObservationBindings() async throws {
+        for (worktreeId, repositoryPath) in [
+            (firstWorktreeId, firstRepositoryPath),
+            (secondWorktreeId, secondRepositoryPath),
+        ] {
+            let observationPlan = try await Self.validatedObservationPlan(
+                repositoryPath: repositoryPath,
+                exactItemName: excludesFilePath.lastPathComponent,
+                exactItemParent: exactItemParent,
+                gitClient: gitClient,
+                readRecorder: readRecorder
+            )
+            _ = await streamClient.prepare(
+                worktreeId: worktreeId,
+                rootPath: repositoryPath,
+                observationPlan: observationPlan
+            )
         }
     }
 
-    private static func sentinelPath(in repositoryPath: URL) -> URL {
-        repositoryPath
-            .appending(path: ".git", directoryHint: .isDirectory)
-            .appending(path: "agentstudio-real-stream-sentinel")
+    private static func validatedObservationPlan(
+        repositoryPath: URL,
+        exactItemName: String,
+        exactItemParent: SharedExactItemParent,
+        gitClient: AgentStudioGit.LibGit2AgentStudioGitLocalClient,
+        readRecorder: GitPhysicalReadRecorder
+    ) async throws -> AgentStudioGit.GitStatusObservationPlan {
+        let observationPlan = try await filteredObservationPlan(
+            repositoryPath: repositoryPath,
+            exactItemParent: exactItemParent,
+            gitClient: gitClient,
+            readRecorder: readRecorder
+        )
+        guard observationPlan.support == .supported else {
+            throw SharedExactItemFixtureSetupError(
+                reason: "Git status observation is unsupported for the fixture repository"
+            )
+        }
+
+        let canonicalRepositoryPath = DarwinFSEventPathCanonicalizer.canonicalURL(
+            repositoryPath
+        ).path
+        let expectedExactItemPath = DarwinFSEventPathCanonicalizer.canonicalURL(
+            exactItemParent.currentURL.appending(path: exactItemName)
+        ).path
+        guard
+            observationPlan.scopes.contains(where: {
+                $0.kind == .subtree
+                    && DarwinFSEventPathCanonicalizer.canonicalURL($0.path).path
+                        == canonicalRepositoryPath
+            }),
+            observationPlan.scopes.contains(where: {
+                $0.kind == .item
+                    && DarwinFSEventPathCanonicalizer.canonicalURL($0.path).path
+                        == expectedExactItemPath
+            })
+        else {
+            throw SharedExactItemFixtureSetupError(
+                reason: "Git status observation omitted the fixture repository or current excludes item"
+            )
+        }
+        return observationPlan
+    }
+
+    private static func filteredObservationPlan(
+        repositoryPath: URL,
+        exactItemParent: SharedExactItemParent,
+        gitClient: AgentStudioGit.LibGit2AgentStudioGitLocalClient,
+        readRecorder: GitPhysicalReadRecorder
+    ) async throws -> AgentStudioGit.GitStatusObservationPlan {
+        readRecorder.recordObservationPlanRead()
+        let resolvedPlan = try await gitClient.statusObservationPlan(for: repositoryPath)
+        let canonicalRepositoryPath = DarwinFSEventPathCanonicalizer.canonicalURL(
+            repositoryPath
+        ).path
+        let currentExactItemParent = exactItemParent.currentURL
+        let productionScopes = resolvedPlan.scopes.filter { scope in
+            switch scope.kind {
+            case .item:
+                path(scope.path, isWithin: currentExactItemParent)
+            case .subtree:
+                DarwinFSEventPathCanonicalizer.canonicalURL(scope.path).path
+                    == canonicalRepositoryPath
+            }
+        }
+        return AgentStudioGit.GitStatusObservationPlan(
+            identity: AgentStudioGit.GitStatusObservationIdentity(
+                rawValue:
+                    productionScopes
+                    .map { "\($0.kind.rawValue):\($0.path.path)" }
+                    .sorted()
+                    .joined(separator: "\u{0}")
+            ),
+            scopes: productionScopes,
+            support: resolvedPlan.support
+        )
     }
 
     private static func path(_ candidate: URL, isWithin root: URL) -> Bool {
@@ -381,6 +578,10 @@ final class SharedExactItemRealStreamFixture: @unchecked Sendable {
         return canonicalCandidate == canonicalRoot
             || canonicalCandidate.hasPrefix(canonicalRoot + "/")
     }
+}
+
+private struct SharedExactItemFixtureSetupError: Error {
+    let reason: String
 }
 
 final class SharedExactItemParent: @unchecked Sendable {
@@ -520,43 +721,54 @@ final class GitPhysicalReadRecorder: @unchecked Sendable {
 private struct IsolatedGitProcess {
     let repositoryPath: URL
 
-    func run(_ arguments: [String]) throws {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        process.arguments =
-            [
-                "git",
-                "-c", "user.name=AgentStudio Test",
-                "-c", "user.email=agentstudio@example.invalid",
-                "-c", "commit.gpgsign=false",
-                "-c", "init.defaultBranch=main",
-            ] + arguments
-        process.currentDirectoryURL = repositoryPath
-        process.environment = ProcessInfo.processInfo.environment.merging(
-            [
-                "GIT_CONFIG_NOSYSTEM": "1",
-                "GIT_CONFIG_GLOBAL": "/dev/null",
-                "GIT_CONFIG_XDG": "/dev/null",
-                "GIT_TERMINAL_PROMPT": "0",
-                "LC_ALL": "C",
-            ]
-        ) { _, testValue in testValue }
-        process.standardInput = FileHandle.nullDevice
-        process.standardOutput = FileHandle.nullDevice
-        let standardError = Pipe()
-        process.standardError = standardError
+    func run(_ arguments: [String]) async throws {
+        let repositoryPath = repositoryPath
+        try await withoutBlockingCooperativePool {
+            let outputDirectory = FileManager.default.temporaryDirectory
+                .appending(path: "darwin-real-stream-git-\(UUIDv7.generate().uuidString)")
+            try FileManager.default.createDirectory(at: outputDirectory, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: outputDirectory) }
+            let stderrURL = outputDirectory.appending(path: "stderr.log")
+            FileManager.default.createFile(atPath: stderrURL.path, contents: nil)
+            let stderrHandle = try FileHandle(forWritingTo: stderrURL)
+            defer { try? stderrHandle.close() }
 
-        try process.run()
-        process.waitUntilExit()
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+            process.arguments =
+                [
+                    "git",
+                    "-c", "user.name=AgentStudio Test",
+                    "-c", "user.email=agentstudio@example.invalid",
+                    "-c", "commit.gpgsign=false",
+                    "-c", "init.defaultBranch=main",
+                ] + arguments
+            process.currentDirectoryURL = repositoryPath
+            process.environment = ProcessInfo.processInfo.environment.merging(
+                [
+                    "GIT_CONFIG_NOSYSTEM": "1",
+                    "GIT_CONFIG_GLOBAL": "/dev/null",
+                    "GIT_CONFIG_XDG": "/dev/null",
+                    "GIT_TERMINAL_PROMPT": "0",
+                    "LC_ALL": "C",
+                ]
+            ) { _, testValue in testValue }
+            process.standardInput = FileHandle.nullDevice
+            process.standardOutput = FileHandle.nullDevice
+            process.standardError = stderrHandle
 
-        guard process.terminationStatus == 0 else {
-            let errorData = standardError.fileHandleForReading.readDataToEndOfFile()
-            let errorText = String(data: errorData, encoding: .utf8) ?? ""
-            throw IsolatedGitProcessError(
-                arguments: arguments,
-                exitCode: process.terminationStatus,
-                errorText: errorText
-            )
+            try process.run()
+            process.waitUntilExit()
+            try stderrHandle.close()
+
+            guard process.terminationStatus == 0 else {
+                let errorText = try String(contentsOf: stderrURL, encoding: .utf8)
+                throw IsolatedGitProcessError(
+                    arguments: arguments,
+                    exitCode: process.terminationStatus,
+                    errorText: errorText
+                )
+            }
         }
     }
 }

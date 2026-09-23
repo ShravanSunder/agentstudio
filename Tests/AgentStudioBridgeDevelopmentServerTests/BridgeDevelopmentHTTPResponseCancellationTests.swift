@@ -35,7 +35,7 @@ struct BridgeDevelopmentHTTPResponseCancellationTests {
             try await TestClient.withClient(host: "localhost", port: port) { client in
                 try await client.executeAndDontWaitForResponse(
                     .init("/stream", method: .post, body: ByteBuffer(string: "request")))
-                #expect(await probe.waitForBodyWrite())
+                await probe.waitForBodyWrite()
 
                 // Act — force a reset, not a FIN that also represents a valid request half-close.
                 let socket = try #require(try await client.getChannel() as? any SocketOptionProvider)
@@ -43,7 +43,7 @@ struct BridgeDevelopmentHTTPResponseCancellationTests {
                 try await client.close(mode: .all)
 
                 // Assert
-                #expect(await probe.waitForCancellation())
+                await probe.waitForCancellation()
                 continuation.finish()
             }
         }
@@ -69,7 +69,7 @@ struct BridgeDevelopmentHTTPResponseCancellationTests {
             try await TestClient.withClient(host: "localhost", port: port) { client in
                 async let pendingResponse = client.execute(
                     .init("/finite", method: .post, body: ByteBuffer(string: "request")))
-                #expect(await probe.waitForBodyWrite())
+                await probe.waitForBodyWrite()
 
                 // Act — keep the receive side open, then make the delayed response available.
                 try await client.close(mode: .output)
@@ -152,7 +152,7 @@ struct BridgeDevelopmentHTTPResponseCancellationTests {
                 try await client.executeAndDontWaitForResponse(
                     .init("/stream", method: .post, body: ByteBuffer(string: "request"))
                 )
-                #expect(await probe.waitForBodyWrite())
+                await probe.waitForBodyWrite()
 
                 // Act — no additional native chunk may trigger a write failure.
                 // A FIN is also a valid request half-close; inject an unambiguous abort.
@@ -161,7 +161,7 @@ struct BridgeDevelopmentHTTPResponseCancellationTests {
                 try await client.close(mode: .all)
 
                 // Assert — connection closure, not a heartbeat, supplies cancellation.
-                #expect(await probe.waitForCancellation())
+                await probe.waitForCancellation()
                 continuation.finish()
             }
         }
@@ -181,7 +181,7 @@ struct BridgeDevelopmentHTTPResponseCancellationTests {
         }
 
         // Assert — retaining the Response must not retain an abandoned producer.
-        #expect(await probe.waitForCancellation())
+        await probe.waitForCancellation()
         continuation.finish()
     }
 
@@ -210,7 +210,7 @@ struct BridgeDevelopmentHTTPResponseCancellationTests {
                 try await client.executeAndDontWaitForResponse(
                     .init("/stream", method: .post, body: ByteBuffer(string: "request"))
                 )
-                #expect(await probe.waitForBodyWrite())
+                await probe.waitForBodyWrite()
 
                 // Act — no more chunks arrive to provoke a subsequent socket write failure.
                 let socket = try #require(try await client.getChannel() as? any SocketOptionProvider)
@@ -218,7 +218,7 @@ struct BridgeDevelopmentHTTPResponseCancellationTests {
                 try await client.close(mode: .all)
 
                 // Assert
-                #expect(await probe.waitForCancellation())
+                await probe.waitForCancellation()
                 continuation.finish()
             }
         }
@@ -257,29 +257,17 @@ private struct RejectingHTTPResponseWriter: ResponseBodyWriter {
     func finish(_: HTTPFields?) throws { throw HTTPResponseWriteFailure.disconnected }
 }
 
+/// Both facts arrive on owner callbacks — `continuation.onTermination`,
+/// `context.onConnectionClose`, and the response body-map closures — so the latch lets
+/// those callbacks release waiters instead of flipping a flag for a loop to find.
 private final class HTTPResponseCancellationProbe: Sendable {
-    private let cancelled = Mutex(false)
-    private let bodyWriteStarted = Mutex(false)
+    private let cancellationSignal = BridgeDevelopmentHTTPLifetimeSignal()
+    private let bodyWriteSignal = BridgeDevelopmentHTTPLifetimeSignal()
 
-    func recordCancellation() { cancelled.withLock { $0 = true } }
-    var isCancelled: Bool { cancelled.withLock { $0 } }
-    func recordBodyWrite() { bodyWriteStarted.withLock { $0 = true } }
+    func recordCancellation() { cancellationSignal.signal() }
+    var isCancelled: Bool { cancellationSignal.isSignalled }
+    func recordBodyWrite() { bodyWriteSignal.signal() }
 
-    func waitForCancellation() async -> Bool {
-        let deadline = ContinuousClock.now + .seconds(1)
-        while ContinuousClock.now < deadline {
-            if cancelled.withLock({ $0 }) { return true }
-            await Task.yield()
-        }
-        return cancelled.withLock { $0 }
-    }
-
-    func waitForBodyWrite() async -> Bool {
-        let deadline = ContinuousClock.now + .seconds(5)
-        while ContinuousClock.now < deadline {
-            if bodyWriteStarted.withLock({ $0 }) { return true }
-            await Task.yield()
-        }
-        return bodyWriteStarted.withLock { $0 }
-    }
+    func waitForCancellation() async { await cancellationSignal.wait() }
+    func waitForBodyWrite() async { await bodyWriteSignal.wait() }
 }

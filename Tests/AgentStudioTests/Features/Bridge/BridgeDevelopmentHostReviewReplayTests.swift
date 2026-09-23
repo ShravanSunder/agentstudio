@@ -17,7 +17,7 @@ struct BridgeDevelopmentHostReviewReplayTests {
     func freshFileBootstrapReplaysEveryRetainedReviewMetadataWindow() async throws {
         // Arrange
         let expectedItemCount = 1699
-        let repositoryURL = try FilesystemTestGitRepo.create(
+        let repositoryURL = try await FilesystemTestGitRepo.create(
             named: "bridge-development-product-host-review-replay"
         )
         defer { FilesystemTestGitRepo.destroy(repositoryURL) }

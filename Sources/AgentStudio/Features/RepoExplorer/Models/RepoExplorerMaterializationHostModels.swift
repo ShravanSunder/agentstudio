@@ -90,6 +90,13 @@ enum RepoExplorerMaterializationPresentation: Equatable, Sendable {
         }
     }
 
+    var navigationFingerprint: RepoExplorerNavigationFingerprint {
+        switch self {
+        case .rowless: .empty
+        case .content(let snapshot, _): snapshot.navigationIndex.fingerprint
+        }
+    }
+
     var rowlessPresentation: RepoExplorerRowlessPresentation? {
         guard case .rowless(let presentation) = self else { return nil }
         return presentation
@@ -121,6 +128,9 @@ struct RepoExplorerMaterializationBaseline: Equatable, Sendable {
 
     var rowCount: Int { presentation.rowCount }
     var fingerprint: RepoExplorerMaterializationFingerprint { presentation.fingerprint }
+    var navigationFingerprint: RepoExplorerNavigationFingerprint {
+        presentation.navigationFingerprint
+    }
 }
 
 struct RepoExplorerMaterializationCandidate: Equatable, Sendable {
@@ -141,6 +151,7 @@ struct RepoExplorerMaterializationContentCandidate: Equatable, Sendable {
     let visibleGeneration: UInt64
     let snapshot: RepoExplorerMaterializationSnapshot
     let tableUpdatePlan: RepoExplorerNativeTableUpdatePlan
+    let selectedRowID: RepoExplorerRowID?
 }
 
 enum RepoExplorerMaterializationFeedbackIdentity: Equatable, Sendable {
@@ -198,6 +209,13 @@ protocol RepoExplorerMaterializationContentChild: AnyObject {
         visibleGeneration: UInt64,
         completion: @escaping (RepoExplorerMaterializationChildDisposition) -> Void
     )
+
+    func applySelection(
+        rowID: RepoExplorerRowID?,
+        scrollIntoView: Bool
+    ) -> Bool
+
+    func performListKeyboardEffect(_ effect: RepoExplorerListKeyboardEffect)
 
     func suspendDemand()
     func resumeDemand(visibleGeneration: UInt64)

@@ -92,11 +92,11 @@ struct BridgeDevelopmentHTTPRoutingTests {
     @Test("health route reports readiness without a response body")
     func healthRouteReportsReadiness() async throws {
         // Arrange
-        let repositoryURL = try FilesystemTestGitRepo.create(
+        let repositoryURL = try await FilesystemTestGitRepo.create(
             named: "bridge-development-http-health"
         )
         defer { FilesystemTestGitRepo.destroy(repositoryURL) }
-        try FilesystemTestGitRepo.seedTrackedAndUntrackedChanges(at: repositoryURL)
+        try await FilesystemTestGitRepo.seedTrackedAndUntrackedChanges(at: repositoryURL)
         let host = try await makeHTTPDevelopmentProductHost(worktreeRoot: repositoryURL)
         try await withDevelopmentHost(host) {
             // Act / Assert
@@ -115,11 +115,11 @@ struct BridgeDevelopmentHTTPRoutingTests {
     @Test("health route reports unavailable after runtime readiness is lost")
     func healthRouteReportsUnavailable() async throws {
         // Arrange
-        let repositoryURL = try FilesystemTestGitRepo.create(
+        let repositoryURL = try await FilesystemTestGitRepo.create(
             named: "bridge-development-http-unavailable"
         )
         defer { FilesystemTestGitRepo.destroy(repositoryURL) }
-        try FilesystemTestGitRepo.seedTrackedAndUntrackedChanges(at: repositoryURL)
+        try await FilesystemTestGitRepo.seedTrackedAndUntrackedChanges(at: repositoryURL)
         let host = try await makeHTTPDevelopmentProductHost(worktreeRoot: repositoryURL)
         try await withDevelopmentHost(host) {
             // Act / Assert
@@ -141,11 +141,11 @@ struct BridgeDevelopmentHTTPRoutingTests {
     @Test("bootstrap route returns the existing binary session envelope")
     func bootstrapRouteReturnsSessionEnvelope() async throws {
         // Arrange
-        let repositoryURL = try FilesystemTestGitRepo.create(
+        let repositoryURL = try await FilesystemTestGitRepo.create(
             named: "bridge-development-http-bootstrap"
         )
         defer { FilesystemTestGitRepo.destroy(repositoryURL) }
-        try FilesystemTestGitRepo.seedTrackedAndUntrackedChanges(at: repositoryURL)
+        try await FilesystemTestGitRepo.seedTrackedAndUntrackedChanges(at: repositoryURL)
         let host = try await makeHTTPDevelopmentProductHost(worktreeRoot: repositoryURL)
         try await withDevelopmentHost(host) {
             let body = ByteBuffer(
@@ -173,9 +173,9 @@ struct BridgeDevelopmentHTTPRoutingTests {
     @Test("a second page cannot replace a session with an open metadata stream")
     func secondPageCannotReplaceOpenMetadataStream() async throws {
         // Arrange
-        let repositoryURL = try FilesystemTestGitRepo.create(named: "bridge-http-occupied-session")
+        let repositoryURL = try await FilesystemTestGitRepo.create(named: "bridge-http-occupied-session")
         defer { FilesystemTestGitRepo.destroy(repositoryURL) }
-        try FilesystemTestGitRepo.seedTrackedAndUntrackedChanges(at: repositoryURL)
+        try await FilesystemTestGitRepo.seedTrackedAndUntrackedChanges(at: repositoryURL)
         let host = try await makeHTTPDevelopmentProductHost(worktreeRoot: repositoryURL)
         try await withDevelopmentHost(host) {
             try await withBridgeDevelopmentHTTPRouterTestClient(host: host) { client in
@@ -215,11 +215,11 @@ struct BridgeDevelopmentHTTPRoutingTests {
     @Test("first Review bootstrap does not create eager shared content files")
     func firstReviewBootstrapDoesNotCreateEagerSharedContentFiles() async throws {
         // Arrange
-        let repositoryURL = try FilesystemTestGitRepo.create(
+        let repositoryURL = try await FilesystemTestGitRepo.create(
             named: "bridge-development-http-review-bootstrap"
         )
         defer { FilesystemTestGitRepo.destroy(repositoryURL) }
-        try FilesystemTestGitRepo.seedTrackedAndUntrackedChanges(at: repositoryURL)
+        try await FilesystemTestGitRepo.seedTrackedAndUntrackedChanges(at: repositoryURL)
         let dataRoot = FileManager.default.temporaryDirectory.appending(
             path: "bridge-development-http-review-data-\(PaneId.generateUUIDv7().uuid.uuidString)",
             directoryHint: .isDirectory
@@ -257,9 +257,9 @@ struct BridgeDevelopmentHTTPRoutingTests {
     @Test("a cold File target publishes activation before File source discovery")
     func coldFileTargetPublishesActivationBeforeSourceDiscovery() async throws {
         // Arrange
-        let repositoryURL = try FilesystemTestGitRepo.create(named: "bridge-http-file-target-startup")
+        let repositoryURL = try await FilesystemTestGitRepo.create(named: "bridge-http-file-target-startup")
         defer { FilesystemTestGitRepo.destroy(repositoryURL) }
-        try FilesystemTestGitRepo.seedTrackedAndUntrackedChanges(at: repositoryURL)
+        try await FilesystemTestGitRepo.seedTrackedAndUntrackedChanges(at: repositoryURL)
         let host = try await makeHTTPDevelopmentProductHost(worktreeRoot: repositoryURL)
         try await withDevelopmentHost(host) {
             try await withBridgeDevelopmentHTTPRouterTestClient(host: host) { client in
@@ -335,11 +335,11 @@ struct BridgeDevelopmentHTTPRoutingTests {
     )
     func commandRouteForwardsWorkerAdmission(bodySize: String) async throws {
         // Arrange
-        let repositoryURL = try FilesystemTestGitRepo.create(
+        let repositoryURL = try await FilesystemTestGitRepo.create(
             named: "bridge-development-http-command"
         )
         defer { FilesystemTestGitRepo.destroy(repositoryURL) }
-        try FilesystemTestGitRepo.seedTrackedAndUntrackedChanges(at: repositoryURL)
+        try await FilesystemTestGitRepo.seedTrackedAndUntrackedChanges(at: repositoryURL)
         let host = try await makeHTTPDevelopmentProductHost(worktreeRoot: repositoryURL)
         try await withDevelopmentHost(host) {
             // Act / Assert

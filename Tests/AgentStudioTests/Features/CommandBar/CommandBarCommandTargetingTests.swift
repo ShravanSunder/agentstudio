@@ -253,7 +253,7 @@ private final class TargetingAwareCommandBarDispatcher: AppCommandDispatching {
         self.blockedTargetIDs = blockedTargetIDs
     }
 
-    func dispatch(_: AppCommand) {}
+    func dispatch(_: AppCommand) -> Bool { false }
 
     func dispatch(_: AppCommand, target _: UUID, targetType _: SearchItemType) {}
 

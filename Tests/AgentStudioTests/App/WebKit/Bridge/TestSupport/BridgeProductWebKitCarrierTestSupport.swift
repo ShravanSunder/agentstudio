@@ -129,6 +129,7 @@ struct BridgeProductWebKitCarrierNativeSnapshot: Equatable, Sendable {
 
 struct BridgeProductWebKitCarrierTrace: Equatable, Sendable, CustomStringConvertible {
     let fileMetadataPhases: [String]
+    let panePresentationEvents: [BridgeProductWebKitCarrierPanePresentationTrace]
     let reviewMetadataPhases: [String]
     let reviewPublicationPhases: [String]
 
@@ -153,6 +154,18 @@ struct BridgeProductWebKitCarrierTrace: Equatable, Sendable, CustomStringConvert
 
     var description: String {
         "file=\(fileMetadataPhases),review=\(reviewMetadataPhases),publication=\(reviewPublicationPhases)"
+    }
+}
+
+struct BridgeProductWebKitCarrierPanePresentationTrace: Equatable, Sendable,
+    CustomStringConvertible
+{
+    let presentationRevision: Int
+    let resultReason: String
+    let stage: String
+
+    var description: String {
+        "\(stage)@\(presentationRevision):\(resultReason)"
     }
 }
 
@@ -597,6 +610,7 @@ actor BridgeProductWebKitCarrierTraceRecorder: BridgePerformanceTraceRecording {
                 eventName: "performance.bridge.swift.metadata_bootstrap_lifecycle",
                 protocolName: "worktree-file"
             ),
+            panePresentationEvents: panePresentationEvents(),
             reviewMetadataPhases: phases(
                 eventName: "performance.bridge.swift.metadata_bootstrap_lifecycle",
                 protocolName: "review"
@@ -606,6 +620,23 @@ actor BridgeProductWebKitCarrierTraceRecorder: BridgePerformanceTraceRecording {
                 protocolName: "review"
             )
         )
+    }
+
+    private func panePresentationEvents() -> [BridgeProductWebKitCarrierPanePresentationTrace] {
+        samples.compactMap { sample in
+            guard sample.name == "performance.bridge.swift.pane_presentation",
+                let presentationRevision =
+                    sample.numericAttributes["agentstudio.bridge.presentation.revision"],
+                let resultReason =
+                    sample.stringAttributes["agentstudio.bridge.result_reason"],
+                let stage = sample.stringAttributes["agentstudio.bridge.phase"]
+            else { return nil }
+            return BridgeProductWebKitCarrierPanePresentationTrace(
+                presentationRevision: Int(presentationRevision),
+                resultReason: resultReason,
+                stage: stage
+            )
+        }
     }
 
     private func phases(eventName: String, protocolName: String) -> [String] {

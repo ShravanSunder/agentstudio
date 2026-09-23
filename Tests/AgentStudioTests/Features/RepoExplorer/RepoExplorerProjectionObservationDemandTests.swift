@@ -97,32 +97,9 @@ private func expectVisibleMaterialization(
     #expect(tableView.view(atColumn: 0, row: 0, makeIfNecessary: true) != nil)
 }
 
-@MainActor
-private func expectKeyedTabRenamePromotesToFullWorkerProjection(
-    store: WorkspaceStore,
-    tab: Tab,
-    capture: RepoExplorerProjectionInputCapture,
-    adapter: RepoExplorerProjectionAdapter
-) async {
-    let fullCaptureCount = capture.fullCaptureCount
-    let scopedCaptureCount = capture.scopedCaptureCount
-    let publishedRevision = adapter.publishedRevision
-    store.tabLayoutAtom.renameTab(tab.id, name: "Renamed")
-    for _ in 0..<300
-    where adapter.publishedRevision == publishedRevision
-        || adapter.publishedResult?.tabGroupFactsByTabId[tab.id]?.displayTitle != "Renamed"
-    {
-        await Task.yield()
-    }
-    #expect(capture.fullCaptureCount == fullCaptureCount)
-    #expect(capture.scopedCaptureCount == scopedCaptureCount + 1)
-    #expect(adapter.publishedRevision == publishedRevision + 1)
-    #expect(adapter.publishedResult?.projectionDuration != .zero)
-}
-
 extension RepoExplorerProjectionDemandTests {
     @MainActor
-    @Test("sort and grouping changes reuse adapter topology and add only demanded registrations")
+    @Test("Repos sort and fixed Panes surface changes reuse topology and demand only needed registrations")
     func presentationChangesReuseTopologyCapture() async throws {
         try await withAsyncTestCoreAtoms { atoms in
             let store = WorkspaceStore(
@@ -185,40 +162,21 @@ extension RepoExplorerProjectionDemandTests {
             #expect(capture.fullCaptureCount == 1)
 
             atoms.workspaceSidebarState.setSidebarSurface(.panes)
-            preferences.setGroupingMode(.repo, for: .panes)
-            await assertEventuallyMain("Panes repo grouping installs pane observations") {
+            await assertEventuallyMain("fixed Panes activity projection installs pane observations") {
                 adapter.observationRegistration.paneIDs == [pane.id]
+                    && adapter.publishedResult?.snapshot.groupingMode == .activity
             }
             #expect(adapter.observationRegistration.paneIDs == [pane.id])
             #expect(adapter.observationRegistration.tabIDs.isEmpty)
-            let paneFactCaptureCountAfterGrouping = capture.paneFactCaptureCount
-
-            let presentationCountBeforePaneSort = capture.presentationCaptureCount
-            preferences.setSortDirection(.ascending, for: .panes)
-            await assertEventuallyMain("Panes sort publishes its presentation projection") {
-                adapter.publishedResult?.snapshot.sortOrder == .ascending
-            }
-            #expect(capture.presentationCaptureCount == presentationCountBeforePaneSort)
-            #expect(capture.paneFactCaptureCount == paneFactCaptureCountAfterGrouping)
-
-            preferences.setGroupingMode(.tab, for: .panes)
-            await assertEventuallyMain("Panes tab grouping publishes its projection") {
-                !adapter.observationRegistration.tabIDs.isEmpty
-                    && adapter.publishedResult?.snapshot.groupingMode == .tab
-            }
             // One initial Repos capture plus one structural capture for the Panes screen switch.
             #expect(capture.fullCaptureCount == 2)
             #expect(adapter.observationRegistration.paneIDs == [pane.id])
-            #expect(adapter.observationRegistration.tabIDs == [tab.id])
-            #expect(adapter.publishedResult?.snapshot.groupingMode == .tab)
+            #expect(adapter.observationRegistration.tabIDs.isEmpty)
+            #expect(adapter.publishedResult?.snapshot.groupingMode == .activity)
+            #expect(adapter.publishedResult?.snapshot.subgroupMode == .ungrouped)
+            #expect(adapter.publishedResult?.snapshot.sortField == .activity)
+            #expect(adapter.publishedResult?.snapshot.sortOrder == .descending)
             try expectVisibleMaterialization(fixture: hostFixture, adapter: adapter)
-
-            await expectKeyedTabRenamePromotesToFullWorkerProjection(
-                store: store,
-                tab: tab,
-                capture: capture,
-                adapter: adapter
-            )
 
             let captureCountBeforeHiding = capture.fullCaptureCount + capture.scopedCaptureCount
             adapter.updateDemand(isVisible: false, query: "")

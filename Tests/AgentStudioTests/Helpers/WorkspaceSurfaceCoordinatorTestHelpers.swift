@@ -35,6 +35,7 @@ func makeTestWorkspaceSurfaceCoordinator(
         runtimeRegistry: runtimeRegistry,
         paneEventBus: paneEventBus,
         windowLifecycleStore: windowLifecycleStore,
+        ipcLifecycle: .testUnavailable,
         bridgePaneAttendance: bridgePaneAttendance
     )
 }

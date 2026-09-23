@@ -1,3 +1,5 @@
+import AgentStudioInfrastructure
+import AgentStudioTestSupport
 import Foundation
 import Testing
 
@@ -6,8 +8,8 @@ struct StartupPerformanceWorkloadScriptTests {
     private let scriptPath = "scripts/verify-startup-performance-workload.sh"
 
     @Test("dry run exposes the fixed completion and trace contract")
-    func dryRunExposesWorkloadContract() throws {
-        let result = try runScript(arguments: ["--dry-run"])
+    func dryRunExposesWorkloadContract() async throws {
+        let result = try await runScript(arguments: ["--dry-run"])
 
         #expect(result.exitCode == 0, Comment(rawValue: result.stderr))
         #expect(result.stdout.contains("pair_count=4"))
@@ -26,8 +28,8 @@ struct StartupPerformanceWorkloadScriptTests {
     }
 
     @Test("sample count below ten is rejected with a distinct usage exit")
-    func rejectsTooFewSamples() throws {
-        let result = try runScript(
+    func rejectsTooFewSamples() async throws {
+        let result = try await runScript(
             arguments: ["--dry-run"],
             environment: ["AGENTSTUDIO_STARTUP_PERFORMANCE_PAIR_COUNT": "3"]
         )
@@ -61,27 +63,45 @@ struct StartupPerformanceWorkloadScriptTests {
     private func runScript(
         arguments: [String],
         environment: [String: String] = [:]
-    ) throws -> ScriptResult {
-        let process = Process()
-        let stdout = Pipe()
-        let stderr = Pipe()
-        process.executableURL = URL(fileURLWithPath: "/bin/bash")
-        process.arguments = [scriptPath] + arguments
-        process.currentDirectoryURL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-        process.environment = ProcessInfo.processInfo.environment.merging(environment) { _, newValue in newValue }
-        process.standardOutput = stdout
-        process.standardError = stderr
-        try process.run()
-        process.waitUntilExit()
-        return ScriptResult(
-            exitCode: process.terminationStatus,
-            stdout: String(data: stdout.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? "",
-            stderr: String(data: stderr.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-        )
+    ) async throws -> ScriptResult {
+        let executablePath = scriptPath
+        return try await withoutBlockingCooperativePool {
+            let stdoutURL = FileManager.default.temporaryDirectory
+                .appending(path: "startup-performance-stdout-\(UUIDv7.generate().uuidString).log")
+            let stderrURL = FileManager.default.temporaryDirectory
+                .appending(path: "startup-performance-stderr-\(UUIDv7.generate().uuidString).log")
+            FileManager.default.createFile(atPath: stdoutURL.path, contents: nil)
+            FileManager.default.createFile(atPath: stderrURL.path, contents: nil)
+            let stdoutHandle = try FileHandle(forWritingTo: stdoutURL)
+            let stderrHandle = try FileHandle(forWritingTo: stderrURL)
+            defer {
+                try? stdoutHandle.close()
+                try? stderrHandle.close()
+                try? FileManager.default.removeItem(at: stdoutURL)
+                try? FileManager.default.removeItem(at: stderrURL)
+            }
+
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/bin/bash")
+            process.arguments = [executablePath] + arguments
+            process.currentDirectoryURL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+            process.environment = ProcessInfo.processInfo.environment.merging(environment) { _, newValue in newValue }
+            process.standardOutput = stdoutHandle
+            process.standardError = stderrHandle
+            try process.run()
+            process.waitUntilExit()
+            try stdoutHandle.close()
+            try stderrHandle.close()
+            return ScriptResult(
+                exitCode: process.terminationStatus,
+                stdout: try String(contentsOf: stdoutURL, encoding: .utf8),
+                stderr: try String(contentsOf: stderrURL, encoding: .utf8)
+            )
+        }
     }
 }
 
-private struct ScriptResult {
+private struct ScriptResult: Sendable {
     let exitCode: Int32
     let stdout: String
     let stderr: String

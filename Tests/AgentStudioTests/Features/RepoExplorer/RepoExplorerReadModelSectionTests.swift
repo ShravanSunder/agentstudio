@@ -1,11 +1,20 @@
 import AgentStudioCore
 import AgentStudioInfrastructure
+import AgentStudioSharedComponents
 import Foundation
 import Testing
 
 @testable import AgentStudioRepoExplorer
 
 extension RepoExplorerReadModelTests {
+    @Test("pinned sections use the pin entity icon")
+    func pinnedSectionsUsePinEntityIcon() {
+        #expect(RepoExplorerSidebarSectionKind.pinnedRepositories.sectionIcon == .pin)
+        #expect(RepoExplorerSidebarSectionKind.pinnedPanes.sectionIcon == .pin)
+        #expect(RepoExplorerSidebarSectionKind.repositories.sectionIcon == .repo)
+        #expect(RepoExplorerSidebarSectionKind.panes.sectionIcon == .pane)
+    }
+
     @Test("Panes omits empty sections when the tab list is empty")
     func tabModeOmitsEmptySections() {
         let projection = RepoExplorerProjection.project(

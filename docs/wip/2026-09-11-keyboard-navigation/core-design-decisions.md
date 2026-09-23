@@ -1,0 +1,11 @@
+# Sidebar core design decisions
+
+User-authorized scope: finish design and implement clear independent sections while collecting material questions. Core covers focus, surface/filter, row/group/digit navigation, overlays and direct pinned navigation. Preview remains part of the full goal and is not silently removed. General detached-drawer invariant remains deferred to a separate PR.
+
+Explicit user decisions remain in requirements.md. The following ordinary defaults were chosen by the implementing agent, not submitted questionnaire answers: Up/Down stop at edges; Left/Right follows existing group expansion; filter Escape retains query and returns list; selection removal chooses surviving successor, then predecessor, then new initial selection; pinned traversal uses first/last when the origin is absent. These make the already-authorized navigation behavior concrete without new persistent or domain machinery.
+
+The owner confirmed Space-held preview, the full pane area, following selection while held, and loading existing panes as needed. Release cancels uncommitted preview; Enter commits. Restoring an existing renderer and loading Bridge content is allowed and may leave it warm after release; starting a replacement terminal session is not. The owner also confirmed sidebar pinned order with wrap. Renderer custody, transient visibility and geometry still need completed Program Design and proof; these are no longer pending product questions.
+
+Structural realization for core reuses App shell, derived KeyboardOwner, the stable full-size materialization host, existing worker/update handshake, table interactions, shared UI and command catalog. New pieces are local UI selection/focus data, immutable worker navigation metadata, stateless keycap paint, a focused pinned projection sharing the existing order policy, and narrow read-only raw-state accessors. No atom/store/domain event/coordinator is added. MainActor captures raw values and applies UI; all list-sized derivation is detached.
+
+Core design review and its destination-continuity correction are recorded in core-design-review.md. Core implementation is underway under the separate immutable core plan. The later preview confirmations do not claim preview implementation or proof. Opus resume was unavailable; see agent-session.md for actual receipts.

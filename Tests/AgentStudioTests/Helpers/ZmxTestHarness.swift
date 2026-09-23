@@ -33,7 +33,7 @@ final class ZmxTestHarness: @unchecked Sendable {
     private var spawnedProcesses: [SpawnedProcess] = []
     private let clock = ContinuousClock()
 
-    init() {
+    init() async {
         // UUIDv7's prefix is timestamp data shared by nearby creations. Use its random
         // tail so independent harnesses cannot list/kill each other's session roots.
         let shortId = UUIDv7.generate().uuidString.suffix(12).lowercased()
@@ -55,25 +55,28 @@ final class ZmxTestHarness: @unchecked Sendable {
             self.zmxPath = found
         } else {
             // 2. Fallback: check PATH via which
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: "/usr/bin/which")
-            process.arguments = ["zmx"]
-            let pipe = Pipe()
-            process.standardOutput = pipe
-            process.standardError = FileHandle.nullDevice
-            do {
+            self.zmxPath = try? await withoutBlockingCooperativePool {
+                let outputDirectory = FileManager.default.temporaryDirectory
+                    .appending(path: "zmx-path-resolution-\(UUIDv7.generate().uuidString)")
+                try FileManager.default.createDirectory(at: outputDirectory, withIntermediateDirectories: true)
+                defer { try? FileManager.default.removeItem(at: outputDirectory) }
+                let outputURL = outputDirectory.appending(path: "stdout.log")
+                FileManager.default.createFile(atPath: outputURL.path, contents: nil)
+                let outputHandle = try FileHandle(forWritingTo: outputURL)
+                defer { try? outputHandle.close() }
+
+                let process = Process()
+                process.executableURL = URL(fileURLWithPath: "/usr/bin/which")
+                process.arguments = ["zmx"]
+                process.standardOutput = outputHandle
+                process.standardError = FileHandle.nullDevice
                 try process.run()
                 process.waitUntilExit()
-                if process.terminationStatus == 0 {
-                    let data = pipe.fileHandleForReading.readDataToEndOfFile()
-                    let path = String(data: data, encoding: .utf8)?
-                        .trimmingCharacters(in: .whitespacesAndNewlines)
-                    self.zmxPath = (path?.isEmpty == false) ? path : nil
-                } else {
-                    self.zmxPath = nil
-                }
-            } catch {
-                self.zmxPath = nil
+                try outputHandle.close()
+                guard process.terminationStatus == 0 else { return nil }
+                let path = try String(contentsOf: outputURL, encoding: .utf8)
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                return path.isEmpty ? nil : path
             }
         }
     }
@@ -98,8 +101,15 @@ final class ZmxTestHarness: @unchecked Sendable {
 
     /// Clean up all sessions in the test ZMX_DIR and remove the temp directory.
     func cleanup() async -> CleanupOutcome {
-        defer { terminateSpawnedProcesses() }
+        let outcome = await cleanupSessionInventory()
+        await terminateSpawnedProcesses()
+        if outcome.succeeded {
+            try? FileManager.default.removeItem(atPath: zmxDir)
+        }
+        return outcome
+    }
 
+    private func cleanupSessionInventory() async -> CleanupOutcome {
         guard let zmxPath else {
             return CleanupOutcome(
                 attemptedSessionNames: [],
@@ -153,8 +163,6 @@ final class ZmxTestHarness: @unchecked Sendable {
                 remainingSessionNames = verification.sessionNames
                 if remainingSessionNames.isEmpty {
                     if diagnostics.isEmpty {
-                        terminateSpawnedProcesses()
-                        try? FileManager.default.removeItem(atPath: zmxDir)
                         return CleanupOutcome(
                             attemptedSessionNames: attemptedSessionNames,
                             remainingSessionNames: [],
@@ -392,7 +400,7 @@ final class ZmxTestHarness: @unchecked Sendable {
         ZmxBackend.extractSessionName(from: line)
     }
 
-    private func terminateSpawnedProcesses() {
+    private func terminateSpawnedProcesses() async {
         let parentProcessGroup = getpid() > 0 ? processGroupID(for: getpid()) : nil
 
         for entry in spawnedProcesses {
@@ -407,7 +415,7 @@ final class ZmxTestHarness: @unchecked Sendable {
             {
                 terminateProcess(-processGroup, signal: SIGKILL)
             } else {
-                let descendants = collectDescendantProcessIDs(
+                let descendants = await collectDescendantProcessIDs(
                     of: entry.processID
                 )
                 for pid in ([entry.processID] + descendants).reversed() {
@@ -430,12 +438,12 @@ final class ZmxTestHarness: @unchecked Sendable {
         return pgid > 0 ? pgid : nil
     }
 
-    private func collectDescendantProcessIDs(of pid: pid_t) -> [pid_t] {
+    private func collectDescendantProcessIDs(of pid: pid_t) async -> [pid_t] {
         var descendants: [pid_t] = []
         var queue: [pid_t] = [pid]
 
         while let current = queue.popLast() {
-            let children = childProcessIDs(of: current)
+            let children = await childProcessIDs(of: current)
             descendants.append(contentsOf: children)
             queue.append(contentsOf: children)
         }
@@ -443,31 +451,49 @@ final class ZmxTestHarness: @unchecked Sendable {
         return descendants
     }
 
-    private func childProcessIDs(of parentPID: pid_t) -> [pid_t] {
+    private func childProcessIDs(of parentPID: pid_t) async -> [pid_t] {
         let pgrepPath = "/usr/bin/pgrep"
         guard FileManager.default.isExecutableFile(atPath: pgrepPath) else {
             logError("pgrep is not executable at \(pgrepPath); cannot enumerate child processes")
             return []
         }
 
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: pgrepPath)
-        process.arguments = ["-P", "\(parentPID)"]
-
-        let outputPipe = Pipe()
-        let errorPipe = Pipe()
-        process.standardOutput = outputPipe
-        process.standardError = errorPipe
-
         do {
-            try process.run()
-            let outputData = try outputPipe.fileHandleForReading.readToEnd() ?? Data()
-            let errorData = try errorPipe.fileHandleForReading.readToEnd() ?? Data()
-            process.waitUntilExit()
+            let result = try await withoutBlockingCooperativePool {
+                let outputDirectory = FileManager.default.temporaryDirectory
+                    .appending(path: "zmx-pgrep-\(UUIDv7.generate().uuidString)")
+                try FileManager.default.createDirectory(at: outputDirectory, withIntermediateDirectories: true)
+                defer { try? FileManager.default.removeItem(at: outputDirectory) }
+                let stdoutURL = outputDirectory.appending(path: "stdout.log")
+                let stderrURL = outputDirectory.appending(path: "stderr.log")
+                FileManager.default.createFile(atPath: stdoutURL.path, contents: nil)
+                FileManager.default.createFile(atPath: stderrURL.path, contents: nil)
+                let stdoutHandle = try FileHandle(forWritingTo: stdoutURL)
+                let stderrHandle = try FileHandle(forWritingTo: stderrURL)
+                defer {
+                    try? stdoutHandle.close()
+                    try? stderrHandle.close()
+                }
 
-            switch process.terminationStatus {
+                let process = Process()
+                process.executableURL = URL(fileURLWithPath: pgrepPath)
+                process.arguments = ["-P", "\(parentPID)"]
+                process.standardOutput = stdoutHandle
+                process.standardError = stderrHandle
+                try process.run()
+                process.waitUntilExit()
+                try stdoutHandle.close()
+                try stderrHandle.close()
+                return (
+                    process.terminationStatus,
+                    try Data(contentsOf: stdoutURL),
+                    try Data(contentsOf: stderrURL)
+                )
+            }
+
+            switch result.0 {
             case 0:
-                guard let output = String(data: outputData, encoding: .utf8) else {
+                guard let output = String(data: result.1, encoding: .utf8) else {
                     logError("pgrep produced non-UTF8 output for parent PID \(parentPID)")
                     return []
                 }
@@ -481,11 +507,11 @@ final class ZmxTestHarness: @unchecked Sendable {
                 return []
 
             default:
-                let stderr = String(data: errorData, encoding: .utf8)?
+                let stderr = String(data: result.2, encoding: .utf8)?
                     .trimmingCharacters(in: .whitespacesAndNewlines)
                 let details = stderr.map { " stderr=\($0)" } ?? ""
                 logError(
-                    "pgrep failed for parent PID \(parentPID) with exit status \(process.terminationStatus).\(details)")
+                    "pgrep failed for parent PID \(parentPID) with exit status \(result.0).\(details)")
                 return []
             }
         } catch {

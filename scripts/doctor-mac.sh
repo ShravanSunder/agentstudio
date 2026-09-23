@@ -55,11 +55,16 @@ if [[ "$vendor_role" == "primary" || "$vendor_role" == "local" ]]; then
     report_error "xcode-select is not configured"
   fi
 
+  ci_workflow="$project_root/.github/workflows/ci.yml"
+  ci_xcode_baseline="$(awk -F'"' '/xcode-version:/ {print $2; exit}' "$ci_workflow" 2>/dev/null || true)"
+
   if xcode_version_output="$(xcodebuild -version 2>/dev/null)"; then
     report_ok "$(printf '%s' "$xcode_version_output" | tr '\n' ' ' | sed 's/  */ /g')"
     xcode_version="$(printf '%s\n' "$xcode_version_output" | awk '/^Xcode / {print $2; exit}')"
-    if [[ -n "$xcode_version" && "$xcode_version" != "26.3" ]]; then
-      report_warn "local Xcode ($xcode_version) differs from the GitHub Actions baseline (26.3 on macos-26-arm64)"
+    if [[ -z "$ci_xcode_baseline" ]]; then
+      report_warn "could not read the GitHub Actions Xcode baseline from $ci_workflow"
+    elif [[ -n "$xcode_version" && "$xcode_version" != "$ci_xcode_baseline" ]]; then
+      report_warn "local Xcode ($xcode_version) differs from the GitHub Actions baseline ($ci_xcode_baseline on macos-26)"
     fi
   else
     report_error "xcodebuild is unavailable. Install and finish launching Xcode first."

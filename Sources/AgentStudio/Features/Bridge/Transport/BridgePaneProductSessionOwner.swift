@@ -148,7 +148,8 @@ package actor BridgePaneProductSessionOwner {
         productAdmissionGate: BridgeProductAdmissionGate,
         activeInstallation: BridgeProductSessionInstallation? = nil,
         telemetryRecorder: (any BridgePerformanceTraceRecording)? = nil,
-        didRetireWorkerInstance: @escaping @Sendable (String) async -> Void = { _ in }
+        didRetireWorkerInstance: @escaping @Sendable (String) async -> Void = { _ in },
+        schemeTaskCensus: BridgeProductSchemeTaskCensus = BridgeProductSchemeTaskCensus()
     ) throws {
         try BridgeProductContractDecoding.validateIdentifier(paneSessionId, codingPath: [])
         precondition(
@@ -163,7 +164,8 @@ package actor BridgePaneProductSessionOwner {
         self.activeInstallation = activeInstallation
         self.schemeRouter = BridgeProductSchemeSessionRouter(
             activeInstallation: activeInstallation,
-            productAdmissionGate: productAdmissionGate
+            productAdmissionGate: productAdmissionGate,
+            schemeTaskCensus: schemeTaskCensus
         )
     }
 

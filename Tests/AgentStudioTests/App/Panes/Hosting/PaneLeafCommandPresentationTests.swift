@@ -230,7 +230,7 @@ private final class RecordingPaneLeafCommandDispatcher: AppCommandDispatching {
     private(set) var dispatchedTargets: [PaneLeafTargetedCommand] = []
     private(set) var moveRequests: [PaneLeafMoveRequest] = []
 
-    func dispatch(_: AppCommand) {}
+    func dispatch(_: AppCommand) -> Bool { false }
 
     func dispatch(
         _ command: AppCommand,

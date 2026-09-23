@@ -7,6 +7,41 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct ShortcutCatalogTests {
+    @Test("superseded quarter-step identities have no aliases")
+    func obsoleteQuarterStepIdentitiesAreRemoved() {
+        for identifier in ["scrollQuarterPageUp", "scrollQuarterPageDown"] {
+            #expect(AppCommand(rawValue: identifier) == nil)
+            #expect(AppShortcut(rawValue: identifier) == nil)
+        }
+    }
+
+    @Test("terminal navigation keeps scrolling on Command-Shift")
+    func terminalNavigationFamilyUsesSettledMap() {
+        let bindings: [(ShortcutTrigger, String)] = [
+            (.init(key: .character(.i), modifiers: [.command, .shift]), "scrollPageUp"),
+            (.init(key: .character(.k), modifiers: [.command, .shift]), "scrollPageDown"),
+            (.init(key: .character(.j), modifiers: [.command, .shift]), "scrollSmallStepUp"),
+            (.init(key: .character(.l), modifiers: [.command, .shift]), "scrollSmallStepDown"),
+            (.init(key: .character(.j), modifiers: [.option, .shift]), "jumpToPreviousPrompt"),
+            (.init(key: .character(.l), modifiers: [.option, .shift]), "jumpToNextPrompt"),
+            (.init(key: .character(.k), modifiers: [.command, .option]), "scrollToBottom"),
+        ]
+        for (trigger, commandID) in bindings {
+            #expect(ShortcutDecoder.shortcut(for: trigger, in: .terminalAppOwned)?.command.rawValue == commandID)
+            #expect(ShortcutDecoder.shortcut(for: trigger, in: .global) == nil)
+        }
+        #expect(
+            ShortcutDecoder.shortcut(
+                for: .init(key: .character(.i), modifiers: [.option, .shift]), in: .terminalAppOwned
+            ) == nil
+        )
+        #expect(
+            ShortcutDecoder.shortcut(
+                for: .init(key: .character(.k), modifiers: [.option, .shift]), in: .terminalAppOwned
+            ) == nil
+        )
+    }
+
     @Test
     func everyShortcutHasASpec() {
         for shortcut in AppShortcut.allCases {
@@ -27,12 +62,22 @@ struct ShortcutCatalogTests {
         var seen: [ShortcutContext: Set<ShortcutTrigger>] = [:]
 
         for shortcut in AppShortcut.allCases {
-            for context in shortcut.contexts {
-                let inserted = seen[context, default: []].insert(shortcut.trigger).inserted
+            let spec = shortcut.spec
+            for context in spec.contexts {
+                let inserted = seen[context, default: []].insert(spec.trigger).inserted
                 #expect(
                     inserted,
-                    "Duplicate shortcut trigger \(String(describing: shortcut.trigger)) in context \(String(describing: context))"
+                    "Duplicate shortcut trigger \(String(describing: spec.trigger)) in context \(String(describing: context))"
                 )
+            }
+            for (trigger, contexts) in spec.alternateTriggers {
+                for context in contexts {
+                    let inserted = seen[context, default: []].insert(trigger).inserted
+                    #expect(
+                        inserted,
+                        "Duplicate shortcut trigger \(String(describing: trigger)) in context \(String(describing: context))"
+                    )
+                }
             }
         }
     }
@@ -50,22 +95,22 @@ struct ShortcutCatalogTests {
     }
 
     @Test
-    func commandSpecDerivesKeyBindingFromShortcut() {
+    func commandSpecDerivesGlobalKeyBindingFromShortcut() {
         let managementLayerDefinition = AppCommandDispatcher.shared.definition(for: .toggleManagementLayer)
         let quickOpenDefinition = AppCommandDispatcher.shared.definition(for: .showCommandBarEverything)
         let terminalQuickOpenDefinition = AppCommandDispatcher.shared.definition(for: .showCommandBarQuickOpen)
         let addDrawerPaneDefinition = AppCommandDispatcher.shared.definition(for: .addDrawerPane)
         let paneInboxDefinition = AppCommandDispatcher.shared.definition(for: .showPaneInboxNotifications)
 
-        #expect(managementLayerDefinition.keyBinding?.key == "r")
-        #expect(managementLayerDefinition.keyBinding?.modifiers == [.command])
-        #expect(quickOpenDefinition.keyBinding?.key == "p")
-        #expect(quickOpenDefinition.keyBinding?.modifiers == [.command])
-        #expect(terminalQuickOpenDefinition.keyBinding?.key == "t")
-        #expect(terminalQuickOpenDefinition.keyBinding?.modifiers == [.command])
-        #expect(addDrawerPaneDefinition.keyBinding?.key == "d")
-        #expect(addDrawerPaneDefinition.keyBinding?.modifiers == [.command, .shift])
-        #expect(paneInboxDefinition.keyBinding == nil)
+        #expect(managementLayerDefinition.globalKeyBinding?.key == "r")
+        #expect(managementLayerDefinition.globalKeyBinding?.modifiers == [.command])
+        #expect(quickOpenDefinition.globalKeyBinding?.key == "p")
+        #expect(quickOpenDefinition.globalKeyBinding?.modifiers == [.command])
+        #expect(terminalQuickOpenDefinition.globalKeyBinding?.key == "t")
+        #expect(terminalQuickOpenDefinition.globalKeyBinding?.modifiers == [.command])
+        #expect(addDrawerPaneDefinition.globalKeyBinding?.key == "d")
+        #expect(addDrawerPaneDefinition.globalKeyBinding?.modifiers == [.command, .shift])
+        #expect(paneInboxDefinition.globalKeyBinding == nil)
         #expect(paneInboxDefinition.actionSpec.label == "Toggle Pane Inbox")
     }
 
@@ -95,18 +140,89 @@ struct ShortcutCatalogTests {
     }
 
     @Test
-    func shortcutDecoder_decodesSidebarSurfaceShortcuts() {
+    func shortcutDecoder_commandSTogglesSidebar() {
         let showInbox = ShortcutDecoder.shortcut(
             for: .init(key: .character(.u), modifiers: [.command]),
             in: .global
         )
-        let showRepos = ShortcutDecoder.shortcut(
+        let toggleSidebar = ShortcutDecoder.shortcut(
             for: .init(key: .character(.s), modifiers: [.command]),
             in: .global
         )
+        let terminalToggleSidebar = ShortcutDecoder.shortcut(
+            for: .init(key: .character(.s), modifiers: [.command]),
+            in: .terminalAppOwned
+        )
 
         #expect(showInbox == nil)
+        #expect(toggleSidebar == .toggleSidebar)
+        #expect(terminalToggleSidebar == .toggleSidebar)
+    }
+
+    @Test
+    func reposSidebar_hasNoGlobalDisplayOrMenuBinding() {
+        let definition = AppCommandDispatcher.shared.definition(for: .showReposSidebar)
+
+        #expect(AppShortcut.showReposSidebar.displayKeyBinding(in: .global) == nil)
+        #expect(definition.globalKeyBinding == nil)
+    }
+
+    @Test
+    func sidebarListBindings_areExactToSidebarContext() {
+        let showPanes = ShortcutDecoder.shortcut(
+            for: .init(key: .character(.p), modifiers: []),
+            in: .sidebarList
+        )
+        let showRepos = ShortcutDecoder.shortcut(
+            for: .init(key: .character(.r), modifiers: []),
+            in: .sidebarList
+        )
+        let showFilter = ShortcutDecoder.shortcut(
+            for: .init(key: .character(.f), modifiers: []),
+            in: .sidebarList
+        )
+
+        #expect(showPanes == .showPanesSidebar)
         #expect(showRepos == .showReposSidebar)
+        #expect(showFilter == .filterSidebar)
+        #expect(AppShortcut.showPanesSidebar.spec.displayTrigger(in: .global) == nil)
+        #expect(AppShortcut.showReposSidebar.spec.displayTrigger(in: .global) == nil)
+        #expect(AppShortcut.filterSidebar.spec.displayTrigger(in: .sidebarList)?.modifiers.isEmpty == true)
+    }
+
+    @Test
+    func shortcutDecoder_commandShiftSFocusesSidebar() {
+        let focusSidebar = ShortcutDecoder.shortcut(
+            for: .init(key: .character(.s), modifiers: [.command, .shift]),
+            in: .global
+        )
+        let terminalFocusSidebar = ShortcutDecoder.shortcut(
+            for: .init(key: .character(.s), modifiers: [.command, .shift]),
+            in: .terminalAppOwned
+        )
+
+        #expect(focusSidebar == .focusSidebar)
+        #expect(terminalFocusSidebar == .focusSidebar)
+    }
+
+    @Test
+    func shortcutDecoder_rejectsBareSidebarLettersInGlobalContext() {
+        let barePanes = ShortcutDecoder.shortcut(
+            for: .init(key: .character(.p), modifiers: []),
+            in: .global
+        )
+        let bareRepos = ShortcutDecoder.shortcut(
+            for: .init(key: .character(.r), modifiers: []),
+            in: .global
+        )
+        let bareFilter = ShortcutDecoder.shortcut(
+            for: .init(key: .character(.f), modifiers: []),
+            in: .global
+        )
+
+        #expect(barePanes == nil)
+        #expect(bareRepos == nil)
+        #expect(bareFilter == nil)
     }
 
     @Test
@@ -185,13 +301,13 @@ struct ShortcutCatalogTests {
             for: .init(key: .character(.u), modifiers: [.command]),
             in: .terminalAppOwned
         )
-        let showRepos = ShortcutDecoder.shortcut(
+        let toggleSidebar = ShortcutDecoder.shortcut(
             for: .init(key: .character(.s), modifiers: [.command]),
             in: .terminalAppOwned
         )
 
         #expect(showInbox == nil)
-        #expect(showRepos == .showReposSidebar)
+        #expect(toggleSidebar == .toggleSidebar)
     }
 
     @Test
@@ -232,19 +348,35 @@ struct ShortcutCatalogTests {
     @Test
     func shortcutDecoder_decodesTerminalScrollAndPromptShortcuts() {
         let scrollToBottom = ShortcutDecoder.shortcut(
-            for: .init(key: .character(.k), modifiers: [.command, .shift]),
+            for: .init(key: .character(.k), modifiers: [.command, .option]),
             in: .terminalAppOwned
         )
         let previousPrompt = ShortcutDecoder.shortcut(
-            for: .init(key: .character(.j), modifiers: [.command, .shift]),
+            for: .init(key: .character(.j), modifiers: [.option, .shift]),
             in: .terminalAppOwned
         )
         let nextPrompt = ShortcutDecoder.shortcut(
-            for: .init(key: .character(.l), modifiers: [.command, .shift]),
+            for: .init(key: .character(.l), modifiers: [.option, .shift]),
             in: .terminalAppOwned
         )
         let pageUp = ShortcutDecoder.shortcut(
             for: .init(key: .character(.i), modifiers: [.command, .shift]),
+            in: .terminalAppOwned
+        )
+        let pageDown = ShortcutDecoder.shortcut(
+            for: .init(key: .character(.k), modifiers: [.command, .shift]),
+            in: .terminalAppOwned
+        )
+        let smallStepUp = ShortcutDecoder.shortcut(
+            for: .init(key: .character(.j), modifiers: [.command, .shift]),
+            in: .terminalAppOwned
+        )
+        let smallStepDown = ShortcutDecoder.shortcut(
+            for: .init(key: .character(.l), modifiers: [.command, .shift]),
+            in: .terminalAppOwned
+        )
+        let unassignedOptionShiftI = ShortcutDecoder.shortcut(
+            for: .init(key: .character(.i), modifiers: [.option, .shift]),
             in: .terminalAppOwned
         )
         let ghosttyClearScrollback = ShortcutDecoder.shortcut(
@@ -256,6 +388,10 @@ struct ShortcutCatalogTests {
         #expect(previousPrompt == .jumpToPreviousPrompt)
         #expect(nextPrompt == .jumpToNextPrompt)
         #expect(pageUp == .scrollPageUp)
+        #expect(pageDown == .scrollPageDown)
+        #expect(smallStepUp == .scrollSmallStepUp)
+        #expect(smallStepDown == .scrollSmallStepDown)
+        #expect(unassignedOptionShiftI == nil)
         #expect(ghosttyClearScrollback == nil)
     }
 

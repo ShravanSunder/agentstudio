@@ -301,6 +301,7 @@ struct WorkspaceSurfaceCoordinatorFilesystemEffectsTests {
             filesystemSource: source,
             filesystemProjectionIndex: FilesystemProjectionIndex(),
             windowLifecycleStore: WindowLifecycleAtom(),
+            ipcLifecycle: .testUnavailable,
             bridgePaneAttendance: BridgePaneAttendanceAtom(),
             traceIdentityRefreshHandler: traceIdentityRefreshHandler
         )

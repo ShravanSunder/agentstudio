@@ -65,13 +65,13 @@ struct AppCommandDispatcherModePreflightTests {
         #expect(
             AppCommandDispatcher.supportsTargetedDispatch(
                 definition: contextualOnlyZoomDefinition,
-                executionContext: .headlessIPC,
+                executionContext: .headlessIPC(admitsDebugTestingCommands: false),
                 targetType: .pane
             ))
         #expect(
             !AppCommandDispatcher.supportsTargetedDispatch(
                 definition: contextualOnlyZoomDefinition,
-                executionContext: .headlessIPC,
+                executionContext: .headlessIPC(admitsDebugTestingCommands: false),
                 targetType: .repo
             ))
     }

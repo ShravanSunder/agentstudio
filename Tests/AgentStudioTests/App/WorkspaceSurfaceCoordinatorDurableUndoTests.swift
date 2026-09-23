@@ -27,10 +27,20 @@ struct WorkspaceSurfaceCoordinatorDurableUndoTests {
         store.appendTab(tab)
         #expect(await store.flushAsync() == .persisted)
         let manager = HarnessSurfaceManager()
+        var finalRevokedPaneIDs: [Set<UUID>] = []
+        let ipcLifecycle = WorkspaceSurfaceIPCLifecycle(
+            environment: { _, _ in [:] },
+            invalidatePaneIDs: { _ in },
+            finalRevokePaneIDs: { paneIDs in
+                #expect(manager.retiredActivePaneIDs.isEmpty)
+                finalRevokedPaneIDs.append(paneIDs)
+            }
+        )
         let coordinator = WorkspaceSurfaceCoordinator(
             store: store, viewRegistry: ViewRegistry(), runtime: SessionRuntime(store: store),
             surfaceManager: manager, runtimeRegistry: RuntimeRegistry(),
-            windowLifecycleStore: WindowLifecycleAtom(), bridgePaneAttendance: BridgePaneAttendanceAtom())
+            windowLifecycleStore: WindowLifecycleAtom(), ipcLifecycle: ipcLifecycle,
+            bridgePaneAttendance: BridgePaneAttendanceAtom())
 
         try await coordinator.execute(.closeTab(tabId: tab.id))
         try await coordinator.execute(.purgeOrphanedPane(paneId: discardedPane.id))
@@ -38,6 +48,7 @@ struct WorkspaceSurfaceCoordinatorDurableUndoTests {
         #expect(manager.retainedUndoPaneIDs == [undoPane.id])
         #expect(manager.releasedUndoPaneIDs.isEmpty)
         #expect(manager.retiredActivePaneIDs == [discardedPane.id])
+        #expect(finalRevokedPaneIDs == [[discardedPane.id]])
         #expect(try fixture.coreRepository.pendingTerminalSessionIDs().isEmpty)
         #expect(try await datastore.fetchAvailableUndoCloses(workspaceID: workspaceID).count == 1)
         await coordinator.shutdown()
@@ -56,10 +67,20 @@ struct WorkspaceSurfaceCoordinatorDurableUndoTests {
         let child = try #require(store.addDrawerPane(to: parent.id))
         #expect(await store.flushAsync() == .persisted)
         let manager = HarnessSurfaceManager()
+        var finalRevokedPaneIDs: [Set<UUID>] = []
+        let ipcLifecycle = WorkspaceSurfaceIPCLifecycle(
+            environment: { _, _ in [:] },
+            invalidatePaneIDs: { _ in },
+            finalRevokePaneIDs: { paneIDs in
+                #expect(manager.retiredActivePaneIDs.isEmpty)
+                finalRevokedPaneIDs.append(paneIDs)
+            }
+        )
         let coordinator = WorkspaceSurfaceCoordinator(
             store: store, viewRegistry: ViewRegistry(), runtime: SessionRuntime(store: store),
             surfaceManager: manager, runtimeRegistry: RuntimeRegistry(),
-            windowLifecycleStore: WindowLifecycleAtom(), bridgePaneAttendance: BridgePaneAttendanceAtom())
+            windowLifecycleStore: WindowLifecycleAtom(), ipcLifecycle: ipcLifecycle,
+            bridgePaneAttendance: BridgePaneAttendanceAtom())
         if rejectWrite {
             try await fixture.coreRepository.databaseWriter.write { database in
                 try database.execute(
@@ -74,6 +95,7 @@ struct WorkspaceSurfaceCoordinatorDurableUndoTests {
             #expect(store.paneAtom.pane(child.id) != nil)
             #expect(store.paneAtom.pane(parent.id)?.drawer?.paneIds == [child.id])
             #expect(manager.retiredActivePaneIDs.isEmpty)
+            #expect(finalRevokedPaneIDs.isEmpty)
         } else {
             try await coordinator.execute(.removeDrawerPane(parentPaneId: parent.id, drawerPaneId: child.id))
             #expect(store.paneAtom.pane(child.id) == nil)
@@ -84,6 +106,7 @@ struct WorkspaceSurfaceCoordinatorDurableUndoTests {
                     try #require(child.terminalState?.zmxSessionID)
                 ])
             #expect(manager.retiredActivePaneIDs == [child.id])
+            #expect(finalRevokedPaneIDs == [[child.id]])
         }
         await coordinator.shutdown()
     }
@@ -150,10 +173,21 @@ struct WorkspaceSurfaceCoordinatorDurableUndoTests {
         let pane = store.createPane()
         store.setResidency(.backgrounded, for: pane.id)
         #expect(await store.flushAsync() == .persisted)
+        let manager = HarnessSurfaceManager()
+        var finalRevokedPaneIDs: [Set<UUID>] = []
+        let ipcLifecycle = WorkspaceSurfaceIPCLifecycle(
+            environment: { _, _ in [:] },
+            invalidatePaneIDs: { _ in },
+            finalRevokePaneIDs: { paneIDs in
+                #expect(manager.retiredActivePaneIDs.isEmpty)
+                finalRevokedPaneIDs.append(paneIDs)
+            }
+        )
         let coordinator = WorkspaceSurfaceCoordinator(
             store: store, viewRegistry: ViewRegistry(), runtime: SessionRuntime(store: store),
-            surfaceManager: HarnessSurfaceManager(), runtimeRegistry: RuntimeRegistry(),
-            windowLifecycleStore: WindowLifecycleAtom(), bridgePaneAttendance: BridgePaneAttendanceAtom()
+            surfaceManager: manager, runtimeRegistry: RuntimeRegistry(),
+            windowLifecycleStore: WindowLifecycleAtom(), ipcLifecycle: ipcLifecycle,
+            bridgePaneAttendance: BridgePaneAttendanceAtom()
         )
         if rejectWrite {
             try await fixture.coreRepository.databaseWriter.write { database in
@@ -168,12 +202,15 @@ struct WorkspaceSurfaceCoordinatorDurableUndoTests {
             }
             #expect(store.paneAtom.pane(pane.id) != nil)
             #expect(try fixture.coreRepository.fetchPaneGraph(workspaceId: workspaceID).panes.count == 1)
+            #expect(finalRevokedPaneIDs.isEmpty)
         } else {
             try await coordinator.execute(.purgeOrphanedPane(paneId: pane.id))
             #expect(store.paneAtom.pane(pane.id) == nil)
             #expect(try fixture.coreRepository.fetchPaneGraph(workspaceId: workspaceID).panes.isEmpty)
             let sessionID = try #require(pane.terminalState?.zmxSessionID)
             #expect(try fixture.coreRepository.pendingTerminalSessionIDs().contains(sessionID))
+            #expect(finalRevokedPaneIDs == [[pane.id]])
+            #expect(manager.retiredActivePaneIDs == [pane.id])
         }
         await coordinator.shutdown()
     }
@@ -194,7 +231,8 @@ struct WorkspaceSurfaceCoordinatorDurableUndoTests {
         let coordinator = WorkspaceSurfaceCoordinator(
             store: store, viewRegistry: ViewRegistry(), runtime: SessionRuntime(store: store),
             surfaceManager: manager, runtimeRegistry: RuntimeRegistry(),
-            windowLifecycleStore: WindowLifecycleAtom(), bridgePaneAttendance: BridgePaneAttendanceAtom()
+            windowLifecycleStore: WindowLifecycleAtom(), ipcLifecycle: .testUnavailable,
+            bridgePaneAttendance: BridgePaneAttendanceAtom()
         )
         try await fixture.coreRepository.databaseWriter.write { database in
             try database.execute(
@@ -214,8 +252,8 @@ struct WorkspaceSurfaceCoordinatorDurableUndoTests {
         await coordinator.shutdown()
     }
 
-    @Test("app close and undo use the durable journal as ownership authority")
-    func appCloseAndUndoUseJournal() async throws {
+    @Test("close invalidates before teardown, undo makes no credential call, and expiry final-revokes before release")
+    func appCloseUndoAndExpiryOrderIPCLifecycle() async throws {
         let workspaceID = UUIDv7.generate()
         let fixture = try makeWorkspaceSQLiteBridgeFixture(workspaceId: workspaceID)
         let datastore = try preparedWorkspaceSQLiteDatastore(from: fixture.backend)
@@ -227,13 +265,32 @@ struct WorkspaceSurfaceCoordinatorDurableUndoTests {
         store.appendTab(tab)
         #expect(await store.flushAsync() == .persisted)
         let manager = HarnessSurfaceManager()
+        var lifecycleEvents: [(kind: String, paneIDs: Set<UUID>)] = []
+        var invalidationObservedBeforeFirstRetention = false
+        let ipcLifecycle = WorkspaceSurfaceIPCLifecycle(
+            environment: { _, _ in [:] },
+            invalidatePaneIDs: { paneIDs in
+                if lifecycleEvents.isEmpty {
+                    invalidationObservedBeforeFirstRetention = manager.retainedUndoPaneIDs.isEmpty
+                }
+                lifecycleEvents.append(("invalidate", paneIDs))
+            },
+            finalRevokePaneIDs: { paneIDs in
+                #expect(manager.releasedUndoPaneIDs.isEmpty)
+                lifecycleEvents.append(("final", paneIDs))
+            }
+        )
         let coordinator = WorkspaceSurfaceCoordinator(
             store: store, viewRegistry: ViewRegistry(), runtime: SessionRuntime(store: store),
             surfaceManager: manager, runtimeRegistry: RuntimeRegistry(),
-            windowLifecycleStore: WindowLifecycleAtom(), bridgePaneAttendance: BridgePaneAttendanceAtom()
+            windowLifecycleStore: WindowLifecycleAtom(), ipcLifecycle: ipcLifecycle,
+            bridgePaneAttendance: BridgePaneAttendanceAtom()
         )
 
         try await coordinator.execute(.closeTab(tabId: tab.id))
+        #expect(lifecycleEvents.map(\.kind) == ["invalidate"])
+        #expect(lifecycleEvents.first?.paneIDs == [pane.id])
+        #expect(invalidationObservedBeforeFirstRetention)
         #expect(store.tabLayoutAtom.tab(tab.id) == nil)
         #expect(store.paneAtom.pane(pane.id) == nil)
         #expect(try fixture.coreRepository.fetchPaneGraph(workspaceId: workspaceID).panes.isEmpty)
@@ -246,6 +303,22 @@ struct WorkspaceSurfaceCoordinatorDurableUndoTests {
         #expect(store.paneAtom.pane(pane.id)?.terminalState?.zmxSessionID == pane.terminalState?.zmxSessionID)
         #expect(try fixture.coreRepository.fetchPaneGraph(workspaceId: workspaceID).panes.map(\.id) == [pane.id])
         #expect(try await datastore.fetchAvailableUndoCloses(workspaceID: workspaceID).isEmpty)
+
+        try await coordinator.execute(.closeTab(tabId: tab.id))
+        #expect(lifecycleEvents.map(\.kind) == ["invalidate", "invalidate"])
+        let secondClose = try #require(
+            try await datastore.fetchAvailableUndoCloses(workspaceID: workspaceID).first)
+        let retirements = try await store.expireUndoCloses(
+            time: WorkspaceUndoJournalTime(
+                utc: secondClose.expiresAt.addingTimeInterval(1),
+                bootID: secondClose.deadlineBootID,
+                uptimeNanoseconds: secondClose.deadlineUptimeNanoseconds + 1
+            )
+        )
+        coordinator.consumeUndoRetirements(retirements)
+        #expect(lifecycleEvents.map(\.kind) == ["invalidate", "invalidate", "final"])
+        #expect(lifecycleEvents.last?.paneIDs == [pane.id])
+        #expect(manager.releasedUndoPaneIDs == [pane.id])
         await coordinator.shutdown()
     }
 }

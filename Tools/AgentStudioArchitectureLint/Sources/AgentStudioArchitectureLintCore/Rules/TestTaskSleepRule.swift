@@ -67,27 +67,3 @@ extension MemberAccessExprSyntax {
         return base?.isTaskTypeReference == true
     }
 }
-
-extension ExprSyntax {
-    fileprivate var isTaskTypeReference: Bool {
-        if let reference = self.as(DeclReferenceExprSyntax.self) {
-            return reference.baseName.text == "Task"
-        }
-
-        if let memberAccess = self.as(MemberAccessExprSyntax.self) {
-            guard memberAccess.declName.baseName.text == "Task",
-                let baseReference = memberAccess.base?.as(DeclReferenceExprSyntax.self)
-            else {
-                return false
-            }
-            return baseReference.baseName.text == "Swift"
-                || baseReference.baseName.text == "_Concurrency"
-        }
-
-        if let specialization = self.as(GenericSpecializationExprSyntax.self) {
-            return specialization.expression.isTaskTypeReference
-        }
-
-        return false
-    }
-}

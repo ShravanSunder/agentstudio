@@ -1,33 +1,33 @@
 import Foundation
 
-public enum IPCBridgeTelemetryUnavailableReason: String, Codable, Equatable, Sendable {
+public enum IPCBridgeTelemetryUnavailableReason: String, CaseIterable, Codable, Equatable, Sendable {
     case disabled
     case failed
 }
 
-public enum IPCBridgeTelemetryResultKind: String, Codable, Equatable, Sendable {
+public enum IPCBridgeTelemetryResultKind: String, CaseIterable, Codable, Equatable, Sendable {
     case report
     case unavailable
 }
 
-public enum IPCBridgeTelemetryDrainSettlementDisposition: String, Codable, Equatable, Sendable {
+public enum IPCBridgeTelemetryDrainSettlementDisposition: String, CaseIterable, Codable, Equatable, Sendable {
     case closed
     case reopened
 }
 
-public enum IPCBridgeTelemetryWorkerState: String, Codable, Equatable, Sendable {
+public enum IPCBridgeTelemetryWorkerState: String, CaseIterable, Codable, Equatable, Sendable {
     case active, closed, draining, failed
 }
 
-public enum IPCBridgeTelemetryProducerId: String, Codable, Equatable, Sendable {
+public enum IPCBridgeTelemetryProducerId: String, CaseIterable, Codable, Equatable, Sendable {
     case main, comm
 }
 
-public enum IPCBridgeTelemetryLossOrigin: String, Codable, Equatable, Sendable {
+public enum IPCBridgeTelemetryLossOrigin: String, CaseIterable, Codable, Equatable, Sendable {
     case producer, worker
 }
 
-public enum IPCBridgeTelemetryLossReason: String, Codable, Equatable, Sendable {
+public enum IPCBridgeTelemetryLossReason: String, CaseIterable, Codable, Equatable, Sendable {
     case creditExhausted = "credit_exhausted"
     case encodedByteCap = "encoded_byte_cap"
     case queueSaturated = "queue_saturated"
@@ -70,7 +70,7 @@ public struct IPCBridgeTelemetryHeadOutboxDiagnostics: Codable, Equatable, Senda
     }
 }
 
-public enum IPCBridgeTelemetryTransportFailureStage: String, Codable, Equatable, Sendable {
+public enum IPCBridgeTelemetryTransportFailureStage: String, CaseIterable, Codable, Equatable, Sendable {
     case fetch
     case httpStatus = "http_status"
     case responseBody = "response_body"
@@ -178,14 +178,14 @@ public enum IPCBridgeTelemetryTransportFailureDiagnostics: Codable, Equatable, S
     }
 }
 
-public enum IPCBridgeTelemetryNativeRejectionReason: String, Codable, Equatable, Sendable {
+public enum IPCBridgeTelemetryNativeRejectionReason: String, CaseIterable, Codable, Equatable, Sendable {
     case conflict
     case invalidBody = "invalid_body"
     case sequenceGap = "sequence_gap"
     case unavailable
 }
 
-public enum IPCBridgeTelemetryResponseMismatchField: String, Codable, Equatable, Sendable {
+public enum IPCBridgeTelemetryResponseMismatchField: String, CaseIterable, Codable, Equatable, Sendable {
     case telemetrySessionId = "telemetry_session_id"
     case batchSequence = "batch_sequence"
     case nextExpectedBatchSequence = "next_expected_batch_sequence"

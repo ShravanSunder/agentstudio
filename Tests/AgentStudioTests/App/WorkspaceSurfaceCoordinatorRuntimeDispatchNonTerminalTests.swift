@@ -25,6 +25,7 @@ struct WorkspaceRuntimeDispatchNonTerminalTests {
             surfaceManager: NonTerminalSurfaceManager(),
             runtimeRegistry: RuntimeRegistry(),
             windowLifecycleStore: WindowLifecycleAtom(),
+            ipcLifecycle: .testUnavailable,
             bridgePaneAttendance: BridgePaneAttendanceAtom()
         )
 

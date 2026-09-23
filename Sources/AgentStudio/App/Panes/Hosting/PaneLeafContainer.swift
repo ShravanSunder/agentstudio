@@ -61,6 +61,7 @@ struct PaneLeafContainer: View {
     @State private var isDetachHovered: Bool = false
     @State private var movePaneMenuAnchorView: NSView?
     @State private var movePaneMenuPresenter = PaneMoveDestinationMenuPresenter()
+    @State private var contextMenuPresenter: PaneManagementContextMenuPresenter
 
     init(
         paneHost: PaneHostView,
@@ -108,28 +109,45 @@ struct PaneLeafContainer: View {
         self.workspaceWindowId = workspaceWindowId
         self.toolbarPresentation = toolbarPresentation
         self.managementChromePresentation = managementChromePresentation
+        _contextMenuPresenter = State(
+            initialValue: PaneManagementContextMenuPresenter(octiconLoader: octiconLoader)
+        )
     }
 
     /// Whether this pane is a drawer child (no drag, no drop, no sub-drawer).
     private var isDrawerChild: Bool {
-        store.paneAtom.pane(paneHost.id)?.isDrawerChild ?? false
+        store.paneAtom.graphAtom.paneStructuralFacts(paneHost.id)?.isDrawerChild ?? false
     }
 
     /// Drawer state derived from store via @Observable tracking.
     /// Only layout panes have drawers; drawer children return nil.
     private var drawer: Drawer? {
-        store.paneAtom.pane(paneHost.id)?.drawer
+        projectedDrawer(
+            from: store.paneAtom.graphAtom.paneStructuralFacts(paneHost.id)
+        )
+    }
+
+    private func projectedDrawer(from paneStructuralFacts: PaneStructuralFacts?) -> Drawer? {
+        guard let paneStructuralFacts,
+            let drawerID = paneStructuralFacts.ownedDrawerID
+        else { return nil }
+        return Drawer(
+            drawerId: drawerID,
+            parentPaneId: paneStructuralFacts.paneID,
+            paneIds: paneStructuralFacts.ownedDrawerPaneIDs,
+            isExpanded: store.paneAtom.expandedDrawerID == drawerID
+        )
     }
 
     /// Parent pane ID for drawer children; nil for layout panes.
     private var drawerParentPaneId: UUID? {
-        store.paneAtom.pane(paneHost.id)?.parentPaneId
+        store.paneAtom.graphAtom.paneStructuralFacts(paneHost.id)?.parentPaneID
     }
 
     private var tabContainsExpandedDrawer: Bool {
-        guard let tab = store.tabLayoutAtom.tab(tabId) else { return false }
-        return tab.paneIds.contains { paneId in
-            store.paneAtom.pane(paneId)?.drawer?.isExpanded == true
+        guard let layout = store.tabLayoutAtom.canonicalActiveLayout(forTab: tabId) else { return false }
+        return layout.paneIds.contains { paneId in
+            store.paneAtom.isDrawerExpanded(for: paneId)
         }
     }
 
@@ -145,16 +163,7 @@ struct PaneLeafContainer: View {
         closeTransitionCoordinator.closingPaneIds.contains(paneHost.id)
     }
 
-    /// True when hover is active either via tracking events or by direct pointer query.
-    /// The direct pointer query fixes the Cmd+E case where management layer toggles
-    /// while the pointer is already inside the pane and no hover transition fires.
-    private var isManagementHovered: Bool {
-        guard !suppressMainPaneManagementInteraction else { return false }
-        return isHovered || isPointerInsidePaneView
-    }
-
     private var isPointerInsidePaneView: Bool {
-        guard !suppressMainPaneManagementInteraction else { return false }
         guard managementLayer.isActive else { return false }
         guard let window = paneHost.window else { return false }
         let pointInWindow = window.mouseLocationOutsideOfEventStream
@@ -200,11 +209,29 @@ struct PaneLeafContainer: View {
 
     var body: some View {
         GeometryReader { paneGeometry in
+            let paneStructuralFacts =
+                managementLayer.isActive || toolbarPresentation.reservesToolbarLayout
+                ? store.paneAtom.graphAtom.paneStructuralFacts(paneHost.id) : nil
+            let isDrawerChild = paneStructuralFacts?.isDrawerChild ?? false
+            let drawer = projectedDrawer(from: paneStructuralFacts)
+            let drawerParentPaneId = paneStructuralFacts?.parentPaneID
+            let suppressMainPaneManagementInteraction = {
+                guard managementChromePresentation == .ordinary else { return true }
+                return PaneInteractionOcclusionPolicy.suppressMainPaneManagementInteraction(
+                    isDrawerChild: isDrawerChild,
+                    tabContainsExpandedDrawer: tabContainsExpandedDrawer
+                )
+            }
+            // Keep the tab-wide drawer scan and direct pointer query lazy. These closures
+            // are reached only by management chrome or an actual hover callback.
+            let isManagementHovered = {
+                guard !suppressMainPaneManagementInteraction() else { return false }
+                return isHovered || isPointerInsidePaneView
+            }
             let managementContext = PaneManagementContext.project(
                 paneId: paneHost.id,
                 store: store,
             )
-            let locationTargetPaneId = currentLocationTargetPaneId
             let minimizePresentation = commandPresentation(
                 .minimizePane,
                 surface: .inlineControl
@@ -224,14 +251,6 @@ struct PaneLeafContainer: View {
             let inlineMovePresentation = commandPresentation(
                 .movePaneToTab,
                 surface: .inlineControl
-            )
-            let extractContextMenuPresentation = commandPresentation(
-                .extractPaneToTab,
-                surface: .contextMenu
-            )
-            let moveContextMenuPresentation = commandPresentation(
-                .movePaneToTab,
-                surface: .contextMenu
             )
             ZStack(alignment: .topTrailing) {
                 VStack(spacing: 0) {
@@ -258,7 +277,8 @@ struct PaneLeafContainer: View {
                                 )
                             }
                         }
-                    if !isDrawerChild && toolbarPresentation.reservesToolbarLayout {
+                    if toolbarPresentation.reservesToolbarLayout && !isDrawerChild {
+                        let locationTargetPaneId = currentLocationTargetPaneId(drawer: drawer)
                         PaneSurfaceToolbarHost(
                             anchorPaneId: paneHost.id,
                             locationTargetPaneId: locationTargetPaneId,
@@ -296,20 +316,20 @@ struct PaneLeafContainer: View {
 
                 // Hover border: drag affordance in management layer
                 if managementLayer.isActive
-                    && isManagementHovered
+                    && isManagementHovered()
                     && !isSplitResizing
-                    && !suppressMainPaneManagementInteraction
+                    && !suppressMainPaneManagementInteraction()
                 {
                     RoundedRectangle(cornerRadius: AppStyles.General.CornerRadius.panel)
                         .strokeBorder(Color.white.opacity(AppStyles.General.Stroke.visible), lineWidth: 1)
                         .allowsHitTesting(false)
-                        .animation(.easeInOut(duration: AppStyles.General.Animation.fast), value: isManagementHovered)
+                        .animation(.easeInOut(duration: AppStyles.General.Animation.fast), value: isManagementHovered())
                 }
 
                 // Drag handle: compact centered pill in management layer.
                 // The Color.clear fills the ZStack for centering; allowsHitTesting(false)
                 // ensures only the capsule itself intercepts mouse events.
-                if managementLayer.isActive && !isSplitResizing && !suppressMainPaneManagementInteraction {
+                if managementLayer.isActive && !isSplitResizing && !suppressMainPaneManagementInteraction() {
                     ZStack {
                         Color.clear
                             .allowsHitTesting(false)
@@ -361,7 +381,7 @@ struct PaneLeafContainer: View {
                 }
 
                 // Shortcut ordinal: top-center, aligned with management controls.
-                if managementLayer.isActive && !isSplitResizing && !suppressMainPaneManagementInteraction {
+                if managementLayer.isActive && !isSplitResizing && !suppressMainPaneManagementInteraction() {
                     VStack {
                         HStack {
                             Spacer()
@@ -378,7 +398,7 @@ struct PaneLeafContainer: View {
                 }
 
                 // Pane controls: minimize + close (top-left, management layer)
-                if managementLayer.isActive && !isSplitResizing && !suppressMainPaneManagementInteraction {
+                if managementLayer.isActive && !isSplitResizing && !suppressMainPaneManagementInteraction() {
                     VStack {
                         HStack(spacing: AppStyles.General.Spacing.standard) {
                             if let minimizePresentation {
@@ -424,7 +444,7 @@ struct PaneLeafContainer: View {
                 }
 
                 // Quarter-moon split and browser buttons (top-right, management layer)
-                if managementLayer.isActive && !isSplitResizing && !suppressMainPaneManagementInteraction {
+                if managementLayer.isActive && !isSplitResizing && !suppressMainPaneManagementInteraction() {
                     VStack {
                         HStack {
                             Spacer()
@@ -488,6 +508,19 @@ struct PaneLeafContainer: View {
                     .transition(.opacity)
                 }
 
+                PaneManagementContextMenuCaptureBridge(
+                    isEnabled: managementLayer.isActive
+                        && managementChromePresentation == .ordinary
+                        && !isDrawerChild
+                        && !isClosing
+                        && !suppressMainPaneManagementInteraction()
+                ) { event, captureView in
+                    presentPaneManagementContextMenu(event: event, in: captureView)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+
             }
             .overlayPreferenceValue(ManagementPaneIdentityCardBoundsPreferenceKey.self) { identityCardBounds in
                 GeometryReader { overlayGeometry in
@@ -495,7 +528,7 @@ struct PaneLeafContainer: View {
                         managementChromePresentation == .ordinary,
                         !isDrawerChild,
                         !isSplitResizing,
-                        !suppressMainPaneManagementInteraction,
+                        !suppressMainPaneManagementInteraction(),
                         managementContext.showsIdentityBlock,
                         let identityCardBounds,
                         let inlineMovePresentation
@@ -513,9 +546,13 @@ struct PaneLeafContainer: View {
                 }
             }
             .contentShape(Rectangle())
-            .onHover { isHovered = suppressMainPaneManagementInteraction ? false : $0 }
+            .onHover { hovered in
+                isHovered =
+                    managementLayer.isActive && self.suppressMainPaneManagementInteraction
+                    ? false : hovered
+            }
             .onTapGesture {
-                if let drawerParentPaneId {
+                if let drawerParentPaneId = self.drawerParentPaneId {
                     onPaneFocusTrigger(
                         .drawer(
                             .selectPane(parentPaneId: drawerParentPaneId, drawerPaneId: paneHost.id)
@@ -538,33 +575,6 @@ struct PaneLeafContainer: View {
             .zIndex(isClosing ? 1 : 0)
             .animation(.easeOut(duration: AppStyles.General.Animation.fast), value: isClosing)
             .allowsHitTesting(!isClosing)
-            .contextMenu {
-                if managementLayer.isActive
-                    && managementChromePresentation == .ordinary
-                    && !isDrawerChild
-                {
-                    if let extractContextMenuPresentation {
-                        Button {
-                            extractContextMenuPresentation.perform()
-                        } label: {
-                            commandMenuLabel(extractContextMenuPresentation.spec)
-                        }
-                        .disabled(!extractContextMenuPresentation.isEnabled)
-                    }
-
-                    if let moveContextMenuPresentation {
-                        Menu {
-                            movePaneDestinationMenuItems(moveContextMenuPresentation)
-                        } label: {
-                            commandMenuLabel(moveContextMenuPresentation.spec)
-                        }
-                        .disabled(
-                            !moveContextMenuPresentation.isEnabled
-                                || movePaneDestinations.isEmpty
-                        )
-                    }
-                }
-            }
         }
         .clipShape(RoundedRectangle(cornerRadius: AppStyles.General.CornerRadius.panel))
         .padding(AppStyles.General.Layout.paneGap)
@@ -778,17 +788,6 @@ extension PaneLeafContainer {
         }
     }
 
-    @ViewBuilder
-    private func movePaneDestinationMenuItems(
-        _ presentation: PaneLeafCommandPresentation
-    ) -> some View {
-        ForEach(movePaneDestinations) { destination in
-            Button(destination.title) {
-                movePane(to: destination, presentation: presentation)
-            }
-        }
-    }
-
     private func presentMovePaneDestinationMenu(
         _ presentation: PaneLeafCommandPresentation
     ) {
@@ -811,13 +810,54 @@ extension PaneLeafContainer {
         )
     }
 
+    private func presentPaneManagementContextMenu(
+        event: NSEvent,
+        in captureView: NSView
+    ) -> Bool {
+        guard
+            managementLayer.isActive,
+            managementChromePresentation == .ordinary,
+            !isDrawerChild,
+            !isClosing,
+            !suppressMainPaneManagementInteraction
+        else {
+            return false
+        }
+
+        let extractPresentation = commandPresentation(
+            .extractPaneToTab,
+            surface: .contextMenu
+        )
+        let movePresentation = commandPresentation(
+            .movePaneToTab,
+            surface: .contextMenu
+        )
+        return contextMenuPresenter.present(
+            extractPresentation: extractPresentation,
+            movePresentation: movePresentation,
+            destinationProvider: {
+                movePaneDestinations.map { destination in
+                    PaneMoveDestinationMenuPresenter.Destination(
+                        title: destination.title,
+                        perform: {
+                            guard let movePresentation else { return }
+                            movePane(to: destination, presentation: movePresentation)
+                        }
+                    )
+                }
+            },
+            event: event,
+            in: captureView
+        )
+    }
+
     private func movePaneTrailingEdgeTabButton(
         _ presentation: PaneLeafCommandPresentation
     ) -> some View {
         ManagementTrailingEdgeTabButton(
             systemName: SystemSymbol.arrowLeftArrowRight.rawValue,
             isHovered: isMovePaneHovered,
-            isEnabled: presentation.isEnabled && !movePaneDestinations.isEmpty,
+            isEnabled: presentation.isEnabled,
             tooltip: presentation.spec.controlTooltipRenderValue(),
             accessibilityIdentifier: "paneManagement.movePaneToTab",
             onAnchorViewChanged: { view in
@@ -842,14 +882,6 @@ extension PaneLeafContainer {
             sourceTabId: tabId,
             targetTabId: destination.tabId
         )
-    }
-
-    private func commandMenuLabel(_ spec: AppCommandSpec) -> some View {
-        Label {
-            Text(spec.label)
-        } icon: {
-            spec.icon.swiftUIImage(loader: octiconLoader)
-        }
     }
 
     private func paneEdgeCommandButtonLabel(
@@ -925,6 +957,10 @@ extension PaneLeafContainer {
     }
 
     private var currentLocationTargetPaneId: UUID {
+        currentLocationTargetPaneId(drawer: drawer)
+    }
+
+    private func currentLocationTargetPaneId(drawer: Drawer?) -> UUID {
         guard let drawer,
             drawer.isExpanded,
             let drawerView = atom(\.arrangementView).drawerView(forParent: paneHost.id),

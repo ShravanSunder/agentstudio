@@ -1,3 +1,5 @@
+import AgentStudioInfrastructure
+import AgentStudioTestSupport
 import Foundation
 import Testing
 
@@ -59,7 +61,7 @@ struct ArchitectureSwiftLintRulesTests {
     }
 
     @Test("stock SwiftLint honors repo regex custom rules")
-    func stockSwiftLintHonorsRepoRegexCustomRules() throws {
+    func stockSwiftLintHonorsRepoRegexCustomRules() async throws {
         let fixturePath = "Tests/AgentStudioTests/Fixtures/SwiftLintLegacyCustomRules/CombineImportViolation.fixture"
         let temporaryDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("agentstudio-stock-swiftlint-\(UUID().uuidString)")
@@ -70,7 +72,7 @@ struct ArchitectureSwiftLintRulesTests {
         }
         try FileManager.default.copyItem(atPath: fixturePath, toPath: temporaryFile.path)
 
-        let result = try runProcess(arguments: [
+        let result = try await runProcess(arguments: [
             "swiftlint", "lint", "--strict", "--config", ".swiftlint.yml", temporaryFile.path,
         ])
 
@@ -79,12 +81,12 @@ struct ArchitectureSwiftLintRulesTests {
     }
 
     @Test("local architecture tool exposes expected rule inventory")
-    func localArchitectureToolExposesExpectedRuleInventory() throws {
+    func localArchitectureToolExposesExpectedRuleInventory() async throws {
         let buildSlot = try #require(ProcessInfo.processInfo.environment["SWIFT_BUILD_DIR"])
         let architectureBuildPath = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
             .appendingPathComponent(buildSlot)
             .appendingPathComponent("architecture-lint").path
-        let result = try runProcess(arguments: [
+        let result = try await runProcess(arguments: [
             "swift", "run",
             "--package-path", "Tools/AgentStudioArchitectureLint",
             "--build-path", architectureBuildPath,
@@ -102,38 +104,47 @@ struct ArchitectureSwiftLintRulesTests {
         #expect(result.stdout.contains("agentstudio_ipc_no_direct_atom_access error"))
     }
 
-    private func runProcess(arguments: [String]) throws -> ScriptRunResult {
-        let stdoutURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("agentstudio-architecture-lint-stdout-\(UUID().uuidString).log")
-        let stderrURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("agentstudio-architecture-lint-stderr-\(UUID().uuidString).log")
-        FileManager.default.createFile(atPath: stdoutURL.path, contents: nil)
-        FileManager.default.createFile(atPath: stderrURL.path, contents: nil)
-        defer {
-            try? FileManager.default.removeItem(at: stdoutURL)
-            try? FileManager.default.removeItem(at: stderrURL)
+    private func runProcess(arguments: [String]) async throws -> ScriptRunResult {
+        let processOutput = try await withoutBlockingCooperativePool {
+            let stdoutURL = FileManager.default.temporaryDirectory
+                .appendingPathComponent("agentstudio-architecture-lint-stdout-\(UUIDv7.generate().uuidString).log")
+            let stderrURL = FileManager.default.temporaryDirectory
+                .appendingPathComponent("agentstudio-architecture-lint-stderr-\(UUIDv7.generate().uuidString).log")
+            FileManager.default.createFile(atPath: stdoutURL.path, contents: nil)
+            FileManager.default.createFile(atPath: stderrURL.path, contents: nil)
+            defer {
+                try? FileManager.default.removeItem(at: stdoutURL)
+                try? FileManager.default.removeItem(at: stderrURL)
+            }
+            let stdoutHandle = try FileHandle(forWritingTo: stdoutURL)
+            let stderrHandle = try FileHandle(forWritingTo: stderrURL)
+            defer {
+                try? stdoutHandle.close()
+                try? stderrHandle.close()
+            }
+
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+            process.arguments = arguments
+            process.currentDirectoryURL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+            process.environment = ProcessInfo.processInfo.environment
+            process.standardOutput = stdoutHandle
+            process.standardError = stderrHandle
+
+            try process.run()
+            process.waitUntilExit()
+
+            return ArchitectureProcessOutput(
+                exitCode: process.terminationStatus,
+                stdout: try String(contentsOf: stdoutURL, encoding: .utf8),
+                stderr: try String(contentsOf: stderrURL, encoding: .utf8)
+            )
         }
-        let stdoutHandle = try FileHandle(forWritingTo: stdoutURL)
-        let stderrHandle = try FileHandle(forWritingTo: stderrURL)
-        defer {
-            try? stdoutHandle.close()
-            try? stderrHandle.close()
-        }
-
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        process.arguments = arguments
-        process.currentDirectoryURL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-        process.environment = ProcessInfo.processInfo.environment
-        process.standardOutput = stdoutHandle
-        process.standardError = stderrHandle
-
-        try process.run()
-        process.waitUntilExit()
-
-        let stdout = try String(contentsOf: stdoutURL, encoding: .utf8)
-        let stderr = try String(contentsOf: stderrURL, encoding: .utf8)
-        return ScriptRunResult(exitCode: process.terminationStatus, stdout: stdout, stderr: stderr)
+        return ScriptRunResult(
+            exitCode: processOutput.exitCode,
+            stdout: processOutput.stdout,
+            stderr: processOutput.stderr
+        )
     }
 
     private var legacyRunnerScriptPath: String {
@@ -153,4 +164,10 @@ struct ArchitectureSwiftLintRulesTests {
     private var legacyBuildToolName: String {
         "baz" + "el" + "isk"
     }
+}
+
+private struct ArchitectureProcessOutput: Sendable {
+    let exitCode: Int32
+    let stdout: String
+    let stderr: String
 }

@@ -370,6 +370,31 @@ final class ProcessExecutorTests {
         #expect(result.succeeded)
     }
 
+    // MARK: - Regression: Pipe Capacity
+
+    @Test
+    func test_execute_drainsStderrBeyondKernelPipeCapacity() async throws {
+        // A child that writes past the kernel pipe buffer (64 KiB on Darwin) blocks in
+        // write() until the parent drains it. Waiting for exit before reading is therefore
+        // a deadlock, not a slow test: the parent waits for a child that cannot finish.
+        // The executor reads both pipes concurrently with the child's lifetime and only
+        // completes once exit and both EOFs have arrived, so capacity never enters into it.
+        let byteCount = 200_000
+
+        // Act
+        let result = try await executor.execute(
+            command: "sh",
+            args: ["-c", "yes x | head -c \(byteCount) >&2"],
+            cwd: nil,
+            environment: nil
+        )
+
+        // Assert
+        #expect(result.succeeded)
+        #expect(result.stderr.count > 65_536)  // past the pipe capacity that deadlocks the old shape
+        #expect(result.stderr.count == byteCount - 1)  // decodeAndTrim drops the single trailing newline
+    }
+
     private func waitForProcessIdentifier(at url: URL) async throws -> pid_t {
         let clock = ContinuousClock()
         let deadline = clock.now.advanced(by: .seconds(3))

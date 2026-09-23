@@ -165,21 +165,33 @@ private struct SQLiteFactoryFileFixture {
         try? FileManager.default.removeItem(at: directoryURL)
     }
 
-    func createCrashLeftWALDatabase() throws {
+    /// Runs the crash fixture and resumes when the process actually terminates.
+    ///
+    /// The wait is the termination handler, not a clock: the handler is installed
+    /// before `run()` so it cannot be missed, and the only elapsed-time bound is
+    /// the lane's hang bound, which names this suite if the fixture never exits.
+    /// The previous `DispatchSemaphore.wait(timeout: .now() + 10)` was both a
+    /// correctness budget and a block on a cooperative-pool thread; it failed the
+    /// full gate at 10.016 s while completing in 0.32 s unloaded.
+    func createCrashLeftWALDatabase() async throws {
         let process = Process()
         let standardError = Pipe()
         process.executableURL = Self.crashFixtureExecutableURL
         process.arguments = [databaseURL.path]
         process.standardError = standardError
-        let terminationSignal = DispatchSemaphore(value: 0)
-        process.terminationHandler = { _ in terminationSignal.signal() }
-        try process.run()
-        guard terminationSignal.wait(timeout: .now() + 10) == .success else {
-            process.terminate()
-            process.waitUntilExit()
-            throw SQLiteFactoryFileFixtureError.fixtureProcessTimedOut
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            // Installed before `run()`, so a fixture that exits immediately
+            // cannot terminate before anything is listening.
+            process.terminationHandler = { _ in continuation.resume() }
+            do {
+                try process.run()
+            } catch {
+                // The handler only fires for a launched process, so clearing it
+                // here leaves exactly one resume on every path.
+                process.terminationHandler = nil
+                continuation.resume(throwing: error)
+            }
         }
-        process.waitUntilExit()
         guard process.terminationStatus == 0 else {
             let errorData = standardError.fileHandleForReading.readDataToEndOfFile()
             throw SQLiteFactoryFileFixtureError.fixtureProcessFailed(
@@ -229,23 +241,23 @@ private struct SQLiteFactoryFileFixture {
 @Suite("SQLiteDatabaseFactoryProcessTests", .serialized)
 struct SQLiteDatabaseFactoryProcessTests {
     @Test("byte-preserving startup reader sees committed WAL content without changing database files")
-    func bytePreservingStartupReaderSeesCommittedWALWithoutChangingDatabaseFiles() throws {
+    func bytePreservingStartupReaderSeesCommittedWALWithoutChangingDatabaseFiles() async throws {
         // Arrange
         let fixture = try SQLiteFactoryFileFixture.make()
         defer { fixture.remove() }
-        try fixture.createCrashLeftWALDatabase()
+        try await fixture.createCrashLeftWALDatabase()
         let durableFilesBeforeRead = try fixture.durableFileBytes()
         #expect(durableFilesBeforeRead.wal != .missing)
         #expect(durableFilesBeforeRead.sharedMemory != .missing)
         let mainDatabaseOnlyReader = try fixture.makeMainDatabaseOnlyImmutableReader()
-        let mainDatabaseOnlyValue = try mainDatabaseOnlyReader.read { database in
+        let mainDatabaseOnlyValue = try await mainDatabaseOnlyReader.read { database in
             try String.fetchOne(database, sql: "SELECT value FROM startup_probe")
         }
         #expect(mainDatabaseOnlyValue == nil)
 
         // Act
         let startupReader = try SQLiteDatabaseFactory.makeBytePreservingStartupReader(at: fixture.databaseURL)
-        let restoredValue = try startupReader.read { database in
+        let restoredValue = try await startupReader.read { database in
             try String.fetchOne(database, sql: "SELECT value FROM startup_probe")
         }
 
@@ -260,5 +272,4 @@ struct SQLiteDatabaseFactoryProcessTests {
 
 private enum SQLiteFactoryFileFixtureError: Error {
     case fixtureProcessFailed(status: Int32, standardError: String)
-    case fixtureProcessTimedOut
 }

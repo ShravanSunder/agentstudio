@@ -15,11 +15,11 @@ struct BridgeDevelopmentAnnotationHTTPRoutingTests {
     @Test("successful annotation output returns its completed HTTP result")
     func successfulAnnotationOutputReturnsCompletedHTTPResult() async throws {
         // Arrange
-        let repositoryURL = try FilesystemTestGitRepo.create(
+        let repositoryURL = try await FilesystemTestGitRepo.create(
             named: "bridge-development-http-annotation-output-result"
         )
         defer { FilesystemTestGitRepo.destroy(repositoryURL) }
-        try FilesystemTestGitRepo.seedTrackedAndUntrackedChanges(at: repositoryURL)
+        try await FilesystemTestGitRepo.seedTrackedAndUntrackedChanges(at: repositoryURL)
         let paneID = PaneId.generateUUIDv7().uuid
         let dataRoot = FileManager.default.temporaryDirectory.appending(
             path: "bridge-development-http-annotation-output-result-\(paneID.uuidString)",
@@ -121,11 +121,11 @@ struct BridgeDevelopmentAnnotationHTTPRoutingTests {
     @MainActor
     @Test("annotation mutation converges through independent pane projections")
     func annotationMutationConvergesThroughIndependentPaneProjections() async throws {
-        let repositoryURL = try FilesystemTestGitRepo.create(
+        let repositoryURL = try await FilesystemTestGitRepo.create(
             named: "bridge-development-http-annotation-two-pane"
         )
         defer { FilesystemTestGitRepo.destroy(repositoryURL) }
-        try FilesystemTestGitRepo.seedTrackedAndUntrackedChanges(at: repositoryURL)
+        try await FilesystemTestGitRepo.seedTrackedAndUntrackedChanges(at: repositoryURL)
         let paneAID = PaneId.generateUUIDv7().uuid
         let paneBID = PaneId.generateUUIDv7().uuid
         let dataRoot = FileManager.default.temporaryDirectory.appending(
@@ -220,11 +220,11 @@ struct BridgeDevelopmentAnnotationHTTPRoutingTests {
     @MainActor
     @Test("annotation draft survives a development host restart through the product HTTP carrier")
     func annotationDraftSurvivesDevelopmentHostRestart() async throws {
-        let repositoryURL = try FilesystemTestGitRepo.create(
+        let repositoryURL = try await FilesystemTestGitRepo.create(
             named: "bridge-development-http-annotation-restart"
         )
         defer { FilesystemTestGitRepo.destroy(repositoryURL) }
-        try FilesystemTestGitRepo.seedTrackedAndUntrackedChanges(at: repositoryURL)
+        try await FilesystemTestGitRepo.seedTrackedAndUntrackedChanges(at: repositoryURL)
         let paneID = PaneId.generateUUIDv7().uuid
         let dataRoot = FileManager.default.temporaryDirectory.appending(
             path: "bridge-development-http-annotation-data-\(paneID.uuidString)",

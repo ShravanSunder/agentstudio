@@ -90,6 +90,7 @@ struct TerminalPaneMountViewExitBehaviorTests {
             viewRegistry: viewRegistry,
             bridgePaneAttendance: BridgePaneAttendanceAtom(),
             editorChooser: editorChooser,
+            heldPanePreviewState: HeldPanePreviewState(),
             registersAsCommandHandler: false,
             appEventBus: appEventBus
         )

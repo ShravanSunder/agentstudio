@@ -368,8 +368,9 @@ private final class RecordingAppToolbarCommandDispatcher: AppCommandDispatching 
     private(set) var capabilityQueries: [AppCommand] = []
     private(set) var dispatchedCommands: [AppCommand] = []
 
-    func dispatch(_ command: AppCommand) {
+    func dispatch(_ command: AppCommand) -> Bool {
         dispatchedCommands.append(command)
+        return true
     }
 
     func dispatch(_: AppCommand, target _: UUID, targetType _: SearchItemType) {}
@@ -417,6 +418,7 @@ private func withMainWindowControllerHarness<T>(
         surfaceManager: InboxToolbarTestSurfaceManager(),
         runtimeRegistry: RuntimeRegistry(),
         windowLifecycleStore: atoms.core.windowLifecycle,
+        ipcLifecycle: .testUnavailable,
         bridgePaneAttendance: atoms.bridgePaneAttendance
     )
     let workspaceActionExecutor = WorkspaceActionExecutor(coordinator: coordinator, store: store)

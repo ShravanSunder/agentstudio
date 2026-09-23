@@ -22,7 +22,7 @@ public struct IPCPrincipal: Equatable, Sendable {
     }
 }
 
-public enum IPCAccessMode: String, Codable, Equatable, Sendable {
+public enum IPCAccessMode: String, CaseIterable, Codable, Equatable, Sendable {
     case off
     case agentStudioOnly
     case automationSameUser
@@ -117,6 +117,8 @@ public enum IPCDataScope: String, Codable, CaseIterable, Hashable, Sendable {
     case terminalInput
     case terminalWait
     case permissionState
+    case sessionReport
+    case sessionState
 }
 
 public enum IPCPrivilegeClass: String, Codable, CaseIterable, Hashable, Sendable {
@@ -142,10 +144,12 @@ public enum IPCPrivilegeClass: String, Codable, CaseIterable, Hashable, Sendable
     case grantApprove
     case appCommandExecute
     case sidebarStateMutate
+    case sessionReportWrite
+    case sessionStateRead
     case debugUnsafe
 }
 
-public enum IPCExecutionOwner: String, Codable, Equatable, Sendable {
+public enum IPCExecutionOwner: String, CaseIterable, Codable, Equatable, Sendable {
     case appCommand
     case uiPresentation
     case workspaceAction
@@ -154,14 +158,20 @@ public enum IPCExecutionOwner: String, Codable, Equatable, Sendable {
     case queryReader
     case eventReader
     case permissionBroker
+    case sessionsIngest
 }
 
-public enum IPCResultSemantics: String, Codable, Equatable, Sendable {
+public enum IPCResultSemantics: String, CaseIterable, Codable, Equatable, Sendable {
+    case discriminated
     case applied
     case accepted
+    case durable
+    case presented
+    case partial
+    case uncertain
 }
 
-public enum IPCPrincipalAvailability: String, Codable, Equatable, Sendable {
+public enum IPCPrincipalAvailability: String, CaseIterable, Codable, Equatable, Sendable {
     case preAuthentication
     case authenticated
 }
@@ -319,7 +329,7 @@ public enum IPCPermissionApprovalRoute: Hashable, Sendable, Codable {
     }
 }
 
-public enum IPCPermissionRequestState: String, Codable, Equatable, Sendable {
+public enum IPCPermissionRequestState: String, CaseIterable, Codable, Equatable, Sendable {
     case pending
     case granted
     case denied

@@ -12,8 +12,7 @@ let package = Package(
             name: "agentstudio-bridge-dev-server",
             targets: ["AgentStudioBridgeDevelopmentServer"]
         ),
-        .executable(name: "agentstudio-ipc", targets: ["AgentStudioIPCClient"]),
-        .executable(name: "agentstudio-pane-agent", targets: ["AgentStudioPaneAgent"]),
+        .executable(name: "agentstudio-cli", targets: ["AgentStudioIPCClient"]),
         .executable(
             name: "agentstudio-sqlite-crash-fixture",
             targets: ["AgentStudioSQLiteCrashFixture"]
@@ -46,16 +45,22 @@ let package = Package(
                 "AgentStudioInboxNotification",
                 "AgentStudioInfrastructure",
                 "AgentStudioRepoExplorer",
+                "AgentStudioSessions",
                 "AgentStudioSharedComponents",
                 "AgentStudioTerminal",
                 "AgentStudioWebview",
                 "GhosttyKit",
+                "AgentStudioIPCTransport",
+                .product(name: "GRDB", package: "GRDB.swift"),
             ],
             path: "Sources/AgentStudio",
             exclude: [
                 "Core",
                 "Features",
                 "Infrastructure",
+                // Copied into Contents/Resources/AgentPackage by the bundle
+                // assembly, not into the SwiftPM resource bundle.
+                "Resources/AgentPackage",
                 "Resources/Info.plist",
                 "Resources/AppIcon.svg",
                 "Resources/terminfo-src",
@@ -91,9 +96,20 @@ let package = Package(
                 .linkedLibrary("c++"),
             ]
         ),
+        // Pure, Foundation-only value types and functions shared by the app and
+        // the `agentstudio-cli` executable. No package dependencies, nothing
+        // internal: this is what lets the CLI stay a leaf-only binary.
+        .target(
+            name: "AgentStudioPrimitives",
+            path: "Sources/AgentStudioPrimitives",
+            swiftSettings: [
+                .swiftLanguageMode(.v6)
+            ]
+        ),
         .target(
             name: "AgentStudioInfrastructure",
             dependencies: [
+                "AgentStudioPrimitives",
                 .product(name: "GRDB", package: "GRDB.swift"),
                 .product(name: "Logging", package: "swift-log"),
                 .product(name: "Metrics", package: "swift-metrics"),
@@ -232,6 +248,16 @@ let package = Package(
             ]
         ),
         .target(
+            name: "AgentStudioSessions",
+            dependencies: [
+                "AgentStudioCore",
+                "AgentStudioInfrastructure",
+                .product(name: "GRDB", package: "GRDB.swift"),
+            ],
+            path: "Sources/AgentStudio/Features/Sessions",
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        .target(
             name: "AgentStudioIPCTransport",
             path: "Sources/AgentStudioIPCTransport",
             swiftSettings: [
@@ -250,6 +276,7 @@ let package = Package(
             dependencies: [
                 "AgentStudioIPCTransport",
                 "AgentStudioProgrammaticControl",
+                "AgentStudioInfrastructure",
             ],
             path: "Sources/AgentStudioAppIPC",
             swiftSettings: [
@@ -260,6 +287,7 @@ let package = Package(
             name: "AgentStudioIPCClientCore",
             dependencies: [
                 "AgentStudioIPCTransport",
+                "AgentStudioPrimitives",
                 "AgentStudioProgrammaticControl",
             ],
             path: "Sources/AgentStudioIPCClientCore",
@@ -283,19 +311,11 @@ let package = Package(
         .executableTarget(
             name: "AgentStudioIPCClient",
             dependencies: [
-                "AgentStudioIPCClientCore"
+                "AgentStudioIPCClientCore",
+                "AgentStudioPrimitives",
+                "AgentStudioProgrammaticControl",
             ],
             path: "Sources/AgentStudioIPCClient",
-            swiftSettings: [
-                .swiftLanguageMode(.v6)
-            ]
-        ),
-        .executableTarget(
-            name: "AgentStudioPaneAgent",
-            dependencies: [
-                "AgentStudioIPCClientCore"
-            ],
-            path: "Sources/AgentStudioPaneAgent",
             swiftSettings: [
                 .swiftLanguageMode(.v6)
             ]
@@ -503,7 +523,8 @@ let package = Package(
         .testTarget(
             name: "AgentStudioProgrammaticControlTests",
             dependencies: [
-                "AgentStudioProgrammaticControl"
+                "AgentStudioPrimitives",
+                "AgentStudioProgrammaticControl",
             ],
             path: "Tests/AgentStudioProgrammaticControlTests",
             swiftSettings: [
@@ -515,8 +536,11 @@ let package = Package(
             dependencies: [
                 "AgentStudio",
                 "AgentStudioAppIPC",
+                "AgentStudioIPCClientCore",
                 "AgentStudioIPCTransport",
                 "AgentStudioProgrammaticControl",
+                "AgentStudioInfrastructure",
+                "AgentStudioTestSupport",
             ],
             path: "Tests/AgentStudioAppIPCTests",
             swiftSettings: [
@@ -524,13 +548,28 @@ let package = Package(
             ]
         ),
         .testTarget(
+            name: "AgentStudioSessionsTests",
+            dependencies: [
+                "AgentStudioSessions",
+                "AgentStudioCore",
+                "AgentStudioInfrastructure",
+                .product(name: "GRDB", package: "GRDB.swift"),
+            ],
+            path: "Tests/AgentStudioTests/Features/Sessions",
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        .testTarget(
             name: "AgentStudioIPCClientTests",
             dependencies: [
                 "AgentStudioIPCClientCore",
                 "AgentStudioIPCTransport",
+                "AgentStudioPrimitives",
                 "AgentStudioProgrammaticControl",
             ],
             path: "Tests/AgentStudioIPCClientTests",
+            resources: [
+                .copy("Fixtures")
+            ],
             swiftSettings: [
                 .swiftLanguageMode(.v6)
             ]
@@ -545,10 +584,13 @@ let package = Package(
                 "AgentStudioCommandBar",
                 "AgentStudioCore",
                 "AgentStudioEditorChooser",
+                "AgentStudioIPCClientCore",
+                "AgentStudioIPCTransport",
                 "AgentStudioInboxNotification",
                 "AgentStudioInfrastructure",
                 "AgentStudioProgrammaticControl",
                 "AgentStudioRepoExplorer",
+                "AgentStudioSessions",
                 "AgentStudioSharedComponents",
                 "AgentStudioTerminal",
                 "AgentStudioTestSupport",

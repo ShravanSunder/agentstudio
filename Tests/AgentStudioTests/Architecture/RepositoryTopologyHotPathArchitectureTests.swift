@@ -5,6 +5,30 @@ import Testing
 
 @Suite("RepositoryTopologyHotPathArchitectureTests")
 struct RepositoryTopologyHotPathArchitectureTests {
+    @Test("read snapshot capture does not derive absence ID sets on MainActor")
+    func readSnapshotCaptureKeepsAbsenceDataRaw() throws {
+        let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
+        let source = try String(
+            contentsOf: projectRoot.appending(
+                path: "Sources/AgentStudio/Core/State/MainActor/Atoms/RepositoryTopologyAtom.swift"
+            ),
+            encoding: .utf8
+        )
+        let captureBody = try #require(
+            source.slice(
+                from: "package func captureReadSnapshot()",
+                to: "func applyValidatedRepositoryMetadata("
+            )
+        )
+
+        // These convenience getters each allocate Set(dictionary.keys).
+        // Pinned navigation captures this snapshot on every key gesture.
+        #expect(!captureBody.contains("unavailableRepoIds"))
+        #expect(!captureBody.contains(".unavailableRepositoryIDs"))
+        #expect(!captureBody.contains(".unavailableWorktreeIDs"))
+        #expect(!captureBody.contains("Set("))
+    }
+
     @Test("topology atom contains state and indexes, not mutation planning or tracing")
     func topologyAtomExcludesMutationPlanningAndTracing() throws {
         let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))

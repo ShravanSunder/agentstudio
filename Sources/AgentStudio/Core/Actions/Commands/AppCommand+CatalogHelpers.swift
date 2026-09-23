@@ -182,7 +182,8 @@ extension AppCommand {
         shortcut: AppShortcut? = nil,
         label: String,
         icon: CommandIcon,
-        helpText: String
+        helpText: String,
+        sidebarKeyboardCompletion: SidebarKeyboardCompletion = .preserveCommandFocus
     ) -> AppCommandSpec {
         AppCommandSpec(
             command: self,
@@ -193,7 +194,8 @@ extension AppCommand {
             surfacePolicy: .exposed([.commandBar, .inlineControl, .toolbar(.app)]),
             targeting: .contextual,
             commandBarGroupName: "Sidebar",
-            commandBarGroupPriority: CommandBarGroupPriority.sidebar
+            commandBarGroupPriority: CommandBarGroupPriority.sidebar,
+            sidebarKeyboardCompletion: sidebarKeyboardCompletion
         )
     }
 

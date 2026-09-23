@@ -292,7 +292,7 @@ extension Ghostty.ActionRouter {
             let batch = localActionAccumulator.beginDrain(
                 for: surfaceID,
                 lane: lane,
-                defaultActivityContext: dependencies.activityContext(paneUUID)
+                defaultActivityContext: lane == .title ? nil : dependencies.activityContext(paneUUID)
             )
         else { return }
         defer {

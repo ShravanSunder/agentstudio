@@ -3,6 +3,7 @@ import SwiftUI
 
 package struct SidebarSourceGroupHeader<TrailingContent: View>: View {
     let isCollapsed: Bool
+    let isSelected: Bool
     let octiconLoader: OcticonLoader
     let icon: AppEntityIcon?
     let title: String
@@ -17,11 +18,13 @@ package struct SidebarSourceGroupHeader<TrailingContent: View>: View {
         icon: AppEntityIcon?,
         title: String,
         secondaryTitle: String?,
+        isSelected: Bool = false,
         accessibilityIdentifier: String? = nil,
         onToggle: @escaping () -> Void,
         @ViewBuilder trailingContent: @escaping () -> TrailingContent
     ) {
         self.isCollapsed = isCollapsed
+        self.isSelected = isSelected
         self.octiconLoader = octiconLoader
         self.icon = icon
         self.title = title
@@ -86,7 +89,18 @@ package struct SidebarSourceGroupHeader<TrailingContent: View>: View {
         } trailingContent: {
             trailingContent()
         }
+        .background {
+            RoundedRectangle(cornerRadius: AppStyles.Shell.Sidebar.rowCornerRadius)
+                .fill(
+                    SidebarRowShell<EmptyView>.backgroundColor(
+                        isSelected: isSelected,
+                        isFlashing: false,
+                        isHovering: false
+                    )
+                )
+        }
         .padding(.leading, Self.leadingInset)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
         .accessibilityLabel(accessibilityLabel)
         .modifier(OptionalAccessibilityIdentifier(identifier: accessibilityIdentifier))
     }
@@ -105,10 +119,12 @@ extension SidebarSourceGroupHeader where TrailingContent == EmptyView {
         icon: AppEntityIcon?,
         title: String,
         secondaryTitle: String?,
+        isSelected: Bool = false,
         accessibilityIdentifier: String? = nil,
         onToggle: @escaping () -> Void
     ) {
         self.isCollapsed = isCollapsed
+        self.isSelected = isSelected
         self.octiconLoader = octiconLoader
         self.icon = icon
         self.title = title

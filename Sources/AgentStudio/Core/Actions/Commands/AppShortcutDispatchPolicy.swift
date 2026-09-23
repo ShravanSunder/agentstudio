@@ -47,8 +47,11 @@ package enum AppShortcutDispatchPolicy {
         }
 
         switch context.stableOwner {
-        case .mainWindowChain, .managementLayer:
+        case .mainWindowChain:
             return shortcut.spec.contexts.contains(.terminalAppOwned)
+        case .managementLayer:
+            return shortcut != .focusSidebar && shortcut != .focusPreviousPinnedPane && shortcut != .focusNextPinnedPane
+                && shortcut.spec.contexts.contains(.terminalAppOwned)
         case .sidebar, .otherWindow:
             return false
         }
@@ -66,14 +69,17 @@ package enum AppShortcutDispatchPolicy {
 
     package static func isTerminalRuntimeCommand(_ command: AppCommand) -> Bool {
         switch command {
-        case .scrollToBottom, .scrollPageUp, .jumpToPreviousPrompt, .jumpToNextPrompt:
+        case .scrollToBottom, .scrollPageUp, .scrollPageDown,
+            .scrollSmallStepUp, .scrollSmallStepDown,
+            .jumpToPreviousPrompt, .jumpToNextPrompt:
             return true
         case .closeTab, .breakUpTab, .renameTab, .newTerminalInTab, .newTab, .undoCloseTab,
             .selectTab, .nextTab, .prevTab, .selectTab1, .selectTab2, .selectTab3,
             .selectTab4, .selectTab5, .selectTab6, .selectTab7, .selectTab8, .selectTab9,
             .closePane, .extractPaneToTab, .movePaneToTab, .focusPane, .splitRight, .splitLeft,
             .equalizePanes, .focusPaneLeft, .focusPaneRight, .focusPaneUp, .focusPaneDown,
-            .focusNextPane, .focusPrevPane, .focusPane1, .focusPane2, .focusPane3, .focusPane4,
+            .focusNextPane, .focusPrevPane, .focusPreviousPinnedPane, .focusNextPinnedPane, .focusPane1, .focusPane2,
+            .focusPane3, .focusPane4,
             .focusPane5, .focusPane6, .focusPane7, .focusPane8, .focusPane9, .zoomPane,
             .minimizePane, .expandPane, .switchArrangement, .previousArrangement, .nextArrangement,
             .cycleArrangement, .saveArrangement, .deleteArrangement, .renameArrangement,
@@ -89,7 +95,7 @@ package enum AppShortcutDispatchPolicy {
             .managementLayerFocusLeft,
             .managementLayerFocusRight, .managementLayerEnterDrawer, .managementLayerExitDrawer,
             .managementLayerOpenDrawer, .managementLayerCreateTerminal,
-            .managementLayerCreateBrowser, .managementLayerExit, .toggleSidebar,
+            .managementLayerCreateBrowser, .managementLayerExit, .toggleSidebar, .focusSidebar,
             .showInboxNotifications, .toggleInboxNotificationSort, .clearReadInboxNotifications,
             .clearAllInboxNotifications, .showPaneInboxNotifications, .clearPaneInboxNotifications,
             .showReposSidebar, .showPanesSidebar,
@@ -118,12 +124,14 @@ package enum AppShortcutDispatchPolicy {
         case .newTab, .showCommandBarEverything, .showCommandBarCommands, .showCommandBarPanes:
             return true
         case .closeTab, .undoCloseTab, .nextTab, .prevTab, .showArrangementPanel,
+            .focusPreviousPinnedPane, .focusNextPinnedPane,
             .previousArrangement, .nextArrangement, .zoomPane, .showViewer,
             .addDrawerPane, .toggleDrawer, .scrollToBottom,
-            .scrollPageUp, .jumpToPreviousPrompt, .jumpToNextPrompt, .openPaneLocationInBookmarkedEditor,
+            .scrollPageUp, .scrollPageDown, .scrollSmallStepUp, .scrollSmallStepDown,
+            .jumpToPreviousPrompt, .jumpToNextPrompt, .openPaneLocationInBookmarkedEditor,
             .openPaneLocationInFinder, .openPaneLocationInEditorMenu, .editPaneNote,
-            .copyCurrentPanePath, .toggleManagementLayer, .toggleSidebar, .filterSidebar,
-            .showInboxNotifications, .showPaneInboxNotifications, .showReposSidebar,
+            .copyCurrentPanePath, .toggleManagementLayer, .toggleSidebar, .focusSidebar, .filterSidebar,
+            .showInboxNotifications, .showPaneInboxNotifications, .showReposSidebar, .showPanesSidebar,
             .newWindow, .closeWindow, .selectTab1, .selectTab2, .selectTab3, .selectTab4,
             .selectTab5, .selectTab6, .selectTab7, .selectTab8, .selectTab9, .focusPane1,
             .focusPane2, .focusPane3, .focusPane4, .focusPane5, .focusPane6, .focusPane7,
@@ -141,7 +149,10 @@ package enum AppShortcutDispatchPolicy {
         switch keyboardOwner {
         case .otherWindow:
             return false
-        case .managementLayer, .mainWindowChain:
+        case .managementLayer:
+            return shortcut != .focusSidebar && shortcut != .focusPreviousPinnedPane && shortcut != .focusNextPinnedPane
+                && shouldDispatchFromMainWindowChain(shortcut)
+        case .mainWindowChain:
             return shouldDispatchFromMainWindowChain(shortcut)
         case .sidebar(let surface):
             return shouldDispatchFromSidebar(shortcut, surface: surface)
@@ -197,13 +208,15 @@ package enum AppShortcutDispatchPolicy {
             .selectTab1, .selectTab2, .selectTab3, .selectTab4, .selectTab5,
             .selectTab6, .selectTab7, .selectTab8, .selectTab9:
             return true
-        case .closeTab, .undoCloseTab, .newTab, .showArrangementPanel, .addDrawerPane,
-            .toggleDrawer, .scrollToBottom, .scrollPageUp, .jumpToPreviousPrompt, .jumpToNextPrompt,
+        case .closeTab, .undoCloseTab, .newTab, .showArrangementPanel,
+            .focusPreviousPinnedPane, .focusNextPinnedPane, .addDrawerPane,
+            .toggleDrawer, .scrollToBottom, .scrollPageUp, .scrollPageDown,
+            .scrollSmallStepUp, .scrollSmallStepDown, .jumpToPreviousPrompt, .jumpToNextPrompt,
             .zoomPane, .showViewer,
             .openPaneLocationInBookmarkedEditor, .openPaneLocationInFinder,
             .openPaneLocationInEditorMenu, .editPaneNote, .copyCurrentPanePath,
-            .toggleManagementLayer, .toggleSidebar, .filterSidebar, .showInboxNotifications,
-            .showPaneInboxNotifications, .showReposSidebar, .showCommandBarEverything,
+            .toggleManagementLayer, .toggleSidebar, .focusSidebar, .filterSidebar, .showInboxNotifications,
+            .showPaneInboxNotifications, .showReposSidebar, .showPanesSidebar, .showCommandBarEverything,
             .showCommandBarCommands, .showCommandBarPanes, .newWindow, .closeWindow,
             .focusPane1, .focusPane2, .focusPane3, .focusPane4, .focusPane5, .focusPane6,
             .focusPane7, .focusPane8, .focusPane9, .managementLayerFocusLeft,
@@ -216,14 +229,17 @@ package enum AppShortcutDispatchPolicy {
 
     private static func shouldDispatchFromMainWindowChain(_ shortcut: AppShortcut) -> Bool {
         switch shortcut {
-        case .filterSidebar, .scrollToBottom, .scrollPageUp, .jumpToPreviousPrompt, .jumpToNextPrompt:
+        case .filterSidebar, .showReposSidebar, .showPanesSidebar,
+            .scrollToBottom, .scrollPageUp, .scrollPageDown,
+            .scrollSmallStepUp, .scrollSmallStepDown, .jumpToPreviousPrompt, .jumpToNextPrompt:
             return false
-        case .toggleSidebar, .closeTab, .newTab, .undoCloseTab, .nextTab, .prevTab,
+        case .toggleSidebar, .focusSidebar, .focusPreviousPinnedPane, .focusNextPinnedPane, .closeTab, .newTab,
+            .undoCloseTab, .nextTab, .prevTab,
             .showArrangementPanel, .previousArrangement, .nextArrangement,
             .zoomPane, .showViewer, .addDrawerPane, .toggleDrawer, .openPaneLocationInBookmarkedEditor,
             .openPaneLocationInFinder, .openPaneLocationInEditorMenu, .editPaneNote,
             .copyCurrentPanePath, .toggleManagementLayer, .showInboxNotifications,
-            .showPaneInboxNotifications, .showReposSidebar, .newWindow, .closeWindow,
+            .showPaneInboxNotifications, .newWindow, .closeWindow,
             .showCommandBarEverything, .showCommandBarCommands, .showCommandBarPanes,
             .selectTab1, .selectTab2, .selectTab3, .selectTab4, .selectTab5, .selectTab6,
             .selectTab7, .selectTab8, .selectTab9, .focusPane1, .focusPane2, .focusPane3,
@@ -242,12 +258,14 @@ package enum AppShortcutDispatchPolicy {
         switch shortcut {
         case .filterSidebar:
             return surface == .repos || surface == .panes
-        case .toggleSidebar, .showInboxNotifications, .showReposSidebar,
+        case .toggleSidebar, .focusSidebar, .showInboxNotifications, .showReposSidebar, .showPanesSidebar,
             .showCommandBarEverything, .showCommandBarCommands, .showCommandBarPanes:
             return true
         case .closeTab, .newTab, .undoCloseTab, .nextTab, .prevTab, .showArrangementPanel,
+            .focusPreviousPinnedPane, .focusNextPinnedPane,
             .previousArrangement, .nextArrangement, .addDrawerPane, .toggleDrawer, .scrollToBottom,
-            .scrollPageUp, .jumpToPreviousPrompt, .jumpToNextPrompt, .zoomPane, .showViewer,
+            .scrollPageUp, .scrollPageDown, .scrollSmallStepUp, .scrollSmallStepDown,
+            .jumpToPreviousPrompt, .jumpToNextPrompt, .zoomPane, .showViewer,
             .openPaneLocationInBookmarkedEditor,
             .openPaneLocationInFinder, .openPaneLocationInEditorMenu, .editPaneNote,
             .copyCurrentPanePath, .toggleManagementLayer, .showPaneInboxNotifications,

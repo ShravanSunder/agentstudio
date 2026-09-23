@@ -11,7 +11,7 @@ enum TerminalSurfaceAction: Equatable {
     case pasteFromClipboard
     case selectAll
     case scrollToBottom
-    case scrollPageUp
+    case scrollPageFractional(Double)
     case jumpToPrompt(Int)
     case scrollToRow(Int)
     case startSearch
@@ -29,8 +29,8 @@ enum TerminalSurfaceAction: Equatable {
             return "select_all"
         case .scrollToBottom:
             return "scroll_to_bottom"
-        case .scrollPageUp:
-            return "scroll_page_up"
+        case .scrollPageFractional(let fraction):
+            return "scroll_page_fractional:\(fraction)"
         case .jumpToPrompt(let delta):
             return "jump_to_prompt:\(delta)"
         case .scrollToRow(let row):

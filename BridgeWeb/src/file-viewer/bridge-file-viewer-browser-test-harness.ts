@@ -68,6 +68,10 @@ export function installBridgeFileViewerNoopResizeObserver(): void {
 	Object.assign(globalThis, { ResizeObserver: BridgeFileViewerNoopResizeObserver });
 }
 
+export function bridgeFileViewerNoopResizeObserverIsInstalled(): boolean {
+	return globalThis.ResizeObserver === BridgeFileViewerNoopResizeObserver;
+}
+
 export function requireMetadataPublisher(
 	publisher: PublishFileMetadataEvents | null,
 ): PublishFileMetadataEvents {

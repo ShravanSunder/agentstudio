@@ -53,6 +53,9 @@ extension WorkspaceSurfaceCoordinator {
         }
         host.mountContentView(mountedView)
         viewRegistry.register(host, for: paneId)
+        if let capture = heldPanePreviewPreparationCapture {
+            acceptHeldPanePreviewIfCurrent(capture, paneID: paneId)
+        }
         if let priorHost, priorHost !== host {
             priorHost.retire()
         }
@@ -394,6 +397,7 @@ extension WorkspaceSurfaceCoordinator {
         treatAsRestoredSessionStart: Bool,
         context: TerminalSurfaceStartupContext
     ) -> TerminalSurfaceStartupPreparation? {
+        let paneIPCEnvironment = ipcLifecycle.environment(pane.id, store.identityAtom.workspaceId)
         switch pane.provider {
         case .zmx:
             let diagnostics = terminalRestoreRuntime.zmxAttachDiagnostics(for: pane)
@@ -405,11 +409,10 @@ extension WorkspaceSurfaceCoordinator {
             if let attachCommand = terminalRestoreRuntime.zmxAttachCommand(for: pane) {
                 traceZmxAttachPrepared(pane: pane, diagnostics: diagnostics)
                 // Prevent nested Agent Studio launches from inheriting an outer zmx session.
-                let environmentVariables: [String: String] = [
-                    "ZMX_DIR": sessionConfig.zmxDir,
-                    "ZMX_SESSION": "",
-                    "ZMX_SESSION_PREFIX": "",
-                ]
+                var environmentVariables = paneIPCEnvironment
+                environmentVariables["ZMX_DIR"] = sessionConfig.zmxDir
+                environmentVariables["ZMX_SESSION"] = ""
+                environmentVariables["ZMX_SESSION_PREFIX"] = ""
                 return TerminalSurfaceStartupPreparation(
                     strategy: .surfaceCommand(attachCommand),
                     showsRestorePresentationDuringStartup: treatAsRestoredSessionStart,
@@ -433,14 +436,14 @@ extension WorkspaceSurfaceCoordinator {
             return TerminalSurfaceStartupPreparation(
                 strategy: .surfaceCommand(shellCommand),
                 showsRestorePresentationDuringStartup: false,
-                environmentVariables: [:]
+                environmentVariables: paneIPCEnvironment
             )
 
         case .ghostty:
             return TerminalSurfaceStartupPreparation(
                 strategy: .surfaceCommand(shellCommand),
                 showsRestorePresentationDuringStartup: false,
-                environmentVariables: [:]
+                environmentVariables: paneIPCEnvironment
             )
 
         case .none:
@@ -748,7 +751,7 @@ extension WorkspaceSurfaceCoordinator {
         }
         guard !resolvedFramesByPaneID.isEmpty else { return }
 
-        _ = preparedContentVisibilitySignalHandler(currentVisibleQueuedSet())
+        _ = preparedContentVisibilitySignalHandler(currentVisibleQueuedSetPreservingHeldPreview())
         await preparedTerminalGeometryReevaluationHandler(resolvedFramesByPaneID)
     }
 
@@ -799,7 +802,7 @@ extension WorkspaceSurfaceCoordinator {
         // answered `.visibilityChanged`, and the scheduler applies this
         // snapshot (R3's `admitWaitingMembers` plus `applyVisibilitySnapshot`)
         // before granting anything.
-        _ = preparedContentVisibilitySignalHandler(currentVisibleQueuedSet())
+        _ = preparedContentVisibilitySignalHandler(currentVisibleQueuedSetPreservingHeldPreview())
         await preparedTerminalGeometryReevaluationHandler(resolvedFramesByPaneID)
     }
 

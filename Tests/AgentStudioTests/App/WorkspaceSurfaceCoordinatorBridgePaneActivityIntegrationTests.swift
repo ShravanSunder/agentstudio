@@ -176,6 +176,69 @@ extension WebKitSerializedTests {
             await harness.finish()
         }
 
+        @Test("held preview presents an installed Bridge target and hides the covered peer")
+        func heldPreviewPresentsInstalledBridgeTargetAndHidesCoveredPeer() async throws {
+            let harness = makeBridgePaneActivityTestHarness()
+            enterForegroundNativeEnvironment(harness)
+            harness.windowLifecycleStore.recordTerminalContainerBounds(
+                CGRect(x: 0, y: 0, width: 1200, height: 800)
+            )
+            try await installBridgeControllerAndEnterForeground(harness)
+
+            let previewPane = harness.store.createPane(
+                content: .bridgePanel(
+                    BridgePaneState(
+                        panelKind: .fileViewer,
+                        source: .commit(sha: "held-preview")
+                    )
+                ),
+                metadata: PaneMetadata(title: "Preview files", facets: .init(cwd: harness.tempDirectory))
+            )
+            let previewTab = Tab(paneId: previewPane.id, name: "Preview")
+            harness.store.appendTab(previewTab)
+            harness.store.setActiveTab(harness.tabId)
+            #expect(harness.store.tabLayoutAtom.activeTabId == harness.tabId)
+            _ = try #require(harness.coordinator.createViewForContent(pane: previewPane))
+
+            let heldState = HeldPanePreviewState()
+            harness.coordinator.bindHeldPanePreviewState(heldState)
+            let target = ValidatedPanePreviewTarget(
+                paneID: previewPane.id,
+                owningTabID: previewTab.id,
+                provider: previewPane.provider,
+                sessionID: previewPane.terminalState?.zmxSessionID
+            )
+
+            #expect(heldState.beginSpaceHold(requestedTarget: target))
+            harness.coordinator.prepareHeldPanePreview()
+
+            #expect(heldState.presentedTarget == target)
+            #expect(harness.store.tabLayoutAtom.activeTabId == harness.tabId)
+            await expectBridgePaneActivity(
+                .foreground,
+                for: previewPane.id,
+                in: harness.coordinator,
+                because: "the installed preview target uses normal foreground admission"
+            )
+            await expectBridgePaneActivity(
+                .loadedHidden,
+                for: harness.bridgePane.id,
+                in: harness.coordinator,
+                because: "the canonical Bridge peer is covered by the preview"
+            )
+
+            heldState.endSpaceHold()
+            harness.coordinator.refreshBridgePaneActivities()
+            #expect(harness.store.tabLayoutAtom.activeTabId == harness.tabId)
+            await expectBridgePaneActivity(
+                .foreground,
+                for: harness.bridgePane.id,
+                in: harness.coordinator,
+                because: "release restores canonical Bridge activity"
+            )
+            await harness.finish()
+        }
+
         @Test("application deactivation leaves the foreground Bridge tab working")
         func applicationDeactivationLeavesForegroundBridgeTabWorking() async throws {
             let harness = makeBridgePaneActivityTestHarness()

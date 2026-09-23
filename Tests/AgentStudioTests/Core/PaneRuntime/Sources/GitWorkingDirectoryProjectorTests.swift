@@ -134,11 +134,11 @@ struct GitWorkingDirectoryProjectorTests {
 
     @Test("real SDK provider emits initial git snapshot")
     func realSDKProviderEmitsInitialGitSnapshot() async throws {
-        let repoURL = try FilesystemTestGitRepo.create(named: "projector-real-sdk-provider")
+        let repoURL = try await FilesystemTestGitRepo.create(named: "projector-real-sdk-provider")
         defer { FilesystemTestGitRepo.destroy(repoURL) }
         try "initial\n".write(to: repoURL.appending(path: "tracked.txt"), atomically: true, encoding: .utf8)
-        try FilesystemTestGitRepo.runGit(at: repoURL, args: ["add", "tracked.txt"])
-        try FilesystemTestGitRepo.runGit(at: repoURL, args: ["commit", "-m", "Seed projector SDK"])
+        try await FilesystemTestGitRepo.runGit(at: repoURL, args: ["add", "tracked.txt"])
+        try await FilesystemTestGitRepo.runGit(at: repoURL, args: ["commit", "-m", "Seed projector SDK"])
         try "initial\nupdated\n".write(to: repoURL.appending(path: "tracked.txt"), atomically: true, encoding: .utf8)
 
         let bus = EventBus<RuntimeEnvelope>()
@@ -3720,7 +3720,9 @@ struct GitWorkingDirectoryProjectorTests {
                 event: .worktreeRegistered(worktreeId: worktreeId, repoId: worktreeId, rootPath: rootPath)
             )
         )
-        #expect(await waitUntil { await recorder.callCount == 1 })
+        // Provider entry precedes cache publication. The scoped refresh needs
+        // the accepted initial snapshot, not merely a started provider call.
+        #expect(await waitUntil { await observed.snapshotCount(for: worktreeId) == 1 })
 
         await actor.grantDemandEligibility(worktreeId: worktreeId)
         await bus.post(
@@ -3730,8 +3732,7 @@ struct GitWorkingDirectoryProjectorTests {
         // The batch triggers a scoped call, then a full recompute: scoped ["new.txt"] then nil.
         #expect(await waitUntil { await recorder.callCount == 3 })
         let calls = await recorder.calls
-        #expect(calls[1] == ["new.txt"])
-        #expect(calls[2] == .some(nil))
+        #expect(calls == [nil, ["new.txt"], nil])
 
         await actor.shutdown()
         collectionTask.cancel()

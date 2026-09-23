@@ -11,8 +11,25 @@ actor BridgePaneProductMetadataCoordinator {
     struct ActiveStream: Sendable {
         let correlation: BridgeProductMetadataStreamCorrelation
         let lease: BridgeProductProducerLease
+        /// True when the client opened this stream WITHOUT a resume cursor.
+        ///
+        /// A fresh open is the client's statement that it holds no subscription ids:
+        /// it poisoned its metadata session, or it is a new worker. A resume — with or
+        /// without a sequence gap — means it still holds them and expects the replay.
+        /// The registry's `.snapshotRequired` disposition does NOT discriminate the
+        /// two, because a gapped resume is also `.snapshotRequired`.
+        let opensFresh: Bool
         let productAdmission: BridgeProductAdmissionContext
         let session: BridgeProductSession
+        /// The subscriptions this fresh stream replaces, captured at install.
+        ///
+        /// Empty for a resume. Captured in `performInstall` rather than read again at
+        /// replay time because install is the last moment at which the set is provably
+        /// the OLD client's: the new client has not been told the stream exists yet, so
+        /// it cannot have opened anything. Reading the session again at replay time
+        /// would retire a subscription the new client had opened in between and still
+        /// holds — stuck pane, the same bug class this retirement exists to prevent.
+        let staleSubscriptionIdsToRetire: [String]
     }
 
     private let contentDemandAuthority: BridgePaneProductContentDemandAuthority
@@ -130,12 +147,22 @@ actor BridgePaneProductMetadataCoordinator {
         await cancelEverySubscription()
         await BridgePaneProductMetadataProducerTaskLifecycle.drain(producerTasks)
         guard streamTransitionGeneration == transitionGeneration else { return }
+        // Capture the outgoing client's subscriptions HERE, not at replay time. The
+        // opening frame has not been enqueued yet, so the new client cannot know this
+        // stream exists and cannot have opened anything on it; everything the session
+        // holds right now therefore belongs to the client this stream replaces.
+        let opensFresh = request.resumeFromStreamSequence == nil
+        let staleSubscriptionIdsToRetire =
+            opensFresh ? await session.subscriptionSnapshots().map(\.subscriptionId) : []
+        guard streamTransitionGeneration == transitionGeneration else { return }
         _ = productAdmission.withValidAdmission {
             activeStream = ActiveStream(
                 correlation: request.correlation,
                 lease: lease,
+                opensFresh: opensFresh,
                 productAdmission: productAdmission,
-                session: session
+                session: session,
+                staleSubscriptionIdsToRetire: staleSubscriptionIdsToRetire
             )
         }
     }
@@ -441,6 +468,22 @@ actor BridgePaneProductMetadataCoordinator {
 
     func replaySubscriptionsForInstalledStream() async {
         guard let installedStream = activeStream else { return }
+        if installedStream.opensFresh {
+            // A fresh stream means the client holds no subscription ids: it poisoned its
+            // session, or it is a new worker. Replaying the pane session's earlier
+            // subscriptions under their old ids would reach a client that cannot know
+            // them, and the client treats an unknown id as fatal for the whole stream.
+            // Retire them instead; the client re-opens what it still needs with fresh ids.
+            //
+            // EXACTLY the set captured at install, never whatever the session holds now:
+            // anything opened since belongs to the NEW client and must survive.
+            let staleSubscriptionIds = installedStream.staleSubscriptionIdsToRetire
+            await installedStream.session.retireSubscriptions(staleSubscriptionIds)
+            guard activeStream?.lease == installedStream.lease else { return }
+            await forgetSubscriptions(staleSubscriptionIds)
+            await resumeForegroundWork()
+            return
+        }
         let subscriptions = await installedStream.session.subscriptionSnapshots()
         guard activeStream?.lease == installedStream.lease else { return }
         for subscription in subscriptions where subscriptionKindById[subscription.subscriptionId] == nil {
@@ -839,6 +882,19 @@ extension BridgePaneProductMetadataCoordinator {
         subscriptionKindById.compactMap { subscriptionId, kind in
             kind == .reviewMetadata ? subscriptionId : nil
         }.sorted()
+    }
+
+    /// Drops the coordinator's own tracking for subscriptions the session retired.
+    ///
+    /// Uses the same per-subscription retirement a reset takes. The producers for
+    /// these ids were already cancelled and drained by `performInstall` before the
+    /// stale set was captured, and nothing can restart them for a captured id; this
+    /// is defence in depth for the coordinator's bookkeeping, not the teardown
+    /// itself. Do not delete the install-time teardown on the strength of this call.
+    private func forgetSubscriptions(_ subscriptionIds: [String]) async {
+        for subscriptionId in subscriptionIds {
+            await retireSubscriptionAfterReset(subscriptionId: subscriptionId)
+        }
     }
 
     func retireSubscriptionAfterReset(subscriptionId: String) async {

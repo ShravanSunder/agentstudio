@@ -123,6 +123,9 @@ package enum ShortcutContext: CaseIterable, Hashable {
     case global
     case managementLayer
     case terminalAppOwned
+    /// The stable Repo Explorer list owns keyboard input. Raw-character
+    /// navigation bindings are valid only in this context.
+    case sidebarList
     /// Drawer is open AND has no panes AND focus is on the drawer.
     /// Raw-character bindings (no modifiers) fire here, gated upstream
     /// on a neutral responder so text fields keep receiving keystrokes.
@@ -150,23 +153,15 @@ package struct AppShortcutSpec: Equatable {
         self.contexts = contexts
     }
 
-    /// Trigger to display in a given context. The first matching
-    /// trigger from `[trigger] + alternateTriggers` whose modifier
-    /// shape suits the context wins. Falls back to the primary
-    /// trigger when no alternate is appropriate.
-    ///
-    /// Today the only context that prefers an alternate is
-    /// `.emptyDrawer`, which prefers a no-modifier raw-character
-    /// trigger when one exists. Other contexts use the primary.
-    package func displayTrigger(in context: ShortcutContext) -> ShortcutTrigger {
-        if context == .emptyDrawer,
-            let rawCharacterAlternate = alternateTriggers.first(where: { trigger, contexts in
-                trigger.modifiers.isEmpty && contexts.contains(context)
-            })?.key
-        {
-            return rawCharacterAlternate
+    /// Returns the trigger declared for this exact context.
+    /// Context-specific alternates take precedence over the primary trigger.
+    package func displayTrigger(in context: ShortcutContext) -> ShortcutTrigger? {
+        if let alternate = alternateTriggers.first(where: { _, contexts in
+            contexts.contains(context)
+        })?.key {
+            return alternate
         }
-        return trigger
+        return contexts.contains(context) ? trigger : nil
     }
 
     package func matches(_ candidate: ShortcutTrigger, in context: ShortcutContext) -> Bool {
@@ -184,6 +179,8 @@ package enum AppShortcut: String, CaseIterable {
     case closeTab
     case newTab
     case undoCloseTab
+    case focusPreviousPinnedPane
+    case focusNextPinnedPane
     case nextTab
     case prevTab
     case showArrangementPanel
@@ -195,6 +192,9 @@ package enum AppShortcut: String, CaseIterable {
     case toggleDrawer
     case scrollToBottom
     case scrollPageUp
+    case scrollPageDown
+    case scrollSmallStepUp
+    case scrollSmallStepDown
     case jumpToPreviousPrompt
     case jumpToNextPrompt
     case openPaneLocationInBookmarkedEditor
@@ -204,10 +204,12 @@ package enum AppShortcut: String, CaseIterable {
     case copyCurrentPanePath
     case toggleManagementLayer
     case toggleSidebar
+    case focusSidebar
     case filterSidebar
     case showInboxNotifications
     case showPaneInboxNotifications
     case showReposSidebar
+    case showPanesSidebar
     case newWindow
     case closeWindow
     case showCommandBarEverything
@@ -256,6 +258,14 @@ package enum AppShortcut: String, CaseIterable {
             return .init(
                 trigger: .init(key: .character(.t), modifiers: [.command, .shift]),
                 contexts: [.global]
+            )
+        case .focusPreviousPinnedPane, .focusNextPinnedPane:
+            return .init(
+                trigger: .init(
+                    key: .arrow(self == .focusPreviousPinnedPane ? .up : .down),
+                    modifiers: [.option, .shift]
+                ),
+                contexts: [.global, .terminalAppOwned]
             )
         case .nextTab:
             return .init(
@@ -311,7 +321,7 @@ package enum AppShortcut: String, CaseIterable {
             )
         case .scrollToBottom:
             return .init(
-                trigger: .init(key: .character(.k), modifiers: [.command, .shift]),
+                trigger: .init(key: .character(.k), modifiers: [.command, .option]),
                 contexts: [.terminalAppOwned]
             )
         case .scrollPageUp:
@@ -319,14 +329,29 @@ package enum AppShortcut: String, CaseIterable {
                 trigger: .init(key: .character(.i), modifiers: [.command, .shift]),
                 contexts: [.terminalAppOwned]
             )
-        case .jumpToPreviousPrompt:
+        case .scrollPageDown:
+            return .init(
+                trigger: .init(key: .character(.k), modifiers: [.command, .shift]),
+                contexts: [.terminalAppOwned]
+            )
+        case .scrollSmallStepUp:
             return .init(
                 trigger: .init(key: .character(.j), modifiers: [.command, .shift]),
                 contexts: [.terminalAppOwned]
             )
-        case .jumpToNextPrompt:
+        case .scrollSmallStepDown:
             return .init(
                 trigger: .init(key: .character(.l), modifiers: [.command, .shift]),
+                contexts: [.terminalAppOwned]
+            )
+        case .jumpToPreviousPrompt:
+            return .init(
+                trigger: .init(key: .character(.j), modifiers: [.option, .shift]),
+                contexts: [.terminalAppOwned]
+            )
+        case .jumpToNextPrompt:
+            return .init(
+                trigger: .init(key: .character(.l), modifiers: [.option, .shift]),
                 contexts: [.terminalAppOwned]
             )
         case .openPaneLocationInBookmarkedEditor:
@@ -361,13 +386,21 @@ package enum AppShortcut: String, CaseIterable {
             )
         case .toggleSidebar:
             return .init(
+                trigger: .init(key: .character(.s), modifiers: [.command]),
+                contexts: [.global, .terminalAppOwned]
+            )
+        case .focusSidebar:
+            return .init(
                 trigger: .init(key: .character(.s), modifiers: [.command, .shift]),
-                contexts: [.global]
+                contexts: [.global, .terminalAppOwned]
             )
         case .filterSidebar:
             return .init(
                 trigger: .init(key: .character(.f), modifiers: [.command]),
-                contexts: [.global]
+                alternateTriggers: [
+                    .init(key: .character(.f), modifiers: []): [.sidebarList]
+                ],
+                contexts: [.global, .sidebarList]
             )
         case .showInboxNotifications:
             return .init(
@@ -381,8 +414,13 @@ package enum AppShortcut: String, CaseIterable {
             )
         case .showReposSidebar:
             return .init(
-                trigger: .init(key: .character(.s), modifiers: [.command]),
-                contexts: [.global, .terminalAppOwned]
+                trigger: .init(key: .character(.r), modifiers: []),
+                contexts: [.sidebarList]
+            )
+        case .showPanesSidebar:
+            return .init(
+                trigger: .init(key: .character(.p), modifiers: []),
+                contexts: [.sidebarList]
             )
         case .newWindow:
             return .init(
@@ -482,6 +520,8 @@ package enum AppShortcut: String, CaseIterable {
             return .showCommandBarQuickOpen
         case .undoCloseTab:
             return .undoCloseTab
+        case .focusPreviousPinnedPane: return .focusPreviousPinnedPane
+        case .focusNextPinnedPane: return .focusNextPinnedPane
         case .nextTab:
             return .nextTab
         case .prevTab:
@@ -504,6 +544,12 @@ package enum AppShortcut: String, CaseIterable {
             return .scrollToBottom
         case .scrollPageUp:
             return .scrollPageUp
+        case .scrollPageDown:
+            return .scrollPageDown
+        case .scrollSmallStepUp:
+            return .scrollSmallStepUp
+        case .scrollSmallStepDown:
+            return .scrollSmallStepDown
         case .jumpToPreviousPrompt:
             return .jumpToPreviousPrompt
         case .jumpToNextPrompt:
@@ -522,6 +568,8 @@ package enum AppShortcut: String, CaseIterable {
             return .toggleManagementLayer
         case .toggleSidebar:
             return .toggleSidebar
+        case .focusSidebar:
+            return .focusSidebar
         case .filterSidebar:
             return .filterSidebar
         case .showInboxNotifications:
@@ -530,6 +578,8 @@ package enum AppShortcut: String, CaseIterable {
             return .showPaneInboxNotifications
         case .showReposSidebar:
             return .showReposSidebar
+        case .showPanesSidebar:
+            return .showPanesSidebar
         case .newWindow:
             return .newWindow
         case .closeWindow:
@@ -595,7 +645,6 @@ package enum AppShortcut: String, CaseIterable {
         }
     }
     package var contexts: Set<ShortcutContext> { spec.contexts }
-    var keyBinding: KeyBinding? { trigger.keyBinding }
 }
 
 extension AppShortcut {
@@ -603,13 +652,15 @@ extension AppShortcut {
         switch self {
         case .addDrawerPane:
             return true
-        case .closeTab, .undoCloseTab, .newTab, .nextTab, .prevTab, .showArrangementPanel,
+        case .closeTab, .undoCloseTab, .newTab, .nextTab, .prevTab,
+            .focusPreviousPinnedPane, .focusNextPinnedPane, .showArrangementPanel,
             .previousArrangement, .nextArrangement, .zoomPane, .showViewer,
-            .toggleDrawer, .scrollToBottom, .scrollPageUp,
+            .toggleDrawer, .scrollToBottom, .scrollPageUp, .scrollPageDown,
+            .scrollSmallStepUp, .scrollSmallStepDown,
             .jumpToPreviousPrompt, .jumpToNextPrompt, .openPaneLocationInBookmarkedEditor,
             .openPaneLocationInFinder, .openPaneLocationInEditorMenu, .editPaneNote,
-            .copyCurrentPanePath, .toggleManagementLayer, .toggleSidebar, .filterSidebar,
-            .showInboxNotifications, .showPaneInboxNotifications, .showReposSidebar,
+            .copyCurrentPanePath, .toggleManagementLayer, .toggleSidebar, .focusSidebar, .filterSidebar,
+            .showInboxNotifications, .showPaneInboxNotifications, .showReposSidebar, .showPanesSidebar,
             .newWindow, .closeWindow, .showCommandBarEverything, .showCommandBarCommands,
             .showCommandBarPanes, .selectTab1, .selectTab2, .selectTab3, .selectTab4,
             .selectTab5, .selectTab6, .selectTab7, .selectTab8, .selectTab9, .focusPane1,
@@ -622,7 +673,7 @@ extension AppShortcut {
     }
 
     package func displayKeyBinding(in context: ShortcutContext) -> KeyBinding? {
-        spec.displayTrigger(in: context).keyBinding
+        spec.displayTrigger(in: context)?.keyBinding
     }
 
     fileprivate static func selectTabSpec(key: ShortcutCharacterKey) -> AppShortcutSpec {

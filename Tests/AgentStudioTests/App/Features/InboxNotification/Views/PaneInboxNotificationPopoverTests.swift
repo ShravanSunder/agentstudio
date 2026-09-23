@@ -637,7 +637,7 @@ private final class PaneInboxCommandDispatcherProbe: AppCommandDispatching {
         self.targetedCapability = targetedCapability
     }
 
-    func dispatch(_: AppCommand) {}
+    func dispatch(_: AppCommand) -> Bool { false }
 
     func dispatch(_ command: AppCommand, target: UUID, targetType: SearchItemType) {
         dispatchedTargets.append(

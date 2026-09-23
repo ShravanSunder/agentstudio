@@ -410,7 +410,7 @@ public struct IPCBridgeFrameJankDroppedFrameSummary: Codable, Equatable, Sendabl
     }
 }
 
-public enum IPCBridgeNativeActivity: String, Codable, Equatable, Sendable {
+public enum IPCBridgeNativeActivity: String, CaseIterable, Codable, Equatable, Sendable {
     case foreground
     case loadedHidden
     case dormant
@@ -498,7 +498,7 @@ public struct IPCBridgeProductMetadataStreamDiagnostic: Codable, Equatable, Send
         public let reason: String?
     }
 
-    public enum Kind: String, Codable, Equatable, Sendable {
+    public enum Kind: String, CaseIterable, Codable, Equatable, Sendable {
         case productMetadataStream
     }
 
@@ -744,7 +744,7 @@ public struct IPCBridgeFileViewShowMarkdownPreviewParams: Codable, Equatable, Se
 }
 
 public struct IPCBridgeReviewSearchMode: Codable, Equatable, Sendable {
-    public enum Kind: String, Codable, Equatable, Sendable {
+    public enum Kind: String, CaseIterable, Codable, Equatable, Sendable {
         case text
         case regex
     }

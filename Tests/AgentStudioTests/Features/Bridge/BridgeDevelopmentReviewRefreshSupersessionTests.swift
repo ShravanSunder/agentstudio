@@ -9,7 +9,7 @@ struct BridgeDevelopmentReviewRefreshSupersessionTests {
     @Test("cancelled unreserved failure cannot overwrite a pending Review attempt")
     func cancelledUnreservedFailureCannotOverwritePendingReviewAttempt() async throws {
         // Arrange — the current generation is pending before stale unreserved work finishes.
-        let repositoryURL = try FilesystemTestGitRepo.create(
+        let repositoryURL = try await FilesystemTestGitRepo.create(
             named: "development-review-cancelled-unreserved-failure"
         )
         defer { FilesystemTestGitRepo.destroy(repositoryURL) }
@@ -73,7 +73,7 @@ struct BridgeDevelopmentReviewRefreshSupersessionTests {
     @Test("cancelled same-lineage refresh cannot fail its pending successor")
     func cancelledSameLineageRefreshCannotFailPendingSuccessor() async throws {
         // Arrange — an installed, nonempty Review takes the same-lineage refresh path.
-        let repositoryURL = try FilesystemTestGitRepo.create(named: "development-review-same-lineage-race")
+        let repositoryURL = try await FilesystemTestGitRepo.create(named: "development-review-same-lineage-race")
         defer { FilesystemTestGitRepo.destroy(repositoryURL) }
         let provider = BridgeDevelopmentSharedConstructionReviewProvider(
             changedFiles: [

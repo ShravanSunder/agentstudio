@@ -1,12 +1,12 @@
 import Foundation
 
-public enum IPCSidebarSurface: String, Codable, Equatable, Sendable {
+public enum IPCSidebarSurface: String, CaseIterable, Codable, Equatable, Sendable {
     case repo
     case panes
     case inbox
 }
 
-public enum IPCSidebarGroupingMode: String, Codable, Equatable, Sendable {
+public enum IPCSidebarGroupingMode: String, CaseIterable, Codable, Equatable, Sendable {
     case repo
     case activity
     case tab

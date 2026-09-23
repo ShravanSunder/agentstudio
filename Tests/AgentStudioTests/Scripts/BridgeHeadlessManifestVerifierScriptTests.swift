@@ -1,11 +1,13 @@
+import AgentStudioInfrastructure
+import AgentStudioTestSupport
 import Foundation
 import Testing
 
 @Suite("Bridge headless manifest verifier script")
 struct BridgeHeadlessManifestVerifierScriptTests {
     @Test("headless manifest verifier has stable task contract and bash syntax")
-    func headlessManifestVerifierHasStableTaskContractAndBashSyntax() throws {
-        let syntax = try runBash(arguments: ["-n", scriptPath])
+    func headlessManifestVerifierHasStableTaskContractAndBashSyntax() async throws {
+        let syntax = try await runBash(arguments: ["-n", scriptPath])
         let source = try String(contentsOfFile: scriptPath, encoding: .utf8)
         let miseConfig = try String(contentsOfFile: ".mise.toml", encoding: .utf8)
 
@@ -46,13 +48,13 @@ struct BridgeHeadlessManifestVerifierScriptTests {
     }
 
     @Test("headless manifest verifier accepts complete artifact in validate only mode")
-    func headlessManifestVerifierAcceptsCompleteArtifactInValidateOnlyMode() throws {
+    func headlessManifestVerifierAcceptsCompleteArtifactInValidateOnlyMode() async throws {
         let fixture = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: fixture) }
         let artifact = fixture.appendingPathComponent("current-worktree-manifest-proof.json")
         try completeArtifactJSON.write(to: artifact, atomically: true, encoding: .utf8)
 
-        let result = try runScript(
+        let result = try await runScript(
             arguments: ["--validate-only"],
             environment: ["AGENTSTUDIO_BRIDGE_HEADLESS_PROOF_DIR": fixture.path]
         )
@@ -63,7 +65,7 @@ struct BridgeHeadlessManifestVerifierScriptTests {
     }
 
     @Test("headless manifest verifier rejects missing expected paths")
-    func headlessManifestVerifierRejectsMissingExpectedPaths() throws {
+    func headlessManifestVerifierRejectsMissingExpectedPaths() async throws {
         let fixture = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: fixture) }
         let artifact = fixture.appendingPathComponent("current-worktree-manifest-proof.json")
@@ -74,7 +76,7 @@ struct BridgeHeadlessManifestVerifierScriptTests {
             )
             .write(to: artifact, atomically: true, encoding: .utf8)
 
-        let result = try runScript(
+        let result = try await runScript(
             arguments: ["--validate-only"],
             environment: ["AGENTSTUDIO_BRIDGE_HEADLESS_PROOF_DIR": fixture.path]
         )
@@ -84,7 +86,7 @@ struct BridgeHeadlessManifestVerifierScriptTests {
     }
 
     @Test("headless manifest verifier rejects insufficient benchmark sample counts")
-    func headlessManifestVerifierRejectsInsufficientBenchmarkSampleCounts() throws {
+    func headlessManifestVerifierRejectsInsufficientBenchmarkSampleCounts() async throws {
         let fixture = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: fixture) }
         let artifact = fixture.appendingPathComponent("current-worktree-manifest-proof.json")
@@ -109,7 +111,7 @@ struct BridgeHeadlessManifestVerifierScriptTests {
             )
             .write(to: artifact, atomically: true, encoding: .utf8)
 
-        let result = try runScript(
+        let result = try await runScript(
             arguments: ["--validate-only"],
             environment: ["AGENTSTUDIO_BRIDGE_HEADLESS_PROOF_DIR": fixture.path]
         )
@@ -212,40 +214,59 @@ struct BridgeHeadlessManifestVerifierScriptTests {
     private func runScript(
         arguments: [String],
         environment: [String: String]
-    ) throws -> ScriptResult {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/bin/bash")
-        process.arguments = [scriptPath] + arguments
-        process.environment = ProcessInfo.processInfo.environment.merging(environment) { _, newValue in
-            newValue
-        }
-        return try run(process)
-    }
-
-    private func runBash(arguments: [String]) throws -> ScriptResult {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/bin/bash")
-        process.arguments = arguments
-        return try run(process)
-    }
-
-    private func run(_ process: Process) throws -> ScriptResult {
-        let stdout = Pipe()
-        let stderr = Pipe()
-        process.standardOutput = stdout
-        process.standardError = stderr
-        try process.run()
-        process.waitUntilExit()
-        let stdoutData = stdout.fileHandleForReading.readDataToEndOfFile()
-        let stderrData = stderr.fileHandleForReading.readDataToEndOfFile()
-        return ScriptResult(
-            exitCode: process.terminationStatus,
-            stdout: String(data: stdoutData, encoding: .utf8) ?? "",
-            stderr: String(data: stderrData, encoding: .utf8) ?? ""
+    ) async throws -> ScriptResult {
+        let executablePath = scriptPath
+        return try await run(
+            executableURL: URL(fileURLWithPath: "/bin/bash"),
+            arguments: [executablePath] + arguments,
+            environment: ProcessInfo.processInfo.environment.merging(environment) { _, newValue in newValue }
         )
     }
 
-    private struct ScriptResult {
+    private func runBash(arguments: [String]) async throws -> ScriptResult {
+        try await run(executableURL: URL(fileURLWithPath: "/bin/bash"), arguments: arguments)
+    }
+
+    private func run(
+        executableURL: URL,
+        arguments: [String],
+        environment: [String: String]? = nil
+    ) async throws -> ScriptResult {
+        try await withoutBlockingCooperativePool {
+            let stdoutURL = FileManager.default.temporaryDirectory
+                .appending(path: "bridge-headless-stdout-\(UUIDv7.generate().uuidString).log")
+            let stderrURL = FileManager.default.temporaryDirectory
+                .appending(path: "bridge-headless-stderr-\(UUIDv7.generate().uuidString).log")
+            FileManager.default.createFile(atPath: stdoutURL.path, contents: nil)
+            FileManager.default.createFile(atPath: stderrURL.path, contents: nil)
+            let stdoutHandle = try FileHandle(forWritingTo: stdoutURL)
+            let stderrHandle = try FileHandle(forWritingTo: stderrURL)
+            defer {
+                try? stdoutHandle.close()
+                try? stderrHandle.close()
+                try? FileManager.default.removeItem(at: stdoutURL)
+                try? FileManager.default.removeItem(at: stderrURL)
+            }
+
+            let process = Process()
+            process.executableURL = executableURL
+            process.arguments = arguments
+            process.environment = environment
+            process.standardOutput = stdoutHandle
+            process.standardError = stderrHandle
+            try process.run()
+            process.waitUntilExit()
+            try stdoutHandle.close()
+            try stderrHandle.close()
+            return ScriptResult(
+                exitCode: process.terminationStatus,
+                stdout: try String(contentsOf: stdoutURL, encoding: .utf8),
+                stderr: try String(contentsOf: stderrURL, encoding: .utf8)
+            )
+        }
+    }
+
+    private struct ScriptResult: Sendable {
         let exitCode: Int32
         let stdout: String
         let stderr: String

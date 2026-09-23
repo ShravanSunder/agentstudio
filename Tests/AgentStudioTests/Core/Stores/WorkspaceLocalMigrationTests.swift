@@ -7,6 +7,48 @@ import Testing
 
 @Suite("WorkspaceLocalMigrationTests")
 struct WorkspaceLocalMigrationTests {
+    @Test("boot-required migrations exclude optional Sessions and IPC schemas")
+    func bootRequiredMigrationsExcludeOptionalSchemas() throws {
+        let databaseQueue = try SQLiteDatabaseFactory.makeInMemoryQueue()
+
+        try WorkspaceLocalMigrations.migrateBootRequired(databaseQueue)
+
+        let result = try databaseQueue.read { database in
+            (
+                try WorkspaceLocalMigrations.bootRequiredMigrator.completedMigrations(database),
+                try database.tableExists("sessions_conversation"),
+                try database.tableExists("local_ipc_credential")
+            )
+        }
+        #expect(result.0 == expectedBootRequiredLocalMigrationIdentifiers)
+        #expect(!result.1)
+        #expect(!result.2)
+    }
+
+    @Test("boot-required subset tolerates applied optional migrations without changing data")
+    func bootRequiredSubsetToleratesAppliedOptionalMigrations() throws {
+        let databaseQueue = try SQLiteDatabaseFactory.makeInMemoryQueue()
+        try WorkspaceLocalMigrations.migrate(databaseQueue)
+        let preservedWorkspaceID = UUIDv7.generate().uuidString
+        try databaseQueue.write { database in
+            try database.execute(
+                sql: "INSERT INTO local_workspace_cursor(workspace_id, updated_at) VALUES (?, 1)",
+                arguments: [preservedWorkspaceID]
+            )
+        }
+
+        try WorkspaceLocalMigrations.migrateBootRequired(databaseQueue)
+
+        let result = try databaseQueue.read { database in
+            (
+                try WorkspaceLocalMigrations.migrator.completedMigrations(database),
+                try String.fetchOne(database, sql: "SELECT workspace_id FROM local_workspace_cursor")
+            )
+        }
+        #expect(result.0 == expectedFullLocalMigrationIdentifiers)
+        #expect(result.1 == preservedWorkspaceID)
+    }
+
     @Test("fresh local database creates exactly the clean product schema")
     func freshLocalDatabaseCreatesExactlyTheCleanProductSchema() throws {
         let databaseQueue = try SQLiteDatabaseFactory.makeInMemoryQueue()
@@ -53,6 +95,16 @@ struct WorkspaceLocalMigrationTests {
             "annotation_output_attempt_message",
             "annotation_output_event",
             "local_recovery_provenance",
+            "sessions_conversation",
+            "sessions_pane_binding",
+            "sessions_source",
+            "sessions_evidence",
+            "sessions_message",
+            "sessions_attention",
+            "sessions_result",
+            "sessions_operation",
+            "sessions_loss",
+            "local_ipc_credential",
         ]
 
         #expect(tableNames == expectedTableNames)
@@ -72,23 +124,7 @@ struct WorkspaceLocalMigrationTests {
             try WorkspaceLocalMigrations.migrator.completedMigrations(database)
         }
 
-        #expect(
-            completedMigrations
-                == [
-                    "001_create_application_local_schema",
-                    "002_replace_recent_targets_with_entity_recency",
-                    "003_invert_sidebar_group_memory",
-                    "004_remove_persisted_pull_request_counts",
-                    "005_move_repo_grouping_to_window_sidebar_memory",
-                    "006_add_repository_local_activity_facts",
-                    "006_create_worktree_annotation_schema",
-                    "007_add_worktree_annotation_message_handled",
-                    "008_add_worktree_annotation_message_viewed_revision",
-                    "009_add_worktree_annotation_reviewed_subject_evidence",
-                    "010_remove_worktree_annotation_workspace_provenance",
-                    "007_add_per_screen_sidebar_organization",
-                ]
-        )
+        #expect(completedMigrations == expectedFullLocalMigrationIdentifiers)
     }
 
     @Test("repository activity migration stores facts and one checked boolean only")
@@ -702,6 +738,30 @@ struct WorkspaceLocalMigrationTests {
         }
     }
 }
+
+private let expectedBootRequiredLocalMigrationIdentifiers = [
+    "001_create_application_local_schema",
+    "002_replace_recent_targets_with_entity_recency",
+    "003_invert_sidebar_group_memory",
+    "004_remove_persisted_pull_request_counts",
+    "005_move_repo_grouping_to_window_sidebar_memory",
+    "006_add_repository_local_activity_facts",
+    "006_create_worktree_annotation_schema",
+    "007_add_worktree_annotation_message_handled",
+    "008_add_worktree_annotation_message_viewed_revision",
+    "009_add_worktree_annotation_reviewed_subject_evidence",
+    "010_remove_worktree_annotation_workspace_provenance",
+    "007_add_per_screen_sidebar_organization",
+]
+
+private let expectedFullLocalMigrationIdentifiers =
+    expectedBootRequiredLocalMigrationIdentifiers
+    + [
+        "011_create_sessions_ingestion_schema",
+        "012_create_ipc_credential_schema",
+        "013_create_opaque_pane_credential_records",
+        "014_ipc_credentials_pane_only",
+    ]
 
 private struct Migration007Scenario: Sendable {
     let legacyMode: String

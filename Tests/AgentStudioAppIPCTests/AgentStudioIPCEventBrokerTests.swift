@@ -1,10 +1,34 @@
 import AgentStudioAppIPC
+import AgentStudioInfrastructure
 import AgentStudioProgrammaticControl
 import Foundation
 import Testing
 
 @Suite("AgentStudio IPC event broker")
 struct AgentStudioIPCEventBrokerTests {
+    @Test("reusable principals cannot unsubscribe another connection and disconnect removes only its subscriptions")
+    func connectionOwnershipSurvivesPrincipalReuse() async throws {
+        let broker = IPCEventBroker()
+        let principal = makeEventPrincipal(boundPaneId: UUIDv7.generate().uuidString)
+        let firstConnection = UUIDv7.generate()
+        let secondConnection = UUIDv7.generate()
+        let first = try await broker.subscribe(
+            eventNames: [.terminalCommandFinished], principal: principal,
+            connectionId: firstConnection, subscriber: RecordingEventSubscriber()
+        )
+        let second = try await broker.subscribe(
+            eventNames: [.terminalCommandFinished], principal: principal,
+            connectionId: secondConnection, subscriber: RecordingEventSubscriber()
+        )
+        await #expect(throws: IPCEventBrokerError.self) {
+            try await broker.unsubscribe(first.subscriptionId, principal: principal, connectionId: secondConnection)
+        }
+        await broker.removeSubscriptions(connectionId: firstConnection)
+        #expect(await broker.subscriptionCount() == 1)
+        try await broker.unsubscribe(second.subscriptionId, principal: principal, connectionId: secondConnection)
+        #expect(await broker.subscriptionCount() == 0)
+    }
+
     @Test("publishes permission notifications only to visible subscribers")
     func publishesPermissionNotificationsOnlyToVisibleSubscribers() async throws {
         let sequence = UUIDSequence()
@@ -22,11 +46,13 @@ struct AgentStudioIPCEventBrokerTests {
         _ = try await broker.subscribe(
             eventNames: [.permissionRequestCreated],
             principal: requester,
+            connectionId: UUIDv7.generate(),
             subscriber: requesterSubscriber
         )
         _ = try await broker.subscribe(
             eventNames: [.permissionRequestCreated],
             principal: unrelated,
+            connectionId: UUIDv7.generate(),
             subscriber: unrelatedSubscriber
         )
         let record = PermissionRecord(
@@ -66,16 +92,18 @@ struct AgentStudioIPCEventBrokerTests {
         let broker = IPCEventBroker(makeSubscriptionId: sequence.next)
         let owner = makeEventPrincipal(boundPaneId: "pane-1")
         let unrelated = makeEventPrincipal(boundPaneId: "pane-2")
+        let connectionId = UUIDv7.generate()
         let result = try await broker.subscribe(
             eventNames: [.terminalCommandFinished],
             principal: owner,
+            connectionId: connectionId,
             subscriber: RecordingEventSubscriber()
         )
 
         await #expect(throws: IPCEventBrokerError.self) {
-            try await broker.unsubscribe(result.subscriptionId, principal: unrelated)
+            try await broker.unsubscribe(result.subscriptionId, principal: unrelated, connectionId: connectionId)
         }
-        try await broker.unsubscribe(result.subscriptionId, principal: owner)
+        try await broker.unsubscribe(result.subscriptionId, principal: owner, connectionId: connectionId)
 
         #expect(await broker.subscriptionCount() == 0)
     }
@@ -89,6 +117,7 @@ struct AgentStudioIPCEventBrokerTests {
         let result = try await broker.subscribe(
             eventNames: [.terminalCommandFinished],
             principal: principal,
+            connectionId: UUIDv7.generate(),
             subscriber: subscriber
         )
         let notification = IPCEventNotification(
@@ -120,6 +149,7 @@ struct AgentStudioIPCEventBrokerTests {
             try await broker.subscribe(
                 eventNames: [.terminalCommandFinished],
                 principal: makeEventPrincipal(boundPaneId: "pane-1"),
+                connectionId: UUIDv7.generate(),
                 subscriber: RecordingEventSubscriber()
             )
         }

@@ -1,0 +1,276 @@
+import type { Page, Response as PlaywrightResponse } from 'playwright';
+import { errors } from 'playwright';
+
+const maximumCandidateCount = 32;
+const maximumStreamCount = 4;
+const maximumWorkerCount = 8;
+
+type ReloadJoinWaiterName = 'file-metadata-open' | 'frame-acknowledgement' | 'review-metadata-open';
+
+interface ReloadJoinRouteEntry {
+	documentGeneration: number;
+	httpStatus: number | null;
+	ordinal: number;
+	requestKind: string | null;
+	requestSettled: boolean;
+	responseCode: string | null;
+	responseKind: string | null;
+	subscriptionKind: string | null;
+}
+
+interface ReloadJoinWorker {
+	readonly closed: boolean;
+	readonly closedBeforeJourneyCompletion: boolean;
+	readonly documentGeneration: number;
+	readonly kind: 'comm-worker' | 'module-worker' | 'portable-blob-worker';
+}
+
+interface ReloadJoinResponseObservation {
+	readonly entry: ReloadJoinRouteEntry | null;
+	readonly responseDocumentGeneration: number | null;
+}
+
+type ReloadJoinWaiterState =
+	| { readonly state: 'armed' }
+	| { readonly observation: ReloadJoinResponseObservation; readonly state: 'fulfilled' }
+	| { readonly reason: 'owned-deadline' | 'other' | 'wait-timeout'; readonly state: 'rejected' };
+
+interface ReloadJoinDiagnostics {
+	readonly armOrdinal: number;
+	readonly candidates: ReloadJoinResponseObservation[];
+	candidateCount: number;
+	omittedCandidateCount: number;
+	readonly waiters: Map<ReloadJoinWaiterName, ReloadJoinWaiterState>;
+}
+
+export interface BridgeViewerReloadJoinResponses {
+	readonly fileMetadataOpen: Promise<PlaywrightResponse>;
+	readonly frameAcknowledgement: Promise<PlaywrightResponse>;
+	readonly reviewMetadataOpen: Promise<PlaywrightResponse>;
+}
+
+export class BridgeViewerReloadJoinDiagnosticRecorder {
+	#diagnostics: ReloadJoinDiagnostics | null = null;
+	readonly #observationByResponse = new WeakMap<
+		PlaywrightResponse,
+		ReloadJoinResponseObservation
+	>();
+
+	arm(
+		page: Page,
+		armOrdinal: number,
+		timeoutMilliseconds: number,
+	): BridgeViewerReloadJoinResponses {
+		this.#diagnostics = {
+			armOrdinal,
+			candidateCount: 0,
+			candidates: [],
+			omittedCandidateCount: 0,
+			waiters: new Map<ReloadJoinWaiterName, ReloadJoinWaiterState>([
+				['file-metadata-open', { state: 'armed' }],
+				['frame-acknowledgement', { state: 'armed' }],
+				['review-metadata-open', { state: 'armed' }],
+			]),
+		};
+		return {
+			frameAcknowledgement: this.#observeWaiter(
+				'frame-acknowledgement',
+				page.waitForResponse((response): boolean => responseIsFrameObservation(response), {
+					timeout: timeoutMilliseconds,
+				}),
+			),
+			fileMetadataOpen: this.#observeWaiter(
+				'file-metadata-open',
+				page.waitForResponse(
+					(response): boolean => responseIsSubscriptionOpen(response, 'file.metadata'),
+					{ timeout: timeoutMilliseconds },
+				),
+			),
+			reviewMetadataOpen: this.#observeWaiter(
+				'review-metadata-open',
+				page.waitForResponse(
+					(response): boolean => responseIsSubscriptionOpen(response, 'review.metadata'),
+					{ timeout: timeoutMilliseconds },
+				),
+			),
+		};
+	}
+
+	observeResponse(
+		response: PlaywrightResponse,
+		entry: ReloadJoinRouteEntry,
+		responseDocumentGeneration: number,
+	): void {
+		const observation = { entry, responseDocumentGeneration };
+		this.#observationByResponse.set(response, observation);
+		const diagnostics = this.#diagnostics;
+		if (diagnostics === null || !entryIsCandidate(entry)) return;
+		diagnostics.candidateCount += 1;
+		if (diagnostics.candidates.length >= maximumCandidateCount) {
+			diagnostics.omittedCandidateCount += 1;
+			return;
+		}
+		diagnostics.candidates.push(observation);
+	}
+
+	emitFailure(
+		entries: readonly ReloadJoinRouteEntry[],
+		workers: readonly ReloadJoinWorker[],
+	): void {
+		const diagnostics = this.#diagnostics;
+		if (diagnostics === null) {
+			writeLine('summary armed=false');
+			return;
+		}
+		writeLine(
+			`summary armed=true armOrdinal=${diagnostics.armOrdinal} candidates=${diagnostics.candidateCount} recorded=${diagnostics.candidates.length} omitted=${diagnostics.omittedCandidateCount}`,
+		);
+		for (const name of reloadJoinWaiterNames) {
+			const state = diagnostics.waiters.get(name) ?? { state: 'armed' };
+			writeLine(waiterLine(name, state));
+		}
+		for (const [index, observation] of diagnostics.candidates.entries()) {
+			writeLine(`candidate index=${index + 1} ${observationFields(observation)}`);
+		}
+		const streams = entries
+			.filter((entry): boolean => entry.requestKind === 'metadataStream.open')
+			.slice(-maximumStreamCount);
+		for (const entry of streams) {
+			writeLine(
+				`stream ordinal=${entry.ordinal} requestGen=${entry.documentGeneration} status=${numberValue(entry.httpStatus)} settled=${entry.requestSettled}`,
+			);
+		}
+		const recordedWorkers = workers.slice(0, maximumWorkerCount);
+		for (const [index, worker] of recordedWorkers.entries()) {
+			writeLine(
+				`worker cohort=${index + 1} kind=${worker.kind} generation=${worker.documentGeneration} closed=${worker.closed} closedBeforeCompletion=${worker.closedBeforeJourneyCompletion}`,
+			);
+		}
+		writeLine(
+			`workers total=${workers.length} recorded=${recordedWorkers.length} omitted=${Math.max(0, workers.length - recordedWorkers.length)}`,
+		);
+	}
+
+	#observeWaiter(
+		name: ReloadJoinWaiterName,
+		promise: Promise<PlaywrightResponse>,
+	): Promise<PlaywrightResponse> {
+		return promise.then(
+			(response): PlaywrightResponse => {
+				this.#diagnostics?.waiters.set(name, {
+					observation: this.#observationByResponse.get(response) ?? {
+						entry: null,
+						responseDocumentGeneration: null,
+					},
+					state: 'fulfilled',
+				});
+				return response;
+			},
+			(error: unknown): never => {
+				this.#diagnostics?.waiters.set(name, {
+					reason: rejectionReason(error),
+					state: 'rejected',
+				});
+				throw error;
+			},
+		);
+	}
+}
+
+const reloadJoinWaiterNames: readonly ReloadJoinWaiterName[] = [
+	'frame-acknowledgement',
+	'file-metadata-open',
+	'review-metadata-open',
+];
+
+function entryIsCandidate(entry: ReloadJoinRouteEntry): boolean {
+	return (
+		entry.requestKind === 'stream.frameObserved' ||
+		(entry.requestKind === 'subscription.open' &&
+			(entry.subscriptionKind === 'file.metadata' || entry.subscriptionKind === 'review.metadata'))
+	);
+}
+
+function waiterLine(name: ReloadJoinWaiterName, state: ReloadJoinWaiterState): string {
+	switch (state.state) {
+		case 'armed':
+			return `waiter name=${name} state=pending`;
+		case 'fulfilled':
+			return `waiter name=${name} state=fulfilled ${observationFields(state.observation)}`;
+		case 'rejected':
+			return `waiter name=${name} state=rejected reason=${state.reason}`;
+	}
+}
+
+function observationFields(observation: ReloadJoinResponseObservation): string {
+	const entry = observation.entry;
+	return [
+		`ordinal=${entry?.ordinal ?? 'unknown'}`,
+		`requestGen=${entry?.documentGeneration ?? 'unknown'}`,
+		`responseGen=${observation.responseDocumentGeneration ?? 'unknown'}`,
+		`kind=${token(entry?.requestKind ?? null)}`,
+		`subscription=${token(entry?.subscriptionKind ?? null)}`,
+		`status=${numberValue(entry?.httpStatus ?? null)}`,
+		`responseKind=${token(entry?.responseKind ?? null)}`,
+		`responseCode=${token(entry?.responseCode ?? null)}`,
+	].join(' ');
+}
+
+function rejectionReason(error: unknown): 'owned-deadline' | 'other' | 'wait-timeout' {
+	if (
+		error instanceof Error &&
+		error.message.includes('BRIDGE_PRODUCT_JOURNEY_DEADLINE_EXCEEDED')
+	) {
+		return 'owned-deadline';
+	}
+	return error instanceof errors.TimeoutError ? 'wait-timeout' : 'other';
+}
+
+function responseIsFrameObservation(response: PlaywrightResponse): boolean {
+	if (new URL(response.url()).pathname !== '/__bridge-product/command') return false;
+	return (
+		recordValue(parseJSONOrNull(response.request().postData()))?.['kind'] === 'stream.frameObserved'
+	);
+}
+
+function responseIsSubscriptionOpen(
+	response: PlaywrightResponse,
+	subscriptionKind: 'file.metadata' | 'review.metadata',
+): boolean {
+	if (new URL(response.url()).pathname !== '/__bridge-product/command') return false;
+	const body = recordValue(parseJSONOrNull(response.request().postData()));
+	const subscription = recordValue(body?.['subscription']);
+	return (
+		body?.['kind'] === 'subscription.open' &&
+		subscription?.['subscriptionKind'] === subscriptionKind
+	);
+}
+
+function parseJSONOrNull(value: string | null): unknown {
+	if (value === null || value.length === 0) return null;
+	try {
+		return JSON.parse(value) as unknown;
+	} catch {
+		return null;
+	}
+}
+
+function recordValue(value: unknown): Readonly<Record<string, unknown>> | null {
+	return isRecordValue(value) ? value : null;
+}
+
+function isRecordValue(value: unknown): value is Readonly<Record<string, unknown>> {
+	return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function token(value: string | null): string {
+	return value !== null && /^[A-Za-z0-9._-]{1,64}$/u.test(value) ? value : 'unknown';
+}
+
+function numberValue(value: number | null): string {
+	return value === null ? 'unknown' : String(value);
+}
+
+function writeLine(value: string): void {
+	process.stderr.write(`[bridge-product-reload-join] ${value}\n`);
+}

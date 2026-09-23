@@ -1,0 +1,831 @@
+LANE B — Swift OS-boundary, process, and transport tests
+Repo root: /Users/shravansunder/Documents/dev/project-dev/agent-studio.issues-perf-again
+Method: read the test, its private helpers, and the production code it drives. Every factual statement
+carries path:line. Evidence reports were used only as pointers. Nothing was built or run.
+
+Lane-wide correction to a pointer I inherited: the evidence doc (lane-swift-flake-families.md §6) says the
+FSEvents fixture "never enqueues a fence of its own". True, but incomplete and it misses the better answer —
+production already ships a complete, `package`-visible, flush-plus-fence barrier (`captureActivityBarrier()`,
+DarwinFSEventStreamClient.swift:881) that six sibling suites in the same directory already use. See TEST 1.
+
+
+================================================================================
+TEST 1: Darwin shared exact-item real FSEvents integration / "native shared stream fails exact-item
+        replacements closed"
+FILE: Tests/AgentStudioTests/Core/PaneRuntime/Sources/DarwinSharedExactItemRealStreamIntegrationTests.swift:84
+SIZE: 58 lines of test body (:84-141) + 568-line shared fixture
+      (Tests/AgentStudioTests/Core/PaneRuntime/Sources/DarwinSharedExactItemRealStreamTestSupport.swift),
+      shared with the two sibling tests in the same file.
+
+TRAITS: `@Suite(..., .serialized)` at :7, NOT `@MainActor`. Parameterized over
+        `SharedExactItemReplacementMutation.allCases` (:220-224) = 3 cases (delete / rename /
+        atomicReplacement). No `.timeLimit`.
+        Lane: the suite name is listed explicitly in `large_process_global_suite_filters`
+        (scripts/swift-test-helpers.sh:298-300), so it runs in the large process-global lane, one suite per
+        process — NOT inside the 4882-test concurrent fast-lane process. Up to four such processes run
+        concurrently on the runner.
+
+CLAIM: When the exact item a repository's clean-status authority depends on (here `core.excludesFile`, an
+       `.item`-kind observation scope outside the repository) is deleted, renamed, or atomically replaced,
+       every dependent worktree's exact-clean authority must fail CLOSED — i.e. `renewExactCleanAuthority`
+       must return `.requiresExact`, and a full Git refresh batch must be published for each worktree, with
+       zero extra physical Git reads. Who is hurt: a user whose global gitignore changed and whose sidebar
+       keeps showing a stale "clean" badge because the authority silently renewed. That is the exact class of
+       bug this whole continuity ledger exists to prevent (GitCleanContinuityWitness.swift:5-14 enumerates
+       the failure reasons; `.mutationObserved` at :10 is the one under test).
+
+LAYER TODAY: integration (OS boundary).
+  REAL: the kernel FSEvents service; `DarwinSharedExactItemNativeStream` with a 0.1 s latency window
+        (DarwinSharedExactItemNativeStream.swift:69); `DarwinFSEventStreamClient`; `DarwinFSEventIngressBuffer`;
+        `GitCleanContinuityLedger`; libgit2 via `LibGit2AgentStudioGitLocalClient`
+        (DarwinSharedExactItemRealStreamTestSupport.swift:269); real `git init`/`add`/`commit` subprocesses
+        (`IsolatedGitProcess`, :520-562).
+  FAKE: the observation-plan filter (`statusObservationPlanReader`, :273-300) narrows production scopes to
+        the fixture's external parent; `GitPhysicalReadRecorder` (:479-518) counts reads. The stream factory
+        is wrapped (`NativeSharedExactItemStreamRecorder.makeStream`, :424-443) but delegates to the real
+        native stream.
+
+STIMULUS: a single real filesystem mutation on a watched path — `fixture.perform(mutation)`
+          (:119 → support :165-183), one of `removeItem` / `moveItem` / atomic `write`.
+
+ORACLE: mixed, and one part is wrong.
+  - The invariant proper (:127-139): `requiresExact(...)` on both authorities + one full-refresh batch per
+    worktree + `paths.isEmpty` + read counts unchanged. All of these are OWNER-REPORTED — the ledger
+    (GitCleanContinuityLedger.renew, GitCleanContinuityWitness.swift:193-232) and the stream's own batch
+    events. Good oracles.
+  - The failing assertion is NOT the invariant. It is the Arrange-section precondition at :106-113:
+    `#expect(await fixture.provider.renewExactCleanAuthority(firstAuthority) == .renewed(firstAuthority))`,
+    asserted BEFORE `perform(mutation)` at :119. This asserts "no FSEvent has invalidated the freshly minted
+    authority yet" — a statement about setup quiescence, dressed up as an `#expect`.
+
+WAIT: `try #require(await fixture.awaitLocalStreamSentinelBarrier())` at :93 (support :113-138). It writes a
+      sentinel file into each repo's `.git/` and waits until a batch carrying that exact path is observed,
+      with a 5 s outer timeout (`firstCompletedValue`, support :220-235). That proves ARRIVAL OF ONE EVENT on
+      one stream. It does not prove that other in-flight events — including the repository-creation writes and
+      the sentinel write's own sibling events — have drained. FSEvents gives no total order across paths, and
+      the shared exact-item stream has a separate 0.1 s coalescing latency
+      (DarwinSharedExactItemNativeStream.swift:69) from the local stream's own 0.1 s
+      (DarwinLocalFSEventNativeStream.swift:66).
+      Note the fixture's batch collectors SEE the real drain fence and discard it:
+      `if case .activityProcessingFence(let fenceID) = ingressItem { acknowledgeActivityProcessingFence(...);
+      continue }` at support :97-100 and :348-351.
+
+SPEED DEPENDENCE: a setup-generated FSEvent still in flight lands between `establishAuthority` (:94-105) and
+      the precondition renewal (:106). The ledger bumps `mutationEpoch` from the RAW CALLBACK
+      (`recordRawEvents` wired at DarwinFSEventStreamClient.swift:75-78 and :628, applied under lock in
+      GitCleanContinuityLedger.applyRawEvent, GitCleanContinuityWitness.swift:411-425), upstream of the lossy
+      delivery path. `renew` then returns `.requiresExact(.mutationObserved)`
+      (GitCleanContinuityWitness.swift:207-209) instead of `.renewed`. On a loaded runner the kernel's
+      delivery of setup events lands later relative to the test's own progress, widening the window. The
+      product is CORRECT in that run: failing an authority closed on an unexpected event is the invariant.
+      Checked and ruled out: the subscription is established in `init` before any mutation (support :66-75),
+      so this is not "subscribed too late".
+
+WHEN IT FAILS YOU SEE: `Expectation failed: await fixture.provider.renewExactCleanAuthority(firstAuthority)`
+      at :106, with the `== .renewed(...)` half truncated in CI logs. It reads exactly like "the product
+      failed to renew a valid authority" — the opposite of what happened. The broken thing is NOT named: the
+      message cannot distinguish "setup event still in flight" from "production wrongly invalidated". It also
+      names no failure reason, even though `renew` returns one (`.mutationObserved` vs
+      `.eventStreamUncertain` vs `.registrationReplaced` would each point at a different bug).
+
+VALUE: HIGH, and not duplicated. This is the only test that proves the fail-closed path against the REAL
+      kernel for an `.item` scope outside the repository root. The sibling unit-level suites
+      (`DarwinSharedExactItemObserverTests`, `DarwinSharedExactItemFingerprintTests`) drive a scripted stream
+      and cannot show that the kernel actually reports a rename/atomic-replace of a watched item under a
+      shared parent in a form the classifier recognises — which is precisely the part that breaks when macOS
+      or the exclusion topology changes.
+
+BETTER DESIGN:
+  layer:    keep at this layer. The claim is "the real kernel tells us about this mutation shape", which no
+            fake can establish. Split what does not need the kernel (below).
+  stimulus: unchanged — the real mutation is the point.
+  oracle:   unchanged for the assertions at :127-139. DELETE the Arrange-section `#expect`s at :106-113;
+            they are preconditions, not claims. If a precondition must be checked, use
+            `try #require(... == .renewed(...))` so it reports as a fixture failure, not an expectation
+            failure, and carry the returned `GitCleanContinuityFailureReason` in the message.
+  wait:     REPLACE `awaitLocalStreamSentinelBarrier()` with the production barrier that already exists:
+            `DarwinFSEventStreamClient.captureActivityBarrier()` (DarwinFSEventStreamClient.swift:881). It is
+            `package` + `@concurrent nonisolated` and does all three things the Arrange section needs:
+              1. `FSEventStreamFlushSync` on every shared exact-item physical stream
+                 (DarwinSharedExactItemActivityBarrier.swift:32-34 → DarwinFSEventStreamLifecycle.swift:136-146),
+              2. `FSEventStreamFlushSync` on every local stream
+                 (DarwinFSEventStreamClient.swift:889 → DarwinSharedLocalFSEventObserver.swift:310-328),
+              3. `await ingressBuffer.enqueueActivityProcessingFence()` (DarwinFSEventStreamClient.swift:937 →
+                 DarwinFSEventIngressBuffer.swift:118-152), then re-validates stream generations and shared
+                 topology revision (:938-943) and returns nil if anything moved under it.
+            Because the ledger is written at the raw callback (upstream of the buffer), a returned barrier
+            means: everything the kernel had already queued for us has been delivered AND recorded. That is
+            the exact "idle" the Arrange section wants, and it is strictly stronger than one sentinel sighting.
+            SIX sibling suites in the same directory already use it as their readiness gate —
+            DarwinCompositeFSEventContinuityTests.swift:49, :164, :325, :468 (its `localStreamIsReady()`
+            helper); DarwinSharedLocalFSEventObserverTests.swift:145;
+            DarwinSharedLocalFSEventObserverFailureTests.swift:493; DarwinFSEventStreamClientTests.swift:71;
+            FilesystemActorActivityTests.swift:378, :525; DarwinFSEventStreamClientActivationTests.swift:95,
+            :99. This fixture is the outlier.
+            Mechanically: `SharedExactItemRealStreamFixture.streamClient` is `private`
+            (DarwinSharedExactItemRealStreamTestSupport.swift:21) — add
+            `func awaitStreamQuiescence() async -> Bool { await streamClient.captureActivityBarrier() != nil }`
+            and call it at :93 and again immediately before `perform(mutation)` at :119. TEST-SUPPORT ONLY.
+            No production change. No new seam.
+            RESIDUAL (mark as hypothesis, not established): `FSEventStreamFlushSync` delivers events the
+            service has already recorded. A write whose event the kernel has not yet recorded at flush time is
+            still not covered. I found no code that closes that gap and no evidence it is the observed failure
+            mode; the barrier is a strict improvement either way.
+  keeps:    all three tests in the suite stay. This is the thin real-kernel journey.
+  cost:     one test-support method. Slightly slower Arrange (two synchronous flushes per barrier). Zero
+            production cost, zero lost coverage.
+VERDICT: fix-wait (plus demote the Arrange `#expect`s to `#require`).  CONFIDENCE: high — the barrier's
+         semantics are read directly from source, and the sibling suites' usage is the existence proof.
+
+
+================================================================================
+TEST 2: Nested repository discovery continuity / "a retained child stays available when a new Git ancestor
+        bounds scanner traversal"
+FILE: Tests/AgentStudioTests/Integration/RepositoryNestedDiscoveryContinuityTests.swift:13
+SIZE: 349-line file, one test; body :14-68, private helpers :70-244 + file-private support :247-348.
+
+TRAITS: `@MainActor @Suite("Nested repository discovery continuity", .serialized)` at :10-11 — both
+        annotations, so `serialized_main_actor_suite_matches` (scripts/swift-test-helpers.sh:293-294) picks it
+        up and it runs one-suite-per-process. The CI log line `Test run with 1 test in 1 suite` in the
+        evidence report corroborates that. No `.timeLimit`.
+
+CLAIM: A repository discovered as a nested child keeps its identity and availability across three topology
+       shocks: (a) a plain ancestor directory is replaced by a Git repository, which bounds scanner traversal;
+       (b) the child is moved away — genuine absence, recorded as such; (c) the child returns at the same
+       path — the ORIGINAL repository and worktree ids are restored, not new ones. Who is hurt: a user whose
+       worktree disappears from the sidebar, or reappears as a duplicate with a fresh id, losing pane bindings
+       and enrichment, after adding a `.git` to a parent folder.
+
+LAYER TODAY: integration. REAL: `RepoScanner` + Git validation + `FilesystemActor` +
+       `WorkspaceCacheCoordinator` + `WorkspaceStore` + `RepoCacheAtom`; real `git clone` via
+       `SystemGitRemoteClient` (:83-91); real filesystem moves (:274-289).
+       FAKE: exactly one thing — `ControllableFSEventStreamClient` (:117), so the test can inject the
+       filesystem notification itself. The comment at :113-114 states this deliberately and it is the right
+       call.
+
+STIMULUS: real filesystem directory moves, each followed by one injected FSEvent
+       (`handleWatchedFolderFSEvent`, :187-191).
+
+ORACLE: owner-reported throughout, and unusually good.
+       - `pipeline.filesystem.currentWatchedFolderObservationReceipts()` (:170, :194, :202) — the scanner's own
+         receipt ledger, keyed by monotonically increasing `sequence` and carrying `coverage`.
+       - `store.repositoryTopologyAtom` identity/availability/absence-record reads (:214-244).
+       No test-side reconstruction, no aggregate counter, no timing.
+
+WAIT: `assertEventuallyAsync("production scanner publishes a later authoritative receipt")` (:193-201) gated
+       on `receipt.sequence > initialReceiptSequence && case .authoritative = receipt.observation.coverage` —
+       i.e. it waits for a specific, causally-later, owner-stamped receipt, not for a count or a wall time.
+       That is the correct shape. Three `assertEventuallyMain` calls (:29, :47, :58) on topology predicates.
+       (`assertEventually*` is the repo's dual-budget poll — see the lane-wide note at the end; it is a
+       polling wait and falls under the owner's "no polling waits" rule, but here the PREDICATE is right,
+       which is the harder half.)
+
+SPEED DEPENDENCE: none found in the test's own logic. What I checked:
+       - the receipt wait is sequence-gated, so a slower machine only takes longer, it cannot change which
+         receipt satisfies the predicate;
+       - the absence assertion at :43-46 reads the receipt the wait returned, not live state;
+       - the suite is `@MainActor @Suite(.serialized)` so it is process-isolated.
+       The ONE recorded failure was not a race at all. It was `git clone` exiting 128 on a missing LFS object,
+       because the fixture clones the CI checkout itself (`TestPathResolver.projectRoot(from: #filePath)` at
+       :72, used as `remoteURL` at :88) while `.github/workflows/ci.yml`'s `swift-test-suite` checkout does not
+       request `lfs: true`. That is ENVIRONMENT, and it is ALREADY FIXED in the same commit that introduced the
+       test: `additionalEnvironment: ["GIT_LFS_SKIP_SMUDGE": "1"]` at :84-85, with the comment at :82
+       explaining why. I verified that line is present in the current file.
+
+WHEN IT FAILS YOU SEE: the three `assertEventuallyMain` descriptions are genuinely diagnostic —
+       "coordinator publishes the new ancestor and retains the child", "authoritative validation records
+       genuine child absence", "same-path return restores the retained child identity". The broken thing IS
+       named. The observed CI failure instead surfaced as a thrown `processFailed(...)` with the full git
+       stderr, which also names the real problem clearly.
+
+VALUE: HIGH and not duplicated. The retained-identity-across-absence-and-return claim spans the scanner,
+       the filesystem actor, the cache coordinator, and the topology atom; no unit test can establish that the
+       id survives a real move-away/move-back. Cost is real: a full `git clone` of the workspace per run
+       (~2.3 s in the failing log).
+
+BETTER DESIGN:
+  layer:    keep. This is the journey.
+  stimulus: keep.
+  oracle:   keep.
+  wait:     the receipt wait is already right in kind. If the polling-wait purge lands, the three
+            `assertEventuallyMain` topology predicates want an owner-side settle signal on
+            `WorkspaceCacheCoordinator`; the receipt wait at :193-201 can become an awaitable
+            "receipt with sequence > N published" on the scan-state owner rather than a poll. The predicate is
+            already written down correctly, so this is a mechanical conversion, not a redesign.
+  keeps:    everything.
+  cost:     the clone. Optional cheapening: clone a purpose-built minimal repo instead of the workspace
+            checkout, which also removes the LFS/`#filePath` coupling entirely. That is the durable fix for
+            the environment class, not just `GIT_LFS_SKIP_SMUDGE`.
+VERDICT: keep-as-is (close the CI entry; the environment defect is already fixed in-tree).
+         CONFIDENCE: high for the verdict; the "clone a minimal repo instead" suggestion is a preference,
+         not a defect finding.
+
+
+================================================================================
+TEST 3: Pane agent launch owner / "helper authenticates against local server through fd bootstrap"
+FILE: Tests/AgentStudioTests/App/PaneAgents/PaneAgentLaunchOwnerTests.swift:77
+SIZE: 20 lines of test body (:77-96) + ~330 lines of private support in the same file:
+      `waitForProcessExit` (:140-167), `PaneAgentLiveServerFixture` (:245-284), eight stub ports (:286-489),
+      `findBuiltPaneAgentHelper` / `findPaneAgentHelper` / `debugDirectories` (:491-558).
+
+TRAITS: `@Suite("Pane agent launch owner", .serialized)` at :13 — `.serialized` but NOT `@MainActor`, so it is
+        NOT discovered by `serialized_main_actor_suite_matches`. It is instead listed by name in
+        `large_serial_non_webkit_filter_pattern` (scripts/swift-test-helpers.sh:278-282), so it does get its
+        own lane. The test body is SYNCHRONOUS `throws` (:78), not `async`. Whole body wrapped in
+        `#if canImport(Darwin)` (:79-95). No `.timeLimit`.
+
+CLAIM: The pane-agent helper, launched with its bootstrap token handed over as a remapped file descriptor
+       (never as an environment variable), can authenticate against the app's local IPC server. Who is hurt:
+       if this breaks, either agents cannot attach to panes at all, or — worse — the token leaks into the
+       child environment where any process that can read `/proc`-equivalent state could take it. The sibling
+       test at :15-54 already proves the no-leak half against fakes (`:43`
+       `request.environment.values.allSatisfy { !$0.contains("secret-token") }`); THIS test is the only one
+       that proves the handover actually works end to end.
+
+LAYER TODAY: E2E (process boundary). REAL: the built `agentstudio-pane-agent` binary, `posix_spawn` with file
+       actions, a real Unix-domain-socket IPC server (`AgentStudioAppIPCServer`,
+       Sources/AgentStudioAppIPC/AgentStudioAppIPCServer.swift), the real
+       `AgentStudioPaneAgentBootstrapProvider` (:87), a real temp directory chmod 0700 (:253-257).
+       FAKE: all eight IPC ports (`PaneAgentTestQueryPort` etc., :286-489) — they answer identify/version and
+       throw for everything else, which is correct: authentication only needs `systemIdentify`.
+
+STIMULUS: single call — `owner.launchPaneAgent(boundPaneId:boundWorkspaceId:)` (:91), which spawns the real
+       child.
+
+ORACLE: WRONG OWNER. The assertion is `status == 0` on the child's exit code (:93-94). Process exit status is
+       an OS-level side effect two hops from the claim. The fact the test wants — "a pane-agent session for
+       bound pane X reached the authenticated state" — is owned by the in-process server, which exposes no
+       such signal. Any other reason the helper exits non-zero (missing dylib, bad argv, a crash after
+       successful auth) reports as "authentication failed"; any reason it exits 0 without authenticating
+       would report as success.
+
+WAIT: `waitForProcessExit(processIdentifier:timeout:)` (:140-167): a `DispatchSemaphore` blocked for up to
+       10 s on a `DispatchSource.makeProcessSource(.exit)`, with a `kill(SIGKILL)` + blocking
+       `waitpid(pid, &status, 0)` on the timeout branch (:159-163).
+
+SPEED DEPENDENCE: yes, and of an unusually self-defeating kind. Swift Testing runs a SYNCHRONOUS `@Test` body
+       on a Swift Concurrency task, i.e. on a cooperative-pool thread. `DispatchSemaphore.wait(timeout:)` is a
+       BLOCKING primitive, so it parks that cooperative-pool thread for the whole wait. The work that must
+       complete to release the semaphore — the in-process server accepting and authenticating the child's
+       connection — is itself Swift Concurrency work (`AgentStudioAppIPCServer.start` spawns `Task { ... }` at
+       AgentStudioAppIPCServer.swift:122) needing threads from the SAME bounded pool. Narrow the pool (a
+       loaded runner, several concurrent test processes) and the wait can starve the work it is waiting for.
+       The timeout branch then compounds it with a second blocking call, `waitpid` with no `WNOHANG` (:161).
+       This is exactly the shape CLAUDE.md's Swift Concurrency rule 2 forbids ("`@concurrent nonisolated` for
+       blocking I/O ... a correctness requirement in 6.2, not a style choice").
+       IMPORTANT — attribution is UNVERIFIED: I found no failing log for this test. The blocking-wait facts
+       above are read from source and are certain; that this mechanism produced the reported PR failure is a
+       HYPOTHESIS.
+       Second, independent fragility, not speed-related: `findBuiltPaneAgentHelper` (:491-521) probes
+       `SWIFT_BUILD_DIR`, then walks up to 8 parents of `CommandLine.arguments.first`, then globs `.build*`
+       under the project root. If none hits, it throws `spawnFailed(errnoCode: ENOENT)` — a "spawn failed"
+       error for a "the helper was never built" condition. Same misnaming class as TEST 1's oracle.
+
+WHEN IT FAILS YOU SEE: `Expectation failed: ... #require(waitForProcessExit(...))` — i.e. "the optional was
+       nil". Nothing names the helper, the socket path, the exit status, the signal, or whether the server ever
+       saw a connection. Of everything in this lane, this failure message is the least informative.
+
+VALUE: HIGH for the handover claim; nothing cheaper can prove a remapped fd survives `posix_spawn` into a real
+       binary. But note the claim as ASSERTED (exit == 0) is much weaker than the claim as NAMED
+       (authentication happened). No overlapping test found: the other four tests in the suite drive fakes
+       (:15, :56) or read `Package.swift` / source text (:98, :115).
+
+BETTER DESIGN:
+  layer:    keep one real-process E2E. It is irreducible.
+  stimulus: unchanged.
+  oracle:   the server-side session disposition, not the exit code. NEEDS OWNER DECISION: neither
+            `AgentStudioAppIPCServer` nor `AgentStudioPaneAgentBootstrapProvider` exposes "the bootstrap
+            issued for pane X was consumed and its session reached a terminal disposition (authenticated |
+            rejected)". Adding it is a production change to a security boundary — not free, and not mine to
+            propose as settled. With it, the test asserts the disposition and keeps exit status as a
+            SECONDARY assertion.
+  wait:     PREREQUISITE, and independently correct regardless of the oracle decision: make the test body
+            `async` and bridge the process source with `withCheckedContinuation` so the wait SUSPENDS instead
+            of blocking a pool thread:
+              await withCheckedContinuation { c in
+                  let source = DispatchSource.makeProcessSource(identifier: pid, eventMask: .exit,
+                                                                queue: .global(qos: .userInitiated))
+                  source.setEventHandler { source.cancel(); c.resume() }
+                  source.resume()
+              }
+            then reap with `waitpid`. As long as the wait blocks, no downstream barrier can help. This is
+            test-support-only.
+  keeps:    everything; the four fake-driven siblings stay where they are.
+  cost:     the async conversion is free. The server-side disposition signal is a real production addition on
+            a security boundary — owner decision.
+  separately: make the missing-helper case say so. `findPaneAgentHelper` (:523-533) should throw a distinct
+            error naming the directories it searched, not `spawnFailed(ENOENT)`.
+VERDICT: fix-wait now (async bridge, test-only); fix-oracle pending owner decision on the server signal.
+         CONFIDENCE: high that the blocking wait is a real defect and the oracle is the wrong owner;
+         LOW that this mechanism caused the reported failure — no log.
+
+
+================================================================================
+TEST 4: Bridge development product host Review replay integration / "fresh File bootstrap replays every
+        retained Review metadata window"   [the D9 / dev-host 409 test]
+FILE: Tests/AgentStudioTests/Features/Bridge/BridgeDevelopmentHostReviewReplayTests.swift:16
+SIZE: 142-line file, one test; body :17-123 (107 lines) + 489-line shared support
+      (Tests/AgentStudioTests/Features/Bridge/BridgeDevelopmentProductHostDisplayLifecycleTestSupport.swift).
+
+TRAITS: `@MainActor @Suite(..., .serialized, .timeLimit(.minutes(1)))` at :9-14 — discovered by
+        `serialized_main_actor_suite_matches`, so one suite per process. Parameter: none, but
+        `expectedItemCount = 1699` (:19) makes it a large-N test.
+
+CLAIM: When a Review publication has been committed and displayed, and the worker document is then replaced
+       (page reload), a FRESH initial File bootstrap must replay the SAME retained Review publication —
+       identical identity, identical item count, identical window count — under the same pane session but a
+       new worker instance. Who is hurt: a user who reloads the Bridge and gets an empty or re-derived Review
+       instead of the one they were looking at. This is the stuck-loading / re-derivation family the owner has
+       flagged repeatedly.
+
+LAYER TODAY: integration. REAL: `BridgeDevelopmentProductHost`, `BridgeProductSession`, the producer
+       registry and retirement-barrier machinery, the real metadata frame transport, a real git repo
+       (`FilesystemTestGitRepo.create`, :20-22).
+       FAKE: the review provider (`BridgeDevelopmentSharedConstructionReviewProvider` fed 1699 synthetic
+       changed files, :127-141) and the worker client (`DevelopmentDisplayWorkerClient`, support :128+).
+
+STIMULUS: a scripted sequence of real control requests — open session, start metadata stream, acknowledge
+       opening frame, activate review viewer mode, open the review subscription, consume the publication,
+       admit + apply; then `stop()` the first stream and repeat the whole sequence with a second worker
+       (:34-97).
+
+ORACLE: owner-reported and good. `host.diagnosticCommittedReviewPublication()` (:53, :106),
+       `coordinator.diagnosticSnapshot.acknowledgedDisplayed?.publicationId` (:109-113), and the replay
+       observations returned by `consumeCompleteReviewPublication` (:49, :83). Identity equality
+       (`secondReplay.identity == firstReplay.identity`, :102) is the right invariant: it is the publication's
+       own identity, not a reconstruction.
+
+WAIT: here is the defect. `await firstMetadataStream.stop()` (:71) is
+       `consumer.cancel(); await consumer.value` (support :110-113) — it awaits the TEST-SIDE frame-consumer
+       task. It proves "my consumer stopped", not "the session has retired that producer".
+       The successor bootstrap immediately calls `host.issueBootstrap(...)` (:75) →
+       `validateBootstrapTransition` (BridgeDevelopmentProductHost.swift:848-881), whose `.initial` branch
+       asks the live session for `metadataRetirementBarriersForReload()`. That returns `nil` — and the host
+       throws `sessionAlreadyOpen` (:858) — whenever a metadata producer lease exists WITHOUT a recorded
+       retirement state:
+         for lease in metadataProducerLeases {
+             guard let retirementBarrier = producerRetirementStateByLease[lease]?.barrier else { return nil }
+         }
+       (BridgeProductSession.swift:307-313). The retirement state is recorded on the session's own async
+       termination path, which the test never awaits.
+
+SPEED DEPENDENCE: precise shape — between the test-side consumer task finishing and the session recording the
+       producer's retirement state there is at least one actor hop (`BridgeProductSession` is an actor; D9 in
+       the program design says the synchronous termination callback cannot record into it, which is why the
+       reply task is the handle). If the second `issueBootstrap` wins that race, it observes a lease with no
+       barrier and is refused `sessionAlreadyOpen` (the dev-host 409 at
+       BridgeDevelopmentHTTPApplication.swift:110). The product is CORRECT: refusing a second session while
+       the first is genuinely still open is the designed behaviour. The test simply asked before the first was
+       closed.
+
+WHEN IT FAILS YOU SEE: a thrown `BridgeDevelopmentProductHostError.sessionAlreadyOpen` from :75. The error is
+       typed and honest — this is the best failure message in the lane — but it is attributed to the wrong
+       cause by a reader, because "session already open" describes a legitimate refusal, not "you raced your
+       own teardown".
+
+VALUE: HIGH. The replay-after-reload claim is the whole point of retained publications and cannot be proved
+       below this layer: it needs a real session, a real producer lease lifecycle, and a real second bootstrap.
+       No overlapping test found.
+
+BETTER DESIGN:
+  layer:    keep.
+  stimulus: unchanged — the scripted sequence is already a forced interleaving, not a storm. That is why this
+            test finds real bugs.
+  oracle:   unchanged.
+  wait:     the test must await the OWNER's retirement, not its own consumer's cancellation. The predicate is
+            already written in production and already awaitable:
+              `await installation.session.metadataRetirementBarriersForReload()?.isEmpty == true`
+            — the host itself uses exactly this as its post-condition at
+            BridgeDevelopmentProductHost.swift:866-868, and `BridgeProductProducerRetirementBarrier.wait()`
+            is a real awaitable (used at :861). So the fix is: after `firstMetadataStream.stop()` at :71, have
+            the test drive the same barrier wait the host would, through a small support helper on the host or
+            session, before calling `issueBootstrap` at :75. NOT a new seam — a call to an existing one.
+            Per D9 the bootstrap path itself now awaits the ended stream's reply task; if that lands, this
+            test's race closes without a test change. Either way the test should assert against the barrier
+            rather than assume it.
+  keeps:    everything.
+  cost:     one test-support accessor if the barrier is not already reachable from the test's visibility.
+            Zero production cost.
+  separately — a real concern I could not settle: `expectedItemCount = 1699` inside `.timeLimit(.minutes(1))`
+            on a shared 3-vCPU runner. That is a duration budget on a large-N path, i.e. a latent performance
+            gate. The replay-identity claim does not need 1699 items; `firstReplay.windowCount > 1` (:56) is
+            the thing that needs multiple windows, and that needs "more than one window's worth", not 1699.
+            Consider deriving the count from the window size rather than hard-coding a number that silently
+            couples the test's runtime to runner speed. Flagged, not asserted — I did not measure it.
+VERDICT: fix-wait.  CONFIDENCE: high — the refusal predicate and the awaitable barrier are read from
+         production source and the test demonstrably awaits neither.
+
+
+================================================================================
+TEST 5a: FilesystemActorTests / "active-in-app priority order beats sidebar-only"
+FILE: Tests/AgentStudioTests/Core/PaneRuntime/Sources/FilesystemActorTests.swift:458
+SIZE: 28 lines (:458-486).
+
+TRAITS: `@Suite(.serialized)` at :8 — NO `@MainActor`, and the suite name is not in
+        `large_non_webkit_filter_pattern` (scripts/swift-test-helpers.sh:255-268; only
+        `FilesystemActorActivityTests` is there, not `FilesystemActorTests`). So it runs INSIDE the big
+        concurrent fast-lane process. Per CLAUDE.md, `.serialized` orders within the suite only; it does not
+        isolate the suite from the other ~700 suites sharing that process.
+
+CLAIM: Filesystem change batches for a worktree the user is actively working in are published before batches
+       for a worktree that is merely visible in the sidebar. Who is hurt: a user typing in pane A sees A's git
+       badges lag behind an unrelated repo's because the queue is FIFO instead of priority-ordered.
+
+LAYER TODAY: unit-ish integration. REAL: `FilesystemActor` and a real `EventBus<RuntimeEnvelope>`.
+       FAKE: paths are fictional (`/tmp/sidebar`, `/tmp/active`); no real filesystem involved.
+
+STIMULUS: two SEPARATE `enqueueRawPaths` calls — sidebar first (:478), then active (:479).
+
+ORACLE: owner-reported — the first envelope off the bus (:481-483). Correct owner.
+
+WAIT: none between the two stimuli, and that is the bug.
+
+SPEED DEPENDENCE: verified mechanism. `enqueueRawPaths` → `ingestRawPaths`, whose tail calls
+       `scheduleDrainIfNeeded()` (FilesystemActor+Ingress.swift:67-70). `scheduleDrainIfNeeded`
+       (FilesystemActor.swift:507-518) spawns `drainTask = Task { await self.drainPendingChanges() }` — a
+       separate task that re-enters the actor. So after the FIRST `await actor.enqueueRawPaths(sidebarOnly...)`
+       returns at :478, a drain is already scheduled. If that drain task acquires the actor before the
+       second `enqueueRawPaths` call at :479 does, the sidebar batch is published alone and
+       `firstChangeset.worktreeId == activeWorktreeId` fails — while the product's priority ordering is
+       perfectly correct. The test is asserting priority ordering across two separate drain cycles, where
+       priority never applies; priority only orders items WITHIN one drain.
+       THE SIBLING TEST IN THE SAME FILE ALREADY KNOWS THIS. `priorityOrderingFocusedThenActiveThenSidebar`
+       at :487 routes all three tiers in ONE ingress call and says so in a comment at :506:
+       "Route all tiers in one ingress call so queue order depends only on priority keys."
+
+WHEN IT FAILS YOU SEE: `Expectation failed: (firstChangeset.worktreeId → <uuid>) == (activeWorktreeId → <uuid>)`
+       — two opaque UUIDs. Nothing names "the sidebar drain won the race"; it reads as a priority-logic bug.
+
+VALUE: MEDIUM at best, and largely DUPLICATED. The sibling `priorityOrderingFocusedThenActiveThenSidebar`
+       (:487-520+) proves a STRICTLY STRONGER claim — three-tier ordering, focused > active-in-app >
+       sidebar-only — using the correct single-ingress stimulus. The two-tier case is a subset of the
+       three-tier case.
+
+BETTER DESIGN:
+  layer:    unchanged.
+  stimulus: FORCE the interleaving by routing both worktrees' paths through ONE `enqueueRawPaths` call, the
+            way the sibling does at :504-509. Cost, stated honestly: that requires the roots to be NESTED so
+            `rootOwnership.route` (FilesystemActor+Ingress.swift:88) can re-route paths to the owning worktree
+            — the sibling uses `basePath`, `basePath/active`, `basePath/active/focused`. The failing test's
+            `/tmp/sidebar` and `/tmp/active` are siblings, so it cannot be converted without changing the
+            fixture layout.
+  oracle:   unchanged.
+  wait:     if the two-call shape must be kept, the test needs a drain-quiescence barrier on `FilesystemActor`
+            — "no drain task in flight and no pending paths", i.e. the predicate `drainPendingChanges`'s own
+            `defer` already computes at FilesystemActor.swift:521-526. MISSING: no such awaitable exists; I
+            grepped `FilesystemActor.swift` for quiescence/awaitDrain/waitForDrain and found nothing. That
+            would be a new production seam — NEEDS OWNER DECISION.
+  keeps:    the sibling three-tier test, which already carries the claim.
+  cost:     deleting this test costs nothing that the sibling does not already cover. Converting it costs a
+            fixture-layout change for a claim already proved.
+VERDICT: delete-as-duplicate (fallback: force-interleaving via single ingress).
+         CONFIDENCE: high — the sibling's comment at :506 is the author stating the correct design, and the
+         drain-task spawn at FilesystemActor.swift:513 is the race.
+
+
+================================================================================
+TEST 5b: Repo scanner discovery validation executor / "timeout completion retires logical custody but
+         retains native slot"
+FILE: Tests/AgentStudioTests/Infrastructure/RepoScannerValidationExecutorTests.swift:152
+SIZE: 61 lines (:152-212) + shared doubles in the same 768-line file:
+      `ControlledRepoDiscoveryReadClient` (:663-703), `ManualRepoDiscoveryDeadlineScheduler` (:705-768).
+
+TRAITS: `@Suite("Repo scanner discovery validation executor")` at :6 — NO `.serialized`, NO `@MainActor`, not
+        in any large/serial filter list. Fully concurrent fast-lane process.
+
+CLAIM: When a discovery validation times out, the executor retires the LOGICAL request (it reports
+       `.timedOut` to the caller immediately, so the scanner is not blocked) but KEEPS the NATIVE slot
+       occupied until the underlying read actually returns — so a follow-up request cannot start until real
+       capacity frees, and the late return is counted (`lateNativeReturnCount == 2`, :211). Who is hurt: if
+       the native slot were released at timeout, the executor would over-subscribe the filesystem with
+       validations that are still running, and a repo scan would thrash.
+
+LAYER TODAY: unit. REAL: `RepoScannerValidationExecutor`. FAKE: the read client
+       (`ControlledRepoDiscoveryReadClient`, an actor parking each call on a continuation, :663-691) and the
+       deadline scheduler (`ManualRepoDiscoveryDeadlineScheduler`, a manual list with `fireDeadline(at:)`,
+       :705-768). This is a good fake set: no clock, no sleep, deadlines fire only when the test says so.
+
+STIMULUS: scripted sequence — submit two, wait for both started, wait for 2 scheduled deadlines, fire one,
+       assert the timeout completion, submit a follow-up, fire the next deadline, release, assert.
+
+ORACLE: mostly owner-reported (`executor.nextCompletion()`, `executor.snapshot().lateNativeReturnCount`), plus
+       test-double state (`client.startedCandidates()`). One of these is wrong — see below.
+
+WAIT: genuinely good for the most part: `client.waitUntilStarted(candidateURL:)` (:684-687),
+       `deadlines.waitUntilScheduledCount(2)` (:735-747), `executor.nextCompletion()`, and
+       `client.waitUntilReturnedCount(_:)` (:699-702) are all continuation-backed awaitables on the owner or
+       the double. No polling, no sleeps, no turn budgets. This suite is close to the shape the owner wants.
+
+SPEED DEPENDENCE: ONE precise defect, at the tail assertion (:198-201):
+         #expect(await client.startedCandidates()
+                 == [first.candidateURL, second.candidateURL, followUp.candidateURL])
+       `startedCandidates()` returns the raw `started` array (:693), appended inside
+       `validateDiscoveryCandidate` (:670-676). `RepoScannerValidationExecutor.startPhysicalJob` dispatches
+       each validation on `Task.detached(priority: .utility)` (RepoScannerValidationExecutor.swift:430) and
+       `submit` returns `.accepted(.started)` from inside the actor BEFORE that detached task ever reaches the
+       client. With `physical: 2`, `first` and `second` are both detached concurrently; which one appends
+       first is an arbitrary scheduling outcome. The earlier `waitUntilStarted(first)` then
+       `waitUntilStarted(second)` (:166-167) waits for BOTH to have appeared — it does not order them. So
+       `[second, first, followUp]` is a legal, product-correct interleaving that fails an order-sensitive
+       array equality.
+       The author already solved this three lines earlier: `hasStartedExactly` (:695-697) compares as a SET
+       precisely because order is not guaranteed, and the test uses it at :180-182. The tail assertion just
+       forgot.
+       Secondary fragility (structural, not speed): `fireDeadline(at: index)` (:749-754) indexes positionally
+       into a mutable array that the executor's own `cancel(id:)` closure (:764-767) can shrink. `fireDeadline(at: 0)`
+       at :177 means a different deadline than at :159 by construction. It happens to be correct here, but it
+       encodes "whatever is first in the list" rather than "the deadline for job X". No failure evidence;
+       flagged as a readability/robustness hazard, not a defect.
+
+WHEN IT FAILS YOU SEE: an array-vs-array `#expect` with three file: URLs printed in full. The elements are
+       readable, but nothing tells the reader that ORDER was the failing dimension and that order was never
+       guaranteed.
+
+VALUE: HIGH. The "logical custody retires, native slot does not" invariant is subtle, is the whole reason the
+       executor has a two-level accounting, and is not covered elsewhere. Keep the test; fix one line.
+
+BETTER DESIGN:
+  layer:    keep — unit is exactly right.
+  stimulus: keep; the manual deadline scheduler already forces the interleaving.
+  oracle:   change the tail assertion to the order-insensitive comparator the file already provides:
+              #expect(await client.hasStartedExactly(
+                  [first.candidateURL, second.candidateURL, followUp.candidateURL]))
+            The causal claim the array order was standing in for — "the follow-up did not start until the
+            first native slot was released" — is ALREADY proved, and proved better, by the two statements at
+            :195-196: `release(first)` followed by `waitUntilStarted(followUp)` completing, plus the negative
+            `hasStartedExactly([first, second])` at :180-182 before the release.
+  wait:     unchanged — already correct.
+  keeps:    everything.
+  cost:     one line. No lost coverage; the ordering claim is preserved causally rather than positionally.
+  optional: give `fireDeadline` an identity-based form (fire the deadline registered for job X) instead of a
+            positional index.
+VERDICT: fix-oracle.  CONFIDENCE: high — `Task.detached` at RepoScannerValidationExecutor.swift:430 and the
+         set-based comparator at :695 together make the diagnosis and the fix unambiguous.
+
+
+================================================================================
+TEST 5c: GitWorkingDirectoryProjector explicit updates / "one explicit transition flushes owner telemetry
+         without aggregate traffic"
+FILE: Tests/AgentStudioTests/Core/PaneRuntime/Sources/GitWorkingDirectoryProjectorExplicitUpdateTests.swift:10
+SIZE: 24 lines (:10-33) + `ExplicitUpdateGitPerformanceRecorder` (:271-294).
+
+TRAITS: `@Suite("GitWorkingDirectoryProjector explicit updates")` at :8 — no traits at all. Note the
+        classification gap: the sibling `GitWorkingDirectoryProjectorTests` IS explicitly listed as a serial
+        non-WebKit suite (scripts/swift-test-helpers.sh:398-400); this suite, driving the SAME actor, is not
+        (the pattern `GitWorkingDirectoryProjectorTests` does not match
+        `GitWorkingDirectoryProjectorExplicitUpdateTests`). Fully concurrent fast-lane process.
+
+CLAIM: An explicit user-initiated repository update flushes its telemetry IMMEDIATELY — at admission and at
+       settlement — rather than waiting for the aggregate event-count threshold that ordinary refresh
+       telemetry batches behind. Who is hurt: an operator debugging a user-reported "I hit refresh and nothing
+       happened" has no trace of the admission until ~N unrelated events later; the admission/settlement pair
+       is exactly what tells them whether the app accepted the click.
+
+LAYER TODAY: unit. REAL: `GitWorkingDirectoryProjector` and its telemetry accumulator.
+       FAKE: `StubGitWorkingTreeStatusProvider` returning a fixed clean status (:19),
+       `pathExistenceProbe: { _ in true }` (:21), `ExplicitUpdateGitPerformanceRecorder` (a lock-protected
+       array, :271-294), `coalescingWindow: .zero` (:20).
+
+STIMULUS: single call — `startExplicitRepositoryUpdate(repoId:attemptId:)` (:27).
+
+ORACLE: the recorder's snapshot array — a FAKE-side capture of a production push. Acceptable here, because the
+       recorder is the production `GitProjectorPerformanceRecording` protocol and the counters are computed by
+       production (`GitWorkingDirectoryPerformanceAccumulator.recordExplicitAdmission` /
+       `recordExplicitSettlement`, GitWorkingDirectoryPerformanceRecording.swift:99-110). The value asserted
+       is production's, not a reconstruction.
+       The "without aggregate traffic" half of the claim is what `== 1` encodes, since
+       `takeSnapshot()` resets the accumulator (GitWorkingDirectoryPerformanceRecording.swift:180-183), so a
+       snapshot carrying `explicitAdmitted == 1` is a dedicated flush rather than a threshold batch.
+
+WAIT: `await lease.settlement()` (:31) — a real awaitable. No polling, no sleep. Correct in kind.
+
+SPEED DEPENDENCE: verified, and it is a PUBLISH-ORDER defect in PRODUCTION, not just in the test.
+       At GitWorkingDirectoryProjector+RefreshAttribution.swift:194-195:
+         attempt.settlement.resolve(compositeOutcome)          // :194 — releases the waiter
+         recordExplicitUpdateSettlementTelemetry(compositeOutcome)  // :195 — records the snapshot
+       `resolve` (RepositoryFactSourceUpdate.swift:70-73) yields into an `AsyncStream` whose consuming
+       `settlementTask` (:56-61) runs on the cooperative pool — a DIFFERENT executor from the projector actor.
+       So the test's `await lease.settlement()` at :31 can resume, and `recorder.snapshots` be read at :32,
+       BEFORE line :195 executes on the actor. `#expect(recorder.snapshots.contains { $0.explicitSettledCompleted == 1 })`
+       then fails while the product is about to do exactly the right thing a microsecond later.
+       The same inversion exists at :233-234 in `settleAllRepositoryRecomputations`.
+       The admission half (:28-29) is NOT affected: `recordExplicitUpdateAdmissionTelemetry()` runs at
+       RefreshAttribution.swift:89, before `return .accepted(...)` at :90, inside the same actor call.
+       ALSO — and this is a product question, not just a test question: a consumer that is notified of
+       settlement and then reads telemetry sees a state where the settlement happened but is not yet recorded.
+       The ordering at :194-195 is arguably wrong on its own terms.
+
+WHEN IT FAILS YOU SEE: `Expectation failed: recorder.snapshots.contains { $0.explicitSettledCompleted == 1 }`
+       — a closure predicate over an array, printed without the array's contents. The reader cannot tell
+       whether zero snapshots arrived, or one arrived with the wrong counter, or the flush was batched.
+
+VALUE: MEDIUM-HIGH. The immediate-flush behaviour is a real, deliberate deviation from the threshold path
+       (`flushAggregatePerformanceSnapshot` vs `flushAggregatePerformanceSnapshotIfNeeded`,
+       GitWorkingDirectoryProjector+Telemetry.swift:152-165) and nothing else asserts it. No overlapping test
+       found.
+
+BETTER DESIGN:
+  layer:    keep — unit is right.
+  stimulus: keep.
+  oracle:   keep, but print the array on failure so the message names what arrived.
+  wait:     the correct fix is in PRODUCTION, and it is one line: swap :194 and :195 so telemetry is recorded
+            BEFORE the settlement is announced. That makes "settled" imply "recorded" for every consumer, not
+            just the test, and removes the race without any test-side barrier. Same swap at :233-234.
+            This is a behaviour-ordering change on a production path — small, but it CHANGES THE OBSERVABLE
+            CONTRACT (settlement now implies telemetry), so: NEEDS OWNER DECISION, though I believe it is the
+            correct semantics and not merely a test accommodation.
+            If the owner declines, the test-only alternative is an awaitable "telemetry flushed for attempt X"
+            on the projector — a new seam for a weaker outcome. I do not recommend it.
+  keeps:    everything.
+  cost:     two line swaps. No new seam, no lost coverage.
+  separately: this suite should be classified alongside `GitWorkingDirectoryProjectorTests` in
+            `aggregate_serial_non_webkit_suite_filters` (scripts/swift-test-helpers.sh:398-400). It drives the
+            same long-lived actor and is currently in the fully concurrent lane. Same classification gap the
+            evidence report found for `GitWorkingDirectoryProjectorVisibleTierTests`.
+VERDICT: force-interleaving — by fixing the production publish order, which removes the interleaving entirely.
+         CONFIDENCE: high — RefreshAttribution.swift:194-195 and RepositoryFactSourceUpdate.swift:56-73 make
+         the cross-executor resumption certain.
+
+
+================================================================================
+TEST 6 (POSITIVE REFERENCE): Bridge pane product File bootstrap suspension / "foreground return reopens File
+        source interrupted after acceptance before enumeration"
+FILE: Tests/AgentStudioTests/Features/Bridge/BridgePaneProductFileBootstrapSuspensionTests.swift:10
+SIZE: 504-line file, 2 tests; test 1 body :15-123 (109 lines) + file-private actors
+      `FileBootstrapSnapshotBuilderGate` (:288-366) and `FileBootstrapLifecycleRecorder` (:368-445) + helpers
+      (:203-266, :447-499).
+
+TRAITS: `@MainActor @Suite(..., .serialized)` at :7-8 → discovered by `serialized_main_actor_suite_matches`,
+        one suite per process. `.timeLimit(.minutes(1))` at :12, parameterized over
+        `FileBootstrapSuspensionOrdering.allCases` (:13, :268-280) = 2 named orderings.
+
+WHY IT IS DETERMINISTIC — the four things it does that the rest of this lane does not:
+
+1. IT FORCES THE INTERLEAVING FROM INSIDE THE SYSTEM, IT DOES NOT WAIT FOR ONE.
+   The second test is the clearest case: `sourceAcceptedObserver` invalidates foreground admission from
+   inside the acceptance callback —
+     sourceAcceptedObserver: { _ in await MainActor.run { activityCoordinator.applyActivity(.loadedHidden) } }
+   (:149-151), with the comment at :147-148 stating the intent: "Invalidating foreground admission inside the
+   acceptance observer lands deterministically between context installation and lease attachment."
+   The target window is entered BY CONSTRUCTION, on every run, at any machine speed. It failed 100% before the
+   fix and passes 100% after. Compare TEST 1, which writes a sentinel and hopes the flight ordering works out.
+   The `allCases` parameterization (:13) enumerates the two legal orderings EXPLICITLY (:72-83) rather than
+   hoping a storm produces both.
+
+2. EVERY WAIT IS A CONTINUATION ON A NAMED EVENT, WITH A COUNT.
+   `snapshotBuilderGate.waitUntilStarted(invocation: 1)` (:353-358), `waitUntilCancelled(invocation: 1)`
+   (:346-351), `lifecycleRecorder.waitForFileProducerFinished(count: 1)` (:417-422),
+   `waitForFileProducerStarted(count: 2)` (:424-429), `waitForResumeDispatch()` (:431-436). Every one is
+   `withCheckedContinuation` + a waiter list, and every one CHECKS THE ALREADY-SATISFIED CASE FIRST
+   (`guard fileBootstrapFinishedCount < count else { return }`, :418) so it cannot miss an event that already
+   happened. Zero polls, zero turn budgets, zero sleeps, zero deadlines. `.timeLimit(.minutes(1))` is a hang
+   bound, not a verdict input.
+
+3. THE ORACLES ARE OWNER-REPORTED STRUCTURED STATE, NOT AGGREGATE COUNTERS.
+   `fileMetadataSource.diagnosticSnapshot() == .init(descriptorCount: 0, inFlightDescriptorCount: 0,
+   manifestRowCount: 3, subscriptionCount: 1)` (:106-113) — a whole-struct equality on four named fields the
+   source itself computes. `waitForResumeDispatch() == .sourceReopen` (:91) is a DISCRIMINATED CHOICE
+   (`.sourceReopen` vs `.updateWithoutReopen`, :369-372) derived from production lifecycle trace stages, not a
+   count that could be reached by several different causes. When it fails you learn WHICH dispatch happened.
+   The `#require` at :90-93 even carries prose: "Foreground return must reopen an accepted File source whose
+   initial enumeration was cancelled."
+
+4. IT ASSERTS ONE THING PER STAGE, IN ARRANGE / ACT / ASSERT ORDER, WITH THE SECTIONS LABELLED (:18, :70, :97).
+
+WHAT PRODUCTION HOOKS IT RELIES ON — and are they test-only seams?
+
+   a. `sourceAcceptedObserver` — an ORDINARY production init parameter with a no-op default:
+      `sourceAcceptedObserver: @escaping BridgePaneProductFileSourceAcceptedObserver = { _ in }`
+      (BridgePaneProductFileMetadataSource.swift:80), stored at :131, invoked at :236. It is used by
+      PRODUCTION at BridgePaneController+Bootstrap.swift:599 and :608/:625. Not test-only.
+   b. `sharedSnapshotBuilder` — same shape, a defaulted production init parameter
+      (BridgePaneProductFileMetadataSource.swift:83) wired to `snapshotBuilder:` at :128, whose default is the
+      real `BridgeWorktreeFileMaterializer.buildSharedSnapshot` (the gate calls through to it at :330-334,
+      so the test is not mocking away the work — it only holds it).
+   c. `lifecycleTraceRecorder:` — the production protocol `BridgeProductMetadataLifecycleTraceRecording`
+      (BridgeProductMetadataLifecycleTraceRecorder.swift:4-8), whose production implementation is the
+      telemetry recorder. The test supplies a different conformer.
+   d. `diagnosticSnapshot()` on the source — a production diagnostic accessor, the same kind the IPC
+      projection surfaces.
+
+   VERDICT ON THE SEAMS: all four are plain dependency injection with production defaults and production
+   callers. NONE is `#if DEBUG`. I grepped `Sources/AgentStudio/Features/Bridge/` for `#if DEBUG` and the four
+   hits (BridgePaneController+DiagnosticsProbe.swift:3, BridgePaneController+Bootstrap.swift:950,
+   BridgeTelemetryRuntimePolicy.swift:5, BridgeObservabilitySmokeReviewSourceProvider.swift:4) are unrelated
+   to these hooks. So this test is FULLY COMPLIANT with the repo rule "do not add new `#if DEBUG` test hooks
+   in production files" — and it is the demonstration that the rule costs nothing: constructor injection with
+   a production default gives you a forcible interleaving without a compile-time hole, and the seam stays
+   honest because production uses it too.
+
+   ONE CAVEAT, stated so it is not oversold: `BridgeProductMetadataLifecycleTraceRecording` (c) exists partly
+   to serve observability, and the test leans on stage-level granularity (`.bootstrapStarted`,
+   `.bootstrapFinished`, :383-404). If a future refactor coarsens those stages the test breaks for a
+   non-product reason. That is a real, if modest, coupling to a telemetry vocabulary. It is still far better
+   than a `#if DEBUG` hook or a poll.
+
+VALUE: this is the template. Where the rest of this lane waits for a side effect and hopes, this one
+       invalidates admission from inside an observer and awaits a named lifecycle stage by count.
+
+VERDICT: keep-as-is, and cite it as the pattern.  CONFIDENCE: high.
+
+
+================================================================================
+(1) SUMMARY TABLE
+
+| test | verdict | one-line better design |
+| --- | --- | --- |
+| Darwin shared exact-item real stream / "fails exact-item replacements closed" | fix-wait | Replace the sentinel barrier with `DarwinFSEventStreamClient.captureActivityBarrier()` (DarwinFSEventStreamClient.swift:881) — a production flush+fence six sibling suites already use — and demote the Arrange `#expect`s at :106-113 to `#require`. |
+| Repository nested discovery continuity / "retained child stays available…" | keep-as-is | Nothing to fix; the LFS failure was environment and is already fixed in-tree (`GIT_LFS_SKIP_SMUDGE`, :84-85). Optional: clone a minimal repo instead of the workspace checkout. |
+| Pane agent launch owner / "helper authenticates … through fd bootstrap" | fix-wait (+ fix-oracle, owner decision) | Make the body `async` and bridge `DispatchSource` with `withCheckedContinuation` so the wait suspends instead of blocking a pool thread the server needs; then assert a server-side session disposition instead of the child's exit code. |
+| Bridge dev-host Review replay / "fresh File bootstrap replays every retained window" | fix-wait | After `stop()` at :71, await the owner's retirement predicate — `metadataRetirementBarriersForReload()?.isEmpty == true`, the host's own post-condition at BridgeDevelopmentProductHost.swift:866-868 — before the second `issueBootstrap`. |
+| FilesystemActorTests / "active-in-app priority order beats sidebar-only" | delete-as-duplicate | The sibling `priorityOrderingFocusedThenActiveThenSidebar` (:487) proves a strictly stronger three-tier claim with the correct single-ingress stimulus (see its comment at :506). |
+| RepoScannerValidationExecutorTests / "timeout completion retires logical custody…" | fix-oracle | Change the order-sensitive array equality at :198-201 to the file's own set comparator `hasStartedExactly` (:695); the causal ordering claim is already proved by release-then-`waitUntilStarted` at :195-196. |
+| GitWorkingDirectoryProjector explicit updates / "one explicit transition flushes owner telemetry…" | force-interleaving (via production fix) | Swap GitWorkingDirectoryProjector+RefreshAttribution.swift:194-195 (and :233-234) so telemetry is recorded before the settlement is announced; also classify this suite serial beside `GitWorkingDirectoryProjectorTests`. |
+| BridgePaneProductFileBootstrapSuspensionTests (reference) | keep-as-is | None — cite as the template: forced interleaving via defaulted production injection, continuation waits with counts, whole-struct owner-reported oracles, no `#if DEBUG`. |
+
+
+================================================================================
+(2) PATTERNS SEEN MORE THAN ONCE
+
+P1. WAITING ON A TEST-SIDE OR OS-SIDE PROXY INSTEAD OF THE OWNER'S COMPLETION FACT — 3 tests.
+    - Dev-host replay: `stop()` awaits the TEST's consumer task (support :110-113) as a proxy for the
+      SESSION's producer retirement, which is what `validateBootstrapTransition` actually checks
+      (BridgeProductSession.swift:307-313).
+    - Pane agent: awaits the child PROCESS's exit as a proxy for the SERVER's authentication.
+    - FSEvents: awaits ONE sentinel event's arrival as a proxy for the STREAM's drain.
+    In all three the proxy is downstream of, and weaker than, a fact the owner could report. In two of the
+    three (dev-host, FSEvents) the owner's fact already exists in production and is already awaitable.
+
+P2. PRECONDITIONS WRITTEN AS `#expect` INSTEAD OF `#require` — 2 tests, and it is why both failures were
+    misread. FSEvents :106-113 (an Arrange-section renewal, three statements before the behaviour under test)
+    and, more mildly, the pane-agent `#require(waitForProcessExit(...))` which IS a `#require` but whose
+    optional carries no diagnostic. An Arrange failure reported as an expectation failure tells the reader the
+    invariant broke when the fixture was not ready. Rule of thumb this lane supports: if it happens before
+    Act, it is a `#require` with a message; if it happens after, it is an `#expect`.
+
+P3. ORDER-SENSITIVE ASSERTIONS OVER CONCURRENTLY PRODUCED SEQUENCES — 2 tests, and in BOTH the correct
+    order-insensitive or single-drain form already exists a few lines away, written by the same author.
+    - RepoScanner :198-201 (array equality) vs `hasStartedExactly` :695 (set), used correctly at :180-182.
+    - FilesystemActor :478-483 (two ingress calls) vs the sibling's single ingress with the explanatory
+      comment at :506.
+    This is the most encouraging pattern in the lane: the codebase already knows the right shape; the defect
+    is inconsistent application, not missing understanding.
+
+P4. `.serialized` WITHOUT `@MainActor` DOES NOT ISOLATE, AND THE CLASSIFICATION IS EASY TO MISS — 4 suites.
+    `serialized_main_actor_suite_matches` (scripts/swift-test-helpers.sh:293-294, :362-368) requires BOTH
+    annotations. `DarwinSharedExactItemRealStreamIntegrationTests` and `PaneAgentLaunchOwnerTests` are saved
+    only because someone listed them BY NAME in `large_process_global_suite_filters` (:298-300) and
+    `large_serial_non_webkit_filter_pattern` (:278-282). `FilesystemActorTests` and
+    `GitWorkingDirectoryProjectorExplicitUpdateTests` are in neither, and run in the fully concurrent lane —
+    the latter driving the same actor as its explicitly-serialized sibling
+    `GitWorkingDirectoryProjectorTests` (:398-400). Name-list membership is invisible from the test file, so
+    a reader of the test cannot tell which lane it is in.
+
+P5. THE BARRIER EXISTS IN PRODUCTION AND THE TEST DOES NOT USE IT — 2 tests, and this is the cheapest class of
+    fix in the lane because it costs nothing.
+    - FSEvents: `captureActivityBarrier()` is `package`, `@concurrent nonisolated`, and used by six sibling
+      suites; this fixture acknowledges the fences it sees and throws them away (support :97-100, :348-351).
+    - Dev-host: `metadataRetirementBarriersForReload()` + `BridgeProductProducerRetirementBarrier.wait()` are
+      exactly what the host itself awaits (BridgeDevelopmentProductHost.swift:860-868); the test awaits
+      neither.
+
+
+================================================================================
+(3) WHAT SURPRISED ME
+
+S1. The strongest finding in this lane is a PRODUCTION ordering bug, not a test bug.
+    `GitWorkingDirectoryProjector+RefreshAttribution.swift:194-195` announces the settlement and THEN records
+    the telemetry. Because `resolve` hands off across executors (RepositoryFactSourceUpdate.swift:56-73), ANY
+    consumer — not just this test — can observe "settled" in a state where the settlement is not yet recorded.
+    I went looking for a test-side barrier and found that the right fix is a two-line swap in production that
+    makes the contract stronger for everyone. The flaky test was reporting a real, if small, defect. That is
+    the opposite of this lane's usual story and it is worth saying out loud before the remediation work starts
+    treating every red test as a test-quality problem.
+
+S2. The FSEvents fixture is not missing a barrier; it is ignoring one it can already see.
+    `collectFullGitRefreshBatches` and `collectLocalSentinelBatches` both pattern-match
+    `.activityProcessingFence`, acknowledge it, and `continue` (support :97-100, :348-351). The fence flows
+    through the fixture's own hands on every run. Meanwhile `captureActivityBarrier()` — which flushes both
+    stream families with `FSEventStreamFlushSync` AND awaits a fence AND re-validates topology — sits one
+    `private` keyword away, used by six sibling suites in the same directory. The evidence report framed this
+    as "the fixture never enqueues a fence", which understates it: the complete, correct, production-owned
+    barrier was already built, already adopted next door, and simply not reached for here.
+
+S3. Two of the eight tests are provably redundant or near-redundant with a BETTER sibling in the same file.
+    `activeInAppPriorityWinsQueueOrder` is a strict subset of `priorityOrderingFocusedThenActiveThenSidebar`
+    — and the sibling is not only stronger but explicitly documents, in a code comment (:506), the exact
+    stimulus discipline whose absence makes the weaker test flaky. Nobody went back and fixed the older one.
+    Test suites accrete this way; a flake inventory is a good moment to prune.
+
+S4. `BridgePaneProductFileBootstrapSuspensionTests` achieves 100% determinism with ZERO test-only production
+    hooks. Every seam it uses is a defaulted constructor parameter or a protocol that production itself
+    consumes (BridgePaneProductFileMetadataSource.swift:80, :83; BridgePaneController+Bootstrap.swift:599).
+    The repo rule "do not add new `#if DEBUG` test hooks in production files" is often argued as a cost;
+    here it is demonstrably free, and the resulting seam is BETTER than a debug hook because production
+    exercises it, so it cannot rot.
+
+S5. The one test in this lane whose failure message was genuinely good — the dev-host replay's typed
+    `sessionAlreadyOpen` — is also the one most likely to be misdiagnosed, because the message describes a
+    legitimate product refusal. A well-named error is not the same as a well-attributed failure. Whatever the
+    remediation does about messages, "the refusal is typed" should not be mistaken for "the reader will know
+    it was a self-inflicted race".

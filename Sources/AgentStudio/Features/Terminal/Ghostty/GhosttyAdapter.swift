@@ -845,6 +845,8 @@ final class GhosttyAdapter: Sendable {
                 .text
             case UInt32(truncatingIfNeeded: GHOSTTY_ACTION_OPEN_URL_KIND_HTML.rawValue):
                 .html
+            case UInt32(truncatingIfNeeded: GHOSTTY_ACTION_OPEN_URL_KIND_OSC8.rawValue):
+                .osc8
             default:
                 .unknown
             }

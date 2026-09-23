@@ -24,7 +24,23 @@ extension BridgeSchemeHandler {
         continuation: AsyncThrowingStream<URLSchemeTaskResult, any Error>.Continuation
     ) {
         let route = request.url?.absoluteString ?? "missing-url"
+        // Minted here, before the task, so the census entry and the transport
+        // claim are one identity and `onTermination` can mark an id that the
+        // claim will later finish.
+        let schemeTaskId = UUID()
+        let schemeRoute = request.url.flatMap(BridgeProductSchemeRoute.classify)
+        let census = productSessionRouter?.schemeTaskCensus
+        if schemeRoute == .metadataStream {
+            census?.start(schemeTaskId)
+        }
         let task = Task {
+            // One exit point for the census: every early return below unwinds
+            // through this, so no path can leave a started id behind.
+            defer {
+                if schemeRoute == .metadataStream {
+                    census?.finish(schemeTaskId)
+                }
+            }
             bridgeProductSchemeTaskLogger.debug("Product scheme task started route=\(route, privacy: .public)")
             guard !Task.isCancelled else {
                 bridgeProductSchemeTaskLogger.debug(
@@ -57,7 +73,9 @@ extension BridgeSchemeHandler {
                 return
             }
             let transportAdmission = await productSessionRouter.claimActiveAdapter(
-                presentedCapability: presentedCapability
+                presentedCapability: presentedCapability,
+                schemeTaskId: schemeTaskId,
+                route: schemeRoute
             )
             let transportClaim: BridgeProductSchemeTransportClaim
             switch transportAdmission {
@@ -100,7 +118,36 @@ extension BridgeSchemeHandler {
             bridgeProductSchemeTaskLogger.debug(
                 "Product scheme consumer terminated route=\(route, privacy: .public) termination=\(String(describing: termination), privacy: .public)"
             )
-            task.cancel()
+            Self.recordSchemeTaskTermination(
+                census: schemeRoute == .metadataStream ? census : nil,
+                schemeTaskId: schemeTaskId,
+                cancel: { task.cancel() }
+            )
+        }
+    }
+
+    /// Marks the stream's teardown before cancelling it, so the bootstrap gate can
+    /// tell "this stream is dead, its retirement has simply not been written yet"
+    /// from "this stream is live".
+    private static func recordSchemeTaskTermination(
+        census: BridgeProductSchemeTaskCensus?,
+        schemeTaskId: UUID,
+        cancel: @escaping @Sendable () -> Void
+    ) {
+        guard let census else {
+            cancel()
+            return
+        }
+        census.markTerminated(schemeTaskId)
+        guard census.holdsTerminationObserver else {
+            // Production path: cancellation stays exactly as synchronous as before.
+            cancel()
+            return
+        }
+        // Tests only, and only when an observer was supplied.
+        Task {
+            await census.awaitTerminationObserver(schemeTaskId)
+            cancel()
         }
     }
 

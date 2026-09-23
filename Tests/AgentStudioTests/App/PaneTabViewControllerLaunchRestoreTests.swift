@@ -66,6 +66,7 @@ struct PaneTabViewControllerLaunchRestoreTests {
             surfaceManager: surfaceManager,
             runtimeRegistry: .shared,
             windowLifecycleStore: windowLifecycleStore,
+            ipcLifecycle: .testUnavailable,
             bridgePaneAttendance: atomRegistry.bridgePaneAttendance
         )
         coordinator.sessionConfig = fixtureSessionConfiguration
@@ -88,6 +89,7 @@ struct PaneTabViewControllerLaunchRestoreTests {
             viewRegistry: viewRegistry,
             bridgePaneAttendance: atomRegistry.bridgePaneAttendance,
             editorChooser: atomRegistry.editorChooser,
+            heldPanePreviewState: HeldPanePreviewState(),
             registersAsCommandHandler: false
         )
         let window = NSWindow(

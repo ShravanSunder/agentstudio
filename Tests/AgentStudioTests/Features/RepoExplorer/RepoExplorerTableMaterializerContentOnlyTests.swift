@@ -240,7 +240,8 @@ struct RepoExplorerTableMaterializerContentOnlyTests {
             requestGeneration: requestGeneration,
             visibleGeneration: requestGeneration,
             snapshot: snapshot,
-            tableUpdatePlan: tablePlan
+            tableUpdatePlan: tablePlan,
+            selectedRowID: nil
         )
     }
 }

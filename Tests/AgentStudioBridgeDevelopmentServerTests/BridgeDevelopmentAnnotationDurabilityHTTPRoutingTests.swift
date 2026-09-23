@@ -13,11 +13,11 @@ struct BridgeAnnotationDurabilityHTTPRoutingTests {
     @Test("root and five replies persist through product HTTP and SQLite restart")
     func rootAndFiveRepliesPersistThroughProductHTTPAndSQLiteRestart() async throws {
         // Arrange
-        let repositoryURL = try FilesystemTestGitRepo.create(
+        let repositoryURL = try await FilesystemTestGitRepo.create(
             named: "bridge-development-http-annotation-root-five-replies"
         )
         defer { FilesystemTestGitRepo.destroy(repositoryURL) }
-        try FilesystemTestGitRepo.seedTrackedAndUntrackedChanges(at: repositoryURL)
+        try await FilesystemTestGitRepo.seedTrackedAndUntrackedChanges(at: repositoryURL)
         let paneID = PaneId.generateUUIDv7().uuid
         let dataRoot = FileManager.default.temporaryDirectory.appending(
             path: "bridge-development-http-annotation-root-five-replies-\(paneID.uuidString)",

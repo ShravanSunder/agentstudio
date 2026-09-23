@@ -151,8 +151,8 @@ extension WorkspaceTabArrangementAtom {
 @MainActor
 @Observable
 package final class WorkspaceTabArrangementAtom {
-    let graphAtom: WorkspaceTabGraphAtom
-    let cursorAtom: WorkspaceArrangementCursorAtom
+    package let graphAtom: WorkspaceTabGraphAtom
+    package let cursorAtom: WorkspaceArrangementCursorAtom
     package let presentationAtom: WorkspacePanePresentationAtom
 
     package init(
@@ -245,6 +245,36 @@ package final class WorkspaceTabArrangementAtom {
             )
         else {
             workspaceTabArrangementLogger.warning("insertPane: rejected layout insertion")
+            return false
+        }
+        arrangementStates[tabIndex] = updatedState
+        return true
+    }
+
+    @discardableResult
+    package func insertNewPane(
+        _ paneId: UUID,
+        inTab tabId: UUID,
+        at targetPaneId: UUID,
+        direction: Layout.SplitDirection,
+        position: Layout.Position,
+        sizingMode: DropSizingMode
+    ) -> Bool {
+        guard let tabIndex = findTabIndex(tabId) else {
+            workspaceTabArrangementLogger.warning("insertNewPane: tab \(tabId) not found")
+            return false
+        }
+        guard
+            let updatedState = TabArrangementMutationRules.insertingNewPane(
+                paneId,
+                in: arrangementStates[tabIndex],
+                at: targetPaneId,
+                direction: direction,
+                position: position,
+                sizingMode: sizingMode
+            )
+        else {
+            workspaceTabArrangementLogger.warning("insertNewPane: rejected layout insertion")
             return false
         }
         arrangementStates[tabIndex] = updatedState
@@ -443,6 +473,36 @@ package final class WorkspaceTabArrangementAtom {
                     parentPaneId: parentPaneId,
                     drawerId: drawerId, targetDrawerPaneId: targetDrawerPaneId,
                     direction: direction, sizingMode: sizingMode))
+        else { return }
+        arrangementStates[tabIndex] = updated
+    }
+
+    package func addNewDrawerPaneView(
+        drawerId: UUID,
+        parentPaneId: UUID,
+        drawerPaneId: UUID,
+        inTab tabId: UUID,
+        targetDrawerPaneId: UUID? = nil,
+        direction: SplitNewDirection = .right,
+        sizingMode: DropSizingMode = .halveTarget
+    ) {
+        guard let tabIndex = findTabIndex(tabId) else {
+            workspaceTabArrangementLogger.warning("addNewDrawerPaneView: tab \(tabId) not found")
+            return
+        }
+
+        guard
+            let updated = TabArrangementMutationRules.insertingNewDrawerPane(
+                drawerPaneId,
+                in: arrangementStates[tabIndex],
+                insertion: .init(
+                    parentPaneId: parentPaneId,
+                    drawerId: drawerId,
+                    targetDrawerPaneId: targetDrawerPaneId,
+                    direction: direction,
+                    sizingMode: sizingMode
+                )
+            )
         else { return }
         arrangementStates[tabIndex] = updated
     }

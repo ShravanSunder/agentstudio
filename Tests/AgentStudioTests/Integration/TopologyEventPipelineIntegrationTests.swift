@@ -465,17 +465,30 @@ struct TopologyEventPipelineIntegrationTests {
                 watchedPaths[0]: [],
                 watchedPaths[1]: [RepoScanner.RepoScanGroup(clonePath: sharedClone, linkedWorktreePaths: [])],
             ])
+            // Barrier on PUBLISHED FACTS, not on a currentness filter. The refresh
+            // publishes both reconciliations before it returns, but the bus post
+            // precedes the continuation resume, so the coordinator it wakes can
+            // already have re-submitted scans and made every prior receipt
+            // non-current by the time the test samples. Sequences are monotonic,
+            // so "a reconciliation for this root newer than what we had" is a fact
+            // that only moves forward.
+            let sequenceBeforeRefresh =
+                await recorder.snapshot()
+                .compactMap { envelope -> UInt64? in
+                    guard case .system(let system) = envelope else { return nil }
+                    return system.seq
+                }
+                .max() ?? 0
             _ = await harness.refreshWatchedFolders(watchedPaths)
 
-            let receipts = await harness.discoveryActor.currentWatchedFolderObservationReceipts()
-            #expect(receipts.count == watchedPaths.count)
-            for receipt in receipts {
+            for watchedPath in watchedPaths {
                 _ = await recorder.firstEvent { envelope in
                     guard case .system(let system) = envelope,
                         case .topology(.watchedFolderReconciled(let observation)) = system.event
                     else { return false }
-                    return system.seq == receipt.sequence
-                        && observation.registration.sourceID == receipt.observation.registration.sourceID
+                    return system.seq > sequenceBeforeRefresh
+                        && observation.root.standardizedFileURL
+                            == watchedPath.path.standardizedFileURL
                 }
             }
             // Dequeuing this no-op physical fact proves the preceding async reconciliation finished.

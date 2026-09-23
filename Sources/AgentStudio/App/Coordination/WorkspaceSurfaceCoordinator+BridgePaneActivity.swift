@@ -68,7 +68,7 @@ extension WorkspaceSurfaceCoordinator {
         applyBridgePaneActivityInputs(captureBridgePaneActivityInputs())
     }
 
-    private func restartBridgePaneActivityObservation() {
+    func restartBridgePaneActivityObservation() {
         bridgePaneActivityObservationGeneration &+= 1
         observeBridgePaneActivityInputs(generation: bridgePaneActivityObservationGeneration)
     }
@@ -89,6 +89,7 @@ extension WorkspaceSurfaceCoordinator {
 
     private func captureBridgePaneActivityInputs() -> [BridgePaneActivityInput] {
         let paneGraph = store.paneAtom.graphAtom
+        let heldPreviewTarget = currentHeldPreviewTarget()
         let bridgePaneFacts: [PaneStructuralFacts] = paneGraph.paneIDs.compactMap { paneID in
             guard let paneFacts = paneGraph.paneStructuralFacts(paneID), paneFacts.isBridgeEligible else {
                 return nil
@@ -100,6 +101,9 @@ extension WorkspaceSurfaceCoordinator {
             let isControllerInstalled =
                 viewRegistry.allBridgeViews[paneFacts.paneID] != nil
                 && bridgePaneRetirementTasksByPaneId[paneFacts.paneID] == nil
+            let isTransientlyPresented = heldPreviewTarget?.target.paneID == paneFacts.paneID
+            let isCoveredByTransientPresentation =
+                heldPreviewTarget != nil && !isTransientlyPresented
             return BridgePaneActivityInput(
                 paneId: paneFacts.paneID,
                 resolvedWorktree: store.repositoryTopologyAtom.validatedAssociation(
@@ -114,7 +118,9 @@ extension WorkspaceSurfaceCoordinator {
                     isInExpandedDrawer: workspaceFacts.isInExpandedDrawer,
                     isMinimized: workspaceFacts.isMinimized,
                     isZoomExcluded: workspaceFacts.isZoomExcluded,
-                    isAuthorityClosed: false
+                    isAuthorityClosed: false,
+                    isTransientlyPresented: isTransientlyPresented,
+                    isCoveredByTransientPresentation: isCoveredByTransientPresentation
                 )
             )
         }
@@ -149,7 +155,10 @@ extension WorkspaceSurfaceCoordinator {
                         isInExpandedDrawer: false,
                         isMinimized: false,
                         isZoomExcluded: !isVisibleZoom,
-                        isAuthorityClosed: false
+                        isAuthorityClosed: false,
+                        isTransientlyPresented: heldPreviewTarget?.target.paneID == companion.companionPaneId,
+                        isCoveredByTransientPresentation: heldPreviewTarget != nil
+                            && heldPreviewTarget?.target.paneID != companion.companionPaneId
                     )
                 )
             }

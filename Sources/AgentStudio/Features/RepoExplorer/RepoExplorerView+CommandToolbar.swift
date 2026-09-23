@@ -17,13 +17,16 @@ extension RepoExplorerView {
                     value: command,
                     label: command.definition.label,
                     accessibilityIdentifier: "sidebarSurface.\(command.rawValue)",
-                    tooltipValue: command.definition.controlTooltipRenderValue(),
+                    tooltipValue: command.definition.controlTooltipRenderValue(
+                        shortcutTextOverride: sidebarShortcutDisplay(for: command)
+                    ),
                     isEnabled: presentation.command(command)?.isEnabled == true
                 )
             },
             selection: repoExplorerPrefs.sidebarSurface == .repos ? .showReposSidebar : .showPanesSidebar,
             octiconLoader: octiconLoader,
             entityIcon: { $0 == .showReposSidebar ? .repo : .pane },
+            shortcutDisplay: sidebarShortcutDisplay,
             onSelect: { command in commandDispatcher.dispatch(command) }
         )
         .accessibilityIdentifier("sidebarSurfaceSelector")
@@ -32,28 +35,25 @@ extension RepoExplorerView {
     var repoToolbarRow: some View {
         let presentation = RepoExplorerToolbarCommandPresentation.resolve(snapshot: commandPresentationSnapshot)
         let isPanes = repoExplorerPrefs.sidebarSurface == .panes
-        let sortCommands: [AppCommand] =
-            isPanes
-            ? [.setPanesSortFieldName, .setPanesSortFieldActivity]
-            : [.setReposSortFieldName, .setReposSortFieldActivity]
-        let groupingCommands: [AppCommand] =
-            isPanes
-            ? [.setPanesGroupingRepo, .setPanesGroupingTab, .setPanesGroupingActivity]
-            : [.setReposGroupingRepo, .setReposGroupingActivity]
         return HStack(spacing: AppStyles.General.Spacing.tight) {
             Spacer(minLength: 0)
             commandToggle(
                 isPanes ? .togglePanesShowsPinned : .toggleReposShowsPinned,
                 selected: repoExplorerPrefs.showsPinned, presentation: presentation
             )
-            SidebarToolbarDivider()
-            sortDirectionButton(
-                isPanes ? .togglePanesSortDirection : .toggleReposSortDirection,
-                presentation: presentation
-            )
-            sortFieldSelector(commands: sortCommands, presentation: presentation)
-            SidebarToolbarDivider()
-            groupingSelector(commands: groupingCommands, presentation: presentation)
+            if !isPanes {
+                SidebarToolbarDivider()
+                sortDirectionButton(.toggleReposSortDirection, presentation: presentation)
+                sortFieldSelector(
+                    commands: [.setReposSortFieldName, .setReposSortFieldActivity],
+                    presentation: presentation
+                )
+                SidebarToolbarDivider()
+                groupingSelector(
+                    commands: [.setReposGroupingRepo, .setReposGroupingActivity],
+                    presentation: presentation
+                )
+            }
         }
         .accessibilityIdentifier("repoSidebarToolbarRow")
         .onChange(of: repoExplorerPrefs.sidebarSurface) { _, _ in openOrganizationSelector = nil }
@@ -111,7 +111,6 @@ extension RepoExplorerView {
         let organizationAction = LocalActionSpec.showRepoExplorerOrganization.actionSpec
         let groupingAction = LocalActionSpec.groupRepoExplorerWorktrees.actionSpec
         let subgroupAction = LocalActionSpec.subgroupRepoExplorerWorktrees.actionSpec
-        let subgroupCommand = currentSubgroupCommand
         return SidebarToolbarPickerButton(
             label: organizationAction.label,
             selectionLabel: groupingSelectionLabel,
@@ -135,16 +134,7 @@ extension RepoExplorerView {
                         options: commandOptions(commands, presentation: presentation),
                         selection: groupingCommand
                     ),
-                    subgroup: subgroupCommand.map { selectedSubgroupCommand in
-                        SidebarOrganizationPopoverSection(
-                            title: subgroupAction.label,
-                            options: commandOptions(
-                                [.setPanesSubgroupNone, .setPanesSubgroupActivity],
-                                presentation: presentation
-                            ),
-                            selection: selectedSubgroupCommand
-                        )
-                    },
+                    subgroup: nil,
                     subgroupTitle: subgroupAction.label,
                     unavailableSubgroupText: LocalActionSpec.noRepoExplorerSubgroups.actionSpec.label,
                     unavailableSubgroupIcon: {
@@ -187,34 +177,11 @@ extension RepoExplorerView {
     }
 
     private var groupingCommand: AppCommand {
-        switch (repoExplorerPrefs.sidebarSurface, repoExplorerPrefs.groupingMode) {
-        case (.repos, .repo), (.inbox, .repo), (.repos, .tab), (.inbox, .tab):
-            .setReposGroupingRepo
-        case (.repos, .activity), (.inbox, .activity):
-            .setReposGroupingActivity
-        case (.panes, .repo):
-            .setPanesGroupingRepo
-        case (.panes, .tab):
-            .setPanesGroupingTab
-        case (.panes, .activity):
-            .setPanesGroupingActivity
-        }
-    }
-
-    private var currentSubgroupCommand: AppCommand? {
-        guard repoExplorerPrefs.sidebarSurface == .panes,
-            repoExplorerPrefs.groupingMode != .activity
-        else {
-            return nil
-        }
-        return repoExplorerPrefs.subgroupMode == .ungrouped
-            ? .setPanesSubgroupNone : .setPanesSubgroupActivity
+        repoExplorerPrefs.groupingMode == .activity ? .setReposGroupingActivity : .setReposGroupingRepo
     }
 
     private var groupingSelectionLabel: String {
-        [groupingCommand, currentSubgroupCommand]
-            .compactMap { $0?.definition.label }
-            .joined(separator: " → ")
+        groupingCommand.definition.label
     }
 
     private func organizationSelectorBinding(
@@ -222,19 +189,26 @@ extension RepoExplorerView {
     ) -> Binding<Bool> {
         Binding(
             get: { openOrganizationSelector == selector },
-            set: { openOrganizationSelector = $0 ? selector : nil }
+            set: { setOrganizationSelector($0 ? selector : nil) }
         )
     }
 
     private func toggleOrganizationSelector(_ selector: RepoExplorerOrganizationSelector) {
-        openOrganizationSelector = openOrganizationSelector == selector ? nil : selector
+        setOrganizationSelector(openOrganizationSelector == selector ? nil : selector)
+    }
+
+    private func setOrganizationSelector(_ selector: RepoExplorerOrganizationSelector?) {
+        let isOpeningSelector = openOrganizationSelector == nil && selector != nil
+        openOrganizationSelector = selector
+        if isOpeningSelector {
+            onPreviewEligibilityLoss()
+        }
     }
 
     private func controlAccessibilityIdentifier(_ command: AppCommand) -> String {
         switch command {
-        case .setReposGroupingRepo, .setPanesGroupingRepo: "repoSidebarGroupingSegment.repo"
-        case .setPanesGroupingTab: "repoSidebarGroupingSegment.tab"
-        case .setReposGroupingActivity, .setPanesGroupingActivity: "repoSidebarGroupingSegment.activity"
+        case .setReposGroupingRepo: "repoSidebarGroupingSegment.repo"
+        case .setReposGroupingActivity: "repoSidebarGroupingSegment.activity"
         default: "sidebarOrganization.\(command.rawValue)"
         }
     }

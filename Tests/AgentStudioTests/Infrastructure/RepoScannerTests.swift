@@ -14,13 +14,13 @@ struct RepoScannerTests {
         let fm = FileManager.default
 
         // Level 1: repo-a
-        try initializeGitRepository(at: tmp.appending(path: "repo-a"))
+        try await initializeGitRepository(at: tmp.appending(path: "repo-a"))
         // Level 2: group/repo-b
-        try initializeGitRepository(at: tmp.appending(path: "group/repo-b"))
+        try await initializeGitRepository(at: tmp.appending(path: "group/repo-b"))
         // Level 3: org/team/repo-c
-        try initializeGitRepository(at: tmp.appending(path: "org/team/repo-c"))
+        try await initializeGitRepository(at: tmp.appending(path: "org/team/repo-c"))
         // Level 4 (too deep): org/team/sub/repo-d
-        try initializeGitRepository(at: tmp.appending(path: "org/team/sub/repo-d"))
+        try await initializeGitRepository(at: tmp.appending(path: "org/team/sub/repo-d"))
         // Not a repo: no-git/
         try fm.createDirectory(at: tmp.appending(path: "no-git"), withIntermediateDirectories: true)
 
@@ -46,7 +46,7 @@ struct RepoScannerTests {
         let tmp = FileManager.default.temporaryDirectory
             .appending(path: "scanner-skip-\(UUID().uuidString)")
         let repoPath = tmp.appending(path: "repo")
-        try initializeGitRepository(at: repoPath)
+        try await initializeGitRepository(at: repoPath)
         try FileManager.default.createDirectory(
             at: repoPath.appending(path: ".git/modules/sub/.git"),
             withIntermediateDirectories: true
@@ -70,9 +70,9 @@ struct RepoScannerTests {
         let tmp = FileManager.default.temporaryDirectory
             .appending(path: "scanner-sort-\(UUID().uuidString)")
 
-        try initializeGitRepository(at: tmp.appending(path: "zebra"))
-        try initializeGitRepository(at: tmp.appending(path: "alpha"))
-        try initializeGitRepository(at: tmp.appending(path: "middle"))
+        try await initializeGitRepository(at: tmp.appending(path: "zebra"))
+        try await initializeGitRepository(at: tmp.appending(path: "alpha"))
+        try await initializeGitRepository(at: tmp.appending(path: "middle"))
 
         // Act
         let repos = await RepoScanner().scanForGitRepos(in: tmp, maxDepth: 3)
@@ -115,10 +115,10 @@ struct RepoScannerTests {
             withIntermediateDirectories: true
         )
         // Child repos under a .git boundary must not be discovered.
-        try initializeGitRepository(at: tmp.appending(path: "-worktrees/agent-studio/feature-a"))
-        try initializeGitRepository(at: tmp.appending(path: "-worktrees/askluna-finance/transaction-table-3"))
+        try await initializeGitRepository(at: tmp.appending(path: "-worktrees/agent-studio/feature-a"))
+        try await initializeGitRepository(at: tmp.appending(path: "-worktrees/askluna-finance/transaction-table-3"))
         // Sibling repo outside the .git boundary should still be discovered.
-        try initializeGitRepository(at: tmp.appending(path: "standalone-repo"))
+        try await initializeGitRepository(at: tmp.appending(path: "standalone-repo"))
 
         // Act
         let repos = await RepoScanner().scanForGitRepos(in: tmp, maxDepth: 4)
@@ -154,7 +154,7 @@ struct RepoScannerTests {
         )
 
         // Make valid-repo pass real git validation.
-        try initializeGitRepository(at: validRepoPath)
+        try await initializeGitRepository(at: validRepoPath)
 
         // Act
         let repos = await RepoScanner().scanForGitRepos(in: tmp, maxDepth: 2)
@@ -190,24 +190,24 @@ struct RepoScannerTests {
         defer { try? fm.removeItem(at: tmp) }
 
         let submoduleSourcePath = tmp.appending(path: "ghostty-source")
-        try initializeGitRepository(at: submoduleSourcePath)
+        try await initializeGitRepository(at: submoduleSourcePath)
         try "ghostty\n".write(
             to: submoduleSourcePath.appending(path: "README.md"),
             atomically: true,
             encoding: .utf8
         )
-        try runGit(
+        try await runGit(
             at: submoduleSourcePath,
             args: ["add", "README.md"]
         )
-        try runGit(
+        try await runGit(
             at: submoduleSourcePath,
             args: ["commit", "-m", "Initial commit"]
         )
 
         let superRepoPath = tmp.appending(path: "agent-studio.window-system")
-        try initializeGitRepository(at: superRepoPath)
-        try runGit(
+        try await initializeGitRepository(at: superRepoPath)
+        try await runGit(
             at: superRepoPath,
             args: [
                 "-c", "protocol.file.allow=always",
@@ -240,10 +240,10 @@ struct RepoScannerTests {
         defer { try? fm.removeItem(at: tmp) }
 
         let externalRepoPath = tmp.appending(path: "external-real-repo")
-        try initializeGitRepository(at: externalRepoPath)
+        try await initializeGitRepository(at: externalRepoPath)
         try "real\n".write(to: externalRepoPath.appending(path: "README.md"), atomically: true, encoding: .utf8)
-        try runGit(at: externalRepoPath, args: ["add", "README.md"])
-        try runGit(at: externalRepoPath, args: ["commit", "-m", "Seed external repo"])
+        try await runGit(at: externalRepoPath, args: ["add", "README.md"])
+        try await runGit(at: externalRepoPath, args: ["commit", "-m", "Seed external repo"])
 
         let scannedRoot = tmp.appending(path: "watched")
         let decoyPath = scannedRoot.appending(path: "decoy")
@@ -270,11 +270,11 @@ struct RepoScannerTests {
 
         let repoPath = tmp.appending(path: "app")
         let linkedWorktreePath = tmp.appending(path: "app-feature")
-        try initializeGitRepository(at: repoPath)
+        try await initializeGitRepository(at: repoPath)
         try "main\n".write(to: repoPath.appending(path: "README.md"), atomically: true, encoding: .utf8)
-        try runGit(at: repoPath, args: ["add", "README.md"])
-        try runGit(at: repoPath, args: ["commit", "-m", "Seed app"])
-        try runGit(at: repoPath, args: ["worktree", "add", "-b", "feature/grouped", linkedWorktreePath.path])
+        try await runGit(at: repoPath, args: ["add", "README.md"])
+        try await runGit(at: repoPath, args: ["commit", "-m", "Seed app"])
+        try await runGit(at: repoPath, args: ["worktree", "add", "-b", "feature/grouped", linkedWorktreePath.path])
 
         let groups = await RepoScanner().scanForGitReposGrouped(in: tmp, maxDepth: 2)
 
@@ -294,7 +294,7 @@ struct RepoScannerTests {
         let realRoot = tmp.appending(path: "real")
         let linkedRoot = tmp.appending(path: "linked")
         let repoPath = realRoot.appending(path: "app")
-        try initializeGitRepository(at: repoPath)
+        try await initializeGitRepository(at: repoPath)
         try fm.createSymbolicLink(atPath: linkedRoot.path, withDestinationPath: realRoot.path)
 
         let repos = await RepoScanner().scanForGitRepos(in: linkedRoot, maxDepth: 2)
@@ -313,11 +313,11 @@ struct RepoScannerTests {
         let repoPath = tmp.appending(path: "app")
         let linkedWorktreePath = tmp.appending(path: "app-feature")
         let aliasPath = tmp.appending(path: "app-alias")
-        try initializeGitRepository(at: repoPath)
+        try await initializeGitRepository(at: repoPath)
         try "main\n".write(to: repoPath.appending(path: "README.md"), atomically: true, encoding: .utf8)
-        try runGit(at: repoPath, args: ["add", "README.md"])
-        try runGit(at: repoPath, args: ["commit", "-m", "Seed linked alias"])
-        try runGit(at: repoPath, args: ["worktree", "add", "-b", "feature/alias", linkedWorktreePath.path])
+        try await runGit(at: repoPath, args: ["add", "README.md"])
+        try await runGit(at: repoPath, args: ["commit", "-m", "Seed linked alias"])
+        try await runGit(at: repoPath, args: ["worktree", "add", "-b", "feature/alias", linkedWorktreePath.path])
         try fm.createSymbolicLink(atPath: aliasPath.path, withDestinationPath: repoPath.path)
         try "gitdir: \(aliasPath.path)/.git/worktrees/app-feature\n".write(
             to: linkedWorktreePath.appending(path: ".git"),
@@ -342,7 +342,7 @@ struct RepoScannerTests {
 
         let worktreePath = tmp.appending(path: "separate-worktree")
         let gitDirectoryPath = tmp.appending(path: "shared.git")
-        try runGit(at: tmp, args: ["init", "--separate-git-dir", gitDirectoryPath.path, worktreePath.path])
+        try await runGit(at: tmp, args: ["init", "--separate-git-dir", gitDirectoryPath.path, worktreePath.path])
 
         let repos = await RepoScanner().scanForGitRepos(in: tmp, maxDepth: 2)
 
@@ -360,14 +360,15 @@ struct RepoScannerTests {
         let worktreePath = tmp.appending(path: "separate-worktree")
         let linkedWorktreePath = tmp.appending(path: "separate-feature")
         let gitDirectoryPath = tmp.appending(path: "shared.git")
-        try runGit(at: tmp, args: ["init", "--separate-git-dir", gitDirectoryPath.path, worktreePath.path])
-        try runGit(at: worktreePath, args: ["config", "user.email", "scanner-tests@example.com"])
-        try runGit(at: worktreePath, args: ["config", "user.name", "Scanner Tests"])
-        try runGit(at: worktreePath, args: ["config", "commit.gpgsign", "false"])
+        try await runGit(at: tmp, args: ["init", "--separate-git-dir", gitDirectoryPath.path, worktreePath.path])
+        try await runGit(at: worktreePath, args: ["config", "user.email", "scanner-tests@example.com"])
+        try await runGit(at: worktreePath, args: ["config", "user.name", "Scanner Tests"])
+        try await runGit(at: worktreePath, args: ["config", "commit.gpgsign", "false"])
         try "main\n".write(to: worktreePath.appending(path: "README.md"), atomically: true, encoding: .utf8)
-        try runGit(at: worktreePath, args: ["add", "README.md"])
-        try runGit(at: worktreePath, args: ["commit", "-m", "Seed separate git dir"])
-        try runGit(at: worktreePath, args: ["worktree", "add", "-b", "feature/separate", linkedWorktreePath.path])
+        try await runGit(at: worktreePath, args: ["add", "README.md"])
+        try await runGit(at: worktreePath, args: ["commit", "-m", "Seed separate git dir"])
+        try await runGit(
+            at: worktreePath, args: ["worktree", "add", "-b", "feature/separate", linkedWorktreePath.path])
 
         let groups = await RepoScanner().scanForGitReposGrouped(in: tmp, maxDepth: 2)
 
@@ -389,28 +390,35 @@ struct RepoScannerTests {
         #expect(!discoveredPaths.contains(canonicalPath(ghosttyPath)))
     }
 
-    private func initializeGitRepository(at path: URL) throws {
+    private func initializeGitRepository(at path: URL) async throws {
         try FileManager.default.createDirectory(at: path, withIntermediateDirectories: true)
-        try runGit(at: path, args: ["init"])
-        try runGit(at: path, args: ["config", "user.email", "scanner-tests@example.com"])
-        try runGit(at: path, args: ["config", "user.name", "Scanner Tests"])
-        try runGit(at: path, args: ["config", "commit.gpgsign", "false"])
+        try await runGit(at: path, args: ["init"])
+        try await runGit(at: path, args: ["config", "user.email", "scanner-tests@example.com"])
+        try await runGit(at: path, args: ["config", "user.name", "Scanner Tests"])
+        try await runGit(at: path, args: ["config", "commit.gpgsign", "false"])
     }
 
-    private func runGit(at path: URL, args: [String]) throws {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        process.arguments = ["git", "-C", path.path] + args
-        let errorPipe = Pipe()
-        process.standardError = errorPipe
-        try process.run()
-        process.waitUntilExit()
-        guard process.terminationStatus == 0 else {
-            let stderr = String(data: errorPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-            Issue.record("git command failed: \(args.joined(separator: " ")) stderr=\(stderr)")
-            throw NSError(domain: "RepoScannerTests", code: Int(process.terminationStatus))
+    /// Fixture `git` runs go through the shared executor because it drains stdout and
+    /// stderr concurrently with the child and joins on exit plus both EOFs. Waiting for
+    /// exit first deadlocks as soon as a `git` invocation outgrows the pipe buffer, and it
+    /// parks a cooperative-pool thread — on a three-core runner that starves the lane.
+    private func runGit(at path: URL, args: [String]) async throws {
+        let result = try await Self.gitExecutor.execute(
+            command: "git",
+            args: ["-C", path.path] + args,
+            cwd: nil,
+            environment: nil
+        )
+        guard result.succeeded else {
+            Issue.record("git command failed: \(args.joined(separator: " ")) stderr=\(result.stderr)")
+            throw NSError(domain: "RepoScannerTests", code: result.exitCode)
         }
     }
+
+    /// A hang bound, not a wait: it sits far above any healthy fixture `git` call, so the
+    /// verdict stays a function of git's behavior rather than of machine speed. It exists
+    /// only to turn a wedged child into a reported failure instead of a stuck lane.
+    private static let gitExecutor = DefaultProcessExecutor(timeout: 120)
 
     private func canonicalPath(_ url: URL) -> String {
         url.standardizedFileURL.resolvingSymlinksInPath().path

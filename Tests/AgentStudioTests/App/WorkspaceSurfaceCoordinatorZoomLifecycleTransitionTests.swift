@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Testing
 
@@ -8,11 +9,12 @@ import Testing
 extension WebKitSerializedTests.WorkspaceSurfaceCoordinatorZoomLifecycleTests {
     @Test("Tab A to B to A preserves Zoom and suspends then resumes its companion")
     func tabRoundTripPreservesZoomAndCompanion() async throws {
-        let context = makeTwoTabZoomLifecycleContext()
+        let context = try makeTwoTabZoomLifecycleContext()
         let harness = context.harness
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+        defer { context.window.close() }
 
-        harness.controller.execute(
+        await harness.executeCommand(
             .zoomPane,
             target: context.firstPane.id,
             targetType: .pane
@@ -68,11 +70,12 @@ extension WebKitSerializedTests.WorkspaceSurfaceCoordinatorZoomLifecycleTests {
 
     @Test("durable arrangement selection preserves Zoom and its retained companion")
     func durableArrangementSelectionPreservesSelectedTabZoom() async throws {
-        let context = makeTwoTabZoomLifecycleContext()
+        let context = try makeTwoTabZoomLifecycleContext()
         let harness = context.harness
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+        defer { context.window.close() }
 
-        harness.controller.execute(
+        await harness.executeCommand(
             .zoomPane,
             target: context.firstPane.id,
             targetType: .pane
@@ -90,7 +93,7 @@ extension WebKitSerializedTests.WorkspaceSurfaceCoordinatorZoomLifecycleTests {
                 forTab: context.firstTab.id
             )
         )
-        harness.controller.execute(
+        await harness.executeCommand(
             .zoomPane,
             target: context.secondPane.id,
             targetType: .pane
@@ -149,9 +152,10 @@ extension WebKitSerializedTests.WorkspaceSurfaceCoordinatorZoomLifecycleTests {
 
     @Test("closing a tab retires all of its companions and preserves another tab companion")
     func closingTabRetiresOnlyItsZoomCompanions() async throws {
-        let context = makeTwoTabZoomLifecycleContext()
+        let context = try makeTwoTabZoomLifecycleContext()
         let harness = context.harness
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+        defer { context.window.close() }
         let firstTabSecondPane = makeZoomLifecycleSourcePane(
             in: harness.store,
             worktree: context.worktree
@@ -166,8 +170,13 @@ extension WebKitSerializedTests.WorkspaceSurfaceCoordinatorZoomLifecycleTests {
                 sizingMode: .halveTarget
             )
         )
+        try attachPaneHost(
+            paneId: firstTabSecondPane.id,
+            in: harness,
+            to: context.window
+        )
 
-        harness.controller.execute(
+        await harness.executeCommand(
             .zoomPane,
             target: context.firstPane.id,
             targetType: .pane
@@ -176,7 +185,7 @@ extension WebKitSerializedTests.WorkspaceSurfaceCoordinatorZoomLifecycleTests {
             for: context.firstPane.id,
             in: harness
         )
-        harness.controller.execute(
+        await harness.executeCommand(
             .zoomPane,
             target: firstTabSecondPane.id,
             targetType: .pane
@@ -185,7 +194,7 @@ extension WebKitSerializedTests.WorkspaceSurfaceCoordinatorZoomLifecycleTests {
             for: firstTabSecondPane.id,
             in: harness
         )
-        harness.controller.execute(
+        await harness.executeCommand(
             .zoomPane,
             target: context.secondPane.id,
             targetType: .pane
@@ -235,12 +244,13 @@ extension WebKitSerializedTests.WorkspaceSurfaceCoordinatorZoomLifecycleTests {
 
     @Test("coordinator shutdown clears every Zoom resource and presentation")
     func shutdownClearsAllZoomResourcesAndPresentations() async throws {
-        let context = makeTwoTabZoomLifecycleContext()
+        let context = try makeTwoTabZoomLifecycleContext()
         let harness = context.harness
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+        defer { context.window.close() }
         let baselineRuntimeCount = harness.runtimeRegistry.count
 
-        harness.controller.execute(
+        await harness.executeCommand(
             .zoomPane,
             target: context.firstPane.id,
             targetType: .pane
@@ -249,7 +259,7 @@ extension WebKitSerializedTests.WorkspaceSurfaceCoordinatorZoomLifecycleTests {
             for: context.firstPane.id,
             in: harness
         )
-        harness.controller.execute(
+        await harness.executeCommand(
             .zoomPane,
             target: context.secondPane.id,
             targetType: .pane
@@ -264,7 +274,12 @@ extension WebKitSerializedTests.WorkspaceSurfaceCoordinatorZoomLifecycleTests {
         )
         let unavailableTab = Tab(paneId: unavailablePane.id)
         harness.store.appendTab(unavailableTab)
-        harness.controller.execute(
+        try attachPaneHost(
+            paneId: unavailablePane.id,
+            in: harness,
+            to: context.window
+        )
+        await harness.executeCommand(
             .zoomPane,
             target: unavailablePane.id,
             targetType: .pane
@@ -288,6 +303,7 @@ extension WebKitSerializedTests.WorkspaceSurfaceCoordinatorZoomLifecycleTests {
 
 private struct TwoTabZoomLifecycleContext {
     let harness: PaneTabViewControllerCommandHarness
+    let window: NSWindow
     let worktree: Worktree
     let firstPane: Pane
     let firstTab: Tab
@@ -296,7 +312,7 @@ private struct TwoTabZoomLifecycleContext {
 }
 
 @MainActor
-private func makeTwoTabZoomLifecycleContext() -> TwoTabZoomLifecycleContext {
+private func makeTwoTabZoomLifecycleContext() throws -> TwoTabZoomLifecycleContext {
     let owningWindowId = UUID()
     let harness = makeHarness(workspaceWindowId: owningWindowId)
     let (_, worktree) = makeRepoAndWorktree(harness.store, root: harness.tempDir)
@@ -318,8 +334,13 @@ private func makeTwoTabZoomLifecycleContext() -> TwoTabZoomLifecycleContext {
         harness,
         owningWindowId: owningWindowId
     )
+    let window = makePaneTabViewControllerCommandWindow(for: harness.controller)
+    window.isReleasedWhenClosed = false
+    try attachPaneHost(paneId: firstPane.id, in: harness, to: window)
+    try attachPaneHost(paneId: secondPane.id, in: harness, to: window)
     return TwoTabZoomLifecycleContext(
         harness: harness,
+        window: window,
         worktree: worktree,
         firstPane: firstPane,
         firstTab: firstTab,

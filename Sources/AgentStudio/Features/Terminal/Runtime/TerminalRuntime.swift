@@ -10,7 +10,7 @@ package protocol TerminalSurfaceCommandDispatching: AnyObject {
     func sendInput(_ input: String, toPaneId paneId: UUID) -> Result<Void, SurfaceError>
     func clearScrollback(forPaneId paneId: UUID) -> Result<Void, SurfaceError>
     func scrollToBottom(forPaneId paneId: UUID) -> Result<Void, SurfaceError>
-    func scrollPageUp(forPaneId paneId: UUID) -> Result<Void, SurfaceError>
+    func scrollPageFractional(fraction: Double, forPaneId paneId: UUID) -> Result<Void, SurfaceError>
     func jumpToPrompt(delta: Int, forPaneId paneId: UUID) -> Result<Void, SurfaceError>
 }
 
@@ -38,6 +38,7 @@ package final class TerminalRuntime: BusPostingPaneRuntime, TerminalRuntimeSnaps
 
     private let eventChannel: PaneRuntimeEventChannel
     private let surfaceCommandDispatcher: any TerminalSurfaceCommandDispatching
+    private let openExternalURL: @MainActor (String) -> Void
 
     package init(
         paneId: PaneId,
@@ -45,7 +46,8 @@ package final class TerminalRuntime: BusPostingPaneRuntime, TerminalRuntimeSnaps
         clock: ContinuousClock = ContinuousClock(),
         replayBuffer: EventReplayBuffer? = nil,
         paneEventBus: EventBus<RuntimeEnvelope> = PaneRuntimeEventBus.shared,
-        surfaceCommandDispatcher: any TerminalSurfaceCommandDispatching = SurfaceManager.shared
+        surfaceCommandDispatcher: any TerminalSurfaceCommandDispatching = SurfaceManager.shared,
+        openExternalURL: (@MainActor (String) -> Void)? = nil
     ) {
         self.paneId = paneId
         self.metadata = metadata
@@ -63,6 +65,7 @@ package final class TerminalRuntime: BusPostingPaneRuntime, TerminalRuntimeSnaps
             paneEventBus: paneEventBus
         )
         self.surfaceCommandDispatcher = surfaceCommandDispatcher
+        self.openExternalURL = openExternalURL ?? { TerminalExternalURLOpener.open($0) }
     }
 
     @discardableResult
@@ -404,7 +407,11 @@ package final class TerminalRuntime: BusPostingPaneRuntime, TerminalRuntimeSnaps
         case .promptTitleRequested, .desktopNotificationRequested:
             emit(event, commandId: commandId, correlationId: correlationId, persistForReplay: false)
             return true
-        case .openURLRequested, .undoRequested, .redoRequested, .copyTitleToClipboardRequested:
+        case .openURLRequested(let url, _):
+            openExternalURL(url)
+            emit(event, commandId: commandId, correlationId: correlationId, persistForReplay: false)
+            return true
+        case .undoRequested, .redoRequested, .copyTitleToClipboardRequested:
             emit(event, commandId: commandId, correlationId: correlationId, persistForReplay: false)
             return true
         case .deferred:
@@ -446,7 +453,7 @@ package final class TerminalRuntime: BusPostingPaneRuntime, TerminalRuntimeSnaps
         switch command {
         case .sendInput, .clearScrollback:
             return .input
-        case .scrollToBottom, .scrollPageUp, .jumpToPrompt:
+        case .scrollToBottom, .scrollPageFractional, .jumpToPrompt:
             return nil
         case .resize:
             return .resize
@@ -464,8 +471,9 @@ package final class TerminalRuntime: BusPostingPaneRuntime, TerminalRuntimeSnaps
         case .scrollToBottom:
             let dispatchResult = surfaceCommandDispatcher.scrollToBottom(forPaneId: paneId.uuid)
             return mapSurfaceDispatchResult(dispatchResult, commandId: commandId, command: command)
-        case .scrollPageUp:
-            let dispatchResult = surfaceCommandDispatcher.scrollPageUp(forPaneId: paneId.uuid)
+        case .scrollPageFractional(let fraction):
+            let dispatchResult = surfaceCommandDispatcher.scrollPageFractional(
+                fraction: fraction, forPaneId: paneId.uuid)
             return mapSurfaceDispatchResult(dispatchResult, commandId: commandId, command: command)
         case .jumpToPrompt(let delta):
             let dispatchResult = surfaceCommandDispatcher.jumpToPrompt(delta: delta, forPaneId: paneId.uuid)

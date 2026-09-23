@@ -26,6 +26,10 @@ struct PaneRuntimeContractsTests {
 
         #expect(!source.contains("case scrollToBottom"))
         #expect(!source.contains("case scrollPageUp"))
+        #expect(!source.contains("case scrollPageDown"))
+        #expect(!source.contains("case scrollSmallStepUp"))
+        #expect(!source.contains("case scrollSmallStepDown"))
+        #expect(!source.contains("case scrollPageFractional"))
         #expect(!source.contains("case jumpToPrompt"))
     }
 
@@ -37,7 +41,22 @@ struct PaneRuntimeContractsTests {
 
         #expect(!source.contains("return .scrollToBottom"))
         #expect(!source.contains("return .scrollPageUp"))
+        #expect(!source.contains("return .scrollPageDown"))
+        #expect(!source.contains("return .scrollSmallStepUp"))
+        #expect(!source.contains("return .scrollSmallStepDown"))
+        #expect(!source.contains("return .scrollPageFractional"))
         #expect(!source.contains("return .jumpToPrompt"))
+    }
+
+    @Test("terminal runtime scrolling carries the signed viewport fraction")
+    func terminalRuntimeScrollingCarriesSignedViewportFraction() {
+        let command = PaneRuntimeCommand.terminal(.scrollPageFractional(fraction: -0.9))
+
+        guard case .terminal(.scrollPageFractional(let fraction)) = command else {
+            Issue.record("Expected fractional terminal scrolling command")
+            return
+        }
+        #expect(fraction == -0.9)
     }
 
     @Test("pane runtime contract does not own terminal snapshot facts")

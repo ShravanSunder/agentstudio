@@ -191,8 +191,11 @@ extension GitWorkingDirectoryProjector {
             explicitRepositoryUpdateAttemptsById.removeValue(forKey: attemptId)
             let compositeOutcome = Self.compositeRepositoryRecomputationOutcome(
                 attempt.outcomesByWorktreeId.values)
-            attempt.settlement.resolve(compositeOutcome)
+            // Record before announcing: resolving the settlement can wake a
+            // consumer on another executor, and it must not be able to observe
+            // "settled" before this attempt's telemetry has landed.
             recordExplicitUpdateSettlementTelemetry(compositeOutcome)
+            attempt.settlement.resolve(compositeOutcome)
         }
         for authorityRevision in remoteReferenceRecomputationAttemptsByAuthorityRevision.keys {
             guard var attempt = remoteReferenceRecomputationAttemptsByAuthorityRevision[authorityRevision],
@@ -230,8 +233,10 @@ extension GitWorkingDirectoryProjector {
         let attempts = explicitRepositoryUpdateAttemptsById.values
         explicitRepositoryUpdateAttemptsById.removeAll(keepingCapacity: false)
         for attempt in attempts {
-            attempt.settlement.resolve(outcome)
+            // Same ordering requirement as settleRepositoryRecomputationTarget:
+            // telemetry lands before the settlement announces it.
             recordExplicitUpdateSettlementTelemetry(outcome)
+            attempt.settlement.resolve(outcome)
         }
         let remoteAttempts = remoteReferenceRecomputationAttemptsByAuthorityRevision.values
         remoteReferenceRecomputationAttemptsByAuthorityRevision.removeAll(keepingCapacity: false)

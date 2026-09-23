@@ -215,6 +215,14 @@ final class WorkspaceActionExecutor {
         }
     }
 
+    func bindHeldPanePreviewState(_ state: HeldPanePreviewState) {
+        coordinator.bindHeldPanePreviewState(state)
+    }
+
+    func prepareHeldPanePreview() {
+        _ = coordinator.prepareHeldPanePreview()
+    }
+
     private func drawerParentByPaneId() -> [UUID: UUID] {
         Dictionary(
             uniqueKeysWithValues: store.paneAtom.paneSnapshot().values.compactMap { pane in

@@ -42,8 +42,8 @@ struct WorkspaceSettingsStoreTests {
         #expect(restoredEditorPreference.bookmarkedEditorId == "cursor")
         #expect(restoredRepoExplorerPreferences.sortField(for: .repos) == .activity)
         #expect(restoredRepoExplorerPreferences.sortDirection(for: .repos) == .descending)
-        #expect(restoredRepoExplorerPreferences.sortField(for: .panes) == .name)
-        #expect(restoredRepoExplorerPreferences.sortDirection(for: .panes) == .ascending)
+        #expect(restoredRepoExplorerPreferences.sortField(for: .panes) == .activity)
+        #expect(restoredRepoExplorerPreferences.sortDirection(for: .panes) == .descending)
 
         let repository = WorkspaceLocalRepository(
             workspaceId: workspaceId,
@@ -71,7 +71,7 @@ struct WorkspaceSettingsStoreTests {
             editorPreference: editorPreference,
             repoExplorerPreferences: repoExplorerPreferences
         )
-        #expect(repoExplorerPreferences.sortField(for: .panes) == .name)
+        #expect(repoExplorerPreferences.sortField(for: .panes) == .activity)
     }
 
     @Test(
@@ -270,7 +270,7 @@ struct WorkspaceSettingsStoreTests {
             editorPreference: editorPreference,
             repoExplorerPreferences: repoExplorerPreferences
         )
-        #expect(repoExplorerPreferences.sortField(for: .panes) == .name)
+        #expect(repoExplorerPreferences.sortField(for: .panes) == .activity)
         #expect(
             recoveryEvents.contains(
                 .init(store: .workspaceSettings, workspaceId: workspaceId, recovery: .resetToDefaults)
@@ -423,9 +423,9 @@ struct WorkspaceSettingsStoreTests {
     ) {
         #expect(editorPreference.bookmarkedEditorId == nil)
         #expect(repoExplorerPreferences.sortField(for: .repos) == .name)
-        #expect(repoExplorerPreferences.sortField(for: .panes) == .name)
+        #expect(repoExplorerPreferences.sortField(for: .panes) == .activity)
         #expect(repoExplorerPreferences.sortDirection(for: .repos) == .ascending)
-        #expect(repoExplorerPreferences.sortDirection(for: .panes) == .ascending)
+        #expect(repoExplorerPreferences.sortDirection(for: .panes) == .descending)
     }
 
     private func inboxRetirementSnapshot(

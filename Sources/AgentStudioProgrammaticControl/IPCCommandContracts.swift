@@ -18,13 +18,13 @@ public struct IPCCommandIdentifier: Codable, Equatable, Hashable, Sendable {
     }
 }
 
-public enum IPCCommandExecutionMode: String, Codable, Equatable, Sendable {
+public enum IPCCommandExecutionMode: String, CaseIterable, Codable, Equatable, Sendable {
     case headless
     case uiPresentation
     case requiresInteractiveInput
 }
 
-public enum IPCCommandBarScope: String, Codable, Equatable, Sendable {
+public enum IPCCommandBarScope: String, CaseIterable, Codable, Equatable, Sendable {
     case everything
     case commands
     case panes

@@ -8,9 +8,19 @@ import Testing
 struct DarwinSharedExactItemRealStreamIntegrationTests {
     @Test("native shared stream routes sibling misses and exact hits to every dependent")
     func nativeSharedStreamRoutesSiblingMissesAndExactHits() async throws {
-        let fixture = try SharedExactItemRealStreamFixture(nativeSharedStreamIsEnabled: true)
+        let fixture = try await SharedExactItemRealStreamFixture(nativeSharedStreamIsEnabled: true)
         defer { fixture.remove() }
-        try #require(await fixture.awaitLocalStreamSentinelBarrier())
+        // The sentinel proves each local event path is live. The coverage barrier
+        // then proves the local and shared bindings are current and quiescent
+        // before the first exact read.
+        try #require(
+            await fixture.awaitLocalStreamSentinelBarrier(),
+            "fixture not live: sentinel batch never arrived"
+        )
+        try #require(
+            await fixture.awaitActivityBarrier(),
+            "fixture not quiescent: activity barrier could not be captured"
+        )
 
         let firstAuthority = try #require(
             await fixture.establishAuthority(
@@ -88,9 +98,29 @@ struct DarwinSharedExactItemRealStreamIntegrationTests {
     func nativeSharedStreamFailsReplacementClosed(
         mutation: SharedExactItemReplacementMutation
     ) async throws {
-        let fixture = try SharedExactItemRealStreamFixture(nativeSharedStreamIsEnabled: true)
+        let fixture = try await SharedExactItemRealStreamFixture(nativeSharedStreamIsEnabled: true)
         defer { fixture.remove() }
-        try #require(await fixture.awaitLocalStreamSentinelBarrier())
+        // Arrange. Everything down to `perform(mutation)` is setup, so it is
+        // `#require`d: a failure here means the fixture never reached a quiescent
+        // state, not that the product misbehaved.
+        //
+        // The barrier proves every event the kernel had queued from repository
+        // creation has been delivered AND recorded. The old sentinel wait proved
+        // only that ONE event arrived on one stream, so a setup event still in
+        // flight could bump `mutationEpoch` from the raw callback and make the
+        // renewals below fail closed — the product being right, reported as the
+        // product being wrong.
+        // The sentinel proves each local event path is live. The coverage barrier
+        // then proves the local and shared bindings are current and quiescent
+        // before the first exact read.
+        try #require(
+            await fixture.awaitLocalStreamSentinelBarrier(),
+            "fixture not live: sentinel batch never arrived"
+        )
+        try #require(
+            await fixture.awaitActivityBarrier(),
+            "fixture not quiescent: activity barrier could not be captured"
+        )
         let firstAuthority = try #require(
             await fixture.establishAuthority(
                 worktreeId: fixture.firstWorktreeId,
@@ -103,13 +133,21 @@ struct DarwinSharedExactItemRealStreamIntegrationTests {
                 repositoryPath: fixture.secondRepositoryPath
             )
         )
-        #expect(
-            await fixture.provider.renewExactCleanAuthority(firstAuthority)
-                == .renewed(firstAuthority)
+        let firstBaselineRenewal = await fixture.provider.renewExactCleanAuthority(firstAuthority)
+        let secondBaselineRenewal = await fixture.provider.renewExactCleanAuthority(secondAuthority)
+        try #require(
+            firstBaselineRenewal == .renewed(firstAuthority),
+            Comment(
+                rawValue: "fixture not quiescent before mutation: first authority renewal "
+                    + "returned \(firstBaselineRenewal) instead of .renewed"
+            )
         )
-        #expect(
-            await fixture.provider.renewExactCleanAuthority(secondAuthority)
-                == .renewed(secondAuthority)
+        try #require(
+            secondBaselineRenewal == .renewed(secondAuthority),
+            Comment(
+                rawValue: "fixture not quiescent before mutation: second authority renewal "
+                    + "returned \(secondBaselineRenewal) instead of .renewed"
+            )
         )
         let baselineReadCounts = fixture.readRecorder.snapshot
         let fullGitBatchTask = fixture.collectFullGitRefreshBatches(
@@ -142,9 +180,19 @@ struct DarwinSharedExactItemRealStreamIntegrationTests {
 
     @Test("native watched-parent replacement requires rebinding and a new exact scan")
     func nativeWatchedParentReplacementRequiresRebinding() async throws {
-        let fixture = try SharedExactItemRealStreamFixture(nativeSharedStreamIsEnabled: true)
+        let fixture = try await SharedExactItemRealStreamFixture(nativeSharedStreamIsEnabled: true)
         defer { fixture.remove() }
-        try #require(await fixture.awaitLocalStreamSentinelBarrier())
+        // The sentinel proves each local event path is live. The coverage barrier
+        // then proves the local and shared bindings are current and quiescent
+        // before the first exact read.
+        try #require(
+            await fixture.awaitLocalStreamSentinelBarrier(),
+            "fixture not live: sentinel batch never arrived"
+        )
+        try #require(
+            await fixture.awaitActivityBarrier(),
+            "fixture not quiescent: activity barrier could not be captured"
+        )
         let firstAuthority = try #require(
             await fixture.establishAuthority(
                 worktreeId: fixture.firstWorktreeId,
@@ -181,9 +229,18 @@ struct DarwinSharedExactItemRealStreamIntegrationTests {
         )
         #expect(Set(fullGitBatches.keys) == [fixture.firstWorktreeId, fixture.secondWorktreeId])
 
-        try fixture.pointRepositoriesToExternalParent(replacementParent)
-        fixture.rebindWorktreeRegistrations()
-        try #require(await fixture.awaitLocalStreamSentinelBarrier())
+        try await fixture.pointRepositoriesToExternalParent(replacementParent)
+        try await fixture.rebindWorktreeRegistrations()
+        // Prove the replacement registrations' local event paths are live before
+        // the coverage barrier verifies their current local and shared bindings.
+        try #require(
+            await fixture.awaitLocalStreamSentinelBarrier(),
+            "fixture not live after rebinding: sentinel batch never arrived"
+        )
+        try #require(
+            await fixture.awaitActivityBarrier(),
+            "fixture not quiescent after rebinding: activity barrier could not be captured"
+        )
         let replacementFirstAuthority = try #require(
             await fixture.establishAuthority(
                 worktreeId: fixture.firstWorktreeId,

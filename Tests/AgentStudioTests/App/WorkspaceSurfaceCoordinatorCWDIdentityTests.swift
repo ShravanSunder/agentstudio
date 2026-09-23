@@ -53,6 +53,7 @@ struct WorkspaceSurfaceCoordinatorCWDIdentityTests {
             runtimeRegistry: RuntimeRegistry(),
             paneEventBus: bus,
             windowLifecycleStore: WindowLifecycleAtom(),
+            ipcLifecycle: .testUnavailable,
             bridgePaneAttendance: BridgePaneAttendanceAtom(),
             performanceTraceRecorder: performanceTraceRecorder
         )

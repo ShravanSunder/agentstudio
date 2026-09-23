@@ -1,3 +1,4 @@
+import AgentStudioInfrastructure
 import Foundation
 import Testing
 
@@ -5,6 +6,28 @@ import Testing
 
 @Suite(.serialized)
 final class DrawerGridLayoutTests {
+
+    @Test
+    func horizontalVisibleNavigation_keepsBothRowsAndStopsAtTheirEdges() {
+        let topPane = UUIDv7.generate()
+        let bottomLeft = UUIDv7.generate()
+        let bottomHidden = UUIDv7.generate()
+        let bottomRight = UUIDv7.generate()
+        let layout = DrawerGridLayout(
+            topRow: Layout.autoTiled([topPane]),
+            bottomRow: Layout.autoTiled([bottomLeft, bottomHidden, bottomRight])
+        )
+        let visiblePaneIds: Set<UUID> = [topPane, bottomLeft, bottomRight]
+
+        #expect(layout.horizontalNeighbor(of: bottomLeft, direction: .right, among: visiblePaneIds) == bottomRight)
+        #expect(layout.horizontalNeighbor(of: bottomRight, direction: .left, among: visiblePaneIds) == bottomLeft)
+        #expect(layout.horizontalNeighbor(of: bottomLeft, direction: .left, among: visiblePaneIds) == nil)
+        #expect(layout.horizontalNeighbor(of: bottomRight, direction: .right, among: visiblePaneIds) == nil)
+        #expect(layout.horizontalNeighbor(of: topPane, direction: .right, among: visiblePaneIds) == nil)
+        #expect(layout.horizontalNeighbor(of: bottomHidden, direction: .right, among: visiblePaneIds) == nil)
+        #expect(layout.horizontalNeighbor(of: bottomLeft, direction: .right, among: []) == nil)
+        #expect(layout.neighbor(of: bottomLeft, direction: .right) == bottomHidden)
+    }
 
     @Test
     func verticalNeighborLookup_prefersPaneInOtherRow() {

@@ -89,7 +89,7 @@ package struct CollapsedPaneBar: View {
     }
 
     private var isDrawerChild: Bool {
-        atom(\.workspacePane).pane(paneId)?.isDrawerChild ?? false
+        atom(\.workspacePane).graphAtom.paneStructuralFacts(paneId)?.isDrawerChild ?? false
     }
 
     package var body: some View {
@@ -205,12 +205,7 @@ package struct CollapsedPaneBar: View {
     }
 
     private var arrangementButton: some View {
-        let arrangement = atom(\.arrangement)
-        let panes = arrangement.paneVisibilityItems(for: tabId)
-        let zoomMode = arrangement.zoomMode(for: tabId)
-        let arrangements = arrangement.arrangementItems(for: tabId)
-
-        return Button {
+        Button {
             toggleArrangementPopover()
         } label: {
             LocalActionSpec.arrangements.actionSpec.icon.swiftUIImage(
@@ -259,13 +254,14 @@ package struct CollapsedPaneBar: View {
             attachmentAnchor: ArrangementPanelPopoverPlacement.minimizedBar.attachmentAnchor,
             arrowEdge: ArrangementPanelPopoverPlacement.minimizedBar.arrowEdge
         ) {
+            let arrangement = atom(\.arrangement)
             ArrangementPanel(
                 tabId: tabId,
                 workspaceWindowId: workspaceWindowId,
                 octiconLoader: octiconLoader,
-                panes: panes,
-                zoomMode: zoomMode,
-                arrangements: arrangements,
+                panes: arrangement.paneVisibilityItems(for: tabId),
+                zoomMode: arrangement.zoomMode(for: tabId),
+                arrangements: arrangement.arrangementItems(for: tabId),
                 inlineRenameState: arrangementInlineRenameState,
                 commandActionResolver: commandActionResolver,
                 onPaneAction: { action in

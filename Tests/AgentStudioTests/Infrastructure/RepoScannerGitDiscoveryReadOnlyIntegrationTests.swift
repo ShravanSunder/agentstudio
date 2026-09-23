@@ -158,7 +158,7 @@ struct RepoScannerGitDiscoveryReadOnlyIntegrationTests {
         let repositoryPath = root.appending(path: "repository")
         try FileManager.default.createDirectory(at: repositoryPath, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
-        try runGit(at: repositoryPath, arguments: ["init"])
+        try await runGit(at: repositoryPath, arguments: ["init"])
 
         // Act
         let result = await RepoScanner().scan(in: root, maxDepth: 1)
@@ -193,17 +193,30 @@ struct RepoScannerGitDiscoveryReadOnlyIntegrationTests {
         )
     }
 
-    private func runGit(at directory: URL, arguments: [String]) throws {
+    private func runGit(at directory: URL, arguments: [String]) async throws {
+        let stderrURL = FileManager.default.temporaryDirectory
+            .appending(path: "repo-scanner-git-stderr-\(UUIDv7.generate().uuidString).log")
+        FileManager.default.createFile(atPath: stderrURL.path, contents: nil)
+        defer { try? FileManager.default.removeItem(at: stderrURL) }
+        let stderrHandle = try FileHandle(forWritingTo: stderrURL)
+        defer { try? stderrHandle.close() }
+
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
         process.arguments = ["-C", directory.path] + arguments
-        let errorPipe = Pipe()
-        process.standardError = errorPipe
-        try process.run()
-        process.waitUntilExit()
+        process.standardError = stderrHandle
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            process.terminationHandler = { _ in continuation.resume() }
+            do {
+                try process.run()
+            } catch {
+                process.terminationHandler = nil
+                continuation.resume(throwing: error)
+            }
+        }
+        try stderrHandle.close()
         guard process.terminationStatus == 0 else {
-            let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
-            let errorText = String(data: errorData, encoding: .utf8) ?? "unknown git error"
+            let errorText = try String(contentsOf: stderrURL, encoding: .utf8)
             Issue.record("git command failed: \(errorText)")
             throw CocoaError(.fileWriteUnknown)
         }

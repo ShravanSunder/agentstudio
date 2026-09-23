@@ -81,8 +81,9 @@ private final class ShellPresentationDispatcher: AppCommandDispatching {
     private(set) var capabilityCommands: [AppCommand] = []
     private(set) var dispatchedCommands: [AppCommand] = []
 
-    func dispatch(_ command: AppCommand) {
+    func dispatch(_ command: AppCommand) -> Bool {
         dispatchedCommands.append(command)
+        return true
     }
 
     func dispatch(_: AppCommand, target _: UUID, targetType _: SearchItemType) {}

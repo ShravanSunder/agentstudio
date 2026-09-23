@@ -18,7 +18,7 @@ extension E2ESerializedTests {
         private func withBackend(
             _ test: @escaping (ZmxTestHarness, ZmxBackend) async throws -> Void
         ) async throws {
-            let harness = ZmxTestHarness()
+            let harness = await ZmxTestHarness()
             let backend = try #require(
                 harness.createBackend(),
                 "ZmxTestHarness failed to resolve zmx path for integration test"

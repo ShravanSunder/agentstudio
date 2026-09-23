@@ -170,16 +170,22 @@ dir = "BridgeWeb"
 run = "pnpm run test:browser:stress"
 
 [tasks."test:bridge-web:e2e"]
-description = "Run BridgeWeb Vitest Vite product E2E tests"
-depends = ["bridge-web-install"]
-dir = "BridgeWeb"
-run = "pnpm run test:e2e"
-
-[tasks."test:bridge-web:e2e:ordinary"]
-description = "Run focused ordinary Vite E2E journeys; aggregate stress coverage remains in test:bridge-web:e2e"
+description = "Run the ordinary BridgeWeb Vite product E2E journeys; the stress journey is post-merge"
 depends = ["bridge-web-install", "build-bridge-development-server"]
 dir = "BridgeWeb"
 run = "pnpm run test:e2e:prepared:ordinary"
+
+[tasks."test:bridge-web:e2e:ordinary"]
+description = "Run the ordinary Vite E2E journeys; the stress journey runs in test:bridge-web:e2e:stress"
+depends = ["bridge-web-install", "build-bridge-development-server"]
+dir = "BridgeWeb"
+run = "pnpm run test:e2e:prepared:ordinary"
+
+[tasks."test:bridge-web:e2e:stress"]
+description = "Run the 1,699-item Vite E2E stress journey; post-merge benchmark lane, not a pull-request gate"
+depends = ["bridge-web-install", "build-bridge-development-server"]
+dir = "BridgeWeb"
+run = "pnpm run test:e2e:prepared:stress"
 
 [tasks.verify-bridge-review-controlled-composition]
 description = "Verify Review product-only authority and controlled Browser Mode composition"
@@ -293,6 +299,7 @@ BUILD_PATH="$SWIFT_BUILD_DIR"
 echo "[build] BUILD_PATH=$BUILD_PATH"
 xcb_pipe=$(_xcb_pipe_cmd)
 swift build --build-path "$BUILD_PATH" 2>&1 | $xcb_pipe
+swift build --product agentstudio-cli --build-path "$BUILD_PATH" 2>&1 | $xcb_pipe
 """
 
 [tasks.build-bridge-development-server]
@@ -311,6 +318,7 @@ BUILD_PATH="$SWIFT_BUILD_DIR"
 echo "[build-release] BUILD_PATH=$BUILD_PATH"
 xcb_pipe=$(_xcb_pipe_cmd)
 swift build -c release --build-path "$BUILD_PATH" 2>&1 | $xcb_pipe
+swift build -c release --product agentstudio-cli --build-path "$BUILD_PATH" 2>&1 | $xcb_pipe
 """
 
 [tasks.test]
@@ -327,8 +335,6 @@ mise run verify-vendors
 mise run --skip-deps bridge-web-build
 test -f Sources/AgentStudio/Resources/BridgeWeb/app/index.html
 SWIFT_TEST_INCLUDE_E2E=1 \
-SWIFT_TEST_TIMEOUT_SECONDS="${SWIFT_TEST_TIMEOUT_SECONDS:-600}" \
-SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS="${SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS:-1200}" \
 mise run --skip-deps test:swift
 git diff --check
 """
@@ -552,7 +558,8 @@ fi
 echo "[create-app-bundle] BUILD_PATH=$BUILD_PATH"
 APP_DIR="AgentStudio.app/Contents"
 rm -rf AgentStudio.app
-mkdir -p "$APP_DIR/MacOS" "$APP_DIR/Resources"
+mkdir -p "$APP_DIR/MacOS" "$APP_DIR/Resources" "$APP_DIR/Helpers"
+chmod 755 "$APP_DIR/Helpers"
 
 # Binary
 cp "$BUILD_PATH/release/AgentStudio" "$APP_DIR/MacOS/"
@@ -563,6 +570,16 @@ if [ ! -x "vendor/zmx/zig-out/bin/zmx" ] || [ -L "vendor/zmx/zig-out/bin/zmx" ];
   exit 1
 fi
 cp vendor/zmx/zig-out/bin/zmx "$APP_DIR/MacOS/"
+
+# agentstudio CLI — bundled as Contents/Helpers/agentstudio because
+# Contents/MacOS/agentstudio collides with the app executable on
+# case-insensitive volumes. The pane environment advertises this exact path.
+if [ ! -f "$BUILD_PATH/release/agentstudio-cli" ]; then
+  echo "create-app-bundle: agentstudio-cli executable is missing from $BUILD_PATH/release" >&2
+  exit 1
+fi
+cp "$BUILD_PATH/release/agentstudio-cli" "$APP_DIR/Helpers/agentstudio"
+chmod 755 "$APP_DIR/Helpers/agentstudio"
 
 # Info.plist + icon
 cp Sources/AgentStudio/Resources/Info.plist "$APP_DIR/"
@@ -579,6 +596,18 @@ TERMINFO="Sources/AgentStudio/Resources/terminfo"
 # shell-integration
 GHOSTTY_RES="Sources/AgentStudio/Resources/ghostty"
 [ -d "$GHOSTTY_RES" ] && { mkdir -p "$APP_DIR/Resources/ghostty"; cp -R "$GHOSTTY_RES/." "$APP_DIR/Resources/ghostty/"; }
+
+# AgentPackage — provider hooks, installer resources and the model skill. The
+# installer resolves this tree from Contents/Helpers/agentstudio, so the path
+# Contents/Resources/AgentPackage is load-bearing.
+AGENT_PACKAGE="Sources/AgentStudio/Resources/AgentPackage"
+if [ ! -f "$AGENT_PACKAGE/manifest.json" ]; then
+  echo "create-app-bundle: AgentPackage resources are missing from $AGENT_PACKAGE" >&2
+  exit 1
+fi
+mkdir -p "$APP_DIR/Resources/AgentPackage"
+cp -R "$AGENT_PACKAGE/." "$APP_DIR/Resources/AgentPackage/"
+find "$APP_DIR/Resources/AgentPackage" -name '*.sh' -exec chmod 755 {} +
 
 # GhosttyKit is a static library — already linked into the binary at build time.
 # Do NOT embed the xcframework; it's only needed at build time for SwiftPM.
@@ -606,6 +635,8 @@ if [ "$IDENTITY" != "-" ]; then
   fi
   [ -f "AgentStudio.app/Contents/MacOS/zmx" ] && \
     codesign --force --sign "$IDENTITY" "${TIMESTAMP_ARGS[@]}" --options runtime --entitlements "$ENTITLEMENTS" "AgentStudio.app/Contents/MacOS/zmx"
+  [ -f "AgentStudio.app/Contents/Helpers/agentstudio" ] && \
+    codesign --force --sign "$IDENTITY" "${TIMESTAMP_ARGS[@]}" --options runtime --entitlements "$ENTITLEMENTS" "AgentStudio.app/Contents/Helpers/agentstudio"
   codesign --force --sign "$IDENTITY" "${TIMESTAMP_ARGS[@]}" --options runtime --entitlements "$ENTITLEMENTS" AgentStudio.app
 else
   echo "Ad-hoc signing (set SIGNING_IDENTITY for Developer ID)"

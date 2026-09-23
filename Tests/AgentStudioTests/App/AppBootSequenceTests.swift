@@ -267,6 +267,7 @@ struct AppBootSequenceTests {
             runtimeRegistry: RuntimeRegistry(),
             windowLifecycleStore: atoms.core.windowLifecycle,
             appLifecycleStore: appLifecycleStore,
+            ipcLifecycle: .testUnavailable,
             bridgePaneAttendance: atoms.bridgePaneAttendance
         )
         let applicationLifecycleMonitor = ApplicationLifecycleMonitor(

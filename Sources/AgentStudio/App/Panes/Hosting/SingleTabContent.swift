@@ -10,6 +10,7 @@ struct SingleTabContent: View {
     let repoCache: RepoCacheAtom
     let editorChooser: EditorChooserState
     let viewRegistry: ViewRegistry
+    let heldPanePreviewState: HeldPanePreviewState
     let appLifecycleStore: AppLifecycleAtom
     let closeTransitionCoordinator: PaneCloseTransitionCoordinator
     let actionDispatcher: PaneActionDispatching
@@ -31,6 +32,7 @@ struct SingleTabContent: View {
         repoCache: RepoCacheAtom,
         editorChooser: EditorChooserState,
         viewRegistry: ViewRegistry,
+        heldPanePreviewState: HeldPanePreviewState,
         appLifecycleStore: AppLifecycleAtom,
         closeTransitionCoordinator: PaneCloseTransitionCoordinator,
         actionDispatcher: PaneActionDispatching,
@@ -52,6 +54,7 @@ struct SingleTabContent: View {
         self.repoCache = repoCache
         self.editorChooser = editorChooser
         self.viewRegistry = viewRegistry
+        self.heldPanePreviewState = heldPanePreviewState
         self.appLifecycleStore = appLifecycleStore
         self.closeTransitionCoordinator = closeTransitionCoordinator
         self.actionDispatcher = actionDispatcher
@@ -73,6 +76,24 @@ struct SingleTabContent: View {
     }
 
     var body: some View {
+        Group {
+            if let previewHost = readyHeldPreviewHost() {
+                HeldPanePreviewContainer(
+                    tabId: tabId,
+                    paneHost: previewHost,
+                    viewRegistry: viewRegistry
+                )
+                .background(AppStyles.Shell.PaneChrome.background)
+                .transition(.identity)
+            } else {
+                canonicalTabContent()
+            }
+        }
+        .environment(\.agentStudioInteractionPerformanceProbe, interactionProbe)
+    }
+
+    @ViewBuilder
+    private func canonicalTabContent() -> some View {
         let workspaceTab = WorkspaceTabLayoutDerived(
             shellAtom: store.tabShellAtom,
             arrangementAtom: store.tabArrangementAtom
@@ -82,55 +103,70 @@ struct SingleTabContent: View {
         let zoomPresentation = store.panePresentationAtom.zoomPresentation(forTab: tabId)
         // swiftlint:disable:next redundant_discardable_let
         let _ = tab == nil ? Self.traceMissingTab(tabId: tabId) : 0
-        Group {
-            if let tab {
-                if let zoomPresentation {
-                    zoomContent(
-                        presentation: zoomPresentation,
-                        tab: tab
-                    )
-                    .background(AppStyles.Shell.PaneChrome.background)
-                    .transition(.identity)
-                } else if let activeLayout = arrangementView.activeLayout(forTab: tab) {
-                    let activeMinimizedPaneIds = arrangementView.activeMinimizedPaneIds(
-                        forTab: tab,
-                        activeLayout: activeLayout
-                    )
-                    let activeVisiblePaneIds = arrangementView.activeVisiblePaneIds(
-                        activeLayout: activeLayout,
-                        minimizedPaneIds: activeMinimizedPaneIds
-                    )
-                    FlatTabStripContainer(
-                        layout: activeLayout,
-                        octiconLoader: octiconLoader,
-                        tabId: tabId,
-                        activePaneId: arrangementView.activePaneId(forTab: tab),
-                        minimizedPaneIds: activeMinimizedPaneIds,
-                        visiblePaneIds: activeVisiblePaneIds,
-                        arrangementInlineRenameState: arrangementInlineRenameState,
-                        closeTransitionCoordinator: closeTransitionCoordinator,
-                        actionDispatcher: actionDispatcher,
-                        onPaneFocusTrigger: onPaneFocusTrigger,
-                        onFocusPane: onFocusPane,
-                        store: store,
-                        repoCache: repoCache,
-                        editorChooser: editorChooser,
-                        viewRegistry: viewRegistry,
-                        appLifecycleStore: appLifecycleStore,
-                        paneInboxPresentation: paneInboxPresentation,
-                        paneNotePresentation: paneNotePresentation,
-                        onOpenPaneGitHub: onOpenPaneGitHub,
-                        workspaceWindowId: workspaceWindowId,
-                        paneSurfaceToolbarPresentation: paneSurfaceToolbarPresentation
-                    )
-                    .background(AppStyles.Shell.PaneChrome.background)
-                    .transition(.identity)
-                } else {
-                    EmptyArrangementPlaceholderView()
-                }
+
+        if let tab {
+            if let zoomPresentation {
+                zoomContent(
+                    presentation: zoomPresentation,
+                    tab: tab
+                )
+                .background(AppStyles.Shell.PaneChrome.background)
+                .transition(.identity)
+            } else if let activeLayout = arrangementView.activeLayout(forTab: tab) {
+                let activeMinimizedPaneIds = arrangementView.activeMinimizedPaneIds(
+                    forTab: tab,
+                    activeLayout: activeLayout
+                )
+                let activeVisiblePaneIds = arrangementView.activeVisiblePaneIds(
+                    activeLayout: activeLayout,
+                    minimizedPaneIds: activeMinimizedPaneIds
+                )
+                FlatTabStripContainer(
+                    layout: activeLayout,
+                    octiconLoader: octiconLoader,
+                    tabId: tabId,
+                    activePaneId: arrangementView.activePaneId(forTab: tab),
+                    minimizedPaneIds: activeMinimizedPaneIds,
+                    visiblePaneIds: activeVisiblePaneIds,
+                    arrangementInlineRenameState: arrangementInlineRenameState,
+                    closeTransitionCoordinator: closeTransitionCoordinator,
+                    actionDispatcher: actionDispatcher,
+                    onPaneFocusTrigger: onPaneFocusTrigger,
+                    onFocusPane: onFocusPane,
+                    store: store,
+                    repoCache: repoCache,
+                    editorChooser: editorChooser,
+                    viewRegistry: viewRegistry,
+                    appLifecycleStore: appLifecycleStore,
+                    paneInboxPresentation: paneInboxPresentation,
+                    paneNotePresentation: paneNotePresentation,
+                    onOpenPaneGitHub: onOpenPaneGitHub,
+                    workspaceWindowId: workspaceWindowId,
+                    paneSurfaceToolbarPresentation: paneSurfaceToolbarPresentation
+                )
+                .background(AppStyles.Shell.PaneChrome.background)
+                .transition(.identity)
+            } else {
+                EmptyArrangementPlaceholderView()
             }
         }
-        .environment(\.agentStudioInteractionPerformanceProbe, interactionProbe)
+    }
+
+    @MainActor
+    private func readyHeldPreviewHost() -> PaneHostView? {
+        guard heldPanePreviewState.isHeld,
+            let presentedTarget = heldPanePreviewState.presentedTarget,
+            presentedTarget.owningTabID == tabId,
+            store.tabLayoutAtom.containsTab(tabId),
+            let pane = store.paneAtom.pane(presentedTarget.paneID),
+            store.tabLayoutAtom.tabID(containingPane: pane.parentPaneId ?? pane.id)
+                == presentedTarget.owningTabID,
+            pane.provider == presentedTarget.provider,
+            pane.terminalState?.zmxSessionID == presentedTarget.sessionID
+        else {
+            return nil
+        }
+        return viewRegistry.slot(for: presentedTarget.paneID).host
     }
 
     @ViewBuilder

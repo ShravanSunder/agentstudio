@@ -121,8 +121,6 @@ Current platform references for docs and implementation work:
 - [AppKit](https://developer.apple.com/documentation/appkit), [SwiftUI](https://developer.apple.com/documentation/swiftui), [Observation](https://developer.apple.com/documentation/observation), and [WebKit](https://developer.apple.com/documentation/webkit)
 - [Designing for macOS](https://developer.apple.com/design/human-interface-guidelines/designing-for-macos)
 
-> **Time-based note (as of 2026-04):** Xcode 26.4+ ships a `MacOSX.sdk/usr/lib/libSystem.B.tbd` that omits `arm64-macos` from top-level targets, which breaks zig 0.15.2's bundled linker with `undefined symbol: _abort/_getenv/...` errors when building vendored Ghostty and zmx. Fixed in zig 0.16, not backported to 0.15. Workaround: install **Xcode 26.3** side-by-side at `/Applications/Xcode_26.3.app`, `sudo xcode-select --switch /Applications/Xcode_26.3.app/Contents/Developer`, `xcodebuild -downloadComponent MetalToolchain` (26.3 ships without it), then `rm -rf ~/.cache/zig` and rebuild. Refs: [ghostty#11991](https://github.com/ghostty-org/ghostty/issues/11991), [zig#31658](https://codeberg.org/ziglang/zig/issues/31658). Remove this note once ghostty bumps to zig 0.16 or Apple ships a fixed SDK.
-
 ### Build and Run
 
 ```bash

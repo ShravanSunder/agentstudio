@@ -282,6 +282,7 @@ struct GitTopologyPipelineHarness {
             gitStatusPhysicalGate: gitStatusPhysicalGate,
             filesystemSource: filesystemSource,
             windowLifecycleStore: WindowLifecycleAtom(),
+            ipcLifecycle: .testUnavailable,
             bridgePaneAttendance: BridgePaneAttendanceAtom()
         )
         let coordinator = WorkspaceCacheCoordinator(

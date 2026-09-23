@@ -60,7 +60,7 @@ struct BridgeDevelopmentHTTPStreamLifetimeTests {
                 #expect(secondResponse.status.code == statusCode)
                 #expect(secondResponse.body.map { String(buffer: $0) } == "metadata-\(statusCode)")
                 try await client.close(mode: .all)
-                #expect(await probe.waitForConnectionClose())
+                await probe.waitForConnectionClose()
             }
         }
     }
@@ -105,16 +105,17 @@ struct BridgeDevelopmentHTTPStreamLifetimeTests {
             try await TestClient.withClient(host: "localhost", port: port) { client in
                 try await client.executeAndDontWaitForResponse(
                     .init("/metadata", method: .post, body: ByteBuffer(string: "request")))
-                #expect(await probe.waitForBodyWrite())
+                await probe.waitForBodyWrite()
                 // A reset is a real disconnect, unlike a valid request-side FIN.
                 let socket = try #require(try await client.getChannel() as? any SocketOptionProvider)
                 try await socket.setSoLinger(linger(l_onoff: 1, l_linger: 0)).get()
                 try await client.close(mode: .all)
 
-                // Assert — cancellation must not require another response chunk.
-                let upstreamWasCancelled = await probe.waitForCancellation()
+                // Assert — cancellation must not require another response chunk. Reaching
+                // the line below before `finish()` is the proof: the upstream stream was
+                // cancelled while it was still open.
+                await probe.waitForCancellation()
                 continuation.finish()
-                #expect(upstreamWasCancelled)
             }
         }
     }
@@ -179,7 +180,7 @@ struct BridgeDevelopmentHTTPStreamLifetimeTests {
             try await TestClient.withClient(host: "localhost", port: port) { client in
                 async let pendingResponse = client.execute(
                     .init("/finite", method: .post, body: ByteBuffer(string: "request")))
-                #expect(await probe.waitForBodyWrite())
+                await probe.waitForBodyWrite()
 
                 // Act
                 try await client.close(mode: .output)
@@ -204,40 +205,18 @@ struct BridgeDevelopmentHTTPStreamLifetimeTests {
     }
 }
 
+/// Each fact below already arrives on an owner callback that used to set a flag a loop
+/// spun on; the latch lets that same callback release the waiter directly.
 private final class HTTPStreamLifetimeProbe: Sendable {
-    private let cancellationRecorded = Mutex(false)
-    private let bodyWriteRecorded = Mutex(false)
-    private let connectionCloseRecorded = Mutex(false)
+    private let cancellationSignal = BridgeDevelopmentHTTPLifetimeSignal()
+    private let bodyWriteSignal = BridgeDevelopmentHTTPLifetimeSignal()
+    private let connectionCloseSignal = BridgeDevelopmentHTTPLifetimeSignal()
 
-    func recordCancellation() { cancellationRecorded.withLock { $0 = true } }
-    func recordBodyWrite() { bodyWriteRecorded.withLock { $0 = true } }
-    func recordConnectionClose() { connectionCloseRecorded.withLock { $0 = true } }
+    func recordCancellation() { cancellationSignal.signal() }
+    func recordBodyWrite() { bodyWriteSignal.signal() }
+    func recordConnectionClose() { connectionCloseSignal.signal() }
 
-    func waitForCancellation() async -> Bool {
-        let deadline = ContinuousClock.now + .seconds(1)
-        while ContinuousClock.now < deadline {
-            if cancellationRecorded.withLock({ $0 }) { return true }
-            await Task.yield()
-        }
-        return cancellationRecorded.withLock { $0 }
-    }
-
-    func waitForBodyWrite() async -> Bool {
-        let deadline = ContinuousClock.now + .seconds(5)
-        while ContinuousClock.now < deadline {
-            if bodyWriteRecorded.withLock({ $0 }) { return true }
-            await Task.yield()
-        }
-        return bodyWriteRecorded.withLock { $0 }
-    }
-
-    func waitForConnectionClose() async -> Bool {
-        let deadline = ContinuousClock.now + .seconds(1)
-        while ContinuousClock.now < deadline {
-            if connectionCloseRecorded.withLock({ $0 }) { return true }
-            await Task.yield()
-        }
-        return connectionCloseRecorded.withLock { $0 }
-    }
-
+    func waitForCancellation() async { await cancellationSignal.wait() }
+    func waitForBodyWrite() async { await bodyWriteSignal.wait() }
+    func waitForConnectionClose() async { await connectionCloseSignal.wait() }
 }

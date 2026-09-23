@@ -3,6 +3,30 @@ import Testing
 @testable import AgentStudioInfrastructure
 
 struct AgentStudioOTLPSidebarTraceProjectionTests {
+    @Test(arguments: ["pinned_capture_mainactor", "pinned_projection_worker"])
+    func pinnedNavigationKeepsCompleteControlledMetricTaxonomy(phase: String) throws {
+        let record = AgentStudioTraceRecord(
+            timeUnixNano: 181, severityText: .info, body: "performance.sidebar.projection",
+            traceID: nil, spanID: nil, parentSpanID: nil,
+            resource: ["service.name": "AgentStudio"],
+            scope: .init(name: "agentstudio.performance", version: "0.1.0"),
+            attributes: [
+                "agentstudio.performance.elapsed_ms": .double(0.25),
+                "agentstudio.performance.sidebar.surface": .string("repo"),
+                "agentstudio.performance.sidebar.phase": .string(phase),
+                "agentstudio.performance.sidebar.query_state": .string("empty"),
+                "agentstudio.performance.sidebar.group_mode": .string("not_applicable"),
+                "agentstudio.performance.sidebar.trigger": .string("pinned_navigation"),
+            ]
+        )
+        let projected = AgentStudioOTLPTraceProjection.project(record)
+        #expect(projected.attributes["agentstudio.performance.sidebar.phase"] == .string(phase))
+        #expect(projected.attributes["agentstudio.performance.sidebar.trigger"] == .string("pinned_navigation"))
+        let metric = try #require(AgentStudioOTLPPerformanceMetricEvent(record: projected))
+        #expect(metric.elapsedMilliseconds == 0.25)
+        #expect(metric.dimensions.contains(.init(name: "phase", value: phase)))
+    }
+
     @Test
     func sidebarSortProjectionKeepsControlledTrigger() {
         let record = AgentStudioTraceRecord(

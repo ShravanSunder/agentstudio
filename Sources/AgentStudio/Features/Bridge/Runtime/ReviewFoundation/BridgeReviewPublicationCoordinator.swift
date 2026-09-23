@@ -1,29 +1,6 @@
 import AgentStudioInfrastructure
 import Foundation
 
-/// Raw Sendable Review publication input that can cross to off-main preparation.
-struct BridgeReviewPublicationCandidate: Equatable, Sendable {
-    let package: BridgeReviewPackage
-    let delta: BridgeReviewDelta?
-    let contentHandles: [BridgeContentHandle]
-    let artifactPin: BridgeReviewPublicationArtifactPin?
-    let classifiedRefreshImpact: BridgeReviewRefreshImpact?
-
-    init(
-        package: BridgeReviewPackage,
-        delta: BridgeReviewDelta?,
-        contentHandles: [BridgeContentHandle],
-        artifactPin: BridgeReviewPublicationArtifactPin? = nil,
-        classifiedRefreshImpact: BridgeReviewRefreshImpact? = nil
-    ) {
-        self.package = package
-        self.delta = delta
-        self.contentHandles = contentHandles
-        self.artifactPin = artifactPin
-        self.classifiedRefreshImpact = classifiedRefreshImpact
-    }
-}
-
 /// An immutable Review publication validated and indexed off-main before it
 /// reaches the MainActor publication boundary.
 struct BridgeReviewPreparedPublication: Equatable, Sendable {
@@ -138,130 +115,12 @@ struct BridgeReviewPreparedPublication: Equatable, Sendable {
     }
 }
 
-struct BridgeReviewPublicationToken: Hashable, Sendable {
-    let publicationId: UUID
-    let operationCorrelationID: String?
-}
-
-struct BridgeReviewCommittedPublication: Equatable, Sendable {
-    let publicationId: UUID
-    let package: BridgeReviewPackage
-    let delta: BridgeReviewDelta?
-    let contentHandles: [BridgeContentHandle]
-    let comparisonPresentationRevision: Int
-    let reviewComparison: BridgePaneReviewComparisonPresentation?
-    let operationCorrelationID: String?
-    let classifiedRefreshImpact: BridgeReviewRefreshImpact?
-
-    init(
-        publicationId: UUID,
-        package: BridgeReviewPackage,
-        delta: BridgeReviewDelta?,
-        contentHandles: [BridgeContentHandle],
-        comparisonPresentationRevision: Int,
-        reviewComparison: BridgePaneReviewComparisonPresentation?,
-        operationCorrelationID: String? = nil,
-        classifiedRefreshImpact: BridgeReviewRefreshImpact? = nil
-    ) {
-        self.publicationId = publicationId
-        self.package = package
-        self.delta = delta
-        self.contentHandles = contentHandles
-        self.comparisonPresentationRevision = comparisonPresentationRevision
-        self.reviewComparison = reviewComparison
-        self.operationCorrelationID = operationCorrelationID
-        self.classifiedRefreshImpact = classifiedRefreshImpact
-    }
-
-    var retainedReplay: Self {
-        Self(
-            publicationId: publicationId,
-            package: package,
-            delta: delta,
-            contentHandles: contentHandles,
-            comparisonPresentationRevision: comparisonPresentationRevision,
-            reviewComparison: reviewComparison,
-            operationCorrelationID: nil,
-            classifiedRefreshImpact: classifiedRefreshImpact
-        )
-    }
-}
-
 struct BridgeReviewContentAuthorityLease: Equatable, Sendable {
     fileprivate let leaseId: UUID
     let publicationId: UUID
     let packageId: String
     let sourceIdentity: String
     let handle: BridgeContentHandle
-}
-
-enum BridgeReviewPublicationDeliveryDisposition: Equatable, Sendable {
-    case deferred
-    case failed
-    case transportAcknowledged
-}
-
-enum BridgeReviewPublicationOutcome: Equatable, Sendable {
-    case rejectedBeforeCommit
-    case superseded
-    case closed
-    case committed(delivery: BridgeReviewPublicationDeliveryDisposition)
-}
-
-enum BridgeReviewPublicationCommitResult: Equatable, Sendable {
-    case committed(BridgeReviewCommittedPublication)
-    case superseded
-    case closed
-}
-
-struct BridgeReviewPublicationDiagnostic: Equatable, Sendable {
-    let publicationId: UUID
-    let packageId: String
-    let reviewGeneration: BridgeReviewGeneration
-    let revision: Int
-}
-
-struct BridgeReviewPublicationStateSnapshot: Equatable, Sendable {
-    let active: BridgeReviewPublicationDiagnostic?
-    let acknowledgedDisplayed: BridgeReviewPublicationDiagnostic?
-    let admitted: BridgeReviewPublicationDiagnostic?
-    let pending: BridgeReviewPublicationDiagnostic?
-    let retiring: [BridgeReviewPublicationDiagnostic]
-    let activeContentLeaseCount: Int
-    let isClosed: Bool
-}
-
-enum BridgeReviewDisplayInstallAdmissionResult: Equatable, Sendable {
-    case admitted
-    case rejected
-}
-
-enum BridgeReviewDisplayedApplicationResult: Equatable, Sendable {
-    case advanced
-    case duplicate
-    case rejected
-}
-
-struct BridgeReviewPublicationCloseDrain: Sendable {
-    let artifactPins: [BridgeReviewPublicationArtifactPin]
-    let priorReleaseTask: Task<Void, Never>?
-
-    func releaseAndWait() async {
-        await withTaskGroup(of: Void.self) { taskGroup in
-            if let priorReleaseTask {
-                taskGroup.addTask {
-                    await priorReleaseTask.value
-                }
-            }
-            for artifactPin in artifactPins {
-                taskGroup.addTask {
-                    await artifactPin.releaseAndWait()
-                }
-            }
-        }
-    }
-
-    static let empty = Self(artifactPins: [], priorReleaseTask: nil)
 }
 
 /// Owns one pane's native Review package and descriptor publication authority.
@@ -295,6 +154,13 @@ final class BridgeReviewPublicationCoordinator {
         var acceptsNewContentLeases: Bool
     }
 
+    /// Observes the commit, which is the only moment this coordinator publishes the fact
+    /// that a publication exists. Every other route to that fact is a read — a caller can
+    /// sample `diagnosticCommittedReviewPublication()` but is never told when to sample it,
+    /// so an observer has nothing to wait on and is left polling. Defaulted to nil and
+    /// unused in production; the development host threads a value through only for tests.
+    private let didCommitPublication: (@MainActor @Sendable (BridgeReviewCommittedPublication) -> Void)?
+
     private var activePublication: Publication?
     private var acknowledgedDisplayedPublicationId: UUID?
     private var admittedDisplayInstallation: DisplayInstallationAdmission?
@@ -305,6 +171,10 @@ final class BridgeReviewPublicationCoordinator {
     private var isClosed = false
     private var artifactPinReleaseTail: Task<Void, Never>?
     private var artifactPinReleaseTailGeneration: UInt64 = 0
+
+    init(didCommitPublication: (@MainActor @Sendable (BridgeReviewCommittedPublication) -> Void)? = nil) {
+        self.didCommitPublication = didCommitPublication
+    }
 
     var diagnosticSnapshot: BridgeReviewPublicationStateSnapshot {
         BridgeReviewPublicationStateSnapshot(
@@ -463,6 +333,7 @@ final class BridgeReviewPublicationCoordinator {
                 committedPublication: committedPublication,
                 operationCorrelationID: pendingPublication.publication.operationCorrelationID
             )
+            didCommitPublication?(committedPublication)
             presentCommitted(committedPublication)
             guard !isClosed else { return .closed }
             return .committed(committedPublication)

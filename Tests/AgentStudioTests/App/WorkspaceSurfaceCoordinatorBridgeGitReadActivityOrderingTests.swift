@@ -215,6 +215,7 @@ private func makeActivityOrderingTestSetup() throws -> ActivityOrderingTestSetup
         bridgeGitReadScheduler: scheduler,
         windowLifecycleStore: windowLifecycleStore,
         appLifecycleStore: appLifecycleStore,
+        ipcLifecycle: .testUnavailable,
         bridgePaneAttendance: BridgePaneAttendanceAtom()
     )
     activateActivityOrderingWindow(

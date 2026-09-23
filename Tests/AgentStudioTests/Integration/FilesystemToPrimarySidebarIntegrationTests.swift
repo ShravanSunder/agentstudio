@@ -14,7 +14,7 @@ struct FilesystemToPrimarySidebarIntegrationTests {
     func filesystemToPrimarySidebarPipelineConverges() async throws {
         installTestCoreAtomsIfNeeded()
 
-        let fixtureRoot = try makeProjectDevShapeFixture()
+        let fixtureRoot = try await makeProjectDevShapeFixture()
         defer { try? FileManager.default.removeItem(at: fixtureRoot) }
 
         let discoveredRepoPaths = await RepoScanner().scanForGitRepos(in: fixtureRoot, maxDepth: 4)
@@ -307,7 +307,7 @@ struct FilesystemToPrimarySidebarIntegrationTests {
         WorkspaceStore()
     }
 
-    private func makeProjectDevShapeFixture() throws -> URL {
+    private func makeProjectDevShapeFixture() async throws -> URL {
         let root = FileManager.default.temporaryDirectory
             .appending(path: "project-dev-shape-e2e-\(UUID().uuidString)")
         let fm = FileManager.default
@@ -321,7 +321,7 @@ struct FilesystemToPrimarySidebarIntegrationTests {
         ]
 
         for path in repoPaths {
-            try initializeGitRepository(at: root.appending(path: path))
+            try await initializeGitRepository(at: root.appending(path: path))
         }
 
         // Real-world stale worktree path shape: has a `.git` marker but is not a valid worktree.
@@ -336,15 +336,17 @@ struct FilesystemToPrimarySidebarIntegrationTests {
         return root
     }
 
-    private func initializeGitRepository(at path: URL) throws {
+    private func initializeGitRepository(at path: URL) async throws {
         try FileManager.default.createDirectory(at: path, withIntermediateDirectories: true)
-
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        process.arguments = ["git", "-C", path.path, "init"]
-        try process.run()
-        process.waitUntilExit()
-        #expect(process.terminationStatus == 0)
+        let exitCode = try await withoutBlockingCooperativePool {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+            process.arguments = ["git", "-C", path.path, "init"]
+            try process.run()
+            process.waitUntilExit()
+            return process.terminationStatus
+        }
+        #expect(exitCode == 0)
     }
 
     private func makeStatusByRootPath(

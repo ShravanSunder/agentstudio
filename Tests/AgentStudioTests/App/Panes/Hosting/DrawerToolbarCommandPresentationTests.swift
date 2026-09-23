@@ -235,7 +235,7 @@ private final class RecordingDrawerToolbarDispatcher: AppCommandDispatching {
     private(set) var capabilityQueries: [DrawerToolbarTargetedQuery] = []
     private(set) var dispatchedQueries: [DrawerToolbarTargetedQuery] = []
 
-    func dispatch(_: AppCommand) {}
+    func dispatch(_: AppCommand) -> Bool { false }
 
     func dispatch(
         _ command: AppCommand,

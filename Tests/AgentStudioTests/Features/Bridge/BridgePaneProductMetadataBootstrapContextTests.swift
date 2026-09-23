@@ -15,12 +15,32 @@ struct BridgePaneProductMetadataBootstrapContextTests {
         #expect(result.finalTreeSources == [result.currentSource])
     }
 
-    @Test("replacement bootstrap cannot lose the current File final tree")
-    func replacementBootstrapPreservesCurrentFileFinalTree() async throws {
+    /// The overlap this models — a replay-driven bootstrap racing the commit-driven
+    /// bootstrap of the same subscription — can only occur on a RESUME stream. On a
+    /// fresh stream, D10 retires the subscriptions captured at install instead of
+    /// replaying them, so the replay opens nothing and no bootstrap ever starts.
+    @Test("resumed-stream replay bootstrap cannot lose the current File final tree")
+    func resumedStreamReplayBootstrapPreservesCurrentFileFinalTree() async throws {
         let result = try await runRealFileBootstrapScenario(induceReplayCommitOverlap: true)
 
         #expect(result.resetCount == 0)
         #expect(result.finalTreeSources == [result.currentSource])
+    }
+
+    /// The D10 negative for this fixture, and S16b's capture-at-install guarantee.
+    ///
+    /// A fresh stream captures its stale set at install, when the File subscription does
+    /// not exist yet, so the set is empty. The subscription committed AFTER install
+    /// therefore belongs to the new client: the replay must start no bootstrap for it and
+    /// must not retire it.
+    @Test("fresh-stream replay starts no bootstrap for a subscription committed after install")
+    func freshStreamReplayStartsNoBootstrapForSubscriptionCommittedAfterInstall() async throws {
+        let observation = try await runFreshStreamReplayScenario()
+
+        #expect(observation.bootstrapStartedCountAfterReplay == 0)
+        #expect(observation.subscriptionIdsAfterReplay == ["file-subscription-1"])
+        #expect(observation.resetCount == 0)
+        #expect(observation.finalTreeSources == [observation.currentSource])
     }
 }
 
@@ -47,6 +67,78 @@ private struct BootstrapContextOpenedControl {
     let token: BridgeProductControlAdmissionToken
 }
 
+private struct FreshStreamReplayObservation {
+    let bootstrapStartedCountAfterReplay: Int
+    let currentSource: BridgeProductFileSourceIdentity
+    let finalTreeSources: [BridgeProductFileSourceIdentity]
+    let resetCount: Int
+    let subscriptionIdsAfterReplay: [String]
+}
+
+/// Installs a FRESH stream, commits the File subscription after that install, and runs
+/// the replay to completion.
+///
+/// `replaySubscriptionsForInstalledStream()` is awaited directly rather than spawned:
+/// its return IS the owner's completion barrier, so the two facts are read once,
+/// immediately after it, with no wait of any kind. The scenario then finishes through
+/// the ordinary non-overlap path so the fixture tears down clean.
+private func runFreshStreamReplayScenario() async throws -> FreshStreamReplayObservation {
+    let resources = try await makeBootstrapContextScenarioResources(
+        induceReplayCommitOverlap: false
+    )
+    defer { resources.fixture.remove() }
+    var pendingControlToken: BridgeProductControlAdmissionToken?
+    var didCancelSubscription = false
+
+    do {
+        await resources.coordinator.install(
+            request: try bootstrapContextMetadataStreamRequest(resumeFromStreamSequence: nil),
+            lease: resources.producerLease,
+            productAdmission: resources.harness.productAdmission.context,
+            session: resources.harness.session
+        )
+        let openedControl = try await commitBootstrapContextFileSubscription(
+            resources: resources
+        )
+        pendingControlToken = openedControl.token
+
+        await resources.coordinator.replaySubscriptionsForInstalledStream()
+        let bootstrapStartedCountAfterReplay = await resources.lifecycleRecorder.bootstrapStartedCount
+        let subscriptionIdsAfterReplay = await resources.harness.session.subscriptionSnapshots()
+            .map(\.subscriptionId)
+
+        await runBootstrapContextSchedule(
+            resources: resources,
+            openEffect: openedControl.effect,
+            induceReplayCommitOverlap: false
+        )
+        await resources.harness.session.settleControlProviderDispatch(token: openedControl.token)
+        pendingControlToken = nil
+        try await cancelBootstrapContextFileSubscription(
+            harness: resources.harness,
+            coordinator: resources.coordinator
+        )
+        didCancelSubscription = true
+        await resources.frameCollector.waitUntilCurrentSubscriptionCancellation()
+        let result = try await bootstrapContextScenarioResult(resources: resources)
+        try await finishBootstrapContextScenario(resources)
+        return FreshStreamReplayObservation(
+            bootstrapStartedCountAfterReplay: bootstrapStartedCountAfterReplay,
+            currentSource: result.currentSource,
+            finalTreeSources: result.finalTreeSources,
+            resetCount: result.resetCount,
+            subscriptionIdsAfterReplay: subscriptionIdsAfterReplay
+        )
+    } catch {
+        await cleanupFailedBootstrapContextScenario(
+            resources: resources,
+            pendingControlToken: pendingControlToken,
+            didCancelSubscription: didCancelSubscription
+        )
+        throw error
+    }
+}
+
 private func runRealFileBootstrapScenario(
     induceReplayCommitOverlap: Bool
 ) async throws -> BootstrapContextScenarioResult {
@@ -58,8 +150,13 @@ private func runRealFileBootstrapScenario(
     var didCancelSubscription = false
 
     do {
+        // The overlap scenario needs the replay to OPEN a subscription that already
+        // exists, which only the resume branch does. On a fresh stream D10 retires the
+        // set captured at install instead, so no bootstrap would ever start.
         await resources.coordinator.install(
-            request: try bootstrapContextMetadataStreamRequest(),
+            request: try bootstrapContextMetadataStreamRequest(
+                resumeFromStreamSequence: induceReplayCommitOverlap ? 0 : nil
+            ),
             lease: resources.producerLease,
             productAdmission: resources.harness.productAdmission.context,
             session: resources.harness.session
@@ -248,6 +345,7 @@ private func cleanupFailedBootstrapContextScenario(
 }
 
 private actor BootstrapContextLifecycleRecorder: BridgeProductMetadataLifecycleTraceRecording {
+    private(set) var bootstrapStartedCount = 0
     private var bootstrapFinishedCount = 0
     private var bootstrapFinishedWaiters: [(Int, CheckedContinuation<Void, Never>)] = []
     private let holdFirstBootstrapStart: Bool
@@ -260,6 +358,8 @@ private actor BootstrapContextLifecycleRecorder: BridgeProductMetadataLifecycleT
     }
 
     func record(_ event: BridgeProductMetadataLifecycleTraceEvent) async {
+        // Counted before the hold, so a held start is still counted.
+        if event.stage == .bootstrapStarted { bootstrapStartedCount += 1 }
         if event.stage == .bootstrapStarted, holdFirstBootstrapStart, !firstBootstrapStartHeld {
             firstBootstrapStartHeld = true
             let waiters = firstBootstrapStartHeldWaiters
@@ -456,13 +556,20 @@ private func bootstrapContextControlIdentity(
     ]
 }
 
-private func bootstrapContextMetadataStreamRequest() throws -> BridgeProductMetadataStreamRequest {
+/// Builds the stream request this fixture installs.
+///
+/// `resumeFromStreamSequence` decides which replay branch the coordinator takes, so
+/// each scenario states it explicitly: `nil` is a fresh open (D10 retires the captured
+/// stale set), an integer is a resume (the replay snapshots and defers as before).
+private func bootstrapContextMetadataStreamRequest(
+    resumeFromStreamSequence: Int?
+) throws -> BridgeProductMetadataStreamRequest {
     let data = try JSONSerialization.data(
         withJSONObject: [
             "kind": "metadataStream.open",
             "metadataStreamId": "metadata-stream-1",
             "paneSessionId": "pane-session-1",
-            "resumeFromStreamSequence": NSNull(),
+            "resumeFromStreamSequence": resumeFromStreamSequence.map { $0 as Any } ?? NSNull(),
             "wireVersion": BridgeProductWireContract.version,
             "workerInstanceId": "worker-instance-1",
         ],

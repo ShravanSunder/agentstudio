@@ -242,6 +242,8 @@ final class PilotContentChild: NSObject, RepoExplorerMaterializationContentChild
             failureReason = .transactionInvalid
         } else if visibleRowCount != min(representedRowCount, candidate.snapshot.rows.count) {
             failureReason = .fixtureInvalid
+        } else if !applySelection(rowID: candidate.selectedRowID, scrollIntoView: false) {
+            failureReason = .fixtureInvalid
         }
         isExact = failureReason == nil
         completion(isExact ? .accepted : .rejected)
@@ -252,6 +254,24 @@ final class PilotContentChild: NSObject, RepoExplorerMaterializationContentChild
         completion: @escaping (RepoExplorerMaterializationChildDisposition) -> Void
     ) {
         completion(.accepted)
+    }
+
+    func applySelection(rowID: RepoExplorerRowID?, scrollIntoView: Bool) -> Bool {
+        guard let snapshot else { return rowID == nil }
+        guard let rowID else {
+            tableView.deselectAll(nil)
+            return true
+        }
+        guard let rowIndex = snapshot.rowIndexByID[rowID],
+            snapshot.navigationIndex.containsSelectableRow(rowID)
+        else { return false }
+        tableView.selectRowIndexes(IndexSet(integer: rowIndex), byExtendingSelection: false)
+        if scrollIntoView { tableView.scrollRowToVisible(rowIndex) }
+        return tableView.selectedRow == rowIndex
+    }
+
+    func performListKeyboardEffect(_ effect: RepoExplorerListKeyboardEffect) {
+        _ = effect
     }
 
     func suspendDemand() {}

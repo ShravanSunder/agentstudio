@@ -70,6 +70,7 @@ struct WorkspaceDrawerRestoreIntegrationTests {
             surfaceManager: surfaceManager,
             runtimeRegistry: .shared,
             windowLifecycleStore: windowLifecycleStore,
+            ipcLifecycle: .testUnavailable,
             bridgePaneAttendance: BridgePaneAttendanceAtom()
         )
         coordinator.sessionConfig = fixtureSessionConfiguration
@@ -484,6 +485,7 @@ struct WorkspaceDrawerRestoreIntegrationTests {
             surfaceManager: restoredSurfaceManager,
             runtimeRegistry: RuntimeRegistry(),
             windowLifecycleStore: restoredWindowLifecycleStore,
+            ipcLifecycle: .testUnavailable,
             bridgePaneAttendance: BridgePaneAttendanceAtom()
         )
         restoredCoordinator.sessionConfig = fixtureSessionConfiguration
@@ -615,6 +617,7 @@ struct WorkspaceDrawerRestoreIntegrationTests {
             surfaceManager: surfaceManager,
             runtimeRegistry: RuntimeRegistry(),
             windowLifecycleStore: windowLifecycleStore,
+            ipcLifecycle: .testUnavailable,
             bridgePaneAttendance: BridgePaneAttendanceAtom()
         )
         coordinator.sessionConfig = fixtureSessionConfiguration
@@ -663,6 +666,7 @@ struct WorkspaceDrawerRestoreIntegrationTests {
             surfaceManager: restoredSurfaceManager,
             runtimeRegistry: RuntimeRegistry(),
             windowLifecycleStore: restoredWindowLifecycleStore,
+            ipcLifecycle: .testUnavailable,
             bridgePaneAttendance: BridgePaneAttendanceAtom()
         )
         restoredCoordinator.sessionConfig = fixtureSessionConfiguration

@@ -29,7 +29,6 @@ struct WorkspaceSurfaceCoordinatorTopologyTraceTests {
         let recorder = AgentStudioPerformanceTraceRecorder(traceRuntime: runtime)
         let paneEventBus = makeTestPaneRuntimeEventBus()
         let store = try makeWorkspaceJournalTestStore()
-        let gitStatusPhysicalGate = AgentStudioGitStatusPhysicalGate()
         let coordinator = WorkspaceSurfaceCoordinator(
             store: store,
             viewRegistry: ViewRegistry(),
@@ -40,9 +39,10 @@ struct WorkspaceSurfaceCoordinatorTopologyTraceTests {
             runtimeRegistry: RuntimeRegistry(),
             paneEventBus: paneEventBus,
             gitWorkingTreeStatusProvider: StubGitWorkingTreeStatusProvider { _ in nil },
-            gitStatusPhysicalGate: gitStatusPhysicalGate,
+            gitStatusPhysicalGate: AgentStudioGitStatusPhysicalGate(),
             filesystemSource: TopologyTraceRecordingFilesystemSource(),
             windowLifecycleStore: WindowLifecycleAtom(),
+            ipcLifecycle: .testUnavailable,
             bridgePaneAttendance: BridgePaneAttendanceAtom(),
             performanceTraceRecorder: recorder
         )

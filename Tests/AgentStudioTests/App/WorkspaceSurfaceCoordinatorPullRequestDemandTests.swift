@@ -75,6 +75,7 @@ struct WorkspaceSurfaceCoordinatorPullRequestDemandTests {
                 gitStatusPhysicalGate: gitStatusPhysicalGate,
                 filesystemSource: source,
                 windowLifecycleStore: windowLifecycle,
+                ipcLifecycle: .testUnavailable,
                 bridgePaneAttendance: BridgePaneAttendanceAtom()
             )
 
@@ -172,6 +173,7 @@ struct WorkspaceSurfaceCoordinatorPullRequestDemandTests {
                 gitStatusPhysicalGate: gitStatusPhysicalGate,
                 filesystemSource: source,
                 windowLifecycleStore: windowLifecycle,
+                ipcLifecycle: .testUnavailable,
                 bridgePaneAttendance: BridgePaneAttendanceAtom()
             )
             let owningWindowId = UUIDv7.generate()
@@ -279,6 +281,7 @@ struct WorkspaceSurfaceCoordinatorPullRequestDemandTests {
                 gitStatusPhysicalGate: gitStatusPhysicalGate,
                 filesystemSource: source,
                 windowLifecycleStore: windowLifecycle,
+                ipcLifecycle: .testUnavailable,
                 bridgePaneAttendance: BridgePaneAttendanceAtom()
             )
             let owningWindowId = UUIDv7.generate()
@@ -384,6 +387,7 @@ struct WorkspaceSurfaceCoordinatorPullRequestDemandTests {
                 gitStatusPhysicalGate: gitStatusPhysicalGate,
                 filesystemSource: source,
                 windowLifecycleStore: windowLifecycle,
+                ipcLifecycle: .testUnavailable,
                 bridgePaneAttendance: BridgePaneAttendanceAtom()
             )
             let owningWindowId = UUIDv7.generate()
@@ -465,6 +469,7 @@ struct WorkspaceSurfaceCoordinatorPullRequestDemandTests {
                 gitStatusPhysicalGate: gitStatusPhysicalGate,
                 filesystemSource: source,
                 windowLifecycleStore: windowLifecycle,
+                ipcLifecycle: .testUnavailable,
                 bridgePaneAttendance: BridgePaneAttendanceAtom()
             )
             let owningWindowId = UUIDv7.generate()

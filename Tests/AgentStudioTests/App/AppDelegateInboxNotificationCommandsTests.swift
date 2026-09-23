@@ -6,7 +6,7 @@ import Testing
 @testable import AgentStudioInboxNotification
 
 @MainActor
-@Suite("AppDelegate retired Inbox commands")
+@Suite("AppDelegate retired Inbox commands", .serialized)
 struct AppDelegateInboxNotificationCommandsTests {
     @Test("shell Inbox commands are unsupported and preserve dormant state")
     func shellInboxCommandsAreUnsupportedAndPreserveDormantState() {
@@ -47,7 +47,7 @@ struct AppDelegateInboxNotificationCommandsTests {
         #expect(prefsAtom.sort == .newestFirst)
     }
 
-    @Test("typed Inbox commands fail as unsupported without mutating preferences")
+    @Test("retired Inbox command requests remain unsupported without mutating preferences")
     func typedInboxCommandsFailAsUnsupportedWithoutMutatingPreferences() {
         let delegate = AppDelegate()
         let prefsAtom = InboxNotificationPrefsAtom()
@@ -56,13 +56,13 @@ struct AppDelegateInboxNotificationCommandsTests {
         let rowFilterOutcome = delegate.execute(
             AppCommandExecutionRequest(
                 command: .setInboxRowStateFilter,
-                arguments: .inboxRowStateFilter(.all)
+                executionContext: .headlessIPC(admitsDebugTestingCommands: true)
             )
         )
         let contentModeOutcome = delegate.execute(
             AppCommandExecutionRequest(
                 command: .setInboxContentMode,
-                arguments: .inboxContentMode(.activity)
+                executionContext: .headlessIPC(admitsDebugTestingCommands: true)
             )
         )
 

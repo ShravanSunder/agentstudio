@@ -1,8 +1,10 @@
+import AppKit
 import Foundation
 import Testing
 
 @testable import AgentStudio
 @testable import AgentStudioCore
+@testable import AgentStudioInfrastructure
 @testable import AgentStudioTestSupport
 
 @MainActor
@@ -12,8 +14,8 @@ struct PaneTabViewControllerTerminalShortcutCommandTests {
         installTestCoreAtomsIfNeeded()
     }
 
-    @Test("cmd shift k through controller key path targets focused drawer pane")
-    func handleAppOwnedKeyEvent_cmdShiftK_targetsFocusedDrawerPane() async throws {
+    @Test("seven terminal navigation keys target the focused drawer pane")
+    func terminalNavigationKeysTargetFocusedDrawerPane() async throws {
         try await withAsyncTestCoreAtoms { atoms in
             let harness = makeHarness(windowLifecycleStore: atoms.windowLifecycle)
             defer { try? FileManager.default.removeItem(at: harness.tempDir) }
@@ -41,14 +43,7 @@ struct PaneTabViewControllerTerminalShortcutCommandTests {
             harness.runtimeRegistry.register(parentRuntime)
             harness.runtimeRegistry.register(drawerRuntime)
 
-            let event = try #require(
-                makeKeyEvent(
-                    modifierFlags: [.command, .shift],
-                    characters: "K",
-                    charactersIgnoringModifiers: "k",
-                    keyCode: 40
-                )
-            )
+            let events = try makeTerminalNavigationKeyEvents()
 
             try await withIsolatedCommandDispatcher(
                 configure: {
@@ -56,15 +51,16 @@ struct PaneTabViewControllerTerminalShortcutCommandTests {
                     AppCommandDispatcher.shared.appCommandRouter = nil
                 },
                 body: {
-                    #expect(harness.controller.handleAppOwnedKeyEvent(event))
-                    await waitForRecordedCommands(on: drawerRuntime, count: 1)
-                    #expect(parentRuntime.receivedCommands.isEmpty)
-                    let command = try #require(drawerRuntime.receivedCommands.first)
-                    #expect(command.targetPaneId == PaneId(existingUUID: drawerPane.id))
-                    guard case .terminal(.scrollToBottom) = command.command else {
-                        Issue.record("Expected focused drawer pane to receive scrollToBottom")
-                        return
+                    for (index, event) in events.enumerated() {
+                        #expect(harness.controller.handleAppOwnedKeyEvent(event))
+                        await waitForRecordedCommands(on: drawerRuntime, count: index + 1)
                     }
+                    #expect(parentRuntime.receivedCommands.isEmpty)
+                    #expect(drawerRuntime.receivedCommands.count == 7)
+                    for command in drawerRuntime.receivedCommands {
+                        #expect(command.targetPaneId == PaneId(existingUUID: drawerPane.id))
+                    }
+                    expectSettledTerminalNavigationCommands(drawerRuntime.receivedCommands)
                 }
             )
         }
@@ -186,8 +182,8 @@ struct PaneTabViewControllerTerminalShortcutCommandTests {
         }
     }
 
-    @Test("targeted scrollToBottom targets requested drawer pane")
-    func executeTargetedScrollToBottom_targetsRequestedDrawerPane() async throws {
+    @Test("targeted terminal navigation targets the requested drawer pane")
+    func executeTargetedTerminalNavigation_targetsRequestedDrawerPane() async throws {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
@@ -214,14 +210,71 @@ struct PaneTabViewControllerTerminalShortcutCommandTests {
         harness.runtimeRegistry.register(drawerRuntime)
 
         harness.controller.execute(.scrollToBottom, target: drawerPane.id, targetType: .pane)
+        harness.controller.execute(.scrollSmallStepDown, target: drawerPane.id, targetType: .pane)
 
-        await waitForRecordedCommands(on: drawerRuntime, count: 1)
+        await waitForRecordedCommands(on: drawerRuntime, count: 2)
         #expect(parentRuntime.receivedCommands.isEmpty)
-        let command = try #require(drawerRuntime.receivedCommands.first)
-        #expect(command.targetPaneId == PaneId(existingUUID: drawerPane.id))
-        guard case .terminal(.scrollToBottom) = command.command else {
+        #expect(drawerRuntime.receivedCommands.count == 2)
+        for command in drawerRuntime.receivedCommands {
+            #expect(command.targetPaneId == PaneId(existingUUID: drawerPane.id))
+        }
+        guard case .terminal(.scrollToBottom) = drawerRuntime.receivedCommands[0].command else {
             Issue.record("Expected targeted drawer pane to receive scrollToBottom")
             return
         }
+        expectFractionalScroll(
+            drawerRuntime.receivedCommands[1],
+            fraction: AppPolicies.TerminalNavigation.smallStepFraction
+        )
+    }
+
+    private func makeTerminalNavigationKeyEvents() throws -> [NSEvent] {
+        let bindings: [(NSEvent.ModifierFlags, String, UInt16)] = [
+            ([.command, .shift], "I", 34),
+            ([.command, .shift], "K", 40),
+            ([.command, .shift], "J", 38),
+            ([.command, .shift], "L", 37),
+            ([.option, .shift], "J", 38),
+            ([.option, .shift], "L", 37),
+            ([.command, .option], "k", 40),
+        ]
+        return try bindings.map { modifiers, characters, keyCode in
+            try #require(
+                makeKeyEvent(
+                    modifierFlags: modifiers,
+                    characters: characters,
+                    charactersIgnoringModifiers: characters.lowercased(),
+                    keyCode: keyCode
+                )
+            )
+        }
+    }
+
+    private func expectSettledTerminalNavigationCommands(_ envelopes: [RuntimeCommandEnvelope]) {
+        guard envelopes.count == 7 else { return }
+        expectFractionalScroll(envelopes[0], fraction: -AppPolicies.TerminalNavigation.pageFraction)
+        expectFractionalScroll(envelopes[1], fraction: AppPolicies.TerminalNavigation.pageFraction)
+        expectFractionalScroll(envelopes[2], fraction: -AppPolicies.TerminalNavigation.smallStepFraction)
+        expectFractionalScroll(envelopes[3], fraction: AppPolicies.TerminalNavigation.smallStepFraction)
+        guard case .terminal(.jumpToPrompt(delta: -1)) = envelopes[4].command else {
+            Issue.record("Expected previous-prompt command")
+            return
+        }
+        guard case .terminal(.jumpToPrompt(delta: 1)) = envelopes[5].command else {
+            Issue.record("Expected next-prompt command")
+            return
+        }
+        guard case .terminal(.scrollToBottom) = envelopes[6].command else {
+            Issue.record("Expected scroll-to-bottom command")
+            return
+        }
+    }
+
+    private func expectFractionalScroll(_ envelope: RuntimeCommandEnvelope, fraction: Double) {
+        guard case .terminal(.scrollPageFractional(let actualFraction)) = envelope.command else {
+            Issue.record("Expected fractional scroll command")
+            return
+        }
+        #expect(actualFraction == fraction)
     }
 }

@@ -1,10 +1,12 @@
+import AgentStudioInfrastructure
+import AgentStudioTestSupport
 import Foundation
 import Testing
 
 @Suite(.serialized)
 struct ZmxStartupTraceAnalyzerTests {
     @Test("analyzer summarizes successful startup trace with zmx log")
-    func analyzerSummarizesSuccessfulStartupTraceWithZmxLog() throws {
+    func analyzerSummarizesSuccessfulStartupTraceWithZmxLog() async throws {
         let paneID = UUID().uuidString
         let surfaceID = UUID().uuidString
         let operationID = UUID().uuidString
@@ -74,7 +76,7 @@ struct ZmxStartupTraceAnalyzerTests {
             ]
         )
 
-        let result = try runAnalyzer([fixture.path, "--zmx-log", zmxLogDirectory.path])
+        let result = try await runAnalyzer([fixture.path, "--zmx-log", zmxLogDirectory.path])
 
         #expect(result.exitCode == 0)
         #expect(result.stdout.contains("operation: \(operationID)"))
@@ -88,7 +90,7 @@ struct ZmxStartupTraceAnalyzerTests {
     }
 
     @Test("analyzer identifies surface failure before zmx launch")
-    func analyzerIdentifiesSurfaceFailureBeforeZmxLaunch() throws {
+    func analyzerIdentifiesSurfaceFailureBeforeZmxLaunch() async throws {
         let paneID = UUID().uuidString
         let operationID = UUID().uuidString
         let sessionID = "as-failed-before-zmx"
@@ -155,7 +157,7 @@ struct ZmxStartupTraceAnalyzerTests {
             lines: []
         )
 
-        let result = try runAnalyzer([fixture.path, "--zmx-log", zmxLogDirectory.path])
+        let result = try await runAnalyzer([fixture.path, "--zmx-log", zmxLogDirectory.path])
 
         #expect(result.exitCode == 0)
         #expect(result.stdout.contains("app_active=false"))
@@ -164,7 +166,7 @@ struct ZmxStartupTraceAnalyzerTests {
     }
 
     @Test("analyzer treats child exit during startup as failed readiness")
-    func analyzerTreatsChildExitDuringStartupAsFailedReadiness() throws {
+    func analyzerTreatsChildExitDuringStartupAsFailedReadiness() async throws {
         let paneID = UUID().uuidString
         let surfaceID = UUID().uuidString
         let operationID = UUID().uuidString
@@ -233,7 +235,7 @@ struct ZmxStartupTraceAnalyzerTests {
             ]
         )
 
-        let result = try runAnalyzer([fixture.path])
+        let result = try await runAnalyzer([fixture.path])
 
         #expect(result.exitCode == 0)
         #expect(result.stdout.contains("outcome: failed"))
@@ -242,10 +244,10 @@ struct ZmxStartupTraceAnalyzerTests {
     }
 
     @Test("analyzer reports missing startup records as contract failures")
-    func analyzerReportsMissingStartupRecordsAsContractFailures() throws {
+    func analyzerReportsMissingStartupRecordsAsContractFailures() async throws {
         let fixture = try makeFixture(named: "zmx-startup-missing-pane", lines: [])
 
-        let result = try runAnalyzer([fixture.path])
+        let result = try await runAnalyzer([fixture.path])
 
         #expect(result.exitCode == 1)
         #expect(result.stderr.contains("missing terminal.startup.pane_created records"))
@@ -312,48 +314,43 @@ struct ZmxStartupTraceAnalyzerTests {
         return encodedRecord
     }
 
-    private func runAnalyzer(_ arguments: [String]) throws -> AnalyzerResult {
-        let stdoutURL = FileManager.default.temporaryDirectory
-            .appending(path: "zmx-analyzer-stdout-\(UUID().uuidString).log")
-        let stderrURL = FileManager.default.temporaryDirectory
-            .appending(path: "zmx-analyzer-stderr-\(UUID().uuidString).log")
-        FileManager.default.createFile(atPath: stdoutURL.path, contents: nil)
-        FileManager.default.createFile(atPath: stderrURL.path, contents: nil)
-        let stdoutHandle = try FileHandle(forWritingTo: stdoutURL)
-        let stderrHandle = try FileHandle(forWritingTo: stderrURL)
-        var handlesClosed = false
-        defer {
-            if !handlesClosed {
+    private func runAnalyzer(_ arguments: [String]) async throws -> AnalyzerResult {
+        try await withoutBlockingCooperativePool {
+            let stdoutURL = FileManager.default.temporaryDirectory
+                .appending(path: "zmx-analyzer-stdout-\(UUIDv7.generate().uuidString).log")
+            let stderrURL = FileManager.default.temporaryDirectory
+                .appending(path: "zmx-analyzer-stderr-\(UUIDv7.generate().uuidString).log")
+            FileManager.default.createFile(atPath: stdoutURL.path, contents: nil)
+            FileManager.default.createFile(atPath: stderrURL.path, contents: nil)
+            let stdoutHandle = try FileHandle(forWritingTo: stdoutURL)
+            let stderrHandle = try FileHandle(forWritingTo: stderrURL)
+            defer {
                 try? stdoutHandle.close()
                 try? stderrHandle.close()
+                try? FileManager.default.removeItem(at: stdoutURL)
+                try? FileManager.default.removeItem(at: stderrURL)
             }
-            try? FileManager.default.removeItem(at: stdoutURL)
-            try? FileManager.default.removeItem(at: stderrURL)
+
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+            process.arguments = ["bash", "scripts/analyze-zmx-startup-trace.sh"] + arguments
+            process.currentDirectoryURL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+            process.standardOutput = stdoutHandle
+            process.standardError = stderrHandle
+            try process.run()
+            process.waitUntilExit()
+            try stdoutHandle.close()
+            try stderrHandle.close()
+            return AnalyzerResult(
+                exitCode: process.terminationStatus,
+                stdout: try String(contentsOf: stdoutURL, encoding: .utf8),
+                stderr: try String(contentsOf: stderrURL, encoding: .utf8)
+            )
         }
-
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        process.arguments = ["bash", "scripts/analyze-zmx-startup-trace.sh"] + arguments
-        process.currentDirectoryURL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-
-        process.standardOutput = stdoutHandle
-        process.standardError = stderrHandle
-
-        try process.run()
-        process.waitUntilExit()
-        try stdoutHandle.close()
-        try stderrHandle.close()
-        handlesClosed = true
-
-        return AnalyzerResult(
-            exitCode: process.terminationStatus,
-            stdout: String(data: try Data(contentsOf: stdoutURL), encoding: .utf8) ?? "",
-            stderr: String(data: try Data(contentsOf: stderrURL), encoding: .utf8) ?? ""
-        )
     }
 }
 
-private struct AnalyzerResult {
+private struct AnalyzerResult: Sendable {
     let exitCode: Int32
     let stdout: String
     let stderr: String

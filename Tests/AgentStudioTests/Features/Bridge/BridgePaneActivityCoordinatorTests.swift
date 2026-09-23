@@ -84,6 +84,39 @@ struct BridgePaneActivityCoordinatorTests {
         #expect(activity == .foreground)
     }
 
+    @Test("a transiently presented installed pane is foreground outside canonical placement")
+    func transientlyPresentedInstalledPaneIsForegroundOutsideCanonicalPlacement() {
+        let coordinator = BridgePaneActivityCoordinator()
+        let facts = BridgePaneActivityFacts.foreground.replacing(
+            isInActiveTab: false,
+            isInActiveArrangement: false,
+            isTransientlyPresented: true
+        )
+
+        #expect(coordinator.update(from: facts) == .foreground)
+    }
+
+    @Test("a covered installed peer is loaded-hidden during transient presentation")
+    func coveredInstalledPeerIsLoadedHiddenDuringTransientPresentation() {
+        let coordinator = BridgePaneActivityCoordinator()
+        let facts = BridgePaneActivityFacts.foreground.replacing(
+            isCoveredByTransientPresentation: true
+        )
+
+        #expect(coordinator.update(from: facts) == .loadedHidden)
+    }
+
+    @Test("a minimized transiently presented pane is foreground while canonical placement stays minimized")
+    func minimizedTransientlyPresentedPaneIsForeground() {
+        let coordinator = BridgePaneActivityCoordinator()
+        let facts = BridgePaneActivityFacts.foreground.replacing(
+            isMinimized: true,
+            isTransientlyPresented: true
+        )
+
+        #expect(coordinator.update(from: facts) == .foreground)
+    }
+
     @Test("a never-loaded pane without a controller is dormant")
     func neverLoadedPaneWithoutControllerIsDormant() {
         // Arrange
@@ -182,7 +215,9 @@ extension BridgePaneActivityFacts {
         isInExpandedDrawer: Bool? = nil,
         isMinimized: Bool? = nil,
         isZoomExcluded: Bool? = nil,
-        isAuthorityClosed: Bool? = nil
+        isAuthorityClosed: Bool? = nil,
+        isTransientlyPresented: Bool? = nil,
+        isCoveredByTransientPresentation: Bool? = nil
     ) -> Self {
         Self(
             residency: residency ?? self.residency,
@@ -192,7 +227,10 @@ extension BridgePaneActivityFacts {
             isInExpandedDrawer: isInExpandedDrawer ?? self.isInExpandedDrawer,
             isMinimized: isMinimized ?? self.isMinimized,
             isZoomExcluded: isZoomExcluded ?? self.isZoomExcluded,
-            isAuthorityClosed: isAuthorityClosed ?? self.isAuthorityClosed
+            isAuthorityClosed: isAuthorityClosed ?? self.isAuthorityClosed,
+            isTransientlyPresented: isTransientlyPresented ?? self.isTransientlyPresented,
+            isCoveredByTransientPresentation:
+                isCoveredByTransientPresentation ?? self.isCoveredByTransientPresentation
         )
     }
 }

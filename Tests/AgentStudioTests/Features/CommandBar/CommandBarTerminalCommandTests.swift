@@ -27,18 +27,20 @@ struct CommandBarTerminalCommandTests {
             dispatcher: FakeAppCommandDispatcher()
         )
 
-        let scroll = items.first { $0.command == .scrollToBottom }
-        let pageUp = items.first { $0.command == .scrollPageUp }
-        let previousPrompt = items.first { $0.command == .jumpToPreviousPrompt }
-        let nextPrompt = items.first { $0.command == .jumpToNextPrompt }
+        let expectedCommands: [(AppCommand, AppShortcut)] = [
+            (.scrollPageUp, .scrollPageUp),
+            (.scrollPageDown, .scrollPageDown),
+            (.scrollSmallStepUp, .scrollSmallStepUp),
+            (.scrollSmallStepDown, .scrollSmallStepDown),
+            (.scrollToBottom, .scrollToBottom),
+            (.jumpToPreviousPrompt, .jumpToPreviousPrompt),
+            (.jumpToNextPrompt, .jumpToNextPrompt),
+        ]
 
-        #expect(scroll?.group == "Terminal")
-        #expect(pageUp?.group == "Terminal")
-        #expect(previousPrompt?.group == "Terminal")
-        #expect(nextPrompt?.group == "Terminal")
-        #expect(scroll?.shortcutTrigger == AppShortcut.scrollToBottom.trigger)
-        #expect(pageUp?.shortcutTrigger == AppShortcut.scrollPageUp.trigger)
-        #expect(previousPrompt?.shortcutTrigger == AppShortcut.jumpToPreviousPrompt.trigger)
-        #expect(nextPrompt?.shortcutTrigger == AppShortcut.jumpToNextPrompt.trigger)
+        for (command, shortcut) in expectedCommands {
+            let item = items.first { $0.command == command }
+            #expect(item?.group == "Terminal")
+            #expect(item?.shortcutTrigger == shortcut.trigger)
+        }
     }
 }

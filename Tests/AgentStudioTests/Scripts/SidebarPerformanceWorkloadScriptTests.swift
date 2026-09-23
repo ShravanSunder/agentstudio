@@ -37,7 +37,6 @@ struct SidebarPerformanceWorkloadScriptTests {
         #expect(!source.contains("AGENTSTUDIO_SIDEBAR_IDLE_P99"))
         #expect(!source.contains("AGENTSTUDIO_SIDEBAR_ACTION_P95"))
     }
-
     @Test("strict sidebar populations are isolated and descriptor driven")
     func strictSidebarPopulationsAreIsolatedAndDescriptorDriven() throws {
         let source = try String(contentsOfFile: scriptPath, encoding: .utf8)
@@ -117,7 +116,6 @@ struct SidebarPerformanceWorkloadScriptTests {
         )
         #expect(source.contains("refusing to reset a non-idle debug root"))
     }
-
     @Test("strict action classification rejects arbitrary overlap outside the shared sampler phase")
     func strictActionClassificationRejectsBoundaryOffset() async throws {
         let result = try await runSidebarScript(
@@ -135,7 +133,6 @@ struct SidebarPerformanceWorkloadScriptTests {
         #expect(result.exitCode == 1)
         #expect(result.stderr.contains("action sample boundary offset"))
     }
-
     @Test("strict CPU samples use exact process time deltas at the projected interval")
     func strictCPUSamplesUseExactProcessTimeDeltas() throws {
         let source = try String(contentsOfFile: scriptPath, encoding: .utf8)
@@ -156,7 +153,6 @@ struct SidebarPerformanceWorkloadScriptTests {
         #expect(sampler.contains("$APP_PID"))
         #expect(!sampler.contains("/usr/bin/top"))
     }
-
     @Test("strict fixture wait fails immediately with the marker blocked reason")
     func strictFixtureWaitFailsImmediatelyWithBlockedReason() async throws {
         let result = try await runSidebarScript(
@@ -172,7 +168,6 @@ struct SidebarPerformanceWorkloadScriptTests {
         #expect(result.stderr.contains("strict sidebar fixture blocked for marker"))
         #expect(result.stderr.contains(": cold_repository_control_failed"))
     }
-
     @Test("implicit script proof root is removed after prepare-only completion")
     func implicitScriptProofRootIsRemovedAfterCompletion() async throws {
         let result = try await runSidebarScript(
@@ -222,7 +217,6 @@ extension SidebarPerformanceWorkloadScriptTests {
         #expect(empty.exitCode == 1)
         #expect(empty.stderr.contains("quiescence vector empty execution"))
     }
-
     @Test("strict settlement waits enforce the projected timeout as monotonic wall time")
     func strictSettlementWaitsUseMonotonicWallDeadlines() throws {
         let source = try String(contentsOfFile: scriptPath, encoding: .utf8)
@@ -588,16 +582,15 @@ extension SidebarPerformanceWorkloadScriptTests {
         #expect(!source.contains("\"sidebar.grouping.set\""))
         #expect(!source.contains("\"sidebar.surface.set\""))
         #expect(source.contains("\"showPanesSidebar\""))
-        #expect(source.contains("\"setPanesGroupingRepo\""))
-        #expect(source.contains("\"setPanesGroupingActivity\""))
-        #expect(source.contains("\"setPanesGroupingTab\""))
+        #expect(source.contains("\"setReposGroupingRepo\""))
+        #expect(source.contains("\"setReposGroupingActivity\""))
         #expect(!source.contains("\"showWorktreeSidebar\""))
         #expect(!source.contains("setRepoSidebarVisibilityMode"))
         #expect(!source.contains("favoritesOnly"))
         #expect(!source.contains("visibility_mode"))
-        #expect(source.contains("\"togglePanesSortDirection\""))
-        #expect(source.contains("def latest_completed_panes_projection():"))
-        #expect(source.contains("def wait_for_panes_projection("))
+        #expect(source.contains("\"toggleReposSortDirection\""))
+        #expect(source.contains("def latest_completed_sidebar_projection(surface):"))
+        #expect(source.contains("def wait_for_sidebar_projection("))
         #expect(source.contains("expected_sort_order=opposite_order"))
         #expect(source.contains("expected_sort_order=initial_order"))
         #expect(source.contains("sort_order"))
@@ -605,14 +598,23 @@ extension SidebarPerformanceWorkloadScriptTests {
         #expect(source.contains("repo_sort_mainactor_apply_elapsed_ms_p95"))
         #expect(source.contains("repo_sort_request_build_mainactor_elapsed_ms_p95"))
         #expect(source.contains("repo_sort_row_index_elapsed_ms_p95"))
-        #expect(source.contains("set_grouping(\"panes\", \"activity\")"))
-        #expect(source.contains("set_grouping(\"panes\", \"repo\")"))
+        #expect(source.contains("set_repo_grouping(\"activity\")"))
+        #expect(source.contains("set_repo_grouping(\"repo\")"))
+        #expect(source.contains("toggle_panes_shows_pinned_pair"))
+        #expect(source.contains("assert_fixed_panes_projection"))
+        #expect(source.contains("activity/descending/no-subgroup"))
+        #expect(source.contains("retired_panes_organization_commands"))
+        #expect(source.contains("command.list omitted retained retired command"))
+        #expect(source.contains("retired command retained IPC authority"))
+        #expect(source.contains("command.execute retired"))
+        #expect(source.contains("\"parameters required\""))
         #expect(source.contains("\"auth.login replay\""))
         #expect(source.contains("repo_pane_projection_worker_elapsed_ms_p95"))
         #expect(source.contains("repo_pane_projection_worker_elapsed_ms_count"))
-        #expect(source.contains("for mode_name in repo activity tab"))
+        #expect(source.contains("for mode_name in repo activity"))
         #expect(source.contains("for phase in request_build_mainactor projection_worker row_index mainactor_apply"))
-        #expect(source.contains("\"panes_${mode_name}_${phase}\""))
+        #expect(source.contains("\"repos_${mode_name}_${phase}\""))
+        #expect(source.contains("\"panes_fixed_activity_${phase}\""))
         #expect(source.contains("repo_pane_request_build_mainactor_elapsed_ms_p95"))
         #expect(source.contains("repo_pane_row_index_elapsed_ms_p95"))
         #expect(source.contains("repo_tab_mainactor_apply_elapsed_ms_max"))
@@ -625,7 +627,7 @@ extension SidebarPerformanceWorkloadScriptTests {
         #expect(source.contains("wait_for_required_metric_count"))
         #expect(source.contains("REQUIRED_SAMPLE_COUNT=100"))
         #expect(source.contains("REQUIRED_MATERIALIZED_SAMPLE_COUNT=90"))
-        #expect(source.contains("WORKLOAD_FIXTURE_VERSION=sidebar-workload-v6-panes-organization"))
+        #expect(source.contains("WORKLOAD_FIXTURE_VERSION=sidebar-workload-v7-fixed-panes-organization"))
         #expect(source.contains("REQUIRED_REPOSITORY_COUNT=150"))
         #expect(source.contains("REQUIRED_WORKTREE_COUNT=180"))
         #expect(source.contains("REQUIRED_TAB_COUNT=12"))
@@ -661,7 +663,7 @@ extension SidebarPerformanceWorkloadScriptTests {
         #expect(source.contains("sidebar_proof.diagnostic_trace_tags"))
         #expect(!source.contains("WORKLOAD_TRACE_TAGS=\"performance,atoms,app.startup,terminal.startup\""))
         #expect(source.contains("must be >= {minimum}"))
-        #expect(source.contains("def wait_for_panes_projection"))
+        #expect(source.contains("def wait_for_sidebar_projection"))
         #expect(source.contains("time.monotonic() + timeout"))
         #expect(source.contains("AGENTSTUDIO_TRACE_FLUSH=immediate"))
         #expect(source.contains("KEY_MUTATION_TRACE_TAGS=\"performance,app.startup\""))
@@ -690,9 +692,12 @@ extension SidebarPerformanceWorkloadScriptTests {
         #expect(source.contains("validate_compare_baseline_fixture"))
         #expect(!source.contains("\"sidebar.grouping.get\""))
         #expect(!source.contains("\"sidebar.surface.get\""))
-        #expect(source.contains("panes_only_workload.ipc_sequence=grouping_and_sort"))
+        #expect(source.contains("repos_workload.ipc_sequence=grouping_and_sort"))
         #expect(
-            source.contains("panes_sort.ipc_sequence=toggle,restore,toggle,restore,toggle,restore"))
+            source.contains("repos_sort.ipc_sequence=toggle,restore,toggle,restore,toggle,restore"))
+        #expect(source.contains("panes_fixed_policy=activity,descending,no_subgroup"))
+        #expect(source.contains("panes_supported_workload.ipc_sequence=show_pinned_toggle,restore"))
+        #expect(source.contains("panes_retired_commands=absent,rejected,no_mutation"))
         #expect(source.contains("sidebar-performance-baseline.env"))
         #expect(source.contains("performance_threshold_check"))
         #expect(source.contains("requires authenticated IPC auth mode"))

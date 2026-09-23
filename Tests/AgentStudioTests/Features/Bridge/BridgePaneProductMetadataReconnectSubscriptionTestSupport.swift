@@ -35,8 +35,49 @@ actor ReconnectFileMetadataSource: BridgePaneProductFileMetadataProducing {
     private var openCallCount = 0
     private var publicationCallCount = 0
     private var updateCallCount = 0
+    private var activeSubscriptionWaiters: [CheckedContinuation<Void, Never>] = []
+    private var updateCallWaiters: [CheckedContinuation<Void, Never>] = []
 
     var hasActiveSubscription: Bool { !activeSubscriptionIds.isEmpty }
+
+    /// Returns once this source has an open subscription. The source itself owns that
+    /// fact and resumes waiters from `open(_:)`, so there is no turn budget: a 2000-turn
+    /// loop drains fastest exactly when the machine is slowest, which is when the
+    /// subscription is most likely to still be in flight.
+    func waitForActiveSubscription() async {
+        if activeSubscriptionIds.isEmpty == false {
+            return
+        }
+        await withCheckedContinuation { continuation in
+            activeSubscriptionWaiters.append(continuation)
+        }
+    }
+
+    /// Returns once `update(_:)` has been applied at least once, signalled by that call.
+    func waitForUpdateCall() async {
+        if updateCallCount >= 1 {
+            return
+        }
+        await withCheckedContinuation { continuation in
+            updateCallWaiters.append(continuation)
+        }
+    }
+
+    private func resumeActiveSubscriptionWaiters() {
+        let waiters = activeSubscriptionWaiters
+        activeSubscriptionWaiters.removeAll()
+        for waiter in waiters {
+            waiter.resume()
+        }
+    }
+
+    private func resumeUpdateCallWaiters() {
+        let waiters = updateCallWaiters
+        updateCallWaiters.removeAll()
+        for waiter in waiters {
+            waiter.resume()
+        }
+    }
 
     var diagnostics: ReconnectFileSourceDiagnostics {
         .init(
@@ -61,6 +102,9 @@ actor ReconnectFileMetadataSource: BridgePaneProductFileMetadataProducing {
         openCallCount += 1
         appliedInterestSha256 = subscription.interestSha256
         activeSubscriptionIds.insert(subscription.subscriptionId)
+        // Released before the emit suspends: the subscription is already open here, so a
+        // waiter should not be held behind the first event's delivery.
+        resumeActiveSubscriptionWaiters()
         try await emit(try reconnectFileSourceAcceptedEvent(cursor: "initial"))
     }
 
@@ -73,6 +117,7 @@ actor ReconnectFileMetadataSource: BridgePaneProductFileMetadataProducing {
         guard activeSubscriptionIds.contains(subscription.subscriptionId) else { return }
         appliedInterestSha256 = subscription.interestSha256
         updateCallCount += 1
+        resumeUpdateCallWaiters()
     }
 
     func cancel(subscriptionId: String) {
@@ -192,9 +237,7 @@ func establishReconnectFileSubscription(
     else {
         throw ReconnectSubscriptionTestError.expectedInterestCommit
     }
-    guard await waitForReconnectSourceUpdate(fileSource) else {
-        throw ReconnectSubscriptionTestError.expectedSourceUpdate
-    }
+    await waitForReconnectSourceUpdate(fileSource)
     let retainedSubscription = try #require(
         await harness.session.subscriptionSnapshot(subscriptionId: "file-subscription-1")
     )
@@ -250,25 +293,25 @@ func dispatchReconnectControl(
     return try BridgeProductStrictJSON.decode(BridgeProductControlResponse.self, from: responseData)
 }
 
+/// Pulls frames until the post-reconnect cursor arrives.
+///
+/// The pump's `nextFrame()` already suspends until a frame exists, so the old
+/// `queuedFrameCount` guard was a test-side re-implementation of the pump's own waiting,
+/// and the 2 s cap around it only decided the verdict by machine speed. A non-`.frame`
+/// pull result (cancelled or finished) throws out of `pullMetadataFrame`, which is the
+/// real terminal outcome here — not a deadline.
 func pullPostReconnectPublication(
-    from pump: BridgeProductSchemeFramePump,
-    session: BridgeProductSession
+    from pump: BridgeProductSchemeFramePump
 ) async throws -> BridgeProductMetadataFrame? {
-    let deadline = ContinuousClock.now + .seconds(2)
-    while ContinuousClock.now < deadline {
-        if await session.producerSnapshot().queuedFrameCount > 0 {
-            let frame = try await pullMetadataFrame(from: pump)
-            if case .subscriptionData(let data) = frame,
-                case .sourceAccepted(let accepted)? = data.data.fileMetadataEvent,
-                accepted.source.sourceCursor == "source-cursor-post-reconnect"
-            {
-                return frame
-            }
-        } else {
-            await Task.yield()
+    while true {
+        let frame = try await pullMetadataFrame(from: pump)
+        if case .subscriptionData(let data) = frame,
+            case .sourceAccepted(let accepted)? = data.data.fileMetadataEvent,
+            accepted.source.sourceCursor == "source-cursor-post-reconnect"
+        {
+            return frame
         }
     }
-    return nil
 }
 
 func reconnectResyncRequest(
@@ -328,33 +371,22 @@ func reconnectFileChangeset() throws -> FileChangeset {
     )
 }
 
-func waitForReconnectSourceActivity(
-    _ source: ReconnectFileMetadataSource,
-    maximumTurns: Int = 2000
-) async -> Bool {
-    for _ in 0..<maximumTurns {
-        if await source.hasActiveSubscription { return true }
-        await Task.yield()
-    }
-    return false
+/// Barriers on the source's own signals. They cannot report failure, so callers no longer
+/// assert on them: reaching the next line IS the proof that the subscription opened, and a
+/// source that never opens hangs the test under the lane watchdog with its name attached,
+/// instead of returning false after an arbitrary number of turns.
+func waitForReconnectSourceActivity(_ source: ReconnectFileMetadataSource) async {
+    await source.waitForActiveSubscription()
 }
 
-func waitForReconnectSourceUpdate(
-    _ source: ReconnectFileMetadataSource,
-    maximumTurns: Int = 2000
-) async -> Bool {
-    for _ in 0..<maximumTurns {
-        if await source.diagnostics.updateCallCount >= 1 { return true }
-        await Task.yield()
-    }
-    return false
+func waitForReconnectSourceUpdate(_ source: ReconnectFileMetadataSource) async {
+    await source.waitForUpdateCall()
 }
 
 enum ReconnectSubscriptionTestError: Error {
     case expectedControlResponse
     case expectedInterestCommit
     case expectedMetadataStreamAcceptance
-    case expectedSourceUpdate
     case expectedSubscriptionAcceptance
     case expectedSubscriptionData
 }

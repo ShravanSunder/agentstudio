@@ -54,6 +54,7 @@ struct PaneManagementContextTests {
             )
 
             #expect(context.targetPath?.path == "/tmp/agent-studio/subdir")
+            #expect(store.paneAtom.graphAtom.paneStructuralFacts(pane.id)?.cwd == context.targetPath)
             #expect(context.identityRows.first(where: { $0.id == "repo" })?.text == repo.name)
             #expect(context.identityRows.first(where: { $0.id == "branch" })?.text == "main")
             #expect(context.identityRows.first(where: { $0.id == "cwd" })?.text == "subdir")
@@ -87,6 +88,7 @@ struct PaneManagementContextTests {
             let context = PaneManagementContext.project(paneId: pane.id, store: store)
 
             #expect(context.targetPath?.path == worktree.path.path)
+            #expect(store.paneAtom.graphAtom.paneStructuralFacts(pane.id)?.cwd == context.targetPath)
             #expect(context.identityRows.first(where: { $0.id == "branch" })?.text == "detached HEAD")
             #expect(context.identityRows.first(where: { $0.id == "cwd" })?.text == worktree.path.lastPathComponent)
         }
@@ -109,6 +111,7 @@ struct PaneManagementContextTests {
             let homeDirectory = FileManager.default.homeDirectoryForCurrentUser
             let cwdRow = context.identityRows.first(where: { $0.id == "cwd" })
             #expect(context.targetPath == homeDirectory)
+            #expect(store.paneAtom.graphAtom.paneStructuralFacts(pane.id)?.cwd == context.targetPath)
             #expect(cwdRow?.text == homeDirectory.path)
             #expect(cwdRow?.toolTip == homeDirectory.path)
             #expect(context.statusChips == nil)

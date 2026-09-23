@@ -613,6 +613,7 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
                 openingResult,
                 lease: lease,
                 productAdmission: productAdmission,
+                foregroundWorkAdmission: foregroundWorkAdmission,
                 session: session
             )
         else {
@@ -900,6 +901,7 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
                     result,
                     lease: lease,
                     productAdmission: productAdmission,
+                    foregroundWorkAdmission: foregroundWorkAdmission,
                     session: session
                 )
             else {
@@ -918,13 +920,15 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
         _ result: BridgeProductProducerEnqueueResult,
         lease: BridgeProductProducerLease,
         productAdmission: BridgeProductAdmissionContext,
+        foregroundWorkAdmission: BridgePaneRefreshWorkAdmission,
         session: BridgeProductSession
     ) async -> Bool {
         guard case .enqueued(let frame) = result else { return false }
         return await session.waitUntilProducerFrameSequenceObserved(
             for: lease,
             sequence: frame.sequence,
-            productAdmission: productAdmission
+            productAdmission: productAdmission,
+            foregroundWorkAdmission: foregroundWorkAdmission
         )
     }
 

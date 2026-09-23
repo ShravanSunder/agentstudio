@@ -14,6 +14,7 @@ struct RepoExplorerMaterializedRowView: View {
     let row: RepoExplorerMaterializedRow
     let commandPresentationSnapshot: RepoExplorerCommandPresentationSnapshot
     let octiconLoader: OcticonLoader
+    var keyboardPresentation = RepoExplorerRowKeyboardPresentation.inactive
     let onCommandRequest: (RepoExplorerCommandPresentationRequest) -> Void
     let onToggleGroup: (String) -> Void
     let onFocusPane: (UUID) -> Void
@@ -66,6 +67,7 @@ struct RepoExplorerMaterializedRowView: View {
                 icon: nil,
                 repoTitle: group.title,
                 organizationName: group.organizationName,
+                isSelected: keyboardPresentation.isSelected,
                 onToggle: { onToggleGroup(group.groupID) },
                 trailingContent: {
                     if group.presentsRepositoryActivity,
@@ -115,6 +117,8 @@ struct RepoExplorerMaterializedRowView: View {
                 bridgeCommandResolution: worktree.bridgeCommandResolution,
                 isPinned: isPinned,
                 commandPresentation: commandPresentation,
+                isSelected: keyboardPresentation.isSelected,
+                shortcutDisplay: keyboardPresentation.shortcutDisplay,
                 onTogglePinned: {
                     dispatch(
                         isPinned ? .unpinRepo : .pinRepo,
@@ -129,6 +133,7 @@ struct RepoExplorerMaterializedRowView: View {
             RepoExplorerPaneRow(
                 row: pane,
                 octiconLoader: octiconLoader,
+                keyboardPresentation: keyboardPresentation,
                 onFocus: { onFocusPane(pane.destination.paneId) }
             )
         case .unassociatedPane(let pane):
@@ -140,6 +145,7 @@ struct RepoExplorerMaterializedRowView: View {
                 isActive: pane.isActive,
                 isDrawerPane: pane.isDrawerPane,
                 octiconLoader: octiconLoader,
+                keyboardPresentation: keyboardPresentation,
                 onFocus: { onFocusPane(pane.destination.paneId) }
             )
         case .topologyFault(let fault):

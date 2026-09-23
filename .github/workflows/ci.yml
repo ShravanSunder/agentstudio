@@ -24,10 +24,11 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Select Xcode 26.3
+      - name: Select Xcode
+        id: select-xcode
         uses: maxim-lobanov/setup-xcode@v1
         with:
-          xcode-version: "26.3"
+          xcode-version: "26.6"
 
       - name: Setup mise
         uses: jdx/mise-action@v3
@@ -43,9 +44,9 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: .build-ci/architecture-lint
-          key: architecture-lint-${{ runner.os }}-${{ runner.arch }}-xcode-26.3-${{ hashFiles('Tools/AgentStudioArchitectureLint/Package.swift', 'Tools/AgentStudioArchitectureLint/Package.resolved') }}
+          key: architecture-lint-${{ runner.os }}-${{ runner.arch }}-xcode-26.6-${{ hashFiles('Tools/AgentStudioArchitectureLint/Package.swift', 'Tools/AgentStudioArchitectureLint/Package.resolved') }}
           restore-keys: |
-            architecture-lint-${{ runner.os }}-${{ runner.arch }}-xcode-26.3-
+            architecture-lint-${{ runner.os }}-${{ runner.arch }}-xcode-26.6-
 
       - name: AgentStudio architecture lint tool tests
         run: mise run test:architecture
@@ -147,10 +148,11 @@ jobs:
           persist-credentials: false
           submodules: recursive
 
-      - name: Select Xcode 26.3
+      - name: Select Xcode
+        id: select-xcode
         uses: maxim-lobanov/setup-xcode@v1
         with:
-          xcode-version: "26.3"
+          xcode-version: "26.6"
 
       - name: Setup mise
         uses: jdx/mise-action@v3
@@ -251,8 +253,10 @@ jobs:
       - name: Test BridgeWeb Swift integration
         run: pnpm --dir BridgeWeb run test:integration:node:prepared
 
+      # The 1,699-item backpressure journey asserts responsiveness (long-task count,
+      # annotation ages under a lease) and runs in the post-merge benchmarks workflow, not here.
       - name: Test BridgeWeb Swift E2E
-        run: pnpm --dir BridgeWeb run test:e2e:prepared
+        run: pnpm --dir BridgeWeb run test:e2e:prepared:ordinary
 
   swift-test-suite:
     name: Swift test suite
@@ -268,10 +272,11 @@ jobs:
           persist-credentials: false
           submodules: recursive
 
-      - name: Select Xcode 26.3
+      - name: Select Xcode
+        id: select-xcode
         uses: maxim-lobanov/setup-xcode@v1
         with:
-          xcode-version: "26.3"
+          xcode-version: "26.6"
 
       - name: Setup mise
         uses: jdx/mise-action@v3
@@ -396,7 +401,6 @@ jobs:
         env:
           SWIFT_TEST_SKIP_PREBUILD: "1"
           SWIFT_TEST_TIMEOUT_SECONDS: "600"
-          SWIFT_TEST_NUM_WORKERS: "4"
           _XCB_BYPASS: "1"
         run: mise run --skip-deps --raw test:swift:large
 
@@ -416,3 +420,30 @@ jobs:
           name: test-results
           path: test-results-*.xml
           if-no-files-found: warn
+
+      - name: Upload crash reports
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: swift-crash-reports-${{ github.run_id }}
+          # A test process can die of a signal after its last flushed line, so the
+          # job log shows a passing run and then nothing. Traps raised by
+          # libdispatch and os_unfair_lock report through os_log rather than
+          # stderr, so the .ips "Application Specific Information" field is the
+          # only place their reason survives.
+          path: |
+            ~/Library/Logs/DiagnosticReports/*.ips
+            ~/Library/Logs/DiagnosticReports/*.crash
+          if-no-files-found: ignore
+
+      - name: Upload wedged-lane event-stream ledgers
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: swift-lane-event-streams-${{ github.run_id }}
+          # The runner keeps the Swift Testing event stream when a lane times out
+          # or a child dies without recording a failure. It is the only
+          # authoritative record of which tests started and never ended; the
+          # console stream is block-buffered and stops mid-line at a wedge.
+          path: tmp/plan-workflows/ci-runs/lane-*.events.jsonl
+          if-no-files-found: ignore

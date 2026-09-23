@@ -1,3 +1,4 @@
+import AgentStudioInfrastructure
 import AgentStudioTestSupport
 import Foundation
 import Testing
@@ -9,6 +10,59 @@ struct TabArrangementMutationRulesTests {
     private func activeArrangementActivePaneId(in state: TabArrangementState?) -> UUID? {
         guard let state else { return nil }
         return state.arrangements.first { $0.id == state.activeArrangementId }?.activePaneId
+    }
+
+    @Test
+    func insertingExistingDrawerPanePreservesCustomMinimization() throws {
+        let parentPaneID = UUIDv7.generate()
+        let drawerPaneID = UUIDv7.generate()
+        let drawerID = UUIDv7.generate()
+        let defaultArrangement = PaneArrangement(
+            id: UUIDv7.generate(),
+            layout: Layout(paneId: parentPaneID),
+            drawerViews: [
+                drawerID: DrawerView(
+                    layout: DrawerGridLayout(topRow: Layout(paneId: drawerPaneID))
+                )
+            ]
+        )
+        let customArrangement = PaneArrangement(
+            id: UUIDv7.generate(),
+            name: "Minimized child",
+            isDefault: false,
+            layout: Layout(paneId: parentPaneID),
+            drawerViews: [
+                drawerID: DrawerView(
+                    layout: DrawerGridLayout(topRow: Layout(paneId: drawerPaneID)),
+                    minimizedPaneIds: [drawerPaneID]
+                )
+            ]
+        )
+        let state = TabArrangementState(
+            tabId: UUIDv7.generate(),
+            allPaneIds: [parentPaneID, drawerPaneID],
+            arrangements: [defaultArrangement, customArrangement],
+            activeArrangementId: defaultArrangement.id
+        )
+
+        let updated = try #require(
+            TabArrangementMutationRules.insertingDrawerPane(
+                drawerPaneID,
+                in: state,
+                insertion: .init(
+                    parentPaneId: parentPaneID,
+                    drawerId: drawerID,
+                    targetDrawerPaneId: nil,
+                    direction: .right,
+                    sizingMode: .halveTarget
+                )
+            )
+        )
+
+        let preservedCustom = try #require(
+            updated.arrangements.first { $0.id == customArrangement.id }
+        )
+        #expect(preservedCustom.drawerViews[drawerID]?.minimizedPaneIds == [drawerPaneID])
     }
 
     @Test

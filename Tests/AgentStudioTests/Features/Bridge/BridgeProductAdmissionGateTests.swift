@@ -1,3 +1,4 @@
+import AgentStudioTestSupport
 import Foundation
 import Testing
 
@@ -109,13 +110,21 @@ struct BridgeProductAdmissionGateTests {
         let (closeInvocationEvents, closeInvocationContinuation) = AsyncStream<Void>.makeStream()
         let mutationRelease = DispatchSemaphore(value: 0)
         let eventRecorder = BridgeProductAdmissionGateTestEventRecorder()
+        // Both halves of this race block a thread on purpose: the mutation parks
+        // in `wait()` while holding the gate, and `close()` parks on the gate's
+        // lock behind it. Left on the cooperative executor they would occupy two
+        // of its threads, which is how this test helped deadlock a three-core CI
+        // lane. `withoutBlockingCooperativePool` keeps the race intact and moves
+        // the parked threads to libdispatch.
         let mutationTask = Task {
-            admission.withValidAdmission {
-                mutationEntryContinuation.yield()
-                mutationEntryContinuation.finish()
-                mutationRelease.wait()
-                eventRecorder.append(.mutationCompleted)
-                return true
+            await withoutBlockingCooperativePool {
+                admission.withValidAdmission {
+                    mutationEntryContinuation.yield()
+                    mutationEntryContinuation.finish()
+                    mutationRelease.wait()
+                    eventRecorder.append(.mutationCompleted)
+                    return true
+                }
             }
         }
         var mutationEntryIterator = mutationEntryEvents.makeAsyncIterator()
@@ -123,7 +132,7 @@ struct BridgeProductAdmissionGateTests {
         let closeTask = Task {
             closeInvocationContinuation.yield()
             closeInvocationContinuation.finish()
-            gate.close()
+            await withoutBlockingCooperativePool { gate.close() }
             eventRecorder.append(.closeReturned)
         }
         var closeInvocationIterator = closeInvocationEvents.makeAsyncIterator()

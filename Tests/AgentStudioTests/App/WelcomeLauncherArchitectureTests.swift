@@ -49,11 +49,11 @@ struct WelcomeLauncherArchitectureTests {
 
         #expect(source.contains("let quickFindDefinition = AppCommand.showCommandBarEverything.definition"))
         #expect(source.contains("let newTabOrWorktreeDefinition = AppCommand.showCommandBarRepos.definition"))
-        #expect(source.contains("keyBindingDisplayString: quickFindDefinition.keyBinding?.displayString"))
+        #expect(source.contains("keyBindingDisplayString: quickFindDefinition.globalKeyBinding?.displayString"))
         #expect(source.contains("title: quickFindDefinition.label"))
         #expect(source.contains("let quickFindPresentation = ShellTabBarCommandPresentation("))
         #expect(source.contains("action: quickFindPresentation.perform"))
-        #expect(source.contains("keyBindingDisplayString: newTabOrWorktreeDefinition.keyBinding?.displayString"))
+        #expect(source.contains("keyBindingDisplayString: newTabOrWorktreeDefinition.globalKeyBinding?.displayString"))
         #expect(source.contains("title: newTabOrWorktreeDefinition.label"))
         #expect(source.contains("title: watchFolderDefinition.label"))
         #expect(source.contains("let repositoriesPresentation = ShellTabBarCommandPresentation("))
@@ -91,7 +91,7 @@ struct WelcomeLauncherArchitectureTests {
 
         #expect(source.contains("leadingContent: .preferred("))
         #expect(source.contains("icon: newTabOrWorktreeDefinition.actionSpec.icon"))
-        #expect(!source.contains("key: newTabOrWorktreeDefinition.keyBinding?.displayString"))
+        #expect(!source.contains("key: newTabOrWorktreeDefinition.globalKeyBinding?.displayString"))
     }
 
     @Test("top chrome includes a command-spec-backed Watch Folder button")

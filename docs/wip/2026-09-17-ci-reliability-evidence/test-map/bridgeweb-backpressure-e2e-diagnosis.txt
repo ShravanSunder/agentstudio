@@ -1,0 +1,451 @@
+S11 — BridgeWeb E2E diagnosis: bridge-viewer-vite-annotation-backpressure
+READ-ONLY investigation. No files edited, no builds, no tests run, no git state changed.
+Date: 2026-09-17. Branch: fix/ci-reliability. Repo root:
+/Users/shravansunder/Documents/dev/project-dev/agent-studio.issues-perf-again
+
+Evidence sources:
+  tmp/plan-workflows/ci-runs/35231340910/bridgeweb-swift-backend.failed.log  (run 1, 2026-09-17T14:15Z)
+  tmp/plan-workflows/ci-runs/35249279378/bridgeweb-swift-backend.failed.log  (run 2, 2026-09-17T17:02Z)
+  Source read at HEAD of this worktree.
+
+Labels used below: [VERIFIED] = read from source or log. [HYPOTHESIS] = inference not directly observed.
+
+
+================================================================================
+0. ATTEMPT ORDER AND TIMING (VERIFIED)
+================================================================================
+
+Both runs: `× 1,699-item Review keeps root and five replies responsive and durable (retry x1)`.
+  run 1: file duration 278485 ms (log :25, :27)
+  run 2: file duration 292191 ms (log :25, :26)
+
+Attempt 1 = FAILURE A in both runs. Attempt 2 (the retry) = FAILURE B in both runs.
+Proof of ordering: the single stdout line `Stopped Review demand telemetry` (journey :671) appears
+once per run, at 14:17:07 (run 1 :22) / 17:04:54 (run 2 :22) — i.e. ~100 s in. Only attempt 1
+reached `stopped-demand.checked`; attempt 2's recentMilestones end at `server.starting`, so it never
+got near that console.info. Vitest prints error blocks in attempt order, and the parsed order matches.
+
+Per-test timeout: the test is registered with `stressJourneyTimeoutMilliseconds` = 600_000
+(journey :61, :392), which overrides `testTimeout: 180_000` in BridgeWeb/vitest.e2e.config.ts:13.
+`retry: 1` at vitest.e2e.config.ts:17. Neither failure is anywhere near a per-test timeout
+(278 s / 292 s total for two attempts). ANSWER to Q8: no per-test timeout is implicated in either failure.
+
+
+================================================================================
+1. FAILURE A — first attempt, both runs
+================================================================================
+
+Signature:
+  run 1: AssertionError "expected 1 to be +0", currentMilestone `file.ready`, currentElapsed 121063 ms
+  run 2: AssertionError "expected 4 to be +0", currentMilestone `file.ready`, currentElapsed 120934 ms
+  Both preceded by: review.reload.starting → review.reload.complete → file.ready.waiting (2602 / 2667 ms)
+
+--------------------------------------------------------------------------------
+1.1 Q1 — Is journey :706 the only assertion that can produce this? [VERIFIED — YES]
+--------------------------------------------------------------------------------
+
+`currentMilestone` is set by AnnotationBackpressureMilestones.transition()
+(journey :138-147), called from runMilestone() before/after each operation (journey :201, :208).
+`currentElapsedMilliseconds` = now − currentMilestoneStartedAt (journey :184), i.e. time since the
+transition INTO the reported milestone, not total test time.
+
+The window in which currentMilestone === 'file.ready' after the reload is journey :699-711:
+  :699-704  runMilestone(after:'file.ready', before:'file.ready.waiting') → waitForSelectedFileReady
+  :705      expect(bootstrapRequestCount).toBe(2)          ← would read "expected N to be 2"
+  :706      await frameAcknowledgementQuiescence.wait()    ← the only `.toBe(0)` in this window
+  :707-710  click Review context (no assertion)
+  :711      runMilestone transitions to 'review.item-count.waiting'
+
+`+0` is Vitest's rendering of the numeric literal 0, and the only `.toBe(0)` reachable here is
+bridge-viewer-vite-frame-acknowledgement-quiescence.ts:36-39 / :42-45
+(`expect.poll(() => pendingRequests.size, {timeout}).toBe(0)`).
+Elapsed 121.0 s ≈ the first poll's 120 s budget (stressOperationTimeoutMilliseconds, journey :63,
+passed at journey :439) plus ~1 s of :699-705 work. So it is the FIRST of the two polls in `wait()`.
+
+Note: `wait()` at :484 and :706 is NOT wrapped in runMilestone/withBoundedTimeout, so it neither
+advances the milestone nor is clamped by stressExecutionCeilingMilliseconds. Its worst case is
+2 × 120 s = 240 s per call.
+
+--------------------------------------------------------------------------------
+1.2 Q4 — Does the first wait at :484 ever fail? [VERIFIED — NO, in available evidence]
+--------------------------------------------------------------------------------
+
+`wait()` at journey :484 runs while currentMilestone === 'file.telemetry.ready' (set by the
+runMilestone at :470-483). No failure in either log reports that milestone. In both runs attempt 1
+passed :484 and failed at :706 — same observer, same page, same timeout. The ONLY difference between
+the two call sites is that :706 follows `createdPage.reload(...)` at :692-696.
+That asymmetry is the core evidence.
+
+--------------------------------------------------------------------------------
+1.3 Q2 — How the browser sends `stream.frameObserved` [VERIFIED]
+--------------------------------------------------------------------------------
+
+Sender: BridgeWeb/src/core/comm-worker/bridge-product-transport.ts:665-709
+  #acknowledgeMetadataFrame  (:665-681)  and  #acknowledgeContentFrame (:683-698)
+  both build `{kind:'stream.frameObserved', ...}` and call #sendFrameAcknowledgement (:700-709).
+
+Transport: BridgeWeb/src/core/comm-worker/bridge-product-frame-acknowledgement.ts:8-51
+  - Plain `executeProductRequest('command', {... method:'POST', signal: abortController.signal})` —
+    an ordinary fetch. NOT `keepalive`. NOT `sendBeacon`.
+  - It IS awaited: bridge-product-transport.ts:650 awaits the ack inside the frame loop
+    (`await this.#acknowledgeMetadataFrame(frame)` — comment at :649 says native pacing advances only
+    after the frame is accepted).
+  - Self-abort: a `setTimeout` (frame-acknowledgement.ts:28-37) calls `abortController.abort()` after
+    `#frameAcknowledgementTimeoutMilliseconds`, which defaults to **5000 ms**
+    (bridge-product-transport.ts:238-239).
+
+Execution context [VERIFIED]: the transport is constructed inside the comm worker —
+  BridgeWeb/src/core/comm-worker/bridge-comm-worker-entry.ts:224 calls createBridgeProductTransport(...)
+  and the worker itself is a dedicated module Worker created from a blob URL at
+  BridgeWeb/src/core/comm-worker/bridge-pane-comm-worker-session.ts:461
+  (`new Worker(workerScriptBlobUrl, { type: 'module' })`).
+So every `stream.frameObserved` POST is a **dedicated-Web-Worker-initiated fetch**, not a main-thread one.
+
+The 5 s self-abort is decisive: a live worker can leave an ack pending for at most ~5 s before
+aborting it (which produces `requestfailed`). An entry stuck for 120 s therefore has **no live worker
+left to fire its abort timer**.
+
+--------------------------------------------------------------------------------
+1.4 Q3 — Playwright behaviour for in-flight requests across a reload [VERIFIED in installed source]
+--------------------------------------------------------------------------------
+
+Installed version: playwright 1.61.0 (BridgeWeb/package.json:78 `"playwright": "^1.61.0"`;
+BridgeWeb/node_modules/playwright-core/package.json version 1.61.0). 1.61 ships one minified bundle,
+BridgeWeb/node_modules/.pnpm/playwright-core@1.61.0/node_modules/playwright-core/lib/coreBundle.js.
+
+(a) No documented guarantee. types.d.ts:1132-1168 describes the *successful* sequence
+    ("For a successful response, the sequence of events is request, response and requestfinished")
+    and the HTTP-error caveat. It never promises a terminal event for every `request`.
+
+(b) Dedicated-worker requests are tracked by the PAGE's single CRNetworkManager:
+    coreBundle.js:37238 — on `Target.attachedToTarget` for a worker,
+      `this._crPage._networkManager.addSession(session, this._page.frameManager.frame(parentFrameId ...))`
+    so their requests do fire page-level `request`/`requestfinished`/`requestfailed`. (This is why the
+    observer works at all, and why :484 passes.)
+
+(c) On worker teardown the network bookkeeping is NOT cleaned up (I read this myself):
+      coreBundle.js:37250-37256  _onDetachedFromTarget(event) {
+        const workerSession = this._workerSessions.get(event.sessionId);
+        if (workerSession) { workerSession.dispose(); this._page.removeWorker(event.sessionId); return; }
+        ...
+      }
+    — it disposes the CDP session and drops the Worker object, and never calls
+    `_networkManager.removeSession(...)`. Compare the frame-session and service-worker paths, which DO
+    call removeSession (coreBundle.js:37092 and :37630-37633).
+    And `removeSession` itself does nothing for pending requests:
+      coreBundle.js:35621-35626  removeSession(session) { remove listeners; this._sessions.delete(session); }
+    There is no walk of `_requestIdToRequest` to synthesize a terminal event.
+    The only place Playwright manually synthesizes a failure on navigation is for the navigation's own
+    document request (coreBundle.js:46797-46800) — not sub-resource or worker requests.
+
+    Consequence: once the worker's CDP session is disposed, any `Network.loadingFailed` Chromium might
+    still emit for that worker's in-flight requests has nowhere to land, and Playwright provides no
+    backstop. Whether the event arrives before the session dies is a protocol-delivery race.
+
+(d) Known issues (context, not proof): microsoft/playwright#9850 ("missing event for aborted requests"
+    — same Set-of-in-flight-requests pattern, same gap), #29101 (requestfailed not fired for
+    AbortController-cancelled fetch, Firefox). No fix for the worker-detach case is identifiable in 1.61.
+
+(e) `request.frame()` for a worker-initiated request does not throw: Playwright falls back to the
+    worker's parent frame captured at attach time (coreBundle.js:35786, :37238). Since Playwright reuses
+    the same `Frame` object across a same-frame reload, **`request.frame()` cannot distinguish old- vs
+    new-document requests.** `request.serviceWorker()` is null for dedicated workers; the throw at
+    coreBundle.js:58084-58087 is service-worker-only.
+
+--------------------------------------------------------------------------------
+1.5 MECHANISM FOR A — [VERIFIED mechanism, one HYPOTHESIS step]
+--------------------------------------------------------------------------------
+
+VERIFIED chain:
+  1. `stream.frameObserved` POSTs are issued from a dedicated Worker, awaited, and self-abort after 5 s.
+  2. `observeFrameAcknowledgementQuiescence` adds them on `page.on('request')` and only removes them on
+     `requestfinished`/`requestfailed` (quiescence file :24-31). There is no navigation handling.
+  3. `createdPage.reload(...)` (journey :692-696) destroys the document and its comm worker.
+  4. Playwright 1.61 does not reconcile pending requests when a worker target detaches
+     (coreBundle.js:37250-37256; removeSession is a no-op for pending requests at :35621-35626).
+  5. The poll at quiescence :36-39 therefore never reaches 0 and times out at 120 s.
+
+HYPOTHESIS (the one unobserved step): that the 1 (run 1) / 4 (run 2) residual entries are specifically
+the acks that were in flight at reload, rather than acks from the post-reload document. Supporting
+evidence: the count is tiny and stable, matches "how many acks happen to be mid-flight", scales the way
+a slower runner would (1 → 4), and any post-reload ack would have been terminated within 5 s by its own
+abort timer. Not directly observed because the observer records no per-request detail.
+
+--------------------------------------------------------------------------------
+1.6 Q5 — Smallest correct fix for A, and does the server care? [RECOMMENDATION]
+--------------------------------------------------------------------------------
+
+Smallest correct fix: give the observer a document epoch and only require quiescence for the current
+document. In bridge-viewer-vite-frame-acknowledgement-quiescence.ts, add a main-frame
+`framenavigated` handler that drops the previous document's pending entries:
+
+    page.on('framenavigated', (frame) => {
+      if (frame !== page.mainFrame()) return;
+      pendingRequests.clear();      // or: retire the previous epoch's entries
+    });
+
+Why this is sound and not a weakening:
+  - Playwright emits `framenavigated` at commit of the new document. No script of the NEW document can
+    have run before commit, so nothing issued by the new document can already be in the set.
+  - A destroyed document can no longer owe an acknowledgement; waiting on it proves nothing.
+  - Filtering by `request.frame()` is NOT available (see 1.4(e)) — the Frame object is reused. The
+    navigation event is the only public signal.
+  - Prefer the epoch variant over a bare `clear()` if you want the observer to stay able to report a
+    leak: keep `Map<Request, epoch>` and poll `size of entries with epoch === currentEpoch`.
+
+Does the dev server end up with an un-acked frame that matters for later assertions? **No.** All the
+telemetry assertions that could see pacing state are captured BEFORE the reload:
+  - `fileTelemetry` at journey :470-483, `reviewTelemetry` at journey :626-638.
+  - The assertions at journey :307-334 (`receiptPendingCount == 0`, `maximumReceiptPendingAge...`, etc.)
+    read those pre-reload observations, not a post-reload fetch.
+  - The only post-reload measurement is `exactBodyCountAfterReload` (journey :748-773), which is DOM
+    body text and does not depend on the old stream's acknowledgement.
+  Additionally the old worker's stream is torn down with its document, so the server's per-stream lease
+  for it is dead state, not backpressure against the new session.
+
+What would prove the fix:
+  1. A focused test of the observer itself (it currently has none): open a page whose worker holds an
+     ack against a gated route, call `page.reload()`, assert `wait()` resolves promptly; plus a NEGATIVE
+     case where a live-document ack is gated and `wait()` still blocks. Without the negative case the
+     fix could silently turn the observer into a no-op.
+  2. Re-run the backpressure E2E on the CI runner class and show attempt 1 passing through `file.ready`
+     with no 120 s poll (the failure is deterministic-ish on CI: 2/2 attempt-1 runs).
+
+
+================================================================================
+2. FAILURE B — retry attempt, both runs
+================================================================================
+
+Signature:
+  run 1: Error, currentMilestone `server.ready`, elapsed 46154 ms
+  run 2: Error, currentMilestone `server.ready`, elapsed 47366 ms
+  errorMessage: `Annotation Save journey failed: cause={"kind":"AssertionError",
+                 "message":"expected false to be true // Object.is equality"} browser=[...] server={...}`
+  recentMilestones: test.start → fixture.starting (4092/3773 ms) → fixture.ready → server.starting
+                    (2425/2172 ms) → [current] server.ready
+
+currentMilestone stays `server.ready` because `runAnnotationSaveJourney` is called at journey :257-261
+OUTSIDE any runMilestone. The thrower is bridge-viewer-vite-annotation-save-journey.ts:416-419.
+
+--------------------------------------------------------------------------------
+2.1 Q6 — Which `expect(...).toBe(true)` fails [VERIFIED by request-sequence trace]
+--------------------------------------------------------------------------------
+
+Three `toBe(true)` sites are reachable from the save journey:
+  a) bridge-viewer-vite-annotation-projection-test-support.ts:183-187
+     `waitForDemandedAnnotationProjectionContent`, `expect.poll(() => settled, {timeout: 30_000}).toBe(true)`
+     — created at save-journey.ts:222-234, awaited at save-journey.ts:240.
+  b) bridge-viewer-vite-annotation-output-capture.ts:550-552 `waitForEnabledOutputButton`
+  c) bridge-viewer-vite-annotation-lifecycle-telemetry.ts:136
+
+It is (a). Decisive evidence from the `browser=[...]` trace:
+  The diagnostic array is a rolling window of the last 128 entries
+  (recordAnnotationDiagnostic, save-journey.ts:555-559 — `if (length >= 128) shift()`), so it is a TAIL.
+  Its surviving request sequences are, in order:
+      12  file.annotations.projection.query   sessionIds:[]           expectedMessageCount 0, projRev 1
+      17  file.annotations.command            root.create
+      18  file.annotations.projection.query   sessionIds:[]           expectedMessageCount 0, projRev 2
+      19  file.annotations.command            demand.acquire
+      20  file.annotations.projection.query   sessionIds:[<session>]  expectedMessageCount 1, projRev 2
+      21  file.annotations.command            source.refresh
+      22  file.annotations.command            output.history          summaryCount 0
+      23  file.annotations.command            output.history          summaryCount 0
+      24  review.publication.install.admit
+      25  review.publication.applied
+      26  review.annotations.command          session.discover
+  There is **no `draft.save`** anywhere, and the window still reaches back to sequence 12 — so nothing
+  between 12 and 26 was evicted. The save at save-journey.ts:289 never happened, which rules out (b)
+  and every later site. (a) is awaited at :240, before the save. Confirmed.
+
+  (`output.history` at 22/23 does not require the Annotations panel: the surface client fires it from
+  `acquireSession` — worktree-annotation-surface-client.ts:436 — and again per projection apply at :262.)
+
+What it waits for: `waitForDemandedAnnotationProjectionContent` (projection-test-support.ts:105-192)
+resolves only when it sees a `*.annotations.projection.query` response that satisfies ALL of
+(:153-164):
+    request.sessionIds includes the root session
+  AND responseBody.requestSequence > afterRequestSequence
+  AND the response carries a descriptor
+…and then a matching `/__bridge-product/content` response for that descriptorId (:129-135, :119-124).
+`afterRequestSequence` is the **source.refresh** receipt's requestSequence
+(save-journey.ts:226 → waitForCommittedAnnotationCommand returns body.requestSequence, :750).
+Poll deadline: 30_000 ms (projection-test-support.ts:4).
+
+--------------------------------------------------------------------------------
+2.2 MECHANISM FOR B — [VERIFIED]
+--------------------------------------------------------------------------------
+
+The gate is causally mis-anchored. The demanded projection query is NOT caused by `source.refresh`;
+both are caused by `acquireSession`, and their global request sequence numbers race.
+
+Product path, worktree-annotation-surface-client.ts:430-437 (`acquireSession`):
+    projectionStore.markSessionDemanded(sessionId)
+    execute({kind:'demand.acquire', sessionId})        → sequence 19
+    refreshDemandedSession(sessionId)                  → :388-395, executes {kind:'source.refresh'} → 21
+    execute({kind:'output.history', sessionId})        → 22
+The projection query at 20 is issued by the worker's query controller reacting to the demand, on a
+different thread from the main-thread command sequencer. So:
+  - lucky interleaving: query lands with a sequence > source.refresh's → gate satisfied → test passes.
+  - observed interleaving: query = 20, source.refresh = 21 → 20 <= 21 → the gate rejects the only
+    qualifying query that will ever arrive (the source refresh produced no further projection query,
+    so `settled` stays false) → 30 s poll → `expected false to be true`.
+
+This is a test-side ordering assumption, not a product delivery failure: the projection the test wanted
+(sessionIds [session], expectedMessageCount 1, descriptor present) DID arrive, at sequence 20.
+
+Related prior art (same lane, different test): tmp/debug-workflows/2026-09-17-pr350-ci-flakes/
+lane-bridgeweb-flakes.md §3.1 records the same `projection-test-support.ts:187` AssertionError as an
+*unhandled* orphan when File-surface `source.refresh` never landed at all. The File-surface
+source.refresh ordering has bitten this suite before.
+
+--------------------------------------------------------------------------------
+2.3 Q7 — Can B happen on a FIRST attempt? [Evidence says no state leak; classify as attempt-independent]
+--------------------------------------------------------------------------------
+
+State-leak candidates, all ruled out [VERIFIED]:
+  - Data root and worktree root are fresh `mkdtemp` per fixture:
+      bridge-viewer-vite-product-fixture.ts:119  worktreeRoot = mkdtemp(join(tmpdir(), 'bridge-viewer-vite-product-e2e-'))
+      bridge-viewer-vite-product-fixture.ts:159  dataRootPath  = mkdtemp(join(tmpdir(), 'bridge-viewer-vite-product-data-'))
+    No deterministic path is reused between attempts.
+  - `dispose()` removes both with `rm(..., {force:true, recursive:true})` at :337/:344 and :408/:415,
+    and attempt A's record shows `"cleanup":{"fixture":"disposed","server":"stopped"}` in both runs.
+  - Vite cache dir is INSIDE the per-attempt data root: bridge-viewer-vite-product-fixture.ts:454
+    `BRIDGE_WEB_VITE_CACHE_DIR: join(oracle.dataRootPath, 'vite-cache')` — not shared across attempts.
+  - Ports are ephemeral and new (run 1 attempt 2: vite 56596, backend 56598, from the `server=` dump).
+  - Attempt B's recentMilestones show a real fixture build (3.8-4.1 s) and server start (2.2-2.4 s),
+    i.e. a genuinely fresh stack, and `cloneSavedAnnotationMessagesIntoCompletedSession`
+    (journey :262-268) had not yet run on attempt 2.
+
+So: **no leaked-state mechanism identified.** The mechanism in 2.2 is a thread-interleaving race that is
+attempt-independent by construction.
+
+[HYPOTHESIS] Why it nevertheless showed up only on retries in the two saved runs (n=2): the retry runs
+on a machine that has just spent ~220-240 s under a 1,699-file stress journey with a second Chromium
+still winding down, which shifts main-thread-vs-worker interleaving. Availability caveat: only these two
+runs are saved under tmp/plan-workflows/ci-runs/, and tmp/debug-workflows/2026-09-17-pr350-ci-flakes/
+contains prose notes, not raw logs, so I could not scan a larger sample for a first-attempt instance.
+I did NOT find a first-attempt occurrence; I also cannot exclude one.
+
+--------------------------------------------------------------------------------
+2.4 Smallest fix for B [RECOMMENDATION — needs an owner decision on intent]
+--------------------------------------------------------------------------------
+
+Smallest correct fix: re-anchor `afterRequestSequence` to a cause that genuinely precedes the demanded
+query. Change save-journey.ts:222-234 so `afterRequestSequence` is the **root.create** receipt's
+requestSequence (17 in the trace) instead of the source.refresh receipt's (21):
+
+    afterRequestSequence: rootCreateCommitted.then((receipt) => receipt.requestSequence),
+
+Root.create truly precedes the demanded query — the session does not exist before it — so the claim
+"a demanded projection for the newly created session arrived, with its content fetched" is preserved,
+while the unprovable "…and its sequence number beat a concurrently-issued source.refresh" is dropped.
+
+Owner decision required: if the intent was specifically "the projection reflects the state AFTER the
+source refresh applied", sequence-number ordering cannot express that at all (the two commands are
+concurrent) and the right gate is a product signal — e.g. require the query response's
+`page.sourceGeneration` / `projectionRevision` to have advanced past the value observed at
+source.refresh commit. That is a larger change and needs a product-side field the current response
+diagnostic does not surface.
+
+Do NOT "fix" this by raising the 30 s poll: the qualifying event never occurs, so a longer deadline only
+makes the failure slower.
+
+What would prove the fix: run the File-surface save journey (it is also exercised by
+bridge-viewer-vite-annotation.e2e.test.tsx and as the seed at backpressure-journey :257) repeatedly on
+the CI runner class and show the gate settling on the sequence-20-style interleaving; and add a unit
+test of `waitForDemandedAnnotationProjectionContent` that feeds it a query response with sequence lower
+than a concurrent command's and asserts it still settles.
+
+
+================================================================================
+3. DEADLINE (not event) WAITS IN THE HOT PATH — inventory, no fixes applied
+================================================================================
+
+Legend: [D] = a fixed deadline that a slow runner can exhaust; [E] = waits for a real event/state but
+still carries a deadline; [B] = bounded-timeout wrapper only.
+
+bridge-viewer-vite-annotation-backpressure-journey.ts
+  :61-67  constants: journey 600_000 / ceiling 540_000 / operation 120_000 / diagnostic 119_000 /
+          command 30_000 / cleanup 30_000 / receipt lease 5_000
+  :212-227 [B] withBoundedTimeout — Promise.race with a setTimeout (:218). Wraps runMilestone ops.
+  :168-177 [D] operationTimeoutMilliseconds() clamps every op to (540_000 − elapsed); after ~9 min of
+               journey time every remaining operation gets ~1 ms. A slow runner converts this into
+               cascading "Bounded E2E operation timed out."
+  :461     [E] goto, timeout 600_000
+  :470-483 [D] waitForBackpressureTelemetry, timeout 30_000 (both :479 and :482) — telemetry poll
+  :484     [D] frameAcknowledgementQuiescence.wait() — 2 × 120_000, unwrapped (see 1.1)
+  :617-622 [E] getByText(body).waitFor visible, 600_000, bounded to 30_000 by :621
+  :626-638 [D] waitForBackpressureTelemetry, timeout 600_000
+  :640-642 [E] waitForRequest(file.activeViewerMode.update), timeout 120_000
+  :648-656 [D] expect.poll on data-bridge-viewer-mode-active attribute, timeout 120_000
+  :657     [D] settleBrowserFrames(page, 2) — 2 rAF turns, not a state wait
+  :664-670 [D] waitForBackpressureTelemetry, timeout 119_000 (stressDiagnosticTimeoutMilliseconds)
+  :688-697 [E] reload, timeout 600_000
+  :706     [D] frameAcknowledgementQuiescence.wait() — 2 × 120_000, unwrapped  ← FAILURE A
+  :756-759 [E] "Expand N annotations" waitFor visible, 600_000
+  :764-767 [E] per-body waitFor visible, 600_000 (×6, in a loop)
+  :794-805 [D] waitForReviewItemCount — page.waitForFunction polling two DOM attributes, timeout 119_000
+  :862-868, :888-890, :933-936 [E] body/composer waitFor, 600_000 each, bounded to 30_000
+
+bridge-viewer-vite-frame-acknowledgement-quiescence.ts
+  :35-39  [D] expect.poll(pendingRequests.size).toBe(0), timeout = caller's (120_000)
+  :40     [D] settleBrowserFrames(page, 2)
+  :41-45  [D] second identical poll → worst case 240 s per wait()
+
+bridge-viewer-vite-backpressure-telemetry.ts
+  :39-53  [D] expect.poll that re-fetches /__bridge-dev-telemetry/status each turn, caller's timeout
+
+bridge-viewer-vite-annotation-catalog-performance.ts
+  :221-330 [D] expect.poll over telemetry samples for the catalog commit, hard-coded timeout 120_000 (:328)
+
+bridge-viewer-vite-annotation-wire-response-observation.ts
+  :25-27  [E] page.waitForResponse, timeout 600_000
+
+bridge-viewer-vite-review-comparison-observation.ts   (diagnostic path only)
+  :95     [D] body.textContent timeout 2_000
+  :136-144 [D] setTimeout(..., 2_000) resolving {status:'timed_out'}
+  :159-161, :166-184 [D] expect.poll with caller's timeout
+
+Seed journey (bridge-viewer-vite-annotation-save-journey.ts), in the hot path via journey :257
+  :48-49  constants: 120_000 save-journey / 30_000 projection-response
+  :698    [D] **`timeout: props.surface === 'file' ? 2_000 : 30_000`** for the utility button to become
+             visible after the range drag. A 2-second deadline on the File surface — the tightest
+             deadline in the whole path and an obvious slow-runner hazard.
+  :701-707 [D] composer waitFor visible, 30_000 on File / 120_000 on Review
+  :243     [D] draft-present locator waitFor visible, 30_000
+  :244-252 [D] page.waitForFunction on Save-button disabled state, 120_000
+  :271-283 [E] waitForRequest(annotation.projection content), 30_000
+  :282/:321/:355 [D] projection-response waits, 30_000 each
+  :586-609, :803-832 [D] waitForFunction readiness polls, 120_000
+  :648-649 [E] range row waitFor visible, 120_000
+  :727-729 [E] waitForResponse for the committed command, 120_000
+  projection-test-support.ts:183-187 [D] expect.poll(settled).toBe(true), 30_000   ← FAILURE B
+  output-capture.ts:531-543, :550-552 [D] expect.poll on aria-label counts / button.isEnabled(),
+             caller's 30_000
+
+
+================================================================================
+4. SUMMARY
+================================================================================
+
+A (attempt 1, both runs) — VERIFIED mechanism, one hypothesis step.
+  `observeFrameAcknowledgementQuiescence` leaks pending entries across `page.reload()`. The acks are
+  dedicated-Worker fetches; Playwright 1.61 does not reconcile a worker's in-flight requests when the
+  worker target detaches (coreBundle.js:37250-37256 never calls removeSession; removeSession at
+  :35621-35626 is a no-op for pending requests), so no `requestfinished`/`requestfailed` ever arrives.
+  The client's own 5 s abort (frame-acknowledgement.ts:28-37, default 5000 at transport.ts:239) cannot
+  fire because its worker is gone. First wait (:484, no preceding reload) passes; second (:706, right
+  after reload) times out. Fix: retire the previous document's entries on main-frame `framenavigated`.
+  No server-side consequence for the test's later assertions (all telemetry assertions are pre-reload).
+
+B (retry, both runs) — VERIFIED mechanism.
+  `waitForDemandedAnnotationProjectionContent` requires a demanded projection query whose global
+  requestSequence exceeds `source.refresh`'s. But both the query and `source.refresh` are caused by the
+  same `acquireSession` (surface-client.ts:430-437) on different threads, so their sequence numbers
+  race. Observed 20 (query) < 21 (source.refresh) → gate unsatisfiable → 30 s poll fails. The projection
+  the test wanted DID arrive. Not a state leak: fixture roots are per-attempt mkdtemp and were disposed.
+  Fix: anchor `afterRequestSequence` to the root.create receipt instead — or, if post-refresh ordering
+  is genuinely required, gate on an advancing sourceGeneration/projectionRevision rather than a
+  sequence number.
+
+Neither failure is a budget problem. Raising a timeout fixes neither.

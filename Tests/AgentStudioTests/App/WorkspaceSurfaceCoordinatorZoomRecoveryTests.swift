@@ -47,7 +47,7 @@ extension WebKitSerializedTests {
             let sourceTab = Tab(paneId: sourcePane.id)
             harness.store.appendTab(sourceTab)
             let baseline = ZoomRecoveryResourceBaseline(harness: harness)
-            let companionPaneId = try installZoomRecoveryCompanion(
+            let companionPaneId = try await installZoomRecoveryCompanion(
                 sourcePane: sourcePane,
                 sourceTab: sourceTab,
                 owningWindowId: owningWindowId,
@@ -95,6 +95,7 @@ extension WebKitSerializedTests {
             )
             expectZoomRecoveryResourcesRetired(
                 companionPaneId,
+                sourcePaneId: sourcePane.id,
                 baseline: baseline,
                 in: harness
             )
@@ -123,7 +124,7 @@ extension WebKitSerializedTests {
             let sourceTab = Tab(paneId: sourcePane.id)
             harness.store.appendTab(sourceTab)
             let baseline = ZoomRecoveryResourceBaseline(harness: harness)
-            let staleCompanionPaneId = try installZoomRecoveryCompanion(
+            let staleCompanionPaneId = try await installZoomRecoveryCompanion(
                 sourcePane: sourcePane,
                 sourceTab: sourceTab,
                 owningWindowId: owningWindowId,
@@ -210,7 +211,7 @@ extension WebKitSerializedTests {
             let sourceTab = Tab(paneId: sourcePane.id)
             harness.store.appendTab(sourceTab)
             let baseline = ZoomRecoveryResourceBaseline(harness: harness)
-            let companionPaneId = try installZoomRecoveryCompanion(
+            let companionPaneId = try await installZoomRecoveryCompanion(
                 sourcePane: sourcePane,
                 sourceTab: sourceTab,
                 owningWindowId: owningWindowId,
@@ -269,6 +270,7 @@ extension WebKitSerializedTests {
             )
             expectZoomRecoveryResourcesRetired(
                 companionPaneId,
+                sourcePaneId: sourcePane.id,
                 baseline: baseline,
                 in: harness
             )
@@ -300,7 +302,7 @@ private func installZoomRecoveryCompanion(
     sourceTab: Tab,
     owningWindowId: UUID,
     in harness: PaneTabViewControllerCommandHarness
-) throws -> UUID {
+) async throws -> UUID {
     harness.store.setActiveTab(sourceTab.id)
     harness.store.setActivePane(sourcePane.id, inTab: sourceTab.id)
     enterZoomRecoveryForegroundEnvironment(
@@ -308,7 +310,7 @@ private func installZoomRecoveryCompanion(
         owningWindowId: owningWindowId
     )
 
-    harness.controller.execute(.zoomPane)
+    await harness.executeCommand(.zoomPane)
     harness.coordinator.refreshBridgePaneActivities()
 
     let companionPaneId = try #require(
@@ -333,6 +335,7 @@ private func installZoomRecoveryCompanion(
 @MainActor
 private func expectZoomRecoveryResourcesRetired(
     _ companionPaneId: UUID,
+    sourcePaneId: UUID,
     baseline: ZoomRecoveryResourceBaseline,
     in harness: PaneTabViewControllerCommandHarness
 ) {
@@ -344,7 +347,10 @@ private func expectZoomRecoveryResourcesRetired(
         ) == nil
     )
     #expect(harness.runtimeRegistry.count == baseline.runtimeCount)
-    #expect(harness.viewRegistry.slotPaneIdsForTesting == baseline.slotPaneIds)
+    #expect(
+        harness.viewRegistry.slotPaneIdsForTesting
+            == baseline.slotPaneIds.union([sourcePaneId])
+    )
     #expect(
         harness.coordinator.bridgePaneActivityAuthorityIdentity(
             for: companionPaneId
@@ -423,7 +429,7 @@ private func expectZoomRecoveryReplacementInstalled(
     #expect(harness.runtimeRegistry.count == baseline.runtimeCount + 1)
     #expect(
         harness.viewRegistry.slotPaneIdsForTesting
-            == baseline.slotPaneIds.union([companionPaneId])
+            == baseline.slotPaneIds.union([sourcePaneId, companionPaneId])
     )
 }
 

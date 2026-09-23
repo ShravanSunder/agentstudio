@@ -15,7 +15,7 @@ struct InheritanceRecord {
     let position: AbsolutePosition
 }
 
-struct ArchitectureViolation {
+struct ArchitectureViolation: Equatable {
     let position: AbsolutePosition
     let message: String
 }

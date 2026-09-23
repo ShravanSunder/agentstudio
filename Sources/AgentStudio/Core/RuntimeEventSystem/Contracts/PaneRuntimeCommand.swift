@@ -60,7 +60,7 @@ package enum TerminalCommand: Sendable {
     case resize(cols: Int, rows: Int)
     case clearScrollback
     case scrollToBottom
-    case scrollPageUp
+    case scrollPageFractional(fraction: Double)
     case jumpToPrompt(delta: Int)
 }
 

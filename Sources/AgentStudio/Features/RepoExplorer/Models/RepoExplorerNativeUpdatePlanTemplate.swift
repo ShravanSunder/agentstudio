@@ -10,6 +10,7 @@ enum RepoExplorerNativeTemplateInstantiationError: Error, Equatable {
     case baselinePresentationKindMismatch
     case baselineCountMismatch
     case baselineFingerprintMismatch
+    case baselineNavigationFingerprintMismatch
     case invalidCandidateIdentity
     case invalidGeneration
     case revisionOverflow
@@ -106,6 +107,7 @@ struct RepoExplorerNativeUpdatePlanTemplate: Sendable {
     private let sourceKind: PresentationKind
     private let sourceCount: Int
     private let sourceFingerprint: RepoExplorerMaterializationFingerprint
+    private let sourceNavigationFingerprint: RepoExplorerNavigationFingerprint
     private let target: RepoExplorerMaterializationPresentation
     private let payload: RepoExplorerNativeChangedPlanTemplatePayload
 
@@ -117,6 +119,7 @@ struct RepoExplorerNativeUpdatePlanTemplate: Sendable {
         sourceKind = PresentationKind(source)
         sourceCount = source.rowCount
         sourceFingerprint = source.fingerprint
+        sourceNavigationFingerprint = source.navigationFingerprint
         self.target = target
         self.payload = payload
     }
@@ -138,6 +141,9 @@ struct RepoExplorerNativeUpdatePlanTemplate: Sendable {
         }
         guard baseline.fingerprint == sourceFingerprint else {
             return .failure(.baselineFingerprintMismatch)
+        }
+        guard baseline.navigationFingerprint == sourceNavigationFingerprint else {
+            return .failure(.baselineNavigationFingerprintMismatch)
         }
         guard candidateID.rawValue > 0 else {
             return .failure(.invalidCandidateIdentity)

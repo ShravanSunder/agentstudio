@@ -22,4 +22,12 @@ final class WorkspaceDurableTargetAuthorizationPort: WorkspaceDurableTargetAutho
             pane.id == id && pane.tabId != nil
         }
     }
+
+    func containsWorktree(id: UUID) -> Bool {
+        workspaceStore.repositoryTopologyAtom.worktree(id) != nil
+    }
+
+    func containsArrangement(tabId: UUID, arrangementId: UUID) -> Bool {
+        workspaceStore.tabLayoutAtom.tab(tabId)?.arrangements.contains { $0.id == arrangementId } ?? false
+    }
 }

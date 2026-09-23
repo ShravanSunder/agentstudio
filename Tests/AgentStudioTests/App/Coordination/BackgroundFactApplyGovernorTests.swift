@@ -1,4 +1,5 @@
 import Foundation
+import Synchronization
 import Testing
 
 @testable import AgentStudio
@@ -8,10 +9,16 @@ import Testing
 @MainActor
 @Suite("Background fact apply governor", .serialized)
 struct BackgroundFactApplyGovernorTests {
+    private final class AppliedFactsBox<Value: Sendable>: Sendable {
+        private let storage = Mutex<[Value]>([])
+
+        func append(_ value: Value) { storage.withLock { $0.append(value) } }
+        var values: [Value] { storage.withLock { $0 } }
+    }
     @Test("newer same-key fact supersedes pending work and acknowledges both facts")
     func newerSameKeyFactSupersedesPendingWork() async {
         let clock = TestPushClock()
-        var appliedFacts: [(Int, String)] = []
+        let appliedFacts = AppliedFactsBox<(Int, String)>()
         let governor = BackgroundFactApplyGovernor<Int, String>(
             tickCadence: .milliseconds(10),
             drainBudget: .milliseconds(4),
@@ -29,14 +36,14 @@ struct BackgroundFactApplyGovernorTests {
         #expect(await secondAcknowledgement.result() == .applied)
         await governor.shutdown()
 
-        #expect(appliedFacts.map(\.0) == [7])
-        #expect(appliedFacts.map(\.1) == ["second"])
+        #expect(appliedFacts.values.map(\.0) == [7])
+        #expect(appliedFacts.values.map(\.1) == ["second"])
     }
 
     @Test("drain budget carries remaining facts into the next injected-clock tick")
     func drainBudgetCarriesRemainingFacts() async {
         let clock = TestPushClock()
-        var appliedKeys: [Int] = []
+        let appliedKeys = AppliedFactsBox<Int>()
         let governor = BackgroundFactApplyGovernor<Int, Int>(
             tickCadence: .milliseconds(10),
             drainBudget: .milliseconds(4),
@@ -54,20 +61,20 @@ struct BackgroundFactApplyGovernorTests {
         clock.advance(by: .milliseconds(10))
         #expect(await acknowledgements[0].result() == .applied)
         #expect(await acknowledgements[1].result() == .applied)
-        #expect(appliedKeys == [1, 2])
+        #expect(appliedKeys.values == [1, 2])
 
         await clock.waitForPendingSleepCount(exactly: 1)
         clock.advance(by: .milliseconds(10))
         #expect(await acknowledgements[2].result() == .applied)
         await governor.shutdown()
 
-        #expect(appliedKeys == [1, 2, 3])
+        #expect(appliedKeys.values == [1, 2, 3])
     }
 
     @Test("shutdown synchronously flushes pending facts without waiting for a tick")
     func shutdownFlushesPendingFacts() async {
         let clock = TestPushClock()
-        var appliedFacts: [String] = []
+        let appliedFacts = AppliedFactsBox<String>()
         let governor = BackgroundFactApplyGovernor<Int, String>(
             tickCadence: .seconds(1),
             drainBudget: .milliseconds(4),
@@ -81,7 +88,7 @@ struct BackgroundFactApplyGovernorTests {
         await governor.shutdown()
 
         #expect(await acknowledgement.result() == .applied)
-        #expect(appliedFacts == ["pending"])
+        #expect(appliedFacts.values == ["pending"])
         #expect(clock.pendingSleepCount == 0)
     }
 
@@ -103,7 +110,7 @@ struct BackgroundFactApplyGovernorTests {
         )
         let recorder = AgentStudioPerformanceTraceRecorder(traceRuntime: traceRuntime)
         let clock = TestPushClock()
-        var appliedFacts: [String] = []
+        let appliedFacts = AppliedFactsBox<String>()
         let governor = BackgroundFactApplyGovernor<Int, String>(
             tickCadence: .zero,
             drainBudget: .milliseconds(20),
@@ -126,7 +133,7 @@ struct BackgroundFactApplyGovernorTests {
         await governor.shutdown()
         try await recorder.drain()
 
-        #expect(appliedFacts == ["pending"])
+        #expect(appliedFacts.values == ["pending"])
         let outputFileURL = try #require(traceRuntime.outputFileURL)
         let contents = try String(contentsOf: outputFileURL, encoding: .utf8)
         #expect(contents.contains("\"agentstudio.performance.apply_governor.awaited_ms\":10"))
@@ -154,7 +161,7 @@ struct BackgroundFactApplyGovernorTests {
         let recorder = AgentStudioPerformanceTraceRecorder(traceRuntime: traceRuntime)
         let clock = TestPushClock()
         var shouldAdvanceAtMainActorEntry = true
-        var appliedFacts: [String] = []
+        let appliedFacts = AppliedFactsBox<String>()
         let governor = BackgroundFactApplyGovernor<Int, String>(
             tickCadence: .zero,
             drainBudget: .milliseconds(20),
@@ -181,7 +188,7 @@ struct BackgroundFactApplyGovernorTests {
         await governor.shutdown()
         try await recorder.drain()
 
-        #expect(appliedFacts == ["pending"])
+        #expect(appliedFacts.values == ["pending"])
         let outputFileURL = try #require(traceRuntime.outputFileURL)
         let contents = try String(contentsOf: outputFileURL, encoding: .utf8)
         #expect(contents.contains("\"agentstudio.performance.apply_governor.queue_wait_ms\":10"))
@@ -208,7 +215,7 @@ struct BackgroundFactApplyGovernorTests {
         )
         let recorder = AgentStudioPerformanceTraceRecorder(traceRuntime: traceRuntime)
         let clock = TestPushClock()
-        var appliedFacts: [String] = []
+        let appliedFacts = AppliedFactsBox<String>()
         let governor = BackgroundFactApplyGovernor<Int, String>(
             tickCadence: .seconds(1),
             drainBudget: .milliseconds(20),
@@ -232,7 +239,7 @@ struct BackgroundFactApplyGovernorTests {
         await governor.shutdown()
         try await recorder.drain()
 
-        #expect(appliedFacts == ["pending"])
+        #expect(appliedFacts.values == ["pending"])
         let outputFileURL = try #require(traceRuntime.outputFileURL)
         let contents = try String(contentsOf: outputFileURL, encoding: .utf8)
         #expect(contents.contains("\"agentstudio.performance.apply_governor.awaited_ms\":10"))

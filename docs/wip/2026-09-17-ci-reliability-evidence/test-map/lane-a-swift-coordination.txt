@@ -1,0 +1,877 @@
+LANE A — Swift state/coordination tests: what each problem test does, and a better test for the same claim
+Repo: /Users/shravansunder/Documents/dev/project-dev/agent-studio.issues-perf-again
+Method: read the test, its helpers, and the production code each drives. Every factual statement below carries
+path:line I opened this session. Where the evidence report (docs/wip/2026-09-17-ci-reliability-evidence/
+lane-swift-flake-families.md) and the code disagree, the code wins and I say so.
+
+READ THIS FIRST — the tree has moved under the evidence report.
+Four of the seven tests have ALREADY been rewritten since the failing revisions the report cites. The acute
+polling wait named in the report is gone from tests 4, 5, and 7, and test 2 no longer makes the two-write
+coalescing assumption the report blames. What is left in those files is a different and smaller class of
+defect: negative assertions ("this count did NOT grow", "this task is nil") sampled with no barrier at all,
+and one oracle that silently stops exercising its own claim under load. I map what is in the tree today, and
+I name what was fixed so nobody spends a remediation slot twice.
+
+
+================================================================================
+TEST 1
+================================================================================
+TEST: WorkspaceCacheCoordinatorTests / startConsuming_coalescesSnapshotChangedBurstBeforeApplyingWorktreeCache
+FILE: Tests/AgentStudioTests/App/WorkspaceCacheCoordinatorTests.swift:384
+SIZE: 106 lines of test body (:384-489) + 27 lines of private helpers (:920-946)
+GROUPED WITH (same design, same suite, same missing barrier):
+  - terminationDrainsPendingEnrichmentBeforeFirstPersistenceFlush, :511 (waits at :547 via waitUntilYielding)
+  - the scope-change convergence test waiting at :843 via the file-private eventually(_:maxTurns:)
+TRAITS: @Suite(.serialized) @MainActor final class (:9-11). No timeLimit, not parameterized. Fast lane; the
+        suite is discovered as a serialized MainActor suite by aggregate_serial_non_webkit_suite_filters
+        (scripts/swift-test-helpers.sh:385-394), so it runs one-suite-per-process.
+
+CLAIM: A burst of Git snapshot facts for one worktree must not each wake MainActor. They coalesce in the
+       background apply governor, and when the governor's tick fires exactly ONE MainActor apply happens,
+       carrying the NEWEST snapshot. Who is hurt if it breaks: every user with an active repo — a Git status
+       storm turns into N MainActor writes and N sidebar re-derivations, which is the MainActor-storm class of
+       bug this repo has already paid for twice.
+
+LAYER TODAY: integration (bus + coordinator + governor + atom).
+  REAL: EventBus, WorkspaceCacheCoordinator, BackgroundFactApplyGovernor, RepoCacheAtom, WorkspaceStore.
+  FAKE: only the clock — TestPushClock (Tests/AgentStudioTests/TestSupport/TestPushClock.swift:4), injected as
+        `enrichmentApplyClock:` (:395) and reaching the governor at WorkspaceCacheCoordinator.swift:212-216.
+
+STIMULUS: scripted sequence — two `.snapshotChanged` envelopes (seq 1, seq 2) posted to the real bus
+          (:401-444), then a third no-op `.worktreeRegistered` envelope as an ordering barrier (:449-463),
+          then one explicit `clock.advance(by: .milliseconds(25))` (:479).
+
+ORACLE: mixed, and this is the interesting part.
+  - :476-477 (nothing applied before the tick): `repoCache.cacheRevision == 0` and enrichment `== nil`.
+    Owner-reported state. Sound.
+  - :481 / :486-488 (the newest applied, exactly once): `worktreeEnrichmentByWorktreeId[id]?.branch == "new"`,
+    `.snapshot?.summary.changed == 2`, `cacheRevision == 1`. Owner-reported atom state. `cacheRevision == 1`
+    is the real "exactly one apply" oracle and it is a good one.
+
+WAIT: three different mechanisms in one test.
+  1. :464-471 — assertEventuallyAsync on bus diagnostics: `consumedCount == 3 && pendingDeliveryCount == 0`.
+     THIS BARRIER IS SOUND, and the report's warning about `consumedCount` does not defeat it. Yes,
+     EventBus records consumption when an item is PULLED, before it is handled — Iterator.next() awaits
+     recordConsumed() at Sources/AgentStudio/Core/RuntimeEventSystem/Events/EventBus.swift:90-94, and
+     recordConsumed increments at :413-415. But the coordinator's consume loop is a serial `for await`
+     (WorkspaceCacheCoordinator.swift:148-168) and the work it does for a coalescable envelope is
+     `Self.enqueueCoalescedEnrichment(...)` (:157), which is fully SYNCHRONOUS down to
+     `governor.enqueue` (BackgroundFactApplyGovernor.swift:152, a non-async lock-guarded call). So the pull of
+     envelope 3 cannot happen until envelopes 1 and 2 are already in `state.pendingByKey`. The test's own
+     comment at :446-448 states exactly this reasoning and it checks out. Keep this barrier.
+  2. :472-474 — assertEventuallyAsync polling `clock.pendingSleepCount == 1`. Poll. Unnecessary: TestPushClock
+     already exposes a continuation-backed `waitForPendingSleepCount(exactly:)` at TestPushClock.swift:213.
+  3. :480-482 — assertEventuallyMain (dual budget: 200 turns AND 10 s, EventBusHarness.swift:173-191) for the
+     applied branch. THIS is the flake site. At the failing revision it was the file-private
+     `eventually(maxTurns: 100)` at :920-933, which burned 100 turns in 5-11 ms of wall time. The dual-budget
+     helper is a large improvement, but it is still a poll over a path with no completion signal.
+
+SPEED DEPENDENCE: precise and still present at wait 3. After `clock.advance`, the remaining work is entirely
+  off MainActor and untracked: TestPushClock.advance(to:) resumes the governor's parked sleep continuation
+  onto the COOPERATIVE POOL (TestPushClock.swift:145-163) → runDrainLoop resumes from `try await
+  delay.wait(tickCadence)` (BackgroundFactApplyGovernor.swift:220) inside the untracked `Task` created in
+  start() (:146-148) → drainOneTick → takeDrainSnapshot under NSLock (:234-235) → `await prepareApply` (:303,
+  one suspension) → `await MainActor.run { commit() }` (:306-311). The test's assertion thread is MainActor;
+  every one of those hops needs a pool thread the loaded runner may not hand over inside the budget, while the
+  product is entirely correct. Nothing in the product is slow; the test is racing the scheduler.
+
+WHEN IT FAILS YOU SEE: "newest snapshot should apply after coalesced flush timed out" plus
+  `Expectation failed: repoCache.worktreeEnrichmentByWorktreeId[worktreeId]?.branch == "new"`. The broken
+  thing is NOT named: you cannot tell from that message whether the fact was never enqueued, was superseded,
+  was rejected by the observation-lifetime guard at WorkspaceCacheCoordinator.swift:366-370, or simply had
+  not been given a thread yet. Those are four different bugs with one message.
+
+VALUE: high and not duplicated. This is the only test that proves the burst→one-apply contract end to end
+  through the real bus. The sibling `WorkspaceCacheCoordinatorIntegrationTests` covers topology convergence,
+  not enrichment coalescing.
+
+BETTER DESIGN:
+  layer:    keep it here; the claim is genuinely about the bus→governor→atom path.
+  stimulus: unchanged. The interleaving is already forced correctly by barrier 1 plus the manual clock.
+  oracle:   unchanged — `cacheRevision == 1` plus the newest branch/summary is exactly the invariant.
+            ADD one assertion the governor can already prove and the test does not use: the FIRST fact must
+            be reported `.superseded`. `enqueue` yields `.superseded` on the displaced acknowledgement at
+            BackgroundFactApplyGovernor.swift:180-181, and `.applied` only after the MainActor commit returns
+            (:248-249 in drainOneTick, :369-370 in applyAllFacts). That pair IS the coalescing invariant
+            stated in the governor's own vocabulary.
+  wait:     three changes, in increasing cost.
+            (a) Replace wait 2 with `await clock.waitForPendingSleepCount(exactly: 1)`
+                (TestPushClock.swift:213). Zero new seam; the Git suite already uses this exact call
+                (GitWorkingDirectoryProjectorVisibleTierTests.swift:209, :237).
+            (b) Delete wait 3 entirely and let `await coordinator.shutdown()` (:484) be the barrier. It
+                already is one: shutdown cancels consumeTask and AWAITS its value (WorkspaceCacheCoordinator
+                .swift:185-190); the consume task's tail then runs `await enrichmentApplyGovernor.shutdown()`
+                (:169), which awaits the drain task's value and then `flushAllPendingFacts()`
+                (BackgroundFactApplyGovernor.swift:186-198, :352-355). After that call returns, every
+                enqueued fact has been applied — deterministically, no budget. The assertions at :486-488
+                are already after it and already sufficient. CAUTION, and this is the reason (b) is not
+                free: without wait 3 the test no longer distinguishes "the TICK applied it" from "SHUTDOWN
+                flushed it", which is half the claim. So (b) alone weakens the test.
+            (c) The clean answer, and the one I recommend: stop discarding the acknowledgement.
+                `WorkspaceCacheCoordinator` throws away a genuine per-fact completion signal at three sites —
+                `_ = governor.enqueue(...)` at WorkspaceCacheCoordinator.swift:293, :305, and :348. If
+                `enqueueCoalescedEnrichment` returned the `Acknowledgement` (BackgroundFactApplyGovernor
+                .swift:13-20) up to a coordinator-owned `waitForEnrichmentApplyIdle()`, the test becomes:
+                advance the clock, `await coordinator.waitForEnrichmentApplyIdle()`, assert. No budget, no
+                turns, and the failure message can say which of applied/superseded each fact got.
+                NEEDS OWNER DECISION: (c) adds a public method to a coordinator. It is not a new atom, store,
+                bus event, or coordinator responsibility — it exposes a completion the governor already
+                computes — but it is production surface. Precedent for exactly this shape already exists in
+                production: `RepositoryFactDemandCoordinator.waitUntilIdle()`
+                (Sources/AgentStudio/App/Coordination/RepositoryFactDemandCoordinator.swift:219-227,
+                continuation-backed via `idleWaiters`), consumed by production code at
+                WorkspaceSurfaceCoordinator+RepositoryFactDemand.swift:18. And
+                `RemoteReferenceRefreshActor.waitUntilIdle()` at
+                Core/RuntimeEventSystem/Git/RemoteReferenceRefreshActor+ExplicitUpdates.swift:14.
+            Note what NOT to do: do not build the barrier on `supersededSinceLastDrainCount`
+            (BackgroundFactApplyGovernor.swift:211-213). Its own doc-comment says it exists so "tests can wait
+            for an actual coalescing invariant" — someone already hit this problem and answered it with a
+            counter to poll instead of a completion to await. That is the anti-pattern, in-tree, documented.
+  keeps:    everything. This test does not need splitting.
+  cost:     (a) free. (b) free but weakens the claim. (c) ~20 lines of production code on the coordinator plus
+            a waiter list; buys determinism for three tests in this suite and removes the last poll.
+VERDICT: fix-wait  CONFIDENCE: high — I traced every hop from `clock.advance` to the atom write and read both
+         the acknowledgement plumbing and the shutdown flush path; the missing barrier is a discarded return
+         value, not a mystery.
+
+
+================================================================================
+TEST 2
+================================================================================
+TEST: RepoExplorerProjectionDemandTests / "Repos sort and fixed Panes surface changes reuse topology and
+      demand only needed registrations"  (func presentationChangesReuseTopologyCapture)
+FILE: Tests/AgentStudioTests/Features/RepoExplorer/RepoExplorerProjectionObservationDemandTests.swift:102
+SIZE: 88 lines (:102-190), plus an 87-line real-AppKit fixture shared with the suite (:40-98)
+TRAITS: @MainActor @Test inside a plain extension; the suite has NO .serialized trait, so it runs inside the
+        fully concurrent fast-lane process. Not parameterized, no timeLimit. Builds a real NSWindow (:71-79).
+
+ALREADY CHANGED SINCE THE FAILING REVISION — read this before designing.
+  The report (section 2) blames a two-write coalescing assumption: `setSidebarSurface(.panes)` plus
+  `setGroupingMode(.repo, for: .panes)` expected to produce ONE structural capture. That is gone. In the
+  tree today the only grouping write is `setGroupingMode(.repo, for: .repos)` at :126, during Arrange, and
+  the Act at :164 is a SINGLE structural write (`setSidebarSurface(.panes)`). So `fullCaptureCount == 2` at
+  :172 is now "one initial Repos capture + one structural capture", which is a claim production actually
+  makes. The two-writes-must-coalesce defect is fixed. Do not re-remediate it.
+
+CLAIM (as it stands today): changing presentation (sort direction, query) must reuse the existing projection
+  topology and add NO new observation registrations; changing the surface to Panes must cost exactly one
+  structural capture and must register observations for the demanded panes only, never tabs; and while the
+  sidebar is hidden, a pane-title write must cost nothing. Who is hurt: every user with many repos — this is
+  the demand-driven observation contract that stops the RepoExplorer from re-projecting the world on every
+  keystroke. The 2026 observation-tracking leak incident is exactly what this test exists to prevent.
+
+LAYER TODAY: integration — real WorkspaceStore over real core atoms (withAsyncTestCoreAtoms, :104), real
+  RepoExplorerProjectionInputCapture, real RepoExplorerProjectionAdapter, real NSWindow + NSTableView
+  materialization host.
+  FAKE: only the two snapshot closures (`bridgeAttendanceSnapshot`, `latestPaneMessageSnapshot`, :134-135)
+  and the octicon loader (:63).
+
+STIMULUS: scripted sequence of MainActor atom writes: updateDemand visible (:142), query "needle" (:148),
+  query "" (:152), setSortDirection (:158), setSidebarSurface(.panes) (:164), updateDemand hidden (:182),
+  updatePaneTitle while hidden (:186).
+
+ORACLE: a mix of owner-reported state and counters, and the counters are the problem.
+  - GOOD: `adapter.observationRegistration` (:145-146, :169-170, :184), `adapter.cachedProjectionRequest`
+    (:150-151, :154-155), `adapter.publishedResult?.snapshot.*` (:175-178), `adapter.observationTokens.isEmpty`
+    (:183). All owner-reported.
+  - PROBLEM: `capture.fullCaptureCount`, `capture.presentationCaptureCount`, `capture.scopedCaptureCount`
+    (:144, :157, :162, :172, :181, :188) are test-side tallies of how many times the adapter called into the
+    capture. Three of the six uses are NEGATIVE assertions — a count that must NOT have grown.
+
+WAIT: five bare turn loops and one dual-budget helper.
+  :143  `for _ in 0..<200 where adapter.publishedRevision < 1 { await Task.yield() }`
+  :149  `for _ in 0..<200 where adapter.cachedProjectionRequest?.isFiltering != true { ... }`
+  :153  `for _ in 0..<200 where ...isFiltering != false { ... }`
+  :159  `for _ in 0..<200 where capture.presentationCaptureCount == presentationCountBeforeSort { ... }`
+  :165  assertEventuallyMain (dual budget) on `observationRegistration.paneIDs == [pane.id] && published…`
+  :187  `for _ in 0..<100 { await Task.yield() }`   ← unconditional. No predicate at all.
+  The five bare loops have NO assertion that the loop succeeded. If the budget expires, execution simply falls
+  through to the next `#expect`. That is strictly worse than a flake: on a slow machine
+  `#expect(capture.fullCaptureCount == 1)` at :162 can pass because the sort-direction invalidation has not
+  landed YET, not because production reused the topology. The test goes green while proving nothing.
+
+SPEED DEPENDENCE: the wait at :165 is the one the report blames, and the mechanism is real — I re-derived it.
+  `observationRegistration.paneIDs` is written INSIDE a capture, by `installObservationTokens()`
+  (Sources/AgentStudio/Features/RepoExplorer/RepoExplorerProjectionAdapter+InputLifecycle.swift:103-119,
+  the write is at :109). It is a mid-pipeline effect, not a settle signal. Between an observed write and that
+  effect there are two MainActor task hops, each with its own explicit yield:
+    hop 1 — `withObservationTracking { … } onChange: { Task { @MainActor in await Task.yield(); … } }`
+            (:132-139, the enqueue is at :161)
+    hop 2 — `enqueueInvalidation` → `invalidationTask = Task { @MainActor in await Task.yield(); …;
+            processPendingInvalidation() }` (:166-176)
+  So the coalescing window for this adapter is literally "whatever arrives before the single live
+  invalidationTask resumes from its one Task.yield()". It is not a debounce and not a deadline — it is a race
+  with the MainActor job queue. Sampling a count baseline on `paneIDs` (a mid-capture effect) and then
+  asserting the count did not grow can be defeated by any invalidation still sitting at hop 1 or hop 2.
+  The :187 loop is worse: a negative assertion at :188 whose entire proof is "100 turns elapsed". On a fast
+  machine those 100 turns may be microseconds.
+
+WHEN IT FAILS YOU SEE: `Expectation failed: (capture.fullCaptureCount → 3) == 2`. The broken thing is not
+  named: a raw capture count says nothing about WHICH input invalidated or whether the extra capture was
+  structural, presentation, or activity-hydration.
+
+VALUE: high — this is the demand contract. But the counter assertions are doing work that the registration
+  assertions could do better, and the query/filtering steps (:148-155) duplicate coverage that
+  `cachedProjectionRequest` assertions alone would give.
+
+BETTER DESIGN:
+  layer:    unchanged. The real NSWindow materialization at :179 is worth keeping — it is the one thing here
+            that proves the projection actually reaches a table.
+  stimulus: unchanged, but each wait must become a barrier and each bare loop must gain a failure.
+  oracle:   demote the capture counters from "the assertion" to "a corroborating assertion", and promote the
+            adapter's own published state. Specifically:
+              - replace `capture.fullCaptureCount == 1` at :162 with `adapter.publishedRevision` not having
+                advanced past its pre-sort value, AND `adapter.observationRegistration` being byte-identical
+                to the pre-sort registration. "Topology was reused" is a statement about the registration, and
+                the registration is the thing the product publishes.
+              - keep `fullCaptureCount == 2` at :172, but only behind a real settle barrier (below).
+              - for the hidden case at :188, the strong oracle is already on the next two lines up:
+                `adapter.observationTokens.isEmpty` (:183) and `observationRegistration == .hidden` (:184).
+                If no tokens are registered, no capture CAN occur — that is a structural proof and it needs no
+                wait at all. The 100-turn loop plus count comparison is a weaker restatement of it.
+  wait:     the settle predicate already exists in this file, spelled out by the sibling test
+            `membershipChangePromotesToFullCapture` at :225-232:
+                adapter.publishedResult != nil
+                  && adapter.materializedProjection?.hasUnsettledProjectionTasks == false
+                  && adapter.invalidationTask == nil
+                  && adapter.pendingInvalidation.isEmpty
+            (backing state at RepoExplorerProjectionAdapter.swift:70, :101, :102, :199 and
+            Infrastructure/AtomLib/EagerDerivedAtom.swift:209.) That is the correct definition of idle for
+            this owner. What is MISSING is an awaitable form of it. The sibling polls it with a 400-turn loop,
+            which is the same defect in nicer clothes.
+            Proposal: a continuation-backed `RepoExplorerProjectionAdapter.waitForProjectionSettled()`,
+            resumed at the tail of `processPendingInvalidation()` (…+InputLifecycle.swift:178-200) when the
+            four-part predicate holds. NEEDS OWNER DECISION — this is production surface on a Feature adapter.
+            The precedent is `RepositoryFactDemandCoordinator.waitUntilIdle()`
+            (App/Coordination/RepositoryFactDemandCoordinator.swift:219-227): same MainActor owner, same
+            `idleWaiters: [CheckedContinuation]` shape, and it is consumed by production (not just tests) at
+            WorkspaceSurfaceCoordinator+RepositoryFactDemand.swift:18.
+            Interim, at zero production cost: every bare `for _ in 0..<N ... yield` loop must be replaced by
+            `await assertEventuallyMain(...)` (EventBusHarness.swift:173-191), which at least fails loudly
+            instead of falling through. That is a strict improvement available today and it should not wait
+            on the seam decision.
+  keeps:    the real-NSWindow materialization check (:179) and the hidden-demand structural assertions.
+  cost:     one adapter method + a waiter array. Lost coverage: none. Who pays: whoever owns RepoExplorer.
+VERDICT: fix-oracle AND fix-wait  CONFIDENCE: high on the mechanism (I read both hops and the write site);
+         medium on which specific assertion fired in the cited CI runs, because the test has been rewritten
+         since and I did not run it.
+
+
+================================================================================
+TEST 3
+================================================================================
+TEST: PaneTabViewControllerLaunchRestoreTests / four launch-restore surface-creation tests
+FILE: Tests/AgentStudioTests/App/PaneTabViewControllerLaunchRestoreTests.swift
+  a) aDeferredPaneCompletesOneAdmissionCycleAsTwoFailedCreateSurfaceCallsWhenGeometryArrives  :481 (wait :531)
+  b) revealAndPreparedRequeueOverlapCompleteOneAdmissionCycleAsTwoFailedCreateSurfaceCallsWithOneSurfaceIdentity
+                                                                                              :549 (wait :595)
+  c) oneVisibilityChangeRevealingMainAndDrawerPanesAdmitsTheFullPromotedBatchInTierOrder       :605 (wait :700)
+  d) theExactStoredZmxSessionIdentityIsUsedAcrossOneAdmissionCycleOfTwoFailedCreateSurfaceCalls :723 (wait :754)
+SIZE: ~60-100 lines each; plus the shared waitUntil helper (:402-408), makeHarness (:48+), mountPreparedContent
+      (:788-843), and LaunchCapturingSurfaceManager (:866-900). One design covers all four.
+TRAITS: @MainActor @Suite(.serialized) struct (:18-20). Discovered as a serialized MainActor suite by
+        aggregate_serial_non_webkit_suite_filters (scripts/swift-test-helpers.sh:385-394) → runs in its own
+        process (the failing log's "15 tests in 1 suite" confirms it did). Real AppKit window, real
+        PaneTabViewController.
+
+CLAIM: when geometry for a pane the prepared lane still owns becomes safe (a tab reveal), exactly ONE
+  admission cycle runs for that pane — the steady-state reveal path must not also create a surface alongside
+  the prepared lane's own admission. Who is hurt: a user restoring a session sees a pane get two competing
+  surfaces (or a stuck "preparing" placeholder). This is the S5/S9/S10 cutover contract.
+
+LAYER TODAY: integration, close to E2E for AppKit. REAL: PaneTabViewController in a real NSWindow,
+  WorkspaceSurfaceCoordinator, PreparedTerminalMountAdmissionPort, WorkspacePreparedContentMountCoordinator,
+  TerminalActivationScheduler, ViewRegistry, WorkspaceStore, and real AppKit layout passes.
+  FAKE: LaunchCapturingSurfaceManager (:866-900) — createSurface ALWAYS fails (`return .failure(...)` at :885).
+
+STIMULUS: scripted sequence ending in two MainActor calls — `store.setActiveTab(...)` then
+  `executor.restoreVisibleViewsForActiveTabIfNeeded(forceWhenBoundsExist: true)` (a: :528-529). Plus real,
+  uncontrolled AppKit layout activity, which the tests' own comments (:482-498, :552-567) document as racing
+  the explicit reveal.
+
+ORACLE: `harness.surfaceManager.createdPaneIds.filter { $0 == pane.id }.count == 2` — a count of calls on an
+  always-failing fake. This is the weakest oracle in my lane, and the file says so itself: the header comment
+  at :11-17 states that a "two createSurface calls" assertion "proves one admission cycle ran (attempt 1
+  retry, attempt 2 doNotRetry), never that a surface was actually created." The literal 2 encodes the
+  retry policy of a fake, not a product invariant. If someone changes the retry policy, four tests break with
+  no product change; if someone breaks the product such that one admission makes two attempts for the wrong
+  reason, four tests stay green.
+
+WAIT: `waitUntil(iterations: 20_000) { ... }` (:402-408) — 20,000 cooperative turns, NO time component. The
+  helper's doc-comment (:396-401) argues the cap is "a safety net against a genuine hang, not a timer", and it
+  does require every call site to `#expect` the result (they all do: :530, :594, :700, :754). That is
+  better hygiene than the other suites in my lane. It is still a poll.
+
+SPEED DEPENDENCE: yes, and the chain is worse than the report says — there are TWO untracked tasks, not one.
+  1. `restoreVisibleViewsForActiveTabIfNeeded` is synchronous (WorkspaceActionExecutor.swift:200-202 →
+     WorkspaceSurfaceCoordinator+ActiveTabRestore.swift:8). It ends by calling
+     `schedulePreparedTerminalGeometryReevaluation(...)` (+ActiveTabRestore.swift:56-60), and THAT spawns a
+     bare `Task { await self?.reevaluatePreparedTerminalGeometry(...) }`
+     (WorkspaceSurfaceCoordinator+ViewLifecycle.swift:718-724). Untracked task #1. The test's synchronous
+     call returns with nothing to await.
+  2. That task eventually calls `preparedTerminalGeometryReevaluationHandler` (+ViewLifecycle.swift:752/:803)
+     → `owner.acceptTerminalGeometry` (WorkspacePreparedContentMountCoordinator.swift:146-147) →
+     `terminalScheduler.acceptLaterGeometry` (TerminalActivationScheduler.swift:238-243) →
+     `ensureADrainObservesNewlyQueuedMembers()` (:278-290), which in the `.settled` case spawns
+     `Task { await self?.runWorker(); await self?.markSupplementalDrainFinished() }` (:285-288).
+     Untracked task #2, with no waiter list. `markSupplementalDrainFinished()` (:292-294) sets a private
+     Bool and resumes nobody.
+  So the test's verdict depends on two fire-and-forget tasks getting scheduled inside 20,000 turns, on a
+  runner hosting up to four such test processes concurrently. Also note the contrast the scheduler itself
+  provides: `activate()` IS a proper barrier — it parks late callers in `activationWaiters` and resumes them
+  all with the settlement (:166-210). The supplemental-geometry path, which is the ONLY path these four tests
+  exercise, is the one path that did not get that treatment.
+
+  I cannot discriminate poll-starvation from a genuine ordering miss without a run, and I will not guess.
+  The alternative that fits `count → 0` equally well: `acceptLaterGeometry` returned an empty accepted set
+  because `admitWaitingMembers` (:250-269) silently `continue`s past any member not in `.waitingForGeometry`
+  (:254). If that happened, no drain ever starts and no budget would ever have helped. HYPOTHESIS, not fact.
+
+WHEN IT FAILS YOU SEE: "deferredPane never reached two createSurface calls", then a cascade of follow-on
+  expectation failures (`count → 0 == 2`, `createdConfigsByPaneId[pane.id] → nil`). The broken thing is not
+  named, and the decisive diagnostic is sitting unused: the scheduler already exposes `memberState(for:)`
+  (:296-299) and `diagnostics()` including `yieldCount` (:301-307). Neither is captured at failure time.
+  Recording the member's execution state and the accepted set from `acceptLaterGeometry` in the failure
+  message would settle poll-vs-ordering in ONE run. That is the cheapest next action for this family and it
+  requires no design decision.
+
+VALUE: high, and not duplicated — this is the only coverage of the S5 "reveal must not create alongside the
+  prepared lane" guard. Tests (a) and (b) differ only in tab-append ordering; (b) additionally guards the
+  S10b `while hasQueuedMember()` fix (:198-200) against regression, which (a) does not. Both earn their keep.
+
+BETTER DESIGN:
+  layer:    unchanged. This claim is about AppKit-adjacent ordering and cannot move down.
+  stimulus: the interleaving is already forced correctly, and (b) deliberately preserves the natural ordering
+            that exposed the original crash rather than routing around it — that is exactly right and matches
+            BridgePaneProductFileBootstrapSuspensionTests. Keep.
+  oracle:   two changes.
+            1. Replace the literal `2` with a named constant derived from the retry policy, so the test says
+               `failedCreateSurfaceAttemptsPerAdmissionCycle` rather than a magic number. A reader currently
+               cannot tell 2-the-policy from 2-the-invariant.
+            2. Add the scheduler's own terminal member state for the pane
+               (TerminalActivationScheduler.memberState(for:), :296-299) as the PRIMARY oracle, with the
+               createSurface count as corroboration. "One admission cycle completed" is a statement about the
+               scheduler's member lifecycle; the surface-manager tally is a downstream shadow of it.
+  wait:     `TerminalActivationScheduler` owns the missing barrier and already has the ingredients. Add
+            supplemental-drain waiters resumed in `markSupplementalDrainFinished()` (:292-294) when
+            `!hasQueuedMember()` (:396) — i.e. the same predicate `activate()`'s tail loop already computes at
+            :198-200, extended to cover the supplemental path. Forward it through
+            `WorkspacePreparedContentMountCoordinator` (which the test already holds as `mounted.owner`,
+            returned at :842) so the test can write:
+                harness.executor.restoreVisibleViewsForActiveTabIfNeeded(forceWhenBoundsExist: true)
+                await mounted.owner.waitForGeometryAdmissionIdle()
+                #expect(...)
+            NEEDS OWNER DECISION. Note this does NOT close untracked task #1
+            (+ViewLifecycle.swift:718): the reveal→handler hop is still fire-and-forget, so the test would
+            still have to reach the owner directly (`await mounted.owner.acceptTerminalGeometry(...)`) or that
+            Task must become awaitable too. Say this plainly to the owner: there are two seams here, and
+            fixing only the scheduler one leaves a smaller but real race.
+  keeps:    all four tests. They are not duplicates of each other.
+  cost:     scheduler waiter list + one forwarder; the +ViewLifecycle Task question is a separate, larger
+            decision. Who pays: whoever owns the prepared-content mount lane.
+VERDICT: fix-wait (blocked on a seam) + fix-oracle; INSTRUMENT FIRST  CONFIDENCE: high that the barrier is
+         missing and where it belongs (I read every hop); medium on the root cause of the observed failures,
+         because `count → 0` is consistent with two different stories and the diagnostic that separates them
+         already exists but is not captured.
+
+
+================================================================================
+TEST 4
+================================================================================
+TESTS: GitWorkingDirectoryProjectorVisibleTierTests /
+  a) "covered worktree visibility change waits for its tier cadence"        :247
+  b) "unchanged cadence multiplier composes with visible tier cadence"      :407
+FILE: Tests/AgentStudioTests/Core/PaneRuntime/Sources/GitWorkingDirectoryProjectorVisibleTierTests.swift
+SIZE: (a) 45 lines (:247-292); (b) 67 lines (:407-474)
+TRAITS: plain `@Suite("GitWorkingDirectoryProjector visible tier") struct` (:8-9). NOT @MainActor, NOT
+        .serialized, and NOT in the explicit serial list in scripts/swift-test-helpers.sh (which names
+        GitWorkingDirectoryProjectorTests at :399-400 and does NOT name this suite). VERIFIED by reading both.
+        So it runs inside the fully concurrent fast-lane process against the same long-lived actor, bus, and
+        real-clock duty machinery as its classified sibling. That is a classification gap, not a budget bug,
+        and it is the cheapest fix in my lane.
+
+ALREADY CHANGED SINCE THE FAILING REVISION.
+  `visibleTierWaitUntil` — the wall-clock 10 s poll the report blames — is GONE from this file. Every wait in
+  the tree today is a real continuation barrier: `clock.waitForPendingSleepCount(...)` (TestPushClock.swift
+  :209-224), `calls.waitForCount(...)`, and `waitForVisibleTierStatusCompletion(...)`. Both named tests now
+  use them (a: :283-284; b: :446-447, :470-471). The acute flake is fixed. What follows is what is left.
+
+CLAIM (a): a worktree that was covered by an ACTIVE-pane refresh and then drops to merely sidebar-visible must
+  NOT get an immediate new status compute — it waits for its (slower) visible-tier cadence. Who is hurt:
+  users with many worktrees; without this, every visibility change is a git status storm.
+CLAIM (b): consecutive unchanged status results lengthen the periodic cadence by the configured multiplier,
+  composed with the visible-tier base cadence. Who is hurt: battery and CPU on idle repos.
+
+LAYER TODAY: integration. REAL: GitWorkingDirectoryProjector, EventBus, the deadline queue, the whole
+  admission/tier machinery. FAKE: TestPushClock as `sleepClock:` (a: :270, b: :433),
+  StubGitWorkingTreeStatusProvider (a: :258, b: :421), VisibleTierCallRecorder.
+
+STIMULUS: scripted sequence of direct actor calls plus explicit clock advances.
+  (a) setActivity(true) → assertTopology → [barrier] → setActivity(false) → setSidebarVisibleWorktrees.
+  (b) setSidebarVisibleWorktrees → assertTopology → [barrier] → loop of clock.advance(to: deadline-1ms) then
+      clock.advance(by: 1ms).
+
+ORACLE:
+  (a) :289-290 — `worktreeTasks[worktreeId] == nil` and `calls.count == 1`. Both NEGATIVE ("no new compute
+      started"), both owner-reported.
+  (b) :462-465 — `deadline == max(lastStart + expectedCadence, lastCompletion + automaticDutyGap(measuredDuty))`
+      read from the projector's own maps, plus :468 `calls.count == expectedCallCount` (negative: the call did
+      not fire one millisecond early) and :470 `calls.waitForCount(expectedCallCount + 1)` (positive).
+
+WAIT: all positive waits are proper barriers. The NEGATIVE assertions have no barrier at all, which is the
+  remaining defect in both tests.
+
+SPEED DEPENDENCE — two distinct findings, and one of them corrects the evidence report.
+
+  FINDING 4.1 — unbarriered negative assertion in (a). After `setSidebarVisibleWorktrees([worktreeId])` at
+  :287, the test immediately asserts at :289-290 that nothing started. But `setSidebarVisibleWorktrees` does
+  NOT decide synchronously: it ends in `scheduleCoalescedVisibilityAdmission()`
+  (GitWorkingDirectoryProjector+DeadlineRefresh.swift:92-101), which parks a Task on the injected clock. The
+  test constructs the projector with `coalescingWindow: .zero` (:269), so that admission can run essentially
+  immediately on the cooperative pool. The negative assertion is therefore racing the admission task: it
+  passes when the test wins the race and would fail when the admission wins — with the product correct either
+  way, because the CLAIM is about the deadline, not about whether the admission task has run. The right shape
+  is: let the admission settle, THEN assert the deadline is in the future and no compute started.
+  Contrast with the sibling `visibilityChangeAdmitsAfterCoalescingWindow`, which does it correctly:
+  setSidebarVisibleWorktrees → `await clock.waitForPendingSleepCount(atLeast: 2)` →
+  `clock.advance(by: visibilityChangeCoalescingWindow)` → `await calls.waitForCount(1)` (:396-403).
+
+  FINDING 4.2 — MIXED CLOCK, and the in-tree comment about it is WRONG. The test comment at :448-449 says
+  "Status duty uses a real clock, even when scheduling uses TestPushClock. CI contention can make its required
+  cooldown longer than the base cadence." I checked every field this test reads, and the comment is half
+  right in a way that matters:
+    - `lastAutomaticStartAtByWorktreeId`, `lastAutomaticCompletionAtByWorktreeId`, and
+      `automaticRefreshDeadlineByWorktreeId` are ALL written from `deadlineClock`
+      (+DeadlineRefresh.swift:524-525, :535-537, :476, :401), and `deadlineClock` IS the injected sleepClock
+      (GitWorkingDirectoryProjector.swift:147). So those three are on the TEST clock. Deterministic.
+    - `lastAutomaticDutyByWorktreeId` is NOT. Its value is the `duty:` argument of
+      `recordAutomaticCompletion` (+DeadlineRefresh.swift:534, :538), which is `statusDuration` passed at
+      +AvailableStatus.swift:82, computed at +AvailableStatus.swift:13-14 as
+      `computeStart.duration(to: envelopeClock.now)` where `computeStart` is a `ContinuousClock.Instant`
+      (+AvailableStatus.swift:9) and `envelopeClock` is a real ContinuousClock
+      (GitWorkingDirectoryProjector.swift:22, :134).
+    So a REAL wall-clock duration is added to a VIRTUAL-clock instant inside
+    `max(lastStart + cadence, lastCompletion + automaticDutyGap(duty))` (+DeadlineRefresh.swift:496-499).
+    Consequence: the test's own `#expect` at :462-465 recomputes the same `max`, so it never FAILS from this.
+    It DEGRADES instead. On a loaded runner the duty branch can dominate, and then the deadline the test
+    advances to is a duty-gap deadline, not a cadence deadline — the `expectedCadences` array at :451-455
+    stops describing what is being exercised and the unchanged-multiplier claim is silently not tested.
+    A green run proves nothing. That is the failure mode the brief calls a convenient oracle, and it is
+    strictly more dangerous than a flake because nobody investigates a pass.
+
+WHEN IT FAILS YOU SEE: (a) `Expectation failed: await actor.worktreeTasks[worktreeId] == nil` — names the
+  symptom, not which of setActivity/visibility-admission/deadline decided it. (b) a deadline equality
+  mismatch printing two Durations, which a reader cannot map to a tier or a branch of the `max`.
+
+VALUE: high. (b) is the only coverage of the unchanged-cadence multiplier composition. (a) is the only
+  coverage of the demotion-does-not-refresh rule. Neither is duplicated.
+
+BETTER DESIGN:
+  layer:    unchanged — both claims are about the projector's deadline arithmetic.
+  stimulus: (a) add a settle step between the visibility write and the negative assertion, using the barrier
+            the sibling test already uses: `await clock.waitForPendingSleepCount(atLeast: N)` after
+            `setSidebarVisibleWorktrees`, so the coalesced admission has provably been scheduled before the
+            test claims nothing started. (b) unchanged.
+  oracle:   (a) strengthen from "no task exists" to the positive statement of the claim: assert the worktree's
+            `automaticRefreshDeadlineByWorktreeId` entry is exactly `lastStart + visibleSidebarCadence`. A
+            deadline in the future is a far better proof of "waits for its tier cadence" than the absence of
+            a task, and it names the tier if it breaks.
+            (b) make the test FAIL LOUDLY when its own claim is not being exercised. One line, no seam:
+                #expect(lastStart + expectedCadence >= lastCompletion + policy.automaticDutyGap(for: measuredDuty),
+                        "duty gap dominated the cadence; the unchanged-multiplier claim was not exercised")
+            The durable fix is to measure duty on `deadlineClock` like every other field in that family — but
+            that changes a production measurement (it would make duty virtual in tests and identical in prod,
+            since prod passes a real clock to both). NEEDS OWNER DECISION: it touches what a performance
+            measurement means. My recommendation is the assertion first, the clock change second, because the
+            assertion converts a silent degradation into a visible one at zero risk.
+  wait:     already correct. Do not touch the positive waits — this file is now the in-repo exemplar for how
+            these should look, and other lanes should copy `waitForPendingSleepCount` / `waitForCount` from it.
+  keeps:    everything.
+  cost:     one classification line in scripts/swift-test-helpers.sh (add
+            GitWorkingDirectoryProjectorVisibleTierTests next to GitWorkingDirectoryProjectorTests at :399-400)
+            plus three test-side assertions. The duty-clock change is separable and larger.
+VERDICT: fix-oracle (plus a one-line lane reclassification)  CONFIDENCE: high — I read every clock write site
+         and confirmed which fields are virtual and which are real.
+
+
+================================================================================
+TEST 5
+================================================================================
+TEST: WebKitSerializedTests.BridgePaneControllerTests / "second File invalidation publishes while Review
+      construction remains blocked"
+FILE: Tests/AgentStudioTests/App/WebKit/Bridge/BridgePaneControllerRefreshAdmissionIntegrationTests.swift:518
+SIZE: 48 lines (:518-565)
+TRAITS: extension on WebKitSerializedTests.BridgePaneControllerTests (:10) — WebKit serialized lane, one
+        suite per process. Not parameterized, no timeLimit.
+
+ALREADY CHANGED SINCE THE FAILING REVISION.
+  The report (section 5) blames `waitForStartedComparisonCount(2, gate:)`, a free function with a 2000-turn
+  budget that burned out in 26 ms. That free function is gone from this call site. The test now calls the
+  continuation-backed method on the gate directly: `await comparisonGate.waitForStartedComparisonCount(2)`
+  (:554), implemented with `withCheckedContinuation` + a waiter list at
+  Tests/AgentStudioTests/App/WebKit/Bridge/TestSupport/BridgeReviewSourceProviderTestSupport.swift:359-366.
+  Same for the File side: `fileMetadataSource.waitForChangesetPublishCount(...)` (:539, :550). The acute
+  flake is fixed.
+
+CLAIM: a newer File fact must publish immediately even while a Review construction for the same pane is
+  blocked at its provider boundary, and the newer Review attempt must be admitted independently of its
+  predecessor's lifetime. The two lanes do not head-of-line-block each other. Who is hurt: a user editing
+  files while a big review comparison is computing sees the file list freeze — the exact stuck-Review class
+  of bug this repo has chased repeatedly.
+
+LAYER TODAY: integration. REAL: BridgePaneController, BridgePaneRefreshAdmissionCoordinator,
+  BridgePaneWorktreeRefreshDriver, the review refresh task lifecycle.
+  FAKE: BridgeReviewSourceProviderFake + BridgeComparisonGate (deliberately holds the first comparison open
+  for the whole test), and the file metadata source double.
+
+STIMULUS: scripted sequence with a deliberately held gate — invalidation batchSequence 43 (:530-537), wait for
+  comparison 1 started and File publish 1 (:538-539), invalidation batchSequence 44 (:542-549), wait for File
+  publish 2 (:550), then assert comparison 2 started (:554). This is CONTROLLED INTERLEAVING done right: the
+  predecessor is pinned open at the provider boundary, so the "admitted while a predecessor is parked" case is
+  forced, not hoped for. Same technique as the good example in the brief.
+
+ORACLE: owner-reported throughout — `fileMetadataSource.changesetPublishAttemptCount` (:555),
+  `publishedChangesets().count` (:556), `reviewProvider.recordedComparisonRequestsCount()` (:557-560). No
+  aggregate counter mixing causes, no timing measurement.
+
+WAIT: every wait in the body is a continuation barrier. ONE poll remains, in teardown:
+  `await waitForRefreshAdmissionIdle(fixture.controller)` (:563), implemented at
+  Tests/AgentStudioTests/App/WebKit/Bridge/TestSupport/BridgePaneRefreshAdmissionAssertionTestSupport.swift
+  :74-86 — 2000 turns polling `controller.refreshAdmissionCoordinator.diagnosticSnapshot` for
+  `activeRefreshPass == nil && dirtyFact == nil`, ending in `Issue.record(...)`. Its sibling
+  `waitForActiveReviewRefreshTaskToFinish` (:89-99) is the same shape.
+
+SPEED DEPENDENCE: the assertions are now safe. The teardown poll is not: after `comparisonGate.releaseAll()`
+  (:562) the released Review pass has to run to completion through a spawned refresh task and back into
+  `completeRefreshPass` (Sources/AgentStudio/Features/Bridge/Runtime/BridgePaneRefreshAdmissionCoordinator
+  .swift:386-397) before the poll's predicate can hold. 2000 turns on a loaded WebKit-lane process is a bet.
+  When it loses, the test fails in TEARDOWN with a message about idleness, pointing a reader at the
+  admission coordinator when the thing under test already passed. That is a high-cost false signal.
+
+WHEN IT FAILS YOU SEE (today): "Expected foreground Bridge refresh admission to become idle". The broken
+  thing is not named — and worse, the assertions the test exists for have already passed by then.
+
+VALUE: high. This is the head-of-line-blocking proof for the two Bridge lanes and nothing cheaper covers it.
+
+BETTER DESIGN:
+  layer:    unchanged.
+  stimulus: unchanged. This is the model the rest of my lane should copy.
+  oracle:   unchanged.
+  wait:     replace the teardown poll with an awaitable on the owner. `BridgePaneRefreshAdmissionCoordinator`
+            exposes only the poll-shaped `diagnosticSnapshot` (:155-160, read by the helper at :79). The
+            resume point is obvious and already exists: `completeRefreshPass(...)` (:386-397) is where
+            `activeRefreshPassByLane[lane] = nil` (:397) happens — park waiters, resume them there when both
+            lanes are clear and no dirty fact was restored (:403-406 is the branch that re-dirties).
+            Idle must mean: no active refresh pass on either lane, no dirty fact retained, and every admitted
+            pass has reached its provider boundary — i.e. `refreshPassCount` cannot be moved by work already
+            enqueued.
+            PRECEDENT IN PRODUCTION, same feature, already accepted:
+            `BridgePaneWorktreeRefreshDriver.awaitRetiringFileOperations()`
+            (Sources/AgentStudio/Features/Bridge/Runtime/BridgePaneWorktreeRefreshDriver.swift:99-106) — a
+            real awaitable that awaits task values with no polling, already used from the same test-support
+            file (BridgePaneRefreshAdmissionAssertionTestSupport.swift:65-69). So this is not a new kind of
+            thing in this feature; it is the same thing, one object over.
+            NEEDS OWNER DECISION (production method on a Feature coordinator), but the bar is low given the
+            in-feature precedent.
+  keeps:    everything.
+  cost:     ~15 lines on the admission coordinator; removes the last poll from this file and from the two
+            sibling helpers at :74-99, which serve other tests in the same suite.
+VERDICT: fix-wait (teardown only)  CONFIDENCE: high — the body is already correct and I read both the poll
+         helper and the coordinator's completion path.
+
+
+================================================================================
+TEST 6
+================================================================================
+TEST: Bridge Review content loader cache / "concurrent callers coalesce one immutable handle load"
+FILE: Tests/AgentStudioTests/Features/Bridge/BridgeReviewContentLoaderCacheTests.swift:53
+SIZE: 23 lines (:53-76)
+TRAITS: plain `@Suite("Bridge Review content loader cache") struct` (:7-8). Not @MainActor, not serialized →
+        fully concurrent fast lane. Not parameterized.
+
+CLAIM: when several callers ask the cache for the same immutable content handle at once, exactly ONE provider
+  load is issued and every caller gets the same bytes; the later callers are recorded as having coalesced onto
+  the in-flight load rather than having triggered their own. Who is hurt: a user scrolling a review with N
+  visible items sees N duplicate content fetches — the Bridge content-fetch amplification class of bug.
+
+LAYER TODAY: unit (correctly). REAL: BridgeReviewContentLoaderCache (an actor,
+  Sources/AgentStudio/Features/Bridge/Runtime/ReviewFoundation/BridgeReviewContentLoaderCache.swift:8).
+  FAKE: the provider plus BridgeContentLoadGate, and a synthetic admission context.
+
+STIMULUS: concurrency by construction — `async let first/second/third` (:64, :66, :67) with the provider held
+  at a gate.
+
+ORACLE: three assertions, and they are not equally strong.
+  - :75 `provider.recordedContentRequestsCount() == 1` — owner-reported, and the LOAD-BEARING one for "one
+    provider load". Note it holds whether the later callers coalesced in flight OR arrived after completion
+    and hit the cache. It cannot distinguish those.
+  - :72 results all equal — owner-reported, timing-independent.
+  - :74 `results.map(\.observation.cacheResult).filter { $0 == .inFlightCoalesced }.count == 2` — this is the
+    one that demands a specific interleaving, and it is where the test can go red with the product correct.
+
+WAIT: `await gate.waitForStartedLoadCount(1)` (:65) is a real continuation barrier
+  (BridgeReviewSourceProviderTestSupport.swift:419-426). Then line 68 is a bare `await Task.yield()` — a
+  ONE-TURN bet that both remaining child tasks have started AND run far enough to attach.
+
+SPEED DEPENDENCE: precise. `.inFlightCoalesced` is assigned synchronously inside the actor at
+  BridgeReviewContentLoaderCache.swift:111-113 (`if let existingLoad = reusableInFlightLoad(for: key)`),
+  BEFORE the suspension at :136 (`await inFlightLoad.sharedLoad.value()`). So for :74 to hold, BOTH the second
+  and third child tasks must have been scheduled and must have entered the actor and reached :111 before the
+  test's `gate.releaseAll()` at :69. A single `await Task.yield()` in the parent gives the pool an opportunity;
+  it guarantees nothing. If either child is late, the first load completes, the result lands in
+  `contentByKey`, and the late caller takes the cache-hit branch at :83-91 → `.cacheHit`, not
+  `.inFlightCoalesced` → :74 fails with count 1 or 0 while the product behaved perfectly (it still issued one
+  provider load; :75 still passes). Verdict is a function of the scheduler, not of program logic.
+
+WHEN IT FAILS YOU SEE: `Expectation failed: (results.map(...).filter {...}.count → 1) == 2`. The broken thing
+  is not named; a reader cannot tell "coalescing regressed" from "the third caller was late".
+
+VALUE: real but partly duplicated. The "one provider load" half is also proved by :75, which is
+  interleaving-independent. The unique value of :74 is proving the in-flight path specifically — which matters,
+  because the in-flight path and the cache-hit path are different code (:111-113 vs :83-91) with different
+  failure modes (the in-flight path is where a shared-task leak or a double-issue would appear).
+
+BETTER DESIGN:
+  layer:    unchanged — unit is correct for this claim.
+  stimulus: unchanged in spirit; what must change is that the attach must be OBSERVED, not assumed.
+  oracle:   unchanged. `.inFlightCoalesced` is the right thing to assert; it just needs a barrier.
+  wait:     the needed signal is "N callers have attached to the in-flight load for this key", and it does not
+            exist. The cache's `diagnosticSnapshot` (:51-55) reports `inFlightLoadCount` — the number of
+            distinct in-flight KEYS (here always 1), not the number of coalesced waiters. So there is nothing
+            to await today.
+            I checked the zero-seam workarounds and they do not hold: an extra actor round-trip (e.g.
+            `_ = await cache.diagnosticSnapshot`) proves only that the CALLER'S message was serviced; because
+            the second and third callers are `async let` child tasks that may not have started at all, an
+            actor round-trip cannot prove they reached :111. Reentrancy makes this worse, not better. There is
+            no honest way to force this interleaving without the cache telling us.
+            Proposal: count attaches per in-flight load (increment where `.inFlightCoalesced` is decided, at
+            :113) and expose an awaitable `waitForCoalescedAttachCount(_:forKey:)` on the actor, or at minimum
+            surface the count in `diagnosticSnapshot` so the test can await it via a barrier rather than a
+            yield. Then the body becomes: launch second/third → `await cache.waitForCoalescedAttachCount(2)`
+            → `gate.releaseAll()`. NEEDS OWNER DECISION — production surface on a Feature actor, though the
+            read-only half is the same shape as the existing `diagnosticSnapshot`.
+            If the owner declines the seam: split the test. Keep the interleaving-independent half
+            (:72, :75) as it is, and mark the `.inFlightCoalesced` assertion as unprovable-without-a-seam
+            rather than leaving a scheduler bet in the suite. Do NOT "fix" it by raising the yield count —
+            that is the same bet with a bigger stake.
+  keeps:    the whole test, if the seam lands.
+  cost:     one counter + one waiter list on the cache actor. Lost coverage if declined: the in-flight path
+            distinction (the cache-hit path stays covered by the suite's other tests).
+VERDICT: fix-wait (seam missing)  CONFIDENCE: high — I read the exact branch where `.inFlightCoalesced` is
+         decided and confirmed it is synchronous-before-suspension, which is what makes the one-yield bet
+         decidable by the scheduler.
+
+
+================================================================================
+TEST 7
+================================================================================
+TEST: BridgeGitReviewSourceProviderTests / "annotation Git evidence propagates cancellation"
+FILE: Tests/AgentStudioTests/Features/Bridge/BridgeGitReviewContributionSourceProviderTests.swift:361
+SIZE: 32 lines (:361-393)
+TRAITS: extension on BridgeGitReviewSourceProviderTests, plain suite → concurrent fast lane. Not
+        parameterized, no timeLimit.
+
+CLAIM: when an annotation Git evidence read is cancelled, the cancellation PROPAGATES — it must not be
+  swallowed and degraded into "no evidence". Who is hurt: this is a live product invariant with teeth. The
+  production code distinguishes the two outcomes explicitly:
+    catch is CancellationError { throw CancellationError() }   ← must happen
+    catch { return nil }                                        ← must NOT happen for cancellation
+  at Sources/AgentStudio/Features/Bridge/Runtime/ReviewFoundation/
+  AgentStudioGitBridgeReviewDataClient+GitIO.swift:502-506. If cancellation fell into the `return nil` arm, a
+  cancelled review would look like "this worktree has no annotation subject" and annotations would silently
+  disappear — indistinguishable, to every caller, from a real absence.
+
+LAYER TODAY: integration, and correctly scoped. REAL: BridgeGitReviewSourceProvider,
+  AgentStudioGitBridgeReviewDataClient, and — importantly — the real BridgeGitReadScheduler, which is where
+  the CancellationError actually originates (`try Task.checkCancellation()` at
+  Sources/AgentStudio/Features/Bridge/Runtime/Git/BridgeGitReadScheduler.swift:99, the
+  `withTaskCancellationHandler` at :110, and `finishLogicalWaiter(..., error: CancellationError(), ...)` at
+  :284). FAKE: only AgentStudioGitLocalClientFake at the Git data plane, whose `resolveRevision` simply parks
+  on the gate and returns (Tests/AgentStudioTests/Features/Bridge/BridgeGitReviewSourceProviderTestSupport
+  .swift:216-230). The fake does NOT manufacture the CancellationError — production does. That is exactly the
+  right division: the mock is not more polite than the backend.
+
+STIMULUS: FORCED interleaving, done properly. Launch the read in a Task (:382-384), wait for it to be parked
+  at the Git read boundary via `await revisionGate.waitUntilStarted()` (:385), THEN cancel (:387), THEN
+  release the gate (:388). The cancellation is guaranteed to arrive while the read is parked, because
+  `Task.cancel()` runs registered cancellation handlers synchronously on the calling thread — the scheduler's
+  handler (BridgeGitReadScheduler.swift:110/:284) fires before line 388 executes.
+
+ORACLE: `await #expect(throws: CancellationError.self) { _ = try await task.value }` (:390-392) — the thrown
+  error type IS the invariant. Not a counter, not a duration, not a reconstruction.
+
+WAIT: `revisionGate.waitUntilStarted()` — a genuine continuation barrier
+  (BridgeGitReviewSourceProviderTestSupport.swift:389-394, with the resume in `waitUntilReleased` at
+  :396-400). No polling anywhere in this test.
+
+SPEED DEPENDENCE: None found. What I checked: (1) the gate is continuation-backed, not a poll — confirmed at
+  :383-413; (2) the parked point is inside the production scheduler's cancellation handler scope, so
+  `task.cancel()` delivers deterministically before `release()`; (3) the error does not come from the fake —
+  the fake's continuation is non-throwing, so the only CancellationError source is production; (4) there is
+  no counter, deadline, or duration in the verdict. I did not find a machine-speed-dependent path.
+
+WHEN IT FAILS YOU SEE: a thrown-type mismatch from `#expect(throws:)`. This names the broken thing well —
+  if the read returns nil instead of throwing, the message says so directly, and that IS the bug.
+
+VALUE: high and unique. No cheaper test covers the cancel-vs-degrade distinction on this path. It is also the
+  best-built test in my lane and should be the reference the others are rewritten against.
+
+BETTER DESIGN:
+  layer:    unchanged.
+  stimulus: unchanged — the interleaving is forced through a real seam (the gate on the Git data-plane fake).
+  oracle:   unchanged.
+  wait:     unchanged.
+  keeps:    everything.
+  cost:     none.
+  one optional strengthening, take it or leave it: assert the negative too — that the cancelled call did not
+  ALSO leave a cached or half-published fingerprint behind. Not required for the stated claim, and I would not
+  spend a slot on it.
+VERDICT: keep-as-is  CONFIDENCE: high — I traced the error to its production origin and confirmed the fake
+         does not fabricate it.
+  NOTE FOR THE LANE OWNER: this test is NOT in the failure inventory in
+  docs/wip/2026-09-17-ci-reliability-evidence/lane-swift-flake-families.md (which lists only the nine families
+  in sections 1-9; this one is absent). I mapped it as assigned and found nothing wrong with it. If it was
+  assigned on a report of a real failure from outside that inventory, that failure needs its own log — the
+  code does not explain one.
+
+
+================================================================================
+(1) SUMMARY TABLE
+================================================================================
+test                                                | verdict            | one-line better design
+----------------------------------------------------|--------------------|----------------------------------
+1. WorkspaceCacheCoordinator coalescing burst        | fix-wait           | stop discarding governor.enqueue's
+   (+2 siblings in the same suite)                   |                    | Acknowledgement (WorkspaceCache-
+                                                     |                    | Coordinator.swift:293/:305/:348) and
+                                                     |                    | await apply-idle; use TestPushClock
+                                                     |                    | .waitForPendingSleepCount meanwhile
+2. RepoExplorer presentation reuse / demand          | fix-oracle +       | assert observationRegistration +
+                                                     | fix-wait           | publishedRevision instead of capture
+                                                     |                    | counts; add a continuation-backed
+                                                     |                    | waitForProjectionSettled on the
+                                                     |                    | adapter; kill 5 bare yield loops
+3. PaneTabViewController launch restore (x4)         | fix-wait (blocked  | scheduler supplemental-drain waiters
+                                                     | on seam) +         | resumed in markSupplementalDrain-
+                                                     | fix-oracle;        | Finished; assert memberState, not a
+                                                     | INSTRUMENT FIRST   | fake's retry count; capture
+                                                     |                    | memberState/diagnostics on failure
+4. GitWorkingDirectoryProjector visible tier (x2)    | fix-oracle + lane  | barrier the negative assertions;
+                                                     | reclassification   | fail loudly when the duty branch
+                                                     |                    | dominates; add the suite to the
+                                                     |                    | serial list next to its sibling
+5. Bridge refresh admission, second File invalidation| fix-wait (teardown)| awaitable admission-idle resumed in
+                                                     |                    | completeRefreshPass, copying
+                                                     |                    | awaitRetiringFileOperations
+6. Bridge content loader cache coalescing            | fix-wait (seam     | count coalesced attaches in the
+                                                     | missing)           | cache and await 2 before releasing
+                                                     |                    | the gate; one Task.yield is a bet
+7. Bridge Git annotation cancellation propagation    | keep-as-is         | none — use it as the lane's model
+
+
+================================================================================
+(2) PATTERNS SEEN MORE THAN ONCE
+================================================================================
+
+P1 — UNBARRIERED NEGATIVE ASSERTION (5 instances, and the most under-recognized defect in this lane).
+  A test asserts "this count did not grow" or "this task is nil" with nothing proving the work had a chance to
+  happen. These pass vacuously on a fast machine and fail on a slow one, with the product correct both times.
+    - RepoExplorer :187-188 — `for _ in 0..<100 { await Task.yield() }` then assert the count is unchanged.
+      The loop has no predicate at all; 100 turns is the entire proof.
+    - RepoExplorer :157-162 — sample a baseline, loop until presentationCaptureCount moves, assert
+      fullCaptureCount == 1.
+    - GitVisibleTier (a) :287-290 — write visibility, immediately assert no task and no call, while
+      scheduleCoalescedVisibilityAdmission is racing on the cooperative pool.
+    - GitVisibleTier (b) :467-468 — advance to deadline-1ms, assert no call fired.
+    - PaneTabViewController: the whole "exactly 2, not 3" shape is a negative assertion wearing a positive
+      count's clothes.
+  The cure is uniform: a negative assertion needs a MORE positive barrier than a positive one, because there
+  is no event to wait for. Either settle the owner first, or convert the claim to a positive statement about
+  owner state (a future deadline, an empty token set) that is true at a defined instant.
+
+P2 — BARE TURN LOOP WITH NO FAILURE (7 instances, all in RepoExplorer: :143, :149, :153, :159, :187, :225, :242).
+  `for _ in 0..<N where <not done> { await Task.yield() }` with no assertion that the loop succeeded.
+  Budget exhaustion falls through into the next `#expect`. Strictly worse than a flake: it turns a timeout
+  into a silent pass. Note the contrast in PaneTabViewControllerLaunchRestoreTests, whose waitUntil returns
+  Bool and whose doc-comment at :400-401 explicitly requires every call site to `#expect` it — and all four
+  do. Same mechanism, opposite hygiene. The RepoExplorer loops should become assertEventuallyMain today,
+  independent of any seam decision.
+
+P3 — A COMPLETION SIGNAL EXISTS AND IS DISCARDED (3 instances).
+    - BackgroundFactApplyGovernor returns a real per-fact Acknowledgement (:13-20, resolved `.applied` at :248
+      after the MainActor commit, `.superseded` at :180); WorkspaceCacheCoordinator throws it away three
+      times: `_ = governor.enqueue(...)` at :293, :305, :348.
+    - TerminalActivationScheduler has a proper waiter list for `activate()` (:166-210) and none for the
+      supplemental drain (:285-294) — the only path the four launch-restore tests exercise.
+    - BridgePaneRefreshAdmissionCoordinator computes everything needed for idleness in completeRefreshPass
+      (:386-397) and exposes only a poll-shaped diagnosticSnapshot (:155-160), while its sibling
+      BridgePaneWorktreeRefreshDriver already ships a real awaitable (awaitRetiringFileOperations, :99-106).
+  In every case the owner knows when it is done and declines to say so. Tests then reconstruct the answer by
+  polling. This is the single highest-leverage production change available to this lane.
+
+P4 — THE POLL-SHAPED TEST SEAM AS AN ANSWER TO A MISSING BARRIER (2 instances).
+    - BackgroundFactApplyGovernor.supersededSinceLastDrainCount (:206-213). Its doc-comment says it exists so
+      "tests can wait for an actual coalescing invariant". Someone already hit this exact problem and shipped
+      a counter to poll instead of a completion to await.
+    - BridgeReviewContentLoaderCache.diagnosticSnapshot (:51-55) reports in-flight KEY count, which is not the
+      quantity any test needs (attached WAITER count).
+  When the next person adds an observability seam for a test, the question to ask is "can this be awaited?"
+  not "can this be read?".
+
+P5 — THE ORACLE IS A FAKE'S POLICY, NOT A PRODUCT INVARIANT (1 clear instance, called out here because of its
+  blast radius). PaneTabViewControllerLaunchRestoreTests asserts `createSurface` was called exactly twice
+  against a manager that always fails (:885). The file's own header (:11-17) admits this proves an
+  attempt/retry policy, not a created surface. Four tests depend on the literal 2.
+
+P6 — MIXED CLOCK INSIDE ONE ARITHMETIC EXPRESSION (1 instance, high consequence). The Git projector adds a
+  real-ContinuousClock duty (+AvailableStatus.swift:13-14 → +DeadlineRefresh.swift:538) to a virtual
+  TestPushClock instant inside `max(lastStart + cadence, lastCompletion + dutyGap)`
+  (+DeadlineRefresh.swift:496-499). The test recomputes the same max, so it never fails from this — it
+  silently stops exercising its own claim under load.
+
+
+================================================================================
+(3) WHAT SURPRISED ME
+================================================================================
+
+S1 — Four of the seven tests were already fixed, and the fixes are good. `visibleTierWaitUntil` is gone,
+  `waitForStartedComparisonCount` is now continuation-backed, the RepoExplorer two-write coalescing assumption
+  is gone, and TestPushClock has grown a full family of real barriers (waitForPendingSleepCount exactly/
+  atLeast/fromGeneration/generation, TestPushClock.swift:209-224). Anyone planning remediation off the
+  evidence report alone will spend slots on already-closed work. The GitWorkingDirectoryProjectorVisibleTier
+  file is now the best in-repo example of how these waits should look, and the other lanes should copy from it.
+
+S2 — The `consumedCount == 3` barrier in test 1 is SOUND, contrary to the natural reading of "EventBus records
+  consumption when an item is pulled, before it is handled". It works only because the coordinator's loop body
+  for a coalescable envelope is synchronous all the way into the governor's lock. That is a load-bearing fact
+  nobody wrote down next to the barrier — the test comment at :446-448 asserts the conclusion but not the
+  synchronous-enqueue premise it depends on. If someone ever makes enqueueCoalescedEnrichment async, this
+  barrier silently becomes a lie and the test becomes flaky again with no visible cause. Worth a comment at
+  WorkspaceCacheCoordinator.swift:157.
+
+S3 — `await coordinator.shutdown()` at WorkspaceCacheCoordinatorTests.swift:484 is ALREADY a complete,
+  deterministic barrier for every pending fact (shutdown → await consumeTask.value → governor.shutdown →
+  flushAllPendingFacts). The test polls for the applied value four lines earlier and then does the
+  deterministic thing anyway. The flaky wait is, in a real sense, load-bearing only for distinguishing
+  "the tick applied it" from "shutdown flushed it" — which is worth keeping, but nobody appears to have
+  noticed that is the only thing it buys.
+
+S4 — There are TWO untracked tasks between the launch-restore tests' stimulus and their oracle, not one. The
+  scheduler's supplemental drain (:285) gets all the attention, but
+  `schedulePreparedTerminalGeometryReevaluation` spawns its own fire-and-forget Task first
+  (WorkspaceSurfaceCoordinator+ViewLifecycle.swift:718-724). Adding a scheduler barrier alone will reduce the
+  flake without eliminating it, and whoever takes that work should be told so up front rather than discovering
+  it after the fix lands.
+
+S5 — The evidence report's mixed-clock note is materially wrong in the direction that matters. It says the
+  projector's duty and admission timestamps run on a real clock; in fact `lastAutomaticStartAt`,
+  `lastAutomaticCompletionAt`, and `automaticRefreshDeadline` are all on the INJECTED clock
+  (+DeadlineRefresh.swift:476, :524-525, :535-537, via GitWorkingDirectoryProjector.swift:147). Only
+  `lastAutomaticDuty` is real. So the file is far closer to deterministic than reported — one field away,
+  not four — and the remediation is correspondingly smaller than it looks.
+
+S6 — The decisive diagnostic for the launch-restore family already exists and is never captured.
+  `TerminalActivationScheduler.memberState(for:)` (:296-299) and `diagnostics()` including yieldCount
+  (:301-307) would separate poll-starvation from an ordering miss in a single failing run. Adding them to the
+  failure message costs nothing, requires no design decision, and should happen before anyone argues about
+  which root cause it is. Four tests have been failing together with a message that cannot distinguish two
+  completely different bugs.

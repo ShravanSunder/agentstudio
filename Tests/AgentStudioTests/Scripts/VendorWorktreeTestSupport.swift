@@ -1,3 +1,5 @@
+import AgentStudioInfrastructure
+import AgentStudioTestSupport
 import Darwin
 import Foundation
 import Testing
@@ -15,6 +17,7 @@ enum VendorInvalidPrimarySource: String, CaseIterable {
     case missingFramework
     case symlinkedFramework
     case nestedFrameworkSymlink
+    case missingFrameworkSliceHeader
     case frameworkIsFile
     case missingZmxOutput
     case zmxIsNotExecutable
@@ -22,7 +25,7 @@ enum VendorInvalidPrimarySource: String, CaseIterable {
     case missingGhosttyTerminfo
 }
 
-struct VendorCommandResult {
+struct VendorCommandResult: Sendable {
     let exitCode: Int32
     let stdout: String
     let stderr: String
@@ -41,7 +44,7 @@ struct VendorWorktreeFixture {
 
     private let fileManager = FileManager.default
 
-    init() throws {
+    init() async throws {
         temporaryRoot = FileManager.default.temporaryDirectory
             .appending(path: "AgentStudio vendor fixture \(UUID().uuidString)")
         primaryRoot = temporaryRoot.appending(path: "primary AgentStudio")
@@ -50,36 +53,37 @@ struct VendorWorktreeFixture {
         zmxRepository = temporaryRoot.appending(path: "dummy zmx source")
 
         try FileManager.default.createDirectory(at: temporaryRoot, withIntermediateDirectories: true)
-        let ghosttyCommits = try Self.makeDummyVendorRepository(
+        let ghosttyCommits = try await Self.makeDummyVendorRepository(
             at: ghosttyRepository,
             markerName: "ghostty")
         ghosttyFirstCommit = ghosttyCommits.first
         ghosttySecondCommit = ghosttyCommits.second
-        let zmxCommits = try Self.makeDummyVendorRepository(
+        let zmxCommits = try await Self.makeDummyVendorRepository(
             at: zmxRepository,
             markerName: "zmx")
         zmxFirstCommit = zmxCommits.first
         zmxSecondCommit = zmxCommits.second
 
-        try requireSuccess(Self.runGit(["init", primaryRoot.path], in: temporaryRoot))
-        try configureGit(in: primaryRoot)
+        try requireSuccess(await Self.runGit(["init", primaryRoot.path], in: temporaryRoot))
+        try await configureGit(in: primaryRoot)
         try writeTrackedSuperprojectFiles()
         try requireSuccess(
-            Self.runGit(
+            await Self.runGit(
                 ["-c", "protocol.file.allow=always", "submodule", "add", ghosttyRepository.path, "vendor/ghostty"],
                 in: primaryRoot))
         try requireSuccess(
-            Self.runGit(
+            await Self.runGit(
                 ["-c", "protocol.file.allow=always", "submodule", "add", zmxRepository.path, "vendor/zmx"],
                 in: primaryRoot))
         try requireSuccess(
-            Self.runGit(["checkout", ghosttyFirstCommit], in: primaryRoot.appending(path: "vendor/ghostty")))
-        try requireSuccess(Self.runGit(["checkout", zmxFirstCommit], in: primaryRoot.appending(path: "vendor/zmx")))
-        try requireSuccess(Self.runGit(["add", "."], in: primaryRoot))
-        try requireSuccess(Self.runGit(["commit", "-m", "fixture superproject"], in: primaryRoot))
+            await Self.runGit(["checkout", ghosttyFirstCommit], in: primaryRoot.appending(path: "vendor/ghostty")))
+        try requireSuccess(
+            await Self.runGit(["checkout", zmxFirstCommit], in: primaryRoot.appending(path: "vendor/zmx")))
+        try requireSuccess(await Self.runGit(["add", "."], in: primaryRoot))
+        try requireSuccess(await Self.runGit(["commit", "-m", "fixture superproject"], in: primaryRoot))
         try publishPrimaryOutputs()
         try requireSuccess(
-            Self.runGit(
+            await Self.runGit(
                 ["worktree", "add", "-b", "linked-fixture", linkedRoot.path],
                 in: primaryRoot))
     }
@@ -129,22 +133,22 @@ struct VendorWorktreeFixture {
         in worktree: URL,
         currentDirectory: URL? = nil,
         environment: [String: String] = [:]
-    ) throws -> VendorCommandResult {
-        try Self.run(
+    ) async throws -> VendorCommandResult {
+        try await Self.run(
             executable: URL(fileURLWithPath: "/bin/bash"),
             arguments: [worktree.appending(path: "scripts/vendor-worktree.sh").path, command],
             in: currentDirectory ?? worktree,
             environment: environment)
     }
 
-    func gitStatus(in worktree: URL) throws -> String {
-        let result = try Self.runGit(["status", "--short"], in: worktree)
+    func gitStatus(in worktree: URL) async throws -> String {
+        let result = try await Self.runGit(["status", "--short"], in: worktree)
         try requireSuccess(result)
         return result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    func checkedOutRevision(path: String, in worktree: URL) throws -> String {
-        let result = try Self.runGit(["-C", path, "rev-parse", "HEAD"], in: worktree)
+    func checkedOutRevision(path: String, in worktree: URL) async throws -> String {
+        let result = try await Self.runGit(["-C", path, "rev-parse", "HEAD"], in: worktree)
         try requireSuccess(result)
         return result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
     }
@@ -208,36 +212,36 @@ struct VendorWorktreeFixture {
         }
     }
 
-    func apply(_ mismatch: VendorPinMismatch) throws {
+    func apply(_ mismatch: VendorPinMismatch) async throws {
         switch mismatch {
         case .linkedGhosttyGitlink:
-            try updateGitlink(
+            try await updateGitlink(
                 worktree: linkedRoot,
                 path: "vendor/ghostty",
                 commit: ghosttySecondCommit)
         case .linkedZmxGitlink:
-            try updateGitlink(
+            try await updateGitlink(
                 worktree: linkedRoot,
                 path: "vendor/zmx",
                 commit: zmxSecondCommit)
         case .primaryGhosttyGitlink:
-            try updateGitlink(
+            try await updateGitlink(
                 worktree: primaryRoot,
                 path: "vendor/ghostty",
                 commit: ghosttySecondCommit)
         case .primaryZmxGitlink:
-            try updateGitlink(
+            try await updateGitlink(
                 worktree: primaryRoot,
                 path: "vendor/zmx",
                 commit: zmxSecondCommit)
         case .primaryGhosttySubmoduleHead:
             try requireSuccess(
-                Self.runGit(
+                await Self.runGit(
                     ["checkout", ghosttySecondCommit],
                     in: primaryRoot.appending(path: "vendor/ghostty")))
         case .primaryZmxSubmoduleHead:
             try requireSuccess(
-                Self.runGit(
+                await Self.runGit(
                     ["checkout", zmxSecondCommit],
                     in: primaryRoot.appending(path: "vendor/zmx")))
         }
@@ -260,6 +264,9 @@ struct VendorWorktreeFixture {
             try fileManager.createSymbolicLink(
                 at: nestedLibrary,
                 withDestinationURL: externalLibrary)
+        case .missingFrameworkSliceHeader:
+            try fileManager.removeItem(
+                at: primaryFrameworkURL.appending(path: "macos-arm64/Headers"))
         case .frameworkIsFile:
             try fileManager.removeItem(at: primaryFrameworkURL)
             try Data("not a framework".utf8).write(to: primaryFrameworkURL)
@@ -308,8 +315,9 @@ struct VendorWorktreeFixture {
             contents: """
                 #!/bin/bash
                 set -euo pipefail
-                mkdir -p Frameworks/GhosttyKit.xcframework/macos-arm64
+                mkdir -p Frameworks/GhosttyKit.xcframework/macos-arm64/Headers
                 printf 'local framework\\n' > Frameworks/GhosttyKit.xcframework/macos-arm64/libghostty.a
+                printf '// local ghostty header\\n' > Frameworks/GhosttyKit.xcframework/macos-arm64/Headers/ghostty.h
                 mkdir -p vendor/zmx/zig-out/bin
                 printf '#!/bin/bash\\necho local-zmx\\n' > vendor/zmx/zig-out/bin/zmx
                 chmod 700 vendor/zmx/zig-out/bin/zmx
@@ -333,20 +341,29 @@ struct VendorWorktreeFixture {
         return directory
     }
 
-    private func updateGitlink(worktree: URL, path: String, commit: String) throws {
+    /// Builds a faithful minimal XCFramework slice: the static library AND the
+    /// slice header. `vendor-worktree.sh` preflights the header, so a fixture
+    /// with only the library is not a valid stand-in for a real vendor build.
+    static func populateFrameworkSlice(at framework: URL, using fileManager: FileManager) throws {
+        let sliceRoot = framework.appending(path: "macos-arm64")
+        let headerDirectory = sliceRoot.appending(path: "Headers")
+        try fileManager.createDirectory(at: headerDirectory, withIntermediateDirectories: true)
+        try Data("primary ghostty library".utf8)
+            .write(to: sliceRoot.appending(path: "libghostty.a"))
+        try Data("// fixture ghostty header\n".utf8)
+            .write(to: headerDirectory.appending(path: "ghostty.h"))
+    }
+
+    private func updateGitlink(worktree: URL, path: String, commit: String) async throws {
         try requireSuccess(
-            Self.runGit(
+            await Self.runGit(
                 ["update-index", "--add", "--cacheinfo", "160000,\(commit),\(path)"],
                 in: worktree))
-        try requireSuccess(Self.runGit(["commit", "-m", "change \(path) pin"], in: worktree))
+        try requireSuccess(await Self.runGit(["commit", "-m", "change \(path) pin"], in: worktree))
     }
 
     private func publishPrimaryOutputs() throws {
-        let frameworkLibrary = primaryFrameworkURL.appending(path: "macos-arm64/libghostty.a")
-        try fileManager.createDirectory(
-            at: frameworkLibrary.deletingLastPathComponent(),
-            withIntermediateDirectories: true)
-        try Data("primary ghostty library".utf8).write(to: frameworkLibrary)
+        try Self.populateFrameworkSlice(at: primaryFrameworkURL, using: fileManager)
 
         let zmxBinary = primaryZmxOutputURL.appending(path: "bin/zmx")
         try fileManager.createDirectory(
@@ -399,10 +416,10 @@ struct VendorWorktreeFixture {
             encoding: .utf8)
     }
 
-    private func configureGit(in repository: URL) throws {
-        try requireSuccess(Self.runGit(["config", "user.name", "Fixture"], in: repository))
-        try requireSuccess(Self.runGit(["config", "user.email", "fixture@example.invalid"], in: repository))
-        try requireSuccess(Self.runGit(["config", "commit.gpgsign", "false"], in: repository))
+    private func configureGit(in repository: URL) async throws {
+        try requireSuccess(await Self.runGit(["config", "user.name", "Fixture"], in: repository))
+        try requireSuccess(await Self.runGit(["config", "user.email", "fixture@example.invalid"], in: repository))
+        try requireSuccess(await Self.runGit(["config", "commit.gpgsign", "false"], in: repository))
     }
 
     private func canonicalSymlinkTarget(_ url: URL) throws -> String {
@@ -472,29 +489,29 @@ struct VendorWorktreeFixture {
     private static func makeDummyVendorRepository(
         at repository: URL,
         markerName: String
-    ) throws -> (first: String, second: String) {
+    ) async throws -> (first: String, second: String) {
         try FileManager.default.createDirectory(at: repository, withIntermediateDirectories: true)
-        try requireSuccess(runGit(["init"], in: repository))
-        try requireSuccess(runGit(["config", "user.name", "Fixture"], in: repository))
-        try requireSuccess(runGit(["config", "user.email", "fixture@example.invalid"], in: repository))
-        try requireSuccess(runGit(["config", "commit.gpgsign", "false"], in: repository))
+        try requireSuccess(await runGit(["init"], in: repository))
+        try requireSuccess(await runGit(["config", "user.name", "Fixture"], in: repository))
+        try requireSuccess(await runGit(["config", "user.email", "fixture@example.invalid"], in: repository))
+        try requireSuccess(await runGit(["config", "commit.gpgsign", "false"], in: repository))
         try Data("\(markerName) revision one".utf8).write(to: repository.appending(path: "build.zig"))
-        try requireSuccess(runGit(["add", "."], in: repository))
-        try requireSuccess(runGit(["commit", "-m", "first"], in: repository))
-        let first = try gitRevision(in: repository)
+        try requireSuccess(await runGit(["add", "."], in: repository))
+        try requireSuccess(await runGit(["commit", "-m", "first"], in: repository))
+        let first = try await gitRevision(in: repository)
         try Data("\(markerName) revision two".utf8).write(to: repository.appending(path: "build.zig"))
-        try requireSuccess(runGit(["commit", "-am", "second"], in: repository))
-        return (first, try gitRevision(in: repository))
+        try requireSuccess(await runGit(["commit", "-am", "second"], in: repository))
+        return (first, try await gitRevision(in: repository))
     }
 
-    private static func gitRevision(in repository: URL) throws -> String {
-        let result = try runGit(["rev-parse", "HEAD"], in: repository)
+    private static func gitRevision(in repository: URL) async throws -> String {
+        let result = try await runGit(["rev-parse", "HEAD"], in: repository)
         try requireSuccess(result)
         return result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    static func runGit(_ arguments: [String], in directory: URL) throws -> VendorCommandResult {
-        try run(
+    static func runGit(_ arguments: [String], in directory: URL) async throws -> VendorCommandResult {
+        try await run(
             executable: URL(fileURLWithPath: "/usr/bin/git"),
             arguments: arguments,
             in: directory,
@@ -506,29 +523,47 @@ struct VendorWorktreeFixture {
         arguments: [String],
         in directory: URL,
         environment: [String: String]
-    ) throws -> VendorCommandResult {
-        let process = Process()
-        process.executableURL = executable
-        process.arguments = arguments
-        process.currentDirectoryURL = directory
-        var mergedEnvironment = ProcessInfo.processInfo.environment
-        mergedEnvironment["CI"] = "false"
-        mergedEnvironment["GITHUB_ACTIONS"] = "false"
-        mergedEnvironment.removeValue(forKey: "SWIFT_BUILD_DIR")
-        for (key, value) in environment {
-            mergedEnvironment[key] = value
+    ) async throws -> VendorCommandResult {
+        try await withoutBlockingCooperativePool {
+            let outputDirectory = FileManager.default.temporaryDirectory
+                .appending(path: "vendor-worktree-output-\(UUIDv7.generate().uuidString)")
+            try FileManager.default.createDirectory(at: outputDirectory, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: outputDirectory) }
+            let stdoutURL = outputDirectory.appending(path: "stdout.log")
+            let stderrURL = outputDirectory.appending(path: "stderr.log")
+            FileManager.default.createFile(atPath: stdoutURL.path, contents: nil)
+            FileManager.default.createFile(atPath: stderrURL.path, contents: nil)
+            let stdoutHandle = try FileHandle(forWritingTo: stdoutURL)
+            let stderrHandle = try FileHandle(forWritingTo: stderrURL)
+            defer {
+                try? stdoutHandle.close()
+                try? stderrHandle.close()
+            }
+
+            let process = Process()
+            process.executableURL = executable
+            process.arguments = arguments
+            process.currentDirectoryURL = directory
+            var mergedEnvironment = ProcessInfo.processInfo.environment
+            mergedEnvironment["CI"] = "false"
+            mergedEnvironment["GITHUB_ACTIONS"] = "false"
+            mergedEnvironment.removeValue(forKey: "SWIFT_BUILD_DIR")
+            for (key, value) in environment {
+                mergedEnvironment[key] = value
+            }
+            process.environment = mergedEnvironment
+            process.standardOutput = stdoutHandle
+            process.standardError = stderrHandle
+            try process.run()
+            process.waitUntilExit()
+            try stdoutHandle.close()
+            try stderrHandle.close()
+            return VendorCommandResult(
+                exitCode: process.terminationStatus,
+                stdout: try String(contentsOf: stdoutURL, encoding: .utf8),
+                stderr: try String(contentsOf: stderrURL, encoding: .utf8)
+            )
         }
-        process.environment = mergedEnvironment
-        let stdout = Pipe()
-        let stderr = Pipe()
-        process.standardOutput = stdout
-        process.standardError = stderr
-        try process.run()
-        process.waitUntilExit()
-        return VendorCommandResult(
-            exitCode: process.terminationStatus,
-            stdout: String(data: stdout.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? "",
-            stderr: String(data: stderr.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? "")
     }
 
     private static func requireSuccess(_ result: VendorCommandResult) throws {

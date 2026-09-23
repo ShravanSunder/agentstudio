@@ -26,6 +26,9 @@ test.each(['Markdown', 'code'] as const)(
 			server = await startBridgeViewerOwnedViteProductServer(fixture.oracle);
 			browser = await chromium.launch({ channel: 'chrome', headless: true });
 			const page = await browser.newPage({ viewport: { width: 1728, height: 980 } });
+			// The vitest hang bound is the only clock this journey is allowed.
+			page.setDefaultTimeout(0);
+			page.setDefaultNavigationTimeout(0);
 			diagnostics = observeBrowserRuntimeDiagnostics(page);
 			failures = await observeInteractionProfileFailures(page);
 			await page.goto(bridgeViewerViteProductFileUrl(server.origin, 'README.md'), {
@@ -87,15 +90,11 @@ test.each(['Markdown', 'code'] as const)(
 );
 
 async function waitForMarkdownDocument(page: Page, path: string): Promise<void> {
-	await page.waitForFunction(
-		(expectedPath: string): boolean => {
-			const canvas = document.querySelector('[data-testid="bridge-markdown-canvas"]');
-			return (
-				canvas?.querySelector('h1')?.textContent === `Exploration ${expectedPath}` &&
-				canvas.querySelector('[data-bridge-mermaid-state="ready"] svg') !== null
-			);
-		},
-		path,
-		{ timeout: 20_000 },
-	);
+	await page.waitForFunction((expectedPath: string): boolean => {
+		const canvas = document.querySelector('[data-testid="bridge-markdown-canvas"]');
+		return (
+			canvas?.querySelector('h1')?.textContent === `Exploration ${expectedPath}` &&
+			canvas.querySelector('[data-bridge-mermaid-state="ready"] svg') !== null
+		);
+	}, path);
 }

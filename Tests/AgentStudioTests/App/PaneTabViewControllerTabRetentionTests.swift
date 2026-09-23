@@ -58,6 +58,7 @@ struct PaneTabViewControllerTabRetentionTests {
             viewRegistry: viewRegistry,
             bridgePaneAttendance: atomRegistry.bridgePaneAttendance,
             editorChooser: atomRegistry.editorChooser,
+            heldPanePreviewState: HeldPanePreviewState(),
             registersAsCommandHandler: false
         )
         PaneViewRepresentable.onDismantleForTesting = { [weak controller] in

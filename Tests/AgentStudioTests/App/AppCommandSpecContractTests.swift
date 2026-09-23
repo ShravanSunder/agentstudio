@@ -8,7 +8,7 @@ import Testing
 @testable import AgentStudioTestSupport
 
 @MainActor
-@Suite("Command spec contracts")
+@Suite("Command spec contracts", .serialized)
 struct CommandSpecContractTests {
     init() {
         installTestCoreAtomsIfNeeded()
@@ -57,19 +57,50 @@ struct CommandSpecContractTests {
         var seenShortcuts: [ShortcutRouteKey: AppShortcut] = [:]
 
         for shortcut in AppShortcut.allCases {
-            for context in shortcut.contexts {
-                let routeKey = ShortcutRouteKey(context: context, trigger: shortcut.trigger)
-                if let existingShortcut = seenShortcuts[routeKey] {
-                    Issue.record(
-                        """
-                        \(shortcut.rawValue) and \(existingShortcut.rawValue) both use \
-                        \(shortcut.trigger.displayDescription) in \(context)
-                        """
+            let spec = shortcut.spec
+            for context in spec.contexts {
+                recordRoute(
+                    ShortcutRouteKey(context: context, trigger: spec.trigger),
+                    for: shortcut,
+                    in: &seenShortcuts
+                )
+            }
+            for (trigger, contexts) in spec.alternateTriggers {
+                for context in contexts {
+                    recordRoute(
+                        ShortcutRouteKey(context: context, trigger: trigger),
+                        for: shortcut,
+                        in: &seenShortcuts
                     )
-                } else {
-                    seenShortcuts[routeKey] = shortcut
                 }
             }
+        }
+    }
+
+    @Test("command bar displays only exact global shortcut triggers")
+    func commandBarDisplaysOnlyExactGlobalShortcutTriggers() {
+        #expect(AppCommand.showReposSidebar.definition.commandBarShortcutTrigger == nil)
+        #expect(AppCommand.showPanesSidebar.definition.commandBarShortcutTrigger == nil)
+        #expect(AppCommand.showReposSidebar.definition.controlTooltipRenderValue().shortcutDisplayText == nil)
+        #expect(AppCommand.showPanesSidebar.definition.controlTooltipRenderValue().shortcutDisplayText == nil)
+        #expect(AppCommand.filterSidebar.definition.commandBarShortcutTrigger?.displayString == "⌘F")
+        #expect(AppCommand.focusSidebar.definition.commandBarShortcutTrigger?.displayString == "⌘⇧S")
+    }
+
+    private func recordRoute(
+        _ routeKey: ShortcutRouteKey,
+        for shortcut: AppShortcut,
+        in seenShortcuts: inout [ShortcutRouteKey: AppShortcut]
+    ) {
+        if let existingShortcut = seenShortcuts[routeKey] {
+            Issue.record(
+                """
+                \(shortcut.rawValue) and \(existingShortcut.rawValue) both use \
+                \(routeKey.trigger.displayDescription) in \(routeKey.context)
+                """
+            )
+        } else {
+            seenShortcuts[routeKey] = shortcut
         }
     }
 

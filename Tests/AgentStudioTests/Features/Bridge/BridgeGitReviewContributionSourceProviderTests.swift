@@ -10,9 +10,9 @@ import Testing
 extension BridgeGitReviewSourceProviderTests {
     @Test("ordinary directory scope reaches agentstudio-git and selects its complete fallback")
     func ordinaryDirectoryScopeReachesPackageFallback() async throws {
-        let repositoryPath = try FilesystemTestGitRepo.create(named: "bridge-review-directory-scope")
+        let repositoryPath = try await FilesystemTestGitRepo.create(named: "bridge-review-directory-scope")
         defer { FilesystemTestGitRepo.destroy(repositoryPath) }
-        try FilesystemTestGitRepo.seedTrackedAndUntrackedChanges(at: repositoryPath)
+        try await FilesystemTestGitRepo.seedTrackedAndUntrackedChanges(at: repositoryPath)
         try FileManager.default.createDirectory(
             at: repositoryPath.appending(path: "Sources"),
             withIntermediateDirectories: true

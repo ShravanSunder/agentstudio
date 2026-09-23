@@ -529,11 +529,11 @@ extension WebKitSerializedTests {
         @Test("real-git multi-window fixture commits one initial Review package")
         func realGitMultiWindowFixtureCommitsOneInitialReviewPackage() async throws {
             // Arrange
-            let repoURL = try FilesystemTestGitRepo.create(
+            let repoURL = try await FilesystemTestGitRepo.create(
                 named: "bridge-review-initial-load-multi-window"
             )
             defer { FilesystemTestGitRepo.destroy(repoURL) }
-            try seedRealGitMultiWindowFixture(at: repoURL)
+            try await seedRealGitMultiWindowFixture(at: repoURL)
             let paneId = UUIDv7.generate()
             let repoId = UUIDv7.generate()
             let worktreeId = UUIDv7.generate()
@@ -588,11 +588,11 @@ extension WebKitSerializedTests {
         @Test("real-git multi-window package fits Review metadata reservation")
         func realGitMultiWindowPackageFitsReviewMetadataReservation() async throws {
             // Arrange
-            let repoURL = try FilesystemTestGitRepo.create(
+            let repoURL = try await FilesystemTestGitRepo.create(
                 named: "bridge-review-metadata-reservation-multi-window"
             )
             defer { FilesystemTestGitRepo.destroy(repoURL) }
-            try seedRealGitMultiWindowFixture(at: repoURL)
+            try await seedRealGitMultiWindowFixture(at: repoURL)
             let repoId = UUIDv7.generate()
             let worktreeId = UUIDv7.generate()
             let provider = BridgeReviewSourceProviderFactory.gitProvider(
@@ -759,8 +759,8 @@ extension WebKitSerializedTests {
             )
         }
 
-        private func seedRealGitMultiWindowFixture(at repoURL: URL) throws {
-            try FilesystemTestGitRepo.seedTrackedAndUntrackedChanges(at: repoURL)
+        private func seedRealGitMultiWindowFixture(at repoURL: URL) async throws {
+            try await FilesystemTestGitRepo.seedTrackedAndUntrackedChanges(at: repoURL)
             for index in 0..<36 {
                 let directory = repoURL.appending(
                     path: String(format: "Sources/Group%02d", index / 9)

@@ -363,7 +363,15 @@ struct BridgeProductReviewAvailabilityTests {
     func maximumFinalFrameObservationCoversEarlierAcknowledgements() async throws {
         // Arrange
         let refreshWorkAdmission = await BridgePaneRefreshWorkAdmissionTestContext.foreground()
-        let harness = try await BridgeProductSessionLifecycleHarness.opened()
+        let (pacingRegistrationEvents, pacingRegistrationContinuation) =
+            AsyncStream<(lease: BridgeProductProducerLease, sequence: Int)>.makeStream()
+        defer { pacingRegistrationContinuation.finish() }
+        var pacingRegistrationIterator = pacingRegistrationEvents.makeAsyncIterator()
+        let harness = try await BridgeProductSessionLifecycleHarness.opened(
+            producerObservationPacingRegistrationObserver: { lease, sequence in
+                pacingRegistrationContinuation.yield((lease, sequence))
+            }
+        )
         let lease = try await harness.admitMetadataFrames(through: 0)
         let pump = BridgeProductSchemeFramePump(
             session: harness.session,
@@ -403,11 +411,25 @@ struct BridgeProductReviewAvailabilityTests {
                 foregroundWorkAdmission: refreshWorkAdmission.admission
             )
         }
-        await source.waitUntilFinalFramesEnqueued()
 
         // Act
-        _ = try await pullAvailabilityMetadataFrame(from: pump)
-        _ = try await pullAvailabilityMetadataFrame(from: pump)
+        let firstRegistration = try #require(await pacingRegistrationIterator.next())
+        let firstDeliveries = try await pullAvailabilityMetadataFrames(
+            through: firstRegistration.sequence,
+            from: pump
+        )
+        let firstFinalFrame = try #require(firstDeliveries.last)
+        #expect(firstRegistration.lease == lease)
+        #expect(await pump.acknowledgeFrameConsumed(firstFinalFrame.receipt))
+        let secondRegistration = try #require(await pacingRegistrationIterator.next())
+        let secondDeliveries = try await pullAvailabilityMetadataFrames(
+            through: secondRegistration.sequence,
+            from: pump
+        )
+        let maximumFinalFrame = try #require(secondDeliveries.last)
+        #expect(secondRegistration.lease == lease)
+        #expect(await pump.acknowledgeFrameConsumed(maximumFinalFrame.receipt))
+        await source.waitUntilFinalFramesEnqueued()
         await source.releaseDeliveryReceipt()
         let disposition = await delivery.value
         let producerSnapshot = await harness.session.producerSnapshot()
@@ -483,28 +505,30 @@ struct BridgeProductReviewAvailabilityTests {
                 foregroundWorkAdmission: initialForegroundAdmission
             )
         }
-        let sourceAccepted = try await pullAvailabilityMetadataFrame(from: pump)
+        let sourceRegistration = try #require(await pacingRegistrationIterator.next())
+        let sourceDeliveries = try await pullAvailabilityMetadataFrames(
+            through: sourceRegistration.sequence,
+            from: pump
+        )
+        let sourceDelivery = try #require(sourceDeliveries.last)
+        let sourceAccepted = try availabilityMetadataFrame(from: sourceDelivery)
         guard case .subscriptionData(let sourceAcceptedData) = sourceAccepted,
             case .sourceAccepted? = sourceAcceptedData.data.reviewMetadataEvent
         else {
             Issue.record("Expected initial replay sourceAccepted")
             return
         }
-        var matchingPacingRegistration: (lease: BridgeProductProducerLease, sequence: Int)?
-        while let registration = await pacingRegistrationIterator.next() {
-            if registration.lease == lease {
-                matchingPacingRegistration = registration
-                break
-            }
-        }
-        let registeredSequence = try #require(matchingPacingRegistration?.sequence)
+        #expect(sourceRegistration.lease == lease)
+        #expect(await pump.acknowledgeFrameConsumed(sourceDelivery.receipt))
+        let matchingPacingRegistration = try #require(await pacingRegistrationIterator.next())
+        let registeredSequence = matchingPacingRegistration.sequence
         let initialFinalFrameDeliveries = try await pullAvailabilityMetadataFrames(
             through: registeredSequence,
             from: pump
         )
         let heldFinalFrame = try #require(initialFinalFrameDeliveries.last)
-        #expect(matchingPacingRegistration?.lease == lease)
-        #expect(matchingPacingRegistration?.sequence == heldFinalFrame.receipt.sequence)
+        #expect(matchingPacingRegistration.lease == lease)
+        #expect(matchingPacingRegistration.sequence == heldFinalFrame.receipt.sequence)
 
         // Act
         activityCoordinator.applyActivity(.loadedHidden)
@@ -522,19 +546,23 @@ struct BridgeProductReviewAvailabilityTests {
         let heldFinalAcknowledged = await pump.acknowledgeFrameConsumed(heldFinalFrame.receipt)
         activityCoordinator.applyActivity(.foreground)
         await coordinator.resumeForegroundWork()
-        var replayedPacingRegistration: (lease: BridgeProductProducerLease, sequence: Int)?
-        while let registration = await pacingRegistrationIterator.next() {
-            if registration.lease == lease {
-                replayedPacingRegistration = registration
-                break
-            }
-        }
-        let replayedFinalSequence = try #require(replayedPacingRegistration?.sequence)
+        let replayedSourceRegistration = try #require(await pacingRegistrationIterator.next())
+        let replayedSourceDeliveries = try await pullAvailabilityMetadataFrames(
+            through: replayedSourceRegistration.sequence,
+            from: pump
+        )
+        let replayedSourceDelivery = try #require(replayedSourceDeliveries.last)
+        #expect(replayedSourceRegistration.lease == lease)
+        #expect(await pump.acknowledgeFrameConsumed(replayedSourceDelivery.receipt))
+        let replayedPacingRegistration = try #require(await pacingRegistrationIterator.next())
+        let replayedFinalSequence = replayedPacingRegistration.sequence
         let replayedDeliveries = try await pullAvailabilityMetadataFrames(
             through: replayedFinalSequence,
             from: pump
         )
         let replayedFinalDelivery = try #require(replayedDeliveries.last)
+        #expect(replayedPacingRegistration.lease == lease)
+        #expect(replayedPacingRegistration.sequence == replayedFinalDelivery.receipt.sequence)
         #expect(await pump.acknowledgeFrameConsumed(replayedFinalDelivery.receipt))
         #expect(heldFinalAcknowledged)
         #expect(interruptedDisposition == .deferred)
@@ -545,7 +573,9 @@ struct BridgeProductReviewAvailabilityTests {
         )
 
         // Assert
-        let replayedFrames = try replayedDeliveries.map(availabilityMetadataFrame(from:))
+        let replayedFrames = try (replayedSourceDeliveries + replayedDeliveries).map(
+            availabilityMetadataFrame(from:)
+        )
         let replayedEvents = availabilityReviewMetadataEvents(in: replayedFrames)
         #expect(replayedEvents.allSatisfy { $0.operationCorrelationID == nil })
         #expect(

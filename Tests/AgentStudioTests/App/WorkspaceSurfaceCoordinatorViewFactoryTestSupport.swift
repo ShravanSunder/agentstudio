@@ -32,6 +32,7 @@ func makeWorkspaceSurfaceCoordinatorViewFactoryHarness(
         runtimeRegistry: .shared,
         paneEventBus: paneEventBus,
         windowLifecycleStore: WindowLifecycleAtom(),
+        ipcLifecycle: .testUnavailable,
         bridgePaneAttendance: BridgePaneAttendanceAtom()
     )
     return WorkspaceSurfaceCoordinatorViewFactoryHarness(

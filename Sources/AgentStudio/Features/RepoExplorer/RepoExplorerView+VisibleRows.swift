@@ -8,72 +8,6 @@ enum RepoExplorerFocus: Hashable {
     case filter
 }
 
-final class RepoExplorerFocusableView: NSView {
-    var onFocusChange: @MainActor (Bool) -> Void = { _ in }
-    var onFilterFocusRequest: @MainActor () -> Void = {}
-
-    override var acceptsFirstResponder: Bool { true }
-
-    override func becomeFirstResponder() -> Bool {
-        let didBecomeFirstResponder = super.becomeFirstResponder()
-        if didBecomeFirstResponder {
-            onFocusChange(true)
-        }
-        return didBecomeFirstResponder
-    }
-
-    override func resignFirstResponder() -> Bool {
-        let didResignFirstResponder = super.resignFirstResponder()
-        if didResignFirstResponder {
-            onFocusChange(false)
-        }
-        return didResignFirstResponder
-    }
-
-    override func cancelOperation(_ sender: Any?) {
-        _ = sender
-    }
-}
-
-struct RepoExplorerFocusBridge: NSViewRepresentable {
-    let uiState: WorkspaceSidebarState
-    var onFilterFocusRequest: @MainActor () -> Void = {}
-
-    func makeNSView(context: Context) -> RepoExplorerFocusableView {
-        let view = RepoExplorerFocusableView()
-        view.identifier = RepoExplorerView.focusTargetIdentifier
-        view.onFilterFocusRequest = onFilterFocusRequest
-        view.onFocusChange = { hasFocus in
-            uiState.setSidebarHasFocus(hasFocus)
-        }
-        return view
-    }
-
-    func updateNSView(_ nsView: RepoExplorerFocusableView, context: Context) {
-        nsView.onFilterFocusRequest = onFilterFocusRequest
-        nsView.onFocusChange = { hasFocus in
-            uiState.setSidebarHasFocus(hasFocus)
-        }
-    }
-
-    static func dismantleNSView(_ nsView: RepoExplorerFocusableView, coordinator: ()) {
-        MainActor.assumeIsolated {
-            nsView.onFocusChange(false)
-            nsView.onFilterFocusRequest = {}
-        }
-    }
-}
-
-enum RepoExplorerFocusPublisher {
-    @MainActor
-    static func publish(
-        focusedField: RepoExplorerFocus?,
-        into uiState: WorkspaceSidebarState
-    ) {
-        uiState.setSidebarHasFocus(focusedField != nil)
-    }
-}
-
 @MainActor
 enum RepoExplorerViewportPublisher {
     static func publish(
@@ -88,10 +22,15 @@ enum RepoExplorerViewportPublisher {
 
 extension RepoExplorerView {
     @discardableResult
+    package static func requestListFocus(on target: NSView) -> Bool {
+        guard let target = target as? RepoExplorerMaterializationHost else { return false }
+        return target.requestListFocus()
+    }
+
+    @discardableResult
     package static func requestFilterFocus(on target: NSView) -> Bool {
-        guard let target = target as? RepoExplorerFocusableView else { return false }
-        target.onFilterFocusRequest()
-        return true
+        guard let target = target as? RepoExplorerMaterializationHost else { return false }
+        return target.requestFilterFocus()
     }
 
     package static let focusTargetIdentifier = NSUserInterfaceItemIdentifier("repoExplorerFocusTarget")

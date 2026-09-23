@@ -121,6 +121,83 @@ struct BridgePaneProductFileBootstrapSuspensionTests {
         await coordinator.uninstall(lease: lease)
         #expect(await pump.cancel())
     }
+
+    @Test(
+        "File source open interrupted between source acceptance and lease attachment releases its context",
+        .timeLimit(.minutes(1))
+    )
+    func interruptedOpenBetweenSourceAcceptanceAndLeaseAttachmentReleasesContext() async throws {
+        // Arrange
+        let activityCoordinator = BridgePaneRefreshAdmissionCoordinator(initialActivity: .foreground)
+        let harness = try await BridgeProductSessionLifecycleHarness.opened()
+        let fixture = try ProductFileSourceFixture(
+            fileCount: 3,
+            productAdmission: harness.productAdmission
+        )
+        defer { fixture.remove() }
+        let lifecycleRecorder = FileBootstrapLifecycleRecorder()
+        let snapshotBuilderGate = FileBootstrapSnapshotBuilderGate(
+            lifecycleRecorder: lifecycleRecorder
+        )
+        let (sourceAcceptedEvents, sourceAcceptedContinuation) = AsyncStream<Void>.makeStream(
+            bufferingPolicy: .bufferingNewest(2))
+        defer { sourceAcceptedContinuation.finish() }
+        var sourceAcceptedIterator = sourceAcceptedEvents.makeAsyncIterator()
+        let fileMetadataSource = fixture.makeSource(
+            // Invalidating foreground admission inside the acceptance observer lands
+            // deterministically between context installation and lease attachment.
+            sourceAcceptedObserver: { _ in
+                await MainActor.run { activityCoordinator.applyActivity(.loadedHidden) }
+                _ = sourceAcceptedContinuation.yield()
+            },
+            sharedSnapshotBuilder: { request, preparation, publisher in
+                try await snapshotBuilderGate.build(
+                    request: request,
+                    preparation: preparation,
+                    publisher: publisher
+                )
+            }
+        )
+        let lease = try await harness.admitMetadataFrames(through: 0)
+        let pump = BridgeProductSchemeFramePump(
+            session: harness.session,
+            producerLease: lease,
+            productAdmission: harness.productAdmission.context,
+            acknowledgeLifecycle: { _ in true }
+        )
+        let coordinator = BridgePaneProductMetadataCoordinator(
+            fileMetadataSource: fileMetadataSource,
+            reviewMetadataSource: BridgeUnavailablePaneProductReviewMetadataSource(),
+            refreshWorkAdmissionSource: activityCoordinator.workAdmissionSource,
+            lifecycleTraceRecorder: lifecycleRecorder
+        )
+        do {
+            // Act
+            _ = try await admitFileBootstrapSubscription(
+                FileBootstrapSubscriptionAdmissionProps(
+                    coordinator: coordinator,
+                    fixture: fixture,
+                    harness: harness,
+                    lease: lease,
+                    pump: pump
+                )
+            )
+            _ = await sourceAcceptedIterator.next()
+            await lifecycleRecorder.waitForFileProducerFinished(count: 1)
+
+            // Assert
+            await expectInterruptedFileSourceReleased(fileMetadataSource)
+        } catch {
+            await snapshotBuilderGate.release(invocation: 1)
+            await coordinator.uninstall(lease: lease)
+            _ = await pump.cancel()
+            throw error
+        }
+
+        await snapshotBuilderGate.release(invocation: 1)
+        await coordinator.uninstall(lease: lease)
+        #expect(await pump.cancel())
+    }
 }
 
 private func expectInterruptedFileSourceReleased(

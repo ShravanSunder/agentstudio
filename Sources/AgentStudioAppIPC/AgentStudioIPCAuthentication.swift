@@ -1,10 +1,8 @@
 import AgentStudioIPCTransport
+import AgentStudioInfrastructure
 import AgentStudioProgrammaticControl
+import CryptoKit
 import Foundation
-
-#if canImport(Darwin)
-    import Darwin
-#endif
 
 public struct AgentStudioIPCSubjectToken: RawRepresentable, Codable, Hashable, Sendable {
     public let rawValue: String
@@ -17,7 +15,6 @@ public struct AgentStudioIPCSubjectToken: RawRepresentable, Codable, Hashable, S
 public struct AgentStudioIPCAuthenticationError: Error, Equatable, Sendable {
     public enum Reason: String, Equatable, Sendable {
         case unauthenticated
-        case runtimeMismatch
         case peerUserMismatch
     }
 
@@ -28,123 +25,485 @@ public struct AgentStudioIPCAuthenticationError: Error, Equatable, Sendable {
     }
 }
 
-public protocol AgentStudioIPCSubjectTokenGenerating: Sendable {
-    func makeSubjectToken() -> AgentStudioIPCSubjectToken
+package enum AgentStudioIPCIssuedCredentialRegistrationError: Error, Equatable, Sendable {
+    case conflictingRecordIdentity
+    case conflictingVerifier
+    case paneFinalRevoked
+    case registryShutdown
 }
 
-public struct AgentStudioIPCSecureSubjectTokenGenerator: AgentStudioIPCSubjectTokenGenerating {
-    public init() {}
+package protocol AgentStudioIPCCredentialResolving: Sendable {
+    func resolveCredential(
+        _ credential: AgentStudioIPCSubjectToken,
+        serverRuntimeID: UUID
+    ) async throws -> AgentStudioIPCCredentialResolution
+}
 
-    public func makeSubjectToken() -> AgentStudioIPCSubjectToken {
-        var generator = SystemRandomNumberGenerator()
-        let bytes = (0..<32).map { _ in UInt8.random(in: UInt8.min...UInt8.max, using: &generator) }
-        let rawValue = bytes.map { String(format: "%02x", $0) }.joined()
-        return AgentStudioIPCSubjectToken(rawValue: rawValue)
+package enum AgentStudioIPCCredentialNamespace: Equatable, Hashable, Sendable {
+    case pane(paneID: UUID, workspaceID: UUID)
+    case diagnostic(runtimeID: UUID)
+}
+
+package enum AgentStudioIPCPaneCredentialStatus: Equatable, Sendable {
+    case registered
+    case revoked
+}
+
+/// Durable credential storage holds pane verifiers only. The reusable debug
+/// credential lives in the principal registry's memory for the runtime's
+/// lifetime and never reaches this resolver.
+package enum AgentStudioIPCCredentialResolution: Equatable, Sendable {
+    case pane(
+        paneID: UUID,
+        workspaceID: UUID,
+        credentialRecordID: UUID,
+        status: AgentStudioIPCPaneCredentialStatus
+    )
+}
+
+package enum AgentStudioIPCAuthenticatedCredentialIdentity: Equatable, Hashable, Sendable {
+    case pane(recordID: UUID)
+    case diagnostic(generationID: UUID)
+}
+
+package struct AgentStudioIPCIssuedPaneCredential: Equatable, Sendable {
+    package let paneID: UUID
+    package let workspaceID: UUID
+    package let credentialRecordID: UUID
+    package let verifierSHA256: Data
+
+    package init(paneID: UUID, workspaceID: UUID, credentialRecordID: UUID, verifierSHA256: Data) {
+        self.paneID = paneID
+        self.workspaceID = workspaceID
+        self.credentialRecordID = credentialRecordID
+        self.verifierSHA256 = verifierSHA256
+    }
+}
+
+package struct AgentStudioIPCAuthenticatedContext: Equatable, Sendable {
+    package let principal: IPCPrincipal
+    package let credentialIdentity: AgentStudioIPCAuthenticatedCredentialIdentity
+    package let persistenceCandidate: AgentStudioIPCIssuedPaneCredential?
+
+    package init(
+        principal: IPCPrincipal,
+        credentialIdentity: AgentStudioIPCAuthenticatedCredentialIdentity,
+        persistenceCandidate: AgentStudioIPCIssuedPaneCredential? = nil
+    ) {
+        self.principal = principal
+        self.credentialIdentity = credentialIdentity
+        self.persistenceCandidate = persistenceCandidate
     }
 }
 
 public final class AgentStudioIPCPrincipalRegistry: @unchecked Sendable {
     public let runtimeId: UUID
 
-    private let lock = NSLock()
-    private let tokenGenerator: any AgentStudioIPCSubjectTokenGenerating
-    private let grantLedger: GrantLedger?
-    private var principalsByToken: [AgentStudioIPCSubjectToken: IPCPrincipal] = [:]
-    private var activePrincipalsById: [UUID: IPCPrincipal] = [:]
+    private struct LeaseKey: Hashable, Sendable {
+        let namespace: AgentStudioIPCCredentialNamespace
+        let credentialIdentity: AgentStudioIPCAuthenticatedCredentialIdentity
+    }
 
-    public init(
+    private let lock = NSLock()
+    private let credentialResolver: any AgentStudioIPCCredentialResolving
+    private let canonicalPaneMembership: @MainActor @Sendable (UUID, UUID) -> Bool
+    package let grantLedger: GrantLedger
+    private var lifetimeEpoch: UInt64 = 0
+    private var invalidationSequence: UInt64 = 0
+    private var paneInvalidationSequences: [UUID: UInt64] = [:]
+    private var retiredLeaseSequences: [LeaseKey: UInt64] = [:]
+    private var activeLeases: [LeaseKey: Set<UUID>] = [:]
+    private var issuedPaneCredentialsByRecordID: [UUID: AgentStudioIPCIssuedPaneCredential] = [:]
+    private var issuedPaneCredentialRecordIDByVerifier: [Data: UUID] = [:]
+    private var durableIssuedPaneCredentialIDs: Set<UUID> = []
+    private var finalRevokedPaneIDs: Set<UUID> = []
+    private var installedDebugCredential: InstalledDebugCredential?
+    private var isShutdown = false
+
+    package init(
         runtimeId: UUID,
-        tokenGenerator: any AgentStudioIPCSubjectTokenGenerating = AgentStudioIPCSecureSubjectTokenGenerator(),
-        grantLedger: GrantLedger? = nil
+        credentialResolver: any AgentStudioIPCCredentialResolving,
+        canonicalPaneMembership: @escaping @MainActor @Sendable (UUID, UUID) -> Bool,
+        grantLedger: GrantLedger = GrantLedger()
     ) {
         self.runtimeId = runtimeId
-        self.tokenGenerator = tokenGenerator
+        self.credentialResolver = credentialResolver
+        self.canonicalPaneMembership = canonicalPaneMembership
         self.grantLedger = grantLedger
     }
 
-    public func issueSubjectToken(for principal: IPCPrincipal) throws -> AgentStudioIPCSubjectToken {
-        guard principal.runtimeId == runtimeId else {
-            throw AgentStudioIPCAuthenticationError(reason: .runtimeMismatch)
-        }
-
-        let token = tokenGenerator.makeSubjectToken()
-        lock.withLock {
-            principalsByToken[token] = principal
-        }
-        return token
-    }
-
-    public func revokeSubjectToken(_ subjectToken: AgentStudioIPCSubjectToken) {
-        let revokedPrincipalId = lock.withLock {
-            principalsByToken.removeValue(forKey: subjectToken)?.principalId
-        }
-        if let revokedPrincipalId {
-            grantLedger?.revokeAll(for: revokedPrincipalId)
-        }
-    }
-
-    public func authenticate(subjectToken: AgentStudioIPCSubjectToken) throws -> IPCPrincipal {
+    package func registerIssuedPaneCredential(
+        paneID: UUID,
+        workspaceID: UUID,
+        credentialRecordID: UUID,
+        verifierSHA256: Data
+    ) throws {
+        precondition(verifierSHA256.count == 32, "pane credential verifier must be SHA-256")
+        let credential = AgentStudioIPCIssuedPaneCredential(
+            paneID: paneID,
+            workspaceID: workspaceID,
+            credentialRecordID: credentialRecordID,
+            verifierSHA256: verifierSHA256
+        )
         try lock.withLock {
-            guard let principal = principalsByToken[subjectToken] else {
+            guard !isShutdown else {
+                throw AgentStudioIPCIssuedCredentialRegistrationError.registryShutdown
+            }
+            guard !finalRevokedPaneIDs.contains(paneID) else {
+                throw AgentStudioIPCIssuedCredentialRegistrationError.paneFinalRevoked
+            }
+            if let existing = issuedPaneCredentialsByRecordID[credentialRecordID] {
+                guard existing == credential else {
+                    throw AgentStudioIPCIssuedCredentialRegistrationError.conflictingRecordIdentity
+                }
+                return
+            }
+            if let existingRecordID = issuedPaneCredentialRecordIDByVerifier[verifierSHA256],
+                existingRecordID != credentialRecordID
+            {
+                throw AgentStudioIPCIssuedCredentialRegistrationError.conflictingVerifier
+            }
+            issuedPaneCredentialsByRecordID[credentialRecordID] = credential
+            issuedPaneCredentialRecordIDByVerifier[verifierSHA256] = credentialRecordID
+        }
+    }
+
+    /// The reusable debug credential exists for this runtime only. Installing a
+    /// replacement drops the previous verifier, so the token it replaced stops
+    /// authenticating immediately.
+    package func installDiagnosticCredential(verifierSHA256: Data) -> UUID {
+        precondition(verifierSHA256.count == 32, "debug credential verifier must be SHA-256")
+        let generationID = UUIDv7.generate()
+        lock.withLock {
+            installedDebugCredential = InstalledDebugCredential(
+                verifierSHA256: verifierSHA256,
+                generationID: generationID
+            )
+        }
+        return generationID
+    }
+
+    package func revokeDiagnosticCredential() {
+        lock.withLock { installedDebugCredential = nil }
+    }
+
+    package func issuedCredentialCandidates() -> [AgentStudioIPCIssuedPaneCredential] {
+        lock.withLock {
+            issuedPaneCredentialsByRecordID.values
+                .filter {
+                    !durableIssuedPaneCredentialIDs.contains($0.credentialRecordID)
+                        && !finalRevokedPaneIDs.contains($0.paneID)
+                }
+                .sorted { $0.credentialRecordID.uuidString < $1.credentialRecordID.uuidString }
+        }
+    }
+
+    package func markIssuedCredentialDurable(recordID: UUID) {
+        _ = lock.withLock { durableIssuedPaneCredentialIDs.insert(recordID) }
+    }
+
+    package func finalRevokePane(_ paneID: UUID) {
+        let principalIDs = lock.withLock {
+            finalRevokedPaneIDs.insert(paneID)
+            invalidationSequence &+= 1
+            paneInvalidationSequences[paneID] = invalidationSequence
+            let matchingKeys = activeLeases.keys.filter { key in
+                guard case .pane(let boundPaneID, _) = key.namespace else { return false }
+                return boundPaneID == paneID
+            }
+            let principalIDs = Set(matchingKeys.flatMap { activeLeases[$0] ?? [] })
+            for key in matchingKeys {
+                activeLeases.removeValue(forKey: key)
+            }
+            return principalIDs
+        }
+        revokeGrants(for: principalIDs)
+    }
+
+    package func finalRevokedPaneIDsSnapshot() -> Set<UUID> {
+        lock.withLock { finalRevokedPaneIDs }
+    }
+
+    package func beginGracefulShutdownAndSnapshotUnsavedCredentials()
+        -> [AgentStudioIPCIssuedPaneCredential]
+    {
+        let shutdown = lock.withLock {
+            () -> (
+                [AgentStudioIPCIssuedPaneCredential], Set<UUID>
+            ) in
+            isShutdown = true
+            lifetimeEpoch &+= 1
+            let principalIDs = Set(activeLeases.values.joined())
+            activeLeases.removeAll(keepingCapacity: false)
+            let snapshot = issuedPaneCredentialsByRecordID.values
+                .filter {
+                    !durableIssuedPaneCredentialIDs.contains($0.credentialRecordID)
+                        && !finalRevokedPaneIDs.contains($0.paneID)
+                }
+            return (snapshot, principalIDs)
+        }
+        revokeGrants(for: shutdown.1)
+        return shutdown.0
+    }
+
+    package func authenticate(
+        subjectToken: AgentStudioIPCSubjectToken
+    ) async throws -> AgentStudioIPCAuthenticatedContext {
+        let observation = lock.withLock {
+            AuthObservation(
+                lifetimeEpoch: lifetimeEpoch,
+                invalidationSequence: invalidationSequence,
+                isShutdown: isShutdown
+            )
+        }
+        guard !observation.isShutdown else {
+            throw AgentStudioIPCAuthenticationError(reason: .unauthenticated)
+        }
+
+        let verifier = Data(SHA256.hash(data: Data(subjectToken.rawValue.utf8)))
+        let memoryMatch = lock.withLock {
+            (
+                debugGenerationID: installedDebugCredential?.generationID(matching: verifier),
+                issuedPaneCredential: issuedPaneCredentialRecordIDByVerifier[verifier]
+                    .flatMap { issuedPaneCredentialsByRecordID[$0] }
+            )
+        }
+        let context: AgentStudioIPCAuthenticatedContext
+        if let debugGenerationID = memoryMatch.debugGenerationID {
+            context = makeDebugAuthenticatedContext(generationID: debugGenerationID)
+        } else {
+            let issuedCredential = memoryMatch.issuedPaneCredential
+            let resolution: AgentStudioIPCCredentialResolution
+            if let issuedCredential {
+                resolution = .pane(
+                    paneID: issuedCredential.paneID,
+                    workspaceID: issuedCredential.workspaceID,
+                    credentialRecordID: issuedCredential.credentialRecordID,
+                    status: .registered
+                )
+            } else {
+                resolution = try await credentialResolver.resolveCredential(
+                    subjectToken,
+                    serverRuntimeID: runtimeId
+                )
+            }
+            context = try await makeAuthenticatedContext(
+                from: resolution,
+                persistenceCandidate: issuedCredential
+            )
+        }
+        let namespace = namespace(for: context.principal)
+        guard let namespace else { throw AgentStudioIPCAuthenticationError(reason: .unauthenticated) }
+        let leaseKey = LeaseKey(namespace: namespace, credentialIdentity: context.credentialIdentity)
+
+        let accepted = lock.withLock {
+            guard !isShutdown, lifetimeEpoch == observation.lifetimeEpoch else { return false }
+            if case .spawnedPaneAgent(let paneID, _) = context.principal.kind,
+                let paneUUID = UUID(uuidString: paneID)
+            {
+                guard !finalRevokedPaneIDs.contains(paneUUID) else { return false }
+                guard paneInvalidationSequences[paneUUID, default: 0] <= observation.invalidationSequence else {
+                    return false
+                }
+            }
+            guard retiredLeaseSequences[leaseKey] == nil else {
+                return false
+            }
+            activeLeases[leaseKey, default: []].insert(context.principal.principalId)
+            return true
+        }
+        guard accepted else {
+            throw AgentStudioIPCAuthenticationError(reason: .unauthenticated)
+        }
+        return context
+    }
+
+    package func rotateTokens() {
+        invalidateAllLeases()
+    }
+
+    package func shutdown() {
+        let principalIDs = lock.withLock {
+            isShutdown = true
+            lifetimeEpoch &+= 1
+            let principalIDs = Set(activeLeases.values.joined())
+            activeLeases.removeAll(keepingCapacity: false)
+            return principalIDs
+        }
+        revokeGrants(for: principalIDs)
+    }
+
+    package func revokeAllGrants() {
+        grantLedger.revokeAll()
+    }
+
+    package func invalidatePrincipals(boundToPaneId paneId: String) {
+        guard let paneUUID = UUID(uuidString: paneId) else { return }
+        let principalIDs = lock.withLock {
+            invalidationSequence &+= 1
+            paneInvalidationSequences[paneUUID] = invalidationSequence
+            let matchingKeys = activeLeases.keys.filter { key in
+                guard case .pane(let boundPaneID, _) = key.namespace else { return false }
+                return boundPaneID == paneUUID
+            }
+            let principalIDs = Set(matchingKeys.flatMap { activeLeases[$0] ?? [] })
+            for key in matchingKeys {
+                activeLeases.removeValue(forKey: key)
+            }
+            return principalIDs
+        }
+        revokeGrants(for: principalIDs)
+    }
+
+    package func releaseLease(_ context: AgentStudioIPCAuthenticatedContext) {
+        guard let namespace = namespace(for: context.principal) else { return }
+        let leaseKey = LeaseKey(namespace: namespace, credentialIdentity: context.credentialIdentity)
+        let released = lock.withLock {
+            guard var principalIDs = activeLeases[leaseKey],
+                principalIDs.remove(context.principal.principalId) != nil
+            else {
+                return false
+            }
+            if principalIDs.isEmpty {
+                activeLeases.removeValue(forKey: leaseKey)
+            } else {
+                activeLeases[leaseKey] = principalIDs
+            }
+            return true
+        }
+        if released {
+            grantLedger.revokeAll(for: context.principal.principalId)
+        }
+    }
+
+    package func contextRemainsAuthorized(_ context: AgentStudioIPCAuthenticatedContext) async -> Bool {
+        if case .spawnedPaneAgent(let paneID, let workspaceID) = context.principal.kind {
+            guard
+                let paneUUID = UUID(uuidString: paneID),
+                let workspaceID,
+                await canonicalPaneMembership(paneUUID, workspaceID)
+            else { return false }
+        }
+        guard let namespace = namespace(for: context.principal) else { return false }
+        let leaseKey = LeaseKey(namespace: namespace, credentialIdentity: context.credentialIdentity)
+        return lock.withLock {
+            guard !isShutdown, retiredLeaseSequences[leaseKey] == nil else { return false }
+            return activeLeases[leaseKey]?.contains(context.principal.principalId) == true
+        }
+    }
+
+    package func retireLease(_ context: AgentStudioIPCAuthenticatedContext) {
+        guard let namespace = namespace(for: context.principal) else { return }
+        let leaseKey = LeaseKey(namespace: namespace, credentialIdentity: context.credentialIdentity)
+        let principalIDs = lock.withLock {
+            invalidationSequence &+= 1
+            retiredLeaseSequences[leaseKey] = invalidationSequence
+            let principalIDs = activeLeases.removeValue(forKey: leaseKey) ?? []
+            return principalIDs
+        }
+        revokeGrants(for: principalIDs)
+    }
+
+    private func invalidateAllLeases() {
+        let principalIDs = lock.withLock {
+            lifetimeEpoch &+= 1
+            let principalIDs = Set(activeLeases.values.joined())
+            activeLeases.removeAll(keepingCapacity: false)
+            return principalIDs
+        }
+        revokeGrants(for: principalIDs)
+    }
+
+    private func revokeGrants(for principalIDs: Set<UUID>) {
+        for principalID in principalIDs {
+            grantLedger.revokeAll(for: principalID)
+        }
+    }
+
+    package func registrationRemainsEligible(_ credential: AgentStudioIPCIssuedPaneCredential) -> Bool {
+        lock.withLock {
+            guard !finalRevokedPaneIDs.contains(credential.paneID) else { return false }
+            return issuedPaneCredentialsByRecordID[credential.credentialRecordID] == credential
+        }
+    }
+
+    private func namespace(for principal: IPCPrincipal) -> AgentStudioIPCCredentialNamespace? {
+        switch principal.kind {
+        case .spawnedPaneAgent(let paneID, let workspaceID):
+            guard let paneUUID = UUID(uuidString: paneID), let workspaceID else {
+                return nil
+            }
+            return .pane(paneID: paneUUID, workspaceID: workspaceID)
+        case .automationClient, .futureMCPClient, .unsafeDebugClient:
+            return .diagnostic(runtimeID: runtimeId)
+        }
+    }
+
+    private func makeAuthenticatedContext(
+        from resolution: AgentStudioIPCCredentialResolution,
+        persistenceCandidate: AgentStudioIPCIssuedPaneCredential?
+    ) async throws -> AgentStudioIPCAuthenticatedContext {
+        switch resolution {
+        case .pane(let paneID, let workspaceID, let credentialRecordID, .registered):
+            guard await canonicalPaneMembership(paneID, workspaceID) else {
                 throw AgentStudioIPCAuthenticationError(reason: .unauthenticated)
             }
-            guard principal.runtimeId == runtimeId else {
-                throw AgentStudioIPCAuthenticationError(reason: .runtimeMismatch)
-            }
-            principalsByToken.removeValue(forKey: subjectToken)
-            activePrincipalsById[principal.principalId] = principal
-            return principal
-        }
-    }
-
-    public func rotateTokens() {
-        let revokedPrincipalIds = lock.withLock {
-            let principalIds = Set(principalsByToken.values.map(\.principalId))
-                .union(activePrincipalsById.keys)
-            principalsByToken.removeAll()
-            activePrincipalsById.removeAll()
-            return principalIds
-        }
-        for principalId in revokedPrincipalIds {
-            grantLedger?.revokeAll(for: principalId)
-        }
-    }
-
-    public func revokeAllGrants() {
-        grantLedger?.revokeAll()
-    }
-
-    public func invalidatePrincipals(boundToPaneId paneId: String) {
-        let revokedPrincipalIds = lock.withLock {
-            let tokenPrincipalIds = Set(
-                principalsByToken.values
-                    .filter { $0.boundPaneId == paneId }
-                    .map(\.principalId)
+            return AgentStudioIPCAuthenticatedContext(
+                principal: IPCPrincipal(
+                    principalId: UUIDv7.generate(),
+                    runtimeId: runtimeId,
+                    accessMode: .agentStudioOnly,
+                    kind: .spawnedPaneAgent(
+                        boundPaneId: paneID.uuidString,
+                        boundWorkspaceId: workspaceID
+                    ),
+                    approvalAuthority: .noApprovalAuthority
+                ),
+                credentialIdentity: .pane(recordID: credentialRecordID),
+                persistenceCandidate: persistenceCandidate
             )
-            let activePrincipalIds = Set(
-                activePrincipalsById.values
-                    .filter { $0.boundPaneId == paneId }
-                    .map(\.principalId)
-            )
-            principalsByToken = principalsByToken.filter { _, principal in
-                principal.boundPaneId != paneId
-            }
-            activePrincipalsById = activePrincipalsById.filter { _, principal in
-                principal.boundPaneId != paneId
-            }
-            return tokenPrincipalIds.union(activePrincipalIds)
+        case .pane(_, _, _, .revoked):
+            throw AgentStudioIPCAuthenticationError(reason: .unauthenticated)
         }
-        for principalId in revokedPrincipalIds {
-            grantLedger?.revokeAll(for: principalId)
+    }
+
+    /// The debug credential is admitted from memory, so there is no stored
+    /// runtime to compare and no persistence candidate to carry.
+    private func makeDebugAuthenticatedContext(generationID: UUID) -> AgentStudioIPCAuthenticatedContext {
+        AgentStudioIPCAuthenticatedContext(
+            principal: IPCPrincipal(
+                principalId: UUIDv7.generate(),
+                runtimeId: runtimeId,
+                accessMode: .automationSameUser,
+                kind: .automationClient,
+                approvalAuthority: .noApprovalAuthority
+            ),
+            credentialIdentity: .diagnostic(generationID: generationID)
+        )
+    }
+
+    private struct InstalledDebugCredential: Sendable {
+        let verifierSHA256: Data
+        let generationID: UUID
+
+        func generationID(matching verifier: Data) -> UUID? {
+            verifierSHA256 == verifier ? generationID : nil
         }
+    }
+
+    private struct AuthObservation: Sendable {
+        let lifetimeEpoch: UInt64
+        let invalidationSequence: UInt64
+        let isShutdown: Bool
     }
 }
 
-public struct AgentStudioIPCLoginResult: Equatable, Sendable {
-    public let principal: IPCPrincipal
+package struct AgentStudioIPCLoginResult: Equatable, Sendable {
+    package let authenticatedContext: AgentStudioIPCAuthenticatedContext
+    package var principal: IPCPrincipal { authenticatedContext.principal }
 
-    public init(principal: IPCPrincipal) {
-        self.principal = principal
+    package init(authenticatedContext: AgentStudioIPCAuthenticatedContext) {
+        self.authenticatedContext = authenticatedContext
     }
 }
 
@@ -155,11 +514,11 @@ public struct AgentStudioIPCAuthenticator: Sendable {
         self.registry = registry
     }
 
-    public func login(
-        subjectToken: AgentStudioIPCSubjectToken,
-        callerSuppliedPaneHint _: String?
-    ) throws -> AgentStudioIPCLoginResult {
-        AgentStudioIPCLoginResult(principal: try registry.authenticate(subjectToken: subjectToken))
+    package func login(
+        subjectToken: AgentStudioIPCSubjectToken
+    ) async throws -> AgentStudioIPCLoginResult {
+        let authenticatedContext = try await registry.authenticate(subjectToken: subjectToken)
+        return AgentStudioIPCLoginResult(authenticatedContext: authenticatedContext)
     }
 }
 
@@ -192,198 +551,11 @@ public struct AgentStudioIPCPeerCredentialGate: Sendable {
 public struct AgentStudioIPCSpawnEnvironment: Equatable, Sendable {
     public let variables: [String: String]
 
-    public init(socketPath: String, runtimeId: UUID, bootstrapFileDescriptor: Int32? = nil) {
-        var variables = [
+    public init(socketPath: String, runtimeId: UUID) {
+        self.variables = [
             "AGENTSTUDIO_IPC_SOCKET": socketPath,
             "AGENTSTUDIO_IPC_RUNTIME_ID": runtimeId.uuidString,
         ]
-        if let bootstrapFileDescriptor {
-            variables["AGENTSTUDIO_IPC_BOOTSTRAP_FD"] = String(bootstrapFileDescriptor)
-        }
-        self.variables = variables
-    }
-}
-
-public struct AgentStudioIPCPaneBootstrapDescriptor: Equatable, Sendable {
-    public let environment: AgentStudioIPCSpawnEnvironment
-    public let tokenReadFileDescriptor: Int32
-
-    public init(environment: AgentStudioIPCSpawnEnvironment, tokenReadFileDescriptor: Int32) {
-        self.environment = environment
-        self.tokenReadFileDescriptor = tokenReadFileDescriptor
-    }
-}
-
-public struct AgentStudioIPCPaneBootstrapError: Error, Equatable, Sendable {
-    public enum Reason: String, Equatable, Sendable {
-        case unsupportedPlatform
-        case pipeCreationFailed
-        case pipeConfigurationFailed
-        case tokenWriteFailed
-    }
-
-    public let reason: Reason
-    public let errnoCode: Int32
-
-    public init(reason: Reason, errnoCode: Int32 = 0) {
-        self.reason = reason
-        self.errnoCode = errnoCode
-    }
-}
-
-public final class AgentStudioIPCPaneBootstrap: @unchecked Sendable {
-    public let descriptor: AgentStudioIPCPaneBootstrapDescriptor
-
-    private let subjectToken: AgentStudioIPCSubjectToken?
-    private let readFileDescriptor: Int32
-    private let writeFileDescriptor: Int32
-    private let lock = NSLock()
-    private var isReadClosed = false
-    private var isWriteClosed = false
-
-    public init(
-        descriptor: AgentStudioIPCPaneBootstrapDescriptor,
-        writeFileDescriptor: Int32,
-        subjectToken: AgentStudioIPCSubjectToken? = nil
-    ) {
-        self.descriptor = descriptor
-        self.subjectToken = subjectToken
-        self.readFileDescriptor = descriptor.tokenReadFileDescriptor
-        self.writeFileDescriptor = writeFileDescriptor
-    }
-
-    deinit {
-        close()
-        closeTokenReadFileDescriptor()
-    }
-
-    public func writeTokenAndClose(_ token: AgentStudioIPCSubjectToken) throws {
-        #if canImport(Darwin)
-            let bytes = Array(token.rawValue.utf8) + [UInt8(ascii: "\n")]
-            try bytes.withUnsafeBytes { rawBuffer in
-                guard let baseAddress = rawBuffer.baseAddress else { return }
-                var writtenByteCount = 0
-                while writtenByteCount < rawBuffer.count {
-                    let result = Darwin.write(
-                        writeFileDescriptor,
-                        baseAddress.advanced(by: writtenByteCount),
-                        rawBuffer.count - writtenByteCount
-                    )
-                    if result < 0 {
-                        if errno == EINTR {
-                            continue
-                        }
-                        throw AgentStudioIPCPaneBootstrapError(reason: .tokenWriteFailed, errnoCode: errno)
-                    }
-                    writtenByteCount += result
-                }
-            }
-            close()
-        #else
-            throw AgentStudioIPCPaneBootstrapError(reason: .unsupportedPlatform)
-        #endif
-    }
-
-    public func close() {
-        #if canImport(Darwin)
-            lock.withLock {
-                guard !isWriteClosed else { return }
-                _ = Darwin.close(writeFileDescriptor)
-                isWriteClosed = true
-            }
-        #endif
-    }
-
-    public func closeTokenReadFileDescriptor() {
-        #if canImport(Darwin)
-            lock.withLock {
-                guard !isReadClosed else { return }
-                _ = Darwin.close(readFileDescriptor)
-                isReadClosed = true
-            }
-        #endif
-    }
-
-    public func cancel(in registry: AgentStudioIPCPrincipalRegistry) {
-        if let subjectToken {
-            registry.revokeSubjectToken(subjectToken)
-        }
-        close()
-        closeTokenReadFileDescriptor()
-    }
-}
-
-public struct AgentStudioIPCPaneBootstrapFactory: Sendable {
-    private let registry: AgentStudioIPCPrincipalRegistry
-    private let socketPath: String
-    private let runtimeId: UUID
-
-    public init(registry: AgentStudioIPCPrincipalRegistry, socketPath: String, runtimeId: UUID) {
-        self.registry = registry
-        self.socketPath = socketPath
-        self.runtimeId = runtimeId
-    }
-
-    public func makePaneBootstrap(
-        boundPaneId: String,
-        boundWorkspaceId: UUID?,
-        approvalAuthority: IPCApprovalAuthority = .noApprovalAuthority
-    ) throws -> AgentStudioIPCPaneBootstrap {
-        #if canImport(Darwin)
-            var fileDescriptors: [Int32] = [0, 0]
-            guard pipe(&fileDescriptors) == 0 else {
-                throw AgentStudioIPCPaneBootstrapError(reason: .pipeCreationFailed, errnoCode: errno)
-            }
-
-            let readFileDescriptor = fileDescriptors[0]
-            let writeFileDescriptor = fileDescriptors[1]
-            do {
-                try configureCloseOnExec(fileDescriptor: readFileDescriptor)
-                try configureCloseOnExec(fileDescriptor: writeFileDescriptor)
-                let principal = IPCPrincipal(
-                    principalId: UUID(),
-                    runtimeId: runtimeId,
-                    accessMode: .agentStudioOnly,
-                    kind: .spawnedPaneAgent(boundPaneId: boundPaneId, boundWorkspaceId: boundWorkspaceId),
-                    approvalAuthority: approvalAuthority
-                )
-                let token = try registry.issueSubjectToken(for: principal)
-                let bootstrap = AgentStudioIPCPaneBootstrap(
-                    descriptor: AgentStudioIPCPaneBootstrapDescriptor(
-                        environment: AgentStudioIPCSpawnEnvironment(
-                            socketPath: socketPath,
-                            runtimeId: runtimeId,
-                            bootstrapFileDescriptor: readFileDescriptor
-                        ),
-                        tokenReadFileDescriptor: readFileDescriptor
-                    ),
-                    writeFileDescriptor: writeFileDescriptor,
-                    subjectToken: token
-                )
-                try bootstrap.writeTokenAndClose(token)
-                return bootstrap
-            } catch {
-                _ = Darwin.close(readFileDescriptor)
-                _ = Darwin.close(writeFileDescriptor)
-                throw error
-            }
-        #else
-            throw AgentStudioIPCPaneBootstrapError(reason: .unsupportedPlatform)
-        #endif
-    }
-
-    private func configureCloseOnExec(fileDescriptor: Int32) throws {
-        #if canImport(Darwin)
-            let flags = fcntl(fileDescriptor, F_GETFD)
-            guard flags >= 0 else {
-                throw AgentStudioIPCPaneBootstrapError(reason: .pipeConfigurationFailed, errnoCode: errno)
-            }
-            guard fcntl(fileDescriptor, F_SETFD, flags | FD_CLOEXEC) == 0 else {
-                throw AgentStudioIPCPaneBootstrapError(reason: .pipeConfigurationFailed, errnoCode: errno)
-            }
-        #else
-            throw AgentStudioIPCPaneBootstrapError(reason: .unsupportedPlatform)
-        #endif
     }
 }
 
@@ -397,17 +569,6 @@ public struct AgentStudioIPCRedactor: Sendable {
     public func redact(_ value: String) -> String {
         subjectTokens.reduce(value) { redacted, token in
             redacted.replacingOccurrences(of: token.rawValue, with: "<redacted>")
-        }
-    }
-}
-
-extension IPCPrincipal {
-    fileprivate var boundPaneId: String? {
-        switch kind {
-        case .spawnedPaneAgent(let boundPaneId, _):
-            boundPaneId
-        case .automationClient, .futureMCPClient, .unsafeDebugClient:
-            nil
         }
     }
 }

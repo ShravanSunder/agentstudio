@@ -417,7 +417,7 @@ struct SidebarPerformanceProofShellReadback: Equatable, Sendable {
             case .searchClear:
                 return .search(query: AppPolicies.SidebarPerformanceProof.fixtureQuery)
             case .grouping:
-                return .grouping([.repo, .activity, .tab][sequence % 3])
+                return .grouping([.repo, .activity][sequence % 2])
             case .hideShow:
                 return .sidebarCollapsed(!baseline.shell.nativeSidebarIsCollapsed)
             case .tabSwitch:
@@ -438,13 +438,13 @@ struct SidebarPerformanceProofShellReadback: Equatable, Sendable {
             case .search:
                 return false
             case .grouping(let groupingMode):
-                AppCommandDispatcher.shared.dispatch(.showPanesSidebar)
-                let command: AppCommand =
-                    switch groupingMode {
-                    case .repo: .setPanesGroupingRepo
-                    case .activity: .setPanesGroupingActivity
-                    case .tab: .setPanesGroupingTab
-                    }
+                AppCommandDispatcher.shared.dispatch(.showReposSidebar)
+                let command: AppCommand
+                switch groupingMode {
+                case .repo: command = .setReposGroupingRepo
+                case .activity: command = .setReposGroupingActivity
+                case .tab: return false
+                }
                 AppCommandDispatcher.shared.dispatch(command)
                 return true
             case .sidebarCollapsed:

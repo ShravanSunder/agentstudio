@@ -1,0 +1,135 @@
+# Keyboard sidebar system
+
+[Requirements](../../wip/2026-09-11-keyboard-navigation/requirements.md) → this Specification → [Program Design](program-design.md).
+
+Users should see where keyboard navigation is operating, inspect the existing list,
+choose a destination, and return to their work. The sidebar replaces the discarded
+invisible activity/history stack.
+
+    Work in pane ── focus sidebar ── choose Panes/Repos ── select result ── open
+                           |                |
+                           |                └─ filter ── Enter returns to list
+                           └─ Escape returns to prior work
+
+Current pain: visibility shortcuts choose a surface; actual list selection is refused;
+filter Enter has no list-focus behavior. Desired change: each action has one predictable
+role, selection is visible, and activation uses the shared arrangement-reveal contract.
+The direct-user class and goals are U1/U3/U4/U5/U12/U14/U16. U6/U7 remain in the
+arrangement specification; U15 preview remains an explicit related contract below.
+
+## Visibility, focus and surface
+
+R-S1. CmdS toggles visibility without changing Repos/Panes selection. CmdShiftS reveals
+if hidden and focuses the sidebar list. If Management is active, CmdShiftS has no effect.
+Showing the sidebar alone does not choose Repos. Hiding a focused sidebar returns actual
+keyboard focus to the recorded prior responder, with current-pane fallback if it no
+longer exists. Repeating CmdShiftS while the sidebar owns focus cancels preview and restores that origin; it never replaces the origin with the sidebar. Visibility-only showing preserves terminal typing focus.
+Basis: U3/U4.
+
+R-S2. While the sidebar list owns keyboard interpretation, P chooses Panes, R chooses
+Repos, F enters the existing current-list filter. These commands remain available with
+no results. Editable fields receive letters and digits as text. Unmodified list typing
+is not unrestricted type-ahead. Successful P/R dispatch selects the surface using its existing preferences, then exits temporary list navigation and restores prior focus. Rejected dispatch retains list focus. The command catalog declares this completion policy; F retains the filter focus established by its command owner. Basis: U3/U5.
+
+R-S3. Filter changes update results live. Enter and Down in the filter retain query,
+focus the list and do not activate anything. Escape from the filter returns to the list
+and preserves query; another Escape from the list restores prior work. The existing clear
+control clears query explicitly. Filter/global focus requests record the same return
+origin as sidebar-list entry. Basis: U4/U5. Escape/Down use the list-return behavior above.
+
+## Selection and activation
+
+R-S4. Selection is visible and independent of the active pane. Up/Down moves among
+only the numbered destination identities in the accepted result order, stopping at edges. Headers and unnumbered rows do not receive vertical-navigation selection. Left collapses an
+expanded group or moves a child to its parent; Right expands a collapsed group or moves
+to its first child. Filtering preserves existing non-collapsible groups. Static section
+and activity labels, loading rows and fault placeholders are skipped. Enter toggles a
+selected group where expansion is available; it does not open an arbitrary child.
+Basis: U5.
+
+On initial entry choose the first destination, or first group when no destination exists.
+Keep selected identity through regrouping and updates. If removed, use the next surviving
+selectable row in the prior order, otherwise the preceding survivor, otherwise the new
+first destination/group. Empty results have no selection. Fallback selection never opens
+a replacement destination.
+
+R-S5. Digits 1-9 immediately open the corresponding first-nine destination rows in the
+current result order; headers do not consume numbers. Offscreen results are still
+addressable. The badge and key must identify the same target. Enter opens the selected
+destination. Pane destinations use shared current/custom/Default reveal and native pane
+focus; worktrees use their existing primary open behavior. Stale/removed targets do not
+activate a different result or create a substitute pane. Basis: U5/U7.
+
+## Feedback and protected behavior
+
+R-S6. Shortcut hints are true overlays: showing or hiding them cannot add a row,
+change component or editable-text width, reflow titles, move controls, dim the workspace,
+or intercept pointer input. Every badge has the same compact appearance: existing
+product-primary blue fill (#409CFF), existing dark chrome color (#141416) glyph,
+12pt monospaced bold, 4pt corners, no border/gradient or selection-dependent variant.
+F is inside the filter's trailing edge and vertically centered. R/P sit below their
+segment labels without covering text/icons; the toggle border draws behind the badges.
+Numbered badges align with the first title line in one trailing column, independent
+of pin presence. Normal trailing pin/clear content occupying the badge slot is hidden,
+noninteractive and excluded from accessibility while the badge is visible, retaining
+its layout footprint and restoring normal behavior when hints disappear.
+List hints follow effective list input ownership; filter typing, Management and
+transient keyboard owners suppress them. Existing row selection paint remains separate.
+No Space chip or glyph is added. Row identity, recency and metadata remain in composition;
+previously accepted dense trailing metadata clipping at 250 points remains allowed,
+but hints must not mask identity text. Prove geometry and actual control restoration
+at 250/320-point widths; retain explicit native proof gaps when GUI access is unavailable.
+Basis: U1/U16.
+
+R-S7. Preserve existing Option-I/J/K/L bindings. Normal Option-J/L moves left/right
+only among visible panes in the current arrangement and current main/drawer row.
+Skip minimized and backgrounded panes without revealing them. At an edge, retain
+focus. Do not switch arrangements, unminimize panes or open drawers. Explicit
+sidebar/pinned activation retains intentional reveal; Management keeps its own policy.
+Basis: U18. U17 assigns CmdShift-I/K to 90% terminal scrolling, CmdShift-J/L to 33%, OptionShift-J/L to previous/next shell prompt, and CmdOption-K to bottom. OptionShift-I/K remain unassigned. Preserve Commands/Panes search and viewer bindings. Commands, shortcut
+glyphs, help and icons have one catalog source. Contextual P/R/F cannot become global menu
+key equivalents. No general chord engine or new sticky keyboard-owner state. Basis U12.
+
+R-S8. Row filtering, grouping, ordering and navigation indexes are derived off MainActor.
+A selection key does not trigger a full sidebar capture/projection. MainActor applies
+focus, prepared values and native selection/layout only. No polling or raw terminal-output
+observer for hints. Prove the actual keyboard path with marker-scoped measurements;
+unit timing is insufficient. Basis U1 and explicit user performance directive.
+
+## Direct pinned navigation
+
+R-S10. OptionShift-Up/Down from terminal moves to previous/next pinned pane across the
+current app's tab-owned active panes, including Bridge and drawer children. Use existing
+Panes grouping/subgroup/sort order, ignoring sidebar surface, visibility, filter,
+collapsed groups and showsPinned setting. No separate history/activity traversal.
+Traversal wraps; when origin is not in the pinned set, Down starts at first
+and Up at last. Empty set does nothing; a stale/unpinned candidate does not substitute
+another target. Repeated presses execute in order, advancing from the result of the
+preceding successful navigation. Basis U14. Default-selection provenance is recorded in the [work record](../../wip/2026-09-11-keyboard-navigation/core-design-decisions.md).
+
+## Temporary preview
+
+R-S9. Arrow selection while the sidebar list has focus temporarily displays the
+selected existing pane in the full pane area. Preview follows deliberate eligible selection while the list owns input. Passive initial selection, installation, refresh or focus alone must not begin preview. A non-pane selection keeps canonical presentation. Escape, repeated CmdShiftS, hiding the sidebar or eligibility loss cancels preview and restores canonical Pane Zoom/drawers and prior valid typing focus. Enter commits selection; digits commit their target. There is no Space gesture. Native macOS fullscreen is outside this change.
+
+Load or restore the existing pane's renderer/content when needed, including Bridge
+content. For a terminal whose prior session endpoint has ended, normal restore may
+start a fresh shell under the same existing pane identity. The renderer/content may
+remain warm after cancellation. Preview MUST NOT create a substitute pane or pane
+identity. Cancellation restores the current canonical presentation without blindly
+rolling back durable layout mutations. Basis U15.
+
+## Proof coverage
+
+| Need | Contract | Required observation |
+| --- | --- | --- |
+| U1/U3/U4 | R-S1/R-S2/R-S3 | Native visibility/surface/focus, empty states, return origin, Management and editable exclusions |
+| U5/U7 | R-S4/R-S5 | Real list/filter/dispatcher journey; numbered vertical traversal, explicit horizontal group moves, updates, first-nine identity, stale targets and arrangement reveal |
+| U1/U16 | R-S6 | Native associated, unassociated, selected, and worktree rows retain existing metadata/recency while omitting Space row chrome; numbered shortcuts remain right-aligned and row height/pointer behavior are unchanged |
+| U1/U12/U18 | R-S7/R-S8 | Binding/catalog regressions; Option-J/L skips minimized/backgrounded neighbors, native focus and unchanged visibility; marker-scoped MainActor versus detached work |
+| U14 | R-S10 | Hidden sidebar, each grouping/sort, mixed pane kinds, wrapping and repeated/stale navigation |
+| U15 | R-S9 | Native arrow-selection preview and Enter/number commit/loss-of-focus proof with loaded and initially unloaded existing panes, including same-identity fresh-shell restore, full-pane-area allocation, and pane identity preservation |
+
+U8/U9 broader pin/rename bindings, U10 viewer redesign, U11 repository finder and
+broad chord restructuring remain deferred by the owner's prior scope. U2 activity/history
+traversal was withdrawn. U13 is advisory, not a required new command family.

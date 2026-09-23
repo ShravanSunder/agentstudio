@@ -6,9 +6,9 @@ import Observation
 package final class RepoExplorerSidebarPrefsAtom {
     private let sidebarState: WorkspaceSidebarState
     package private(set) var repoSortField: SidebarSortField = .name
-    package private(set) var paneSortField: SidebarSortField = .name
+    package let paneSortField: SidebarSortField = .activity
     package private(set) var repoSortDirection: SidebarSortDirection = .default
-    package private(set) var paneSortDirection: SidebarSortDirection = .default
+    package let paneSortDirection: SidebarSortDirection = .descending
 
     package var groupingMode: RepoExplorerGroupingMode {
         groupingMode(for: sidebarState.sidebarSurface)
@@ -41,7 +41,7 @@ package final class RepoExplorerSidebarPrefsAtom {
     package func groupingMode(for surface: SidebarSurface) -> RepoExplorerGroupingMode {
         switch surface {
         case .panes:
-            sidebarState.paneGroupingMode
+            .activity
         case .repos, .inbox:
             switch sidebarState.repoGroupingMode {
             case .repo, .activity:
@@ -55,7 +55,7 @@ package final class RepoExplorerSidebarPrefsAtom {
     package func subgroupMode(for surface: SidebarSurface) -> SidebarSubgroupMode {
         switch surface {
         case .panes:
-            groupingMode(for: surface) == .activity ? .ungrouped : sidebarState.paneSubgroupMode
+            .ungrouped
         case .repos, .inbox:
             .ungrouped
         }
@@ -91,7 +91,7 @@ package final class RepoExplorerSidebarPrefsAtom {
     package func setGroupingMode(_ groupingMode: RepoExplorerGroupingMode, for surface: SidebarSurface) {
         switch surface {
         case .panes:
-            sidebarState.setPaneGroupingMode(groupingMode)
+            break
         case .repos, .inbox:
             sidebarState.setRepoGroupingMode(groupingMode == .tab ? .repo : groupingMode)
         }
@@ -100,7 +100,7 @@ package final class RepoExplorerSidebarPrefsAtom {
     package func setSubgroupMode(_ subgroupMode: SidebarSubgroupMode, for surface: SidebarSurface) {
         switch surface {
         case .panes:
-            sidebarState.setPaneSubgroupMode(subgroupMode)
+            break
         case .repos, .inbox:
             break
         }
@@ -109,7 +109,7 @@ package final class RepoExplorerSidebarPrefsAtom {
     package func setSortField(_ sortField: SidebarSortField, for surface: SidebarSurface) {
         switch surface {
         case .panes:
-            paneSortField = sortField
+            break
         case .repos, .inbox:
             repoSortField = sortField
         }
@@ -118,7 +118,7 @@ package final class RepoExplorerSidebarPrefsAtom {
     package func setSortDirection(_ sortDirection: SidebarSortDirection, for surface: SidebarSurface) {
         switch surface {
         case .panes:
-            paneSortDirection = sortDirection
+            break
         case .repos, .inbox:
             repoSortDirection = sortDirection
         }
@@ -135,20 +135,14 @@ package final class RepoExplorerSidebarPrefsAtom {
 
     package func hydrate(
         repoSortField: SidebarSortField,
-        paneSortField: SidebarSortField,
-        repoSortDirection: SidebarSortDirection,
-        paneSortDirection: SidebarSortDirection
+        repoSortDirection: SidebarSortDirection
     ) {
         self.repoSortField = repoSortField
-        self.paneSortField = paneSortField
         self.repoSortDirection = repoSortDirection
-        self.paneSortDirection = paneSortDirection
     }
 
     package func reset() {
         repoSortField = .name
-        paneSortField = .name
         repoSortDirection = .default
-        paneSortDirection = .default
     }
 }

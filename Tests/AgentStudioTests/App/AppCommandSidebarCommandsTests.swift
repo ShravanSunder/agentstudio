@@ -5,8 +5,19 @@ import Testing
 @testable import AgentStudioCore
 
 @MainActor
-@Suite("AppCommand sidebar commands")
+@Suite("AppCommand sidebar commands", .serialized)
 struct AppCommandSidebarCommandsTests {
+    @Test("focus sidebar is an interactive UI-presentation command")
+    func focusSidebarIsInteractiveUIPresentationCommand() {
+        let definition = AppCommandDispatcher.shared.definition(for: .focusSidebar)
+
+        #expect(definition.label == "Focus Sidebar")
+        #expect(definition.icon == .system(.keyboard))
+        #expect(definition.shortcut == .focusSidebar)
+        #expect(definition.surfacePolicy == .exposed([.commandBar, .inlineControl]))
+        #expect(definition.targeting == .contextual)
+    }
+
     @Test("sidebar settings expose compact surface-specific command specs")
     func sidebarSettingsExposeCompactSurfaceSpecificCommandSpecs() {
         let expectedCommands: [(AppCommand, String, CommandIcon)] = [
@@ -14,17 +25,9 @@ struct AppCommandSidebarCommandsTests {
             (.showPanesSidebar, "Panes", .system(.squareSplit2x1)),
             (.setReposGroupingRepo, "Repo", .octicon(.repo)),
             (.setReposGroupingActivity, "Activity", .system(.clock)),
-            (.setPanesGroupingRepo, "Repo", .octicon(.repo)),
-            (.setPanesGroupingTab, "Tab", .system(.squareStackFill)),
-            (.setPanesGroupingActivity, "Activity", .system(.clock)),
-            (.setPanesSubgroupNone, "None", .system(.circle)),
-            (.setPanesSubgroupActivity, "Activity", .system(.clock)),
             (.setReposSortFieldName, "Name", .system(.line3Horizontal)),
             (.setReposSortFieldActivity, "Activity", .system(.clock)),
-            (.setPanesSortFieldName, "Name", .system(.line3Horizontal)),
-            (.setPanesSortFieldActivity, "Activity", .system(.clock)),
             (.toggleReposSortDirection, "Direction", .system(.arrowUpArrowDown)),
-            (.togglePanesSortDirection, "Direction", .system(.arrowUpArrowDown)),
             (.toggleReposShowsPinned, "Show Pinned", .system(.pin)),
             (.togglePanesShowsPinned, "Show Pinned", .system(.pin)),
         ]
@@ -35,13 +38,34 @@ struct AppCommandSidebarCommandsTests {
             #expect(definition.icon == icon)
             #expect(definition.surfacePolicy.exposes(.inlineControl))
             #expect(definition.targeting == .contextual)
-            let expectedExecutionModes: [IPCCommandExecutionMode] =
-                command == .showReposSidebar || command == .showPanesSidebar
-                ? [.headless, .requiresInteractiveInput]
-                : [.headless]
-            #expect(definition.ipcExposure.executionModes == expectedExecutionModes)
-            #expect(definition.ipcExposure.requiredPrivileges == [.sidebarStateMutate])
-            #expect(definition.argumentSchema.isEmpty)
+        }
+    }
+
+    @Test("sidebar command specs own keyboard completion after accepted dispatch")
+    func sidebarCommandSpecsOwnKeyboardCompletion() {
+        #expect(
+            AppCommandDispatcher.shared.definition(for: .showReposSidebar).sidebarKeyboardCompletion
+                == .returnToOrigin
+        )
+        #expect(
+            AppCommandDispatcher.shared.definition(for: .showPanesSidebar).sidebarKeyboardCompletion
+                == .returnToOrigin
+        )
+        #expect(
+            AppCommandDispatcher.shared.definition(for: .filterSidebar).sidebarKeyboardCompletion
+                == .preserveCommandFocus
+        )
+    }
+
+    @Test("fixed Panes organization has no interactive or IPC setting commands")
+    func fixedPanesOrganizationHasNoSettingCommands() {
+        for command in [
+            AppCommand.setPanesGroupingRepo, .setPanesGroupingTab, .setPanesGroupingActivity,
+            .setPanesSubgroupNone, .setPanesSubgroupActivity,
+            .setPanesSortFieldName, .setPanesSortFieldActivity, .togglePanesSortDirection,
+        ] {
+            let definition = AppCommandDispatcher.shared.definition(for: command)
+            #expect(definition.surfacePolicy == .notPresented)
         }
     }
 
@@ -50,14 +74,10 @@ struct AppCommandSidebarCommandsTests {
         for command in [AppCommand.pinRepo, .unpinRepo] {
             let definition = AppCommandDispatcher.shared.definition(for: command)
             #expect(definition.targeting == .targeted([.repo]))
-            #expect(definition.ipcExposure.executionModes == [.headless])
-            #expect(definition.ipcExposure.requiredPrivileges == [.sidebarStateMutate])
         }
         for command in [AppCommand.pinPane, .unpinPane] {
             let definition = AppCommandDispatcher.shared.definition(for: command)
             #expect(definition.targeting == .targeted([.pane]))
-            #expect(definition.ipcExposure.executionModes == [.headless])
-            #expect(definition.ipcExposure.requiredPrivileges == [.sidebarStateMutate])
         }
     }
 
@@ -81,8 +101,6 @@ struct AppCommandSidebarCommandsTests {
         for command in commands {
             let definition = AppCommandDispatcher.shared.definition(for: command)
             #expect(definition.surfacePolicy == .notPresented)
-            #expect(definition.ipcExposure.requiredPrivileges.isEmpty)
-            #expect(definition.ipcExposure.executionModes.isEmpty)
         }
     }
 }

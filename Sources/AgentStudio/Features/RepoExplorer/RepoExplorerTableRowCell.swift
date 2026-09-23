@@ -23,6 +23,7 @@ struct RepoExplorerTableRowBinding: Equatable {
 @Observable
 final class RepoExplorerTableRowSlot {
     private(set) var binding: RepoExplorerTableRowBinding?
+    private(set) var keyboardPresentation = RepoExplorerRowKeyboardPresentation.inactive
     private let interactions: RepoExplorerTableInteractions
 
     init(interactions: RepoExplorerTableInteractions) {
@@ -35,6 +36,12 @@ final class RepoExplorerTableRowSlot {
 
     func clear() {
         binding = nil
+        keyboardPresentation = .inactive
+    }
+
+    func applyKeyboardPresentation(_ presentation: RepoExplorerRowKeyboardPresentation) {
+        guard keyboardPresentation != presentation else { return }
+        keyboardPresentation = presentation
     }
 
     func performCommand(
@@ -76,6 +83,7 @@ struct RepoExplorerTableRowHostingRoot: View {
                     row: binding.row,
                     commandPresentationSnapshot: binding.commandPresentationSnapshot,
                     octiconLoader: octiconLoader,
+                    keyboardPresentation: slot.keyboardPresentation,
                     onCommandRequest: { request in
                         slot.performCommand(
                             request,
@@ -110,6 +118,10 @@ final class RepoExplorerTableRowCell: NSTableCellView {
 
     var currentCommandGeneration: UInt64? {
         slot.binding?.commandPresentationSnapshot.generation
+    }
+
+    func applyKeyboardPresentation(_ presentation: RepoExplorerRowKeyboardPresentation) {
+        slot.applyKeyboardPresentation(presentation)
     }
 
     init(

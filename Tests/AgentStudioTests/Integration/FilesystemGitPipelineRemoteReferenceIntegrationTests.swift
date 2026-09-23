@@ -215,7 +215,7 @@ struct FilesystemGitRemoteReferenceTests {
 
     @Test("production adapter promotes remote refs without mutating checked-out HEAD")
     func productionAdapterStagesThenPromotesDisposableRemote() async throws {
-        let sourceRepository = try FilesystemTestGitRepo.create(named: "remote-adapter-source")
+        let sourceRepository = try await FilesystemTestGitRepo.create(named: "remote-adapter-source")
         let fixtureRoot = sourceRepository.deletingLastPathComponent()
         let bareRemote = fixtureRoot.appending(
             path: "remote-adapter-bare-\(UUIDv7.generate().uuidString).git",
@@ -236,18 +236,18 @@ struct FilesystemGitRemoteReferenceTests {
             atomically: true,
             encoding: .utf8
         )
-        try FilesystemTestGitRepo.runGit(at: sourceRepository, args: ["add", "tracked.txt"])
-        try FilesystemTestGitRepo.runGit(at: sourceRepository, args: ["commit", "-m", "Initial remote state"])
-        try FilesystemTestGitRepo.runGit(
+        try await FilesystemTestGitRepo.runGit(at: sourceRepository, args: ["add", "tracked.txt"])
+        try await FilesystemTestGitRepo.runGit(at: sourceRepository, args: ["commit", "-m", "Initial remote state"])
+        try await FilesystemTestGitRepo.runGit(
             at: fixtureRoot,
             args: ["clone", "--bare", sourceRepository.path, bareRemote.path]
         )
-        try FilesystemTestGitRepo.runGit(at: fixtureRoot, args: ["clone", bareRemote.path, localClone.path])
-        let initialCanonicalOID = try FilesystemTestGitRepo.runGit(
+        try await FilesystemTestGitRepo.runGit(at: fixtureRoot, args: ["clone", bareRemote.path, localClone.path])
+        let initialCanonicalOID = try await FilesystemTestGitRepo.runGit(
             at: localClone,
             args: ["rev-parse", "refs/remotes/origin/main"]
         ).trimmingCharacters(in: .whitespacesAndNewlines)
-        let checkedOutHeadOID = try FilesystemTestGitRepo.runGit(
+        let checkedOutHeadOID = try await FilesystemTestGitRepo.runGit(
             at: localClone,
             args: ["rev-parse", "HEAD"]
         ).trimmingCharacters(in: .whitespacesAndNewlines)
@@ -257,14 +257,14 @@ struct FilesystemGitRemoteReferenceTests {
             atomically: true,
             encoding: .utf8
         )
-        try FilesystemTestGitRepo.runGit(at: sourceRepository, args: ["add", "tracked.txt"])
-        try FilesystemTestGitRepo.runGit(at: sourceRepository, args: ["commit", "-m", "Updated remote state"])
-        try FilesystemTestGitRepo.runGit(
+        try await FilesystemTestGitRepo.runGit(at: sourceRepository, args: ["add", "tracked.txt"])
+        try await FilesystemTestGitRepo.runGit(at: sourceRepository, args: ["commit", "-m", "Updated remote state"])
+        try await FilesystemTestGitRepo.runGit(
             at: sourceRepository,
             args: ["remote", "add", "origin", bareRemote.path]
         )
-        try FilesystemTestGitRepo.runGit(at: sourceRepository, args: ["push", "origin", "main"])
-        let expectedPromotedOID = try FilesystemTestGitRepo.runGit(
+        try await FilesystemTestGitRepo.runGit(at: sourceRepository, args: ["push", "origin", "main"])
+        let expectedPromotedOID = try await FilesystemTestGitRepo.runGit(
             at: sourceRepository,
             args: ["rev-parse", "HEAD"]
         ).trimmingCharacters(in: .whitespacesAndNewlines)
@@ -282,7 +282,7 @@ struct FilesystemGitRemoteReferenceTests {
             snapshot: snapshot,
             stagingId: UUIDv7.generate()
         )
-        let canonicalOIDBeforePromotion = try FilesystemTestGitRepo.runGit(
+        let canonicalOIDBeforePromotion = try await FilesystemTestGitRepo.runGit(
             at: localClone,
             args: ["rev-parse", "refs/remotes/origin/main"]
         ).trimmingCharacters(in: .whitespacesAndNewlines)
@@ -291,18 +291,18 @@ struct FilesystemGitRemoteReferenceTests {
         #expect(canonicalOIDBeforePromotion == initialCanonicalOID)
         try await provider.promoteStagedFetch(stagedFetch)
 
-        let canonicalOIDAfterPromotion = try FilesystemTestGitRepo.runGit(
+        let canonicalOIDAfterPromotion = try await FilesystemTestGitRepo.runGit(
             at: localClone,
             args: ["rev-parse", "refs/remotes/origin/main"]
         ).trimmingCharacters(in: .whitespacesAndNewlines)
-        let checkedOutHeadOIDAfterPromotion = try FilesystemTestGitRepo.runGit(
+        let checkedOutHeadOIDAfterPromotion = try await FilesystemTestGitRepo.runGit(
             at: localClone,
             args: ["rev-parse", "HEAD"]
         ).trimmingCharacters(in: .whitespacesAndNewlines)
         #expect(canonicalOIDAfterPromotion == expectedPromotedOID)
         #expect(checkedOutHeadOIDAfterPromotion == checkedOutHeadOID)
         try await provider.cleanupStagedFetch(stagedFetch.handle)
-        let retainedStagingRefs = try FilesystemTestGitRepo.runGit(
+        let retainedStagingRefs = try await FilesystemTestGitRepo.runGit(
             at: localClone,
             args: ["for-each-ref", "--format=%(refname)", stagedFetch.handle.stagingNamespace]
         ).trimmingCharacters(in: .whitespacesAndNewlines)
@@ -311,7 +311,7 @@ struct FilesystemGitRemoteReferenceTests {
 
     @Test("origin replacement restores authority only after promoting the replacement remote")
     func originReplacementWaitsForDisposableRemotePromotion() async throws {
-        let repositories = try DisposableOriginReplacementRepositories()
+        let repositories = try await DisposableOriginReplacementRepositories()
         defer { repositories.destroy() }
         let sourceRepository = repositories.source
         let fixtureRoot = repositories.fixtureRoot
@@ -324,17 +324,17 @@ struct FilesystemGitRemoteReferenceTests {
             atomically: true,
             encoding: .utf8
         )
-        try FilesystemTestGitRepo.runGit(at: sourceRepository, args: ["add", "tracked.txt"])
-        try FilesystemTestGitRepo.runGit(at: sourceRepository, args: ["commit", "-m", "Original remote state"])
-        try FilesystemTestGitRepo.runGit(
+        try await FilesystemTestGitRepo.runGit(at: sourceRepository, args: ["add", "tracked.txt"])
+        try await FilesystemTestGitRepo.runGit(at: sourceRepository, args: ["commit", "-m", "Original remote state"])
+        try await FilesystemTestGitRepo.runGit(
             at: fixtureRoot,
             args: ["clone", "--bare", sourceRepository.path, originalBareRemote.path]
         )
-        try FilesystemTestGitRepo.runGit(
+        try await FilesystemTestGitRepo.runGit(
             at: fixtureRoot,
             args: ["clone", originalBareRemote.path, localClone.path]
         )
-        let originalCanonicalOID = try FilesystemTestGitRepo.runGit(
+        let originalCanonicalOID = try await FilesystemTestGitRepo.runGit(
             at: localClone,
             args: ["rev-parse", "refs/remotes/origin/main"]
         ).trimmingCharacters(in: .whitespacesAndNewlines)
@@ -344,13 +344,14 @@ struct FilesystemGitRemoteReferenceTests {
             atomically: true,
             encoding: .utf8
         )
-        try FilesystemTestGitRepo.runGit(at: sourceRepository, args: ["add", "tracked.txt"])
-        try FilesystemTestGitRepo.runGit(at: sourceRepository, args: ["commit", "-m", "Replacement remote state"])
-        try FilesystemTestGitRepo.runGit(
+        try await FilesystemTestGitRepo.runGit(at: sourceRepository, args: ["add", "tracked.txt"])
+        try await FilesystemTestGitRepo.runGit(
+            at: sourceRepository, args: ["commit", "-m", "Replacement remote state"])
+        try await FilesystemTestGitRepo.runGit(
             at: fixtureRoot,
             args: ["clone", "--bare", sourceRepository.path, replacementBareRemote.path]
         )
-        let replacementOID = try FilesystemTestGitRepo.runGit(
+        let replacementOID = try await FilesystemTestGitRepo.runGit(
             at: sourceRepository,
             args: ["rev-parse", "HEAD"]
         ).trimmingCharacters(in: .whitespacesAndNewlines)
@@ -378,7 +379,7 @@ struct FilesystemGitRemoteReferenceTests {
             remoteName: "origin",
             expectedOrigin: originalBareRemote.path
         )
-        try FilesystemTestGitRepo.runGit(
+        try await FilesystemTestGitRepo.runGit(
             at: localClone,
             args: ["remote", "set-url", "origin", replacementBareRemote.path]
         )
@@ -400,7 +401,7 @@ struct FilesystemGitRemoteReferenceTests {
         await actor.setDemand(repositoryIds: [repoId])
         await actor.waitUntilIdle()
 
-        let promotedCanonicalOID = try FilesystemTestGitRepo.runGit(
+        let promotedCanonicalOID = try await FilesystemTestGitRepo.runGit(
             at: localClone,
             args: ["rev-parse", "refs/remotes/origin/main"]
         ).trimmingCharacters(in: .whitespacesAndNewlines)
@@ -420,8 +421,8 @@ private struct DisposableOriginReplacementRepositories {
     let replacementBareRemote: URL
     let localClone: URL
 
-    init() throws {
-        source = try FilesystemTestGitRepo.create(named: "origin-replacement-source")
+    init() async throws {
+        source = try await FilesystemTestGitRepo.create(named: "origin-replacement-source")
         fixtureRoot = source.deletingLastPathComponent()
         originalBareRemote = fixtureRoot.appending(
             path: "origin-replacement-original-\(UUIDv7.generate().uuidString).git",

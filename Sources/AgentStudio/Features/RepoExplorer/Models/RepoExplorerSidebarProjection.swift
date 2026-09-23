@@ -39,8 +39,9 @@ enum RepoExplorerSidebarSectionKind: String, Equatable, Sendable {
 
     var sectionIcon: AppEntityIcon {
         switch self {
-        case .pinnedRepositories, .openRepositories, .repositories: .repo
-        case .pinnedPanes, .panes: .pane
+        case .pinnedRepositories, .pinnedPanes: .pin
+        case .openRepositories, .repositories: .repo
+        case .panes: .pane
         case .activeRepos, .justNowRepos, .lastHourRepos, .todayRepos, .lastSevenDaysRepos, .olderRepos,
             .noActivityRepos:
             .activity

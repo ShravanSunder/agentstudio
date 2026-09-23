@@ -29,13 +29,13 @@ struct BridgeProductWebKitTwoPaneJourneyProof: Sendable {
     let dormantDefaults: BridgeProductWebKitTwoPanePositionSnapshot
     let fileStateAfterReturn: BridgeProductWebKitTwoPanePositionSnapshot
     let hiddenDirtyGeneration: UInt64?
-    let hiddenMetadataSequenceAfterStorm: Int
-    let hiddenMetadataSequenceBeforeStorm: Int
+    let hiddenMetadataStormDiagnostic: String
     let hiddenRefreshPassCountAfterStorm: Int
     let hiddenRefreshPassCountBeforeStorm: Int
     let hiddenReviewPublicationCountAfterLateRelease: Int
     let hiddenReviewPublicationCountBeforeLateRelease: Int
     let hiddenStatus: BridgeProductWebKitTwoPanePositionSnapshot
+    let hiddenStormProductDeltas: BridgeProductWebKitHiddenStormProductDeltas
     let initialReviewState: BridgeProductWebKitTwoPanePositionSnapshot
     let paneOneFinalRefreshPassCount: Int
     let paneOneForegroundRefreshPassCount: Int
@@ -191,14 +191,14 @@ enum BridgeProductWebKitTwoPaneJourneyTestSupport {
     private static var retainedPages: [WebPage] = []
 
     static func run() async throws -> BridgeProductWebKitTwoPaneJourneyProof {
-        let paneOneRepoURL = try FilesystemTestGitRepo.create(named: "bridge-two-pane-one-webkit")
-        let paneTwoRepoURL = try FilesystemTestGitRepo.create(named: "bridge-two-pane-two-webkit")
+        let paneOneRepoURL = try await FilesystemTestGitRepo.create(named: "bridge-two-pane-one-webkit")
+        let paneTwoRepoURL = try await FilesystemTestGitRepo.create(named: "bridge-two-pane-two-webkit")
         defer {
             FilesystemTestGitRepo.destroy(paneOneRepoURL)
             FilesystemTestGitRepo.destroy(paneTwoRepoURL)
         }
-        try seedPositionFixture(at: paneOneRepoURL, prefix: "pane-one")
-        try seedPositionFixture(at: paneTwoRepoURL, prefix: "pane-two")
+        try await seedPositionFixture(at: paneOneRepoURL, prefix: "pane-one")
+        try await seedPositionFixture(at: paneTwoRepoURL, prefix: "pane-two")
 
         let paneOneTrace = BridgeProductWebKitCarrierTraceRecorder()
         let paneTwoTrace = BridgeProductWebKitCarrierTraceRecorder()
@@ -370,6 +370,7 @@ enum BridgeProductWebKitTwoPaneJourneyTestSupport {
         let hiddenAfterStorm = input.paneOne.refreshAdmissionCoordinator.diagnosticSnapshot
         let hiddenNativeAfterStorm =
             await BridgeProductWebKitCarrierTestSupport.nativeSnapshot(input.paneOne)
+        let hiddenTraceAfterStorm = await input.paneOneTrace.scrubbedTrace()
         guard
             await input.paneOneReviewProvider.snapshot().comparisonCount
                 == hiddenComparisonCountBeforeStorm
@@ -399,13 +400,20 @@ enum BridgeProductWebKitTwoPaneJourneyTestSupport {
         let paneTwoNativeAfterJourney =
             await BridgeProductWebKitCarrierTestSupport.nativeSnapshot(input.paneTwo)
         let paneTwoStateAfterJourney = try await requirePositionSnapshot(input.paneTwo.page)
+        // One reading of the hidden-pane traces feeds both the assertable product
+        // deltas and the printed diagnostic, so the two can never disagree.
+        let hiddenStorm = BridgeProductWebKitMetadataStormDiagnostic.summarize(
+            nativeBefore: hiddenNativeBeforeStorm,
+            nativeAfter: hiddenNativeAfterStorm,
+            traceBefore: hiddenTraceBeforeLateRelease,
+            traceAfter: hiddenTraceAfterStorm
+        )
 
         return BridgeProductWebKitTwoPaneJourneyProof(
             dormantDefaults: preparation.dormantDefaults,
             fileStateAfterReturn: fileStateAfterReturn,
             hiddenDirtyGeneration: hiddenAfterStorm.dirtyFact?.generation,
-            hiddenMetadataSequenceAfterStorm: hiddenNativeAfterStorm.nextMetadataStreamSequence,
-            hiddenMetadataSequenceBeforeStorm: hiddenNativeBeforeStorm.nextMetadataStreamSequence,
+            hiddenMetadataStormDiagnostic: hiddenStorm.message,
             hiddenRefreshPassCountAfterStorm: hiddenAfterStorm.refreshPassCount,
             hiddenRefreshPassCountBeforeStorm: hiddenBeforeStorm.refreshPassCount,
             hiddenReviewPublicationCountAfterLateRelease:
@@ -413,6 +421,7 @@ enum BridgeProductWebKitTwoPaneJourneyTestSupport {
             hiddenReviewPublicationCountBeforeLateRelease:
                 hiddenTraceBeforeLateRelease.completedReviewPublicationCount,
             hiddenStatus: hiddenStatus,
+            hiddenStormProductDeltas: hiddenStorm.productDeltas,
             initialReviewState: preparation.initialReviewState,
             paneOneFinalRefreshPassCount:
                 input.paneOne.refreshAdmissionCoordinator.diagnosticSnapshot.refreshPassCount,
@@ -582,8 +591,8 @@ enum BridgeProductWebKitTwoPaneJourneyTestSupport {
         )
     }
 
-    private static func seedPositionFixture(at repoURL: URL, prefix: String) throws {
-        try FilesystemTestGitRepo.seedTrackedAndUntrackedChanges(at: repoURL)
+    private static func seedPositionFixture(at repoURL: URL, prefix: String) async throws {
+        try await FilesystemTestGitRepo.seedTrackedAndUntrackedChanges(at: repoURL)
         for index in 0..<36 {
             let directory = repoURL.appending(path: String(format: "Sources/Group%02d", index / 9))
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -728,46 +737,74 @@ enum BridgeProductWebKitTwoPaneJourneyTestSupport {
         guard idle else { throw JourneyError.conditionFailed("foreground catch-up did not settle") }
     }
 
+    /// Suspends until the active surface shows `expectedText` and the inactive one
+    /// shows no status at all.
+    ///
+    /// Both the active-mode marker and the two status texts live in the light DOM,
+    /// so the arrival of this state IS a mutation the observer sees. A deadline here
+    /// would be a verdict about machine speed on a page that renders no frames.
     private static func requireStatus(
         _ page: WebPage,
         activeMode: String,
         expectedText: String
     ) async throws -> BridgeProductWebKitTwoPanePositionSnapshot {
-        var observed: BridgeProductWebKitTwoPanePositionSnapshot?
-        let found = await BridgeProductWebKitCarrierTestSupport.waitUntil(timeout: .seconds(10)) {
-            observed = try? await positionSnapshot(page)
-            guard let observed else { return false }
-            let activeText = activeMode == "file" ? observed.fileStatusText : observed.reviewStatusText
-            let inactiveText = activeMode == "file" ? observed.reviewStatusText : observed.fileStatusText
-            return observed.activeMode == activeMode
-                && activeText == expectedText
-                && inactiveText == nil
-        }
-        guard found, let observed else {
-            let observedActiveMode = observed?.activeMode ?? "nil"
-            let observedFileStatusText = observed?.fileStatusText ?? "nil"
-            let observedReviewStatusText = observed?.reviewStatusText ?? "nil"
+        do {
+            let encoded = try await WebPageEventWaits.waitForDocumentValue(
+                page,
+                reader: """
+                    const encodedSnapshot = (() => { \(positionSnapshotReaderBody) })();
+                    const snapshot = JSON.parse(encodedSnapshot);
+                    if (snapshot.activeMode !== activeMode) { return null; }
+                    const inactiveMode = activeMode === 'file' ? 'review' : 'file';
+                    const activeStatusText = activeMode === 'file'
+                      ? snapshot.fileStatusText
+                      : snapshot.reviewStatusText;
+                    const inactiveStatusText = inactiveMode === 'file'
+                      ? snapshot.fileStatusText
+                      : snapshot.reviewStatusText;
+                    if (activeStatusText !== expectedText) { return null; }
+                    if (inactiveStatusText !== null) { return null; }
+                    return encodedSnapshot;
+                    """,
+                arguments: ["activeMode": activeMode, "expectedText": expectedText]
+            )
+            guard let encoded = encoded as? String,
+                let data = encoded.data(using: .utf8)
+            else {
+                throw JourneyError.conditionFailed(
+                    "matching active-surface status did not return its position snapshot"
+                )
+            }
+            return try JSONDecoder().decode(
+                BridgeProductWebKitTwoPanePositionSnapshot.self,
+                from: data
+            )
+        } catch {
             throw JourneyError.conditionFailed(
-                "active-surface updating chrome was not isolated "
-                    + "(expectedActiveMode: \(activeMode), expectedText: \(expectedText), "
-                    + "observedActiveMode: \(observedActiveMode), "
-                    + "fileStatusText: \(observedFileStatusText), "
-                    + "reviewStatusText: \(observedReviewStatusText))"
+                "active-surface updating chrome could not be read "
+                    + "(expectedActiveMode: \(activeMode), expectedText: \(expectedText)): \(error)"
             )
         }
-        return observed
     }
 
+    /// Asserts, with one read, that neither surface is showing updating chrome.
+    ///
+    /// Every caller reaches this only after the owner's own barrier has been awaited
+    /// (`requireHiddenFileRetirementBoundary`, `requireBlockedComparison`). This is a
+    /// NEGATIVE claim, so it is read once: polling until the chrome disappears would
+    /// accept a pane that showed "Updating…" it was never supposed to show.
     private static func requireNoUpdatingStatus(
         _ page: WebPage
     ) async throws -> BridgeProductWebKitTwoPanePositionSnapshot {
-        var observed: BridgeProductWebKitTwoPanePositionSnapshot?
-        let found = await BridgeProductWebKitCarrierTestSupport.waitUntil(timeout: .seconds(10)) {
-            observed = try? await positionSnapshot(page)
-            return observed?.fileStatusText == nil && observed?.reviewStatusText == nil
-        }
-        guard found, let observed else {
-            throw JourneyError.conditionFailed("loaded-hidden pane retained updating chrome")
+        let observed = try await requirePositionSnapshot(page)
+        guard observed.fileStatusText == nil, observed.reviewStatusText == nil else {
+            let observedFileStatusText = observed.fileStatusText ?? "nil"
+            let observedReviewStatusText = observed.reviewStatusText ?? "nil"
+            throw JourneyError.conditionFailed(
+                "loaded-hidden pane retained updating chrome "
+                    + "(fileStatusText: \(observedFileStatusText), "
+                    + "reviewStatusText: \(observedReviewStatusText))"
+            )
         }
         return observed
     }
@@ -785,53 +822,56 @@ enum BridgeProductWebKitTwoPaneJourneyTestSupport {
         _ page: WebPage
     ) async throws -> BridgeProductWebKitTwoPanePositionSnapshot? {
         let encoded = try await page.callJavaScript(
-            """
-            const queryOpen = (root, selector) => {
-              const direct = root.querySelector(selector);
-              if (direct !== null) return direct;
-              for (const element of root.querySelectorAll('*')) {
-                if (element.shadowRoot === null) continue;
-                const nested = queryOpen(element.shadowRoot, selector);
-                if (nested !== null) return nested;
-              }
-              return null;
-            };
-            const fileHost = document.querySelector('[data-testid="bridge-viewer-mode-host-file"]');
-            const reviewHost = document.querySelector('[data-testid="bridge-viewer-mode-host-review"]');
-            const fileShell = fileHost?.querySelector('[data-testid="bridge-file-viewer-shell"]');
-            const fileCanvas = fileHost?.querySelector('[data-testid="bridge-file-viewer-code-canvas"]');
-            const reviewShell = reviewHost?.querySelector('[data-testid="review-viewer-shell"]');
-            const fileTreeScroll = fileHost === null ? null : queryOpen(fileHost, '[data-file-tree-virtualized-scroll="true"]');
-            const reviewTreeScroll = reviewHost === null ? null : queryOpen(reviewHost, '[data-file-tree-virtualized-scroll="true"]');
-            const fileCodeScroll = fileHost?.querySelector('.bridge-code-view-scroll-owner');
-            const reviewCodeScroll = reviewHost?.querySelector('.bridge-code-view-scroll-owner');
-            const collapsedDirectory = reviewHost === null
-              ? null
-              : queryOpen(reviewHost, '[data-item-path="Sources/Group00"][aria-expanded]');
-            const activeHost = document.querySelector('[data-bridge-viewer-mode-active="true"]');
-            return JSON.stringify({
-              activeMode: activeHost?.getAttribute('data-bridge-viewer-mode-host') ?? null,
-              comparisonStatusText: reviewHost?.querySelector('[data-testid="bridge-review-comparison-status-banner"]')?.textContent ?? null,
-              fileCodeScrollTop: fileCodeScroll?.scrollTop ?? 0,
-              fileRenderedPath: fileCanvas?.getAttribute('data-worktree-rendered-file-path') ?? null,
-              fileSelectedPath: fileShell?.getAttribute('data-selected-display-path') ?? null,
-              fileStatusText: fileHost?.querySelector('[data-testid="bridge-viewer-content-status"]')?.textContent ?? null,
-              fileTreeScrollTop: fileTreeScroll?.scrollTop ?? 0,
-              hasAppRoot: document.querySelector('[data-testid="bridge-app-root"]') !== null,
-              reviewCodeScrollTop: reviewCodeScroll?.scrollTop ?? 0,
-              reviewCollapsedDirectoryExpansion: collapsedDirectory?.getAttribute('aria-expanded') ?? null,
-              reviewSelectedItemId: reviewHost?.querySelector('[data-testid="bridge-code-view-panel"]')?.getAttribute('data-selected-item-id') ?? null,
-              reviewSelectedPath: reviewShell?.getAttribute('data-selected-display-path') ?? null,
-              reviewStatusText: reviewHost?.querySelector('[data-testid="bridge-viewer-content-status"]')?.textContent ?? null,
-              reviewTreeScrollTop: reviewTreeScroll?.scrollTop ?? 0
-            });
-            """
+            "return (() => { \(positionSnapshotReaderBody) })();"
         )
         guard let encoded = encoded as? String,
             let data = encoded.data(using: .utf8)
         else { return nil }
         return try JSONDecoder().decode(BridgeProductWebKitTwoPanePositionSnapshot.self, from: data)
     }
+
+    private static let positionSnapshotReaderBody =
+        """
+        const queryOpen = (root, selector) => {
+          const direct = root.querySelector(selector);
+          if (direct !== null) return direct;
+          for (const element of root.querySelectorAll('*')) {
+            if (element.shadowRoot === null) continue;
+            const nested = queryOpen(element.shadowRoot, selector);
+            if (nested !== null) return nested;
+          }
+          return null;
+        };
+        const fileHost = document.querySelector('[data-testid="bridge-viewer-mode-host-file"]');
+        const reviewHost = document.querySelector('[data-testid="bridge-viewer-mode-host-review"]');
+        const fileShell = fileHost?.querySelector('[data-testid="bridge-file-viewer-shell"]');
+        const fileCanvas = fileHost?.querySelector('[data-testid="bridge-file-viewer-code-canvas"]');
+        const reviewShell = reviewHost?.querySelector('[data-testid="review-viewer-shell"]');
+        const fileTreeScroll = fileHost === null ? null : queryOpen(fileHost, '[data-file-tree-virtualized-scroll="true"]');
+        const reviewTreeScroll = reviewHost === null ? null : queryOpen(reviewHost, '[data-file-tree-virtualized-scroll="true"]');
+        const fileCodeScroll = fileHost?.querySelector('.bridge-code-view-scroll-owner');
+        const reviewCodeScroll = reviewHost?.querySelector('.bridge-code-view-scroll-owner');
+        const collapsedDirectory = reviewHost === null
+          ? null
+          : queryOpen(reviewHost, '[data-item-path="Sources/Group00"][aria-expanded]');
+        const activeHost = document.querySelector('[data-bridge-viewer-mode-active="true"]');
+        return JSON.stringify({
+          activeMode: activeHost?.getAttribute('data-bridge-viewer-mode-host') ?? null,
+          comparisonStatusText: reviewHost?.querySelector('[data-testid="bridge-review-comparison-status-banner"]')?.textContent ?? null,
+          fileCodeScrollTop: fileCodeScroll?.scrollTop ?? 0,
+          fileRenderedPath: fileCanvas?.getAttribute('data-worktree-rendered-file-path') ?? null,
+          fileSelectedPath: fileShell?.getAttribute('data-selected-display-path') ?? null,
+          fileStatusText: fileHost?.querySelector('[data-testid="bridge-viewer-content-status"]')?.textContent ?? null,
+          fileTreeScrollTop: fileTreeScroll?.scrollTop ?? 0,
+          hasAppRoot: document.querySelector('[data-testid="bridge-app-root"]') !== null,
+          reviewCodeScrollTop: reviewCodeScroll?.scrollTop ?? 0,
+          reviewCollapsedDirectoryExpansion: collapsedDirectory?.getAttribute('aria-expanded') ?? null,
+          reviewSelectedItemId: reviewHost?.querySelector('[data-testid="bridge-code-view-panel"]')?.getAttribute('data-selected-item-id') ?? null,
+          reviewSelectedPath: reviewShell?.getAttribute('data-selected-display-path') ?? null,
+          reviewStatusText: reviewHost?.querySelector('[data-testid="bridge-viewer-content-status"]')?.textContent ?? null,
+          reviewTreeScrollTop: reviewTreeScroll?.scrollTop ?? 0
+        });
+        """
 
     private static func activateReviewMode(_ page: WebPage) async -> Bool {
         (try? await page.callJavaScript(

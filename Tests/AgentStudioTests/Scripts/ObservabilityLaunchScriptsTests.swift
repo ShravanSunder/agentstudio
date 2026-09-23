@@ -36,7 +36,9 @@ struct ObservabilityLaunchScriptsTests {
         let script = try String(contentsOfFile: "scripts/run-debug-observability.sh", encoding: .utf8)
 
         #expect(script.contains("publish_debug_bundle()"))
-        #expect(script.contains("default_artifact_root=\"$debug_root/apps\""))
+        #expect(
+            script.contains("debug_artifact_root=\"${AGENTSTUDIO_DEBUG_ARTIFACT_DIR:-$debug_root/apps}\"")
+        )
         #expect(script.contains("renameatx_np"))
         #expect(!script.contains("$debug_root/apps/app-$(date"))
         #expect(script.contains("AGENTSTUDIO_DEBUG_ARTIFACT_DIR"))
@@ -81,8 +83,8 @@ struct ObservabilityLaunchScriptsTests {
         #expect(!miseConfig.contains("swift-build-slot.sh\" release"))
         #expect(!wrapperScript.contains("swift-build-slot.sh\" debug"))
         #expect(!wrapperScript.contains("swift-build-slot.sh\" release"))
-        #expect(wrapperScript.contains("TIMEOUT_SECONDS=\"${SWIFT_TEST_TIMEOUT_SECONDS:-60}\""))
-        #expect(wrapperScript.contains("SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS:-90"))
+        #expect(wrapperScript.contains("TIMEOUT_SECONDS=\"${SWIFT_TEST_TIMEOUT_SECONDS:-600}\""))
+        #expect(wrapperScript.contains("SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS:-1200"))
         #expect(wrapperScript.contains("SWIFT_TEST_SKIP_PREBUILD"))
         #expect(wrapperScript.contains("PREBUILD_TIMEOUT_SECONDS=$PREBUILD_TIMEOUT_SECONDS"))
         #expect(wrapperScript.contains("run_swift_with_timeout"))
@@ -142,7 +144,18 @@ struct ObservabilityLaunchScriptsTests {
                 "WebKitSerializedTests/BridgeProductRealGitFileAndReviewWebKitTests"
             ))
         #expect(!testHelperScript.contains("\nWebKitSerializedTests/BridgeTransportIntegrationTests\n"))
-        #expect(testHelperScript.contains("terminate_process_tree TERM \"$command_pid\""))
+        // The timeout path signals the lane's OWN child process group, and only
+        // that group. It used to walk live parent links, which missed any
+        // descendant that re-parented when its parent died — the survivor held a
+        // build slot and made the next run fail with "all 2 slots are busy".
+        #expect(testHelperScript.contains("terminate_lane_child_tree TERM \"$command_pid\""))
+        #expect(testHelperScript.contains("terminate_lane_child_tree KILL \"$command_pid\""))
+        #expect(!testHelperScript.contains("terminate_process_tree"))
+        // A survivor that re-parented is unreachable from the child pid, so the
+        // KILL path also sweeps this run's unique event-stream path. `pgrep` only
+        // lists; the kills are explicit and by pid, never a pattern-matching kill.
+        #expect(testHelperScript.contains("kill_lane_processes_by_run_token \"$event_stream_file\""))
+        #expect(!testHelperScript.contains("pkill -f"))
         #expect(!testHelperScript.contains("pkill -9 -f"))
         #expect(!agentInstructions.contains("pkill -f \"swift-build\""))
         #expect(ciWorkflow.contains("SWIFT_TEST_TIMEOUT_SECONDS: \"600\""))

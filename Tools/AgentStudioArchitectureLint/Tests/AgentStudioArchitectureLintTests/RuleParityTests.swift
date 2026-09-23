@@ -1,5 +1,6 @@
 import Foundation
 import SwiftParser
+import SwiftSyntax
 import Testing
 
 @testable import AgentStudioArchitectureLintCore
@@ -299,6 +300,135 @@ struct RuleParityTests {
         #expect(testDiagnostics.map(\.ruleID) == ["agentstudio_no_task_sleep_in_tests"])
         #expect(sourceDiagnostics.isEmpty)
         #expect(externalSourceUnderTestsParentDiagnostics.isEmpty)
+    }
+
+    @Test("polling wait rule diagnoses one violation per polling loop keyword")
+    func pollingWaitRuleDiagnosesOneViolationPerPollingLoopKeyword() throws {
+        let pollingWaitFixture = fixtureRoot()
+            .appendingPathComponent("Bad")
+            .appendingPathComponent("Tests")
+            .appendingPathComponent("AgentStudioTests")
+            .appendingPathComponent("BadPollingWaitTest.swift")
+            .path
+
+        let diagnostics = try lint(files: [pollingWaitFixture])
+            .filter { $0.ruleID == "agentstudio_no_polling_wait_in_tests" }
+
+        #expect(diagnostics.map(\.line) == [7, 16, 25, 34, 46])
+        #expect(
+            diagnostics.allSatisfy {
+                $0.message.contains("docs/architecture/testing/testing_architecture.md#how-a-test-may-wait")
+            })
+    }
+
+    @Test("polling wait rule leaves event-driven waits and ordinary loops alone")
+    func pollingWaitRuleLeavesEventDrivenWaitsAndOrdinaryLoopsAlone() throws {
+        let eventDrivenFixture = fixtureRoot()
+            .appendingPathComponent("Good")
+            .appendingPathComponent("Tests")
+            .appendingPathComponent("AgentStudioTests")
+            .appendingPathComponent("GoodEventDrivenWaitTest.swift")
+            .path
+
+        let diagnostics = try lint(files: [eventDrivenFixture])
+            .filter { $0.ruleID == "agentstudio_no_polling_wait_in_tests" }
+
+        #expect(diagnostics.isEmpty)
+    }
+
+    @Test("polling wait rule scopes to test sources and reports the innermost polling loop")
+    func pollingWaitRuleScopesToTestSourcesAndReportsInnermostPollingLoop() {
+        let nestedLoopSource = """
+            func drainsEveryPane(paneIds: [Int], isDrained: (Int) -> Bool) async {
+                for paneId in paneIds {
+                    while !isDrained(paneId) {
+                        await Task.yield()
+                    }
+                }
+            }
+            """
+        let testDiagnostics = TestPollingWaitRule().validate(
+            context: context(path: "Tests/AgentStudioTests/BadNestedPollingTest.swift", source: nestedLoopSource)
+        )
+        let productionDiagnostics = TestPollingWaitRule().validate(
+            context: context(path: "Sources/AgentStudio/App/PollingProduction.swift", source: nestedLoopSource)
+        )
+
+        #expect(testDiagnostics.map(\.line) == [3])
+        #expect(productionDiagnostics.isEmpty)
+    }
+
+    @Test("polling wait rule treats Date.now and bound clock .now as clock reads")
+    func pollingWaitRuleTreatsDateNowAndBoundClockNowAsClockReads() {
+        let dateNowDiagnostics = TestPollingWaitRule().validate(
+            context: context(
+                path: "Tests/AgentStudioTests/BadDateNowPollingTest.swift",
+                source: """
+                    func waitsUntilDateNowDeadline(condition: () -> Bool) {
+                        let deadline = Date.now.addingTimeInterval(10)
+                        while Date.now < deadline {
+                            if condition() {
+                                return
+                            }
+                        }
+                    }
+                    """
+            )
+        )
+        let boundClockDiagnostics = TestPollingWaitRule().validate(
+            context: context(
+                path: "Tests/AgentStudioTests/BadBoundClockPollingTest.swift",
+                source: """
+                    func waitsUntilBoundClockDeadline(condition: () -> Bool) {
+                        let ticker = ContinuousClock()
+                        let deadline = ticker.now.advanced(by: .seconds(10))
+                        while ticker.now < deadline {
+                            if condition() {
+                                return
+                            }
+                        }
+                    }
+                    """
+            )
+        )
+
+        #expect(dateNowDiagnostics.map(\.line) == [3])
+        #expect(boundClockDiagnostics.map(\.line) == [4])
+    }
+
+    @Test("polling wait baseline suppresses listed debt and fails once the debt is gone")
+    func pollingWaitBaselineSuppressesListedDebtAndFailsOnceDebtIsGone() {
+        let pollingViolation = ArchitectureViolation(
+            position: AbsolutePosition(utf8Offset: 0),
+            message: "polling"
+        )
+
+        #expect(
+            TestPollingWaitRule.pollingWaitOutcome(violations: [pollingViolation], isBaselined: false)
+                == .report([pollingViolation]))
+        #expect(
+            TestPollingWaitRule.pollingWaitOutcome(violations: [pollingViolation], isBaselined: true)
+                == .suppressedByBaseline)
+        #expect(TestPollingWaitRule.pollingWaitOutcome(violations: [], isBaselined: true) == .staleBaselineEntry)
+        #expect(TestPollingWaitRule.pollingWaitOutcome(violations: [], isBaselined: false) == .clean)
+    }
+
+    @Test("polling wait baseline reports listed files that no longer exist")
+    func pollingWaitBaselineReportsListedFilesThatNoLongerExist() {
+        let knownDebt = ["/Tests/StillHere.swift", "/Tests/Gone.swift"]
+
+        #expect(
+            TestPollingWaitRule.missingBaselineEntries(knownDebt: knownDebt) { path in
+                path == "/Tests/StillHere.swift"
+            } == ["/Tests/Gone.swift"])
+        #expect(
+            TestPollingWaitRule.missingBaselineEntries(knownDebt: knownDebt) { _ in
+                false
+            }.isEmpty)
+        #expect(
+            TestPollingWaitRule.missingBaselineEntries(knownDebt: []) { _ in
+                false
+            }.isEmpty)
     }
 
     @Test("EventBus subscriber policy rule diagnoses every denied fixture call shape")

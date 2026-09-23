@@ -4,17 +4,28 @@ import AgentStudioRepoExplorer
 import Foundation
 
 extension AppDelegate: ShellCommandHandling {
+    func ownsWorkspaceWindow(_ workspaceWindowId: UUID) -> Bool {
+        guard let controller = mainWindowController, controller.acceptsIPCCommands else {
+            return false
+        }
+        return controller.workspaceWindowId == workspaceWindowId
+    }
+
     func canExecute(_ request: AppCommandExecutionRequest) -> Bool {
         guard request.arguments == .noArguments else { return false }
         return canExecute(request.command)
     }
 
     func canExecute(_ command: AppCommand) -> Bool {
+        if command == .focusSidebar {
+            guard let atomStore else { return false }
+            return !atomStore.core.managementLayer.isActive
+        }
         if let sidebarCapability = sidebarCommandCapability(command) {
             return sidebarCapability
         }
         return switch command {
-        case .watchFolder, .toggleSidebar, .filterSidebar,
+        case .watchFolder, .toggleSidebar, .focusSidebar, .filterSidebar,
             .showReposSidebar, .showPanesSidebar,
             .signInGitHub, .signInGoogle, .newWindow, .closeWindow,
             .showCommandBarEverything, .showCommandBarQuickOpen, .showCommandBarCommands,
@@ -25,10 +36,12 @@ extension AppDelegate: ShellCommandHandling {
             .selectTab1, .selectTab2, .selectTab3, .selectTab4, .selectTab5,
             .selectTab6, .selectTab7, .selectTab8, .selectTab9,
             .closePane, .extractPaneToTab, .movePaneToTab, .focusPane, .scrollToBottom,
-            .scrollPageUp, .jumpToPreviousPrompt, .jumpToNextPrompt,
+            .scrollPageUp, .scrollPageDown, .scrollSmallStepUp, .scrollSmallStepDown,
+            .jumpToPreviousPrompt, .jumpToNextPrompt,
             .splitRight, .splitLeft, .equalizePanes,
             .focusPaneLeft, .focusPaneRight, .focusPaneUp, .focusPaneDown,
-            .focusNextPane, .focusPrevPane, .zoomPane, .minimizePane, .expandPane,
+            .focusNextPane, .focusPrevPane, .focusPreviousPinnedPane, .focusNextPinnedPane, .zoomPane, .minimizePane,
+            .expandPane,
             .focusPane1, .focusPane2, .focusPane3, .focusPane4, .focusPane5,
             .focusPane6, .focusPane7, .focusPane8, .focusPane9,
             .switchArrangement, .previousArrangement, .nextArrangement, .cycleArrangement,
@@ -86,16 +99,15 @@ extension AppDelegate: ShellCommandHandling {
         case .toggleSidebar:
             mainWindowController?.toggleSidebar()
             return true
+        case .focusSidebar:
+            guard let atomStore, !atomStore.core.managementLayer.isActive else { return false }
+            mainWindowController?.focusSidebarFromCommand()
+            return true
         case .filterSidebar:
             mainWindowController?.showSidebarFilter()
             return true
-        case .showInboxNotifications:
-            return false
-        case .toggleInboxNotificationSort:
-            return false
-        case .clearReadInboxNotifications:
-            return false
-        case .clearAllInboxNotifications:
+        case .showInboxNotifications, .toggleInboxNotificationSort,
+            .clearReadInboxNotifications, .clearAllInboxNotifications:
             return false
         case .showReposSidebar:
             return executeSidebarScreenCommand(.repos) == .applied
@@ -138,10 +150,12 @@ extension AppDelegate: ShellCommandHandling {
             .selectTab1, .selectTab2, .selectTab3, .selectTab4, .selectTab5,
             .selectTab6, .selectTab7, .selectTab8, .selectTab9,
             .closePane, .extractPaneToTab, .movePaneToTab, .focusPane, .scrollToBottom,
-            .scrollPageUp, .jumpToPreviousPrompt, .jumpToNextPrompt,
+            .scrollPageUp, .scrollPageDown, .scrollSmallStepUp, .scrollSmallStepDown,
+            .jumpToPreviousPrompt, .jumpToNextPrompt,
             .splitRight, .splitLeft, .equalizePanes,
             .focusPaneLeft, .focusPaneRight, .focusPaneUp, .focusPaneDown,
-            .focusNextPane, .focusPrevPane, .zoomPane, .minimizePane, .expandPane,
+            .focusNextPane, .focusPrevPane, .focusPreviousPinnedPane, .focusNextPinnedPane, .zoomPane, .minimizePane,
+            .expandPane,
             .focusPane1, .focusPane2, .focusPane3, .focusPane4, .focusPane5,
             .focusPane6, .focusPane7, .focusPane8, .focusPane9,
             .switchArrangement, .previousArrangement, .nextArrangement, .cycleArrangement,
@@ -185,10 +199,12 @@ extension AppDelegate: ShellCommandHandling {
             .selectTab1, .selectTab2, .selectTab3, .selectTab4, .selectTab5,
             .selectTab6, .selectTab7, .selectTab8, .selectTab9,
             .closePane, .extractPaneToTab, .movePaneToTab, .focusPane, .scrollToBottom,
-            .scrollPageUp, .jumpToPreviousPrompt, .jumpToNextPrompt,
+            .scrollPageUp, .scrollPageDown, .scrollSmallStepUp, .scrollSmallStepDown,
+            .jumpToPreviousPrompt, .jumpToNextPrompt,
             .splitRight, .splitLeft, .equalizePanes,
             .focusPaneLeft, .focusPaneRight, .focusPaneUp, .focusPaneDown,
-            .focusNextPane, .focusPrevPane, .zoomPane, .minimizePane, .expandPane,
+            .focusNextPane, .focusPrevPane, .focusPreviousPinnedPane, .focusNextPinnedPane, .zoomPane, .minimizePane,
+            .expandPane,
             .focusPane1, .focusPane2, .focusPane3, .focusPane4, .focusPane5,
             .focusPane6, .focusPane7, .focusPane8, .focusPane9,
             .switchArrangement, .previousArrangement, .nextArrangement, .cycleArrangement,
@@ -209,7 +225,7 @@ extension AppDelegate: ShellCommandHandling {
             .managementLayerEnterDrawer, .managementLayerExitDrawer,
             .managementLayerOpenDrawer, .managementLayerCreateTerminal, .managementLayerCreateBrowser,
             .managementLayerExit,
-            .toggleSidebar, .showInboxNotifications, .toggleInboxNotificationSort,
+            .toggleSidebar, .focusSidebar, .showInboxNotifications, .toggleInboxNotificationSort,
             .clearReadInboxNotifications, .clearAllInboxNotifications,
             .showPaneInboxNotifications, .clearPaneInboxNotifications, .showReposSidebar, .showPanesSidebar,
             .setReposGroupingRepo, .setReposGroupingActivity,
@@ -389,13 +405,16 @@ extension AppDelegate: ShellCommandHandling {
     }
 
     func execute(_ request: AppCommandExecutionRequest) -> AppCommandExecutionOutcome {
-        switch (request.command, request.arguments) {
-        case (.showInboxNotifications, _), (.toggleInboxNotificationSort, _),
-            (.clearReadInboxNotifications, _), (.clearAllInboxNotifications, _),
-            (.showPaneInboxNotifications, _), (.clearPaneInboxNotifications, _),
-            (.setInboxGroupingTab, _), (.setInboxGroupingRepo, _),
-            (.setInboxGroupingPane, _), (.setInboxGroupingNone, _),
-            (.setInboxRowStateFilter, _), (.setInboxContentMode, _):
+        if let typedArguments = request.typedIPCArguments {
+            return executeTypedIPCShellCommand(request.command, arguments: typedArguments)
+        }
+        switch request.command {
+        case .showInboxNotifications, .toggleInboxNotificationSort,
+            .clearReadInboxNotifications, .clearAllInboxNotifications,
+            .showPaneInboxNotifications, .clearPaneInboxNotifications,
+            .setInboxGroupingTab, .setInboxGroupingRepo,
+            .setInboxGroupingPane, .setInboxGroupingNone,
+            .setInboxRowStateFilter, .setInboxContentMode:
             return .unsupportedCommand
         default:
             return execute(request.command) ? .applied : .unsupportedCommand
@@ -408,10 +427,7 @@ extension AppDelegate: ShellCommandHandling {
             .setReposSortFieldName, .setReposSortFieldActivity,
             .toggleReposSortDirection, .toggleReposShowsPinned:
             .repos
-        case .setPanesGroupingRepo, .setPanesGroupingTab, .setPanesGroupingActivity,
-            .setPanesSubgroupNone, .setPanesSubgroupActivity,
-            .setPanesSortFieldName, .setPanesSortFieldActivity,
-            .togglePanesSortDirection, .togglePanesShowsPinned:
+        case .togglePanesShowsPinned:
             .panes
         default:
             nil
@@ -419,6 +435,14 @@ extension AppDelegate: ShellCommandHandling {
     }
 
     private func sidebarCommandCapability(_ command: AppCommand) -> Bool? {
+        switch command {
+        case .setPanesGroupingRepo, .setPanesGroupingTab, .setPanesGroupingActivity,
+            .setPanesSubgroupNone, .setPanesSubgroupActivity,
+            .setPanesSortFieldName, .setPanesSortFieldActivity, .togglePanesSortDirection:
+            return false
+        default:
+            break
+        }
         if command == .showReposSidebar || command == .showPanesSidebar {
             return atomStore != nil
         }
@@ -426,9 +450,6 @@ extension AppDelegate: ShellCommandHandling {
         guard let atomStore else { return false }
         guard atomStore.core.workspaceSidebarState.sidebarSurface == requiredSurface else {
             return false
-        }
-        if command == .setPanesSubgroupNone || command == .setPanesSubgroupActivity {
-            return atomStore.repoExplorerSidebarPrefs.groupingMode(for: .panes) != .activity
         }
         return true
     }
@@ -440,32 +461,16 @@ extension AppDelegate: ShellCommandHandling {
             return .unsupportedCommand
         }
         let prefs = atomStore.repoExplorerSidebarPrefs
-        if surface == .panes,
-            prefs.groupingMode(for: surface) == .activity,
-            command == .setPanesSubgroupNone || command == .setPanesSubgroupActivity
-        {
-            return .unsupportedCommand
-        }
         switch command {
         case .setReposGroupingRepo:
             prefs.setGroupingMode(.repo, for: surface)
         case .setReposGroupingActivity:
             prefs.setGroupingMode(.activity, for: surface)
-        case .setPanesGroupingRepo:
-            prefs.setGroupingMode(.repo, for: surface)
-        case .setPanesGroupingTab:
-            prefs.setGroupingMode(.tab, for: surface)
-        case .setPanesGroupingActivity:
-            prefs.setGroupingMode(.activity, for: surface)
-        case .setPanesSubgroupNone:
-            prefs.setSubgroupMode(.ungrouped, for: surface)
-        case .setPanesSubgroupActivity:
-            prefs.setSubgroupMode(.activity, for: surface)
-        case .setReposSortFieldName, .setPanesSortFieldName:
+        case .setReposSortFieldName:
             prefs.setSortField(.name, for: surface)
-        case .setReposSortFieldActivity, .setPanesSortFieldActivity:
+        case .setReposSortFieldActivity:
             prefs.setSortField(.activity, for: surface)
-        case .toggleReposSortDirection, .togglePanesSortDirection:
+        case .toggleReposSortDirection:
             prefs.setSortDirection(prefs.sortDirection(for: surface).toggled, for: surface)
         case .toggleReposShowsPinned, .togglePanesShowsPinned:
             prefs.setShowsPinned(!prefs.showsPinned(for: surface), for: surface)

@@ -287,19 +287,21 @@ try:
         "showPanesSidebar",
         "setReposGroupingRepo",
         "setReposGroupingActivity",
+        "setReposSortFieldName",
+        "setReposSortFieldActivity",
+        "toggleReposSortDirection",
+        "toggleReposShowsPinned",
+        "togglePanesShowsPinned",
+    }
+    retired_panes_organization_commands = {
         "setPanesGroupingRepo",
         "setPanesGroupingTab",
         "setPanesGroupingActivity",
         "setPanesSubgroupNone",
         "setPanesSubgroupActivity",
-        "setReposSortFieldName",
-        "setReposSortFieldActivity",
         "setPanesSortFieldName",
         "setPanesSortFieldActivity",
-        "toggleReposSortDirection",
         "togglePanesSortDirection",
-        "toggleReposShowsPinned",
-        "togglePanesShowsPinned",
     }
     commands_by_id = {command.get("id"): command for command in commands}
     for command_id in sorted(required_sidebar_no_argument_commands):
@@ -309,6 +311,14 @@ try:
             sys.exit(1)
         if command_entry.get("argumentSchema") != []:
             print(f"{command_id} must expose no arguments: {command_entry}", file=sys.stderr)
+            sys.exit(1)
+    for command_id in sorted(retired_panes_organization_commands):
+        command_entry = commands_by_id.get(command_id)
+        if command_entry is None:
+            print(f"command.list omitted retained retired command {command_id}", file=sys.stderr)
+            sys.exit(1)
+        if command_entry.get("executionModes") != [] or command_entry.get("requiredPrivileges") != []:
+            print(f"retired command retained IPC authority: {command_entry}", file=sys.stderr)
             sys.exit(1)
     allowed_command_keys = {
         "id",
@@ -428,33 +438,65 @@ try:
     sidebar_command_expectations = [
         (13, "setReposGroupingRepo"),
         (14, "setReposGroupingActivity"),
+        (15, "setReposGroupingRepo"),
         (16, "setReposSortFieldName"),
         (17, "setReposSortFieldActivity"),
         (18, "toggleReposShowsPinned"),
         (19, "toggleReposShowsPinned"),
         (20, "showPanesSidebar"),
-        (21, "setPanesGroupingRepo"),
-        (22, "setPanesSubgroupNone"),
-        (23, "setPanesSubgroupActivity"),
-        (24, "setPanesGroupingTab"),
-        (25, "setPanesGroupingActivity"),
-        (26, "setPanesSortFieldName"),
-        (27, "setPanesSortFieldActivity"),
-        (28, "togglePanesSortDirection"),
-        (29, "togglePanesSortDirection"),
         (30, "togglePanesShowsPinned"),
         (31, "togglePanesShowsPinned"),
+    ]
+    for request_id, command_id in sidebar_command_expectations:
+        execute_sidebar_command(request_id, command_id)
+
+    panes_grouping_before_retired_commands = require_success(
+        session.request(37, "sidebar.grouping.get", {"surface": "panes"}),
+        "sidebar.grouping.get panes before retired commands",
+    )
+    if panes_grouping_before_retired_commands.get("mode") != "activity":
+        print(
+            f"Panes grouping did not use fixed activity mode: {panes_grouping_before_retired_commands}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    for request_id, command_id in enumerate(sorted(retired_panes_organization_commands), start=40):
+        require_error(
+            session.request(
+                request_id,
+                "command.execute",
+                {"commandId": command_id, "targetHandle": None, "arguments": {}},
+            ),
+            f"command.execute retired {command_id}",
+            -32007,
+            "parameters required",
+        )
+
+    panes_grouping_after_retired_commands = require_success(
+        session.request(48, "sidebar.grouping.get", {"surface": "panes"}),
+        "sidebar.grouping.get panes after retired commands",
+    )
+    if panes_grouping_after_retired_commands != panes_grouping_before_retired_commands:
+        print(
+            "retired Panes organization commands mutated fixed Panes state: "
+            f"before={panes_grouping_before_retired_commands} after={panes_grouping_after_retired_commands}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    inbox_command_expectations = [
         (32, "showInboxNotifications"),
         (33, "setInboxGroupingTab"),
         (34, "setInboxGroupingRepo"),
         (35, "setInboxGroupingPane"),
         (36, "setInboxGroupingNone"),
     ]
-    for request_id, command_id in sidebar_command_expectations:
+    for request_id, command_id in inbox_command_expectations:
         execute_sidebar_command(request_id, command_id)
 
     repo_grouping = require_success(
-        session.request(37, "sidebar.grouping.get", {"surface": "repo"}),
+        session.request(49, "sidebar.grouping.get", {"surface": "repo"}),
         "sidebar.grouping.get repo",
     )
     if repo_grouping.get("mode") != "repo":
@@ -462,7 +504,7 @@ try:
         sys.exit(1)
 
     inbox_grouping = require_success(
-        session.request(38, "sidebar.grouping.get", {"surface": "inbox"}),
+        session.request(50, "sidebar.grouping.get", {"surface": "inbox"}),
         "sidebar.grouping.get inbox",
     )
     if inbox_grouping.get("mode") != "none":
@@ -470,7 +512,7 @@ try:
         sys.exit(1)
 
     sidebar_surface = require_success(
-        session.request(39, "sidebar.surface.get", {}),
+        session.request(51, "sidebar.surface.get", {}),
         "sidebar.surface.get",
     )
     if sidebar_surface.get("surface") != "inbox":
@@ -479,7 +521,7 @@ try:
 
     require_error(
         session.request(
-            40,
+            52,
             "sidebar.grouping.set",
             {"surface": "repo", "mode": "none"},
         ),

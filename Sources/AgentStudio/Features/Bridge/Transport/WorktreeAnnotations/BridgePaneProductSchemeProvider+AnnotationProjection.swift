@@ -228,7 +228,8 @@ extension BridgePaneProductSchemeProvider {
                 await session.waitUntilProducerFrameSequenceObserved(
                     for: lease,
                     sequence: frame.sequence,
-                    productAdmission: productAdmission
+                    productAdmission: productAdmission,
+                    foregroundWorkAdmission: foregroundWorkAdmission
                 )
             else { return nil }
             hasher.update(data: batch)

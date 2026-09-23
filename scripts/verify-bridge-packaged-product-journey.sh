@@ -59,9 +59,33 @@ dry-run ok: proves exact package origin and core.sqlite symbolic intent
 dry-run ok: proves automatic Git-ref invalidation without bridge.diff.refresh
 dry-run ok: does not embed desktop automation
 dry-run ok: interprets raw one-row comparison geometry
+dry-run ok: proves the bundled agentstudio CLI executable runs its own argument parser
 DRY_RUN
   exit 0
 fi
+
+# The pane environment advertises AGENTSTUDIO_CLI at Contents/Helpers/agentstudio.
+# It cannot live in Contents/MacOS because that path collides with the app's own
+# executable on case-insensitive volumes. The CLI has no --help verb, so an
+# argument-free invocation is the cheapest proof that the real binary loaded and
+# ran its own parser instead of failing to execute (126/127) or crashing.
+require_bundled_agentstudio_cli() {
+  local app_bundle="${1:?missing app bundle}"
+  local cli_path="$app_bundle/Contents/Helpers/agentstudio"
+  local cli_stderr
+  local cli_status=0
+  if [ ! -x "$cli_path" ]; then
+    echo "Bridge packaged journey bundle is missing an executable agentstudio CLI: $cli_path" >&2
+    exit 1
+  fi
+  cli_stderr="$("$cli_path" 2>&1 >/dev/null)" || cli_status=$?
+  if [ "$cli_status" -ne 1 ] || [[ "$cli_stderr" != *'"reason":"invalidParams"'* ]]; then
+    echo "Bridge packaged journey bundled agentstudio CLI did not run its argument parser: $cli_path" >&2
+    echo "exit status: $cli_status" >&2
+    echo "stderr: $cli_stderr" >&2
+    exit 1
+  fi
+}
 
 decode_state_value() {
   /usr/bin/python3 - "$1" <<'PY'
@@ -426,6 +450,7 @@ if [ "$complete_journey" = true ]; then
     exit 1
   fi
   /usr/bin/codesign --verify --deep --strict "$candidate_app"
+  require_bundled_agentstudio_cli "$candidate_app"
   packaged_bridge_web="$candidate_app/Contents/Resources/AgentStudio_AgentStudio.bundle/BridgeWeb/app"
   source_bridge_web="$PROJECT_ROOT/Sources/AgentStudio/Resources/BridgeWeb/app"
   if ! cmp -s "$source_bridge_web/agentstudio-app-assets.json" "$packaged_bridge_web/agentstudio-app-assets.json"; then
@@ -621,6 +646,7 @@ case "$expected_executable" in
 esac
 
 /usr/bin/codesign --verify --deep --strict "$state_app"
+require_bundled_agentstudio_cli "$state_app"
 packaged_bridge_web="$state_app/Contents/Resources/AgentStudio_AgentStudio.bundle/BridgeWeb/app"
 source_bridge_web="$PROJECT_ROOT/Sources/AgentStudio/Resources/BridgeWeb/app"
 for required_asset in \

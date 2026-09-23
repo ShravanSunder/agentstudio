@@ -49,10 +49,7 @@ package struct DrawerGridLayout: Codable, Hashable, Sendable {
     package func neighbor(of paneId: UUID, direction: FocusDirection) -> UUID? {
         switch direction {
         case .left, .right:
-            if topRow.contains(paneId) {
-                return topRow.neighbor(of: paneId, direction: direction)
-            }
-            return bottomRow?.neighbor(of: paneId, direction: direction)
+            return row(containing: paneId)?.neighbor(of: paneId, direction: direction)
         case .up:
             guard let bottomRow, bottomRow.contains(paneId) else { return nil }
             return pairedPane(in: topRow, for: paneId, from: bottomRow)
@@ -60,6 +57,20 @@ package struct DrawerGridLayout: Codable, Hashable, Sendable {
             guard let bottomRow, topRow.contains(paneId) else { return nil }
             return pairedPane(in: bottomRow, for: paneId, from: topRow)
         }
+    }
+
+    package func horizontalNeighbor(
+        of paneId: UUID,
+        direction: FocusDirection,
+        among eligiblePaneIds: Set<UUID>
+    ) -> UUID? {
+        row(containing: paneId)?.neighbor(of: paneId, direction: direction, among: eligiblePaneIds)
+    }
+
+    private func row(containing paneId: UUID) -> Layout? {
+        if topRow.contains(paneId) { return topRow }
+        guard let bottomRow, bottomRow.contains(paneId) else { return nil }
+        return bottomRow
     }
 
     func inserting(

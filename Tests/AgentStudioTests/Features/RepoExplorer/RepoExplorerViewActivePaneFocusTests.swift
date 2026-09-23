@@ -29,8 +29,8 @@ extension RepoExplorerViewProjectionHelperTests {
         )
     }
 
-    @Test("Panes by Tab observes its surface sort changes")
-    func panesByTabObservesSurfaceSortChanges() {
+    @Test("fixed Panes organization ignores mutable sort and grouping settings")
+    func fixedPanesOrganizationIgnoresMutableSettings() {
         withTestCoreAtoms { atoms in
             let store = WorkspaceStore(
                 catalogAtom: atoms.workspaceRepositoryTopology,
@@ -39,7 +39,6 @@ extension RepoExplorerViewProjectionHelperTests {
             )
             atoms.workspaceSidebarState.setSidebarSurface(.panes)
             let preferences = RepoExplorerSidebarPrefsAtom()
-            preferences.setGroupingMode(.tab, for: .panes)
             let capture = makeProjectionInputCapture(
                 store: store,
                 preferences: preferences,
@@ -53,9 +52,16 @@ extension RepoExplorerViewProjectionHelperTests {
             } onChange: {
                 invalidationRecorder.record()
             }
-            preferences.setSortDirection(.descending, for: .panes)
+            preferences.setSortDirection(.ascending, for: .panes)
+            preferences.setSortField(.name, for: .panes)
+            preferences.setGroupingMode(.tab, for: .panes)
 
-            #expect(invalidationRecorder.invalidationCount == 1)
+            #expect(invalidationRecorder.invalidationCount == 0)
+            let current = capture.captureRequest(query: "", referenceDate: Date(), trigger: .dataRefresh)
+            #expect(current.snapshot.groupingMode == .activity)
+            #expect(current.snapshot.subgroupMode == .ungrouped)
+            #expect(current.snapshot.sortField == .activity)
+            #expect(current.snapshot.sortOrder == .descending)
         }
     }
 
@@ -112,8 +118,8 @@ extension RepoExplorerViewProjectionHelperTests {
         }
     }
 
-    @Test("hidden Repo surface registers no projection inputs")
-    func hiddenRepoSurfaceRegistersNoProjectionInputs() {
+    @Test("hidden Panes surface registers no projection inputs")
+    func hiddenPanesSurfaceRegistersNoProjectionInputs() {
         withTestCoreAtoms { atoms in
             let store = WorkspaceStore(
                 catalogAtom: atoms.workspaceRepositoryTopology,
@@ -128,7 +134,6 @@ extension RepoExplorerViewProjectionHelperTests {
                 preferences: preferences,
                 atoms: atoms
             )
-            let invalidationRecorder = RepoProjectionInvalidationRecorder()
             let adapter = RepoExplorerProjectionAdapter(inputCapture: capture)
             defer { adapter.stop() }
 
@@ -137,9 +142,6 @@ extension RepoExplorerViewProjectionHelperTests {
                 scope: .everything,
                 workspaceWindowId: UUIDv7.generate()
             )
-            preferences.setGroupingMode(.tab, for: .panes)
-
-            #expect(invalidationRecorder.invalidationCount == 0)
             #expect(adapter.observationTokens.isEmpty)
         }
     }

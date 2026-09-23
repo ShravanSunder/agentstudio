@@ -8,7 +8,7 @@ enum PaneFocusAppControlError: Error, Equatable, Sendable {
 
 @MainActor
 protocol PaneFocusAppControlling: Sendable {
-    func focusPane(_ paneId: UUID) throws
+    func focusPane(_ paneId: UUID) async throws
 }
 
 @MainActor
@@ -21,7 +21,10 @@ final class PaneTabViewControllerPaneFocusAppControl: PaneFocusAppControlling, @
         self.workspaceStore = workspaceStore
     }
 
-    func focusPane(_ paneId: UUID) throws {
+    func focusPane(_ paneId: UUID) async throws {
+        guard paneTabViewController.acceptsIPCCommands else {
+            throw PaneFocusAppControlError.validationRejected
+        }
         let snapshot = workspaceStore.programmaticControlSnapshot()
         guard let pane = snapshot.panes.first(where: { $0.id == paneId }) else {
             throw PaneFocusAppControlError.targetNotFound
@@ -29,7 +32,12 @@ final class PaneTabViewControllerPaneFocusAppControl: PaneFocusAppControlling, @
         guard pane.tabId != nil else {
             throw PaneFocusAppControlError.validationRejected
         }
+        guard paneTabViewController.hasNativePaneHost(paneId) else {
+            throw PaneFocusAppControlError.validationRejected
+        }
 
-        paneTabViewController.execute(.focusPane, target: paneId, targetType: .pane)
+        guard await paneTabViewController.submitTargetedPaneFocus(paneId).value else {
+            throw PaneFocusAppControlError.validationRejected
+        }
     }
 }

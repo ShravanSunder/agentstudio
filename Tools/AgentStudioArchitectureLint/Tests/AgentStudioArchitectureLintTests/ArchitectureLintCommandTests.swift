@@ -46,6 +46,29 @@ struct ArchitectureLintCommandTests {
         #expect(result.output.contains("Core-owned presentation types"))
     }
 
+    @Test("blocking wait rule recognizes Process receivers without matching unrelated names")
+    func blockingWaitRuleRecognizesProcessReceiversWithoutMatchingUnrelatedNames() throws {
+        let badResult = runCommand(
+            arguments: [
+                fixturePath("Bad/Tests/AgentStudioTests/BadProcessWaitUntilExitTest.swift")
+            ]
+        )
+        let goodResult = runCommand(
+            arguments: [
+                fixturePath("Good/Tests/AgentStudioTests/GoodProcessWaitUntilExitTest.swift")
+            ]
+        )
+
+        #expect(badResult.exitCode == 1)
+        #expect(badResult.output.contains("Wrap this Process.waitUntilExit call"))
+        #expect(
+            badResult.output.components(separatedBy: "Wrap this Process.waitUntilExit call").count - 1 == 4,
+            Comment(rawValue: badResult.output)
+        )
+        #expect(goodResult.exitCode == 0, Comment(rawValue: goodResult.output))
+        #expect(goodResult.output.isEmpty)
+    }
+
     @Test("PaneTab command presentation rejects bulk pane snapshots and wrappers")
     func paneTabCommandPresentationRejectsBulkPaneSnapshotsAndWrappers() throws {
         let result = runCommand(

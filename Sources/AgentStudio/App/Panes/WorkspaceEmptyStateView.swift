@@ -313,7 +313,7 @@ struct WorkspaceEmptyStateView: View {
                 if let quickFindPresentation {
                     launcherShortcutRow(
                         leadingContent: .preferred(
-                            keyBindingDisplayString: quickFindDefinition.keyBinding?.displayString,
+                            keyBindingDisplayString: quickFindDefinition.globalKeyBinding?.displayString,
                             icon: quickFindDefinition.actionSpec.icon
                         ),
                         title: quickFindDefinition.label,
@@ -326,7 +326,7 @@ struct WorkspaceEmptyStateView: View {
                 if let repositoriesPresentation {
                     launcherShortcutRow(
                         leadingContent: .preferred(
-                            keyBindingDisplayString: newTabOrWorktreeDefinition.keyBinding?.displayString,
+                            keyBindingDisplayString: newTabOrWorktreeDefinition.globalKeyBinding?.displayString,
                             icon: newTabOrWorktreeDefinition.actionSpec.icon
                         ),
                         title: newTabOrWorktreeDefinition.label,
@@ -339,7 +339,7 @@ struct WorkspaceEmptyStateView: View {
                 if let watchFolderPresentation {
                     launcherShortcutRow(
                         leadingContent: .preferred(
-                            keyBindingDisplayString: watchFolderDefinition.keyBinding?.displayString,
+                            keyBindingDisplayString: watchFolderDefinition.globalKeyBinding?.displayString,
                             icon: watchFolderDefinition.actionSpec.icon
                         ),
                         title: watchFolderDefinition.label,

@@ -35,7 +35,7 @@ struct CommandBarSurfaceCommandTests {
 
         #expect(reposSidebar?.title == "Repos")
         #expect(reposSidebar?.group == "Sidebar")
-        #expect(reposSidebar?.shortcutTrigger == AppShortcut.showReposSidebar.trigger)
-        #expect(reposSidebar?.shortcutKeys?.map(\.symbol).joined() == "⌘S")
+        #expect(reposSidebar?.shortcutTrigger == nil)
+        #expect(reposSidebar?.shortcutKeys == nil)
     }
 }

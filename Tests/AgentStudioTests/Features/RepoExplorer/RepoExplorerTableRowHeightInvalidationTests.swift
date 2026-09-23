@@ -439,7 +439,8 @@ struct RepoExplorerTableRowHeightInvalidationTests {
                 requestGeneration: requestGeneration,
                 visibleGeneration: requestGeneration,
                 snapshot: snapshot,
-                tableUpdatePlan: tablePlan
+                tableUpdatePlan: tablePlan,
+                selectedRowID: nil
             )
         ) { disposition = $0 }
 

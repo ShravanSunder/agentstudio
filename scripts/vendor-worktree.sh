@@ -141,6 +141,19 @@ require_primary_compatibility() {
   done
 }
 
+# GhosttyEventRoutingCoverageTests reads <slice>/Headers/ghostty.h out of the
+# XCFramework at runtime, so an otherwise well-formed framework directory that
+# carries no slice header fails the suite with "couldn't be opened" instead of
+# failing preflight.
+require_framework_slice_header() {
+  local framework="$1"
+  local slice_header
+
+  slice_header="$(find "$framework" -maxdepth 3 -type f -name 'ghostty.h' -print -quit 2>/dev/null || true)"
+  [[ -n "$slice_header" ]] ||
+    fail "GhosttyKit XCFramework has no slice header: expected $framework/<slice>/Headers/ghostty.h"
+}
+
 require_prepared_sources() {
   local producer_root="$1"
   local framework="$producer_root/$framework_relative"
@@ -152,6 +165,7 @@ require_prepared_sources() {
   require_real_directory "$framework"
   require_path_within_root "$producer_root" "$framework"
   require_no_nested_symlinks "$framework"
+  require_framework_slice_header "$framework"
   require_real_directory "$zmx_output"
   require_path_within_root "$producer_root" "$zmx_output"
   require_real_file "$zmx_binary"
@@ -212,6 +226,7 @@ require_ci_prepared_sources() {
   require_real_directory "$framework"
   require_path_within_root "$producer_root" "$framework"
   require_no_nested_symlinks "$framework"
+  require_framework_slice_header "$framework"
   require_real_directory "$zmx_output"
   require_path_within_root "$producer_root" "$zmx_output"
   require_real_file "$zmx_binary"

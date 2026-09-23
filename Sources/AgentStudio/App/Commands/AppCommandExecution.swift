@@ -1,6 +1,5 @@
 import AgentStudioCommandBar
 import AgentStudioCore
-import AgentStudioInboxNotification
 import AgentStudioProgrammaticControl
 import AgentStudioRepoExplorer
 import Foundation
@@ -8,8 +7,10 @@ import Foundation
 /// Protocol for objects that execute commands against the active workspace.
 @MainActor
 protocol WorkspaceCommandHandling: AnyObject {
+    func ownsWorkspaceWindow(_ workspaceWindowId: UUID) -> Bool
     func execute(_ command: AppCommand)
     func execute(_ command: AppCommand, target: UUID, targetType: SearchItemType)
+    func executeHeadlessIPC(_ request: AppCommandExecutionRequest) async -> AppCommandExecutionOutcome
     func canExecute(_ command: AppCommand) -> Bool
     func canExecute(_ command: AppCommand, target: UUID, targetType: SearchItemType) -> Bool
     func bridgePaneCommandTarget(worktreeId: UUID) -> BridgePaneCommandTarget?
@@ -24,6 +25,7 @@ protocol WorkspaceCommandHandling: AnyObject {
 /// Routes app-level commands that do not belong to the workspace command handler.
 @MainActor
 protocol ShellCommandHandling: AnyObject {
+    func ownsWorkspaceWindow(_ workspaceWindowId: UUID) -> Bool
     func canExecute(_ command: AppCommand) -> Bool
     func canExecute(_ command: AppCommand, target: UUID, targetType: SearchItemType) -> Bool
     func canExecute(_ request: AppCommandExecutionRequest) -> Bool
@@ -60,91 +62,41 @@ struct AppCommandExecutionRequest: Equatable, Sendable {
 
 enum AppCommandExecutionContext: Equatable, Sendable {
     case interactive
-    case headlessIPC
+    /// Typed `command.execute` delivery. `admitsDebugTestingCommands` is true
+    /// only on the debug server channel; stable and beta keep the admitted
+    /// headless commands the projection marks `.allChannels`.
+    case headlessIPC(admitsDebugTestingCommands: Bool)
 }
 
 enum AppCommandExecutionArguments: Equatable, Sendable {
     case noArguments
-    case inboxRowStateFilter(InboxNotificationRowStateFilter)
-    case inboxContentMode(InboxNotificationContentMode)
-
-    static func commandOwnedArguments(
-        contract: AppCommandIPCArgumentContract,
-        rawArguments: [String: String],
-        argumentsContainOnlyStrings: Bool
-    ) throws -> Self {
-        try validate(
-            rawArguments: rawArguments,
-            argumentsContainOnlyStrings: argumentsContainOnlyStrings,
-            against: contract.argumentSchema
-        )
-        switch contract {
-        case .noArguments:
-            return .noArguments
-        case .inboxRowStateFilter:
-            guard
-                let rawFilter = rawArguments["filter"],
-                let filter = InboxNotificationRowStateFilter(rawValue: rawFilter)
-            else {
-                throw AppCommandArgumentDecodingError.validationRejected
-            }
-            return .inboxRowStateFilter(filter)
-        case .inboxContentMode:
-            guard
-                let rawMode = rawArguments["mode"],
-                let mode = InboxNotificationContentMode(rawValue: rawMode)
-            else {
-                throw AppCommandArgumentDecodingError.validationRejected
-            }
-            return .inboxContentMode(mode)
-        }
-    }
-
-    private static func validate(
-        rawArguments: [String: String],
-        argumentsContainOnlyStrings: Bool,
-        against argumentSchema: [IPCCommandArgumentSchema]
-    ) throws {
-        guard argumentsContainOnlyStrings else {
-            throw AppCommandArgumentDecodingError.validationRejected
-        }
-        let schemaByName = Dictionary(uniqueKeysWithValues: argumentSchema.map { ($0.name, $0) })
-        guard Set(rawArguments.keys).isSubset(of: Set(schemaByName.keys)) else {
-            throw AppCommandArgumentDecodingError.validationRejected
-        }
-
-        for argument in argumentSchema where argument.isRequired {
-            guard rawArguments[argument.name] != nil else {
-                throw AppCommandArgumentDecodingError.validationRejected
-            }
-        }
-
-        for (name, value) in rawArguments {
-            guard let schema = schemaByName[name] else {
-                throw AppCommandArgumentDecodingError.validationRejected
-            }
-            switch schema.kind {
-            case .stringEnum(let values):
-                guard values.contains(value) else {
-                    throw AppCommandArgumentDecodingError.validationRejected
-                }
-            }
-        }
-    }
+    /// Canonical typed IPC arguments. Pane selectors are already resolved to
+    /// stored canonical UUIDs before an owner sees them.
+    case typedIPC(IPCCommandArguments)
 }
 
-enum AppCommandArgumentDecodingError: Error, Equatable {
-    case validationRejected
-}
-
+/// The truthful boundary a command owner reached. Owners never report a
+/// stronger boundary than they observed: presentation is not completion and a
+/// scheduled workspace effect is acceptance, not application.
 enum AppCommandExecutionOutcome: Equatable, Sendable {
     case applied
+    case accepted(operationId: UUID?)
+    case presented
+    case unavailable(IPCCommandUnavailableReason)
     case stateUnavailable
     case unsupportedCommand
 }
 
 @MainActor
 extension WorkspaceCommandHandling {
+    func ownsWorkspaceWindow(_: UUID) -> Bool { false }
+
+    /// Fail closed. An owner opts in per command family; it never inherits a
+    /// silent success from this protocol.
+    func executeHeadlessIPC(_: AppCommandExecutionRequest) async -> AppCommandExecutionOutcome {
+        .unsupportedCommand
+    }
+
     func repoExplorerCommandCapabilities(
         _ requests: Set<RepoExplorerCommandPresentationRequest>
     ) -> [RepoExplorerCommandPresentationRequest: Bool] {
@@ -173,6 +125,8 @@ extension WorkspaceCommandHandling {
 
 @MainActor
 extension ShellCommandHandling {
+    func ownsWorkspaceWindow(_: UUID) -> Bool { false }
+
     func canExecute(_ command: AppCommand, target _: UUID, targetType _: SearchItemType) -> Bool {
         canExecute(command)
     }
@@ -181,7 +135,7 @@ extension ShellCommandHandling {
         switch request.arguments {
         case .noArguments:
             return execute(request.command) ? .applied : .unsupportedCommand
-        case .inboxRowStateFilter, .inboxContentMode:
+        case .typedIPC:
             return .unsupportedCommand
         }
     }

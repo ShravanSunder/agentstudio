@@ -29,7 +29,7 @@ extension WebKitSerializedTests {
                 let baselineTabIds = Set(harness.store.tabLayoutAtom.tabs.map(\.id))
 
                 // Act
-                harness.controller.execute(.showBridgeReview, target: worktree.id, targetType: .worktree)
+                await harness.executeCommand(.showBridgeReview, target: worktree.id, targetType: .worktree)
 
                 // Assert
                 let createdPane = try #require(singleCreatedBridgePane(in: harness, excluding: baselinePaneIds))
@@ -77,9 +77,25 @@ extension WebKitSerializedTests {
                 )
                 focusWindow.isReleasedWhenClosed = false
                 defer { focusWindow.close() }
+                let release = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+                var predecessorStarted = false
+                let predecessor = harness.executor.submitGesture { _ in
+                    predecessorStarted = true
+                    for await _ in release.stream { break }
+                    return true
+                }
+                await eventually("the predecessor should suspend before Bridge reuse") {
+                    predecessorStarted
+                }
 
                 // Act
                 harness.controller.execute(.showBridgeFiles, target: worktree.id, targetType: .worktree)
+                #expect(
+                    harness.atomRegistry.bridgePaneAttendance.ordinal(for: createdPane.id) == initialAttendanceOrdinal)
+                release.continuation.yield(())
+                release.continuation.finish()
+                #expect(await predecessor.value)
+                _ = await harness.executor.submitGesture { _ in true }.value
 
                 // Assert
                 let fileSelection = try await requireSurfaceSelection(
@@ -111,9 +127,9 @@ extension WebKitSerializedTests {
                 let (_, worktree) = makeRepoAndWorktree(harness.store, root: harness.tempDir)
 
                 // Act
-                harness.controller.execute(.showBridgeReview, target: worktree.id, targetType: .worktree)
-                harness.controller.execute(.openBridgeFilesInNewTab, target: worktree.id, targetType: .worktree)
-                harness.controller.execute(.openBridgeReviewInNewTab, target: worktree.id, targetType: .worktree)
+                await harness.executeCommand(.showBridgeReview, target: worktree.id, targetType: .worktree)
+                await harness.executeCommand(.openBridgeFilesInNewTab, target: worktree.id, targetType: .worktree)
+                await harness.executeCommand(.openBridgeReviewInNewTab, target: worktree.id, targetType: .worktree)
 
                 // Assert
                 let bridgePanes = harness.store.paneAtom.paneSnapshot().values
@@ -192,7 +208,7 @@ extension WebKitSerializedTests {
                     let (_, worktree) = makeRepoAndWorktree(harness.store, root: harness.tempDir)
                     let baselinePaneIds = harness.store.paneAtom.graphAtom.paneIDs
 
-                    harness.controller.execute(
+                    await harness.executeCommand(
                         .openBridgeReviewInNewTab,
                         target: worktree.id,
                         targetType: .worktree
@@ -215,7 +231,7 @@ extension WebKitSerializedTests {
                 // Arrange
                 let (_, worktree) = makeRepoAndWorktree(harness.store, root: harness.tempDir)
                 let baselinePaneIds = harness.store.paneAtom.graphAtom.paneIDs
-                harness.controller.execute(
+                await harness.executeCommand(
                     .showBridgeReview,
                     target: worktree.id,
                     targetType: .worktree
@@ -271,7 +287,7 @@ extension WebKitSerializedTests {
                 // Arrange
                 let (_, worktree) = makeRepoAndWorktree(harness.store, root: harness.tempDir)
                 let baselinePaneIds = harness.store.paneAtom.graphAtom.paneIDs
-                harness.controller.execute(
+                await harness.executeCommand(
                     .showBridgeFiles,
                     target: worktree.id,
                     targetType: .worktree
@@ -382,7 +398,7 @@ extension WebKitSerializedTests {
                 )
                 let (_, worktree) = makeRepoAndWorktree(harness.store, root: harness.tempDir)
                 let baselinePaneIds = harness.store.paneAtom.graphAtom.paneIDs
-                harness.controller.execute(
+                await harness.executeCommand(
                     .showBridgeFiles,
                     target: worktree.id,
                     targetType: .worktree
@@ -471,9 +487,9 @@ extension WebKitSerializedTests {
                 let tabIdsBefore = Set(harness.store.tabLayoutAtom.tabs.map(\.id))
 
                 // Act
-                harness.controller.execute(.showBridgeReview, target: invalidWorktreeId, targetType: .worktree)
-                harness.controller.execute(.openBridgeFilesInNewTab, target: invalidWorktreeId, targetType: .worktree)
-                harness.controller.execute(.showBridgeFiles, target: worktree.id, targetType: .repo)
+                await harness.executeCommand(.showBridgeReview, target: invalidWorktreeId, targetType: .worktree)
+                await harness.executeCommand(.openBridgeFilesInNewTab, target: invalidWorktreeId, targetType: .worktree)
+                await harness.executeCommand(.showBridgeFiles, target: worktree.id, targetType: .repo)
 
                 // Assert
                 #expect(harness.store.paneAtom.graphAtom.paneIDs == paneIdsBefore)
@@ -498,7 +514,7 @@ private func assertSuccessfulBridgeCommandRecordsRecency(_ command: AppCommand) 
         let reuseWindow: NSWindow?
         if reusesExistingPane {
             let paneIdsBeforeSetup = harness.store.paneAtom.graphAtom.paneIDs
-            harness.controller.execute(
+            await harness.executeCommand(
                 .openBridgeReviewInNewTab,
                 target: worktree.id,
                 targetType: .worktree
@@ -547,7 +563,8 @@ private func assertSuccessfulBridgeCommandRecordsRecency(_ command: AppCommand) 
             try await dispatchBridgeCommand(
                 command,
                 worktreeId: worktree.id,
-                controller: harness.controller
+                controller: harness.controller,
+                executor: harness.executor
             )
 
             let openedPane =
@@ -597,7 +614,8 @@ private func assertSuccessfulBridgeCommandRecordsRecency(_ command: AppCommand) 
 private func dispatchBridgeCommand(
     _ command: AppCommand,
     worktreeId: UUID,
-    controller: PaneTabViewController
+    controller: PaneTabViewController,
+    executor: WorkspaceActionExecutor
 ) async throws {
     try await withIsolatedCommandDispatcher(
         configure: {
@@ -612,6 +630,7 @@ private func dispatchBridgeCommand(
             )
         }
     )
+    _ = await executor.submitGesture { _ in true }.value
 }
 
 @MainActor

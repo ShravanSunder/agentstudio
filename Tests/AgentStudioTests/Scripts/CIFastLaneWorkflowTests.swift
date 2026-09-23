@@ -1,3 +1,5 @@
+import AgentStudioInfrastructure
+import AgentStudioTestSupport
 import Foundation
 import Testing
 
@@ -13,12 +15,11 @@ struct CIFastLaneWorkflowTests {
         #expect(testTask.contains("mise run test:bridge-web"))
         #expect(testTask.contains("mise run --skip-deps bridge-web-build"))
         #expect(testTask.contains("test -f Sources/AgentStudio/Resources/BridgeWeb/app/index.html"))
-        #expect(testTask.contains("SWIFT_TEST_TIMEOUT_SECONDS=\"${SWIFT_TEST_TIMEOUT_SECONDS:-600}\""))
-        #expect(
-            testTask.contains(
-                "SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS=\"${SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS:-1200}\""
-            )
-        )
+        // The 600/1200 hang bounds are the lane runner's own defaults now, so the
+        // aggregate task must not restate them; `swiftLaneRunnerDefaultsMatchCIBudgets`
+        // owns proving the values themselves.
+        #expect(!testTask.contains("SWIFT_TEST_TIMEOUT_SECONDS="))
+        #expect(!testTask.contains("SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS="))
         #expect(testTask.contains("SWIFT_TEST_INCLUDE_E2E=1"))
         #expect(testTask.contains("mise run --skip-deps test:swift"))
         #expect(testTask.contains("git diff --check"))
@@ -32,16 +33,28 @@ struct CIFastLaneWorkflowTests {
             ".github/workflows/release.yml",
         ]
 
+        var selectedXcodeVersions: [String] = []
+
         for workflowPath in workflowPaths {
             let workflow = try String(contentsOfFile: workflowPath, encoding: .utf8)
-            let xcodeStep = try workflowStep(named: "Select Xcode 26.3", in: workflow)
+            let xcodeStep = try workflowStep(named: "Select Xcode", in: workflow)
             let xcodeStepRange = try #require(workflow.range(of: xcodeStep))
             let miseStepRange = try #require(workflow.range(of: "      - name: Setup mise"))
 
             #expect(xcodeStep.contains("uses: maxim-lobanov/setup-xcode@v1"))
-            #expect(xcodeStep.contains("xcode-version: \"26.3\""))
             #expect(xcodeStepRange.lowerBound < miseStepRange.lowerBound)
+            selectedXcodeVersions.append(
+                try #require(
+                    selectedXcodeVersion(in: xcodeStep),
+                    "\(workflowPath) does not pin a quoted xcode-version"
+                )
+            )
         }
+
+        #expect(
+            Set(selectedXcodeVersions).count == 1,
+            "macOS workflows must select one identical Xcode version: \(selectedXcodeVersions)"
+        )
     }
 
     @Test("CI jobs use descriptive check names")
@@ -117,7 +130,10 @@ struct CIFastLaneWorkflowTests {
         #expect(!bridgeWebLaneStep.contains("pnpm --dir BridgeWeb run test:integration\n"))
         #expect(!bridgeWebLaneStep.contains("pnpm --dir BridgeWeb run test:e2e"))
         #expect(backendJob.contains("pnpm --dir BridgeWeb run test:integration:node:prepared"))
-        #expect(backendJob.contains("pnpm --dir BridgeWeb run test:e2e:prepared"))
+        // The pull-request gate runs the ordinary journeys only; the 1,699-item
+        // backpressure journey asserts responsiveness and belongs post-merge.
+        #expect(backendJob.contains("pnpm --dir BridgeWeb run test:e2e:prepared:ordinary"))
+        #expect(!backendJob.contains("run test:e2e:prepared\n"))
         #expect(!backendJob.contains("pnpm --dir BridgeWeb run test:integration:node\n"))
         #expect(!backendJob.contains("pnpm --dir BridgeWeb run test:e2e\n"))
         #expect(!swiftJob.contains("test:integration:node"))
@@ -225,6 +241,13 @@ struct CIFastLaneWorkflowTests {
         #expect(cacheStep.contains("restore-keys: |\n            benchmark-swift-build-ci-${{ runner.os }}-"))
         #expect(!cacheStep.contains("swift-benchmark-"))
         #expect(!benchmarksJob.contains(".build-benchmark"))
+        // The responsiveness journey lives in this post-merge lane and nowhere in
+        // the pull-request workflow.
+        #expect(benchmarksJob.contains("mise run test:bridge-web:e2e:stress"))
+        #expect(
+            !(try String(contentsOfFile: ".github/workflows/ci.yml", encoding: .utf8))
+                .contains("test:bridge-web:e2e:stress")
+        )
     }
 
     @Test("benchmark lane executes a current Swift benchmark and rejects empty output")
@@ -337,7 +360,7 @@ struct CIFastLaneWorkflowTests {
         #expect(testHelperScript.contains("AgentStudioIPCBridgeServiceTests"))
         #expect(testHelperScript.contains("AgentStudioAppIPCServiceCommandTests"))
         #expect(testHelperScript.contains("AgentStudioAppIPCServiceContributionTests"))
-        #expect(largeSerialFilter.contains("PaneAgentLaunchOwnerTests"))
+        #expect(!largeSerialFilter.contains("PaneAgentLaunchOwnerTests"))
         #expect(fastLaneMode.contains("run_fast_non_webkit_swift_tests"))
         #expect(largeLaneMode.contains("run_large_non_webkit_swift_tests"))
         #expect(nonSerializedRunner.contains("--parallel"))
@@ -354,7 +377,7 @@ struct CIFastLaneWorkflowTests {
         #expect(!fastRunner.contains("serial App IPC service live socket suites"))
         #expect(!fastRunner.contains("app_ipc_live_socket_suite_filter"))
         #expect(largeRunner.contains("--parallel"))
-        #expect(largeRunner.contains("--num-workers \"$SWIFT_TEST_NUM_WORKERS\""))
+        #expect(!largeRunner.contains("--num-workers"))
         #expect(largeRunner.contains("--filter \"$(large_non_webkit_filter_pattern)\""))
         #expect(largeRunner.contains("serial large process suites"))
         #expect(largeRunner.contains("--filter \"$(large_serial_non_webkit_filter_pattern)\""))
@@ -410,7 +433,9 @@ struct CIFastLaneWorkflowTests {
         let serialRunner = try shellFunction(named: "run_fast_serial_process_swift_tests", in: helperScript)
         let serialFilter = try shellFunction(named: "fast_serial_process_filter_pattern", in: helperScript)
 
-        #expect(fastRunner.contains("$(fast_serial_process_filter_pattern)"))
+        // The serial-process suite reaches its own lane through the anchored helper.
+        #expect(fastRunner.contains("run_fast_serial_process_swift_tests"))
+        #expect(serialRunner.contains("swift_test_isolated_suite_filter_pattern"))
         #expect(fastRunner.contains("run_fast_serial_process_swift_tests"))
         #expect(serialRunner.contains("serial fast process suites"))
         #expect(serialFilter.contains("SQLiteDatabaseFactoryProcessTests"))
@@ -428,12 +453,13 @@ struct CIFastLaneWorkflowTests {
 
         #expect(ciLargeLaneStep.contains("SWIFT_TEST_SKIP_PREBUILD: \"1\""))
         #expect(ciLargeLaneStep.contains("SWIFT_TEST_TIMEOUT_SECONDS: \"600\""))
-        #expect(ciLargeLaneStep.contains("SWIFT_TEST_NUM_WORKERS: \"4\""))
+        // --num-workers governs XCTest process fan-out and is inert for Swift
+        // Testing, so the lane must not advertise a worker count it cannot honor.
+        #expect(!ciLargeLaneStep.contains("SWIFT_TEST_NUM_WORKERS"))
         #expect(ciLargeLaneStep.contains("_XCB_BYPASS: \"1\""))
         #expect(ciLargeLaneStep.contains("run: mise run --skip-deps --raw test:swift:large"))
         #expect(aggregateLaneMode.contains("run_fast_non_webkit_swift_tests"))
-        #expect(!aggregateLaneMode.contains("SWIFT_TEST_NUM_WORKERS=4 run_fast_non_webkit_swift_tests"))
-        #expect(aggregateLaneMode.contains("SWIFT_TEST_NUM_WORKERS=4 run_large_non_webkit_swift_tests"))
+        #expect(!aggregateLaneMode.contains("SWIFT_TEST_NUM_WORKERS"))
         #expect(aggregateLaneMode.contains("run_fast_non_webkit_swift_tests"))
         #expect(aggregateLaneMode.contains("run_large_non_webkit_swift_tests"))
         #expect(!aggregateLaneMode.contains("run_non_serialized_swift_tests"))
@@ -464,31 +490,31 @@ struct CIFastLaneWorkflowTests {
     }
 
     @Test("Swift command watchdog advances only when output grows")
-    func swiftCommandWatchdogAdvancesOnlyWhenOutputGrows() throws {
-        let growingOutput = try runBash(
+    func swiftCommandWatchdogAdvancesOnlyWhenOutputGrows() async throws {
+        let growingOutput = try await runBash(
             "source scripts/swift-test-helpers.sh; swift_test_watchdog_state 41 42 100 900"
         )
-        let unchangedOutput = try runBash(
+        let unchangedOutput = try await runBash(
             "source scripts/swift-test-helpers.sh; swift_test_watchdog_state 42 42 100 900"
         )
 
         #expect(growingOutput == "42 900\n")
         #expect(unchangedOutput == "42 100\n")
         #expect(
-            try runBashStatus(
+            try await runBashStatus(
                 "source scripts/swift-test-helpers.sh; swift_test_watchdog_timeout_status 100 399 300"
             ) == 0
         )
         #expect(
-            try runBashStatus(
+            try await runBashStatus(
                 "source scripts/swift-test-helpers.sh; swift_test_watchdog_timeout_status 100 400 300"
             ) == 124
         )
     }
 
     @Test("Swift output filter normalizes UTF-8 and preserves actionable diagnostics")
-    func swiftOutputFilterNormalizesUTF8AndPreservesActionableDiagnostics() throws {
-        let filteredOutput = try runBash(
+    func swiftOutputFilterNormalizesUTF8AndPreservesActionableDiagnostics() async throws {
+        let filteredOutput = try await runBash(
             "printf $'ok\\xffbad\\nlibghostty-fat.a(ext.o) _ImGuiStyle_ImGuiStyle\\nreal diagnostic\\n'"
                 + " | bash scripts/filter-known-linker-warnings.sh"
         )
@@ -497,9 +523,9 @@ struct CIFastLaneWorkflowTests {
     }
 
     @Test("Swift formatted pipeline normalizes UTF-8 before mise consumes it")
-    func swiftFormattedPipelineNormalizesUTF8BeforeMiseConsumesIt() throws {
+    func swiftFormattedPipelineNormalizesUTF8BeforeMiseConsumesIt() async throws {
         let helperScript = try String(contentsOfFile: "scripts/xcb-helpers.sh", encoding: .utf8)
-        let filteredOutput = try runBash(
+        let filteredOutput = try await runBash(
             "source scripts/xcb-helpers.sh; printf $'raw\\xff input\\n' | _xcb_pipe"
         )
 
@@ -512,8 +538,8 @@ struct CIFastLaneWorkflowTests {
     }
 
     @Test("Swift failure scanner preserves failure detection across invalid UTF-8")
-    func swiftFailureScannerPreservesFailureDetectionAcrossInvalidUTF8() throws {
-        let scannerStatus = try runBashStatus(
+    func swiftFailureScannerPreservesFailureDetectionAcrossInvalidUTF8() async throws {
+        let scannerStatus = try await runBashStatus(
             "source scripts/swift-test-helpers.sh; "
                 + "swift_test_output_has_failures <(printf $'ok\\xffrecorded an issue\\n')"
         )
@@ -522,7 +548,7 @@ struct CIFastLaneWorkflowTests {
     }
 
     @Test("aggregate lane isolates executor-sensitive and AppKit-global tests")
-    func aggregateLaneIsolatesExecutorSensitiveAndAppKitGlobalTests() throws {
+    func aggregateLaneIsolatesExecutorSensitiveAndAppKitGlobalTests() async throws {
         let helperScript = try String(contentsOfFile: "scripts/swift-test-helpers.sh", encoding: .utf8)
         let aggregateFilter = try shellFunction(
             named: "aggregate_serial_non_webkit_filter_pattern",
@@ -542,11 +568,11 @@ struct CIFastLaneWorkflowTests {
         )
         let fullRunner = try shellFunction(named: "run_non_serialized_swift_tests", in: helperScript)
         let fastRunner = try shellFunction(named: "run_fast_non_webkit_swift_tests", in: helperScript)
-        let discoveredSuiteFilters = try runBash(
+        let discoveredSuiteFilters = try await runBash(
             "LOG_PREFIX=test TIMEOUT_SECONDS=60 PREBUILD_TIMEOUT_SECONDS=60 BUILD_PATH=.build-agent-1 "
                 + "bash -c 'source scripts/swift-test-helpers.sh; aggregate_serial_non_webkit_suite_filters'"
         )
-        let webKitSuiteFilters = try runBash(
+        let webKitSuiteFilters = try await runBash(
             "source scripts/swift-test-helpers.sh; webkit_suite_filters"
         )
         let discoveredSuiteNames = Set(discoveredSuiteFilters.split(separator: "\n").map(String.init))
@@ -598,32 +624,38 @@ struct CIFastLaneWorkflowTests {
         #expect(fullRunner.contains("--skip \"$(aggregate_serial_non_webkit_filter_pattern)\""))
         #expect(fullRunner.contains("run_aggregate_serial_non_webkit_swift_tests"))
         #expect(aggregateRunner.contains("while IFS= read -r aggregate_serial_suite_filter"))
-        #expect(aggregateRunner.contains("local process_global_concurrency=4"))
-        #expect(aggregateRunner.contains("process_global_batch_pids+=(\"$!\")"))
+        #expect(aggregateRunner.contains("swift_test_isolated_process_concurrency"))
+        #expect(!aggregateRunner.contains("local process_global_concurrency=4"))
+        // Pid AND filter, so a crashed child can be named rather than swallowed.
+        #expect(aggregateRunner.contains("process_global_batch_pids+=(\"$!\" \"$aggregate_serial_suite_filter\")"))
+        #expect(aggregateRunner.contains("inventory_status=1"))
         #expect(aggregateRunner.contains("wait_for_process_global_suite_batch"))
         #expect(
             aggregateRunner.contains(
                 "isolated process-global non-WebKit suite: $aggregate_serial_suite_filter"
             )
         )
-        #expect(aggregateRunner.contains("--filter \"$aggregate_serial_suite_filter\""))
+        // Anchored: a bare name also admits every test in a file named after the
+        // suite, which is how two process-global suites shared one process.
+        #expect(
+            aggregateRunner.contains(
+                "--filter \"$(swift_test_isolated_suite_filter_pattern \"$aggregate_serial_suite_filter\")\""
+            ))
         #expect(aggregateRunner.contains("\"$swift_testing_helper\" --test-bundle-path \"$swift_test_bundle\""))
         #expect(aggregateRunner.contains("DYLD_FRAMEWORK_PATH=\"$testing_framework_path\""))
         #expect(aggregateRunner.contains("--testing-library swift-testing"))
         #expect(aggregateRunner.contains("done < <(aggregate_serial_non_webkit_suite_filters)"))
-        #expect(aggregateBatchWaiter.contains("if ! wait \"$suite_process_pid\""))
+        #expect(aggregateBatchWaiter.contains("swift_test_record_failed_isolated_suite"))
         #expect(aggregateBatchWaiter.contains("return \"$batch_status\""))
-        #expect(
-            fastRunner.contains(
-                "--skip \"GlobalPreferencesBootstrapBenchmarkTests|RepoExplorerNativeTablePilotBenchmarkTests|$(large_non_webkit_filter_pattern)|$(large_serial_non_webkit_filter_pattern)|$(aggregate_serial_non_webkit_filter_pattern)|$(fast_serial_process_filter_pattern)\""
-            )
-        )
+        // The skip moved into one builder so the exact suite names can be
+        // anchored without anchoring the substring families beside them.
+        #expect(fastRunner.contains("--skip \"$(fast_non_webkit_skip_pattern)\""))
         #expect(fastRunner.contains("run_aggregate_serial_non_webkit_swift_tests"))
         #expect(fastRunner.contains("run_fast_serial_process_swift_tests"))
     }
 
     @Test("large lane process-isolates suites that retain process-global runtimes")
-    func largeLaneProcessIsolatesProcessGlobalRuntimeSuites() throws {
+    func largeLaneProcessIsolatesProcessGlobalRuntimeSuites() async throws {
         let helperScript = try String(contentsOfFile: "scripts/swift-test-helpers.sh", encoding: .utf8)
         let largeRunner = try shellFunction(named: "run_large_non_webkit_swift_tests", in: helperScript)
         let largeProcessGlobalRunner = try shellFunction(
@@ -631,7 +663,7 @@ struct CIFastLaneWorkflowTests {
             in: helperScript
         )
         let discoveredLargeProcessGlobalSuites = Set(
-            try runBash(
+            try await runBash(
                 "source scripts/swift-test-helpers.sh; large_process_global_suite_filters"
             ).split(separator: "\n").map(String.init)
         )
@@ -658,8 +690,9 @@ struct CIFastLaneWorkflowTests {
             )
         )
         #expect(
-            largeProcessGlobalRunner.contains("--filter \"$large_process_global_suite_filter\"")
-        )
+            largeProcessGlobalRunner.contains(
+                "--filter \"$(swift_test_isolated_suite_filter_pattern \"$large_process_global_suite_filter\")\""
+            ))
         for suiteName in [
             "AgentStudioOTLPBootstrapSmokeTests",
             "DarwinCompositeFSEventContinuityTests",
@@ -693,7 +726,7 @@ struct CIFastLaneWorkflowTests {
     }
 
     @Test("serialized suite discovery respects formatted declaration boundaries")
-    func serializedSuiteDiscoveryRespectsFormattedDeclarationBoundaries() throws {
+    func serializedSuiteDiscoveryRespectsFormattedDeclarationBoundaries() async throws {
         let mainActorAttribute = "@Main" + "Actor"
         let suiteAttribute = "@Su" + "ite"
         let serializedTrait = ".serial" + "ized"
@@ -723,15 +756,15 @@ struct CIFastLaneWorkflowTests {
             private struct NotActuallySerialized {}
             """
 
-        let mainActorFirstMatches = try discoveredSuiteNames(
+        let mainActorFirstMatches = try await discoveredSuiteNames(
             annotationOrder: "main-actor-first",
             source: mainActorFirstSource
         )
-        let suiteFirstMatches = try discoveredSuiteNames(
+        let suiteFirstMatches = try await discoveredSuiteNames(
             annotationOrder: "suite-first",
             source: suiteFirstSource
         )
-        let traitPrefixMatches = try discoveredSuiteNames(
+        let traitPrefixMatches = try await discoveredSuiteNames(
             annotationOrder: "main-actor-first",
             source: traitPrefixSource
         )
@@ -791,110 +824,136 @@ struct CIFastLaneWorkflowTests {
         #expect(!zmxE2ETask.contains("--skip ZmxE2ETests"))
     }
 
-    private func workflowStep(named stepName: String, in workflow: String) throws -> String {
-        try namedBlock(
-            startingWith: "      - name: \(stepName)",
-            endingBefore: "\n      - name: ",
-            in: workflow
+}
+
+private func selectedXcodeVersion(in xcodeStep: String) -> String? {
+    guard let versionKeyRange = xcodeStep.range(of: "xcode-version: \"") else { return nil }
+    let quotedTail = xcodeStep[versionKeyRange.upperBound...]
+    guard let closingQuoteRange = quotedTail.range(of: "\"") else { return nil }
+    return String(quotedTail[..<closingQuoteRange.lowerBound])
+}
+
+private func workflowStep(named stepName: String, in workflow: String) throws -> String {
+    try namedBlock(
+        startingWith: "      - name: \(stepName)",
+        endingBefore: "\n      - name: ",
+        in: workflow
+    )
+}
+
+private func workflowJob(named jobName: String, in workflow: String) throws -> String {
+    let workflowLines = workflow.split(separator: "\n", omittingEmptySubsequences: false)
+    guard let startIndex = workflowLines.firstIndex(where: { $0 == "  \(jobName):" }) else {
+        throw CIFastLaneWorkflowError.missingBlock("  \(jobName):")
+    }
+
+    var endIndex = workflowLines.index(after: startIndex)
+    while endIndex < workflowLines.endIndex {
+        let line = workflowLines[endIndex]
+        if line.hasPrefix("  "), !line.hasPrefix("    "), !line.trimmingCharacters(in: .whitespaces).isEmpty {
+            break
+        }
+        endIndex = workflowLines.index(after: endIndex)
+    }
+
+    return workflowLines[startIndex..<endIndex].joined(separator: "\n")
+}
+
+private func shellCase(named caseName: String, in script: String) throws -> String {
+    try namedBlock(
+        startingWith: "  \(caseName))",
+        endingBefore: "\n    ;;",
+        in: script
+    )
+}
+
+private func shellFunction(named functionName: String, in script: String) throws -> String {
+    try namedBlock(
+        startingWith: "\(functionName)() {",
+        endingBefore: "\n}\n",
+        in: script
+    )
+}
+
+private func miseTask(named taskName: String, in config: String) throws -> String {
+    let quotedMarker = "[tasks.\"\(taskName)\"]"
+    let bareMarker = "[tasks.\(taskName)]"
+    let marker = config.contains(quotedMarker) ? quotedMarker : bareMarker
+    return try namedBlock(startingWith: marker, endingBefore: "\n[tasks.", in: config)
+}
+
+private func discoveredSuiteNames(annotationOrder: String, source: String) async throws -> String {
+    try await runBash(
+        "source scripts/swift-test-helpers.sh; "
+            + "serialized_main_actor_suite_names_from_stdin \(annotationOrder)",
+        standardInput: source
+    )
+}
+
+private func namedBlock(startingWith marker: String, endingBefore terminator: String, in text: String) throws
+    -> String
+{
+    guard let startRange = text.range(of: marker) else {
+        throw CIFastLaneWorkflowError.missingBlock(marker)
+    }
+    let tail = text[startRange.lowerBound...]
+    guard let endRange = tail.range(of: terminator, range: tail.index(after: startRange.lowerBound)..<tail.endIndex)
+    else {
+        return String(tail)
+    }
+    return String(tail[..<endRange.lowerBound])
+}
+
+private func runBash(_ command: String, standardInput: String? = nil) async throws -> String {
+    let result = try await withoutBlockingCooperativePool {
+        let outputURL = FileManager.default.temporaryDirectory
+            .appending(path: "ci-fast-lane-output-\(UUIDv7.generate().uuidString).log")
+        FileManager.default.createFile(atPath: outputURL.path, contents: nil)
+        let outputHandle = try FileHandle(forWritingTo: outputURL)
+        defer {
+            try? outputHandle.close()
+            try? FileManager.default.removeItem(at: outputURL)
+        }
+        let process = Process()
+        let input = standardInput.map { _ in Pipe() }
+        process.executableURL = URL(fileURLWithPath: "/bin/bash")
+        process.arguments = ["-c", command]
+        process.currentDirectoryURL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        process.standardInput = input
+        process.standardOutput = outputHandle
+        process.standardError = outputHandle
+
+        try process.run()
+        if let standardInput, let input {
+            input.fileHandleForWriting.write(Data(standardInput.utf8))
+            try input.fileHandleForWriting.close()
+        }
+        process.waitUntilExit()
+        try outputHandle.close()
+        return BashCommandResult(
+            exitCode: process.terminationStatus,
+            output: try String(contentsOf: outputURL, encoding: .utf8)
         )
     }
+    #expect(result.exitCode == 0, Comment(rawValue: result.output))
+    return result.output
+}
 
-    private func workflowJob(named jobName: String, in workflow: String) throws -> String {
-        let workflowLines = workflow.split(separator: "\n", omittingEmptySubsequences: false)
-        guard let startIndex = workflowLines.firstIndex(where: { $0 == "  \(jobName):" }) else {
-            throw CIFastLaneWorkflowError.missingBlock("  \(jobName):")
-        }
-
-        var endIndex = workflowLines.index(after: startIndex)
-        while endIndex < workflowLines.endIndex {
-            let line = workflowLines[endIndex]
-            if line.hasPrefix("  "), !line.hasPrefix("    "), !line.trimmingCharacters(in: .whitespaces).isEmpty {
-                break
-            }
-            endIndex = workflowLines.index(after: endIndex)
-        }
-
-        return workflowLines[startIndex..<endIndex].joined(separator: "\n")
-    }
-
-    private func shellCase(named caseName: String, in script: String) throws -> String {
-        try namedBlock(
-            startingWith: "  \(caseName))",
-            endingBefore: "\n    ;;",
-            in: script
-        )
-    }
-
-    private func shellFunction(named functionName: String, in script: String) throws -> String {
-        try namedBlock(
-            startingWith: "\(functionName)() {",
-            endingBefore: "\n}\n",
-            in: script
-        )
-    }
-
-    private func miseTask(named taskName: String, in config: String) throws -> String {
-        let quotedMarker = "[tasks.\"\(taskName)\"]"
-        let bareMarker = "[tasks.\(taskName)]"
-        let marker = config.contains(quotedMarker) ? quotedMarker : bareMarker
-        return try namedBlock(startingWith: marker, endingBefore: "\n[tasks.", in: config)
-    }
-
-    private func discoveredSuiteNames(annotationOrder: String, source: String) throws -> String {
-        try runBash(
-            "source scripts/swift-test-helpers.sh; "
-                + "serialized_main_actor_suite_names_from_stdin \(annotationOrder)",
-            standardInput: source
-        )
-    }
-
-    private func namedBlock(startingWith marker: String, endingBefore terminator: String, in text: String) throws
-        -> String
-    {
-        guard let startRange = text.range(of: marker) else {
-            throw CIFastLaneWorkflowError.missingBlock(marker)
-        }
-        let tail = text[startRange.lowerBound...]
-        guard let endRange = tail.range(of: terminator, range: tail.index(after: startRange.lowerBound)..<tail.endIndex)
-        else {
-            return String(tail)
-        }
-        return String(tail[..<endRange.lowerBound])
+private func runBashStatus(_ command: String) async throws -> Int32 {
+    try await withoutBlockingCooperativePool {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/bash")
+        process.arguments = ["-c", command]
+        process.currentDirectoryURL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        try process.run()
+        process.waitUntilExit()
+        return process.terminationStatus
     }
 }
 
-private func runBash(_ command: String, standardInput: String? = nil) throws -> String {
-    let process = Process()
-    let output = Pipe()
-    let input = standardInput.map { _ in Pipe() }
-    process.executableURL = URL(fileURLWithPath: "/bin/bash")
-    process.arguments = ["-c", command]
-    process.currentDirectoryURL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-    process.standardInput = input
-    process.standardOutput = output
-    process.standardError = output
-
-    try process.run()
-    if let standardInput, let input {
-        input.fileHandleForWriting.write(Data(standardInput.utf8))
-        try input.fileHandleForWriting.close()
-    }
-    process.waitUntilExit()
-    let data = output.fileHandleForReading.readDataToEndOfFile()
-    let renderedOutput = try #require(String(bytes: data, encoding: .utf8))
-    #expect(process.terminationStatus == 0, Comment(rawValue: renderedOutput))
-    return renderedOutput
-}
-
-private func runBashStatus(_ command: String) throws -> Int32 {
-    let process = Process()
-    process.executableURL = URL(fileURLWithPath: "/bin/bash")
-    process.arguments = ["-c", command]
-    process.currentDirectoryURL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-
-    try process.run()
-    process.waitUntilExit()
-    return process.terminationStatus
+private struct BashCommandResult: Sendable {
+    let exitCode: Int32
+    let output: String
 }
 
 private enum CIFastLaneWorkflowError: Error {

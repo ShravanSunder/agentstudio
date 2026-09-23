@@ -51,6 +51,16 @@ private final class NativePlanTransportContentChild:
         completion(.accepted)
     }
 
+    func applySelection(rowID: RepoExplorerRowID?, scrollIntoView: Bool) -> Bool {
+        _ = rowID
+        _ = scrollIntoView
+        return true
+    }
+
+    func performListKeyboardEffect(_ effect: RepoExplorerListKeyboardEffect) {
+        _ = effect
+    }
+
     func suspendDemand() {}
 
     func resumeDemand(visibleGeneration: UInt64) {
