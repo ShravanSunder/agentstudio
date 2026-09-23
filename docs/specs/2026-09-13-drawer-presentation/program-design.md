@@ -184,7 +184,8 @@ host layout. The three outcomes of a recovery pass are therefore:
 | Member custody | Recovery effect | Owner |
 | --- | --- | --- |
 | `.deferredGeometry` | admitted with the new frame (existing) | admission port |
-| `.pending`, or claimed and not yet activated | trusted frame refreshed (added) | admission port |
+| `.pending`, or claimed for a first attempt that has not been activated | trusted frame refreshed (added) | admission port |
+| claimed for a retry (a previous attempt was activated and returned a retryable failure) | none; a retry keeps the frame of its first activation (existing same-frame retry contract) | admission port |
 | mounting, ready | none; the host view is sized by layout from the resolver's current output, and the terminal runtime receives the actual size through existing native size feedback | host layout |
 
 A drawer child that becomes mounted while the user drags the Zoom divider gets
@@ -418,8 +419,9 @@ sequenceDiagram
     Res-->>Adm: deferred members admitted with frame (existing)
     Res-->>Adm: pending or claimed-not-activated members get refreshed trusted frame (added)
     Note over Adm: mounting or ready members untouched, sized by host layout
-  else unavailable
-    Res-->>Adm: unavailable → existing .deferredGeometry, next trigger retries
+  else unavailable for a member
+    Note over Adm: member keeps its last trusted frame (no transition added)
+    Note over Adm: next trigger with valid geometry refreshes it if still queued
   end
 ```
 
@@ -452,9 +454,20 @@ unchanged. No SQL or I/O enters the drawer atom or view.
 - **Bridge disappears:** recompute effective terminal placement. Retain saved
   Bridge choice; showing Bridge again recomputes placement without a write.
 - **Bounds are invalid or too small:** yield unavailable geometry and preserve
-  preferences/content. Existing geometry admission defers unsafe activation;
-  the next container-bounds layout or Zoom/drawer trigger re-enters the same
-  resolver and mount path.
+  preferences/content. Existing admission defers only members that have no
+  trusted frame yet (`installTrustedInitialFrames` → `.deferredGeometry`).
+  A member that already holds a trusted frame keeps it when current geometry is
+  unavailable. The design adds no queued→deferred transition and no claim
+  revocation: the activation scheduler treats a rejected queued claim as a
+  terminal failure (`TerminalActivationScheduler`), and an issued claim cannot be
+  cancelled. The next trigger with valid geometry refreshes that member if it is
+  still `.pending` or claimed for its first attempt (valid → unavailable → valid).
+  If it activates while geometry is unavailable, it mounts at its last valid
+  frame and host layout then sizes it from the resolver's current output
+  through native size feedback. This is the "existing safe geometry admission
+  behavior" that R-DP-6 names as the baseline for unavailable bounds. It is
+  reachable only when container bounds exist but the drawer region cannot hold
+  valid child bounds (a very small window), and S8 observes it natively.
 - **Footer metric disagrees with measurement:** paint uses the measured footer;
   bootstrap uses `DrawerLayout.iconBarFrameHeight`. A mismatch is a defect caught
   by the V-DP-6 native agreement proof, not a runtime correction path.
