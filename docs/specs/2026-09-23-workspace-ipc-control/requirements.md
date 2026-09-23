@@ -71,6 +71,10 @@ Design (not yet written).
 | S19 | Approval lifetime: "Let's figure out the approval later and make it simple for now… it's there till user clears." |
 | S20 | "We need a clear all button… like in inbox." |
 | S21 | "The agent shouldn't just randomly change the layout… if… the user is in full-screen mode without the approval [pop-up] that we talked about." |
+| S22 | On constraining agents to their own pane (drawer children included) and not allowing destructive app-wide commands yet: "Maybe we should constrain the commands that we allow." Then: "Yes, we can drop approvals from V1. So we can do the others after we spec it out." |
+| S23 | ⌘-click: "cmd click goes to our view with option to open as default shown in bridge for all files." |
+| S24 | "No, agents cannot close their own pane." |
+| S25 | Fast follow: "If I have a chief of staff agent and I want to open other panes and other tabs, that is a functionality that needs approval and it would probably open a bunch at the same time… that can be a separate work tree and a fast follow. But with approval system." |
 
 ## User requirements
 
@@ -79,14 +83,14 @@ unranked (owner has not ordered them).
 
 | ID | Need and why | Source |
 | --- | --- | --- |
-| U-IC-01 | An agent can reach every app command and control method when it is authorized, so "tell the agent to do X" works for anything a person can do. | S1, S3, S5 |
+| U-IC-01 | An agent can reach app commands and control methods through IPC when authorized, so "tell the agent to do X" works. In this version "authorized" means the command acts within the agent's own domain (U-IC-09); commands outside it are refused as not yet allowed and are opened up in later, separately specified work. | S1, S3, S5, S22 |
 | U-IC-02 | An agent can add a terminal or a browser (webview) to a pane's drawer through IPC and then address that new drawer pane. | S2, S15 |
 | U-IC-03 | An agent can open any readable file for the human. It appears in the agent's terminal's own Bridge: shown immediately when that Bridge is visible; otherwise loaded silently with an actionable "Open view" popover to reveal it. | S3, S4, S6 |
 | U-IC-04 | Drawers never contain Bridge or code-viewer content. Terminals and browsers are allowed. | S4, S15 |
-| U-IC-09 | Within its own domain — its own pane, that pane's drawer, and that terminal's Bridge — an agent acts without asking, except that it does not rearrange the human's screen (for example in full screen) without approval. Exact scope of that exception: open decision OD-IC-1 in the Specification. | S16, S21 |
-| U-IC-05 | When an agent needs permission it does not have, the human sees a list of pending requests in a popover, with icon-only approve and deny buttons per row; approving allows that kind of action for that agent until the human clears the approval (no automatic expiry in this version; richer lifetime rules, e.g. tied to agent hooks, are later work). The popover offers clearing one approval and a Clear all, following the existing Inbox pattern (per-pane clear and clear-all are catalog commands, `AppCommand.clearPaneInboxNotifications` / `.clearAllInboxNotifications`), without reconnecting the Inbox. | S3, S9, S11, S12, S19, S20 |
-| U-IC-06 | The human can ⌘-click a file path printed in the terminal, including a path broken across wrapped lines, and it opens in that terminal's Bridge like an agent-opened file. | S8 |
-| U-IC-07 | Pop-ups are used only for things the human can act on now (Open view, approvals) and look like the app's existing bottom-bar native popovers. Informational and session events are not pop-ups. | S9, S10, S11 |
+| U-IC-09 | Within its own domain — its own terminal, that pane's drawer and drawer children, and that terminal's Bridge — an agent acts without asking. It cannot close its own pane, zoom it, move keyboard focus, touch other panes, tabs or windows, change app-wide UI, run app-wide destructive commands, or leave the app (Finder, editor, pull request, sign-in). | S16, S21, S22, S24 |
+| U-IC-05 | **Deferred from this version by the owner (S22); delivered by the fast-follow cross-pane control work (S25).** When an agent needs permission it does not have, the human sees a list of pending requests in a popover, with icon-only approve and deny buttons per row; approving allows that kind of action for that agent until the human clears the approval (no automatic expiry in this version; richer lifetime rules, e.g. tied to agent hooks, are later work). The popover offers clearing one approval and a Clear all, following the existing Inbox pattern (per-pane clear and clear-all are catalog commands, `AppCommand.clearPaneInboxNotifications` / `.clearAllInboxNotifications`), without reconnecting the Inbox. | S3, S9, S11, S12, S19, S20 |
+| U-IC-06 | The human can ⌘-click a file path printed in the terminal, including a path broken across wrapped lines, and it opens and is shown in that terminal's Bridge by default; a setting can make ⌘-clicked files open in the system default app instead. | S8, S23 |
+| U-IC-07 | Pop-ups are used only for things the human can act on now (in this version: Open view) and look like the app's existing bottom-bar native popovers. Informational and session events are not pop-ups. | S9, S10, S11 |
 | U-IC-08 | None of this adds heavy work to the main actor; it follows the Performance Lane Directive in the repo agent instructions (`AGENTS.md` / `CLAUDE.md`) and the documents it links, and reuses the existing IPC, Bridge, EventBus admission and command systems. | S13, S17 |
 | U-IC-10 | No changes to upstream or vendored projects (Ghostty, zmx, other dependencies). | S14 |
 
@@ -100,7 +104,7 @@ Bridge not visible — Open view popover from a bottom-bar button (U-IC-03, U-IC
 
 ![Open view popover](./images/open-view-popover.png)
 
-Agent requests needing approval — a list with ✓ / ✕ icon buttons (U-IC-05):
+Agent requests needing approval — a list with ✓ / ✕ icon buttons (U-IC-05, **deferred**; kept as the agreed direction for later work):
 
 ![Agent request list popover](./images/agent-request-list-popover.png)
 
@@ -127,6 +131,11 @@ link actions; the bottom-bar popover mechanism.
   `docs/specs/2026-09-13-drawer-presentation/`).
 - A control replay journal (Agent IPC v2 decision AD stands).
 - Any change to upstream or vendored projects (S14).
+- Approvals and agent control outside its own domain (S22). A fast-follow
+  worktree adds them with the approval popover (U-IC-05), first for a
+  chief-of-staff agent opening other panes and tabs — possibly several in one
+  request (S25). This version must not foreclose that: commands carry their
+  own-domain eligibility in the catalog so the follow-up can widen it.
 
 **Acceptable outcome evidence:** an agent through the bundled CLI performs each
 U row against a running app, authorized and unauthorized; native proof on a
