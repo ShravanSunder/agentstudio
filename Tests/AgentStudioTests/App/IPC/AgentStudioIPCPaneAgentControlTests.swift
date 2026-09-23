@@ -201,6 +201,36 @@ struct AgentStudioIPCPaneAgentControlTests {
     }
 
     @Test(
+        "a drawer close naming a sibling as the parent is refused and closes nothing",
+        arguments: [AgentStudioIPCChannel.debug, .stable]
+    )
+    func mismatchedDrawerCloseIsRefused(channel: AgentStudioIPCChannel) async throws {
+        let harness = try await PaneAgentControlHarness.make(channel: channel)
+        defer { harness.tearDown() }
+        let token = try harness.agentToken(boundTo: harness.mainPaneId)
+        let sibling = try #require(harness.store.addDrawerPane(to: harness.mainPaneId))
+        let before = harness.workspaceFacts()
+
+        // Both panes are inside the agent's own pane, so admission passes; the
+        // sibling is not the child's parent, so the effect owner refuses.
+        let close = try await withIsolatedCommandDispatcher(
+            configure: { AppCommandDispatcher.shared.handler = harness.commandHarness.controller },
+            body: {
+                try await harness.response(
+                    token: token, method: "command.execute",
+                    params: try harness.command(
+                        .closeDrawerPane,
+                        arguments: try harness.drawerChildArguments(
+                            parent: harness.drawerChildPaneId, child: sibling.id)))
+            })
+
+        #expect(close.result == nil)
+        #expect(close.error?.code == -32_005)
+        #expect(harness.store.paneAtom.pane(sibling.id)?.parentPaneId == harness.mainPaneId)
+        #expect(harness.workspaceFacts() == before)
+    }
+
+    @Test(
         "an agent closes its own drawer child through the catalog command",
         arguments: [AgentStudioIPCChannel.debug, .stable]
     )

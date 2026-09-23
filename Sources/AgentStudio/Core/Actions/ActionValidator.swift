@@ -472,9 +472,14 @@ package enum WorkspaceCommandValidator {
                 return .failure(.paneAlreadyInLayout(paneId: childPaneId))
             }
             return .success(ValidatedAction(action))
-        case .removeDrawerPane(let parentPaneId, _):
+        case .removeDrawerPane(let parentPaneId, let drawerPaneId):
             guard state.tabOwning(paneId: parentPaneId) != nil else {
                 return .failure(.paneNotFound(paneId: parentPaneId, tabId: state.activeTabId ?? UUID()))
+            }
+            // The named child must belong to the named parent; otherwise the
+            // discard would silently do nothing and still report applied.
+            guard state.drawerParentPaneId(of: drawerPaneId) == parentPaneId else {
+                return .failure(.paneNotFound(paneId: drawerPaneId, tabId: state.activeTabId ?? UUID()))
             }
             return .success(ValidatedAction(action))
         case .toggleDrawer(let parentPaneId):
