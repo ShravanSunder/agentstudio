@@ -144,29 +144,25 @@ extension ForStmtSyntax {
     }
 
     /// The loop body, after leading bindings and cancellation checks, starts
-    /// with an equality guard on the loop element that skips or encloses the
-    /// action.
+    /// with a controlling guard on the element: `guard element != stored else
+    /// { exit }`, `if element == stored { exit }`, or is exactly
+    /// `if element != stored { action }`.
     fileprivate var guardsElementAgainstLastPublished: Bool {
         guard let elementName = pattern.as(IdentifierPatternSyntax.self)?.identifier.text else {
             return false
         }
         let statements = body.statements.drop { $0.isBindingOrCancellationCheck }
-        guard let first = statements.first?.item else {
+        guard let first = statements.first else {
             return false
         }
-        if let guardStatement = first.as(GuardStmtSyntax.self) {
-            return guardStatement.conditions.comparesElement(elementName, operator: "!=")
-                && guardStatement.body.statements.contains { $0.item.is(ContinueStmtSyntax.self) }
+        if let guardStatement = first.item.as(GuardStmtSyntax.self) {
+            return guardStatement.body.exitsScope
+                && guardStatement.conditions.comparesElement(elementName, operator: "!=")
         }
-        guard
-            let ifExpression = first.as(ExpressionStmtSyntax.self)?.expression.as(IfExprSyntax.self)
-                ?? first.as(IfExprSyntax.self)
-        else {
+        guard let ifExpression = first.ifExpression else {
             return false
         }
-        if ifExpression.conditions.comparesElement(elementName, operator: "=="),
-            ifExpression.body.statements.contains(where: { $0.item.is(ContinueStmtSyntax.self) })
-        {
+        if ifExpression.body.exitsScope, ifExpression.conditions.comparesElement(elementName, operator: "==") {
             return true
         }
         return statements.count == 1 && ifExpression.conditions.comparesElement(elementName, operator: "!=")
@@ -181,9 +177,7 @@ extension CodeBlockItemSyntax {
         let conditionText: String
         if let guardStatement = item.as(GuardStmtSyntax.self) {
             conditionText = guardStatement.conditions.trimmedDescription
-        } else if let ifExpression = item.as(ExpressionStmtSyntax.self)?.expression.as(IfExprSyntax.self)
-            ?? item.as(IfExprSyntax.self)
-        {
+        } else if let ifExpression = self.ifExpression {
             conditionText = ifExpression.conditions.trimmedDescription
         } else {
             return false

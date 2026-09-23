@@ -32,6 +32,17 @@ final class GoodObservationRearm {
         }
     }
 
+    func observeWithStaleGenerationExit() {
+        let generation = observationGeneration
+        withObservationTracking {
+            _ = source
+        } onChange: { [weak self] in
+            guard let self else { return }
+            if self.observationGeneration != generation { return }
+            self.observeWithStaleGenerationExit()
+        }
+    }
+
     func observeWithArmLatch() {
         guard !isStopped, !isObserving else { return }
         isObserving = true

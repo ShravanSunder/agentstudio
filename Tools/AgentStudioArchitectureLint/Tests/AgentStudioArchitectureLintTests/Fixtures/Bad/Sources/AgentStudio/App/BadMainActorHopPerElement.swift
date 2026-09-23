@@ -33,6 +33,22 @@ final class BadStreamConsumer {
 }
 
 @MainActor
+final class BadDiscardedComparisonConsumer {
+    var previous = 0
+
+    func consume(stream: AsyncStream<Int>) async {
+        for await value in stream {
+            _ = (value == previous)
+            publish(value)
+        }
+    }
+
+    func publish(_ value: Int) {
+        previous = value
+    }
+}
+
+@MainActor
 final class BadMainActorStreamOwner {
     var lastValue = 0
 

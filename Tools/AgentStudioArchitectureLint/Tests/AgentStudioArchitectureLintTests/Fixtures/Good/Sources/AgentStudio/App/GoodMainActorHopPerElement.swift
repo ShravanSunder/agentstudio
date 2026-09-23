@@ -32,6 +32,16 @@ final class GoodStreamConsumer {
         }
     }
 
+    func consumeUntilUnchanged(stream: AsyncStream<Int>) {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            for await value in stream {
+                guard value != self.lastValue else { return }
+                self.lastValue = value
+            }
+        }
+    }
+
     func consumeOffMainActor(stream: AsyncStream<Int>) {
         Task.detached {
             for await value in stream {

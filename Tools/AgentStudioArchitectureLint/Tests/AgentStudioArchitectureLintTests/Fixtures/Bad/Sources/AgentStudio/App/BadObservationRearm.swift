@@ -27,6 +27,20 @@ final class BadObservationRearm {
         }
     }
 
+    func observeWithGenerationCheckedThenRearmedAnyway() {
+        let captured = generation
+        withObservationTracking {
+            _ = source
+        } onChange: { [weak self] in
+            guard let self else { return }
+            if self.generation != captured {
+                print("stale")
+            }
+            _ = (self.generation == captured)
+            self.observeWithGenerationCheckedThenRearmedAnyway()
+        }
+    }
+
     func observeWithLatchNeverCleared() {
         guard !isObserving else { return }
         isObserving = true

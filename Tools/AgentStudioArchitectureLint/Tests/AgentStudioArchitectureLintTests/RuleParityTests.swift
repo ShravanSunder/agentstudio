@@ -402,7 +402,7 @@ struct RuleParityTests {
             MainActorShapeFixture(
                 ruleID: "agentstudio_observation_rearm_guarded",
                 badFixture: "Bad/Sources/AgentStudio/App/BadObservationRearm.swift",
-                expectedLines: [9, 20, 33],
+                expectedLines: [9, 20, 32, 47],
                 goodFixture: "Good/Sources/AgentStudio/App/GoodObservationRearm.swift"
             ),
             MainActorShapeFixture(
@@ -420,7 +420,7 @@ struct RuleParityTests {
             MainActorShapeFixture(
                 ruleID: "agentstudio_mainactor_hop_per_element",
                 badFixture: "Bad/Sources/AgentStudio/App/BadMainActorHopPerElement.swift",
-                expectedLines: [7, 16, 26, 40],
+                expectedLines: [7, 16, 26, 40, 56],
                 goodFixture: "Good/Sources/AgentStudio/App/GoodMainActorHopPerElement.swift"
             ),
             MainActorShapeFixture(

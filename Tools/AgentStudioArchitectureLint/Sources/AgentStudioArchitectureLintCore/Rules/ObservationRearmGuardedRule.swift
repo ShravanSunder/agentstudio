@@ -157,9 +157,10 @@ private final class LetBindingCollector: SyntaxVisitor {
 /// A generation comparison that decides whether the re-arm runs.
 private enum GenerationFence {
     /// Walks from the re-arm up to the `onChange` closure. At each level the
-    /// re-arm is controlled when a preceding `guard` in the same block, or an
-    /// enclosing `if` whose body holds the re-arm, compares a captured value
-    /// with `==`.
+    /// re-arm is controlled by an earlier statement in the same block —
+    /// `guard stored == captured else { exit }` or
+    /// `if stored != captured { exit }` — or by an enclosing
+    /// `if stored == captured` whose body holds the re-arm.
     static func controls(rearm: Syntax, within onChange: Syntax, capturedNames: Set<String>) -> Bool {
         var child = rearm
         var current = rearm.parent
@@ -170,7 +171,13 @@ private enum GenerationFence {
                         break
                     }
                     if let guardStatement = sibling.item.as(GuardStmtSyntax.self),
-                        comparesCaptured(guardStatement.conditions, capturedNames: capturedNames)
+                        guardStatement.body.exitsScope,
+                        comparesCaptured(guardStatement.conditions, operator: "==", capturedNames: capturedNames)
+                    {
+                        return true
+                    }
+                    if let ifExpression = sibling.ifExpression, ifExpression.body.exitsScope,
+                        comparesCaptured(ifExpression.conditions, operator: "!=", capturedNames: capturedNames)
                     {
                         return true
                     }
@@ -178,7 +185,7 @@ private enum GenerationFence {
             }
             if let ifExpression = node.as(IfExprSyntax.self),
                 Syntax(ifExpression.body) == child,
-                comparesCaptured(ifExpression.conditions, capturedNames: capturedNames)
+                comparesCaptured(ifExpression.conditions, operator: "==", capturedNames: capturedNames)
             {
                 return true
             }
@@ -188,12 +195,16 @@ private enum GenerationFence {
         return false
     }
 
-    private static func comparesCaptured(_ conditions: ConditionElementListSyntax, capturedNames: Set<String>) -> Bool {
+    private static func comparesCaptured(
+        _ conditions: ConditionElementListSyntax,
+        operator operatorText: String,
+        capturedNames: Set<String>
+    ) -> Bool {
         conditions.contains { element in
             guard let condition = element.condition.as(ExprSyntax.self) else {
                 return false
             }
-            return condition.binaryOperands(operator: "==").contains { comparison in
+            return condition.binaryOperands(operator: operatorText).contains { comparison in
                 [comparison.left, comparison.right].contains { operand in
                     guard let reference = operand.as(DeclReferenceExprSyntax.self) else {
                         return false
