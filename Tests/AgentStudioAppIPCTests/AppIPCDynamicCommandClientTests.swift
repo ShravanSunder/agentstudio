@@ -414,8 +414,26 @@ struct AppIPCDynamicCommandClientTests {
         )
         let structuredError = try requireStructuredCLIError(result)
         #expect(structuredError.reason == "notYetAllowed")
+        #expect(structuredError.refusedName == scenario.commandId.rawValue)
         #expect(structuredError.requiredScope == nil)
         #expect(scenario.commandPort.receivedExecutionRequests.isEmpty)
+    }
+
+    @Test("built CLI names a pane agent's refused method")
+    func builtCLIRendersNotYetAllowedMethodName() async throws {
+        let scenario = try PaneAgentCredentialScenario.make()
+        defer { scenario.fixture.cleanup() }
+        try scenario.fixture.server.start()
+
+        let result = try await runCLI(
+            executableURL: cliExecutableURL(),
+            arguments: ["bridge.diff.getPackage", "--handle", "self"],
+            environment: scenario.cliEnvironment
+        )
+        let structuredError = try requireStructuredCLIError(result)
+        #expect(structuredError.reason == "notYetAllowed")
+        #expect(structuredError.refusedName == "bridge.diff.getPackage")
+        #expect(structuredError.requiredScope == nil)
     }
 
     @Test("built CLI renders an unknown method correction without reflecting its identifier")
@@ -595,6 +613,7 @@ private struct StructuredCLIError: Decodable {
     let expected: String?
     let catalogMethod: String?
     let requiredScope: IPCPermissionScope?
+    let refusedName: String?
 }
 
 private func makeCLIEnvironment(for scenario: DynamicCommandScenario) -> [String: String] {
