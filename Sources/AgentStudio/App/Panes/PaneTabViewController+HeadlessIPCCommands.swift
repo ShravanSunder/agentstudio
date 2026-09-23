@@ -1,4 +1,5 @@
 import AgentStudioCore
+import AgentStudioInfrastructure
 import AgentStudioProgrammaticControl
 import Foundation
 
@@ -225,10 +226,10 @@ extension PaneTabViewController {
             )
         case .showViewer:
             return await executeViewerCommand(command, paneId: paneId)
-        case .scrollToBottom, .scrollPageUp, .jumpToPreviousPrompt, .jumpToNextPrompt:
+        case .scrollToBottom, .scrollPageUp, .scrollPageDown, .scrollSmallStepUp, .scrollSmallStepDown,
+            .jumpToPreviousPrompt, .jumpToNextPrompt:
             return await executeTerminalRuntimeCommand(command, paneId: paneId)
-        case .scrollPageDown, .scrollSmallStepUp, .scrollSmallStepDown,
-            .focusPreviousPinnedPane, .focusNextPinnedPane:
+        case .focusPreviousPinnedPane, .focusNextPinnedPane:
             return .stateUnavailable
         case .reloadBridgeWebView:
             guard let mountView = resolvedBridgeCommandMountView(paneId: paneId),
@@ -297,6 +298,17 @@ extension PaneTabViewController {
         switch command {
         case .scrollToBottom: runtimeCommand = .terminal(.scrollToBottom)
         case .scrollPageUp: runtimeCommand = .terminal(.scrollPageFractional(fraction: -1))
+        // The interactive shortcuts' fractions, so an agent scrolls exactly as
+        // the keys do.
+        case .scrollPageDown:
+            runtimeCommand = .terminal(
+                .scrollPageFractional(fraction: AppPolicies.TerminalNavigation.pageFraction))
+        case .scrollSmallStepUp:
+            runtimeCommand = .terminal(
+                .scrollPageFractional(fraction: -AppPolicies.TerminalNavigation.smallStepFraction))
+        case .scrollSmallStepDown:
+            runtimeCommand = .terminal(
+                .scrollPageFractional(fraction: AppPolicies.TerminalNavigation.smallStepFraction))
         case .jumpToPreviousPrompt: runtimeCommand = .terminal(.jumpToPrompt(delta: -1))
         case .jumpToNextPrompt: runtimeCommand = .terminal(.jumpToPrompt(delta: 1))
         default: return .unsupportedCommand
