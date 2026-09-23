@@ -77,6 +77,8 @@ struct ZoomPresentationContainer: View {
     @State private var paneFrames: [UUID: CGRect] = [:]
     @State private var iconBarFrame: CGRect = .zero
     @State private var drawerDismissCoordinateView: NSView?
+    /// Measured split area in `"tabContainer"` space; excludes the shared toolbar.
+    @State private var splitAreaFrame: CGRect = .zero
 
     init(
         tabId: UUID? = nil,
@@ -155,6 +157,11 @@ struct ZoomPresentationContainer: View {
                             persistSplitRatio(splitRatio)
                         }
                     )
+                    .onGeometryChange(for: CGRect.self) { geometry in
+                        geometry.frame(in: .named("tabContainer"))
+                    } action: { frame in
+                        splitAreaFrame = frame
+                    }
                     .overlay(alignment: .bottom) {
                         if atom(\.managementLayer).isActive,
                             sourceManagementContext.showsIdentityBlock
@@ -403,6 +410,7 @@ struct ZoomPresentationContainer: View {
                 appLifecycleStore: appLifecycleStore,
                 closeTransitionCoordinator: closeTransitionCoordinator,
                 tabId: tabId,
+                presentation: drawerOverlayPresentation,
                 paneFrames: paneFrames,
                 tabSize: tabSize,
                 iconBarFrame: iconBarFrame,
@@ -418,6 +426,22 @@ struct ZoomPresentationContainer: View {
                 dragSourcePaneId: nil
             )
         }
+    }
+
+    /// Terminal and Bridge regions from the measured split area and the live
+    /// split ratio, so an unfinished divider drag moves the drawer with it.
+    private var drawerOverlayPresentation: DrawerOverlayPresentation {
+        let regions = DrawerPresentationGeometryResolver.zoomRegions(
+            splitArea: splitAreaFrame,
+            sourceSplitRatio: splitRatio,
+            reservesCompanionSpace: companionContent != nil,
+            isCompanionVisible: isCompanionVisible
+        )
+        return .zoom(
+            sourcePaneId: sourcePaneId,
+            terminalRegion: regions.terminal,
+            bridgeRegion: regions.bridge
+        )
     }
 
     private func managementCircleButton(

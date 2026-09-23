@@ -854,6 +854,7 @@ extension WorkspaceSurfaceCoordinator {
                 let ownedDrawerID = store.paneAtom.graphAtom.paneStructuralFacts(paneId)?.ownedDrawerID,
                 let drawerView = tab.activeArrangement.drawerViews[ownedDrawerID],
                 let drawerContentRect = resolvedDrawerContentRect(
+                    ownerPaneId: paneId,
                     parentPaneFrame: parentFrame,
                     tabSize: terminalContainerBounds.size
                 )
@@ -890,45 +891,25 @@ extension WorkspaceSurfaceCoordinator {
             && rect.size.height > 0
     }
 
+    /// Normal-mode drawer child content rect from the shared geometry
+    /// resolver, with the committed owner preference and the bootstrap toolbar
+    /// metric (the owner frame here includes its toolbar).
     private func resolvedDrawerContentRect(
+        ownerPaneId: UUID,
         parentPaneFrame: CGRect,
         tabSize: CGSize
     ) -> CGRect? {
-        guard tabSize.width > 0, tabSize.height > 0 else { return nil }
-
-        let heightRatio = drawerHeightRatio()
-        let panelWidth = tabSize.width * DrawerLayout.panelWidthRatio
-        let panelHeight = max(
-            DrawerLayout.panelMinHeight,
-            min(tabSize.height * CGFloat(heightRatio), tabSize.height - DrawerLayout.panelBottomMargin)
-        )
-        let totalHeight = panelHeight + DrawerLayout.overlayConnectorHeight
-        let overlayBottomY = parentPaneFrame.maxY - DrawerLayout.iconBarFrameHeight
-        let centerY = overlayBottomY - totalHeight / 2
-        let halfPanel = panelWidth / 2
-        let edgeMargin = DrawerLayout.tabEdgeMargin
-        let centerX = max(
-            halfPanel + edgeMargin,
-            min(tabSize.width - halfPanel - edgeMargin, parentPaneFrame.midX)
-        )
-        let panelLeft = centerX - halfPanel
-        let panelTop = centerY - totalHeight / 2
-
-        let contentRect = CGRect(
-            x: panelLeft + DrawerLayout.panelContentPadding,
-            y: panelTop + DrawerLayout.resizeHandleHeight,
-            width: max(panelWidth - (DrawerLayout.panelContentPadding * 2), 1),
-            height: max(
-                panelHeight - DrawerLayout.resizeHandleHeight - DrawerLayout.panelContentPadding,
-                1
+        DrawerPresentationGeometryResolver.resolve(
+            DrawerPresentationGeometryInput(
+                containerBounds: CGRect(origin: .zero, size: tabSize),
+                preference: store.paneAtom.drawerPresentationPreference(forOwner: ownerPaneId),
+                placement: .normal(
+                    ownerFrame: parentPaneFrame,
+                    ownerToolbarHeight: DrawerLayout.iconBarFrameHeight,
+                    liveHeight: nil
+                )
             )
-        )
-        return contentRect.isEmpty ? nil : contentRect
-    }
-
-    private func drawerHeightRatio() -> Double {
-        let storedValue = UserDefaults.standard.object(forKey: "drawerHeightRatio") as? Double
-        return storedValue ?? DrawerLayout.heightRatioMax
+        )?.childContentFrame
     }
 
     private func getDefaultShell() -> String {
