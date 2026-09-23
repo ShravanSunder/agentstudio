@@ -6,10 +6,10 @@ import InstallCommand from "./InstallCommand.astro";
 ---
 
 <section
-  class="final-cta grid min-h-[700px] justify-items-center gap-y-6 px-page-inline py-[clamp(80px,7vw,112px)] text-center"
+  class="final-cta grid min-h-[700px] grid-cols-[minmax(0,1fr)] justify-items-center gap-y-6 px-page-inline py-section-block text-center"
   aria-labelledby="final-cta-title"
 >
-  <img src={appLogo.src} width="88" height="88" alt="" />
+  <img src={appLogo.src} width="88" height="88" alt="" loading="lazy" decoding="async" />
   <h2
     id="final-cta-title"
     class="m-0 font-display text-closing-display font-extrabold"
