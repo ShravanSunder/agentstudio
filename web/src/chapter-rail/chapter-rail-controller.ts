@@ -1,6 +1,6 @@
 // One owner for the left chapter rail: measures rail anchors and their
-// targets, draws the lane, dots and branches, and marks the current chapter.
-// It reads page positions and never sets page layout.
+// targets, draws the grid's main lane, row dots and branches, and marks the
+// current chapter. It reads page positions and never sets page layout.
 //
 // Relative imports keep this module loadable by Vitest, which has no "@/" alias.
 import {
@@ -14,9 +14,11 @@ import {
   railNodeStateAt,
   railReadingLineRatio,
   selectCurrentRailNodeIndex,
+  type ChapterRailBranchLayout,
   type ChapterRailLayout,
-  type ChapterRailNodeLayout,
+  type ChapterRailRowDot,
   type RailAnchorMeasurement,
+  type RailNodeState,
   type RailRect,
 } from "./chapter-rail-layout";
 
@@ -26,27 +28,36 @@ export const chapterRailAttribute = "data-chapter-rail";
 export const chapterRailArtworkAttribute = "data-chapter-rail-artwork";
 /** `"empty" | "drawn"` on the container once measured. */
 export const chapterRailLayoutAttribute = "data-chapter-rail-layout";
-/** The vertical lane path. */
+/** The main (chapter progress) lane path. */
 export const chapterRailLaneAttribute = "data-chapter-rail-lane";
-/** `<g data-chapter-rail-node="<anchorId>">`: one dot per rail anchor. */
+/** `<g data-chapter-rail-row="<rowIndex>">`: the one dot on each grid row. */
+export const chapterRailRowAttribute = "data-chapter-rail-row";
+/** `<g data-chapter-rail-node="<anchorId>">`: set on the row dot of each rail anchor. */
 export const chapterRailNodeAttribute = "data-chapter-rail-node";
-/** `<path data-chapter-rail-branch="<anchorId>">`: one branch per dot that has a target. */
+/** `<path data-chapter-rail-branch="<anchorId>">`: each branch from an anchor into its glass. */
 export const chapterRailBranchAttribute = "data-chapter-rail-branch";
+/** `"main" | "peach" | "cyan"` on every row dot and branch: the lane that owns it. */
+export const chapterRailAccentAttribute = "data-chapter-rail-accent";
 /** `"left" | "top"` on a branch: the target edge it lands on. */
 export const chapterRailTargetEdgeAttribute = "data-chapter-rail-target-edge";
-/** `"passed" | "current" | "upcoming"` on every dot and branch. */
+/** `"passed" | "current" | "upcoming"` on every row dot and branch. */
 export const chapterRailStateAttribute = "data-chapter-rail-state";
 
 const svgNamespace = "http://www.w3.org/2000/svg";
-const nodeRingRadius = 6;
-const nodeCoreRadius = 2.75;
+// Node sizes from the retired topology artwork: commit nodes r=4, terminal
+// nodes (with their halo) r=7.
+const commitNodeRadius = 4;
+const terminalNodeRadius = 7;
 
-interface RenderedRailNode {
-  readonly anchorId: string;
+interface RenderedRowDot {
+  readonly signature: string;
   readonly group: SVGGElement;
-  readonly ring: SVGCircleElement;
-  readonly core: SVGCircleElement;
-  readonly branch: SVGPathElement;
+  readonly circles: readonly SVGCircleElement[];
+}
+
+interface RenderedBranch {
+  readonly signature: string;
+  readonly path: SVGPathElement;
 }
 
 interface RailTargetElements {
@@ -151,31 +162,41 @@ function measureRailPage(ownerDocument: Document, artwork: SVGSVGElement): RailM
   return { anchors, targets, surfaceRects, mediaRects, copyBlockRects };
 }
 
-function createRenderedRailNode(ownerDocument: Document, anchorId: string): RenderedRailNode {
-  const group = createSvgElement(ownerDocument, "g");
-  group.setAttribute(chapterRailNodeAttribute, anchorId);
-  const ring = createSvgElement(ownerDocument, "circle");
-  ring.setAttribute("class", "chapter-rail-node-ring");
-  ring.setAttribute("r", String(nodeRingRadius));
-  const core = createSvgElement(ownerDocument, "circle");
-  core.setAttribute("class", "chapter-rail-node-core");
-  core.setAttribute("r", String(nodeCoreRadius));
-  group.append(ring, core);
-  const branch = createSvgElement(ownerDocument, "path");
-  branch.setAttribute(chapterRailBranchAttribute, anchorId);
-  return { anchorId, group, ring, core, branch };
+function rowDotSignature(row: ChapterRailRowDot): string {
+  return `${row.accent}:${row.anchorId ?? ""}`;
 }
 
-function applyRenderedNodeGeometry(rendered: RenderedRailNode, node: ChapterRailNodeLayout): void {
-  for (const circle of [rendered.ring, rendered.core]) {
-    setAttributeIfChanged(circle, "cx", String(node.x));
-    setAttributeIfChanged(circle, "cy", String(node.y));
+function createRowDot(ownerDocument: Document, row: ChapterRailRowDot): RenderedRowDot {
+  const group = createSvgElement(ownerDocument, "g");
+  group.setAttribute(chapterRailRowAttribute, String(row.rowIndex));
+  group.setAttribute(chapterRailAccentAttribute, row.accent);
+  const commit = createSvgElement(ownerDocument, "circle");
+  commit.setAttribute("class", "chapter-rail-commit");
+  commit.setAttribute("r", String(commitNodeRadius));
+  const circles = [commit];
+  if (row.anchorId !== undefined) {
+    group.setAttribute(chapterRailNodeAttribute, row.anchorId);
+    const halo = createSvgElement(ownerDocument, "circle");
+    halo.setAttribute("class", "chapter-rail-terminal-halo");
+    halo.setAttribute("r", String(terminalNodeRadius));
+    const terminal = createSvgElement(ownerDocument, "circle");
+    terminal.setAttribute("class", "chapter-rail-terminal");
+    terminal.setAttribute("r", String(terminalNodeRadius));
+    circles.push(halo, terminal);
   }
-  if (node.branch === undefined) {
-    return;
-  }
-  setAttributeIfChanged(rendered.branch, "d", node.branch.pathData);
-  setAttributeIfChanged(rendered.branch, chapterRailTargetEdgeAttribute, node.branch.targetEdge);
+  group.append(...circles);
+  return { signature: rowDotSignature(row), group, circles };
+}
+
+function branchSignature(branch: ChapterRailBranchLayout): string {
+  return `${branch.anchorId}:${branch.accent}`;
+}
+
+function createBranch(ownerDocument: Document, branch: ChapterRailBranchLayout): RenderedBranch {
+  const path = createSvgElement(ownerDocument, "path");
+  path.setAttribute(chapterRailBranchAttribute, branch.anchorId);
+  path.setAttribute(chapterRailAccentAttribute, branch.accent);
+  return { signature: branchSignature(branch), path };
 }
 
 export function initializeChapterRail(rail: HTMLElement): () => void {
@@ -189,11 +210,12 @@ export function initializeChapterRail(rail: HTMLElement): () => void {
   const lane = createSvgElement(ownerDocument, "path");
   lane.setAttribute(chapterRailLaneAttribute, "");
   const branchLayer = createSvgElement(ownerDocument, "g");
-  const nodeLayer = createSvgElement(ownerDocument, "g");
-  artwork.replaceChildren(lane, branchLayer, nodeLayer);
+  const dotLayer = createSvgElement(ownerDocument, "g");
+  artwork.replaceChildren(lane, branchLayer, dotLayer);
 
   const lifecycle = new AbortController();
-  let renderedNodes: readonly RenderedRailNode[] = [];
+  let renderedDots: readonly RenderedRowDot[] = [];
+  let renderedBranches: readonly RenderedBranch[] = [];
   let currentLayout: ChapterRailLayout = { kind: "empty" };
   let targetsById: ReadonlyMap<string, RailTargetElements> = new Map();
   let litTarget: HTMLElement | undefined;
@@ -212,38 +234,48 @@ export function initializeChapterRail(rail: HTMLElement): () => void {
     currentLayout = layout;
     setAttributeIfChanged(rail, chapterRailLayoutAttribute, layout.kind);
     if (layout.kind === "empty") {
-      renderedNodes = [];
+      renderedDots = [];
+      renderedBranches = [];
       branchLayer.replaceChildren();
-      nodeLayer.replaceChildren();
+      dotLayer.replaceChildren();
       lane.removeAttribute("d");
       return;
     }
-    const anchorIdsChanged =
-      renderedNodes.length !== layout.nodes.length ||
-      renderedNodes.some((rendered, index) => rendered.anchorId !== layout.nodes[index]?.anchorId);
-    if (anchorIdsChanged) {
-      renderedNodes = layout.nodes.map((node) =>
-        createRenderedRailNode(ownerDocument, node.anchorId),
-      );
-      nodeLayer.replaceChildren(...renderedNodes.map((rendered) => rendered.group));
-    }
     setAttributeIfChanged(lane, "d", layout.lanePath);
-    const branchesWithTargets: SVGPathElement[] = [];
-    for (const [index, rendered] of renderedNodes.entries()) {
-      const node = layout.nodes[index];
-      if (node === undefined) {
+
+    const dotsChanged =
+      renderedDots.length !== layout.rows.length ||
+      layout.rows.some((row, index) => renderedDots[index]?.signature !== rowDotSignature(row));
+    if (dotsChanged) {
+      renderedDots = layout.rows.map((row) => createRowDot(ownerDocument, row));
+      dotLayer.replaceChildren(...renderedDots.map((dot) => dot.group));
+    }
+    for (const [index, dot] of renderedDots.entries()) {
+      const row = layout.rows[index];
+      if (row === undefined) {
         continue;
       }
-      applyRenderedNodeGeometry(rendered, node);
-      if (node.branch !== undefined) {
-        branchesWithTargets.push(rendered.branch);
+      for (const circle of dot.circles) {
+        setAttributeIfChanged(circle, "cx", String(row.x));
+        setAttributeIfChanged(circle, "cy", String(row.y));
       }
     }
-    const branchSetChanged =
-      branchLayer.childElementCount !== branchesWithTargets.length ||
-      branchesWithTargets.some((branch, index) => branchLayer.children[index] !== branch);
-    if (branchSetChanged) {
-      branchLayer.replaceChildren(...branchesWithTargets);
+
+    const branchesChanged =
+      renderedBranches.length !== layout.branches.length ||
+      layout.branches.some(
+        (branch, index) => renderedBranches[index]?.signature !== branchSignature(branch),
+      );
+    if (branchesChanged) {
+      renderedBranches = layout.branches.map((branch) => createBranch(ownerDocument, branch));
+      branchLayer.replaceChildren(...renderedBranches.map((branch) => branch.path));
+    }
+    for (const [index, rendered] of renderedBranches.entries()) {
+      const branch = layout.branches[index];
+      if (branch !== undefined) {
+        setAttributeIfChanged(rendered.path, "d", branch.pathData);
+        setAttributeIfChanged(rendered.path, chapterRailTargetEdgeAttribute, branch.targetEdge);
+      }
     }
   };
 
@@ -252,23 +284,53 @@ export function initializeChapterRail(rail: HTMLElement): () => void {
       lightTarget(undefined);
       return;
     }
+    const layout = currentLayout;
     const readingLineY =
       ownerWindow.innerHeight * railReadingLineRatio - artwork.getBoundingClientRect().top;
-    const currentIndex = selectCurrentRailNodeIndex(
-      currentLayout.nodes.map((node) => node.y),
+    const currentAnchorIndex = selectCurrentRailNodeIndex(
+      layout.anchorNodes.map((node) => node.y),
       readingLineY,
     );
-    for (const [index, rendered] of renderedNodes.entries()) {
-      const state = railNodeStateAt(index, currentIndex);
-      setAttributeIfChanged(rendered.group, chapterRailStateAttribute, state);
-      setAttributeIfChanged(rendered.branch, chapterRailStateAttribute, state);
+    const currentRowIndex =
+      currentAnchorIndex === undefined
+        ? undefined
+        : layout.anchorNodes[currentAnchorIndex]?.rowIndex;
+    const anchorIndexById = new Map(
+      layout.anchorNodes.map((node, index) => [node.anchorId, index] as const),
+    );
+    for (const [index, dot] of renderedDots.entries()) {
+      const row = layout.rows[index];
+      if (row === undefined) {
+        continue;
+      }
+      const anchorIndex =
+        row.anchorId === undefined ? undefined : anchorIndexById.get(row.anchorId);
+      const state: RailNodeState =
+        anchorIndex !== undefined
+          ? railNodeStateAt(anchorIndex, currentAnchorIndex)
+          : currentRowIndex !== undefined && row.rowIndex < currentRowIndex
+            ? "passed"
+            : "upcoming";
+      setAttributeIfChanged(dot.group, chapterRailStateAttribute, state);
     }
-    const currentNode = currentIndex === undefined ? undefined : currentLayout.nodes[currentIndex];
+    for (const [index, rendered] of renderedBranches.entries()) {
+      const anchorIndex = anchorIndexById.get(layout.branches[index]?.anchorId ?? "");
+      setAttributeIfChanged(
+        rendered.path,
+        chapterRailStateAttribute,
+        railNodeStateAt(anchorIndex ?? Number.POSITIVE_INFINITY, currentAnchorIndex),
+      );
+    }
+    const currentAnchor =
+      currentAnchorIndex === undefined ? undefined : layout.anchorNodes[currentAnchorIndex];
+    const currentBranch = layout.branches.find(
+      (branch) => branch.anchorId === currentAnchor?.anchorId,
+    );
     const currentTargets =
-      currentNode === undefined ? undefined : targetsById.get(currentNode.anchorId);
+      currentAnchor === undefined ? undefined : targetsById.get(currentAnchor.anchorId);
     const joinedTarget =
-      currentNode?.branch?.targetEdge === "top" ? currentTargets?.media : currentTargets?.surface;
-    lightTarget(currentNode?.branch === undefined ? undefined : joinedTarget);
+      currentBranch?.targetEdge === "top" ? currentTargets?.media : currentTargets?.surface;
+    lightTarget(currentBranch === undefined ? undefined : joinedTarget);
   };
 
   // Glass surfaces lift with a scroll-driven transform, so anchors and targets

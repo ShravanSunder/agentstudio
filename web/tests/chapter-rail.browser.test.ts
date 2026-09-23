@@ -5,6 +5,7 @@ import {
   chapterRailBranchAttribute,
   chapterRailLayoutAttribute,
   chapterRailNodeAttribute,
+  chapterRailRowAttribute,
   chapterRailStateAttribute,
   chapterRailTargetEdgeAttribute,
   initializeChapterRail,
@@ -182,6 +183,11 @@ describe("chapter rail", () => {
       expect(end.y).toBeLessThanOrEqual(surface.getBoundingClientRect().bottom + 1);
     }
     expect(railXs.size).toBe(1);
+    // The grid puts one dot on every row between and after the anchors.
+    const rowDots = [...fixture.artwork.querySelectorAll(`[${chapterRailRowAttribute}]`)];
+    expect(rowDots.length).toBeGreaterThan(railNodes(fixture.artwork).length);
+    const rowYs = rowDots.map((dot) => Math.round(verticalCenter(dot)));
+    expect(new Set(rowYs).size).toBe(rowYs.length);
     // A chapter glass spans its eyebrow, so the branch lands level with the dot.
     const chapterCenter = nodeCenter(railNode(fixture.artwork, "many-agents"));
     const chapterEnd = branchEnd(fixture.artwork, railBranch(fixture.artwork, "many-agents"));
