@@ -120,7 +120,15 @@ final class CommandBarResultSession {
             return CommandBarItemSnapshot(
                 scope: state.currentScope,
                 isNested: true,
-                items: level.textEntry?.rowsForText(state.searchQuery) ?? level.items
+                items: level.textEntry.map { textEntry in
+                    textEntry.rowsForInput(
+                        CommandBarTextEntryInput(
+                            text: state.searchQuery,
+                            forkEligibility: textEntry.forkEligibilityQuery.flatMap {
+                                state.forkEligibilityBySourceWorktreeId[$0.sourceWorktreeId]
+                            }
+                        ))
+                } ?? level.items
             )
         }
 

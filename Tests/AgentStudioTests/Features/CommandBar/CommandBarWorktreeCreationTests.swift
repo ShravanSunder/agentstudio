@@ -2,6 +2,7 @@ import AgentStudioCore
 import AgentStudioInfrastructure
 import AgentStudioTestSupport
 import Foundation
+import Observation
 import Testing
 
 @testable import AgentStudioCommandBar
@@ -158,6 +159,94 @@ struct CommandBarWorktreeCreationTests {
         #expect(dispatcher.worktreeCreationDispatches.isEmpty)
     }
 
+    // MARK: - Fork eligibility
+
+    @Test("where fork is unavailable every Return creates a clean checkout")
+    func unavailableForkResolvesEveryReturnToCleanCheckout() throws {
+        let sourceId = UUIDv7.generate()
+        let branchName = try WorktreeBranchName.validated("feature/fallback").get()
+        let draft = CommandBarWorktreeCreationDraft(
+            sourceWorktreeId: sourceId,
+            branchName: .success(branchName),
+            forkEligibility: .unavailable(reason: "the volume cannot clone files")
+        )
+        let clean = CommandBarWorktreeCreationResolution.dispatch(
+            .init(kind: .cleanCheckout, sourceWorktreeId: sourceId, branchName: branchName))
+
+        for modifier in [EnterModifier.plain, .command, .option] {
+            #expect(CommandBarWorktreeCreationResolver.resolve(draft: draft, modifier: modifier) == clean)
+        }
+        #expect(CommandBarWorktreeCreationResolver.footerHints(for: draft).map(\.id) == ["create-clean"])
+    }
+
+    @Test("available fork keeps Return on fork and Option-Return on clean checkout")
+    func availableForkKeepsForkDefault() throws {
+        let sourceId = UUIDv7.generate()
+        let branchName = try WorktreeBranchName.validated("feature/available").get()
+        let draft = CommandBarWorktreeCreationDraft(
+            sourceWorktreeId: sourceId, branchName: .success(branchName), forkEligibility: .available)
+
+        #expect(
+            CommandBarWorktreeCreationResolver.resolve(draft: draft, modifier: .plain)
+                == .dispatch(.init(kind: .fork, sourceWorktreeId: sourceId, branchName: branchName)))
+        #expect(
+            CommandBarWorktreeCreationResolver.resolve(draft: draft, modifier: .option)
+                == .dispatch(.init(kind: .cleanCheckout, sourceWorktreeId: sourceId, branchName: branchName)))
+        #expect(
+            CommandBarWorktreeCreationResolver.footerHints(for: draft).map(\.id) == ["create-fork", "create-clean"])
+    }
+
+    @Test("the Create row shows Fork while eligibility is pending, then the clean fallback once unavailable")
+    func createRowFollowsEligibilityAnswer() async throws {
+        let fixture = Self.makeFixture()
+        let dispatcher = FakeAppCommandDispatcher()
+        let eligibility = RecordingForkEligibilityChecker(
+            answer: .unavailable(reason: "the volume cannot clone files"))
+        let controller = Self.makeController(
+            store: fixture.store, dispatcher: dispatcher, worktreeForkEligibility: eligibility)
+        try Self.openBranchLevel(controller: controller, store: fixture.store, source: fixture.worktree)
+        controller.state.rawInput = "feature/eligibility"
+
+        let pendingRow = try #require(
+            Self.snapshot(controller: controller, store: fixture.store, dispatcher: dispatcher).displayedItems.first)
+        await awaitForkEligibility(of: fixture.worktree.id, in: controller.state)
+        let answeredRow = try #require(
+            Self.snapshot(controller: controller, store: fixture.store, dispatcher: dispatcher).displayedItems.first)
+        controller.executeItem(answeredRow, modifier: .plain)
+
+        #expect(pendingRow.secondaryLine?.text == AppCommand.forkWorktree.definition.helpText)
+        #expect(
+            answeredRow.secondaryLine?.text
+                == "Create clean worktree — fork unavailable here: the volume cannot clone files")
+        #expect(
+            await eligibility.queries == [
+                ForkEligibilityQuery(
+                    sourceWorktreePath: fixture.worktree.path,
+                    destinationDirectory: fixture.worktree.path.standardizedFileURL.deletingLastPathComponent()
+                )
+            ])
+        #expect(dispatcher.worktreeCreationDispatches.map(\.kind) == [.cleanCheckout])
+    }
+
+    @Test("an available answer keeps the fork cue and Return dispatches a fork")
+    func availableAnswerDispatchesFork() async throws {
+        let fixture = Self.makeFixture()
+        let dispatcher = FakeAppCommandDispatcher()
+        let controller = Self.makeController(
+            store: fixture.store, dispatcher: dispatcher,
+            worktreeForkEligibility: RecordingForkEligibilityChecker(answer: .available))
+        try Self.openBranchLevel(controller: controller, store: fixture.store, source: fixture.worktree)
+        controller.state.rawInput = "feature/forked"
+
+        await awaitForkEligibility(of: fixture.worktree.id, in: controller.state)
+        let row = try #require(
+            Self.snapshot(controller: controller, store: fixture.store, dispatcher: dispatcher).displayedItems.first)
+        controller.executeItem(row, modifier: .plain)
+
+        #expect(row.secondaryLine?.text == AppCommand.forkWorktree.definition.helpText)
+        #expect(dispatcher.worktreeCreationDispatches.map(\.kind) == [.fork])
+    }
+
     // MARK: - Fixtures
 
     private static func makeFixture() -> (store: WorkspaceStore, worktree: Worktree) {
@@ -177,7 +266,8 @@ struct CommandBarWorktreeCreationTests {
 
     private static func makeController(
         store: WorkspaceStore,
-        dispatcher: any AppCommandDispatching
+        dispatcher: any AppCommandDispatching,
+        worktreeForkEligibility: (any WorktreeForkEligibilityChecking)? = nil
     ) -> CommandBarPanelController {
         CommandBarPanelController(
             store: store,
@@ -185,7 +275,8 @@ struct CommandBarWorktreeCreationTests {
             repoCache: RepoCacheAtom(),
             dispatcher: dispatcher,
             quickOpenDirectoryHandler: { _, _ in },
-            commandBarSurface: CommandBarSurfaceAtom()
+            commandBarSurface: CommandBarSurfaceAtom(),
+            worktreeForkEligibility: worktreeForkEligibility
         )
     }
 
@@ -217,5 +308,40 @@ struct CommandBarWorktreeCreationTests {
             sourceLevel.items.first { $0.id == "target-worktree-creation-source-\(source.id.uuidString)" }
         )
         controller.executeItem(sourceRow)
+    }
+}
+
+private struct ForkEligibilityQuery: Equatable {
+    let sourceWorktreePath: URL
+    let destinationDirectory: URL
+}
+
+private actor RecordingForkEligibilityChecker: WorktreeForkEligibilityChecking {
+    private let answer: WorktreeForkEligibility
+    private(set) var queries: [ForkEligibilityQuery] = []
+
+    init(answer: WorktreeForkEligibility) {
+        self.answer = answer
+    }
+
+    func forkEligibility(sourceWorktreePath: URL, destinationDirectory: URL) async -> WorktreeForkEligibility {
+        queries.append(
+            ForkEligibilityQuery(sourceWorktreePath: sourceWorktreePath, destinationDirectory: destinationDirectory))
+        return answer
+    }
+}
+
+/// Awaits observed changes to the bar's eligibility answers until one exists for the
+/// source; each wake is a state mutation, never a scheduler turn.
+@MainActor
+private func awaitForkEligibility(of sourceWorktreeId: UUID, in state: CommandBarState) async {
+    while state.forkEligibilityBySourceWorktreeId[sourceWorktreeId] == nil {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            withObservationTracking {
+                _ = state.forkEligibilityBySourceWorktreeId
+            } onChange: {
+                continuation.resume()
+            }
+        }
     }
 }

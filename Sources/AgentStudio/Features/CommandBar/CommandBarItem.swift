@@ -307,15 +307,36 @@ struct CommandBarBreadcrumbItem: Equatable {
     let icon: AppEntityIcon?
 }
 
+/// The source a worktree-creation text entry asks the fork-eligibility port about when
+/// its level is pushed.
+package struct CommandBarForkEligibilityQuery: Equatable, Sendable {
+    package let sourceWorktreeId: UUID
+    package let sourceWorktreePath: URL
+    package let destinationDirectory: URL
+}
+
+/// What a text-entry level's rows are derived from: the typed text plus any answer to the
+/// level's fork-eligibility query (`nil` while pending).
+package struct CommandBarTextEntryInput: Equatable, Sendable {
+    package let text: String
+    package let forkEligibility: WorktreeForkEligibility?
+}
+
 /// A nested level whose field is typed input rather than a filter: its rows derive
-/// from the current text and are shown unfiltered.
+/// from the current input and are shown unfiltered.
 package struct CommandBarTextEntry {
     package let placeholder: String
-    package let rowsForText: @MainActor (String) -> [CommandBarItem]
+    package let forkEligibilityQuery: CommandBarForkEligibilityQuery?
+    package let rowsForInput: @MainActor (CommandBarTextEntryInput) -> [CommandBarItem]
 
-    package init(placeholder: String, rowsForText: @escaping @MainActor (String) -> [CommandBarItem]) {
+    package init(
+        placeholder: String,
+        forkEligibilityQuery: CommandBarForkEligibilityQuery? = nil,
+        rowsForInput: @escaping @MainActor (CommandBarTextEntryInput) -> [CommandBarItem]
+    ) {
         self.placeholder = placeholder
-        self.rowsForText = rowsForText
+        self.forkEligibilityQuery = forkEligibilityQuery
+        self.rowsForInput = rowsForInput
     }
 }
 
@@ -431,8 +452,8 @@ package enum FooterHintBuilder {
     ) -> [FooterHint] {
         if isNested {
             var hints: [FooterHint] = []
-            if case .createWorktree = item?.action {
-                hints.append(contentsOf: CommandBarWorktreeCreationResolver.footerHints)
+            if case .createWorktree(let draft) = item?.action {
+                hints.append(contentsOf: CommandBarWorktreeCreationResolver.footerHints(for: draft))
             }
             if item?.hasChildren == true {
                 hints.append(FooterHint(id: "drill-in", key: "⇥", label: "Actions"))

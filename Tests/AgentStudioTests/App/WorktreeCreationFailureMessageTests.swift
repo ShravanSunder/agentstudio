@@ -41,12 +41,43 @@ struct WorktreeCreationFailureMessageTests {
                     .libgit2Failure(code: -4, klass: 7, message: "a reference with that name already exists")),
                 detail: "Git reported: a reference with that name already exists"
             ),
-            MessageCase(failure: .forkUnavailable, detail: "Worktree Fork is not available yet."),
         ]
     )
     func failureMessages(_ testCase: MessageCase) {
         #expect(
             testCase.failure.message
                 == WorktreeCreationFailureMessage(title: "Worktree not created", detail: testCase.detail))
+    }
+
+    @Test("a fork preflight rejection says nothing was changed")
+    func forkRejectionSaysNothingChanged() {
+        let message = WorktreeCreationFailure.forkFailure(.rejected(reason: .crossDevice)).message
+
+        #expect(message.title == "Worktree Fork not created")
+        #expect(message.detail == "Nothing was changed: the destination is on a different volume than the source.")
+    }
+
+    @Test("an incomplete fork cleanup lists what was left behind")
+    func incompleteCleanupListsResidue() {
+        let failure = WorktreeCreationFailure.forkFailure(
+            .cleanupIncomplete(
+                primary: .entryFailed(relativePath: "build/out", reason: .strictCloneFailed, errorNumber: 45),
+                residue: [
+                    GitWorktreeForkResidue(kind: .destinationContent, location: "build"),
+                    GitWorktreeForkResidue(kind: .createdBranch, location: "refs/heads/fork/x"),
+                ]
+            ))
+
+        #expect(
+            failure.message.detail
+                == "build/out could not be copied (strictCloneFailed). Cleanup is incomplete; left behind: "
+                + "destinationContent build, createdBranch refs/heads/fork/x.")
+    }
+
+    @Test("every fork preflight reason has user-facing copy")
+    func everyRejectionReasonHasCopy() {
+        for reason in GitWorktreeForkRejectionReason.allCases {
+            #expect(!WorktreeForkRejectionCopy.phrase(for: reason).isEmpty)
+        }
     }
 }

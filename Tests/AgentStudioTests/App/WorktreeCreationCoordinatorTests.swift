@@ -80,18 +80,49 @@ struct WorktreeCreationCoordinatorTests {
         #expect(presented.failures == [.destinationRejected(.destinationExists(destination))])
     }
 
-    @Test("a fork request is unavailable until the SDK fork lands")
-    func forkIsUnavailable() async throws {
+    @Test("a fork holds, forks the source worktree without a start point, releases, then rescans")
+    func forkOrdersHoldForkReleaseRefresh() async throws {
         let fixture = try Self.makeFixture()
         let ledger = CreationLedger()
         let presented = PresentedFailures()
         let coordinator = Self.makeCoordinator(fixture: fixture, ledger: ledger, presented: presented)
 
-        let outcome = await coordinator.create(try fixture.request(branch: "fork", kind: .fork)).value
+        let outcome = await coordinator.create(try fixture.request(branch: "fork/ledger", kind: .fork)).value
 
-        #expect(outcome == .failed(.forkUnavailable))
-        #expect(await ledger.events.isEmpty)
-        #expect(coordinator.canCreate(fromWorktree: fixture.worktree.id))
+        let destination = fixture.watchedRoot.appending(path: "repo.fork-ledger", directoryHint: .isDirectory)
+            .standardizedFileURL
+        #expect(outcome == .created(destination: destination))
+        #expect(
+            await ledger.events == [
+                .hold(destination),
+                .fork(
+                    GitForkWorktreeRequest(
+                        sourceWorktreePath: fixture.worktree.path,
+                        destinationPath: destination,
+                        mode: .newBranch(name: "fork/ledger")
+                    )),
+                .release,
+                .refresh(fixture.watchedPath.id),
+            ])
+        #expect(presented.failures.isEmpty)
+    }
+
+    @Test("a fork preflight rejection releases the hold, skips the rescan, and presents the failure")
+    func forkRejectionReleasesHoldAndPresents() async throws {
+        let fixture = try Self.makeFixture()
+        let ledger = CreationLedger()
+        let presented = PresentedFailures()
+        let forkError = GitWorktreeForkError.rejected(reason: .crossDevice)
+        let coordinator = Self.makeCoordinator(
+            fixture: fixture, ledger: ledger, presented: presented, forkError: forkError)
+
+        let outcome = await coordinator.create(try fixture.request(branch: "fork/rejected", kind: .fork)).value
+
+        #expect(outcome == .failed(.forkFailure(forkError)))
+        let events = await ledger.events
+        #expect(events.last == .release)
+        #expect(!events.contains { if case .refresh = $0 { true } else { false } })
+        #expect(presented.failures == [.forkFailure(forkError)])
     }
 
     // MARK: - Fixtures
@@ -138,11 +169,12 @@ struct WorktreeCreationCoordinatorTests {
         ledger: CreationLedger,
         presented: PresentedFailures,
         createError: GitDataPlaneError? = nil,
+        forkError: GitWorktreeForkError? = nil,
         existingPaths: Set<URL> = []
     ) -> WorktreeCreationCoordinator {
         WorktreeCreationCoordinator(
             topology: fixture.store.repositoryTopologyAtom,
-            gitClient: FakeWorktreeCreationGitClient(ledger: ledger, createError: createError),
+            gitClient: FakeWorktreeCreationGitClient(ledger: ledger, createError: createError, forkError: forkError),
             publication: FakeWorktreePublication(ledger: ledger),
             pathExists: { existingPaths.contains($0.standardizedFileURL) },
             presentFailure: { presented.failures.append($0) }
@@ -154,6 +186,7 @@ private enum CreationEvent: Equatable {
     case hold(URL)
     case headCommit(URL)
     case create(GitCreateWorktreeRequest)
+    case fork(GitForkWorktreeRequest)
     case release
     case refresh(UUID)
 }
@@ -175,6 +208,7 @@ private struct FakeWorktreeCreationGitClient: WorktreeCreationGitClient {
     static let head = "0123456789abcdef0123456789abcdef01234567"
     let ledger: CreationLedger
     let createError: GitDataPlaneError?
+    let forkError: GitWorktreeForkError?
 
     func headCommit(ofWorktreeAt worktreePath: URL) async throws(GitDataPlaneError) -> String {
         await ledger.record(.headCommit(worktreePath))
@@ -184,14 +218,37 @@ private struct FakeWorktreeCreationGitClient: WorktreeCreationGitClient {
     func createWorktree(_ request: GitCreateWorktreeRequest) async throws(GitDataPlaneError) -> GitWorktreeSnapshot {
         await ledger.record(.create(request))
         if let createError { throw createError }
-        return GitWorktreeSnapshot(
-            id: GitWorktreeID(rawValue: request.destinationPath.lastPathComponent),
-            repositoryID: GitRepositoryID(rawValue: request.repositoryPath.path),
-            displayName: request.destinationPath.lastPathComponent,
-            path: request.destinationPath,
-            canonicalPath: request.destinationPath,
-            gitDirectory: request.destinationPath.appending(path: ".git"),
-            indexPath: request.destinationPath.appending(path: ".git/index"),
+        return Self.snapshot(destination: request.destinationPath, repositoryPath: request.repositoryPath)
+    }
+
+    func forkWorktree(_ request: GitForkWorktreeRequest) async throws(GitWorktreeForkError) -> GitForkWorktreeResult {
+        await ledger.record(.fork(request))
+        if let forkError { throw forkError }
+        return GitForkWorktreeResult(
+            worktree: Self.snapshot(destination: request.destinationPath, repositoryPath: request.sourceWorktreePath),
+            materialization: GitWorktreeMaterializationReport(
+                clonedRegularFileCount: 1,
+                createdDirectoryCount: 1,
+                recreatedSymbolicLinkCount: 0,
+                preservedHardLinkCount: 0,
+                preservedGitRepositoryCount: 0,
+                recreatedFIFOCount: 0,
+                logicalRegularFileBytes: 1,
+                skippedEntries: [],
+                normalizedEntries: []
+            )
+        )
+    }
+
+    private static func snapshot(destination: URL, repositoryPath: URL) -> GitWorktreeSnapshot {
+        GitWorktreeSnapshot(
+            id: GitWorktreeID(rawValue: destination.lastPathComponent),
+            repositoryID: GitRepositoryID(rawValue: repositoryPath.path),
+            displayName: destination.lastPathComponent,
+            path: destination,
+            canonicalPath: destination,
+            gitDirectory: destination.appending(path: ".git"),
+            indexPath: destination.appending(path: ".git/index"),
             isMainWorktree: false,
             isLocked: false,
             lockReason: nil,

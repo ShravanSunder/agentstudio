@@ -29,7 +29,7 @@ let package = Package(
         .package(url: "https://github.com/groue/GRDB.swift.git", from: "7.10.0"),
         .package(
             url: "https://github.com/ShravanSunder/agentstudio-git.git",
-            revision: "2816ead40d7bbbd153c71d801b87b67c5eaf31f6"
+            revision: "d6accdfd7c5fae500a573edec85d35f3e5db010b"
         ),
     ],
     targets: [

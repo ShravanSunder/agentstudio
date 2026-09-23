@@ -72,7 +72,6 @@ final class WorktreeCreationCoordinator {
     }
 
     private func performCreation(_ request: WorktreeCreationRequest) async -> WorktreeCreationOutcome {
-        guard case .cleanCheckout = request.kind else { return .failed(.forkUnavailable) }
         guard let source = resolveSource(request.sourceWorktreeId) else { return .failed(.sourceUnavailable) }
         let destination: WorktreeCreationDestination
         switch WorktreeDestinationPolicy.resolve(
@@ -92,27 +91,63 @@ final class WorktreeCreationCoordinator {
         defer { inFlightDestinations.remove(destination.path) }
 
         let holdID = await publication.holdPublication(of: destination.path)
-        let creationResult: Result<Void, GitDataPlaneError>
+        let failure: WorktreeCreationFailure? =
+            switch request.kind {
+            case .cleanCheckout:
+                await createCleanCheckout(source: source, destination: destination.path, branchName: request.branchName)
+            case .fork:
+                await forkSource(source: source, destination: destination.path, branchName: request.branchName)
+            }
+        await publication.releasePublicationHold(holdID)
+
+        if let failure {
+            return .failed(failure)
+        }
+        await publication.refreshWatchedFolder(destination.watchedPath.id, among: topology.watchedPaths)
+        return .created(destination: destination.path)
+    }
+
+    /// `git worktree add` on a new branch that starts at the source worktree's HEAD.
+    private func createCleanCheckout(
+        source: (worktree: Worktree, repository: Repo),
+        destination: URL,
+        branchName: WorktreeBranchName
+    ) async -> WorktreeCreationFailure? {
         do throws(GitDataPlaneError) {
             let headCommit = try await gitClient.headCommit(ofWorktreeAt: source.worktree.path)
             _ = try await gitClient.createWorktree(
                 GitCreateWorktreeRequest(
                     repositoryPath: source.repository.repoPath,
-                    destinationPath: destination.path,
-                    mode: .newBranch(name: request.branchName.rawValue, startPoint: .named(headCommit))
+                    destinationPath: destination,
+                    mode: .newBranch(name: branchName.rawValue, startPoint: .named(headCommit))
                 ))
-            creationResult = .success(())
+            return nil
         } catch {
-            creationResult = .failure(error)
+            return .gitFailure(error)
         }
-        await publication.releasePublicationHold(holdID)
+    }
 
-        switch creationResult {
-        case .failure(let error):
-            return .failed(.gitFailure(error))
-        case .success:
-            await publication.refreshWatchedFolder(destination.watchedPath.id, among: topology.watchedPaths)
-            return .created(destination: destination.path)
+    /// Copy-on-write fork of the source's current files; the new branch starts at the
+    /// source HEAD the SDK captures, so no start point is passed.
+    private func forkSource(
+        source: (worktree: Worktree, repository: Repo),
+        destination: URL,
+        branchName: WorktreeBranchName
+    ) async -> WorktreeCreationFailure? {
+        do throws(GitWorktreeForkError) {
+            let result = try await gitClient.forkWorktree(
+                GitForkWorktreeRequest(
+                    sourceWorktreePath: source.worktree.path,
+                    destinationPath: destination,
+                    mode: .newBranch(name: branchName.rawValue)
+                ))
+            let report = result.materialization
+            Self.logger.info(
+                "Worktree fork materialized: cloned=\(report.clonedRegularFileCount) skipped=\(report.skippedEntries.count) normalized=\(report.normalizedEntries.count)"
+            )
+            return nil
+        } catch {
+            return .forkFailure(error)
         }
     }
 

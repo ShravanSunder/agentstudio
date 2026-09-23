@@ -63,6 +63,12 @@ package final class CommandBarState {
     /// Persisted typed command history, ordered most-recent-first.
     private(set) var recentCommands: [AppCommand] = []
 
+    // MARK: - Worktree Creation
+
+    /// Fork eligibility answers for source worktrees chosen in this session; a missing
+    /// entry means the query is still pending.
+    private(set) var forkEligibilityBySourceWorktreeId: [UUID: WorktreeForkEligibility] = [:]
+
     // MARK: - Computed — Prefix Parsing
 
     /// Active prefix token: "> ", "$ ", "# ", or nil.
@@ -224,6 +230,7 @@ package final class CommandBarState {
         }
         pinnedScope = activeScope
         navigationStack = []
+        forkEligibilityBySourceWorktreeId = [:]
         selectedIndex = 0
         isVisible = true
         stateLogger.debug("Command bar shown with prefix: \(prefix ?? "(none)")")
@@ -237,6 +244,7 @@ package final class CommandBarState {
         pinnedScope = .everything
         defaultRootScope = .everything
         navigationStack = []
+        forkEligibilityBySourceWorktreeId = [:]
         selectedIndex = 0
         stateLogger.debug("Command bar dismissed")
     }
@@ -271,6 +279,10 @@ package final class CommandBarState {
     /// the test fixture entry point above so new owner→scope rows stay in sync.
     package static func defaultScope(for owner: KeyboardOwner) -> CommandBarScope {
         owner == .sidebar(.inbox) ? .inbox : .everything
+    }
+
+    func recordForkEligibility(_ eligibility: WorktreeForkEligibility, forSourceWorktreeId sourceWorktreeId: UUID) {
+        forkEligibilityBySourceWorktreeId[sourceWorktreeId] = eligibility
     }
 
     /// Push a nested level onto the navigation stack.

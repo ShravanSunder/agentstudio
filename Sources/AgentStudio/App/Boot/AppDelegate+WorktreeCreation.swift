@@ -22,10 +22,11 @@ extension AppDelegate {
         sourceWorktreeId: UUID,
         targetType: SearchItemType
     ) -> Bool {
-        // Worktree Fork execution lands with the SDK's forkWorktree; until then only the
-        // clean checkout is executable.
+        // Fork eligibility is not a capability check here: the SDK's fork preflight is
+        // authoritative, and the command bar already falls back to a clean checkout where
+        // the eligibility port says fork is unavailable.
         guard targetType == .worktree,
-            case .cleanCheckout = WorktreeCreationKind(command: command),
+            WorktreeCreationKind(command: command) != nil,
             let worktreeCreationCoordinator
         else { return false }
         return worktreeCreationCoordinator.canCreate(fromWorktree: sourceWorktreeId)

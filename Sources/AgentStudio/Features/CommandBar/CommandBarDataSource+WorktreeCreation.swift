@@ -20,7 +20,7 @@ extension CommandBarDataSource {
                     group: "Worktrees",
                     groupPriority: repoIndex,
                     hasChildren: true,
-                    action: .navigate(worktreeCreationBranchLevel(for: def, source: worktree)),
+                    action: .navigate(worktreeCreationBranchLevel(for: def, source: worktree, repository: repo)),
                     command: def.command
                 )
             }
@@ -33,9 +33,12 @@ extension CommandBarDataSource {
         )
     }
 
+    /// The new worktree lands beside the repository's main checkout, so that folder's
+    /// parent is where fork eligibility is asked about.
     static func worktreeCreationBranchLevel(
         for def: AppCommandSpec,
-        source: Worktree
+        source: Worktree,
+        repository: Repo
     ) -> CommandBarLevel {
         CommandBarLevel(
             id: "level-\(def.command.rawValue)-branch-\(source.id.uuidString)",
@@ -43,26 +46,42 @@ extension CommandBarDataSource {
             parentLabel: def.label,
             scopeLabel: "Worktree",
             items: [],
-            textEntry: CommandBarTextEntry(placeholder: "Branch name...") { text in
-                [worktreeCreationRow(text: text, source: source)]
+            textEntry: CommandBarTextEntry(
+                placeholder: "Branch name...",
+                forkEligibilityQuery: CommandBarForkEligibilityQuery(
+                    sourceWorktreeId: source.id,
+                    sourceWorktreePath: source.path,
+                    destinationDirectory: repository.repoPath.standardizedFileURL.deletingLastPathComponent()
+                )
+            ) { input in
+                [worktreeCreationRow(input: input, source: source)]
             }
         )
     }
 
-    static func worktreeCreationRow(text: String, source: Worktree) -> CommandBarItem {
+    static func worktreeCreationRow(input: CommandBarTextEntryInput, source: Worktree) -> CommandBarItem {
         let draft = CommandBarWorktreeCreationDraft(
             sourceWorktreeId: source.id,
-            branchName: WorktreeBranchName.validated(text)
+            branchName: WorktreeBranchName.validated(input.text),
+            forkEligibility: input.forkEligibility
         )
         let forkSpec = AppCommand.forkWorktree.definition
+        let cleanSpec = AppCommand.newWorktree.definition
+        let text = input.text
         let title: String
         let secondaryLine: CommandBarItemSecondaryLine
-        switch draft.branchName {
-        case .success(let branchName):
+        switch (draft.branchName, input.forkEligibility) {
+        case (.success(let branchName), .unavailable(let reason)):
+            title = branchName.rawValue
+            secondaryLine = CommandBarItemSecondaryLine(
+                text: "Create clean worktree — fork unavailable here: \(reason)",
+                icon: cleanSpec.icon
+            )
+        case (.success(let branchName), _):
             title = branchName.rawValue
             // The default Return forks, so the row says what comes along.
             secondaryLine = CommandBarItemSecondaryLine(text: forkSpec.helpText, icon: forkSpec.icon)
-        case .failure(let rejection):
+        case (.failure(let rejection), _):
             title = text.isEmpty ? "New branch" : text
             secondaryLine = CommandBarItemSecondaryLine(text: branchNameRejectionReason(rejection), icon: nil)
         }

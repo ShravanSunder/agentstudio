@@ -17,44 +17,23 @@ struct WorktreeCreationEndToEndTests {
     @Test("New Worktree from the dispatcher creates a linked worktree that discovery publishes")
     func newWorktreeReachesTopologyThroughDiscovery() async throws {
         try await withAsyncTestCoreAtoms { atoms in
-            // Arrange
-            let fixture = try await EndToEndFixture.make()
+            let fixture = try await EndToEndFixture.make(destinationFolderName: "repo.feat-end-to-end")
             defer { fixture.remove() }
             let system = EndToEndSystem.make(repoCache: atoms.repoCache)
             do {
-                await system.cacheCoordinator.startConsuming()
-                let watchedPath = try #require(system.store.mutationCoordinator.addWatchedPath(fixture.watchedRoot))
-                _ = await system.pipeline.refreshWatchedFolders([watchedPath])
-                await awaitTopology(system.store) { mainWorktree(in: system.store, fixture: fixture) != nil }
-                let source = try #require(mainWorktree(in: system.store, fixture: fixture))
-                let delegate = AppDelegate()
-                delegate.store = system.store
-                delegate.installWorktreeCreationCoordinator(publication: system.pipeline)
-                let request = WorktreeCreationRequest(
-                    kind: .cleanCheckout,
-                    sourceWorktreeId: source.id,
-                    branchName: try WorktreeBranchName.validated("feat/end-to-end").get()
-                )
-
                 // Act
-                let accepted = try await withIsolatedCommandDispatcher(
-                    configure: { AppCommandDispatcher.shared.appCommandRouter = delegate },
-                    body: { AppCommandDispatcher.shared.dispatchWorktreeCreation(request) }
-                )
-                await delegate.worktreeCreationCoordinator?.waitUntilIdle()
-                await awaitTopology(system.store) { linkedWorktree(in: system.store, fixture: fixture) != nil }
+                let result = try await createThroughDispatcher(
+                    kind: .cleanCheckout, branch: "feat/end-to-end", fixture: fixture, system: system)
 
                 // Assert
-                #expect(accepted)
-                let created = try #require(linkedWorktree(in: system.store, fixture: fixture))
-                #expect(system.store.repositoryTopologyAtom.repo(containing: created.id)?.id == source.repoId)
+                #expect(result.accepted)
+                #expect(
+                    system.store.repositoryTopologyAtom.repo(containing: result.created.id)?.id == result.sourceRepoId)
                 #expect(FileManager.default.fileExists(atPath: fixture.destination.appending(path: "README.md").path))
-                let branch = try await FilesystemTestGitRepo.runGit(
-                    at: fixture.destination, args: ["rev-parse", "--abbrev-ref", "HEAD"])
-                #expect(branch.trimmingCharacters(in: .whitespacesAndNewlines) == "feat/end-to-end")
-                let destinationHead = try await FilesystemTestGitRepo.runGit(
-                    at: fixture.destination, args: ["rev-parse", "HEAD"])
-                #expect(destinationHead == fixture.sourceHead)
+                #expect(try await git(fixture.destination, "rev-parse", "--abbrev-ref", "HEAD") == "feat/end-to-end")
+                #expect(
+                    try await git(fixture.destination, "rev-parse", "HEAD")
+                        == git(fixture.repositoryPath, "rev-parse", "HEAD"))
             } catch {
                 await system.shutdown()
                 throw error
@@ -62,6 +41,97 @@ struct WorktreeCreationEndToEndTests {
             await system.shutdown()
         }
     }
+
+    @Test("Worktree Fork carries modified, staged, untracked, and ignored files into a published fork")
+    func worktreeForkCarriesWorkingStateThroughDiscovery() async throws {
+        try await withAsyncTestCoreAtoms { atoms in
+            let fixture = try await EndToEndFixture.make(destinationFolderName: "repo.fork-end-to-end")
+            defer { fixture.remove() }
+            try await fixture.seedWorkingStateAcrossTheStatusMatrix()
+            let system = EndToEndSystem.make(repoCache: atoms.repoCache)
+            do {
+                // Act
+                let result = try await createThroughDispatcher(
+                    kind: .fork, branch: "fork/end-to-end", fixture: fixture, system: system)
+
+                // Assert
+                #expect(result.accepted)
+                #expect(
+                    system.store.repositoryTopologyAtom.repo(containing: result.created.id)?.id == result.sourceRepoId)
+                #expect(try await git(fixture.destination, "rev-parse", "--abbrev-ref", "HEAD") == "fork/end-to-end")
+                #expect(
+                    try await git(fixture.destination, "rev-parse", "HEAD")
+                        == git(fixture.repositoryPath, "rev-parse", "HEAD"))
+                let fork = fixture.destination
+                #expect(
+                    try String(contentsOf: fork.appending(path: "tracked.txt"), encoding: .utf8)
+                        == "tracked\nmodified\n")
+                #expect(try String(contentsOf: fork.appending(path: "untracked.txt"), encoding: .utf8) == "untracked\n")
+                #expect(try String(contentsOf: fork.appending(path: "ignored.log"), encoding: .utf8) == "ignored\n")
+                // Staged changes arrive unstaged; untracked stays untracked; ignored stays ignored.
+                #expect(
+                    try await statusLines(fork)
+                        == [" M staged.txt", " M tracked.txt", "?? untracked.txt"])
+                #expect(
+                    try await statusLines(fixture.repositoryPath)
+                        == [" M tracked.txt", "?? untracked.txt", "M  staged.txt"])
+            } catch {
+                await system.shutdown()
+                throw error
+            }
+            await system.shutdown()
+        }
+    }
+}
+
+private struct CreationThroughDispatcher {
+    let accepted: Bool
+    let created: Worktree
+    let sourceRepoId: UUID
+}
+
+/// Discovers the fixture repository, then dispatches one creation through the real
+/// dispatcher and shell owner and awaits its publication in topology.
+@MainActor
+private func createThroughDispatcher(
+    kind: WorktreeCreationKind,
+    branch: String,
+    fixture: EndToEndFixture,
+    system: EndToEndSystem
+) async throws -> CreationThroughDispatcher {
+    await system.cacheCoordinator.startConsuming()
+    let watchedPath = try #require(system.store.mutationCoordinator.addWatchedPath(fixture.watchedRoot))
+    _ = await system.pipeline.refreshWatchedFolders([watchedPath])
+    await awaitTopology(system.store) { mainWorktree(in: system.store, fixture: fixture) != nil }
+    let source = try #require(mainWorktree(in: system.store, fixture: fixture))
+    let delegate = AppDelegate()
+    delegate.store = system.store
+    delegate.installWorktreeCreationCoordinator(publication: system.pipeline)
+    let request = WorktreeCreationRequest(
+        kind: kind,
+        sourceWorktreeId: source.id,
+        branchName: try WorktreeBranchName.validated(branch).get()
+    )
+
+    let accepted = try await withIsolatedCommandDispatcher(
+        configure: { AppCommandDispatcher.shared.appCommandRouter = delegate },
+        body: { AppCommandDispatcher.shared.dispatchWorktreeCreation(request) }
+    )
+    await delegate.worktreeCreationCoordinator?.waitUntilIdle()
+    await awaitTopology(system.store) { linkedWorktree(in: system.store, fixture: fixture) != nil }
+    let created = try #require(linkedWorktree(in: system.store, fixture: fixture))
+    return CreationThroughDispatcher(accepted: accepted, created: created, sourceRepoId: source.repoId)
+}
+
+private func git(_ directory: URL, _ args: String...) async throws -> String {
+    try await FilesystemTestGitRepo.runGit(at: directory, args: args)
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+}
+
+/// Porcelain status lines in byte order, so a leading space sorts before `??` and `M`.
+private func statusLines(_ directory: URL) async throws -> [String] {
+    try await FilesystemTestGitRepo.runGit(at: directory, args: ["status", "--porcelain=v1"])
+        .split(separator: "\n").map(String.init).sorted()
 }
 
 @MainActor
@@ -152,9 +222,8 @@ private struct EndToEndFixture {
     let watchedRoot: URL
     let repositoryPath: URL
     let destination: URL
-    let sourceHead: String
 
-    static func make() async throws -> Self {
+    static func make(destinationFolderName: String) async throws -> Self {
         let watchedRoot = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
             .appending(path: "tmp/worktree-creation-e2e-tests/\(UUIDv7.generate().uuidString)")
             .standardizedFileURL
@@ -168,13 +237,28 @@ private struct EndToEndFixture {
         ] {
             try await FilesystemTestGitRepo.runGit(at: repositoryPath, args: args)
         }
-        let sourceHead = try await FilesystemTestGitRepo.runGit(at: repositoryPath, args: ["rev-parse", "HEAD"])
         return Self(
             watchedRoot: watchedRoot,
             repositoryPath: repositoryPath,
-            destination: watchedRoot.appending(path: "repo.feat-end-to-end"),
-            sourceHead: sourceHead
+            destination: watchedRoot.appending(path: destinationFolderName)
         )
+    }
+
+    /// One file per cell of the fork status matrix: modified, staged, untracked, ignored.
+    func seedWorkingStateAcrossTheStatusMatrix() async throws {
+        try "tracked\n".write(to: repositoryPath.appending(path: "tracked.txt"), atomically: true, encoding: .utf8)
+        try "staged\n".write(to: repositoryPath.appending(path: "staged.txt"), atomically: true, encoding: .utf8)
+        try "ignored.log\n".write(to: repositoryPath.appending(path: ".gitignore"), atomically: true, encoding: .utf8)
+        for args in [["add", "tracked.txt", "staged.txt", ".gitignore"], ["commit", "-m", "Track files"]] {
+            try await FilesystemTestGitRepo.runGit(at: repositoryPath, args: args)
+        }
+        try "tracked\nmodified\n".write(
+            to: repositoryPath.appending(path: "tracked.txt"), atomically: true, encoding: .utf8)
+        try "staged\nchanged\n".write(
+            to: repositoryPath.appending(path: "staged.txt"), atomically: true, encoding: .utf8)
+        try await FilesystemTestGitRepo.runGit(at: repositoryPath, args: ["add", "staged.txt"])
+        try "untracked\n".write(to: repositoryPath.appending(path: "untracked.txt"), atomically: true, encoding: .utf8)
+        try "ignored\n".write(to: repositoryPath.appending(path: "ignored.log"), atomically: true, encoding: .utf8)
     }
 
     func remove() {

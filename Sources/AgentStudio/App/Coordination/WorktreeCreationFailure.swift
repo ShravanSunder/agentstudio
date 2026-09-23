@@ -2,15 +2,14 @@ import AgentStudioCore
 import AgentStudioGit
 import Foundation
 
-/// Why a worktree was not created. Every case is shown to the user once, as a modal
-/// alert; nothing here is retried.
+/// Why a worktree was not created. Every case is shown to the user once, in a sheet on
+/// the workspace window; nothing here is retried.
 enum WorktreeCreationFailure: Error, Equatable, Sendable {
     case sourceUnavailable
     case destinationRejected(WorktreeDestinationRejection)
     case alreadyInProgress(destination: URL)
-    /// Worktree Fork execution lands with the SDK's `forkWorktree`.
-    case forkUnavailable
     case gitFailure(GitDataPlaneError)
+    case forkFailure(GitWorktreeForkError)
 }
 
 struct WorktreeCreationFailureMessage: Equatable, Sendable {
@@ -20,7 +19,12 @@ struct WorktreeCreationFailureMessage: Equatable, Sendable {
 
 extension WorktreeCreationFailure {
     var message: WorktreeCreationFailureMessage {
-        WorktreeCreationFailureMessage(title: "Worktree not created", detail: detail)
+        switch self {
+        case .forkFailure:
+            WorktreeCreationFailureMessage(title: "Worktree Fork not created", detail: detail)
+        case .sourceUnavailable, .destinationRejected, .alreadyInProgress, .gitFailure:
+            WorktreeCreationFailureMessage(title: "Worktree not created", detail: detail)
+        }
     }
 
     private var detail: String {
@@ -35,14 +39,14 @@ extension WorktreeCreationFailure {
             "\(destination.path) already exists."
         case .alreadyInProgress(let destination):
             "A worktree is already being created at \(destination.path)."
-        case .forkUnavailable:
-            "Worktree Fork is not available yet."
         case .gitFailure(let error):
             Self.gitFailureDetail(error)
+        case .forkFailure(let error):
+            Self.forkFailureDetail(error)
         }
     }
 
-    private static func gitFailureDetail(_ error: GitDataPlaneError) -> String {
+    static func gitFailureDetail(_ error: GitDataPlaneError) -> String {
         switch error {
         case .headUnavailable:
             "The source worktree has no commit to branch from."
@@ -61,6 +65,76 @@ extension WorktreeCreationFailure {
             .processFailed, .processTimedOut, .processCancelled, .processOutputTooLarge,
             .remoteRefTransactionIndeterminate:
             "Git could not create the worktree (\(error))."
+        }
+    }
+
+    /// A preflight rejection changed nothing; every later failure rolled back unless the
+    /// SDK reports residue, which is listed so the user can clean it up.
+    static func forkFailureDetail(_ error: GitWorktreeForkError) -> String {
+        switch error {
+        case .rejected(let reason):
+            "Nothing was changed: \(WorktreeForkRejectionCopy.phrase(for: reason))."
+        case .gitFailure(let gitError):
+            "\(gitFailureDetail(gitError)) The fork was rolled back."
+        case .sourceChanged(let relativePath, _):
+            "The source changed while it was being copied (\(relativePath)). The fork was rolled back."
+        case .entryFailed(let relativePath, let reason, _):
+            "\(relativePath) could not be copied (\(reason.rawValue)). The fork was rolled back."
+        case .cancelled:
+            "The fork was cancelled and rolled back."
+        case .validationFailed(let reason, _):
+            "The forked worktree failed validation (\(reason.rawValue)). The fork was rolled back."
+        case .cleanupIncomplete(let primary, let residue):
+            "\(forkFailureCause(primary)) Cleanup is incomplete; left behind: "
+                + residue.map { "\($0.kind.rawValue) \($0.location)" }.joined(separator: ", ") + "."
+        }
+    }
+
+    /// The primary failure of an incomplete rollback, without claiming the rollback finished.
+    private static func forkFailureCause(_ error: GitWorktreeForkError) -> String {
+        switch error {
+        case .rejected(let reason):
+            "The fork was rejected: \(WorktreeForkRejectionCopy.phrase(for: reason))."
+        case .gitFailure(let gitError):
+            gitFailureDetail(gitError)
+        case .sourceChanged(let relativePath, _):
+            "The source changed while it was being copied (\(relativePath))."
+        case .entryFailed(let relativePath, let reason, _):
+            "\(relativePath) could not be copied (\(reason.rawValue))."
+        case .cancelled:
+            "The fork was cancelled."
+        case .validationFailed(let reason, _):
+            "The forked worktree failed validation (\(reason.rawValue))."
+        case .cleanupIncomplete(let primary, _):
+            forkFailureCause(primary)
+        }
+    }
+}
+
+/// User-facing phrases for the SDK's fork preflight reasons. The eligibility fallback row
+/// reuses them, so a reason reads the same before and after the user presses Return.
+enum WorktreeForkRejectionCopy {
+    static func phrase(for reason: GitWorktreeForkRejectionReason) -> String {
+        switch reason {
+        case .clientCapabilityUnavailable: "this Git client cannot fork worktrees"
+        case .unsupportedOperatingSystem: "this macOS version cannot fork worktrees"
+        case .sourceFilesystemNotAPFS: "the source is not on an APFS volume"
+        case .destinationFilesystemNotAPFS: "the destination is not on an APFS volume"
+        case .crossDevice: "the destination is on a different volume than the source"
+        case .cloneCapabilityUnavailable: "the volume cannot clone files"
+        case .administrativeStoreOnDifferentDevice: "the repository's Git data is on a different volume"
+        case .sourceNotWorktreeRoot: "the source is not the root of a worktree"
+        case .sourceHeadUnavailable: "the source worktree has no commit to fork from"
+        case .invalidDestinationPath: "the destination path is not valid"
+        case .destinationParentMissing: "the destination folder's parent does not exist"
+        case .destinationExists: "the destination already exists"
+        case .overlappingRoots: "the destination overlaps the source"
+        case .linkedWorktreeNameInUse: "a worktree with that folder name is already registered"
+        case .invalidBranchName: "the branch name is not valid"
+        case .branchNotFound: "the branch does not exist"
+        case .branchAlreadyExists: "a branch with that name already exists"
+        case .branchNotAtCapturedHead: "the branch does not point at the source's HEAD"
+        case .branchCheckedOut: "the branch is checked out in another worktree"
         }
     }
 }

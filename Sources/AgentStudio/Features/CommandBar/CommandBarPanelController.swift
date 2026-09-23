@@ -67,6 +67,7 @@ package final class CommandBarPanelController {
     private let performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
     private let interactionProbe: AgentStudioInteractionPerformanceProbe?
     private let animatePanelDismissal: Bool
+    let worktreeForkEligibility: (any WorktreeForkEligibilityChecking)?
     private let resultSession: CommandBarResultSession
     private var activationGenerationGate = CommandBarActivationGenerationGate()
     private var pendingOpenAcknowledgement: PendingOpenAcknowledgement?
@@ -105,7 +106,8 @@ package final class CommandBarPanelController {
         commandBarSurface: CommandBarSurfaceAtom,
         performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = nil,
         interactionProbe: AgentStudioInteractionPerformanceProbe? = nil,
-        animatePanelDismissal: Bool = true
+        animatePanelDismissal: Bool = true,
+        worktreeForkEligibility: (any WorktreeForkEligibilityChecking)? = nil
     ) {
         self.store = store
         self.octiconLoader = octiconLoader
@@ -122,6 +124,7 @@ package final class CommandBarPanelController {
                 AgentStudioInteractionPerformanceProbe(recorder: $0)
             }
         self.animatePanelDismissal = animatePanelDismissal
+        self.worktreeForkEligibility = worktreeForkEligibility
         self.resultSession = CommandBarResultSession(
             store: store,
             repoCache: repoCache,
@@ -407,6 +410,7 @@ package final class CommandBarPanelController {
             dispatcher.dispatch(command, target: target, targetType: targetType)
         case .navigate(let level):
             state.pushLevel(level)
+            requestForkEligibilityIfNeeded(for: level)
         case .navigateRepo(let repositoryID):
             guard
                 let repository = store.repositoryTopologyAtom.repo(repositoryID),
@@ -447,9 +451,8 @@ package final class CommandBarPanelController {
             executeRecentActivation(activation, itemId: item.id)
         case .createWorktree(let draft):
             guard
-                case .dispatch(let request) = CommandBarWorktreeCreationResolver.resolve(
-                    draft: draft, modifier: modifier),
-                dispatcher.canDispatch(request.kind.command, target: request.sourceWorktreeId, targetType: .worktree)
+                let request = CommandBarWorktreeCreationResolver.dispatchableRequest(
+                    draft: draft, modifier: modifier, dispatcher: dispatcher)
             else { return }
             dismiss(measureNonExecutingClose: false)
             dispatcher.dispatchWorktreeCreation(request)
