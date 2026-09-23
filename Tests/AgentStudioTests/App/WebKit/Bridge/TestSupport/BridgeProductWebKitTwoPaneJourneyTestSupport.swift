@@ -191,14 +191,14 @@ enum BridgeProductWebKitTwoPaneJourneyTestSupport {
     private static var retainedPages: [WebPage] = []
 
     static func run() async throws -> BridgeProductWebKitTwoPaneJourneyProof {
-        let paneOneRepoURL = try FilesystemTestGitRepo.create(named: "bridge-two-pane-one-webkit")
-        let paneTwoRepoURL = try FilesystemTestGitRepo.create(named: "bridge-two-pane-two-webkit")
+        let paneOneRepoURL = try await FilesystemTestGitRepo.create(named: "bridge-two-pane-one-webkit")
+        let paneTwoRepoURL = try await FilesystemTestGitRepo.create(named: "bridge-two-pane-two-webkit")
         defer {
             FilesystemTestGitRepo.destroy(paneOneRepoURL)
             FilesystemTestGitRepo.destroy(paneTwoRepoURL)
         }
-        try seedPositionFixture(at: paneOneRepoURL, prefix: "pane-one")
-        try seedPositionFixture(at: paneTwoRepoURL, prefix: "pane-two")
+        try await seedPositionFixture(at: paneOneRepoURL, prefix: "pane-one")
+        try await seedPositionFixture(at: paneTwoRepoURL, prefix: "pane-two")
 
         let paneOneTrace = BridgeProductWebKitCarrierTraceRecorder()
         let paneTwoTrace = BridgeProductWebKitCarrierTraceRecorder()
@@ -591,8 +591,8 @@ enum BridgeProductWebKitTwoPaneJourneyTestSupport {
         )
     }
 
-    private static func seedPositionFixture(at repoURL: URL, prefix: String) throws {
-        try FilesystemTestGitRepo.seedTrackedAndUntrackedChanges(at: repoURL)
+    private static func seedPositionFixture(at repoURL: URL, prefix: String) async throws {
+        try await FilesystemTestGitRepo.seedTrackedAndUntrackedChanges(at: repoURL)
         for index in 0..<36 {
             let directory = repoURL.appending(path: String(format: "Sources/Group%02d", index / 9))
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -749,22 +749,35 @@ enum BridgeProductWebKitTwoPaneJourneyTestSupport {
         expectedText: String
     ) async throws -> BridgeProductWebKitTwoPanePositionSnapshot {
         do {
-            _ = try await WebPageEventWaits.waitForDocumentValue(
+            let encoded = try await WebPageEventWaits.waitForDocumentValue(
                 page,
                 reader: """
-                    const statusTextFor = (mode) => document.querySelector(
-                      `[data-testid="bridge-viewer-mode-host-${mode}"]`
-                    )?.querySelector('[data-testid="bridge-viewer-content-status"]')?.textContent ?? null;
-                    const activeHost = document.querySelector('[data-bridge-viewer-mode-active="true"]');
-                    if (activeHost?.getAttribute('data-bridge-viewer-mode-host') !== activeMode) {
-                      return null;
-                    }
+                    const encodedSnapshot = (() => { \(positionSnapshotReaderBody) })();
+                    const snapshot = JSON.parse(encodedSnapshot);
+                    if (snapshot.activeMode !== activeMode) { return null; }
                     const inactiveMode = activeMode === 'file' ? 'review' : 'file';
-                    if (statusTextFor(activeMode) !== expectedText) { return null; }
-                    if (statusTextFor(inactiveMode) !== null) { return null; }
-                    return true;
+                    const activeStatusText = activeMode === 'file'
+                      ? snapshot.fileStatusText
+                      : snapshot.reviewStatusText;
+                    const inactiveStatusText = inactiveMode === 'file'
+                      ? snapshot.fileStatusText
+                      : snapshot.reviewStatusText;
+                    if (activeStatusText !== expectedText) { return null; }
+                    if (inactiveStatusText !== null) { return null; }
+                    return encodedSnapshot;
                     """,
                 arguments: ["activeMode": activeMode, "expectedText": expectedText]
+            )
+            guard let encoded = encoded as? String,
+                let data = encoded.data(using: .utf8)
+            else {
+                throw JourneyError.conditionFailed(
+                    "matching active-surface status did not return its position snapshot"
+                )
+            }
+            return try JSONDecoder().decode(
+                BridgeProductWebKitTwoPanePositionSnapshot.self,
+                from: data
             )
         } catch {
             throw JourneyError.conditionFailed(
@@ -772,7 +785,6 @@ enum BridgeProductWebKitTwoPaneJourneyTestSupport {
                     + "(expectedActiveMode: \(activeMode), expectedText: \(expectedText)): \(error)"
             )
         }
-        return try await requirePositionSnapshot(page)
     }
 
     /// Asserts, with one read, that neither surface is showing updating chrome.
@@ -810,53 +822,56 @@ enum BridgeProductWebKitTwoPaneJourneyTestSupport {
         _ page: WebPage
     ) async throws -> BridgeProductWebKitTwoPanePositionSnapshot? {
         let encoded = try await page.callJavaScript(
-            """
-            const queryOpen = (root, selector) => {
-              const direct = root.querySelector(selector);
-              if (direct !== null) return direct;
-              for (const element of root.querySelectorAll('*')) {
-                if (element.shadowRoot === null) continue;
-                const nested = queryOpen(element.shadowRoot, selector);
-                if (nested !== null) return nested;
-              }
-              return null;
-            };
-            const fileHost = document.querySelector('[data-testid="bridge-viewer-mode-host-file"]');
-            const reviewHost = document.querySelector('[data-testid="bridge-viewer-mode-host-review"]');
-            const fileShell = fileHost?.querySelector('[data-testid="bridge-file-viewer-shell"]');
-            const fileCanvas = fileHost?.querySelector('[data-testid="bridge-file-viewer-code-canvas"]');
-            const reviewShell = reviewHost?.querySelector('[data-testid="review-viewer-shell"]');
-            const fileTreeScroll = fileHost === null ? null : queryOpen(fileHost, '[data-file-tree-virtualized-scroll="true"]');
-            const reviewTreeScroll = reviewHost === null ? null : queryOpen(reviewHost, '[data-file-tree-virtualized-scroll="true"]');
-            const fileCodeScroll = fileHost?.querySelector('.bridge-code-view-scroll-owner');
-            const reviewCodeScroll = reviewHost?.querySelector('.bridge-code-view-scroll-owner');
-            const collapsedDirectory = reviewHost === null
-              ? null
-              : queryOpen(reviewHost, '[data-item-path="Sources/Group00"][aria-expanded]');
-            const activeHost = document.querySelector('[data-bridge-viewer-mode-active="true"]');
-            return JSON.stringify({
-              activeMode: activeHost?.getAttribute('data-bridge-viewer-mode-host') ?? null,
-              comparisonStatusText: reviewHost?.querySelector('[data-testid="bridge-review-comparison-status-banner"]')?.textContent ?? null,
-              fileCodeScrollTop: fileCodeScroll?.scrollTop ?? 0,
-              fileRenderedPath: fileCanvas?.getAttribute('data-worktree-rendered-file-path') ?? null,
-              fileSelectedPath: fileShell?.getAttribute('data-selected-display-path') ?? null,
-              fileStatusText: fileHost?.querySelector('[data-testid="bridge-viewer-content-status"]')?.textContent ?? null,
-              fileTreeScrollTop: fileTreeScroll?.scrollTop ?? 0,
-              hasAppRoot: document.querySelector('[data-testid="bridge-app-root"]') !== null,
-              reviewCodeScrollTop: reviewCodeScroll?.scrollTop ?? 0,
-              reviewCollapsedDirectoryExpansion: collapsedDirectory?.getAttribute('aria-expanded') ?? null,
-              reviewSelectedItemId: reviewHost?.querySelector('[data-testid="bridge-code-view-panel"]')?.getAttribute('data-selected-item-id') ?? null,
-              reviewSelectedPath: reviewShell?.getAttribute('data-selected-display-path') ?? null,
-              reviewStatusText: reviewHost?.querySelector('[data-testid="bridge-viewer-content-status"]')?.textContent ?? null,
-              reviewTreeScrollTop: reviewTreeScroll?.scrollTop ?? 0
-            });
-            """
+            "return (() => { \(positionSnapshotReaderBody) })();"
         )
         guard let encoded = encoded as? String,
             let data = encoded.data(using: .utf8)
         else { return nil }
         return try JSONDecoder().decode(BridgeProductWebKitTwoPanePositionSnapshot.self, from: data)
     }
+
+    private static let positionSnapshotReaderBody =
+        """
+        const queryOpen = (root, selector) => {
+          const direct = root.querySelector(selector);
+          if (direct !== null) return direct;
+          for (const element of root.querySelectorAll('*')) {
+            if (element.shadowRoot === null) continue;
+            const nested = queryOpen(element.shadowRoot, selector);
+            if (nested !== null) return nested;
+          }
+          return null;
+        };
+        const fileHost = document.querySelector('[data-testid="bridge-viewer-mode-host-file"]');
+        const reviewHost = document.querySelector('[data-testid="bridge-viewer-mode-host-review"]');
+        const fileShell = fileHost?.querySelector('[data-testid="bridge-file-viewer-shell"]');
+        const fileCanvas = fileHost?.querySelector('[data-testid="bridge-file-viewer-code-canvas"]');
+        const reviewShell = reviewHost?.querySelector('[data-testid="review-viewer-shell"]');
+        const fileTreeScroll = fileHost === null ? null : queryOpen(fileHost, '[data-file-tree-virtualized-scroll="true"]');
+        const reviewTreeScroll = reviewHost === null ? null : queryOpen(reviewHost, '[data-file-tree-virtualized-scroll="true"]');
+        const fileCodeScroll = fileHost?.querySelector('.bridge-code-view-scroll-owner');
+        const reviewCodeScroll = reviewHost?.querySelector('.bridge-code-view-scroll-owner');
+        const collapsedDirectory = reviewHost === null
+          ? null
+          : queryOpen(reviewHost, '[data-item-path="Sources/Group00"][aria-expanded]');
+        const activeHost = document.querySelector('[data-bridge-viewer-mode-active="true"]');
+        return JSON.stringify({
+          activeMode: activeHost?.getAttribute('data-bridge-viewer-mode-host') ?? null,
+          comparisonStatusText: reviewHost?.querySelector('[data-testid="bridge-review-comparison-status-banner"]')?.textContent ?? null,
+          fileCodeScrollTop: fileCodeScroll?.scrollTop ?? 0,
+          fileRenderedPath: fileCanvas?.getAttribute('data-worktree-rendered-file-path') ?? null,
+          fileSelectedPath: fileShell?.getAttribute('data-selected-display-path') ?? null,
+          fileStatusText: fileHost?.querySelector('[data-testid="bridge-viewer-content-status"]')?.textContent ?? null,
+          fileTreeScrollTop: fileTreeScroll?.scrollTop ?? 0,
+          hasAppRoot: document.querySelector('[data-testid="bridge-app-root"]') !== null,
+          reviewCodeScrollTop: reviewCodeScroll?.scrollTop ?? 0,
+          reviewCollapsedDirectoryExpansion: collapsedDirectory?.getAttribute('aria-expanded') ?? null,
+          reviewSelectedItemId: reviewHost?.querySelector('[data-testid="bridge-code-view-panel"]')?.getAttribute('data-selected-item-id') ?? null,
+          reviewSelectedPath: reviewShell?.getAttribute('data-selected-display-path') ?? null,
+          reviewStatusText: reviewHost?.querySelector('[data-testid="bridge-viewer-content-status"]')?.textContent ?? null,
+          reviewTreeScrollTop: reviewTreeScroll?.scrollTop ?? 0
+        });
+        """
 
     private static func activateReviewMode(_ page: WebPage) async -> Bool {
         (try? await page.callJavaScript(

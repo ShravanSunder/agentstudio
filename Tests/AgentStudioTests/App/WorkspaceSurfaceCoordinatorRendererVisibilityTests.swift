@@ -368,6 +368,64 @@ struct WorkspaceSurfaceCoordinatorRendererVisibilityTests {
         }
     }
 
+    @Test("a ready nonterminal preview replaces canonical terminal visibility and release restores it")
+    func readyNonterminalPreviewReplacesCanonicalTerminalVisibilityAndReleaseRestoresIt() async {
+        await withAsyncTestCoreAtoms { _ in
+            let store = WorkspaceStore()
+            let terminalPane = store.createPane()
+            let previewPane = store.createPane(
+                content: .webview(WebviewState(url: URL(string: "https://example.com/preview")!)),
+                metadata: PaneMetadata(title: "Preview")
+            )
+            let terminalTab = Tab(paneId: terminalPane.id)
+            let previewTab = Tab(paneId: previewPane.id)
+            store.appendTab(terminalTab)
+            store.appendTab(previewTab)
+            store.setActiveTab(terminalTab.id)
+
+            let surfaceID = UUIDv7.generate()
+            let surfaceManager = RendererVisibilityCapturingSurfaceManager(
+                bindings: [surfaceID: terminalPane.id]
+            )
+            let windowLifecycleStore = WindowLifecycleAtom()
+            let windowID = UUIDv7.generate()
+            windowLifecycleStore.recordWindowRegistered(windowID)
+            windowLifecycleStore.recordWindowPresentation(
+                WindowPresentationFacts(isVisible: true, isMiniaturized: false, isOccluded: false),
+                for: windowID
+            )
+            let coordinator = makeCoordinator(
+                store: store,
+                surfaceManager: surfaceManager,
+                windowLifecycleStore: windowLifecycleStore
+            )
+            let heldState = HeldPanePreviewState()
+            coordinator.bindHeldPanePreviewState(heldState)
+            coordinator.bindRendererVisibility(toOwningWindowId: windowID)
+            #expect(surfaceManager.reconciliations.last == [surfaceID: true])
+
+            let target = ValidatedPanePreviewTarget(
+                paneID: previewPane.id,
+                owningTabID: previewTab.id,
+                provider: previewPane.provider,
+                sessionID: previewPane.terminalState?.zmxSessionID
+            )
+            #expect(heldState.beginSpaceHold(requestedTarget: target))
+            #expect(surfaceManager.reconciliations.last == [surfaceID: true])
+            #expect(heldState.acceptPresentedTarget(target, generation: 1))
+
+            await eventually("ready nonterminal preview hides canonical terminal") {
+                surfaceManager.reconciliations.last == [surfaceID: false]
+            }
+
+            heldState.endSpaceHold()
+            await eventually("release restores canonical terminal visibility") {
+                surfaceManager.reconciliations.last == [surfaceID: true]
+            }
+            await coordinator.shutdown()
+        }
+    }
+
     // F1 retention test intentionally omitted: `WorkspaceSurfaceCoordinator` cannot deallocate in
     // this harness for a reason unrelated to this file's `[weak self]` fix. A verified-independent
     // pre-existing bug in `WorkspaceSurfaceCoordinator+BridgePaneActivity.swift`'s

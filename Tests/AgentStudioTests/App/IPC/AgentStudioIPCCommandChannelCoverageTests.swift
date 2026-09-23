@@ -31,7 +31,7 @@ struct AgentStudioIPCCommandChannelCoverageTests {
         let ids = Set(catalog.commands.map(\.id.rawValue))
 
         #expect(catalog.commands.count == AppCommand.allCases.count)
-        #expect(AppCommand.allCases.count == 146)
+        #expect(AppCommand.allCases.count == 152)
         for command in AppCommand.allCases {
             #expect(ids.contains(command.rawValue), "\(command.rawValue) missing from the debug catalog")
         }
@@ -43,7 +43,7 @@ struct AgentStudioIPCCommandChannelCoverageTests {
             #expect(!descriptor.examples.isEmpty)
         }
         let debugOnly = catalog.commands.filter { $0.exposure == .debugTesting }
-        #expect(debugOnly.count == AppCommand.allCases.count - 15)
+        #expect(debugOnly.count == AppCommand.allCases.count - 16)
     }
 
     @Test(
@@ -54,7 +54,7 @@ struct AgentStudioIPCCommandChannelCoverageTests {
         let catalog = try CommandAdapterHarness(channel: channel).adapter.listCommands()
         let ids = Set(catalog.commands.map(\.id.rawValue))
 
-        #expect(catalog.commands.count == 15)
+        #expect(catalog.commands.count == 16)
         #expect(ids == Set(Self.admittedHeadlessCommands.map(\.rawValue)))
         #expect(catalog.commands.allSatisfy { $0.exposure == .allChannels })
     }
@@ -209,7 +209,7 @@ struct AgentStudioIPCCommandChannelCoverageTests {
         let frameByteLimit = 1_048_576
         let frameByteCount = payload.utf8.count + 1
 
-        #expect(catalog.commands.count == 146)
+        #expect(catalog.commands.count == 152)
         #expect(
             frameByteCount <= frameByteLimit,
             "Complete 146-command debug catalog frame is \(frameByteCount) bytes"
@@ -225,7 +225,7 @@ struct AgentStudioIPCCommandChannelCoverageTests {
         .setReposSortFieldName, .setReposSortFieldActivity,
         .toggleReposSortDirection,
         .toggleReposShowsPinned, .togglePanesShowsPinned,
-        .pinRepo, .unpinRepo, .pinPane, .unpinPane,
+        .pinRepo, .unpinRepo, .pinPane, .unpinPane, .focusSidebar,
     ]
 }
 

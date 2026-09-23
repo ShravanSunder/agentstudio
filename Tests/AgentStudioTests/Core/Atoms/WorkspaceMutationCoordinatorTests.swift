@@ -167,6 +167,7 @@ struct WorkspaceMutationCoordinatorTests {
         let drawerId = try #require(store.pane(parentPane.id)?.drawer?.drawerId)
         store.setActiveDrawerPane(secondDrawerPane.id, in: parentPane.id)
         let focusArrangementId = try #require(store.createArrangement(name: "Drawer focus", inTab: tab.id))
+        let untouchedArrangementId = try #require(store.createArrangement(name: "Untouched", inTab: tab.id))
         store.switchArrangement(to: focusArrangementId, inTab: tab.id)
 
         let snapshot = try #require(store.snapshotForPaneClose(paneId: parentPane.id, inTab: tab.id))
@@ -183,6 +184,7 @@ struct WorkspaceMutationCoordinatorTests {
         #expect(restoredTab.allPaneIds.contains(parentPane.id))
         #expect(restoredTab.allPaneIds.contains(firstDrawerPane.id))
         #expect(restoredTab.allPaneIds.contains(secondDrawerPane.id))
+        #expect(restoredTab.arrangements.contains { $0.id == untouchedArrangementId })
         #expect(
             restoredTab.arrangements.compactMap { $0.drawerViews[drawerId] }
                 == drawerViewsBeforeClose

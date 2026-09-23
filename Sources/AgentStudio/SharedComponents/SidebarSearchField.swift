@@ -8,6 +8,7 @@ package struct SidebarSearchField<FocusValue: Hashable>: View {
     let focusedField: FocusState<FocusValue?>.Binding
     let focusValue: FocusValue
     let clearHelp: String?
+    let shortcutDisplay: ShortcutDisplayText?
     let onSubmit: () -> Void
     let onExit: () -> Void
     let onDownArrow: (() -> KeyPress.Result)?
@@ -18,6 +19,7 @@ package struct SidebarSearchField<FocusValue: Hashable>: View {
         focusedField: FocusState<FocusValue?>.Binding,
         focusValue: FocusValue,
         clearHelp: String? = nil,
+        shortcutDisplay: ShortcutDisplayText? = nil,
         onSubmit: @escaping () -> Void = {},
         onExit: @escaping () -> Void = {},
         onDownArrow: (() -> KeyPress.Result)? = nil
@@ -27,12 +29,16 @@ package struct SidebarSearchField<FocusValue: Hashable>: View {
         self.focusedField = focusedField
         self.focusValue = focusValue
         self.clearHelp = clearHelp
+        self.shortcutDisplay = shortcutDisplay
         self.onSubmit = onSubmit
         self.onExit = onExit
         self.onDownArrow = onDownArrow
     }
 
     package var body: some View {
+        let trailingActionVisibility = SidebarTrailingActionVisibility(
+            shortcutDisplay: shortcutDisplay
+        )
         HStack(spacing: AppStyles.Shell.Sidebar.SearchField.contentSpacing) {
             Image(systemName: "magnifyingglass")
                 .font(.system(size: AppStyles.Shell.Sidebar.SearchField.iconSize))
@@ -63,13 +69,18 @@ package struct SidebarSearchField<FocusValue: Hashable>: View {
                         .foregroundStyle(.secondary)
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel(clearHelp ?? "")
                 .help(clearHelp ?? "")
+                .opacity(trailingActionVisibility.opacity)
+                .allowsHitTesting(trailingActionVisibility.allowsHitTesting)
+                .accessibilityHidden(trailingActionVisibility.accessibilityHidden)
                 .transition(
                     .opacity.animation(
                         .easeOut(duration: AppStyles.Shell.Sidebar.SearchField.clearTransitionDuration)
                     )
                 )
             }
+
         }
         .frame(maxWidth: .infinity)
         .padding(.horizontal, AppStyles.Shell.Sidebar.SearchField.horizontalPadding)
@@ -88,8 +99,18 @@ package struct SidebarSearchField<FocusValue: Hashable>: View {
         .contentShape(
             RoundedRectangle(cornerRadius: AppStyles.Shell.Sidebar.SearchField.cornerRadius)
         )
+        .sidebarShortcutHint(
+            shortcutDisplay,
+            style: .toolbarStamp,
+            alignment: .trailing,
+            offset: CGSize(
+                width: -AppStyles.Shell.Sidebar.KeyboardHint.controlTrailingInset,
+                height: 0
+            )
+        )
         .onTapGesture {
             focusedField.wrappedValue = focusValue
         }
     }
+
 }

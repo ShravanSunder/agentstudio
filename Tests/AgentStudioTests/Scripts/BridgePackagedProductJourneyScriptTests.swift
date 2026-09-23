@@ -408,7 +408,7 @@ struct BridgePackagedProductJourneyScriptTests {
     }
 
     @Test("verifier rejects an incomplete live Review diff before IPC authentication")
-    func verifierRejectsIncompleteLiveReviewDiffBeforeIPCAuthentication() throws {
+    func verifierRejectsIncompleteLiveReviewDiffBeforeIPCAuthentication() async throws {
         let fixture = try LauncherScriptFixture()
         defer { fixture.cleanup() }
 
@@ -422,13 +422,13 @@ struct BridgePackagedProductJourneyScriptTests {
             at: tokenFile.deletingLastPathComponent(),
             withIntermediateDirectories: true
         )
-        try makeChangedReviewFixture(at: fixtureRoot, fileCount: 257)
+        try await makeChangedReviewFixture(at: fixtureRoot, fileCount: 257)
         try "baseline 256\n".write(
             to: fixtureRoot.appending(path: "file-256.txt"),
             atomically: true,
             encoding: .utf8
         )
-        let baselineCommit = try FilesystemTestGitRepo.runGit(
+        let baselineCommit = try await FilesystemTestGitRepo.runGit(
             at: fixtureRoot,
             args: ["rev-parse", "HEAD"]
         ).trimmingCharacters(in: .whitespacesAndNewlines)
@@ -463,7 +463,7 @@ struct BridgePackagedProductJourneyScriptTests {
     }
 
     @Test("verifier rejects a complete fixture whose digest changed before IPC authentication")
-    func verifierRejectsFixtureDigestMismatchBeforeIPCAuthentication() throws {
+    func verifierRejectsFixtureDigestMismatchBeforeIPCAuthentication() async throws {
         let fixture = try LauncherScriptFixture()
         defer { fixture.cleanup() }
 
@@ -477,8 +477,8 @@ struct BridgePackagedProductJourneyScriptTests {
             at: tokenFile.deletingLastPathComponent(),
             withIntermediateDirectories: true
         )
-        try makeChangedReviewFixture(at: fixtureRoot, fileCount: 257)
-        let baselineCommit = try FilesystemTestGitRepo.runGit(
+        try await makeChangedReviewFixture(at: fixtureRoot, fileCount: 257)
+        let baselineCommit = try await FilesystemTestGitRepo.runGit(
             at: fixtureRoot,
             args: ["rev-parse", "HEAD"]
         ).trimmingCharacters(in: .whitespacesAndNewlines)
@@ -628,23 +628,23 @@ struct BridgePackagedProductJourneyScriptTests {
         #expect(runnerDigestFunction.contains("hash-object --"))
     }
 
-    private func makeChangedReviewFixture(at fixtureRoot: URL, fileCount: Int) throws {
-        try FilesystemTestGitRepo.runGit(at: fixtureRoot, args: ["init", "-q"])
-        try FilesystemTestGitRepo.runGit(
+    private func makeChangedReviewFixture(at fixtureRoot: URL, fileCount: Int) async throws {
+        try await FilesystemTestGitRepo.runGit(at: fixtureRoot, args: ["init", "-q"])
+        try await FilesystemTestGitRepo.runGit(
             at: fixtureRoot,
             args: ["config", "user.name", "AgentStudio Packaged Journey Tests"]
         )
-        try FilesystemTestGitRepo.runGit(
+        try await FilesystemTestGitRepo.runGit(
             at: fixtureRoot,
             args: ["config", "user.email", "agentstudio-packaged-journey-tests@invalid.local"]
         )
-        try FilesystemTestGitRepo.runGit(at: fixtureRoot, args: ["config", "commit.gpgsign", "false"])
+        try await FilesystemTestGitRepo.runGit(at: fixtureRoot, args: ["config", "commit.gpgsign", "false"])
         for index in 0..<fileCount {
             let fileURL = fixtureRoot.appending(path: String(format: "file-%03d.txt", index))
             try "baseline \(index)\n".write(to: fileURL, atomically: true, encoding: .utf8)
         }
-        try FilesystemTestGitRepo.runGit(at: fixtureRoot, args: ["add", "--", "."])
-        try FilesystemTestGitRepo.runGit(
+        try await FilesystemTestGitRepo.runGit(at: fixtureRoot, args: ["add", "--", "."])
+        try await FilesystemTestGitRepo.runGit(
             at: fixtureRoot,
             args: ["commit", "-q", "-m", "fixture baseline"]
         )

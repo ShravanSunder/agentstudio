@@ -6,6 +6,13 @@ import Testing
 @testable import AgentStudioCore
 @testable import AgentStudioTestSupport
 
+private struct TerminalCommandPresentationExpectation {
+    let command: AppCommand
+    let shortcut: AppShortcut
+    let label: String
+    let helpText: String
+}
+
 @MainActor
 final class MockAppCommandRouter: ShellCommandHandling {
     var handledCommands: [AppCommand] = []
@@ -179,7 +186,7 @@ final class AppCommandTests {
         #expect(def.command == AppCommand.closeTab)
         #expect(def.label == "Close Tab")
         #expect(def.helpText == "Close the active tab")
-        #expect(def.keyBinding == nil)
+        #expect(def.globalKeyBinding == nil)
         #expect(def.icon == .system(.xmark))
         #expect(def.surfacePolicy == .exposed([.commandBar]))
         #expect(def.surfacePolicy.exposes(.commandBar))
@@ -206,7 +213,7 @@ final class AppCommandTests {
 
         // Assert
         #expect(def.command == AppCommand.closeWindow)
-        #expect(def.keyBinding != nil)
+        #expect(def.globalKeyBinding != nil)
         #expect(def.icon == .system(.xmark))
         #expect(def.helpText == "Close the active window")
         #expect(def.surfacePolicy == .exposed([.mainMenu]))
@@ -294,6 +301,7 @@ final class AppCommandTests {
         #expect(dispatcher.definition(for: .closePane).command == .closePane)
         #expect(dispatcher.definition(for: .watchFolder).command == .watchFolder)
         #expect(dispatcher.definition(for: .toggleSidebar).command == .toggleSidebar)
+        #expect(dispatcher.definition(for: .focusSidebar).command == .focusSidebar)
     }
 
     @Test
@@ -332,8 +340,8 @@ final class AppCommandTests {
         let def = AppCommandDispatcher.shared.definition(for: .closeTab)
 
         // Assert
-        #expect(def.keyBinding?.key == "w")
-        #expect(def.keyBinding?.modifiers == [.command])
+        #expect(def.globalKeyBinding?.key == "w")
+        #expect(def.globalKeyBinding?.modifiers == [.command])
     }
 
     @MainActor
@@ -406,52 +414,83 @@ final class AppCommandTests {
         let ninthPane = AppCommandDispatcher.shared.definition(for: .focusPane9)
 
         #expect(firstTab.shortcut == .selectTab1)
-        #expect(firstTab.keyBinding?.key == "1")
-        #expect(firstTab.keyBinding?.modifiers == [.command])
+        #expect(firstTab.globalKeyBinding?.key == "1")
+        #expect(firstTab.globalKeyBinding?.modifiers == [.command])
         #expect(ninthTab.shortcut == .selectTab9)
-        #expect(ninthTab.keyBinding?.key == "9")
-        #expect(ninthTab.keyBinding?.modifiers == [.command])
+        #expect(ninthTab.globalKeyBinding?.key == "9")
+        #expect(ninthTab.globalKeyBinding?.modifiers == [.command])
 
         #expect(firstPane.shortcut == .focusPane1)
-        #expect(firstPane.keyBinding?.key == "1")
-        #expect(firstPane.keyBinding?.modifiers == [.option])
+        #expect(firstPane.globalKeyBinding?.key == "1")
+        #expect(firstPane.globalKeyBinding?.modifiers == [.option])
         #expect(ninthPane.shortcut == .focusPane9)
-        #expect(ninthPane.keyBinding?.key == "9")
-        #expect(ninthPane.keyBinding?.modifiers == [.option])
+        #expect(ninthPane.globalKeyBinding?.key == "9")
+        #expect(ninthPane.globalKeyBinding?.modifiers == [.option])
     }
 
     @MainActor
 
     @Test
     func test_terminalScrollAndPromptDefinitions_useTerminalGroupAndShortcuts() {
-        let scroll = AppCommandDispatcher.shared.definition(for: .scrollToBottom)
-        let pageUp = AppCommandDispatcher.shared.definition(for: .scrollPageUp)
-        let previousPrompt = AppCommandDispatcher.shared.definition(for: .jumpToPreviousPrompt)
-        let nextPrompt = AppCommandDispatcher.shared.definition(for: .jumpToNextPrompt)
+        let expectedDefinitions: [TerminalCommandPresentationExpectation] = [
+            .init(
+                command: .scrollPageUp,
+                shortcut: .scrollPageUp,
+                label: "Scroll Up 90%",
+                helpText: "Scroll the active terminal pane up by 90% of its viewport"
+            ),
+            .init(
+                command: .scrollPageDown,
+                shortcut: .scrollPageDown,
+                label: "Scroll Down 90%",
+                helpText: "Scroll the active terminal pane down by 90% of its viewport"
+            ),
+            .init(
+                command: .scrollSmallStepUp,
+                shortcut: .scrollSmallStepUp,
+                label: "Scroll Up 33%",
+                helpText: "Scroll the active terminal pane up by 33% of its viewport"
+            ),
+            .init(
+                command: .scrollSmallStepDown,
+                shortcut: .scrollSmallStepDown,
+                label: "Scroll Down 33%",
+                helpText: "Scroll the active terminal pane down by 33% of its viewport"
+            ),
+            .init(
+                command: .scrollToBottom,
+                shortcut: .scrollToBottom,
+                label: "Scroll to Bottom",
+                helpText: "Scroll the active terminal pane to the bottom"
+            ),
+            .init(
+                command: .jumpToPreviousPrompt,
+                shortcut: .jumpToPreviousPrompt,
+                label: "Previous Prompt",
+                helpText: "Jump to the previous shell prompt in terminal scrollback"
+            ),
+            .init(
+                command: .jumpToNextPrompt,
+                shortcut: .jumpToNextPrompt,
+                label: "Next Prompt",
+                helpText: "Jump to the next shell prompt in terminal scrollback"
+            ),
+        ]
 
-        #expect(scroll.command == .scrollToBottom)
-        #expect(scroll.shortcut == .scrollToBottom)
-        #expect(scroll.label == "Scroll to Bottom")
-        #expect(scroll.commandBarGroupName == "Terminal")
-        #expect(scroll.visibleWhen == [.hasActivePane, .paneIsTerminal])
-
-        #expect(pageUp.command == .scrollPageUp)
-        #expect(pageUp.shortcut == .scrollPageUp)
-        #expect(pageUp.label == "Page Up")
-        #expect(pageUp.commandBarGroupName == "Terminal")
-        #expect(pageUp.visibleWhen == [.hasActivePane, .paneIsTerminal])
-
-        #expect(previousPrompt.command == .jumpToPreviousPrompt)
-        #expect(previousPrompt.shortcut == .jumpToPreviousPrompt)
-        #expect(previousPrompt.label == "Previous Prompt")
-        #expect(previousPrompt.commandBarGroupName == "Terminal")
-        #expect(previousPrompt.visibleWhen == [.hasActivePane, .paneIsTerminal])
-
-        #expect(nextPrompt.command == .jumpToNextPrompt)
-        #expect(nextPrompt.shortcut == .jumpToNextPrompt)
-        #expect(nextPrompt.label == "Next Prompt")
-        #expect(nextPrompt.commandBarGroupName == "Terminal")
-        #expect(nextPrompt.visibleWhen == [.hasActivePane, .paneIsTerminal])
+        for expected in expectedDefinitions {
+            let definition = AppCommandDispatcher.shared.definition(for: expected.command)
+            #expect(definition.command == expected.command)
+            #expect(definition.shortcut == expected.shortcut)
+            #expect(definition.label == expected.label)
+            #expect(definition.helpText == expected.helpText)
+            #expect(definition.commandBarShortcutTrigger == expected.shortcut.trigger)
+            #expect(definition.commandBarGroupName == "Terminal")
+            #expect(definition.visibleWhen == [.hasActivePane, .paneIsTerminal])
+            #expect(
+                definition.targeting
+                    == .contextualAndTargeted([.pane, .floatingTerminal], preferredInvocation: .contextual)
+            )
+        }
     }
 
     @MainActor
@@ -514,8 +553,7 @@ final class AppCommandTests {
                 dispatcher.appCommandRouter = nil
             },
             body: {
-                // Act (should not crash)
-                dispatcher.dispatch(.closeTab)
+                #expect(!dispatcher.dispatch(.closeTab))
             }
         )
     }
@@ -581,9 +619,10 @@ final class AppCommandTests {
             },
             body: {
                 // Act
-                dispatcher.dispatch(.closeTab)
+                let accepted = dispatcher.dispatch(.closeTab)
 
                 // Assert
+                #expect(accepted)
                 #expect(handler.executedCommands.count == 1)
                 #expect(handler.executedCommands[0].0 == .closeTab)
                 #expect(handler.executedCommands[0].1 == nil)  // no target
@@ -658,8 +697,9 @@ final class AppCommandTests {
                 dispatcher.appCommandRouter = appRouter
             },
             body: {
-                dispatcher.dispatch(.watchFolder)
+                let accepted = dispatcher.dispatch(.watchFolder)
 
+                #expect(accepted)
                 #expect(appRouter.handledCommands == [.watchFolder])
                 #expect(handler.executedCommands.isEmpty)
             }
@@ -820,6 +860,32 @@ final class AppCommandTests {
                 #expect(handler.executedCommands.isEmpty)
             }
         )
+    }
+
+    @Test
+    func dispatcherDoesNotAcceptRejectedShellSidebarCommandThroughWorkspaceFallback() async throws {
+        let dispatcher = AppCommandDispatcher.shared
+        let shell = MockAppCommandRouter()
+        shell.parameterlessCanExecuteResult = true
+        let harness = makePaneTabViewControllerCommandHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        for command in [AppCommand.showReposSidebar, .showPanesSidebar, .filterSidebar, .toggleSidebar] {
+            #expect(!harness.controller.canExecute(command))
+        }
+
+        try await withIsolatedCommandDispatcher(
+            configure: {
+                dispatcher.handler = harness.controller
+                dispatcher.appCommandRouter = shell
+            },
+            body: {
+                #expect(!dispatcher.dispatch(.showPanesSidebar))
+                #expect(shell.handledCommands.isEmpty)
+            }
+        )
+
+        await harness.coordinator.shutdown()
     }
 
     @MainActor

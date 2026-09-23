@@ -773,7 +773,7 @@ private final class UndoRestoreSurfaceManager: WorkspaceSurfaceManaging {
 /// No-op dispatcher used only to satisfy `Ghostty.SurfaceView`'s bare test initializer.
 @MainActor
 private final class NoOpAppCommandDispatcher: AppCommandDispatching {
-    func dispatch(_: AppCommand) {}
+    func dispatch(_: AppCommand) -> Bool { false }
     func dispatch(_: AppCommand, target _: UUID, targetType _: SearchItemType) {}
     func canDispatch(_: AppCommand) -> Bool { false }
     func canDispatch(_: AppCommand, target _: UUID, targetType _: SearchItemType) -> Bool { false }

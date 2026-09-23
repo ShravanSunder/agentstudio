@@ -5,6 +5,7 @@ import SwiftUI
 package struct SidebarToolbarSegmentedControl<Value: Hashable, Icon: View>: View {
     let model: SidebarToggleModel<Value>
     @ViewBuilder let icon: (Value) -> Icon
+    let shortcutDisplay: (Value) -> ShortcutDisplayText?
     let onSelect: (Value) -> Void
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -13,10 +14,12 @@ package struct SidebarToolbarSegmentedControl<Value: Hashable, Icon: View>: View
         selection: Value?,
         content: SidebarToggleModel<Value>.Content = .selectedLabel,
         @ViewBuilder icon: @escaping (Value) -> Icon,
+        shortcutDisplay: @escaping (Value) -> ShortcutDisplayText? = { _ in nil },
         onSelect: @escaping (Value) -> Void
     ) {
         self.model = SidebarToggleModel(segments: segments, selection: selection, content: content)
         self.icon = icon
+        self.shortcutDisplay = shortcutDisplay
         self.onSelect = onSelect
     }
 
@@ -71,6 +74,15 @@ package struct SidebarToolbarSegmentedControl<Value: Hashable, Icon: View>: View
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(SidebarToolbarSegmentButtonStyle(isSelected: isSelected))
+                .sidebarShortcutHint(
+                    shortcutDisplay(segment.value),
+                    style: .toolbarStamp,
+                    alignment: .bottomTrailing,
+                    offset: CGSize(
+                        width: -AppStyles.Shell.Sidebar.KeyboardHint.controlTrailingInset,
+                        height: AppStyles.Shell.Sidebar.KeyboardHint.toggleVerticalOffset
+                    )
+                )
                 .disabled(!segment.isEnabled)
                 .accessibilityLabel(segment.label)
                 .accessibilityIdentifier(segment.accessibilityIdentifier)
@@ -78,7 +90,7 @@ package struct SidebarToolbarSegmentedControl<Value: Hashable, Icon: View>: View
                 .controlHelp(segment.tooltipValue)
             }
         }
-        .overlay {
+        .background {
             RoundedRectangle(cornerRadius: AppStyles.Shell.Sidebar.ToolbarControl.cornerRadius)
                 .stroke(AppStyles.General.Stroke.controlGroupColor, lineWidth: 1)
                 .allowsHitTesting(false)

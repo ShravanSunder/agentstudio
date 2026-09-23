@@ -1,19 +1,72 @@
 import Foundation
 
 enum TabArrangementMutationRules {
+    private struct PaneInsertion {
+        let paneID: UUID
+        let anchorID: UUID
+        let direction: Layout.SplitDirection
+        let position: Layout.Position
+        let sizingMode: DropSizingMode
+    }
+
     static func insertingPane(
+        _ paneID: UUID, in state: TabArrangementState, at anchorID: UUID,
+        direction: Layout.SplitDirection, position: Layout.Position, sizingMode: DropSizingMode
+    ) -> TabArrangementState? {
+        insertingPane(
+            in: state,
+            insertion: PaneInsertion(
+                paneID: paneID,
+                anchorID: anchorID,
+                direction: direction,
+                position: position,
+                sizingMode: sizingMode
+            ),
+            arrangementIndices: Array(state.arrangements.indices)
+        )
+    }
+
+    static func insertingNewPane(
         _ paneID: UUID, in state: TabArrangementState, at anchorID: UUID,
         direction: Layout.SplitDirection, position: Layout.Position, sizingMode: DropSizingMode
     ) -> TabArrangementState? {
         guard !state.arrangements.isEmpty else { return nil }
         let activeIndex = activeArrangementIndex(in: state)
+        let defaultIndex = defaultArrangementIndex(in: state)
+        let insertionArrangementIndices =
+            activeIndex == defaultIndex ? [activeIndex] : [activeIndex, defaultIndex]
+        return insertingPane(
+            in: state,
+            insertion: PaneInsertion(
+                paneID: paneID,
+                anchorID: anchorID,
+                direction: direction,
+                position: position,
+                sizingMode: sizingMode
+            ),
+            arrangementIndices: insertionArrangementIndices
+        )
+    }
+
+    private static func insertingPane(
+        in state: TabArrangementState,
+        insertion: PaneInsertion,
+        arrangementIndices: [Int]
+    ) -> TabArrangementState? {
+        let paneID = insertion.paneID
+        guard !state.arrangements.isEmpty else { return nil }
+        let activeIndex = activeArrangementIndex(in: state)
         guard
             let activeLayout = state.arrangements[activeIndex].layout.inserting(
-                paneId: paneID, at: anchorID, direction: direction, position: position, sizingMode: sizingMode
+                paneId: paneID,
+                at: insertion.anchorID,
+                direction: insertion.direction,
+                position: insertion.position,
+                sizingMode: insertion.sizingMode
             )
         else { return nil }
         var updated = state
-        for index in updated.arrangements.indices {
+        for index in arrangementIndices {
             if index == activeIndex {
                 updated.arrangements[index].layout = activeLayout
                 updated.arrangements[index].activePaneId = paneID
@@ -48,6 +101,44 @@ enum TabArrangementMutationRules {
     static func insertingDrawerPane(
         _ drawerPaneId: UUID, in state: TabArrangementState, insertion: DrawerInsertion
     ) -> TabArrangementState? {
+        insertingDrawerPane(
+            drawerPaneId,
+            in: state,
+            insertion: insertion,
+            arrangementIndices: Array(state.arrangements.indices)
+        )
+    }
+
+    static func insertingNewDrawerPane(
+        _ drawerPaneId: UUID, in state: TabArrangementState, insertion: DrawerInsertion
+    ) -> TabArrangementState? {
+        guard !state.arrangements.isEmpty else { return nil }
+        let activeIndex = activeArrangementIndex(in: state)
+        let defaultIndex = defaultArrangementIndex(in: state)
+        let insertionArrangementIndices =
+            activeIndex == defaultIndex ? [activeIndex] : [activeIndex, defaultIndex]
+        guard
+            var updated = insertingDrawerPane(
+                drawerPaneId,
+                in: state,
+                insertion: insertion,
+                arrangementIndices: insertionArrangementIndices
+            )
+        else { return nil }
+        for arrangementIndex in insertionArrangementIndices {
+            guard var drawerView = updated.arrangements[arrangementIndex].drawerViews[insertion.drawerId] else {
+                continue
+            }
+            drawerView.minimizedPaneIds.remove(drawerPaneId)
+            updated.arrangements[arrangementIndex].drawerViews[insertion.drawerId] = drawerView
+        }
+        return updated
+    }
+
+    private static func insertingDrawerPane(
+        _ drawerPaneId: UUID, in state: TabArrangementState, insertion: DrawerInsertion,
+        arrangementIndices: [Int]
+    ) -> TabArrangementState? {
         let parentPaneId = insertion.parentPaneId
         let drawerId = insertion.drawerId
         let targetDrawerPaneId = insertion.targetDrawerPaneId
@@ -55,7 +146,8 @@ enum TabArrangementMutationRules {
         let sizingMode = insertion.sizingMode
         var updated = state
         var didPlaceDrawerPane = false
-        for arrangementIndex in updated.arrangements.indices {
+        let activeIndex = activeArrangementIndex(in: updated)
+        for arrangementIndex in arrangementIndices {
             guard updated.arrangements[arrangementIndex].layout.contains(parentPaneId) else {
                 continue
             }
@@ -81,7 +173,7 @@ enum TabArrangementMutationRules {
                     )
                 {
                     drawerView.layout = updatedLayout
-                    if arrangementIndex == activeArrangementIndex(in: updated) {
+                    if arrangementIndex == activeIndex {
                         drawerView.activeChildId = drawerPaneId
                     }
                     didPlaceDrawerPane = true

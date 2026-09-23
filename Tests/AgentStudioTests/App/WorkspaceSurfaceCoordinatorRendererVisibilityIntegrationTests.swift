@@ -296,6 +296,81 @@ struct SurfaceRendererVisibilityIntegrationTests {
             await coordinator.shutdown()
         }
     }
+
+    @Test("ready nonterminal preview hides real terminals and release remains window-gated")
+    func readyNonterminalPreviewHidesRealTerminalAndReleaseRemainsWindowGated() async throws {
+        try await withAsyncTestCoreAtoms { _ in
+            let store = WorkspaceStore()
+            let terminalPane = store.createPane()
+            let previewPane = store.createPane(
+                content: .webview(
+                    WebviewState(url: URL(string: "https://example.com/preview")!)
+                ),
+                metadata: PaneMetadata(title: "Preview")
+            )
+            let terminalTab = Tab(paneId: terminalPane.id, name: "Terminal")
+            let previewTab = Tab(paneId: previewPane.id, name: "Preview")
+            store.appendTab(terminalTab)
+            store.appendTab(previewTab)
+            store.setActiveTab(terminalTab.id)
+
+            let delivery = RecordingSurfaceRendererStateDelivery()
+            let surfaceManager = makeManager(delivery: delivery)
+            let managedSurface = try acceptedSurface(makeBareSurface(), in: surfaceManager)
+            surfaceManager.attach(managedSurface.id, to: terminalPane.id)
+
+            let windowLifecycleStore = WindowLifecycleAtom()
+            let windowID = UUIDv7.generate()
+            windowLifecycleStore.recordWindowRegistered(windowID)
+            windowLifecycleStore.recordWindowPresentation(
+                WindowPresentationFacts(isVisible: true, isMiniaturized: false, isOccluded: false),
+                for: windowID
+            )
+            let coordinator = WorkspaceSurfaceCoordinator(
+                store: store,
+                viewRegistry: ViewRegistry(),
+                runtime: SessionRuntime(store: store),
+                surfaceManager: surfaceManager,
+                runtimeRegistry: RuntimeRegistry(),
+                paneEventBus: EventBus<RuntimeEnvelope>(),
+                windowLifecycleStore: windowLifecycleStore,
+                ipcLifecycle: .testUnavailable,
+                bridgePaneAttendance: BridgePaneAttendanceAtom()
+            )
+            let heldState = HeldPanePreviewState()
+            coordinator.bindHeldPanePreviewState(heldState)
+            coordinator.bindRendererVisibility(toOwningWindowId: windowID)
+            let target = ValidatedPanePreviewTarget(
+                paneID: previewPane.id,
+                owningTabID: previewTab.id,
+                provider: previewPane.provider,
+                sessionID: previewPane.terminalState?.zmxSessionID
+            )
+
+            #expect(heldState.beginSpaceHold(requestedTarget: target))
+            #expect(heldState.acceptPresentedTarget(target, generation: 1))
+            await eventually("ready preview hides the attached terminal") {
+                delivery.visibilityCalls.last == .init(surfaceID: managedSurface.id, visible: false)
+            }
+
+            windowLifecycleStore.recordWindowPresentation(
+                WindowPresentationFacts(isVisible: true, isMiniaturized: false, isOccluded: true),
+                for: windowID
+            )
+            heldState.endSpaceHold()
+            await Task.yield()
+            #expect(delivery.visibilityCalls.last == .init(surfaceID: managedSurface.id, visible: false))
+
+            windowLifecycleStore.recordWindowPresentation(
+                WindowPresentationFacts(isVisible: true, isMiniaturized: false, isOccluded: false),
+                for: windowID
+            )
+            await eventually("visible unoccluded window restores canonical terminal") {
+                delivery.visibilityCalls.last == .init(surfaceID: managedSurface.id, visible: true)
+            }
+            await coordinator.shutdown()
+        }
+    }
 }
 
 // MARK: - Test Doubles (copied from SurfaceManagerRendererStateDeliveryTests;
@@ -358,7 +433,7 @@ private actor RendererVisibilityIntegrationRecordingTraceSink: AgentStudioTraceS
 
 @MainActor
 private final class NoOpAppCommandDispatcher: AppCommandDispatching {
-    func dispatch(_: AppCommand) {}
+    func dispatch(_: AppCommand) -> Bool { false }
     func dispatch(_: AppCommand, target _: UUID, targetType _: SearchItemType) {}
     func canDispatch(_: AppCommand) -> Bool { false }
     func canDispatch(_: AppCommand, target _: UUID, targetType _: SearchItemType) -> Bool { false }

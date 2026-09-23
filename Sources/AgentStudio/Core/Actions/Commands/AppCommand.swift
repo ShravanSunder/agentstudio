@@ -24,12 +24,16 @@ package enum AppCommand: String, CaseIterable {
     case focusPane
     case scrollToBottom
     case scrollPageUp
+    case scrollPageDown
+    case scrollSmallStepUp
+    case scrollSmallStepDown
     case jumpToPreviousPrompt
     case jumpToNextPrompt
     case splitRight, splitLeft
     case equalizePanes
     case focusPaneLeft, focusPaneRight, focusPaneUp, focusPaneDown
     case focusNextPane, focusPrevPane
+    case focusPreviousPinnedPane, focusNextPinnedPane
     case focusPane1, focusPane2, focusPane3, focusPane4, focusPane5
     case focusPane6, focusPane7, focusPane8, focusPane9
     case zoomPane
@@ -80,6 +84,7 @@ package enum AppCommand: String, CaseIterable {
     case managementLayerExit
     // Workspace commands
     case toggleSidebar
+    case focusSidebar
     case showInboxNotifications
     case toggleInboxNotificationSort
     case clearReadInboxNotifications
@@ -178,6 +183,11 @@ package struct KeyBinding: Codable, Hashable, Sendable {
 
 // MARK: - AppCommandSpec
 
+package enum SidebarKeyboardCompletion: Equatable, Sendable {
+    case preserveCommandFocus
+    case returnToOrigin
+}
+
 /// Full command definition tying command identity, shortcut, display info, and context together.
 package struct AppCommandSpec {
     package let command: AppCommand
@@ -192,6 +202,7 @@ package struct AppCommandSpec {
     package let visibleWhen: Set<CommandRequirement>
     package let commandBarGroupName: String
     package let commandBarGroupPriority: Int
+    package let sidebarKeyboardCompletion: SidebarKeyboardCompletion
 
     package init(
         command: AppCommand,
@@ -205,7 +216,8 @@ package struct AppCommandSpec {
         requiresManagementLayer: Bool = false,
         visibleWhen: Set<CommandRequirement> = [],
         commandBarGroupName: String = "Commands",
-        commandBarGroupPriority: Int = 8
+        commandBarGroupPriority: Int = 8,
+        sidebarKeyboardCompletion: SidebarKeyboardCompletion = .preserveCommandFocus
     ) {
         self.command = command
         self.shortcut = shortcut
@@ -219,16 +231,20 @@ package struct AppCommandSpec {
         self.visibleWhen = visibleWhen
         self.commandBarGroupName = commandBarGroupName
         self.commandBarGroupPriority = commandBarGroupPriority
+        self.sidebarKeyboardCompletion = sidebarKeyboardCompletion
     }
 
-    package var keyBinding: KeyBinding? { shortcut?.keyBinding }
-    package var commandBarShortcutTrigger: ShortcutTrigger? { displayShortcutTrigger ?? shortcut?.trigger }
+    package var globalKeyBinding: KeyBinding? { shortcut?.displayKeyBinding(in: .global) }
+    package var commandBarShortcutTrigger: ShortcutTrigger? {
+        displayShortcutTrigger ?? shortcut?.spec.displayTrigger(in: .global)
+    }
 }
 
 /// Feature-facing access to App-owned command execution.
 @MainActor
 package protocol AppCommandDispatching: AnyObject, Sendable {
-    func dispatch(_ command: AppCommand)
+    /// Returns whether an interactive execution owner accepted the command.
+    @discardableResult func dispatch(_ command: AppCommand) -> Bool
     func dispatch(_ command: AppCommand, target: UUID, targetType: SearchItemType)
     func canDispatch(_ command: AppCommand) -> Bool
     func canDispatch(_ command: AppCommand, target: UUID, targetType: SearchItemType) -> Bool

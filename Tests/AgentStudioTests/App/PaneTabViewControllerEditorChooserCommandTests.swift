@@ -79,6 +79,7 @@ struct PaneTabViewControllerEditorChooserCommandTests {
             installedEditorTargetsProvider: { installedEditorTargets },
             openEditorHandler: { _, _, _ in true },
             openFinderHandler: { _ in true },
+            heldPanePreviewState: HeldPanePreviewState(),
             registersAsCommandHandler: false
         )
 

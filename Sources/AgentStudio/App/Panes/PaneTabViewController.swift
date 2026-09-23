@@ -98,6 +98,9 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
     // MARK: - Dependencies (injected)
 
     let store: WorkspaceStore
+    let pinnedPanePreferences: RepoExplorerSidebarPrefsAtom?
+    private let heldPanePreviewState: HeldPanePreviewState
+    private let onPreviewEligibilityLoss: @MainActor () -> Void
     private let repoCache: RepoCacheAtom
     private let applicationLifecycleMonitor: ApplicationLifecycleMonitor
     private let appLifecycleStore: AppLifecycleAtom
@@ -139,10 +142,28 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         )
     }
 
+    var acceptsIPCCommands: Bool { !hasShutdown }
+
+    func hasNativePaneHost(_ paneId: UUID) -> Bool {
+        viewRegistry.view(for: paneId) != nil
+    }
+
     private struct PendingTabMovePublication {
         let correlationId: UUID
         let movedTabId: UUID
         let expectedOrderedTabIds: [UUID]
+    }
+
+    private struct TabSelectionObservation: Equatable {
+        let orderedTabIds: [UUID]
+        let activeTabId: UUID?
+        let tabGraphRevision: Int?
+        let activeArrangementId: UUID?
+        let activeArrangementRevision: Int?
+        let activePaneId: UUID?
+        let activePaneRevision: Int?
+        let activeDrawerId: UUID?
+        let activeDrawerRevision: Int?
     }
     private lazy var actionDispatcher = PaneTabActionDispatcher(
         dispatch: { [weak self] action in
@@ -231,6 +252,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         bridgePaneAttendance: BridgePaneAttendanceAtom,
         editorChooser: EditorChooserState,
         paneInboxPresentation: PaneInboxPresentation? = nil,
+        pinnedPanePreferences: RepoExplorerSidebarPrefsAtom? = nil,
         installedEditorTargetsProvider: @escaping @MainActor () -> [ExternalEditorTarget] = {
             ExternalEditorTarget.refreshInstalledTargets()
         },
@@ -252,6 +274,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         },
         paneNotePresentation: PaneNotePresentation? = nil,
         closeTransitionCoordinator: PaneCloseTransitionCoordinator = PaneCloseTransitionCoordinator(),
+        heldPanePreviewState: HeldPanePreviewState,
         tabRenamePopoverState: TabRenamePopoverState = TabRenamePopoverState(),
         arrangementInlineRenameState: ArrangementInlineRenameState = ArrangementInlineRenameState(),
         arrangementPanelPresentation: ArrangementPanelPresentationAtom = atom(\.arrangementPanelPresentation),
@@ -261,12 +284,16 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
                 .live()
             },
         performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = nil,
+        onPreviewEligibilityLoss: @escaping @MainActor () -> Void = {},
         interactionProbe: AgentStudioInteractionPerformanceProbe? = nil,
         registersAsCommandHandler: Bool = true,
         embedsTabBarInView: Bool = true,
         appEventBus: EventBus<AppEvent> = AppEventBus.shared
     ) {
         self.store = store
+        self.pinnedPanePreferences = pinnedPanePreferences
+        self.heldPanePreviewState = heldPanePreviewState
+        self.onPreviewEligibilityLoss = onPreviewEligibilityLoss
         self.octiconLoader = octiconLoader
         self.appEventBus = appEventBus
         self.repoCache = repoCache
@@ -633,8 +660,6 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         notificationTasks.removeAll()
     }
 
-    var acceptsIPCCommands: Bool { !hasShutdown }
-
     isolated deinit {
         let monitor = arrangementBarEventMonitor
         let tasks = notificationTasks
@@ -655,17 +680,78 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
     /// Observe only tab membership plus the active tab's keyed selection facts.
     /// SwiftUI owns pane rendering; this bridge owns AppKit host visibility and focus.
     private func observeForTabSelectionState() {
+        let observedSelection = tabSelectionObservation()
         withObservationTracking {
             _ = self.store.tabShellAtom.orderedTabIds
-            if let activeTabId = self.store.tabShellAtom.activeTabId {
-                _ = self.store.tabLayoutAtom.tab(activeTabId)
+            let activeTabId = self.store.tabShellAtom.activeTabId
+            if let activeTabId {
+                _ = self.store.tabArrangementAtom.graphAtom.tabStateRevision(for: activeTabId)
+                _ = self.store.tabArrangementAtom.cursorAtom.activeArrangementRevision(forTab: activeTabId)
+                if let activeArrangementId = self.store.tabArrangementAtom.cursorAtom.activeArrangementId(
+                    forTab: activeTabId)
+                {
+                    _ = self.store.tabArrangementAtom.cursorAtom.paneCursorRevision(forArrangement: activeArrangementId)
+                    if let activeDrawerId = self.activeDrawerId(for: activeTabId) {
+                        _ = self.store.tabArrangementAtom.cursorAtom.drawerCursorRevision(
+                            arrangementId: activeArrangementId, drawerId: activeDrawerId)
+                    }
+                }
+            }
+            _ = self.heldPanePreviewState.lifecycle
+            _ = self.heldPanePreviewState.presentedTarget
+            if let presentedTarget = self.heldPanePreviewState.presentedTarget {
+                // A held preview can become ready after its tab was already
+                // admitted. Observe the owning pane slot so late host
+                // registration re-runs the AppKit visibility projection.
+                _ = self.viewRegistry.slot(for: presentedTarget.paneID).host
             }
         } onChange: {
             Task { @MainActor [weak self] in
-                self?.handleTabSelectionStateChange()
-                self?.observeForTabSelectionState()
+                guard let self else { return }
+                if observedSelection != self.tabSelectionObservation() {
+                    self.handleTabSelectionStateChange()
+                } else {
+                    self.updateVisibleTabHost()
+                }
+                self.observeForTabSelectionState()
             }
         }
+    }
+
+    private func tabSelectionObservation() -> TabSelectionObservation {
+        let activeTabId = store.tabShellAtom.activeTabId
+        let activeArrangementId = activeTabId.flatMap {
+            store.tabArrangementAtom.cursorAtom.activeArrangementId(forTab: $0)
+        }
+        let activePaneId = activeTabId.flatMap { store.tabLayoutAtom.activePaneID(forTab: $0) }
+        let activeDrawerId = activeTabId.flatMap { self.activeDrawerId(for: $0) }
+        return TabSelectionObservation(
+            orderedTabIds: store.tabShellAtom.orderedTabIds,
+            activeTabId: activeTabId,
+            tabGraphRevision: activeTabId.map { store.tabArrangementAtom.graphAtom.tabStateRevision(for: $0) },
+            activeArrangementId: activeArrangementId,
+            activeArrangementRevision: activeTabId.map {
+                store.tabArrangementAtom.cursorAtom.activeArrangementRevision(forTab: $0)
+            },
+            activePaneId: activePaneId,
+            activePaneRevision: activeArrangementId.map {
+                store.tabArrangementAtom.cursorAtom.paneCursorRevision(forArrangement: $0)
+            },
+            activeDrawerId: activeDrawerId,
+            activeDrawerRevision: activeArrangementId.flatMap { arrangementId in
+                activeDrawerId.map { drawerId in
+                    store.tabArrangementAtom.cursorAtom.drawerCursorRevision(
+                        arrangementId: arrangementId, drawerId: drawerId)
+                }
+            }
+        )
+    }
+
+    private func activeDrawerId(for activeTabId: UUID) -> UUID? {
+        guard let paneId = store.tabLayoutAtom.activePaneID(forTab: activeTabId),
+            let drawer = store.paneAtom.pane(paneId)?.drawer, drawer.isExpanded
+        else { return nil }
+        return drawer.drawerId
     }
 
     private func observeForEmptyState() {
@@ -923,6 +1009,10 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
     }
 
     func handlePaneFocusTrigger(_ trigger: PaneFocusTrigger) {
+        _ = applyPaneFocusTrigger(trigger)
+    }
+
+    private func applyPaneFocusTrigger(_ trigger: PaneFocusTrigger) -> Bool {
         if trigger.isUserFocusInteraction {
             executor.clearPendingPaneRefocusRequestsAfterUserFocusChange()
         }
@@ -932,13 +1022,13 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             Self.logger.warning(
                 "Pane focus trigger dropped because context assembly failed trigger=\(String(describing: trigger), privacy: .public)"
             )
-            return
+            return false
         }
         let decision = PaneFocusOrchestrator.decide(trigger: trigger, context: context)
         guard paneFocusExecutor.apply(decision) else {
             Self.logger.warning(
                 "Pane focus apply returned false for trigger \(String(describing: trigger), privacy: .public)")
-            return
+            return false
         }
         if trigger.isUserFocusInteraction {
             performanceTraceRecorder?.recordFocusResponderChange(reason: .userClick)
@@ -951,6 +1041,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         {
             bridgePaneAttendance.record(bridgeAttendanceEvent, for: paneId)
         }
+        return true
     }
 
     private func bridgeAttendanceEvent(for trigger: PaneFocusTrigger) -> BridgePaneAttendanceEvent? {
@@ -1246,6 +1337,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             repoCache: repoCache,
             editorChooser: editorChooser,
             viewRegistry: viewRegistry,
+            heldPanePreviewState: heldPanePreviewState,
             appLifecycleStore: appLifecycleStore,
             closeTransitionCoordinator: closeTransitionCoordinator,
             actionDispatcher: actionDispatcher,
@@ -1395,12 +1487,19 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
     }
 
     private func executePaneSurfaceViewerCommand(sourcePaneId: UUID) -> Bool {
-        switch executeZoomLocalViewerCommand(explicitPaneId: sourcePaneId) {
-        case .notZoomLocal:
-            return enterZoomAndShowViewer(explicitPaneId: sourcePaneId)
-        case .toggled(let didToggle):
-            return didToggle
+        guard canExecutePaneSurfaceViewerCommand(sourcePaneId: sourcePaneId) else { return false }
+        dispatchGesture { [self] execute in
+            switch executeZoomLocalViewerCommand(explicitPaneId: sourcePaneId) {
+            case .notZoomLocal:
+                return await enterZoomAndShowViewerAfterAdmission(
+                    explicitPaneId: sourcePaneId,
+                    execute: execute
+                )
+            case .toggled(let didToggle):
+                return didToggle
+            }
         }
+        return true
     }
 
     func paneShowArrangementsAction(
@@ -1478,8 +1577,22 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
 
     private func updateVisibleTabHost() {
         let activeTabId = store.tabLayoutAtom.activeTabId
+        let visibleTabId: UUID? = {
+            guard heldPanePreviewState.isHeld,
+                let target = heldPanePreviewState.presentedTarget,
+                let pane = store.paneAtom.pane(target.paneID),
+                viewRegistry.view(for: target.paneID) != nil,
+                store.tabLayoutAtom.tabID(containingPane: pane.parentPaneId ?? pane.id)
+                    == target.owningTabID,
+                pane.provider == target.provider,
+                pane.terminalState?.zmxSessionID == target.sessionID
+            else {
+                return activeTabId
+            }
+            return target.owningTabID
+        }()
         for (tabId, host) in tabContentHosts {
-            host.isHidden = tabId != activeTabId
+            host.isHidden = tabId != visibleTabId
         }
     }
 
@@ -2288,12 +2401,16 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             return nil
         }
 
-        guard
-            let drawerView = arrangementView.drawerView(forParent: parentPaneId),
-            let targetPaneId = drawerView.layout.neighbor(of: drawerPaneId, direction: direction)
-        else { return nil }
-
-        return (parentPaneId, targetPaneId)
+        guard let drawerView = arrangementView.drawerView(forParent: parentPaneId) else { return nil }
+        var candidatePaneId = drawerPaneId
+        while let neighborPaneId = drawerView.layout.neighbor(of: candidatePaneId, direction: direction) {
+            candidatePaneId = neighborPaneId
+            guard !drawerView.minimizedPaneIds.contains(neighborPaneId),
+                store.paneAtom.pane(neighborPaneId)?.residency != .backgrounded
+            else { continue }
+            return (parentPaneId, neighborPaneId)
+        }
+        return nil
     }
 
     private func focusDrawerPaneOrdinal(command: AppCommand) -> Bool {
@@ -2528,7 +2645,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
     }
 
     @discardableResult
-    private func dispatchGesture(
+    func dispatchGesture(
         _ operation: @escaping @MainActor (@MainActor (WorkspaceActionCommand) async -> Bool) async -> Bool
     ) -> Task<Bool, Never> {
         executor.submitGesture { [weak self] execute in
@@ -2595,7 +2712,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         guard store.tabLayoutAtom.activeTabId == tabId else { return }
 
         if let sourcePaneId {
-            _ = executeZoomCommand(explicitPaneId: sourcePaneId)
+            _ = submitZoomCommand(explicitPaneId: sourcePaneId)
             return
         }
 
@@ -2862,7 +2979,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
 
     func execute(_ command: AppCommand) {
         if command == .zoomPane {
-            _ = executeZoomCommand(explicitPaneId: nil)
+            _ = submitZoomCommand(explicitPaneId: nil)
             return
         }
 
@@ -2925,7 +3042,21 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         case .scrollToBottom:
             runtimeCommand = .terminal(.scrollToBottom)
         case .scrollPageUp:
-            runtimeCommand = .terminal(.scrollPageUp)
+            runtimeCommand = .terminal(
+                .scrollPageFractional(fraction: -AppPolicies.TerminalNavigation.pageFraction)
+            )
+        case .scrollPageDown:
+            runtimeCommand = .terminal(
+                .scrollPageFractional(fraction: AppPolicies.TerminalNavigation.pageFraction)
+            )
+        case .scrollSmallStepUp:
+            runtimeCommand = .terminal(
+                .scrollPageFractional(fraction: -AppPolicies.TerminalNavigation.smallStepFraction)
+            )
+        case .scrollSmallStepDown:
+            runtimeCommand = .terminal(
+                .scrollPageFractional(fraction: AppPolicies.TerminalNavigation.smallStepFraction)
+            )
         case .jumpToPreviousPrompt:
             runtimeCommand = .terminal(.jumpToPrompt(delta: -1))
         case .jumpToNextPrompt:
@@ -3089,15 +3220,22 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             }
             return bridgeMountView.controller.reloadWebView()
         case .showViewer:
-            switch executeZoomLocalViewerCommand(explicitPaneId: nil) {
-            case .notZoomLocal:
-                return enterZoomAndShowViewer(explicitPaneId: nil)
-            case .toggled(let didToggle):
-                return didToggle
+            guard canExecute(.showViewer) else { return false }
+            dispatchGesture { [self] execute in
+                switch executeZoomLocalViewerCommand(explicitPaneId: nil) {
+                case .notZoomLocal:
+                    return await enterZoomAndShowViewerAfterAdmission(
+                        explicitPaneId: nil,
+                        execute: execute
+                    )
+                case .toggled(let didToggle):
+                    return didToggle
+                }
             }
+            return true
         case .showBridgeReview, .showBridgeFiles,
             .openBridgeReviewInNewTab, .openBridgeFilesInNewTab:
-            return executeBridgeSurfaceCommand(command, worktreeId: nil)
+            return submitBridgeSurfaceCommand(command, worktreeId: nil)
         default:
             return false
         }
@@ -3135,7 +3273,10 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         return bridgeMountView
     }
 
-    func enterZoomAndShowViewer(explicitPaneId: UUID?) -> Bool {
+    func enterZoomAndShowViewerAfterAdmission(
+        explicitPaneId: UUID?,
+        execute: @MainActor (WorkspaceActionCommand) async -> Bool
+    ) async -> Bool {
         let canEnterZoomWithViewer =
             if let explicitPaneId {
                 canExecutePaneSurfaceViewerCommand(sourcePaneId: explicitPaneId)
@@ -3143,7 +3284,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
                 canExecute(.showViewer)
             }
         guard canEnterZoomWithViewer,
-            executeZoomCommand(explicitPaneId: explicitPaneId),
+            await executeZoomCommandAfterAdmission(explicitPaneId: explicitPaneId, execute: execute),
             let activeTabId = store.tabLayoutAtom.activeTabId,
             let presentation = store.panePresentationAtom.zoomPresentation(forTab: activeTabId)
         else {
@@ -3259,16 +3400,42 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         )
     }
 
-    @discardableResult
-    func executeZoomCommand(explicitPaneId: UUID?) -> Bool {
+    private func submitZoomCommand(explicitPaneId: UUID?) -> Bool {
+        guard zoomCommandCapability(explicitPaneId: explicitPaneId) != nil else { return false }
+        dispatchGesture { [self] execute in
+            await executeZoomCommandAfterAdmission(explicitPaneId: explicitPaneId, execute: execute)
+        }
+        return true
+    }
+
+    func executeZoomCommandAfterAdmission(
+        explicitPaneId: UUID?,
+        execute: @MainActor (WorkspaceActionCommand) async -> Bool
+    ) async -> Bool {
         guard let capability = zoomCommandCapability(explicitPaneId: explicitPaneId) else {
             return false
         }
+        let capturedZoomPresentation = store.panePresentationAtom.zoomPresentation(forTab: capability.tabId)
 
         if capability.requiresTabActivation {
-            focusTargetedPane(capability.sourcePaneId)
+            guard
+                await prepareAndApplyTargetFocus(
+                    paneId: capability.sourcePaneId,
+                    execute: execute
+                )
+            else { return false }
         }
 
+        guard let currentCapability = zoomCommandCapability(explicitPaneId: explicitPaneId),
+            currentCapability.sourcePaneId == capability.sourcePaneId,
+            currentCapability.tabId == capability.tabId,
+            store.panePresentationAtom.zoomPresentation(forTab: capability.tabId) == capturedZoomPresentation
+        else { return false }
+
+        return applyZoomCommand(capability)
+    }
+
+    private func applyZoomCommand(_ capability: ZoomCommandCapability) -> Bool {
         switch capability.effect {
         case .enter:
             executor.reattachZoomSourceForPresentationIfHidden(
@@ -3290,6 +3457,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
                 tabId: capability.tabId
             )
             executor.refreshZoomCompanionActivities()
+            requestPaneRefocus(.explicit)
             return true
         case .retarget:
             let didRetarget = store.panePresentationAtom.retargetZoom(
@@ -3318,6 +3486,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             owningTabId: capability.tabId,
             viewerSurfaceRequest: bridgeViewerSurfaceRequestHandler
         )
+        requestPaneRefocus(.explicit)
         return true
     }
 
@@ -3349,7 +3518,26 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         )?.worktree.id
     }
 
-    func executeBridgeSurfaceCommand(_ command: AppCommand, worktreeId: UUID?) -> Bool {
+    private func submitBridgeSurfaceCommand(_ command: AppCommand, worktreeId: UUID?) -> Bool {
+        guard
+            command == .showBridgeReview || command == .showBridgeFiles
+                || command == .openBridgeReviewInNewTab || command == .openBridgeFilesInNewTab
+        else { return false }
+        dispatchGesture { [self] execute in
+            await executeBridgeSurfaceCommandAfterAdmission(
+                command,
+                worktreeId: worktreeId,
+                execute: execute
+            )
+        }
+        return true
+    }
+
+    func executeBridgeSurfaceCommandAfterAdmission(
+        _ command: AppCommand,
+        worktreeId: UUID?,
+        execute: @MainActor (WorkspaceActionCommand) async -> Bool
+    ) async -> Bool {
         let surface: BridgeProductSurface
         let alwaysCreate: Bool
         switch command {
@@ -3378,8 +3566,18 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
                 return false
             }
             let previousOrdinal = bridgePaneAttendance.ordinal(for: paneId)
-            pendingBridgeAttendanceEventForNextFocus = .defaultJump
-            focusTargetedPane(paneId)
+            guard
+                await prepareAndApplyTargetFocus(
+                    paneId: paneId,
+                    execute: execute,
+                    beforeFocus: { [weak self] in
+                        self?.pendingBridgeAttendanceEventForNextFocus = .defaultJump
+                    }
+                )
+            else {
+                pendingBridgeAttendanceEventForNextFocus = nil
+                return false
+            }
             guard bridgePaneAttendance.ordinal(for: paneId) != previousOrdinal else {
                 return false
             }
@@ -3541,7 +3739,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         }
 
         if command == .zoomPane, targetType == .pane {
-            _ = executeZoomCommand(explicitPaneId: target)
+            _ = submitZoomCommand(explicitPaneId: target)
             return
         }
 
@@ -3561,8 +3759,13 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
 
         if command == .editPaneNote, targetType == .pane {
             guard store.paneAtom.pane(target) != nil else { return }
-            focusTargetedPane(target)
-            paneNotePresentation.present(target)
+            dispatchGesture { [self] execute in
+                guard await prepareAndApplyTargetFocus(paneId: target, execute: execute) else {
+                    return false
+                }
+                paneNotePresentation.present(target)
+                return true
+            }
             return
         }
 
@@ -3572,7 +3775,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         }
 
         if command == .focusPane && (targetType == .pane || targetType == .floatingTerminal) {
-            focusTargetedPane(target)
+            submitTargetedPaneFocus(target)
             return
         }
 
@@ -3664,23 +3867,28 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         }
     }
 
-    func focusTargetedPane(_ paneId: UUID) {
-        if let parentPaneId = store.paneAtom.pane(paneId)?.parentPaneId {
-            focusTargetedDrawerPane(parentPaneId: parentPaneId, drawerPaneId: paneId)
-            return
+    @discardableResult
+    func submitTargetedPaneFocus(_ paneId: UUID) -> Task<Bool, Never> {
+        dispatchGesture { [self] execute in
+            await prepareAndApplyTargetFocus(paneId: paneId, execute: execute)
         }
-
-        guard let tab = store.tabLayoutAtom.tabContaining(paneId: paneId) else { return }
-        handlePaneFocusTrigger(.command(.focusPane(tabId: tab.id, paneId: paneId)))
     }
 
-    func canFocusTargetedPane(_ paneId: UUID) -> Bool {
-        guard let pane = store.paneAtom.pane(paneId) else { return false }
-        if let parentPaneId = pane.parentPaneId {
-            return store.tabLayoutAtom.tabContaining(paneId: parentPaneId) != nil
-                && store.paneAtom.pane(parentPaneId)?.drawer?.paneIds.contains(paneId) == true
-        }
-        return store.tabLayoutAtom.tabContaining(paneId: paneId) != nil
+    private func prepareAndApplyTargetFocus(
+        paneId: UUID,
+        execute: @MainActor (WorkspaceActionCommand) async -> Bool,
+        beforeFocus: @MainActor () -> Void = {}
+    ) async -> Bool {
+        await PaneCommittedFocusOperation(
+            store: store,
+            applyFocus: { [weak self] trigger in
+                self?.applyPaneFocusTrigger(trigger) ?? false
+            }
+        ).prepareAndApplyTargetFocus(
+            paneID: paneId,
+            execute: execute,
+            beforeFocus: beforeFocus
+        )
     }
 
     private func revealArrangementContainingPane(tabId: UUID, paneId: UUID) {
@@ -3699,6 +3907,17 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             await focusDrawerPaneAfterAdmission(
                 parentPaneId: parentPaneId, drawerPaneId: drawerPaneId, execute: execute)
         }
+    }
+
+    func canFocusTargetedPane(_ paneId: UUID) -> Bool {
+        let paneGraph = store.paneAtom.graphAtom
+        guard let paneState = paneGraph.paneState(paneId) else { return false }
+        if let parentPaneId = paneState.parentPaneId {
+            guard let drawerId = paneGraph.paneState(parentPaneId)?.ownedDrawerId else { return false }
+            return store.tabLayoutAtom.tabID(containingPane: parentPaneId) != nil
+                && paneGraph.parentPaneID(containingDrawer: drawerId) == parentPaneId
+        }
+        return store.tabLayoutAtom.tabID(containingPane: paneId) != nil
     }
 
     private func focusDrawerPaneAfterAdmission(
@@ -3722,14 +3941,22 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
     }
 
     private func focusMainPaneOrdinal(command: AppCommand) -> Bool {
-        guard let target = resolveMainPaneOrdinalTarget(for: command) else { return false }
-        if let zoomPresentation = store.panePresentationAtom.zoomPresentation(forTab: target.tab.id),
-            zoomPresentation.sourcePaneId != target.paneId,
-            !executeZoomCommand(explicitPaneId: target.paneId)
-        {
-            return false
+        guard resolveMainPaneOrdinalTarget(for: command) != nil else { return false }
+        dispatchGesture { [self] execute in
+            guard let target = resolveMainPaneOrdinalTarget(for: command) else { return false }
+            if let zoomPresentation = store.panePresentationAtom.zoomPresentation(forTab: target.tab.id),
+                zoomPresentation.sourcePaneId != target.paneId,
+                !(await executeZoomCommandAfterAdmission(
+                    explicitPaneId: target.paneId,
+                    execute: execute
+                ))
+            {
+                return false
+            }
+            return applyPaneFocusTrigger(
+                .command(.focusPane(tabId: target.tab.id, paneId: target.paneId))
+            )
         }
-        handlePaneFocusTrigger(.command(.focusPane(tabId: target.tab.id, paneId: target.paneId)))
         return true
     }
 
@@ -3897,13 +4124,21 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         let targetPaneId: UUID?
         switch command {
         case .focusPaneLeft:
-            targetPaneId = tab.neighborPaneId(of: activePaneId, direction: .left)
+            targetPaneId = nextVisibleSpatialPane(
+                from: activePaneId, direction: .left, in: tab
+            )
         case .focusPaneRight:
-            targetPaneId = tab.neighborPaneId(of: activePaneId, direction: .right)
+            targetPaneId = nextVisibleSpatialPane(
+                from: activePaneId, direction: .right, in: tab
+            )
         case .focusPaneUp:
-            targetPaneId = tab.neighborPaneId(of: activePaneId, direction: .up)
+            targetPaneId = nextVisibleSpatialPane(
+                from: activePaneId, direction: .up, in: tab
+            )
         case .focusPaneDown:
-            targetPaneId = tab.neighborPaneId(of: activePaneId, direction: .down)
+            targetPaneId = nextVisibleSpatialPane(
+                from: activePaneId, direction: .down, in: tab
+            )
         case .focusNextPane:
             targetPaneId = tab.nextPaneId(after: activePaneId)
         case .focusPrevPane:
@@ -3923,6 +4158,25 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             paneId: targetPaneId,
             paneKind: PaneFocusContext.PaneKind(content: store.paneAtom.pane(targetPaneId)?.content)
         )
+    }
+
+    private func nextVisibleSpatialPane(
+        from sourcePaneId: UUID,
+        direction: SplitFocusDirection,
+        in tab: AgentStudioCore.Tab
+    ) -> UUID? {
+        var candidatePaneId = sourcePaneId
+        while let neighborPaneId = tab.neighborPaneId(
+            of: candidatePaneId,
+            direction: direction
+        ) {
+            candidatePaneId = neighborPaneId
+            guard !tab.activeMinimizedPaneIds.contains(neighborPaneId),
+                store.paneAtom.pane(neighborPaneId)?.residency != .backgrounded
+            else { continue }
+            return neighborPaneId
+        }
+        return nil
     }
 
     private func resolvePaneFocusTabSelectionTarget(for command: AppCommand) -> UUID? {
@@ -4223,7 +4477,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         return store.tabLayoutAtom.activeTabId == owningTabId
     }
 
-    func arrangementTarget(
+    private func arrangementTarget(
         _ arrangementId: UUID
     ) -> (tab: AgentStudioCore.Tab, arrangement: PaneArrangement)? {
         for tab in store.tabLayoutAtom.tabs {
@@ -4316,7 +4570,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         switch command {
         case .showBridgeReview, .showBridgeFiles,
             .openBridgeReviewInNewTab, .openBridgeFilesInNewTab:
-            return executeBridgeSurfaceCommand(command, worktreeId: target)
+            return submitBridgeSurfaceCommand(command, worktreeId: target)
         default:
             return false
         }
@@ -4658,6 +4912,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
     }
 
     private func workspacePresentationCommandAvailability(_ command: AppCommand) -> Bool? {
+        if Self.shellOwnedNoOpCommands.contains(command) { return false }
         switch command {
         case .toggleManagementLayer:
             return true
@@ -4697,11 +4952,25 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         }
     }
 
+    private static let shellOwnedNoOpCommands: Set<AppCommand> = [
+        .watchFolder, .toggleSidebar, .filterSidebar,
+        .showInboxNotifications, .toggleInboxNotificationSort,
+        .clearReadInboxNotifications, .clearAllInboxNotifications,
+        .showReposSidebar, .showPanesSidebar,
+        .setReposGroupingRepo, .setReposGroupingActivity,
+        .setPanesGroupingRepo, .setPanesGroupingTab, .setPanesGroupingActivity,
+        .setPanesSubgroupNone, .setPanesSubgroupActivity,
+        .setReposSortFieldName, .setReposSortFieldActivity,
+        .setPanesSortFieldName, .setPanesSortFieldActivity,
+        .toggleReposSortDirection, .togglePanesSortDirection,
+        .toggleReposShowsPinned, .togglePanesShowsPinned,
+        .signInGitHub, .signInGoogle,
+    ]
+
     func canExecute(_ command: AppCommand) -> Bool {
         if let availability = workspacePresentationCommandAvailability(command) {
             return availability
         }
-
         switch command {
         case .managementLayerFocusLeft, .managementLayerFocusRight, .managementLayerEnterDrawer,
             .managementLayerExitDrawer, .managementLayerOpenDrawer,
@@ -4955,8 +5224,15 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
 
         switch command {
         case .showPaneInboxNotifications:
-            focusTargetedPane(targetId)
-            paneInboxPresentation.toggle(target.parentPaneId, target.paneIds)
+            dispatchGesture { [self] execute in
+                guard await prepareAndApplyTargetFocus(paneId: targetId, execute: execute),
+                    let currentTarget = paneInboxTarget(anchorPaneId: targetId)
+                else {
+                    return false
+                }
+                paneInboxPresentation.toggle(currentTarget.parentPaneId, currentTarget.paneIds)
+                return true
+            }
         case .clearPaneInboxNotifications:
             paneInboxPresentation.clear(target.parentPaneId, target.paneIds)
         default:
@@ -5117,6 +5393,10 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         var appLifecycleStoreForTesting: AppLifecycleAtom { appLifecycleStore }
         func tabHostViewForTesting(tabId: UUID) -> NSView? {
             tabContentHosts[tabId]
+        }
+        func syncTabContentHostsForTesting() {
+            syncTabContentHosts()
+            updateVisibleTabHost()
         }
         var paneRepresentableDismantleCountForTesting: Int {
             paneRepresentableDismantleCount

@@ -1,3 +1,4 @@
+import AgentStudioProgrammaticControl
 import AppKit
 import Foundation
 import GhosttyKit
@@ -9,6 +10,7 @@ import Testing
 @testable import AgentStudioCore
 @testable import AgentStudioInboxNotification
 @testable import AgentStudioInfrastructure
+@testable import AgentStudioRepoExplorer
 @testable import AgentStudioTerminal
 @testable import AgentStudioTestSupport
 
@@ -65,6 +67,27 @@ struct PaneTabViewControllerCommandHarness {
     func executeCommand(_ command: AppCommand, target: UUID, targetType: SearchItemType) async {
         controller.execute(command, target: target, targetType: targetType)
         _ = await executor.submitGesture { _ in true }.value
+    }
+
+    func executeHeadlessPaneCommand(
+        _ command: AppCommand,
+        paneId: UUID
+    ) async throws -> AppCommandExecutionOutcome {
+        let paneSelector = try IPCPaneSelector(rawValue: paneId.uuidString)
+        return await controller.executeHeadlessIPC(
+            AppCommandExecutionRequest(
+                command: command,
+                arguments: .typedIPC(
+                    .pane(
+                        .init(
+                            workspaceWindowId: UUIDv7.generate(),
+                            paneSelector: paneSelector
+                        )
+                    )
+                ),
+                executionContext: .headlessIPC(admitsDebugTestingCommands: true)
+            )
+        )
     }
 }
 
@@ -174,6 +197,7 @@ func makePaneTabViewControllerCommandHarness(
         bridgePaneAttendance: atomRegistry.bridgePaneAttendance,
         editorChooser: atomRegistry.editorChooser,
         paneInboxPresentation: paneInboxPresentation,
+        pinnedPanePreferences: RepoExplorerSidebarPrefsAtom(sidebarState: CoreAtomScope.store.workspaceSidebarState),
         installedEditorTargetsProvider: { [.cursor, .vscode] },
         openEditorHandler: { editorId, path, _ in
             launchRecorder.openedEditors.append((id: editorId, path: path))
@@ -188,6 +212,7 @@ func makePaneTabViewControllerCommandHarness(
             launchRecorder: launchRecorder
         ),
         closeTransitionCoordinator: closeTransitionCoordinator,
+        heldPanePreviewState: HeldPanePreviewState(),
         tabRenamePopoverState: tabRenamePopoverState,
         arrangementInlineRenameState: arrangementInlineRenameState,
         arrangementPanelPresentation: arrangementPanelPresentation,
@@ -380,9 +405,41 @@ func attachPaneHost(
 
 @MainActor
 final class FocusablePaneTabCommandMountedContentView: NSView, PaneMountedContent {
+    private let focusEvents: AsyncStream<Void>
+    private let focusEventContinuation: AsyncStream<Void>.Continuation
+
+    override init(frame frameRect: NSRect) {
+        (focusEvents, focusEventContinuation) = AsyncStream.makeStream(
+            of: Void.self,
+            bufferingPolicy: .bufferingNewest(1)
+        )
+        super.init(frame: frameRect)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        nil
+    }
+
     override var acceptsFirstResponder: Bool { true }
 
+    override func becomeFirstResponder() -> Bool {
+        let accepted = super.becomeFirstResponder()
+        if accepted {
+            focusEventContinuation.yield()
+        }
+        return accepted
+    }
+
+    func makeFocusEventIterator() -> AsyncStream<Void>.AsyncIterator {
+        focusEvents.makeAsyncIterator()
+    }
+
     func setContentInteractionEnabled(_: Bool) {}
+
+    deinit {
+        focusEventContinuation.finish()
+    }
 }
 
 final class MockPaneTabCommandSurfaceManager: WorkspaceSurfaceManaging {
@@ -396,6 +453,7 @@ final class MockPaneTabCommandSurfaceManager: WorkspaceSurfaceManaging {
     private(set) var createSurfaceCallCount = 0
     private(set) var lastCreatedSurfaceMetadata: SurfaceMetadata?
     private(set) var attachedSurfaceRequests: [(surfaceId: UUID, paneId: UUID)] = []
+    private(set) var detachedSurfaceRequests: [(surfaceId: UUID, reason: SurfaceDetachReason)] = []
 
     init(createSurfaceResult: Result<ManagedSurface, SurfaceError>) {
         self.createSurfaceResult = createSurfaceResult
@@ -418,7 +476,9 @@ final class MockPaneTabCommandSurfaceManager: WorkspaceSurfaceManaging {
         return nil
     }
 
-    func detach(_ surfaceId: UUID, reason: SurfaceDetachReason) {}
+    func detach(_ surfaceId: UUID, reason: SurfaceDetachReason) {
+        detachedSurfaceRequests.append((surfaceId: surfaceId, reason: reason))
+    }
 
     func undoClose(forPaneId paneId: UUID) -> ManagedSurface? { nil }
 

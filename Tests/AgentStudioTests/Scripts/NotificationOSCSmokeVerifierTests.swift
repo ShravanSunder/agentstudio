@@ -1,10 +1,12 @@
+import AgentStudioInfrastructure
+import AgentStudioTestSupport
 import Foundation
 import Testing
 
 @Suite(.serialized)
 struct NotificationOSCSmokeVerifierTests {
     @Test("verifier accepts a complete notification smoke fixture")
-    func verifierAcceptsCompleteNotificationSmokeFixture() throws {
+    func verifierAcceptsCompleteNotificationSmokeFixture() async throws {
         let fixture = try makeFixture(
             named: "notification-smoke-pass",
             lines: [
@@ -33,14 +35,14 @@ struct NotificationOSCSmokeVerifierTests {
             ]
         )
 
-        let result = try runVerifier([fixture.path])
+        let result = try await runVerifier([fixture.path])
 
         #expect(result.exitCode == 0)
         #expect(result.stdout.contains("notification OSC smoke trace verified"))
     }
 
     @Test("verifier reports missing records as contract failures")
-    func verifierReportsMissingRecordsAsContractFailures() throws {
+    func verifierReportsMissingRecordsAsContractFailures() async throws {
         let fixture = try makeFixture(
             named: "notification-smoke-missing-classify",
             lines: [
@@ -51,28 +53,28 @@ struct NotificationOSCSmokeVerifierTests {
             ]
         )
 
-        let result = try runVerifier([fixture.path])
+        let result = try await runVerifier([fixture.path])
 
         #expect(result.exitCode == 1)
         #expect(result.stderr.contains("missing: OSC desktop notification was classified"))
     }
 
     @Test("verifier accepts options before or after the trace file")
-    func verifierAcceptsOptionsBeforeOrAfterTheTraceFile() throws {
+    func verifierAcceptsOptionsBeforeOrAfterTheTraceFile() async throws {
         let fixture = try makeBellFixture()
 
-        let flagBeforeTrace = try runVerifier(["--expect-bell-notified", fixture.path])
-        let flagAfterTrace = try runVerifier([fixture.path, "--expect-bell-notified"])
+        let flagBeforeTrace = try await runVerifier(["--expect-bell-notified", fixture.path])
+        let flagAfterTrace = try await runVerifier([fixture.path, "--expect-bell-notified"])
 
         #expect(flagBeforeTrace.exitCode == 0)
         #expect(flagAfterTrace.exitCode == 0)
     }
 
     @Test("verifier reports JSONL parse errors as tooling failures")
-    func verifierReportsJSONLParseErrorsAsToolingFailures() throws {
+    func verifierReportsJSONLParseErrorsAsToolingFailures() async throws {
         let fixture = try makeFixture(named: "notification-smoke-bad-json", lines: ["{bad json"])
 
-        let result = try runVerifier([fixture.path])
+        let result = try await runVerifier([fixture.path])
 
         #expect(result.exitCode == 2)
         #expect(result.stderr.contains("jq failed while checking"))
@@ -80,10 +82,10 @@ struct NotificationOSCSmokeVerifierTests {
     }
 
     @Test("verifier shows help regardless of argument order")
-    func verifierShowsHelpRegardlessOfArgumentOrder() throws {
+    func verifierShowsHelpRegardlessOfArgumentOrder() async throws {
         let fixture = try makeFixture(named: "notification-smoke-help", lines: [])
 
-        let result = try runVerifier([fixture.path, "--help"])
+        let result = try await runVerifier([fixture.path, "--help"])
 
         #expect(result.exitCode == 2)
         #expect(result.stdout.contains("Usage:"))
@@ -147,31 +149,43 @@ struct NotificationOSCSmokeVerifierTests {
         return encodedRecord
     }
 
-    private func runVerifier(_ arguments: [String]) throws -> VerifierResult {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        process.arguments = ["bash", "scripts/verify-notification-osc-smoke.sh"] + arguments
-        process.currentDirectoryURL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+    private func runVerifier(_ arguments: [String]) async throws -> VerifierResult {
+        try await withoutBlockingCooperativePool {
+            let stdoutURL = FileManager.default.temporaryDirectory
+                .appending(path: "notification-osc-stdout-\(UUIDv7.generate().uuidString).log")
+            let stderrURL = FileManager.default.temporaryDirectory
+                .appending(path: "notification-osc-stderr-\(UUIDv7.generate().uuidString).log")
+            FileManager.default.createFile(atPath: stdoutURL.path, contents: nil)
+            FileManager.default.createFile(atPath: stderrURL.path, contents: nil)
+            let stdoutHandle = try FileHandle(forWritingTo: stdoutURL)
+            let stderrHandle = try FileHandle(forWritingTo: stderrURL)
+            defer {
+                try? stdoutHandle.close()
+                try? stderrHandle.close()
+                try? FileManager.default.removeItem(at: stdoutURL)
+                try? FileManager.default.removeItem(at: stderrURL)
+            }
 
-        let stdout = Pipe()
-        let stderr = Pipe()
-        process.standardOutput = stdout
-        process.standardError = stderr
-
-        try process.run()
-        process.waitUntilExit()
-
-        let stdoutData = stdout.fileHandleForReading.readDataToEndOfFile()
-        let stderrData = stderr.fileHandleForReading.readDataToEndOfFile()
-        return VerifierResult(
-            exitCode: process.terminationStatus,
-            stdout: String(data: stdoutData, encoding: .utf8) ?? "",
-            stderr: String(data: stderrData, encoding: .utf8) ?? ""
-        )
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+            process.arguments = ["bash", "scripts/verify-notification-osc-smoke.sh"] + arguments
+            process.currentDirectoryURL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+            process.standardOutput = stdoutHandle
+            process.standardError = stderrHandle
+            try process.run()
+            process.waitUntilExit()
+            try stdoutHandle.close()
+            try stderrHandle.close()
+            return VerifierResult(
+                exitCode: process.terminationStatus,
+                stdout: try String(contentsOf: stdoutURL, encoding: .utf8),
+                stderr: try String(contentsOf: stderrURL, encoding: .utf8)
+            )
+        }
     }
 }
 
-private struct VerifierResult {
+private struct VerifierResult: Sendable {
     let exitCode: Int32
     let stdout: String
     let stderr: String

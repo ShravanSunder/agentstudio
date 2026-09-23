@@ -33,9 +33,9 @@ final class AppCommandCatalogTests {
         let def = AppCommandDispatcher.shared.definition(for: .filterSidebar)
 
         // Assert
-        #expect(def.keyBinding?.key == "f")
-        #expect(def.keyBinding?.modifiers.contains(.command) ?? false)
-        #expect(!(def.keyBinding?.modifiers.contains(.shift) ?? false))
+        #expect(def.globalKeyBinding?.key == "f")
+        #expect(def.globalKeyBinding?.modifiers.contains(.command) ?? false)
+        #expect(!(def.globalKeyBinding?.modifiers.contains(.shift) ?? false))
     }
 
     @MainActor
@@ -112,7 +112,7 @@ final class AppCommandCatalogTests {
     @Test
     func test_dispatcher_openWebview_noKeyBinding() {
         let def = AppCommandDispatcher.shared.definition(for: .openWebview)
-        #expect(def.keyBinding == nil)
+        #expect(def.globalKeyBinding == nil)
     }
 
     @MainActor
@@ -166,7 +166,7 @@ final class AppCommandCatalogTests {
     @Test
     func test_dispatcher_zoomPaneAndViewer_useAcceptedKeyBindings() {
         #expect(AppCommand.zoomPane.definition.shortcut?.trigger.displayString == "⌘⇧↵")
-        #expect(AppCommand.showViewer.definition.keyBinding == KeyBinding(key: "o", modifiers: [.command]))
+        #expect(AppCommand.showViewer.definition.globalKeyBinding == KeyBinding(key: "o", modifiers: [.command]))
     }
 
     @MainActor
@@ -268,8 +268,8 @@ final class AppCommandCatalogTests {
     @Test
     func test_dispatcher_signIn_noKeyBindings() {
         // Sign-in commands are internal dispatch identities with no global shortcuts.
-        #expect(AppCommandDispatcher.shared.definition(for: .signInGitHub).keyBinding == nil)
-        #expect(AppCommandDispatcher.shared.definition(for: .signInGoogle).keyBinding == nil)
+        #expect(AppCommandDispatcher.shared.definition(for: .signInGitHub).globalKeyBinding == nil)
+        #expect(AppCommandDispatcher.shared.definition(for: .signInGoogle).globalKeyBinding == nil)
         #expect(AppCommand.signInGitHub.definition.surfacePolicy == .notPresented)
         #expect(AppCommand.signInGoogle.definition.surfacePolicy == .notPresented)
     }

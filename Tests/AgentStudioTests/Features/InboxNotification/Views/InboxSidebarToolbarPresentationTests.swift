@@ -175,7 +175,7 @@ private final class InboxSidebarCommandDispatcherProbe: AppCommandDispatching {
         self.deniedCommands = deniedCommands
     }
 
-    func dispatch(_: AppCommand) {}
+    func dispatch(_: AppCommand) -> Bool { false }
 
     func dispatch(_: AppCommand, target _: UUID, targetType _: SearchItemType) {}
 

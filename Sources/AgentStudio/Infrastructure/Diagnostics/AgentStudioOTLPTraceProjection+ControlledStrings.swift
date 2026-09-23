@@ -21,7 +21,7 @@ extension AgentStudioOTLPTraceProjection {
         case "agentstudio.performance.sidebar.phase":
             return [
                 "request_build_mainactor", "projection_worker", "mainactor_apply", "row_index", "startup_diagnostic",
-                "surface_switch",
+                "surface_switch", "pinned_capture_mainactor", "pinned_projection_worker",
             ]
             .contains(value)
         case "agentstudio.performance.sidebar.query_state":
@@ -31,7 +31,7 @@ extension AgentStudioOTLPTraceProjection {
         case "agentstudio.performance.sidebar.trigger":
             return [
                 "grouping_switch", "surface_switch", "search", "sort_order", "collapse_toggle",
-                "data_refresh", "startup_diagnostic",
+                "data_refresh", "startup_diagnostic", "pinned_navigation",
             ]
             .contains(value)
         case "agentstudio.performance.tabbar.terminal.outcome":

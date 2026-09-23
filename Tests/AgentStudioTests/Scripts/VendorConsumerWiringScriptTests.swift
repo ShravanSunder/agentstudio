@@ -1,3 +1,4 @@
+import AgentStudioTestSupport
 import Darwin
 import Foundation
 import Testing
@@ -196,7 +197,7 @@ struct VendorConsumerWiringScriptTests {
     }
 
     @Test("debug launch stops before every consumer when vendor verification fails")
-    func debugLaunchFailsClosedBeforeConsumption() throws {
+    func debugLaunchFailsClosedBeforeConsumption() async throws {
         // Arrange
         let fileManager = FileManager.default
         let temporaryRoot = fileManager.temporaryDirectory
@@ -263,7 +264,7 @@ struct VendorConsumerWiringScriptTests {
             try Data().write(to: commandLog)
 
             // Act
-            let result = try runShellScript(
+            let result = try await runShellScript(
                 scriptsRoot.appending(path: "run-debug-observability.sh"),
                 arguments: arguments,
                 currentDirectory: temporaryRoot,
@@ -495,28 +496,42 @@ struct VendorConsumerWiringScriptTests {
         arguments: [String],
         currentDirectory: URL,
         environment: [String: String]
-    ) throws -> VendorCommandResult {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/bin/bash")
-        process.arguments = [script.path] + arguments
-        process.currentDirectoryURL = currentDirectory
-        process.environment = ProcessInfo.processInfo.environment.merging(environment) { _, override in
-            override
+    ) async throws -> VendorCommandResult {
+        try await withoutBlockingCooperativePool {
+            let outputDirectory = FileManager.default.temporaryDirectory
+                .appending(path: "vendor-consumer-output-\(UUIDv7.generate().uuidString)")
+            try FileManager.default.createDirectory(at: outputDirectory, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: outputDirectory) }
+            let stdoutURL = outputDirectory.appending(path: "stdout.log")
+            let stderrURL = outputDirectory.appending(path: "stderr.log")
+            FileManager.default.createFile(atPath: stdoutURL.path, contents: nil)
+            FileManager.default.createFile(atPath: stderrURL.path, contents: nil)
+            let stdoutHandle = try FileHandle(forWritingTo: stdoutURL)
+            let stderrHandle = try FileHandle(forWritingTo: stderrURL)
+            defer {
+                try? stdoutHandle.close()
+                try? stderrHandle.close()
+            }
+
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/bin/bash")
+            process.arguments = [script.path] + arguments
+            process.currentDirectoryURL = currentDirectory
+            process.environment = ProcessInfo.processInfo.environment.merging(environment) { _, override in
+                override
+            }
+            process.standardOutput = stdoutHandle
+            process.standardError = stderrHandle
+            try process.run()
+            process.waitUntilExit()
+            try stdoutHandle.close()
+            try stderrHandle.close()
+            return VendorCommandResult(
+                exitCode: process.terminationStatus,
+                stdout: try String(contentsOf: stdoutURL, encoding: .utf8),
+                stderr: try String(contentsOf: stderrURL, encoding: .utf8)
+            )
         }
-        let stdout = Pipe()
-        let stderr = Pipe()
-        process.standardOutput = stdout
-        process.standardError = stderr
-        try process.run()
-        process.waitUntilExit()
-        return VendorCommandResult(
-            exitCode: process.terminationStatus,
-            stdout: String(
-                data: stdout.fileHandleForReading.readDataToEndOfFile(),
-                encoding: .utf8) ?? "",
-            stderr: String(
-                data: stderr.fileHandleForReading.readDataToEndOfFile(),
-                encoding: .utf8) ?? "")
     }
 }
 

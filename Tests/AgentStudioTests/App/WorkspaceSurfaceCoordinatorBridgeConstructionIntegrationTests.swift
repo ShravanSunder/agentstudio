@@ -185,20 +185,20 @@ extension WebKitSerializedTests {
         @Test("production Review open waits for the committed initial Review mode")
         func productionReviewOpenWaitsForCommittedInitialReviewMode() async throws {
             // Arrange
-            let repositoryURL = try FilesystemTestGitRepo.create(
+            let repositoryURL = try await FilesystemTestGitRepo.create(
                 named: "bridge-production-review-open-activity"
             )
             defer { FilesystemTestGitRepo.destroy(repositoryURL) }
-            try FilesystemTestGitRepo.seedTrackedAndUntrackedChanges(at: repositoryURL)
-            let defaultTargetOID = try FilesystemTestGitRepo.runGit(
+            try await FilesystemTestGitRepo.seedTrackedAndUntrackedChanges(at: repositoryURL)
+            let defaultTargetOID = try await FilesystemTestGitRepo.runGit(
                 at: repositoryURL,
                 args: ["rev-parse", "HEAD"]
             ).trimmingCharacters(in: .whitespacesAndNewlines)
-            try FilesystemTestGitRepo.runGit(
+            try await FilesystemTestGitRepo.runGit(
                 at: repositoryURL,
                 args: ["update-ref", "refs/remotes/origin/main", defaultTargetOID]
             )
-            try FilesystemTestGitRepo.runGit(
+            try await FilesystemTestGitRepo.runGit(
                 at: repositoryURL,
                 args: ["symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main"]
             )
@@ -257,11 +257,11 @@ extension WebKitSerializedTests {
         @Test("production File View open starts without a fabricated comparison target")
         func productionFileViewOpenStartsWithoutComparisonTarget() async throws {
             // Arrange
-            let repositoryURL = try FilesystemTestGitRepo.create(
+            let repositoryURL = try await FilesystemTestGitRepo.create(
                 named: "bridge-production-file-open-comparison-intent"
             )
             defer { FilesystemTestGitRepo.destroy(repositoryURL) }
-            try FilesystemTestGitRepo.seedTrackedAndUntrackedChanges(at: repositoryURL)
+            try await FilesystemTestGitRepo.seedTrackedAndUntrackedChanges(at: repositoryURL)
             let harness = makeBridgePaneActivityTestHarness()
             let repo = harness.store.addRepo(at: repositoryURL)
             let worktree = try #require(
@@ -297,11 +297,11 @@ extension WebKitSerializedTests {
         @Test("topology replay repairs an active restored Review controller created before topology")
         func topologyReplayRepairsActiveRestoredReviewController() async throws {
             // Arrange
-            let repositoryURL = try FilesystemTestGitRepo.create(
+            let repositoryURL = try await FilesystemTestGitRepo.create(
                 named: "bridge-restored-review-topology-replay"
             )
             defer { FilesystemTestGitRepo.destroy(repositoryURL) }
-            try FilesystemTestGitRepo.seedTrackedAndUntrackedChanges(at: repositoryURL)
+            try await FilesystemTestGitRepo.seedTrackedAndUntrackedChanges(at: repositoryURL)
             try await withBridgeConstructionCommandHarness { harness, executor in
                 let state = BridgePaneState(
                     panelKind: .diffViewer,

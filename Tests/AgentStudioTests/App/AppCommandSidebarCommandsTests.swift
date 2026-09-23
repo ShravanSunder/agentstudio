@@ -5,8 +5,19 @@ import Testing
 @testable import AgentStudioCore
 
 @MainActor
-@Suite("AppCommand sidebar commands")
+@Suite("AppCommand sidebar commands", .serialized)
 struct AppCommandSidebarCommandsTests {
+    @Test("focus sidebar is an interactive UI-presentation command")
+    func focusSidebarIsInteractiveUIPresentationCommand() {
+        let definition = AppCommandDispatcher.shared.definition(for: .focusSidebar)
+
+        #expect(definition.label == "Focus Sidebar")
+        #expect(definition.icon == .system(.keyboard))
+        #expect(definition.shortcut == .focusSidebar)
+        #expect(definition.surfacePolicy == .exposed([.commandBar, .inlineControl]))
+        #expect(definition.targeting == .contextual)
+    }
+
     @Test("sidebar settings expose compact surface-specific command specs")
     func sidebarSettingsExposeCompactSurfaceSpecificCommandSpecs() {
         let expectedCommands: [(AppCommand, String, CommandIcon)] = [
@@ -27,10 +38,23 @@ struct AppCommandSidebarCommandsTests {
             #expect(definition.icon == icon)
             #expect(definition.surfacePolicy.exposes(.inlineControl))
             #expect(definition.targeting == .contextual)
-            #expect(command.ipcSpec.executionMode == .headless)
-            #expect(command.ipcSpec.requiredPrivilege == .sidebarStateMutate)
-            #expect(command.ipcSpec.argumentVariants == [.workspaceWindow])
         }
+    }
+
+    @Test("sidebar command specs own keyboard completion after accepted dispatch")
+    func sidebarCommandSpecsOwnKeyboardCompletion() {
+        #expect(
+            AppCommandDispatcher.shared.definition(for: .showReposSidebar).sidebarKeyboardCompletion
+                == .returnToOrigin
+        )
+        #expect(
+            AppCommandDispatcher.shared.definition(for: .showPanesSidebar).sidebarKeyboardCompletion
+                == .returnToOrigin
+        )
+        #expect(
+            AppCommandDispatcher.shared.definition(for: .filterSidebar).sidebarKeyboardCompletion
+                == .preserveCommandFocus
+        )
     }
 
     @Test("fixed Panes organization has no interactive or IPC setting commands")
@@ -42,8 +66,6 @@ struct AppCommandSidebarCommandsTests {
         ] {
             let definition = AppCommandDispatcher.shared.definition(for: command)
             #expect(definition.surfacePolicy == .notPresented)
-            #expect(command.ipcSpec.exposure == .debugTesting)
-            #expect(command.ipcSpec.resultVariants == [.unavailable])
         }
     }
 
@@ -52,16 +74,10 @@ struct AppCommandSidebarCommandsTests {
         for command in [AppCommand.pinRepo, .unpinRepo] {
             let definition = AppCommandDispatcher.shared.definition(for: command)
             #expect(definition.targeting == .targeted([.repo]))
-            #expect(command.ipcSpec.executionMode == .headless)
-            #expect(command.ipcSpec.requiredPrivilege == .sidebarStateMutate)
-            #expect(command.ipcSpec.argumentVariants == [.repository])
         }
         for command in [AppCommand.pinPane, .unpinPane] {
             let definition = AppCommandDispatcher.shared.definition(for: command)
             #expect(definition.targeting == .targeted([.pane]))
-            #expect(command.ipcSpec.executionMode == .headless)
-            #expect(command.ipcSpec.requiredPrivilege == .sidebarStateMutate)
-            #expect(command.ipcSpec.argumentVariants == [.standalonePane])
         }
     }
 
@@ -85,9 +101,6 @@ struct AppCommandSidebarCommandsTests {
         for command in commands {
             let definition = AppCommandDispatcher.shared.definition(for: command)
             #expect(definition.surfacePolicy == .notPresented)
-            #expect(command.ipcSpec.exposure == .debugTesting)
-            #expect(command.ipcSpec.resultVariants == [.unavailable])
-            #expect(command.ipcSpec.argumentVariants == [.noArguments])
         }
     }
 }

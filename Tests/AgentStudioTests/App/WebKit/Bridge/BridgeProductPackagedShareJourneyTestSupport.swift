@@ -143,18 +143,18 @@ enum BridgeProductPackagedShareJourneyTestSupport {
     private static func makeJourneyHarness(
         _ testOwner: WebKitSerializedTests.BridgeProductRealGitFileAndReviewWebKitTests
     ) async throws -> JourneyHarness {
-        let repositoryURL = try FilesystemTestGitRepo.create(named: "bridge-packaged-share-webkit")
+        let repositoryURL = try await FilesystemTestGitRepo.create(named: "bridge-packaged-share-webkit")
         let stateRoot = FileManager.default.temporaryDirectory.appending(
             path: "bridge-packaged-share-state-\(UUIDv7.generate().uuidString)",
             directoryHint: .isDirectory
         )
         let exportedJSONURL = stateRoot.appending(path: "review-comments.json")
         try FileManager.default.createDirectory(at: stateRoot, withIntermediateDirectories: true)
-        try FilesystemTestGitRepo.seedTrackedAndUntrackedChanges(at: repositoryURL)
+        try await FilesystemTestGitRepo.seedTrackedAndUntrackedChanges(at: repositoryURL)
         let alternateFileURL = repositoryURL.appending(path: "alternate.txt")
         try "alternate initial\n".write(to: alternateFileURL, atomically: true, encoding: .utf8)
-        try FilesystemTestGitRepo.runGit(at: repositoryURL, args: ["add", "alternate.txt"])
-        try FilesystemTestGitRepo.runGit(
+        try await FilesystemTestGitRepo.runGit(at: repositoryURL, args: ["add", "alternate.txt"])
+        try await FilesystemTestGitRepo.runGit(
             at: repositoryURL,
             args: ["commit", "-m", "Add alternate packaged Share file"]
         )

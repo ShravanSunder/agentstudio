@@ -23,6 +23,8 @@ package struct BridgePaneActivityFacts: Equatable, Sendable {
     package let isMinimized: Bool
     package let isZoomExcluded: Bool
     package let isAuthorityClosed: Bool
+    package let isTransientlyPresented: Bool
+    package let isCoveredByTransientPresentation: Bool
 
     package init(
         residency: SessionResidency,
@@ -32,7 +34,9 @@ package struct BridgePaneActivityFacts: Equatable, Sendable {
         isInExpandedDrawer: Bool,
         isMinimized: Bool,
         isZoomExcluded: Bool,
-        isAuthorityClosed: Bool
+        isAuthorityClosed: Bool,
+        isTransientlyPresented: Bool = false,
+        isCoveredByTransientPresentation: Bool = false
     ) {
         self.residency = residency
         self.isControllerInstalled = isControllerInstalled
@@ -42,6 +46,8 @@ package struct BridgePaneActivityFacts: Equatable, Sendable {
         self.isMinimized = isMinimized
         self.isZoomExcluded = isZoomExcluded
         self.isAuthorityClosed = isAuthorityClosed
+        self.isTransientlyPresented = isTransientlyPresented
+        self.isCoveredByTransientPresentation = isCoveredByTransientPresentation
     }
 }
 
@@ -91,11 +97,14 @@ package final class BridgePaneActivityCoordinator {
         let isPaneVisibleInActiveWorkspaceSurface =
             facts.isInActiveTab
             && (facts.isInActiveArrangement || facts.isInExpandedDrawer)
-        let isForeground =
-            facts.residency.isActive
-            && isPaneVisibleInActiveWorkspaceSurface
+        let isCanonicalPaneForegroundEligible =
+            isPaneVisibleInActiveWorkspaceSurface
             && !facts.isMinimized
             && !facts.isZoomExcluded
+        let isForeground =
+            facts.residency.isActive
+            && !facts.isCoveredByTransientPresentation
+            && (facts.isTransientlyPresented || isCanonicalPaneForegroundEligible)
 
         return isForeground ? .foreground : .loadedHidden
     }

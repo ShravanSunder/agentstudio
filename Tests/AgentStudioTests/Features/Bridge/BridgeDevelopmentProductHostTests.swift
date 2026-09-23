@@ -340,7 +340,7 @@ struct BridgeDevelopmentProductHostTests {
     @Test("scoped host lifetime shuts down after a thrown operation")
     func scopedHostLifetimeShutsDownAfterThrownOperation() async throws {
         // Arrange
-        let repositoryURL = try FilesystemTestGitRepo.create(
+        let repositoryURL = try await FilesystemTestGitRepo.create(
             named: "bridge-development-product-host-error-cleanup"
         )
         defer { FilesystemTestGitRepo.destroy(repositoryURL) }
@@ -375,11 +375,11 @@ struct BridgeDevelopmentProductHostTests {
     @Test("replacement bootstrap keeps pane identity and rotates worker authority")
     func replacementBootstrapRotatesWorkerAuthority() async throws {
         // Arrange
-        let repositoryURL = try FilesystemTestGitRepo.create(
+        let repositoryURL = try await FilesystemTestGitRepo.create(
             named: "bridge-development-product-host-bootstrap"
         )
         defer { FilesystemTestGitRepo.destroy(repositoryURL) }
-        try FilesystemTestGitRepo.seedTrackedAndUntrackedChanges(at: repositoryURL)
+        try await FilesystemTestGitRepo.seedTrackedAndUntrackedChanges(at: repositoryURL)
         let host = try await BridgeDevelopmentProductHost(
             source: makeDevelopmentProductSource(worktreeRoot: repositoryURL),
             contributionTargetCommit: developmentContributionTargetCommit(
@@ -419,11 +419,11 @@ struct BridgeDevelopmentProductHostTests {
     @Test("a reloaded development page can issue a fresh initial bootstrap")
     func repeatedInitialBootstrapRotatesWorkerAuthority() async throws {
         // Arrange
-        let repositoryURL = try FilesystemTestGitRepo.create(
+        let repositoryURL = try await FilesystemTestGitRepo.create(
             named: "bridge-development-product-host-page-reload"
         )
         defer { FilesystemTestGitRepo.destroy(repositoryURL) }
-        try FilesystemTestGitRepo.seedTrackedAndUntrackedChanges(at: repositoryURL)
+        try await FilesystemTestGitRepo.seedTrackedAndUntrackedChanges(at: repositoryURL)
         let host = try await BridgeDevelopmentProductHost(
             source: makeDevelopmentProductSource(worktreeRoot: repositoryURL),
             contributionTargetCommit: developmentContributionTargetCommit(
@@ -458,11 +458,11 @@ struct BridgeDevelopmentProductHostTests {
     @Test("routes worker admission through the existing product adapter")
     func routesWorkerAdmissionThroughExistingProductAdapter() async throws {
         // Arrange
-        let repositoryURL = try FilesystemTestGitRepo.create(
+        let repositoryURL = try await FilesystemTestGitRepo.create(
             named: "bridge-development-product-host-route"
         )
         defer { FilesystemTestGitRepo.destroy(repositoryURL) }
-        try FilesystemTestGitRepo.seedTrackedAndUntrackedChanges(at: repositoryURL)
+        try await FilesystemTestGitRepo.seedTrackedAndUntrackedChanges(at: repositoryURL)
         let host = try await BridgeDevelopmentProductHost(
             source: makeDevelopmentProductSource(worktreeRoot: repositoryURL),
             contributionTargetCommit: developmentContributionTargetCommit(

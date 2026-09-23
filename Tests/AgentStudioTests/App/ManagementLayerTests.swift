@@ -378,8 +378,8 @@ struct ManagementLayerMonitorTests {
     func test_toggleManagementLayer_commandDefinition() async {
         withTestCoreAtoms { _ in
             let definition = AppCommandDispatcher.shared.definition(for: .toggleManagementLayer)
-            #expect(definition.keyBinding?.key == "r")
-            #expect(definition.keyBinding?.modifiers == [.command])
+            #expect(definition.globalKeyBinding?.key == "r")
+            #expect(definition.globalKeyBinding?.modifiers == [.command])
             #expect(definition.icon == .system(.rectangleSplit2x2))
         }
     }

@@ -264,48 +264,38 @@ export async function createBridgeViewerViteProductFixture(
 				const previousHeadOID = (await runFixtureGit(worktreeRoot, ['rev-parse', 'HEAD'])).trim();
 				const currentBody = await readFile(join(worktreeRoot, changedPath), 'utf8');
 				reviewedHeadAdvanceSequence += 1;
-				const constructionRoot = await mkdtemp(
-					join(tmpdir(), 'bridge-viewer-reviewed-head-chain-'),
-				);
-				const privateIndexPath = join(constructionRoot, 'index');
-				const committedBodyPath = join(constructionRoot, 'committed-body.ts');
-				const privateIndexEnvironment = { GIT_INDEX_FILE: privateIndexPath } as const;
+				const privateChainRef = `refs/bridge-viewer-fixture/private-reviewed-head/${randomUUID()}`;
 				try {
-					await writeFile(
-						committedBodyPath,
-						`${currentBody}export const promotedHeadChain${reviewedHeadAdvanceSequence} = ${reviewedHeadAdvanceSequence};\n`,
-					);
-					await runFixtureGit(worktreeRoot, ['read-tree', previousHeadOID], {
-						environment: privateIndexEnvironment,
-					});
+					const committedBody = `${currentBody}export const promotedHeadChain${reviewedHeadAdvanceSequence} = ${reviewedHeadAdvanceSequence};\n`;
 					const committedBodyBlobOID = (
-						await runFixtureGit(worktreeRoot, ['hash-object', '-w', committedBodyPath])
-					).trim();
-					await runFixtureGit(
-						worktreeRoot,
-						['update-index', '--add', '--cacheinfo', '100644', committedBodyBlobOID, changedPath],
-						{ environment: privateIndexEnvironment },
-					);
-					const committedTreeOID = (
-						await runFixtureGit(worktreeRoot, ['write-tree'], {
-							environment: privateIndexEnvironment,
+						await runFixtureGit(worktreeRoot, ['hash-object', '-w', '--stdin'], {
+							input: committedBody,
 						})
 					).trim();
-					let finalHeadOID = previousHeadOID;
-					/* eslint-disable no-await-in-loop -- Each synthetic commit must name the preceding private parent. */
+					const commitCommands: string[] = ['feature done'];
 					for (let commitIndex = 0; commitIndex < commitCount; commitIndex += 1) {
-						finalHeadOID = (
-							await runFixtureGit(worktreeRoot, [
-								'commit-tree',
-								committedTreeOID,
-								'-p',
-								finalHeadOID,
-								'-m',
-								`promoted refresh chain ${reviewedHeadAdvanceSequence} commit ${commitIndex + 1}`,
-							])
-						).trim();
+						const commitMark = commitIndex + 1;
+						const message = `promoted refresh chain ${reviewedHeadAdvanceSequence} commit ${commitMark}`;
+						commitCommands.push(
+							`commit ${privateChainRef}`,
+							`mark :${commitMark}`,
+							'committer Bridge Vite Product E2E <bridge-vite-e2e@example.invalid> 0 +0000',
+							`data ${Buffer.byteLength(message)}`,
+							message,
+							`from ${commitIndex === 0 ? previousHeadOID : `:${commitIndex}`}`,
+						);
+						if (commitIndex === 0) {
+							commitCommands.push(`M 100644 ${committedBodyBlobOID} ${changedPath}`);
+						}
+						commitCommands.push('');
 					}
-					/* eslint-enable no-await-in-loop */
+					commitCommands.push('done', '');
+					await runFixtureGit(worktreeRoot, ['fast-import', '--quiet'], {
+						input: commitCommands.join('\n'),
+					});
+					const finalHeadOID = (
+						await runFixtureGit(worktreeRoot, ['rev-parse', privateChainRef])
+					).trim();
 					const importedCommitCount = Number(
 						(
 							await runFixtureGit(worktreeRoot, [
@@ -320,12 +310,12 @@ export async function createBridgeViewerViteProductFixture(
 							`Reviewed-head chain expected ${commitCount} commits, received ${importedCommitCount}.`,
 						);
 					}
-					// This is the only observed reviewed-head transition. Private object and index construction
-					// above never move the checked-out ref or expose an intermediate reviewed head.
+					// This is the only observed reviewed-head transition. Private object construction above
+					// never moves the checked-out ref or exposes an intermediate reviewed head.
 					await runFixtureGit(worktreeRoot, ['update-ref', 'HEAD', finalHeadOID, previousHeadOID]);
 					return { finalHeadOID, importedCommitCount, previousHeadOID };
 				} finally {
-					await rm(constructionRoot, { force: true, recursive: true });
+					await runFixtureGit(worktreeRoot, ['update-ref', '-d', privateChainRef]);
 				}
 			},
 			dispose: async (): Promise<void> => {
@@ -642,8 +632,33 @@ function gitBlobHash(content: string): string {
 async function runFixtureGit(
 	cwd: string,
 	arguments_: readonly string[],
-	options: { readonly environment?: Readonly<Record<string, string>> } = {},
+	options: {
+		readonly environment?: Readonly<Record<string, string>>;
+		readonly input?: string;
+	} = {},
 ): Promise<string> {
+	if (options.input !== undefined) {
+		return await new Promise<string>((resolve, reject): void => {
+			const child = execFile(
+				'git',
+				[...arguments_],
+				{
+					cwd,
+					encoding: 'utf8',
+					env: { ...process.env, ...options.environment },
+					maxBuffer: 16 * 1024 * 1024,
+				},
+				(error, stdout): void => {
+					if (error !== null) {
+						reject(error);
+						return;
+					}
+					resolve(stdout);
+				},
+			);
+			child.stdin?.end(options.input);
+		});
+	}
 	const { stdout } = await execFileAsync('git', [...arguments_], {
 		cwd,
 		encoding: 'utf8',

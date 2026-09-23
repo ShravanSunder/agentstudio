@@ -260,7 +260,7 @@ extension WebKitSerializedTests {
                 for: owningWindowId
             )
 
-            harness.controller.execute(.zoomPane)
+            await harness.executeCommand(.zoomPane)
 
             let enteredPresentation = try #require(
                 harness.store.panePresentationAtom.zoomPresentation(forTab: sourceTab.id)
@@ -275,7 +275,7 @@ extension WebKitSerializedTests {
             )
             #expect(harness.coordinator.bridgePaneActivity(for: companionPaneId) == .foreground)
 
-            harness.controller.execute(.zoomPane)
+            await harness.executeCommand(.zoomPane)
 
             #expect(harness.store.panePresentationAtom.zoomPresentation(forTab: sourceTab.id) == nil)
             #expect(
@@ -288,7 +288,7 @@ extension WebKitSerializedTests {
             )
             #expect(harness.coordinator.bridgePaneActivity(for: companionPaneId) == .loadedHidden)
 
-            harness.controller.execute(.zoomPane)
+            await harness.executeCommand(.zoomPane)
 
             #expect(
                 harness.store.panePresentationAtom.zoomPresentation(forTab: sourceTab.id)?
@@ -325,7 +325,7 @@ extension WebKitSerializedTests {
             #expect(sourcePane.worktreeId == nil)
             #expect(sourcePane.metadata.cwd == FileManager.default.homeDirectoryForCurrentUser)
 
-            harness.controller.execute(.zoomPane)
+            await harness.executeCommand(.zoomPane)
 
             let companion = harness.store.panePresentationAtom.zoomCompanion(
                 forSourcePane: sourcePane.id
@@ -352,7 +352,7 @@ extension WebKitSerializedTests {
             harness.store.appendTab(sourceTab)
             harness.store.setActiveTab(sourceTab.id)
             harness.store.setActivePane(sourcePane.id, inTab: sourceTab.id)
-            harness.controller.execute(.zoomPane)
+            await harness.executeCommand(.zoomPane)
             let originalCompanionPaneId = try #require(
                 harness.store.panePresentationAtom.zoomCompanion(forSourcePane: sourcePane.id)?
                     .companionPaneId
@@ -421,7 +421,7 @@ extension WebKitSerializedTests {
             harness.store.appendTab(sourceTab)
             harness.store.setActiveTab(sourceTab.id)
             harness.store.setActivePane(sourcePane.id, inTab: sourceTab.id)
-            harness.controller.execute(.zoomPane)
+            await harness.executeCommand(.zoomPane)
             let originalCompanionPaneId = try #require(
                 harness.store.panePresentationAtom.zoomCompanion(forSourcePane: sourcePane.id)?
                     .companionPaneId
@@ -464,7 +464,7 @@ extension WebKitSerializedTests {
             harness.store.appendTab(sourceTab)
             harness.store.setActiveTab(sourceTab.id)
             harness.store.setActivePane(sourcePane.id, inTab: sourceTab.id)
-            harness.controller.execute(.zoomPane)
+            await harness.executeCommand(.zoomPane)
             let originalCompanionPaneId = try #require(
                 harness.store.panePresentationAtom.zoomCompanion(forSourcePane: sourcePane.id)?
                     .companionPaneId
@@ -475,7 +475,7 @@ extension WebKitSerializedTests {
                     paneId: originalCompanionPaneId
                 )
             )
-            harness.controller.execute(.showViewer)
+            await harness.executeCommand(.showViewer)
 
             await postCWDChange(
                 harness.tempDir.appending(path: "unwatched"),
@@ -547,7 +547,7 @@ extension WebKitSerializedTests {
             harness.store.setActiveTab(sourceTab.id)
             harness.store.setActivePane(sourcePane.id, inTab: sourceTab.id)
 
-            harness.controller.execute(.zoomPane)
+            await harness.executeCommand(.zoomPane)
 
             #expect(
                 harness.store.panePresentationAtom.zoomCompanion(forSourcePane: sourcePane.id)?
@@ -579,12 +579,13 @@ extension WebKitSerializedTests {
             harness.store.setActivePane(firstSourcePane.id, inTab: sourceTab.id)
             enterForegroundZoomEnvironment(harness, owningWindowId: owningWindowId)
             let durablePaneIds = harness.store.paneAtom.graphAtom.paneIDs
+            let expectedSourcePaneIds = Set([firstSourcePane.id, secondSourcePane.id])
             let runtimeCountBeforeZoom = harness.runtimeRegistry.count
             let slotPaneIdsBeforeZoom = harness.viewRegistry.slotPaneIdsForTesting
             let bridgeHostPaneIdsBeforeZoom = Set(harness.viewRegistry.allBridgeViews.keys)
             #expect(harness.store.panePresentationAtom.zoomCompanionsBySourcePaneId.isEmpty)
 
-            harness.controller.execute(.zoomPane)
+            await harness.executeCommand(.zoomPane)
 
             let firstCompanionPaneId = try #require(
                 harness.store.panePresentationAtom.zoomCompanion(forSourcePane: firstSourcePane.id)?
@@ -597,14 +598,18 @@ extension WebKitSerializedTests {
             #expect(harness.runtimeRegistry.count == runtimeCountBeforeZoom + 1)
             #expect(
                 harness.viewRegistry.slotPaneIdsForTesting
-                    == slotPaneIdsBeforeZoom.union([firstCompanionPaneId])
+                    == slotPaneIdsBeforeZoom.union(expectedSourcePaneIds).union([firstCompanionPaneId])
             )
             #expect(
                 Set(harness.viewRegistry.allBridgeViews.keys)
                     == bridgeHostPaneIdsBeforeZoom.union([firstCompanionPaneId])
             )
 
-            harness.controller.execute(.zoomPane, target: secondSourcePane.id, targetType: .pane)
+            await harness.executeCommand(
+                .zoomPane,
+                target: secondSourcePane.id,
+                targetType: .pane
+            )
 
             let secondCompanionPaneId = try #require(
                 harness.store.panePresentationAtom.zoomCompanion(forSourcePane: secondSourcePane.id)?
@@ -616,7 +621,10 @@ extension WebKitSerializedTests {
             #expect(harness.runtimeRegistry.count == runtimeCountBeforeZoom + 2)
             #expect(
                 harness.viewRegistry.slotPaneIdsForTesting
-                    == slotPaneIdsBeforeZoom.union(companionPaneIds)
+                    == slotPaneIdsBeforeZoom.union(expectedSourcePaneIds).union([
+                        firstCompanionPaneId,
+                        secondCompanionPaneId,
+                    ])
             )
             #expect(
                 Set(harness.viewRegistry.allBridgeViews.keys)
@@ -625,7 +633,11 @@ extension WebKitSerializedTests {
             #expect(harness.coordinator.bridgePaneActivity(for: firstCompanionPaneId) == .loadedHidden)
             #expect(harness.coordinator.bridgePaneActivity(for: secondCompanionPaneId) == .foreground)
 
-            harness.controller.execute(.zoomPane, target: firstSourcePane.id, targetType: .pane)
+            await harness.executeCommand(
+                .zoomPane,
+                target: firstSourcePane.id,
+                targetType: .pane
+            )
 
             #expect(
                 harness.store.panePresentationAtom.zoomCompanion(forSourcePane: firstSourcePane.id)?
@@ -662,15 +674,15 @@ extension WebKitSerializedTests {
             harness.store.setActiveTab(sourceTab.id)
             harness.store.setActivePane(sourcePane.id, inTab: sourceTab.id)
             enterForegroundZoomEnvironment(harness, owningWindowId: owningWindowId)
-            harness.controller.execute(.zoomPane)
+            await harness.executeCommand(.zoomPane)
             let companionPaneId = try #require(
                 harness.store.panePresentationAtom.zoomCompanion(forSourcePane: sourcePane.id)?
                     .companionPaneId
             )
 
-            harness.controller.execute(.showViewer)
-            harness.controller.execute(.zoomPane)
-            harness.controller.execute(.zoomPane)
+            await harness.executeCommand(.showViewer)
+            await harness.executeCommand(.zoomPane)
+            await harness.executeCommand(.zoomPane)
 
             #expect(
                 harness.store.panePresentationAtom.zoomPresentation(forTab: sourceTab.id)?
@@ -705,7 +717,7 @@ extension WebKitSerializedTests {
             harness.store.setActiveTab(sourceTab.id)
             harness.store.setActivePane(sourcePane.id, inTab: sourceTab.id)
             enterForegroundZoomEnvironment(harness, owningWindowId: owningWindowId)
-            harness.controller.execute(.zoomPane)
+            await harness.executeCommand(.zoomPane)
             let companionPaneId = try #require(
                 harness.store.panePresentationAtom.zoomPresentation(forTab: sourceTab.id)?
                     .viewerPresentation.companionPaneId
@@ -734,7 +746,7 @@ extension WebKitSerializedTests {
             #expect(visibleStart.worktreeKey == BridgeGitReadWorktreeKey(token: worktree.stableKey))
             #expect(visibleStart.activityRank == .foreground)
 
-            harness.controller.execute(.showViewer)
+            await harness.executeCommand(.showViewer)
             await harness.coordinator.drainBridgeGitReadActivityPropagation()
             #expect(
                 harness.coordinator.bridgePaneActivity(for: companionPaneId)
@@ -791,7 +803,7 @@ extension WebKitSerializedTests {
             let runtimeCountBeforeZoom = harness.runtimeRegistry.count
             let slotPaneIdsBeforeZoom = harness.viewRegistry.slotPaneIdsForTesting
 
-            harness.controller.execute(.zoomPane)
+            await harness.executeCommand(.zoomPane)
 
             let companionPaneId = try #require(capturedCompanionPaneId)
             #expect(
@@ -813,7 +825,10 @@ extension WebKitSerializedTests {
                 harness.coordinator.runtimeForPane(PaneId(existingUUID: companionPaneId)) == nil
             )
             #expect(harness.runtimeRegistry.count == runtimeCountBeforeZoom)
-            #expect(harness.viewRegistry.slotPaneIdsForTesting == slotPaneIdsBeforeZoom)
+            #expect(
+                harness.viewRegistry.slotPaneIdsForTesting
+                    == slotPaneIdsBeforeZoom.union([sourcePane.id])
+            )
             #expect(
                 harness.coordinator.bridgePaneActivityAuthorityIdentity(for: companionPaneId)
                     == nil

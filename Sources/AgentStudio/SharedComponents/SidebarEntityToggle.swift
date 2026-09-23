@@ -8,6 +8,7 @@ package struct SidebarEntityToggle<Value: Hashable>: View {
     private let selection: Value
     private let octiconLoader: OcticonLoader
     private let entityIcon: (Value) -> AppEntityIcon
+    private let shortcutDisplay: (Value) -> ShortcutDisplayText?
     private let onSelect: (Value) -> Void
 
     package init(
@@ -15,12 +16,14 @@ package struct SidebarEntityToggle<Value: Hashable>: View {
         selection: Value,
         octiconLoader: OcticonLoader,
         entityIcon: @escaping (Value) -> AppEntityIcon,
+        shortcutDisplay: @escaping (Value) -> ShortcutDisplayText? = { _ in nil },
         onSelect: @escaping (Value) -> Void
     ) {
         self.segments = segments
         self.selection = selection
         self.octiconLoader = octiconLoader
         self.entityIcon = entityIcon
+        self.shortcutDisplay = shortcutDisplay
         self.onSelect = onSelect
     }
 
@@ -36,6 +39,7 @@ package struct SidebarEntityToggle<Value: Hashable>: View {
                     foregroundOverride: value == selection ? AppStyles.General.Accent.selectedControlForeground : nil
                 )
             },
+            shortcutDisplay: shortcutDisplay,
             onSelect: onSelect
         )
     }

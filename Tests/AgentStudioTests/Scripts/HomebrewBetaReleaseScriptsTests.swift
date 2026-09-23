@@ -1,12 +1,14 @@
+import AgentStudioInfrastructure
+import AgentStudioTestSupport
 import Foundation
 import Testing
 
 @Suite(.serialized)
 struct HomebrewBetaReleaseScriptsTests {
     @Test("release tag metadata classifies stable and beta tags")
-    func releaseTagMetadataClassifiesStableAndBetaTags() throws {
-        let stable = try runScript("scripts/release-tag-metadata.sh", ["v0.0.54"])
-        let beta = try runScript("scripts/release-tag-metadata.sh", ["v0.0.54-beta.1"])
+    func releaseTagMetadataClassifiesStableAndBetaTags() async throws {
+        let stable = try await runScript("scripts/release-tag-metadata.sh", ["v0.0.54"])
+        let beta = try await runScript("scripts/release-tag-metadata.sh", ["v0.0.54-beta.1"])
 
         #expect(stable.exitCode == 0)
         #expect(stable.stdout.contains("channel=stable"))
@@ -30,20 +32,20 @@ struct HomebrewBetaReleaseScriptsTests {
     }
 
     @Test("release tag metadata rejects malformed beta tags")
-    func releaseTagMetadataRejectsMalformedBetaTags() throws {
-        let result = try runScript("scripts/release-tag-metadata.sh", ["v0.0.54-beta"])
+    func releaseTagMetadataRejectsMalformedBetaTags() async throws {
+        let result = try await runScript("scripts/release-tag-metadata.sh", ["v0.0.54-beta"])
 
         #expect(result.exitCode != 0)
         #expect(result.stderr.contains("unsupported release tag"))
     }
 
     @Test("cask renderer emits stable and beta casks")
-    func caskRendererEmitsStableAndBetaCasks() throws {
-        let stable = try runScript(
+    func caskRendererEmitsStableAndBetaCasks() async throws {
+        let stable = try await runScript(
             "scripts/render-homebrew-cask.sh",
             ["stable", "0.0.54", validSHA]
         )
-        let beta = try runScript(
+        let beta = try await runScript(
             "scripts/render-homebrew-cask.sh",
             ["beta", "0.0.54-beta.1", validSHA]
         )
@@ -94,7 +96,7 @@ struct HomebrewBetaReleaseScriptsTests {
     }
 
     @Test("bundle version injection applies side-by-side beta identity")
-    func bundleVersionInjectionAppliesSideBySideBetaIdentity() throws {
+    func bundleVersionInjectionAppliesSideBySideBetaIdentity() async throws {
         let temporaryDirectory = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-plist-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
@@ -106,7 +108,7 @@ struct HomebrewBetaReleaseScriptsTests {
             to: plistURL
         )
 
-        let result = try runScript(
+        let result = try await runScript(
             "scripts/inject-bundle-version.sh",
             [plistURL.path, "0.0.54-beta.1", "123", "beta"]
         )
@@ -123,11 +125,11 @@ struct HomebrewBetaReleaseScriptsTests {
     }
 
     @Test("tap updater dry run writes only the selected cask")
-    func tapUpdaterDryRunWritesOnlySelectedCask() throws {
+    func tapUpdaterDryRunWritesOnlySelectedCask() async throws {
         let tapRoot = try makeFakeTap()
         defer { try? FileManager.default.removeItem(at: tapRoot) }
 
-        let result = try runScript(
+        let result = try await runScript(
             "scripts/update-homebrew-tap.sh",
             ["beta", "v0.0.54-beta.1", validSHA],
             environment: [
@@ -166,38 +168,44 @@ struct HomebrewBetaReleaseScriptsTests {
         _ scriptPath: String,
         _ arguments: [String],
         environment: [String: String] = [:]
-    ) throws -> ScriptResult {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        process.arguments = ["bash", scriptPath] + arguments
-        process.currentDirectoryURL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-        process.environment = ProcessInfo.processInfo.environment.merging(environment) { _, newValue in newValue }
+    ) async throws -> ScriptResult {
+        try await withoutBlockingCooperativePool {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+            process.arguments = ["bash", scriptPath] + arguments
+            process.currentDirectoryURL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+            process.environment = ProcessInfo.processInfo.environment.merging(environment) { _, newValue in newValue }
 
-        let outputDirectory = FileManager.default.temporaryDirectory
-            .appending(path: "agentstudio-script-output-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: outputDirectory, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: outputDirectory) }
+            let outputDirectory = FileManager.default.temporaryDirectory
+                .appending(path: "agentstudio-script-output-\(UUIDv7.generate().uuidString)")
+            try FileManager.default.createDirectory(at: outputDirectory, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: outputDirectory) }
 
-        let stdoutURL = outputDirectory.appending(path: "stdout.txt")
-        let stderrURL = outputDirectory.appending(path: "stderr.txt")
-        _ = FileManager.default.createFile(atPath: stdoutURL.path, contents: nil)
-        _ = FileManager.default.createFile(atPath: stderrURL.path, contents: nil)
+            let stdoutURL = outputDirectory.appending(path: "stdout.txt")
+            let stderrURL = outputDirectory.appending(path: "stderr.txt")
+            _ = FileManager.default.createFile(atPath: stdoutURL.path, contents: nil)
+            _ = FileManager.default.createFile(atPath: stderrURL.path, contents: nil)
 
-        let stdoutHandle = try FileHandle(forWritingTo: stdoutURL)
-        let stderrHandle = try FileHandle(forWritingTo: stderrURL)
-        process.standardOutput = stdoutHandle
-        process.standardError = stderrHandle
+            let stdoutHandle = try FileHandle(forWritingTo: stdoutURL)
+            let stderrHandle = try FileHandle(forWritingTo: stderrURL)
+            defer {
+                try? stdoutHandle.close()
+                try? stderrHandle.close()
+            }
+            process.standardOutput = stdoutHandle
+            process.standardError = stderrHandle
 
-        try process.run()
-        process.waitUntilExit()
-        try stdoutHandle.close()
-        try stderrHandle.close()
+            try process.run()
+            process.waitUntilExit()
+            try stdoutHandle.close()
+            try stderrHandle.close()
 
-        return ScriptResult(
-            exitCode: process.terminationStatus,
-            stdout: try String(contentsOf: stdoutURL, encoding: .utf8),
-            stderr: try String(contentsOf: stderrURL, encoding: .utf8)
-        )
+            return ScriptResult(
+                exitCode: process.terminationStatus,
+                stdout: try String(contentsOf: stdoutURL, encoding: .utf8),
+                stderr: try String(contentsOf: stderrURL, encoding: .utf8)
+            )
+        }
     }
 
     private func plistStringValue(at plistURL: URL, key: String) throws -> String? {
@@ -224,7 +232,7 @@ struct HomebrewBetaReleaseScriptsTests {
     }
 }
 
-private struct ScriptResult {
+private struct ScriptResult: Sendable {
     let exitCode: Int32
     let stdout: String
     let stderr: String

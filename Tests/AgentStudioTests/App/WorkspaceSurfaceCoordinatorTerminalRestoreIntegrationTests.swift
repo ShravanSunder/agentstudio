@@ -1,3 +1,4 @@
+// swiftlint:disable file_length type_body_length
 import Foundation
 import GhosttyKit
 import Testing
@@ -24,7 +25,7 @@ struct WorkspaceSurfaceTerminalRestoreIntegrationTests {
         maxCheckpointAge: 60
     )
 
-    private struct Harness {
+    struct Harness {
         let store: WorkspaceStore
         let viewRegistry: ViewRegistry
         let runtime: SessionRuntime
@@ -72,7 +73,7 @@ struct WorkspaceSurfaceTerminalRestoreIntegrationTests {
         )
     }
 
-    private func withTerminalRestoreHarness(_ operation: @MainActor (Harness) async throws -> Void) async throws {
+    func withTerminalRestoreHarness(_ operation: @MainActor (Harness) async throws -> Void) async throws {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
         do {
@@ -84,7 +85,44 @@ struct WorkspaceSurfaceTerminalRestoreIntegrationTests {
         await harness.coordinator.shutdown()
     }
 
-    private let trustedBounds = CGRect(x: 0, y: 0, width: 1000, height: 600)
+    func withRealSurfaceManagerHarness(
+        _ operation:
+            @MainActor (
+                WorkspaceStore,
+                ViewRegistry,
+                SurfaceManager,
+                WindowLifecycleAtom,
+                WorkspaceSurfaceCoordinator
+            ) async throws -> Void
+    ) async throws {
+        let store = try makeWorkspaceJournalTestStore()
+        let viewRegistry = ViewRegistry()
+        let surfaceManager = SurfaceManager(
+            maxCreationRetries: 0,
+            healthCheckInterval: 3600,
+            nativeSurfaceRetirement: { _ in }
+        )
+        let windowLifecycleStore = WindowLifecycleAtom()
+        let coordinator = WorkspaceSurfaceCoordinator(
+            store: store,
+            viewRegistry: viewRegistry,
+            runtime: SessionRuntime(store: store),
+            surfaceManager: surfaceManager,
+            runtimeRegistry: .shared,
+            windowLifecycleStore: windowLifecycleStore,
+            ipcLifecycle: .testUnavailable,
+            bridgePaneAttendance: BridgePaneAttendanceAtom()
+        )
+        do {
+            try await operation(store, viewRegistry, surfaceManager, windowLifecycleStore, coordinator)
+        } catch {
+            await coordinator.shutdown()
+            throw error
+        }
+        await coordinator.shutdown()
+    }
+
+    let trustedBounds = CGRect(x: 0, y: 0, width: 1000, height: 600)
 
     @Test("fresh Ghostty shell receives the pane IPC environment")
     func freshGhosttyShellReceivesPaneIPCEnvironment() throws {
@@ -225,6 +263,45 @@ struct WorkspaceSurfaceTerminalRestoreIntegrationTests {
                     )
             )
             #expect(harness.surfaceManager.createdPaneIds.isEmpty)
+        }
+    }
+
+    @Test
+    func heldPreviewColdBackgroundTerminalUsesTrustedFullBoundsWithoutActiveLayout() async throws {
+        try await withTerminalRestoreHarness { harness in
+            let activePane = harness.store.createPane(launchDirectory: harness.tempDir)
+            let previewPane = makeAcceptedPreparedTerminalPane(launchDirectory: harness.tempDir)
+            try #require(harness.store.paneAtom.insertRestoredPane(previewPane))
+            let activeTab = Tab(paneId: activePane.id, name: "Active")
+            let previewTab = Tab(paneId: previewPane.id, name: "Preview")
+            harness.store.appendTab(activeTab)
+            harness.store.appendTab(previewTab)
+            harness.store.setActiveTab(activeTab.id)
+            harness.windowLifecycleStore.recordTerminalContainerBounds(trustedBounds)
+
+            let heldState = HeldPanePreviewState()
+            harness.coordinator.bindHeldPanePreviewState(heldState)
+            let target = ValidatedPanePreviewTarget(
+                paneID: previewPane.id,
+                owningTabID: previewTab.id,
+                provider: previewPane.provider,
+                sessionID: previewPane.terminalState?.zmxSessionID
+            )
+            #expect(heldState.beginSpaceHold(requestedTarget: target))
+
+            harness.coordinator.prepareHeldPanePreview()
+
+            #expect(harness.surfaceManager.createdPaneIds == [previewPane.id])
+            #expect(harness.surfaceManager.createdConfigsByPaneId[previewPane.id]?.initialFrame == trustedBounds)
+            #expect(harness.surfaceManager.lastMetadata?.paneId == previewPane.id)
+            #expect(harness.surfaceManager.lastMetadata?.zmxSessionID == previewPane.terminalState?.zmxSessionID)
+            #expect(
+                harness.surfaceManager.createdConfigsByPaneId[previewPane.id]?
+                    .startupStrategy.startupCommandForSurface?
+                    .contains(previewPane.terminalState?.zmxSessionID.rawValue ?? "") == true
+            )
+            #expect(heldState.presentedTarget == nil)
+            #expect(heldState.requestedTarget?.paneID == previewPane.id)
         }
     }
 

@@ -87,7 +87,7 @@ struct AgentStudioIPCCommandRealOwnerCoverageTests {
     /// retired Panes-organization surfaces.
     static let shellOwnedCommands: Set<AppCommand> = [
         .newWindow, .closeWindow,
-        .toggleSidebar, .filterSidebar,
+        .toggleSidebar, .filterSidebar, .focusSidebar,
         .showReposSidebar, .showPanesSidebar,
         .setReposGroupingRepo, .setReposGroupingActivity,
         .setReposSortFieldName, .setReposSortFieldActivity,

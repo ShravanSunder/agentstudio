@@ -1,10 +1,12 @@
+import AgentStudioInfrastructure
+import AgentStudioTestSupport
 import Foundation
 import Testing
 
 @Suite(.serialized)
 struct GitRefreshPerformanceComparatorScriptTests {
     @Test("performance comparator passes matched evidence without a universal improvement win")
-    func performanceComparatorPassesMatchedEvidenceWithoutUniversalImprovementWin() throws {
+    func performanceComparatorPassesMatchedEvidenceWithoutUniversalImprovementWin() async throws {
         let fixtureRoot = try temporaryFixtureRoot()
         defer { try? FileManager.default.removeItem(at: fixtureRoot) }
         let baselineWorkload = try writeSummary(
@@ -25,7 +27,7 @@ struct GitRefreshPerformanceComparatorScriptTests {
         )
         let output = fixtureRoot.appendingPathComponent("comparison.txt")
 
-        let result = try runScript(arguments: [
+        let result = try await runScript(arguments: [
             comparisonScriptPath,
             "--baseline-workload", baselineWorkload.path,
             "--after-workload", afterWorkload.path,
@@ -42,7 +44,7 @@ struct GitRefreshPerformanceComparatorScriptTests {
     }
 
     @Test("performance comparator accepts a legacy baseline without candidate-only proof fields")
-    func performanceComparatorAcceptsLegacyBaselineWithoutCandidateOnlyProofFields() throws {
+    func performanceComparatorAcceptsLegacyBaselineWithoutCandidateOnlyProofFields() async throws {
         let fixtureRoot = try temporaryFixtureRoot()
         defer { try? FileManager.default.removeItem(at: fixtureRoot) }
         var baselineWorkloadValues = workloadSummaryValues(fanoutCount: 10, fanoutP95: 10, fanoutMax: 10)
@@ -52,7 +54,7 @@ struct GitRefreshPerformanceComparatorScriptTests {
             baselineInteractionValues.removeValue(forKey: key)
         }
 
-        let result = try runComparator(
+        let result = try await runComparator(
             fixtureRoot: fixtureRoot,
             baselineWorkloadValues: baselineWorkloadValues,
             afterWorkloadValues: workloadSummaryValues(fanoutCount: 10, fanoutP95: 10, fanoutMax: 10),
@@ -64,13 +66,13 @@ struct GitRefreshPerformanceComparatorScriptTests {
     }
 
     @Test("performance comparator accepts bounded interaction-count drift")
-    func performanceComparatorAcceptsBoundedInteractionCountDrift() throws {
+    func performanceComparatorAcceptsBoundedInteractionCountDrift() async throws {
         let fixtureRoot = try temporaryFixtureRoot()
         defer { try? FileManager.default.removeItem(at: fixtureRoot) }
         var afterWorkloadValues = workloadSummaryValues(fanoutCount: 10, fanoutP95: 10, fanoutMax: 10)
         afterWorkloadValues["issued_interaction_count"] = "27"
 
-        let result = try runComparator(
+        let result = try await runComparator(
             fixtureRoot: fixtureRoot,
             baselineWorkloadValues: workloadSummaryValues(fanoutCount: 10, fanoutP95: 10, fanoutMax: 10),
             afterWorkloadValues: afterWorkloadValues,
@@ -82,13 +84,13 @@ struct GitRefreshPerformanceComparatorScriptTests {
     }
 
     @Test("performance comparator rejects interaction-count drift beyond the frozen boundary")
-    func performanceComparatorRejectsExcessiveInteractionCountDrift() throws {
+    func performanceComparatorRejectsExcessiveInteractionCountDrift() async throws {
         let fixtureRoot = try temporaryFixtureRoot()
         defer { try? FileManager.default.removeItem(at: fixtureRoot) }
         var afterWorkloadValues = workloadSummaryValues(fanoutCount: 10, fanoutP95: 10, fanoutMax: 10)
         afterWorkloadValues["issued_interaction_count"] = "28"
 
-        let result = try runComparator(
+        let result = try await runComparator(
             fixtureRoot: fixtureRoot,
             baselineWorkloadValues: workloadSummaryValues(fanoutCount: 10, fanoutP95: 10, fanoutMax: 10),
             afterWorkloadValues: afterWorkloadValues,
@@ -101,13 +103,13 @@ struct GitRefreshPerformanceComparatorScriptTests {
     }
 
     @Test("performance comparator rejects collapsed Tab Bar refresh coverage")
-    func performanceComparatorRejectsCollapsedTabBarRefreshCoverage() throws {
+    func performanceComparatorRejectsCollapsedTabBarRefreshCoverage() async throws {
         let fixtureRoot = try temporaryFixtureRoot()
         defer { try? FileManager.default.removeItem(at: fixtureRoot) }
         var afterWorkloadValues = workloadSummaryValues(fanoutCount: 10, fanoutP95: 10, fanoutMax: 10)
         afterWorkloadValues["performance.tabbar.refresh.victoria_metrics_count"] = "1"
 
-        let result = try runComparator(
+        let result = try await runComparator(
             fixtureRoot: fixtureRoot,
             baselineWorkloadValues: workloadSummaryValues(fanoutCount: 10, fanoutP95: 10, fanoutMax: 10),
             afterWorkloadValues: afterWorkloadValues,
@@ -120,7 +122,7 @@ struct GitRefreshPerformanceComparatorScriptTests {
     }
 
     @Test("performance comparator coverage floor is independent from the latency regression boundary")
-    func performanceComparatorCoverageFloorIsIndependentFromLatencyRegressionBoundary() throws {
+    func performanceComparatorCoverageFloorIsIndependentFromLatencyRegressionBoundary() async throws {
         let fixtureRoot = try temporaryFixtureRoot()
         defer { try? FileManager.default.removeItem(at: fixtureRoot) }
         var baselineWorkloadValues = workloadSummaryValues(fanoutCount: 10, fanoutP95: 10, fanoutMax: 10)
@@ -133,7 +135,7 @@ struct GitRefreshPerformanceComparatorScriptTests {
         afterInteractionValues["regression_boundary_percent"] = "50"
         afterWorkloadValues["performance.tabbar.refresh.victoria_metrics_count"] = "4"
 
-        let result = try runComparator(
+        let result = try await runComparator(
             fixtureRoot: fixtureRoot,
             baselineWorkloadValues: baselineWorkloadValues,
             afterWorkloadValues: afterWorkloadValues,
@@ -145,7 +147,7 @@ struct GitRefreshPerformanceComparatorScriptTests {
     }
 
     @Test("performance comparator interaction drift tolerance is independent from the latency regression boundary")
-    func performanceComparatorInteractionDriftToleranceIsIndependentFromLatencyRegressionBoundary() throws {
+    func performanceComparatorInteractionDriftToleranceIsIndependentFromLatencyRegressionBoundary() async throws {
         let fixtureRoot = try temporaryFixtureRoot()
         defer { try? FileManager.default.removeItem(at: fixtureRoot) }
         var baselineWorkloadValues = workloadSummaryValues(fanoutCount: 10, fanoutP95: 10, fanoutMax: 10)
@@ -158,7 +160,7 @@ struct GitRefreshPerformanceComparatorScriptTests {
         afterInteractionValues["regression_boundary_percent"] = "50"
         afterWorkloadValues["issued_interaction_count"] = "28"
 
-        let result = try runComparator(
+        let result = try await runComparator(
             fixtureRoot: fixtureRoot,
             baselineWorkloadValues: baselineWorkloadValues,
             afterWorkloadValues: afterWorkloadValues,
@@ -171,13 +173,13 @@ struct GitRefreshPerformanceComparatorScriptTests {
     }
 
     @Test("performance comparator rejects a changed command-bar interaction fingerprint")
-    func performanceComparatorRejectsChangedCommandBarInteractionFingerprint() throws {
+    func performanceComparatorRejectsChangedCommandBarInteractionFingerprint() async throws {
         let fixtureRoot = try temporaryFixtureRoot()
         defer { try? FileManager.default.removeItem(at: fixtureRoot) }
         var afterInteractionValues = commandBarSummaryValues(itemsCount: 10, itemsP95: 10, itemsMax: 1)
         afterInteractionValues["performance.commandbar.filter.query_character.max"] = "47"
 
-        let result = try runComparator(
+        let result = try await runComparator(
             fixtureRoot: fixtureRoot,
             baselineWorkloadValues: workloadSummaryValues(fanoutCount: 10, fanoutP95: 10, fanoutMax: 10),
             afterWorkloadValues: workloadSummaryValues(fanoutCount: 10, fanoutP95: 10, fanoutMax: 10),
@@ -195,7 +197,7 @@ struct GitRefreshPerformanceComparatorScriptTests {
     }
 
     @Test("performance comparator requires topology lookup evidence")
-    func performanceComparatorRequiresTopologyLookupEvidence() throws {
+    func performanceComparatorRequiresTopologyLookupEvidence() async throws {
         let fixtureRoot = try temporaryFixtureRoot()
         defer { try? FileManager.default.removeItem(at: fixtureRoot) }
         var baselineWorkloadValues = workloadSummaryValues(fanoutCount: 10, fanoutP95: 10, fanoutMax: 10)
@@ -206,7 +208,7 @@ struct GitRefreshPerformanceComparatorScriptTests {
             afterWorkloadValues.removeValue(forKey: key)
         }
 
-        let result = try runComparator(
+        let result = try await runComparator(
             fixtureRoot: fixtureRoot,
             baselineWorkloadValues: baselineWorkloadValues,
             afterWorkloadValues: afterWorkloadValues,
@@ -225,7 +227,7 @@ struct GitRefreshPerformanceComparatorScriptTests {
     }
 
     @Test("performance comparator fails when coordinator write regresses")
-    func performanceComparatorFailsWhenCoordinatorWriteRegresses() throws {
+    func performanceComparatorFailsWhenCoordinatorWriteRegresses() async throws {
         let fixtureRoot = try temporaryFixtureRoot()
         defer { try? FileManager.default.removeItem(at: fixtureRoot) }
         let baselineWorkload = try writeSummary(
@@ -248,7 +250,7 @@ struct GitRefreshPerformanceComparatorScriptTests {
         )
         let output = fixtureRoot.appendingPathComponent("comparison.txt")
 
-        let result = try runScript(arguments: [
+        let result = try await runScript(arguments: [
             comparisonScriptPath,
             "--baseline-workload", baselineWorkload.path,
             "--after-workload", afterWorkload.path,
@@ -264,7 +266,7 @@ struct GitRefreshPerformanceComparatorScriptTests {
     }
 
     @Test("performance comparator passes improvements within the frozen regression boundary")
-    func performanceComparatorPassesImprovementsWithinFrozenRegressionBoundary() throws {
+    func performanceComparatorPassesImprovementsWithinFrozenRegressionBoundary() async throws {
         let fixtureRoot = try temporaryFixtureRoot()
         defer { try? FileManager.default.removeItem(at: fixtureRoot) }
         let baselineWorkload = try writeSummary(
@@ -290,7 +292,7 @@ struct GitRefreshPerformanceComparatorScriptTests {
         )
         let output = fixtureRoot.appendingPathComponent("comparison.txt")
 
-        let result = try runScript(arguments: [
+        let result = try await runScript(arguments: [
             comparisonScriptPath,
             "--baseline-workload", baselineWorkload.path,
             "--after-workload", afterWorkload.path,
@@ -307,7 +309,7 @@ struct GitRefreshPerformanceComparatorScriptTests {
     }
 
     @Test("performance comparator rejects missing provenance before distributions")
-    func performanceComparatorRejectsMissingProvenanceBeforeDistributions() throws {
+    func performanceComparatorRejectsMissingProvenanceBeforeDistributions() async throws {
         let fixtureRoot = try temporaryFixtureRoot()
         defer { try? FileManager.default.removeItem(at: fixtureRoot) }
         var baselineWorkloadValues = workloadSummaryValues(fanoutCount: 10, fanoutP95: 10, fanoutMax: 10)
@@ -316,7 +318,7 @@ struct GitRefreshPerformanceComparatorScriptTests {
         baselineWorkloadValues.removeValue(forKey: "launch_method")
         baselineWorkloadValues.removeValue(forKey: "issued_interaction_count")
 
-        let result = try runComparator(
+        let result = try await runComparator(
             fixtureRoot: fixtureRoot,
             baselineWorkloadValues: baselineWorkloadValues,
             afterWorkloadValues: workloadSummaryValues(fanoutCount: 10, fanoutP95: 10, fanoutMax: 10),
@@ -332,7 +334,7 @@ struct GitRefreshPerformanceComparatorScriptTests {
     }
 
     @Test("performance comparator rejects mismatched same-side digests and lane fingerprints")
-    func performanceComparatorRejectsMismatchedSameSideDigestsAndLaneFingerprints() throws {
+    func performanceComparatorRejectsMismatchedSameSideDigestsAndLaneFingerprints() async throws {
         let fixtureRoot = try temporaryFixtureRoot()
         defer { try? FileManager.default.removeItem(at: fixtureRoot) }
         var afterWorkloadValues = workloadSummaryValues(fanoutCount: 10, fanoutP95: 10, fanoutMax: 10)
@@ -340,7 +342,7 @@ struct GitRefreshPerformanceComparatorScriptTests {
         var afterInteractionValues = commandBarSummaryValues(itemsCount: 10, itemsP95: 10, itemsMax: 1)
         afterInteractionValues["source_digest"] = "different-source"
 
-        let result = try runComparator(
+        let result = try await runComparator(
             fixtureRoot: fixtureRoot,
             baselineWorkloadValues: workloadSummaryValues(fanoutCount: 10, fanoutP95: 10, fanoutMax: 10),
             afterWorkloadValues: afterWorkloadValues,
@@ -354,13 +356,13 @@ struct GitRefreshPerformanceComparatorScriptTests {
     }
 
     @Test("performance comparator rejects incomplete tab bar lifecycle continuity")
-    func performanceComparatorRejectsIncompleteTabBarLifecycleContinuity() throws {
+    func performanceComparatorRejectsIncompleteTabBarLifecycleContinuity() async throws {
         let fixtureRoot = try temporaryFixtureRoot()
         defer { try? FileManager.default.removeItem(at: fixtureRoot) }
         var afterWorkloadValues = workloadSummaryValues(fanoutCount: 10, fanoutP95: 10, fanoutMax: 10)
         afterWorkloadValues["performance.tabbar.terminal_count"] = "9"
 
-        let result = try runComparator(
+        let result = try await runComparator(
             fixtureRoot: fixtureRoot,
             baselineWorkloadValues: workloadSummaryValues(fanoutCount: 10, fanoutP95: 10, fanoutMax: 10),
             afterWorkloadValues: afterWorkloadValues,
@@ -374,7 +376,7 @@ struct GitRefreshPerformanceComparatorScriptTests {
     }
 
     @Test("performance comparator requires lifecycle proof from the candidate")
-    func performanceComparatorRequiresCandidateLifecycleProof() throws {
+    func performanceComparatorRequiresCandidateLifecycleProof() async throws {
         let fixtureRoot = try temporaryFixtureRoot()
         defer { try? FileManager.default.removeItem(at: fixtureRoot) }
         var afterWorkloadValues = workloadSummaryValues(fanoutCount: 10, fanoutP95: 10, fanoutMax: 10)
@@ -382,7 +384,7 @@ struct GitRefreshPerformanceComparatorScriptTests {
         afterWorkloadValues.removeValue(forKey: "performance.tabbar.terminal_count")
         afterWorkloadValues.removeValue(forKey: "performance.tabbar.lifecycle_exact")
 
-        let result = try runComparator(
+        let result = try await runComparator(
             fixtureRoot: fixtureRoot,
             baselineWorkloadValues: workloadSummaryValues(fanoutCount: 10, fanoutP95: 10, fanoutMax: 10),
             afterWorkloadValues: afterWorkloadValues,
@@ -399,13 +401,13 @@ struct GitRefreshPerformanceComparatorScriptTests {
     }
 
     @Test("performance comparator requires every candidate tab bar phase")
-    func performanceComparatorRequiresEveryCandidateTabBarPhase() throws {
+    func performanceComparatorRequiresEveryCandidateTabBarPhase() async throws {
         let fixtureRoot = try temporaryFixtureRoot()
         defer { try? FileManager.default.removeItem(at: fixtureRoot) }
         var afterWorkloadValues = workloadSummaryValues(fanoutCount: 10, fanoutP95: 10, fanoutMax: 10)
         afterWorkloadValues.removeValue(forKey: "performance.tabbar.worker.victoria_metrics_count")
 
-        let result = try runComparator(
+        let result = try await runComparator(
             fixtureRoot: fixtureRoot,
             baselineWorkloadValues: workloadSummaryValues(fanoutCount: 10, fanoutP95: 10, fanoutMax: 10),
             afterWorkloadValues: afterWorkloadValues,
@@ -422,7 +424,7 @@ struct GitRefreshPerformanceComparatorScriptTests {
     }
 
     @Test("performance comparator rejects duplicate and missing tab bar lifecycle sequences")
-    func performanceComparatorRejectsNonExactTabBarLifecycle() throws {
+    func performanceComparatorRejectsNonExactTabBarLifecycle() async throws {
         let fixtureRoot = try temporaryFixtureRoot()
         defer { try? FileManager.default.removeItem(at: fixtureRoot) }
         var afterWorkloadValues = workloadSummaryValues(fanoutCount: 10, fanoutP95: 10, fanoutMax: 10)
@@ -430,7 +432,7 @@ struct GitRefreshPerformanceComparatorScriptTests {
         afterWorkloadValues["performance.tabbar.duplicate_capture_sequence_count"] = "1"
         afterWorkloadValues["performance.tabbar.missing_terminal_sequence_count"] = "1"
 
-        let result = try runComparator(
+        let result = try await runComparator(
             fixtureRoot: fixtureRoot,
             baselineWorkloadValues: workloadSummaryValues(fanoutCount: 10, fanoutP95: 10, fanoutMax: 10),
             afterWorkloadValues: afterWorkloadValues,
@@ -445,13 +447,13 @@ struct GitRefreshPerformanceComparatorScriptTests {
     }
 
     @Test("performance comparator rejects trace queue loss")
-    func performanceComparatorRejectsTraceQueueLoss() throws {
+    func performanceComparatorRejectsTraceQueueLoss() async throws {
         let fixtureRoot = try temporaryFixtureRoot()
         defer { try? FileManager.default.removeItem(at: fixtureRoot) }
         var afterWorkloadValues = workloadSummaryValues(fanoutCount: 10, fanoutP95: 10, fanoutMax: 10)
         afterWorkloadValues["agentstudio.performance.trace_queue.dropped_record.count"] = "1"
 
-        let result = try runComparator(
+        let result = try await runComparator(
             fixtureRoot: fixtureRoot,
             baselineWorkloadValues: workloadSummaryValues(fanoutCount: 10, fanoutP95: 10, fanoutMax: 10),
             afterWorkloadValues: afterWorkloadValues,
@@ -464,13 +466,13 @@ struct GitRefreshPerformanceComparatorScriptTests {
     }
 
     @Test("performance comparator rejects a false final-state oracle")
-    func performanceComparatorRejectsFalseFinalStateOracle() throws {
+    func performanceComparatorRejectsFalseFinalStateOracle() async throws {
         let fixtureRoot = try temporaryFixtureRoot()
         defer { try? FileManager.default.removeItem(at: fixtureRoot) }
         var afterWorkloadValues = workloadSummaryValues(fanoutCount: 10, fanoutP95: 10, fanoutMax: 10)
         afterWorkloadValues["final_active_tab_equivalent"] = "false"
 
-        let result = try runComparator(
+        let result = try await runComparator(
             fixtureRoot: fixtureRoot,
             baselineWorkloadValues: workloadSummaryValues(fanoutCount: 10, fanoutP95: 10, fanoutMax: 10),
             afterWorkloadValues: afterWorkloadValues,
@@ -483,7 +485,7 @@ struct GitRefreshPerformanceComparatorScriptTests {
     }
 
     @Test("performance comparator fails when required metrics are missing")
-    func performanceComparatorFailsWhenRequiredMetricsAreMissing() throws {
+    func performanceComparatorFailsWhenRequiredMetricsAreMissing() async throws {
         let fixtureRoot = try temporaryFixtureRoot()
         defer { try? FileManager.default.removeItem(at: fixtureRoot) }
         let baselineWorkload = try writeSummary(
@@ -506,7 +508,7 @@ struct GitRefreshPerformanceComparatorScriptTests {
         )
         let output = fixtureRoot.appendingPathComponent("comparison.txt")
 
-        let result = try runScript(arguments: [
+        let result = try await runScript(arguments: [
             comparisonScriptPath,
             "--baseline-workload", baselineWorkload.path,
             "--after-workload", afterWorkload.path,
@@ -522,7 +524,7 @@ struct GitRefreshPerformanceComparatorScriptTests {
     }
 
     @Test("performance comparator fails when metrics disappear but logs remain")
-    func performanceComparatorFailsWhenMetricsDisappearButLogsRemain() throws {
+    func performanceComparatorFailsWhenMetricsDisappearButLogsRemain() async throws {
         let fixtureRoot = try temporaryFixtureRoot()
         defer { try? FileManager.default.removeItem(at: fixtureRoot) }
         let baselineWorkload = try writeSummary(
@@ -545,7 +547,7 @@ struct GitRefreshPerformanceComparatorScriptTests {
         )
         let output = fixtureRoot.appendingPathComponent("comparison.txt")
 
-        let result = try runScript(arguments: [
+        let result = try await runScript(arguments: [
             comparisonScriptPath,
             "--baseline-workload", baselineWorkload.path,
             "--after-workload", afterWorkload.path,
@@ -576,39 +578,44 @@ struct GitRefreshPerformanceComparatorScriptTests {
     private func runScript(
         arguments: [String],
         environment: [String: String] = [:]
-    ) throws -> ScriptRunResult {
-        let stdoutURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("agentstudio-script-stdout-\(UUID().uuidString).log")
-        let stderrURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("agentstudio-script-stderr-\(UUID().uuidString).log")
-        FileManager.default.createFile(atPath: stdoutURL.path, contents: nil)
-        FileManager.default.createFile(atPath: stderrURL.path, contents: nil)
-        let stdoutHandle = try FileHandle(forWritingTo: stdoutURL)
-        let stderrHandle = try FileHandle(forWritingTo: stderrURL)
-        defer {
-            try? stdoutHandle.close()
-            try? stderrHandle.close()
-            try? FileManager.default.removeItem(at: stdoutURL)
-            try? FileManager.default.removeItem(at: stderrURL)
+    ) async throws -> ScriptRunResult {
+        let processOutput = try await withoutBlockingCooperativePool {
+            let stdoutURL = FileManager.default.temporaryDirectory
+                .appendingPathComponent("agentstudio-script-stdout-\(UUIDv7.generate().uuidString).log")
+            let stderrURL = FileManager.default.temporaryDirectory
+                .appendingPathComponent("agentstudio-script-stderr-\(UUIDv7.generate().uuidString).log")
+            FileManager.default.createFile(atPath: stdoutURL.path, contents: nil)
+            FileManager.default.createFile(atPath: stderrURL.path, contents: nil)
+            let stdoutHandle = try FileHandle(forWritingTo: stdoutURL)
+            let stderrHandle = try FileHandle(forWritingTo: stderrURL)
+            defer {
+                try? stdoutHandle.close()
+                try? stderrHandle.close()
+                try? FileManager.default.removeItem(at: stdoutURL)
+                try? FileManager.default.removeItem(at: stderrURL)
+            }
+
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/bin/bash")
+            process.arguments = arguments
+            process.currentDirectoryURL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+            process.environment = ProcessInfo.processInfo.environment.merging(environment) { _, newValue in newValue }
+            process.standardOutput = stdoutHandle
+            process.standardError = stderrHandle
+            try process.run()
+            process.waitUntilExit()
+            try stdoutHandle.close()
+            try stderrHandle.close()
+            return ComparatorProcessOutput(
+                exitCode: process.terminationStatus,
+                stdout: try String(contentsOf: stdoutURL, encoding: .utf8),
+                stderr: try String(contentsOf: stderrURL, encoding: .utf8)
+            )
         }
-
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/bin/bash")
-        process.arguments = arguments
-        process.currentDirectoryURL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-        process.environment = ProcessInfo.processInfo.environment.merging(environment) { _, newValue in newValue }
-        process.standardOutput = stdoutHandle
-        process.standardError = stderrHandle
-
-        try process.run()
-        process.waitUntilExit()
-        try stdoutHandle.close()
-        try stderrHandle.close()
-
         return ScriptRunResult(
-            exitCode: process.terminationStatus,
-            stdout: try String(contentsOf: stdoutURL, encoding: .utf8),
-            stderr: try String(contentsOf: stderrURL, encoding: .utf8)
+            exitCode: processOutput.exitCode,
+            stdout: processOutput.stdout,
+            stderr: processOutput.stderr
         )
     }
 
@@ -638,7 +645,7 @@ struct GitRefreshPerformanceComparatorScriptTests {
         afterWorkloadValues: [String: String],
         baselineInteractionValues: [String: String],
         afterInteractionValues: [String: String]
-    ) throws -> ScriptRunResult {
+    ) async throws -> ScriptRunResult {
         let baselineWorkload = try writeSummary(
             at: fixtureRoot.appendingPathComponent("baseline-workload.txt"),
             values: baselineWorkloadValues
@@ -655,7 +662,7 @@ struct GitRefreshPerformanceComparatorScriptTests {
             at: fixtureRoot.appendingPathComponent("after-interaction.txt"),
             values: afterInteractionValues
         )
-        return try runScript(arguments: [
+        return try await runScript(arguments: [
             comparisonScriptPath,
             "--baseline-workload", baselineWorkload.path,
             "--after-workload", afterWorkload.path,
@@ -774,4 +781,10 @@ struct GitRefreshPerformanceComparatorScriptTests {
             "performance.coordinator.write.elapsed_ms.max": "\(max)",
         ]
     }
+}
+
+private struct ComparatorProcessOutput: Sendable {
+    let exitCode: Int32
+    let stdout: String
+    let stderr: String
 }

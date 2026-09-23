@@ -3,6 +3,7 @@ import SwiftUI
 
 package struct SidebarRepoGroupHeader<TrailingContent: View>: View {
     let isCollapsed: Bool
+    let isSelected: Bool
     let octiconLoader: OcticonLoader
     let icon: AppEntityIcon?
     let repoTitle: String
@@ -24,10 +25,12 @@ package struct SidebarRepoGroupHeader<TrailingContent: View>: View {
         icon: AppEntityIcon? = .repo,
         repoTitle: String,
         organizationName: String?,
+        isSelected: Bool = false,
         onToggle: @escaping () -> Void,
         @ViewBuilder trailingContent: @escaping () -> TrailingContent
     ) {
         self.isCollapsed = isCollapsed
+        self.isSelected = isSelected
         self.octiconLoader = octiconLoader
         self.icon = icon
         self.repoTitle = repoTitle
@@ -43,6 +46,7 @@ package struct SidebarRepoGroupHeader<TrailingContent: View>: View {
             icon: icon,
             title: repoTitle,
             secondaryTitle: organizationName,
+            isSelected: isSelected,
             accessibilityIdentifier: nil,
             onToggle: onToggle
         ) {
@@ -58,9 +62,11 @@ extension SidebarRepoGroupHeader where TrailingContent == EmptyView {
         icon: AppEntityIcon? = .repo,
         repoTitle: String,
         organizationName: String?,
+        isSelected: Bool = false,
         onToggle: @escaping () -> Void
     ) {
         self.isCollapsed = isCollapsed
+        self.isSelected = isSelected
         self.octiconLoader = octiconLoader
         self.icon = icon
         self.repoTitle = repoTitle

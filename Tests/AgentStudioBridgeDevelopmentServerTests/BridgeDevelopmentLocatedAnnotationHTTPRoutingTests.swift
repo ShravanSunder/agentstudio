@@ -15,11 +15,11 @@ struct BridgeDevelopmentLocatedAnnotationHTTPRoutingTests {
     @Test("located saved annotation restores exact placement before File descriptor materialization")
     func locatedSavedAnnotationRestoresBeforeDescriptorMaterialization() async throws {
         // Arrange
-        let repositoryURL = try FilesystemTestGitRepo.create(
+        let repositoryURL = try await FilesystemTestGitRepo.create(
             named: "bridge-development-http-located-annotation-restart"
         )
         defer { FilesystemTestGitRepo.destroy(repositoryURL) }
-        try FilesystemTestGitRepo.seedTrackedAndUntrackedChanges(at: repositoryURL)
+        try await FilesystemTestGitRepo.seedTrackedAndUntrackedChanges(at: repositoryURL)
         let paneID = PaneId.generateUUIDv7().uuid
         let dataRoot = FileManager.default.temporaryDirectory.appending(
             path: "bridge-development-http-located-annotation-data-\(paneID.uuidString)",

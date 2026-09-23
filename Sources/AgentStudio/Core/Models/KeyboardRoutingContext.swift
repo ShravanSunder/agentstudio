@@ -27,6 +27,14 @@ package struct KeyboardRoutingContext: Equatable, Sendable {
         }
         return false
     }
+
+    /// True only while the visible sidebar's stable list surface owns keyboard input.
+    package var isStableSidebar: Bool {
+        if case .stable(.sidebar) = activeSurface {
+            return true
+        }
+        return false
+    }
 }
 
 extension KeyboardRoutingContext {

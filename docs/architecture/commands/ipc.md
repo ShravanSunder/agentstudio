@@ -196,8 +196,9 @@ pane.focus
        resolves pane handle by UUID or friendly ordinal
   -> PaneFocusAppControlling
   -> PaneTabViewControllerPaneFocusAppControl
-       validates pane belongs to a tab
-  -> PaneTabViewController.execute(.focusPane, target:targetType:)
+       validates pane belongs to a tab and has a native host
+  -> PaneTabViewController.submitTargetedPaneFocus(...).value
+       awaits the exact submitted focus operation
   -> existing PaneFocusTrigger / PaneFocusOrchestrator / PaneFocusExecutor path
 
 pane.split / pane.close / drawer.addPane / drawer.toggle
