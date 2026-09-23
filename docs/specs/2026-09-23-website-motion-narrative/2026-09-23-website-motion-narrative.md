@@ -110,9 +110,10 @@ v2 Concept B). One vertical git lane on the **left** is the page's progress
 rail at every screen size. It reads like `git log --graph`: the dot is the
 commit, the chapter title is the message.
 
-- **Geometry:** the existing `topology-lab` git language: vertical lanes, one
-  rounded elbow per fork, then parallel. No sine curves and no icons at tips;
-  nodes are plain dots.
+- **Geometry:** a git graph drawn as straight vertical and horizontal
+  segments meeting at **crisp 90° corners** (owner, 2026-09-23: rounded
+  elbows "look like slop"). No curves, sine waves, or icons at tips; nodes
+  are plain dots.
 - **Dots:** one per chapter. Current = `#89b4fa` ring with a filled center;
   passed = filled muted grey; upcoming = hollow grey outline.
 - **Wide and laptop:** glass surfaces sit offset right of the rail. The
