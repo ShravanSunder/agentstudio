@@ -84,8 +84,9 @@ extension AppIPCBuiltInMethodRegistrations {
                         }
                     )
                 },
-                connectionHandler: { parameters, _, _ in
-                    try await inputs.ports.layoutPort.closePane(parameters)
+                connectionHandler: { parameters, context, _ in
+                    try await inputs.ports.layoutPort.closePane(
+                        parameters, ownPaneAssertion: AppIPCOwnPaneAssertion(principal: context.principal))
                 }
             ).erase(),
         ]
@@ -137,8 +138,9 @@ extension AppIPCBuiltInMethodRegistrations {
                         }
                     )
                 },
-                connectionHandler: { parameters, _, _ in
-                    try await inputs.ports.layoutPort.addDrawerPane(parameters)
+                connectionHandler: { parameters, context, _ in
+                    try await inputs.ports.layoutPort.addDrawerPane(
+                        parameters, ownPaneAssertion: AppIPCOwnPaneAssertion(principal: context.principal))
                 }
             ).erase(),
         ]
@@ -170,11 +172,12 @@ extension AppIPCBuiltInMethodRegistrations {
                         }
                     )
                 },
-                connectionHandler: { parameters, _, _ in
+                connectionHandler: { parameters, context, _ in
                     try await inputs.ports.runtimePort.sendTerminalInput(
                         to: IPCHandle.parse(parameters.handle),
                         input: parameters.input,
-                        correlationId: parameters.correlationId
+                        correlationId: parameters.correlationId,
+                        ownPaneAssertion: AppIPCOwnPaneAssertion(principal: context.principal)
                     )
                 }
             ).erase(),

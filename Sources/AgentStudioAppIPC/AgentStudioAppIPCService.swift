@@ -45,8 +45,12 @@ public struct AppIPCLayoutError: Error, Equatable, Sendable {
 public protocol AppIPCLayoutPort: Sendable {
     func focusPane(_ handle: IPCHandle) async throws -> IPCPaneFocusResult
     func splitPane(_ params: IPCPaneSplitParams) async throws -> IPCPaneSplitResult
-    func closePane(_ params: IPCPaneCloseParams) async throws -> IPCPaneCloseResult
-    func addDrawerPane(_ params: IPCDrawerAddPaneParams) async throws -> IPCDrawerAddPaneResult
+    func closePane(
+        _ params: IPCPaneCloseParams, ownPaneAssertion: AppIPCOwnPaneAssertion?
+    ) async throws -> IPCPaneCloseResult
+    func addDrawerPane(
+        _ params: IPCDrawerAddPaneParams, ownPaneAssertion: AppIPCOwnPaneAssertion?
+    ) async throws -> IPCDrawerAddPaneResult
     func toggleDrawer(_ params: IPCDrawerToggleParams) async throws -> IPCDrawerToggleResult
 }
 
@@ -78,7 +82,8 @@ public protocol AppIPCRuntimePort: Sendable {
     func sendTerminalInput(
         to handle: IPCHandle,
         input: String,
-        correlationId: UUID?
+        correlationId: UUID?,
+        ownPaneAssertion: AppIPCOwnPaneAssertion?
     ) async throws -> IPCTerminalSendInputResult
     func waitForTerminal(
         _ handle: IPCHandle,
@@ -177,7 +182,9 @@ package protocol AppIPCCommandPort: Sendable {
     func prepareCommand(
         _ params: IPCCommandExecutionRequest, principal: IPCPrincipal, tools: AppIPCTargetResolutionTools
     ) async throws -> AppIPCPreparedCommand
-    func executeCommand(_ params: IPCCommandExecutionRequest) async throws -> IPCCommandExecutionResult
+    func executeCommand(
+        _ params: IPCCommandExecutionRequest, ownPaneAssertion: AppIPCOwnPaneAssertion?
+    ) async throws -> IPCCommandExecutionResult
 }
 
 public protocol AppIPCPermissionApprovalPort: Sendable {

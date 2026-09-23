@@ -86,7 +86,7 @@ struct AgentStudioIPCCommandChannelCoverageTests {
                             for: command, variant: variant)
                         let observedBefore = workspaceOwner.headlessRequests.count
                         do {
-                            let result = try await harness.adapter.executeCommand(request)
+                            let result = try await harness.adapter.executeCommand(request, ownPaneAssertion: nil)
                             if !command.ipcSpec.resultVariants.contains(result.variant) {
                                 mismatchedResults.append("\(command.rawValue):\(result.variant.rawValue)")
                             }
@@ -145,7 +145,7 @@ struct AgentStudioIPCCommandChannelCoverageTests {
                     let request = try AgentStudioIPCCommandCatalogProjection.exampleRequest(
                         for: command, variant: variant)
                     do {
-                        _ = try await harness.adapter.executeCommand(request)
+                        _ = try await harness.adapter.executeCommand(request, ownPaneAssertion: nil)
                         admitted.append(command.rawValue)
                     } catch let error as AppIPCCommandError {
                         #expect(error.reason == .unsupportedCommand)
@@ -185,7 +185,7 @@ struct AgentStudioIPCCommandChannelCoverageTests {
                             commandId: .init(rawValue: command.rawValue),
                             correlationId: UUIDv7.generate(),
                             arguments: .workspaceWindow(.init(workspaceWindowId: windowId))
-                        )
+                        ), ownPaneAssertion: nil
                     )
                     #expect(result.variant == .unavailable)
                 }

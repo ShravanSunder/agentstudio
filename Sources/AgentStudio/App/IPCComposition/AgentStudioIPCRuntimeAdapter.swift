@@ -61,10 +61,20 @@ struct AgentStudioIPCRuntimeAdapter: AppIPCRuntimePort, @unchecked Sendable {
     func sendTerminalInput(
         to handle: IPCHandle,
         input: String,
-        correlationId: UUID?
+        correlationId: UUID?,
+        ownPaneAssertion: AppIPCOwnPaneAssertion?
     ) async throws -> IPCTerminalSendInputResult {
         let paneId = try resolveTerminalPaneId(handle)
         _ = try terminalRuntime(for: paneId)
+        // Checked in the same main-actor step that hands the input to the
+        // runtime: a pane that left the agent's own pane since authorization
+        // receives nothing.
+        if let ownPaneAssertion,
+            !workspaceStore.ownPaneAssertionHolds(
+                WorkspaceOwnPaneAssertion(boundPaneId: ownPaneAssertion.boundPaneId), for: paneId)
+        {
+            throw AuthorizationError.notYetAllowed("terminal.send")
+        }
 
         let result = await commandDispatcher.dispatchRuntimeCommand(
             .terminal(.sendInput(input)),

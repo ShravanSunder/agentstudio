@@ -90,7 +90,10 @@ struct AgentStudioIPCCommandAdapter: AppIPCCommandPort, @unchecked Sendable {
         }
     }
 
-    func executeCommand(_ request: IPCCommandExecutionRequest) async throws -> IPCCommandExecutionResult {
+    func executeCommand(
+        _ request: IPCCommandExecutionRequest,
+        ownPaneAssertion: AppIPCOwnPaneAssertion?
+    ) async throws -> IPCCommandExecutionResult {
         let command = try activeCommand(for: request)
         guard shellCommandHandler != nil else { throw AppIPCCommandError(reason: .stateUnavailable) }
         try targetResolver.validateForExecution(request.arguments)
@@ -99,7 +102,8 @@ struct AgentStudioIPCCommandAdapter: AppIPCCommandPort, @unchecked Sendable {
             AppCommandExecutionRequest(
                 command: command,
                 arguments: .typedIPC(request.arguments),
-                executionContext: .headlessIPC(admitsDebugTestingCommands: channel == .debug)
+                executionContext: .headlessIPC(admitsDebugTestingCommands: channel == .debug),
+                ownPaneAssertion: ownPaneAssertion.map { WorkspaceOwnPaneAssertion(boundPaneId: $0.boundPaneId) }
             )
         )
         return try makeResult(command: command, request: request, outcome: outcome)
@@ -145,6 +149,8 @@ struct AgentStudioIPCCommandAdapter: AppIPCCommandPort, @unchecked Sendable {
             return .unavailable(.init(commandId: commandId, correlationId: correlationId, reason: reason))
         case .unsupportedCommand:
             throw AppIPCCommandError(reason: .unsupportedCommand)
+        case .outsideOwnPane:
+            throw AuthorizationError.notYetAllowed(command.rawValue)
         case .applied, .accepted, .presented, .unavailable, .stateUnavailable:
             throw AppIPCCommandError(reason: .stateUnavailable)
         }

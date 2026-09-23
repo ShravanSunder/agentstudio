@@ -1,3 +1,4 @@
+import AgentStudioProgrammaticControl
 import Foundation
 
 /// A pane-bound agent's own pane as the pane graph states it at one instant:
@@ -49,4 +50,22 @@ package enum AppIPCAgentArgumentRule: Equatable, Sendable {
     /// Adds a drawer child under this parent. Only an agent in a main-layout
     /// terminal may add, and only to its own drawer.
     case addsDrawerChild(parentPaneId: UUID)
+}
+
+/// The pane agent an effect was authorized for, handed to the port that
+/// applies it so the owner can re-check own-pane membership at effect time.
+/// Absent for every other principal, whose admission never depended on it.
+public struct AppIPCOwnPaneAssertion: Equatable, Sendable {
+    public let boundPaneId: UUID
+
+    public init(boundPaneId: UUID) {
+        self.boundPaneId = boundPaneId
+    }
+
+    package init?(principal: IPCPrincipal?) {
+        guard case .spawnedPaneAgent(let rawBoundPaneId, _)? = principal?.kind,
+            let boundPaneId = UUID(uuidString: rawBoundPaneId)
+        else { return nil }
+        self.init(boundPaneId: boundPaneId)
+    }
 }

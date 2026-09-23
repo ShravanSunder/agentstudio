@@ -22,7 +22,9 @@ struct FakeLayoutPort: AppIPCLayoutPort {
             targetPaneId: paneId, direction: params.direction, correlationId: params.correlationId)
     }
 
-    func closePane(_ params: IPCPaneCloseParams) throws -> IPCPaneCloseResult {
+    func closePane(_ params: IPCPaneCloseParams, ownPaneAssertion _: AppIPCOwnPaneAssertion?) throws
+        -> IPCPaneCloseResult
+    {
         let handle = try IPCHandle.parse(params.handle)
         guard case .canonicalUUID(let paneId) = handle.reference else {
             throw AppIPCLayoutError(reason: .targetNotFound)
@@ -30,7 +32,9 @@ struct FakeLayoutPort: AppIPCLayoutPort {
         return IPCPaneCloseResult(paneId: paneId, correlationId: params.correlationId)
     }
 
-    func addDrawerPane(_ params: IPCDrawerAddPaneParams) throws -> IPCDrawerAddPaneResult {
+    func addDrawerPane(_ params: IPCDrawerAddPaneParams, ownPaneAssertion _: AppIPCOwnPaneAssertion?) throws
+        -> IPCDrawerAddPaneResult
+    {
         let handle = try IPCHandle.parse(params.parentPaneHandle)
         guard case .canonicalUUID(let paneId) = handle.reference else {
             throw AppIPCLayoutError(reason: .targetNotFound)
@@ -118,7 +122,8 @@ struct FakeRuntimePort: AppIPCRuntimePort {
     func sendTerminalInput(
         to _: IPCHandle,
         input _: String,
-        correlationId: UUID?
+        correlationId: UUID?,
+        ownPaneAssertion _: AppIPCOwnPaneAssertion?
     ) async throws -> IPCTerminalSendInputResult {
         guard let successfulPaneId else {
             throw AppIPCRuntimeError(reason: .noRuntime)
@@ -596,7 +601,9 @@ final class FakeCommandPort: AppIPCCommandPort, @unchecked Sendable {
         )
     }
 
-    func executeCommand(_ request: IPCCommandExecutionRequest) async throws -> IPCCommandExecutionResult {
+    func executeCommand(
+        _ request: IPCCommandExecutionRequest, ownPaneAssertion _: AppIPCOwnPaneAssertion?
+    ) async throws -> IPCCommandExecutionResult {
         lock.withLock {
             receivedExecutionRequestsStorage.append(request)
         }
@@ -726,7 +733,8 @@ final class RecordingWaitRuntimePort: AppIPCRuntimePort, @unchecked Sendable {
     func sendTerminalInput(
         to _: IPCHandle,
         input _: String,
-        correlationId _: UUID?
+        correlationId _: UUID?,
+        ownPaneAssertion _: AppIPCOwnPaneAssertion?
     ) async throws -> IPCTerminalSendInputResult {
         throw AppIPCRuntimeError(reason: .noRuntime)
     }

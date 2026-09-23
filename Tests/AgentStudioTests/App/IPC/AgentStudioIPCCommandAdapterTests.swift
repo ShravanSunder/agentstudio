@@ -53,7 +53,7 @@ struct AgentStudioIPCCommandAdapterTests {
                         commandId: .init(rawValue: command.rawValue),
                         correlationId: UUIDv7.generate(),
                         arguments: .workspaceWindow(.init(workspaceWindowId: harness.windowId))
-                    )
+                    ), ownPaneAssertion: nil
                 )
                 Issue.record("Retired Panes organization command unexpectedly executed")
             } catch let error as AppIPCCommandError {
@@ -79,7 +79,7 @@ struct AgentStudioIPCCommandAdapterTests {
                 AppCommandDispatcher.shared.appCommandRouter = shell
             },
             body: {
-                try await harness.adapter.executeCommand(request)
+                try await harness.adapter.executeCommand(request, ownPaneAssertion: nil)
             }
         )
 
@@ -149,7 +149,7 @@ struct AgentStudioIPCCommandAdapterTests {
                 AppCommandDispatcher.shared.appCommandRouter = nil
             },
             body: {
-                try await harness.adapter.executeCommand(request)
+                try await harness.adapter.executeCommand(request, ownPaneAssertion: nil)
             }
         )
 
@@ -180,7 +180,7 @@ struct AgentStudioIPCCommandAdapterTests {
 
         #expect(historicalLifecycle.registeredWindowIds.contains(historicalWindowId))
         await #expect(throws: AppIPCCommandError.self) {
-            try await harness.adapter.executeCommand(request)
+            try await harness.adapter.executeCommand(request, ownPaneAssertion: nil)
         }
         #expect(shell.handledRequests.isEmpty)
     }
@@ -210,7 +210,7 @@ struct AgentStudioIPCCommandAdapterTests {
         shell.currentWindowId = replacementWindowId
 
         await #expect(throws: AppIPCCommandError.self) {
-            try await harness.adapter.executeCommand(prepared.request)
+            try await harness.adapter.executeCommand(prepared.request, ownPaneAssertion: nil)
         }
         #expect(shell.handledRequests.isEmpty)
     }
@@ -240,7 +240,7 @@ struct AgentStudioIPCCommandAdapterTests {
                     AppCommandDispatcher.shared.appCommandRouter = nil
                 },
                 body: {
-                    try await harness.adapter.executeCommand(request)
+                    try await harness.adapter.executeCommand(request, ownPaneAssertion: nil)
                 }
             )
         }

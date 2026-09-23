@@ -275,7 +275,8 @@ final class BuiltInRecordingTerminalWaitPort: AppIPCRuntimePort, @unchecked Send
     func sendTerminalInput(
         to _: IPCHandle,
         input _: String,
-        correlationId _: UUID?
+        correlationId _: UUID?,
+        ownPaneAssertion _: AppIPCOwnPaneAssertion?
     ) async throws -> IPCTerminalSendInputResult {
         throw BuiltInMethodRegistrationFailure()
     }

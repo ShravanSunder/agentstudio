@@ -6,6 +6,10 @@ import Foundation
 @MainActor
 protocol AgentStudioIPCLayoutActionExecuting: AnyObject {
     func execute(_ action: WorkspaceActionCommand) async -> Bool
+    func execute(
+        _ action: WorkspaceActionCommand,
+        ownPaneAssertion: WorkspaceOwnPaneAssertion
+    ) async -> WorkspaceScopedActionOutcome
 }
 
 extension WorkspaceActionExecutor: AgentStudioIPCLayoutActionExecuting {}
@@ -74,25 +78,33 @@ struct AgentStudioIPCLayoutAdapter: AppIPCLayoutPort, @unchecked Sendable {
             targetPaneId: paneId, direction: params.direction, correlationId: params.correlationId)
     }
 
-    func closePane(_ params: IPCPaneCloseParams) async throws -> IPCPaneCloseResult {
+    func closePane(
+        _ params: IPCPaneCloseParams,
+        ownPaneAssertion: AppIPCOwnPaneAssertion?
+    ) async throws -> IPCPaneCloseResult {
         guard hasActiveWindow() else {
             throw AppIPCLayoutError(reason: .noActiveWindow)
         }
         let snapshot = workspaceStore.programmaticControlSnapshot()
         let paneId = try resolvePaneId(try IPCHandle.parse(params.handle), in: snapshot)
         let tabId = try resolveTabId(forPaneId: paneId, in: snapshot)
-        try await executeLayoutAction(.closePane(tabId: tabId, paneId: paneId))
+        try await executeLayoutAction(
+            .closePane(tabId: tabId, paneId: paneId), ownPaneAssertion: ownPaneAssertion, refusedName: "pane.close")
         return IPCPaneCloseResult(paneId: paneId, correlationId: params.correlationId)
     }
 
-    func addDrawerPane(_ params: IPCDrawerAddPaneParams) async throws -> IPCDrawerAddPaneResult {
+    func addDrawerPane(
+        _ params: IPCDrawerAddPaneParams,
+        ownPaneAssertion: AppIPCOwnPaneAssertion?
+    ) async throws -> IPCDrawerAddPaneResult {
         guard hasActiveWindow() else {
             throw AppIPCLayoutError(reason: .noActiveWindow)
         }
         let snapshot = workspaceStore.programmaticControlSnapshot()
         let paneId = try resolvePaneId(try IPCHandle.parse(params.parentPaneHandle), in: snapshot)
         try validateDrawerParent(paneId, in: snapshot)
-        try await executeLayoutAction(.addDrawerPane(parentPaneId: paneId))
+        try await executeLayoutAction(
+            .addDrawerPane(parentPaneId: paneId), ownPaneAssertion: ownPaneAssertion, refusedName: "drawer.addPane")
         return IPCDrawerAddPaneResult(parentPaneId: paneId, correlationId: params.correlationId)
     }
 
@@ -163,6 +175,29 @@ struct AgentStudioIPCLayoutAdapter: AppIPCLayoutPort, @unchecked Sendable {
 
     private func executeLayoutAction(_ action: WorkspaceActionCommand) async throws {
         guard await workspaceActionExecutor.execute(action) else {
+            throw AppIPCLayoutError(reason: .validationRejected)
+        }
+    }
+
+    /// A pane agent's layout effect re-checks its own-pane assertion inside
+    /// the executor's validation, after every queued gesture ahead of it.
+    private func executeLayoutAction(
+        _ action: WorkspaceActionCommand,
+        ownPaneAssertion: AppIPCOwnPaneAssertion?,
+        refusedName: String
+    ) async throws {
+        guard let ownPaneAssertion else {
+            try await executeLayoutAction(action)
+            return
+        }
+        switch await workspaceActionExecutor.execute(
+            action, ownPaneAssertion: WorkspaceOwnPaneAssertion(boundPaneId: ownPaneAssertion.boundPaneId))
+        {
+        case .applied:
+            return
+        case .outsideOwnPane:
+            throw AuthorizationError.notYetAllowed(refusedName)
+        case .rejected:
             throw AppIPCLayoutError(reason: .validationRejected)
         }
     }

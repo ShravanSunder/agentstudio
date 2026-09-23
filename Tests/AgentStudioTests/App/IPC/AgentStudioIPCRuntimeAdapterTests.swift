@@ -104,7 +104,7 @@ struct AgentStudioIPCRuntimeAdapterTests {
             let result = try await adapter.sendTerminalInput(
                 to: IPCHandle(kind: .pane, reference: .canonicalUUID(pane.id)),
                 input: "echo hi\n",
-                correlationId: correlationId
+                correlationId: correlationId, ownPaneAssertion: nil
             )
 
             #expect(result.paneId == pane.id)
@@ -149,7 +149,7 @@ struct AgentStudioIPCRuntimeAdapterTests {
             _ = try await harness.adapter.sendTerminalInput(
                 to: IPCHandle(kind: .pane, reference: .canonicalUUID(UUID())),
                 input: "echo hi\n",
-                correlationId: nil
+                correlationId: nil, ownPaneAssertion: nil
             )
             Issue.record("terminal.send unexpectedly succeeded for a missing pane")
         } catch let error as AppIPCRuntimeError {
@@ -408,7 +408,7 @@ struct AgentStudioIPCRuntimeAdapterTests {
             _ = try await harness.adapter.sendTerminalInput(
                 to: IPCHandle(kind: .pane, reference: .canonicalUUID(pane.id)),
                 input: "echo hi\n",
-                correlationId: nil
+                correlationId: nil, ownPaneAssertion: nil
             )
             Issue.record("terminal.send unexpectedly succeeded without a registered runtime")
         } catch let error as AppIPCRuntimeError {
@@ -480,7 +480,7 @@ struct AgentStudioIPCRuntimeAdapterTests {
             _ = try await harness.adapter.sendTerminalInput(
                 to: IPCHandle(kind: .pane, reference: .canonicalUUID(pane.id)),
                 input: "echo hi\n",
-                correlationId: nil
+                correlationId: nil, ownPaneAssertion: nil
             )
             Issue.record("terminal.send unexpectedly succeeded for \(reason)")
         } catch let error as AppIPCRuntimeError {

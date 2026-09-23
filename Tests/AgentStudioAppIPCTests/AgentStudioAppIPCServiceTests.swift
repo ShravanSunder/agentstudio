@@ -725,8 +725,10 @@ private final class PreparedCommandRecordingPort: AppIPCCommandPort, @unchecked 
         return prepared
     }
 
-    func executeCommand(_ params: IPCCommandExecutionRequest) async throws -> IPCCommandExecutionResult {
-        try await underlying.executeCommand(params)
+    func executeCommand(
+        _ params: IPCCommandExecutionRequest, ownPaneAssertion: AppIPCOwnPaneAssertion?
+    ) async throws -> IPCCommandExecutionResult {
+        try await underlying.executeCommand(params, ownPaneAssertion: ownPaneAssertion)
     }
 }
 

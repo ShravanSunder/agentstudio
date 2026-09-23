@@ -14,6 +14,12 @@ extension PaneTabViewController {
         guard acceptsIPCCommands else { return .stateUnavailable }
         guard let arguments = request.typedIPCArguments else { return .unsupportedCommand }
         let command = request.command
+        // A pane agent reaches only own-pane commands; anything else carrying
+        // its assertion is refused rather than applied without the re-check.
+        let ownPaneAssertion = request.ownPaneAssertion
+        guard ownPaneAssertion == nil || command.ipcSpec.agentEligibility == .ownPane else {
+            return .unsupportedCommand
+        }
         switch arguments {
         case .noArguments:
             return .unsupportedCommand
@@ -30,7 +36,8 @@ extension PaneTabViewController {
         case .tabAnchor(let value):
             return await executeTabAnchorCommand(command, anchorTabId: value.anchorTabId)
         case .pane(let value):
-            return await executePaneScopedCommand(command, selector: value.paneSelector)
+            return await executePaneScopedCommand(
+                command, selector: value.paneSelector, ownPaneAssertion: ownPaneAssertion)
         case .sourcePane(let value):
             return await executePaneNeighborFocusCommand(command, selector: value.sourcePaneSelector)
         case .standalonePane(let value):
@@ -42,7 +49,7 @@ extension PaneTabViewController {
         case .arrangement, .newArrangement, .renamedArrangement:
             return await executeArrangementCommand(command, arguments: arguments)
         case .drawerParent, .drawerSourcePane, .drawerPane, .detachedDrawerPane:
-            return await executeDrawerCommand(command, arguments: arguments)
+            return await executeDrawerCommand(command, arguments: arguments, ownPaneAssertion: ownPaneAssertion)
         case .managementFromMainPane, .managementFromDrawerPane:
             return executeManagementLayerCommand(command, arguments: arguments)
         case .worktree, .worktreeInPane, .terminalFromWorktree, .terminalFromPane,
@@ -184,7 +191,8 @@ extension PaneTabViewController {
 
     private func executePaneScopedCommand(
         _ command: AppCommand,
-        selector: IPCPaneSelector
+        selector: IPCPaneSelector,
+        ownPaneAssertion: WorkspaceOwnPaneAssertion?
     ) async -> AppCommandExecutionOutcome {
         guard let paneId = AppCommandTypedIPCPane.canonicalId(selector) else { return .stateUnavailable }
         switch command {
@@ -228,7 +236,7 @@ extension PaneTabViewController {
             return await executeViewerCommand(command, paneId: paneId)
         case .scrollToBottom, .scrollPageUp, .scrollPageDown, .scrollSmallStepUp, .scrollSmallStepDown,
             .jumpToPreviousPrompt, .jumpToNextPrompt:
-            return await executeTerminalRuntimeCommand(command, paneId: paneId)
+            return await executeTerminalRuntimeCommand(command, paneId: paneId, ownPaneAssertion: ownPaneAssertion)
         case .focusPreviousPinnedPane, .focusNextPinnedPane:
             return .stateUnavailable
         case .reloadBridgeWebView:
@@ -292,7 +300,8 @@ extension PaneTabViewController {
     /// not inherit that scheduling bool as application.
     private func executeTerminalRuntimeCommand(
         _ command: AppCommand,
-        paneId: UUID
+        paneId: UUID,
+        ownPaneAssertion: WorkspaceOwnPaneAssertion?
     ) async -> AppCommandExecutionOutcome {
         let runtimeCommand: PaneRuntimeCommand
         switch command {
@@ -312,6 +321,11 @@ extension PaneTabViewController {
         case .jumpToPreviousPrompt: runtimeCommand = .terminal(.jumpToPrompt(delta: -1))
         case .jumpToNextPrompt: runtimeCommand = .terminal(.jumpToPrompt(delta: 1))
         default: return .unsupportedCommand
+        }
+        // Checked in the same main-actor step that hands the command to the
+        // runtime.
+        if let ownPaneAssertion, !store.ownPaneAssertionHolds(ownPaneAssertion, for: paneId) {
+            return .outsideOwnPane
         }
         let result = await runtimeCommandDispatcher.dispatchRuntimeCommand(
             runtimeCommand,

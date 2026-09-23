@@ -159,7 +159,8 @@ struct AgentStudioIPCLayoutAdapterTests {
         let workspaceActionExecutor = RecordingIPCLayoutActionExecutor()
         let harness = LayoutAdapterHarness(store: store, workspaceActionExecutor: workspaceActionExecutor)
 
-        let result = try await harness.adapter.closePane(IPCPaneCloseParams(handle: "pane:2", correlationId: nil))
+        let result = try await harness.adapter.closePane(
+            IPCPaneCloseParams(handle: "pane:2", correlationId: nil), ownPaneAssertion: nil)
 
         #expect(result.paneId == secondPane.id)
         #expect(workspaceActionExecutor.actions == [.closePane(tabId: tab.id, paneId: secondPane.id)])
@@ -176,7 +177,7 @@ struct AgentStudioIPCLayoutAdapterTests {
         let harness = LayoutAdapterHarness(store: store, workspaceActionExecutor: workspaceActionExecutor)
 
         let addResult = try await harness.adapter.addDrawerPane(
-            IPCDrawerAddPaneParams(parentPaneHandle: "pane:1", correlationId: nil)
+            IPCDrawerAddPaneParams(parentPaneHandle: "pane:1", correlationId: nil), ownPaneAssertion: nil
         )
         let toggleResult = try await harness.adapter.toggleDrawer(
             IPCDrawerToggleParams(parentPaneHandle: "pane:1", correlationId: nil)
@@ -208,7 +209,7 @@ struct AgentStudioIPCLayoutAdapterTests {
 
         do {
             _ = try await harness.adapter.addDrawerPane(
-                IPCDrawerAddPaneParams(parentPaneHandle: "pane:2", correlationId: nil)
+                IPCDrawerAddPaneParams(parentPaneHandle: "pane:2", correlationId: nil), ownPaneAssertion: nil
             )
             Issue.record("drawer.addPane unexpectedly accepted a drawer child as parent")
         } catch let error as AppIPCLayoutError {
@@ -409,7 +410,7 @@ struct AgentStudioIPCLayoutAdapterTests {
 
             let panesBeforeDrawerAdd = harness.store.paneAtom.graphAtom.paneIDs
             _ = try await adapter.addDrawerPane(
-                IPCDrawerAddPaneParams(parentPaneHandle: "pane:1", correlationId: nil)
+                IPCDrawerAddPaneParams(parentPaneHandle: "pane:1", correlationId: nil), ownPaneAssertion: nil
             )
             let drawerPaneIds = harness.store.paneAtom.graphAtom.paneIDs.subtracting(panesBeforeDrawerAdd)
             let drawerPaneId = try #require(drawerPaneIds.first)
@@ -504,6 +505,14 @@ private final class RecordingIPCLayoutActionExecutor: AgentStudioIPCLayoutAction
     func execute(_ action: WorkspaceActionCommand) -> Bool {
         actions.append(action)
         return accepted
+    }
+
+    func execute(
+        _ action: WorkspaceActionCommand,
+        ownPaneAssertion _: WorkspaceOwnPaneAssertion
+    ) -> WorkspaceScopedActionOutcome {
+        actions.append(action)
+        return accepted ? .applied : .rejected
     }
 }
 
