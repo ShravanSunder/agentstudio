@@ -45,7 +45,10 @@ export interface ChurnEvidence {
 		releasedBy: 'cleanup' | 'output.scope.commit' | null;
 		readonly workerDerivationEpoch: number | null;
 	} | null;
-	readonly fileAnnotationOpenEpochs: number[];
+	readonly fileAnnotationOpens: Array<{
+		readonly workerDerivationEpoch: number;
+		readonly workerInstanceId: string;
+	}>;
 	readonly subscriptionRetirements: Array<{
 		readonly subscriptionId: string;
 		readonly subscriptionKind: string;
@@ -247,7 +250,7 @@ export async function runCopyFileChurnReproduction(props: {
 			evidence: evidenceObserverRef.current?.evidence ?? {
 				annotationOutcomes: [],
 				copyRefreshOverlap: null,
-				fileAnnotationOpenEpochs: [],
+				fileAnnotationOpens: [],
 				subscriptionRetirements: [],
 				subscriptionUpdateCount: 0,
 				transportRequests: [],
@@ -357,7 +360,7 @@ function observeChurnEvidence(page: Page): ChurnEvidenceObserver {
 	const evidence: ChurnEvidence = {
 		annotationOutcomes: [],
 		copyRefreshOverlap: null,
-		fileAnnotationOpenEpochs: [],
+		fileAnnotationOpens: [],
 		subscriptionRetirements: [],
 		subscriptionUpdateCount: 0,
 		transportRequests: [],
@@ -394,7 +397,10 @@ function recordTransportRequest(evidence: ChurnEvidence, request: Request): void
 		control.kind === 'subscription.open' &&
 		control.subscription.subscriptionKind === 'file.annotations'
 	) {
-		evidence.fileAnnotationOpenEpochs.push(control.workerDerivationEpoch);
+		evidence.fileAnnotationOpens.push({
+			workerDerivationEpoch: control.workerDerivationEpoch,
+			workerInstanceId: control.workerInstanceId,
+		});
 	}
 	if (control.kind === 'subscription.updateBatch') evidence.subscriptionUpdateCount += 1;
 	if (control.kind === 'subscription.cancel') {
