@@ -631,6 +631,15 @@ package enum AppPolicies {
         package static let fallbackCadence: Duration = .seconds(300)
     }
 
+    package enum WorktreeCreation {
+        /// Longest branch name accepted before the Git ref and destination slug are derived.
+        package static let maximumBranchNameLength: Int = 200
+        /// Longest branch-derived folder suffix; keeps the sibling path well under PATH_MAX.
+        package static let maximumDestinationSlugLength: Int = 80
+        /// Joins the source repository folder and the branch slug: `<repo-folder>.<branch-slug>`.
+        package static let destinationSlugSeparator: String = "."
+    }
+
     package enum ZmxStartup {
         package static let reconciliationTimeout: Duration = .seconds(3)
     }

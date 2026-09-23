@@ -102,9 +102,13 @@ extension FilesystemActor {
 
         let previousGroups = watchedFolderScanState.inventoryBySourceID[sourceID]?.repoGroups ?? []
         let latestCoverage = watchedFolderScanState.latestDemandCoverageBySourceID[sourceID]
+        let scannerResult = WatchedFolderPublicationHolds.excludingHeldCheckouts(
+            from: result.scannerResult,
+            heldPaths: Set(watchedFolderScanState.publicationHoldPathsByID.values)
+        )
         let reduction = WatchedFolderInventoryReducer.reduce(
             previousGroups: previousGroups,
-            scannerResult: result.scannerResult,
+            scannerResult: scannerResult,
             mayReplaceNegativeSpace: latestCoverage == result.demandCoverage
         )
 
@@ -130,7 +134,7 @@ extension FilesystemActor {
                 coverage = .additive
                 guard
                     case .additiveMerge(let fallback) = WatchedFolderInventoryReducer.reduce(
-                        previousGroups: previousGroups, scannerResult: result.scannerResult,
+                        previousGroups: previousGroups, scannerResult: scannerResult,
                         mayReplaceNegativeSpace: false
                     )
                 else { preconditionFailure("complete evidence must support additive fallback") }
@@ -142,7 +146,7 @@ extension FilesystemActor {
         case .preserved:
             coverage = .additive
         }
-        let entries = Self.validatedEntries(in: result.scannerResult)
+        let entries = Self.validatedEntries(in: scannerResult)
         watchedFolderScanState.validatedPathsBySourceID[sourceID] = Set(entries.map { $0.path.standardizedFileURL })
         if case .authoritative = coverage {
             watchedFolderScanState.authoritativeSourceIDs.insert(sourceID)

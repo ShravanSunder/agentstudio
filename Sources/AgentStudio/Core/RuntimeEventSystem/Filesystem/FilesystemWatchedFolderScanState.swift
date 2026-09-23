@@ -73,6 +73,8 @@ struct FilesystemWatchedFolderScanState: Sendable {
     var lastAppliedResultIDBySourceID: [FilesystemSourceID: WatchedFolderScanResultID] = [:]
     var nextRegistrationGenerationBySourceID: [FilesystemSourceID: UInt64] = [:]
     var manualRefreshState: FilesystemManualWatchedFolderRefreshState = .idle
+    /// Canonical destination paths a creation owner is still building; no scan publishes them.
+    var publicationHoldPathsByID: [WatchedFolderPublicationHoldID: String] = [:]
     var resultDrainState: FilesystemWatchedFolderResultDrainState = .idle
     var fallbackTask: Task<Void, Never>?
 }
