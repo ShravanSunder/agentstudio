@@ -1,6 +1,7 @@
 import AgentStudioAppIPC
 import AgentStudioInfrastructure
 import AgentStudioProgrammaticControl
+import AgentStudioTestHarness
 import AppKit
 import Foundation
 import Testing
@@ -79,7 +80,7 @@ struct AgentStudioIPCLayoutAdapterTests {
         let tab = Tab(paneId: pane.id)
         store.appendTab(tab)
         store.setActiveTab(tab.id)
-        let focusControl = SuspendingPaneFocusAppControl()
+        let focusControl = HeldPaneFocusAppControl()
         let harness = LayoutAdapterHarness(store: store, focusControl: focusControl)
         var result: IPCPaneFocusResult?
         let focusTask = Task { @MainActor in
@@ -88,13 +89,73 @@ struct AgentStudioIPCLayoutAdapterTests {
             )
         }
 
-        await focusControl.waitUntilStarted()
+        let heldPaneID = try await focusControl.focusCompletion.firstArrival()
+        #expect(heldPaneID == pane.id)
         #expect(result == nil)
-        focusControl.complete()
+        focusControl.focusCompletion.release()
         try await focusTask.value
 
         #expect(focusControl.focusedPaneIDs == [pane.id])
         #expect(result == IPCPaneFocusResult(paneId: pane.id, focused: true))
+    }
+
+    /// The reply to `pane.focus` must come from the committed focus operation,
+    /// not from having started it. The App focus owner is the production
+    /// `PaneTabViewControllerPaneFocusAppControl`; only the pane tab controller
+    /// behind it is a fake, whose submitted focus task awaits a held step. A
+    /// failed step is a focus that did not commit, so the reply must fail; a
+    /// released step commits the focus before the reply reports success.
+    @Test("pane focus reply depends on the submitted focus task")
+    func paneFocusReplyDependsOnSubmittedFocusTask() async throws {
+        try await proveReplyDependsOnStep(
+            makeScenario: { () -> CommittedPaneFocusHeldReply in
+                let store = makeIPCLayoutWorkspaceStore()
+                let sourcePane = store.createPane(title: "Source")
+                let targetPane = store.createPane(title: "Target")
+                let sourceTab = Tab(paneId: sourcePane.id)
+                let targetTab = Tab(paneId: targetPane.id)
+                store.appendTab(sourceTab)
+                store.appendTab(targetTab)
+                store.setActiveTab(sourceTab.id)
+                let submittedFocus = HeldStep<UUID>("pane.focus submitted focus task")
+                let focusSubmitter = HeldTargetedPaneFocusSubmitter(store: store, submittedFocus: submittedFocus)
+                let focusControl = PaneTabViewControllerPaneFocusAppControl(
+                    targetedPaneFocusSubmitter: focusSubmitter,
+                    workspaceStore: store
+                )
+                let adapter = LayoutAdapterHarness(store: store, focusControl: focusControl).adapter
+                let scenario = CommittedPaneFocusScenario(
+                    store: store,
+                    focusControl: focusControl,
+                    focusSubmitter: focusSubmitter,
+                    targetTabID: targetTab.id,
+                    targetPaneID: targetPane.id
+                )
+                return HeldReplyScenario(context: scenario, step: submittedFocus) { @MainActor in
+                    do {
+                        return .success(
+                            try await adapter.focusPane(
+                                IPCHandle(kind: .pane, reference: .canonicalUUID(targetPane.id))
+                            )
+                        )
+                    } catch {
+                        return .failure(error)
+                    }
+                }
+            },
+            replyReportsFailure: { (reply: PaneFocusReply, scenario: CommittedPaneFocusScenario) -> Bool in
+                guard case .failure(let error) = reply else { return false }
+                #expect((error as? AppIPCLayoutError)?.reason == .validationRejected)
+                #expect(scenario.focusSubmitter.submittedPaneIDs == [scenario.targetPaneID])
+                #expect(scenario.store.activeTabId != scenario.targetTabID)
+                return true
+            },
+            assertCommitted: { (reply: PaneFocusReply, scenario: CommittedPaneFocusScenario) throws in
+                #expect(try reply.get() == IPCPaneFocusResult(paneId: scenario.targetPaneID, focused: true))
+                #expect(scenario.focusSubmitter.submittedPaneIDs == [scenario.targetPaneID])
+                #expect(scenario.store.activeTabId == scenario.targetTabID)
+            }
+        )
     }
 
     @Test("pane focus reports target not found for missing pane handle")
@@ -259,7 +320,7 @@ struct AgentStudioIPCLayoutAdapterTests {
             harness.store.setActiveTab(tab.id)
             harness.store.setActivePane(firstPane.id, inTab: tab.id)
             let focusControl = PaneTabViewControllerPaneFocusAppControl(
-                paneTabViewController: harness.controller,
+                targetedPaneFocusSubmitter: harness.controller,
                 workspaceStore: harness.store
             )
 
@@ -286,7 +347,7 @@ struct AgentStudioIPCLayoutAdapterTests {
             harness.store.setActiveTab(tab.id)
             harness.store.setActivePane(firstPane.id, inTab: tab.id)
             let focusControl = PaneTabViewControllerPaneFocusAppControl(
-                paneTabViewController: harness.controller,
+                targetedPaneFocusSubmitter: harness.controller,
                 workspaceStore: harness.store
             )
             harness.controller.shutdown()
@@ -328,7 +389,7 @@ struct AgentStudioIPCLayoutAdapterTests {
             harness.store.appendTab(tab)
             harness.store.setActiveTab(tab.id)
             let focusControl = PaneTabViewControllerPaneFocusAppControl(
-                paneTabViewController: harness.controller,
+                targetedPaneFocusSubmitter: harness.controller,
                 workspaceStore: harness.store
             )
 
@@ -355,7 +416,7 @@ struct AgentStudioIPCLayoutAdapterTests {
             defer { focusWindow.close() }
             try attachPaneHost(paneId: secondPane.id, in: harness, to: focusWindow)
             let focusControl = PaneTabViewControllerPaneFocusAppControl(
-                paneTabViewController: harness.controller,
+                targetedPaneFocusSubmitter: harness.controller,
                 workspaceStore: harness.store
             )
             await harness.executor.stopAcceptingCommandsAndDrain()
@@ -461,34 +522,62 @@ private final class RecordingPaneFocusAppControl: PaneFocusAppControlling, @unch
     }
 }
 
+/// Stands in for the App focus owner and holds its completion, so a test can
+/// observe the adapter before the owner finishes.
 @MainActor
-private final class SuspendingPaneFocusAppControl: PaneFocusAppControlling, @unchecked Sendable {
+private final class HeldPaneFocusAppControl: PaneFocusAppControlling, @unchecked Sendable {
+    let focusCompletion = HeldStep<UUID>("pane focus owner completion")
     private(set) var focusedPaneIDs: [UUID] = []
-    private let startedStream: AsyncStream<Void>
-    private let startedContinuation: AsyncStream<Void>.Continuation
-    private var completionContinuation: CheckedContinuation<Void, Never>?
-
-    init() {
-        (startedStream, startedContinuation) = AsyncStream.makeStream(of: Void.self)
-    }
 
     func focusPane(_ paneId: UUID) async throws {
         focusedPaneIDs.append(paneId)
-        startedContinuation.yield()
-        await withCheckedContinuation { continuation in
-            completionContinuation = continuation
-        }
+        try await focusCompletion.arrive(paneId)
+    }
+}
+
+private typealias PaneFocusReply = Result<IPCPaneFocusResult, any Error>
+private typealias CommittedPaneFocusHeldReply = HeldReplyScenario<
+    CommittedPaneFocusScenario, UUID, PaneFocusReply
+>
+
+private struct CommittedPaneFocusScenario: Sendable {
+    let store: WorkspaceStore
+    let focusControl: PaneTabViewControllerPaneFocusAppControl
+    let focusSubmitter: HeldTargetedPaneFocusSubmitter
+    let targetTabID: UUID
+    let targetPaneID: UUID
+}
+
+/// Stands in for the pane tab controller behind the App focus owner. Its
+/// submitted focus task holds at a step; a failed step is a focus that did not
+/// commit, and a released step commits it by selecting the pane's tab.
+@MainActor
+private final class HeldTargetedPaneFocusSubmitter: TargetedPaneFocusSubmitting {
+    private let store: WorkspaceStore
+    private let submittedFocus: HeldStep<UUID>
+    private(set) var submittedPaneIDs: [UUID] = []
+
+    init(store: WorkspaceStore, submittedFocus: HeldStep<UUID>) {
+        self.store = store
+        self.submittedFocus = submittedFocus
     }
 
-    func waitUntilStarted() async {
-        for await _ in startedStream {
-            return
-        }
-    }
+    var acceptsIPCCommands: Bool { true }
 
-    func complete() {
-        completionContinuation?.resume()
-        completionContinuation = nil
+    func hasNativePaneHost(_: UUID) -> Bool { true }
+
+    func submitTargetedPaneFocus(_ paneId: UUID) -> Task<Bool, Never> {
+        submittedPaneIDs.append(paneId)
+        return Task { @MainActor [store, submittedFocus] in
+            do {
+                try await submittedFocus.arrive(paneId)
+            } catch {
+                return false
+            }
+            guard let tabId = store.tabLayoutAtom.tabID(containingPane: paneId) else { return false }
+            store.setActiveTab(tabId)
+            return true
+        }
     }
 }
 
