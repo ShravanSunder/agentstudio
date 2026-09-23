@@ -2551,6 +2551,11 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         case .closeDrawerPane:
             guard let parentPaneId = activeMainPaneId() else { return false }
             return visibleActiveDrawerPaneId(for: parentPaneId) != nil
+        case .moveZoomDrawerToTerminal, .moveZoomDrawerToBridge:
+            guard let side = command.zoomDrawerTargetSide,
+                let action = zoomDrawerSideAction(side: side, ownerPaneId: activeZoomSourcePaneId())
+            else { return false }
+            return canDispatchAction(action)
         default:
             return false
         }
@@ -2980,6 +2985,13 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
     func execute(_ command: AppCommand) {
         if command == .zoomPane {
             _ = submitZoomCommand(explicitPaneId: nil)
+            return
+        }
+
+        if let side = command.zoomDrawerTargetSide {
+            if let action = zoomDrawerSideAction(side: side, ownerPaneId: activeZoomSourcePaneId()) {
+                dispatchAction(action)
+            }
             return
         }
 
@@ -4346,6 +4358,9 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
                 return nil
             }
             return .toggleDrawer(paneId: target.paneId)
+        case .moveZoomDrawerToTerminal, .moveZoomDrawerToBridge:
+            guard let side = command.zoomDrawerTargetSide else { return nil }
+            return zoomDrawerSideAction(side: side, ownerPaneId: target.drawerParentPaneId ?? target.paneId)
         default:
             return nil
         }
@@ -4786,6 +4801,11 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         paneId: UUID,
         targetType: SearchItemType
     ) -> Bool? {
+        if command.zoomDrawerTargetSide != nil {
+            guard targetType == .pane else { return nil }
+            return targetedPaneWorkspaceAction(command: command, paneId: paneId, targetType: targetType)
+                .map(canDispatchAction) ?? false
+        }
         switch command {
         case .minimizePane, .expandPane, .closePane, .splitRight, .detachDrawerPane,
             .extractPaneToTab, .movePaneToTab, .toggleDrawer, .addDrawerPane, .editPaneNote:
@@ -5005,7 +5025,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             return store.tabLayoutAtom.activeTabId != nil
         case .scrollToBottom, .scrollPageUp, .jumpToPreviousPrompt, .jumpToNextPrompt:
             return focusedTerminalCommandTargetPaneId() != nil
-        case .addDrawerPane, .toggleDrawer, .closeDrawerPane:
+        case .addDrawerPane, .toggleDrawer, .closeDrawerPane, .moveZoomDrawerToTerminal, .moveZoomDrawerToBridge:
             return canExecuteContextualCommand(command)
         case .newTerminalInTab:
             guard

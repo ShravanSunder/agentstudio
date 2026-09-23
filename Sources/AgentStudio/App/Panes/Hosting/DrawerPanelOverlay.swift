@@ -309,6 +309,23 @@ struct DrawerPanelOverlay: View {
             .contentShape(outlineShape)
             .shadow(color: .black.opacity(AppStyles.General.Stroke.muted), radius: 4, y: 2)
             .shadow(color: .black.opacity(AppStyles.General.Stroke.hover), radius: 16, y: 8)
+            .overlay(alignment: .topTrailing) {
+                if let moveCommand = Self.moveControlCommand(
+                    mode: geometry.mode,
+                    isManagementLayerActive: atom(\.managementLayer).isActive
+                ),
+                    let moveAction = TargetedCommandControlAction.resolve(
+                        command: moveCommand,
+                        surface: .inlineControl,
+                        target: paneId,
+                        targetType: .pane,
+                        dispatcher: AppCommandDispatcher.shared
+                    )
+                {
+                    ZoomDrawerMoveControl(action: moveAction, octiconLoader: octiconLoader)
+                        .padding(AppStyles.General.Spacing.standard)
+                }
+            }
             .background {
                 AccessibilityLabelBridge(
                     identifier: Self.outlineAccessibilityIdentifier,
@@ -412,6 +429,16 @@ struct DrawerPanelOverlay: View {
                 }
             }
         )
+    }
+
+    /// The on-drawer move control exists only in Pane Zoom while the
+    /// management layer is active; it offers the other region's side command.
+    static func moveControlCommand(
+        mode: DrawerPresentationGeometry.Mode,
+        isManagementLayerActive: Bool
+    ) -> AppCommand? {
+        guard isManagementLayerActive, case .zoom(let effectiveSide) = mode else { return nil }
+        return AppCommand.moveZoomDrawerCommand(awayFrom: effectiveSide)
     }
 
     /// Height the resolver would display for a requested live height.

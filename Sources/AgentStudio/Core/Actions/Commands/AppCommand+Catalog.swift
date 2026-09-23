@@ -608,6 +608,30 @@ extension AppCommand {
                 commandBarGroupName: "Pane",
                 commandBarGroupPriority: CommandBarGroupPriority.pane
             )
+        case .moveZoomDrawerToTerminal:
+            return AppCommandSpec(
+                command: self,
+                label: "Move Drawer to Terminal",
+                icon: .system(.rectangleLefthalfInsetFilled),
+                helpText: "Place the Pane Zoom drawer over the terminal",
+                surfacePolicy: .exposed([.commandBar, .inlineControl]),
+                targeting: .contextualAndTargeted([.pane], preferredInvocation: .contextual),
+                visibleWhen: [.hasActiveTerminalZoom],
+                commandBarGroupName: "Pane",
+                commandBarGroupPriority: CommandBarGroupPriority.pane
+            )
+        case .moveZoomDrawerToBridge:
+            return AppCommandSpec(
+                command: self,
+                label: "Move Drawer to Worktree Viewer",
+                icon: .system(.rectangleRighthalfInsetFilled),
+                helpText: "Place the Pane Zoom drawer over the Worktree Viewer",
+                surfacePolicy: .exposed([.commandBar, .inlineControl]),
+                targeting: .contextualAndTargeted([.pane], preferredInvocation: .contextual),
+                visibleWhen: [.hasActiveTerminalZoom],
+                commandBarGroupName: "Pane",
+                commandBarGroupPriority: CommandBarGroupPriority.pane
+            )
         case .navigateDrawerPane:
             return AppCommandSpec(
                 command: self,
