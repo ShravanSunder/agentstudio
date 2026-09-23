@@ -7,7 +7,7 @@ shift || true
 bash "${PROJECT_ROOT}/scripts/vendor-worktree.sh" verify
 
 case "$mode" in
-  test|test-fast|test-large|test-prebuild|test-webkit)
+  test|test-fast|test-large|test-prebuild|test-webkit|test-width-comparison)
     ;;
   *)
     echo "run-swift-test-task: unknown mode '$mode'" >&2
@@ -147,6 +147,63 @@ finish_lane_invocation() {
   fi
 }
 
+# One half of a width comparison: the fast lane on the bundle this invocation
+# already built, at one width. It is a subshell with its own opening and closing
+# receipt, and it keeps every event-stream ledger it writes, pass or fail, in a
+# directory named for its width and that bundle, beside the half's full output.
+#
+# It reports its status in WIDTH_COMPARISON_HALF_STATUS and always returns 0,
+# because bash ignores `set -e` inside anything called from an `||` or `if`
+# context, subshells included: a caller testing the half's status would silently
+# let a failing phase inside it continue into the next.
+run_width_comparison_half() {
+  local width="$1"
+  local ledger_directory="$2"
+
+  mkdir -p "$ledger_directory"
+  set +e
+  (
+    set -euo pipefail
+    if [ -n "$width" ]; then
+      export SWIFT_TEST_PARALLELIZATION_WIDTH="$width"
+    else
+      unset SWIFT_TEST_PARALLELIZATION_WIDTH
+    fi
+    LOG_PREFIX="test-fast-width-$(swift_test_parallelization_width_label)"
+    LANE_EVENT_STREAM_DIR="$ledger_directory"
+    LANE_EVENT_STREAM_RETAIN_ALWAYS=1
+    print_opening_lane_report
+    begin_lane_accounting
+    trap print_closing_lane_report EXIT
+    run_fast_non_webkit_swift_tests
+  ) 2>&1 | tee "$ledger_directory/lane-output.log"
+  WIDTH_COMPARISON_HALF_STATUS="${PIPESTATUS[0]}"
+  set -e
+}
+
+# Width 3 (the CI runner's core count) against an unset width, on ONE bundle, so
+# the only difference between the two receipts is the width. Both halves always
+# run; the comparison fails if either half failed. Neither result changes the
+# default width, which stays unset.
+run_width_comparison() {
+  local bundle_identity
+  local comparison_directory
+  local comparison_status=0
+
+  bundle_identity="$(lane_receipt_bundle_identity)"
+  comparison_directory="${LANE_EVENT_STREAM_DIR}/width-comparison/$(
+    printf '%s' "$LANE_RECEIPT_HEAD_SHA" | cut -c1-12
+  )-bundle-${bundle_identity##*@}"
+  echo "[$LOG_PREFIX] width comparison on bundle_identity=$bundle_identity"
+  echo "[$LOG_PREFIX] width comparison ledgers: $comparison_directory"
+
+  run_width_comparison_half 3 "$comparison_directory/width-3"
+  [ "$WIDTH_COMPARISON_HALF_STATUS" -eq 0 ] || comparison_status=1
+  run_width_comparison_half "" "$comparison_directory/width-unlimited"
+  [ "$WIDTH_COMPARISON_HALF_STATUS" -eq 0 ] || comparison_status=1
+  return "$comparison_status"
+}
+
 print_opening_lane_report
 begin_lane_accounting
 # fresh only once THIS invocation's prebuild has succeeded; see
@@ -248,5 +305,8 @@ case "$mode" in
     ;;
   test-webkit)
     run_webkit_suites
+    ;;
+  test-width-comparison)
+    run_width_comparison
     ;;
 esac

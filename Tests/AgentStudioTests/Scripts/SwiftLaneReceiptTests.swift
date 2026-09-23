@@ -143,7 +143,7 @@ struct SwiftLaneReceiptTests {
             )
         )
         #expect(
-            laneRunnerScript.contains("test|test-fast|test-large|test-prebuild|test-webkit)")
+            laneRunnerScript.contains("test|test-fast|test-large|test-prebuild|test-webkit|test-width-comparison)")
         )
     }
 
@@ -304,6 +304,53 @@ struct SwiftLaneReceiptTests {
         )
 
         #expect(lines(names) == ["SEGV", "TRAP", "none", "none"])
+    }
+
+    @Test("the width comparison runs both halves on one bundle and keeps every ledger")
+    func widthComparisonRunsBothHalvesOnOneBundleAndKeepsEveryLedger() async throws {
+        let laneRunnerScript = try String(contentsOfFile: "scripts/run-swift-test-task.sh", encoding: .utf8)
+        let miseConfig = try String(contentsOfFile: ".mise.toml", encoding: .utf8)
+        let comparison = try laneScriptShellFunction(named: "run_width_comparison", in: laneRunnerScript)
+        let half = try laneScriptShellFunction(named: "run_width_comparison_half", in: laneRunnerScript)
+        let comparisonTask = try laneScriptNamedBlock(
+            startingWith: "[tasks.\"test:swift:width-comparison\"]",
+            endingBefore: "\n[tasks.",
+            in: miseConfig
+        )
+        let workDirectory = NSTemporaryDirectory() + "agentstudio-receipt-retain-\(UUIDv7.generate())"
+        defer { try? FileManager.default.removeItem(atPath: workDirectory) }
+
+        let retained = try await laneBash(
+            "LOG_PREFIX=lane; TIMEOUT_SECONDS=60; BUILD_PATH=.build-agent-1; "
+                + "export LANE_EVENT_STREAM_DIR='\(workDirectory)'; LANE_EVENT_STREAM_RETAIN_ALWAYS=1; "
+                + "source scripts/swift-test-helpers.sh; "
+                + "run_swift_with_timeout 'clean half' 60 /bin/bash -c 'echo CLEAN_RUN_OK'; "
+                + "echo \"LEDGERS=$(ls -1 '\(workDirectory)' | wc -l | tr -d '[:space:]')\""
+        )
+
+        #expect(comparisonTask.contains("run = \"/bin/bash scripts/run-swift-test-task.sh test-width-comparison\""))
+        // Width 3 is the CI runner's core count; the other half leaves it unset.
+        #expect(comparison.contains("run_width_comparison_half 3 \"$comparison_directory/width-3\""))
+        #expect(comparison.contains("run_width_comparison_half \"\" \"$comparison_directory/width-unlimited\""))
+        // One bundle for both halves: the comparison never builds, and its
+        // directory is named for the bundle both halves share.
+        #expect(!comparison.contains("prebuild_swift_tests"))
+        #expect(!half.contains("prebuild_swift_tests"))
+        #expect(comparison.contains("-bundle-${bundle_identity##*@}"))
+        // Each half is a lane of its own: opening receipt, closing receipt on
+        // EXIT, forced ledger retention, and its whole output kept.
+        #expect(
+            half.contains(
+                "print_opening_lane_report\n    begin_lane_accounting\n    trap print_closing_lane_report EXIT"
+            )
+        )
+        #expect(half.contains("LANE_EVENT_STREAM_RETAIN_ALWAYS=1"))
+        #expect(half.contains("unset SWIFT_TEST_PARALLELIZATION_WIDTH"))
+        #expect(half.contains("tee \"$ledger_directory/lane-output.log\""))
+        // A passing run keeps its ledger when retention is forced.
+        #expect(retained.contains("CLEAN_RUN_OK"))
+        #expect(retained.contains("lane-report event_stream=\(workDirectory)/lane-clean-half-"))
+        #expect(retained.contains("LEDGERS=1"))
     }
 }
 

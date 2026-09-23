@@ -31,6 +31,7 @@ struct CIFastLaneWorkflowTests {
             ".github/workflows/ci.yml",
             ".github/workflows/benchmarks.yml",
             ".github/workflows/release.yml",
+            ".github/workflows/swift-width-comparison.yml",
         ]
 
         var selectedXcodeVersions: [String] = []
@@ -55,6 +56,31 @@ struct CIFastLaneWorkflowTests {
             Set(selectedXcodeVersions).count == 1,
             "macOS workflows must select one identical Xcode version: \(selectedXcodeVersions)"
         )
+    }
+
+    @Test("width comparison is a dispatched experiment that keeps both receipts, never a pull-request gate")
+    func widthComparisonIsDispatchedExperimentNeverPullRequestGate() throws {
+        let comparisonWorkflow = try String(
+            contentsOfFile: ".github/workflows/swift-width-comparison.yml",
+            encoding: .utf8
+        )
+        let ciWorkflow = try String(contentsOfFile: ".github/workflows/ci.yml", encoding: .utf8)
+        let comparisonJob = try workflowJob(named: "swift-width-comparison", in: comparisonWorkflow)
+        let runStep = try workflowStep(named: "Run width comparison", in: comparisonJob)
+        let uploadStep = try workflowStep(named: "Upload width comparison receipts and ledgers", in: comparisonJob)
+        let triggers = try namedBlock(startingWith: "on:\n", endingBefore: "\npermissions:", in: comparisonWorkflow)
+
+        #expect(triggers == "on:\n  workflow_dispatch:\n")
+        // It runs on the same 3-core runner and build directory as the gated lanes,
+        // through the same mise task a developer runs locally.
+        #expect(comparisonJob.contains("runs-on: macos-26"))
+        #expect(comparisonJob.contains("SWIFT_BUILD_DIR: .build-ci"))
+        #expect(runStep.contains("run: mise run --skip-deps --raw test:swift:width-comparison"))
+        #expect(!runStep.contains("SWIFT_TEST_PARALLELIZATION_WIDTH"))
+        // Both halves' receipts and ledgers are kept whether each passes or fails.
+        #expect(uploadStep.contains("if: always()"))
+        #expect(uploadStep.contains("path: tmp/plan-workflows/ci-runs/width-comparison/"))
+        #expect(!ciWorkflow.contains("width-comparison"))
     }
 
     @Test("CI jobs use descriptive check names")

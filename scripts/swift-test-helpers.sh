@@ -1135,7 +1135,8 @@ run_swift_with_timeout() {
   fi
 
   swift_test_record_lane_peaks "$output_file" "$event_stream_file"
-  if [ "$should_preserve_event_stream" -eq 1 ]; then
+  # A width comparison compares what ran, so it keeps every ledger, passing or not.
+  if [ "$should_preserve_event_stream" -eq 1 ] || [ "${LANE_EVENT_STREAM_RETAIN_ALWAYS:-0}" = "1" ]; then
     preserve_lane_event_stream "$label" "$event_stream_file"
   fi
   rm -f "$output_file" ${event_stream_file:+"$event_stream_file"}
