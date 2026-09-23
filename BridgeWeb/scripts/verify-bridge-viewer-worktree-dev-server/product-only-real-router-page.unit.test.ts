@@ -5,6 +5,7 @@ import type {
 } from 'playwright';
 import { describe, expect, test } from 'vitest';
 
+import type { BridgeViewerDocumentGenerations } from './product-only-real-router-document-generations.ts';
 import {
 	BridgeViewerRealRouterObserver,
 	freshReviewInitialWindowRequiresTraversal,
@@ -20,7 +21,10 @@ describe('BridgeViewerRealRouterObserver', () => {
 	test('records the scrub-safe product call method in failure transport evidence', () => {
 		// Arrange
 		const harness = makeObserverHarness();
-		const observer = new BridgeViewerRealRouterObserver(harness.page, (): number => 1);
+		const observer = new BridgeViewerRealRouterObserver(
+			harness.page,
+			documentGenerationsAt((): number => 1),
+		);
 		const request = makeProductCallRequest('review.activeViewerMode.update');
 		harness.emit('request', request);
 
@@ -36,7 +40,10 @@ describe('BridgeViewerRealRouterObserver', () => {
 	test('retains scrubbed content lifecycle and unfinished request ordinals for a failed journey', () => {
 		// Arrange
 		const harness = makeObserverHarness();
-		const observer = new BridgeViewerRealRouterObserver(harness.page, (): number => 1);
+		const observer = new BridgeViewerRealRouterObserver(
+			harness.page,
+			documentGenerationsAt((): number => 1),
+		);
 		const completedRequest = makeProductContentRequest('completed-request');
 		const unfinishedRequest = makeProductContentRequest('unfinished-request');
 		harness.emit('request', completedRequest);
@@ -72,7 +79,10 @@ describe('BridgeViewerRealRouterObserver', () => {
 	test('waits for streaming request completion and one activity-stable browser frame', async () => {
 		// Arrange
 		const harness = makeObserverHarness();
-		const observer = new BridgeViewerRealRouterObserver(harness.page, (): number => 1);
+		const observer = new BridgeViewerRealRouterObserver(
+			harness.page,
+			documentGenerationsAt((): number => 1),
+		);
 		const firstRequest = makeProductContentRequest('first-request');
 		const secondRequest = makeProductContentRequest('second-request');
 		let barrierResolved = false;
@@ -119,7 +129,7 @@ describe('BridgeViewerRealRouterObserver', () => {
 		let documentGeneration = 1;
 		const observer = new BridgeViewerRealRouterObserver(
 			harness.page,
-			(): number => documentGeneration,
+			documentGenerationsAt((): number => documentGeneration),
 		);
 		const priorDocumentRequest = makeProductContentRequest('prior-document-request');
 		harness.emit('request', priorDocumentRequest);
@@ -144,7 +154,7 @@ describe('BridgeViewerRealRouterObserver', () => {
 		let documentGeneration = 1;
 		const observer = new BridgeViewerRealRouterObserver(
 			harness.page,
-			(): number => documentGeneration,
+			documentGenerationsAt((): number => documentGeneration),
 		);
 		const retiredDocumentRequest = makeProductCallRequest('review.activeViewerMode.update');
 		const retiredDocumentBody = makePendingStringPromise();
@@ -173,7 +183,10 @@ describe('BridgeViewerRealRouterObserver', () => {
 	test('still reports a response parser failure from the active document', async () => {
 		// Arrange
 		const harness = makeObserverHarness();
-		const observer = new BridgeViewerRealRouterObserver(harness.page, (): number => 1);
+		const observer = new BridgeViewerRealRouterObserver(
+			harness.page,
+			documentGenerationsAt((): number => 1),
+		);
 		const activeDocumentRequest = makeProductCallRequest('review.activeViewerMode.update');
 		const activeDocumentFailure = new Error('active document response body failed');
 		harness.emit('request', activeDocumentRequest);
@@ -190,7 +203,10 @@ describe('BridgeViewerRealRouterObserver', () => {
 	test('treats a failed non-stream request without an HTTP response as terminal', async () => {
 		// Arrange
 		const harness = makeObserverHarness();
-		const observer = new BridgeViewerRealRouterObserver(harness.page, (): number => 1);
+		const observer = new BridgeViewerRealRouterObserver(
+			harness.page,
+			documentGenerationsAt((): number => 1),
+		);
 		const cancelledContentRequest = makeProductContentRequest('cancelled-request');
 		harness.emit('request', cancelledContentRequest);
 		harness.emit('requestfailed', cancelledContentRequest);
@@ -222,7 +238,7 @@ describe('BridgeViewerRealRouterObserver', () => {
 		let documentGeneration = 1;
 		const observer = new BridgeViewerRealRouterObserver(
 			harness.page,
-			(): number => documentGeneration,
+			documentGenerationsAt((): number => documentGeneration),
 		);
 		const staleAcknowledgementRequest = makeFrameObservationRequest();
 		harness.emit('request', staleAcknowledgementRequest);
@@ -435,6 +451,19 @@ describe('previousFreshReviewTraversalScrollTop', () => {
 		expect(previousScrollTop).toBe(4_200);
 	});
 });
+
+// A page whose every request and worker belongs to the current generation, as
+// the tests set it; the observer reads generations only through this seam.
+function documentGenerationsAt(currentGeneration: () => number): BridgeViewerDocumentGenerations {
+	return {
+		currentGeneration,
+		observedWorker: (workerUrl: string) => ({
+			documentGeneration: currentGeneration(),
+			scriptUrl: workerUrl,
+		}),
+		requestGeneration: (): number => currentGeneration(),
+	};
+}
 
 function makeObserverHarness(): {
 	readonly emit: (eventName: PageEventName, event: unknown) => void;
