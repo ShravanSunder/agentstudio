@@ -1,3 +1,4 @@
+import AgentStudioTestHarness
 import Foundation
 import Testing
 import WebKit
@@ -234,7 +235,7 @@ struct BridgeProductSchemeAdapterTests {
         // Arrange
         let harness = try BridgeProductSchemeAdapterHarness.make()
         let body = bridgeProductSchemeWorkerOpenBody()
-        let routingStartGate = BridgeProductSchemeRoutingStartGate()
+        let routingStartGate = HeldStep<Void>("routingStartGate", cancellation: .holdThroughCancellation)
         let blockedRequest = bridgeProductSchemeRequest(
             route: BridgeProductWireContract.commandRoute,
             capability: harness.capabilityHeader,
@@ -248,12 +249,12 @@ struct BridgeProductSchemeAdapterTests {
         let consumer = Task {
             for try await _ in routedReply.stream {}
         }
-        await routingStartGate.waitUntilRoutingPaused()
+        try await routingStartGate.firstArrival()
 
         // Act
         consumer.cancel()
-        await routingStartGate.waitUntilRoutingCancelled()
-        routingStartGate.releaseRouting()
+        try await routingStartGate.cancellationObserved()
+        routingStartGate.release()
         _ = try? await consumer.value
         await routedReply.routingTask.value
         let retry = try await harness.openSession(body: body)

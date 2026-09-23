@@ -10,7 +10,7 @@ struct BridgeProductSchemeFramePumpTests {
     func earlyWorkerObservationPreservesMetadataDeliveryPolicy() async throws {
         // Arrange
         let harness = try await BridgeProductSessionProducerHarness.opened()
-        let operation = BridgeProductSessionProducerOperationGate()
+        let operation = HeldStep<BridgeProductProducerLease>("operation")
         let request = try bridgeProductMetadataStreamRequest(
             metadataStreamId: "metadata-stream-early-observation",
             resumeFromStreamSequence: nil
@@ -19,10 +19,10 @@ struct BridgeProductSchemeFramePumpTests {
             request: request,
             productAdmission: harness.productAdmission
         ) { lease in
-            await operation.run(lease)
+            try? await operation.arrive(lease)
         }
         let lease = try bridgeProductAcceptedLease(registration)
-        _ = await operation.waitUntilStarted()
+        _ = try await operation.firstArrival()
         _ = try await harness.session.enqueueRequiredProducerOpeningFrame(
             for: lease,
             productAdmission: harness.productAdmission,
@@ -56,7 +56,7 @@ struct BridgeProductSchemeFramePumpTests {
         #expect(stillRequiresWorkerObservation)
         #expect(observationCompleted)
         #expect(await pump.cancel())
-        await operation.waitUntilCancelled()
+        try await operation.cancellationObserved()
         #expect((await harness.session.producerSnapshot()).hasZeroResidue)
     }
 
@@ -105,7 +105,7 @@ struct BridgeProductSchemeFramePumpTests {
         #expect(afterObservation.inFlightFrameReceiptCount == 0)
 
         #expect(await pump.cancel())
-        await fixture.operation.waitUntilCancelled()
+        try await fixture.operation.cancellationObserved()
         #expect((await fixture.harness.session.producerSnapshot()).hasZeroResidue)
     }
 
@@ -134,7 +134,7 @@ struct BridgeProductSchemeFramePumpTests {
         #expect(cancelled)
         #expect(!observationResult)
         #expect(!lateAccepted)
-        await fixture.operation.waitUntilCancelled()
+        try await fixture.operation.cancellationObserved()
         #expect((await fixture.harness.session.producerSnapshot()).hasZeroResidue)
     }
 
@@ -316,7 +316,7 @@ struct BridgeProductSchemeFramePumpTests {
         #expect(afterConsumption.inFlightFrameReceiptCount == 0)
 
         #expect(await pump.cancel())
-        await fixture.operation.waitUntilCancelled()
+        try await fixture.operation.cancellationObserved()
         #expect((await fixture.harness.session.producerSnapshot()).hasZeroResidue)
     }
 
@@ -572,7 +572,7 @@ struct BridgeProductSchemeFramePumpTests {
 private struct FramePumpFixture {
     let harness: BridgeProductSessionProducerHarness
     let lease: BridgeProductProducerLease
-    let operation: BridgeProductSessionProducerOperationGate
+    let operation: HeldStep<BridgeProductProducerLease>
     let request: BridgeProductContentRequest
 }
 
@@ -634,16 +634,16 @@ private actor FramePumpReentrantRevocationLifecycleProbe {
 
 private func makeFramePumpFixture(identitySuffix: String) async throws -> FramePumpFixture {
     let harness = try await BridgeProductSessionProducerHarness.opened()
-    let operation = BridgeProductSessionProducerOperationGate()
+    let operation = HeldStep<BridgeProductProducerLease>("operation")
     let request = try bridgeProductFileContentRequest(identitySuffix: identitySuffix)
     let registration = await harness.session.registerContentProducer(
         request: request,
         productAdmission: harness.productAdmission
     ) { lease in
-        await operation.run(lease)
+        try? await operation.arrive(lease)
     }
     let lease = try bridgeProductAcceptedLease(registration)
-    _ = await operation.waitUntilStarted()
+    _ = try await operation.firstArrival()
     return .init(
         harness: harness,
         lease: lease,

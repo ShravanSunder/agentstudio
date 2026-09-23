@@ -168,6 +168,13 @@ package final class HeldStep<Arrival: Sendable>: Sendable {
         state.withLock { $0.arrivals }
     }
 
+    /// Whether an arriving task has been cancelled while at the step. A
+    /// synchronous read for asserting once that no cancellation happened, after
+    /// the test has awaited whatever could have caused one.
+    package var hasObservedCancellation: Bool {
+        state.withLock { $0.hasObservedCancellation }
+    }
+
     /// Resumes every current and later arrival normally.
     package func release() {
         settle(.released)

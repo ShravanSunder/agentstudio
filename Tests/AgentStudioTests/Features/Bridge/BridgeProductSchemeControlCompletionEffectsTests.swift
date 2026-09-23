@@ -1,3 +1,4 @@
+import AgentStudioTestHarness
 import Foundation
 import Testing
 
@@ -613,7 +614,7 @@ private func installCompletionEffectsMetadataStream(
     in session: BridgeProductSession,
     productAdmission: BridgeProductAdmissionContext
 ) async throws -> BridgeProductProducerLease {
-    let operation = BridgeProductSessionProducerOperationGate()
+    let operation = HeldStep<BridgeProductProducerLease>("operation")
     let request = try bridgeProductMetadataStreamRequest(
         metadataStreamId: "metadata-completion-effects-\(UUID().uuidString)",
         resumeFromStreamSequence: nil
@@ -622,12 +623,12 @@ private func installCompletionEffectsMetadataStream(
         request: request,
         productAdmission: productAdmission
     ) { lease in
-        await operation.run(lease)
+        try? await operation.arrive(lease)
     }
     guard case .accepted(let lease) = registration else {
         throw BridgeProductSessionError.lifecycleFrameAdmissionFailed
     }
-    _ = await operation.waitUntilStarted()
+    _ = try await operation.firstArrival()
     _ = try await session.enqueueRequiredProducerOpeningFrame(
         for: lease,
         productAdmission: productAdmission,
