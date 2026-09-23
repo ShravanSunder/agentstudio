@@ -42,6 +42,18 @@
   --spacing-page-inline: clamp(24px, 3.3vw, 72px);
   /* The chapter rail's lane lives in this gutter, left of the hero and every chapter. */
   --spacing-rail-gutter: clamp(40px, 4.5vw, 80px);
+  /*
+   * Vertical page rhythm. Each term mixes viewport width and height so the air
+   * between sections grows with the screen: short phones stay compact, tall
+   * and wide displays get proportionally more room.
+   */
+  /* Above and below each chapter surface; two of these separate neighbours. */
+  --spacing-chapter-block: clamp(56px, 4vw + 4vh, 136px);
+  /* Around the hero and the closing call to action. */
+  --spacing-section-block: clamp(80px, 5vw + 6vh, 176px);
+  /* Hero: headline payoff to description, and install row to app frame. */
+  --spacing-hero-copy: clamp(32px, 2.5vw + 2vh, 64px);
+  --spacing-hero-frame: clamp(48px, 4vw + 3.5vh, 96px);
 
   --breakpoint-phone: 38.75rem;
 }
