@@ -82,6 +82,50 @@ struct AgentStudioIPCBackgroundDrawerChildTests {
         }
     }
 
+    @Test(
+        "a background child added to an all-minimized drawer is created without a selection",
+        arguments: [IPCDrawerChildContent.terminal, .browser(url: "https://example.com/docs")]
+    )
+    func backgroundChildInAllMinimizedDrawer(content: IPCDrawerChildContent) async throws {
+        try await withAsyncTestCoreAtoms { atoms in
+            let windowId = UUIDv7.generate()
+            let harness = makeHarness(windowLifecycleStore: atoms.windowLifecycle, workspaceWindowId: windowId)
+            defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+            harness.windowLifecycleStore.recordWindowRegistered(windowId)
+            let store = harness.store
+            let parent = store.createPane(title: "Agent terminal")
+            let tab = Tab(paneId: parent.id)
+            store.appendTab(tab)
+            store.setActiveTab(tab.id)
+            store.setActivePane(parent.id, inTab: tab.id)
+            let first = try #require(store.addDrawerPane(to: parent.id))
+            let second = try #require(store.addDrawerPane(to: parent.id))
+            #expect(store.minimizeDrawerPane(first.id, in: parent.id))
+            #expect(store.minimizeDrawerPane(second.id, in: parent.id))
+            #expect(store.drawerView(forParent: parent.id)?.activeChildId == nil)
+            let focusControl = RefusingPaneFocusAppControl()
+            let adapter = AgentStudioIPCLayoutAdapter(
+                workspaceStore: store,
+                windowLifecycleReader: WorkspaceWindowLifecycleReader(lifecycleStore: harness.windowLifecycleStore),
+                paneFocusControl: focusControl,
+                workspaceActionExecutor: harness.executor
+            )
+
+            let result = try await adapter.addDrawerPane(
+                IPCDrawerAddPaneParams(
+                    parentPaneHandle: "pane:\(parent.id.uuidString)", content: content, correlationId: nil),
+                ownPaneAssertion: AppIPCOwnPaneAssertion(boundPaneId: parent.id)
+            )
+
+            #expect(store.paneAtom.pane(result.childPaneId)?.parentPaneId == parent.id)
+            let drawerView = try #require(store.drawerView(forParent: parent.id))
+            #expect(drawerView.activeChildId == nil)
+            #expect(drawerView.minimizedPaneIds == [first.id, second.id, result.childPaneId])
+            #expect(drawerView.layout.paneIds.contains(result.childPaneId))
+            #expect(focusControl.focusedPaneIds.isEmpty)
+        }
+    }
+
     @Test("the interactive add still expands, selects and requests focus for its new child")
     func interactiveAddKeepsItsPresentation() async throws {
         let harness = makeHarness()

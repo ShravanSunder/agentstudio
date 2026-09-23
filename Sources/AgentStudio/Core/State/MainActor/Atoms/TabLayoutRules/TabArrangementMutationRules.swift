@@ -132,7 +132,14 @@ enum TabArrangementMutationRules {
             guard var drawerView = updated.arrangements[arrangementIndex].drawerViews[insertion.drawerId] else {
                 continue
             }
-            drawerView.minimizedPaneIds.remove(drawerPaneId)
+            if insertion.selectsInsertedChild || drawerView.activeChildId != nil {
+                drawerView.minimizedPaneIds.remove(drawerPaneId)
+            } else {
+                // Background creation keeps selection unchanged. A drawer with
+                // no selection has every child minimized, and a visible child
+                // there would need one, so the new child joins them minimized.
+                drawerView.minimizedPaneIds.insert(drawerPaneId)
+            }
             updated.arrangements[arrangementIndex].drawerViews[insertion.drawerId] = drawerView
         }
         return updated
