@@ -14,6 +14,13 @@ final class BadCompletionHandleExecutor {
         _ = submit(1)
         _ = owner?.submit(2)
     }
+
+    func discardInsideWrappersWithoutReason(ready: Bool) {
+        // fire-and-forget: separated from its discard by a blank line
+
+        defer { _ = submit(7) }
+        if ready { _ = submit(8) }
+    }
 }
 
 final class BadCompletionHandleValidationExecutor {

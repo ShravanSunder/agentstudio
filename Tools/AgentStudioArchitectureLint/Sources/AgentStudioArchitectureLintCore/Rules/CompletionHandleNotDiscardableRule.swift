@@ -70,7 +70,7 @@ struct CompletionHandleNotDiscardableRule: ArchitectureRule {
         lastToken: TokenSyntax?
     ) -> Bool {
         let trailingComments = lastToken?.lineCommentsThroughEndOfLine ?? []
-        let leadingComments = discardToken.leadingTrivia.lineCommentDirectlyAbove.map { [$0] } ?? []
+        let leadingComments = discardToken.firstTokenOnLine.leadingTrivia.lineCommentDirectlyAbove.map { [$0] } ?? []
         return (trailingComments + leadingComments).contains { comment in
             comment.hasPrefix(fireAndForgetMarker)
                 && !comment.dropFirst(fireAndForgetMarker.count).allSatisfy(\.isWhitespace)
@@ -199,6 +199,21 @@ extension TypeSyntax {
 }
 
 extension TokenSyntax {
+    /// The token that begins this token's source line. A discard that is the
+    /// first statement of a one-line wrapper (`defer { _ = f() }`,
+    /// `if ready { _ = f() }`, `{ _ = f() }`) shares its line with the
+    /// wrapper, and a comment on the line above attaches to the wrapper's first
+    /// token, not to `_`.
+    fileprivate var firstTokenOnLine: TokenSyntax {
+        var token = self
+        while !token.leadingTrivia.contains(where: \.isNewline),
+            let previous = token.previousToken(viewMode: .sourceAccurate)
+        {
+            token = previous
+        }
+        return token
+    }
+
     /// Line comments trailing this token or any later token on the same line,
     /// so `defer { _ = f() }  // fire-and-forget: …` carries its reason.
     fileprivate var lineCommentsThroughEndOfLine: [String] {

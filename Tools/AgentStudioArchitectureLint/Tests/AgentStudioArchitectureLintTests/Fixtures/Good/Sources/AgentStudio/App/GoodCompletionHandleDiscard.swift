@@ -25,6 +25,18 @@ final class GoodCompletionHandleExecutor {
         // fire-and-forget: menu action; the executor serializes and logs the outcome
         _ = self.submitCompletionHandleGesture { true }
     }
+
+    func discardInsideWrappers(ready: Bool) {
+        // fire-and-forget: defer cannot await; cleanup only
+        defer { _ = submit(5) }
+        // fire-and-forget: the caller reports admission, not the outcome
+        if ready { _ = submit(6) }
+        let handler: () -> Void = { [self] in
+            // fire-and-forget: AppKit callback with no caller to report to
+            _ = submit(7)
+        }
+        handler()
+    }
 }
 
 final class GoodCompletionHandleValidationExecutor {

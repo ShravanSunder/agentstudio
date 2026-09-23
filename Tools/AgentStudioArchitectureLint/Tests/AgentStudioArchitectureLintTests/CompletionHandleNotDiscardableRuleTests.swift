@@ -20,10 +20,12 @@ struct CompletionHandleNotDiscardableRuleTests {
         let diagnostics = try lint(files: [fixture.path])
 
         // Assert
-        #expect(diagnostics.map(\.line) == [3, 13, 14, 15, 20, 27])
+        #expect(diagnostics.map(\.line) == [3, 13, 14, 15, 21, 22, 27, 34])
         #expect(
             diagnostics.map(\.message) == [
                 CompletionHandleNotDiscardableRule.discardableDeclarationMessage,
+                discard,
+                discard,
                 discard,
                 discard,
                 discard,
@@ -33,7 +35,7 @@ struct CompletionHandleNotDiscardableRuleTests {
         #expect(diagnostics.allSatisfy { $0.severity == .error })
     }
 
-    @Test("good fixture accepts awaited outcomes, stored handles, and reasoned direct and optional discards")
+    @Test("good fixture accepts awaited outcomes, stored handles, and reasoned direct, optional, and wrapped discards")
     func goodFixtureAcceptsResolvedCallSites() throws {
         // Arrange
         let fixture = fixtureRoot().appendingPathComponent(
