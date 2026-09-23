@@ -261,6 +261,48 @@ describe("scene playback", () => {
     playback.dispose();
   });
 
+  it("pauses a manually played scene while the document is hidden and resumes on return", () => {
+    stubReducedMotion(false);
+    const scene = createFakeSceneFixture();
+    const playback = createScenePlayback({
+      resolveModule: () => scene.module,
+      sceneRoot: scene.sceneRoot,
+      surface: scene.surface,
+    });
+    const setVisibility = (visibilityState: DocumentVisibilityState): void => {
+      Object.defineProperty(document, "visibilityState", {
+        configurable: true,
+        value: visibilityState,
+      });
+    };
+
+    try {
+      setVisibility("visible");
+      playback.synchronize(1, true);
+      scene.toggle.click();
+      scene.toggle.click();
+      expect(scene.playbackState()).toBe("playing");
+
+      // The glass controller reports a hidden document as (1, false).
+      setVisibility("hidden");
+      playback.synchronize(1, false);
+      expect(scene.timeline().paused()).toBe(true);
+      expect(scene.playbackState()).toBe("paused");
+
+      setVisibility("visible");
+      playback.synchronize(1, true);
+      expect(scene.timeline().paused()).toBe(false);
+      expect(scene.playbackState()).toBe("playing");
+
+      // Manual intent survived the hidden interval: leaving the zone keeps playing.
+      playback.synchronize(0.2, true);
+      expect(scene.playbackState()).toBe("playing");
+    } finally {
+      playback.dispose();
+      Reflect.deleteProperty(document, "visibilityState");
+    }
+  });
+
   it("seeks to a requested step, plays, and reports the steps it passes", () => {
     stubReducedMotion(false);
     const scene = createFakeSceneFixture();

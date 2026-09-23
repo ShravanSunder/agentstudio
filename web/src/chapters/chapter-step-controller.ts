@@ -193,7 +193,15 @@ export function initializeChapterSteps(root: HTMLElement): ChapterStepsControlle
           return;
         }
         event.preventDefault();
-        chooseStep(movedIndex(selectedIndex, movement, validatedContract.steps.length));
+        // Scene progress moves the selection without moving focus, so arrows
+        // move from the tab the visitor is on, not from the selected one.
+        const focusedIndex = validatedContract.steps.findIndex(
+          (step) =>
+            (event.target instanceof Node && step.selector.contains(event.target)) ||
+            step.selector === document.activeElement,
+        );
+        const originIndex = focusedIndex >= 0 ? focusedIndex : selectedIndex;
+        chooseStep(movedIndex(originIndex, movement, validatedContract.steps.length));
         validatedContract.steps[selectedIndex]?.selector.focus();
       },
       { signal: lifecycle.signal },

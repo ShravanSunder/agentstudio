@@ -53,6 +53,8 @@ interface ScenePlaybackState {
   latestProgress: number;
   phase: ScenePlaybackPhase;
   replayTimer: number | undefined;
+  /** A manual play paused only because the document is hidden; intent is kept. */
+  suspendedWhileHidden: boolean;
   timeline: SceneTimeline | undefined;
 }
 
@@ -104,6 +106,7 @@ export function createScenePlayback(props: ScenePlaybackProps): SurfacePlayback 
     latestProgress: 0,
     phase: "settled",
     replayTimer: undefined,
+    suspendedWhileHidden: false,
     timeline: undefined,
   };
 
@@ -160,6 +163,7 @@ export function createScenePlayback(props: ScenePlaybackProps): SurfacePlayback 
     state.awaitingReplay = false;
     state.intent = "auto";
     state.lastReportedStepId = undefined;
+    state.suspendedWhileHidden = false;
     renderPhase("settled");
   };
 
@@ -260,9 +264,35 @@ export function createScenePlayback(props: ScenePlaybackProps): SurfacePlayback 
 
   const playManually = (timeline: SceneTimeline): void => {
     clearReplayTimer();
+    state.suspendedWhileHidden = false;
     state.awaitingReplay = false;
     state.intent = "manual-play";
     startTimeline(timeline);
+  };
+
+  // Manual intent wins over scroll position, but never over a hidden document:
+  // pause without changing intent, and resume on return while still centered.
+  const synchronizeManualPlayVisibility = (progress: number): void => {
+    if (document.visibilityState === "hidden") {
+      if (state.phase === "playing") {
+        state.timeline?.pause();
+        state.suspendedWhileHidden = true;
+        renderPhase("paused");
+      }
+      return;
+    }
+    if (!state.suspendedWhileHidden) {
+      return;
+    }
+    if (progress >= startProgress && state.timeline !== undefined) {
+      state.suspendedWhileHidden = false;
+      state.timeline.play();
+      renderPhase("playing");
+    } else if (progress < stopProgress) {
+      // Returned with the stage out of view: fall back to scroll-owned autoplay.
+      state.suspendedWhileHidden = false;
+      state.intent = "auto";
+    }
   };
 
   const handleToggle = (): void => {
@@ -320,6 +350,7 @@ export function createScenePlayback(props: ScenePlaybackProps): SurfacePlayback 
         clearReplayTimer();
       }
       if (state.intent === "manual-play") {
+        synchronizeManualPlayVisibility(progress);
         return;
       }
       if (!autoplayEnabled) {

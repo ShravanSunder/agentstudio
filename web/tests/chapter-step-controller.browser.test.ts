@@ -163,6 +163,25 @@ describe("chapter step tabs", () => {
     controller.destroy();
   });
 
+  it("moves from the focused tab, not the scene-advanced selection", () => {
+    const root = createChapterStepsFixture();
+    const controller = initializeChapterSteps(root);
+    const firstStep = requiredButton(root, '[data-chapter-step="task-drawers"]');
+    const secondStep = requiredButton(root, '[data-chapter-step="git-context"]');
+    firstStep.focus();
+
+    reportSceneStep(root, "files");
+    expect(selectedStepId(root)).toBe("files");
+    expect(document.activeElement).toBe(firstStep);
+
+    firstStep.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, key: "ArrowDown" }));
+
+    expect(selectedStepId(root)).toBe("git-context");
+    expect(document.activeElement).toBe(secondStep);
+
+    controller.destroy();
+  });
+
   it("follows scene progress without moving focus and keeps the last valid step", () => {
     const root = createChapterStepsFixture();
     const requestedSteps: string[] = [];
