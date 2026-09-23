@@ -21,6 +21,9 @@ import {
 
 const noopUnsubscribe = (): void => {};
 const maximumRetainedOrphanCorrelationCount = 128;
+// Consecutive demand acquisitions sent before the client waits for the next worker
+// convergence event. Bounds retries without a clock; every worker event re-admits one.
+const maximumConsecutiveDemandAcquireAttempts = 3;
 const annotationCatalogStagingEncoder = new TextEncoder();
 export {
 	emptyWorktreeAnnotationProjectionSnapshot,
@@ -68,6 +71,21 @@ interface PendingAnnotationCommand {
 	productRequestId: string | null;
 }
 
+interface PendingAnnotationCommandSettlement {
+	readonly reject: (error: Error) => void;
+	readonly resolve: (outcome: WorktreeAnnotationCommandOutcome) => void;
+}
+
+// The worker registers a demanded session only on a committed `demand.acquire`, and a
+// replacement worker starts with none. `committed` is demand this worker holds;
+// `awaitingWorker` is demand to re-acquire on the next worker convergence event.
+interface SessionDemandAcquisition {
+	attemptId: number;
+	consecutiveFailedAttempts: number;
+	refreshesSourceOnReacquire: boolean;
+	state: 'acquiring' | 'awaitingWorker' | 'committed';
+}
+
 interface PendingAnnotationOutputInspection {
 	readonly reject: (error: Error) => void;
 	readonly resolve: (inspection: WorktreeAnnotationOutputInspection) => void;
@@ -87,6 +105,8 @@ export function createWorktreeAnnotationSurfaceClient(
 	const outcomesByProductRequestId = new Map<string, WorktreeAnnotationCommandOutcome>();
 	const degradedFailureByWorkerRequestId = new Map<string, Error>();
 	const demandCountBySessionId = new Map<string, number>();
+	const demandAcquisitionBySessionId = new Map<string, SessionDemandAcquisition>();
+	let nextDemandAcquireAttemptId = 0;
 	const rejectPendingSnapshotWaiters = new Set<(error: Error) => void>();
 	let isDisposed = false;
 	let observedSurfaceEpoch = currentSurfaceEpoch(surfaceClient);
@@ -185,6 +205,7 @@ export function createWorktreeAnnotationSurfaceClient(
 			}
 			if (message.kind === 'annotationProjectionConvergence') {
 				if (message.surface !== surfaceClient.surface) return;
+				reacquireDemandAwaitingWorker();
 				if (message.state.kind === 'ready') {
 					if (message.operationCorrelationId !== null) {
 						const expectedContentSessionIds = [...demandCountBySessionId.keys()];
@@ -312,10 +333,16 @@ export function createWorktreeAnnotationSurfaceClient(
 		},
 	);
 
-	const execute = (
+	// Settlement runs synchronously with the worker message that decides it, so demand
+	// recovery reacts in the same turn as the outcome.
+	const dispatchCommand = (
 		operation: BridgeProductWorktreeAnnotationOperation,
-	): Promise<WorktreeAnnotationCommandOutcome> => {
-		if (isDisposed) return Promise.reject(new Error('Annotation surface client is disposed.'));
+		settlement: PendingAnnotationCommandSettlement,
+	): void => {
+		if (isDisposed) {
+			settlement.reject(new Error('Annotation surface client is disposed.'));
+			return;
+		}
 		let workerRequestId: string;
 		try {
 			workerRequestId =
@@ -328,30 +355,90 @@ export function createWorktreeAnnotationSurfaceClient(
 						})
 					: sendReviewAnnotationCommand(surfaceClient, operation);
 		} catch (error) {
-			return Promise.reject(
+			settlement.reject(
 				error instanceof Error ? error : new Error('Review annotation command admission failed.'),
 			);
+			return;
 		}
-		return new Promise<WorktreeAnnotationCommandOutcome>((resolve, reject): void => {
-			const pendingCommand: PendingAnnotationCommand = {
-				productRequestId: null,
-				reject,
-				resolve,
-			};
-			pendingCommandsByWorkerRequestId.set(workerRequestId, pendingCommand);
-			const degradedFailure = degradedFailureByWorkerRequestId.get(workerRequestId);
-			if (degradedFailure !== undefined) {
-				degradedFailureByWorkerRequestId.delete(workerRequestId);
-				failWorkerRequest(workerRequestId, degradedFailure);
-				return;
-			}
-			const acceptedProductRequestId =
-				acceptedProductRequestIdByWorkerRequestId.get(workerRequestId);
-			if (acceptedProductRequestId !== undefined) {
-				acceptedProductRequestIdByWorkerRequestId.delete(workerRequestId);
-				acceptProductRequest(workerRequestId, acceptedProductRequestId);
-			}
+		const pendingCommand: PendingAnnotationCommand = {
+			productRequestId: null,
+			reject: settlement.reject,
+			resolve: settlement.resolve,
+		};
+		pendingCommandsByWorkerRequestId.set(workerRequestId, pendingCommand);
+		const degradedFailure = degradedFailureByWorkerRequestId.get(workerRequestId);
+		if (degradedFailure !== undefined) {
+			degradedFailureByWorkerRequestId.delete(workerRequestId);
+			failWorkerRequest(workerRequestId, degradedFailure);
+			return;
+		}
+		const acceptedProductRequestId = acceptedProductRequestIdByWorkerRequestId.get(workerRequestId);
+		if (acceptedProductRequestId !== undefined) {
+			acceptedProductRequestIdByWorkerRequestId.delete(workerRequestId);
+			acceptProductRequest(workerRequestId, acceptedProductRequestId);
+		}
+	};
+	const execute = (
+		operation: BridgeProductWorktreeAnnotationOperation,
+	): Promise<WorktreeAnnotationCommandOutcome> =>
+		new Promise<WorktreeAnnotationCommandOutcome>((resolve, reject): void => {
+			dispatchCommand(operation, { reject, resolve });
 		});
+	const settleDemandAcquireAttempt = (
+		sessionId: string,
+		attemptId: number,
+		didCommit: boolean,
+	): void => {
+		const acquisition = demandAcquisitionBySessionId.get(sessionId);
+		if (isDisposed || acquisition?.attemptId !== attemptId) return;
+		if (didCommit) {
+			acquisition.state = 'committed';
+			acquisition.consecutiveFailedAttempts = 0;
+			return;
+		}
+		acquisition.consecutiveFailedAttempts += 1;
+		if (acquisition.consecutiveFailedAttempts < maximumConsecutiveDemandAcquireAttempts) {
+			sendDemandAcquire(sessionId);
+			return;
+		}
+		acquisition.state = 'awaitingWorker';
+	};
+	const sendDemandAcquire = (sessionId: string): void => {
+		const acquisition = demandAcquisitionBySessionId.get(sessionId);
+		if (acquisition === undefined) return;
+		nextDemandAcquireAttemptId += 1;
+		const attemptId = nextDemandAcquireAttemptId;
+		acquisition.attemptId = attemptId;
+		acquisition.state = 'acquiring';
+		dispatchCommand(
+			{ kind: 'demand.acquire', sessionId },
+			{
+				reject: (): void => settleDemandAcquireAttempt(sessionId, attemptId, false),
+				resolve: (outcome): void =>
+					settleDemandAcquireAttempt(sessionId, attemptId, outcome.status.kind === 'committed'),
+			},
+		);
+	};
+	const reacquireDemandAwaitingWorker = (): void => {
+		for (const [sessionId, acquisition] of demandAcquisitionBySessionId) {
+			if (acquisition.state !== 'awaitingWorker') continue;
+			const refreshesSource = acquisition.refreshesSourceOnReacquire;
+			acquisition.refreshesSourceOnReacquire = false;
+			sendDemandAcquire(sessionId);
+			if (refreshesSource && demandAcquisitionBySessionId.has(sessionId)) {
+				refreshDemandedSession(sessionId);
+			}
+		}
+	};
+	const retireDemandForWorkerReplacement = (): void => {
+		for (const acquisition of demandAcquisitionBySessionId.values()) {
+			// A fresh attempt id retires any in-flight attempt owned by the old worker.
+			nextDemandAcquireAttemptId += 1;
+			acquisition.attemptId = nextDemandAcquireAttemptId;
+			acquisition.consecutiveFailedAttempts = 0;
+			acquisition.refreshesSourceOnReacquire = true;
+			acquisition.state = 'awaitingWorker';
+		}
 	};
 	const inspectOutput = (attemptId: string): Promise<WorktreeAnnotationOutputInspection> => {
 		if (isDisposed) return Promise.reject(new Error('Annotation surface client is disposed.'));
@@ -430,6 +517,9 @@ export function createWorktreeAnnotationSurfaceClient(
 			completedReviewAnnotationApplicationCheckpoint = null;
 			pendingReviewAnnotationApplicationCheckpoint = null;
 			projectionStore.prepareForWorkerReplacement();
+			// The retiring worker still owns the port here; re-acquire once the replacement
+			// reports its first projection convergence.
+			retireDemandForWorkerReplacement();
 		}) ?? noopUnsubscribe;
 
 	return {
@@ -438,7 +528,13 @@ export function createWorktreeAnnotationSurfaceClient(
 			demandCountBySessionId.set(sessionId, currentDemandCount + 1);
 			if (currentDemandCount === 0) {
 				projectionStore.markSessionDemanded(sessionId);
-				void execute({ kind: 'demand.acquire', sessionId }).catch((): void => {});
+				demandAcquisitionBySessionId.set(sessionId, {
+					attemptId: 0,
+					consecutiveFailedAttempts: 0,
+					refreshesSourceOnReacquire: false,
+					state: 'acquiring',
+				});
+				sendDemandAcquire(sessionId);
 				refreshDemandedSession(sessionId);
 				void execute({ kind: 'output.history', sessionId }).catch((): void => {});
 			}
@@ -452,6 +548,7 @@ export function createWorktreeAnnotationSurfaceClient(
 					return;
 				}
 				demandCountBySessionId.delete(sessionId);
+				demandAcquisitionBySessionId.delete(sessionId);
 				void execute({ kind: 'demand.release', sessionId }).catch((): void => {});
 			};
 		},
@@ -493,6 +590,7 @@ export function createWorktreeAnnotationSurfaceClient(
 			for (const rejectWaiter of rejectPendingSnapshotWaiters) rejectWaiter(disposalError);
 			rejectPendingSnapshotWaiters.clear();
 			demandCountBySessionId.clear();
+			demandAcquisitionBySessionId.clear();
 		},
 		execute,
 		getCatalogSnapshot: projectionStore.getCatalogSnapshot,

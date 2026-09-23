@@ -275,6 +275,104 @@ test('reclaims a durable Review draft after worker failure and one unavailable r
 	}
 });
 
+test('re-establishes annotation demand after an in-place worker replacement so Copy is enabled without reload', async () => {
+	// Arrange — a saved Review annotation makes the drawer's output controls usable.
+	const fixture = await createBridgeViewerViteProductFixture();
+	let server: BridgeViewerOwnedViteProductServer | null = null;
+	let browser: Browser | null = null;
+	let phase = 'fixture-ready';
+	try {
+		browser = await chromium.launch({ channel: 'chrome', headless: true });
+		server = await startBridgeViewerOwnedViteProductServer(fixture.oracle);
+		const page = await browser.newPage({ viewport: { height: 980, width: 1728 } });
+		const reviewFile = fixture.oracle.reviewFiles[0];
+		if (reviewFile === undefined) throw new Error('Demand replay requires a real Review file.');
+		let mainFrameNavigationCount = 0;
+		page.on('framenavigated', (frame): void => {
+			if (frame === page.mainFrame()) mainFrameNavigationCount += 1;
+		});
+		const initialBootstrapResponse = page.waitForResponse(
+			(response): boolean => isBootstrapResponse(response, 'initial'),
+			{ timeout: 30_000 },
+		);
+		const [initialResponse] = await Promise.all([
+			initialBootstrapResponse,
+			page.goto(bridgeViewerViteProductReviewUrl(server.origin), {
+				timeout: 120_000,
+				waitUntil: 'domcontentloaded',
+			}),
+		]);
+		phase = 'review-ready';
+		await selectReviewFile({ page, path: reviewFile.path });
+		await waitForSelectedReviewReady({ itemId: reviewFile.itemId, page });
+		await selectRangeForAnnotation({ endLine: 5, page, startLine: 2, surface: 'review' });
+		const savedBody = 'Saved annotation stays shareable across an in-place worker replacement.';
+		phase = 'annotation-saving';
+		const draftCreated = waitForCommittedAnnotationCommand(page, 'root.create', 'review');
+		await Promise.all([
+			draftCreated,
+			page.getByRole('textbox', { name: 'Write an annotation in Markdown' }).fill(savedBody),
+		]);
+		const saveButton = page.getByRole('button', { name: 'Save annotation', exact: true });
+		await expect
+			.poll(async (): Promise<boolean> => saveButton.isEnabled(), { timeout: 30_000 })
+			.toBe(true);
+		const saved = waitForCommittedAnnotationCommand(page, 'draft.save', 'review');
+		await Promise.all([saved, saveButton.click()]);
+		await page.getByText(savedBody, { exact: true }).waitFor({ state: 'visible', timeout: 30_000 });
+		const worker = page
+			.workers()
+			.find((candidate) => candidate.url().includes('bridge-comm-worker-vite-entry.ts'));
+		if (worker === undefined) throw new Error('The real pane comm worker was not created.');
+
+		// Act — an uncaught worker error retires the worker; native answers the replacement in place.
+		phase = 'worker-replacing';
+		const replacementBootstrap = page.waitForResponse(
+			(response): boolean => isBootstrapResponse(response, 'workerReplacement'),
+			{ timeout: 30_000 },
+		);
+		const [replacementResponse] = await Promise.all([
+			replacementBootstrap,
+			worker.evaluate((): void => {
+				queueMicrotask((): never => {
+					throw new Error('Controlled comm-worker failure for annotation demand replay proof.');
+				});
+			}),
+		]);
+		expect(await bootstrapWorkerInstanceId(replacementResponse)).not.toBe(
+			await bootstrapWorkerInstanceId(initialResponse),
+		);
+
+		// Assert — without a reload, the replacement worker holds the session demand again.
+		phase = 'output-controls-waiting';
+		await page.getByRole('button', { name: 'Annotations', exact: true }).click();
+		const copyButton = page.getByRole('button', { name: 'Copy Markdown' });
+		await expect
+			.poll(async (): Promise<boolean> => copyButton.isEnabled(), { timeout: 30_000 })
+			.toBe(true);
+		expect(mainFrameNavigationCount).toBe(1);
+	} catch (error) {
+		throw new Error(
+			`Annotation demand replay journey failed at ${phase}. Backend: ${server?.diagnostics() ?? 'not started'}`,
+			{ cause: error },
+		);
+	} finally {
+		try {
+			await browser?.close();
+		} finally {
+			try {
+				if (server !== null) {
+					const cleanup = await server.stop();
+					expect(cleanup.ownedProcessAliveAfterStop).toBe(false);
+					expect(cleanup.forcedTerminationRequired).toBe(false);
+				}
+			} finally {
+				await fixture.dispose();
+			}
+		}
+	}
+});
+
 function bootstrapReason(request: Request): string | null {
 	const body: unknown = request.postDataJSON();
 	return typeof body === 'object' &&
