@@ -313,17 +313,24 @@ extension WebKitSerializedTests.WorkspaceHeldPreviewBridgeAdmissionTests {
         try #require(fixture.heldState.beginSpaceHold(requestedTarget: target))
         fixture.coordinator.prepareHeldPanePreview()
         fixture.paneTabController.viewWillLayout()
+        fixture.paneTabController.view.layoutSubtreeIfNeeded()
         try #require(fixture.heldState.presentedTarget == target)
+        try #require(fixture.bridgeHost.window === fixture.window)
         try #require(
             fixture.paneTabController.tabHostViewForTesting(tabId: fixture.workspace.bridgeTab.id)?
                 .isHidden == false
         )
+        let repeatedPageResponse = try await controller.page.callJavaScript("return 2 + 2;")
+        try #require((repeatedPageResponse as? NSNumber)?.intValue == 4)
         fixture.heldState.cancelIfHeld()
         fixture.paneTabController.viewWillLayout()
+        fixture.paneTabController.view.layoutSubtreeIfNeeded()
         try #require(
             fixture.paneTabController.tabHostViewForTesting(tabId: fixture.workspace.canonicalTab.id)?
                 .isHidden == false
         )
         try #require(fixture.viewRegistry.allBridgeViews[fixture.workspace.bridgePane.id] === fixture.bridgeMount)
+        let restoredPageResponse = try await controller.page.callJavaScript("return 3 + 3;")
+        try #require((restoredPageResponse as? NSNumber)?.intValue == 6)
     }
 }
