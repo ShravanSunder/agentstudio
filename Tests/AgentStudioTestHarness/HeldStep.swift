@@ -23,11 +23,26 @@ package final class HeldStep<Arrival: Sendable>: Sendable {
     /// that is never reached, or is reached the wrong way, is identifiable.
     package let name: String
     private let cancellationPolicy: HeldStepCancellationPolicy
+    private let eventLog: HeldStepEventLog
+    private let test: String
     private let state = Mutex(HeldStepState<Arrival>())
 
-    package init(_ name: String, cancellation cancellationPolicy: HeldStepCancellationPolicy = .resumeOnCancellation) {
+    /// - Parameters:
+    ///   - eventLog: defaults to the log the lane names in
+    ///     `AGENTSTUDIO_HELD_STEP_LOG`, or none.
+    ///   - fileID, function: identify the test in the event log; they default to
+    ///     the place that created the step.
+    package init(
+        _ name: String,
+        cancellation cancellationPolicy: HeldStepCancellationPolicy = .resumeOnCancellation,
+        eventLog: HeldStepEventLog = .environment,
+        fileID: String = #fileID,
+        function: String = #function
+    ) {
         self.name = name
         self.cancellationPolicy = cancellationPolicy
+        self.eventLog = eventLog
+        self.test = "\(fileID) \(function)"
     }
 
     /// Records an arrival and suspends until the step is released, failed or
@@ -106,7 +121,10 @@ package final class HeldStep<Arrival: Sendable>: Sendable {
     /// cancels the waiting test and this throws ``HeldStepNeverReached`` naming
     /// the step.
     package func firstArrival() async throws -> Arrival {
-        let waiterID = state.withLock { $0.allocateID() }
+        let (waiterID, hasArrival) = state.withLock { ($0.allocateID(), !$0.arrivals.isEmpty) }
+        if !hasArrival {
+            eventLog.recordWaiting(stepName: name, test: test)
+        }
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Arrival, any Error>) in
                 let outcome = state.withLock { state -> Result<Arrival, any Error>? in
@@ -196,6 +214,9 @@ package final class HeldStep<Arrival: Sendable>: Sendable {
 
     private func admitArrival(_ arrival: Arrival, parking: HeldStepParking) -> HeldStepAdmission<Arrival> {
         let admission = state.withLock { $0.admit(arrival, parking: parking) }
+        if admission.isFirstArrival {
+            eventLog.recordArrived(stepName: name)
+        }
         for waiter in admission.firstArrivalWaiters {
             waiter.resume(returning: arrival)
         }
@@ -280,6 +301,7 @@ private enum HeldStepParking {
 }
 
 private struct HeldStepAdmission<Arrival: Sendable> {
+    let isFirstArrival: Bool
     let parkingID: UInt64
     let terminal: HeldStepTerminal?
     let firstArrivalWaiters: [CheckedContinuation<Arrival, any Error>]
@@ -324,13 +346,23 @@ private struct HeldStepState<Arrival: Sendable> {
             firstArrivalWaiters.removeAll()
         }
         if let terminal {
-            return HeldStepAdmission(parkingID: 0, terminal: terminal, firstArrivalWaiters: waiters)
+            return HeldStepAdmission(
+                isFirstArrival: arrivals.count == 1,
+                parkingID: 0,
+                terminal: terminal,
+                firstArrivalWaiters: waiters
+            )
         }
         let parkingID = allocateID()
         if case .blocking(let semaphore) = parking {
             parkedBlockingArrivals[parkingID] = semaphore
         }
-        return HeldStepAdmission(parkingID: parkingID, terminal: nil, firstArrivalWaiters: waiters)
+        return HeldStepAdmission(
+            isFirstArrival: arrivals.count == 1,
+            parkingID: parkingID,
+            terminal: nil,
+            firstArrivalWaiters: waiters
+        )
     }
 
     /// Records a blocking arrival made from inside a task and hands back every

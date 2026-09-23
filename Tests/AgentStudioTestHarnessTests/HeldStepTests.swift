@@ -1,4 +1,5 @@
 import AgentStudioTestHarness
+import Foundation
 import Testing
 
 @Suite("HeldStep")
@@ -193,6 +194,33 @@ struct HeldStepTests {
         // Assert
         let error = await #expect(throws: HeldStepNeverReached.self) { try await waiting.value }
         #expect(error?.stepName == "never-reached")
+    }
+
+    @Test("the event log records a wait with its test, and only the first arrival")
+    func eventLogRecordsWaitingAndFirstArrival() async throws {
+        // Arrange
+        let logURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("held-step-log-\(ProcessInfo.processInfo.globallyUniqueString).log")
+        defer { try? FileManager.default.removeItem(at: logURL) }
+        let step = HeldStep<Int>("logged step", eventLog: HeldStepEventLog(path: logURL.path))
+        let waiting = Task { try await step.firstArrival() }
+        waiting.cancel()
+        await #expect(throws: HeldStepNeverReached.self) { try await waiting.value }
+
+        // Act
+        step.release()
+        try await step.arrive(1)
+        try await step.arrive(2)
+
+        // Assert
+        let lines = try String(contentsOf: logURL, encoding: .utf8).split(separator: "\n").map(String.init)
+        #expect(
+            lines == [
+                "waiting\tlogged step\tAgentStudioTestHarnessTests/HeldStepTests.swift "
+                    + "eventLogRecordsWaitingAndFirstArrival()",
+                "arrived\tlogged step",
+            ]
+        )
     }
 }
 
