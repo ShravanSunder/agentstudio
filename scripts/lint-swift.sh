@@ -17,23 +17,20 @@ report_stage_time() {
 }
 
 # Builds the architecture lint tool in release (debug parsing is ~40x slower)
-# inside this checkout's build slot, then lints. Arguments are passed to the
-# tool: roots to parse, plus `--only <file>` for a scoped run.
+# inside this checkout's build slot, then lints. The tool is a standalone
+# package that consumes no vendored framework. Arguments are passed to the
+# tool: roots to parse, plus `--only <file>` for a scoped run. The stage time
+# includes the up-to-date check; the tool prints its own parse, prepare and
+# validate times.
 run_architecture_lint() {
   echo "--- AgentStudio architecture lint ---"
   source "${repository_root}/scripts/swift-build-slot.sh"
-  local build_path="${repository_root}/${SWIFT_BUILD_DIR}/architecture-lint"
   local stage_started_ms
   stage_started_ms="$(now_ms)"
-  swift build -c release --package-path Tools/AgentStudioArchitectureLint \
-    --build-path "$build_path" \
-    --product agentstudio-architecture-lint 2>&1 \
-    || { echo "agentstudio architecture lint: build FAIL"; exit 1; }
-  report_stage_time "architecture-lint-build" "$stage_started_ms"
-
-  stage_started_ms="$(now_ms)"
   local lint_status=0
-  "${build_path}/release/agentstudio-architecture-lint" --timings \
+  swift run -c release --package-path Tools/AgentStudioArchitectureLint \
+    --build-path "${repository_root}/${SWIFT_BUILD_DIR}/architecture-lint" \
+    agentstudio-architecture-lint --timings \
     --ledger Tools/AgentStudioArchitectureLint/architecture-debt-ledger.tsv \
     "$@" 2>&1 || lint_status=$?
   report_stage_time "architecture-lint" "$stage_started_ms"

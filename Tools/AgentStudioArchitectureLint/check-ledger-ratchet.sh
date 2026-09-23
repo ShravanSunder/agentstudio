@@ -25,9 +25,6 @@ echo "check-ledger-ratchet: comparing ${ledger_path} with merge base ${merge_bas
 
 source "${repository_root}/scripts/swift-build-slot.sh"
 build_path="${repository_root}/${SWIFT_BUILD_DIR}/architecture-lint"
-swift build -c release --package-path Tools/AgentStudioArchitectureLint \
-  --build-path "$build_path" \
-  --product agentstudio-architecture-lint
 
 # The merge-base copy lives in this checkout's build slot, beside the tool.
 # It is absent when the merge base has no ledger.
@@ -37,6 +34,8 @@ if git cat-file -e "${merge_base}:${ledger_path}" 2>/dev/null; then
   git show "${merge_base}:${ledger_path}" > "$base_ledger_copy"
 fi
 
-"${build_path}/release/agentstudio-architecture-lint" \
+swift run -c release --package-path Tools/AgentStudioArchitectureLint \
+  --build-path "$build_path" \
+  agentstudio-architecture-lint \
   --ledger "$ledger_path" \
   --check-ledger-ratchet "$base_ledger_copy"
