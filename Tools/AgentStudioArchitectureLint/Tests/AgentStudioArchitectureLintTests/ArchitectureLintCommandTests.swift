@@ -210,6 +210,24 @@ struct ArchitectureLintCommandTests {
         #expect(noBaseResult.output.contains("no debt ledger at the merge base"))
     }
 
+    @Test("configuration diagnostics are reported by full runs only")
+    func configurationDiagnosticsAreReportedByFullRunsOnly() throws {
+        let fixture = fixturePath("Good")
+        let scopedFile = "Sources/AgentStudio/AtomRegistry.swift"
+
+        let full = runCommand(arguments: [fixture], workspaceRootPath: fixture, rules: [StaleOwnerRule()])
+        let scoped = runCommand(
+            arguments: [fixture, "--only", scopedFile],
+            workspaceRootPath: fixture,
+            rules: [StaleOwnerRule()]
+        )
+
+        #expect(full.exitCode == 1)
+        #expect(full.output.contains("[agentstudio_test_stale_owner] stale owner"))
+        #expect(scoped.exitCode == 0, Comment(rawValue: scoped.output))
+        #expect(!scoped.output.contains("stale owner"))
+    }
+
     @Test("relative single-file paths receive the same architecture classification")
     func relativeSingleFilePathsReceiveArchitectureClassification() throws {
         let badFixtureRoot = fixturePath("Bad")
@@ -317,6 +335,23 @@ struct ArchitectureLintCommandTests {
         let output = (try? String(contentsOf: outputURL, encoding: .utf8)) ?? ""
         let error = (try? String(contentsOf: errorURL, encoding: .utf8)) ?? ""
         return CommandRunResult(exitCode: exitCode, output: output + error)
+    }
+}
+
+private struct StaleOwnerRule: ArchitectureRule {
+    let id = "agentstudio_test_stale_owner"
+    let severity = ArchitectureSeverity.error
+    let message = "stale owner"
+
+    func validate(context: ArchitectureLintContext) -> [ArchitectureDiagnostic] {
+        []
+    }
+
+    func configurationDiagnostics() -> [ArchitectureDiagnostic] {
+        [
+            ArchitectureDiagnostic(
+                path: "Owner.swift", line: 1, column: 1, severity: severity, ruleID: id, message: message)
+        ]
     }
 }
 

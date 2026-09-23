@@ -73,7 +73,8 @@ struct ArchitectureLintEngine {
         let validateDuration = validateStart.duration(to: clock.now)
 
         var ruleDurations = preparations.map(\.duration) + documentRules.map { _ in Duration.zero }
-        var diagnostics: [ArchitectureDiagnostic] = []
+        var diagnostics: [ArchitectureDiagnostic] =
+            validatedFiles == nil ? preparedRules.flatMap { $0.configurationDiagnostics() } : []
         for documentValidation in documentValidations {
             diagnostics.append(contentsOf: documentValidation.diagnostics)
             for (ruleIndex, duration) in documentValidation.ruleDurations.enumerated() {

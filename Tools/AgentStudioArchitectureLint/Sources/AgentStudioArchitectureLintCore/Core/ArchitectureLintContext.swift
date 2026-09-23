@@ -6,7 +6,7 @@ struct ArchitectureLintContext {
     let path: String
     let source: String
     let sourceFile: SourceFileSyntax
-    private let workspaceRootPath: String
+    let workspaceRootPath: String
     private let lineTable: LazySourceLineTable
 
     init(

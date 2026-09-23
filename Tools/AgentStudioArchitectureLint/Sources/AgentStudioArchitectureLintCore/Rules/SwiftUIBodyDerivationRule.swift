@@ -56,14 +56,21 @@ struct SwiftUIBodyDerivationRule: ArchitectureRule {
 
         var positions: Set<AbsolutePosition> = []
         var pending = declarations.bodies
-        var visitedHelperNames: Set<String> = []
+        var visitedHelpers: Set<SameFileMember> = []
         while let renderPath = pending.popLast() {
             let visitor = RenderPathVisitor(commandValidatingResolvers: commandValidatingResolvers)
-            visitor.walk(renderPath)
+            visitor.walk(renderPath.syntax)
             positions.formUnion(visitor.positions)
-            for helperName in visitor.referencedNames.subtracting(visitedHelperNames) {
-                visitedHelperNames.insert(helperName)
-                pending.append(contentsOf: declarations.helpersByName[helperName, default: []])
+            for helperName in visitor.referencedNames {
+                // A name resolves to a member of the body's own type, or else
+                // to a file-scope function; never to another type's member.
+                let ownMember = SameFileMember(typeName: renderPath.typeName, name: helperName)
+                let fileMember = SameFileMember(typeName: "", name: helperName)
+                let member = declarations.helpers[ownMember] == nil ? fileMember : ownMember
+                guard let helpers = declarations.helpers[member], visitedHelpers.insert(member).inserted else {
+                    continue
+                }
+                pending.append(contentsOf: helpers)
             }
         }
         return positions.sorted { $0.utf8Offset < $1.utf8Offset }.map { diagnostic(context: context, position: $0) }
@@ -72,17 +79,78 @@ struct SwiftUIBodyDerivationRule: ArchitectureRule {
 
 /// The file's `body: some View` accessors and its methods and computed
 /// properties by name — the helpers a body can reach.
+private struct SameFileMember: Hashable {
+    /// The enclosing type or extended type; empty at file scope.
+    let typeName: String
+    let name: String
+}
+
+private struct RenderPathSyntax {
+    let typeName: String
+    let syntax: Syntax
+}
+
 private final class SameFileMemberCollector: SyntaxVisitor {
-    private(set) var bodies: [Syntax] = []
-    private(set) var helpersByName: [String: [Syntax]] = [:]
+    private(set) var bodies: [RenderPathSyntax] = []
+    private(set) var helpers: [SameFileMember: [RenderPathSyntax]] = [:]
+    private var typeNames: [String] = []
 
     init() {
         super.init(viewMode: .sourceAccurate)
     }
 
+    private var typeName: String {
+        typeNames.last ?? ""
+    }
+
+    override func visit(_ node: StructDeclSyntax) -> SyntaxVisitorContinueKind {
+        typeNames.append(node.name.text)
+        return .visitChildren
+    }
+
+    override func visitPost(_ node: StructDeclSyntax) {
+        typeNames.removeLast()
+    }
+
+    override func visit(_ node: ClassDeclSyntax) -> SyntaxVisitorContinueKind {
+        typeNames.append(node.name.text)
+        return .visitChildren
+    }
+
+    override func visitPost(_ node: ClassDeclSyntax) {
+        typeNames.removeLast()
+    }
+
+    override func visit(_ node: EnumDeclSyntax) -> SyntaxVisitorContinueKind {
+        typeNames.append(node.name.text)
+        return .visitChildren
+    }
+
+    override func visitPost(_ node: EnumDeclSyntax) {
+        typeNames.removeLast()
+    }
+
+    override func visit(_ node: ActorDeclSyntax) -> SyntaxVisitorContinueKind {
+        typeNames.append(node.name.text)
+        return .visitChildren
+    }
+
+    override func visitPost(_ node: ActorDeclSyntax) {
+        typeNames.removeLast()
+    }
+
+    override func visit(_ node: ExtensionDeclSyntax) -> SyntaxVisitorContinueKind {
+        typeNames.append(node.extendedType.trimmedDescription)
+        return .visitChildren
+    }
+
+    override func visitPost(_ node: ExtensionDeclSyntax) {
+        typeNames.removeLast()
+    }
+
     override func visitPost(_ node: FunctionDeclSyntax) {
         if let body = node.body {
-            helpersByName[node.name.text, default: []].append(Syntax(body))
+            record(name: node.name.text, syntax: Syntax(body))
         }
     }
 
@@ -96,10 +164,15 @@ private final class SameFileMemberCollector: SyntaxVisitor {
             name == "body"
             && node.typeAnnotation?.type.trimmedDescription == "some View"
         if isViewBody {
-            bodies.append(Syntax(accessors))
+            bodies.append(RenderPathSyntax(typeName: typeName, syntax: Syntax(accessors)))
         } else {
-            helpersByName[name, default: []].append(Syntax(accessors))
+            record(name: name, syntax: Syntax(accessors))
         }
+    }
+
+    private func record(name: String, syntax: Syntax) {
+        helpers[SameFileMember(typeName: typeName, name: name), default: []]
+            .append(RenderPathSyntax(typeName: typeName, syntax: syntax))
     }
 }
 

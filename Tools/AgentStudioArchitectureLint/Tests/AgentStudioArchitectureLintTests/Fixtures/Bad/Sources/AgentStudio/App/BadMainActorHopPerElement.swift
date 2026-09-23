@@ -49,6 +49,19 @@ final class BadDiscardedComparisonConsumer {
 }
 
 @MainActor
+final class BadConstantComparisonConsumer {
+    var lastValue = 0
+
+    func consume(stream: AsyncStream<Int>) async {
+        for await value in stream {
+            if value != 0 {
+                lastValue = value
+            }
+        }
+    }
+}
+
+@MainActor
 final class BadMainActorStreamOwner {
     var lastValue = 0
 

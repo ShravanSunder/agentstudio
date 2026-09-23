@@ -42,17 +42,28 @@ enum ArchitectureAllowlists {
 
     /// Test files that own a blocking wait on purpose and document where the
     /// block lands: off the cooperative pool, or on a dispatch queue of their
-    /// own such as the socket listener's handler queue.
-    static let blockingTestWaitOwners = [
-        "/Tests/AgentStudioTests/TestSupport/BlockingWorkOffCooperativePool.swift",
-        "/Tests/AgentStudioAppIPCTests/AgentStudioAppIPCSocketTestSupport.swift",
-        "/Tests/AgentStudioAppIPCTests/CLISubprocessTestRunner.swift",
-    ]
-
+    /// own such as the socket listener's handler queue. A full lint run fails
+    /// when an owner's file is gone or no longer blocks at all.
+    ///
     /// Blocking waits outside these owners are frozen per file by count in
     /// the debt ledger (`architecture-debt-ledger.tsv`), not listed here:
     /// this list is ownership, not debt.
-    static let blockingTestWaitAllowedPathSuffixes = blockingTestWaitOwners
+    static let blockingTestWaitOwners = [
+        BlockingWaitOwner(
+            path: "Tests/AgentStudioAppIPCTests/AgentStudioAppIPCSocketTestSupport.swift",
+            owner: "AppIPC synchronous client shims",
+            reason:
+                "AgentStudioIPCClient blocks in UnixSocketConnection.receive; the shims move that wait to a "
+                + "libdispatch thread so the server's connection handler keeps its cooperative thread"
+        ),
+        BlockingWaitOwner(
+            path: "Tests/AgentStudioAppIPCTests/CLISubprocessTestRunner.swift",
+            owner: "CLI subprocess runner",
+            reason:
+                "Waits for the CLI child on a semaphore and reaps it with waitUntilExit on a dispatch thread, "
+                + "bounded by the runner's hang guard"
+        ),
+    ]
 
     static let rawRepoCacheMembers = Set([
         "repoEnrichmentByRepoId",
@@ -100,6 +111,14 @@ enum ArchitectureAllowlists {
         "CoreAtoms",
         "CoreAtomScope",
     ])
+}
+
+/// A test file allowed to block, with who owns the blocking wait and why.
+struct BlockingWaitOwner: Sendable {
+    /// Repository-relative path.
+    let path: String
+    let owner: String
+    let reason: String
 }
 
 /// One code site a rule allows on purpose, with who owns it and why. This is

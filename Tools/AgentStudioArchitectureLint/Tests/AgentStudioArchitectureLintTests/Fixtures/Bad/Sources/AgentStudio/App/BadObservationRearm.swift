@@ -50,4 +50,39 @@ final class BadObservationRearm {
             self?.observeWithLatchNeverCleared()
         }
     }
+
+    func observeWithConstantFence() {
+        let captured = generation
+        withObservationTracking {
+            _ = source
+        } onChange: { [weak self] in
+            guard let self else { return }
+            guard captured == 0 else { return }
+            self.observeWithConstantFence()
+        }
+    }
+
+    func observeWithLatchSetAfterArming() {
+        guard !isObserving else { return }
+        withObservationTracking {
+            _ = source
+        } onChange: { [weak self] in
+            self?.isObserving = false
+            self?.observeWithLatchSetAfterArming()
+        }
+        isObserving = true
+    }
+
+    func observeWithLatchSetOnlyInBranch(force: Bool) {
+        guard !isObserving else { return }
+        if force {
+            isObserving = true
+        }
+        withObservationTracking {
+            _ = source
+        } onChange: { [weak self] in
+            self?.isObserving = false
+            self?.observeWithLatchSetOnlyInBranch(force: force)
+        }
+    }
 }

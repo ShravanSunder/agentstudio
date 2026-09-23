@@ -151,21 +151,25 @@ extension ForStmtSyntax {
         guard let elementName = pattern.as(IdentifierPatternSyntax.self)?.identifier.text else {
             return false
         }
+        let localNames = LocalBindingNameCollector.names(in: Syntax(body)).union([elementName])
         let statements = body.statements.drop { $0.isBindingOrCancellationCheck }
         guard let first = statements.first else {
             return false
         }
         if let guardStatement = first.item.as(GuardStmtSyntax.self) {
             return guardStatement.body.exitsScope
-                && guardStatement.conditions.comparesElement(elementName, operator: "!=")
+                && guardStatement.conditions.comparesElement(elementName, operator: "!=", localNames: localNames)
         }
         guard let ifExpression = first.ifExpression else {
             return false
         }
-        if ifExpression.body.exitsScope, ifExpression.conditions.comparesElement(elementName, operator: "==") {
+        if ifExpression.body.exitsScope,
+            ifExpression.conditions.comparesElement(elementName, operator: "==", localNames: localNames)
+        {
             return true
         }
-        return statements.count == 1 && ifExpression.conditions.comparesElement(elementName, operator: "!=")
+        return statements.count == 1
+            && ifExpression.conditions.comparesElement(elementName, operator: "!=", localNames: localNames)
     }
 }
 
@@ -189,13 +193,24 @@ extension CodeBlockItemSyntax {
 extension ConditionElementListSyntax {
     /// Some condition compares the loop element (or a member of it) with
     /// another value using `operatorText`.
-    fileprivate func comparesElement(_ elementName: String, operator operatorText: String) -> Bool {
+    /// Some condition compares the loop element (or a member of it) with the
+    /// last published value: stored state, not a literal or a loop local.
+    fileprivate func comparesElement(
+        _ elementName: String,
+        operator operatorText: String,
+        localNames: Set<String>
+    ) -> Bool {
         contains { element in
             guard let condition = element.condition.as(ExprSyntax.self) else {
                 return false
             }
             return condition.binaryOperands(operator: operatorText).contains { comparison in
-                comparison.left.mentions(elementName) != comparison.right.mentions(elementName)
+                let leftMentions = comparison.left.mentions(elementName)
+                guard leftMentions != comparison.right.mentions(elementName) else {
+                    return false
+                }
+                let other = leftMentions ? comparison.right : comparison.left
+                return other.readsStoredState(excludingLocalNames: localNames)
             }
         }
     }

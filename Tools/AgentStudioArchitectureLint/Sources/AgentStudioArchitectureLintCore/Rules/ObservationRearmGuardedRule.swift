@@ -160,8 +160,10 @@ private enum GenerationFence {
     /// re-arm is controlled by an earlier statement in the same block —
     /// `guard stored == captured else { exit }` or
     /// `if stored != captured { exit }` — or by an enclosing
-    /// `if stored == captured` whose body holds the re-arm.
+    /// `if stored == captured` whose body holds the re-arm. `stored` must be
+    /// stored state (see `readsStoredState`), not a literal or a local.
     static func controls(rearm: Syntax, within onChange: Syntax, capturedNames: Set<String>) -> Bool {
+        let localNames = capturedNames.union(LocalBindingNameCollector.names(in: onChange))
         var child = rearm
         var current = rearm.parent
         while let node = current, node != onChange {
@@ -172,12 +174,16 @@ private enum GenerationFence {
                     }
                     if let guardStatement = sibling.item.as(GuardStmtSyntax.self),
                         guardStatement.body.exitsScope,
-                        comparesCaptured(guardStatement.conditions, operator: "==", capturedNames: capturedNames)
+                        comparesCaptured(
+                            guardStatement.conditions, operator: "==", capturedNames: capturedNames,
+                            localNames: localNames)
                     {
                         return true
                     }
                     if let ifExpression = sibling.ifExpression, ifExpression.body.exitsScope,
-                        comparesCaptured(ifExpression.conditions, operator: "!=", capturedNames: capturedNames)
+                        comparesCaptured(
+                            ifExpression.conditions, operator: "!=", capturedNames: capturedNames,
+                            localNames: localNames)
                     {
                         return true
                     }
@@ -185,7 +191,8 @@ private enum GenerationFence {
             }
             if let ifExpression = node.as(IfExprSyntax.self),
                 Syntax(ifExpression.body) == child,
-                comparesCaptured(ifExpression.conditions, operator: "==", capturedNames: capturedNames)
+                comparesCaptured(
+                    ifExpression.conditions, operator: "==", capturedNames: capturedNames, localNames: localNames)
             {
                 return true
             }
@@ -195,22 +202,29 @@ private enum GenerationFence {
         return false
     }
 
+    /// Some condition compares a captured value with stored state.
     private static func comparesCaptured(
         _ conditions: ConditionElementListSyntax,
         operator operatorText: String,
-        capturedNames: Set<String>
+        capturedNames: Set<String>,
+        localNames: Set<String>
     ) -> Bool {
         conditions.contains { element in
             guard let condition = element.condition.as(ExprSyntax.self) else {
                 return false
             }
             return condition.binaryOperands(operator: operatorText).contains { comparison in
-                [comparison.left, comparison.right].contains { operand in
+                let isCaptured = { (operand: ExprSyntax) -> Bool in
                     guard let reference = operand.as(DeclReferenceExprSyntax.self) else {
                         return false
                     }
                     return capturedNames.contains(reference.baseName.text)
                 }
+                return
+                    (isCaptured(comparison.left)
+                    && comparison.right.readsStoredState(excludingLocalNames: localNames))
+                    || (isCaptured(comparison.right)
+                        && comparison.left.readsStoredState(excludingLocalNames: localNames))
             }
         }
     }
@@ -219,16 +233,24 @@ private enum GenerationFence {
 /// `guard !flag` and `flag = true` in the arming method, `flag = false` in
 /// `onChange`: arming is refused while a tracking is live.
 private enum ArmLatch {
+    /// On the arming method's straight-line path — its top-level statements
+    /// before the one that arms — a `guard … !flag … else` refuses a second
+    /// arm and `flag = true` records the live tracking; `onChange` clears it.
     static func guards(
         armingFunction: FunctionDeclSyntax,
         trackingCall: FunctionCallExprSyntax,
         onChange: ClosureExprSyntax
     ) -> Bool {
-        guard let body = armingFunction.body else {
+        guard let body = armingFunction.body,
+            let armingIndex = body.statements.firstIndex(where: { statement in
+                statement.position <= trackingCall.position && trackingCall.endPosition <= statement.endPosition
+            })
+        else {
             return false
         }
+        let beforeArming = body.statements[..<armingIndex]
         let refusedFlags = Set(
-            body.statements.compactMap { $0.item.as(GuardStmtSyntax.self) }.flatMap { guardStatement in
+            beforeArming.compactMap { $0.item.as(GuardStmtSyntax.self) }.flatMap { guardStatement in
                 guardStatement.conditions.compactMap { element -> String? in
                     guard let prefix = element.condition.as(PrefixOperatorExprSyntax.self),
                         prefix.operator.text == "!"
@@ -239,35 +261,34 @@ private enum ArmLatch {
                 }
             }
         )
-        guard !refusedFlags.isEmpty else {
-            return false
-        }
-        let setOnArm = BooleanAssignmentCollector.flags(
-            assigned: "true", in: Syntax(body), excluding: Syntax(trackingCall))
-        let clearedOnChange = BooleanAssignmentCollector.flags(assigned: "false", in: Syntax(onChange), excluding: nil)
-        return !refusedFlags.intersection(setOnArm).isDisjoint(with: clearedOnChange)
+        let setBeforeArming = Set(
+            beforeArming.compactMap { statement -> String? in
+                guard let assignment = statement.item.as(ExprSyntax.self)?.assignment,
+                    assignment.value.as(BooleanLiteralExprSyntax.self)?.literal.text == "true"
+                else {
+                    return nil
+                }
+                return assignment.target.referencedPropertyName
+            }
+        )
+        let clearedOnChange = BooleanAssignmentCollector.flags(assigned: "false", in: Syntax(onChange))
+        return !refusedFlags.intersection(setBeforeArming).isDisjoint(with: clearedOnChange)
     }
 }
 
 private final class BooleanAssignmentCollector: SyntaxVisitor {
     private(set) var flags: Set<String> = []
     private let value: String
-    private let excluded: Syntax?
 
-    static func flags(assigned value: String, in syntax: Syntax, excluding excluded: Syntax?) -> Set<String> {
-        let collector = BooleanAssignmentCollector(value: value, excluding: excluded)
+    static func flags(assigned value: String, in syntax: Syntax) -> Set<String> {
+        let collector = BooleanAssignmentCollector(value: value)
         collector.walk(syntax)
         return collector.flags
     }
 
-    private init(value: String, excluding excluded: Syntax?) {
+    private init(value: String) {
         self.value = value
-        self.excluded = excluded
         super.init(viewMode: .sourceAccurate)
-    }
-
-    override func visit(_ node: FunctionCallExprSyntax) -> SyntaxVisitorContinueKind {
-        Syntax(node) == excluded ? .skipChildren : .visitChildren
     }
 
     override func visitPost(_ node: SequenceExprSyntax) {
