@@ -174,7 +174,10 @@ struct WorktreeCreationCoordinatorTests {
             topology: fixture.store.repositoryTopologyAtom,
             gitClient: FakeWorktreeCreationGitClient(ledger: ledger, createError: createError, forkError: forkError),
             publication: FakeWorktreePublication(ledger: ledger),
-            pathExists: { existingPaths.contains($0.standardizedFileURL) },
+            destinationProbe: WorktreeDestinationProbe(
+                canonicalWatchedRoot: { $0 },
+                pathExists: { existingPaths.contains($0.standardizedFileURL) }
+            ),
             presentFailure: { presented.failures.append($0) }
         )
     }

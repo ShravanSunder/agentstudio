@@ -73,11 +73,11 @@ struct WorktreeDestinationPolicyTests {
         let watchedPath = WatchedPath(path: Self.watchedRoot)
         let branchName = try WorktreeBranchName.validated("feat/worktree-commands").get()
 
-        let destination = try WorktreeDestinationPolicy.resolve(
+        let destination = try Self.resolve(
             repositoryPath: Self.repositoryPath,
             branchName: branchName,
             watchedPaths: [watchedPath],
-            pathExists: { _ in false }
+            probe: .lexical(pathExists: { _ in false })
         ).get()
 
         #expect(destination.path.path == "/Users/dev/project-dev/agent-studio.feat-worktree-commands")
@@ -90,11 +90,11 @@ struct WorktreeDestinationPolicyTests {
         let inner = WatchedPath(path: Self.watchedRoot)
         let branchName = try WorktreeBranchName.validated("topic").get()
 
-        let destination = try WorktreeDestinationPolicy.resolve(
+        let destination = try Self.resolve(
             repositoryPath: Self.repositoryPath,
             branchName: branchName,
             watchedPaths: [outer, inner],
-            pathExists: { _ in false }
+            probe: .lexical(pathExists: { _ in false })
         ).get()
 
         #expect(destination.watchedPath == inner)
@@ -105,11 +105,11 @@ struct WorktreeDestinationPolicyTests {
         let watchedPath = WatchedPath(path: URL(filePath: "/private/tmp/watch", directoryHint: .isDirectory))
         let branchName = try WorktreeBranchName.validated("topic").get()
 
-        let destination = try WorktreeDestinationPolicy.resolve(
+        let destination = try Self.resolve(
             repositoryPath: URL(filePath: "/tmp/watch/repo", directoryHint: .isDirectory),
             branchName: branchName,
             watchedPaths: [watchedPath],
-            pathExists: { _ in false }
+            probe: .lexical(pathExists: { _ in false })
         ).get()
 
         #expect(destination.watchedPath == watchedPath)
@@ -122,17 +122,17 @@ struct WorktreeDestinationPolicyTests {
         let hiddenParent = WatchedPath(path: URL(filePath: "/Users", directoryHint: .isDirectory))
         let expectedDestination = URL(filePath: "/Users/dev/.hidden/repo.topic", directoryHint: .isDirectory)
 
-        let outside = WorktreeDestinationPolicy.resolve(
+        let outside = Self.resolve(
             repositoryPath: Self.repositoryPath,
             branchName: branchName,
             watchedPaths: [unrelated],
-            pathExists: { _ in false }
+            probe: .lexical(pathExists: { _ in false })
         )
-        let hidden = WorktreeDestinationPolicy.resolve(
+        let hidden = Self.resolve(
             repositoryPath: URL(filePath: "/Users/dev/.hidden/repo", directoryHint: .isDirectory),
             branchName: branchName,
             watchedPaths: [hiddenParent],
-            pathExists: { _ in false }
+            probe: .lexical(pathExists: { _ in false })
         )
 
         guard case .failure(.undiscoverableDestination) = outside else {
@@ -178,11 +178,11 @@ struct WorktreeDestinationPolicyTests {
             .appending(path: repositoryPath.lastPathComponent + ".topic", directoryHint: .isDirectory)
             .standardizedFileURL
 
-        let result = WorktreeDestinationPolicy.resolve(
+        let result = Self.resolve(
             repositoryPath: repositoryPath,
             branchName: branchName,
             watchedPaths: [WatchedPath(path: URL(filePath: "/Users/dev/watch", directoryHint: .isDirectory))],
-            pathExists: { _ in false }
+            probe: .lexical(pathExists: { _ in false })
         )
 
         if testCase.accepted {
@@ -195,16 +195,39 @@ struct WorktreeDestinationPolicyTests {
         }
     }
 
+    @Test("a symlinked watched folder contains siblings of checkouts discovered through it")
+    func symlinkedWatchedRootContainsDiscoveredSibling() throws {
+        let branchName = try WorktreeBranchName.validated("topic").get()
+        let symlinkRoot = WatchedPath(path: URL(filePath: "/Users/dev/linked-watch", directoryHint: .isDirectory))
+        let realRoot = URL(filePath: "/Volumes/work/watch", directoryHint: .isDirectory)
+        let probe = WorktreeDestinationProbe(
+            canonicalWatchedRoot: {
+                $0.standardizedFileURL.path == symlinkRoot.path.standardizedFileURL.path ? realRoot : $0
+            },
+            pathExists: { _ in false }
+        )
+
+        let destination = try Self.resolve(
+            repositoryPath: realRoot.appending(path: "repo", directoryHint: .isDirectory),
+            branchName: branchName,
+            watchedPaths: [symlinkRoot],
+            probe: probe
+        ).get()
+
+        #expect(destination.path.path == "/Volumes/work/watch/repo.topic")
+        #expect(destination.watchedPath == symlinkRoot)
+    }
+
     @Test("an existing destination is rejected as a collision")
     func existingDestinationIsRejected() throws {
         let branchName = try WorktreeBranchName.validated("topic").get()
         let expectedDestination = Self.watchedRoot.appending(path: "agent-studio.topic", directoryHint: .isDirectory)
 
-        let result = WorktreeDestinationPolicy.resolve(
+        let result = Self.resolve(
             repositoryPath: Self.repositoryPath,
             branchName: branchName,
             watchedPaths: [WatchedPath(path: Self.watchedRoot)],
-            pathExists: { $0 == expectedDestination.standardizedFileURL }
+            probe: .lexical(pathExists: { $0 == expectedDestination.standardizedFileURL })
         )
 
         #expect(result == .failure(.destinationExists(expectedDestination.standardizedFileURL)))
@@ -214,13 +237,34 @@ struct WorktreeDestinationPolicyTests {
     func emptySlugIsRejected() throws {
         let branchName = try WorktreeBranchName.validated("日本").get()
 
-        let result = WorktreeDestinationPolicy.resolve(
+        let result = Self.resolve(
             repositoryPath: Self.repositoryPath,
             branchName: branchName,
             watchedPaths: [WatchedPath(path: Self.watchedRoot)],
-            pathExists: { _ in false }
+            probe: .lexical(pathExists: { _ in false })
         )
 
         #expect(result == .failure(.emptyFolderSlug))
+    }
+
+    private static func resolve(
+        repositoryPath: URL,
+        branchName: WorktreeBranchName,
+        watchedPaths: [WatchedPath],
+        probe: WorktreeDestinationProbe
+    ) -> Result<WorktreeCreationDestination, WorktreeDestinationRejection> {
+        WorktreeDestinationPolicy.resolve(
+            repositoryPath: repositoryPath,
+            branchName: branchName,
+            watchedPaths: watchedPaths,
+            probe: probe
+        )
+    }
+}
+
+extension WorktreeDestinationProbe {
+    /// Watched roots taken as written: the pure placement cases do not involve symlinks.
+    fileprivate static func lexical(pathExists: @escaping @Sendable (URL) -> Bool) -> Self {
+        Self(canonicalWatchedRoot: { $0 }, pathExists: pathExists)
     }
 }

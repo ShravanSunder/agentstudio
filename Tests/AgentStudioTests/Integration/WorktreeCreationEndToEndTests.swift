@@ -42,6 +42,31 @@ struct WorktreeCreationEndToEndTests {
         }
     }
 
+    @Test("a worktree created under a symlinked watched folder is accepted and published")
+    func symlinkedWatchedFolderPublishesCreatedWorktree() async throws {
+        try await withAsyncTestCoreAtoms { atoms in
+            let fixture = try await EndToEndFixture.make(
+                destinationFolderName: "repo.feat-through-link", watchThroughSymlink: true)
+            defer { fixture.remove() }
+            let system = EndToEndSystem.make(repoCache: atoms.repoCache)
+            do {
+                // Act
+                let result = try await createThroughDispatcher(
+                    kind: .cleanCheckout, branch: "feat/through-link", fixture: fixture, system: system)
+
+                // Assert
+                #expect(result.accepted)
+                #expect(
+                    system.store.repositoryTopologyAtom.repo(containing: result.created.id)?.id == result.sourceRepoId)
+                #expect(try await git(fixture.destination, "rev-parse", "--abbrev-ref", "HEAD") == "feat/through-link")
+            } catch {
+                await system.shutdown()
+                throw error
+            }
+            await system.shutdown()
+        }
+    }
+
     @Test("Worktree Fork carries modified, staged, untracked, and ignored files into a published fork")
     func worktreeForkCarriesWorkingStateThroughDiscovery() async throws {
         try await withAsyncTestCoreAtoms { atoms in
@@ -118,6 +143,9 @@ private func createThroughDispatcher(
         body: { AppCommandDispatcher.shared.dispatchWorktreeCreation(request) }
     )
     await delegate.worktreeCreationCoordinator?.waitUntilIdle()
+    // A creation the coordinator refused would otherwise leave the topology wait below
+    // with nothing to wake it.
+    try #require(FileManager.default.fileExists(atPath: fixture.destination.path), "creation produced no worktree")
     await awaitTopology(system.store) { linkedWorktree(in: system.store, fixture: fixture) != nil }
     let created = try #require(linkedWorktree(in: system.store, fixture: fixture))
     return CreationThroughDispatcher(accepted: accepted, created: created, sourceRepoId: source.repoId)
@@ -165,10 +193,11 @@ private func awaitTopology(_ store: WorkspaceStore, until predicate: @escaping @
     }
 }
 
-/// Canonical path text; URL equality would also compare a trailing slash that
-/// `URL(fileURLWithPath:)` adds only once the directory exists.
+/// Canonical path text resolved the way discovery resolves it (through symlinks); URL
+/// equality would also compare a trailing slash that `URL(fileURLWithPath:)` adds only
+/// once the directory exists.
 private func canonicalPath(_ url: URL) -> String {
-    FilesystemRootOwnership.canonicalizeKernelPath(url.standardizedFileURL.path)
+    FilesystemRootOwnership.canonicalizeKernelPath(RepoScanner.canonicalURL(url).path)
 }
 
 @MainActor
@@ -219,15 +248,19 @@ private struct EndToEndSystem {
 }
 
 private struct EndToEndFixture {
+    let fixtureRoot: URL
     let watchedRoot: URL
     let repositoryPath: URL
     let destination: URL
 
-    static func make(destinationFolderName: String) async throws -> Self {
-        let watchedRoot = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+    /// With `watchThroughSymlink`, the watched folder is a symlink to the folder that
+    /// actually holds the repository, as when a user watches a linked projects folder.
+    static func make(destinationFolderName: String, watchThroughSymlink: Bool = false) async throws -> Self {
+        let fixtureRoot = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
             .appending(path: "tmp/worktree-creation-e2e-tests/\(UUIDv7.generate().uuidString)")
             .standardizedFileURL
-        let repositoryPath = watchedRoot.appending(path: "repo")
+        let realRoot = fixtureRoot.appending(path: "watched")
+        let repositoryPath = realRoot.appending(path: "repo")
         try FileManager.default.createDirectory(at: repositoryPath, withIntermediateDirectories: true)
         try "# fixture\n".write(to: repositoryPath.appending(path: "README.md"), atomically: true, encoding: .utf8)
         for args in [
@@ -237,10 +270,18 @@ private struct EndToEndFixture {
         ] {
             try await FilesystemTestGitRepo.runGit(at: repositoryPath, args: args)
         }
+        let watchedRoot: URL
+        if watchThroughSymlink {
+            watchedRoot = fixtureRoot.appending(path: "watched-link")
+            try FileManager.default.createSymbolicLink(at: watchedRoot, withDestinationURL: realRoot)
+        } else {
+            watchedRoot = realRoot
+        }
         return Self(
+            fixtureRoot: fixtureRoot,
             watchedRoot: watchedRoot,
             repositoryPath: repositoryPath,
-            destination: watchedRoot.appending(path: destinationFolderName)
+            destination: realRoot.appending(path: destinationFolderName)
         )
     }
 
@@ -262,6 +303,6 @@ private struct EndToEndFixture {
     }
 
     func remove() {
-        try? FileManager.default.removeItem(at: watchedRoot)
+        try? FileManager.default.removeItem(at: fixtureRoot)
     }
 }

@@ -20,7 +20,7 @@ final class WorktreeCreationCoordinator {
     private let topology: RepositoryTopologyAtom
     private let gitClient: any WorktreeCreationGitClient
     private let publication: any WorktreePublicationHolding
-    private let pathExists: @Sendable (URL) -> Bool
+    private let destinationProbe: WorktreeDestinationProbe
     private let presentFailure: @MainActor (WorktreeCreationFailure) -> Void
     private var inFlightDestinations: Set<URL> = []
     private var creationTasksByID: [UUID: Task<WorktreeCreationOutcome, Never>] = [:]
@@ -29,13 +29,13 @@ final class WorktreeCreationCoordinator {
         topology: RepositoryTopologyAtom,
         gitClient: any WorktreeCreationGitClient,
         publication: any WorktreePublicationHolding,
-        pathExists: @escaping @Sendable (URL) -> Bool = { FileManager.default.fileExists(atPath: $0.path) },
+        destinationProbe: WorktreeDestinationProbe = .live,
         presentFailure: @escaping @MainActor (WorktreeCreationFailure) -> Void
     ) {
         self.topology = topology
         self.gitClient = gitClient
         self.publication = publication
-        self.pathExists = pathExists
+        self.destinationProbe = destinationProbe
         self.presentFailure = presentFailure
     }
 
@@ -78,7 +78,7 @@ final class WorktreeCreationCoordinator {
             repositoryPath: source.repository.repoPath,
             branchName: request.branchName,
             watchedPaths: topology.watchedPaths,
-            pathExists: pathExists
+            probe: destinationProbe
         ) {
         case .success(let resolvedDestination):
             destination = resolvedDestination

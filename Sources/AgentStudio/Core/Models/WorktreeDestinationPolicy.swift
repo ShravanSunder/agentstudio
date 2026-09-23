@@ -7,6 +7,27 @@ package struct WorktreeCreationDestination: Equatable, Sendable {
     package let watchedPath: WatchedPath
 }
 
+/// The filesystem facts destination placement reads. `.live` resolves a watched folder the
+/// way discovery resolves repository paths, so a symlinked watched folder still contains
+/// the sibling of a checkout discovered through it.
+package struct WorktreeDestinationProbe: Sendable {
+    package let canonicalWatchedRoot: @Sendable (URL) -> URL
+    package let pathExists: @Sendable (URL) -> Bool
+
+    package init(
+        canonicalWatchedRoot: @escaping @Sendable (URL) -> URL,
+        pathExists: @escaping @Sendable (URL) -> Bool
+    ) {
+        self.canonicalWatchedRoot = canonicalWatchedRoot
+        self.pathExists = pathExists
+    }
+
+    package static let live = Self(
+        canonicalWatchedRoot: { RepoScanner.canonicalURL($0) },
+        pathExists: { FileManager.default.fileExists(atPath: $0.path) }
+    )
+}
+
 package enum WorktreeDestinationRejection: Error, Equatable, Sendable {
     /// The branch name has no characters a folder name can carry.
     case emptyFolderSlug
@@ -19,14 +40,14 @@ package enum WorktreeDestinationRejection: Error, Equatable, Sendable {
 
 /// Places a new worktree as a sibling of its repository's main checkout,
 /// `<parent>/<repo-folder>.<branch-slug>`, and admits it only where a watched-folder
-/// scan will discover it. The sibling sits at the main checkout's depth, which that
-/// scan already reached.
+/// scan will discover it. The main checkout path is discovery's resolved path, so watched
+/// folders are compared after the same resolution.
 package enum WorktreeDestinationPolicy {
     package static func resolve(
         repositoryPath: URL,
         branchName: WorktreeBranchName,
         watchedPaths: [WatchedPath],
-        pathExists: (URL) -> Bool
+        probe: WorktreeDestinationProbe
     ) -> Result<WorktreeCreationDestination, WorktreeDestinationRejection> {
         guard let slug = folderSlug(for: branchName) else { return .failure(.emptyFolderSlug) }
         let repositoryFolder = repositoryPath.standardizedFileURL
@@ -34,14 +55,17 @@ package enum WorktreeDestinationPolicy {
             path: repositoryFolder.lastPathComponent + AppPolicies.WorktreeCreation.destinationSlugSeparator + slug,
             directoryHint: .isDirectory
         ).standardizedFileURL
-        guard let discovery = discoveringWatchedPath(for: destination, in: watchedPaths) else {
+        guard
+            let discovery = discoveringWatchedPath(
+                for: destination, in: watchedPaths, canonicalWatchedRoot: probe.canonicalWatchedRoot)
+        else {
             return .failure(.undiscoverableDestination(destination))
         }
         guard discovery.depthBelowRoot <= RepoScanner.defaultMaxDepth else {
             return .failure(.beyondScannerDepth(destination, maximumDepth: RepoScanner.defaultMaxDepth))
         }
         let watchedPath = discovery.watchedPath
-        guard !pathExists(destination) else { return .failure(.destinationExists(destination)) }
+        guard !probe.pathExists(destination) else { return .failure(.destinationExists(destination)) }
         return .success(WorktreeCreationDestination(path: destination, watchedPath: watchedPath))
     }
 
@@ -69,13 +93,14 @@ package enum WorktreeDestinationPolicy {
     /// below it; the deepest root gives the shallowest, most discoverable depth.
     private static func discoveringWatchedPath(
         for destination: URL,
-        in watchedPaths: [WatchedPath]
+        in watchedPaths: [WatchedPath],
+        canonicalWatchedRoot: (URL) -> URL
     ) -> (watchedPath: WatchedPath, depthBelowRoot: Int)? {
         let destinationComponents = canonicalComponents(of: destination)
         return
             watchedPaths
             .compactMap { watchedPath -> (watchedPath: WatchedPath, depthBelowRoot: Int)? in
-                let rootComponents = canonicalComponents(of: watchedPath.path)
+                let rootComponents = canonicalComponents(of: canonicalWatchedRoot(watchedPath.path))
                 guard destinationComponents.count > rootComponents.count,
                     destinationComponents.starts(with: rootComponents),
                     !destinationComponents.dropFirst(rootComponents.count).contains(where: { $0.hasPrefix(".") })
