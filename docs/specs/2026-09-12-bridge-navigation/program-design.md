@@ -368,7 +368,7 @@ answers "inside" for that receiver, and eligibility per command is declared in
 | Identity | Owner effect | Layer | Agent eligibility |
 | --- | --- | --- | --- |
 | `openFile` (v2 reserved identity) | Admit an exact file (path, captured CWD, optional line) into the caller's receiver; show it if the receiver is visible and no draft is open, else add an Open view item | B2 | own pane |
-| `bridge.*` reads and in-Bridge navigation (existing methods: package, render state, content, tree search/filter/reveal, select/scroll/expand/collapse, refresh) | Unchanged effects, now targetable as the caller's receiver | B1 | own pane |
+| `bridge.*` reads and in-Bridge navigation (existing methods: package, render state, content, tree search/filter/reveal, select/scroll/expand/collapse, refresh) | Unchanged effects; an agent targets them with its own terminal's handle (`self`) and the Bridge adapter resolves terminal → receiver → current companion controller | B1 | own pane |
 | `searchBridgeFiles` (new) | Search all members and opened loose files by default; explicit narrowing allowed | B1 | own pane (read) |
 | `addBridgeWorktree` (new) | Add a known worktree to this receiver only | B1 | own pane |
 | `activateBridgeFile` (new) | Show a document in the receiving collection, or return to Files | B1 | not yet allowed (human) |
@@ -381,6 +381,20 @@ answers "inside" for that receiver, and eligibility per command is declared in
 | `moveOpenViewSelection` (new, keyboard) | Move the popover's row selection | B2 | not yet allowed (human) |
 | `openMemberPullRequest` (new) | Open one member worktree's pull request from the summary popover | B3 | not yet allowed (human; leaves the app, which is A2) |
 
+**Reaching the receiver through IPC.** The companion is not a pane-graph pane
+and stays replaceable (R3, C3). `AgentStudioIPCBridgeAdapter.resolvePaneId` /
+`bridgeController(for:)` today require a snapshot pane of kind `.bridgePanel`
+with a mounted view (`AgentStudioIPCBridgeAdapter.swift:170–206`). B1 adds one
+resolution rule there: a handle naming a terminal pane (including `self` from a
+terminal agent, or a drawer terminal mapped to its owner per "Drawer caller
+resolution") resolves to that terminal's receiver and then to the receiver's
+current companion controller. A receiver with no mounted controller returns
+`unavailable (not mounted)` for methods that need a live page, while `openFile`
+and inventory reads work without one. Standalone Bridge panes keep their
+current resolution. Authorization sees the terminal pane as the target, which
+the A1 own-pane rule already admits; a handle naming another terminal is outside
+the caller's own pane and returns not yet allowed.
+
 Existing `showBridgeFiles`, `showBridgeReview`, `showViewer` and new-tab commands
 keep their contracts; their creation path seeds receiver state as described in
 the cutover below. Read-only inventory, availability and presentation
@@ -391,7 +405,10 @@ and typed method handlers are already asynchronous (`AppCommandDispatcher.swift:
 `AppIPCTypedMethodRegistration.swift:71–103`). What is missing is the outcome
 mapping: `AppCommandExecutionOutcome` (`AppCommandExecution.swift:81–88`) and the
 command adapter's result projection (`AgentStudioIPCCommandAdapter.swift:115–139`)
-carry only applied / accepted / presented / unavailable / partial / uncertain.
+carry today only the command result variants they already declare; the public
+wire result union already includes partial and uncertain. B2 extends the app
+outcome and the adapter projection with the richer `presented` and `accepted`
+payloads below; it does not add a new pipeline.
 The Bridge handler returns a domain outcome — shown, waiting in Open view,
 activated, failed(reason), refused, cancelled, partial(unsaved) — and the IPC
 contribution projects it: shown and activated → `presented` with receiver,
@@ -438,10 +455,15 @@ native document record and availability; it creates no pane, WebView, worktree
 registration or directory index. Initial invalid paths leave the inventory
 unchanged. An unavailable restored entry is preserved and can be reopened.
 
-**Visible** means the receiver's host is mounted and shown: for a
-terminal-associated receiver, the tab is in Pane Zoom on that terminal with its
-companion shown (`ZoomPresentation.viewerPresentation == .retainedVisible`); for
-a standalone Bridge tab, that tab is the selected tab of a visible window. An
+**Visible** means effectively visible to the human, using the existing renderer
+visibility facts rather than retained Zoom state alone
+(`WorkspaceSurfaceCoordinator+RendererVisibility.swift:36–41` already excludes
+hidden, minimized and occluded windows and resolves actual pane visibility):
+the receiver's companion (or standalone Bridge pane) is the visible rendered pane
+in the selected tab of a visible window, and for a terminal receiver Pane Zoom
+shows the companion. The handler reads this once to choose the branch and
+revalidates it immediately before selecting the document; if the receiver
+stopped being visible in between, the open falls back to Open view. An
 unfinished draft in the currently displayed document always routes the open to
 Open view, so an agent never navigates the human away from an edit (R6).
 
@@ -452,11 +474,17 @@ persisted inventory, so nothing is lost at relaunch. An item leaves the list whe
 the human opens or dismisses it, clears all, closes the owner pane, or when the
 document is otherwise activated in that receiver.
 
-**Open** (`openOpenViewItem`) reveals the receiver through the existing
-`showViewer` path (enter Pane Zoom on the owner terminal and show the companion,
-or show it when already zoomed; `PaneTabViewController.swift:3222`) and then runs
-the activation path to the item's line. Draft protection applies as for any
-activation.
+**Open** (`openOpenViewItem`) makes the receiver visible without toggling: it
+uses the existing Zoom entry path that `showViewer` uses when the tab is not
+zoomed (`enterZoomAndShowViewerAfterAdmission`, `PaneTabViewController.swift:3222–3233`)
+and, when already zoomed, sets the companion visible through
+`setZoomViewerVisible(true)` instead of `showViewer`'s toggle
+(`PaneTabViewController.swift:3347–3354`), leaving `showViewer`'s own contract
+unchanged. If the receiver is already visible it does nothing to presentation.
+It then runs the activation path to the item's line. Draft protection applies as
+for any activation: with a draft open, the item stays and Open reports it could
+not show yet. A stale owner (closed or moved) removes the item and reports
+unavailable.
 
 Only exact admitted document locations may receive content descriptors. Public
 relative paths may legitimately point outside the caller's CWD; that is not the
@@ -477,51 +505,65 @@ again, which is harmless.
 Today `zoomCompanionContext` requires a validated repository/worktree
 association and returns unavailable otherwise
 (`WorkspaceSurfaceCoordinator+ZoomCompanion.swift:306–325`), so a terminal
-outside any known worktree has no Bridge. The receiver model does not need one:
-a receiver with no members shows Files for its loose documents and an empty
-Review (R3, R14). Change that edge: companion context resolution returns a
-Files-only configuration from the receiver's navigation record when no known
-association exists (File input = collection adapter with loose documents only;
-Review input = unavailable). The companion is created, shown and hidden through
-the same Zoom paths; `showViewer` and Open work unchanged. A receiver with
-neither members nor loose documents shows the existing empty Files state.
+outside any known worktree has no Bridge. The receiver model does not need one.
+Change that edge: companion context comes from the receiver's navigation record,
+not from the terminal's current association. Both inputs derive from the record
+as everywhere else in this design: File input = the collection adapter over the
+record's retained members plus loose documents; Review input = the record's
+selected member and comparison when one exists and is still known, otherwise
+unavailable. The current CWD association only affects protection and injection
+(R3). So a terminal that `cd`s from a member worktree to `/tmp` keeps its
+members, its Files and its Review; a brand-new terminal outside Git starts with a
+record that has no members, shows loose Files only, and an empty Review. The
+companion is created, shown and hidden through the same Zoom paths. A receiver
+with neither members nor loose documents shows the existing empty Files state.
 
 ## ⌘-click a file path (B2)
 
+Ghostty emits `open_url` only when its link matcher matches the text under the
+cursor (vendored `Surface.zig:4345–4378, 4405–4406`, `config/url.zig:98–107`
+at 82232ecde); a path split by a hard newline often matches neither half, so no
+action arrives at all. B2 therefore starts ⌘-click handling in the app, at the
+click, and uses Ghostty's action only as an optional hint.
+
 ```mermaid
 sequenceDiagram
-  participant G as Ghostty open_url action
-  participant R as TerminalRuntime (MainActor)
+  participant V as GhosttySurfaceView (MainActor)
+  participant G as Ghostty
   participant C as TerminalFileLinkResolver (off-main)
-  participant S as Surface text read
   participant X as Command dispatcher
-  G->>R: openURLRequested(url, kind)
-  R->>R: not a local file? open externally as today
-  R->>C: candidate path, runtime cwd, click cell captured at mouse down
-  C->>C: resolve against cwd, regular readable file?
-  alt resolves
-    C-->>X: openTerminalFileLink(terminal, location, line)
-  else does not resolve
-    C->>S: read clicked row and next row
-    S-->>C: row text
-    C->>C: join clicked row tail with next row after its leading padding
-    C-->>X: openTerminalFileLink if the joined path resolves, else nothing
+  V->>V: mouseDown with Command, no drag: take a click snapshot
+  Note over V: snapshot = click id, cell, clicked row text, next row text, runtime cwd (one bounded row read)
+  G-->>V: optional open_url for the same click (matched link text or OSC 8 URI)
+  V->>V: mouseUp with Command, same cell: finish the click
+  alt open_url was a non-file link
+    V->>V: open externally as today
+  else local path or no action
+    V->>C: snapshot plus optional matched text
+    C->>C: candidates from the snapshot only: matched text or OSC 8 path, the token at the cell, the token joined with the next row after its leading padding
+    C->>C: resolve against snapshot cwd, first regular readable file wins
+    C-->>X: openTerminalFileLink(terminal, location, line) or nothing
   end
-  X->>X: preference Bridge (default) shows it in the terminal's receiver, revealing it if hidden
-  X->>X: preference system app uses the existing external opener
+  X->>X: preference Bridge (default) shows it in the receiver (ensure visible), system app uses the external opener
 ```
+
+The click snapshot binds recovery to what was on screen at the click: the
+clicked row and the following row are read synchronously in the mouse-down
+handler with one bounded `ghostty_surface_read_text` call, and all later
+resolution works on that captured text, so output, scroll or resize after the
+click cannot substitute another file. The cell comes from the event location
+converted with the cell size from `ghostty_surface_size` and the surface
+padding. Candidate tokens stop at whitespace and quote characters; the join
+candidate is used only when the clicked token reaches the row end. File checks
+run off the main actor; the first candidate that is a regular readable file
+wins, and a candidate that names a directory or nothing opens nothing. When
+Ghostty also delivers `open_url` for the same click, the resolver receives it as
+an extra candidate for that click id and the click opens at most once.
 
 Current edges changed: `TerminalRuntime` (`TerminalRuntime.swift:410`) stops
 sending local file paths straight to `openExternalURL`; non-file links keep that
-path. Relative paths resolve against `TerminalRuntime.metadata.cwd`, fixing
-today's process-CWD resolution in `TerminalExternalURLOpener`. OSC 8 `file://`
-links arrive whole and take the first branch. The click cell comes from the
-surface view: `GhosttySurfaceView` records the last mouse position it already
-sends through `sendMousePos` and converts it to a cell with the cell size from
-`ghostty_surface_size` and the surface padding; the row read uses
-`ghostty_surface_read_text` with a one-row selection. Path resolution and file
-checks run off the main actor; the row read is one bounded call per click. No
-Ghostty change.
+path. Relative paths resolve against the snapshot's terminal CWD, fixing today's
+process-CWD resolution in `TerminalExternalURLOpener`. No Ghostty change.
 
 The ⌘-click preference (`bridge` default, or `systemApp`) lives in the global
 preferences file (`GlobalPreferencesPayload`, loaded by
@@ -551,11 +593,17 @@ or takes focus.
 
 `PanePullRequestToolbarActionFactory` today resolves one worktree's pull request
 facts (`App/Panes/PanePullRequestToolbarActionFactory.swift`). For a receiver
-with more than one member, the factory folds the members' existing pull request
-facts from the repository cache (the demand-driven pull request projection
-already maintains them) into one summary: all good, or needs attention with a
-count. The fold is a bounded read over the receiver's members at toolbar
-composition time, not a new observer or poll. The bar button uses the same
+with more than one member, the factory folds the members' pull request facts
+from the repository cache into R19's summary (needs attention count, running,
+all good; no PR and unknown are neutral). Those facts are only kept current for
+worktrees with demand today: `PullRequestDemandProjection.swift:22–61` and
+`WorkspaceSurfaceCoordinator+RepositoryFactDemand.swift:128–206` take demand from
+visible panes, the current companion and the sidebar, not from Bridge
+membership. B3 adds one demand source to that existing owner: while a summary
+button is visible, its receiver's member worktrees are demanded, and demand ends
+when the button is not visible. No new poller or service; the existing refresh
+owner fetches and caches. The fold is a bounded read over the receiver's members
+at toolbar composition time. The bar button uses the same
 popover and keyboard pattern as Open view: one row per member (worktree label,
 pull request number and check state, or "no PR"), arrow keys, Return runs
 `openMemberPullRequest`. A single-member receiver keeps today's control.
@@ -914,8 +962,21 @@ currently focused pane.
 - R18: native capture of the bar button count and popover; arrival never opens
   the popover or moves focus; full keyboard journey (arrows, Return, Delete,
   Clear all) through catalog commands; agent calls to those commands refused.
-- R19: two and three members with mixed pull request states; summary state and
-  count; popover rows and keyboard; single-member control unchanged.
+- R19: two and three members with mixed pull request states (failing, changes
+  requested, running, passed, no PR, unknown); summary state and count; the
+  sidebar hidden and a member with no visible associated pane still gets fresh
+  facts while the button is visible; popover rows and keyboard; single-member
+  control unchanged.
+- Review-round-2 cases: a path split as `src/very_long_` / `file.swift` across a
+  hard newline; a clicked prefix that is itself an existing file; ⌘-click during
+  streaming output and during resize (snapshot wins); non-file links. Open when
+  the receiver is already visible with a draft open, when hidden, when the tab is
+  in the background, when the window is minimized, and with a stale owner. A
+  populated receiver whose terminal `cd`s outside Git keeps members, Files and
+  Review across remount; a new no-Git terminal shows loose files only. IPC
+  `bridge.*` through `self` from a terminal agent and from a drawer terminal
+  agent; another terminal's handle returns not yet allowed; an unmounted
+  receiver returns unavailable for page methods while `openFile` succeeds.
 - R8 and R9–R13: source opening does not create Bridge drawer content; existing
   drawer/placement preservation remains governed by its separate specification.
 

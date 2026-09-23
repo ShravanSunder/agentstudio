@@ -134,8 +134,11 @@ An agent's file open names a path (absolute, or relative to its captured CWD)
 and an optional line. The document MUST be admitted and retained in the
 caller's receiving Bridge (R3). Then:
 
-- **Receiver visible and no unfinished draft in its current document:** the
-  document MUST be shown at the line.
+- **Receiver effectively visible and no unfinished draft in its current
+  document:** the document MUST be shown at the line. Effectively visible means
+  the human can currently see it: its window is visible and not minimized or
+  occluded, its tab is selected, and (for a terminal's Bridge) Pane Zoom shows
+  it. Visibility is rechecked before the document is shown.
 - **Otherwise:** the document MUST load without changing what the human sees —
   no fullscreen entry, window activation, keyboard focus change or replacement
   of the displayed document — and an Open view item for it MUST appear in the
@@ -211,12 +214,18 @@ Basis: U-IC-07, U-IC-11; S40, S43, S45. Proof V17.
 ## R19 — Multi-PR summary (B3)
 
 When a receiving Bridge has several member worktrees, the owning pane's bottom
-bar MUST summarize their pull requests in one button: overall state only (all
-good, or something needs attention, with a count). Its native popover MUST list
-each member with its pull request number and check state, or "no PR". The
-popover follows R18's keyboard and command rules; opening a pull request from a
-row is a catalog command. The single-worktree case keeps today's pull request
-control.
+bar MUST summarize their pull requests in one button. The count is the number of
+members whose pull request needs attention (checks failing or changes
+requested); the button shows "needs attention (N)" when N > 0, otherwise
+"running" when any member's checks are running, otherwise "all good". Members
+with no pull request, or whose facts have not been fetched yet, appear in the
+popover as "no PR" or "unknown" and never count as good or bad. Facts for every
+member MUST be kept current while the summary is visible, even when no other
+pane shows that member. The native popover lists each member with its pull
+request number and check state and follows R18's keyboard and command rules;
+opening a pull request from a row is a catalog command. The single-worktree
+case keeps today's pull request control. (Count meaning is the orchestrator's
+default pending owner review — parked item 1.)
 
 Basis: S46. Proof V18.
 
@@ -227,12 +236,13 @@ authority classification and observable result. UI, IPC and test drivers MUST
 invoke that semantic owner rather than parallel implementations. Queries MAY
 use the existing read-only snapshot/catalog boundary without inventing a command
 identity for each field. Inputs MUST name selections that future UI controls
-would otherwise supply; debug execution MUST NOT wait on a picker. New typed
-operations in this slice are command-spec/debug-IPC entry points; no new command-bar
-rows, picker or shortcut bindings are required. Existing human controls remain.
-Collection search uses the receiving Bridge's mounted worker; an unmounted or
-unready receiver returns an explicit unavailable/not-ready result without creating
-or activating a viewer. R5 preparation remains independent of viewer mounting.
+would otherwise supply; debug execution MUST NOT wait on a picker. B1's new
+typed operations are command-spec/IPC entry points without new command-bar
+rows or pickers; the B2/B3 popovers' actions MUST carry catalog shortcuts
+(R18, R19). Existing human controls remain. Collection search uses the receiving
+Bridge's mounted worker; an unmounted or unready receiver returns an explicit
+unavailable/not-ready result without creating or activating a viewer. Loading a
+file (R5) remains independent of viewer mounting.
 
 IPC v2 owns transport, schemas/registry, target/auth, generated CLI and
 correlation. This slice MUST contribute to that boundary and MUST NOT add v1
@@ -438,18 +448,17 @@ are excluded.
 | Need | Obligation and contract | Evidence |
 | --- | --- | --- |
 | U-BN-01 | R2/R7; C2 | V1: collection-wide command search across two worktrees and individual files, equal paths/basenames, deduplication and stale/cancelled query; new Command-P UI deferred by S22. |
-| U-BN-02 | R1/R3/R5/R7; C1/C3/C5 | V2: real v2 command path prepares an exact file in the caller’s associated Bridge, or drawer owner’s Bridge, with caller-relative path resolution and no presentation/protection side effect; typed refusal/replay outcomes. |
-| U-BN-03 | R1/R3/R4; C1/C3/C4 | V3: terminal A continues while an exact file in B is prepared without membership, then explicitly activated in A’s fullscreen Bridge; B can be another worktree or related repo. |
+| U-BN-02, U-IC-03 | R1/R3/R5/R7; C1/C3/C5 | V2: real v2 command path opens an exact file in the caller’s associated Bridge, or drawer owner’s Bridge, with caller-relative path resolution: effectively visible receiver without draft → shown at the line; hidden, offscreen, unmounted or draft open → waiting in Open view with no focus, fullscreen, displayed-document or protection change; repeated open keeps one inventory entry and one item; a retry after a dropped response keeps one entry (no replay journal); typed refusal and not-yet-allowed outcomes. |
+| U-BN-03 | R1/R3/R4; C1/C3/C4 | V3: terminal A continues while an exact file in B is opened without membership (waiting in Open view), then the human's Open shows it in A’s fullscreen Bridge; B can be another worktree or related repo. |
 | U-BN-04 | R4/R6; C4 | V4: per-worktree comparison and annotation provenance; unfinished draft protected across activation; local-file and Git annotation copy/export identify the actual source without claiming agent delivery. |
 | U-BN-05 | Owner-superseded by S23; R1/R16 | V5: unknown worktree rejected without registration, while its exact local file remains eligible. |
-| U-BN-06 | R2/R4/R7; C2/C4/C5 | V6: command preparation, activation, search and known-worktree/Review selection; existing local controls remain usable. Broader new UI controls deferred. |
+| U-BN-06 | R2/R4/R7; C2/C4/C5 | V6: command open, activation, search and known-worktree/Review selection; existing local controls remain usable. Command-P and selector UI deferred. |
 | U-BN-07 | R8; C6 | V7: this route never creates Bridge drawer content or a new tab per file; normal Bridge-owned drawers survive. Existing general placement enforcement remains separate. |
 | U-BN-08, U-BN-09, U-BN-10, U-BN-11, U-BN-12 | R9–R13; dedicated drawer specification | Dedicated V-DP-1–V-DP-6 are the sole drawer proof home. |
-| U-BN-13 | R1/R6/R14; C1/C4/C7 | V13: real non-Git temporary-file preparation, activation, saved annotations and explicit non-applicable Review. |
+| U-BN-13 | R1/R6/R14; C1/C4/C7 | V13: real non-Git temporary-file open, activation, saved annotations and explicit non-applicable Review. |
 | U-BN-14 | R5/R6/R15; C7 | V14: ordinary restart with opened-file order/selection and annotations; duplicate path, close/reopen, missing/changed file and no content-archive assumption. |
 | U-BN-15 | R4/R16; C7 | V15: known-worktree add/remove/select/inspect, explicit catalog-unregistration propagation distinct from temporary unavailability, protected-member refusal, removed-file clearing without miscellaneous reclassification, known-CWD protection transfer with selections preserved, no duplicate or cross-receiver/catalog/CWD effect; frontend/backend Review switches in the same fullscreen Bridge retain their own comparisons and leave Files selection intact. |
 | U-BN-16 | R15/R16; C7 | V14/V15 distinguish open documents from browsing membership even when the document is outside the active tree. |
-| U-IC-03, U-BN-02 | R5; C5 | V2/V3 (updated): receiver visible → shown at line; hidden or unfinished draft → waiting in Open view with no focus, fullscreen or displayed-document change; repeat open keeps one entry; retry after lost response |
 | U-IC-06 | R17 | V16: native ⌘-click on OSC 8, plain, soft-wrapped and hard-wrapped paths from Claude Code and Codex output with relative and absolute paths; non-file links open outside; non-resolving path opens nothing; setting in both positions |
 | U-IC-07, U-IC-11 | R18 | V17: native popover capture, count, no focus change on arrival, full keyboard journey (arrows, Open, dismiss, Clear all) through catalog commands; agent calls to those commands return not yet allowed |
 | S46 | R19 | V18: two and three member worktrees with mixed PR states; summary state and count; popover rows and keyboard journey; single-worktree control unchanged |
@@ -457,6 +466,7 @@ are excluded.
 Proof uses the actual native owners, file reads and SQLite where those
 interactions matter. Command acceptance/unit arithmetic alone is not rendered
 arrival. Existing Bridge native/web composition and real IPC proof remain needed;
-new UI controls are not prerequisites. Applicable repository marker-scoped
+Command-P and selector UI are not prerequisites, but the Open view and multi-PR
+popovers and ⌘-click are. Applicable repository marker-scoped
 performance and source-scrubbing rules remain in force. No implementation or
 runtime proof is claimed by this specification.

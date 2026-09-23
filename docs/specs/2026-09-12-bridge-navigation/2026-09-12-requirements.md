@@ -178,12 +178,13 @@ Bridge behavior must integrate with that work instead of creating parallel v1
 methods or another command catalog. Exact integration and authority differences
 are recorded in the separate research/coordination material.
 
-**Agent opening behavior:** S25 selects preparation only. Agent file.open
-retains an opened-file location in the associated Bridge without taking focus
-or entering fullscreen. It must not claim that the human has been shown the
-file. Human activation remains a separate action. S26 defers Sessions-screen
-redesign, notifications, popovers and approval flows; no notification plumbing
-is required to prepare a file.
+**Agent opening behavior (S38–S41, superseding S25):** agent file.open retains
+the file in the associated Bridge and shows it at the requested line when that
+Bridge is visible and no draft is open; otherwise it loads silently and an Open
+view item appears in the owner pane's native bottom-bar popover, which the human
+opens (S40, S43, S45). It never takes focus or enters fullscreen by itself.
+Sessions-screen redesign, notification history and approval flows stay
+deferred (S26); the Open view popover is the one exception.
 
 **Foundation to preserve:** existing File and Review experiences, meaningful Git
 comparison identity, annotation ownership, and command-based interaction. The
@@ -232,9 +233,8 @@ Agent points to an exact file                               U-BN-02, U-BN-03
 
 The observed pains are grounded in evidence E1–E5 in the proposal. The desired
 steps separate exact-file reading from repository browsing. A link supplies a
-destination; new terminal link-detection/click handling is not required by the
-command-first slice. The typed commands exercise preparation and activation now;
-later link UI can invoke those same operations.
+destination: ⌘-clicking a file path in the terminal opens it in this Bridge
+(S42, S44), and agents open files through the same owner (S38–S41).
 
 ### Human: switch Review between related worktrees in fullscreen
 
@@ -253,29 +253,37 @@ There is no combined backend/frontend diff. Existing annotation copy/export give
 the human feedback to hand to the agent, as in the annotation batch used to review
 this document. Saving or copying does not itself prove agent delivery or receipt.
 
-### Agent: prepare an exact destination
+### Agent: open an exact file for the human
 
 ```text
-Identify file, and known worktree for Git Review             U-BN-02, U-BN-13
-  → request file preparation
-    Today: open creates a view and reveal is separate
-    Desired: retain the exact file in the associated Bridge without presenting it
-  → receive prepared or a specific failure                  U-BN-02
-    Desired: successful preparation leaves focus/fullscreen/current read unchanged
-  → human or authorized debug command explicitly activates the file
-    Desired: displayed arrival is proved separately from preparation
+Identify file (and line)                                     U-BN-02, U-BN-13
+  → request file open
+    Today: open creates a new tab and reveal is a second call
+  → Bridge visible and no draft open → shown at the line     U-BN-02, U-IC-03
+  → otherwise → loaded silently, Open view item in the pane's bar
+    Desired: focus, fullscreen and the current read unchanged
+  → human chooses Open (keyboard or click) → Bridge revealed, file shown
+  → the agent receives shown, waiting in Open view, or a specific failure
 ```
 
-Evidence E3/E6 in the proposal supports this sequence. Preparation versus
-activation is selected by S25. Exact wire spelling and result projection remain
-an IPC-v2 integration matter.
+Evidence E3/E6 in the proposal supports this sequence; S38–S41 select it
+(superseding S25).
+
+### Human: ⌘-click a path in the terminal
+
+```text
+Agent prints a path (maybe hard-wrapped with padding)        U-IC-06
+  → human ⌘-clicks it
+  → the file is shown at its line in this terminal's Bridge, revealed if hidden
+  → non-file links still open in the browser; a bad path opens nothing
+```
 
 ### Human and agent: miscellaneous files alongside worktrees
 
 ```text
-Agent in terminal A prepares /tmp/task-notes.md            U-BN-02, U-BN-13
-  → A’s associated Bridge retains it without changing the current display
-  → human/debug activation displays the file and location
+Agent in terminal A opens /tmp/task-notes.md (Bridge hidden) U-BN-02, U-BN-13
+  → A’s associated Bridge retains it; an Open view item appears
+  → human chooses Open; the file and its location are shown
   → user annotates it; the opened-file entry remains findable U-BN-14, U-BN-16
   → a command/IPC adds a known frontend worktree             U-BN-15
   → user browses frontend and requests its Git Review
@@ -292,9 +300,11 @@ Drawer journeys and proof for U-BN-08–U-BN-12 have their single home in the
 
 The owner's repository instructions require real-path behavior and visual proof
 where UI composition matters. Applied here, proposed acceptance evidence is
-an authorized agent/IPC journey that prepares the exact file in A’s associated
-Bridge without changing focus, fullscreen or the current read, followed by a
-separate human/authorized-debug activation that proves displayed arrival. The
+an authorized agent/IPC journey that opens the exact file in A’s associated
+Bridge — shown at the line when visible, otherwise waiting in Open view without
+changing focus, fullscreen or the current read — followed by the human's Open
+proving displayed arrival, plus native ⌘-click and keyboard-navigable popover
+journeys (S42–S45). The
 human can verify a known worktree B’s Git context, use existing annotation
 interactions, and navigate onward while terminal A remains in place. Include
 another known Git worktree and an ordinary local
@@ -302,8 +312,8 @@ file outside Git, with saved location/annotation restoration and a truthful
 non-applicable Review outcome for that file. Prove known-worktree add/select/inspect
 through typed commands and IPC, distinguish browsing membership from opened
 files, and prove return to a miscellaneous document after browsing another
-worktree. New UI-entry proof follows its later
-delivery; real rendered activation/annotation proof remains required now. Exact
-wire integration remains dependent on IPC v2. No implementation evidence is
+worktree. Real rendered activation, annotation, Open view, ⌘-click and
+multi-PR popover proof is required; Command-P and new selector UI remain later
+work. Wire integration follows IPC v2 and the IPC control A1 rule. No implementation evidence is
 claimed here.
 
