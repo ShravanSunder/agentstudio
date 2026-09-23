@@ -555,8 +555,17 @@ click cannot substitute another file. The cell comes from the event location
 converted with the cell size from `ghostty_surface_size` and the surface
 padding. Candidate tokens stop at whitespace and quote characters; the join
 candidate is used only when the clicked token reaches the row end. File checks
-run off the main actor; the first candidate that is a regular readable file
-wins, and a candidate that names a directory or nothing opens nothing. When
+run off the main actor. Candidate precedence is fixed, not "first file that
+exists": (1) an OSC 8 `file://` URI for the click is the exact identity and
+nothing else is considered; (2) when the clicked token reaches the end of its row
+and the next row continues it (non-whitespace after the row's leading padding,
+no separator before it), the joined path is the printed path and is chosen if it
+is a regular readable file, even when the prefix alone also exists; if the joined
+path does not resolve, the click opens nothing rather than falling back to the
+prefix, because the printed text named the longer path; (3) otherwise the clicked
+token alone. A candidate that names a directory or nothing opens nothing. So for
+`src/report.md` + `.backup` hard-wrapped, with both files present, the click
+opens `src/report.md.backup`. When
 Ghostty also delivers `open_url` for the same click, the resolver receives it as
 an extra candidate for that click id and the click opens at most once.
 
@@ -968,7 +977,9 @@ currently focused pane.
   facts while the button is visible; popover rows and keyboard; single-member
   control unchanged.
 - Review-round-2 cases: a path split as `src/very_long_` / `file.swift` across a
-  hard newline; a clicked prefix that is itself an existing file; ⌘-click during
+  hard newline; `src/report.md` + `.backup` hard-wrapped with both files
+  present opens `src/report.md.backup`, and with only the prefix present opens
+  nothing; ⌘-click during
   streaming output and during resize (snapshot wins); non-file links. Open when
   the receiver is already visible with a draft open, when hidden, when the tab is
   in the background, when the window is minimized, and with a stale owner. A

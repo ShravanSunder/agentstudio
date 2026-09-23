@@ -217,9 +217,11 @@ When a receiving Bridge has several member worktrees, the owning pane's bottom
 bar MUST summarize their pull requests in one button. The count is the number of
 members whose pull request needs attention (checks failing or changes
 requested); the button shows "needs attention (N)" when N > 0, otherwise
-"running" when any member's checks are running, otherwise "all good". Members
-with no pull request, or whose facts have not been fetched yet, appear in the
-popover as "no PR" or "unknown" and never count as good or bad. Facts for every
+"running" when any member's checks are running, otherwise "all good" when at
+least one member has a pull request with passing checks, otherwise "no PR info"
+(every member has no pull request or unknown facts). Members with no pull
+request, or whose facts have not been fetched yet, appear in the popover as
+"no PR" or "unknown" and never count as good or bad. Facts for every
 member MUST be kept current while the summary is visible, even when no other
 pane shows that member. The native popover lists each member with its pull
 request number and check state and follows R18's keyboard and command rules;
