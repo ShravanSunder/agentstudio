@@ -9,7 +9,7 @@ describe('Bridge comm worker product command sender', () => {
 		// Arrange
 		const calls: unknown[] = [];
 		const productTransport = {
-			bumpWorkerDerivationEpoch: (): number => 1,
+			advanceWorkerDerivationEpoch: (): number => 1,
 			call: async (...arguments_): Promise<null> => {
 				calls.push(arguments_);
 				return null;
@@ -105,7 +105,7 @@ describe('Bridge comm worker product command sender', () => {
 		// Arrange
 		const calls: unknown[] = [];
 		const productTransport = {
-			bumpWorkerDerivationEpoch: (): number => 1,
+			advanceWorkerDerivationEpoch: (): number => 1,
 			call: async (...arguments_): Promise<null> => {
 				calls.push(arguments_);
 				return null;

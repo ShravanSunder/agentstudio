@@ -325,7 +325,7 @@ function makeTelemetryReviewProductTransport(props: {
 		update: async (): Promise<void> => {},
 	};
 	return {
-		bumpWorkerDerivationEpoch: (surface): number => {
+		advanceWorkerDerivationEpoch: (surface): number => {
 			if (surface === 'file') fileWorkerDerivationEpoch += 1;
 			if (surface === 'review') reviewWorkerDerivationEpoch += 1;
 			return surface === 'review' ? reviewWorkerDerivationEpoch : fileWorkerDerivationEpoch;

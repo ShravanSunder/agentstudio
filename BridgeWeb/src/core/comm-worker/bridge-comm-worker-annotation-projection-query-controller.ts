@@ -14,6 +14,7 @@ import {
 	bridgeProductReviewAnnotationMetadataApplicationProtocol,
 } from './bridge-product-metadata-application-registry.js';
 import { BridgeProductControlRequestError } from './bridge-product-session-authority.js';
+import { BridgeProductSubscriptionEpochRetiredError } from './bridge-product-subscription-state.js';
 import type {
 	BridgeProductContentStream,
 	BridgeProductMetadataApplicationSubscription,
@@ -137,8 +138,6 @@ export class BridgeCommWorkerAnnotationProjectionQueryController {
 	#stageAttemptOperationCorrelationId: string | null = null;
 	#nextStageAttempt = 0;
 	#subscription: AnnotationMetadataSubscription | null = null;
-	#subscriptionRequested = false;
-	readonly #retiringSubscriptionCancellations = new Set<Promise<void>>();
 
 	constructor(props: CreateBridgeCommWorkerAnnotationProjectionQueryControllerProps) {
 		this.#onCatalog = props.onCatalog;
@@ -150,7 +149,6 @@ export class BridgeCommWorkerAnnotationProjectionQueryController {
 	}
 
 	ensureSubscription(): void {
-		this.#subscriptionRequested = true;
 		if (this.#disposed || this.#subscription !== null) return;
 		let subscription: AnnotationMetadataSubscription;
 		try {
@@ -162,40 +160,12 @@ export class BridgeCommWorkerAnnotationProjectionQueryController {
 		this.#subscription = subscription;
 		void this.#consumeSubscription(subscription).catch((error: unknown): void => {
 			if (this.#subscription !== subscription || this.#disposed) return;
+			if (error instanceof BridgeProductSubscriptionEpochRetiredError) {
+				this.#followRetiredSurfaceEpoch();
+				return;
+			}
 			this.#handleSubscriptionFailure(error);
 		});
-	}
-
-	/**
-	 * Follows the surface metadata to its newly advanced worker epoch. Native resets
-	 * the older-epoch subscription on its own, so the replacement opens now instead
-	 * of waiting on that retirement, and the drawer keeps its comments visible as
-	 * refreshing rather than reporting the routine switch as unavailable.
-	 */
-	replaceSubscriptionForSurfaceEpoch(): void {
-		if (this.#disposed) return;
-		const retiringSubscription = this.#subscription;
-		this.#subscription = null;
-		this.#automaticSubscriptionReopenConsumed = false;
-		if (retiringSubscription !== null) {
-			this.#controlReady = false;
-			this.#metadataApplication.retireAuthority();
-			const operationCorrelationId = this.#invalidation?.operationCorrelationId ?? null;
-			this.#invalidation = null;
-			this.#invalidationGeneration += 1;
-			this.#abortController?.abort();
-			this.#onConvergence({
-				operationCorrelationId,
-				state: { catalogAuthorityRetired: true, kind: 'refreshing' },
-				surface: this.#surface,
-			});
-			const cancellation = retiringSubscription.cancel().catch((): void => {});
-			this.#retiringSubscriptionCancellations.add(cancellation);
-			void cancellation.then((): void => {
-				this.#retiringSubscriptionCancellations.delete(cancellation);
-			});
-		}
-		if (this.#subscriptionRequested) this.ensureSubscription();
 	}
 
 	setDemand(demand: BridgeCommWorkerAnnotationProjectionDemand): void {
@@ -291,7 +261,6 @@ export class BridgeCommWorkerAnnotationProjectionQueryController {
 		this.#subscription = null;
 		await Promise.allSettled([
 			...(subscription === null ? [] : [subscription.cancel()]),
-			...this.#retiringSubscriptionCancellations,
 			...(this.#scheduledQueryStart === null ? [] : [this.#scheduledQueryStart]),
 			...(this.#scheduledSubscriptionReopen === null ? [] : [this.#scheduledSubscriptionReopen]),
 			...this.#queryAttempts,
@@ -321,8 +290,7 @@ export class BridgeCommWorkerAnnotationProjectionQueryController {
 
 	async #consumeSubscription(subscription: AnnotationMetadataSubscription): Promise<void> {
 		for await (const frame of subscription.events) {
-			if (this.#disposed) return;
-			if (this.#subscription !== subscription) continue;
+			if (this.#disposed || this.#subscription !== subscription) return;
 			const event = bridgeProductWorktreeAnnotationEventSchema.parse(frame.data);
 			if (frame.operationCorrelationId === null) {
 				throw new Error('Annotation metadata event requires lifecycle correlation.');
@@ -385,6 +353,27 @@ export class BridgeCommWorkerAnnotationProjectionQueryController {
 		this.#invalidationGeneration += 1;
 		this.#abortController?.abort();
 		this.#scheduleQueryLoop();
+	}
+
+	/**
+	 * The surface advanced past this subscription's epoch. That is a routine
+	 * refresh, not a failure: comments stay visible as refreshing while the
+	 * replacement opens at the new epoch.
+	 */
+	#followRetiredSurfaceEpoch(): void {
+		const operationCorrelationId = this.#invalidation?.operationCorrelationId ?? null;
+		this.#subscription = null;
+		this.#controlReady = false;
+		this.#metadataApplication.retireAuthority();
+		this.#invalidation = null;
+		this.#invalidationGeneration += 1;
+		this.#abortController?.abort();
+		this.#onConvergence({
+			operationCorrelationId,
+			state: { catalogAuthorityRetired: true, kind: 'refreshing' },
+			surface: this.#surface,
+		});
+		this.ensureSubscription();
 	}
 
 	#handleSubscriptionFailure(error: unknown): void {

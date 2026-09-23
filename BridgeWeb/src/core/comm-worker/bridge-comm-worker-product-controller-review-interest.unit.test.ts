@@ -224,7 +224,7 @@ function reviewEpochTransport(props: {
 	readonly incrementEpoch: () => number;
 }): BridgeProductTransportSession {
 	return {
-		bumpWorkerDerivationEpoch: (surface): number =>
+		advanceWorkerDerivationEpoch: (surface): number =>
 			surface === 'review' ? props.incrementEpoch() : 0,
 		call: async (): Promise<never> => {
 			throw new Error('Unexpected product call.');

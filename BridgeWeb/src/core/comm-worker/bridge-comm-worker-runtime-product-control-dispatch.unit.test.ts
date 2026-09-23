@@ -388,7 +388,7 @@ function createUnusedProductController(): BridgeCommWorkerProductController {
 
 function unusedProductTransport(): BridgeProductTransportSession {
 	return {
-		bumpWorkerDerivationEpoch: (): number => 0,
+		advanceWorkerDerivationEpoch: (): number => 0,
 		call: async (): Promise<never> => {
 			throw new Error('Unexpected product call.');
 		},

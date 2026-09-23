@@ -65,7 +65,7 @@ describe('Bridge comm worker product controller', () => {
 			},
 			productTransport: {
 				...unusedProductTransport(),
-				bumpWorkerDerivationEpoch: (surface): number => {
+				advanceWorkerDerivationEpoch: (surface): number => {
 					if (surface === 'review') reviewEpoch += 1;
 					return surface === 'review' ? reviewEpoch : 0;
 				},
@@ -138,7 +138,7 @@ describe('Bridge comm worker product controller', () => {
 			onFileMetadataEvent: (): void => {},
 			productTransport: {
 				...unusedProductTransport(),
-				bumpWorkerDerivationEpoch: (): number => {
+				advanceWorkerDerivationEpoch: (): number => {
 					derivationEpochBumpCount += 1;
 					return derivationEpochBumpCount;
 				},
@@ -198,7 +198,7 @@ describe('Bridge comm worker product controller', () => {
 			},
 			productTransport: {
 				...unusedProductTransport(),
-				bumpWorkerDerivationEpoch: (surface): number => {
+				advanceWorkerDerivationEpoch: (surface): number => {
 					if (surface === 'review') reviewEpoch += 1;
 					return surface === 'review' ? reviewEpoch : 0;
 				},
@@ -253,7 +253,7 @@ describe('Bridge comm worker product controller', () => {
 			},
 			productTransport: {
 				...unusedProductTransport(),
-				bumpWorkerDerivationEpoch: (surface): number => {
+				advanceWorkerDerivationEpoch: (surface): number => {
 					if (surface === 'review') reviewEpoch += 1;
 					return surface === 'review' ? reviewEpoch : 0;
 				},
@@ -328,7 +328,7 @@ describe('Bridge comm worker product controller', () => {
 			},
 			productTransport: {
 				...unusedProductTransport(),
-				bumpWorkerDerivationEpoch: (surface): number => {
+				advanceWorkerDerivationEpoch: (surface): number => {
 					if (surface === 'review') reviewEpoch += 1;
 					return surface === 'review' ? reviewEpoch : 1;
 				},
@@ -820,7 +820,7 @@ describe('Bridge comm worker product controller', () => {
 function unusedProductTransport(): BridgeProductTransportSession {
 	let fileEpoch = 0;
 	return {
-		bumpWorkerDerivationEpoch: (surface): number => {
+		advanceWorkerDerivationEpoch: (surface): number => {
 			if (surface === 'file') fileEpoch += 1;
 			return surface === 'file' ? fileEpoch : 0;
 		},
@@ -875,7 +875,7 @@ function productTransportWithFileEpochBump(onBump: () => void): BridgeProductTra
 	let fileEpoch = 0;
 	return {
 		...unusedProductTransport(),
-		bumpWorkerDerivationEpoch: (surface): number => {
+		advanceWorkerDerivationEpoch: (surface): number => {
 			if (surface === 'file') {
 				fileEpoch += 1;
 				onBump();

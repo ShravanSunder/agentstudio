@@ -60,7 +60,7 @@ export function makeFileProductTestTransport(props: {
 		update: async (): Promise<void> => {},
 	};
 	return {
-		bumpWorkerDerivationEpoch: (surface): number => {
+		advanceWorkerDerivationEpoch: (surface): number => {
 			if (surface === 'file') fileEpoch += 1;
 			if (surface === 'review') reviewEpoch += 1;
 			return surface === 'file' ? fileEpoch : reviewEpoch;

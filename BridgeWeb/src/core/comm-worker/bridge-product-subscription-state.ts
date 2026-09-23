@@ -3,11 +3,15 @@ import {
 	createBridgeProductDeferred,
 	type BridgeProductDeferred,
 } from './bridge-product-async-queue.js';
-import type { BridgeProductResetReason } from './bridge-product-contract-primitives.js';
+import type {
+	BridgeProductResetReason,
+	BridgeProductSurface,
+} from './bridge-product-contract-primitives.js';
 import type {
 	BridgeProductMetadataApplicationProtocol,
 	BridgeProductMetadataDataFrame,
 } from './bridge-product-metadata-application-protocol.js';
+import { BridgeProductControlRequestError } from './bridge-product-session-authority.js';
 import type {
 	BridgeProductControlRequest,
 	BridgeProductMetadataFrame,
@@ -25,6 +29,28 @@ export class BridgeProductSubscriptionResetError extends Error {
 	}
 }
 
+/**
+ * Terminal for a subscription retired because its surface advanced to a newer
+ * worker derivation epoch. Consumers that still need the data reopen; the
+ * replacement admits at the new epoch.
+ */
+export class BridgeProductSubscriptionEpochRetiredError extends Error {
+	readonly nextWorkerDerivationEpoch: number;
+	readonly surface: BridgeProductSurface;
+
+	constructor(props: {
+		readonly nextWorkerDerivationEpoch: number;
+		readonly surface: BridgeProductSurface;
+	}) {
+		super(
+			`Bridge product ${props.surface} subscription retired for worker epoch ${props.nextWorkerDerivationEpoch}.`,
+		);
+		this.name = 'BridgeProductSubscriptionEpochRetiredError';
+		this.nextWorkerDerivationEpoch = props.nextWorkerDerivationEpoch;
+		this.surface = props.surface;
+	}
+}
+
 export type BridgeProductSubscriptionIdentifierPurpose = 'subscription-update';
 
 export type BridgeProductSubscriptionFrame = Exclude<
@@ -38,6 +64,10 @@ export type BridgeProductSubscriptionFrame = Exclude<
 
 export interface BridgeProductSubscriptionFrameSink {
 	readonly subscriptionId: string;
+	readonly surface: BridgeProductSurface;
+	retireBeforeWorkerDerivationEpochAdvance(
+		retirement: BridgeProductSubscriptionEpochRetiredError,
+	): Promise<void>;
 	acceptFrame(frame: BridgeProductSubscriptionFrame): void;
 	fail(error: unknown): void;
 	reconciliationClaim():
@@ -105,6 +135,8 @@ export interface BridgeProductSubscriptionStateProps<
 		TData
 	>;
 	readonly readWorkerDerivationEpochAtAdmission: () => number;
+	/** Holds admission while the surface retires older-epoch subscriptions. */
+	readonly awaitWorkerDerivationEpochAdmission?: () => Promise<void>;
 	readonly subscriptionId: string;
 }
 
@@ -118,6 +150,9 @@ export class BridgeProductSubscriptionState<
 	TData extends { readonly event: unknown; readonly subscriptionKind: TKind },
 > implements BridgeProductSubscriptionFrameSink {
 	#accepted = false;
+	/** Set once native no longer serves this subscription to its consumer; frames drain silently. */
+	#released = false;
+	readonly #awaitWorkerDerivationEpochAdmission: () => Promise<void>;
 	readonly #controlMux: BridgeProductSubscriptionStateProps<
 		TKind,
 		TOptions,
@@ -175,6 +210,8 @@ export class BridgeProductSubscriptionState<
 		this.#onTerminal = props.onTerminal;
 		this.#protocol = props.protocol;
 		this.#readWorkerDerivationEpochAtAdmission = props.readWorkerDerivationEpochAtAdmission;
+		this.#awaitWorkerDerivationEpochAdmission =
+			props.awaitWorkerDerivationEpochAdmission ?? ((): Promise<void> => Promise.resolve());
 		this.subscriptionId = props.subscriptionId;
 		this.#currentInterestState = props.protocol.interestStateSchema.parse(
 			props.protocol.emptyInterestState(),
@@ -205,6 +242,34 @@ export class BridgeProductSubscriptionState<
 		void this.#operation.catch((): void => {});
 	}
 
+	get surface(): BridgeProductSurface {
+		return this.#protocol.surface;
+	}
+
+	/**
+	 * Releases this subscription before its surface advances past its admitted
+	 * epoch. Native refuses controls tagged with a stale epoch, so the cancel must
+	 * be acknowledged first; the drain frame is not awaited. A subscription not
+	 * yet admitted is left alone: it admits at the new epoch.
+	 */
+	retireBeforeWorkerDerivationEpochAdvance(
+		retirement: BridgeProductSubscriptionEpochRetiredError,
+	): Promise<void> {
+		const admittedEpoch = this.#admittedWorkerDerivationEpoch;
+		if (
+			this.#terminal ||
+			admittedEpoch === null ||
+			admittedEpoch >= retirement.nextWorkerDerivationEpoch
+		) {
+			return Promise.resolve();
+		}
+		return this.#enqueue(async (): Promise<void> => {
+			if (this.#terminal || this.#released) return;
+			await this.#releaseNativeSubscription();
+			this.#eventQueue.fail(retirement, true);
+		}, 'afterPriorSettles');
+	}
+
 	update(options: TUpdateOptions): Promise<void> {
 		return this.#enqueue(() => this.#updateTo(options));
 	}
@@ -213,21 +278,31 @@ export class BridgeProductSubscriptionState<
 		// Every rejected operation has already made this subscription terminal, so
 		// cancellation waits for the prior operation to settle, not to succeed.
 		return this.#enqueue(async (): Promise<void> => {
-			if (this.#terminal) return;
+			if (this.#terminal || this.#released) return;
 			const cancelled = createBridgeProductDeferred<void>();
 			// A refused cancel control fails the subscription before this is awaited.
 			void cancelled.promise.catch((): void => {});
 			this.#pendingCancel = cancelled;
-			await this.#controlMux.cancelSubscription({
-				subscriptionId: this.subscriptionId,
-				subscriptionKind: this.#protocol.kind,
-				workerDerivationEpoch: this.#requiredAdmittedWorkerDerivationEpoch(),
-			});
+			if (!(await this.#releaseNativeSubscription())) {
+				this.#pendingCancel = null;
+				this.#eventQueue.close(true);
+				return;
+			}
 			await cancelled.promise;
 		}, 'afterPriorSettles');
 	}
 
 	acceptFrame(frame: BridgeProductSubscriptionFrame): void {
+		if (this.#released && !this.#terminal) {
+			if (
+				frame.kind === 'subscription.cancelled' ||
+				frame.kind === 'subscription.end' ||
+				frame.kind === 'subscription.reset'
+			) {
+				this.#retire();
+			}
+			return;
+		}
 		if (this.#terminal) {
 			throw new BridgeProductSubscriptionFrameFailure(
 				'subscription_post_terminal',
@@ -324,6 +399,10 @@ export class BridgeProductSubscriptionState<
 			outcome.subscriptionKind !== this.#protocol.kind
 		) {
 			throw new Error('Bridge product reconciliation references the wrong subscription.');
+		}
+		if (this.#released) {
+			this.#retire();
+			return;
 		}
 		switch (outcome.disposition) {
 			case 'retained':
@@ -448,6 +527,7 @@ export class BridgeProductSubscriptionState<
 
 	async #initialize(): Promise<void> {
 		await this.#ensureMetadataStream();
+		await this.#awaitWorkerDerivationEpochAdmission();
 		const workerDerivationEpoch = this.#readWorkerDerivationEpochAtAdmission();
 		this.#admittedWorkerDerivationEpoch = workerDerivationEpoch;
 		const initialOptions = this.#protocol.optionsSchema.parse(this.#initialOptions);
@@ -558,6 +638,29 @@ export class BridgeProductSubscriptionState<
 		});
 		void this.#operation.catch((): void => {});
 		return result;
+	}
+
+	/**
+	 * Sends the cancel control and marks the subscription released. Returns false
+	 * when native refused it for a stale epoch: native still owns the subscription
+	 * and will end it, so its frames drain here instead of poisoning the stream.
+	 */
+	async #releaseNativeSubscription(): Promise<boolean> {
+		this.#released = true;
+		try {
+			await this.#controlMux.cancelSubscription({
+				subscriptionId: this.subscriptionId,
+				subscriptionKind: this.#protocol.kind,
+				workerDerivationEpoch: this.#requiredAdmittedWorkerDerivationEpoch(),
+			});
+			return true;
+		} catch (error) {
+			if (error instanceof BridgeProductControlRequestError && error.code === 'resync_required') {
+				return false;
+			}
+			this.#released = false;
+			throw error;
+		}
 	}
 
 	#retire(): void {

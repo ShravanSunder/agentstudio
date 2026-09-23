@@ -481,7 +481,7 @@ function createPanePresentationTestTransport(props: {
 		update: async (): Promise<void> => {},
 	};
 	const productTransport: BridgeProductTransportSession = {
-		bumpWorkerDerivationEpoch: (surface): number => {
+		advanceWorkerDerivationEpoch: (surface): number => {
 			if (surface === 'file') fileEpoch += 1;
 			if (surface === 'review') reviewEpoch += 1;
 			return surface === 'file' ? fileEpoch : reviewEpoch;

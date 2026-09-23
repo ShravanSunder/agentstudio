@@ -78,7 +78,7 @@ function activeModeTransport(
 	reviewAdmission: Promise<unknown>,
 ): BridgeProductTransportSession {
 	return {
-		bumpWorkerDerivationEpoch: (): number => 0,
+		advanceWorkerDerivationEpoch: (): number => 0,
 		call: (...arguments_): Promise<never> => {
 			const [method] = arguments_;
 			if (method === 'file.activeViewerMode.update') return fileAdmission as Promise<never>;

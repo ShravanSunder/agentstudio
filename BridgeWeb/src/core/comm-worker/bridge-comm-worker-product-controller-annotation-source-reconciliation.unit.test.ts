@@ -154,7 +154,7 @@ function unusedProductTransport(): BridgeProductTransportSession {
 	let fileEpoch = 0;
 	let reviewEpoch = 0;
 	return {
-		bumpWorkerDerivationEpoch: (surface): number => {
+		advanceWorkerDerivationEpoch: (surface): number => {
 			if (surface === 'file') fileEpoch += 1;
 			else reviewEpoch += 1;
 			return surface === 'file' ? fileEpoch : reviewEpoch;

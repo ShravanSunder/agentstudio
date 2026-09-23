@@ -261,7 +261,7 @@ export function createBridgeCommWorkerReviewProductTestSource(
 		update: props.updateReviewMetadata ?? (async (): Promise<void> => {}),
 	};
 	const productTransport: BridgeProductTransportSession = {
-		bumpWorkerDerivationEpoch: (surface): number => {
+		advanceWorkerDerivationEpoch: (surface): number => {
 			if (surface === 'review') currentWorkerDerivationEpoch += 1;
 			return surface === 'review' ? currentWorkerDerivationEpoch : 0;
 		},

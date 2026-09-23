@@ -138,7 +138,7 @@ test('product controller preserves decoded nonempty annotation output history', 
 
 function decodedHistoryProductTransport(historyResult: unknown): BridgeProductTransportSession {
 	return {
-		bumpWorkerDerivationEpoch: (): number => 0,
+		advanceWorkerDerivationEpoch: (): number => 0,
 		// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- This fake returns the one decoded annotation history result under test.
 		call: (async (): Promise<unknown> => historyResult) as BridgeProductTransportSession['call'],
 		openContent: (): never => {
@@ -161,7 +161,7 @@ const reviewPublicationIdentity = {
 
 function unusedAnnotationProductTransport(): BridgeProductTransportSession {
 	return {
-		bumpWorkerDerivationEpoch: (): number => 0,
+		advanceWorkerDerivationEpoch: (): number => 0,
 		call: async (): Promise<never> => {
 			throw new Error('Unexpected product call.');
 		},

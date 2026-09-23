@@ -145,6 +145,12 @@ describe('Bridge annotation subscription worker-epoch cutover', () => {
 		// retirement was still undrained, so comments never delay the file itself.
 		expect(drainedCancellationIds).not.toContain(initialFileAnnotation.subscriptionId);
 		expect(replacementFileMetadata.workerDerivationEpoch).toBe(2);
+		// Native refuses controls tagged with a stale epoch once the surface advances,
+		// so the epoch-1 sibling is released before any epoch-2 request reaches it.
+		const siblingCancellationIndex = controlRequests.indexOf(
+			requiredCancellation(controlRequests, initialFileAnnotation.subscriptionId),
+		);
+		expect(siblingCancellationIndex).toBeLessThan(controlRequests.indexOf(replacementFileMetadata));
 
 		await waitForCondition(() =>
 			hasReplacementOpen(
@@ -165,6 +171,17 @@ describe('Bridge annotation subscription worker-epoch cutover', () => {
 		// A routine refresh keeps comments visible as refreshing; it is never unavailable.
 		expect(fileConvergenceStates).toContain('refreshing:true');
 		expect(fileConvergenceStates.filter((state) => state.startsWith('unavailable'))).toEqual([]);
+
+		// A frame the retired sibling produced before its terminal drains silently.
+		harness.server.emitMetadata(
+			annotationControlChangedFrame({
+				epoch: 1,
+				request: streamRequest,
+				streamSequence: nextStreamSequence,
+				subscriptionId: initialFileAnnotation.subscriptionId,
+			}),
+		);
+		nextStreamSequence += 1;
 
 		for (const replacement of [replacementFileMetadata, replacementFileAnnotation]) {
 			const subscriptionKind = bridgeProductSubscriptionKindSchema.parse(
@@ -195,6 +212,9 @@ describe('Bridge annotation subscription worker-epoch cutover', () => {
 		await waitForCondition(() => publishedCatalogRevisions.includes(2));
 		await reconciliation;
 
+		expect(harness.transport.metadataStreamDiagnostics?.()).toMatchObject({
+			routeFailureCode: null,
+		});
 		expect(
 			controlRequests.filter(
 				(request) =>

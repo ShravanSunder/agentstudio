@@ -65,6 +65,7 @@ import {
 	type BridgeProductSubscriptionFrameFailureCode,
 } from './bridge-product-subscription-frame-failure.js';
 import {
+	BridgeProductSubscriptionEpochRetiredError,
 	BridgeProductSubscriptionState,
 	type BridgeProductSubscriptionFrameSink,
 } from './bridge-product-subscription-state.js';
@@ -105,7 +106,14 @@ export interface CreateBridgeProductTransportProps {
 }
 
 export interface BridgeProductTransportSession extends BridgeProductTransport {
-	bumpWorkerDerivationEpoch(surface: BridgeProductSurface): number;
+	/**
+	 * Advances the surface to a new worker derivation epoch and returns it. Every
+	 * subscription admitted on that surface at an older epoch is released first
+	 * (native refuses stale-epoch controls once the surface advances) and then
+	 * terminates with `BridgeProductSubscriptionEpochRetiredError`. Admissions and
+	 * calls on the surface wait until those releases are acknowledged.
+	 */
+	advanceWorkerDerivationEpoch(surface: BridgeProductSurface): number;
 	metadataStreamDiagnostics?(): BridgeProductMetadataStreamHealthDiagnostics;
 	setPanePresentationFrameSink?(sink: (frame: BridgeProductPanePresentationFrame) => void): void;
 	setPaneSurfaceSelectionFrameSink?(
@@ -186,6 +194,7 @@ class BridgeProductTransportSessionImpl implements BridgeProductTransportSession
 	readonly #controlMux: CreateBridgeProductTransportProps['controlMux'];
 	readonly #createIdentifier: (purpose: BridgeProductIdentifierPurpose) => string;
 	readonly #epochs = new Map<BridgeProductSurface, number>();
+	readonly #epochAdvanceBySurface = new Map<BridgeProductSurface, Promise<void>>();
 	readonly #executeProductRequest: BridgeProductRequestExecutor;
 	readonly #metadataApplicationRegistry: BridgeProductMetadataApplicationRegistry;
 	readonly #frameAcknowledgementTimeoutMilliseconds: number;
@@ -253,10 +262,31 @@ class BridgeProductTransportSessionImpl implements BridgeProductTransportSession
 		}
 	}
 
-	bumpWorkerDerivationEpoch(surface: BridgeProductSurface): number {
+	advanceWorkerDerivationEpoch(surface: BridgeProductSurface): number {
 		const nextEpoch = this.workerDerivationEpoch(surface) + 1;
 		assertBridgeProductEpoch(nextEpoch);
+		const retirement = new BridgeProductSubscriptionEpochRetiredError({
+			nextWorkerDerivationEpoch: nextEpoch,
+			surface,
+		});
+		const releases = [...this.#subscriptions.values()]
+			.filter((subscription): boolean => subscription.surface === surface)
+			.map(
+				(subscription): Promise<void> =>
+					subscription.retireBeforeWorkerDerivationEpochAdvance(retirement),
+			);
 		this.#epochs.set(surface, nextEpoch);
+		const previousAdvance = this.#epochAdvanceBySurface.get(surface) ?? Promise.resolve();
+		const advance = previousAdvance
+			.then(async (): Promise<void> => {
+				await Promise.allSettled(releases);
+			})
+			.finally((): void => {
+				if (this.#epochAdvanceBySurface.get(surface) === advance) {
+					this.#epochAdvanceBySurface.delete(surface);
+				}
+			});
+		this.#epochAdvanceBySurface.set(surface, advance);
 		return nextEpoch;
 	}
 
@@ -281,11 +311,23 @@ class BridgeProductTransportSessionImpl implements BridgeProductTransportSession
 		return this.#epochs.get(surface) ?? 0;
 	}
 
+	async #awaitWorkerDerivationEpochAdvance(surface: BridgeProductSurface): Promise<void> {
+		for (
+			let advance = this.#epochAdvanceBySurface.get(surface);
+			advance !== undefined;
+			advance = this.#epochAdvanceBySurface.get(surface)
+		) {
+			// eslint-disable-next-line no-await-in-loop -- A newer advance may begin while one settles.
+			await advance;
+		}
+	}
+
 	async call<TCallArguments extends BridgeProductCallArguments>(
 		...arguments_: TCallArguments
 	): Promise<BridgeProductCallResult<TCallArguments[0]>> {
 		const [method, request, options] = arguments_;
 		const surface = bridgeProductSurfaceForCallKind(method);
+		await this.#awaitWorkerDerivationEpochAdvance(surface);
 		return await this.#controlMux.call({
 			method,
 			request,
@@ -426,6 +468,8 @@ class BridgeProductTransportSessionImpl implements BridgeProductTransportSession
 			protocol,
 			readWorkerDerivationEpochAtAdmission: (): number =>
 				this.workerDerivationEpoch(protocol.surface),
+			awaitWorkerDerivationEpochAdmission: (): Promise<void> =>
+				this.#awaitWorkerDerivationEpochAdvance(protocol.surface),
 			subscriptionId: this.#createIdentifier('subscription'),
 		});
 	}

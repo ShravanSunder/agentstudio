@@ -361,7 +361,7 @@ async function createPendingFilePreparationHarness(
 	let reviewEpoch = 0;
 	let panePresentationSink: ((frame: BridgeProductPanePresentationFrame) => void) | null = null;
 	const productTransport: BridgeProductTransportSession = {
-		bumpWorkerDerivationEpoch: (surface): number => {
+		advanceWorkerDerivationEpoch: (surface): number => {
 			if (surface === 'file') fileEpoch += 1;
 			if (surface === 'review') reviewEpoch += 1;
 			return surface === 'file' ? fileEpoch : reviewEpoch;

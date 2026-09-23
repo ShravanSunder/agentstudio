@@ -360,7 +360,7 @@ export function reviewMetadataTransport(
 		? reviewSubscription
 		: [reviewSubscription];
 	return {
-		bumpWorkerDerivationEpoch: (surface): number => {
+		advanceWorkerDerivationEpoch: (surface): number => {
 			if (surface === 'review') reviewWorkerDerivationEpoch += 1;
 			return surface === 'review' ? reviewWorkerDerivationEpoch : 0;
 		},

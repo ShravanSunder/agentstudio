@@ -733,7 +733,7 @@ function createInstalledBridgeCommWorkerEntryHarness(
 function makeUnavailableFileProductTransport(): BridgeProductTransportSession {
 	const workerDerivationEpochs = { file: 0, review: 0 };
 	return {
-		bumpWorkerDerivationEpoch: (surface): number => {
+		advanceWorkerDerivationEpoch: (surface): number => {
 			workerDerivationEpochs[surface] += 1;
 			return workerDerivationEpochs[surface];
 		},

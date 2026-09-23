@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test, vi } from 'vitest';
 
 import {
 	bridgeProductFileMetadataApplicationProtocol,
+	bridgeProductReviewAnnotationMetadataApplicationProtocol,
 	bridgeProductReviewMetadataApplicationProtocol,
 } from './bridge-product-metadata-application-registry.js';
 import { bridgeProductMetadataFrameSchema } from './bridge-product-session-contracts.js';
@@ -500,12 +501,54 @@ describe('Bridge product transport', () => {
 		});
 	});
 
+	test('releases an older-epoch sibling before any request at the advanced epoch reaches native', async () => {
+		// Arrange: a Review annotation subscription is admitted at epoch 1 and its open
+		// is still in flight, so its release must queue behind that open.
+		const harness = createTransportHarness({ reviewEpoch: 1 });
+		const sibling = harness.transport.subscribe(
+			bridgeProductReviewAnnotationMetadataApplicationProtocol,
+			{},
+		);
+		const siblingTerminal = sibling.events[Symbol.asyncIterator]().next();
+		void siblingTerminal.catch((): void => {});
+		await harness.server.waitForMetadataStream();
+		harness.server.holdNextSubscriptionOpen();
+		harness.server.emitMetadata(metadataAccepted(harness.server.requiredMetadataRequest(), 0));
+		await harness.server.waitForControlKind('subscription.open');
+
+		// Act: Review advances and immediately subscribes its replacement metadata.
+		const nextEpoch = harness.transport.advanceWorkerDerivationEpoch('review');
+		harness.transport.subscribe(bridgeProductReviewMetadataApplicationProtocol, { interests: [] });
+		harness.server.releaseHeldSubscriptionOpen();
+		await harness.server.waitForControlKind('subscription.open', 2);
+
+		// Assert: native sees the epoch-1 cancel before the first epoch-2 request, and the
+		// sibling's consumer learns it was retired for the new epoch.
+		expect(
+			harness.server.controlRequests.map((request) =>
+				request.kind === 'subscription.open'
+					? `open:${request.subscription.subscriptionKind}:${request.workerDerivationEpoch}`
+					: request.kind === 'subscription.cancel'
+						? `cancel:${request.subscriptionKind}:${request.workerDerivationEpoch}`
+						: request.kind,
+			),
+		).toEqual([
+			'open:review.annotations:1',
+			'cancel:review.annotations:1',
+			'open:review.metadata:2',
+		]);
+		await expect(siblingTerminal).rejects.toMatchObject({
+			name: 'BridgeProductSubscriptionEpochRetiredError',
+			nextWorkerDerivationEpoch: nextEpoch,
+		});
+	});
+
 	test('owns independent File and Review derivation epochs', () => {
 		const harness = createTransportHarness({ fileEpoch: 4, reviewEpoch: 9 });
 
-		expect(harness.transport.bumpWorkerDerivationEpoch('file')).toBe(5);
+		expect(harness.transport.advanceWorkerDerivationEpoch('file')).toBe(5);
 		expect(harness.transport.workerDerivationEpoch('review')).toBe(9);
-		expect(harness.transport.bumpWorkerDerivationEpoch('review')).toBe(10);
+		expect(harness.transport.advanceWorkerDerivationEpoch('review')).toBe(10);
 		expect(harness.transport.workerDerivationEpoch('file')).toBe(5);
 	});
 

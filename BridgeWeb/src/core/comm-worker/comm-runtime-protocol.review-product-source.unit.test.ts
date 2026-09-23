@@ -188,13 +188,19 @@ describe('Bridge comm worker Review product source projection', () => {
 	test('activates Review annotation projection from accepted metadata without a fabricated active source', async () => {
 		// Arrange
 		const calledMethods: string[] = [];
-		const cancelledReviewAnnotationSubscriptionIds: string[] = [];
-		const reviewAnnotationEvents: BridgeProductBoundedAsyncQueue<WorktreeAnnotationMetadataFrame>[] =
-			[];
+		const reviewAnnotationEvents =
+			new BridgeProductBoundedAsyncQueue<WorktreeAnnotationMetadataFrame>(8);
 		const reviewMetadataEvents = new BridgeProductBoundedAsyncQueue<ReviewMetadataFrame>(64);
 		const reviewProjectionSourceGenerations: number[] = [];
 		const reviewProjectionQueryStarted = createBridgeProductDeferred<void>();
 		const subscribedKinds: string[] = [];
+		const reviewAnnotationSubscription: ReviewAnnotationMetadataSubscription = {
+			cancel: async (): Promise<void> => {},
+			events: reviewAnnotationEvents,
+			subscriptionId: 'review-annotations-no-fabricated-source',
+			subscriptionKind: 'review.annotations',
+			update: async (): Promise<void> => {},
+		};
 		const reviewMetadataSubscription: ReviewMetadataSubscription = {
 			cancel: async (): Promise<void> => {},
 			events: reviewMetadataEvents,
@@ -222,23 +228,7 @@ describe('Bridge comm worker Review product source projection', () => {
 						reviewProjectionQueryStarted.resolve();
 					}
 				},
-				reviewAnnotationSubscriptionFactory: (
-					subscriptionOrdinal,
-				): ReviewAnnotationMetadataSubscription => {
-					const events = new BridgeProductBoundedAsyncQueue<WorktreeAnnotationMetadataFrame>(8);
-					const subscriptionId = `review-annotations-no-fabricated-source-${subscriptionOrdinal}`;
-					reviewAnnotationEvents.push(events);
-					return {
-						cancel: async (): Promise<void> => {
-							cancelledReviewAnnotationSubscriptionIds.push(subscriptionId);
-							events.close(true);
-						},
-						events,
-						subscriptionId,
-						subscriptionKind: 'review.annotations',
-						update: async (): Promise<void> => {},
-					};
-				},
+				reviewAnnotationSubscription,
 				reviewSubscription: reviewMetadataSubscription,
 				subscribedKinds,
 			}),
@@ -246,20 +236,8 @@ describe('Bridge comm worker Review product source projection', () => {
 
 		// Act
 		activateBridgeCommWorkerReviewViewerMode(dispatch, 'annotation-metadata-source');
-		await flushBridgeWorkerRuntimeContinuations();
-		expect(cancelledReviewAnnotationSubscriptionIds).toEqual([
-			'review-annotations-no-fabricated-source-1',
-		]);
-		const freshReviewAnnotationEvents = reviewAnnotationEvents[1];
-		if (freshReviewAnnotationEvents === undefined) {
-			throw new Error('Expected Review epoch cutover to open a fresh annotation subscription.');
-		}
-		for (const catalogFrame of annotationCatalogFrames(
-			0,
-			'review-annotations-no-fabricated-source-2',
-			1,
-		)) {
-			freshReviewAnnotationEvents.push(catalogFrame);
+		for (const catalogFrame of annotationCatalogFrames(0)) {
+			reviewAnnotationEvents.push(catalogFrame);
 		}
 		reviewMetadataEvents.push(reviewMetadataFrame(reviewSnapshotEvent));
 		await flushBridgeWorkerRuntimeContinuations();
@@ -287,7 +265,6 @@ describe('Bridge comm worker Review product source projection', () => {
 		const telemetrySamples: BridgeTelemetrySample[] = [];
 		const events = new BridgeProductBoundedAsyncQueue<ReviewMetadataFrame>(64);
 		const scheduledDrains: BridgeCommWorkerPreparationDrain[] = [];
-		const cancelledReviewAnnotationSubscriptionIds: string[] = [];
 		const subscribedKinds: string[] = [];
 		const reviewSubscription: ReviewMetadataSubscription = {
 			cancel: async (): Promise<void> => {},
@@ -300,27 +277,7 @@ describe('Bridge comm worker Review product source projection', () => {
 		registerBridgeCommWorkerRuntimePortProtocol(dispatch.port, {
 			bridgeDemandRank: { lane: 'selected', priority: 0 },
 			budget: { className: 'interactive', maxBytes: 512 * 1024, maxWindowLines: 400 },
-			productTransport: makeReviewProductTransport({
-				reviewAnnotationSubscriptionFactory: (
-					subscriptionOrdinal,
-				): ReviewAnnotationMetadataSubscription => {
-					const annotationEvents =
-						new BridgeProductBoundedAsyncQueue<WorktreeAnnotationMetadataFrame>(1);
-					const subscriptionId = `review-source-truth-annotations-${subscriptionOrdinal}`;
-					return {
-						cancel: async (): Promise<void> => {
-							cancelledReviewAnnotationSubscriptionIds.push(subscriptionId);
-							annotationEvents.close(true);
-						},
-						events: annotationEvents,
-						subscriptionId,
-						subscriptionKind: 'review.annotations',
-						update: async (): Promise<void> => {},
-					};
-				},
-				reviewSubscription,
-				subscribedKinds,
-			}),
+			productTransport: makeReviewProductTransport({ reviewSubscription, subscribedKinds }),
 			schedulePreparationDrain: (drain): void => {
 				scheduledDrains.push(drain);
 			},
@@ -347,13 +304,7 @@ describe('Bridge comm worker Review product source projection', () => {
 			}),
 		);
 		await flushBridgeWorkerRuntimeContinuations();
-		expect(subscribedKinds).toEqual([
-			'file.annotations',
-			'review.annotations',
-			'review.metadata',
-			'review.annotations',
-		]);
-		expect(cancelledReviewAnnotationSubscriptionIds).toEqual(['review-source-truth-annotations-1']);
+		expect(subscribedKinds).toEqual(['file.annotations', 'review.annotations', 'review.metadata']);
 		events.push(reviewMetadataFrame({ ...reviewSnapshotEvent, operationCorrelationId }));
 		await flushBridgeWorkerRuntimeContinuations();
 
@@ -591,8 +542,6 @@ function messageCount(
 
 function annotationCatalogFrames(
 	sourceGeneration: number,
-	subscriptionId: string,
-	workerDerivationEpoch: number,
 ): readonly WorktreeAnnotationMetadataFrame[] {
 	const authority = {
 		applicationSourceGeneration: sourceGeneration,
@@ -615,10 +564,10 @@ function annotationCatalogFrames(
 			operationCorrelationId: 'a'.repeat(64),
 			sourceGeneration,
 			streamSequence: 1,
-			subscriptionId,
+			subscriptionId: 'review-annotation-subscription',
 			subscriptionKind: 'review.annotations',
 			subscriptionSequence: 1,
-			workerDerivationEpoch,
+			workerDerivationEpoch: 1,
 		},
 		{
 			data: {
@@ -636,10 +585,10 @@ function annotationCatalogFrames(
 			operationCorrelationId: 'a'.repeat(64),
 			sourceGeneration,
 			streamSequence: 2,
-			subscriptionId,
+			subscriptionId: 'review-annotation-subscription',
 			subscriptionKind: 'review.annotations',
 			subscriptionSequence: 2,
-			workerDerivationEpoch,
+			workerDerivationEpoch: 1,
 		},
 	];
 }

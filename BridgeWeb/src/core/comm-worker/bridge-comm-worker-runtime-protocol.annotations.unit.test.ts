@@ -749,7 +749,7 @@ function createAnnotationProductTransport(props: {
 		BridgeProductMetadataDataFrame<never>
 	>(1);
 	return {
-		bumpWorkerDerivationEpoch: (): number => 1,
+		advanceWorkerDerivationEpoch: (): number => 1,
 		// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- The annotation runtime test double implements only the call variants exercised by this suite.
 		call: (async (method: string): Promise<unknown> => {
 			props.calledMethods.push(method);

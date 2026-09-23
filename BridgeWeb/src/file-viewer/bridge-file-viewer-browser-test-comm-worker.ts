@@ -505,7 +505,7 @@ function createBrowserTestProductTransport(props: {
 }): BridgeProductTransportSession {
 	let fileEpoch = 0;
 	return {
-		bumpWorkerDerivationEpoch: (surface): number => {
+		advanceWorkerDerivationEpoch: (surface): number => {
 			if (surface === 'file') fileEpoch += 1;
 			return surface === 'file' ? fileEpoch : 0;
 		},

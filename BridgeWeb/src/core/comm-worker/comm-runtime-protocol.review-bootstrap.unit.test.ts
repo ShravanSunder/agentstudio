@@ -107,7 +107,7 @@ function productTransportRecordingReviewBootstrap(props: {
 }): BridgeProductTransportSession {
 	let reviewEpoch = 0;
 	return {
-		bumpWorkerDerivationEpoch: (surface): number => {
+		advanceWorkerDerivationEpoch: (surface): number => {
 			if (surface === 'review') reviewEpoch += 1;
 			return surface === 'review' ? reviewEpoch : 0;
 		},

@@ -340,7 +340,7 @@ export class BridgeCommWorkerProductController {
 	ensureReviewMetadata(): void {
 		if (this.#reviewSubscription !== null) return;
 		const interests = reviewMetadataInterestsInPriorityOrder(this.#reviewInterestItemIdsByLane);
-		const workerDerivationEpoch = this.#productTransport.bumpWorkerDerivationEpoch('review');
+		const workerDerivationEpoch = this.#productTransport.advanceWorkerDerivationEpoch('review');
 		this.#reviewWorkerDerivationEpoch = workerDerivationEpoch;
 		this.#reviewDesiredInterestSignature = JSON.stringify(interests);
 		try {
@@ -355,7 +355,6 @@ export class BridgeCommWorkerProductController {
 			this.#onReviewMetadataFailure(error, workerDerivationEpoch);
 			throw error;
 		}
-		this.#annotationProjectionBySurface.review.replaceSubscriptionForSurfaceEpoch();
 	}
 
 	async sendProductControl(command: BridgeProductControlCommand): Promise<unknown> {
@@ -642,7 +641,7 @@ export class BridgeCommWorkerProductController {
 			this.#onFileSourceUnavailable();
 			return;
 		}
-		const workerDerivationEpoch = this.#productTransport.bumpWorkerDerivationEpoch('file');
+		const workerDerivationEpoch = this.#productTransport.advanceWorkerDerivationEpoch('file');
 		this.#fileWorkerDerivationEpoch = workerDerivationEpoch;
 		this.#filePathScope = [];
 		this.#fileDesiredInterestSignature = null;
@@ -655,7 +654,6 @@ export class BridgeCommWorkerProductController {
 		});
 		this.#fileSubscription = subscription;
 		void this.#consumeFileMetadataEvents(subscription, workerDerivationEpoch).catch((): void => {});
-		this.#annotationProjectionBySurface.file.replaceSubscriptionForSurfaceEpoch();
 	}
 
 	#replaceFileInterestLane(lane: FileMetadataInterestLane, paths: readonly string[]): void {
