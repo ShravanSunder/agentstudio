@@ -39,9 +39,9 @@ The entity table is the normative home. The map below shows relationships only.
 
 | ID | Term | Identity rule | Relationships | Invariants | Observable states | Canonicalizes | Basis |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| E1 | Guardrail | Its stable rule identifier; two checks with the same identifier are the same guardrail | Guards one or more mistake shapes (E2); has zero or one debt baseline (E3) | Every guardrail fails the build or the merge when it fires; none is report-only | `enforced` only. The four report-only rules move from `report-only` to `enforced` once, in this change | "lint", "rule", "gate" | U1–U4, U9 |
+| E1 | Guardrail | Its stable rule identifier; two checks with the same identifier are the same guardrail | Guards one or more mistake shapes (E2); has zero or more debt baseline entries (E3), at most one per file | Every guardrail fails the build or the merge when it fires; none is report-only | `enforced` only. The four report-only rules move from `report-only` to `enforced` once, in this change | "lint", "rule", "gate" | U1–U4, U9 |
 | E2 | Mistake shape | A named syntactic or runtime pattern, e.g. "discarded completion handle", "hop per stream element"; two occurrences are the same shape when one guardrail's predicate matches both | Belongs to exactly one guardrail; has zero or more violation sites (E4) | A shape has a written predicate and at least one matching and one non-matching example | — | "pattern", "anti-pattern", "misuse" | U1, U4 |
-| E3 | Debt baseline entry | Guardrail identifier plus repository-relative file path | Belongs to one guardrail; covers the violation sites of that guardrail in that file | Permitted count ≥ 1; a count never increases and no entry is added after this change | `active` (count ≥ 1) → `retired` (entry removed) | "baseline", "known debt", "allowlist" (for debt only; ownership allowlists are not debt) | U1, U2, non-goal on paydown |
+| E3 | Debt baseline entry | Guardrail identifier plus repository-relative file path | Belongs to one guardrail; covers the violation sites of that guardrail in that file by count | Permitted count ≥ 1; a count never increases and no entry is added after this change. Known limit accepted by the owner ("change the baselines from `[path]` to `[path: count]`"): replacing one site with another in the same file keeps the count and passes | `active` (count ≥ 1) → `retired` (entry removed) | "baseline", "known debt", "allowlist" (for debt only; ownership allowlists are not debt) | U1, U2, non-goal on paydown |
 | E4 | Violation site | One occurrence of a mistake shape at one source location; two reports at the same file, line and column for the same guardrail are the same site | Belongs to one file and one guardrail; counted against at most one baseline entry | — | `baselined` (inside a permitted count) or `new` (fails) | "finding", "diagnostic" | U1 |
 | E5 | Completion handle | A task an operation returns after its synchronous admission step, whose awaited value is the operation's outcome | Returned by one operation; consumed by the caller that started it | A caller can never drop it without writing so; its outcome exists only by awaiting it | `awaited`, `stored`, or `discarded-with-reason` at each call site | "task", "Task handle", "submission" | U12 |
 | E6 | Held step | One test-controlled suspension point, for one test run, that the work under test reaches | Belongs to one causal test (E7); reached by one or more arrivals | Resumes only by an explicit test action; never by elapsed time | `waiting` → `held` (first arrival) → `released` \| `failed` \| `retired` | "gate", "latch", "barrier", "hold" | U7, U8 |
@@ -68,7 +68,7 @@ flowchart LR
     subgraph harness["Test harness"]
         E7["E7 Causal test<br/>id: one test"]
         E6["E6 Held step<br/>id: one suspension point per test run<br/>waiting → held → released | failed | retired"]
-        E8["E8 Ad-hoc gate type<br/>id: one test-support type<br/>none after this change"]
+        E8["E8 Ad-hoc gate type<br/>id: one test-support type<br/>baselined → migrated"]
         E13["E13 Page generation<br/>id: one document load<br/>current → superseded"]
     end
     subgraph evidence["Evidence"]
@@ -177,19 +177,24 @@ Each requirement is written over the entities above. Proof obligations are in th
 
 ### Causal-test harness
 
-- **R15** (E6) The shared test support MUST provide a held step with this contract:
+- **R15** (E6) The shared test support MUST provide a named held step with this contract:
   - work that reaches the step suspends until the test releases, fails or retires it;
   - the test can await the first arrival, and that await completes because an arrival happened, never because time
     passed;
   - releasing resumes every current and later arrival; failing makes them throw the given error; retiring resumes
     them as cancelled;
-  - a step that is never reached leaves the test waiting until the runner's hang bound, which names the step.
+  - cancellation of an arriving task either resumes it as cancelled or, when the test asks for it, keeps it held
+    until release, fail or retire while the test can await the cancellation as an event;
+  - a synchronous (blocking) arrival made from inside a task is rejected as a test failure naming the step, because
+    it would park a cooperative-pool or actor thread;
+  - a step that is never reached leaves the test waiting until the runner's hang bound, whose failure names the step.
   U7.
-- **R16** (E7) The shared test support MUST provide a three-phase helper that, for a fresh instance of the work each
-  time, holds the work at a step and then either fails the step and asserts the reply reports that failure, or
-  releases the step and asserts the reply succeeds and the effect is committed. A causal test built with it always
-  runs both branches. A reply produced before the step completes cannot depend on the step's outcome, so an early
-  reply fails the test without any clock or quiescence wait. U7.
+- **R16** (E7) The shared test support MUST provide a three-phase helper for boundaries whose held dependency can
+  report failure through the boundary's existing contract: for a fresh instance of the work each time, it holds the
+  work at a step and then either fails the step and asserts the reply reports that failure, or releases the step and
+  asserts the reply succeeds and the effect is committed. A causal test built with it always runs both branches. A
+  reply produced before the step completes cannot depend on the step's outcome, so an early reply fails the test
+  without any clock or quiescence wait. The helper never invents an error the boundary's contract does not have. U7.
 - **R17** (S16) Every wait helper in the shared harness MUST return the observed value that satisfied it. Existing
   test wait helpers that return nothing are frozen by per-file count (a lint guardrail) and converted in the stacked
   follow-up pull requests; no new one may be added. U7, U8, U13.
@@ -197,22 +202,29 @@ Each requirement is written over the entities above. Proof obligations are in th
   type that exists as a duplicate copy under the same or a different name. S4 MUST fail the lint run for a new ad-hoc
   gate type and freeze the rest by per-file count; the stacked follow-up pull requests retire the remainder until the
   baseline is empty. U8.
-- **R19** (E7) Each async boundary whose defect is in the evidence — IPC `pane.focus`, Bridge producer retirement,
-  socket listener stop, and the Darwin FSEvents fixture barrier — MUST have a causal test built with the harness that
-  fails if the reply precedes the effect. U1, U7.
+- **R19** (E7) Each async boundary whose defect is in the evidence MUST have a causal test at its real entry point
+  that fails if the reply precedes the effect, without changing production behavior:
+  - IPC `pane.focus`: through the IPC-facing focus operation, using the outcome-dependence helper;
+  - Bridge producer retirement: through retirement, using the helper at the lifecycle acknowledgement;
+  - socket listener stop: the normal, fallback and both-timeouts branch tests, with holds on a dedicated thread;
+  - Darwin FSEvents fixture barrier: the deterministic setup failure when the final barrier does not cover the
+    installed bindings (no hold, because its setup path runs on the cooperative pool).
+  U1, U7.
 
 ### Evidence integrity
 
 - **R20** (E10) Every Swift lane receipt MUST state the tested tree's commit, whether the tree had uncommitted changes,
   and whether the test bundle was built fresh or reused. U1, Ev6.
-- **R21** (E10) A receipt MUST mark itself invalid when the bundle was reused or the tree had uncommitted changes. An
-  invalid receipt MUST NOT print a pass verdict. U1, U14.
+- **R21** (E10) A receipt MUST mark itself invalid when the tree had uncommitted changes, or when the bundle was reused
+  without a build receipt for the same bundle and the same clean commit. An invalid receipt MUST NOT print a pass
+  verdict. U1, U14.
 - **R22** (E10) A receipt MUST NOT label a count of announced tests as tests running or started; announced counts are
   labelled as announcements. U1, Ev11.
 - **R22a** (E10) The Swift runner MUST NOT retry a suite within a lane; a crashed suite makes the lane fail, and the
   receipt names the suite and its terminating signal. U1, U11, U17.
-- **R23** (E10) When a lane reaches its hang bound, the receipt MUST include a concurrency task dump of the test
-  process taken before it is terminated, alongside the event ledger. U1.
+- **R23** (E10) When a lane reaches its hang bound, the lane MUST retain, and CI MUST upload with the event ledger, a
+  concurrency task dump of the test process taken before it is terminated; when the dump tool is unavailable or
+  refused, the receipt states that and why. The lane's failed verdict is unchanged either way. U1.
 - **R24** (E11) A CI workflow run whose attempt number is greater than 1 MUST fail its first step unless the pull
   request carries the override label at the time of the re-run, and that failure MUST name the label. U11.
 
@@ -221,8 +233,8 @@ Each requirement is written over the entities above. Proof obligations are in th
 - **R24a** The lint check (including the baseline-increase and doc-path guardrails), the Swift test lanes and the
   BridgeWeb check MUST be required status checks for merges to `main`. U16.
 - **R25** (E12) The lint run and a required CI check MUST fail when any agent instruction document contains a
-  dangling reference — a link target or backticked repository path that does not exist, or a heading anchor that
-  does not match a heading in its target — naming the document, line and reference. Tokens that are not written in
+  dangling reference — a link target or backticked repository path that does not exist, or an anchor that
+  matches neither a heading in its target nor an explicit anchor ID declared there — naming the document, line and reference. Tokens that are not written in
   repository-path form (type names, placeholders, repository slugs) are not references. U9.
 - **R26** (E12) No agent document may claim a hook, task or script the repository does not contain; the removed
   PostToolUse claim MUST stay removed. U10.
@@ -230,11 +242,14 @@ Each requirement is written over the entities above. Proof obligations are in th
 ### BridgeWeb
 
 - **R27** (S19) A BridgeWeb unit, node-integration, browser-integration or E2E test that emits a React `act()` warning
-  MUST fail, naming the component. (Browser-integration tests already do; the other suites MUST match.) U13, Ev4.
+  MUST fail, naming the component. The browser suite keeps its existing broader console-error guard; the other suites
+  gain only the `act()` failure. U13, Ev4.
 - **R27a** Every BridgeWeb Vitest configuration MUST declare its test hang bound explicitly, as the testing
   architecture already requires. U13.
 - **R28** (S20) The BridgeWeb check MUST fail on a timed wait (`waitForTimeout`, a sleep, or a timer promise used to
-  wait) in any BridgeWeb test file or any module a test file imports, directly or transitively. U13.
+  wait, including a zero-delay one) in any file selected by a BridgeWeb test configuration or any module such a file
+  imports, directly or transitively. A timer that races a condition is allowed only when its delay is the declared
+  shared hang bound. U13.
 - **R29** (E13) In a BridgeWeb E2E journey, a response waiter MUST be satisfied only by a response to a request issued
   by its own page generation. When a journey fails, its diagnostic MUST name every unresolved waiter with its page
   generation. U13, Ev4.
@@ -332,8 +347,8 @@ Each requirement is written over the entities above. Proof obligations are in th
 | R11, R12 | performance measurement | Before/after timings on the reference Mac, printed per stage and guardrail |
 | R13 | automated behavior | Scoped and full runs report identical sites for the scoped files |
 | R14 | state inspection | No timing threshold in any exit-code path |
-| R15–R17 | automated behavior (harness self-tests) | Arrival-before-release, fail, retire and never-reached cases |
-| R19 | automated behavior | Each named boundary's causal test fails when the implementation replies early (demonstrated by the test's own red state before the fix, or by a held-step release order that would expose it) |
+| R15–R17 | automated behavior (harness self-tests) | Arrival-before-release, fail, retire, both cancellation policies, blocking arrival rejected inside a task, never-reached names the step |
+| R19 | automated behavior | Each named boundary's proof fails against an early-reply or broken-ordering variant at the real boundary (demonstrated during implementation) |
 | R20–R23, R22a | runtime evidence | Receipts from a fresh run, a reused-bundle run, a forced hang, and a lane whose suite crashes (red, suite and signal named, no retry) |
 | R24a | state inspection | The `main` ruleset lists the required checks; a PR with a red required check cannot merge |
 | R24 | runtime evidence at CI | A re-run attempt without the label fails with the label named |

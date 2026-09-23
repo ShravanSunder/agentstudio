@@ -130,7 +130,7 @@ sequenceDiagram
 | Discarded completion handle (S3) | Keep each operation's synchronous admission and returned task; remove `@discardableResult` from the 14; make the repository's own targets treat warnings as errors so a silent discard fails compilation (type-aware, incremental-safe because an error blocks the object file); lint bans `@discardableResult` on task-returning declarations and requires a reason on explicit discards | Make the 14 `async` (rejected: moves load-bearing synchronous prefixes — the teardown generation fence at `BridgePaneController.swift:559`, presentation snapshots, close-time drains — into a later MainActor turn); split each into sync admission + async outcome (14 dual entry points); a name-indexed call-site lint for bare calls (name collisions, renames) | A toolchain release adds warnings in our targets faster than they can be fixed; then downgrade that named group, never disable the policy |
 | Harness home | New Core-free target `AgentStudioTestHarness` | Put it in `AgentStudioTestSupport` — it depends on `AgentStudioCore` and six test targets cannot import it | — |
 | Causal proof | Outcome dependence (fail and release branches) | "Not yet reported while held" — racy without an owner quiescence seam most boundaries lack | — |
-| Rerun gate placement | A composite action as the first step of every job | A separate gate job — jobs have no `needs:` by design (`CIFastLaneWorkflowTests.swift:72-83`), so a separate job cannot stop the others | — |
+| Rerun gate placement | One anchored `run:` step, aliased as the first step of every job | A separate gate job — jobs have no `needs:` by design (`CIFastLaneWorkflowTests.swift:72-83`); a local composite action — resolves only after checkout | — |
 
 What stays the same: the rule protocol, rule identifiers, diagnostic format, SwiftLint and swift-format
 configuration, the lane topology, and every existing assertion. What it costs: a cold release compile of SwiftSyntax
@@ -183,6 +183,10 @@ stateDiagram-v2
   the file (this change) passes. The code-quality job checks out enough history to compute the merge base.
 - **Recording lower counts:** `--lower-ledger-counts` rewrites only counts that went down and removes zero rows. It
   cannot raise a count.
+- **Granularity (owner-accepted):** counts per rule and file. Replacing one violation with another in the same file
+  keeps the count and passes; this is the known limit of the accepted `[path: count]` format.
+- **Scoped runs** reconcile only the files they validate; an unvisited file is never treated as a zero count, so a
+  scoped run cannot report stale entries.
 - **Named-owner allowlists stay separate** in `ArchitectureAllowlists` with one owner and reason per entry (R10). The
   current `blockingTestWaitOwners` stays an owner list; `blockingTestWaitKnownDebt` and `pollingWaitKnownDebt` move to
   the ledger. The blocking list gains the stale and missing checks it lacks today.
@@ -196,12 +200,12 @@ stateDiagram-v2
 | S4 | `agentstudio_test_ad_hoc_gate` | in `Tests/`, outside the harness target, a type named `*Gate`, `*Latch`, `*Barrier`, `*Blocker` or `*Hold` that stores a continuation, a continuation array, a `DispatchSemaphore` or an `NSCondition` | the harness target | per-file counts after this change's migrations |
 | void wait | `agentstudio_test_wait_helper_returns_observation` | in `Tests/`, an `async` function named `wait*`, `require*`, `await*`, `expect*Eventually` or `waitUntil*` with no return type | the harness target | per-file counts |
 | S5–S8 | four existing report rules | predicates unchanged; severity `.error` | unchanged (empty) | 101 / 1 / 13 / 2 sites at merge base |
-| S9 | `agentstudio_observation_rearm_guarded` | a `withObservationTracking` whose `onChange` closure re-invokes the enclosing method, in a type that has neither a generation fence (the closure compares a stored generation with a captured `let` or parameter) nor an arm latch (`guard !flag` before arming, `flag = true` on arm, `flag = false` in `onChange`) | none | 15 sites |
+| S9 | `agentstudio_observation_rearm_guarded` | a `withObservationTracking` whose `onChange` closure re-invokes the enclosing method, unless the re-arm is controlled by a guard: a generation fence (`guard stored == captured else { return }` before the re-arm, or the re-arm nested inside `if stored == captured`) or an arm latch (`guard !flag else { return }` before arming, `flag = true` on arm, `flag = false` in `onChange`). A comparison whose result does not control the re-arm does not count | none | 15 sites |
 | S10 | `agentstudio_swiftui_body_derivation` | inside `var body: some View`, or a same-file method it calls: a call to `canDispatch`, `snapshot(state:)`, `fuzzyMatch`/`score*`, or a collection `sorted`/`sort`/`filter`/`reduce`/`grouping`; plus calls to `Type.member` resolvers that the `prepared(for:)` index shows call `canDispatch`. `Optional.map` and `compactMap` are not in the predicate | none | 4 sites |
 | S11 | `agentstudio_atom_assign_only` | in a type named `*Atom` under `/State/MainActor/Atoms/`: `FileManager`, `sqlite3_*`, `Process`, `URLSession`, `Timer`, `DispatchQueue`, `Task {`, `Task.detached`, `withObservationTracking`, `sorted`/`sort` | none | 2 true sites plus the 2 unsure sites, frozen |
-| S12 | `agentstudio_mainactor_hop_per_element` | (a) `MainActor.run` or `Task { @MainActor` inside a `for await` body; (b) a `for await` inside a `Task { @MainActor` or `@MainActor` type whose body acts before any comparison of the element with a stored value | named thin adapters (the two reducer consumers in `WorkspaceSurfaceCoordinator`) | measured at merge base |
+| S12 | `agentstudio_mainactor_hop_per_element` | (a) `MainActor.run` or `Task { @MainActor` inside a `for await` body; (b) a `for await` inside a `Task { @MainActor` or `@MainActor` type whose action is not controlled by an equality guard on the element: `guard element != stored else { continue }` (or `if element == stored { continue }`) before the action in the loop body, or the action nested in `if element != stored`. A comparison whose result does not control the action does not count | named thin adapters (the two reducer consumers in `WorkspaceSurfaceCoordinator`) | measured at merge base |
 | S13 | `agentstudio_probe_reports_off_main` | in the performance recorder and telemetry recorder files: `Task { @MainActor`, `MainActor.run`, or a `@MainActor` reporter type | none | 1 site (`AgentStudioPerformanceTraceRecorder.swift:170,323`) |
-| S14 | `agentstudio_agent_doc_reference_resolves` | in every `AGENTS.md`: each Markdown link target and each backticked token that starts with a repository top-level entry or `./`, resolved against the document directory and the repository root, must exist; each `#anchor` must equal a heading slug in the target (GitHub slug rules) | none | none: the three broken anchors (`AGENTS.md:106,171,288`) are fixed in this change |
+| S14 | `agentstudio_agent_doc_reference_resolves` | in every `AGENTS.md`: each Markdown link target and each backticked token that starts with a repository top-level entry or `./`, resolved against the document directory and the repository root, must exist; each `#anchor` must equal a heading slug in the target (GitHub slug rules) or an explicit anchor ID declared there (`<a id=…>`, `<a name=…>`) | none | none: every current reference resolves (the anchors at `AGENTS.md:106,171,288` resolve to explicit IDs) |
 
 Every rule gets matching and non-matching fixtures in the lint tool's tests (R6). The rules operate on source text
 only; their false-negative limits are listed in the lint inventory beside each rule.
@@ -218,12 +222,16 @@ Each of the 14 operations keeps its synchronous admission step and returns its t
 Compile enforcement: the repository's own SwiftPM targets (app, features, core, infrastructure, shared components,
 test targets and the lint tool) set `.treatAllWarnings(as: .error)`. An unused non-discardable result is a warning,
 so a silent discard fails the build. Existing warnings are fixed in the same change; a group that a future toolchain
-floods may be downgraded by name with `.treatWarning(<group>, as: .warning)`, never by removing the policy. Vendored
+floods may be downgraded by name with `.treatWarning(<group>, as: .warning)` only if the unused-result warning stays an
+error (the negative-compilation proof is rerun), never by removing the policy. Vendored
 packages are unaffected because the setting is per target.
 
 Lint: `agentstudio_completion_handle_not_discardable` fails on `@discardableResult` over a declaration returning
-`Task<…>`/`Task<…>?`, and on an explicit `_ =` discard of a call to a task-returning function (index built in
-`prepared(for:)`) without a trailing `// fire-and-forget:` reason. Stored-handle accessors that return a task
+`Task<…>`/`Task<…>?`, and on an explicit `_ =` whose discarded expression is itself a direct call (`f(…)`, `x.f(…)`, `x?.f(…)`) to a name
+in the `prepared(for:)` index of task-returning declarations, without a trailing `// fire-and-forget:` reason. Names
+also declared with a non-task result (e.g. `RepoScannerValidationExecutor.submit`) are excluded as ambiguous;
+compile enforcement still rejects their silent discards. `_ = await …` and `_ = await f().value` discard an outcome,
+not a task, and are not flagged. Stored-handle accessors that return a task
 (`take*Task`, enum payload `task`) are unaffected: they are neither discardable nor discarded.
 
 ## Causal-test harness
@@ -263,12 +271,15 @@ throw the same error, immediately.
 | Operation | Caller | Behavior |
 | --- | --- | --- |
 | `arrive(_:) async throws` | fake dependency on an async seam | suspends until a terminal state; records the arrival |
-| `arriveBlocking(_:) throws` | fake dependency on a synchronous seam (socket join, FSEvents factory) | parks the calling thread on a per-arrival semaphore owned by the harness; never called from the cooperative pool (the S2 rule allowlists only the harness) |
-| `firstArrival() async -> Arrival` | test | returns the first arrival's value once it happens; never times out; the runner hang bound names the step |
+| `arriveBlocking(_:) throws` | fake dependency on a synchronous seam reached from a dedicated thread (socket join) | parks the calling thread on a per-arrival semaphore owned by the harness. If called synchronously from inside a task (`withUnsafeCurrentTask` is non-nil: cooperative pool or an actor), it records a test failure naming the step and does not park |
+| `firstArrival() async throws -> Arrival` | test | returns the first arrival's value once it happens; never times out; throws `HeldStepNeverReached(<step name>)` only when the waiting task is cancelled (the runner's hang bound cancels it), so the failure names the step. Each step is created with a name |
 | `release()`, `fail(_:)`, `retire()` | test | first terminal call wins; later calls are no-ops that do not change the state |
+| cancellation policy (init) | test | `.resumeOnCancellation` resumes a cancelled async arrival as cancelled; `.holdThroughCancellation` keeps it held until a terminal call and records the cancellation |
+| `cancellationObserved() async throws` | test | returns once an arriving task has been cancelled (for `.holdThroughCancellation` interleavings such as the late-frame regression) |
 
-Task cancellation of an async arrival resumes it with `CancellationError` inside the cancellation handler under the
-same lock. No detached task relays the resume (15 existing gates do; that shape is not carried over). Terminal state
+The harness also owns `valueFromDedicatedThread(_:)`, the single implementation of running blocking work off the
+cooperative pool; `AgentStudioTestSupport`'s `withoutBlockingCooperativePool` delegates to it. State changes happen under the lock;
+continuations and semaphores are resumed after the lock is released. No detached task relays the resume (15 existing gates do; that shape is not carried over). Terminal state
 before arrival is kept, so an early `release()` cannot be lost.
 
 ### Outcome-dependence helper
@@ -296,7 +307,7 @@ sequenceDiagram
     H->>T: assert reply success, then assertCommitted()
 ```
 
-Signature shape: `proveReplyDependsOnStep(makeScenario:, replyReportsFailure:, assertCommitted:)`. `makeScenario`
+The helper applies only where the held dependency's own contract can report failure (pane.focus's task yields `false`; Bridge retirement's lifecycle acknowledgement returns `false`); it never invents an error. Signature shape: `proveReplyDependsOnStep(makeScenario:, replyReportsFailure:, assertCommitted:)`. `makeScenario`
 builds a fresh system under test and its `HeldStep` per branch. An implementation that replies before the step
 finishes returns success in branch 1 and fails the test deterministically.
 
@@ -304,18 +315,18 @@ finishes returns success in branch 1 and fails the test deterministically.
 
 | Boundary | Hold point (existing seam) | Branch 1 expectation | Branch 2 expectation |
 | --- | --- | --- | --- |
-| IPC `pane.focus` | `PaneCommittedFocusOperation(execute:)` closure | `focusPane` throws `validationRejected` | focus committed in the workspace store |
-| Bridge producer retirement | producer body passed to `registerContentProducer` | retirement fails and the lease stays registered | retirement succeeds; frame-delivery observation and replay for the lease are cleared, and a late frame is not observed |
-| Socket listener stop | `acceptLoopJoinWait` (synchronous; `arriveBlocking`) | fallback branch: descriptor closed before the second join | normal branch: descriptor freed after the join |
-| Darwin FSEvents fixture | stream factory used by `streamClient.prepare` (synchronous; `arriveBlocking`) | fixture setup fails; no authority read happens | final coverage barrier passes and the single authority read runs |
+| IPC `pane.focus` | entry `PaneFocusAppControl.focusPane`; hold in a fake behind a narrow protocol seam for `submitTargetedPaneFocus(_:)` (production injects the controller) whose returned task awaits the step | the task yields `false`; `focusPane` throws `validationRejected` | the task yields `true`; `focusPane` returns |
+| Bridge producer retirement | the frame pump's `acknowledgeLifecycle` closure (`BridgeProductSchemeFramePump.swift:78-87`, `:537`); the producer body arrives at a second step and ends by cancellation | retirement fails and the lease stays registered | retirement succeeds; frame-delivery observation and replay for the lease are cleared, and a late frame is not observed |
+| Socket listener stop | `stop()` called through `valueFromDedicatedThread`; `acceptLoopJoinWait` holds with `arriveBlocking` on that thread (`stop()` returns Void, so the helper does not apply) | the existing normal, fallback and both-timeouts branch tests, holds migrated, assertions unchanged | — |
+| Darwin FSEvents fixture | no hold: `prepare` is `@concurrent` (`DarwinFSEventStreamClient.swift:246`), so a blocking hold in its factory would park a cooperative-pool thread | existing deterministic setup failure when the final barrier does not cover the installed bindings | existing single authority read after the barrier |
 
 `WorkspaceCommandGestureOrderingTests.swift:31,112,172` currently detect arrival with the legacy `eventually` poll;
 they move to `firstArrival()`.
 
 ### Migration in this change
 
-- Gates used by the boundaries above.
-- Every gate type that exists as a duplicate: the eight byte-identical copies shared by `AgentStudioTests` and
+- Gates used by the boundaries above, including the late-frame regression (`BridgeProductSchemeFramePumpTests.swift:140-197`) migrated with `.holdThroughCancellation` and its interleaving and assertions unchanged.
+- Every gate type that exists as a duplicate and whose semantics the `HeldStep` API covers (each is classified first; any that needs more stays for the stack): the eight byte-identical copies shared by `AgentStudioTests` and
   `AgentStudioBridgeTests`, and the renamed near-identical pairs listed by the 2026-09-23 inventory.
 - The private socket-test helpers `LockedValue`, `awaitSignal` and `awaitBlocking` (and the copy in
   `IPCDescriptorClientTests.swift:501`) are replaced by `HeldStep`.
@@ -334,22 +345,22 @@ flowchart TB
     RUN -->|completes| DONE["exit status"]
     HANG --> RECEIPT
     RED --> RECEIPT
-    DONE --> RECEIPT["closing receipt:<br/>receipt_valid = fresh bundle AND clean tree<br/>verdict printed only when valid<br/>peak_announced_tests (RENAMED)"]
+    DONE --> RECEIPT["closing receipt:<br/>receipt_valid = clean tree AND (fresh bundle<br/>OR linked clean build receipt)<br/>verdict printed only when valid<br/>peak_announced_tests (RENAMED)"]
 ```
 
 | Change | Where (current anchor) | Detail |
 | --- | --- | --- |
 | Receipt identity | `scripts/run-swift-test-task.sh:35-40` (opening), `:77-105` (closing) | `git rev-parse HEAD`, `git status --porcelain` emptiness, `bundle_state=fresh` only when this invocation's prebuild ran, bundle path plus modification time; `test-prebuild` also prints a closing receipt (its early exit at `:42-45` moves after the trap) |
-| Validity | same | `receipt_valid=false reason=reused_bundle|dirty_tree`; an invalid receipt prints `verdict=unverified`; the exit status is unchanged, so the local edit-test loop still works |
+| Validity | same | Build receipt: at prebuild start the slot's receipt is deleted; `head_sha` and `tree_dirty` are sampled before compiling; the receipt is published only after a successful prebuild by atomic rename; `bundle_identity` is the exact xctest executable the resolver returns (path, size, mtime). A lane reusing the bundle is valid only when the receipt exists and parses, recorded `tree_dirty=false`, recorded head equals current HEAD, the current tree is clean, and the identity matches the executable it runs; otherwise `receipt_valid=false reason=reused_bundle_unlinked|built_from_dirty_tree|bundle_head_mismatch|dirty_tree` and `verdict=unverified`. The exit status is unchanged. The EXIT trap is chained so the build-slot release still runs |
 | Announced counts | `:84,89`, `swift-test-helpers.sh:102`, `SwiftLaneRunnerReportTests.swift:96,119`, testing doc `:346,349` | `peak_started_tests` → `peak_announced_tests` |
-| Task dump | beside `swift-test-helpers.sh:1078`, before TERM | `xcrun swift-inspect dump-concurrency <pid>` for each sampled test process into the retained ledger directory; when the tool is unavailable the receipt says `task_dump=unavailable reason=<error>` and continues |
+| Task dump | beside `swift-test-helpers.sh:1078`, before TERM | `xcrun swift-inspect dump-concurrency <pid>` for each sampled test process into `tmp/plan-workflows/ci-runs/lane-<label>.task-dump.txt`; the CI upload selection (`ci.yml:439-448`) adds `lane-*.task-dump.txt`; when the tool is unavailable the receipt says `task_dump=unavailable reason=<error>`; the lane stays failed |
 | No in-lane retry | remove `swift-test-helpers.sh:1227-1272` | a signal crash is a failed isolated suite, already reported by `failed_isolated_suites` |
 | Width comparison | new mise task `test:swift:width-comparison` | one prebuild pinned to one build slot; fast lane twice with `SWIFT_TEST_SKIP_PREBUILD=1` (width 3, then unset); ledger retention forced for both runs whether they pass or fail; labels carry the width and bundle identity; a `workflow_dispatch` CI job runs the same task on the 3-core runner. It is not a pull-request gate |
 
 ## CI
 
-- **First-attempt gate:** a composite action, `.github/actions/first-attempt-gate`, is the first step of every job
-  in `ci.yml`. When `github.run_attempt` is greater than 1 it reads the pull request's live labels with
+- **First-attempt gate:** one `run:` step, defined with a YAML anchor in the first job and reused by alias as the
+  first step of every job in `ci.yml` (a local composite action would need a checkout first). When `github.run_attempt` is greater than 1 it reads the pull request's live labels with
   `gh api repos/{owner}/{repo}/issues/{number}/labels`, because a re-run replays the original event payload. Without
   the `ci-rerun-approved` label it fails with a message naming that label. An API failure fails closed with the
   error. Runs that are not pull requests have no label to read and fail on a re-run attempt. The workflow grants
@@ -363,10 +374,10 @@ flowchart TB
 
 | Guardrail | Owner | Realization |
 | --- | --- | --- |
-| `act()` warnings fail (R27) | `BridgeWeb/tests/console-error-guard.ts` (moved out of `tests/vitest-browser-setup.ts`) | one setup module used by the unit, node-integration, browser-integration and E2E configs; it fails a test on `console.error` except the single allowlisted message that exists today. E2E journeys also fail on a page console message containing `not wrapped in act` |
+| `act()` warnings fail (R27) | `BridgeWeb/tests/console-error-guard.ts` (moved out of `tests/vitest-browser-setup.ts`) | the browser suite keeps its existing broad `console.error` guard unchanged; the unit, node-integration and E2E configs gain a guard that fails only on React `act()` warnings; E2E journeys fail on a page console message containing `not wrapped in act` |
 | Hang bounds declared (R27a) | `BridgeWeb/tests/vitest-hang-bounds.ts` | one module exports each suite's `testTimeout`; every config imports it. Values equal today's effective values, so no bound is tuned |
-| No timed waits (R28) | `scripts/check-bridgeweb-architecture.ts`, new rule `no-timed-wait-in-tests` | builds the import closure from every file under `tests/` with the TypeScript program it already creates; flags `waitForTimeout(`, awaited `sleep`/`delay` helpers, and an awaited `new Promise` whose only resolution is a timer. A timer used as the losing side of a `Promise.race` against a condition is a hang bound and is not flagged. Today no violation is reachable, so the rule starts with none |
-| Generation-scoped waiters (R29) | `scripts/verify-bridge-viewer-worktree-dev-server/product-only-real-router-page.ts` and `reload-join-diagnostics.ts` | a page-generation counter increments on each main-frame navigation request; every request is tagged with the counter at its `request` event; each waiter is created for a generation (a reload waiter is armed for "next generation") and accepts only responses whose request carries that tag. The `unresolved=` diagnostic (`product-only-real-router-failure.ts:11-22`) prints each unresolved waiter with its generation |
+| No timed waits (R28) | `scripts/check-bridgeweb-architecture.ts`, new rule `no-timed-wait-in-tests` | takes its roots from the `include` globs of every Vitest config (tests live under `tests/`, `src/` and `scripts/`) and resolves imports with `ts.resolveModuleName` and BridgeWeb's tsconfig (the checker today parses single source files); flags `waitForTimeout(`, awaited `sleep`/`delay` helpers, and an awaited `new Promise` whose only resolution is a timer. A zero-delay timer used to wait counts. A timer racing a condition is allowed only when its delay is the shared hang-bound constant (R27a). The existing zero-delay wait at `src/app/bridge-app-viewer-activation.browser.test.tsx:69` becomes a condition wait. One reachable violation exists today — the dev-server readiness interval poll (`BridgeWeb/scripts/dev-server/bridge-development-server-process.ts:119-123`); it is replaced by a readiness line the Swift dev server prints once after bind (`Sources/AgentStudioBridgeDevelopmentServer`), awaited on stdout and raced against the child's lifecycle, so the rule starts with none |
+| Generation-scoped waiters (R29) | `scripts/verify-bridge-viewer-worktree-dev-server/product-only-real-router-page.ts` and `reload-join-diagnostics.ts` | a page-generation counter increments when a main-frame navigation commits (`framenavigated`), because the old document can still issue requests until then; every request is tagged with the counter at its `request` event; each waiter is created for a generation (a reload waiter is armed for "next generation") and accepts only responses whose request carries that tag. The `unresolved=` diagnostic (`product-only-real-router-failure.ts:11-22`) prints each unresolved waiter with its generation |
 
 ## Failure behavior
 
@@ -378,7 +389,7 @@ flowchart TB
 | A worker thread fails while parsing | engine | the run fails with the file path; no partial result is printed as a pass |
 | `swift-inspect` unavailable or refused | runner | `task_dump=unavailable` in the receipt; the lane verdict is unaffected |
 | `gh api` label read fails in the gate | gate action | the job fails closed with the API error |
-| A causal test's step is never reached | `firstArrival()` suspends | the runner hang bound fires; its report names the suite and the dump shows the parked `firstArrival` |
+| A causal test's step is never reached | `firstArrival()` suspends | the runner hang bound cancels the test; `firstArrival()` throws `HeldStepNeverReached(<step name>)`, so the failure names the step |
 | A test forgets to release a step | the reply stays suspended | same as above; the helper always terminates the step in both branches |
 
 ## Concurrency
@@ -389,8 +400,9 @@ flowchart TB
 - **HeldStep:** all state changes happen under one `Mutex`. The first terminal call wins. Async and blocking arrivals
   are resumed outside the lock after the state change is recorded, so a resumed arrival that immediately arrives
   again sees the terminal state.
-- **Generation tagging:** Playwright delivers `request` events in issue order on one event loop, so a request issued
-  before a reload's navigation request carries the old generation.
+- **Generation tagging:** Playwright delivers `request` and `framenavigated` events in order on one event loop. A
+  request the old document issues before the new document commits carries the old generation; the new document's
+  own requests start after commit and carry the new one.
 
 ## Cross-cutting
 
