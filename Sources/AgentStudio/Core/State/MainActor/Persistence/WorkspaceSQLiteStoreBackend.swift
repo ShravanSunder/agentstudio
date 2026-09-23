@@ -108,7 +108,7 @@ struct WorkspaceSQLiteStoreBackend {
         guard let records = localRepository.flatMap({ try? $0.fetchDrawerPresentationRecords() }) else {
             return [:]
         }
-        let retainedOwnerPaneIds = retainedDrawerPresentationOwnerPaneIds(
+        let retainedOwnerPaneIds = try? retainedDrawerPresentationOwnerPaneIds(
             workspaceId: workspaceId,
             livePaneIds: Set(paneGraph.panes.map(\.id))
         )
@@ -118,12 +118,10 @@ struct WorkspaceSQLiteStoreBackend {
         }
     }
 
-    /// Live core panes plus members of available undo records, or `nil` when
-    /// undo membership cannot be established.
-    func retainedDrawerPresentationOwnerPaneIds(workspaceId: UUID, livePaneIds: Set<UUID>) -> Set<UUID>? {
-        guard let undoMemberPaneIds = try? coreRepository.fetchAvailableUndoMemberPaneIDs(workspaceID: workspaceId)
-        else { return nil }
-        return livePaneIds.union(undoMemberPaneIds)
+    /// Live core panes plus members of available undo records. Throws when
+    /// undo membership cannot be established, so a save never prunes on a guess.
+    func retainedDrawerPresentationOwnerPaneIds(workspaceId: UUID, livePaneIds: Set<UUID>) throws -> Set<UUID> {
+        livePaneIds.union(try coreRepository.fetchAvailableUndoMemberPaneIDs(workspaceID: workspaceId))
     }
 
     func save(_ bundle: WorkspaceSQLiteSaveBundle) throws {
@@ -140,19 +138,23 @@ struct WorkspaceSQLiteStoreBackend {
         try writeLocalSnapshot(bundle.workspace, localRepository: localRepository)
     }
 
+    /// Writes local state after the core commit. A retention-membership read
+    /// failure fails the local save through the caller's existing local-save
+    /// failure path: nothing is written or pruned and the save stays dirty.
     func writeLocalSnapshot(
         _ snapshot: WorkspaceSQLiteSnapshot,
         localRepository: WorkspaceLocalRepository
     ) throws {
+        let retainedOwnerPaneIds = try retainedDrawerPresentationOwnerPaneIds(
+            workspaceId: snapshot.id,
+            livePaneIds: Set(snapshot.panes.map(\.id))
+        )
         try localRepository.replaceWorkspaceSnapshotLocalState(
             cursorState: WorkspaceSQLiteStateBridge.cursorStateRecord(from: snapshot),
             windowState: WorkspaceSQLiteStateBridge.windowStateRecord(from: snapshot),
             drawerPresentation: .init(
                 preferencesByOwnerPaneId: snapshot.drawerPresentationPreferences,
-                retainedOwnerPaneIds: retainedDrawerPresentationOwnerPaneIds(
-                    workspaceId: snapshot.id,
-                    livePaneIds: Set(snapshot.panes.map(\.id))
-                )
+                retainedOwnerPaneIds: retainedOwnerPaneIds
             ),
             completedAt: snapshot.updatedAt
         )

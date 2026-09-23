@@ -23,9 +23,8 @@ extension WorkspaceLocalRepository {
     /// One ordinary local save of drawer presentation choices.
     struct DrawerPresentationWrite: Equatable, Sendable {
         let preferencesByOwnerPaneId: [UUID: DrawerPresentationPreference]
-        /// Live core panes plus members of available undo records. `nil` when
-        /// membership could not be established: rows are merged, none pruned.
-        let retainedOwnerPaneIds: Set<UUID>?
+        /// Live core panes plus members of available undo records.
+        let retainedOwnerPaneIds: Set<UUID>
     }
 
     func fetchDrawerPresentationRecords() throws -> [DrawerPresentationRecord] {
@@ -68,24 +67,21 @@ extension WorkspaceLocalRepositoryStorage {
         updatedAt: Date
     ) throws {
         let workspaceIdString = workspaceId.uuidString
-        if let retainedOwnerPaneIds = write.retainedOwnerPaneIds {
-            let storedOwnerPaneIds = try String.fetchAll(
-                database,
-                sql: "SELECT owner_pane_id FROM local_drawer_presentation WHERE workspace_id = ?",
-                arguments: [workspaceIdString]
+        let retainedOwnerPaneIds = write.retainedOwnerPaneIds
+        let storedOwnerPaneIds = try String.fetchAll(
+            database,
+            sql: "SELECT owner_pane_id FROM local_drawer_presentation WHERE workspace_id = ?",
+            arguments: [workspaceIdString]
+        )
+        for storedOwnerPaneId in storedOwnerPaneIds
+        where !(UUID(uuidString: storedOwnerPaneId).map(retainedOwnerPaneIds.contains) ?? false) {
+            try database.execute(
+                sql: "DELETE FROM local_drawer_presentation WHERE workspace_id = ? AND owner_pane_id = ?",
+                arguments: [workspaceIdString, storedOwnerPaneId]
             )
-            for storedOwnerPaneId in storedOwnerPaneIds
-            where !(UUID(uuidString: storedOwnerPaneId).map(retainedOwnerPaneIds.contains) ?? false) {
-                try database.execute(
-                    sql: "DELETE FROM local_drawer_presentation WHERE workspace_id = ? AND owner_pane_id = ?",
-                    arguments: [workspaceIdString, storedOwnerPaneId]
-                )
-            }
         }
-        for (ownerPaneId, preference) in write.preferencesByOwnerPaneId {
-            if let retainedOwnerPaneIds = write.retainedOwnerPaneIds, !retainedOwnerPaneIds.contains(ownerPaneId) {
-                continue
-            }
+        for (ownerPaneId, preference) in write.preferencesByOwnerPaneId where retainedOwnerPaneIds.contains(ownerPaneId)
+        {
             try database.execute(
                 sql: """
                     INSERT INTO local_drawer_presentation(

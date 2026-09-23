@@ -231,16 +231,18 @@ package struct WorkspaceLocalRepository: Sendable {
     func replaceWorkspaceSnapshotLocalState(
         cursorState: CursorStateRecord,
         windowState: WindowStateRecord?,
-        drawerPresentation: DrawerPresentationWrite = .init(preferencesByOwnerPaneId: [:], retainedOwnerPaneIds: nil),
+        drawerPresentation: DrawerPresentationWrite? = nil,
         completedAt: Date
     ) throws {
         try databaseWriter.write { database in
-            try WorkspaceLocalRepositoryStorage.mergeDrawerPresentationRows(
-                database,
-                workspaceId: workspaceId,
-                write: drawerPresentation,
-                updatedAt: completedAt
-            )
+            if let drawerPresentation {
+                try WorkspaceLocalRepositoryStorage.mergeDrawerPresentationRows(
+                    database,
+                    workspaceId: workspaceId,
+                    write: drawerPresentation,
+                    updatedAt: completedAt
+                )
+            }
             try WorkspaceLocalRepositoryStorage.replaceWindowStateRows(
                 database,
                 workspaceId: workspaceId,
