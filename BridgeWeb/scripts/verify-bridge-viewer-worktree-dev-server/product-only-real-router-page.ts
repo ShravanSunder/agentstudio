@@ -24,7 +24,6 @@ import {
 	type BridgeViewerProductOnlyJourneyProof,
 	type BridgeViewerProductRouteTranscriptEntry,
 	type BridgeViewerReviewProductStateSnapshot,
-	type BridgeViewerUnresolvedWaiter,
 } from './product-only-real-router-contract.ts';
 import {
 	bridgeViewerJourneyFailureCode,
@@ -474,24 +473,18 @@ export class BridgeViewerRealRouterObserver {
 					return ordinal === undefined ? [] : [ordinal];
 				})
 				.toSorted((left, right): number => left - right),
-			unresolvedWaiters: this.#unresolvedWaiters(),
+			unresolvedWaiters: [
+				...this.#reloadJoinDiagnostics.unresolvedWaiters(),
+				...(this.#productResponseClosureWaiters.size > 0
+					? [
+							{
+								documentGeneration: this.#documentGeneration(),
+								name: 'product-response-quiescence' as const,
+							},
+						]
+					: []),
+			],
 		};
-	}
-
-	#unresolvedWaiters(): readonly BridgeViewerUnresolvedWaiter[] {
-		const productResponseQuiescenceWaiters: readonly BridgeViewerUnresolvedWaiter[] =
-			this.#productResponseClosureWaiters.size > 0
-				? [
-						{
-							documentGeneration: this.#documentGeneration(),
-							name: 'product-response-quiescence',
-						},
-					]
-				: [];
-		return [
-			...this.#reloadJoinDiagnostics.unresolvedWaiters(),
-			...productResponseQuiescenceWaiters,
-		];
 	}
 
 	legacyRouteTranscript(): readonly BridgeViewerLegacyRouteTranscriptEntry[] {
