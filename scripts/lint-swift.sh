@@ -33,7 +33,9 @@ run_architecture_lint() {
 
   stage_started_ms="$(now_ms)"
   local lint_status=0
-  "${build_path}/release/agentstudio-architecture-lint" --timings "$@" 2>&1 || lint_status=$?
+  "${build_path}/release/agentstudio-architecture-lint" --timings \
+    --ledger Tools/AgentStudioArchitectureLint/architecture-debt-ledger.tsv \
+    "$@" 2>&1 || lint_status=$?
   report_stage_time "architecture-lint" "$stage_started_ms"
   if [[ $lint_status -eq 0 ]]; then
     echo "agentstudio architecture lint: OK"

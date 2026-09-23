@@ -22,6 +22,8 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
+          # Full history, so the debt ledger ratchet can compute the merge base.
+          fetch-depth: 0
           persist-credentials: false
 
       - name: Select Xcode
@@ -60,6 +62,11 @@ jobs:
 
       - name: Lint
         run: mise run lint
+
+      - name: Debt ledger ratchet
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref || 'main' }}
+        run: /bin/bash Tools/AgentStudioArchitectureLint/check-ledger-ratchet.sh "origin/${BASE_REF}"
 
   marketing-site-validation:
     name: Marketing site validation

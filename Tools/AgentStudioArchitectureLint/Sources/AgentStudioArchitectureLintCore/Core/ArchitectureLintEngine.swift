@@ -9,6 +9,7 @@ import SwiftParser
 ///    barrier: cross-file rules build their indexes here.
 /// 3. Validate the in-scope files in parallel; each worker runs every prepared
 ///    rule on its own file and writes only its own result slot.
+/// 4. Reconcile the sites against the debt ledger (`ArchitectureLintRun`).
 ///
 /// A scoped run still parses the whole corpus, because a scoped file must get
 /// the diagnostics a full run would give it, and those can depend on indexes
@@ -67,7 +68,8 @@ struct ArchitectureLintEngine {
         return ArchitectureLintRun(
             contexts: contexts,
             validatedContexts: validatedContexts,
-            diagnostics: diagnostics.sorted(),
+            isFullRun: validatedFiles == nil,
+            siteDiagnostics: diagnostics.sorted(),
             timings: ArchitectureLintTimings(
                 parsedFileCount: contexts.count,
                 validatedFileCount: validatedContexts.count,
@@ -118,9 +120,35 @@ struct ArchitectureLintRun {
     let contexts: [ArchitectureLintContext]
     /// The files whose diagnostics this run reports.
     let validatedContexts: [ArchitectureLintContext]
-    /// Sorted, so output is deterministic whatever order the workers finished.
-    let diagnostics: [ArchitectureDiagnostic]
+    let isFullRun: Bool
+    /// Every violation site the rules found, before the debt ledger is
+    /// applied. Sorted, so output is deterministic whatever order the workers
+    /// finished in.
+    let siteDiagnostics: [ArchitectureDiagnostic]
     let timings: ArchitectureLintTimings
+
+    func reconciliation(with ledger: ArchitectureDebtLedger) -> DebtLedgerReconciliation {
+        var validatedPaths: [String: String] = [:]
+        for context in validatedContexts {
+            if let relativePath = context.workspaceRelativePath {
+                validatedPaths[relativePath] = context.path
+            }
+        }
+        return DebtLedgerReconciliation(ledger: ledger, validatedPaths: validatedPaths, isFullRun: isFullRun)
+    }
+
+    /// The run's diagnostics with known debt removed and ledger drift added.
+    func reconciled(with ledger: ArchitectureDebtLedger) -> DebtLedgerReconciliation.Outcome {
+        var relativePathByDisplayPath: [String: String] = [:]
+        for context in validatedContexts {
+            if let relativePath = context.workspaceRelativePath {
+                relativePathByDisplayPath[context.path] = relativePath
+            }
+        }
+        return reconciliation(with: ledger).reconcile(diagnostics: siteDiagnostics) { diagnostic in
+            relativePathByDisplayPath[diagnostic.path]
+        }
+    }
 }
 
 private struct FileValidation: Sendable {

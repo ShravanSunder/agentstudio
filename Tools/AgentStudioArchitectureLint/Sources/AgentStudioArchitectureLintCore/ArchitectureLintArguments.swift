@@ -5,6 +5,15 @@ struct ArchitectureLintArguments: Equatable {
         case help
         case printRules
         case lint
+        /// Compare `--ledger` with a ledger read from the merge base.
+        case checkLedgerRatchet(basePath: String)
+
+        var readsLedger: Bool {
+            guard case .checkLedgerRatchet = self else {
+                return false
+            }
+            return true
+        }
     }
 
     var mode: Mode = .lint
@@ -14,6 +23,10 @@ struct ArchitectureLintArguments: Equatable {
     /// parsed so cross-file indexes match a full run.
     var onlyPaths: [String] = []
     var printsTimings = false
+    /// The debt ledger to reconcile against. Without it every site is new.
+    var ledgerPath: String?
+    /// Rewrite the ledger with the counts this run found, lowering only.
+    var lowersLedgerCounts = false
 
     static func parse(_ arguments: [String]) throws -> Self {
         var parsed = Self()
@@ -28,12 +41,24 @@ struct ArchitectureLintArguments: Equatable {
                 parsed.printsTimings = true
             case "--only":
                 parsed.onlyPaths.append(try value(for: argument, from: &remaining))
+            case "--ledger":
+                parsed.ledgerPath = try value(for: argument, from: &remaining)
+            case "--lower-ledger-counts":
+                parsed.lowersLedgerCounts = true
+            case "--check-ledger-ratchet":
+                parsed.mode = .checkLedgerRatchet(basePath: try value(for: argument, from: &remaining))
             default:
                 guard !argument.hasPrefix("-") else {
                     throw ArchitectureLintArgumentsError.unknownOption(argument)
                 }
                 parsed.roots.append(argument)
             }
+        }
+        if parsed.ledgerPath == nil, parsed.lowersLedgerCounts || parsed.mode.readsLedger {
+            throw ArchitectureLintArgumentsError.requiresLedger
+        }
+        if parsed.lowersLedgerCounts, !parsed.onlyPaths.isEmpty {
+            throw ArchitectureLintArgumentsError.lowerLedgerCountsNeedsFullRun
         }
         return parsed
     }
@@ -49,6 +74,8 @@ struct ArchitectureLintArguments: Equatable {
 enum ArchitectureLintArgumentsError: Error, CustomStringConvertible {
     case unknownOption(String)
     case missingValue(String)
+    case requiresLedger
+    case lowerLedgerCountsNeedsFullRun
 
     var description: String {
         switch self {
@@ -56,6 +83,10 @@ enum ArchitectureLintArgumentsError: Error, CustomStringConvertible {
             "unknown option \(option)"
         case .missingValue(let option):
             "\(option) needs a value"
+        case .requiresLedger:
+            "--lower-ledger-counts and --check-ledger-ratchet need --ledger <file>"
+        case .lowerLedgerCountsNeedsFullRun:
+            "--lower-ledger-counts needs a full run; it cannot be combined with --only"
         }
     }
 }

@@ -1,4 +1,3 @@
-import Foundation
 import SwiftSyntax
 
 /// A polling wait is a loop that repeats around a scheduler yield, a sleep, or a
@@ -16,141 +15,25 @@ import SwiftSyntax
 ///
 /// The permitted forms are in
 /// `docs/architecture/testing/testing_architecture.md#how-a-test-may-wait`.
+/// Existing polling waits are frozen per file by count in the debt ledger.
 struct TestPollingWaitRule: ArchitectureRule {
     let id = "agentstudio_no_polling_wait_in_tests"
     let severity = ArchitectureSeverity.error
     let message =
         "Polling wait: a loop around a yield, sleep, or clock deadline decides a test by machine speed"
 
-    static let staleBaselineMessage =
-        "File no longer polls; remove it from ArchitectureAllowlists.pollingWaitKnownDebt (baseline is shrink-only)"
-
-    static let missingBaselineMessage =
-        "Baseline path no longer exists; remove it from ArchitectureAllowlists.pollingWaitKnownDebt (baseline is shrink-only)"
-
-    private let missingBaselineEntries: [String]
-    private let missingBaselineReportContextPath: String?
-
-    init() {
-        self.init(missingBaselineEntries: [], missingBaselineReportContextPath: nil)
-    }
-
-    private init(
-        missingBaselineEntries: [String],
-        missingBaselineReportContextPath: String?
-    ) {
-        self.missingBaselineEntries = missingBaselineEntries
-        self.missingBaselineReportContextPath = missingBaselineReportContextPath
-    }
-
-    /// What the rule does with a file once its loops have been inspected.
-    ///
-    /// Split out as a pure function because the baseline is a compile-time
-    /// constant: this is the seam where the shrink-only behaviour is provable
-    /// without injecting an allowlist.
-    enum Outcome: Equatable {
-        /// Not baselined, nothing found.
-        case clean
-        /// Not baselined, and these loops poll.
-        case report([ArchitectureViolation])
-        /// Baselined and still polling: known debt, no diagnostic.
-        case suppressedByBaseline
-        /// Baselined but no longer polling: the entry must go.
-        case staleBaselineEntry
-    }
-
-    static func pollingWaitOutcome(
-        violations: [ArchitectureViolation],
-        isBaselined: Bool
-    ) -> Outcome {
-        guard isBaselined else {
-            return violations.isEmpty ? .clean : .report(violations)
-        }
-        return violations.isEmpty ? .staleBaselineEntry : .suppressedByBaseline
-    }
-
-    /// Listed files that are gone from disk. Empty when none of the listed files
-    /// exist: that is a fixture tree or the lint-tool package, not the app
-    /// workspace, so a missing-entry diagnostic would be a false positive.
-    static func missingBaselineEntries(
-        knownDebt: [String],
-        fileExists: (String) -> Bool
-    ) -> [String] {
-        guard knownDebt.contains(where: fileExists) else {
-            return []
-        }
-        return knownDebt.filter { !fileExists($0) }
-    }
-
-    func prepared(for contexts: [ArchitectureLintContext]) -> any ArchitectureRule {
-        guard let context = contexts.first,
-            let workspaceRootPath = Self.workspaceRootPath(from: context),
-            !workspaceRootPath.contains("/Fixtures/")
-        else {
-            return self
-        }
-
-        let missingEntries = Self.missingBaselineEntries(
-            knownDebt: ArchitectureAllowlists.pollingWaitKnownDebt
-        ) { entry in
-            FileManager.default.fileExists(atPath: workspaceRootPath + entry)
-        }
-        guard !missingEntries.isEmpty else {
-            return self
-        }
-        return Self(
-            missingBaselineEntries: missingEntries,
-            missingBaselineReportContextPath: context.path
-        )
-    }
-
     func validate(context: ArchitectureLintContext) -> [ArchitectureDiagnostic] {
-        var diagnostics: [ArchitectureDiagnostic] = []
-        if context.path == missingBaselineReportContextPath {
-            diagnostics.append(
-                contentsOf: missingBaselineEntries.map { entry in
-                    ArchitectureDiagnostic(
-                        path: String(entry.drop(while: { $0 == "/" })),
-                        line: 1,
-                        column: 1,
-                        severity: severity,
-                        ruleID: id,
-                        message: Self.missingBaselineMessage
-                    )
-                }
-            )
-        }
-
         guard let targetPath = Self.targetPath(for: context),
             targetPath.contains("/Tests/"), targetPath.hasSuffix(".swift")
         else {
-            return diagnostics
+            return []
         }
 
         let clockBindingNames = ClockBindingCollector.names(in: context.sourceFile)
         let visitor = TestPollingWaitVisitor(clockBindingNames: clockBindingNames)
         visitor.walk(context.sourceFile)
-        let isBaselined = ArchitectureAllowlists.pollingWaitKnownDebt.contains(where: targetPath.hasSuffix)
-
-        switch Self.pollingWaitOutcome(violations: visitor.violations, isBaselined: isBaselined) {
-        case .clean, .suppressedByBaseline:
-            return diagnostics
-        case .report(let violations):
-            diagnostics.append(
-                contentsOf: violations.map {
-                    diagnostic(context: context, position: $0.position, message: $0.message)
-                }
-            )
-            return diagnostics
-        case .staleBaselineEntry:
-            diagnostics.append(
-                diagnostic(
-                    context: context,
-                    position: AbsolutePosition(utf8Offset: 0),
-                    message: Self.staleBaselineMessage
-                )
-            )
-            return diagnostics
+        return visitor.violations.map {
+            diagnostic(context: context, position: $0.position, message: $0.message)
         }
     }
 
@@ -166,18 +49,6 @@ struct TestPollingWaitRule: ArchitectureRule {
             return nil
         }
         return relativePath.hasPrefix("/") ? relativePath : "/\(relativePath)"
-    }
-
-    private static func workspaceRootPath(from context: ArchitectureLintContext) -> String? {
-        guard let relativePath = context.workspaceRelativePath, !relativePath.isEmpty else {
-            return nil
-        }
-        let normalized = context.normalizedPath
-        let suffix = "/\(relativePath)"
-        guard normalized.hasSuffix(suffix) else {
-            return nil
-        }
-        return String(normalized.dropLast(suffix.count))
     }
 }
 

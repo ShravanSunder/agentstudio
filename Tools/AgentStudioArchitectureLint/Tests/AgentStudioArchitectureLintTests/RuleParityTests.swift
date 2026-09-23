@@ -396,41 +396,6 @@ struct RuleParityTests {
         #expect(boundClockDiagnostics.map(\.line) == [4])
     }
 
-    @Test("polling wait baseline suppresses listed debt and fails once the debt is gone")
-    func pollingWaitBaselineSuppressesListedDebtAndFailsOnceDebtIsGone() {
-        let pollingViolation = ArchitectureViolation(
-            position: AbsolutePosition(utf8Offset: 0),
-            message: "polling"
-        )
-
-        #expect(
-            TestPollingWaitRule.pollingWaitOutcome(violations: [pollingViolation], isBaselined: false)
-                == .report([pollingViolation]))
-        #expect(
-            TestPollingWaitRule.pollingWaitOutcome(violations: [pollingViolation], isBaselined: true)
-                == .suppressedByBaseline)
-        #expect(TestPollingWaitRule.pollingWaitOutcome(violations: [], isBaselined: true) == .staleBaselineEntry)
-        #expect(TestPollingWaitRule.pollingWaitOutcome(violations: [], isBaselined: false) == .clean)
-    }
-
-    @Test("polling wait baseline reports listed files that no longer exist")
-    func pollingWaitBaselineReportsListedFilesThatNoLongerExist() {
-        let knownDebt = ["/Tests/StillHere.swift", "/Tests/Gone.swift"]
-
-        #expect(
-            TestPollingWaitRule.missingBaselineEntries(knownDebt: knownDebt) { path in
-                path == "/Tests/StillHere.swift"
-            } == ["/Tests/Gone.swift"])
-        #expect(
-            TestPollingWaitRule.missingBaselineEntries(knownDebt: knownDebt) { _ in
-                false
-            }.isEmpty)
-        #expect(
-            TestPollingWaitRule.missingBaselineEntries(knownDebt: []) { _ in
-                false
-            }.isEmpty)
-    }
-
     @Test("EventBus subscriber policy rule diagnoses every denied fixture call shape")
     func eventBusSubscriberPolicyRuleDiagnosesEveryDeniedFixtureCallShape() throws {
         let eventBusFixture = fixtureRoot()
@@ -759,7 +724,7 @@ struct RuleParityTests {
     ) throws -> [ArchitectureDiagnostic] {
         try ArchitectureLintEngine(rules: ArchitectureRuleRegistry.rules, workspaceRootPath: workspaceRootPath)
             .lint(files: files)
-            .diagnostics
+            .siteDiagnostics
     }
 
     private func context(path: String, source: String) -> ArchitectureLintContext {

@@ -134,6 +134,82 @@ struct ArchitectureLintCommandTests {
         #expect(result.output.contains("unknown option --ledgr"))
     }
 
+    @Test("ledger rows at the found count silence a file's sites; one site over reports them all")
+    func ledgerRowsSilenceExactCountAndReportOverCount() throws {
+        let fixture = fixturePath("Bad")
+        let pollingFixture = "Tests/AgentStudioTests/BadPollingWaitTest.swift"
+        let pollingRule = "agentstudio_no_polling_wait_in_tests"
+
+        let exactLedger = try writeLedger(rows: ["\(pollingRule)\t\(pollingFixture)\t5"])
+        let underLedger = try writeLedger(rows: ["\(pollingRule)\t\(pollingFixture)\t4"])
+        let exact = runCommand(
+            arguments: [pollingFixture, "--ledger", exactLedger.path],
+            workspaceRootPath: fixture
+        )
+        let over = runCommand(
+            arguments: [pollingFixture, "--ledger", underLedger.path],
+            workspaceRootPath: fixture
+        )
+
+        #expect(!exact.output.contains("[\(pollingRule)]"), Comment(rawValue: exact.output))
+        #expect(over.exitCode == 1)
+        #expect(over.output.components(separatedBy: "count 5 exceeds 4 permitted").count - 1 == 5)
+    }
+
+    @Test("lowering rewrites the ledger to the found count and then passes")
+    func loweringRewritesLedgerToFoundCount() throws {
+        let fixture = fixturePath("Bad")
+        let pollingFixture = "Tests/AgentStudioTests/BadPollingWaitTest.swift"
+        let pollingRule = "agentstudio_no_polling_wait_in_tests"
+        let ledger = try writeLedger(rows: ["\(pollingRule)\t\(pollingFixture)\t7"])
+
+        let before = runCommand(arguments: [pollingFixture, "--ledger", ledger.path], workspaceRootPath: fixture)
+        let lowering = runCommand(
+            arguments: [pollingFixture, "--ledger", ledger.path, "--lower-ledger-counts"],
+            workspaceRootPath: fixture
+        )
+
+        #expect(before.output.contains("lower the row to 5"))
+        #expect(!lowering.output.contains("[\(pollingRule)]"), Comment(rawValue: lowering.output))
+        #expect(
+            try String(contentsOf: ledger, encoding: .utf8)
+                == "rule_id\tpath\tcount\n\(pollingRule)\t\(pollingFixture)\t5\n")
+    }
+
+    @Test("a missing or malformed ledger fails closed")
+    func missingOrMalformedLedgerFailsClosed() throws {
+        let fixture = fixturePath("Good")
+        let malformed = try writeLedger(rows: ["not a row"])
+
+        let missingResult = runCommand(
+            arguments: [fixture, "--ledger", "/nonexistent/ledger.tsv"],
+            workspaceRootPath: fixture
+        )
+        let malformedResult = runCommand(arguments: [fixture, "--ledger", malformed.path], workspaceRootPath: fixture)
+
+        #expect(missingResult.exitCode == 2)
+        #expect(missingResult.output.contains("cannot read debt ledger"))
+        #expect(malformedResult.exitCode == 2)
+        #expect(malformedResult.output.contains("\(malformed.path):2: malformed debt ledger"))
+    }
+
+    @Test("ratchet fails a raised row and passes when the merge base has no ledger")
+    func ratchetFailsRaisedRowAndPassesWithoutBaseLedger() throws {
+        let base = try writeLedger(rows: ["a_rule\tTests/A.swift\t1"])
+        let raised = try writeLedger(rows: ["a_rule\tTests/A.swift\t2"])
+
+        let raisedResult = runCommand(arguments: ["--ledger", raised.path, "--check-ledger-ratchet", base.path])
+        let noBaseResult = runCommand(
+            arguments: ["--ledger", raised.path, "--check-ledger-ratchet", "/nonexistent/base.tsv"]
+        )
+
+        #expect(raisedResult.exitCode == 1)
+        #expect(raisedResult.output.contains("[agentstudio_debt_ledger_ratchet]"))
+        #expect(raisedResult.output.contains("from 1 to 2"))
+        #expect(noBaseResult.exitCode == 0, Comment(rawValue: noBaseResult.output))
+        #expect(noBaseResult.output.contains("no debt ledger at the merge base"))
+    }
+
     @Test("relative single-file paths receive the same architecture classification")
     func relativeSingleFilePathsReceiveArchitectureClassification() throws {
         let badFixtureRoot = fixturePath("Bad")
@@ -192,6 +268,18 @@ struct ArchitectureLintCommandTests {
             .appendingPathComponent("Fixtures")
             .appendingPathComponent(name)
             .path
+    }
+
+    /// A ledger file in a fresh temporary directory; the directory is left
+    /// for the system to clean, like the command runs' own output files.
+    private func writeLedger(rows: [String]) throws -> URL {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("agentstudio-architecture-ledger-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let ledger = directory.appendingPathComponent("architecture-debt-ledger.tsv")
+        try (([ArchitectureDebtLedger.header] + rows).joined(separator: "\n") + "\n")
+            .write(to: ledger, atomically: true, encoding: .utf8)
+        return ledger
     }
 
     private func runCommand(
