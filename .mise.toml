@@ -384,7 +384,7 @@ depends = ["verify-vendors", "bridge-web-build"]
 run = "/bin/bash scripts/run-swift-test-task.sh test-prebuild"
 
 [tasks."test:swift:webkit"]
-description = "Run real WebKit runtime tests in isolated serial processes with crash retry"
+description = "Run real WebKit runtime tests in isolated serial processes; a crash fails the lane"
 depends = ["verify-vendors", "bridge-web-build"]
 run = "/bin/bash scripts/run-swift-test-task.sh test-webkit"
 

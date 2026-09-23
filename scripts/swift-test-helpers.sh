@@ -70,7 +70,8 @@ swift_test_isolated_process_concurrency() {
 }
 
 # Largest number of tests whose START EVENT had been posted but whose result had
-# not, as an ordinal count over one captured console stream.
+# not, as an ordinal count over one captured console stream. These tests were
+# ANNOUNCED, not started or running, and the lane report labels them that way.
 #
 # This does NOT reflect the parallelization cap. Swift Testing posts .testStarted
 # in _runStep BEFORE the test acquires the parallelization serializer, so a test
@@ -78,7 +79,7 @@ swift_test_isolated_process_concurrency() {
 # number stays near the total test count even when the cap is working. It is kept
 # because it is cheap and shows admission backlog; peak_running_parameterized_cases is the
 # number that reflects the cap.
-swift_test_peak_started_from_output() {
+swift_test_peak_announced_from_output() {
   local output_file="$1"
 
   /usr/bin/iconv -f UTF-8 -t UTF-8 -c <"$output_file" | /usr/bin/awk '
@@ -99,7 +100,7 @@ swift_test_peak_started_from_output() {
 
 # Largest number of test cases RUNNING at once, from Swift Testing's JSON event
 # stream. The parallelization serializer gates _runTestCase and testCaseStarted /
-# testCaseEnded fire inside it, so unlike peak_started_tests this observes the cap.
+# testCaseEnded fire inside it, so unlike peak_announced_tests this observes the cap.
 #
 # Coverage caveat for this toolchain (Swift 6.3.3): the event stream serializes
 # testCase events only for PARAMETERIZED cases — measured 54 testCaseStarted
@@ -237,17 +238,23 @@ preserve_lane_event_stream() {
   fi
 }
 
-# Keeps the newest `LANE_EVENT_STREAM_KEEP_PER_LABEL` ledgers for one label.
+# Keeps the newest `LANE_EVENT_STREAM_KEEP_PER_LABEL` ledgers, and the newest as
+# many task dumps, for one label.
 prune_lane_event_streams() {
   local label_slug="$1"
+  local retained_suffix
   local surplus_file
 
-  # shellcheck disable=SC2012
-  ls -1t "$LANE_EVENT_STREAM_DIR"/lane-"$label_slug"-*.events.jsonl 2>/dev/null \
-    | tail -n +$((LANE_EVENT_STREAM_KEEP_PER_LABEL + 1)) \
-    | while IFS= read -r surplus_file; do
-      rm -f "$surplus_file"
-    done
+  for retained_suffix in events.jsonl task-dump.txt; do
+    # A label with no files of one kind is normal (most ledgers have no dump),
+    # and under pipefail and set -e the failing `ls` would end the lane.
+    # shellcheck disable=SC2012
+    ls -1t "$LANE_EVENT_STREAM_DIR"/lane-"$label_slug"-*."$retained_suffix" 2>/dev/null \
+      | tail -n +$((LANE_EVENT_STREAM_KEEP_PER_LABEL + 1)) \
+      | while IFS= read -r surplus_file; do
+        rm -f "$surplus_file"
+      done || true
+  done
 }
 
 print_running_parameterized_cases_at_timeout() {
@@ -277,9 +284,9 @@ swift_test_record_lane_peaks() {
   local output_file="$1"
   local event_stream_file="${2:-}"
 
-  if [ -n "${SWIFT_TEST_PEAK_STARTED_FILE:-}" ]; then
-    swift_test_peak_started_from_output "$output_file" \
-      >>"$SWIFT_TEST_PEAK_STARTED_FILE" 2>/dev/null || true
+  if [ -n "${SWIFT_TEST_PEAK_ANNOUNCED_FILE:-}" ]; then
+    swift_test_peak_announced_from_output "$output_file" \
+      >>"$SWIFT_TEST_PEAK_ANNOUNCED_FILE" 2>/dev/null || true
   fi
   if [ -n "${SWIFT_TEST_PEAK_RUNNING_FILE:-}" ] && [ -n "$event_stream_file" ]; then
     swift_test_peak_running_cases_from_events "$event_stream_file" \
@@ -295,6 +302,110 @@ swift_test_peak_total_from_file() {
     return 0
   fi
   /usr/bin/awk 'BEGIN { peak = 0 } $1 + 0 > peak { peak = $1 + 0 } END { print peak }' "$peak_file"
+}
+
+# Lane receipt identity: which tree and which test bundle a lane tested.
+#
+# A green lane is evidence only about the tree its bundle was built from. A bundle
+# reused from an earlier build, or a tree with uncommitted changes, can pass
+# while the commit under review would not, so such a receipt marks itself invalid
+# and never prints a pass verdict. The exit status stays the lane's own: the local
+# edit-test loop keeps working on a dirty tree, it just cannot claim a pass.
+
+# The tested tree's commit, or `unknown` outside a git checkout.
+lane_receipt_head_sha() {
+  git rev-parse HEAD 2>/dev/null || echo unknown
+}
+
+# `true` when the tree has uncommitted or untracked changes, `false` when it has
+# none, and `unknown` when git cannot say.
+lane_receipt_tree_dirty() {
+  local porcelain
+
+  if ! porcelain="$(git status --porcelain 2>/dev/null)"; then
+    echo unknown
+    return 0
+  fi
+  if [ -n "$porcelain" ]; then
+    echo true
+  else
+    echo false
+  fi
+}
+
+# The tree state a closing receipt reports. A tree that was dirty at the opening,
+# or that changed commit or picked up edits while the lane ran, is not the tree
+# the opening receipt named.
+lane_receipt_tree_dirty_since() {
+  local opening_head_sha="$1"
+  local opening_tree_dirty="$2"
+
+  if [ "$opening_tree_dirty" != "false" ]; then
+    echo "$opening_tree_dirty"
+    return 0
+  fi
+  if [ "$(lane_receipt_head_sha)" != "$opening_head_sha" ]; then
+    echo true
+    return 0
+  fi
+  lane_receipt_tree_dirty
+}
+
+# The tested bundle as `<path>@<modification epoch seconds>`, or `missing`. Two
+# receipts that print the same identity tested the same built bundle.
+lane_receipt_bundle_identity() {
+  local test_bundle
+  local modification_epoch
+
+  test_bundle="$(swift_testing_bundle_path 2>/dev/null)" || { echo missing; return 0; }
+  modification_epoch="$(stat -f %m "$test_bundle" 2>/dev/null)" || { echo missing; return 0; }
+  echo "$test_bundle@$modification_epoch"
+}
+
+# Why a receipt is invalid, comma-separated, or nothing when it is valid. Valid
+# means this invocation built the bundle AND the tree was clean throughout.
+#   bundle_state: fresh (this invocation's prebuild ran and succeeded),
+#                 reused (the prebuild was skipped), not_built (it failed or never ran)
+lane_receipt_invalid_reasons() {
+  local bundle_state="$1"
+  local tree_dirty="$2"
+  local reasons=()
+
+  case "$bundle_state" in
+    fresh) ;;
+    reused) reasons+=(reused_bundle) ;;
+    *) reasons+=(unbuilt_bundle) ;;
+  esac
+  case "$tree_dirty" in
+    false) ;;
+    true) reasons+=(dirty_tree) ;;
+    *) reasons+=(unknown_tree) ;;
+  esac
+
+  local IFS=','
+  printf '%s' "${reasons[*]:-}"
+}
+
+# The closing receipt's validity and verdict lines. Only a valid receipt carries
+# a pass or fail verdict; an invalid one is `unverified` whatever the exit status.
+print_lane_receipt_verdict() {
+  local exit_status="$1"
+  local bundle_state="$2"
+  local tree_dirty="$3"
+  local invalid_reasons
+
+  invalid_reasons="$(lane_receipt_invalid_reasons "$bundle_state" "$tree_dirty")"
+  if [ -n "$invalid_reasons" ]; then
+    echo "[$LOG_PREFIX] lane-report receipt_valid=false reason=$invalid_reasons"
+    echo "[$LOG_PREFIX] lane-report verdict=unverified"
+    return 0
+  fi
+  echo "[$LOG_PREFIX] lane-report receipt_valid=true"
+  if [ "$exit_status" -eq 0 ]; then
+    echo "[$LOG_PREFIX] lane-report verdict=pass"
+  else
+    echo "[$LOG_PREFIX] lane-report verdict=fail"
+  fi
 }
 
 # swift build (the prebuild) rejects the Swift Testing event-stream flags; every
@@ -681,10 +792,11 @@ swift_testing_framework_path() {
 swift_test_record_failed_isolated_suite() {
   local suite_filter="$1"
   local status="$2"
+  local signal_name="${3:-$(swift_test_signal_name "$status")}"
 
   [ -n "${SWIFT_TEST_FAILED_ISOLATED_SUITES_FILE:-}" ] || return 0
   printf '%s\t%s\t%s\n' \
-    "$suite_filter" "$status" "$(swift_test_signal_name "$status")" \
+    "$suite_filter" "$status" "$signal_name" \
     >>"$SWIFT_TEST_FAILED_ISOLATED_SUITES_FILE" 2>/dev/null || true
 }
 
@@ -865,7 +977,7 @@ run_webkit_suites() {
   echo "--- WebKit serialized tests (serial) ---"
   while IFS= read -r filter; do
     [ -n "$filter" ] || continue
-    run_webkit_suite_with_retry "$filter" || return $?
+    run_webkit_suite "$filter" || return $?
   done < <(webkit_suite_filters)
 }
 
@@ -1042,6 +1154,28 @@ swift_test_signal_name() {
   fi
 }
 
+# The signal that ended a test run: from the status when the child itself was
+# signalled, else from `swift test`'s own report of a helper it lost to a signal
+# ("unexpected signal code N"), which `swift test` exits 1 for. `none` otherwise.
+swift_test_crash_signal_name() {
+  local status="${1:-0}"
+  local output="${2:-}"
+  local reported_signal_code
+
+  if [ "$status" -gt 128 ]; then
+    swift_test_signal_name "$status"
+    return 0
+  fi
+  reported_signal_code="$(
+    grep -Eo "unexpected signal code [0-9]+" <<<"$output" | grep -Eo "[0-9]+" | tail -n 1 || true
+  )"
+  if [ -n "$reported_signal_code" ]; then
+    kill -l "$reported_signal_code" 2>/dev/null || echo unknown
+  else
+    echo none
+  fi
+}
+
 # Mirrors the timeout branch's diagnostics for a child that exited non-zero
 # without an ✘ marker, and must run BEFORE the captured output is deleted.
 print_failed_child_diagnostics() {
@@ -1134,6 +1268,7 @@ sample_stuck_swift_test_processes() {
     case "$process_command" in
       *AgentStudioPackageTests* | *.xctest* | *"swift test"*)
         sample_stuck_swift_test_process "$label" "$process_pid"
+        dump_stuck_swift_test_process_tasks "$label" "$process_pid"
         sampled_count=$((sampled_count + 1))
         if [ "$sampled_count" -ge 3 ]; then
           break
@@ -1161,6 +1296,40 @@ sample_stuck_swift_test_process() {
     echo "[$LOG_PREFIX] sample failed for Swift test process pid=$process_pid"
   fi
   rm -f "$sample_file"
+}
+
+# The concurrency task dump of one stuck test process, kept beside the event-stream
+# ledger. `sample` shows threads, and a wedged Swift Testing run usually has none
+# busy: the stuck work is suspended tasks, which only swift-inspect can list, each
+# with the function it would resume in.
+#
+# swift-inspect exits 0 even when it cannot attach (it prints "Failed to create
+# inspector" and nothing on stdout), so success is judged by the dump having
+# content, and any refusal is recorded instead of failing the lane.
+dump_stuck_swift_test_process_tasks() {
+  local label="$1"
+  local process_pid="$2"
+  local label_slug
+  local dump_path
+  local dump_error_file
+  local refusal_reason
+
+  label_slug="$(lane_event_stream_label_slug "$label")"
+  mkdir -p "$LANE_EVENT_STREAM_DIR"
+  dump_path="$LANE_EVENT_STREAM_DIR/lane-$label_slug-$(date +%Y%m%dT%H%M%S)-$$-pid$process_pid.task-dump.txt"
+  dump_error_file="$(mktemp "${TMPDIR:-/tmp}/agentstudio-swift-inspect-error.XXXXXX")"
+
+  if xcrun swift-inspect dump-concurrency "$process_pid" >"$dump_path" 2>"$dump_error_file" &&
+    [ -s "$dump_path" ]
+  then
+    echo "[$LOG_PREFIX] lane-report task_dump=$dump_path"
+    prune_lane_event_streams "$label_slug"
+  else
+    refusal_reason="$(tr '\n' ' ' <"$dump_error_file" | sed -E 's/[[:space:]]+/ /g; s/ $//')"
+    echo "[$LOG_PREFIX] lane-report task_dump=unavailable pid=$process_pid reason=${refusal_reason:-empty dump}"
+    rm -f "$dump_path"
+  fi
+  rm -f "$dump_error_file"
 }
 
 # Signals one process tree: children first, then the root.
@@ -1224,50 +1393,32 @@ lane_run_has_survivors() {
   pgrep -f -- "$run_token" >/dev/null 2>&1
 }
 
-run_webkit_suite_with_retry() {
+# One WebKit suite, run once. A crash fails the lane and is recorded, with its
+# signal, in the same failed-isolated-suite tally the closing receipt prints.
+# There is no in-lane retry: a retry turned a teardown crash into a green lane
+# whose receipt said nothing, which is a rerun the CI gate could not see.
+run_webkit_suite() {
   local filter="$1"
-  local attempt=1
-  local max_attempts=3
-  local backoff_seconds=1
+  local output
+  local command_status=0
 
-  while [ "$attempt" -le "$max_attempts" ]; do
-    echo "[webkit] running $filter (attempt $attempt/$max_attempts)"
-    set +e
-    local output
-    # Bypass xcbeautify — we need raw output to detect "unexpected signal code" for retries.
-    # Set _XCB_BYPASS on its own line: bash evaluates $() before assignments on the same line.
-    _XCB_BYPASS=1
-    # shellcheck disable=SC2086
-    output=$(run_swift_with_timeout "$filter" "$TIMEOUT_SECONDS" \
-      env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" $(swift_test_parallelization_env_word) swift test ${EXTRA_SWIFT_TEST_ARGS:-} \
-      --skip-build --filter "$filter" --build-path "$BUILD_PATH" 2>&1)
-    local command_status=$?
-    unset _XCB_BYPASS
-    set -e
-    echo "$output"
+  echo "[webkit] running $filter"
+  # Bypass xcbeautify: `swift test` reports a crashed helper only as
+  # "unexpected signal code N" in its raw output, and the signal is read from it.
+  # Set _XCB_BYPASS on its own line: bash evaluates $() before assignments on the same line.
+  _XCB_BYPASS=1
+  # shellcheck disable=SC2086
+  output=$(run_swift_with_timeout "$filter" "$TIMEOUT_SECONDS" \
+    env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" $(swift_test_parallelization_env_word) swift test ${EXTRA_SWIFT_TEST_ARGS:-} \
+    --skip-build --filter "$filter" --build-path "$BUILD_PATH" 2>&1) || command_status=$?
+  unset _XCB_BYPASS
+  echo "$output"
 
-    if [ "$command_status" -eq 0 ]; then
-      return 0
-    fi
-    if [ "$command_status" -eq 124 ]; then
-      return 124
-    fi
-
-    if [ "$command_status" -ne 124 ] && grep -Eq "unexpected signal code [0-9]+" <<<"$output"; then
-      local signal_code
-      signal_code=$(grep -Eo "unexpected signal code [0-9]+" <<<"$output" | grep -Eo "[0-9]+" | tail -n 1)
-      if [ -z "$signal_code" ]; then
-        signal_code="unknown"
-      fi
-      if [ "$attempt" -lt "$max_attempts" ]; then
-        echo "[webkit] signal $signal_code in $filter; retrying after ${backoff_seconds}s"
-        sleep "$backoff_seconds"
-        backoff_seconds=$((backoff_seconds * 2))
-        attempt=$((attempt + 1))
-        continue
-      fi
-    fi
-
-    return "$command_status"
-  done
+  if [ "$command_status" -ne 0 ]; then
+    local signal_name
+    signal_name="$(swift_test_crash_signal_name "$command_status" "$output")"
+    echo "[$LOG_PREFIX] WebKit suite failed: $filter status=$command_status signal=$signal_name" >&2
+    swift_test_record_failed_isolated_suite "$filter" "$command_status" "$signal_name"
+  fi
+  return "$command_status"
 }

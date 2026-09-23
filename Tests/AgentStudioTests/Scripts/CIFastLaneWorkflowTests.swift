@@ -347,8 +347,8 @@ struct CIFastLaneWorkflowTests {
         #expect(largeLaneStep.contains("SWIFT_TEST_TIMEOUT_SECONDS: \"600\""))
         #expect(largeLaneStep.contains("_XCB_BYPASS: \"1\""))
         #expect(largeLaneStep.contains("run: mise run test:swift:large"))
-        #expect(swiftTestTaskScript.contains("test|test-fast|test-large|test-prebuild|test-webkit)"))
-        #expect(swiftTestTaskScript.contains("if [ \"$mode\" = \"test-prebuild\" ]; then\n  prebuild_swift_tests"))
+        // The runner's modes and prebuild structure are pinned by
+        // SwiftLaneReceiptTests.receiptIsPrintedOnEveryExitAndOnlyFinishedPrebuildIsFresh.
         #expect(swiftTestTaskScript.contains("AGENTSTUDIO_TRACE_BACKEND=\"${SWIFT_TEST_TRACE_BACKEND:-jsonl}\""))
         #expect(testHelperScript.contains("AGENTSTUDIO_TRACE_BACKEND=\"${SWIFT_TEST_TRACE_BACKEND:-jsonl}\""))
         #expect(testHelperScript.contains("print_timeout_process_diagnostics \"$label\" \"$command_pid\""))

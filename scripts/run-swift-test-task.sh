@@ -17,6 +17,10 @@ esac
 
 source "${PROJECT_ROOT}/scripts/swift-build-slot.sh"
 BUILD_PATH="$SWIFT_BUILD_DIR"
+# swift-build-slot.sh releases its claim from an EXIT trap, and this script needs
+# EXIT for its closing receipt. Installing ours would silently replace theirs and
+# leak the claim, so the release command is taken over here and run last.
+LANE_SLOT_RELEASE_COMMAND="$(eval "set -- $(trap -p EXIT)"; printf '%s' "${3:-}")"
 # Defaults match what every gated path already sets (CI lane env and the
 # aggregate `mise run test` task). A bare focused run used to inherit 60/90,
 # which kills a correct cold compile rather than a hung one.
@@ -31,18 +35,21 @@ echo "[$LOG_PREFIX] BUILD_PATH=$BUILD_PATH"
 echo "[$LOG_PREFIX] TIMEOUT_SECONDS=$TIMEOUT_SECONDS"
 echo "[$LOG_PREFIX] PREBUILD_TIMEOUT_SECONDS=$PREBUILD_TIMEOUT_SECONDS"
 
-LANE_CPU_COUNT="$(sysctl -n hw.ncpu)"
-echo "[$LOG_PREFIX] lane-report cpu_count=$LANE_CPU_COUNT"
-echo "[$LOG_PREFIX] lane-report memory_bytes=$(sysctl -n hw.memsize)"
-echo "[$LOG_PREFIX] lane-report parallelization_width=$(swift_test_parallelization_width_label)"
-echo "[$LOG_PREFIX] lane-report isolated_process_concurrency=$(swift_test_isolated_process_concurrency)"
-echo "[$LOG_PREFIX] lane-report xcode=$(xcodebuild -version | tr '\n' ' ')"
-echo "[$LOG_PREFIX] lane-report swift=$(swift --version | head -1)"
-
-if [ "$mode" = "test-prebuild" ]; then
-  prebuild_swift_tests
-  exit $?
-fi
+# The machine and the tree a lane ran on. The tree identity is captured here and
+# re-checked at the close, so edits made while the lane ran invalidate it.
+print_opening_lane_report() {
+  LANE_CPU_COUNT="$(sysctl -n hw.ncpu)"
+  LANE_RECEIPT_HEAD_SHA="$(lane_receipt_head_sha)"
+  LANE_RECEIPT_TREE_DIRTY="$(lane_receipt_tree_dirty)"
+  echo "[$LOG_PREFIX] lane-report cpu_count=$LANE_CPU_COUNT"
+  echo "[$LOG_PREFIX] lane-report memory_bytes=$(sysctl -n hw.memsize)"
+  echo "[$LOG_PREFIX] lane-report parallelization_width=$(swift_test_parallelization_width_label)"
+  echo "[$LOG_PREFIX] lane-report isolated_process_concurrency=$(swift_test_isolated_process_concurrency)"
+  echo "[$LOG_PREFIX] lane-report xcode=$(xcodebuild -version | tr '\n' ' ')"
+  echo "[$LOG_PREFIX] lane-report swift=$(swift --version | head -1)"
+  echo "[$LOG_PREFIX] lane-report head_sha=$LANE_RECEIPT_HEAD_SHA"
+  echo "[$LOG_PREFIX] lane-report tree_dirty=$LANE_RECEIPT_TREE_DIRTY"
+}
 
 # Children CPU seconds (user+sys) from the second line of bash `times`, which
 # reads "<minutes>m<seconds>s <minutes>m<seconds>s".
@@ -64,15 +71,31 @@ lane_children_cpu_seconds() {
     END { if (!found) { print "0.00" } }' "$times_file"
 }
 
+# Starts one lane's load accounting. Every lane that prints a closing receipt
+# owns its own tally files, so two lanes in one invocation never share counts.
+begin_lane_accounting() {
+  LANE_START_SECONDS="$SECONDS"
+  LANE_TIMES_FILE="$(mktemp "${TMPDIR:-/tmp}/agentstudio-lane-times.XXXXXX")"
+  SWIFT_TEST_PEAK_ANNOUNCED_FILE="$(mktemp "${TMPDIR:-/tmp}/agentstudio-lane-peak-announced.XXXXXX")"
+  SWIFT_TEST_PEAK_RUNNING_FILE="$(mktemp "${TMPDIR:-/tmp}/agentstudio-lane-peak-running.XXXXXX")"
+  SWIFT_TEST_FAILED_ISOLATED_SUITES_FILE="$(
+    mktemp "${TMPDIR:-/tmp}/agentstudio-lane-failed-isolated-suites.XXXXXX"
+  )"
+  export SWIFT_TEST_PEAK_ANNOUNCED_FILE SWIFT_TEST_PEAK_RUNNING_FILE
+  export SWIFT_TEST_FAILED_ISOLATED_SUITES_FILE
+}
+
 # Printed on every exit, including a failing one: a failing lane is the one we
 # most need to read load numbers from.
 print_closing_lane_report() {
   local exit_status=$?
   local wall_seconds=$((SECONDS - LANE_START_SECONDS))
   local cpu_seconds
+  local closing_tree_dirty
 
   times >"$LANE_TIMES_FILE" 2>/dev/null || true
   cpu_seconds="$(lane_children_cpu_seconds "$LANE_TIMES_FILE")"
+  closing_tree_dirty="$(lane_receipt_tree_dirty_since "$LANE_RECEIPT_HEAD_SHA" "$LANE_RECEIPT_TREE_DIRTY")"
 
   echo "[$LOG_PREFIX] lane-report exit_status=$exit_status"
   echo "[$LOG_PREFIX] lane-report wall_seconds=$wall_seconds"
@@ -81,13 +104,13 @@ print_closing_lane_report() {
     /usr/bin/awk -v cpu="$cpu_seconds" -v wall="$wall_seconds" -v cores="$LANE_CPU_COUNT" \
       'BEGIN { if (wall <= 0 || cores <= 0) { print "0.00" } else { printf "%.2f\n", cpu / (wall * cores) } }'
   )"
-  # peak_started_tests counts tests whose start event was posted and does NOT
+  # peak_announced_tests counts tests whose start event was posted and does NOT
   # reflect the parallelization cap; peak_running_parameterized_cases does.
   # Both labels say "parameterized" because Swift Testing's v0 event stream emits
   # test-case records only for parameterized cases, so that number is a floor over
   # that subset and reads 0 for a lane with no parameterized tests.
-  echo "[$LOG_PREFIX] lane-report peak_started_tests=$(
-    swift_test_peak_total_from_file "${SWIFT_TEST_PEAK_STARTED_FILE:-}"
+  echo "[$LOG_PREFIX] lane-report peak_announced_tests=$(
+    swift_test_peak_total_from_file "${SWIFT_TEST_PEAK_ANNOUNCED_FILE:-}"
   )"
   echo "[$LOG_PREFIX] lane-report peak_running_parameterized_cases=$(
     swift_test_peak_total_from_file "${SWIFT_TEST_PEAK_RUNNING_FILE:-}"
@@ -104,25 +127,43 @@ print_closing_lane_report() {
     done <"$SWIFT_TEST_FAILED_ISOLATED_SUITES_FILE"
   fi
 
-  rm -f "$LANE_TIMES_FILE" "${SWIFT_TEST_PEAK_STARTED_FILE:-}" "${SWIFT_TEST_PEAK_RUNNING_FILE:-}" \
+  echo "[$LOG_PREFIX] lane-report head_sha=$LANE_RECEIPT_HEAD_SHA"
+  echo "[$LOG_PREFIX] lane-report tree_dirty=$closing_tree_dirty"
+  echo "[$LOG_PREFIX] lane-report bundle_state=$LANE_BUNDLE_STATE"
+  echo "[$LOG_PREFIX] lane-report bundle_identity=$(lane_receipt_bundle_identity)"
+  print_lane_receipt_verdict "$exit_status" "$LANE_BUNDLE_STATE" "$closing_tree_dirty"
+
+  rm -f "$LANE_TIMES_FILE" "${SWIFT_TEST_PEAK_ANNOUNCED_FILE:-}" "${SWIFT_TEST_PEAK_RUNNING_FILE:-}" \
     "${SWIFT_TEST_FAILED_ISOLATED_SUITES_FILE:-}"
 }
 
-LANE_START_SECONDS="$SECONDS"
-LANE_TIMES_FILE="$(mktemp "${TMPDIR:-/tmp}/agentstudio-lane-times.XXXXXX")"
-SWIFT_TEST_PEAK_STARTED_FILE="$(mktemp "${TMPDIR:-/tmp}/agentstudio-lane-peak-started.XXXXXX")"
-SWIFT_TEST_PEAK_RUNNING_FILE="$(mktemp "${TMPDIR:-/tmp}/agentstudio-lane-peak-running.XXXXXX")"
-SWIFT_TEST_FAILED_ISOLATED_SUITES_FILE="$(
-  mktemp "${TMPDIR:-/tmp}/agentstudio-lane-failed-isolated-suites.XXXXXX"
-)"
-export SWIFT_TEST_PEAK_STARTED_FILE SWIFT_TEST_PEAK_RUNNING_FILE
-export SWIFT_TEST_FAILED_ISOLATED_SUITES_FILE
-trap print_closing_lane_report EXIT
+# The invocation's EXIT trap: its closing receipt, then the build-slot release
+# this script took over from swift-build-slot.sh. `$?` is read by the receipt as
+# its first statement, so nothing may run before it.
+finish_lane_invocation() {
+  print_closing_lane_report
+  if [ -n "$LANE_SLOT_RELEASE_COMMAND" ]; then
+    eval "$LANE_SLOT_RELEASE_COMMAND"
+  fi
+}
 
-if [ "${SWIFT_TEST_SKIP_PREBUILD:-0}" = "1" ]; then
+print_opening_lane_report
+begin_lane_accounting
+# fresh only once THIS invocation's prebuild has succeeded; see
+# lane_receipt_invalid_reasons for why anything else is not a pass.
+LANE_BUNDLE_STATE=not_built
+trap finish_lane_invocation EXIT
+
+if [ "$mode" != "test-prebuild" ] && [ "${SWIFT_TEST_SKIP_PREBUILD:-0}" = "1" ]; then
   echo "[$LOG_PREFIX] skipping prebuild test bundles (SWIFT_TEST_SKIP_PREBUILD=1)"
+  LANE_BUNDLE_STATE=reused
 else
   prebuild_swift_tests
+  LANE_BUNDLE_STATE=fresh
+fi
+
+if [ "$mode" = "test-prebuild" ]; then
+  exit 0
 fi
 
 if [ "$#" -gt 0 ]; then
