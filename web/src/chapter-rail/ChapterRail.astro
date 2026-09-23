@@ -1,0 +1,93 @@
+---
+// The page's left progress rail: one git lane with a dot per chapter, drawn
+// behind the content by chapter-rail-controller.ts. Decorative only; without
+// script, or on a page with no rail anchors, the SVG stays empty.
+---
+
+<div
+  class="chapter-rail pointer-events-none absolute inset-0 z-0 overflow-hidden"
+  data-chapter-rail
+  aria-hidden="true"
+>
+  <svg class="block h-full w-full" data-chapter-rail-artwork aria-hidden="true" focusable="false"
+  ></svg>
+</div>
+
+<script>
+  import { initializeChapterRail } from "./chapter-rail-controller";
+
+  const chapterRail = document.querySelector<HTMLElement>("[data-chapter-rail]");
+  if (chapterRail !== null) {
+    initializeChapterRail(chapterRail);
+  }
+</script>
+
+<style>
+  /* The controller creates the lane, branches and dots at runtime, so these
+     selectors reach them through :global() under the scoped container. */
+  .chapter-rail {
+    --chapter-rail-lane: color-mix(
+      in srgb,
+      color-mix(in srgb, var(--color-primary) 45%, var(--color-ink-faint)) 42%,
+      transparent
+    );
+    --chapter-rail-muted: color-mix(in srgb, var(--color-ink-faint) 62%, transparent);
+    --chapter-rail-current: var(--color-primary);
+    --chapter-rail-transition: 240ms ease;
+  }
+
+  .chapter-rail :global([data-chapter-rail-lane]),
+  .chapter-rail :global([data-chapter-rail-branch]) {
+    fill: none;
+    stroke: var(--chapter-rail-lane);
+    stroke-width: 1.5px;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
+  .chapter-rail :global([data-chapter-rail-branch]) {
+    opacity: 0.55;
+    transition:
+      stroke var(--chapter-rail-transition),
+      opacity var(--chapter-rail-transition);
+  }
+
+  .chapter-rail :global([data-chapter-rail-branch][data-chapter-rail-state="current"]) {
+    stroke: color-mix(in srgb, var(--chapter-rail-current) 78%, transparent);
+    opacity: 1;
+  }
+
+  .chapter-rail :global(.chapter-rail-node-ring) {
+    fill: var(--color-canvas);
+    stroke: var(--chapter-rail-muted);
+    stroke-width: 1.5px;
+    transition:
+      fill var(--chapter-rail-transition),
+      stroke var(--chapter-rail-transition);
+  }
+
+  .chapter-rail :global(.chapter-rail-node-core) {
+    fill: var(--chapter-rail-current);
+    opacity: 0;
+    transition: opacity var(--chapter-rail-transition);
+  }
+
+  .chapter-rail :global([data-chapter-rail-state="passed"] .chapter-rail-node-ring) {
+    fill: var(--chapter-rail-muted);
+  }
+
+  .chapter-rail :global([data-chapter-rail-state="current"] .chapter-rail-node-ring) {
+    stroke: var(--chapter-rail-current);
+    stroke-width: 2px;
+  }
+
+  .chapter-rail :global([data-chapter-rail-state="current"] .chapter-rail-node-core) {
+    opacity: 1;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .chapter-rail {
+      --chapter-rail-transition: 0s;
+    }
+  }
+</style>

@@ -1,12 +1,11 @@
 ---
 import appLogo from "@/assets/brand/app-logo-transparent.svg";
+import ChapterRail from "@/chapter-rail/ChapterRail.astro";
 import GitHubMark from "@/github-action/GitHubMark.astro";
 import { marketingCopy } from "@/marketing-copy";
 import { siteMetadata } from "@/site-metadata";
 import XMark from "@/social-links/XMark.astro";
 import "@/styles/global.css";
-
-import FullPageTopologyBackdrop from "./FullPageTopologyBackdrop.astro";
 
 interface Props {
   readonly title: string;
@@ -51,7 +50,7 @@ const socialImageUrl = new URL(siteMetadata.socialCard.path, siteMetadata.canoni
     <title>{title}</title>
   </head>
   <body>
-    <FullPageTopologyBackdrop />
+    <ChapterRail />
     <div class="site-header-anchor sticky top-0 z-20 h-18" data-site-header-anchor>
       <header
         class="site-header relative top-px z-20 mx-auto flex min-h-18 items-center justify-between rounded-floating-shell border border-[rgb(137_180_250/24%)] px-5.5 py-4"
