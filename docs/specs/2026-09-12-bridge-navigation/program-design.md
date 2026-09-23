@@ -44,7 +44,7 @@ for the next visit. Review does not combine changes from different worktrees.
 
 The diagrams below answer different questions: [what changes in the code](#current-foundation-and-the-necessary-split),
 [what fullscreen means](#how-multiple-worktrees-work-in-fullscreen), and
-[how a file reaches the display](#preparation-no-native-viewer-required).
+[how a file reaches the display](#loading-showing-and-open-view).
 They are architecture views, not screenshots or a new UI layout specification.
 
 ## Current foundation and the necessary split
@@ -100,7 +100,8 @@ selection rules without becoming the terminal's receiver.
 
 | Explicit command intent | Changed state in this receiver | State retained |
 | --- | --- | --- |
-| Prepare `/tmp/feature-notes.md` | Opened-document inventory and prepared location | Display, Files selection, Review, CWD and focus |
+| Agent opens `/tmp/feature-notes.md` while the Bridge is hidden | Opened-document inventory, loaded location and an Open view item | Display, Files selection, Review, CWD and focus |
+| Agent opens it while the Bridge is visible and no draft is open | Inventory, Files selection and display (shown at the line) | Review worktree and its comparison, CWD and focus |
 | Activate notes in Files | Select notes within the collection; display Files | Review worktree and its comparison |
 | Add known frontend worktree | Browsing membership | Both selections and current display |
 | Review frontend against its baseline | Selected Review worktree/comparison; display Review after draft settlement | Files document/filter, backend comparison and terminal CWD |
@@ -151,14 +152,20 @@ it is the main data-contract change in the design.
 
 ```text
 Core
-  BridgeNavigationAtom — live values and equality/revision publication only
+  BridgeNavigationAtom — live values and equality/revision publication only,
+    including runtime Open view items per owner pane
+  PaneOpenViewPresentation — Core view contract for the bar button and popover
   BridgeReceiver / DocumentLocation / NavigationRecord — shared value contracts
   BridgeNavigationRules — pure transitions and membership/selection invariants
   existing workspace store/local repository — save, hydrate and migration
 
 App
   existing AppCommandDispatcher / pane executor — command identity and target
-  BridgeNavigationCommandHandler — sequences admission, transitions and effects
+  BridgeNavigationCommandHandler — sequences admission, transitions and effects,
+    the show-or-Open-view decision and Open view reveal (B2)
+  TerminalFileLinkResolver — ⌘-click path resolution and hard-wrap rejoin (B2)
+  PaneOpenViewPresentation composition — bar button, count and popover (B2)
+  PanePullRequestToolbarActionFactory (extended) — multi-member summary (B3)
   existing WorkspaceSurfaceCoordinator — host creation/retirement and composition
   IPC contribution — maps v2 typed inputs/outcomes through the command owner
 
@@ -234,9 +241,11 @@ means no protected member. Previous members remain listed; selections stay fixed
 The protected ID is derived from current terminal association, not a persisted
 last-known-CWD or independently mutable field.
 
-The active displayed document and retained inventory are separate facts. Agent
-preparation updates the inventory, never the displayed selection. This design
-adds no persisted prepared-line/default-activation field.
+The active displayed document and retained inventory are separate facts. An
+agent open always updates the inventory; it changes the displayed selection only
+when it is shown (receiver visible, no unfinished draft). The requested line is
+carried by the open request and the Open view item, not persisted in the
+navigation record.
 Queries combine the navigation record with current host/render observations and
 carry their generation/currentness; a stale native response is not a current
 presentation snapshot.
@@ -349,97 +358,207 @@ existing draft/error path; never silently discard text to force removal complete
 
 ## Commands and the IPC boundary
 
-Use dedicated `openFile` for preparation, as reserved by IPC v2. Add separate
-`activateBridgeFile` and `activateBridgeReview` identities for typed receiver
-navigation. Keep existing `showBridgeFiles`, `showBridgeReview` and explicit
-new-tab opening commands with their current presentation contracts; their creation
-path seeds the new receiver state as described in the cutover below. Do not give
-one identity both a targetless tab-opening meaning and a typed exact-file meaning.
-The new activation commands are not routed through `showViewer`/CodeViewer.
+Every operation is an `AppCommand` identity; UI, keyboard, IPC and tests invoke
+the same owner. Agent eligibility follows the workspace IPC control design
+(layer A1, `agent-studio.ipc-improvements/docs/specs/2026-09-23-workspace-ipc-control/`):
+from B1 the caller's receiver belongs to its own pane, so `AppIPCOwnPaneScopePort`
+answers "inside" for that receiver, and eligibility per command is declared in
+`AppCommandIPCSpec` or the method metadata.
 
-New semantic operations needed alongside preparation are known-worktree
-add/removal/Review selection, opened-file activation/close and collection search.
-They receive typed receiver/location/worktree/comparison arguments. Read-only
-inventory/availability/presentation inspection uses the existing snapshot/query
-contribution boundary. Future UI supplies arguments to these owners rather than
-creating new lists or file-opening paths.
+| Identity | Owner effect | Layer | Agent eligibility |
+| --- | --- | --- | --- |
+| `openFile` (v2 reserved identity) | Admit an exact file (path, captured CWD, optional line) into the caller's receiver; show it if the receiver is visible and no draft is open, else add an Open view item | B2 | own pane |
+| `bridge.*` reads and in-Bridge navigation (existing methods: package, render state, content, tree search/filter/reveal, select/scroll/expand/collapse, refresh) | Unchanged effects, now targetable as the caller's receiver | B1 | own pane |
+| `searchBridgeFiles` (new) | Search all members and opened loose files by default; explicit narrowing allowed | B1 | own pane (read) |
+| `addBridgeWorktree` (new) | Add a known worktree to this receiver only | B1 | own pane |
+| `activateBridgeFile` (new) | Show a document in the receiving collection, or return to Files | B1 | not yet allowed (human) |
+| `activateBridgeReview` (new) | Show an explicit known-worktree comparison and optional file | B1 | not yet allowed (human) |
+| `selectBridgeWorktree` (new) | Select a member for Review; an explicit Files variant only narrows its filter | B1 | not yet allowed (human) |
+| `removeBridgeWorktree` (new) | Remove a nonprotected member, clear its selected file, apply Review fallback | B1 | not yet allowed (human) |
+| `closeBridgeFile` (new) | Remove an open inventory entry; protect draft if active | B1 | not yet allowed (human) |
+| `openTerminalFileLink` (new) | ⌘-click route: resolve a clicked path and show it in that terminal's receiver | B2 | not yet allowed (human) |
+| `openOpenViewItem`, `dismissOpenViewItem`, `clearOpenViewItems` (new) | Reveal the receiver and show the item; remove one item; remove all items for the pane | B2 | not yet allowed (human) |
+| `moveOpenViewSelection` (new, keyboard) | Move the popover's row selection | B2 | not yet allowed (human) |
+| `openMemberPullRequest` (new) | Open one member worktree's pull request from the summary popover | B3 | not yet allowed (human; leaves the app, which is A2) |
 
-The command inventory is concrete; new names below are proposed AppCommand
-identities, not separately implemented transport verbs:
+Existing `showBridgeFiles`, `showBridgeReview`, `showViewer` and new-tab commands
+keep their contracts; their creation path seeds receiver state as described in
+the cutover below. Read-only inventory, availability and presentation
+inspection uses the existing snapshot/query contribution boundary.
 
-| Identity | Owner effect | Exposure boundary |
-| --- | --- | --- |
-| `openFile` (v2 reserved) | Prepare and persist an exact file in the receiver’s inventory | Self-pane agent preparation; no presentation override |
-| `activateBridgeFile` (new) | Activate a prepared document in the receiving collection, or return to Files | Typed command/debug entry; explicit receiver and selection; no new UI row |
-| `activateBridgeReview` (new) | Activate an explicit known-worktree comparison and optional file | Typed command/debug entry; full comparison retained; no new UI row |
-| `addBridgeWorktree` (new) | Add a known worktree to this receiver only | Self-pane membership; idempotent, no selection effect |
-| `selectBridgeWorktree` (new) | Select a member for Review; an explicit Files variant only narrows its filter | Human/debug navigation; Files default remains all members; preserve the other selection |
-| `removeBridgeWorktree` (new) | Remove a nonprotected member, clear its selected file and apply Review fallback | Human/debug; draft settlement and current-CWD revalidation before commit |
-| `closeBridgeFile` (new) | Remove an open inventory entry; protect draft if active | Explicit human/debug navigation; annotations retained |
-| `searchBridgeFiles` (new) | Search all members and opened loose files by default; allow explicit narrowing | Read-only result; no persistent search store or activation |
+**Async result seam (current source).** `AppCommandDispatcher.dispatchHeadlessIPC`
+and typed method handlers are already asynchronous (`AppCommandDispatcher.swift:134–159`,
+`AppIPCTypedMethodRegistration.swift:71–103`). What is missing is the outcome
+mapping: `AppCommandExecutionOutcome` (`AppCommandExecution.swift:81–88`) and the
+command adapter's result projection (`AgentStudioIPCCommandAdapter.swift:115–139`)
+carry only applied / accepted / presented / unavailable / partial / uncertain.
+The Bridge handler returns a domain outcome — shown, waiting in Open view,
+activated, failed(reason), refused, cancelled, partial(unsaved) — and the IPC
+contribution projects it: shown and activated → `presented` with receiver,
+location and line; waiting → `accepted` with the Open view item; failed and
+refused through the existing error codes plus A1's not-yet-allowed code;
+partial(unsaved) → `partial`. No second operation journal.
 
-Query/snapshot contributions expose the resulting inventory, selection and
-presentation through v2’s existing query boundary. The IPC owner must map these
-semantic effects into the current typed-dispatch/descriptor API; the viewing
-slice does not define another command execution catalog.
+**`file.open` wire (replaces Agent IPC v2 C7's reserved placement contract).**
+Inputs: handle `self`, `path`, optional `cwd` (the CLI supplies its process CWD),
+optional `line`. No placement, tab, split, drawer or focus fields. Agent IPC v2
+has no control replay journal: a lost response is uncertain and a retry may show
+the file again; the inventory and Open view each hold one entry per canonical
+location, so a retry never duplicates them.
 
-The existing dispatcher’s typed result path is currently synchronous and narrow.
-The v2 integration must provide the typed async-effect/result completion seam
-for these handlers. The Bridge handler returns a domain outcome: refused,
-in-progress, prepared, activated, partial, cancelled or uncertain, with the
-receiving owner and actual source. The v2 contribution projects that through its
-own catalog/outcome taxonomy; it does not create a second operation journal.
+## Loading, showing and Open view
 
-Production agent `file.open` only prepares. Visible activation and disruptive
-navigation use human or v2-authorized debug execution. All debug variants remain
-explicit and picker-free. New identities use the exhaustive not-presented
-interactive policy for this slice; existing controls remain available. Future UI
-projects these same identities instead of introducing a second execution path.
-Known-worktree addition mutates only the receiving
-Bridge’s membership and never the repository catalog, so no workspace-wide grant
-capability is introduced here.
+```mermaid
+sequenceDiagram
+  participant Agent as Agent (CLI)
+  participant H as BridgeNavigationCommandHandler (App)
+  participant Adm as BridgeDocumentAdmission (off-main)
+  participant Nav as BridgeNavigationAtom (MainActor)
+  participant Pres as Receiver presentation (Zoom companion)
+  participant Web as BridgeWeb display
+  Agent->>H: openFile(self, path, cwd, line)
+  H->>H: resolve caller to receiver (drawer caller to owner receiver)
+  H->>Adm: admit exact file (captured base, regular readable, supported)
+  Adm-->>H: document location and availability, or refusal
+  H->>Nav: add or reuse inventory entry (pure rules)
+  H->>Pres: receiver visible? unfinished draft in current document?
+  alt visible and no draft
+    H->>Web: activation path (below), select document, scroll to line
+    Web-->>H: generation-matched displayed arrival
+    H-->>Agent: shown (location, line)
+  else hidden, unmounted or draft open
+    H->>Nav: add or update Open view item (runtime, per owner pane)
+    H-->>Agent: waiting in Open view
+  end
+```
 
-The [IPC coordination draft](../../wip/communications/2026-09-13-ipc-v2-bridge-coordination-draft.md)
-owns the proposed C7 amendment. The sibling design at `cc0f0fdc8` reserves
-`file.open` but still contains obsolete drawer/presentation fields. Integration
-must consume the current v2 descriptor/dispatch seams once agreed with that
-owner. Do not implement a temporary v1 adapter to make this branch runnable.
+The handler enters through the existing command dispatcher and validated
+receiver. Admission performs filesystem work off the main actor and returns a
+native document record and availability; it creates no pane, WebView, worktree
+registration or directory index. Initial invalid paths leave the inventory
+unchanged. An unavailable restored entry is preserved and can be reopened.
 
-## Preparation: no native viewer required
+**Visible** means the receiver's host is mounted and shown: for a
+terminal-associated receiver, the tab is in Pane Zoom on that terminal with its
+companion shown (`ZoomPresentation.viewerPresentation == .retainedVisible`); for
+a standalone Bridge tab, that tab is the selected tab of a visible window. An
+unfinished draft in the currently displayed document always routes the open to
+Open view, so an agent never navigates the human away from an edit (R6).
 
-![Prepare and activate](./diagrams/prepare-and-activate.png).
+**Open view items** are runtime values on `BridgeNavigationAtom`, keyed by owner
+pane: canonical location, line and admitted-at order, one per location, newest
+line wins. They are not persisted — the documents themselves stay in the
+persisted inventory, so nothing is lost at relaunch. An item leaves the list when
+the human opens or dismisses it, clears all, closes the owner pane, or when the
+document is otherwise activated in that receiver.
 
-The caller enters through the existing command dispatcher and validated receiver.
-In the diagram, **Native file / state** groups two different owners to keep the
-sequence readable: Bridge's exact-file admission performs filesystem work
-off-main; Core's navigation atom publishes pure-rule results on MainActor.
-**Existing save** is the existing workspace capture/local repository path.
-The App handler sequences them and returns typed results through IPC v2.
-Steps 1–5 add a preparation path with no viewer predecessor; steps 6–10 change
-the existing display path to await draft settlement and exact arrival.
-
-File admission validates a regular readable local target and the existing
-supported-content rules. It returns a native document record and availability;
-it does not create a pane, WebView, worktree registration or directory index.
-Initial invalid paths leave the inventory unchanged. An unavailable restored
-entry is preserved and can be reopened explicitly.
+**Open** (`openOpenViewItem`) reveals the receiver through the existing
+`showViewer` path (enter Pane Zoom on the owner terminal and show the companion,
+or show it when already zoomed; `PaneTabViewController.swift:3222`) and then runs
+the activation path to the item's line. Draft protection applies as for any
+activation.
 
 Only exact admitted document locations may receive content descriptors. Public
-relative paths may legitimately point outside the caller’s CWD; that is not the
+relative paths may legitimately point outside the caller's CWD; that is not the
 same as allowing a renderer to traverse from an admitted descriptor to an
 unadmitted sibling. Preserve issued-descriptor equality, source-generation and
-regular-file/containment checks in the low-level reader.
-
-Preparation does not require full-file caching. Activation revalidates the file
-and issues current content descriptors, so an agent’s subsequent edits are not
-mistaken for the content validated during preparation. If the file changes during
-reading, existing stale/source-changed handling applies.
+regular-file/containment checks in the low-level reader. Loading does not
+require full-file caching; activation revalidates the file and issues current
+content descriptors.
 
 If persistence fails after the in-memory transition, return a partial/unsaved
 outcome and keep the state inspectable and dirty under the existing save path.
-Do not return a completed prepared receipt that claims saved state. A retry is
-state-idempotent for the same location; correlation conflict/replay is still v2’s
-responsibility.
+Opening the same location again is state-idempotent (one inventory entry, one
+Open view item); a retried request after a lost response may show the file
+again, which is harmless.
+
+## Receivers without a known worktree
+
+Today `zoomCompanionContext` requires a validated repository/worktree
+association and returns unavailable otherwise
+(`WorkspaceSurfaceCoordinator+ZoomCompanion.swift:306–325`), so a terminal
+outside any known worktree has no Bridge. The receiver model does not need one:
+a receiver with no members shows Files for its loose documents and an empty
+Review (R3, R14). Change that edge: companion context resolution returns a
+Files-only configuration from the receiver's navigation record when no known
+association exists (File input = collection adapter with loose documents only;
+Review input = unavailable). The companion is created, shown and hidden through
+the same Zoom paths; `showViewer` and Open work unchanged. A receiver with
+neither members nor loose documents shows the existing empty Files state.
+
+## ⌘-click a file path (B2)
+
+```mermaid
+sequenceDiagram
+  participant G as Ghostty open_url action
+  participant R as TerminalRuntime (MainActor)
+  participant C as TerminalFileLinkResolver (off-main)
+  participant S as Surface text read
+  participant X as Command dispatcher
+  G->>R: openURLRequested(url, kind)
+  R->>R: not a local file? open externally as today
+  R->>C: candidate path, runtime cwd, click cell captured at mouse down
+  C->>C: resolve against cwd, regular readable file?
+  alt resolves
+    C-->>X: openTerminalFileLink(terminal, location, line)
+  else does not resolve
+    C->>S: read clicked row and next row
+    S-->>C: row text
+    C->>C: join clicked row tail with next row after its leading padding
+    C-->>X: openTerminalFileLink if the joined path resolves, else nothing
+  end
+  X->>X: preference Bridge (default) shows it in the terminal's receiver, revealing it if hidden
+  X->>X: preference system app uses the existing external opener
+```
+
+Current edges changed: `TerminalRuntime` (`TerminalRuntime.swift:410`) stops
+sending local file paths straight to `openExternalURL`; non-file links keep that
+path. Relative paths resolve against `TerminalRuntime.metadata.cwd`, fixing
+today's process-CWD resolution in `TerminalExternalURLOpener`. OSC 8 `file://`
+links arrive whole and take the first branch. The click cell comes from the
+surface view: `GhosttySurfaceView` records the last mouse position it already
+sends through `sendMousePos` and converts it to a cell with the cell size from
+`ghostty_surface_size` and the surface padding; the row read uses
+`ghostty_surface_read_text` with a one-row selection. Path resolution and file
+checks run off the main actor; the row read is one bounded call per click. No
+Ghostty change.
+
+The ⌘-click preference (`bridge` default, or `systemApp`) lives in the global
+preferences file (`GlobalPreferencesPayload`, loaded by
+`GlobalPreferencesBootstrap`) and is read at click time. Writing it is an A2
+approved agent command; B2 only reads it.
+
+## Open view popover and keyboard (B2)
+
+App composes a `PaneOpenViewPresentation` value for each pane, the same
+injection pattern as `PaneInboxPresentation` (a Core view contract of counts,
+callbacks and popover content; `Core/Views/Drawer/PaneInboxPresentation.swift`),
+and `DrawerOverlay.TrailingActions` gains its button: shown only when the
+count is non-zero, badge from the count, native SwiftUI `.popover(isPresented:,
+arrowEdge: .bottom)` anchored to the bar button exactly like the pane note and
+editor chooser (`DrawerIconBar.swift:190`, `:258`). Styling uses AppStyles and
+the shared toolbar button presentation; no one-off colors, sizes or fonts.
+
+The popover content is a list with a keyboard selection. Arrow keys move the
+selection (`moveOpenViewSelection`); Return runs `openOpenViewItem`, Delete runs
+`dismissOpenViewItem`, and a Clear all control runs `clearOpenViewItems`. Each is
+a catalog command with its label, icon and shortcut from the command spec, bound
+in a popover-scoped shortcut context so terminal keys are unaffected while the
+popover is closed. A new item updates the count only: it never opens the popover
+or takes focus.
+
+## Multi-PR summary (B3)
+
+`PanePullRequestToolbarActionFactory` today resolves one worktree's pull request
+facts (`App/Panes/PanePullRequestToolbarActionFactory.swift`). For a receiver
+with more than one member, the factory folds the members' existing pull request
+facts from the repository cache (the demand-driven pull request projection
+already maintains them) into one summary: all good, or needs attention with a
+count. The fold is a bounded read over the receiver's members at toolbar
+composition time, not a new observer or poll. The bar button uses the same
+popover and keyboard pattern as Open view: one row per member (worktree label,
+pull request number and check state, or "no PR"), arrow keys, Return runs
+`openMemberPullRequest`. A single-member receiver keeps today's control.
 
 ## Activation and source replacement
 
@@ -728,7 +847,11 @@ actually displayed state; they do not infer presentation from a command result.
 | Behavior | Current path | Target path and preserved boundary |
 | --- | --- | --- |
 | Drawer caller | Only top-level panes pass companion-context guard | Added: caller-relative path + pane ownership resolution → owner receiver; protection uses owner CWD. V2 classifies owned-drawer mapping explicitly. |
-| Agent opening | IPC adapter → new Bridge tab → pane handle | Changed: typed `openFile` → exact admission → retained navigation state/save → prepared result. Removed: view/tab creation from preparation. V2 owns wire/auth/results. |
+| Agent opening | IPC adapter → new Bridge tab → pane handle | Changed: typed `openFile` → exact admission → retained navigation state/save → shown (visible receiver, no draft) or Open view item. Removed: view/tab creation. A1 eligibility gates agents; v2 owns wire and correlation. |
+| ⌘-click | Ghostty open_url → `TerminalRuntime.openExternalURL` → system app, relative paths against the process CWD | Changed: local file paths resolve against the terminal CWD (with hard-wrap rejoin) → `openTerminalFileLink` → receiver activation; preference can keep the system app. Preserved: non-file links open externally. |
+| No-worktree terminal | No companion (context unavailable) | Changed: Files-only receiver companion from the navigation record; Review unavailable. |
+| Open view | No predecessor | Added: runtime items on the navigation atom → bar button + native popover → keyboard commands → `showViewer` reveal + activation. |
+| Multi-PR bar | One worktree's pull request control | Changed: multi-member fold into one summary button + popover; single member unchanged. |
 | Source selection | Terminal CWD association → companion reconciliation → captured root | Changed: admitted CWD injects/protects membership; navigation state independently selects content. The terminal-to-Bridge receiver key is preserved. |
 | File activation | File/Markdown selection changes immediately; unmount starts an unawaited draft flush | Changed: await existing editor preparation/draft.flush, then change selection or retire source. Failure leaves old editor/source intact. |
 | Source replacement | Companion worktree mismatch → retire controller → construct from one root | Changed: collection membership updates reuse the viewer; Review rebinding awaits drafts, drains the controller and restores both inputs. Preserved: existing admission/session retirement fences. |
@@ -749,8 +872,11 @@ currently focused pane.
 ## Proof and enforcement
 
 - R1/R5/R14: real temporary files outside Git; captured relative bases; file
-  changes between prepare/read; supported-content and exact-descriptor refusal.
-  Assert preparation creates no visible pane and changes no focus/current read.
+  changes between load/read; supported-content and exact-descriptor refusal.
+  Visible receiver without draft → shown at the line (generation-matched arrival);
+  hidden receiver, unmounted receiver and open draft → Open view item with no
+  visible pane, focus or displayed-document change; repeated open keeps one
+  inventory entry and one item; a no-worktree terminal shows loose files.
   Include a drawer caller with a different CWD: resolve its path, use owner Bridge,
   retain owner protection, reject a removed/reparented caller before publication.
 - R3/R15: source-controller recreation, hide/show, ordinary app restart and
@@ -776,8 +902,20 @@ currently focused pane.
 - R2/R7: all-member tree/search with equal paths, exact-location deduplication,
   unavailable-member partial results and removed-member stale-result refusal;
   mounted-worker query execution and explicit unmounted/unready refusal;
-  actual v2 typed command/registry path and read-only snapshots. Reuse its
-  auth/correlation/replay rules; a mock dispatcher is not integration proof.
+  actual v2 typed command/registry path and read-only snapshots, with A1
+  eligibility: agent file open and reads succeed on the own receiver on stable
+  and debug; human-only commands return not yet allowed to agents. No replay
+  journal exists: prove a retried open after a dropped response keeps one entry;
+  a mock dispatcher is not integration proof.
+- R17: native ⌘-click (PID-targeted debug app, driven by a computer-control
+  agent) on OSC 8 links, plain single-row paths, soft-wrapped and hard-wrapped
+  paths from Claude Code and Codex output, relative and absolute; non-file links
+  still open outside; unresolvable paths open nothing; preference in both states.
+- R18: native capture of the bar button count and popover; arrival never opens
+  the popover or moves focus; full keyboard journey (arrows, Return, Delete,
+  Clear all) through catalog commands; agent calls to those commands refused.
+- R19: two and three members with mixed pull request states; summary state and
+  count; popover rows and keyboard; single-member control unchanged.
 - R8 and R9–R13: source opening does not create Bridge drawer content; existing
   drawer/placement preservation remains governed by its separate specification.
 

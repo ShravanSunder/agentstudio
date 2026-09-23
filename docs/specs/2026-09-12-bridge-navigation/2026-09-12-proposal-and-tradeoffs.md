@@ -135,6 +135,11 @@ membership. These are separate commands and effects.
 
 ## D4 — Agent prepares; human activation is separate
 
+**Superseded 2026-09-23 (Requirements S38–S41).** An agent-opened file is now
+shown when the terminal's Bridge is visible and no draft is open; otherwise it
+loads silently with an Open view item in a native bottom-bar popover the human
+opens. The text below records the earlier decision.
+
 The owner selected preparation-only for this version (Requirements S25).
 An agent’s file.open retains the file in its associated Bridge without entering
 fullscreen, stealing focus or replacing the document currently being read.

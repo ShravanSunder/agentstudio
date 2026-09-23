@@ -4,19 +4,34 @@
 separate Program Design. [Tradeoffs](./2026-09-12-proposal-and-tradeoffs.md)
 explain alternatives; they do not override the selected owner decisions.
 
-This specification covers the command-first source/navigation slice. The
+This specification covers the Bridge stack. The
 [drawer specification](../2026-09-13-drawer-presentation/specification.md) owns
-its separate behavior. New pickers, selectors, Command-P UI, Sessions screens, notifications and
-approval prompts are deferred. Files still exposes all member worktree trees
-together; that functional outcome is required without selecting new controls.
-Existing Bridge rendering and annotation controls remain the display foundation.
+drawer behavior; the [workspace IPC control specification](../../../../agent-studio.ipc-improvements/docs/specs/2026-09-23-workspace-ipc-control/specification.md)
+(layer A1, sibling checkout `agent-studio.ipc-improvements`) owns which commands
+pane agents may run. New pickers, selectors, Command-P UI, Sessions screens,
+notification history and approval prompts are deferred. Files still exposes all
+member worktree trees together. Existing Bridge rendering and annotation
+controls remain the display foundation.
+
+Owner decisions of 2026-09-23 (Requirements S38–S46) supersede the earlier
+preparation-only agent contract (S25/S26): an agent-opened file is shown when
+the terminal's Bridge is visible, and otherwise loads silently with an Open view
+item the human acts on.
+
+**Delivery layers.** B1 — the stable receiving Bridge per terminal, membership,
+search, Files/Review separation, local documents, opened-file inventory (R1–R4,
+R14–R16, C1–C4, C7). B2 — opening files for the human: agent open, ⌘-click and
+the Open view popover (R5, R17, R18, C5). B3 — the multi-PR summary (R19). A1's
+own-pane rule gains the receiver as part of an agent's own pane in B1.
 
 ## Observable model
 
 ```text
-Agent in terminal A → prepare file → A’s associated Bridge inventory
-                                      │
-Human / debug activation command ──────┘ → existing Files/Review display
+Agent in terminal A → open file (path, line) → A's receiving Bridge inventory
+     receiver visible, no unfinished draft  → shown at the line
+     otherwise                              → loaded silently + Open view item
+Human ⌘-clicks a path in terminal A        → shown in A's receiving Bridge
+Human chooses Open in A's Open view        → receiver revealed, file shown
 
 Known worktrees → browsing membership → all member trees in Files
 Local file path → opened-file inventory → file reading and annotations
@@ -26,7 +41,8 @@ Known terminal CWD → included/protected member; displayed selections unchanged
 No repository registration is performed.
 ```
 
-Preparation, browsing membership and visible activation are separate effects.
+Loading a document, browsing membership and visible activation are separate
+effects.
 Each receiving Bridge has its own state. A terminal’s current context seeds its
 associated Bridge; the stable receiving identity is the terminal pane, not a
 replaceable native companion instance. A standalone Bridge tab is its own receiver.
@@ -112,25 +128,32 @@ to a different repository. Existing per-worktree comparison semantics remain.
 
 Basis: U-BN-02, U-BN-04, U-BN-06, U-BN-13. Contract C4. Proof V4/V6/V13.
 
-## R5 — Prepare without presentation
+## R5 — Agent opens a file for the human (B2)
 
-Agent `file.open` MUST prepare and retain the document in the receiving Bridge.
-It MUST NOT enter fullscreen, activate a window, take keyboard focus, or replace
-the currently displayed document. Preparation MUST work without a mounted
-Bridge view. It MUST NOT require a notification or approval flow.
+An agent's file open names a path (absolute, or relative to its captured CWD)
+and an optional line. The document MUST be admitted and retained in the
+caller's receiving Bridge (R3). Then:
 
-The caller MUST distinguish accepted/in-progress, prepared, failed, cancelled
-and uncertain outcomes. Prepared means the exact document has been admitted and
-retained for later activation; it does not mean all content is cached, a WebView
-exists, or the human has seen it. Content availability is reported separately.
-A repeated successful preparation of the same resolved file MUST NOT duplicate
-its opened-file entry or discard its annotations.
+- **Receiver visible and no unfinished draft in its current document:** the
+  document MUST be shown at the line.
+- **Otherwise:** the document MUST load without changing what the human sees —
+  no fullscreen entry, window activation, keyboard focus change or replacement
+  of the displayed document — and an Open view item for it MUST appear in the
+  owning pane's Open view popover (R18). Loading MUST work without a mounted
+  Bridge view.
 
-Explicit human/debug activation is a separate operation. It MUST distinguish
-loading from actual displayed arrival. A created native view, issued command
-or selected row alone MUST NOT establish arrival.
+The caller MUST distinguish shown, waiting in Open view, failed, refused, not
+yet allowed and uncertain outcomes. Shown means the exact document at the line
+was displayed (see C4 arrival); waiting means admitted and retained. Content
+availability is reported separately. Repeating the open of the same resolved
+file MUST NOT duplicate its opened-file entry, its Open view item or discard its
+annotations; the line is updated.
 
-Basis: U-BN-02, U-BN-14; S25/S26. Contract C5. Proof V2/V3/V14.
+Human activation (Open in the popover, or ⌘-click) MUST distinguish loading from
+actual displayed arrival. A created native view, issued command or selected row
+alone MUST NOT establish arrival.
+
+Basis: U-BN-02, U-BN-14, U-IC-03; S38–S41. Contract C5. Proof V2/V3/V14.
 
 ## R6 — Preserve annotation meaning
 
@@ -155,6 +178,48 @@ because that operation succeeded; automatic delivery is not introduced here.
 
 Basis: U-BN-04, U-BN-13, U-BN-14. Contract C4/C7. Proof V4/V13/V14.
 
+## R17 — ⌘-click a file path (B2)
+
+When the human ⌘-clicks a file link in terminal A — an OSC 8 `file://` link, a
+plain path on one row, or a plain path whose remainder is on the next row after
+a hard wrap — the path MUST resolve against A's current CWD and the document
+MUST be shown at its line in A's receiving Bridge, revealing that Bridge if it
+was not visible (the human asked directly). R6 draft protection applies. By
+default ⌘-clicked files open in the Bridge; a setting can send them to the
+system default app instead, and that setting is changed by an agent through an
+approved IPC command (IPC layer A2), not a settings screen. Non-file links keep
+opening outside the app. A path that does not resolve to a readable file MUST
+NOT open anything. No change is made to Ghostty or other vendored projects.
+
+Basis: U-IC-06; S42, S44. Proof V16.
+
+## R18 — Open view popover (B2)
+
+Each pane with waiting agent-opened files MUST show a button in its bottom icon
+bar with the waiting count, opening the app's native popover anchored to that
+button — the same mechanism and styles as the pane note and "Launch
+bookmarked" popovers (AppStyles, shared shell controls). Rows list waiting
+files with location and line. Arrival MUST NOT take keyboard focus or open the
+popover by itself. The popover MUST be fully keyboard navigable: arrow keys
+move between rows, and keys open, dismiss and clear all. Open, dismiss and
+Clear all MUST be catalog commands with labels and shortcuts from the command
+spec; their agent eligibility is not yet allowed. No toast, banner, window
+alert or Inbox entry is created.
+
+Basis: U-IC-07, U-IC-11; S40, S43, S45. Proof V17.
+
+## R19 — Multi-PR summary (B3)
+
+When a receiving Bridge has several member worktrees, the owning pane's bottom
+bar MUST summarize their pull requests in one button: overall state only (all
+good, or something needs attention, with a count). Its native popover MUST list
+each member with its pull request number and check state, or "no PR". The
+popover follows R18's keyboard and command rules; opening a pull request from a
+row is a catalog command. The single-worktree case keeps today's pull request
+control.
+
+Basis: S46. Proof V18.
+
 ## R7 — Use one command contract and inspectable outcomes
 
 Every new user-visible action MUST have one command-spec identity, typed inputs,
@@ -169,12 +234,15 @@ Collection search uses the receiving Bridge's mounted worker; an unmounted or
 unready receiver returns an explicit unavailable/not-ready result without creating
 or activating a viewer. R5 preparation remains independent of viewer mounting.
 
-IPC v2 owns transport, schemas/registry, target/auth, generated CLI,
-correlation/replay and v1 retirement. This slice MUST contribute to that boundary
-and MUST NOT add v1 methods, another parser, operation journal or grant system.
-Normal pane agents prepare within their own receiver. Activation/testing
-capability follows v2’s channel/authority rules; debug availability does not
-create production-agent authority.
+IPC v2 owns transport, schemas/registry, target/auth, generated CLI and
+correlation. This slice MUST contribute to that boundary and MUST NOT add v1
+methods, another parser, operation journal or grant system. Which commands a
+pane agent may run follows the workspace IPC control specification: from B1 the
+caller's receiving Bridge is part of its own pane, so its Bridge reads, in-Bridge
+navigation and file open are own-pane commands on every channel; revealing the
+Bridge, Open, dismiss, Clear all, membership removal and settings changes are
+not agent commands in this stack. Debug availability does not create
+production-agent authority.
 
 Basis: U-BN-01, U-BN-02, U-BN-06; S22/S24. Contract C5. Proof V2/V6.
 
@@ -324,23 +392,24 @@ Draft protection in R6 applies before replacing source resources. No new prompt
 or approval UI is required: inability to settle a draft is an explicit pending
 or refused activation, and the old document remains usable.
 
-## C5 — Agent outcomes and v2 integration
+## C5 — Agent file open on the wire
 
-The production agent-facing file-open capability is preparation-only. Human or
-appropriately authorized debug commands drive visible activation separately.
-The wire uses v2’s target spelling, automatic correlation and result/error
-framework. A successful native state mutation and an actually shown document
-are different effects and MUST remain distinguishable in result/snapshot data.
+Agent file open is one IPC method with inputs: caller (implicit "self"), path,
+optional captured CWD for relative paths, optional line. It has no placement,
+tab, split, drawer or focus inputs; the receiver is always the caller's
+receiving Bridge (R3). Results: shown (with the displayed location and line),
+waiting in Open view, failed (unreadable, unsupported, no receiver), refused,
+not yet allowed, uncertain — using v2's correlation and result/error
+framework. A native state mutation and an actually shown document MUST remain
+distinguishable in result and snapshot data.
 
-Cancelled or superseded work MUST NOT later overwrite a newer document selection.
-A lost response does not imply failure; v2 reconciliation/replay rules apply.
-Conflicting correlation reuse is refused by v2. This feature introduces no
-offline command queue, notification ingress or duplicate operation store.
-
-The current IPC-v2-only design reserves `file.open` without registering it. Its
-old drawer-based presentation fields need amendment to these requirements before
-registration. The unsent [coordination packet](../../wip/communications/2026-09-13-ipc-v2-bridge-coordination-draft.md)
-records that dependency; no peer agreement or runnable v2 integration is claimed.
+Cancelled or superseded work MUST NOT later overwrite a newer document
+selection. Agent IPC v2 has no control replay journal: a lost response is
+uncertain, and a retried open may show the file again; the opened-file
+inventory and Open view still hold one entry per resolved file. This feature
+adds no offline queue, notification ingress or operation store. It replaces
+the reserved `file.open` placement contract in Agent IPC v2 C7 (drawer / split
+/ tab / new / focus fields); the dedicated `openFile` command identity stays.
 
 ## C6 — Separate drawer and placement tracks
 
@@ -380,6 +449,10 @@ are excluded.
 | U-BN-14 | R5/R6/R15; C7 | V14: ordinary restart with opened-file order/selection and annotations; duplicate path, close/reopen, missing/changed file and no content-archive assumption. |
 | U-BN-15 | R4/R16; C7 | V15: known-worktree add/remove/select/inspect, explicit catalog-unregistration propagation distinct from temporary unavailability, protected-member refusal, removed-file clearing without miscellaneous reclassification, known-CWD protection transfer with selections preserved, no duplicate or cross-receiver/catalog/CWD effect; frontend/backend Review switches in the same fullscreen Bridge retain their own comparisons and leave Files selection intact. |
 | U-BN-16 | R15/R16; C7 | V14/V15 distinguish open documents from browsing membership even when the document is outside the active tree. |
+| U-IC-03, U-BN-02 | R5; C5 | V2/V3 (updated): receiver visible → shown at line; hidden or unfinished draft → waiting in Open view with no focus, fullscreen or displayed-document change; repeat open keeps one entry; retry after lost response |
+| U-IC-06 | R17 | V16: native ⌘-click on OSC 8, plain, soft-wrapped and hard-wrapped paths from Claude Code and Codex output with relative and absolute paths; non-file links open outside; non-resolving path opens nothing; setting in both positions |
+| U-IC-07, U-IC-11 | R18 | V17: native popover capture, count, no focus change on arrival, full keyboard journey (arrows, Open, dismiss, Clear all) through catalog commands; agent calls to those commands return not yet allowed |
+| S46 | R19 | V18: two and three member worktrees with mixed PR states; summary state and count; popover rows and keyboard journey; single-worktree control unchanged |
 
 Proof uses the actual native owners, file reads and SQLite where those
 interactions matter. Command acceptance/unit arithmetic alone is not rendered
