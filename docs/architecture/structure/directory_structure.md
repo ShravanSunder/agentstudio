@@ -33,6 +33,7 @@ compiled targets and import direction.
 ├── Package.swift                     # Compiled SwiftPM target graph
 ├── Sources/                          # AgentStudio executable plus IPC modules; see SwiftPM Module Graph
 ├── Tests/                            # Paired SwiftPM test targets; see Test Target Ownership
+│   └── AgentStudioTestHarness/       # Core-free causal-test harness (HeldStep); every test target may depend on it
 ├── scripts/                          # mise helpers, debug/observability launchers
 ├── BridgeWeb/                        # React Bridge UI; follow BridgeWeb/AGENTS.md after root AGENTS.md
 ├── Tools/AgentStudioArchitectureLint # Repo-local SwiftSyntax architecture lint package
@@ -196,6 +197,20 @@ AgentStudioSessions ──► AgentStudioCore
                     ├─► AgentStudioInfrastructure
                     └─► GRDB (external package)
 ```
+
+Test-only support targets sit beside the product graph and never feed it:
+
+```text
+AgentStudioTestHarness ──► (nothing; standard library, Foundation, Synchronization)
+AgentStudioTestSupport ──► AgentStudioCore
+                       └─► AgentStudioTestHarness
+```
+
+`AgentStudioTestHarness` is Core-free on purpose, so the test targets that cannot
+see `AgentStudioTestSupport` (Infrastructure, SharedComponents, IPC transport and
+client, programmatic control, Sessions) can still hold work with the same
+primitive. See
+[Testing Architecture — Test Target Ownership](../testing/testing_architecture.md#test-target-ownership).
 
 `AgentStudioSessions` is a Feature target like any other: it imports no sibling
 Feature, no `AgentStudioAppIPC` and no `AgentStudioProgrammaticControl`. The IPC
