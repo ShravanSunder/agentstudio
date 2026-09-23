@@ -10,11 +10,13 @@ package struct WorkspaceSQLiteDatastoreFactory {
         coreDatabaseURL: URL = AppDataPaths.coreSQLiteURL(),
         localDatabaseURL: URL = AppDataPaths.localSQLiteURL(),
         traceRuntime: AgentStudioTraceRuntime? = nil,
-        localDatabaseReplacementObserver: WorkspaceLocalDatabaseReplacementObserver? = nil
+        localDatabaseReplacementObserver: WorkspaceLocalDatabaseReplacementObserver? = nil,
+        legacyDrawerPresentationSource: LegacyDrawerPresentationSource? = nil
     ) {
         self.configuration = WorkspaceSQLiteDatastoreConfiguration(
             coreDatabaseURL: coreDatabaseURL,
-            localDatabaseURL: localDatabaseURL
+            localDatabaseURL: localDatabaseURL,
+            legacyDrawerPresentationSource: legacyDrawerPresentationSource
         )
         self.traceRuntime = traceRuntime
         self.localDatabaseReplacementObserver = localDatabaseReplacementObserver

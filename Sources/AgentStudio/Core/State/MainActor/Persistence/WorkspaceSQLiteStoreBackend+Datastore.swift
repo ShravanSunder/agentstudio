@@ -42,7 +42,12 @@ extension WorkspaceSQLiteStoreBackend {
                 paneGraph: authoritativeSnapshot.paneGraph,
                 tabGraph: authoritativeSnapshot.tabGraph
             ),
-            windowState: localWindowState
+            windowState: localWindowState,
+            drawerPresentationPreferences: drawerPresentationPreferencesForComposition(
+                workspaceId: authoritativeSnapshot.workspace.id,
+                paneGraph: authoritativeSnapshot.paneGraph,
+                localRepository: localRepository
+            )
         )
         let workspaceSnapshot = try WorkspaceSQLiteStateBridge.workspaceSnapshot(from: bridgeSnapshot)
         return WorkspaceCoreLoadSnapshot(

@@ -780,7 +780,8 @@ extension WorkspaceSQLiteDatastoreActor {
         do {
             let repository = try Self.openConfiguredLocalRepository(
                 workspaceId: Self.applicationLocalRepositoryScopeId,
-                configuration: configuration
+                configuration: configuration,
+                legacyDrawerPresentationImport: legacyDrawerPresentationImport(configuration: configuration)
             )
             applicationLocalRepositoryBundle = .init(applicationRepository: repository)
             return .init(database: .available(recovery: nil), diagnostic: nil)
@@ -825,7 +826,8 @@ extension WorkspaceSQLiteDatastoreActor {
             try beforeFreshLocalDatabaseCreation?()
             let repository = try Self.openConfiguredLocalRepository(
                 workspaceId: Self.applicationLocalRepositoryScopeId,
-                configuration: configuration
+                configuration: configuration,
+                legacyDrawerPresentationImport: legacyDrawerPresentationImport(configuration: configuration)
             )
             try localDatabaseReplacementObserver?(
                 repository,
@@ -926,7 +928,8 @@ extension WorkspaceSQLiteDatastoreActor {
 
     private static func openConfiguredLocalRepository(
         workspaceId: UUID,
-        configuration: WorkspaceSQLiteDatastoreConfiguration
+        configuration: WorkspaceSQLiteDatastoreConfiguration,
+        legacyDrawerPresentationImport: LegacyDrawerPresentationImport?
     ) throws -> WorkspaceLocalRepository {
         let localDatabasePool = try SQLiteDatabaseFactory.makeFileBackedPool(
             at: configuration.localDatabaseURL,
@@ -936,8 +939,26 @@ extension WorkspaceSQLiteDatastoreActor {
             workspaceId: workspaceId,
             databaseWriter: localDatabasePool
         )
-        try localRepository.migrateBootRequired()
+        try localRepository.migrateBootRequired(legacyDrawerPresentationImport: legacyDrawerPresentationImport)
+        // The per-owner rows are committed; the global key is no longer a runtime fallback.
+        configuration.legacyDrawerPresentationSource?.clear()
         return localRepository
+    }
+
+    /// Captures the legacy global drawer height and the persisted owning
+    /// panes before the local migration transaction opens. Core is prepared
+    /// before local, so its owning panes are readable here.
+    private func legacyDrawerPresentationImport(
+        configuration: WorkspaceSQLiteDatastoreConfiguration
+    ) -> LegacyDrawerPresentationImport? {
+        guard let legacyHeightRatio = configuration.legacyDrawerPresentationSource?.readHeightRatio() else {
+            return nil
+        }
+        let owningPaneIdsByWorkspaceId = (try? backend?.coreRepository.fetchOwningLayoutPaneIDsByWorkspace()) ?? [:]
+        return LegacyDrawerPresentationImport(
+            legacyHeightRatio: legacyHeightRatio,
+            owningPaneIdsByWorkspaceId: owningPaneIdsByWorkspaceId
+        )
     }
 
     private func preparedLocalRepository(workspaceId: UUID) throws -> WorkspaceLocalRepository {

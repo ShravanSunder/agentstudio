@@ -430,6 +430,7 @@ package final class WorkspaceStore {
             _ = windowMemoryAtom.windowFrame
             _ = paneGraphAtom.paneAcceptedCommitRevision
             _ = drawerCursorAtom.expandedDrawerId
+            _ = drawerCursorAtom.presentationPreferenceRevision
             _ = tabShellAtom.tabShells
             _ = tabCursorAtom.activeTabId
             _ = tabGraphAtom.tabStates
@@ -484,8 +485,14 @@ package final class WorkspaceStore {
             guard sqliteDatastore != nil, let sqliteSaveCoordinator else {
                 throw WorkspaceStoreError.missingSQLiteSaveCoordinator
             }
-            _ = try await sqliteSaveCoordinator.save(persistedAt: persistedAt)
-            if isDirty {
+            let savedBundle = try await sqliteSaveCoordinator.save(persistedAt: persistedAt)
+            // A drawer preference committed while this capture was saving is
+            // not acknowledged; it stays dirty for the next save or flush.
+            let acknowledgesDrawerPresentation =
+                savedBundle.drawerPresentationRevision.map {
+                    $0 == drawerCursorAtom.presentationPreferenceRevision
+                } ?? true
+            if isDirty, acknowledgesDrawerPresentation {
                 isDirty = false
                 ProcessInfo.processInfo.enableSuddenTermination()
             }

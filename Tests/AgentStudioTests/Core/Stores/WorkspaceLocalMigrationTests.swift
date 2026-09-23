@@ -105,6 +105,7 @@ struct WorkspaceLocalMigrationTests {
             "sessions_operation",
             "sessions_loss",
             "local_ipc_credential",
+            "local_drawer_presentation",
         ]
 
         #expect(tableNames == expectedTableNames)
@@ -752,6 +753,7 @@ private let expectedBootRequiredLocalMigrationIdentifiers = [
     "009_add_worktree_annotation_reviewed_subject_evidence",
     "010_remove_worktree_annotation_workspace_provenance",
     "007_add_per_screen_sidebar_organization",
+    "015_create_local_drawer_presentation",
 ]
 
 private let expectedFullLocalMigrationIdentifiers =

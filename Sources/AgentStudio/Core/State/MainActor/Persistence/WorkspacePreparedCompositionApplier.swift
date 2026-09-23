@@ -90,6 +90,7 @@ final class WorkspacePreparedCompositionApplier {
         )
         owners.workspacePaneGraphAtom.replacePaneStates(prepared.paneGraph.replacement)
         owners.workspaceDrawerCursorAtom.replaceExpandedDrawer(prepared.expandedDrawerID)
+        owners.workspaceDrawerCursorAtom.replacePresentationPreferences(prepared.drawerPresentationPreferences)
         owners.workspaceTabShellAtom.replaceTabShells(prepared.tabShells.shells)
         owners.workspaceTabCursorAtom.replaceActiveTab(prepared.activeTabID)
         owners.workspaceTabGraphAtom.replaceTabStates(prepared.tabGraph.states)

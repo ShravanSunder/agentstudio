@@ -314,7 +314,8 @@ extension AppDelegate {
     private func makeWorkspaceSQLiteDatastore(traceRuntime: AgentStudioTraceRuntime?) -> WorkspaceSQLiteDatastoreActor {
         WorkspaceSQLiteDatastoreFactory(
             traceRuntime: traceRuntime,
-            localDatabaseReplacementObserver: WorktreeAnnotationRecoveryWitnessWriter.write
+            localDatabaseReplacementObserver: WorktreeAnnotationRecoveryWitnessWriter.write,
+            legacyDrawerPresentationSource: .standardUserDefaults
         ).makeDatastore()
     }
 

@@ -2,12 +2,19 @@ import GRDB
 
 package enum WorkspaceLocalMigrations {
     package static var bootRequiredMigrator: DatabaseMigrator {
+        bootRequiredMigrator(legacyDrawerPresentationImport: nil)
+    }
+
+    package static func bootRequiredMigrator(
+        legacyDrawerPresentationImport: LegacyDrawerPresentationImport?
+    ) -> DatabaseMigrator {
         var migrator = DatabaseMigrator()
         registerInitialBootRequiredMigrations(in: &migrator)
         registerLegacyGroupingMigration(in: &migrator)
         registerActivityAndAnnotationMigrations(in: &migrator)
         registerReviewedSubjectMigrations(in: &migrator)
         registerPerScreenSidebarOrganizationMigration(in: &migrator)
+        registerDrawerPresentationSchema(in: &migrator, legacyImport: legacyDrawerPresentationImport)
         return migrator
     }
 
@@ -432,10 +439,6 @@ package enum WorkspaceLocalMigrations {
         )
         try database.execute(sql: "ALTER TABLE local_repo_explorer_preferences DROP COLUMN sort_order")
         try database.execute(sql: "ALTER TABLE local_repo_explorer_preferences DROP COLUMN visibility_mode")
-    }
-
-    package static func migrateBootRequired(_ writer: any DatabaseWriter) throws {
-        try bootRequiredMigrator.migrate(writer)
     }
 
     package static func migrate(_ writer: any DatabaseWriter) throws {

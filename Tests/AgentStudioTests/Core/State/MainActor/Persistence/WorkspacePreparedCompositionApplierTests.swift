@@ -31,6 +31,8 @@ struct WorkspacePreparedCompositionApplierTests {
         #expect(fixture.windowMemoryAtom.sidebarWidth == prepared.windowMemory.sidebarWidth)
         #expect(fixture.paneGraphAtom.paneStateSnapshot() == prepared.paneGraph.replacement.paneStates)
         #expect(fixture.drawerCursorAtom.expandedDrawerId == prepared.expandedDrawerID)
+        #expect(fixture.drawerCursorAtom.presentationPreferencesByOwnerPaneId == prepared.drawerPresentationPreferences)
+        #expect(prepared.drawerPresentationPreferences.values.map(\.normalHeightRatio) == [0.55])
         #expect(fixture.tabShellAtom.tabShells == prepared.tabShells.shells)
         #expect(fixture.tabCursorAtom.activeTabId == prepared.activeTabID)
         #expect(fixture.tabGraphAtom.tabStates == prepared.tabGraph.states)
@@ -165,6 +167,10 @@ private final class PreparedCompositionApplierFixture {
             throw PreparedCompositionApplierTestError.paneGraphReplacementRejected
         }
         paneGraphAtom.replacePaneStates(seedPaneGraphReplacement)
+        drawerCursorAtom.setPresentationPreference(
+            DrawerPresentationPreference(normalHeightRatio: 0.3, zoomSide: .bridge),
+            forOwner: seedPane.id
+        )
         drawerCursorAtom.replaceExpandedDrawer(
             seedPane.drawer.flatMap { $0.isExpanded ? $0.drawerId : nil }
         )
@@ -249,7 +255,10 @@ private final class PreparedCompositionApplierFixture {
             tabs: [tab],
             activeTabId: tab.id,
             sidebarWidth: 321,
-            createdAt: Date(timeIntervalSince1970: 123)
+            createdAt: Date(timeIntervalSince1970: 123),
+            drawerPresentationPreferences: [
+                pane.id: DrawerPresentationPreference(normalHeightRatio: 0.55, zoomSide: .bridge)
+            ]
         )
         guard case .prepared(let prepared) = WorkspaceCompositionPreparer.prepare(snapshot) else {
             throw PreparedCompositionApplierTestError.preparationRejected

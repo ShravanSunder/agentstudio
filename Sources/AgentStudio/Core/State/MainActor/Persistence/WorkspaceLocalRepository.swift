@@ -206,8 +206,11 @@ package struct WorkspaceLocalRepository: Sendable {
         try WorkspaceLocalMigrations.migrate(databaseWriter)
     }
 
-    func migrateBootRequired() throws {
-        try WorkspaceLocalMigrations.migrateBootRequired(databaseWriter)
+    func migrateBootRequired(legacyDrawerPresentationImport: LegacyDrawerPresentationImport? = nil) throws {
+        try WorkspaceLocalMigrations.migrateBootRequired(
+            databaseWriter,
+            legacyDrawerPresentationImport: legacyDrawerPresentationImport
+        )
     }
 
     func migrateOptionalSchema() async throws {
@@ -228,9 +231,16 @@ package struct WorkspaceLocalRepository: Sendable {
     func replaceWorkspaceSnapshotLocalState(
         cursorState: CursorStateRecord,
         windowState: WindowStateRecord?,
+        drawerPresentation: DrawerPresentationWrite = .init(preferencesByOwnerPaneId: [:], retainedOwnerPaneIds: nil),
         completedAt: Date
     ) throws {
         try databaseWriter.write { database in
+            try WorkspaceLocalRepositoryStorage.mergeDrawerPresentationRows(
+                database,
+                workspaceId: workspaceId,
+                write: drawerPresentation,
+                updatedAt: completedAt
+            )
             try WorkspaceLocalRepositoryStorage.replaceWindowStateRows(
                 database,
                 workspaceId: workspaceId,
