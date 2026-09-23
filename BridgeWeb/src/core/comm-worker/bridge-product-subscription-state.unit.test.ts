@@ -70,10 +70,116 @@ describe('Bridge product subscription state', () => {
 				subscriptionId: 'older-annotation-subscription',
 				subscriptionKind: 'review.annotations',
 			});
-			await expect(terminal).rejects.toBeInstanceOf(BridgeProductSubscriptionResetError);
+			// Native moved the surface past this admission: a retirement, not a failure.
+			await expect(terminal).rejects.toMatchObject({
+				name: 'BridgeProductSubscriptionEpochRetiredError',
+				nextWorkerDerivationEpoch: 1,
+				surface: 'review',
+			});
 		} finally {
 			state.fail(new Error('Epoch reconciliation test cleanup.'));
 		}
+	});
+
+	test('fails a subscription native reports missing at its own epoch', async () => {
+		// Arrange
+		const harness = createAnnotationControlHarness();
+		const terminalErrors: unknown[] = [];
+		const state = new BridgeProductSubscriptionState({
+			controlMux: harness.controlMux,
+			createIdentifier: (): string => 'unused-missing-reconciliation-update',
+			ensureMetadataStream: async (): Promise<void> => {},
+			initialOptions: {},
+			onTerminal: (_subscriptionId, error): void => {
+				terminalErrors.push(error);
+			},
+			protocol: bridgeProductReviewAnnotationMetadataApplicationProtocol,
+			readWorkerDerivationEpochAtAdmission: (): number => 1,
+			subscriptionId: 'missing-annotation-subscription',
+		});
+		state.start();
+		await harness.capturedOpen;
+		await state.update({});
+		const terminal = state.publicSubscription.events[Symbol.asyncIterator]().next();
+		void terminal.catch((): void => {});
+
+		// Act
+		await state.applyReconciliation({
+			disposition: 'reopenRequired',
+			reason: 'native_missing',
+			requiredWorkerDerivationEpoch: 1,
+			subscriptionId: 'missing-annotation-subscription',
+			subscriptionKind: 'review.annotations',
+		});
+
+		// Assert: no newer epoch was involved, so the consumer sees a reset.
+		await expect(terminal).rejects.toBeInstanceOf(BridgeProductSubscriptionResetError);
+		expect(terminalErrors).toHaveLength(1);
+	});
+
+	test('retires an unreleased subscription when native ends it for a newer surface epoch', async () => {
+		// Arrange: the worker already serves epoch 2; native's floor retired the
+		// epoch-1 subscription before the worker released it.
+		const harness = createAnnotationControlHarness();
+		let surfaceEpoch = 1;
+		const terminalErrors: unknown[] = [];
+		const state = new BridgeProductSubscriptionState({
+			controlMux: harness.controlMux,
+			createIdentifier: (): string => 'unused-floor-retired-update',
+			ensureMetadataStream: async (): Promise<void> => {},
+			initialOptions: {},
+			onTerminal: (_subscriptionId, error, drainUntilNativeTerminal): void => {
+				terminalErrors.push({ drainUntilNativeTerminal, error });
+			},
+			protocol: bridgeProductReviewAnnotationMetadataApplicationProtocol,
+			readWorkerDerivationEpochAtAdmission: (): number => surfaceEpoch,
+			subscriptionId: 'floor-retired-subscription',
+		});
+		state.start();
+		const open = await harness.capturedOpen;
+		await state.update({});
+		const terminal = state.publicSubscription.events[Symbol.asyncIterator]().next();
+		void terminal.catch((): void => {});
+		const correlation = {
+			cursor: null,
+			interestRevision: 0,
+			interestSha256: annotationInterestSha256,
+			sourceGeneration: 0,
+			subscriptionId: open.subscriptionId,
+			subscriptionKind: 'review.annotations',
+			workerDerivationEpoch: open.workerDerivationEpoch,
+		};
+		state.acceptFrame(
+			requireSubscriptionFrame(
+				bridgeProductMetadataFrameSchema.parse({
+					...metadataFrameIdentity(1),
+					...correlation,
+					kind: 'subscription.accepted',
+					subscriptionSequence: 0,
+				}),
+			),
+		);
+		surfaceEpoch = 2;
+
+		// Act
+		state.acceptFrame(
+			requireSubscriptionFrame(
+				bridgeProductMetadataFrameSchema.parse({
+					...metadataFrameIdentity(2),
+					...correlation,
+					kind: 'subscription.reset',
+					reason: 'epoch_retired',
+					subscriptionSequence: 1,
+				}),
+			),
+		);
+
+		// Assert: a clean native terminal that the consumer reads as a retirement.
+		await expect(terminal).rejects.toMatchObject({
+			name: 'BridgeProductSubscriptionEpochRetiredError',
+			nextWorkerDerivationEpoch: 2,
+		});
+		expect(terminalErrors).toEqual([{ drainUntilNativeTerminal: undefined, error: undefined }]);
 	});
 
 	test('rechecks recovery admission after asynchronous interest hashing', async () => {
@@ -259,8 +365,9 @@ describe('Bridge product subscription state', () => {
 		);
 	});
 
-	test('keeps a subscription native still owns when native refuses its cancel as stale', async () => {
-		// Arrange: the surface already advanced, so native refuses the epoch-1 cancel.
+	test('drains a subscription whose stale cancel native refused until native retires it for the new epoch', async () => {
+		// Arrange: native's surface floor already advanced, so it refuses the epoch-1
+		// cancel and ends the subscription itself with an epoch_retired reset.
 		const harness = createAnnotationControlHarness();
 		const terminalErrors: unknown[] = [];
 		const state = new BridgeProductSubscriptionState({
@@ -313,8 +420,8 @@ describe('Bridge product subscription state', () => {
 			);
 		};
 
-		// Assert: native's later frames drain instead of poisoning the shared stream,
-		// and its eventual terminal ends the subscription cleanly.
+		// Assert: frames native queued before its terminal drain instead of poisoning
+		// the shared stream, and the epoch_retired reset ends the subscription cleanly.
 		expect(lateFrame).not.toThrow();
 		expect(terminalErrors).toEqual([]);
 		state.acceptFrame(
@@ -323,7 +430,7 @@ describe('Bridge product subscription state', () => {
 					...metadataFrameIdentity(2),
 					...correlation,
 					kind: 'subscription.reset',
-					reason: 'stale_source',
+					reason: 'epoch_retired',
 					subscriptionSequence: 1,
 				}),
 			),

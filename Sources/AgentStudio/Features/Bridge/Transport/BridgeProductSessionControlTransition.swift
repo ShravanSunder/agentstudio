@@ -169,7 +169,7 @@ enum BridgeProductSessionControlTransitionBuilder {
             }
             for (surface, epoch) in resyncEpochs
             where epoch > currentEpochs[surface, default: 0] {
-                candidateSubscriptions.reset(surface: surface)
+                candidateSubscriptions.retireSubscriptions(on: surface, belowWorkerDerivationEpoch: epoch)
             }
             let resyncResult = try candidateSubscriptions.reconcile(
                 activeSubscriptions: resyncRequest.activeSubscriptions,

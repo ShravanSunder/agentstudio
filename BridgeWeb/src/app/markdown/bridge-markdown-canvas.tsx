@@ -150,6 +150,7 @@ const BridgeMarkdownReadyDocument = memo(function BridgeMarkdownReadyDocument(pr
 		if (presentation.identity.requestId === props.presentation.identity.requestId) return undefined;
 		if (presentation.sourcePath !== props.presentation.sourcePath) {
 			setPresentation(props.presentation);
+			setInstallationFailure(false);
 			return undefined;
 		}
 		let current = true;
@@ -287,7 +288,8 @@ const BridgeMarkdownReadyDocument = memo(function BridgeMarkdownReadyDocument(pr
 		>
 			{installationFailure ||
 			(presentation.sourcePath === props.presentation.sourcePath &&
-				presentation.identity.requestId !== props.presentation.identity.requestId) ? (
+				presentation.identity.requestId !== props.presentation.identity.requestId &&
+				(editTokens.size > 0 || keepsConfirmedSource)) ? (
 				<div className="pointer-events-none sticky top-2 z-20 ml-auto h-0 w-fit pr-2">
 					<BridgeViewerFileChangedAlert
 						installationFailed={explicitInstallationFailure}

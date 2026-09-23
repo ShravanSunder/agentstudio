@@ -57,7 +57,7 @@ extension BridgeProductSession {
         var candidateSubscriptions = subscriptionState
         for (surface, epoch) in pendingControl.deferredResyncEpochs
         where epoch > workerDerivationEpochBySurface[surface, default: 0] {
-            candidateSubscriptions.reset(surface: surface)
+            candidateSubscriptions.retireSubscriptions(on: surface, belowWorkerDerivationEpoch: epoch)
         }
         let reconciliation: BridgeProductSubscriptionResyncResult
         do {

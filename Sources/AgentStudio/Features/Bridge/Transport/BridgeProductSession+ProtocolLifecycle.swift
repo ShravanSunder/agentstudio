@@ -130,12 +130,55 @@ extension BridgeProductSession {
     /// meantime is never swept up. Terminating an id the session no longer holds is a
     /// no-op.
     ///
-    /// Deliberately narrower than `revokeWorker()` or `reset(surface:)`: the worker
+    /// Deliberately narrower than `revokeWorker()` or a surface floor advance: the worker
     /// session, its control replay and its producers all survive — only the
     /// subscriptions the new client cannot name are retired.
     func retireSubscriptions(_ subscriptionIds: [String]) {
         for subscriptionId in subscriptionIds {
             terminateProtocolSubscription(subscriptionId: subscriptionId)
+        }
+    }
+
+    /// Ends the protocol side of subscriptions a surface floor advance retired. Each
+    /// delivery is removed and, while a metadata stream is open, answered with an
+    /// `epoch_retired` reset so the worker retires its side instead of waiting on
+    /// frames that will never come. With no stream open, the next resync reconciles
+    /// the missing record instead.
+    func endFloorRetiredSubscriptions(_ subscriptions: [BridgeProductSubscriptionSnapshot]) {
+        guard !subscriptions.isEmpty else { return }
+        let target = try? activeMetadataFrameTarget()
+        for subscription in subscriptions {
+            guard
+                let delivery = protocolSubscriptionDeliveryById.removeValue(
+                    forKey: subscription.subscriptionId
+                ),
+                let target
+            else { continue }
+            let result = try? producerRegistry.enqueueNonterminalFrame(
+                for: target.lease,
+                build: { streamSequence in
+                    .metadata(
+                        try .subscriptionReset(
+                            stream: target.stream,
+                            streamSequence: streamSequence,
+                            subscription: delivery.correlation,
+                            subscriptionSequence: delivery.nextSequence,
+                            reason: .epochRetired
+                        )
+                    )
+                },
+                overflowReset: metadataStreamOverflowReset(for: target)
+            )
+            switch result {
+            case .enqueued?:
+                resumeProducerFrameWaiterIfPossible(for: target.lease)
+            case .queueReset?:
+                terminateAllProtocolSubscriptionsWithDeliveries()
+                resumeProducerFrameWaiterIfPossible(for: target.lease)
+                return
+            case .rejected?, nil:
+                continue
+            }
         }
     }
 

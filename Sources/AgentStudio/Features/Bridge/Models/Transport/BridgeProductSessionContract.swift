@@ -65,6 +65,10 @@ enum BridgeProductResetReason: String, Codable, Equatable, Sendable {
     case sequenceGap = "sequence_gap"
     case staleSource = "stale_source"
     case snapshotRequired = "snapshot_required"
+    /// Native ended the subscription because its surface floor advanced past the
+    /// epoch it was admitted at; the worker already serves that surface at a newer
+    /// epoch.
+    case epochRetired = "epoch_retired"
 }
 
 struct BridgeProductControlCorrelation: Codable, Equatable, Sendable {

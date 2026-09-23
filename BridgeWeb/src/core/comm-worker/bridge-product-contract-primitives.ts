@@ -111,6 +111,8 @@ export const bridgeProductResetReasonSchema = z.enum([
 	'sequence_gap',
 	'stale_source',
 	'snapshot_required',
+	// Native ended the subscription when its surface floor passed the admitted epoch.
+	'epoch_retired',
 ]);
 
 export const bridgeProductRequestErrorCodeSchema = z.enum([

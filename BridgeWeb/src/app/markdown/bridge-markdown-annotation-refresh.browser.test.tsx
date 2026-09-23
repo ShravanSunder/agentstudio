@@ -332,6 +332,70 @@ test('does not carry a failed update label into a later file change', async (): 
 	await expect.element(screen.getByText('Recovered document', { exact: true })).toBeVisible();
 });
 
+test('shows no file-changed notice while a routine refresh installs without an active editor', async (): Promise<void> => {
+	// Arrange: an editor surface registers installation preparation but holds no edit.
+	const harness = createWorktreeAnnotationBrowserProviderHarness('fileView');
+	let releasePreparation: (() => void) | null = null;
+	const preparation = new Promise<boolean>((resolve): void => {
+		releasePreparation = (): void => resolve(true);
+	});
+	const renderCandidate = async (contents: string, version: number): Promise<ReactElement> => (
+		<>
+			<InstallationPreparationWithoutEdit prepare={(): Promise<boolean> => preparation} />
+			{await markdownCanvas(contents, version)}
+		</>
+	);
+	const screen = await render(harness.wrap(await renderCandidate('Original document', 1)));
+
+	// Act: a newer candidate arrives and the automatic install is still preparing.
+	await screen.rerender(harness.wrap(await renderCandidate('Refreshed document', 2)));
+
+	// Assert: nothing blocks the install, so no notice appears in that window.
+	expect(screen.container.querySelector('[role="status"]')).toBeNull();
+	await act(async (): Promise<void> => {
+		releasePreparation?.();
+		await preparation;
+	});
+	await expect.element(screen.getByText('Refreshed document', { exact: true })).toBeVisible();
+	expect(screen.container.querySelector('[role="status"]')).toBeNull();
+});
+
+test('does not carry an update failure to a different file', async (): Promise<void> => {
+	// Arrange: an update of plan.md failed while an editor held it.
+	const harness = createWorktreeAnnotationBrowserProviderHarness('fileView');
+	const prepare = async (): Promise<boolean> => false;
+	const renderCandidate = async (
+		contents: string,
+		version: number,
+		path: string,
+		editing: boolean,
+	): Promise<ReactElement> => (
+		<>
+			{editing ? <InstallationPreparation prepare={prepare} /> : null}
+			{await markdownCanvas(contents, version, path)}
+		</>
+	);
+	const screen = await render(
+		harness.wrap(await renderCandidate('Original document', 1, 'plan.md', true)),
+	);
+	await screen.rerender(
+		harness.wrap(await renderCandidate('Updated document', 2, 'plan.md', true)),
+	);
+	await act(async (): Promise<void> => {
+		await screen.getByRole('button', { name: 'Update Markdown file' }).click();
+	});
+	await expect.element(screen.getByRole('status', { name: 'Update failed' })).toBeVisible();
+
+	// Act: the same canvas moves to another file with no editor holding it.
+	await screen.rerender(
+		harness.wrap(await renderCandidate('Other document', 3, 'other.md', false)),
+	);
+
+	// Assert
+	await expect.element(screen.getByText('Other document', { exact: true })).toBeVisible();
+	expect(screen.container.querySelector('[role="status"]')).toBeNull();
+});
+
 test('does not install a prepared candidate after the canvas becomes inactive', async (): Promise<void> => {
 	const harness = createWorktreeAnnotationBrowserProviderHarness('fileView');
 	let releasePreparation: (() => void) | null = null;
@@ -371,6 +435,13 @@ test('does not install a prepared candidate after the canvas becomes inactive', 
 function InstallationPreparation(props: { readonly prepare: () => Promise<boolean> }): null {
 	useWorktreeAnnotationEditSurfaceToken('markdown-update-preparation');
 	useWorktreeAnnotationEditorInstallationPreparation('markdown-update-preparation', props.prepare);
+	return null;
+}
+
+function InstallationPreparationWithoutEdit(props: {
+	readonly prepare: () => Promise<boolean>;
+}): null {
+	useWorktreeAnnotationEditorInstallationPreparation('markdown-refresh-preparation', props.prepare);
 	return null;
 }
 

@@ -27,7 +27,6 @@ import {
 import { BridgeProductContentStreamDecoder } from './bridge-product-content-stream-decoder.js';
 import {
 	BRIDGE_PRODUCT_MAXIMUM_REQUEST_BODY_BYTES,
-	bridgeProductSurfaceSchema,
 	type BridgeProductSurface,
 } from './bridge-product-contract-primitives.js';
 import {
@@ -69,6 +68,7 @@ import {
 	BridgeProductSubscriptionState,
 	type BridgeProductSubscriptionFrameSink,
 } from './bridge-product-subscription-state.js';
+import { BridgeProductSurfaceEpochAuthority } from './bridge-product-surface-epoch-authority.js';
 import type {
 	BridgeProductCallOptions,
 	BridgeProductContentStream,
@@ -108,10 +108,13 @@ export interface CreateBridgeProductTransportProps {
 export interface BridgeProductTransportSession extends BridgeProductTransport {
 	/**
 	 * Advances the surface to a new worker derivation epoch and returns it. Every
-	 * subscription admitted on that surface at an older epoch is released first
-	 * (native refuses stale-epoch controls once the surface advances) and then
-	 * terminates with `BridgeProductSubscriptionEpochRetiredError`. Admissions and
-	 * calls on the surface wait until those releases are acknowledged.
+	 * subscription admitted on that surface at an older epoch ends for its consumer
+	 * with `BridgeProductSubscriptionEpochRetiredError` and is released: its cancel
+	 * is sent at its own epoch, because native refuses stale-epoch controls once its
+	 * surface floor advances. Admissions and calls on the surface wait only for
+	 * native's cancel acknowledgements, never for a frame. Content opens are not
+	 * held; one at the new epoch may advance native's floor first, in which case
+	 * native ends the older subscriptions itself with an `epoch_retired` reset.
 	 */
 	advanceWorkerDerivationEpoch(surface: BridgeProductSurface): number;
 	metadataStreamDiagnostics?(): BridgeProductMetadataStreamHealthDiagnostics;
@@ -193,8 +196,12 @@ class BridgeProductTransportSessionImpl implements BridgeProductTransportSession
 	readonly #contentResponseAdmission: BridgeProductContentResponseAdmission;
 	readonly #controlMux: CreateBridgeProductTransportProps['controlMux'];
 	readonly #createIdentifier: (purpose: BridgeProductIdentifierPurpose) => string;
-	readonly #epochs = new Map<BridgeProductSurface, number>();
-	readonly #epochAdvanceBySurface = new Map<BridgeProductSurface, Promise<void>>();
+	readonly #epochAuthority: BridgeProductSurfaceEpochAuthority;
+	/**
+	 * Ids the worker ended locally while native may still send their frames. They
+	 * drain until native's terminal instead of failing the shared stream.
+	 */
+	readonly #drainingSubscriptionIds = new Set<string>();
 	readonly #executeProductRequest: BridgeProductRequestExecutor;
 	readonly #metadataApplicationRegistry: BridgeProductMetadataApplicationRegistry;
 	readonly #frameAcknowledgementTimeoutMilliseconds: number;
@@ -255,39 +262,24 @@ class BridgeProductTransportSessionImpl implements BridgeProductTransportSession
 		this.#contentResponseAdmission = new BridgeProductContentResponseAdmission(
 			props.maximumConcurrentContentResponses,
 		);
-		for (const [rawSurface, epoch] of Object.entries(props.initialWorkerDerivationEpochs ?? {})) {
-			const surface = bridgeProductSurfaceSchema.parse(rawSurface);
-			assertBridgeProductEpoch(epoch);
-			this.#epochs.set(surface, epoch);
-		}
+		this.#epochAuthority = new BridgeProductSurfaceEpochAuthority(
+			props.initialWorkerDerivationEpochs,
+		);
 	}
 
 	advanceWorkerDerivationEpoch(surface: BridgeProductSurface): number {
-		const nextEpoch = this.workerDerivationEpoch(surface) + 1;
-		assertBridgeProductEpoch(nextEpoch);
-		const retirement = new BridgeProductSubscriptionEpochRetiredError({
-			nextWorkerDerivationEpoch: nextEpoch,
-			surface,
-		});
-		const releases = [...this.#subscriptions.values()]
-			.filter((subscription): boolean => subscription.surface === surface)
-			.map(
-				(subscription): Promise<void> =>
-					subscription.retireBeforeWorkerDerivationEpochAdvance(retirement),
-			);
-		this.#epochs.set(surface, nextEpoch);
-		const previousAdvance = this.#epochAdvanceBySurface.get(surface) ?? Promise.resolve();
-		const advance = previousAdvance
-			.then(async (): Promise<void> => {
-				await Promise.allSettled(releases);
-			})
-			.finally((): void => {
-				if (this.#epochAdvanceBySurface.get(surface) === advance) {
-					this.#epochAdvanceBySurface.delete(surface);
-				}
+		return this.#epochAuthority.advance(surface, (nextEpoch): readonly Promise<void>[] => {
+			const retirement = new BridgeProductSubscriptionEpochRetiredError({
+				nextWorkerDerivationEpoch: nextEpoch,
+				surface,
 			});
-		this.#epochAdvanceBySurface.set(surface, advance);
-		return nextEpoch;
+			return [...this.#subscriptions.values()]
+				.filter((subscription): boolean => subscription.surface === surface)
+				.map(
+					(subscription): Promise<void> =>
+						subscription.retireBeforeWorkerDerivationEpochAdvance(retirement),
+				);
+		});
 	}
 
 	metadataStreamDiagnostics(): BridgeProductMetadataStreamHealthDiagnostics {
@@ -308,18 +300,7 @@ class BridgeProductTransportSessionImpl implements BridgeProductTransportSession
 	}
 
 	workerDerivationEpoch(surface: BridgeProductSurface): number {
-		return this.#epochs.get(surface) ?? 0;
-	}
-
-	async #awaitWorkerDerivationEpochAdvance(surface: BridgeProductSurface): Promise<void> {
-		for (
-			let advance = this.#epochAdvanceBySurface.get(surface);
-			advance !== undefined;
-			advance = this.#epochAdvanceBySurface.get(surface)
-		) {
-			// eslint-disable-next-line no-await-in-loop -- A newer advance may begin while one settles.
-			await advance;
-		}
+		return this.#epochAuthority.current(surface);
 	}
 
 	async call<TCallArguments extends BridgeProductCallArguments>(
@@ -327,13 +308,16 @@ class BridgeProductTransportSessionImpl implements BridgeProductTransportSession
 	): Promise<BridgeProductCallResult<TCallArguments[0]>> {
 		const [method, request, options] = arguments_;
 		const surface = bridgeProductSurfaceForCallKind(method);
-		await this.#awaitWorkerDerivationEpochAdvance(surface);
-		return await this.#controlMux.call({
-			method,
-			request,
-			...(options?.signal === undefined ? {} : { signal: options.signal }),
-			workerDerivationEpoch: this.workerDerivationEpoch(surface),
-		});
+		return await this.#epochAuthority.admitAt(
+			surface,
+			(workerDerivationEpoch): Promise<BridgeProductCallResult<TCallArguments[0]>> =>
+				this.#controlMux.call({
+					method,
+					request,
+					...(options?.signal === undefined ? {} : { signal: options.signal }),
+					workerDerivationEpoch,
+				}),
+		);
 	}
 
 	openContent<TContentKind extends BridgeProductContentKind>(
@@ -439,7 +423,7 @@ class BridgeProductTransportSessionImpl implements BridgeProductTransportSession
 			createIdentifier: this.#createIdentifier,
 			ensureMetadataStream: (): Promise<void> => this.#ensureMetadataStream(),
 			initialOptions: options,
-			onTerminal: (subscriptionId, error): void => {
+			onTerminal: (subscriptionId, error, drainUntilNativeTerminal): void => {
 				if (
 					error !== undefined &&
 					this.#metadataStreamHealthDiagnostics.lifecycleState === 'reading' &&
@@ -454,6 +438,7 @@ class BridgeProductTransportSessionImpl implements BridgeProductTransportSession
 					};
 				}
 				this.#subscriptions.delete(subscriptionId);
+				if (drainUntilNativeTerminal === true) this.#drainingSubscriptionIds.add(subscriptionId);
 				if (this.#metadataStreamHealthDiagnostics.lifecycleState === 'reading') {
 					this.#metadataStreamHealthDiagnostics = {
 						...this.#metadataStreamHealthDiagnostics,
@@ -468,8 +453,9 @@ class BridgeProductTransportSessionImpl implements BridgeProductTransportSession
 			protocol,
 			readWorkerDerivationEpochAtAdmission: (): number =>
 				this.workerDerivationEpoch(protocol.surface),
-			awaitWorkerDerivationEpochAdmission: (): Promise<void> =>
-				this.#awaitWorkerDerivationEpochAdvance(protocol.surface),
+			admitAtWorkerDerivationEpoch: <TAdmission>(
+				admit: (workerDerivationEpoch: number) => TAdmission,
+			): Promise<TAdmission> => this.#epochAuthority.admitAt(protocol.surface, admit),
 			subscriptionId: this.#createIdentifier('subscription'),
 		});
 	}
@@ -551,6 +537,9 @@ class BridgeProductTransportSessionImpl implements BridgeProductTransportSession
 					}),
 				readLastAcceptedStreamSequence: () => lastRoutedStreamSequence,
 			});
+			// Native reconciled every claimed id and revoked the rest; the replacement
+			// stream carries no frames for ids ended locally on the old one.
+			this.#drainingSubscriptionIds.clear();
 			await Promise.all(
 				response.reconciliation.map(async (outcome): Promise<void> => {
 					const subscription = this.#subscriptions.get(outcome.subscriptionId);
@@ -811,6 +800,16 @@ class BridgeProductTransportSessionImpl implements BridgeProductTransportSession
 			case 'subscription.reset': {
 				const subscription = this.#subscriptions.get(frame.subscriptionId);
 				if (subscription === undefined) {
+					if (this.#drainingSubscriptionIds.has(frame.subscriptionId)) {
+						if (
+							frame.kind === 'subscription.cancelled' ||
+							frame.kind === 'subscription.end' ||
+							frame.kind === 'subscription.reset'
+						) {
+							this.#drainingSubscriptionIds.delete(frame.subscriptionId);
+						}
+						return;
+					}
 					throw new BridgeProductMetadataRouteFailure(
 						'unknown_subscription',
 						'Bridge product metadata frame references an unknown subscription.',
@@ -838,6 +837,7 @@ class BridgeProductTransportSessionImpl implements BridgeProductTransportSession
 			subscription.fail(error);
 		}
 		this.#subscriptions.clear();
+		this.#drainingSubscriptionIds.clear();
 	}
 
 	#openValidatedContent<TContentKind extends BridgeProductContentKind>(
@@ -968,10 +968,4 @@ function encodeBridgeProductRequestBody(request: object): ArrayBuffer {
 		throw new Error('Bridge product request exceeds its body ceiling.');
 	}
 	return Uint8Array.from(body).buffer;
-}
-
-function assertBridgeProductEpoch(epoch: number): void {
-	if (!Number.isSafeInteger(epoch) || epoch < 0) {
-		throw new Error('Bridge product derivation epochs must be nonnegative safe integers.');
-	}
 }

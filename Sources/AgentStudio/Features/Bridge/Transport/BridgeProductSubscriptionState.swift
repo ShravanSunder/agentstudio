@@ -523,13 +523,32 @@ struct BridgeProductSubscriptionState: Sendable {
         return drainedIntents
     }
 
-    mutating func reset(surface: BridgeProductSurface) {
-        recordsBySubscriptionId = recordsBySubscriptionId.filter { _, record in
-            record.subscriptionKind.surface != surface
+    /// Removes every subscription on `surface` admitted below `workerDerivationEpoch`,
+    /// with its barrier intents, and returns their final snapshots in exact UTF-8 id
+    /// order. A subscription admitted at or above that epoch is untouched, so the
+    /// request that advanced the floor never retires its own subscription.
+    @discardableResult
+    mutating func retireSubscriptions(
+        on surface: BridgeProductSurface,
+        belowWorkerDerivationEpoch workerDerivationEpoch: Int
+    ) -> [BridgeProductSubscriptionSnapshot] {
+        let retiredRecords = recordsBySubscriptionId.values
+            .filter { record in
+                record.subscriptionKind.surface == surface
+                    && record.workerDerivationEpoch < workerDerivationEpoch
+            }
+            .sorted {
+                Data($0.subscriptionId.utf8).lexicographicallyPrecedes(Data($1.subscriptionId.utf8))
+            }
+        guard !retiredRecords.isEmpty else { return [] }
+        let retiredIdentities = Set(retiredRecords.map { ExactUTF8Identity($0.subscriptionId) })
+        for identity in retiredIdentities {
+            recordsBySubscriptionId.removeValue(forKey: identity)
         }
         barrierIntents.removeAll { intent in
-            intent.subscriptionKind.surface == surface
+            retiredIdentities.contains(ExactUTF8Identity(intent.subscriptionId))
         }
+        return retiredRecords.map(Self.snapshot)
     }
 
     mutating func revokeWorker() {

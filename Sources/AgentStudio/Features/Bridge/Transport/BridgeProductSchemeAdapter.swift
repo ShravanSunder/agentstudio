@@ -368,12 +368,21 @@ struct BridgeProductSchemeAdapter: Sendable {
             productAdmission: productAdmission,
             operation: operation
         )
+        // A content request at a newer epoch can advance the surface floor. The
+        // retired subscriptions' producers stop alongside this content response
+        // rather than ahead of it.
+        let floorRetiredSubscriptions = await session.takeFloorRetiredSubscriptions()
+        async let floorRetirement: Void = provider.retireFloorRetiredSubscriptions(
+            floorRetiredSubscriptions,
+            productAdmission: productAdmission
+        )
         try await routeProducerRegistration(
             registration,
             responseURL: request.url,
             productAdmission: productAdmission,
             continuation: continuation
         )
+        await floorRetirement
     }
 
     private func routeProducerRegistration(

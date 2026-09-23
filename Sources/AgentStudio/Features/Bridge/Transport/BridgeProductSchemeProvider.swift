@@ -35,6 +35,14 @@ protocol BridgeProductSchemeProvider: Sendable {
         for request: BridgeProductControlRequest,
         productAdmission: BridgeProductAdmissionContext
     ) async
+
+    /// Stops the producers of subscriptions the session ended because their surface
+    /// floor advanced. The session already removed their records and deliveries and
+    /// queued their `epoch_retired` terminals.
+    func retireFloorRetiredSubscriptions(
+        _ subscriptions: [BridgeProductSubscriptionSnapshot],
+        productAdmission: BridgeProductAdmissionContext
+    ) async
 }
 
 extension BridgeProductSchemeProvider {
@@ -61,5 +69,12 @@ extension BridgeProductSchemeProvider {
         productAdmission: BridgeProductAdmissionContext
     ) async {
         _ = (effect, request, productAdmission)
+    }
+
+    func retireFloorRetiredSubscriptions(
+        _ subscriptions: [BridgeProductSubscriptionSnapshot],
+        productAdmission: BridgeProductAdmissionContext
+    ) async {
+        _ = (subscriptions, productAdmission)
     }
 }

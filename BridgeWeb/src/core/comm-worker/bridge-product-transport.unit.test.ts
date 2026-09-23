@@ -16,9 +16,11 @@ import {
 	interestBarrier,
 	interestHash,
 	metadataAccepted,
+	requestErrorResponse,
 	reviewData,
 	subscriptionAccepted,
 	subscriptionCancelled,
+	subscriptionReset,
 	waitForCondition,
 } from './test-fixtures/bridge-product-transport-metadata.test-support.js';
 
@@ -454,7 +456,8 @@ describe('Bridge product transport', () => {
 		await secondCancel;
 	});
 
-	test('settles cancel only after the correlated terminal metadata frame', async () => {
+	test('settles cancel on native acknowledgement and drains the correlated terminal frame', async () => {
+		// Arrange
 		const harness = createTransportHarness();
 		const subscription = harness.transport.subscribe(
 			bridgeProductReviewMetadataApplicationProtocol,
@@ -475,15 +478,16 @@ describe('Bridge product transport', () => {
 			}),
 		);
 		await harness.server.waitForControlKind('subscription.open');
-		const cancel = subscription.cancel();
-		await harness.server.waitForControlKind('subscription.cancel');
-		let didSettle = false;
-		void cancel.then((): void => {
-			didSettle = true;
-		});
-		await Promise.resolve();
-		expect(didSettle).toBe(false);
 
+		// Act: native acknowledges the cancel but has not yet delivered its terminal.
+		await subscription.cancel();
+
+		// Assert: the consumer is done without waiting on a frame, and the terminal that
+		// follows drains cleanly instead of naming an unknown subscription.
+		expect(await subscription.events[Symbol.asyncIterator]().next()).toEqual({
+			done: true,
+			value: undefined,
+		});
 		harness.server.emitMetadata(
 			subscriptionCancelled({
 				epoch: 0,
@@ -493,11 +497,11 @@ describe('Bridge product transport', () => {
 				subscriptionId: subscription.subscriptionId,
 			}),
 		);
-
-		await cancel;
-		expect(await subscription.events[Symbol.asyncIterator]().next()).toEqual({
-			done: true,
-			value: undefined,
+		await harness.server.waitForFrameAcknowledgementCount(3);
+		expect(harness.transport.metadataStreamDiagnostics?.()).toMatchObject({
+			activeSubscriptionCount: 0,
+			failureStage: null,
+			routeFailureCode: null,
 		});
 	});
 
@@ -542,6 +546,328 @@ describe('Bridge product transport', () => {
 			nextWorkerDerivationEpoch: nextEpoch,
 		});
 	});
+
+	test('keeps routing a retired sibling whose cancel native refused until its in-flight terminal lands', async () => {
+		// Arrange: native already reset the Review annotation subscription and dropped
+		// its record, so it refuses the retirement cancel while the reset frame is still
+		// queued on the shared metadata stream.
+		const harness = createTransportHarness();
+		const sibling = harness.transport.subscribe(
+			bridgeProductReviewAnnotationMetadataApplicationProtocol,
+			{},
+		);
+		const siblingTerminal = sibling.events[Symbol.asyncIterator]().next();
+		void siblingTerminal.catch((): void => {});
+		await harness.server.waitForMetadataStream();
+		const request = harness.server.requiredMetadataRequest();
+		const siblingHash = emptyInterestHash('review.annotations');
+		harness.server.emitMetadata(metadataAccepted(request, 0));
+		harness.server.emitMetadata(
+			subscriptionAccepted({
+				epoch: 0,
+				interestHash: siblingHash,
+				kind: 'review.annotations',
+				request,
+				streamSequence: 1,
+				subscriptionId: sibling.subscriptionId,
+			}),
+		);
+		await harness.server.waitForControlKind('subscription.open');
+		await harness.server.waitForFrameAcknowledgementCount(2);
+		harness.server.cancelHandler = (cancel): Response => requestErrorResponse(cancel, 'internal');
+
+		// Act: Review advances and subscribes its metadata; native then delivers the
+		// sibling's queued reset ahead of the new subscription's frames.
+		const nextEpoch = harness.transport.advanceWorkerDerivationEpoch('review');
+		const metadata = harness.transport.subscribe(bridgeProductReviewMetadataApplicationProtocol, {
+			interests: [],
+		});
+		await harness.server.waitForControlKind('subscription.open', 2);
+		const metadataHash = emptyInterestHash('review.metadata');
+		harness.server.emitMetadata(
+			subscriptionReset({
+				epoch: 0,
+				interestHash: siblingHash,
+				kind: 'review.annotations',
+				reason: 'stale_source',
+				request,
+				streamSequence: 2,
+				subscriptionId: sibling.subscriptionId,
+				subscriptionSequence: 1,
+			}),
+		);
+		harness.server.emitMetadata(
+			subscriptionAccepted({
+				epoch: nextEpoch,
+				interestHash: metadataHash,
+				kind: 'review.metadata',
+				request,
+				streamSequence: 3,
+				subscriptionId: metadata.subscriptionId,
+			}),
+		);
+		harness.server.emitMetadata(
+			reviewData({
+				epoch: nextEpoch,
+				interestHash: metadataHash,
+				request,
+				streamSequence: 4,
+				subscriptionId: metadata.subscriptionId,
+				subscriptionSequence: 1,
+			}),
+		);
+
+		// Assert: the refused sibling's terminal drains instead of poisoning the shared
+		// stream, so Review metadata keeps flowing and the sibling is retired, not failed.
+		const metadataEvent = await metadata.events[Symbol.asyncIterator]().next();
+		expect(metadataEvent.done).toBe(false);
+		expect(harness.transport.metadataStreamDiagnostics?.().routeFailureCode).toBeNull();
+		await expect(siblingTerminal).rejects.toMatchObject({
+			name: 'BridgeProductSubscriptionEpochRetiredError',
+			nextWorkerDerivationEpoch: nextEpoch,
+		});
+	});
+
+	test('advances past a subscription whose interest barrier native never delivers', async () => {
+		// Arrange: native accepts the initial interest update but never sends its
+		// barrier, as when it silently dropped the subscription.
+		const harness = createTransportHarness();
+		const subscription = harness.transport.subscribe(
+			bridgeProductReviewMetadataApplicationProtocol,
+			{ interests: [{ itemIds: ['item-1'], lane: 'foreground' }] },
+		);
+		const terminal = subscription.events[Symbol.asyncIterator]().next();
+		void terminal.catch((): void => {});
+		await harness.server.waitForMetadataStream();
+		harness.server.emitMetadata(metadataAccepted(harness.server.requiredMetadataRequest(), 0));
+		await harness.server.waitForControlKind('subscription.updateBatch');
+		const queuedUpdate = subscription.update({
+			interests: [{ itemIds: ['item-2'], lane: 'foreground' }],
+		});
+		void queuedUpdate.catch((): void => {});
+
+		// Act
+		const nextEpoch = harness.transport.advanceWorkerDerivationEpoch('review');
+		const call = harness.transport.call('review.markFileViewed', { itemId: 'item-1' });
+
+		// Assert: the release reaches native, the gated call follows it, and everything
+		// that waited on the missing barrier settles with the retirement.
+		await call;
+		expect(
+			harness.server.controlRequests.map((request) =>
+				request.kind === 'product.call' ? `call:${request.workerDerivationEpoch}` : request.kind,
+			),
+		).toEqual([
+			'subscription.open',
+			'subscription.updateBatch',
+			'subscription.cancel',
+			`call:${nextEpoch}`,
+		]);
+		const retirement = {
+			name: 'BridgeProductSubscriptionEpochRetiredError',
+			nextWorkerDerivationEpoch: nextEpoch,
+		};
+		await expect(terminal).rejects.toMatchObject(retirement);
+		await expect(queuedUpdate).rejects.toMatchObject(retirement);
+	});
+
+	test('does not hold an advance behind a consumer cancel whose terminal frame is still in flight', async () => {
+		// Arrange: the consumer cancelled and native acknowledged, but native has not
+		// yet delivered the cancelled frame.
+		const harness = createTransportHarness();
+		const subscription = harness.transport.subscribe(
+			bridgeProductReviewMetadataApplicationProtocol,
+			{ interests: [] },
+		);
+		await harness.server.waitForMetadataStream();
+		const request = harness.server.requiredMetadataRequest();
+		harness.server.emitMetadata(metadataAccepted(request, 0));
+		harness.server.emitMetadata(
+			subscriptionAccepted({
+				epoch: 0,
+				interestHash: emptyInterestHash('review.metadata'),
+				kind: 'review.metadata',
+				request,
+				streamSequence: 1,
+				subscriptionId: subscription.subscriptionId,
+			}),
+		);
+		await harness.server.waitForControlKind('subscription.open');
+		await subscription.cancel();
+
+		// Act
+		const nextEpoch = harness.transport.advanceWorkerDerivationEpoch('review');
+		await harness.transport.call('review.markFileViewed', { itemId: 'item-1' });
+
+		// Assert: one cancel for the subscription, and the call went out at the new epoch.
+		expect(
+			harness.server.controlRequests.map((control) =>
+				control.kind === 'product.call' ? `call:${control.workerDerivationEpoch}` : control.kind,
+			),
+		).toEqual(['subscription.open', 'subscription.cancel', `call:${nextEpoch}`]);
+	});
+
+	test('settles an update on a retired subscription locally and drains its later terminal', async () => {
+		// Arrange
+		const harness = createTransportHarness();
+		const retired = harness.transport.subscribe(bridgeProductReviewMetadataApplicationProtocol, {
+			interests: [],
+		});
+		await harness.server.waitForMetadataStream();
+		const request = harness.server.requiredMetadataRequest();
+		const emptyHash = emptyInterestHash('review.metadata');
+		harness.server.emitMetadata(metadataAccepted(request, 0));
+		harness.server.emitMetadata(
+			subscriptionAccepted({
+				epoch: 0,
+				interestHash: emptyHash,
+				kind: 'review.metadata',
+				request,
+				streamSequence: 1,
+				subscriptionId: retired.subscriptionId,
+			}),
+		);
+		await harness.server.waitForControlKind('subscription.open');
+		const nextEpoch = harness.transport.advanceWorkerDerivationEpoch('review');
+		await harness.server.waitForControlKind('subscription.cancel');
+
+		// Act: the consumer still updates the retired subscription, then native ends it.
+		const lateUpdate = retired.update({ interests: [{ itemIds: ['item-1'], lane: 'foreground' }] });
+		await expect(lateUpdate).rejects.toMatchObject({
+			name: 'BridgeProductSubscriptionEpochRetiredError',
+			nextWorkerDerivationEpoch: nextEpoch,
+		});
+		harness.server.emitMetadata(
+			subscriptionCancelled({
+				epoch: 0,
+				interestHash: emptyHash,
+				request,
+				streamSequence: 2,
+				subscriptionId: retired.subscriptionId,
+			}),
+		);
+		const replacement = harness.transport.subscribe(
+			bridgeProductReviewMetadataApplicationProtocol,
+			{ interests: [] },
+		);
+		await harness.server.waitForControlKind('subscription.open', 2);
+		harness.server.emitMetadata(
+			subscriptionAccepted({
+				epoch: nextEpoch,
+				interestHash: emptyHash,
+				kind: 'review.metadata',
+				request,
+				streamSequence: 3,
+				subscriptionId: replacement.subscriptionId,
+			}),
+		);
+		harness.server.emitMetadata(
+			reviewData({
+				epoch: nextEpoch,
+				interestHash: emptyHash,
+				request,
+				streamSequence: 4,
+				subscriptionId: replacement.subscriptionId,
+				subscriptionSequence: 1,
+			}),
+		);
+
+		// Assert: the update never reached native and the shared stream kept flowing.
+		expect((await replacement.events[Symbol.asyncIterator]().next()).done).toBe(false);
+		expect(harness.server.controlRequests.map((control) => control.kind)).not.toContain(
+			'subscription.updateBatch',
+		);
+		expect(harness.transport.metadataStreamDiagnostics?.()).toMatchObject({
+			failureStage: null,
+			streamOpenCount: 1,
+		});
+	});
+
+	test.each([
+		['a native refusal', 'subscription_control_invalid_request'],
+		['an HTTP failure', 'subscription_control_http_rejection'],
+	] as const)(
+		'keeps the stream alive when an update fails with %s and native frames for it follow',
+		async (failure, expectedCode) => {
+			// Arrange
+			const harness = createTransportHarness();
+			const failed = harness.transport.subscribe(bridgeProductReviewMetadataApplicationProtocol, {
+				interests: [],
+			});
+			await harness.server.waitForMetadataStream();
+			const request = harness.server.requiredMetadataRequest();
+			const emptyHash = emptyInterestHash('review.metadata');
+			harness.server.emitMetadata(metadataAccepted(request, 0));
+			harness.server.emitMetadata(
+				subscriptionAccepted({
+					epoch: 0,
+					interestHash: emptyHash,
+					kind: 'review.metadata',
+					request,
+					streamSequence: 1,
+					subscriptionId: failed.subscriptionId,
+				}),
+			);
+			await harness.server.waitForControlKind('subscription.open');
+			harness.server.updateHandler = (update): Response =>
+				failure === 'a native refusal'
+					? requestErrorResponse(update, 'invalid_request')
+					: new Response(null, { status: 409 });
+
+			// Act: the update fails locally while native keeps serving the subscription.
+			await expect(
+				failed.update({ interests: [{ itemIds: ['item-1'], lane: 'foreground' }] }),
+			).rejects.toThrow();
+			harness.server.updateHandler = null;
+			harness.server.emitMetadata(
+				reviewData({
+					epoch: 0,
+					interestHash: emptyHash,
+					request,
+					streamSequence: 2,
+					subscriptionId: failed.subscriptionId,
+					subscriptionSequence: 1,
+				}),
+			);
+			const sibling = harness.transport.subscribe(bridgeProductReviewMetadataApplicationProtocol, {
+				interests: [],
+			});
+			await harness.server.waitForControlKind('subscription.open', 2);
+			harness.server.emitMetadata(
+				subscriptionAccepted({
+					epoch: 0,
+					interestHash: emptyHash,
+					kind: 'review.metadata',
+					request,
+					streamSequence: 3,
+					subscriptionId: sibling.subscriptionId,
+				}),
+			);
+			harness.server.emitMetadata(
+				reviewData({
+					epoch: 0,
+					interestHash: emptyHash,
+					request,
+					streamSequence: 4,
+					subscriptionId: sibling.subscriptionId,
+					subscriptionSequence: 1,
+				}),
+			);
+
+			// Assert: the failed subscription's frame drained, the sibling received its
+			// data on the same stream, and the failure cause is still reported.
+			expect((await sibling.events[Symbol.asyncIterator]().next()).done).toBe(false);
+			expect(harness.transport.metadataStreamDiagnostics?.()).toMatchObject({
+				failureStage: null,
+				lastSubscriptionTermination: {
+					outcome: 'failed',
+					reason: expectedCode,
+					subscriptionId: failed.subscriptionId,
+				},
+				streamOpenCount: 1,
+			});
+		},
+	);
 
 	test('owns independent File and Review derivation epochs', () => {
 		const harness = createTransportHarness({ fileEpoch: 4, reviewEpoch: 9 });

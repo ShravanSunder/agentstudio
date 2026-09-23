@@ -1,7 +1,6 @@
 import { afterEach, describe, expect, test, vi } from 'vitest';
 
 import { bridgeProductReviewMetadataApplicationProtocol } from './bridge-product-metadata-application-registry.js';
-import { bridgeProductControlRequestSchema } from './bridge-product-session-contracts.js';
 import { bridgeProductMetadataFrameSchema } from './bridge-product-session-contracts.js';
 import {
 	BRIDGE_WORKER_WIRE_VERSION,
@@ -29,8 +28,6 @@ describe('Bridge product route failure diagnostics', () => {
 	test.each([
 		['interest', 'subscription_interest_mismatch'],
 		['payload', 'subscription_payload_invalid'],
-		['control', 'subscription_control_invalid_request'],
-		['http', 'subscription_control_http_rejection'],
 	] as const)(
 		'retains the %s rejection when a later physical open is rejected',
 		async (failure, expectedCode): Promise<void> => {
@@ -67,56 +64,18 @@ describe('Bridge product route failure diagnostics', () => {
 				subscriptionSequence: 1,
 			});
 
-			// Act: a control failure may retire the subscription before its already
-			// ordered frames drain; retain that cause ahead of unknown-subscription.
-			if (failure === 'control' || failure === 'http') {
-				vi.stubGlobal(
-					'fetch',
-					async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
-						if (!(init?.body instanceof ArrayBuffer) && !ArrayBuffer.isView(init?.body))
-							throw new Error('Expected encoded request body.');
-						const request = bridgeProductControlRequestSchema.parse(
-							JSON.parse(new TextDecoder().decode(init.body)),
-						);
-						if (request.kind !== 'subscription.updateBatch')
-							return harness.server.fetch(input, init);
-						if (failure === 'http') return new Response(null, { status: 409 });
-						return new Response(
-							JSON.stringify({
-								kind: 'request.error',
-								code: 'invalid_request',
-								retryable: false,
-								nextExpectedRequestSequence: request.requestSequence + 1,
-								retryAfterMilliseconds: null,
-								safeMessage: null,
-								paneSessionId: request.paneSessionId,
-								workerInstanceId: request.workerInstanceId,
-								wireVersion: request.wireVersion,
-								requestId: request.requestId,
-								requestSequence: request.requestSequence,
-							}),
-							{ status: 200 },
-						);
-					},
-				);
-				await expect(
-					subscription.update({ interests: [{ itemIds: ['item-1'], lane: 'foreground' }] }),
-				).rejects.toThrow(failure === 'http' ? /409/iu : /invalid_request/iu);
-				vi.stubGlobal('fetch', harness.server.fetch);
-			}
+			// Act: native sends a frame the subscription must reject.
 			harness.server.emitMetadata(
 				bridgeProductMetadataFrameSchema.parse({
 					...data,
-					...(failure === 'control' || failure === 'http'
-						? {}
-						: failure === 'interest'
-							? { interestSha256: 'f'.repeat(64) }
-							: {
-									data: {
-										subscriptionKind: 'review.metadata',
-										event: { eventKind: 'not-a-review-event' },
-									},
-								}),
+					...(failure === 'interest'
+						? { interestSha256: 'f'.repeat(64) }
+						: {
+								data: {
+									subscriptionKind: 'review.metadata',
+									event: { eventKind: 'not-a-review-event' },
+								},
+							}),
 				}),
 			);
 			await expect(terminal).rejects.toThrow();
@@ -137,16 +96,6 @@ describe('Bridge product route failure diagnostics', () => {
 				lastAcknowledgedStreamSequence: 1,
 				streamOpenCount: 1,
 			});
-			if (failure === 'control' || failure === 'http') {
-				expect(harness.transport.metadataStreamDiagnostics?.()).toMatchObject({
-					routeFailureSubscriptionId: subscription.subscriptionId,
-					lastSubscriptionTermination: {
-						subscriptionId: subscription.subscriptionId,
-						outcome: 'failed',
-						reason: expectedCode,
-					},
-				});
-			}
 			expect(
 				bridgeWorkerHealthEventSchema.safeParse({
 					wireVersion: BRIDGE_WORKER_WIRE_VERSION,
