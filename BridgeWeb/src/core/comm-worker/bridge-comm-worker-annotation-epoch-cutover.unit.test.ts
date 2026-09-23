@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test, vi } from 'vitest';
 
+import type { BridgeCommWorkerAnnotationProjectionPublication } from './bridge-comm-worker-annotation-projection-query-controller.js';
 import { BridgeCommWorkerProductController } from './bridge-comm-worker-product-controller.js';
 import { bridgeProductMetadataFrameSchema } from './bridge-product-session-contracts.js';
 import type {
@@ -16,6 +17,7 @@ import {
 	fileSourceConfiguration,
 	metadataAccepted,
 	subscriptionAccepted,
+	requestErrorResponse,
 	subscriptionCancelled,
 	waitForCondition,
 } from './test-fixtures/bridge-product-transport-metadata.test-support.js';
@@ -320,6 +322,85 @@ describe('Bridge annotation subscription worker-epoch cutover', () => {
 		).toEqual([initialFileMetadata.subscriptionId, initialFileAnnotation.subscriptionId]);
 	});
 
+	test('keeps Review annotations refreshing when native floor-retires the sibling and refuses its stale cancel', async () => {
+		// Arrange: a newer-epoch content request already advanced native's Review
+		// floor, so native refuses the worker's epoch-1 annotation cancel and ends the
+		// subscription itself with an epoch_retired reset.
+		const reviewConvergenceStates: string[] = [];
+		const scenario = await establishEpochOneSubscriptions({
+			onAnnotationProjectionConvergence: ({ state, surface }): void => {
+				if (surface !== 'review') return;
+				reviewConvergenceStates.push(
+					state.kind === 'ready' ? 'ready' : `${state.kind}:${state.catalogAuthorityRetired}`,
+				);
+			},
+		});
+		const initialReviewAnnotation = requiredSubscriptionOpen(
+			scenario.initialOpenByKind,
+			'review.annotations',
+		);
+		scenario.harness.server.cancelHandler = (cancel): Response =>
+			cancel.subscriptionKind === 'review.annotations'
+				? requestErrorResponse(cancel, 'resync_required')
+				: new Response(
+						JSON.stringify({
+							kind: 'subscription.cancelAccepted',
+							paneSessionId: cancel.paneSessionId,
+							requestId: cancel.requestId,
+							requestSequence: cancel.requestSequence,
+							subscriptionId: cancel.subscriptionId,
+							subscriptionKind: cancel.subscriptionKind,
+							wireVersion: cancel.wireVersion,
+							workerInstanceId: cancel.workerInstanceId,
+						}),
+						{ headers: { 'Content-Type': 'application/json' } },
+					);
+
+		// Act: Review reopens its metadata at epoch 2, and native's terminal arrives.
+		await scenario.controller.reconcileAnnotationProjectionSourceAuthority({
+			currentSourceGeneration: 2,
+			requestedSourceGeneration: 1,
+			surface: 'review',
+		});
+		await waitForCondition(() =>
+			cancellationRequests(scenario.harness.server.controlRequests).some(
+				(request) => request.subscriptionId === initialReviewAnnotation.subscriptionId,
+			),
+		);
+		scenario.harness.server.emitMetadata(
+			subscriptionResetFrame({
+				epoch: 1,
+				kind: 'review.annotations',
+				reason: 'epoch_retired',
+				request: scenario.streamRequest,
+				streamSequence: 5,
+				subscriptionId: initialReviewAnnotation.subscriptionId,
+			}),
+		);
+		await waitForCondition(() =>
+			hasReplacementOpen(
+				scenario.harness.server.controlRequests,
+				'review.annotations',
+				initialReviewAnnotation.subscriptionId,
+			),
+		);
+
+		// Assert: the drawer refreshes with retired catalog authority and never reports
+		// updates unavailable; the replacement admits at the new epoch on a live stream.
+		expect(reviewConvergenceStates).toEqual(['refreshing:true']);
+		expect(
+			requiredReplacementOpen(
+				scenario.harness.server.controlRequests,
+				'review.annotations',
+				initialReviewAnnotation.subscriptionId,
+			).workerDerivationEpoch,
+		).toBe(scenario.harness.transport.workerDerivationEpoch('review'));
+		expect(scenario.harness.transport.metadataStreamDiagnostics?.()).toMatchObject({
+			failureStage: null,
+			streamOpenCount: 1,
+		});
+	});
+
 	test('a repeated annotation request during an epoch replacement opens no duplicate subscription', async () => {
 		// Arrange: File advances to epoch 2 and its annotation replacement opens while
 		// the retired epoch-1 sibling's cancellation is still pending.
@@ -404,13 +485,22 @@ interface EpochOneSubscriptionScenario {
 	readonly streamRequest: BridgeProductMetadataStreamRequest;
 }
 
-async function establishEpochOneSubscriptions(): Promise<EpochOneSubscriptionScenario> {
+async function establishEpochOneSubscriptions(
+	props: {
+		readonly onAnnotationProjectionConvergence?: (
+			publication: BridgeCommWorkerAnnotationProjectionPublication,
+		) => void;
+	} = {},
+): Promise<EpochOneSubscriptionScenario> {
 	const harness = createTransportHarness();
 	const controller = new BridgeCommWorkerProductController({
 		callCurrentFileSource: async () => ({
 			source: fileSourceConfiguration(),
 			status: 'available',
 		}),
+		...(props.onAnnotationProjectionConvergence === undefined
+			? {}
+			: { onAnnotationProjectionConvergence: props.onAnnotationProjectionConvergence }),
 		onFileMetadataEvent: (): void => {},
 		onReviewMetadataEvent: (): void => {},
 		productTransport: harness.transport,
@@ -638,6 +728,7 @@ function annotationControlChangedFrame(props: {
 function subscriptionResetFrame(props: {
 	readonly epoch: number;
 	readonly kind: BridgeProductSubscriptionKind;
+	readonly reason?: 'epoch_retired' | 'stale_source';
 	readonly request: BridgeProductMetadataStreamRequest;
 	readonly streamSequence: number;
 	readonly subscriptionId: string;
@@ -652,7 +743,7 @@ function subscriptionResetFrame(props: {
 		interestRevision: 0,
 		interestSha256: emptyInterestHash(props.kind),
 		kind: 'subscription.reset',
-		reason: 'stale_source',
+		reason: props.reason ?? 'stale_source',
 		sourceGeneration: 1,
 		subscriptionId: props.subscriptionId,
 		subscriptionKind: props.kind,

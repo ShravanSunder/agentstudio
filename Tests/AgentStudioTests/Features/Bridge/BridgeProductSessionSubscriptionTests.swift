@@ -268,7 +268,7 @@ struct BridgeProductSessionSubscriptionTests {
         #expect(snapshot.interestSha256 == targetSHA256)
     }
 
-    @Test("surface reset is scoped and worker revoke clears every subscription fact")
+    @Test("surface floor retirement is scoped by surface and epoch and worker revoke clears every subscription fact")
     func surfaceResetIsScopedAndWorkerRevokeClearsAllState() throws {
         // Arrange
         var state = BridgeProductSubscriptionState()
@@ -317,14 +317,27 @@ struct BridgeProductSessionSubscriptionTests {
                     targetInterestSha256: String(repeating: "0", count: 64),
                     delta: fileDelta(additions: [("src/file.ts", .foreground)])
                 )))
+        _ = try state.open(
+            makeOpenRequest(
+                subscriptionId: "review-subscription-2",
+                subscriptionKind: .reviewMetadata,
+                workerDerivationEpoch: 8
+            ))
 
-        // Act
-        state.reset(surface: .review)
+        // Act: the Review floor advances to epoch 8.
+        let retiredSubscriptions = state.retireSubscriptions(
+            on: .review,
+            belowWorkerDerivationEpoch: 8
+        )
 
-        // Assert
+        // Assert: only the older Review subscription and its barrier are retired, and
+        // they are reported rather than dropped silently.
+        #expect(retiredSubscriptions.map(\.subscriptionId) == ["review-subscription-1"])
+        #expect(retiredSubscriptions.first?.interestSha256 == Self.reviewTwoItemSHA256)
         #expect(state.snapshot(subscriptionId: "review-subscription-1") == nil)
+        #expect(state.snapshot(subscriptionId: "review-subscription-2") != nil)
         #expect(state.snapshot(subscriptionId: "file-subscription-1")?.hasStagedUpdate == true)
-        #expect(state.subscriptionCount == 1)
+        #expect(state.subscriptionCount == 2)
         #expect(state.pendingBarrierIntentCount == 0)
 
         // Act

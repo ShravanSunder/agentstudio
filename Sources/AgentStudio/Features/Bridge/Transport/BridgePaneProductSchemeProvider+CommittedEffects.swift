@@ -192,6 +192,20 @@ extension BridgePaneProductSchemeProvider {
         )
     }
 
+    func retireFloorRetiredSubscriptions(
+        _ subscriptions: [BridgeProductSubscriptionSnapshot],
+        productAdmission: BridgeProductAdmissionContext
+    ) async {
+        // Native ended these subscriptions exactly as a committed cancel does, so
+        // their producers stop through the same metadata-coordinator path.
+        for subscription in subscriptions {
+            await metadataCoordinator.apply(
+                .subscriptionCancelled(subscription),
+                productAdmission: productAdmission
+            )
+        }
+    }
+
     func replayCommittedReviewPublicationIfPresent(
         productAdmission: BridgeProductAdmissionContext,
         traceContext: BridgeTraceContext? = nil

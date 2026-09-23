@@ -31,6 +31,13 @@ struct BridgeProductSchemeControlDispatcher: Sendable {
             presentedCapability: presentedCapability,
             productAdmission: productAdmission
         )
+        let floorRetiredSubscriptions = await session.takeFloorRetiredSubscriptions()
+        if !floorRetiredSubscriptions.isEmpty {
+            await provider.retireFloorRetiredSubscriptions(
+                floorRetiredSubscriptions,
+                productAdmission: productAdmission
+            )
+        }
         switch admission {
         case .admissionClosed:
             return .admissionClosed

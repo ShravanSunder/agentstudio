@@ -35,6 +35,9 @@ actor BridgeProductSession {
     var protocolSubscriptionDeliveryById: [String: BridgeProductProtocolSubscriptionDelivery] = [:]
     var subscriptionState = BridgeProductSubscriptionState()
     var workerDerivationEpochBySurface: [BridgeProductSurface: Int] = [:]
+    /// Subscriptions a surface floor advance ended and whose producers still run,
+    /// awaiting hand-off through `takeFloorRetiredSubscriptions()`.
+    private var floorRetiredSubscriptions: [BridgeProductSubscriptionSnapshot] = []
 
     init(
         paneSessionId: String,
@@ -83,6 +86,14 @@ actor BridgeProductSession {
         subscriptionId: String
     ) -> BridgeProductSubscriptionSnapshot? {
         subscriptionState.snapshot(subscriptionId: subscriptionId)
+    }
+
+    /// Returns, once, the subscriptions a surface floor advance has ended since the
+    /// last call. The caller that admitted the advancing control or content request
+    /// hands them to the provider, which stops their producers the way a cancel does.
+    func takeFloorRetiredSubscriptions() -> [BridgeProductSubscriptionSnapshot] {
+        defer { floorRetiredSubscriptions.removeAll(keepingCapacity: false) }
+        return floorRetiredSubscriptions
     }
 
     func registerMetadataProducer(
@@ -573,10 +584,13 @@ actor BridgeProductSession {
 
         let committedEffect = try pendingControl.productAdmission.withValidAdmission {
             if case .resynced = transition.effect {
+                // The resync reconciliation reports every subscription this floor
+                // retires, and the provider stops their producers from that outcome.
                 for (surface, epoch) in pendingControl.deferredResyncEpochs {
                     advanceSurfaceFloorIfNeeded(
                         surface: surface,
-                        workerDerivationEpoch: epoch
+                        workerDerivationEpoch: epoch,
+                        endsRetiredSubscriptions: false
                     )
                 }
             }
@@ -752,15 +766,27 @@ actor BridgeProductSession {
         resumeProducerFrameWaiterIfPossible(for: lease)
     }
 
+    /// Raises the surface floor. Native refuses controls below it from then on, so
+    /// every subscription admitted below it ends here: its record and delivery go,
+    /// an `epoch_retired` reset tells the worker, and the admitting caller hands it
+    /// to the provider to stop its producers. Nothing is dropped silently.
     private func advanceSurfaceFloorIfNeeded(
         surface: BridgeProductSurface,
-        workerDerivationEpoch: Int
+        workerDerivationEpoch: Int,
+        endsRetiredSubscriptions: Bool = true
     ) {
         let currentEpoch = workerDerivationEpochBySurface[surface, default: 0]
         guard workerDerivationEpoch > currentEpoch else { return }
 
         workerDerivationEpochBySurface[surface] = workerDerivationEpoch
-        subscriptionState.reset(surface: surface)
+        let retiredSubscriptions = subscriptionState.retireSubscriptions(
+            on: surface,
+            belowWorkerDerivationEpoch: workerDerivationEpoch
+        )
+        if endsRetiredSubscriptions {
+            endFloorRetiredSubscriptions(retiredSubscriptions)
+            floorRetiredSubscriptions.append(contentsOf: retiredSubscriptions)
+        }
         let staleLeases = contentAdmissionByProducerLease.compactMap { entry -> BridgeProductProducerLease? in
             let (lease, admission) = entry
             guard admission.identity.surface == surface,

@@ -478,6 +478,15 @@ export class BridgeProductSubscriptionState<
 				this.#retire();
 				return;
 			case 'reopenRequired':
+				if (
+					(outcome.reason === 'epoch_advanced' || outcome.reason === 'native_missing') &&
+					this.#admittedWorkerDerivationEpoch !== null &&
+					outcome.requiredWorkerDerivationEpoch > this.#admittedWorkerDerivationEpoch
+				) {
+					// Native's surface floor passed this subscription's epoch.
+					this.#retireForSurfaceEpoch(outcome.requiredWorkerDerivationEpoch);
+					return;
+				}
 				this.#nativeTerminalObserved = true;
 				this.fail(new BridgeProductSubscriptionResetError('snapshot_required'));
 				return;
@@ -562,6 +571,12 @@ export class BridgeProductSubscriptionState<
 				this.#retire();
 				return;
 			case 'subscription.reset':
+				if (frame.reason === 'epoch_retired') {
+					// Native's surface floor passed this subscription's epoch before the
+					// worker's own release ran; the worker already serves a newer one.
+					this.#retireForSurfaceEpoch(this.#readWorkerDerivationEpochAtAdmission());
+					return;
+				}
 				this.#nativeTerminalObserved = true;
 				this.fail(new BridgeProductSubscriptionResetError(frame.reason));
 				return;
@@ -762,6 +777,16 @@ export class BridgeProductSubscriptionState<
 			!this.#nativeTerminalObserved &&
 			!this.#openRefusedByNative
 		);
+	}
+
+	/** Native ended this subscription because its surface moved past its epoch. */
+	#retireForSurfaceEpoch(nextWorkerDerivationEpoch: number): void {
+		const retirement = new BridgeProductSubscriptionEpochRetiredError({
+			nextWorkerDerivationEpoch,
+			surface: this.#protocol.surface,
+		});
+		this.#eventQueue.fail(retirement, true);
+		this.#retire(retirement);
 	}
 
 	/** Native ended this subscription. */
