@@ -101,6 +101,26 @@ struct PreparedTerminalQueuedFrameCurrencyTests {
         #expect(fixture.handler.initialFrames == [queuedFrame, queuedFrame])
     }
 
+    @Test("a retry claim keeps its first activation's frame even when refreshed before activation")
+    func retryClaimKeepsFirstActivationFrame() async throws {
+        let fixture = try makeFixture(
+            results: [
+                .failed(failure: .surfaceCreationFailed(code: "transient"), retry: .retry),
+                .ready(surfaceID: UUIDv7.generate()),
+            ],
+            initialFrame: queuedFrame
+        )
+        let firstClaim = try #require(claimTerminal(fixture))
+        _ = await fixture.port.activateClaimedTerminal(firstClaim)
+        let retryClaim = try #require(claimTerminal(fixture, attempt: 2))
+
+        let refreshed = fixture.port.refreshQueuedTrustedFrames([fixture.paneID: currentFrame])
+        _ = await fixture.port.activateClaimedTerminal(retryClaim)
+
+        #expect(refreshed.isEmpty)
+        #expect(fixture.handler.initialFrames == [queuedFrame, queuedFrame])
+    }
+
     @Test("ready and deferred members are not refreshed; deferred keeps its own readmission path")
     func readyAndDeferredMembersAreUntouched() async throws {
         let ready = try makeFixture(results: [.ready(surfaceID: UUIDv7.generate())], initialFrame: queuedFrame)

@@ -145,10 +145,10 @@ final class PreparedTerminalMountAdmissionPort: TerminalActivationAdmissionPort 
 
     /// Recovery-pass frame currency for queued members: refreshes the trusted
     /// frame of members still in `.pending` custody, and of members claimed
-    /// but not yet activated, so a child queued under an older presentation
+    /// for a first attempt that has not been activated, so a child queued under an older presentation
     /// (normal mode, another Zoom side or split) mounts at the current size.
-    /// Members that started mounting, are ready, failed, were replaced, or are
-    /// deferred are untouched here; deferred members use
+    /// Retry claims, members that started mounting, are ready, failed, were
+    /// replaced, or are deferred are untouched here; deferred members use
     /// `acceptLaterTrustedFrames`. Returns the refreshed subset.
     func refreshQueuedTrustedFrames(_ framesByPaneID: [PaneId: NSRect]) -> Set<PaneId> {
         guard case .installed(var installedFrames) = trustedFrameState else { return [] }
@@ -161,7 +161,10 @@ final class PreparedTerminalMountAdmissionPort: TerminalActivationAdmissionPort 
                 installedFrames[paneID] = frame
                 refreshedPaneIDs.insert(paneID)
             case .mounting(owner: .terminal)?:
-                guard case .claimed(let claimID, let admission, _) = claimTrackingByPaneID[paneID] else { continue }
+                // A retry claim keeps its first activation's frame (same-frame retry contract).
+                guard case .claimed(let claimID, let admission, _) = claimTrackingByPaneID[paneID],
+                    admission.attempt == 1
+                else { continue }
                 claimTrackingByPaneID[paneID] = .claimed(claimID: claimID, admission: admission, frame: frame)
                 installedFrames[paneID] = frame
                 refreshedPaneIDs.insert(paneID)
