@@ -251,9 +251,10 @@ Each requirement is written over the entities above. Proof obligations are in th
 - **R27a** Every BridgeWeb Vitest configuration MUST declare its test hang bound explicitly, as the testing
   architecture already requires. U13.
 - **R28** (S20) The BridgeWeb check MUST fail on a timed wait (`waitForTimeout`, a sleep, or a timer promise used to
-  wait, including a zero-delay one) in any file selected by a BridgeWeb test configuration or any module such a file
-  imports, directly or transitively. A timer that races a condition is allowed only when its delay is the declared
-  shared hang bound. U13.
+  wait, including a zero-delay one) in any file selected by a BridgeWeb test configuration or any test-support or
+  harness module such a file imports, directly or transitively; production modules are not traversed. A timer that
+  races a condition is allowed only when its delay is the declared shared hang bound. Existing sites are frozen by
+  per-file count in the same ledger format as the Swift lint and retired in the stacked follow-ups; new ones fail. U13.
 - **R29** (E13) In a BridgeWeb E2E journey, a response waiter MUST be satisfied only by a response to a request issued
   by its own page generation. When a journey fails, its diagnostic MUST name every unresolved waiter with its page
   generation. U13, Ev4.
