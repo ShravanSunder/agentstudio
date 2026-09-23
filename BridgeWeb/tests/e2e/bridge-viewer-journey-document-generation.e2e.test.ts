@@ -122,9 +122,53 @@ describe('Bridge product journey document generations in a real browser', () => 
 		});
 	});
 
+	test('a request the old document sends while a navigation is pending keeps the old generation', async () => {
+		await withJourneyPage(async (journey): Promise<void> => {
+			// Arrange: the next document's response is held, so the navigation is issued but
+			// has not committed and the old document and its worker are still live. The old
+			// worker sends its request once the server has seen the navigation request.
+			const reloadJoin = journey.armReloadJoinWaiters();
+			const heldDocument = journey.holdNextDocument();
+			const pendingWindowRequestId = uuidv7();
+			const pendingWindowResponse = journey.page.waitForResponse(
+				(response: Response): boolean =>
+					response.request().postData()?.includes(pendingWindowRequestId) === true,
+			);
+			await journey.page.evaluate((requestId: string): void => {
+				(
+					window as unknown as {
+						readonly bridgeJourneyWorkerSendDuringHeldNavigation: (
+							kind: string,
+							requestId: string,
+						) => void;
+					}
+				).bridgeJourneyWorkerSendDuringHeldNavigation('stream.frameObserved', requestId);
+			}, pendingWindowRequestId);
+
+			// Act
+			await journey.page.evaluate((): void => {
+				location.href = '/held-journey.html';
+			});
+			await heldDocument.requested;
+			await pendingWindowResponse;
+			const generationWhilePending = journey.currentGeneration();
+			heldDocument.release();
+			await journey.page.waitForURL('**/held-journey.html', { waitUntil: 'load' });
+			await journey.waitForWorkerReady();
+			const nextDocumentRequestId = await journey.sendFrameObservation();
+
+			// Assert
+			expect(await acknowledgedRequestId(reloadJoin)).toBe(nextDocumentRequestId);
+			expect(nextDocumentRequestId).not.toBe(pendingWindowRequestId);
+			expect(generationWhilePending).toBe(1);
+			expect(journey.currentGeneration()).toBe(2);
+		});
+	});
+
 	interface JourneyPage {
 		readonly armReloadJoinWaiters: () => BridgeViewerReloadJoinResponses;
 		readonly currentGeneration: () => number;
+		readonly holdNextDocument: BridgeViewerJourneyDocumentGenerationServer['holdNextDocument'];
 		readonly origin: string;
 		readonly page: Page;
 		readonly reloadAndSendFrameObservation: () => Promise<string>;
@@ -154,6 +198,7 @@ describe('Bridge product journey document generations in a real browser', () => 
 					return reloadJoin;
 				},
 				currentGeneration: documentGenerations.currentGeneration,
+				holdNextDocument: server.holdNextDocument,
 				origin,
 				page,
 				reloadAndSendFrameObservation: async (): Promise<string> => {

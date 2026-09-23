@@ -7,6 +7,16 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 export interface BridgeViewerJourneyDocumentGenerationServer {
 	readonly origin: string;
 	readonly close: () => Promise<void>;
+	// Holds the response to the next `/held-journey.html` navigation, so a test can
+	// act while that navigation is pending and the old document is still live. A
+	// worker asked to send during the held navigation waits on
+	// `/held-document-requested`, which answers once that navigation is requested.
+	readonly holdNextDocument: () => HeldJourneyDocument;
+}
+
+export interface HeldJourneyDocument {
+	readonly requested: Promise<void>;
+	readonly release: () => void;
 }
 
 const journeyPageHtml = `<!doctype html>
@@ -14,6 +24,9 @@ const journeyPageHtml = `<!doctype html>
 	<body>
 		<script type="module">
 			const worker = new Worker('/journey-worker.js', { type: 'module' });
+			window.bridgeJourneyWorkerSendDuringHeldNavigation = (kind, requestId) => {
+				worker.postMessage({ afterHeldDocumentRequested: true, kind, requestId });
+			};
 			window.bridgeJourneyWorkerSend = (kind, requestId) =>
 				new Promise((resolve) => {
 					const onMessage = (event) => {
@@ -37,6 +50,9 @@ const journeyWorkerSource = `self.addEventListener('message', async (event) => {
 		self.postMessage({ requestId: event.data.requestId, status: 0 });
 		return;
 	}
+	if (event.data.afterHeldDocumentRequested === true) {
+		await fetch('/held-document-requested');
+	}
 	const response = await fetch('/__bridge-product/command', {
 		body: JSON.stringify({ kind: event.data.kind, requestId: event.data.requestId }),
 		headers: { 'content-type': 'application/json' },
@@ -46,8 +62,29 @@ const journeyWorkerSource = `self.addEventListener('message', async (event) => {
 });`;
 
 export async function startBridgeViewerJourneyDocumentGenerationServer(): Promise<BridgeViewerJourneyDocumentGenerationServer> {
+	let heldDocument: {
+		readonly markRequested: () => void;
+		readonly released: Promise<void>;
+		readonly requested: Promise<void>;
+	} | null = null;
+	let heldDocumentRequested: Promise<void> = Promise.resolve();
 	const server = createServer((request: IncomingMessage, response: ServerResponse): void => {
 		const path = new URL(request.url ?? '/', 'http://127.0.0.1').pathname;
+		if (request.method === 'GET' && path === '/held-journey.html') {
+			const held = heldDocument;
+			heldDocument = null;
+			held?.markRequested();
+			void (held?.released ?? Promise.resolve()).then((): void => {
+				response.writeHead(200, { 'content-type': 'text/html' }).end(journeyPageHtml);
+			});
+			return;
+		}
+		if (request.method === 'GET' && path === '/held-document-requested') {
+			void heldDocumentRequested.then((): void => {
+				response.writeHead(204).end();
+			});
+			return;
+		}
 		if (request.method === 'GET' && path === '/journey.html') {
 			response.writeHead(200, { 'content-type': 'text/html' }).end(journeyPageHtml);
 			return;
@@ -83,6 +120,19 @@ export async function startBridgeViewerJourneyDocumentGenerationServer(): Promis
 				server.closeAllConnections();
 				server.close((error): void => (error === undefined ? resolve() : reject(error)));
 			}),
+		holdNextDocument: (): HeldJourneyDocument => {
+			let markRequested = (): void => {};
+			const requested = new Promise<void>((resolve): void => {
+				markRequested = resolve;
+			});
+			let release = (): void => {};
+			const released = new Promise<void>((resolve): void => {
+				release = resolve;
+			});
+			heldDocument = { markRequested, released, requested };
+			heldDocumentRequested = requested;
+			return { release, requested };
+		},
 		origin: `http://127.0.0.1:${address.port}`,
 	};
 }
