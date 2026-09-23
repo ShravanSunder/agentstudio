@@ -635,7 +635,8 @@ func makeFakeCommandDescriptor(_ input: FakeCommandDescriptorInput) throws -> IP
                     ),
                     result: input.result
                 )
-            ]
+            ],
+            agentEligibility: .notYetAllowed
         )
     )
 }

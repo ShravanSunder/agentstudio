@@ -68,14 +68,31 @@ public struct AuthorizationError: Error, Equatable, Sendable {
         case unauthorized
         case noBoundPane
         case missingGrant
+        /// A pane agent named a method, command or target outside this
+        /// layer's own-pane set.
+        case notYetAllowed
+        /// A pane agent asked for an effect agents are never allowed, such as
+        /// closing its own pane or putting Bridge content into a drawer.
+        case refusedForAgent
     }
 
     public let reason: Reason
     public let requiredScope: IPCPermissionScope?
+    /// The method or command the refusal names, for the agent outcomes.
+    public let refusedName: String?
 
-    public init(reason: Reason, requiredScope: IPCPermissionScope? = nil) {
+    public init(reason: Reason, requiredScope: IPCPermissionScope? = nil, refusedName: String? = nil) {
         self.reason = reason
         self.requiredScope = requiredScope
+        self.refusedName = refusedName
+    }
+
+    package static func notYetAllowed(_ name: String) -> Self {
+        Self(reason: .notYetAllowed, refusedName: name)
+    }
+
+    package static func refusedForAgent(_ name: String) -> Self {
+        Self(reason: .refusedForAgent, refusedName: name)
     }
 }
 

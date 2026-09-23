@@ -128,7 +128,8 @@ package struct IPCBridgeControlMethodDescriptors: Sendable {
             dataScope: .bridgeContent,
             targetKinds: [.pane],
             owner: .bridgeCapability,
-            errors: Self.bridgeErrors
+            errors: Self.bridgeErrors,
+            agentEligibility: .notYetAllowed
         )
     }
 
@@ -175,7 +176,8 @@ package struct IPCBridgeControlMethodDescriptors: Sendable {
                 targetKinds: [.pane],
                 owner: .bridgeCapability,
                 semantics: .accepted,
-                errors: Self.bridgeErrors)
+                errors: Self.bridgeErrors,
+                agentEligibility: .notYetAllowed)
         )
     }
 

@@ -19,7 +19,8 @@ package struct IPCBridgeTelemetryMethodDescriptors: Sendable {
             dataScope: .bridgeTelemetry,
             targetKinds: [.pane],
             owner: .bridgeCapability,
-            errors: Self.telemetryErrors
+            errors: Self.telemetryErrors,
+            agentEligibility: .notYetAllowed
         )
         bridgeTelemetryFlush = try IPCBuiltInDescriptorSupport.mutation(
             name: "bridge.telemetry.flush",
@@ -40,7 +41,8 @@ package struct IPCBridgeTelemetryMethodDescriptors: Sendable {
                 dataScope: .bridgeTelemetry,
                 targetKinds: [.pane],
                 owner: .bridgeCapability,
-                errors: Self.telemetryErrors)
+                errors: Self.telemetryErrors,
+                agentEligibility: .notYetAllowed)
         )
     }
 

@@ -29,7 +29,8 @@ package struct IPCBridgeReviewMethodDescriptors: Sendable {
                 targetKinds: [],
                 relationship: inputs.relationships.bridgeDiffLoad,
                 owner: .bridgeCapability,
-                errors: Self.bridgeErrors)
+                errors: Self.bridgeErrors,
+                agentEligibility: .notYetAllowed)
         )
         bridgeFileViewOpen = try IPCBuiltInDescriptorSupport.mutation(
             name: "bridge.fileView.open",
@@ -49,7 +50,8 @@ package struct IPCBridgeReviewMethodDescriptors: Sendable {
                 targetKinds: [],
                 relationship: inputs.relationships.bridgeFileViewOpen,
                 owner: .bridgeCapability,
-                errors: Self.bridgeErrors)
+                errors: Self.bridgeErrors,
+                agentEligibility: .notYetAllowed)
         )
         bridgeDiffRefresh = try IPCBuiltInDescriptorSupport.mutation(
             name: "bridge.diff.refresh",
@@ -71,7 +73,8 @@ package struct IPCBridgeReviewMethodDescriptors: Sendable {
                 dataScope: .bridgeReviewPackage,
                 targetKinds: [.pane],
                 owner: .bridgeCapability,
-                errors: Self.bridgeErrors)
+                errors: Self.bridgeErrors,
+                agentEligibility: .notYetAllowed)
         )
         bridgeDiffGetPackage = try IPCBuiltInDescriptorSupport.read(
             name: "bridge.diff.getPackage",
@@ -82,7 +85,8 @@ package struct IPCBridgeReviewMethodDescriptors: Sendable {
             dataScope: .bridgeReviewPackage,
             targetKinds: [.pane],
             owner: .bridgeCapability,
-            errors: Self.bridgeErrors
+            errors: Self.bridgeErrors,
+            agentEligibility: .notYetAllowed
         )
         bridgeDiffRenderState = try IPCBuiltInDescriptorSupport.read(
             name: "bridge.diff.renderState",
@@ -93,7 +97,8 @@ package struct IPCBridgeReviewMethodDescriptors: Sendable {
             dataScope: .bridgeReviewPackage,
             targetKinds: [.pane],
             owner: .bridgeCapability,
-            errors: Self.bridgeErrors
+            errors: Self.bridgeErrors,
+            agentEligibility: .notYetAllowed
         )
         bridgeDiffSelectFile = try Self.makeSelectDescriptor(example: example)
     }
@@ -120,7 +125,8 @@ package struct IPCBridgeReviewMethodDescriptors: Sendable {
                 dataScope: .bridgeReviewPackage,
                 targetKinds: [.pane],
                 owner: .bridgeCapability,
-                errors: Self.bridgeErrors)
+                errors: Self.bridgeErrors,
+                agentEligibility: .notYetAllowed)
         )
     }
 

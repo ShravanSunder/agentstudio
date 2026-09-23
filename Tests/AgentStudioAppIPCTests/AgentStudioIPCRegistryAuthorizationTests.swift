@@ -32,7 +32,7 @@ struct AgentStudioIPCRegistryAuthorizationTests {
         #expect(registry.registration(named: "command.execute") == nil)
     }
 
-    @Test("stable registry omits debug-testing methods from lookup and discovery")
+    @Test("stable registry omits debug-testing methods and keeps agent-eligible methods")
     func stableRegistryOmitsDebugTestingMethods() throws {
         let fixture = BuiltInMethodRegistrationsFixture()
         let registry = try AppIPCMethodRegistry(registrations: fixture.registrations(), channel: .stable)
@@ -44,10 +44,15 @@ struct AgentStudioIPCRegistryAuthorizationTests {
                     "auth.login", "auth.status", "events.subscribe", "events.unsubscribe",
                     "session.event", "session.message", "session.query", "session.report",
                     "system.capabilities", "system.identify", "system.ping", "system.version",
+                    "drawer.addPane", "pane.close", "pane.current", "pane.list", "pane.snapshot",
+                    "terminal.send", "terminal.snapshot", "terminal.status", "terminal.wait",
+                    "window.current", "window.list", "workspace.current", "workspace.list",
                 ])
         )
         #expect(registry.registration(named: "system.capabilities") != nil)
-        #expect(registry.registration(named: "pane.snapshot") == nil)
+        #expect(registry.registration(named: "pane.snapshot") != nil)
+        #expect(registry.registration(named: "pane.focus") == nil)
+        #expect(registry.registration(named: "bridge.diff.load") == nil)
     }
 
     @Test("registry rejects duplicate names and a catalog without system ping")

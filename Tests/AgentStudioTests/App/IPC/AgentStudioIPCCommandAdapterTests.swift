@@ -12,15 +12,16 @@ import Testing
 @MainActor
 @Suite("AgentStudio IPC command adapter", .serialized)
 struct AgentStudioIPCCommandAdapterTests {
-    @Test("catalog exposes exactly the current 15 typed headless commands")
+    @Test("stable catalog exposes the all-channel headless commands and the agent own-pane set")
     func catalogContainsCurrentHeadlessCommandsOnly() throws {
         let harness = CommandAdapterHarness()
         let catalog = try harness.adapter.listCommands()
         let ids = Set(catalog.commands.map(\.id.rawValue))
 
         #expect(catalog.compatibility == .current)
-        #expect(catalog.commands.count == 16)
+        #expect(catalog.commands.count == 24)
         #expect(ids.contains(AppCommand.zoomPane.rawValue))
+        #expect(ids.contains(AppCommand.closeDrawerPane.rawValue))
         #expect(ids.contains(AppCommand.reloadBridgeWebView.rawValue))
         #expect(ids.contains(AppCommand.showReposSidebar.rawValue))
         #expect(ids.contains(AppCommand.pinRepo.rawValue))
@@ -304,7 +305,7 @@ struct AgentStudioIPCCommandAdapterTests {
         )
 
         #expect(builtIns.erasedDescriptors.count == 47)
-        #expect(commandCatalog.commands.count == 16)
+        #expect(commandCatalog.commands.count == 24)
         #expect(capabilities.result.methods.count == 50)
 
         let encodedCatalog = try capabilities.descriptor.encodeResult(capabilities.result)

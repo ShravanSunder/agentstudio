@@ -68,7 +68,8 @@ package enum IPCSystemCapabilitiesDescriptorFactory {
                 )
             ],
             isMutating: false,
-            correlationPolicy: .notAccepted
+            correlationPolicy: .notAccepted,
+            agentEligibility: .anyTarget
         )
         let erasedDescriptor = try IPCAnyMethodDescriptor(erasing: descriptor)
         let result = IPCMethodCatalogResult(

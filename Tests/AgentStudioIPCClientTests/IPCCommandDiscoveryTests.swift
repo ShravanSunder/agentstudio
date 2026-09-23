@@ -183,7 +183,8 @@ private struct IPCCommandDiscoveryFixture {
                                 )
                             )
                         )
-                    ]
+                    ],
+                    agentEligibility: .notYetAllowed
                 )
             ),
             IPCCommandDescriptorFactory.make(
@@ -210,7 +211,8 @@ private struct IPCCommandDiscoveryFixture {
                                 )
                             )
                         )
-                    ]
+                    ],
+                    agentEligibility: .notYetAllowed
                 )
             ),
         ]
@@ -218,6 +220,19 @@ private struct IPCCommandDiscoveryFixture {
             compatibility: .current,
             commands: commands
         )
+        return Self(
+            noArgumentsCommandId: noArgumentsCommandId,
+            paneCommandId: paneCommandId,
+            correlationId: correlationId,
+            workspaceWindowId: workspaceWindowId,
+            commandComposition: commandComposition,
+            methodCatalog: try methodCatalog(advertising: commandComposition)
+        )
+    }
+
+    private static func methodCatalog(
+        advertising commandComposition: IPCCommandMethodComposition
+    ) throws -> IPCMethodCatalogResult {
         let examples = IPCBuiltInMethodExampleContext(illustrativeIdentifier: UUIDv7.generate())
         let bootstrap = try IPCBuiltInMethodCatalog.bootstrapDescriptors(examples: examples)
         let ping = try #require(bootstrap.first { $0.metadata.name == "system.ping" })
@@ -226,19 +241,11 @@ private struct IPCCommandDiscoveryFixture {
                 try IPCAnyMethodDescriptor(erasing: commandComposition.list),
                 try IPCAnyMethodDescriptor(erasing: commandComposition.execute),
             ]
-        let capabilities = try IPCSystemCapabilitiesDescriptorFactory.compose(
+        return try IPCSystemCapabilitiesDescriptorFactory.compose(
             compatibility: .current,
             availableDescriptors: advertised,
             illustrativeDescriptor: ping
-        )
-        return Self(
-            noArgumentsCommandId: noArgumentsCommandId,
-            paneCommandId: paneCommandId,
-            correlationId: correlationId,
-            workspaceWindowId: workspaceWindowId,
-            commandComposition: commandComposition,
-            methodCatalog: capabilities.result
-        )
+        ).result
     }
 
     func paneArguments() throws -> IPCCommandArguments {

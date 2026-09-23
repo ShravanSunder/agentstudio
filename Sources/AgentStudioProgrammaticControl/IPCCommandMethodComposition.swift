@@ -34,6 +34,14 @@ package struct IPCCommandMethodComposition: Sendable {
             reason: "stateUnavailable",
             description: "The selected command owner cannot currently apply the command."
         ),
+        IPCMethodErrorCase(
+            reason: "notYetAllowed",
+            description: "A pane agent named a command or target outside its own pane."
+        ),
+        IPCMethodErrorCase(
+            reason: "refusedForAgent",
+            description: "A pane agent asked for an effect agents are never allowed."
+        ),
     ]
 
     package let commands: [IPCCommandDescriptor]
@@ -97,8 +105,11 @@ package struct IPCCommandMethodComposition: Sendable {
             resultSemantics: .applied,
             documentedErrors: [],
             isMutating: false,
-            correlationPolicy: .notAccepted
+            correlationPolicy: .notAccepted,
+            agentEligibility: .anyTarget
         )
+        // Each command's own `agentEligibility` decides admission; the method
+        // itself only carries the pane-scoped class.
         let execute = try IPCMethodDescriptor(
             name: "command.execute",
             description: "Execute one available App command through its typed arguments.",
@@ -119,7 +130,8 @@ package struct IPCCommandMethodComposition: Sendable {
             resultSemantics: .discriminated,
             documentedErrors: Self.executionErrors,
             isMutating: true,
-            correlationPolicy: .required
+            correlationPolicy: .required,
+            agentEligibility: .ownPane
         )
 
         _ = try list.encodeResult(catalogResult)

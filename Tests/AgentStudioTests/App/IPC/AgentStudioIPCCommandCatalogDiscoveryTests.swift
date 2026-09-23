@@ -72,7 +72,8 @@ struct AgentStudioIPCCommandCatalogDiscoveryTests {
                     dataScope: command.dataScope,
                     allowedTargetKinds: Set(command.allowedTargetKinds),
                     resultVariants: command.resultVariants,
-                    examples: command.examples
+                    examples: command.examples,
+                    agentEligibility: command.agentEligibility
                 ))
             if recomposed != command { driftedCommandIdentifiers.append(command.id.rawValue) }
         }

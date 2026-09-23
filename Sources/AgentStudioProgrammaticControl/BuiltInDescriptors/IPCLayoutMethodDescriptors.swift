@@ -20,7 +20,8 @@ package struct IPCLayoutMethodDescriptors: Sendable {
                 dataScope: .paneContext,
                 targetKinds: [.pane],
                 relationship: relationship.paneFocus,
-                owner: .workspaceAction)
+                owner: .workspaceAction,
+                agentEligibility: .notYetAllowed)
         )
         paneSplit = try IPCBuiltInDescriptorSupport.mutation(
             name: "pane.split",
@@ -39,7 +40,8 @@ package struct IPCLayoutMethodDescriptors: Sendable {
                 privilege: .layoutMutate,
                 dataScope: .paneContext,
                 targetKinds: [.pane],
-                owner: .workspaceAction)
+                owner: .workspaceAction,
+                agentEligibility: .notYetAllowed)
         )
         paneClose = try IPCBuiltInDescriptorSupport.mutation(
             name: "pane.close",
@@ -51,7 +53,9 @@ package struct IPCLayoutMethodDescriptors: Sendable {
                 dataScope: .paneContext,
                 targetKinds: [.pane],
                 relationship: relationship.paneClose,
-                owner: .workspaceAction)
+                owner: .workspaceAction,
+                exposure: .allChannels,
+                agentEligibility: .ownPane)
         )
         drawerToggle = try IPCBuiltInDescriptorSupport.mutation(
             name: "drawer.toggle",
@@ -69,7 +73,8 @@ package struct IPCLayoutMethodDescriptors: Sendable {
                 dataScope: .paneContext,
                 targetKinds: [.pane],
                 relationship: relationship.drawerToggle,
-                owner: .workspaceAction)
+                owner: .workspaceAction,
+                agentEligibility: .notYetAllowed)
         )
         drawerAddPane = try IPCBuiltInDescriptorSupport.mutation(
             name: "drawer.addPane",
@@ -87,7 +92,9 @@ package struct IPCLayoutMethodDescriptors: Sendable {
                 dataScope: .paneContext,
                 targetKinds: [.pane],
                 relationship: relationship.drawerAddPane,
-                owner: .workspaceAction)
+                owner: .workspaceAction,
+                exposure: .allChannels,
+                agentEligibility: .ownPane)
         )
     }
 

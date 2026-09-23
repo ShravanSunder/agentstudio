@@ -29,18 +29,21 @@ struct AppIPCTypedRegistryTests {
     }
 
     @Test(
-        "stable and beta omit diagnostic registrations from both invocation and discovery",
+        "stable and beta omit diagnostic registrations and keep agent-eligible methods",
         arguments: [AgentStudioIPCChannel.stable, .beta])
     func productionRegistryOmitsDiagnosticMethods(channel: AgentStudioIPCChannel) throws {
         let fixture = BuiltInMethodRegistrationsFixture()
         let registry = try AppIPCMethodRegistry(registrations: fixture.registrations(), channel: channel)
-        #expect(registry.capabilities.methods.count == 12)
+        // 12 established all-channel methods plus the 13 methods pane agents
+        // may run in A1, which reach agents on every channel.
+        #expect(registry.capabilities.methods.count == 25)
         #expect(registry.capabilities.methods.allSatisfy { $0.exposure == .allChannels })
         #expect(registry.registration(named: "session.report") != nil)
         #expect(registry.registration(named: "session.query") != nil)
-        #expect(registry.registration(named: "terminal.send") == nil)
+        #expect(registry.registration(named: "terminal.send") != nil)
+        #expect(registry.registration(named: "pane.snapshot") != nil)
         #expect(registry.registration(named: "ui.commandBar.open") == nil)
-        #expect(registry.registration(named: "pane.snapshot") == nil)
+        #expect(registry.registration(named: "pane.focus") == nil)
     }
 
     @Test("duplicate registration identities reject composition")
