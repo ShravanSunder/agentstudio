@@ -36,6 +36,14 @@ extension WorkspaceSQLiteDatastoreActor {
                 throw WorkspaceSQLiteDatastoreError.staleWorkspaceCapture
             }
         }
+        // A capture taken before a newer, already-committed drawer presentation
+        // payload must not overwrite it; the save coordinator recaptures.
+        if let captured = bundle.drawerPresentationRevision,
+            let accepted = acceptedDrawerPresentationRevisions[bundle.id],
+            captured < accepted
+        {
+            throw WorkspaceSQLiteDatastoreError.staleWorkspaceCapture
+        }
         guard let acceptedTopologyContext = acceptedRepositoryTopologyCaptureRevision,
             let capturedTopologyContext = bundle.captureRevision?.topologyContextRevision,
             capturedTopologyContext < acceptedTopologyContext
@@ -55,6 +63,15 @@ extension WorkspaceSQLiteDatastoreActor {
             workspace: workspace,
             captureRevision: bundle.captureRevision,
             drawerPresentationRevision: bundle.drawerPresentationRevision
+        )
+    }
+
+    /// Records the newest drawer presentation revision whose local rows committed.
+    func recordAcceptedDrawerPresentationRevision(of bundle: WorkspaceSQLiteSaveBundle) {
+        guard let revision = bundle.drawerPresentationRevision else { return }
+        acceptedDrawerPresentationRevisions[bundle.id] = max(
+            acceptedDrawerPresentationRevisions[bundle.id] ?? revision,
+            revision
         )
     }
 

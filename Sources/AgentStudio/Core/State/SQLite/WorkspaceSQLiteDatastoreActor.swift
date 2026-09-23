@@ -41,6 +41,7 @@ package actor WorkspaceSQLiteDatastoreActor {
     var retentionSurvivingIdentity: RepositoryRetentionSurvivingIdentity?
     var acceptedRepositoryTopologyCaptureRevision: UInt64?
     var acceptedWorkspaceCaptureRevisions: [UUID: WorkspaceCompositionRevision] = [:]
+    var acceptedDrawerPresentationRevisions: [UUID: Int] = [:]
     var failedStructuralWorkspaceIDs = Set<UUID>()
 
     init(
@@ -226,6 +227,7 @@ package actor WorkspaceSQLiteDatastoreActor {
                 database: .local
             )
             try backend.writeLocalSnapshot(snapshot, localRepository: localRepository)
+            recordAcceptedDrawerPresentationRevision(of: admittedBundle)
             await traceRecorder.recordOperation(
                 .workspaceSave,
                 phase: .writeLocal,

@@ -70,6 +70,43 @@ struct WorkspaceDrawerPresentationSaveBoundaryTests {
         return pane
     }
 
+    @Test("a save captured earlier but admitted after a newer save cannot persist the older preference")
+    func olderCaptureAdmittedLaterIsRejected() async throws {
+        // Arrange: capture an older payload, then let a newer save commit first.
+        let fixture = try await makeFixture()
+        let pane = appendTabbedPane(to: fixture.store)
+        fixture.store.paneAtom.setDrawerNormalHeightRatio(0.4, forOwner: pane.id)
+        let olderCaptureCoordinator = WorkspaceSQLiteSaveCoordinator(
+            identityAtom: fixture.store.identityAtom,
+            windowMemoryAtom: fixture.store.windowMemoryAtom,
+            workspacePaneAtom: fixture.store.paneAtom,
+            workspaceTabLayoutAtom: fixture.store.tabLayoutAtom,
+            repositoryTopologyAtom: fixture.store.repositoryTopologyAtom,
+            sqliteDatastore: fixture.datastore
+        )
+        let olderBundle = await olderCaptureCoordinator.captureCurrentSaveBundle(
+            persistedAt: Date(timeIntervalSince1970: 1_780_000_000)
+        )
+        fixture.store.paneAtom.setDrawerNormalHeightRatio(0.6, forOwner: pane.id)
+        #expect(await fixture.store.flushAsync() == .persisted)
+        #expect(!fixture.store.isDirty)
+
+        // Act: the older capture reaches the ordered save boundary last.
+        var olderSaveError: WorkspaceSQLiteDatastoreError?
+        do {
+            try await fixture.datastore.saveWorkspaceSnapshotBundle(olderBundle)
+        } catch let error as WorkspaceSQLiteDatastoreError {
+            olderSaveError = error
+        }
+
+        // Assert: the newer live preference stays persisted.
+        #expect(olderSaveError == .staleWorkspaceCapture)
+        #expect(try fixture.storedRatios() == [pane.id: 0.6])
+        #expect(
+            fixture.store.paneAtom.drawerPresentationPreference(forOwner: pane.id).normalHeightRatio == 0.6
+        )
+    }
+
     @Test("a retention-membership failure fails the local save without pruning, success, or clearing dirty")
     func membershipFailureTakesLocalSaveFailurePath() async throws {
         // Arrange
