@@ -59,6 +59,31 @@ interface RailMeasurement {
   readonly targets: ReadonlyMap<string, RailTargetElements>;
   readonly surfaceRects: ReadonlyMap<string, RailRect>;
   readonly mediaRects: ReadonlyMap<string, RailRect>;
+  readonly copyBlockRects: ReadonlyMap<string, RailRect>;
+}
+
+/**
+ * The anchor's copy block: the outermost rendered ancestor of the anchor that
+ * does not contain the media target and ends above it (the chapter header or
+ * the hero copy column). Boxless `display: contents` wrappers are skipped, and
+ * the anchor itself is the fallback.
+ */
+function findCopyBlock(anchor: HTMLElement, media: HTMLElement): Element {
+  const mediaTop = media.getBoundingClientRect().top;
+  let copyBlock: Element = anchor;
+  for (
+    let ancestor = anchor.parentElement;
+    ancestor !== null && !ancestor.contains(media);
+    ancestor = ancestor.parentElement
+  ) {
+    if (
+      ancestor.getClientRects().length > 0 &&
+      ancestor.getBoundingClientRect().bottom <= mediaTop + 0.5
+    ) {
+      copyBlock = ancestor;
+    }
+  }
+  return copyBlock;
 }
 
 function createSvgElement<TTagName extends keyof SVGElementTagNameMap>(
@@ -107,6 +132,7 @@ function measureRailPage(ownerDocument: Document, artwork: SVGSVGElement): RailM
   const targets = new Map<string, RailTargetElements>();
   const surfaceRects = new Map<string, RailRect>();
   const mediaRects = new Map<string, RailRect>();
+  const copyBlockRects = new Map<string, RailRect>();
   for (const { id } of anchors) {
     const surface = surfaceElements.get(id);
     const media = mediaElements.get(id);
@@ -114,11 +140,15 @@ function measureRailPage(ownerDocument: Document, artwork: SVGSVGElement): RailM
     if (surface !== undefined) {
       surfaceRects.set(id, measure(surface));
     }
+    const anchor = anchorElements.get(id);
     if (media !== undefined) {
       mediaRects.set(id, measure(media));
+      if (anchor !== undefined) {
+        copyBlockRects.set(id, measure(findCopyBlock(anchor, media)));
+      }
     }
   }
-  return { anchors, targets, surfaceRects, mediaRects };
+  return { anchors, targets, surfaceRects, mediaRects, copyBlockRects };
 }
 
 function createRenderedRailNode(ownerDocument: Document, anchorId: string): RenderedRailNode {
@@ -255,6 +285,7 @@ export function initializeChapterRail(rail: HTMLElement): () => void {
         anchors: measurement.anchors,
         surfaceTargets: measurement.surfaceRects,
         mediaTargets: measurement.mediaRects,
+        copyBlocks: measurement.copyBlockRects,
       }),
     );
     renderCurrentChapter();

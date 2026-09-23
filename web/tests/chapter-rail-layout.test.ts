@@ -32,7 +32,51 @@ function wideChapterPage(): ChapterRailLayoutProps {
       ["hero", rect(240, 520, 960, 600)],
       ["many-agents", rect(520, 1300, 600, 380)],
     ]),
+    copyBlocks: new Map(),
   };
+}
+
+interface PathSegmentBounds {
+  readonly command: string;
+  readonly left: number;
+  readonly right: number;
+  readonly top: number;
+  readonly bottom: number;
+}
+
+/** Each drawn segment's bounding box. A quarter-circle elbow lies within its endpoints' box. */
+function pathSegmentBounds(pathData: string): readonly PathSegmentBounds[] {
+  const tokens = pathData.trim().split(/[\s,]+/u);
+  const segments: PathSegmentBounds[] = [];
+  let current = { x: 0, y: 0 };
+  let index = 0;
+  while (index < tokens.length) {
+    const command = tokens[index] ?? "";
+    const argumentCount = command === "A" ? 7 : 2;
+    const values = tokens.slice(index + 1, index + 1 + argumentCount).map(Number);
+    const next = { x: values.at(-2) ?? Number.NaN, y: values.at(-1) ?? Number.NaN };
+    if (command !== "M") {
+      segments.push({
+        command,
+        left: Math.min(current.x, next.x),
+        right: Math.max(current.x, next.x),
+        top: Math.min(current.y, next.y),
+        bottom: Math.max(current.y, next.y),
+      });
+    }
+    current = next;
+    index += 1 + argumentCount;
+  }
+  return segments;
+}
+
+function intersects(segment: PathSegmentBounds, area: RailRect): boolean {
+  return (
+    segment.right > area.left &&
+    segment.left < area.left + area.width &&
+    segment.bottom > area.top &&
+    segment.top < area.top + area.height
+  );
 }
 
 function endPoint(pathData: string): { readonly x: number; readonly y: number } {
@@ -111,6 +155,7 @@ describe("layoutChapterRail", () => {
       anchors: [{ id: "many-agents", rect: rect(48, 900, 200, 16) }],
       surfaceTargets: new Map([["many-agents", rect(16, 880, 358, 900)]]),
       mediaTargets: new Map([["many-agents", rect(16, 1040, 358, 220)]]),
+      copyBlocks: new Map([["many-agents", rect(48, 900, 320, 100)]]),
     };
 
     // Act
@@ -124,8 +169,47 @@ describe("layoutChapterRail", () => {
     expect(branch?.targetEdge).toBe("top");
     expect(branch?.end).toEqual({ x: 48, y: 1040 });
     expect(endPoint(branch?.pathData ?? "")).toEqual(branch?.end);
-    // One git elbow: dot → right → down.
-    expect(branch?.pathData.match(/A/gu)).toHaveLength(1);
+  });
+
+  it("routes each phone branch around the chapter copy, never through it", () => {
+    // Arrange: the eyebrow and title sit beside the rail; the media stage
+    // starts below the title, with a gap between them.
+    const eyebrow = rect(40, 900, 90, 16);
+    const copyBlock = rect(40, 900, 330, 72);
+    const copyBottom = copyBlock.top + copyBlock.height;
+    const media = rect(40, 996, 330, 220);
+    const props: ChapterRailLayoutProps = {
+      viewportWidth: 390,
+      pageHeight: 4000,
+      anchors: [{ id: "many-agents", rect: eyebrow }],
+      surfaceTargets: new Map([["many-agents", rect(40, 900, 330, 600)]]),
+      mediaTargets: new Map([["many-agents", media]]),
+      copyBlocks: new Map([["many-agents", copyBlock]]),
+    };
+
+    // Act
+    const layout = layoutChapterRail(props);
+
+    // Assert
+    if (layout.kind !== "drawn") {
+      throw new Error("Expected a drawn rail");
+    }
+    const branch = layout.nodes[0]?.branch;
+    expect(branch?.end).toEqual({ x: media.left + railTargetCornerInset, y: media.top });
+    const segments = pathSegmentBounds(branch?.pathData ?? "");
+    for (const segment of segments) {
+      expect(intersects(segment, eyebrow)).toBe(false);
+      expect(intersects(segment, copyBlock)).toBe(false);
+    }
+    // Fork down a parallel lane, turn right in the gap, then drop in: three elbows.
+    expect(branch?.pathData.match(/A/gu)).toHaveLength(3);
+    const crossingRun = segments.findLast(
+      (segment) =>
+        segment.command === "L" && segment.top === segment.bottom && segment.left < segment.right,
+    );
+    expect(crossingRun?.top).toBeGreaterThan(copyBottom);
+    expect(crossingRun?.top).toBeLessThan(media.top);
+    expect(crossingRun?.right).toBeGreaterThan(copyBlock.left);
   });
 
   it("joins a glass straight across whenever the dot clears its rounded corner", () => {
@@ -158,6 +242,7 @@ describe("layoutChapterRail", () => {
       anchors: [{ id: "many-agents", rect: rect(44, 900, 200, 16) }],
       surfaceTargets: new Map([["many-agents", rect(mediaLeft, 880, 332, 900)]]),
       mediaTargets: new Map([["many-agents", rect(mediaLeft, 1040, 332, 220)]]),
+      copyBlocks: new Map(),
     };
 
     // Act
