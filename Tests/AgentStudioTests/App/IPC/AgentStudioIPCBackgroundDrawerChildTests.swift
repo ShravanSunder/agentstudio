@@ -27,51 +27,59 @@ struct AgentStudioIPCBackgroundDrawerChildTests {
         ]
     )
     func backgroundChildKeepsPresentation(content: IPCDrawerChildContent, drawerExpanded: Bool) async throws {
-        let windowId = UUIDv7.generate()
-        let harness = makeHarness(workspaceWindowId: windowId)
-        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
-        harness.windowLifecycleStore.recordWindowRegistered(windowId)
-        let store = harness.store
-        let parent = store.createPane(title: "Agent terminal")
-        let tab = Tab(paneId: parent.id)
-        store.appendTab(tab)
-        store.setActiveTab(tab.id)
-        store.setActivePane(parent.id, inTab: tab.id)
-        let selectedChild = try #require(store.addDrawerPane(to: parent.id))
-        store.setActiveDrawerPane(selectedChild.id, in: parent.id)
-        if store.paneAtom.pane(parent.id)?.drawer?.isExpanded != drawerExpanded {
-            store.paneAtom.toggleDrawer(for: parent.id)
-        }
-        let focusControl = RefusingPaneFocusAppControl()
-        let adapter = AgentStudioIPCLayoutAdapter(
-            workspaceStore: store,
-            windowLifecycleReader: WorkspaceWindowLifecycleReader(lifecycleStore: harness.windowLifecycleStore),
-            paneFocusControl: focusControl,
-            workspaceActionExecutor: harness.executor
-        )
+        // Test-scoped core atoms: the focus owner this test reads cannot be
+        // written by another suite sharing the process.
+        try await withAsyncTestCoreAtoms { atoms in
+            let windowId = UUIDv7.generate()
+            let harness = makeHarness(windowLifecycleStore: atoms.windowLifecycle, workspaceWindowId: windowId)
+            defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+            harness.windowLifecycleStore.recordWindowRegistered(windowId)
+            let store = harness.store
+            let parent = store.createPane(title: "Agent terminal")
+            let tab = Tab(paneId: parent.id)
+            store.appendTab(tab)
+            store.setActiveTab(tab.id)
+            store.setActivePane(parent.id, inTab: tab.id)
+            let selectedChild = try #require(store.addDrawerPane(to: parent.id))
+            store.setActiveDrawerPane(selectedChild.id, in: parent.id)
+            if store.paneAtom.pane(parent.id)?.drawer?.isExpanded != drawerExpanded {
+                store.paneAtom.toggleDrawer(for: parent.id)
+            }
+            atoms.workspaceFocusOwner.focusMainPane(parent.id)
+            let focusControl = RefusingPaneFocusAppControl()
+            let adapter = AgentStudioIPCLayoutAdapter(
+                workspaceStore: store,
+                windowLifecycleReader: WorkspaceWindowLifecycleReader(lifecycleStore: harness.windowLifecycleStore),
+                paneFocusControl: focusControl,
+                workspaceActionExecutor: harness.executor
+            )
+            let focusOwnerBefore = atoms.workspaceFocusOwner.owner
 
-        let result = try await adapter.addDrawerPane(
-            IPCDrawerAddPaneParams(
-                parentPaneHandle: "pane:\(parent.id.uuidString)", content: content, correlationId: nil),
-            ownPaneAssertion: AppIPCOwnPaneAssertion(boundPaneId: parent.id)
-        )
+            let result = try await adapter.addDrawerPane(
+                IPCDrawerAddPaneParams(
+                    parentPaneHandle: "pane:\(parent.id.uuidString)", content: content, correlationId: nil),
+                ownPaneAssertion: AppIPCOwnPaneAssertion(boundPaneId: parent.id)
+            )
 
-        let child = try #require(store.paneAtom.pane(result.childPaneId))
-        #expect(child.parentPaneId == parent.id)
-        #expect(result.parentPaneId == parent.id)
-        #expect(result.childHandle == result.childPaneId.uuidString)
-        switch (content, child.content) {
-        case (.terminal, .terminal), (.browser, .webview):
-            break
-        default:
-            Issue.record("drawer child holds \(child.content), requested \(content)")
+            let child = try #require(store.paneAtom.pane(result.childPaneId))
+            #expect(child.parentPaneId == parent.id)
+            #expect(result.parentPaneId == parent.id)
+            #expect(result.childHandle == result.childPaneId.uuidString)
+            switch (content, child.content) {
+            case (.terminal, .terminal), (.browser, .webview):
+                break
+            default:
+                Issue.record("drawer child holds \(child.content), requested \(content)")
+            }
+            #expect(store.paneAtom.pane(parent.id)?.drawer?.paneIds.contains(result.childPaneId) == true)
+            #expect(store.paneAtom.pane(parent.id)?.drawer?.isExpanded == drawerExpanded)
+            #expect(store.drawerView(forParent: parent.id)?.activeChildId == selectedChild.id)
+            #expect(store.tabLayoutAtom.tab(tab.id)?.activePaneId == parent.id)
+            #expect(atoms.workspaceFocusOwner.owner == focusOwnerBefore)
+            #expect(atom(\.workspaceFocusOwner).owner == focusOwnerBefore)
+            #expect(harness.coordinator.pendingPaneRefocusReasonsByPaneId[result.childPaneId] == nil)
+            #expect(focusControl.focusedPaneIds.isEmpty)
         }
-        #expect(store.paneAtom.pane(parent.id)?.drawer?.paneIds.contains(result.childPaneId) == true)
-        #expect(store.paneAtom.pane(parent.id)?.drawer?.isExpanded == drawerExpanded)
-        #expect(store.drawerView(forParent: parent.id)?.activeChildId == selectedChild.id)
-        #expect(store.tabLayoutAtom.tab(tab.id)?.activePaneId == parent.id)
-        #expect(harness.coordinator.pendingPaneRefocusReasonsByPaneId[result.childPaneId] == nil)
-        #expect(focusControl.focusedPaneIds.isEmpty)
     }
 
     @Test("the interactive add still expands, selects and requests focus for its new child")
