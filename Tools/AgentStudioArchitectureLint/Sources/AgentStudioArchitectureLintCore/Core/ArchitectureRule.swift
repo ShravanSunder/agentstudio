@@ -70,5 +70,7 @@ enum ArchitectureRuleRegistry {
         AtomAssignOnlyRule(),
         MainActorHopPerElementRule(),
         ProbeReportsOffMainRule(),
+        TestAdHocGateRule(),
+        TestWaitHelperReturnsObservationRule(),
     ]
 }

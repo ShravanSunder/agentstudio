@@ -62,5 +62,7 @@ enum ExpectedRuleInventory {
         ExpectedRule(id: "agentstudio_atom_assign_only", severity: .error),
         ExpectedRule(id: "agentstudio_mainactor_hop_per_element", severity: .error),
         ExpectedRule(id: "agentstudio_probe_reports_off_main", severity: .error),
+        ExpectedRule(id: "agentstudio_test_ad_hoc_gate", severity: .error),
+        ExpectedRule(id: "agentstudio_test_wait_helper_returns_observation", severity: .error),
     ]
 }

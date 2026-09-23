@@ -464,6 +464,38 @@ struct RuleParityTests {
         #expect(MainActorHopPerElementRule().validate(context: sourceContext).map(\.line) == [8])
     }
 
+    @Test("ad-hoc gate rule flags gate-named types that store a suspension, outside the harness only")
+    func adHocGateRuleFlagsGateNamedSuspensionStorageOutsideHarness() throws {
+        let badDiagnostics = try lintFixtureCorpus("Bad").filter {
+            $0.ruleID == "agentstudio_test_ad_hoc_gate"
+        }
+        let goodDiagnostics = try lintFixtureCorpus("Good").filter {
+            $0.ruleID == "agentstudio_test_ad_hoc_gate"
+                || $0.ruleID == "agentstudio_test_blocking_wait_off_cooperative_pool"
+        }
+
+        #expect(badDiagnostics.map(\.line) == [3, 7, 11, 15])
+        #expect(badDiagnostics.allSatisfy { $0.path.hasSuffix("Tests/AgentStudioTests/BadAdHocGateTest.swift") })
+        #expect(goodDiagnostics.isEmpty, Comment(rawValue: goodDiagnostics.map(\.rendered).joined()))
+    }
+
+    @Test("wait helper rule flags async wait helpers that return nothing, outside the harness only")
+    func waitHelperRuleFlagsVoidAsyncWaitHelpersOutsideHarness() throws {
+        let badDiagnostics = try lintFixtureCorpus("Bad").filter {
+            $0.ruleID == "agentstudio_test_wait_helper_returns_observation"
+        }
+        let goodDiagnostics = try lintFixtureCorpus("Good").filter {
+            $0.ruleID == "agentstudio_test_wait_helper_returns_observation"
+        }
+
+        #expect(badDiagnostics.map(\.line) == [22, 24, 26])
+        #expect(goodDiagnostics.isEmpty, Comment(rawValue: goodDiagnostics.map(\.rendered).joined()))
+        #expect(TestWaitHelperReturnsObservationRule.isWaitHelperName("waitUntilIdle"))
+        #expect(TestWaitHelperReturnsObservationRule.isWaitHelperName("await"))
+        #expect(!TestWaitHelperReturnsObservationRule.isWaitHelperName("waitsForNothing"))
+        #expect(!TestWaitHelperReturnsObservationRule.isWaitHelperName("requiredValue"))
+    }
+
     @Test("EventBus subscriber policy rule diagnoses every denied fixture call shape")
     func eventBusSubscriberPolicyRuleDiagnosesEveryDeniedFixtureCallShape() throws {
         let eventBusFixture = fixtureRoot()

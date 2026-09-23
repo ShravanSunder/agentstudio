@@ -18,8 +18,11 @@ struct TestBlockingWaitOffCooperativePoolRule: ArchitectureRule {
     let message = "Blocking waits in tests must run off the cooperative pool"
 
     func validate(context: ArchitectureLintContext) -> [ArchitectureDiagnostic] {
+        // The causal-test harness owns `HeldStep.arriveBlocking`, which parks a
+        // dedicated thread by design; it is the one sanctioned blocking hold.
         guard let targetPath = Self.targetPath(for: context),
             targetPath.contains("/Tests/"), targetPath.hasSuffix(".swift"),
+            !targetPath.contains("/Tests/AgentStudioTestHarness/"),
             !ArchitectureAllowlists.blockingTestWaitAllowedPathSuffixes.contains(where: targetPath.hasSuffix)
         else {
             return []
