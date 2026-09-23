@@ -137,6 +137,16 @@ print_closing_lane_report() {
     "${SWIFT_TEST_FAILED_ISOLATED_SUITES_FILE:-}"
 }
 
+# A lane ended by a signal exits with 128+signal, so its receipt says so. Without
+# these, bash runs the EXIT trap after a fatal signal with `$?` still holding the
+# last completed command's status, and a SIGTERMed lane printed
+# `exit_status=0 verdict=pass`.
+trap_lane_termination_signals() {
+  trap 'exit 129' HUP
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+}
+
 # The invocation's EXIT trap: its closing receipt, then the build-slot release
 # this script took over from swift-build-slot.sh. `$?` is read by the receipt as
 # its first statement, so nothing may run before it.
@@ -175,6 +185,7 @@ run_width_comparison_half() {
     print_opening_lane_report
     begin_lane_accounting
     trap print_closing_lane_report EXIT
+    trap_lane_termination_signals
     run_fast_non_webkit_swift_tests
   ) 2>&1 | tee "$ledger_directory/lane-output.log"
   WIDTH_COMPARISON_HALF_STATUS="${PIPESTATUS[0]}"
@@ -210,6 +221,7 @@ begin_lane_accounting
 # lane_receipt_invalid_reasons for why anything else is not a pass.
 LANE_BUNDLE_STATE=not_built
 trap finish_lane_invocation EXIT
+trap_lane_termination_signals
 
 if [ "$mode" != "test-prebuild" ] && [ "${SWIFT_TEST_SKIP_PREBUILD:-0}" = "1" ]; then
   echo "[$LOG_PREFIX] skipping prebuild test bundles (SWIFT_TEST_SKIP_PREBUILD=1)"

@@ -147,6 +147,48 @@ struct SwiftLaneReceiptTests {
         )
     }
 
+    @Test("a lane ended by a signal reports that status and never a pass")
+    func laneEndedBySignalNeverReportsPass() async throws {
+        // Observed in a real `mise run test`: the lane was SIGTERMed mid-phase and
+        // its receipt said exit_status=0 verdict=pass, because bash runs the EXIT
+        // trap with `$?` from the last completed command.
+        let laneRunnerScript = try String(contentsOfFile: "scripts/run-swift-test-task.sh", encoding: .utf8)
+        let terminationTraps = try laneScriptShellFunction(
+            named: "trap_lane_termination_signals",
+            in: laneRunnerScript
+        )
+        let scriptDirectory = NSTemporaryDirectory() + "agentstudio-receipt-signal-\(UUIDv7.generate())"
+        defer { try? FileManager.default.removeItem(atPath: scriptDirectory) }
+        func signalledLane(installingTerminationTraps: Bool) -> String {
+            [
+                terminationTraps + "\n}",
+                "LOG_PREFIX=lane",
+                "source scripts/swift-test-helpers.sh",
+                "report() { local status=$?; print_lane_receipt_verdict \"$status\" fresh false; }",
+                "trap report EXIT",
+                installingTerminationTraps ? "trap_lane_termination_signals" : ":",
+                "true",
+                "( kill -TERM $$ ) &",
+                "wait",
+            ].joined(separator: "\n") + "\n"
+        }
+        try FileManager.default.createDirectory(atPath: scriptDirectory, withIntermediateDirectories: true)
+        try signalledLane(installingTerminationTraps: true)
+            .write(toFile: scriptDirectory + "/trapped.sh", atomically: true, encoding: .utf8)
+        try signalledLane(installingTerminationTraps: false)
+            .write(toFile: scriptDirectory + "/untrapped.sh", atomically: true, encoding: .utf8)
+
+        let trapped = try await laneBashAllowingFailure("bash '\(scriptDirectory)/trapped.sh'; echo \"STATUS=$?\"")
+        let untrapped = try await laneBashAllowingFailure("bash '\(scriptDirectory)/untrapped.sh'; echo \"STATUS=$?\"")
+
+        #expect(laneRunnerScript.contains("trap finish_lane_invocation EXIT\ntrap_lane_termination_signals\n"))
+        #expect(trapped.contains("[lane] lane-report verdict=fail"))
+        #expect(trapped.contains("STATUS=143"))
+        // The control is the defect itself: same signal, a pass verdict.
+        #expect(untrapped.contains("[lane] lane-report verdict=pass"))
+        #expect(untrapped.contains("STATUS=143"))
+    }
+
     @Test("the build-slot release survives the receipt taking over EXIT")
     func buildSlotReleaseSurvivesReceiptTakingOverExit() async throws {
         let laneRunnerScript = try String(contentsOfFile: "scripts/run-swift-test-task.sh", encoding: .utf8)
@@ -344,6 +386,7 @@ struct SwiftLaneReceiptTests {
                 "print_opening_lane_report\n    begin_lane_accounting\n    trap print_closing_lane_report EXIT"
             )
         )
+        #expect(half.contains("trap print_closing_lane_report EXIT\n    trap_lane_termination_signals\n"))
         #expect(half.contains("LANE_EVENT_STREAM_RETAIN_ALWAYS=1"))
         #expect(half.contains("unset SWIFT_TEST_PARALLELIZATION_WIDTH"))
         #expect(half.contains("tee \"$ledger_directory/lane-output.log\""))
