@@ -13,6 +13,7 @@ import {
   topologyColumnUnitFor,
   topologyColumnUnitMaximum,
   topologyColumnUnitMinimum,
+  topologyMaximumLaneCount,
   topologyRowUnit,
 } from "../src/topology-lab/full-page-topology-model";
 import { localForkPath } from "../src/topology-lab/full-page-topology-paths";
@@ -151,7 +152,7 @@ function samplePoints(pathData: string): readonly PathPoint[] {
     });
 }
 
-const viewportWidths = [390, 1280, 1920, 2560] as const;
+const viewportWidths = [390, 1280, 1920, 2560, 3440] as const;
 
 describe("topology row ownership", () => {
   it("distributes unreserved row dots across active worktrees and main", () => {
@@ -199,12 +200,46 @@ describe("gutter columns", () => {
     expect(topologyColumnUnitFor(1280)).toBeGreaterThan(topologyColumnUnitFor(1024));
   });
 
-  it("fills the gutter with as many lane columns as fit: none when cramped, more when wide", () => {
+  it("fills the gutter with lane columns up to four: none when cramped, more when wide", () => {
     // Act
     const laneCounts = viewportWidths.map((width) => composed(homePageAt(width)).laneXs.length);
 
     // Assert
-    expect(laneCounts).toEqual([0, 0, 2, 6]);
+    expect(laneCounts).toEqual([0, 0, 2, 4, 4]);
+    expect(Math.max(...laneCounts)).toBeLessThanOrEqual(topologyMaximumLaneCount);
+  });
+
+  it("anchors the mainline from the content and leaves any wider gutter empty", () => {
+    for (const width of viewportWidths) {
+      // Arrange
+      const fixture = homePageAt(width);
+
+      // Act
+      const composition = composed(fixture);
+
+      // Assert: the mainline sits (lanes + 1) columns left of the content edge
+      // (the glass on wide screens, the drop point on phones).
+      const hero = fixture.page.anchors[0];
+      const contentX =
+        width < 620
+          ? (hero?.media?.left ?? 0) + topologyPhoneDropCornerInset
+          : (hero?.surface?.left ?? 0);
+      expect(
+        Math.abs(
+          composition.mainlineX -
+            (contentX - (composition.laneXs.length + 1) * composition.columnUnit),
+        ),
+      ).toBeLessThanOrEqual(1);
+      // Nothing is drawn left of the mainline.
+      for (const dot of composition.rows) {
+        expect(dot.x).toBeGreaterThanOrEqual(composition.mainlineX);
+      }
+      for (const route of composition.routes) {
+        for (const point of samplePoints(route.pathData)) {
+          expect(point.x).toBeGreaterThanOrEqual(composition.mainlineX - 0.01);
+        }
+      }
+    }
   });
 
   it("puts the outermost lane in the column next to the content, one unit apart", () => {

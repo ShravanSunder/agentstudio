@@ -9,7 +9,11 @@ import {
   topologyNodeRevealedAttribute,
   topologyReadingLineRatio,
 } from "../src/topology-lab/topology-scroll-reveal";
-import { mountTopologyFixture, type TopologyFixture } from "./topology-browser-fixture";
+import {
+  mountTopologyFixture,
+  type TopologyFixture,
+  type TopologyFixtureLayout,
+} from "./topology-browser-fixture";
 
 interface RevealFixture extends TopologyFixture {
   readonly dispose: () => void;
@@ -17,13 +21,22 @@ interface RevealFixture extends TopologyFixture {
 
 const activeFixtures: RevealFixture[] = [];
 
-function mountRevealFixture(): RevealFixture {
-  const fixture = mountTopologyFixture({
-    contentLeft: 383,
-    anchorTops: [110, 1300, 2060, 2820, 3580],
-    height: 6000,
-    phone: false,
-  });
+const wideRevealLayout: TopologyFixtureLayout = {
+  contentLeft: 383,
+  anchorTops: [110, 1300, 2060, 2820, 3580],
+  height: 6000,
+  phone: false,
+};
+
+const phoneRevealLayout: TopologyFixtureLayout = {
+  contentLeft: 40,
+  anchorTops: [96, 1100, 1700, 2300],
+  height: 3600,
+  phone: true,
+};
+
+function mountRevealFixture(layout: TopologyFixtureLayout = wideRevealLayout): RevealFixture {
+  const fixture = mountTopologyFixture(layout);
   const revealFixture = {
     ...fixture,
     dispose: initializeTopologyScrollReveal(fixture.artwork, layoutFullPageTopology),
@@ -40,6 +53,25 @@ function readingLineY(artwork: SVGSVGElement): number {
   return window.innerHeight * topologyReadingLineRatio - artwork.getBoundingClientRect().top;
 }
 
+/** The artwork y of a route's start or end. */
+function routePointY(group: Element, at: "start" | "end"): number {
+  const core = group.querySelector<SVGPathElement>('[data-topology-path-role="core"]');
+  if (core === null) {
+    return Number.NaN;
+  }
+  return core.getPointAtLength(at === "start" ? 0 : core.getTotalLength()).y;
+}
+
+async function scrollAndSettle(artwork: SVGSVGElement, top: number): Promise<number> {
+  window.scrollTo(0, top);
+  const maximumScroll = Math.max(document.documentElement.scrollHeight - window.innerHeight, 1);
+  const expectedProgress = Math.min(Math.max(window.scrollY / maximumScroll, 0), 1);
+  await vi.waitFor(() => {
+    expect(Number(artwork.dataset["topologyScrollProgress"])).toBeCloseTo(expectedProgress, 3);
+  });
+  return revealEdgeY(artwork);
+}
+
 function nodeY(node: Element): number {
   return Number(node.querySelector("circle")?.getAttribute("cy"));
 }
@@ -54,6 +86,58 @@ afterEach(() => {
 });
 
 describe("full-page topology scroll reveal", () => {
+  for (const [label, width, height, layout] of [
+    ["wide", 1920, 1080, wideRevealLayout],
+    ["phone", 390, 844, phoneRevealLayout],
+  ] as const) {
+    it(`reveals the whole first viewport on load (${label})`, async () => {
+      // Arrange
+      await page.viewport(width, height);
+
+      // Act
+      const fixture = mountRevealFixture(layout);
+
+      // Assert
+      await vi.waitFor(() => {
+        expect(Number.isFinite(revealEdgeY(fixture.artwork))).toBe(true);
+      });
+      const edge = revealEdgeY(fixture.artwork);
+      const viewportBottomY = window.innerHeight - fixture.artwork.getBoundingClientRect().top;
+      expect(edge).toBeGreaterThanOrEqual(viewportBottomY - 1);
+      const heroAttach = fixture.artwork.querySelector('[data-route-anchor="hero"]');
+      expect(heroAttach).not.toBeNull();
+      expect(routePointY(heroAttach ?? fixture.artwork, "end")).toBeLessThanOrEqual(edge);
+      for (const lane of fixture.artwork.querySelectorAll('[data-route-kind="worktree"]')) {
+        expect(routePointY(lane, "start")).toBeLessThanOrEqual(edge);
+      }
+      const solid = fixture.artwork.querySelector("[data-topology-reveal-solid]");
+      expect(Number(solid?.getAttribute("height"))).toBeGreaterThanOrEqual(viewportBottomY - 1);
+    });
+  }
+
+  it("only ever moves the fog edge down as the page scrolls either way", async () => {
+    // Arrange
+    await page.viewport(1920, 1080);
+    const fixture = mountRevealFixture();
+    await vi.waitFor(() => {
+      expect(Number.isFinite(revealEdgeY(fixture.artwork))).toBe(true);
+    });
+    const edges = [revealEdgeY(fixture.artwork)];
+
+    // Act: each scroll must settle before the next.
+    edges.push(await scrollAndSettle(fixture.artwork, 1200));
+    edges.push(await scrollAndSettle(fixture.artwork, 2600));
+    edges.push(await scrollAndSettle(fixture.artwork, 900));
+    edges.push(await scrollAndSettle(fixture.artwork, 0));
+
+    // Assert
+    for (const [index, edge] of edges.slice(1).entries()) {
+      expect(edge).toBeGreaterThanOrEqual(edges[index] ?? 0);
+    }
+    expect(edges[2]).toBeGreaterThan(edges[0] ?? 0);
+    expect(edges.at(-1)).toBe(Math.max(...edges));
+  });
+
   it("fills dots with their lane color as the reveal passes them and keeps the rest hollow in the fog", async () => {
     // Arrange
     await page.viewport(1920, 1080);
