@@ -235,6 +235,7 @@ struct DrawerPanelOverlay: View {
     private func liveResizeHeight(forOwner ownerPaneId: UUID) -> CGFloat? {
         guard !presentation.isZoom,
             let resizeSession,
+            !resizeSession.isCancelled,
             resizeSession.applies(toOwner: ownerPaneId, containerHeight: tabSize.height)
         else { return nil }
         return resizeSession.liveHeight
@@ -347,7 +348,7 @@ struct DrawerPanelOverlay: View {
             }
             .onDisappear {
                 dismissMonitor.remove()
-                resizeSession = nil
+                applyResizeEvent(.cancelled)
             }
             .task(id: paneId) {
                 dismissMonitor.onDismiss = {
@@ -367,15 +368,27 @@ struct DrawerPanelOverlay: View {
             // Resize-session cancellation: owner replaced, mode change,
             // coordinate invalidation, or window deactivation discard the
             // live height so no late sample or end commits elsewhere.
-            .onChange(of: paneId) { _, _ in resizeSession = nil }
-            .onChange(of: presentation.isZoom) { _, _ in resizeSession = nil }
-            .onChange(of: tabSize) { _, _ in resizeSession = nil }
+            .onChange(of: paneId) { _, _ in applyResizeEvent(.cancelled) }
+            .onChange(of: presentation.isZoom) { _, _ in applyResizeEvent(.cancelled) }
+            .onChange(of: tabSize) { _, _ in applyResizeEvent(.cancelled) }
             .onChange(of: appLifecycleStore.isActive) { _, isActive in
-                if !isActive { resizeSession = nil }
+                if !isActive { applyResizeEvent(.cancelled) }
             }
             .onChange(of: input.preference.normalHeightRatio) { _, _ in
-                if resizeSession?.isAwaitingCommit == true { resizeSession = nil }
+                applyResizeEvent(.committedPreferenceChanged)
             }
+        }
+    }
+
+    /// Applies one session event; dispatches the single completed-drag commit.
+    private func applyResizeEvent(
+        _ event: DrawerResizeSessionEvent,
+        context: DrawerResizeSessionContext? = nil
+    ) {
+        let reduction = DrawerNormalResizeSession.reduce(resizeSession, event, context: context)
+        resizeSession = reduction.session
+        if let ratio = reduction.commitHeightRatio, let ownerPaneId = context?.ownerPaneId {
+            actionDispatcher.dispatch(.setDrawerNormalHeightRatio(parentPaneId: ownerPaneId, ratio: ratio))
         }
     }
 
@@ -384,49 +397,24 @@ struct DrawerPanelOverlay: View {
         input: DrawerPresentationGeometryInput,
         displayedHeight: CGFloat
     ) -> DrawerResizeInteraction {
-        let containerHeight = tabSize.height
+        let context = DrawerResizeSessionContext(
+            ownerPaneId: ownerPaneId,
+            containerHeight: tabSize.height,
+            displayedHeight: displayedHeight,
+            committedHeightRatio: input.preference.normalHeightRatio,
+            displayedHeightForRequest: { requestedHeight in
+                Self.displayedNormalHeight(for: input, requestedHeight: requestedHeight) ?? displayedHeight
+            }
+        )
         return DrawerResizeInteraction(
-            onChanged: { pointerY in
-                var session =
-                    resizeSession.flatMap { existing in
-                        existing.applies(toOwner: ownerPaneId, containerHeight: containerHeight)
-                            && !existing.isAwaitingCommit ? existing : nil
-                    }
-                    ?? DrawerNormalResizeSession(
-                        ownerPaneId: ownerPaneId,
-                        containerHeight: containerHeight,
-                        startHeight: displayedHeight,
-                        startPointerY: pointerY
-                    )
-                let fallbackHeight = session.liveHeight
-                session.track(pointerY: pointerY) { requestedHeight in
-                    Self.displayedNormalHeight(for: input, requestedHeight: requestedHeight) ?? fallbackHeight
-                }
-                resizeSession = session
+            onChanged: { gestureID, pointerY in
+                applyResizeEvent(.changed(gestureID: gestureID, pointerY: pointerY), context: context)
             },
-            onEnded: {
-                guard var session = resizeSession,
-                    session.applies(toOwner: ownerPaneId, containerHeight: containerHeight),
-                    !session.isAwaitingCommit,
-                    let ratio = session.committedHeightRatio.flatMap(
-                        DrawerPresentationPreference.validatedNormalHeightRatio
-                    )
-                else {
-                    resizeSession = nil
-                    return
-                }
-                guard ratio != input.preference.normalHeightRatio else {
-                    resizeSession = nil
-                    return
-                }
-                session.markAwaitingCommit()
-                resizeSession = session
-                actionDispatcher.dispatch(.setDrawerNormalHeightRatio(parentPaneId: ownerPaneId, ratio: ratio))
+            onEnded: { gestureID in
+                applyResizeEvent(.ended(gestureID: gestureID), context: context)
             },
-            onTerminated: {
-                if resizeSession?.isAwaitingCommit == false {
-                    resizeSession = nil
-                }
+            onTerminated: { gestureID in
+                applyResizeEvent(.terminated(gestureID: gestureID))
             }
         )
     }

@@ -13,9 +13,9 @@ import SwiftUI
 /// the handle's own moving bounds. `onTerminated` runs after every gesture,
 /// including cancellations that never reach `onEnded`.
 struct DrawerResizeInteraction {
-    let onChanged: (_ pointerYInTabContainer: CGFloat) -> Void
-    let onEnded: () -> Void
-    let onTerminated: () -> Void
+    let onChanged: (_ gestureID: DrawerResizeGestureID, _ pointerYInTabContainer: CGFloat) -> Void
+    let onEnded: (_ gestureID: DrawerResizeGestureID) -> Void
+    let onTerminated: (_ gestureID: DrawerResizeGestureID?) -> Void
 }
 
 /// Draggable resize handle at the top of a normal-mode drawer panel.
@@ -24,6 +24,8 @@ struct DrawerResizeHandle: View {
 
     let interaction: DrawerResizeInteraction
     @GestureState private var isGestureActive = false
+    /// Identity of the gesture in progress, minted at its first sample.
+    @State private var activeGestureID: DrawerResizeGestureID?
 
     var body: some View {
         Rectangle()
@@ -48,17 +50,21 @@ struct DrawerResizeHandle: View {
                         isActive = true
                     }
                     .onChanged { value in
-                        interaction.onChanged(value.location.y)
+                        let gestureID = activeGestureID ?? .make()
+                        activeGestureID = gestureID
+                        interaction.onChanged(gestureID, value.location.y)
                     }
                     .onEnded { _ in
-                        interaction.onEnded()
+                        guard let activeGestureID else { return }
+                        interaction.onEnded(activeGestureID)
                     }
             )
             // Gesture state resets on both completion and cancellation; the
             // reset is observed after `onEnded` has already committed.
             .onChange(of: isGestureActive) { _, isActive in
                 if !isActive {
-                    interaction.onTerminated()
+                    interaction.onTerminated(activeGestureID)
+                    activeGestureID = nil
                 }
             }
     }

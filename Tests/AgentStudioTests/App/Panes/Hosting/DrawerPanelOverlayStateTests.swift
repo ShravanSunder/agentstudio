@@ -100,7 +100,7 @@ struct DrawerPanelOverlayStateTests {
             viewRegistry: ViewRegistry(), action: { _ in },
             arrangementInlineRenameState: ArrangementInlineRenameState(),
             resizeInteraction: hasResizeInteraction
-                ? DrawerResizeInteraction(onChanged: { _ in }, onEnded: {}, onTerminated: {})
+                ? DrawerResizeInteraction(onChanged: { _, _ in }, onEnded: { _ in }, onTerminated: { _ in })
                 : nil,
             onDismiss: {}, onPaneFocusTrigger: { _ in },
             onFocusParentPane: {}, appLifecycleStore: AppLifecycleAtom(),

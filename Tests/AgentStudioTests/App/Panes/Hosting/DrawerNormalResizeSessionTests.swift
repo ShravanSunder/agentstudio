@@ -20,7 +20,8 @@ struct DrawerNormalResizeSessionTests {
             ownerPaneId: ownerPaneId,
             containerHeight: 800,
             startHeight: startHeight,
-            startPointerY: startPointerY
+            startPointerY: startPointerY,
+            gestureID: .make()
         )
     }
 
@@ -87,5 +88,114 @@ struct DrawerNormalResizeSessionTests {
         session.track(pointerY: 100, displayedHeight: clamp)
         #expect(session.liveHeight == 500)
         #expect(session.isAwaitingCommit)
+    }
+
+    // MARK: - Gesture lifecycle
+
+    private func context(committedRatio: Double = 0.5) -> DrawerResizeSessionContext {
+        DrawerResizeSessionContext(
+            ownerPaneId: ownerPaneId,
+            containerHeight: 800,
+            displayedHeight: 400,
+            committedHeightRatio: committedRatio,
+            displayedHeightForRequest: clamp
+        )
+    }
+
+    @Test("a completed gesture commits its owner ratio once")
+    func completedGestureCommitsOnce() {
+        let gesture = DrawerResizeGestureID.make()
+        var session = DrawerNormalResizeSession.reduce(
+            nil, .changed(gestureID: gesture, pointerY: 300), context: context()
+        )
+        .session
+        session =
+            DrawerNormalResizeSession.reduce(session, .changed(gestureID: gesture, pointerY: 200), context: context())
+            .session
+
+        let ended = DrawerNormalResizeSession.reduce(session, .ended(gestureID: gesture), context: context())
+        let terminated = DrawerNormalResizeSession.reduce(ended.session, .terminated(gestureID: gesture))
+
+        #expect(ended.commitHeightRatio == 500.0 / 800.0)
+        #expect(ended.session?.isAwaitingCommit == true)
+        #expect(terminated.session?.isAwaitingCommit == true)
+        #expect(DrawerNormalResizeSession.reduce(terminated.session, .committedPreferenceChanged).session == nil)
+    }
+
+    @Test("cancellation discards the gesture's late samples and end; a new gesture starts fresh")
+    func cancellationDiscardsLateSamplesAndEnd() {
+        // Arrange: a drag in progress.
+        let cancelledGesture = DrawerResizeGestureID.make()
+        var session = DrawerNormalResizeSession.reduce(
+            nil,
+            .changed(gestureID: cancelledGesture, pointerY: 300),
+            context: context()
+        ).session
+        session =
+            DrawerNormalResizeSession.reduce(
+                session,
+                .changed(gestureID: cancelledGesture, pointerY: 250),
+                context: context()
+            ).session
+
+        // Act: cancel, then the same gesture keeps sending samples and ends.
+        session = DrawerNormalResizeSession.reduce(session, .cancelled).session
+        let lateSample = DrawerNormalResizeSession.reduce(
+            session,
+            .changed(gestureID: cancelledGesture, pointerY: 100),
+            context: context()
+        )
+        let lateEnd = DrawerNormalResizeSession.reduce(
+            lateSample.session,
+            .ended(gestureID: cancelledGesture),
+            context: context()
+        )
+        let terminated = DrawerNormalResizeSession.reduce(lateEnd.session, .terminated(gestureID: cancelledGesture))
+
+        // Assert: nothing restarted, moved, or committed from the cancelled gesture.
+        #expect(lateSample.session?.isCancelled == true)
+        #expect(lateSample.session?.liveHeight == 450)
+        #expect(lateSample.commitHeightRatio == nil)
+        #expect(lateEnd.commitHeightRatio == nil)
+        #expect(terminated.session == nil)
+
+        // Act: a new gesture starts from the displayed height and commits its own drag.
+        let newGesture = DrawerResizeGestureID.make()
+        let started = DrawerNormalResizeSession.reduce(
+            terminated.session,
+            .changed(gestureID: newGesture, pointerY: 300),
+            context: context()
+        )
+        let moved = DrawerNormalResizeSession.reduce(
+            started.session,
+            .changed(gestureID: newGesture, pointerY: 260),
+            context: context()
+        )
+        let ended = DrawerNormalResizeSession.reduce(moved.session, .ended(gestureID: newGesture), context: context())
+
+        #expect(started.session?.isCancelled == false)
+        #expect(moved.session?.liveHeight == 440)
+        #expect(ended.commitHeightRatio == 440.0 / 800.0)
+    }
+
+    @Test("a new gesture replaces a cancelled session whose handle never reported termination")
+    func newGestureReplacesUnterminatedCancelledSession() {
+        let cancelledGesture = DrawerResizeGestureID.make()
+        var session = DrawerNormalResizeSession.reduce(
+            nil,
+            .changed(gestureID: cancelledGesture, pointerY: 300),
+            context: context()
+        ).session
+        session = DrawerNormalResizeSession.reduce(session, .cancelled).session
+
+        let newGesture = DrawerResizeGestureID.make()
+        let started = DrawerNormalResizeSession.reduce(
+            session,
+            .changed(gestureID: newGesture, pointerY: 300),
+            context: context()
+        )
+
+        #expect(started.session?.gestureID == newGesture)
+        #expect(started.session?.isCancelled == false)
     }
 }
