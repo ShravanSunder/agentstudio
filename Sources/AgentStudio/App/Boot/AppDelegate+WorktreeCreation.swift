@@ -46,16 +46,15 @@ extension AppDelegate {
         return .accepted(operationId: nil)
     }
 
+    /// Thin AppKit adapter over the pure `WorktreeCreationFailure.message` mapping: a
+    /// sheet attached to the workspace window, never an app-modal alert.
     private func presentWorktreeCreationFailure(_ failure: WorktreeCreationFailure) {
         appLogger.warning("Worktree creation failed: \(String(describing: failure), privacy: .private)")
+        guard let workspaceWindow = mainWindowController?.window else { return }
         let alert = NSAlert()
         alert.alertStyle = .warning
         alert.messageText = failure.message.title
         alert.informativeText = failure.message.detail
-        if let window = mainWindowController?.window {
-            alert.beginSheetModal(for: window)
-        } else {
-            alert.runModal()
-        }
+        alert.beginSheetModal(for: workspaceWindow)
     }
 }

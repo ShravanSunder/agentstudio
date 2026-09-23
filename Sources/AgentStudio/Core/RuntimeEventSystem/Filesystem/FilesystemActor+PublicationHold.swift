@@ -8,7 +8,9 @@ package struct WatchedFolderPublicationHoldID: Hashable, Sendable {
 /// A creation owner builds a checkout in place; linked-worktree metadata appears
 /// before the checkout is complete, so discovery could publish it half-built. A hold
 /// withholds that destination from every scan result until the owner releases it,
-/// then the owner requests a refresh that publishes the finished checkout.
+/// then the owner requests a refresh that publishes the finished checkout. While held,
+/// directory churn inside the destination is treated like work inside a known checkout
+/// and does not admit scans.
 extension FilesystemActor {
     package func holdWatchedFolderPublication(of destination: URL) -> WatchedFolderPublicationHoldID {
         let holdID = WatchedFolderPublicationHoldID(rawValue: UUIDv7.generate())

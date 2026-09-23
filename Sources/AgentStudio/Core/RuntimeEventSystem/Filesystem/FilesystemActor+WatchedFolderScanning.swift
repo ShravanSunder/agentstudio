@@ -171,7 +171,8 @@ extension FilesystemActor {
         let knownGroups = watchedFolderScanState.inventoryBySourceID[sourceID]?.repoGroups ?? []
         guard
             WatchedFolderTopologyAdmission.shouldScan(
-                batch, root: registration.registeredRoot, knownGroups: knownGroups)
+                batch, root: registration.registeredRoot, knownGroups: knownGroups,
+                heldCheckoutPaths: Array(watchedFolderScanState.publicationHoldPathsByID.values))
         else { return }
         await submitWatchedFolderScan(
             sourceID: sourceID,

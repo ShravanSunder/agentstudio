@@ -1,4 +1,5 @@
 import AgentStudioTestSupport
+import CoreServices
 import Foundation
 import Testing
 
@@ -44,6 +45,50 @@ struct WatchedFolderPublicationHoldIntegrationTests {
                 canonicalPath($0.path) != canonicalPath(fixture.destination)
             })
         #expect(linkedWorktreePaths(releasedSummary, fixture: fixture) == [canonicalPath(fixture.destination)])
+
+        await filesystem.shutdown()
+    }
+
+    @Test("directory churn inside a held destination admits no scan until the hold is released")
+    func heldDestinationChurnAdmitsNoScan() async throws {
+        // Arrange
+        let fixture = try await PublicationHoldFixture.make()
+        defer { fixture.remove() }
+        let filesystem = FilesystemActor(
+            bus: EventBus<RuntimeEnvelope>(),
+            fseventStreamClient: ControllableFSEventStreamClient()
+        )
+        let watchedPath = WatchedPath(path: fixture.watchedRoot)
+        _ = await filesystem.refreshWatchedFolders([watchedPath])
+        let sourceID = FilesystemSourceID(kind: .watchedParentMembership, rootID: watchedPath.id)
+        let routingID = try #require(
+            await filesystem.watchedFolderScanState.registrationsBySourceID[sourceID]?.legacyCallbackRoutingID)
+        let materializingDirectory = fixture.destination.appending(path: "Sources/Generated")
+        try FileManager.default.createDirectory(at: materializingDirectory, withIntermediateDirectories: true)
+        let churn = FSEventBatch(
+            worktreeId: routingID,
+            paths: [materializingDirectory.path],
+            observations: [
+                .init(
+                    path: materializingDirectory.path, eventID: 1,
+                    flags: UInt32(kFSEventStreamEventFlagItemIsDir | kFSEventStreamEventFlagItemCreated))
+            ]
+        )
+        let holdID = await filesystem.holdWatchedFolderPublication(of: fixture.destination)
+        let coverageBeforeHeldChurn = await filesystem.watchedFolderScanState.latestDemandCoverageBySourceID[sourceID]
+
+        // Act
+        await filesystem.handleWatchedFolderFSEvent(churn)
+        let coverageAfterHeldChurn = await filesystem.watchedFolderScanState.latestDemandCoverageBySourceID[sourceID]
+        await filesystem.releaseWatchedFolderPublicationHold(holdID)
+        await filesystem.handleWatchedFolderFSEvent(churn)
+        let coverageAfterReleasedChurn = await filesystem.watchedFolderScanState.latestDemandCoverageBySourceID[
+            sourceID]
+
+        // Assert
+        #expect(coverageBeforeHeldChurn != nil)
+        #expect(coverageAfterHeldChurn == coverageBeforeHeldChurn)
+        #expect(coverageAfterReleasedChurn != coverageBeforeHeldChurn)
 
         await filesystem.shutdown()
     }
