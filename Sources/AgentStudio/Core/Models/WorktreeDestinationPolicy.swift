@@ -12,6 +12,8 @@ package enum WorktreeDestinationRejection: Error, Equatable, Sendable {
     case emptyFolderSlug
     /// No watched folder would discover the destination, so it would never reach the sidebar.
     case undiscoverableDestination(URL)
+    /// The destination sits deeper below its watched folder than the scanner descends.
+    case beyondScannerDepth(URL, maximumDepth: Int)
     case destinationExists(URL)
 }
 
@@ -32,9 +34,13 @@ package enum WorktreeDestinationPolicy {
             path: repositoryFolder.lastPathComponent + AppPolicies.WorktreeCreation.destinationSlugSeparator + slug,
             directoryHint: .isDirectory
         ).standardizedFileURL
-        guard let watchedPath = discoveringWatchedPath(for: destination, in: watchedPaths) else {
+        guard let discovery = discoveringWatchedPath(for: destination, in: watchedPaths) else {
             return .failure(.undiscoverableDestination(destination))
         }
+        guard discovery.depthBelowRoot <= RepoScanner.defaultMaxDepth else {
+            return .failure(.beyondScannerDepth(destination, maximumDepth: RepoScanner.defaultMaxDepth))
+        }
+        let watchedPath = discovery.watchedPath
         guard !pathExists(destination) else { return .failure(.destinationExists(destination)) }
         return .success(WorktreeCreationDestination(path: destination, watchedPath: watchedPath))
     }
@@ -59,20 +65,24 @@ package enum WorktreeDestinationPolicy {
     }
 
     /// The deepest watched folder that strictly contains the destination through
-    /// non-hidden folders; scans skip hidden directories.
-    private static func discoveringWatchedPath(for destination: URL, in watchedPaths: [WatchedPath]) -> WatchedPath? {
+    /// non-hidden folders (scans skip hidden directories), with the destination's depth
+    /// below it; the deepest root gives the shallowest, most discoverable depth.
+    private static func discoveringWatchedPath(
+        for destination: URL,
+        in watchedPaths: [WatchedPath]
+    ) -> (watchedPath: WatchedPath, depthBelowRoot: Int)? {
         let destinationComponents = canonicalComponents(of: destination)
         return
             watchedPaths
-            .compactMap { watchedPath -> (WatchedPath, Int)? in
+            .compactMap { watchedPath -> (watchedPath: WatchedPath, depthBelowRoot: Int)? in
                 let rootComponents = canonicalComponents(of: watchedPath.path)
                 guard destinationComponents.count > rootComponents.count,
                     destinationComponents.starts(with: rootComponents),
                     !destinationComponents.dropFirst(rootComponents.count).contains(where: { $0.hasPrefix(".") })
                 else { return nil }
-                return (watchedPath, rootComponents.count)
+                return (watchedPath, destinationComponents.count - rootComponents.count)
             }
-            .max { $0.1 < $1.1 }?.0
+            .min { $0.depthBelowRoot < $1.depthBelowRoot }
     }
 
     private static func canonicalComponents(of url: URL) -> [String] {

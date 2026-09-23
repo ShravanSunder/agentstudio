@@ -29,6 +29,11 @@ struct WorktreeCreationFailureMessageTests {
                     "/Users/dev/project-dev/repo.topic is not inside a watched folder, so it would never appear in the sidebar."
             ),
             MessageCase(
+                failure: .destinationRejected(.beyondScannerDepth(destination, maximumDepth: 4)),
+                detail:
+                    "/Users/dev/project-dev/repo.topic is more than 4 folders below its watched folder, so it would never appear in the sidebar."
+            ),
+            MessageCase(
                 failure: .destinationRejected(.emptyFolderSlug),
                 detail: "The branch name has no characters that can name a folder."
             ),

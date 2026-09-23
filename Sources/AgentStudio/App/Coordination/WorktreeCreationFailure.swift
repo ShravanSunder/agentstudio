@@ -35,6 +35,8 @@ extension WorktreeCreationFailure {
             "The branch name has no characters that can name a folder."
         case .destinationRejected(.undiscoverableDestination(let destination)):
             "\(destination.path) is not inside a watched folder, so it would never appear in the sidebar."
+        case .destinationRejected(.beyondScannerDepth(let destination, let maximumDepth)):
+            "\(destination.path) is more than \(maximumDepth) folders below its watched folder, so it would never appear in the sidebar."
         case .destinationRejected(.destinationExists(let destination)):
             "\(destination.path) already exists."
         case .alreadyInProgress(let destination):

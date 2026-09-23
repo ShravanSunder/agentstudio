@@ -142,6 +142,59 @@ struct WorktreeDestinationPolicyTests {
         #expect(hidden == .failure(.undiscoverableDestination(expectedDestination.standardizedFileURL)))
     }
 
+    struct DepthCase: Sendable, CustomTestStringConvertible {
+        let label: String
+        /// The main checkout the sibling destination is derived from.
+        let repositoryPath: String
+        let accepted: Bool
+        var testDescription: String { label }
+    }
+
+    @Test(
+        "destinations the watched-folder scanner cannot reach are rejected before creation",
+        arguments: [
+            DepthCase(label: "sibling at depth 1", repositoryPath: "/Users/dev/watch/repo", accepted: true),
+            DepthCase(
+                label: "sibling at the scanner's maximum depth",
+                repositoryPath: "/Users/dev/watch/a/b/c/repo",
+                accepted: true
+            ),
+            DepthCase(
+                label: "sibling one level past the scanner's maximum depth",
+                repositoryPath: "/Users/dev/watch/a/b/c/d/repo",
+                accepted: false
+            ),
+            DepthCase(
+                label: "shallow linked source whose main repository is deeper",
+                repositoryPath: "/Users/dev/watch/deep/er/still/nested/main-repo",
+                accepted: false
+            ),
+        ]
+    )
+    func scannerDepthLimitsDestinations(_ testCase: DepthCase) throws {
+        let branchName = try WorktreeBranchName.validated("topic").get()
+        let repositoryPath = URL(filePath: testCase.repositoryPath, directoryHint: .isDirectory)
+        let expectedDestination = repositoryPath.deletingLastPathComponent()
+            .appending(path: repositoryPath.lastPathComponent + ".topic", directoryHint: .isDirectory)
+            .standardizedFileURL
+
+        let result = WorktreeDestinationPolicy.resolve(
+            repositoryPath: repositoryPath,
+            branchName: branchName,
+            watchedPaths: [WatchedPath(path: URL(filePath: "/Users/dev/watch", directoryHint: .isDirectory))],
+            pathExists: { _ in false }
+        )
+
+        if testCase.accepted {
+            #expect((try? result.get())?.path == expectedDestination)
+        } else {
+            #expect(
+                result
+                    == .failure(
+                        .beyondScannerDepth(expectedDestination, maximumDepth: RepoScanner.defaultMaxDepth)))
+        }
+    }
+
     @Test("an existing destination is rejected as a collision")
     func existingDestinationIsRejected() throws {
         let branchName = try WorktreeBranchName.validated("topic").get()
