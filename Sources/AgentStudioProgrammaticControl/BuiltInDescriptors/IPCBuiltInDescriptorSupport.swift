@@ -128,6 +128,30 @@ enum IPCBuiltInDescriptorSupport {
         reason: "unavailable",
         description: "The owning application capability is unavailable."
     )
+    static let notYetAllowed = IPCMethodErrorCase(
+        reason: "notYetAllowed",
+        description: "A pane agent named this method or a target outside its own pane."
+    )
+    static let refusedForAgent = IPCMethodErrorCase(
+        reason: "refusedForAgent",
+        description: "A pane agent asked for an effect agents are never allowed."
+    )
+
+    /// The agent outcomes a method can return, documented beside its own
+    /// errors so clients render them by reason.
+    static func documentedErrors(
+        _ errors: [IPCMethodErrorCase],
+        agentEligibility: IPCAgentEligibility?
+    ) -> [IPCMethodErrorCase] {
+        switch agentEligibility {
+        case .none, .anyTarget:
+            errors
+        case .ownPane:
+            errors + [notYetAllowed, refusedForAgent]
+        case .notYetAllowed:
+            errors + [notYetAllowed]
+        }
+    }
 
     // Every built-in read declares its agent eligibility explicitly, so the
     // required parameters exceed the default limit by that one declaration.
@@ -161,7 +185,7 @@ enum IPCBuiltInDescriptorSupport {
             executionOwner: owner,
             principalAvailability: availability,
             resultSemantics: .applied,
-            documentedErrors: errors,
+            documentedErrors: documentedErrors(errors, agentEligibility: agentEligibility),
             isMutating: false,
             correlationPolicy: .notAccepted,
             agentEligibility: agentEligibility
@@ -190,7 +214,7 @@ enum IPCBuiltInDescriptorSupport {
             executionOwner: metadata.owner,
             principalAvailability: .authenticated,
             resultSemantics: metadata.semantics,
-            documentedErrors: metadata.errors,
+            documentedErrors: documentedErrors(metadata.errors, agentEligibility: metadata.agentEligibility),
             isMutating: true,
             correlationPolicy: .required,
             agentEligibility: metadata.agentEligibility

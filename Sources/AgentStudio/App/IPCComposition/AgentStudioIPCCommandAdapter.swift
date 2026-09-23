@@ -70,8 +70,24 @@ struct AgentStudioIPCCommandAdapter: AppIPCCommandPort, @unchecked Sendable {
                     target: resolved.target,
                     dataScope: PermissionScopeCanonicalizer.dataScope(for: privilege)
                 )
-            ]
+            ],
+            resolvedPaneIds: resolved.paneIds,
+            agentArgumentRule: Self.agentArgumentRule(for: command, arguments: resolved.arguments)
         )
+    }
+
+    /// Commands whose effect, not only their target, decides agent admission.
+    private static func agentArgumentRule(
+        for command: AppCommand,
+        arguments: IPCCommandArguments
+    ) -> AppIPCAgentArgumentRule {
+        switch (command, arguments) {
+        case (.closeDrawerPane, .drawerPane(let value)):
+            AppCommandTypedIPCPane.canonicalId(value.drawerPaneSelector).map(AppIPCAgentArgumentRule.closesPane)
+                ?? .targetOnly
+        default:
+            .targetOnly
+        }
     }
 
     func executeCommand(_ request: IPCCommandExecutionRequest) async throws -> IPCCommandExecutionResult {

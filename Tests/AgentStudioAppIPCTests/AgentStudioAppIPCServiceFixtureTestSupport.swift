@@ -41,7 +41,8 @@ struct LiveServerFixture {
         commandComposition: IPCCommandMethodComposition? = nil,
         credentialResolver: (any AgentStudioIPCCredentialResolving)? = nil,
         credentialContinuityPort: any AgentStudioIPCCredentialContinuityPort = TestCredentialContinuityPort(),
-        canonicalPaneMembership: (@MainActor @Sendable (UUID, UUID) -> Bool)? = nil
+        canonicalPaneMembership: (@MainActor @Sendable (UUID, UUID) -> Bool)? = nil,
+        ownPaneScopes: [AppIPCOwnPaneScope] = []
     ) throws {
         let resolvedCredentialResolver = credentialResolver ?? IPCFixtureCredentialResolver()
         testCredentialResolver = resolvedCredentialResolver as? IPCFixtureCredentialResolver
@@ -63,7 +64,10 @@ struct LiveServerFixture {
             uiPresentationPort: uiPresentationPort,
             sidebarPort: sidebarPort,
             sessionsPort: sessionsPort,
-            permissionApprovalPort: FakePermissionApprovalPort()
+            permissionApprovalPort: FakePermissionApprovalPort(),
+            // Unless a test names scopes, every bound pane is a main-layout
+            // terminal with an empty drawer, so its own pane is itself.
+            ownPaneScopePort: StaticOwnPaneScopePort(scopes: ownPaneScopes)
         )
         let eventBroker = IPCEventBroker()
         let catalog = try makeLiveServerBuiltInCatalog(
@@ -84,7 +88,14 @@ struct LiveServerFixture {
                 port: commandPort
             )
         }
-        let methodRegistry = try AppIPCMethodRegistry(registrations: registrations, channel: channel)
+        let methodRegistry = try AppIPCMethodRegistry(
+            registrations: registrations,
+            recognizedCommands: (commandComposition?.commands ?? []).map {
+                AppIPCRecognizedEntry(
+                    name: $0.id.rawValue, exposure: $0.exposure, agentEligibility: $0.agentEligibility)
+            },
+            channel: channel
+        )
         let service = AgentStudioAppIPCService(
             configuration: AgentStudioAppIPCConfiguration(
                 runtimeId: runtimeId,

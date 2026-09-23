@@ -20,7 +20,8 @@ struct AgentStudioIPCRegistryAuthorizationTests {
     @Test("debug registry exposes the 47 typed bindings and computed capabilities only")
     func debugRegistryHasTypedCatalogAndComputedCapabilities() throws {
         let fixture = BuiltInMethodRegistrationsFixture()
-        let registry = try AppIPCMethodRegistry(registrations: fixture.registrations(), channel: .debug)
+        let registry = try AppIPCMethodRegistry(
+            registrations: fixture.registrations(), recognizedCommands: [], channel: .debug)
         let names = registry.capabilities.methods.map(\.name)
 
         #expect(names.count == 48)
@@ -35,7 +36,8 @@ struct AgentStudioIPCRegistryAuthorizationTests {
     @Test("stable registry omits debug-testing methods and keeps agent-eligible methods")
     func stableRegistryOmitsDebugTestingMethods() throws {
         let fixture = BuiltInMethodRegistrationsFixture()
-        let registry = try AppIPCMethodRegistry(registrations: fixture.registrations(), channel: .stable)
+        let registry = try AppIPCMethodRegistry(
+            registrations: fixture.registrations(), recognizedCommands: [], channel: .stable)
         let names = Set(registry.capabilities.methods.map(\.name))
 
         #expect(
@@ -62,11 +64,13 @@ struct AgentStudioIPCRegistryAuthorizationTests {
         let duplicate = try #require(registrations.first)
 
         #expect(throws: AppIPCMethodRegistryError.duplicateMethodName(duplicate.descriptor.metadata.name)) {
-            _ = try AppIPCMethodRegistry(registrations: registrations + [duplicate], channel: .debug)
+            _ = try AppIPCMethodRegistry(
+                registrations: registrations + [duplicate], recognizedCommands: [], channel: .debug)
         }
         #expect(throws: AppIPCMethodRegistryError.missingSystemPing) {
             _ = try AppIPCMethodRegistry(
                 registrations: registrations.filter { $0.descriptor.metadata.name != "system.ping" },
+                recognizedCommands: [],
                 channel: .debug
             )
         }
@@ -77,9 +81,11 @@ struct AgentStudioIPCRegistryAuthorizationTests {
         let fixture = BuiltInMethodRegistrationsFixture()
         let grantLedger = GrantLedger()
         let service = AuthorizationService(
-            methodRegistry: try AppIPCMethodRegistry(registrations: fixture.registrations(), channel: .debug),
+            methodRegistry: try AppIPCMethodRegistry(
+                registrations: fixture.registrations(), recognizedCommands: [], channel: .debug),
             grantLedger: grantLedger,
-            canonicalizer: PermissionScopeCanonicalizer()
+            canonicalizer: PermissionScopeCanonicalizer(),
+            ownPaneScopePort: StaticOwnPaneScopePort()
         )
         let principal = automationPrincipal(runtimeId: fixture.runtimeId)
         let target = IPCTargetScope.pane("pane-1")
@@ -120,11 +126,13 @@ struct AgentStudioIPCRegistryAuthorizationTests {
     @Test("pane baseline authorizes self terminal input and denies cross-pane input")
     func paneBaselineIsBoundToItsExactPane() throws {
         let fixture = BuiltInMethodRegistrationsFixture()
-        let registry = try AppIPCMethodRegistry(registrations: fixture.registrations(), channel: .debug)
+        let registry = try AppIPCMethodRegistry(
+            registrations: fixture.registrations(), recognizedCommands: [], channel: .debug)
         let service = AuthorizationService(
             methodRegistry: registry,
             grantLedger: GrantLedger(),
-            canonicalizer: PermissionScopeCanonicalizer()
+            canonicalizer: PermissionScopeCanonicalizer(),
+            ownPaneScopePort: StaticOwnPaneScopePort()
         )
         let principal = panePrincipal(boundPaneId: "pane-1", runtimeId: fixture.runtimeId)
 
@@ -144,10 +152,12 @@ struct AgentStudioIPCRegistryAuthorizationTests {
     @Test("cross-pane terminal input requires the exact canonical grant")
     func crossPaneTerminalInputRequiresExactGrant() throws {
         let fixture = BuiltInMethodRegistrationsFixture()
-        let registry = try AppIPCMethodRegistry(registrations: fixture.registrations(), channel: .debug)
+        let registry = try AppIPCMethodRegistry(
+            registrations: fixture.registrations(), recognizedCommands: [], channel: .debug)
         let ledger = GrantLedger()
         let service = AuthorizationService(
-            methodRegistry: registry, grantLedger: ledger, canonicalizer: PermissionScopeCanonicalizer())
+            methodRegistry: registry, grantLedger: ledger, canonicalizer: PermissionScopeCanonicalizer(),
+            ownPaneScopePort: StaticOwnPaneScopePort())
         let principal = panePrincipal(boundPaneId: "pane-1", runtimeId: fixture.runtimeId)
         let scope = IPCPermissionScope(
             privilege: .terminalInputWrite, target: .pane("pane-2"), dataScope: .terminalInput)
@@ -161,18 +171,20 @@ struct AgentStudioIPCRegistryAuthorizationTests {
     }
 
     @Test("authorization rejects privilege or data scope that differs from descriptor metadata")
-    func authorizationRejectsMetadataMismatch() throws {
+    func authorizationRejectsMetadataMismatch() async throws {
         let fixture = BuiltInMethodRegistrationsFixture()
-        let registry = try AppIPCMethodRegistry(registrations: fixture.registrations(), channel: .debug)
+        let registry = try AppIPCMethodRegistry(
+            registrations: fixture.registrations(), recognizedCommands: [], channel: .debug)
         let service = AuthorizationService(
             methodRegistry: registry,
             grantLedger: GrantLedger(),
-            canonicalizer: PermissionScopeCanonicalizer()
+            canonicalizer: PermissionScopeCanonicalizer(),
+            ownPaneScopePort: StaticOwnPaneScopePort()
         )
         let principal = panePrincipal(boundPaneId: "pane-1", runtimeId: fixture.runtimeId)
 
-        #expect(throws: AuthorizationError.self) {
-            try service.authorize(
+        await #expect(throws: AuthorizationError.self) {
+            try await service.authorize(
                 principal: principal,
                 request: authorizationRequest(
                     method: "terminal.send",
@@ -185,13 +197,15 @@ struct AgentStudioIPCRegistryAuthorizationTests {
     }
 
     @Test("additional command scopes require their exact canonical grants")
-    func additionalScopesRequireExactCanonicalGrants() throws {
+    func additionalScopesRequireExactCanonicalGrants() async throws {
         let fixture = BuiltInMethodRegistrationsFixture()
         let ledger = GrantLedger()
         let service = AuthorizationService(
-            methodRegistry: try AppIPCMethodRegistry(registrations: fixture.registrations(), channel: .debug),
+            methodRegistry: try AppIPCMethodRegistry(
+                registrations: fixture.registrations(), recognizedCommands: [], channel: .debug),
             grantLedger: ledger,
-            canonicalizer: PermissionScopeCanonicalizer()
+            canonicalizer: PermissionScopeCanonicalizer(),
+            ownPaneScopePort: StaticOwnPaneScopePort()
         )
         let principal = panePrincipal(boundPaneId: "pane-1", runtimeId: fixture.runtimeId)
         let additionalScope = IPCPermissionScope(
@@ -207,8 +221,8 @@ struct AgentStudioIPCRegistryAuthorizationTests {
             additionalScopes: [additionalScope]
         )
 
-        #expect(throws: AuthorizationError.self) {
-            try service.authorize(principal: principal, request: request)
+        await #expect(throws: AuthorizationError.self) {
+            try await service.authorize(principal: principal, request: request)
         }
         ledger.grant(
             IPCPermissionScope(
@@ -218,20 +232,22 @@ struct AgentStudioIPCRegistryAuthorizationTests {
             ),
             to: principal.principalId
         )
-        #expect(throws: AuthorizationError.self) {
-            try service.authorize(principal: principal, request: request)
+        await #expect(throws: AuthorizationError.self) {
+            try await service.authorize(principal: principal, request: request)
         }
         ledger.grant(additionalScope, to: principal.principalId)
-        try service.authorize(principal: principal, request: request)
+        try await service.authorize(principal: principal, request: request)
     }
 
     @Test("debug authorization bypasses grants only for exact diagnostic provenance pairs")
-    func diagnosticAuthorizationRequiresExactProvenancePair() throws {
+    func diagnosticAuthorizationRequiresExactProvenancePair() async throws {
         let fixture = BuiltInMethodRegistrationsFixture()
         let service = AuthorizationService(
-            methodRegistry: try AppIPCMethodRegistry(registrations: fixture.registrations(), channel: .debug),
+            methodRegistry: try AppIPCMethodRegistry(
+                registrations: fixture.registrations(), recognizedCommands: [], channel: .debug),
             grantLedger: GrantLedger(),
-            canonicalizer: PermissionScopeCanonicalizer()
+            canonicalizer: PermissionScopeCanonicalizer(),
+            ownPaneScopePort: StaticOwnPaneScopePort()
         )
         let request = authorizationRequest(
             method: "ui.commandBar.open",
@@ -271,22 +287,24 @@ struct AgentStudioIPCRegistryAuthorizationTests {
         ]
 
         for principal in admittedPrincipals {
-            try service.authorize(principal: principal, request: request)
+            try await service.authorize(principal: principal, request: request)
         }
         for principal in rejectedPrincipals {
-            #expect(throws: AuthorizationError.self) {
-                try service.authorize(principal: principal, request: request)
+            await #expect(throws: AuthorizationError.self) {
+                try await service.authorize(principal: principal, request: request)
             }
         }
     }
 
     @Test("descriptor metadata mismatch rejects before diagnostic authority bypass")
-    func diagnosticAuthorizationRejectsMetadataMismatch() throws {
+    func diagnosticAuthorizationRejectsMetadataMismatch() async throws {
         let fixture = BuiltInMethodRegistrationsFixture()
         let service = AuthorizationService(
-            methodRegistry: try AppIPCMethodRegistry(registrations: fixture.registrations(), channel: .debug),
+            methodRegistry: try AppIPCMethodRegistry(
+                registrations: fixture.registrations(), recognizedCommands: [], channel: .debug),
             grantLedger: GrantLedger(),
-            canonicalizer: PermissionScopeCanonicalizer()
+            canonicalizer: PermissionScopeCanonicalizer(),
+            ownPaneScopePort: StaticOwnPaneScopePort()
         )
         let principal = diagnosticPrincipal(
             runtimeId: fixture.runtimeId,
@@ -294,8 +312,8 @@ struct AgentStudioIPCRegistryAuthorizationTests {
             kind: .automationClient
         )
 
-        #expect(throws: AuthorizationError.self) {
-            try service.authorize(
+        await #expect(throws: AuthorizationError.self) {
+            try await service.authorize(
                 principal: principal,
                 request: authorizationRequest(
                     method: "ui.commandBar.open",
@@ -311,12 +329,14 @@ struct AgentStudioIPCRegistryAuthorizationTests {
         "stable and beta registries refuse diagnostic-only authorization",
         arguments: [AgentStudioIPCChannel.stable, .beta]
     )
-    func productionRegistryRefusesDiagnosticAuthorization(channel: AgentStudioIPCChannel) throws {
+    func productionRegistryRefusesDiagnosticAuthorization(channel: AgentStudioIPCChannel) async throws {
         let fixture = BuiltInMethodRegistrationsFixture()
         let service = AuthorizationService(
-            methodRegistry: try AppIPCMethodRegistry(registrations: fixture.registrations(), channel: channel),
+            methodRegistry: try AppIPCMethodRegistry(
+                registrations: fixture.registrations(), recognizedCommands: [], channel: channel),
             grantLedger: GrantLedger(),
-            canonicalizer: PermissionScopeCanonicalizer()
+            canonicalizer: PermissionScopeCanonicalizer(),
+            ownPaneScopePort: StaticOwnPaneScopePort()
         )
         let principal = diagnosticPrincipal(
             runtimeId: fixture.runtimeId,
@@ -324,8 +344,8 @@ struct AgentStudioIPCRegistryAuthorizationTests {
             kind: .automationClient
         )
 
-        #expect(throws: AuthorizationError.self) {
-            try service.authorize(
+        await #expect(throws: AuthorizationError.self) {
+            try await service.authorize(
                 principal: principal,
                 request: authorizationRequest(
                     method: "ui.commandBar.open",
@@ -338,18 +358,20 @@ struct AgentStudioIPCRegistryAuthorizationTests {
     }
 
     @Test("debug channel does not upgrade a pane principal to diagnostic methods")
-    func debugChannelDoesNotUpgradePanePrincipal() throws {
+    func debugChannelDoesNotUpgradePanePrincipal() async throws {
         let fixture = BuiltInMethodRegistrationsFixture()
-        let registry = try AppIPCMethodRegistry(registrations: fixture.registrations(), channel: .debug)
+        let registry = try AppIPCMethodRegistry(
+            registrations: fixture.registrations(), recognizedCommands: [], channel: .debug)
         let service = AuthorizationService(
             methodRegistry: registry,
             grantLedger: GrantLedger(),
-            canonicalizer: PermissionScopeCanonicalizer()
+            canonicalizer: PermissionScopeCanonicalizer(),
+            ownPaneScopePort: StaticOwnPaneScopePort()
         )
         let principal = panePrincipal(boundPaneId: "pane-1", runtimeId: fixture.runtimeId)
 
-        #expect(throws: AuthorizationError.self) {
-            try service.authorize(
+        await #expect(throws: AuthorizationError.self) {
+            try await service.authorize(
                 principal: principal,
                 request: authorizationRequest(
                     method: "ui.commandBar.open",

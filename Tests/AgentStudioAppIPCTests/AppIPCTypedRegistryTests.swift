@@ -11,7 +11,7 @@ struct AppIPCTypedRegistryTests {
     func debugRegistryDerivesCapabilitiesFromHandlers() throws {
         let fixture = BuiltInMethodRegistrationsFixture()
         let registrations = try fixture.registrations()
-        let registry = try AppIPCMethodRegistry(registrations: registrations, channel: .debug)
+        let registry = try AppIPCMethodRegistry(registrations: registrations, recognizedCommands: [], channel: .debug)
         let names = registry.capabilities.methods.map(\.name)
         #expect(names.count == 48)
         #expect(names == names.sorted())
@@ -33,7 +33,8 @@ struct AppIPCTypedRegistryTests {
         arguments: [AgentStudioIPCChannel.stable, .beta])
     func productionRegistryOmitsDiagnosticMethods(channel: AgentStudioIPCChannel) throws {
         let fixture = BuiltInMethodRegistrationsFixture()
-        let registry = try AppIPCMethodRegistry(registrations: fixture.registrations(), channel: channel)
+        let registry = try AppIPCMethodRegistry(
+            registrations: fixture.registrations(), recognizedCommands: [], channel: channel)
         // 12 established all-channel methods plus the 13 methods pane agents
         // may run in A1, which reach agents on every channel.
         #expect(registry.capabilities.methods.count == 25)
@@ -52,14 +53,16 @@ struct AppIPCTypedRegistryTests {
         let registrations = try fixture.registrations()
         let duplicate = try #require(registrations.first)
         #expect(throws: AppIPCMethodRegistryError.self) {
-            try AppIPCMethodRegistry(registrations: registrations + [duplicate], channel: .debug)
+            try AppIPCMethodRegistry(
+                registrations: registrations + [duplicate], recognizedCommands: [], channel: .debug)
         }
     }
 
     @Test("registry capabilities handler returns the same validated catalog")
     func capabilitiesHandlerMatchesRegistryProjection() async throws {
         let fixture = BuiltInMethodRegistrationsFixture()
-        let registry = try AppIPCMethodRegistry(registrations: fixture.registrations(), channel: .debug)
+        let registry = try AppIPCMethodRegistry(
+            registrations: fixture.registrations(), recognizedCommands: [], channel: .debug)
         let registration = try #require(registry.registration(named: "system.capabilities"))
         let principal = fixture.diagnosticPrincipal
         let result = try await registration.invoke(

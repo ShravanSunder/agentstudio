@@ -75,6 +75,7 @@ extension AppIPCBuiltInMethodRegistrations {
                         parameters,
                         rawHandle: parameters.handle,
                         tools: tools,
+                        agentArgumentRule: { .closesPane($0) },
                         replacingHandle: { original, canonicalHandle in
                             IPCPaneCloseParams(
                                 handle: canonicalHandle,
@@ -127,6 +128,7 @@ extension AppIPCBuiltInMethodRegistrations {
                         parameters,
                         rawHandle: parameters.parentPaneHandle,
                         tools: tools,
+                        agentArgumentRule: { .addsDrawerChild(parentPaneId: $0) },
                         replacingHandle: { original, canonicalHandle in
                             IPCDrawerAddPaneParams(
                                 parentPaneHandle: canonicalHandle,

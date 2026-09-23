@@ -587,7 +587,12 @@ final class FakeCommandPort: AppIPCCommandPort, @unchecked Sendable {
             request: preparedRequest,
             canonicalHandle: canonicalHandle,
             target: requiredScopes.first?.target ?? .app,
-            requiredScopes: requiredScopes
+            requiredScopes: requiredScopes,
+            resolvedPaneIds: canonicalHandle.flatMap { handle -> UUID? in
+                guard case .canonicalUUID(let paneId) = handle.reference else { return nil }
+                return paneId
+            }.map { [$0] } ?? [],
+            agentArgumentRule: .targetOnly
         )
     }
 
@@ -610,6 +615,8 @@ struct FakeCommandDescriptorInput {
     let dataScope: IPCDataScope
     let allowedTargetKinds: Set<IPCHandleKind>
     let result: IPCCommandExecutionResult
+    var exposure: IPCMethodExposure = .debugTesting
+    var agentEligibility: IPCAgentEligibility = .notYetAllowed
 }
 
 func makeFakeCommandDescriptor(_ input: FakeCommandDescriptorInput) throws -> IPCCommandDescriptor {
@@ -618,7 +625,7 @@ func makeFakeCommandDescriptor(_ input: FakeCommandDescriptorInput) throws -> IP
             id: input.id,
             title: "Fixture \(input.id.rawValue)",
             description: "Exercise one typed command fixture.",
-            exposure: .debugTesting,
+            exposure: input.exposure,
             executionMode: input.executionMode,
             argumentVariants: [input.arguments.variant],
             requiredPrivileges: input.requiredPrivileges,
@@ -636,7 +643,7 @@ func makeFakeCommandDescriptor(_ input: FakeCommandDescriptorInput) throws -> IP
                     result: input.result
                 )
             ],
-            agentEligibility: .notYetAllowed
+            agentEligibility: input.agentEligibility
         )
     )
 }

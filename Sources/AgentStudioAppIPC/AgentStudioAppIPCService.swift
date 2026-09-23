@@ -154,15 +154,20 @@ package struct AppIPCPreparedCommand: Sendable {
     package let canonicalHandle: IPCHandle?
     package let target: IPCTargetScope
     package let requiredScopes: [IPCPermissionScope]
+    /// Every canonical pane identity the command arguments name.
+    package let resolvedPaneIds: [UUID]
+    package let agentArgumentRule: AppIPCAgentArgumentRule
 
     package init(
         request: IPCCommandExecutionRequest, canonicalHandle: IPCHandle?, target: IPCTargetScope,
-        requiredScopes: [IPCPermissionScope]
+        requiredScopes: [IPCPermissionScope], resolvedPaneIds: [UUID], agentArgumentRule: AppIPCAgentArgumentRule
     ) {
         self.request = request
         self.canonicalHandle = canonicalHandle
         self.target = target
         self.requiredScopes = requiredScopes
+        self.resolvedPaneIds = resolvedPaneIds
+        self.agentArgumentRule = agentArgumentRule
     }
 }
 
@@ -215,6 +220,7 @@ package struct AgentStudioAppIPCPorts: Sendable {
     package let sidebarPort: any AppIPCSidebarPort
     package let sessionsPort: any AppIPCSessionsPort
     package let permissionApprovalPort: any AppIPCPermissionApprovalPort
+    package let ownPaneScopePort: any AppIPCOwnPaneScopePort
 
     package init(
         queryPort: any AppIPCQueryPort,
@@ -225,7 +231,8 @@ package struct AgentStudioAppIPCPorts: Sendable {
         uiPresentationPort: any AppIPCUIPresentationPort,
         sidebarPort: any AppIPCSidebarPort,
         sessionsPort: any AppIPCSessionsPort,
-        permissionApprovalPort: any AppIPCPermissionApprovalPort
+        permissionApprovalPort: any AppIPCPermissionApprovalPort,
+        ownPaneScopePort: any AppIPCOwnPaneScopePort
     ) {
         self.queryPort = queryPort
         self.layoutPort = layoutPort
@@ -236,6 +243,7 @@ package struct AgentStudioAppIPCPorts: Sendable {
         self.sidebarPort = sidebarPort
         self.sessionsPort = sessionsPort
         self.permissionApprovalPort = permissionApprovalPort
+        self.ownPaneScopePort = ownPaneScopePort
     }
 }
 

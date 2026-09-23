@@ -85,7 +85,8 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
         self.authorizationService = AuthorizationService(
             methodRegistry: methodRegistry,
             grantLedger: grantLedger,
-            canonicalizer: PermissionScopeCanonicalizer()
+            canonicalizer: PermissionScopeCanonicalizer(),
+            ownPaneScopePort: service.ports.ownPaneScopePort
         )
         self.permissionBroker = PermissionBroker(
             grantLedger: grantLedger,
@@ -290,7 +291,8 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
         socketSubscriber: any IPCEventSubscriber
     ) async throws -> JSONValue {
         guard serverIsRunning() else { throw AgentStudioAppIPCRequestError.unauthenticated }
-        guard let registration = methodRegistry.registration(named: request.method) else {
+        let registration = methodRegistry.registration(named: request.method)
+        guard registration != nil || methodRegistry.recognizesMethod(named: request.method) else {
             throw AgentStudioAppIPCRequestError.methodNotFound
         }
         if connectionState.principal == nil, !connectionState.authenticationFailed,
@@ -317,6 +319,12 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
         {
             throw AgentStudioAppIPCRequestError.unauthenticated
         }
+        if let principal = connectionState.principal, case .spawnedPaneAgent = principal.kind,
+            let refusal = methodRegistry.paneAgentRoutingRefusal(methodName: request.method, parameters: request.params)
+        {
+            throw refusal
+        }
+        guard let registration else { throw AgentStudioAppIPCRequestError.methodNotFound }
         let context = AppIPCConnectionContext(
             contextId: connectionId, channel: channel,
             authenticatedContext: connectionState.authenticatedContext,
@@ -364,7 +372,7 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
         return try await registration.invoke(
             parameters: request.params ?? .object([:]), connectionContext: context, targetResolutionTools: tools,
             authorize: { [self] principal, authorization in
-                try authorizationService.authorize(principal: principal, request: authorization)
+                try await authorizationService.authorize(principal: principal, request: authorization)
             }
         )
     }

@@ -116,7 +116,8 @@ package struct IPCTerminalMethodDescriptors: Sendable {
             executionOwner: .runtimeCommand,
             principalAvailability: .authenticated,
             resultSemantics: .accepted,
-            documentedErrors: Self.terminalErrors,
+            documentedErrors: IPCBuiltInDescriptorSupport.documentedErrors(
+                Self.terminalErrors, agentEligibility: .ownPane),
             isMutating: false,
             correlationPolicy: .notAccepted,
             agentEligibility: .ownPane

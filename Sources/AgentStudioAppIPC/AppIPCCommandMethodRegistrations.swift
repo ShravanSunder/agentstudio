@@ -31,7 +31,10 @@ package enum AppIPCCommandMethodRegistrations {
                     let prepared = try await port.prepareCommand(parameters, principal: principal, tools: tools)
                     return AppIPCTargetResolution(
                         parameters: prepared.request, canonicalHandle: prepared.canonicalHandle,
-                        target: prepared.target, requiredScopes: prepared.requiredScopes
+                        target: prepared.target, requiredScopes: prepared.requiredScopes,
+                        resolvedPaneIds: prepared.resolvedPaneIds,
+                        commandId: prepared.request.commandId.rawValue,
+                        agentArgumentRule: prepared.agentArgumentRule
                     )
                 },
                 connectionHandler: { parameters, _, _ in

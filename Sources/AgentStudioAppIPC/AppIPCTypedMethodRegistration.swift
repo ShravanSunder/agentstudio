@@ -22,17 +22,34 @@ package struct AppIPCTargetResolution<Parameters: Sendable>: Sendable {
     package let canonicalHandle: IPCHandle?
     package let target: IPCTargetScope
     package let requiredScopes: [IPCPermissionScope]
+    /// Every pane identity the request names, not only the permission target:
+    /// a drawer command names the parent and the child.
+    package let resolvedPaneIds: [UUID]
+    /// The `command.execute` command, so admission can read its eligibility.
+    package let commandId: String?
+    package let agentArgumentRule: AppIPCAgentArgumentRule
 
     package init(
         parameters: Parameters,
         canonicalHandle: IPCHandle?,
         target: IPCTargetScope,
-        requiredScopes: [IPCPermissionScope] = []
+        requiredScopes: [IPCPermissionScope] = [],
+        resolvedPaneIds: [UUID]? = nil,
+        commandId: String? = nil,
+        agentArgumentRule: AppIPCAgentArgumentRule = .targetOnly
     ) {
         self.parameters = parameters
         self.canonicalHandle = canonicalHandle
         self.target = target
         self.requiredScopes = requiredScopes
+        self.resolvedPaneIds = resolvedPaneIds ?? Self.paneIds(in: target)
+        self.commandId = commandId
+        self.agentArgumentRule = agentArgumentRule
+    }
+
+    private static func paneIds(in target: IPCTargetScope) -> [UUID] {
+        guard case .pane(let rawPaneId) = target, let paneId = UUID(uuidString: rawPaneId) else { return [] }
+        return [paneId]
     }
 }
 
@@ -56,16 +73,25 @@ package struct AppIPCMethodAuthorizationRequest: Equatable, Sendable {
     package let dataScope: IPCDataScope
     package let target: IPCTargetScope
     package let additionalScopes: [IPCPermissionScope]
+    package let resolvedPaneIds: [UUID]
+    package let commandId: String?
+    package let agentArgumentRule: AppIPCAgentArgumentRule
 
     package init(
         methodName: String, requiredPrivileges: Set<IPCPrivilegeClass>, dataScope: IPCDataScope, target: IPCTargetScope,
-        additionalScopes: [IPCPermissionScope] = []
+        additionalScopes: [IPCPermissionScope] = [],
+        resolvedPaneIds: [UUID] = [],
+        commandId: String? = nil,
+        agentArgumentRule: AppIPCAgentArgumentRule = .targetOnly
     ) {
         self.methodName = methodName
         self.requiredPrivileges = requiredPrivileges
         self.dataScope = dataScope
         self.target = target
         self.additionalScopes = additionalScopes
+        self.resolvedPaneIds = resolvedPaneIds
+        self.commandId = commandId
+        self.agentArgumentRule = agentArgumentRule
     }
 }
 
@@ -155,7 +181,10 @@ package struct AppIPCTypedMethodRegistration<
                             requiredPrivileges: descriptor.requiredPrivileges,
                             dataScope: descriptor.dataScope,
                             target: resolution.target,
-                            additionalScopes: resolution.requiredScopes
+                            additionalScopes: resolution.requiredScopes,
+                            resolvedPaneIds: resolution.resolvedPaneIds,
+                            commandId: resolution.commandId,
+                            agentArgumentRule: resolution.agentArgumentRule
                         )
                     )
                 }
