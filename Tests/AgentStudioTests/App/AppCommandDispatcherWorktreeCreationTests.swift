@@ -7,7 +7,7 @@ import Testing
 @testable import AgentStudioTestSupport
 
 @MainActor
-@Suite("App command dispatcher worktree creation")
+@Suite("App command dispatcher worktree creation", .serialized)
 struct AppCommandDispatcherWorktreeCreationTests {
     @Test("creation request reaches the shell owner after the targeted preflight for its command")
     func creationRequestRoutesToShellOwner() async throws {
