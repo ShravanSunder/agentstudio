@@ -8,23 +8,26 @@ the rectangle currently available to display them. Both the visible overlay and
 initial terminal sizing consume the same geometry policy; only the normal-mode
 top handle owns a transient resize session.
 
-```text
-Normal container or Pane Zoom container ──► owner and region frames
-Existing drawer atom ────────────────────► saved owner preference
-Local normal resize session ────────────► temporary live height
-                                                 │
-                                                 ▼
-                                  Drawer geometry resolver
-                                    ├─ panel / connector / hit regions
-                                    └─ child layout and native mounts
-
-Completed resize or side command
-  → validated workspace action → drawer atom
-  → existing workspace save path → local SQLite preferences
-
-Initial terminal sizing also calls the geometry resolver.
-Pane ownership, selected child, focus and terminal sessions remain separate.
+```mermaid
+flowchart TD
+  containers["Normal container / Pane Zoom container<br/>owner and region frames"]
+  atom["Existing drawer atom<br/>saved owner preference"]
+  session["Local normal resize session<br/>temporary live height"]
+  bootstrap["Terminal bootstrap / recovery sizing"]
+  resolver{{"Drawer geometry resolver (pure)"}}
+  paint["Panel / connector / hit regions"]
+  mounts["Child layout and native mounts"]
+  containers --> resolver
+  atom --> resolver
+  session --> resolver
+  bootstrap --> resolver
+  resolver --> paint
+  resolver --> mounts
+  commit["Completed resize or side command"] --> action["Validated workspace action"] --> atom
+  atom --> save["Existing workspace save path"] --> sqlite[("Local SQLite preferences")]
 ```
+
+Pane ownership, selected child, focus and terminal sessions remain separate.
 
 ## Existing constraints and the choices they leave
 
@@ -80,27 +83,25 @@ does not establish that the smaller repair already fixes the symptom.
 
 ## Owners and interfaces
 
-```text
-App composition
-  FlatTabStripContainer / ZoomPresentationContainer
-    own mode-specific measured regions and target source-pane identity
-  DrawerPanelOverlay
-    owns one local resize session and outline composition
-  existing pane command executor and workspace-action route
-    validate destination; commit completed preference changes
-
-Core
-  WorkspaceDrawerCursorAtom (extended existing owner)
-    owns expansion and committed presentation preferences by owner pane ID
-  DrawerPresentationGeometryResolver (new pure value policy)
-    resolves normal/Zoom panel, connector, child and hit bounds
-  WorkspaceStore / save capture / composition preparation (extended)
-    snapshot and hydrate local preferences through the existing ordered path
-  WorkspaceLocalRepository (extended existing repository)
-    owns local preference rows, validation and retention writes
-
-Existing drawer child layout, mount and focus owners
-  consume resolved content bounds; retain their present responsibilities
+```mermaid
+flowchart TB
+  subgraph App["App composition"]
+    containers["FlatTabStripContainer / ZoomPresentationContainer<br/>own mode-specific measured regions and source-pane identity"]
+    overlay["DrawerPanelOverlay<br/>owns one local resize session, outline composition,<br/>and the management-mode move control"]
+    executor["Existing pane command executor + workspace-action route<br/>validate destination and drawer-child content; commit completed changes"]
+  end
+  subgraph Core["Core"]
+    atom["WorkspaceDrawerCursorAtom (extended)<br/>expansion + committed presentation preferences by owner pane ID"]
+    resolver{{"DrawerPresentationGeometryResolver (new, pure)<br/>normal/Zoom panel, connector, child and hit bounds"}}
+    store["WorkspaceStore / save capture / composition preparation (extended)<br/>snapshot + hydrate local preferences"]
+    repo["WorkspaceLocalRepository (extended)<br/>local preference rows, validation, retention"]
+  end
+  children["Existing drawer child layout, mount and focus owners<br/>consume resolved content bounds"]
+  containers --> overlay --> resolver
+  overlay -- "catalog command" --> executor --> atom
+  atom --> resolver
+  atom --> store --> repo
+  resolver --> children
 ```
 
 **Committed preferences.** A `DrawerPresentationPreference` value contains a
@@ -126,18 +127,61 @@ optional live normal height, and existing drawer metrics. It returns a
 side, full outline, panel, connector, child-content and dismissal/hit bounds in
 one container coordinate system. It creates no state and never requests Bridge.
 
-The App containers supply measured geometry. The existing bootstrap caller
-supplies canonical layout-derived geometry when no measurement is available.
-Both identify whether a footer is already excluded. A Zoom bootstrap request
-must use a measured Zoom region or a region derived from the same current Zoom
-split/visibility inputs; it cannot substitute normal-layout geometry. If safe
-Zoom input is unavailable, existing activation deferral applies. Normal hidden
-drawers retain residency/expansion-independent bootstrap calculation.
+The App containers supply measured geometry for the visible overlay. The
+existing bootstrap/recovery caller (`resolveInitialFrames`,
+`WorkspaceSurfaceCoordinator+ViewLifecycle.swift:826`) supplies canonical
+geometry derived only from shared state, never from SwiftUI local state. Both
+say whether the footer is already excluded. Normal hidden drawers keep their
+residency/expansion-independent bootstrap calculation.
+
+**Zoom input for bootstrap and recovery.** For a tab in Pane Zoom, the canonical
+input is built from:
+
+| Input | Owner (current source) |
+| --- | --- |
+| Terminal container bounds | `WindowLifecycleAtom.terminalContainerBounds` |
+| Zoom source pane and committed split ratio | the tab's `ZoomPresentation` in `WorkspacePanePresentationAtom` (`sourcePaneId`, `transientSplitRatio`, written by `setZoomSplitRatio`) |
+| Bridge region visible or hidden | the same `ZoomPresentation.viewerPresentation` plus the existing companion host-presence gate used by `ZoomPresentationContainer.resolveRenderState` |
+| Divider width | the Zoom `SplitView` divider metric, promoted from its private constant to a package layout metric so paint and bootstrap share one value |
+| Footer height | `DrawerLayout.iconBarFrameHeight`, the metric bootstrap already uses |
+| Committed drawer preference | the extended drawer atom |
+
+During an unfinished divider drag the visible expanded drawer follows SwiftUI's
+live local split, as today; its hosted children are laid out by that same pass.
+Bootstrap/recovery serves collapsed, background and not-yet-mounted drawer
+children and uses the committed ratio. A missing container bounds value or an
+unready Bridge host yields unavailable geometry or the terminal-side fallback
+respectively; unavailable geometry keeps the existing `.deferredGeometry`
+admission (`PreparedTerminalMountAdmissionPort.installTrustedInitialFrames`).
+
+**Recovery triggers.** Existing recovery (`reevaluatePreparedTerminalGeometry`)
+already runs after container-bounds layout and after resize, minimize, expand,
+arrangement and drawer-toggle actions. Zoom changes currently skip it. Add the
+same call, through the existing pane command executor, after: Zoom enter,
+retarget and exit (`applyZoomCommand`); a committed split ratio; a Bridge
+visibility change in Zoom; and a committed drawer side or normal height. The
+split-ratio commit moves from the view writing the atom directly
+(`ZoomPresentationContainer.persistSplitRatio`) to a container callback that the
+executor handles — atom write, then recovery — matching `resizePane`. No new
+observer, registry, atom, bus event or timer is added; each trigger is an
+existing discrete action. The recovery pass reads current shared state, so a
+trigger that arrives after a newer change recomputes from the newer state.
 
 **Commands.** Add `moveZoomDrawerToTerminal` and `moveZoomDrawerToBridge` through
 the existing `AppCommand` catalog. Their display and invocation
 contexts derive the owning pane from the active Zoom source, even when focus is
-inside a child or companion. The existing pane executor dispatches a typed
+inside a child or companion.
+
+**Move control.** While Pane Zoom is showing an expanded drawer and the existing
+management layer is active (`atom(\.managementLayer).isActive`, the same signal
+`ZoomPresentationContainer` uses for its management chrome), `DrawerPanelOverlay`
+renders one move control on the drawer outline. It projects whichever side
+command moves the drawer to the other region through the existing command
+display pipeline (`AppCommandSpec` → `CommandDisplayDescriptor` →
+`ControlTooltipSource`), so its label, icon and tooltip come from the catalog,
+and it dispatches through the same targeted command action as other catalog
+controls. It is not shown in normal mode or outside management mode. The command
+bar and IPC reach the same two commands. The existing pane executor dispatches a typed
 `setDrawerZoomSide` workspace action with owner ID and side; validation rejects a
 stale/non-Zoom owner before mutation. Repeating the same side is an equal write.
 The side action changes neither expansion nor focus, and does not create a
@@ -150,9 +194,11 @@ merged exhaustive projection (`App/Commands/AppCommand+IPCProjection.swift`) has
 no interactive-only class: every `AppCommand` declares an exposure, execution
 mode, privilege and target kind, and debug builds execute every command through
 typed `command.execute`. Both side commands join their drawer siblings
-(`toggleDrawer`, `addDrawerPane`): exposure `.debugTesting`, privilege
-`.layoutMutate`, target kind `.drawerParent`. The durable target is the owning
-pane handle, not a Zoom presentation object; the existing `setDrawerZoomSide`
+(`toggleDrawer`, `addDrawerPane`) exactly: exposure `.debugTesting`, execution
+mode `.headless`, privilege `.layoutMutate`, argument variant `.drawerParent`
+(`IPCDrawerParentCommandArguments`: window identity plus parent-pane selector),
+and the siblings' allowed handle kinds `.window` and `.pane`. No new handle kind
+is added. The durable target is the owning pane, not a Zoom presentation object; the existing `setDrawerZoomSide`
 validation rejects an owner that is not the current Zoom source, so a stale or
 non-Zoom handle fails before mutation with the ordinary validation error.
 Widening exposure beyond debug is a program-level authority decision
@@ -217,14 +263,13 @@ a cumulative translation. At a size bound, rebase the local pointer/height pair
 to the clamped result; reversing direction then moves the edge immediately
 instead of spending motion on overshoot. Rebasing changes only the local session.
 
-```text
-idle ── valid normal pointer-down ──► dragging
-                                      │
-                pointer samples ──────┤ local height → geometry → rendered edge
-                                      │
-                pointer-up ──────────► validated preference action → idle
-                                      │
-                cancellation ────────► discard live height → idle
+```mermaid
+stateDiagram-v2
+  [*] --> idle
+  idle --> dragging: valid normal pointer-down
+  dragging --> dragging: pointer sample / local height → geometry → rendered edge
+  dragging --> idle: pointer-up / validated preference action
+  dragging --> idle: cancellation (owner replaced or closed, mode change,<br/>coordinate invalidation, deactivation, capture loss) / discard live height
 ```
 
 Owner replacement/close, mode change, ancestor-coordinate invalidation, window
@@ -254,20 +299,32 @@ and the datastore writes through its existing persistence ordering. Hydration
 installs validated preferences before content mounts and persistence observation.
 The normal shutdown flush includes the current committed choices.
 
-```text
-completed normal drag / Zoom side command
-  → validated action → existing drawer atom (sync MainActor assignment)
-  → WorkspaceStore observation (existing autosave scheduling)
-  → save capture (MainActor) → prepare immutable local payload (off-main)
-  → ordered datastore save
-      → core workspace commit (unchanged authority)
-      → local preference upsert + retention + cursors (one local transaction)
-  ← save success, or existing save failure / dirty-state reporting
+```mermaid
+sequenceDiagram
+  participant UI as Completed drag / side command
+  participant Atom as Drawer atom (MainActor)
+  participant Store as WorkspaceStore
+  participant Prep as Payload preparation (off-main)
+  participant DB as Ordered datastore
+  UI->>Atom: validated action (sync assignment)
+  Atom-->>Store: observed revision (existing autosave scheduling)
+  Store->>Store: save capture (MainActor, immutable copy)
+  Store->>Prep: prepare local payload
+  Prep->>DB: ordered save
+  DB->>DB: core workspace commit (unchanged authority)
+  DB->>DB: local preference upsert + retention + cursors (one local transaction)
+  DB-->>Store: success, or existing failure / dirty-state reporting
+```
 
-boot
-  → core graph + advisory local preference rows
-  → validate identities/values off-main
-  → prepared composition → atom installation → content mounts
+```mermaid
+sequenceDiagram
+  participant Boot
+  participant Prep as Validation (off-main)
+  participant Atom as Drawer atom
+  participant Mounts as Content mounts
+  Boot->>Prep: core graph + advisory local preference rows
+  Prep->>Atom: prepared composition installs validated preferences
+  Atom->>Mounts: content mounts after preferences are installed
 ```
 
 **Undo retention.** Closing an owner does not immediately remove its preference
@@ -313,9 +370,30 @@ existing child mounts and native size feedback remain intact.
 
 **Render and bootstrap:** replace arithmetic inside `DrawerPanelOverlay` and
 `resolvedDrawerContentRect` with the shared resolver. Container measurement and
-canonical bootstrap frame derivation remain authoritative inputs. Add explicit
-mode/region inputs; preserve existing unavailable-frame deferral and subsequent
-activation repair. Hit/dismissal rectangles come from the same result as paint.
+canonical bootstrap frame derivation remain authoritative inputs. Add the Zoom
+input above; preserve existing unavailable-frame deferral and add the Zoom
+recovery triggers. Hit/dismissal rectangles come from the same result as paint.
+
+```mermaid
+sequenceDiagram
+  participant View as ZoomPresentationContainer
+  participant Exec as Pane command executor
+  participant Pres as WorkspacePanePresentationAtom
+  participant Rec as reevaluatePreparedTerminalGeometry
+  participant Res as Geometry resolver
+  participant Adm as Mount admission
+  Note over View,Exec: today View writes Pres directly with no recovery (changed edge)
+  View->>Exec: divider drag ended (committed ratio)
+  Exec->>Pres: setZoomSplitRatio
+  Exec->>Rec: recovery (added edge, also after Zoom enter/retarget/exit, Bridge visibility, side/height commit)
+  Rec->>Pres: read ZoomPresentation (source, ratio, viewer presentation)
+  Rec->>Res: canonical Zoom input + committed preference
+  alt geometry available
+    Res-->>Adm: child content frames → install / resize
+  else unavailable
+    Res-->>Adm: unavailable → existing .deferredGeometry, next trigger retries
+  end
+```
 
 **Zoom side:** there is no current side-preference predecessor. Add catalog
 commands → existing pane executor → validated workspace action → drawer atom.
@@ -347,7 +425,11 @@ unchanged. No SQL or I/O enters the drawer atom or view.
   Bridge choice; showing Bridge again recomputes placement without a write.
 - **Bounds are invalid or too small:** yield unavailable geometry and preserve
   preferences/content. Existing geometry admission defers unsafe activation;
-  valid measurement re-enters the same resolver and mount path.
+  the next container-bounds layout or Zoom/drawer trigger re-enters the same
+  resolver and mount path.
+- **Footer metric disagrees with measurement:** paint uses the measured footer;
+  bootstrap uses `DrawerLayout.iconBarFrameHeight`. A mismatch is a defect caught
+  by the V-DP-6 native agreement proof, not a runtime correction path.
 
 ## Proof and structural enforcement
 
@@ -372,7 +454,13 @@ interaction under test.
   reparenting, terminal recreation or loss of the normal Bridge-owned drawer.
 - **U-BN-12 → R-DP-2/R-DP-6 → V-DP-3/V-DP-6:** shared geometry output reaches paint,
   child sizing and hit/dismissal consumers. Prove measured and bootstrap paths,
-  collapsed/background drawer admission and later recovery of unavailable bounds.
+  collapsed/background drawer admission, later recovery of unavailable bounds,
+  and recovery after each Zoom trigger: enter/exit, a finished divider drag at
+  unequal ratios, Bridge hide/show, and a side change.
+- **Performance (owner rule 2026-09-23: nothing heavy on the MainActor; review caution):** marker-scoped
+  measurement of the overlay's body/read counts and synchronous MainActor
+  held time during normal drag and divider drag under the current workload;
+  `DrawerPanelOverlay.expandedPaneInfo` composition is inside that measurement.
 
 Types separate committed preference, transient gesture and derived geometry.
 Runtime validation enforces valid owners/modes/bounds; the local schema enforces
@@ -387,5 +475,16 @@ no SQL, filesystem, repository joins or scheduling runs per pointer sample.
 Existing shared command controls carry accessible names and command availability.
 Zoom omits the resize accessibility/input target as well as its visible handle.
 
-Bridge source switching, navigation IPC, multi-repo membership and placement-policy
-enforcement remain outside this design.
+**Drawer child content.** A drawer child is a terminal or a browser. The pure
+content check (`PaneContent` kind ∈ {terminal, webview}) runs where drawer
+children are admitted: the existing `ActionValidator` cases that create or insert
+drawer children, and the IPC drawer-creation adapter owned by the IPC control
+workstream. A refused request creates no pane and returns the existing
+validation failure. Current creation paths already construct only terminals
+(`addDrawerPane`, `insertDrawerPane`) and browsers (`executeAddWebviewDrawerPane`),
+and drag is container-internal, so no existing content is migrated or deleted.
+The graph atom keeps accepting any `PaneContent`; the rule lives at admission,
+not in the atom.
+
+Bridge source switching, navigation IPC and multi-repo membership remain outside
+this design.

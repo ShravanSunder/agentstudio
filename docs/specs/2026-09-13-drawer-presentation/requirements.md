@@ -21,10 +21,11 @@ source/CWD switching, multi-worktree support, and file navigation. It covers:
 Full-screen means **Pane Zoom**, the terminal/Bridge composition in the supplied
 screenshots. A Bridge tab in an ordinary arrangement uses normal drawer behavior.
 
-Bridge source switching, multi-repo membership, Command-P file search, file-open
-IPC, and restrictions on Bridge content/movement are separate tracks. This
-slice does not add, remove, or migrate pane content to implement those policies.
-In particular, Bridge tabs may keep their own drawers.
+Bridge source switching, multi-repo membership, Command-P file search and
+file-open IPC are separate tracks. This slice owns the drawer content rule
+confirmed on 2026-09-23 (below) as an admission rule for new drawer children; it
+does not migrate or delete existing content. Bridge tabs may keep their own
+drawers.
 
 ## Authority and source
 
@@ -43,6 +44,15 @@ The [system analysis](../../wip/2026-09-13-drawer-bridge-system-analysis.md) is
 observational evidence at source HEAD `85ae48f5e`; it is not authority to keep
 today's global height preference or suspect geometry calculation.
 
+Owner statements on 2026-09-23 (orchestrator session f4ba41d2), which refine
+this slice:
+
+| ID | Statement (transcribed voice) |
+| --- | --- |
+| S-DP-23a | "In full screen it's one drawer on both sides, should be easy to move on both sides, just to allow flexibility." |
+| S-DP-23b | The move control: "This button can be in the drawer itself as an overlay [in] management mode." The side switch remains catalog commands: "all commands go through the command [system]; that's why the IPC works." |
+| S-DP-23c | Drawer content: "They can hold web views, like browsers, but they cannot hold a bridge." and "absolutely no code viewers in the drawer." |
+
 The U-BN-08–U-BN-12 identities below are moved from the combined requirements,
 not new or duplicated needs. Their producer-owned authority state is
 **authorized**, from the owner statements above. Relative delivery priority is
@@ -54,14 +64,16 @@ unranked; the owner has not assigned an order.
 | --- | --- | --- |
 | U-BN-08 | Reliably resize a normal drawer's top edge and remember height independently for each owning pane, so the edge tracks the pointer and adjusting one drawer does not resize another. | S9/S10/S11 |
 | U-BN-09 | In Pane Zoom, use a fixed-height floating drawer with no resize handles and approximately 15% exposed above it, so the underlying context remains recognizable. | S11 |
-| U-BN-10 | Use two full-screen commands to place the drawer over the terminal or Bridge region; follow that region's actual width with 2–5% less total width for shadow/context. There is no 50% minimum. | S12/S13/S14 |
+| U-BN-10 | Easily move the one full-screen drawer between the terminal and Bridge regions — with a control on the drawer itself shown in management mode, and through two catalog commands; follow that region's actual width with 2–5% less total width for shadow/context. There is no 50% minimum. | S12/S13/S14, S-DP-23a, S-DP-23b |
 | U-BN-11 | Keep the same drawer owner, children, and supporting work across mode/side changes, with independent normal and full-screen preferences. | S10/S12/S15 |
 | U-BN-12 | Remove the unintended full-screen bottom gap while keeping the panel, connector and surrounding overlay visually coherent. | S9/S12 |
 
 Preservation constraint from
 [U-BN-07](../2026-09-12-bridge-navigation/2026-09-12-requirements.md#user-requirements):
-a normal Bridge tab can own a drawer. The other placement restrictions in that
-requirement remain with the separate Bridge-placement track.
+a normal Bridge tab can own a drawer. Drawer children are terminals or browsers
+only; Bridge and code-viewer content is never added to a drawer (S-DP-23c,
+U-BN-07). Dragging Bridge into ordinary pane layouts remains with the separate
+Bridge-placement track.
 
 ## Human journey
 
