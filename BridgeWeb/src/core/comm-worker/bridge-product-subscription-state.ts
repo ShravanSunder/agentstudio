@@ -124,7 +124,16 @@ export interface BridgeProductSubscriptionStateProps<
 	readonly createIdentifier: (purpose: BridgeProductSubscriptionIdentifierPurpose) => string;
 	readonly ensureMetadataStream: () => Promise<void>;
 	readonly initialOptions: TOptions;
-	readonly onTerminal: (subscriptionId: string, error?: unknown) => void;
+	/**
+	 * `drainUntilNativeTerminal` is true when native may still send frames for this
+	 * id: it was admitted and native has not ended it. The owner must keep routing
+	 * those frames to a drain rather than treating them as unknown.
+	 */
+	readonly onTerminal: (
+		subscriptionId: string,
+		error?: unknown,
+		drainUntilNativeTerminal?: boolean,
+	) => void;
 	readonly protocol: BridgeProductMetadataApplicationProtocol<
 		TKind,
 		TOptions,
@@ -135,8 +144,14 @@ export interface BridgeProductSubscriptionStateProps<
 		TData
 	>;
 	readonly readWorkerDerivationEpochAtAdmission: () => number;
-	/** Holds admission while the surface retires older-epoch subscriptions. */
-	readonly awaitWorkerDerivationEpochAdmission?: () => Promise<void>;
+	/**
+	 * Waits while the surface retires older-epoch subscriptions, then runs `admit`
+	 * with the surface epoch in the same synchronous turn as the final gate check,
+	 * so no advance can slip between the check and the admitted request.
+	 */
+	readonly admitAtWorkerDerivationEpoch?: <TAdmission>(
+		admit: (workerDerivationEpoch: number) => TAdmission,
+	) => Promise<TAdmission>;
 	readonly subscriptionId: string;
 }
 
@@ -150,9 +165,24 @@ export class BridgeProductSubscriptionState<
 	TData extends { readonly event: unknown; readonly subscriptionKind: TKind },
 > implements BridgeProductSubscriptionFrameSink {
 	#accepted = false;
-	/** Set once native no longer serves this subscription to its consumer; frames drain silently. */
+	/**
+	 * Set once a release (consumer cancel or epoch retirement) is requested. From then
+	 * on nothing waits on this subscription's frames, no interests are sent, and
+	 * native's remaining frames drain silently until its terminal.
+	 */
 	#released = false;
-	readonly #awaitWorkerDerivationEpochAdmission: () => Promise<void>;
+	/** Why the release was requested; operations it cut short settle with this. */
+	#releaseReason: Error | null = null;
+	#releaseOperation: Promise<void> | null = null;
+	/** Native ended this subscription (terminal frame or reconciliation). */
+	#nativeTerminalObserved = false;
+	/** Native refused the open, so it never held this subscription. */
+	#openRefusedByNative = false;
+	/** Native accepted the open control, so a release must cancel it. */
+	#openAcknowledged = false;
+	readonly #admitAtWorkerDerivationEpoch: <TAdmission>(
+		admit: (workerDerivationEpoch: number) => TAdmission,
+	) => Promise<TAdmission>;
 	readonly #controlMux: BridgeProductSubscriptionStateProps<
 		TKind,
 		TOptions,
@@ -172,10 +202,17 @@ export class BridgeProductSubscriptionState<
 	>(64);
 	#expectedSubscriptionSequence = 0;
 	readonly #initialOptions: TOptions;
-	readonly #onTerminal: (subscriptionId: string, error?: unknown) => void;
+	readonly #onTerminal: BridgeProductSubscriptionStateProps<
+		TKind,
+		TOptions,
+		TUpdateOptions,
+		TOpen,
+		TInterestState,
+		TInterestDelta,
+		TData
+	>['onTerminal'];
 	#operation: Promise<void> = Promise.resolve();
 	#pendingBarrier: PendingSubscriptionBarrier<TInterestState> | null = null;
-	#pendingCancel: BridgeProductDeferred<void> | null = null;
 	#recoveryGate: BridgeProductDeferred<void> | null = null;
 	#resetReplay: ResetReplay<TInterestState> | null = null;
 	readonly #protocol: BridgeProductMetadataApplicationProtocol<
@@ -210,8 +247,11 @@ export class BridgeProductSubscriptionState<
 		this.#onTerminal = props.onTerminal;
 		this.#protocol = props.protocol;
 		this.#readWorkerDerivationEpochAtAdmission = props.readWorkerDerivationEpochAtAdmission;
-		this.#awaitWorkerDerivationEpochAdmission =
-			props.awaitWorkerDerivationEpochAdmission ?? ((): Promise<void> => Promise.resolve());
+		this.#admitAtWorkerDerivationEpoch =
+			props.admitAtWorkerDerivationEpoch ??
+			(async <TAdmission>(
+				admit: (workerDerivationEpoch: number) => TAdmission,
+			): Promise<TAdmission> => admit(props.readWorkerDerivationEpochAtAdmission()));
 		this.subscriptionId = props.subscriptionId;
 		this.#currentInterestState = props.protocol.interestStateSchema.parse(
 			props.protocol.emptyInterestState(),
@@ -249,8 +289,10 @@ export class BridgeProductSubscriptionState<
 	/**
 	 * Releases this subscription before its surface advances past its admitted
 	 * epoch. Native refuses controls tagged with a stale epoch, so the cancel must
-	 * be acknowledged first; the drain frame is not awaited. A subscription not
-	 * yet admitted is left alone: it admits at the new epoch.
+	 * be acknowledged first. The consumer learns of the retirement at once; an
+	 * operation waiting on one of this subscription's frames settles with it rather
+	 * than holding the advance. A subscription not yet admitted is left alone: it
+	 * admits at the new epoch. One already releasing settles with that release.
 	 */
 	retireBeforeWorkerDerivationEpochAdvance(
 		retirement: BridgeProductSubscriptionEpochRetiredError,
@@ -263,33 +305,27 @@ export class BridgeProductSubscriptionState<
 		) {
 			return Promise.resolve();
 		}
-		return this.#enqueue(async (): Promise<void> => {
-			if (this.#terminal || this.#released) return;
-			await this.#releaseNativeSubscription();
-			this.#eventQueue.fail(retirement, true);
-		}, 'afterPriorSettles');
+		const consumerRelease = this.#releaseOperation;
+		this.#markReleased(retirement);
+		this.#rejectFrameWaiters(retirement);
+		if (consumerRelease === null) this.#eventQueue.fail(retirement, true);
+		return (consumerRelease ?? this.#queueRelease(retirement)).catch((): void => {});
 	}
 
 	update(options: TUpdateOptions): Promise<void> {
 		return this.#enqueue(() => this.#updateTo(options));
 	}
 
+	/**
+	 * Releases after the operations queued before it, then resolves once native
+	 * acknowledges the cancel. Frames native already queued drain silently until
+	 * its terminal; nothing here waits on them.
+	 */
 	cancel(): Promise<void> {
-		// Every rejected operation has already made this subscription terminal, so
-		// cancellation waits for the prior operation to settle, not to succeed.
-		return this.#enqueue(async (): Promise<void> => {
-			if (this.#terminal || this.#released) return;
-			const cancelled = createBridgeProductDeferred<void>();
-			// A refused cancel control fails the subscription before this is awaited.
-			void cancelled.promise.catch((): void => {});
-			this.#pendingCancel = cancelled;
-			if (!(await this.#releaseNativeSubscription())) {
-				this.#pendingCancel = null;
-				this.#eventQueue.close(true);
-				return;
-			}
-			await cancelled.promise;
-		}, 'afterPriorSettles');
+		return (
+			this.#releaseOperation ??
+			this.#queueRelease(new Error('Bridge product subscription was cancelled.'))
+		);
 	}
 
 	acceptFrame(frame: BridgeProductSubscriptionFrame): void {
@@ -351,16 +387,22 @@ export class BridgeProductSubscriptionState<
 	fail(error: unknown): void {
 		if (this.#terminal) return;
 		this.#terminal = true;
-		this.#pendingBarrier?.completion.reject(error);
-		this.#pendingBarrier = null;
-		this.#pendingCancel?.reject(error);
-		this.#pendingCancel = null;
-		this.#resetReplay?.completion.reject(error);
-		this.#resetReplay = null;
+		// An operation cut short by this subscription's own release ends it cleanly:
+		// the consumer already has its terminal and native's frames still drain.
+		const endedByRelease = error === this.#releaseReason;
+		this.#rejectFrameWaiters(error);
 		this.#recoveryGate?.reject(error);
 		this.#recoveryGate = null;
-		this.#eventQueue.fail(error, true);
-		this.#onTerminal(this.subscriptionId, error);
+		if (endedByRelease && !(error instanceof BridgeProductSubscriptionEpochRetiredError)) {
+			this.#eventQueue.close(true);
+		} else {
+			this.#eventQueue.fail(error, true);
+		}
+		this.#onTerminal(
+			this.subscriptionId,
+			endedByRelease ? undefined : error,
+			this.#nativeMayStillServe(),
+		);
 	}
 
 	beginRecovery(): void {
@@ -436,10 +478,7 @@ export class BridgeProductSubscriptionState<
 				this.#retire();
 				return;
 			case 'reopenRequired':
-				if (this.#pendingCancel !== null && outcome.reason === 'native_missing') {
-					this.#retire();
-					return;
-				}
+				this.#nativeTerminalObserved = true;
 				this.fail(new BridgeProductSubscriptionResetError('snapshot_required'));
 				return;
 		}
@@ -449,6 +488,12 @@ export class BridgeProductSubscriptionState<
 		const gate = this.#recoveryGate;
 		if (gate === null) return;
 		if (this.#terminal) return;
+		if (this.#released) {
+			// A released subscription restores no interests; it only drains.
+			gate.resolve();
+			this.#recoveryGate = null;
+			return;
+		}
 		try {
 			const replay = this.#resetReplay;
 			if (replay !== null) await this.#replayResetInterests(replay);
@@ -513,13 +558,11 @@ export class BridgeProductSubscriptionState<
 				this.#acceptBarrier(frame);
 				return;
 			case 'subscription.cancelled':
-				this.#pendingCancel?.resolve();
-				this.#retire();
-				return;
 			case 'subscription.end':
 				this.#retire();
 				return;
 			case 'subscription.reset':
+				this.#nativeTerminalObserved = true;
 				this.fail(new BridgeProductSubscriptionResetError(frame.reason));
 				return;
 		}
@@ -527,18 +570,28 @@ export class BridgeProductSubscriptionState<
 
 	async #initialize(): Promise<void> {
 		await this.#ensureMetadataStream();
-		await this.#awaitWorkerDerivationEpochAdmission();
-		const workerDerivationEpoch = this.#readWorkerDerivationEpochAtAdmission();
-		this.#admittedWorkerDerivationEpoch = workerDerivationEpoch;
 		const initialOptions = this.#protocol.optionsSchema.parse(this.#initialOptions);
 		const subscription = this.#protocol.openSchema.parse(
 			this.#protocol.initialOpen(initialOptions),
 		);
-		const opened = await this.#controlMux.openSubscription({
-			subscription,
-			subscriptionId: this.subscriptionId,
-			workerDerivationEpoch,
-		});
+		// Admission records the epoch and queues the open control in one synchronous
+		// turn, so a later surface advance always sees this admission and sequences
+		// its release after the open.
+		let opened: { readonly interestRevision: number; readonly interestSha256: string };
+		try {
+			opened = await this.#admitAtWorkerDerivationEpoch((workerDerivationEpoch) => {
+				this.#admittedWorkerDerivationEpoch = workerDerivationEpoch;
+				return this.#controlMux.openSubscription({
+					subscription,
+					subscriptionId: this.subscriptionId,
+					workerDerivationEpoch,
+				});
+			});
+		} catch (error) {
+			if (error instanceof BridgeProductControlRequestError) this.#openRefusedByNative = true;
+			throw error;
+		}
+		this.#openAcknowledged = true;
 		if (
 			this.#currentInterestHash !== null &&
 			(this.#currentInterestRevision !== opened.interestRevision ||
@@ -554,7 +607,7 @@ export class BridgeProductSubscriptionState<
 	}
 
 	async #updateTo(options: TUpdateOptions): Promise<void> {
-		if (this.#terminal) throw new Error('Bridge product subscription is terminal.');
+		this.#assertAcceptsInterests();
 		const parsedOptions = this.#protocol.updateOptionsSchema.parse(options);
 		const targetState = this.#protocol.interestStateSchema.parse(
 			this.#protocol.interestStateForUpdate(parsedOptions),
@@ -572,7 +625,7 @@ export class BridgeProductSubscriptionState<
 			// eslint-disable-next-line no-await-in-loop -- Recovery restores committed interests before admitting this prepared update.
 			await this.#recoveryGate.promise;
 		}
-		if (this.#terminal) throw new Error('Bridge product subscription is terminal.');
+		this.#assertAcceptsInterests();
 		const targetInterestRevision = this.#currentInterestRevision + 1;
 		const updateId = this.#createIdentifier('subscription-update');
 		const barrier = createBridgeProductDeferred<void>();
@@ -584,20 +637,31 @@ export class BridgeProductSubscriptionState<
 			targetState,
 			updateId,
 		};
-		await this.#controlMux.updateSubscriptionBatch({
-			baseInterestRevision: this.#currentInterestRevision,
-			baseInterestSha256: this.#currentInterestHash,
-			batchCount: 1,
-			batchIndex: 0,
-			delta,
-			subscriptionId: this.subscriptionId,
-			targetInterestRevision,
-			targetInterestSha256,
-			totalDeltaItemCount: deltaItemCount,
-			updateId,
-			workerDerivationEpoch: this.#requiredAdmittedWorkerDerivationEpoch(),
-		});
+		try {
+			await this.#controlMux.updateSubscriptionBatch({
+				baseInterestRevision: this.#currentInterestRevision,
+				baseInterestSha256: this.#currentInterestHash,
+				batchCount: 1,
+				batchIndex: 0,
+				delta,
+				subscriptionId: this.subscriptionId,
+				targetInterestRevision,
+				targetInterestSha256,
+				totalDeltaItemCount: deltaItemCount,
+				updateId,
+				workerDerivationEpoch: this.#requiredAdmittedWorkerDerivationEpoch(),
+			});
+		} catch (error) {
+			// A release requested while the update was in flight owns its outcome.
+			throw this.#releaseReason ?? error;
+		}
 		await barrier.promise;
+	}
+
+	/** A terminal or released subscription never sends interests to native. */
+	#assertAcceptsInterests(): void {
+		if (this.#releaseReason !== null) throw this.#releaseReason;
+		if (this.#terminal) throw new Error('Bridge product subscription is terminal.');
 	}
 
 	#acceptBarrier(
@@ -641,36 +705,71 @@ export class BridgeProductSubscriptionState<
 	}
 
 	/**
-	 * Sends the cancel control and marks the subscription released. Returns false
-	 * when native refused it: either native still owns the subscription (a stale
-	 * epoch) or it already ended it and the terminal frame is still in flight
-	 * (native answers that cancel as unknown). Either way this subscription keeps
-	 * routing and drains until native's terminal instead of poisoning the stream.
+	 * Queues the one release of this subscription. It sends the cancel once prior
+	 * operations settle; the control mux is sequenced, so the cancel follows this
+	 * subscription's own open and updates. A cancel is sent whenever native may
+	 * still hold the subscription, even after a local failure.
 	 */
-	async #releaseNativeSubscription(): Promise<boolean> {
+	#queueRelease(reason: Error): Promise<void> {
+		const operation = this.#enqueue(async (): Promise<void> => {
+			this.#markReleased(reason);
+			if (this.#openAcknowledged && !this.#nativeTerminalObserved) {
+				await this.#releaseNativeSubscription();
+			}
+			this.#eventQueue.close(true);
+		}, 'afterPriorSettles');
+		this.#releaseOperation = operation;
+		return operation;
+	}
+
+	#markReleased(reason: Error): void {
+		if (this.#released) return;
 		this.#released = true;
+		this.#releaseReason = reason;
+	}
+
+	/**
+	 * Sends the cancel control. A native refusal is not a failure of this
+	 * subscription: native either refused a stale epoch after its surface floor
+	 * advanced (it then ends the subscription itself with an `epoch_retired`
+	 * reset) or had already ended it with a terminal frame still in flight. Either
+	 * way the subscription stays released and drains until that terminal.
+	 */
+	async #releaseNativeSubscription(): Promise<void> {
 		try {
 			await this.#controlMux.cancelSubscription({
 				subscriptionId: this.subscriptionId,
 				subscriptionKind: this.#protocol.kind,
 				workerDerivationEpoch: this.#requiredAdmittedWorkerDerivationEpoch(),
 			});
-			return true;
 		} catch (error) {
-			if (error instanceof BridgeProductControlRequestError) return false;
-			this.#released = false;
+			if (error instanceof BridgeProductControlRequestError) return;
 			throw error;
 		}
 	}
 
-	#retire(): void {
-		this.#terminal = true;
-		this.#pendingBarrier?.completion.reject(new Error('Bridge product subscription terminated.'));
+	#rejectFrameWaiters(error: unknown): void {
+		this.#pendingBarrier?.completion.reject(error);
 		this.#pendingBarrier = null;
-		this.#pendingCancel?.resolve();
-		this.#pendingCancel = null;
-		this.#resetReplay?.completion.reject(new Error('Bridge product subscription terminated.'));
+		this.#resetReplay?.completion.reject(error);
 		this.#resetReplay = null;
+	}
+
+	/** Native may still send frames: admitted, and native has not ended it. */
+	#nativeMayStillServe(): boolean {
+		return (
+			this.#admittedWorkerDerivationEpoch !== null &&
+			!this.#nativeTerminalObserved &&
+			!this.#openRefusedByNative
+		);
+	}
+
+	/** Native ended this subscription. */
+	#retire(waiterError: unknown = new Error('Bridge product subscription terminated.')): void {
+		if (this.#terminal) return;
+		this.#nativeTerminalObserved = true;
+		this.#terminal = true;
+		this.#rejectFrameWaiters(waiterError);
 		this.#recoveryGate?.resolve();
 		this.#recoveryGate = null;
 		this.#eventQueue.close(true);

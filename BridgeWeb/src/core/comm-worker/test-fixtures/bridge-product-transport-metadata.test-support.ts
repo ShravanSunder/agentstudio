@@ -125,6 +125,11 @@ export class TestProductServer {
 				request: Extract<BridgeProductControlRequest, { kind: 'subscription.cancel' }>,
 		  ) => Promise<Response> | Response)
 		| null = null;
+	updateHandler:
+		| ((
+				request: Extract<BridgeProductControlRequest, { kind: 'subscription.updateBatch' }>,
+		  ) => Promise<Response> | Response)
+		| null = null;
 	nextAcknowledgementHandler:
 		| ((request: BridgeProductFrameAcknowledgementRequest) => Response | Promise<Response>)
 		| null = null;
@@ -304,6 +309,7 @@ export class TestProductServer {
 					subscriptionKind: request.subscription.subscriptionKind,
 				});
 			case 'subscription.updateBatch':
+				if (this.updateHandler !== null) return await this.updateHandler(request);
 				return jsonResponse({
 					...identity,
 					batchIndex: request.batchIndex,
@@ -483,6 +489,25 @@ export function subscriptionCancelled(props: {
 		subscriptionKind: props.kind ?? 'review.metadata',
 		subscriptionSequence: props.subscriptionSequence ?? 1,
 		workerDerivationEpoch: props.epoch,
+	});
+}
+
+export function requestErrorResponse(
+	request: BridgeProductControlRequest,
+	code: 'internal' | 'invalid_request' | 'resync_required',
+): Response {
+	return jsonResponse({
+		code,
+		kind: 'request.error',
+		nextExpectedRequestSequence: request.requestSequence + 1,
+		paneSessionId: request.paneSessionId,
+		requestId: request.requestId,
+		requestSequence: request.requestSequence,
+		retryAfterMilliseconds: null,
+		retryable: false,
+		safeMessage: null,
+		wireVersion: request.wireVersion,
+		workerInstanceId: request.workerInstanceId,
 	});
 }
 
