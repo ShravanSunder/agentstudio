@@ -1,3 +1,4 @@
+import AgentStudioTestHarness
 import Foundation
 import Testing
 
@@ -141,13 +142,18 @@ struct BridgeProductSchemeFramePumpTests {
     func completedRetirementClearsLateFrameObservation() async throws {
         // Arrange
         let harness = try await BridgeProductSessionProducerHarness.opened()
-        let completionGate = FramePumpProducerCompletionGate()
+        // The producer ignores cancellation, so retirement stays in flight
+        // after it abandons delivery.
+        let producerCompletion = HeldStep<Void>(
+            "late-observation producer completion",
+            cancellation: .holdThroughCancellation
+        )
         let request = try bridgeProductFileContentRequest(identitySuffix: "late-observation")
         let registration = await harness.session.registerContentProducer(
             request: request,
             productAdmission: harness.productAdmission
         ) { _ in
-            await completionGate.waitForRelease()
+            try? await producerCompletion.arrive(())
         }
         let lease = try bridgeProductAcceptedLease(registration)
         _ = try await harness.session.enqueueRequiredProducerOpeningFrame(
@@ -171,7 +177,7 @@ struct BridgeProductSchemeFramePumpTests {
 
         // Act
         async let cancellationSucceeded = pump.cancel()
-        await completionGate.waitUntilCancelled()
+        try await producerCompletion.cancellationObserved()
         let lateDelivery = frameDelivery(await pump.nextFrame())
         let registeredReceipt: BridgeProductProducerFrameReceipt?
         if lateDelivery != nil {
@@ -181,7 +187,7 @@ struct BridgeProductSchemeFramePumpTests {
         } else {
             registeredReceipt = nil
         }
-        await completionGate.release()
+        producerCompletion.release()
         let cancellationResult = await cancellationSucceeded
         let requiredLateDelivery = try #require(lateDelivery)
         let lateAcknowledgementAccepted =
@@ -195,6 +201,79 @@ struct BridgeProductSchemeFramePumpTests {
         #expect(!lateAcknowledgementAccepted)
         #expect(!observationRemains)
         #expect(finalSnapshot.hasZeroResidue)
+    }
+
+    /// Retirement may report success only after the lifecycle acknowledgement
+    /// it awaits has succeeded. The acknowledgement is held; failing it must
+    /// fail the retirement and keep the lease registered, and releasing it
+    /// must clear the lease's frame observation before retirement succeeds.
+    @Test("producer retirement reply depends on the lifecycle acknowledgement")
+    func producerRetirementReplyDependsOnLifecycleAcknowledgement() async throws {
+        try await proveReplyDependsOnStep(
+            makeScenario: { () -> ProducerRetirementHeldReply in
+                let harness = try await BridgeProductSessionProducerHarness.opened()
+                let producerBody = HeldStep<BridgeProductProducerLease>("content producer body until retirement")
+                let lifecycleAcknowledgement = HeldStep<BridgeProductProducerLifecycleAcknowledgement>(
+                    "frame pump retirement lifecycle acknowledgement"
+                )
+                let request = try bridgeProductFileContentRequest(identitySuffix: "retirement-causal")
+                let registration = await harness.session.registerContentProducer(
+                    request: request,
+                    productAdmission: harness.productAdmission
+                ) { lease in
+                    // Retirement stops the producer by cancelling it.
+                    try? await producerBody.arrive(lease)
+                }
+                let lease = try bridgeProductAcceptedLease(registration)
+                _ = try await producerBody.firstArrival()
+                _ = try await harness.session.enqueueRequiredProducerOpeningFrame(
+                    for: lease,
+                    productAdmission: harness.productAdmission,
+                    build: { _ in
+                        .content(.init(header: .accepted(for: request.admission), payload: Data()))
+                    }
+                )
+                let pump = BridgeProductSchemeFramePump(
+                    session: harness.session,
+                    producerLease: lease,
+                    productAdmission: harness.productAdmission,
+                    acknowledgeLifecycle: { acknowledgement in
+                        do {
+                            try await lifecycleAcknowledgement.arrive(acknowledgement)
+                            return true
+                        } catch {
+                            return false
+                        }
+                    }
+                )
+                let claimedFrame = try #require(frameDelivery(await pump.nextFrame()))
+                let scenario = ProducerRetirementScenario(
+                    session: harness.session,
+                    lease: lease,
+                    claimedReceipt: claimedFrame.receipt
+                )
+                return HeldReplyScenario(context: scenario, step: lifecycleAcknowledgement) {
+                    await pump.cancel()
+                }
+            },
+            replyReportsFailure: { (retired: Bool, scenario: ProducerRetirementScenario) async -> Bool in
+                guard !retired else { return false }
+                let snapshot = await scenario.session.producerSnapshot()
+                #expect(snapshot.pendingLifecycleAcknowledgementCount == 1)
+                #expect(!snapshot.hasZeroResidue)
+                return true
+            },
+            assertCommitted: { (_: Bool, scenario: ProducerRetirementScenario) async in
+                let lateObservationAccepted = await scenario.session.acknowledgeProducerFrameObserved(
+                    scenario.claimedReceipt
+                )
+                let observationRemains = await scenario.session.hasProducerFrameObservation(for: scenario.lease)
+                let finalSnapshot = await scenario.session.producerSnapshot()
+                #expect(!lateObservationAccepted)
+                #expect(!observationRemains)
+                #expect(finalSnapshot.hasZeroResidue)
+            }
+        )
     }
 
     @Test("claimed queue head remains resident until its exact receipt is consumed")
@@ -422,12 +501,12 @@ struct BridgeProductSchemeFramePumpTests {
         // Arrange
         let harness = try await BridgeProductSessionProducerHarness.opened()
         let request = try bridgeProductFileContentRequest(identitySuffix: "missing-terminal")
-        let completionGate = FramePumpProducerCompletionGate()
+        let producerCompletion = HeldStep<Void>("data-only producer completion")
         let registration = await harness.session.registerContentProducer(
             request: request,
             productAdmission: harness.productAdmission
         ) { _ in
-            await completionGate.waitForRelease()
+            try? await producerCompletion.arrive(())
         }
         let lease = try bridgeProductAcceptedLease(registration)
         _ = try await harness.session.enqueueRequiredProducerOpeningFrame(
@@ -480,7 +559,7 @@ struct BridgeProductSchemeFramePumpTests {
         #expect(await pump.acknowledgeFrameConsumed(opening.receipt))
         let data = try #require(frameDelivery(await pump.nextFrame()))
         #expect(await pump.acknowledgeFrameConsumed(data.receipt))
-        await completionGate.release()
+        producerCompletion.release()
         let finishAttempt = await pump.nextFrame()
 
         // Assert
@@ -553,46 +632,6 @@ private actor FramePumpReentrantRevocationLifecycleProbe {
     }
 }
 
-private actor FramePumpProducerCompletionGate {
-    private var cancellationWaiters: [CheckedContinuation<Void, Never>] = []
-    private var continuation: CheckedContinuation<Void, Never>?
-    private var isReleased = false
-    private var wasCancelled = false
-
-    func waitForRelease() async {
-        await withTaskCancellationHandler {
-            if isReleased { return }
-            await withCheckedContinuation { continuation in
-                self.continuation = continuation
-            }
-        } onCancel: {
-            Task { await self.recordCancellation() }
-        }
-    }
-
-    func waitUntilCancelled() async {
-        if wasCancelled { return }
-        await withCheckedContinuation { continuation in
-            cancellationWaiters.append(continuation)
-        }
-    }
-
-    func release() {
-        isReleased = true
-        continuation?.resume()
-        continuation = nil
-    }
-
-    private func recordCancellation() {
-        wasCancelled = true
-        let waiters = cancellationWaiters
-        cancellationWaiters.removeAll()
-        for waiter in waiters {
-            waiter.resume()
-        }
-    }
-}
-
 private func makeFramePumpFixture(identitySuffix: String) async throws -> FramePumpFixture {
     let harness = try await BridgeProductSessionProducerHarness.opened()
     let operation = BridgeProductSessionProducerOperationGate()
@@ -628,6 +667,16 @@ private func enqueueContentOpening(
             )
         }
     )
+}
+
+private typealias ProducerRetirementHeldReply = HeldReplyScenario<
+    ProducerRetirementScenario, BridgeProductProducerLifecycleAcknowledgement, Bool
+>
+
+private struct ProducerRetirementScenario: Sendable {
+    let session: BridgeProductSession
+    let lease: BridgeProductProducerLease
+    let claimedReceipt: BridgeProductProducerFrameReceipt
 }
 
 private func frameDelivery(

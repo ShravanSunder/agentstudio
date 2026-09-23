@@ -333,7 +333,8 @@ let package = Package(
         .target(
             name: "AgentStudioTestSupport",
             dependencies: [
-                "AgentStudioCore"
+                "AgentStudioCore",
+                "AgentStudioTestHarness",
             ],
             path: "Tests/AgentStudioTests/TestSupport",
             swiftSettings: [
@@ -401,6 +402,7 @@ let package = Package(
                 "AgentStudioCore",
                 "AgentStudioInfrastructure",
                 "AgentStudioSharedComponents",
+                "AgentStudioTestHarness",
                 "AgentStudioTestSupport",
                 .product(name: "GRDB", package: "GRDB.swift"),
                 .product(name: "AgentStudioGit", package: "agentstudio-git"),
@@ -418,6 +420,7 @@ let package = Package(
                 "AgentStudioInfrastructure",
                 "AgentStudioProgrammaticControl",
                 "AgentStudioSharedComponents",
+                "AgentStudioTestHarness",
                 "AgentStudioTestSupport",
                 .product(name: "AsyncAlgorithms", package: "swift-async-algorithms"),
                 .product(name: "AgentStudioGit", package: "agentstudio-git"),
@@ -530,7 +533,8 @@ let package = Package(
         .testTarget(
             name: "AgentStudioIPCTransportTests",
             dependencies: [
-                "AgentStudioIPCTransport"
+                "AgentStudioIPCTransport",
+                "AgentStudioTestHarness",
             ],
             path: "Tests/AgentStudioIPCTransportTests",
             swiftSettings: [
@@ -557,6 +561,7 @@ let package = Package(
                 "AgentStudioIPCTransport",
                 "AgentStudioProgrammaticControl",
                 "AgentStudioInfrastructure",
+                "AgentStudioTestHarness",
                 "AgentStudioTestSupport",
             ],
             path: "Tests/AgentStudioAppIPCTests",
@@ -582,6 +587,7 @@ let package = Package(
                 "AgentStudioIPCTransport",
                 "AgentStudioPrimitives",
                 "AgentStudioProgrammaticControl",
+                "AgentStudioTestHarness",
             ],
             path: "Tests/AgentStudioIPCClientTests",
             resources: [
@@ -610,6 +616,7 @@ let package = Package(
                 "AgentStudioSessions",
                 "AgentStudioSharedComponents",
                 "AgentStudioTerminal",
+                "AgentStudioTestHarness",
                 "AgentStudioTestSupport",
                 "AgentStudioWebview",
                 "GhosttyKit",
