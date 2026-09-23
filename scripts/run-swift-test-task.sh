@@ -92,6 +92,8 @@ print_closing_lane_report() {
   local wall_seconds=$((SECONDS - LANE_START_SECONDS))
   local cpu_seconds
   local closing_tree_dirty
+  local bundle_identity
+  local bundle_link_reason=""
 
   times >"$LANE_TIMES_FILE" 2>/dev/null || true
   cpu_seconds="$(lane_children_cpu_seconds "$LANE_TIMES_FILE")"
@@ -129,9 +131,19 @@ print_closing_lane_report() {
 
   echo "[$LOG_PREFIX] lane-report head_sha=$LANE_RECEIPT_HEAD_SHA"
   echo "[$LOG_PREFIX] lane-report tree_dirty=$closing_tree_dirty"
+  bundle_identity="$(lane_receipt_bundle_identity)"
+  if [ "$LANE_BUNDLE_STATE" = "reused" ]; then
+    bundle_link_reason="$(
+      lane_build_receipt_link_reason "$(lane_build_receipt_path)" "$LANE_RECEIPT_HEAD_SHA" "$bundle_identity"
+    )"
+  fi
   echo "[$LOG_PREFIX] lane-report bundle_state=$LANE_BUNDLE_STATE"
-  echo "[$LOG_PREFIX] lane-report bundle_identity=$(lane_receipt_bundle_identity)"
-  print_lane_receipt_verdict "$exit_status" "$LANE_BUNDLE_STATE" "$closing_tree_dirty"
+  echo "[$LOG_PREFIX] lane-report bundle_identity=$bundle_identity"
+  # The linkage: which commit the build receipt beside this bundle says it built.
+  echo "[$LOG_PREFIX] lane-report build_receipt_head_sha=$(
+    lane_build_receipt_field "$(lane_build_receipt_path)" head_sha || echo none
+  )"
+  print_lane_receipt_verdict "$exit_status" "$LANE_BUNDLE_STATE" "$closing_tree_dirty" "$bundle_link_reason"
 
   rm -f "$LANE_TIMES_FILE" "${SWIFT_TEST_PEAK_ANNOUNCED_FILE:-}" "${SWIFT_TEST_PEAK_RUNNING_FILE:-}" \
     "${SWIFT_TEST_FAILED_ISOLATED_SUITES_FILE:-}"
@@ -217,8 +229,8 @@ run_width_comparison() {
 
 print_opening_lane_report
 begin_lane_accounting
-# fresh only once THIS invocation's prebuild has succeeded; see
-# lane_receipt_invalid_reasons for why anything else is not a pass.
+# fresh only once THIS invocation's prebuild has succeeded; a reused bundle is
+# valid only when linked to its build receipt. See lane_receipt_invalid_reasons.
 LANE_BUNDLE_STATE=not_built
 trap finish_lane_invocation EXIT
 trap_lane_termination_signals
@@ -227,7 +239,7 @@ if [ "$mode" != "test-prebuild" ] && [ "${SWIFT_TEST_SKIP_PREBUILD:-0}" = "1" ];
   echo "[$LOG_PREFIX] skipping prebuild test bundles (SWIFT_TEST_SKIP_PREBUILD=1)"
   LANE_BUNDLE_STATE=reused
 else
-  prebuild_swift_tests
+  prebuild_swift_tests_with_build_receipt
   LANE_BUNDLE_STATE=fresh
 fi
 

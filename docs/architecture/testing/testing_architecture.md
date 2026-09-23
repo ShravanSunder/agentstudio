@@ -354,17 +354,29 @@ signal.
    test, and does not reflect any cap; `peak_running_parameterized_cases` does,
    over the parameterized subset only.
 
-   **A receipt is evidence only when it is valid.** `receipt_valid=true` means
-   this invocation's own prebuild built the bundle (`bundle_state=fresh`) and the
-   tree was clean from the opening to the closing receipt. A skipped prebuild
-   (`reused_bundle`), a failed one (`unbuilt_bundle`), or uncommitted changes
-   (`dirty_tree`) make it `receipt_valid=false reason=…`, and its verdict is
-   `unverified` whatever the exit status. The exit status is unchanged, so the
-   local edit-test loop still works. `bundle_identity` is the bundle path and
-   its modification time: two receipts with the same identity tested the same
-   build. CI builds in its own `test:swift:prebuild` step, so its lane receipts
-   read `reused_bundle` and are linked to that step's receipt by
-   `bundle_identity`.
+   **A receipt is evidence only when it is valid.** A lane is valid when its
+   bundle is a clean build of this commit and the tree stayed clean from the
+   opening to the closing receipt. A lane that ran its own prebuild has
+   `bundle_state=fresh`. A lane that reused a bundle (`SWIFT_TEST_SKIP_PREBUILD=1`,
+   as every CI lane after the prebuild step) has `bundle_state=reused` and is
+   linked to the build receipt the prebuild published beside the bundle
+   (`<build path>/agentstudio-test-build-receipt`). The prebuild deletes that
+   receipt before compiling, samples `head_sha` and `tree_dirty` before
+   compiling, and publishes the receipt by atomic rename only after the build
+   succeeds. `bundle_identity` is the exact test executable: path, size and
+   modification time. The lane prints the receipt's commit as
+   `build_receipt_head_sha`. Otherwise the receipt reads
+   `receipt_valid=false reason=…`, where the reason is one of:
+   - `reused_bundle_unlinked`: no receipt, a malformed one, or one naming
+     another executable;
+   - `built_from_dirty_tree`: the build tree had uncommitted changes;
+   - `bundle_head_mismatch`: the receipt names another commit;
+   - `dirty_tree`: uncommitted changes now;
+   - `unbuilt_bundle`: the prebuild failed.
+
+   An invalid receipt's verdict is `unverified` whatever the exit status. The
+   exit status itself is unchanged, so the local edit-test loop still works. A
+   lane ended by a signal exits 128+signal and reports `verdict=fail`.
 2. **Download the ledger.** On a lane timeout the runner preserves Swift
    Testing's event-stream JSONL under `tmp/plan-workflows/ci-runs/lane-*.events.jsonl`,
    and CI uploads it as `swift-lane-event-streams-<run_id>`. Compute

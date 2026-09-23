@@ -307,10 +307,15 @@ swift_test_peak_total_from_file() {
 # Lane receipt identity: which tree and which test bundle a lane tested.
 #
 # A green lane is evidence only about the tree its bundle was built from. A bundle
-# reused from an earlier build, or a tree with uncommitted changes, can pass
-# while the commit under review would not, so such a receipt marks itself invalid
-# and never prints a pass verdict. The exit status stays the lane's own: the local
-# edit-test loop keeps working on a dirty tree, it just cannot claim a pass.
+# built from uncommitted changes, from another commit, or by nobody this receipt
+# can name can pass while the commit under review would not, so such a receipt
+# marks itself invalid and never prints a pass verdict. The exit status stays the
+# lane's own: the local edit-test loop keeps working, it just cannot claim a pass.
+#
+# A lane that reuses a bundle (SWIFT_TEST_SKIP_PREBUILD=1, as every CI lane does
+# after its prebuild step) is linked to the build receipt the prebuild published
+# beside the bundle, and is valid only when that receipt names this commit, a
+# clean build tree, and the exact executable the lane runs.
 
 # The tested tree's commit, or `unknown` outside a git checkout.
 lane_receipt_head_sha() {
@@ -351,29 +356,119 @@ lane_receipt_tree_dirty_since() {
   lane_receipt_tree_dirty
 }
 
-# The tested bundle as `<path>@<modification epoch seconds>`, or `missing`. Two
-# receipts that print the same identity tested the same built bundle.
+# The exact test executable the lanes run, as `<path>@<size bytes>@<modification
+# epoch seconds>`, or `missing`. Two receipts that print the same identity tested
+# the same built executable.
 lane_receipt_bundle_identity() {
   local test_bundle
-  local modification_epoch
+  local size_and_modification
 
   test_bundle="$(swift_testing_bundle_path 2>/dev/null)" || { echo missing; return 0; }
-  modification_epoch="$(stat -f %m "$test_bundle" 2>/dev/null)" || { echo missing; return 0; }
-  echo "$test_bundle@$modification_epoch"
+  size_and_modification="$(stat -f '%z@%m' "$test_bundle" 2>/dev/null)" || { echo missing; return 0; }
+  echo "$test_bundle@$size_and_modification"
 }
 
-# Why a receipt is invalid, comma-separated, or nothing when it is valid. Valid
-# means this invocation built the bundle AND the tree was clean throughout.
+# Where the prebuild publishes its build receipt: beside the bundle, in the
+# build path the lanes read, so a lane can only ever find its own slot's.
+lane_build_receipt_path() {
+  echo "$BUILD_PATH/agentstudio-test-build-receipt"
+}
+
+# Builds the test bundles and publishes the build receipt that links later lanes
+# to this build. In this order, so no receipt can outlive or misdescribe a build:
+#   1. delete the slot's receipt, so a failed or interrupted build leaves none;
+#   2. sample the commit and tree state before compiling;
+#   3. publish only after the build succeeded, by atomic rename.
+prebuild_swift_tests_with_build_receipt() {
+  local build_receipt
+  local build_head_sha
+  local build_tree_dirty
+  local staged_receipt
+
+  build_receipt="$(lane_build_receipt_path)"
+  rm -f "$build_receipt"
+  build_head_sha="$(lane_receipt_head_sha)"
+  build_tree_dirty="$(lane_receipt_tree_dirty)"
+
+  prebuild_swift_tests || return $?
+
+  staged_receipt="$(mktemp "$build_receipt.XXXXXX")"
+  printf 'bundle_identity=%s\nhead_sha=%s\ntree_dirty=%s\n' \
+    "$(lane_receipt_bundle_identity)" "$build_head_sha" "$build_tree_dirty" >"$staged_receipt"
+  mv -f "$staged_receipt" "$build_receipt"
+}
+
+# One field of a build receipt, or a non-zero status when the receipt or the
+# field is absent or empty.
+lane_build_receipt_field() {
+  local build_receipt="$1"
+  local field_name="$2"
+
+  [ -r "$build_receipt" ] || return 1
+  /usr/bin/awk -v field_name="$field_name" '
+    index($0, field_name "=") == 1 && length($0) > length(field_name) + 1 {
+      print substr($0, length(field_name) + 2)
+      found = 1
+      exit
+    }
+    END { exit !found }
+  ' "$build_receipt"
+}
+
+# Why a reused bundle is NOT linked to a clean build of this commit, or nothing
+# when it is:
+#   reused_bundle_unlinked  no receipt, a malformed one, or one naming another executable
+#   built_from_dirty_tree   the receipt says the build tree had uncommitted changes
+#   bundle_head_mismatch    the receipt names another commit
+lane_build_receipt_link_reason() {
+  local build_receipt="$1"
+  local current_head_sha="$2"
+  local current_bundle_identity="$3"
+  local recorded_bundle_identity
+  local recorded_head_sha
+  local recorded_tree_dirty
+
+  if ! recorded_bundle_identity="$(lane_build_receipt_field "$build_receipt" bundle_identity)" ||
+    ! recorded_head_sha="$(lane_build_receipt_field "$build_receipt" head_sha)" ||
+    ! recorded_tree_dirty="$(lane_build_receipt_field "$build_receipt" tree_dirty)"
+  then
+    echo reused_bundle_unlinked
+    return 0
+  fi
+  case "$recorded_tree_dirty" in
+    false) ;;
+    true | unknown)
+      echo built_from_dirty_tree
+      return 0
+      ;;
+    *)
+      echo reused_bundle_unlinked
+      return 0
+      ;;
+  esac
+  if [ "$recorded_head_sha" != "$current_head_sha" ]; then
+    echo bundle_head_mismatch
+    return 0
+  fi
+  if [ "$current_bundle_identity" = "missing" ] || [ "$recorded_bundle_identity" != "$current_bundle_identity" ]; then
+    echo reused_bundle_unlinked
+  fi
+}
+
+# Why a receipt is invalid, comma-separated, or nothing when it is valid.
 #   bundle_state: fresh (this invocation's prebuild ran and succeeded),
-#                 reused (the prebuild was skipped), not_built (it failed or never ran)
+#                 reused (the prebuild was skipped; valid only when linked),
+#                 not_built (it failed or never ran)
+#   bundle_link_reason: lane_build_receipt_link_reason's verdict for a reused bundle
 lane_receipt_invalid_reasons() {
   local bundle_state="$1"
   local tree_dirty="$2"
+  local bundle_link_reason="${3:-}"
   local reasons=()
 
   case "$bundle_state" in
     fresh) ;;
-    reused) reasons+=(reused_bundle) ;;
+    reused) [ -z "$bundle_link_reason" ] || reasons+=("$bundle_link_reason") ;;
     *) reasons+=(unbuilt_bundle) ;;
   esac
   case "$tree_dirty" in
@@ -392,9 +487,10 @@ print_lane_receipt_verdict() {
   local exit_status="$1"
   local bundle_state="$2"
   local tree_dirty="$3"
+  local bundle_link_reason="${4:-}"
   local invalid_reasons
 
-  invalid_reasons="$(lane_receipt_invalid_reasons "$bundle_state" "$tree_dirty")"
+  invalid_reasons="$(lane_receipt_invalid_reasons "$bundle_state" "$tree_dirty" "$bundle_link_reason")"
   if [ -n "$invalid_reasons" ]; then
     echo "[$LOG_PREFIX] lane-report receipt_valid=false reason=$invalid_reasons"
     echo "[$LOG_PREFIX] lane-report verdict=unverified"

@@ -102,6 +102,7 @@ struct SwiftLaneRunnerReportTests {
             "lane-report tree_dirty=",
             "lane-report bundle_state=",
             "lane-report bundle_identity=",
+            "lane-report build_receipt_head_sha=",
         ] {
             #expect(closingReport.contains(closingLabel))
         }
@@ -114,6 +115,7 @@ struct SwiftLaneRunnerReportTests {
             laneReportLabels(in: helperScript + "\n" + laneRunnerScript) == [
                 // Which tree and bundle the lane tested, and whether that makes
                 // its verdict evidence at all.
+                "build_receipt_head_sha",
                 "bundle_identity",
                 "bundle_state",
                 "cpu_count",
