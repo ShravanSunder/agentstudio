@@ -36,6 +36,8 @@ struct DrawerZoomFrameCurrencyIntegrationTests {
         let normalFrame: NSRect
         let mountHandler: RecordingPreparedTerminalMountHandler
         let port: PreparedTerminalMountAdmissionPort
+        let viewRegistry: ViewRegistry
+        let windowLifecycleStore: WindowLifecycleAtom
     }
 
     /// A drawer child pending in the prepared lane with its normal-mode frame.
@@ -103,8 +105,60 @@ struct DrawerZoomFrameCurrencyIntegrationTests {
                 viewRegistry: viewRegistry,
                 mountHandler: mountHandler,
                 descriptorsByPaneID: [childPaneID: descriptor]
+            ),
+            viewRegistry: viewRegistry,
+            windowLifecycleStore: windowLifecycleStore
+        )
+    }
+
+    @Test("a pending child keeps its trusted frame while geometry is unavailable, then refreshes when valid")
+    func pendingChildSurvivesUnavailableGeometryThenRefreshes() async throws {
+        // Arrange
+        let fixture = try makeQueuedDrawerChildFixture()
+        let (recoveryPasses, recoveryPassContinuation) = AsyncStream.makeStream(of: Set<PaneId>.self)
+        fixture.coordinator.preparedTerminalGeometryReevaluationHandler = { framesByPaneID in
+            recoveryPassContinuation.yield(fixture.port.refreshQueuedTrustedFrames(framesByPaneID))
+        }
+        var recoveryPassIterator = recoveryPasses.makeAsyncIterator()
+        let tallerBounds = CGRect(x: 0, y: 0, width: 1000, height: 800)
+
+        // Act: valid → unavailable (container too short for any drawer) → valid.
+        fixture.windowLifecycleStore.recordTerminalContainerBounds(CGRect(x: 0, y: 0, width: 1000, height: 60))
+        await fixture.coordinator.reevaluatePreparedTerminalGeometry()
+        let custodyWhileUnavailable = fixture.viewRegistry.preparedContentMountState(
+            for: fixture.childPaneID,
+            generation: fixture.generation
+        )
+        fixture.windowLifecycleStore.recordTerminalContainerBounds(tallerBounds)
+        await fixture.coordinator.reevaluatePreparedTerminalGeometry()
+        let validPass = await recoveryPassIterator.next()
+        let claimOutcome = fixture.port.claimPreparedTerminal(
+            TerminalAdmissionProposal(
+                generation: fixture.generation,
+                paneID: fixture.childPaneID,
+                attempt: 1,
+                appliedVisibilityRevision: TerminalVisibilityRevision(generation: fixture.generation, ordinal: 0)
             )
         )
+        guard case .claimed(let claim) = claimOutcome else {
+            Issue.record("expected the still-queued child to stay claimable, got \(claimOutcome)")
+            return
+        }
+        _ = await fixture.port.activateClaimedTerminal(claim)
+
+        // Assert: no queued→deferred transition; the refreshed valid frame mounts.
+        let currentTab = try #require(fixture.store.tabLayoutAtom.tab(fixture.tab.id))
+        let refreshedFrame = try #require(
+            fixture.coordinator.resolveInitialFrames(for: currentTab, in: tallerBounds)[fixture.drawerChild.id]
+        )
+        #expect(custodyWhileUnavailable == .pending(owner: .terminal))
+        #expect(validPass == [fixture.childPaneID])
+        #expect(refreshedFrame != fixture.normalFrame)
+        #expect(fixture.mountHandler.initialFrames == [refreshedFrame])
+
+        recoveryPassContinuation.finish()
+        await fixture.executor.stopAcceptingCommandsAndDrain()
+        await fixture.coordinator.shutdown()
     }
 
     @Test("a pending drawer child mounts at the current Zoom frame after Zoom, side, and split changes")
