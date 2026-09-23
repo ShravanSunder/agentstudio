@@ -87,7 +87,11 @@ struct RepoScannerSessionTests {
         // Arrange
         let fixture = try ScannerSessionFixture(candidateNames: ["alpha"])
         defer { fixture.remove() }
-        let session = RepoScanner().makeSession(in: fixture.root, maxDepth: 1)
+        let session = RepoScanner().makeSession(
+            in: fixture.root,
+            maxDepth: 1,
+            quantumBudget: try productionCountsWithoutServiceDeadlineBudget()
+        )
 
         // Act
         let validationOutcome = await nextValidationRequest(session)
@@ -537,6 +541,18 @@ struct RepoScannerSessionTests {
         assertPartialCapacityResult(
             result,
             expectedDimension: .retainedVerifiedEntryBytes(maximum: 1)
+        )
+    }
+
+    /// `productionDefault` count limits without its 8 ms service deadline, so
+    /// how many quanta run depends on scanner work, never on machine speed.
+    private func productionCountsWithoutServiceDeadlineBudget() throws -> RepoScannerQuantumBudget {
+        try RepoScannerQuantumBudget(
+            maximumEnumeratedItems: 256,
+            maximumPathBytes: 1_048_576,
+            maximumCandidateValidations: 8,
+            maximumFailures: 64,
+            maximumActiveServiceDuration: .seconds(60)
         )
     }
 
