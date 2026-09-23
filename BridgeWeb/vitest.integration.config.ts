@@ -23,7 +23,9 @@ export default defineConfig({
 			'scripts/**/*.integration.test.ts',
 			'src/**/*.integration.test.ts',
 			'src/**/*.integration.test.tsx',
+			'tests/**/*.integration.test.ts',
 		],
+		setupFiles: ['./tests/console-error-guard.ts'],
 		exclude: ['**/node_modules/**', '**/dist/**'],
 	},
 });

@@ -1,7 +1,8 @@
-import { chromium, type Browser, type Locator, type Page } from 'playwright';
+import type { Browser, Locator, Page } from 'playwright';
 import { expect, test } from 'vitest';
 
 import { runAllOwnedCleanupOperations } from '../../scripts/dev-server/bridge-development-server-process.ts';
+import { launchBridgeViewerE2EChromium } from './bridge-viewer-vite-e2e-browser.ts';
 import {
 	createBridgeViewerGitStatusFixture,
 	type BridgeViewerGitStatusCase,
@@ -23,7 +24,7 @@ test('filters the native Git working-tree review by every status and clears comb
 	let primaryFailure: { readonly error: unknown } | null = null;
 	try {
 		server = await startBridgeViewerOwnedViteProductServer(fixture.oracle);
-		browser = await chromium.launch({ channel: 'chrome', headless: true });
+		browser = await launchBridgeViewerE2EChromium();
 		const page = await browser.newPage({ viewport: { height: 980, width: 1728 } });
 		diagnostics = observeBrowserRuntimeDiagnostics(page);
 

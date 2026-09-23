@@ -63,10 +63,14 @@ export default defineConfig({
 				},
 				test: {
 					name: 'integration-browser',
-					setupFiles: ['./tests/vitest-browser-setup.ts'],
+					setupFiles: ['./tests/console-error-guard.ts', './tests/vitest-browser-setup.ts'],
 					browser: browserConfig,
 					testTimeout: 60_000,
-					include: ['src/**/*.browser.test.ts', 'src/**/*.browser.test.tsx'],
+					include: [
+						'src/**/*.browser.test.ts',
+						'src/**/*.browser.test.tsx',
+						'tests/**/*.browser.test.ts',
+					],
 					exclude: [
 						'**/node_modules/**',
 						'**/dist/**',
@@ -92,7 +96,7 @@ export default defineConfig({
 				},
 				test: {
 					name: 'benchmarks-browser',
-					setupFiles: ['./tests/vitest-browser-setup.ts'],
+					setupFiles: ['./tests/console-error-guard.ts', './tests/vitest-browser-setup.ts'],
 					browser: {
 						...browserConfig,
 						api: {

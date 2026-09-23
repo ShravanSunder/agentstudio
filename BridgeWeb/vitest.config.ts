@@ -16,7 +16,13 @@ export default defineConfig({
 	test: {
 		environment: 'node',
 		globals: true,
-		include: ['scripts/**/*.unit.test.ts', 'src/**/*.unit.test.ts', 'src/**/*.unit.test.tsx'],
+		include: [
+			'scripts/**/*.unit.test.ts',
+			'src/**/*.unit.test.ts',
+			'src/**/*.unit.test.tsx',
+			'tests/**/*.unit.test.ts',
+		],
+		setupFiles: ['./tests/console-error-guard.ts'],
 		exclude: ['**/node_modules/**', '**/dist/**'],
 	},
 });
