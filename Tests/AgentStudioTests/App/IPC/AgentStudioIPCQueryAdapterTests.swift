@@ -79,6 +79,24 @@ struct AgentStudioIPCQueryAdapterTests {
         #expect(try harness.adapter.snapshotPane(child.id, ownPaneAssertion: nil).pane.id == child.id)
     }
 
+    @Test("a pane agent's snapshot of a drawer child that no longer exists reports target not found")
+    func paneSnapshotReportsDisappearedPaneAsNotFound() throws {
+        let store = makeWorkspaceStore()
+        let parent = store.createPane(title: "Agent")
+        store.appendTab(Tab(paneId: parent.id))
+        store.setActiveTab(store.tabs[0].id)
+        let child = try #require(store.addDrawerPane(to: parent.id))
+        let harness = try QueryAdapterHarness(store: store)
+        let agent = AppIPCOwnPaneAssertion(boundPaneId: parent.id)
+        #expect(try harness.adapter.snapshotPane(child.id, ownPaneAssertion: agent).pane.id == child.id)
+
+        store.paneAtom.removeDrawerPane(child.id, from: parent.id)
+
+        #expect(throws: AppIPCQueryError(reason: .targetNotFound)) {
+            _ = try harness.adapter.snapshotPane(child.id, ownPaneAssertion: agent)
+        }
+    }
+
     @Test("pane snapshot reports target not found for unknown pane id")
     func paneSnapshotReportsTargetNotFoundForUnknownPaneId() throws {
         let store = makeWorkspaceStore()
