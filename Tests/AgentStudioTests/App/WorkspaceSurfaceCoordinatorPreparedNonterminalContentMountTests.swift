@@ -210,7 +210,7 @@ extension WebKitSerializedTests {
             )
             #expect(heldState.beginSpaceHold(requestedTarget: target))
             // fire-and-forget: the test asserts preview state; the deferred reevaluation handle is not its claim
-            _ = coordinator.prepareHeldPanePreview()
+            _ = coordinator.beginHeldPanePreviewPreparation()
             #expect(heldState.presentedTarget == nil)
 
             let mountedView = WebviewPaneMountView(

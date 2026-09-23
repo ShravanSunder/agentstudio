@@ -290,7 +290,7 @@ struct WorkspaceSurfaceTerminalRestoreIntegrationTests {
             #expect(heldState.beginSpaceHold(requestedTarget: target))
 
             // fire-and-forget: the test asserts preview state; the deferred reevaluation handle is not its claim
-            _ = harness.coordinator.prepareHeldPanePreview()
+            _ = harness.coordinator.beginHeldPanePreviewPreparation()
 
             #expect(harness.surfaceManager.createdPaneIds == [previewPane.id])
             #expect(harness.surfaceManager.createdConfigsByPaneId[previewPane.id]?.initialFrame == trustedBounds)

@@ -168,7 +168,7 @@ extension WebKitSerializedTests {
                 #expect(admissionFixture.controller.paneState.diff.packageMetadata == nil)
                 #expect(workspace.heldState.beginSpaceHold(requestedTarget: target))
                 // fire-and-forget: the test asserts preview state; the deferred reevaluation handle is not its claim
-                _ = workspace.coordinator.prepareHeldPanePreview()
+                _ = workspace.coordinator.beginHeldPanePreviewPreparation()
                 #expect(workspace.heldState.presentedTarget == target)
                 #expect(
                     workspace.viewRegistry.allBridgeViews[workspace.targetPane.id]
@@ -236,7 +236,7 @@ extension WebKitSerializedTests {
 
             #expect(workspace.heldState.beginSpaceHold(requestedTarget: target))
             // fire-and-forget: the test asserts preview state; the deferred reevaluation handle is not its claim
-            _ = workspace.coordinator.prepareHeldPanePreview()
+            _ = workspace.coordinator.beginHeldPanePreviewPreparation()
             #expect(
                 workspace.viewRegistry.allBridgeViews[workspace.targetPane.id]
                     === workspace.targetMountView
@@ -297,7 +297,7 @@ extension WebKitSerializedTests {
 
             #expect(workspace.heldState.beginSpaceHold(requestedTarget: target))
             // fire-and-forget: the test asserts preview state; the deferred reevaluation handle is not its claim
-            _ = workspace.coordinator.prepareHeldPanePreview()
+            _ = workspace.coordinator.beginHeldPanePreviewPreparation()
             await expectBridgePaneActivity(
                 .loadedHidden,
                 for: workspace.peerPane.id,

@@ -571,7 +571,7 @@ package final class TerminalPaneMountView: NSView, PaneMountedContent, SurfaceHe
             }
             overlay.onDismiss = { [weak self] in
                 // fire-and-forget: surface callback; the termination event is delivered on the app event bus
-                _ = self?.requestClose()
+                _ = self?.beginClose()
             }
             addSubview(overlay)
 
@@ -680,7 +680,7 @@ package final class TerminalPaneMountView: NSView, PaneMountedContent, SurfaceHe
 
     // MARK: - Process Management
 
-    func requestClose() -> Task<Void, Never>? {
+    func beginClose() -> Task<Void, Never>? {
         guard let surfaceId else { return nil }
         SurfaceManager.shared.detach(surfaceId, reason: .close)
         isProcessRunning = false

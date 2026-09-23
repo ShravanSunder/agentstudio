@@ -124,7 +124,7 @@ extension WebKitSerializedTests {
         @Test("handleBridgeReady sets bridge readiness and teardown resets it")
         func handleBridgeReady_setsReadyAndTeardownResets() {
             let controller = makeController()
-            defer { _ = controller.teardown() }  // fire-and-forget: defer cannot await; cleanup only
+            defer { _ = controller.beginTeardown() }  // fire-and-forget: defer cannot await; cleanup only
 
             #expect(controller.isBridgeReady == false)
 
@@ -132,14 +132,14 @@ extension WebKitSerializedTests {
             #expect(controller.isBridgeReady == true)
 
             // fire-and-forget: synchronous test; the next assertion reads the synchronous teardown fence
-            _ = controller.teardown()
+            _ = controller.beginTeardown()
             #expect(controller.isBridgeReady == false)
         }
 
         @Test("handleBridgeReady is idempotent while ready")
         func handleBridgeReady_isIdempotent() {
             let controller = makeController()
-            defer { _ = controller.teardown() }  // fire-and-forget: defer cannot await; cleanup only
+            defer { _ = controller.beginTeardown() }  // fire-and-forget: defer cannot await; cleanup only
 
             controller.handleBridgeReady()
             #expect(controller.isBridgeReady == true)
@@ -151,13 +151,13 @@ extension WebKitSerializedTests {
         @Test("teardown terminally rejects a later bridge ready handshake")
         func teardown_rejectsReadyRestartAfterReset() {
             let controller = makeController()
-            defer { _ = controller.teardown() }  // fire-and-forget: defer cannot await; cleanup only
+            defer { _ = controller.beginTeardown() }  // fire-and-forget: defer cannot await; cleanup only
 
             controller.handleBridgeReady()
             #expect(controller.isBridgeReady == true)
 
             // fire-and-forget: synchronous test; the next assertion reads the synchronous teardown fence
-            _ = controller.teardown()
+            _ = controller.beginTeardown()
             #expect(controller.isBridgeReady == false)
 
             #expect(controller.handleBridgeReady() == false)
@@ -172,7 +172,7 @@ extension WebKitSerializedTests {
             var lateMutationRan = false
 
             // Act
-            let retirementTask = controller.teardown()
+            let retirementTask = controller.beginTeardown()
             let lateMutationResult = productAdmission.withValidAdmission {
                 lateMutationRan = true
                 return true
@@ -228,7 +228,7 @@ extension WebKitSerializedTests {
                 ),
                 reviewSourceProvider: provider
             )
-            defer { _ = controller.teardown() }  // fire-and-forget: defer cannot await; cleanup only
+            defer { _ = controller.beginTeardown() }  // fire-and-forget: defer cannot await; cleanup only
             let commandId = UUID()
             let artifact = DiffArtifact(
                 diffId: UUIDv7.generate(),

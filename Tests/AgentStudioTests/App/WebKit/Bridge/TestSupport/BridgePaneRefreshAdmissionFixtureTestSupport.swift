@@ -127,7 +127,7 @@ struct RefreshAdmissionIntegrationFixture {
     }
 
     func finish() async {
-        _ = await controller.teardown().value
+        _ = await controller.beginTeardown().value
     }
 }
 

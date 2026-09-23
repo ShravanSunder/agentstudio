@@ -12,7 +12,7 @@ extension WebKitSerializedTests.BridgePaneControllerIPCProjectionTests {
     @Test("IPC render state maps bridge diagnostics probes and bounds discard records")
     func ipcRenderState_mapsBridgeDiagnosticsProbesAndBoundsDiscardRecords() async throws {
         let controller = makeIPCRenderStateForegroundController()
-        defer { _ = controller.teardown() }  // fire-and-forget: defer cannot await; cleanup only
+        defer { _ = controller.beginTeardown() }  // fire-and-forget: defer cannot await; cleanup only
 
         try await WebPageTestHarness.withManagedPage(controller.page) { page in
             _ = try await page.callJavaScript(
@@ -127,7 +127,7 @@ extension WebKitSerializedTests.BridgePaneControllerIPCProjectionTests {
         for expectedActivity in expectedActivities {
             let controller = makeIPCRenderStateForegroundController()
             controller.refreshAdmissionCoordinator.applyActivity(expectedActivity)
-            defer { _ = controller.teardown() }  // fire-and-forget: defer cannot await; cleanup only
+            defer { _ = controller.beginTeardown() }  // fire-and-forget: defer cannot await; cleanup only
 
             try await WebPageTestHarness.withManagedPage(controller.page) { _ in
                 let result = try await controller.renderStateForIPC()
@@ -146,7 +146,7 @@ extension WebKitSerializedTests.BridgePaneControllerIPCProjectionTests {
             appRootURL: testBridgeAppRootURL(),
             initialPaneActivity: .loadedHidden
         )
-        defer { _ = controller.teardown() }  // fire-and-forget: defer cannot await; cleanup only
+        defer { _ = controller.beginTeardown() }  // fire-and-forget: defer cannot await; cleanup only
         controller.refreshAdmissionCoordinator.recordInvalidation(
             fileChangeset: nil,
             requiresReviewRefresh: true
@@ -188,7 +188,7 @@ extension WebKitSerializedTests.BridgePaneControllerIPCProjectionTests {
             appRootURL: testBridgeAppRootURL(),
             initialPaneActivity: .foreground
         )
-        defer { _ = controller.teardown() }  // fire-and-forget: defer cannot await; cleanup only
+        defer { _ = controller.beginTeardown() }  // fire-and-forget: defer cannot await; cleanup only
 
         try await WebPageTestHarness.withManagedPage(controller.page) { page in
             _ = try await page.callJavaScript(
@@ -219,7 +219,7 @@ extension WebKitSerializedTests.BridgePaneControllerIPCProjectionTests {
             appRootURL: testBridgeAppRootURL(),
             initialPaneActivity: .foreground
         )
-        defer { _ = controller.teardown() }  // fire-and-forget: defer cannot await; cleanup only
+        defer { _ = controller.beginTeardown() }  // fire-and-forget: defer cannot await; cleanup only
 
         try await WebPageTestHarness.withManagedPage(controller.page) { page in
             _ = try await page.callJavaScript(
@@ -265,7 +265,7 @@ extension WebKitSerializedTests.BridgePaneControllerIPCProjectionTests {
     @Test("IPC render state projects comparison control facts and raw one-row geometry")
     func ipcRenderState_projectsComparisonControlFactsAndRawOneRowGeometry() async throws {
         let controller = makeIPCRenderStateForegroundController()
-        defer { _ = controller.teardown() }  // fire-and-forget: defer cannot await; cleanup only
+        defer { _ = controller.beginTeardown() }  // fire-and-forget: defer cannot await; cleanup only
 
         try await WebPageTestHarness.withManagedPage(controller.page) { page in
             _ = try await page.callJavaScript(
@@ -351,7 +351,7 @@ extension WebKitSerializedTests.BridgePaneControllerIPCProjectionTests {
             appRootURL: testBridgeAppRootURL(),
             initialPaneActivity: .foreground
         )
-        defer { _ = controller.teardown() }  // fire-and-forget: defer cannot await; cleanup only
+        defer { _ = controller.beginTeardown() }  // fire-and-forget: defer cannot await; cleanup only
 
         try await WebPageTestHarness.withManagedPage(controller.page) { page in
             _ = try await page.callJavaScript(
@@ -388,7 +388,7 @@ extension WebKitSerializedTests.BridgePaneControllerIPCProjectionTests {
             appRootURL: testBridgeAppRootURL(),
             initialPaneActivity: .foreground
         )
-        defer { _ = controller.teardown() }  // fire-and-forget: defer cannot await; cleanup only
+        defer { _ = controller.beginTeardown() }  // fire-and-forget: defer cannot await; cleanup only
 
         try await WebPageTestHarness.withManagedPage(controller.page) { _ in
             let result = try await controller.renderStateForIPC()
@@ -412,7 +412,7 @@ extension WebKitSerializedTests.BridgePaneControllerIPCProjectionTests {
             appRootURL: testBridgeAppRootURL(),
             initialPaneActivity: .foreground
         )
-        defer { _ = controller.teardown() }  // fire-and-forget: defer cannot await; cleanup only
+        defer { _ = controller.beginTeardown() }  // fire-and-forget: defer cannot await; cleanup only
 
         try await WebPageTestHarness.withManagedPage(controller.page) { page in
             _ = try await page.callJavaScript("JSON.stringify = () => null;")

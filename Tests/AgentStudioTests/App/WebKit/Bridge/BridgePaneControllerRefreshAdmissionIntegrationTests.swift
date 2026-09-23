@@ -35,7 +35,7 @@ extension WebKitSerializedTests.BridgePaneControllerTests {
             reviewSourceProvider: provider,
             initialPaneActivity: .foreground
         )
-        defer { _ = controller.teardown() }  // fire-and-forget: defer cannot await; cleanup only
+        defer { _ = controller.beginTeardown() }  // fire-and-forget: defer cannot await; cleanup only
 
         // Act
         await controller.handleWorktreeProductInvalidation(
@@ -978,7 +978,7 @@ extension WebKitSerializedTests.BridgePaneControllerTests {
         var latePublicationCount = 0
 
         // Act
-        let retirementTask = controller.teardown()
+        let retirementTask = controller.beginTeardown()
         let latePublication = admittedWork.withValidAdmission {
             latePublicationCount += 1
             return true

@@ -12,7 +12,7 @@ extension WebKitSerializedTests.BridgePaneControllerTests {
     @Test("unchanged contribution refresh commits successor seed without publication")
     func unchangedContributionRefreshCommitsSuccessorSeedWithoutPublication() async throws {
         let fixture = makeContributionRefreshFixture()
-        defer { _ = fixture.controller.teardown() }  // fire-and-forget: defer cannot await; cleanup only
+        defer { _ = fixture.controller.beginTeardown() }  // fire-and-forget: defer cannot await; cleanup only
         guard
             case .success = await fixture.controller.handleDiffCommand(
                 .loadDiff(
@@ -69,7 +69,7 @@ extension WebKitSerializedTests.BridgePaneControllerTests {
         let paneId = fixture.paneId
         let repoId = fixture.repoId
         let worktreeId = fixture.worktreeId
-        defer { _ = fixture.controller.teardown() }  // fire-and-forget: defer cannot await; cleanup only
+        defer { _ = fixture.controller.beginTeardown() }  // fire-and-forget: defer cannot await; cleanup only
 
         let initialCommandId = UUIDv7.generate()
         let initialResult = await controller.handleDiffCommand(
@@ -140,7 +140,7 @@ extension WebKitSerializedTests.BridgePaneControllerTests {
         // Arrange
         let fixture = makeContributionRefreshFixture()
         let controller = fixture.controller
-        defer { _ = controller.teardown() }  // fire-and-forget: defer cannot await; cleanup only
+        defer { _ = controller.beginTeardown() }  // fire-and-forget: defer cannot await; cleanup only
         guard
             case .success = await controller.handleDiffCommand(
                 .loadDiff(
@@ -224,7 +224,7 @@ extension WebKitSerializedTests.BridgePaneControllerTests {
     @Test("filesystem context refresh preserves revisions across changed and no-op packages")
     func filesystemContextRefreshPreservesRevisionsAcrossChangedAndNoOpPackages() async throws {
         let fixture = makeRefreshRevisionFixture()
-        defer { _ = fixture.controller.teardown() }  // fire-and-forget: defer cannot await; cleanup only
+        defer { _ = fixture.controller.beginTeardown() }  // fire-and-forget: defer cannot await; cleanup only
 
         let loadResult = await fixture.controller.handleDiffCommand(
             .loadDiff(
@@ -291,7 +291,7 @@ extension WebKitSerializedTests.BridgePaneControllerTests {
     @Test("filesystem context refresh coalesces overlapping refresh events")
     func filesystemContextRefreshCoalescesOverlappingRefreshEvents() async throws {
         let fixture = makeRefreshRevisionFixture()
-        defer { _ = fixture.controller.teardown() }  // fire-and-forget: defer cannot await; cleanup only
+        defer { _ = fixture.controller.beginTeardown() }  // fire-and-forget: defer cannot await; cleanup only
         let loadResult = await fixture.controller.handleDiffCommand(
             .loadDiff(
                 DiffArtifact(
@@ -378,7 +378,7 @@ extension WebKitSerializedTests.BridgePaneControllerTests {
             ),
             reviewSourceProvider: provider
         )
-        defer { _ = controller.teardown() }  // fire-and-forget: defer cannot await; cleanup only
+        defer { _ = controller.beginTeardown() }  // fire-and-forget: defer cannot await; cleanup only
         let firstCommandId = UUID()
         let secondCommandId = UUID()
 
@@ -488,7 +488,7 @@ extension WebKitSerializedTests.BridgePaneControllerTests {
         #expect(controller.paneState.diff.packageMetadata?.orderedItemIds == ["item-late-close"])
         #expect(controller.runtime.snapshot().lastSeq == 0)
 
-        let retirementTask = controller.teardown()
+        let retirementTask = controller.beginTeardown()
         await reviewMetadataSource.releaseReadyPublication()
 
         #expect(
@@ -566,7 +566,7 @@ extension WebKitSerializedTests.BridgePaneControllerTests {
                 productProvider: productProvider
             )
         )
-        defer { _ = controller.teardown() }  // fire-and-forget: defer cannot await; cleanup only
+        defer { _ = controller.beginTeardown() }  // fire-and-forget: defer cannot await; cleanup only
         let commandId = UUIDv7.generate()
         async let commandResult = controller.handleDiffCommand(
             .loadDiff(
@@ -621,7 +621,7 @@ extension WebKitSerializedTests.BridgePaneControllerTests {
             ),
             reviewSourceProvider: provider
         )
-        defer { _ = controller.teardown() }  // fire-and-forget: defer cannot await; cleanup only
+        defer { _ = controller.beginTeardown() }  // fire-and-forget: defer cannot await; cleanup only
         let commandId = UUID()
 
         let result = await controller.handleDiffCommand(
@@ -653,7 +653,7 @@ extension WebKitSerializedTests.BridgePaneControllerTests {
             appRootURL: testBridgeAppRootURL(),
             initialPaneActivity: .foreground
         )
-        defer { _ = controller.teardown() }  // fire-and-forget: defer cannot await; cleanup only
+        defer { _ = controller.beginTeardown() }  // fire-and-forget: defer cannot await; cleanup only
         let commandId = UUID()
         let artifact = DiffArtifact(
             diffId: UUIDv7.generate(),

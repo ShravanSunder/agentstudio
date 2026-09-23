@@ -43,7 +43,7 @@ extension WebKitSerializedTests {
                 worktreeId: worktreeId,
                 provider: provider
             )
-            defer { _ = controller.teardown() }  // fire-and-forget: defer cannot await; cleanup only
+            defer { _ = controller.beginTeardown() }  // fire-and-forget: defer cannot await; cleanup only
 
             let result = await controller.loadInitialReviewPackageIfPossible(correlationId: nil)
 
@@ -109,7 +109,7 @@ extension WebKitSerializedTests {
                     return .unchanged(reviewerState)
                 }
             )
-            defer { _ = controller.teardown() }  // fire-and-forget: defer cannot await; cleanup only
+            defer { _ = controller.beginTeardown() }  // fire-and-forget: defer cannot await; cleanup only
 
             let result = await controller.loadInitialReviewPackageIfPossible(correlationId: nil)
 
@@ -195,7 +195,7 @@ extension WebKitSerializedTests {
                     worktreeId: worktreeId,
                     provider: provider
                 )
-                defer { _ = controller.teardown() }  // fire-and-forget: defer cannot await; cleanup only
+                defer { _ = controller.beginTeardown() }  // fire-and-forget: defer cannot await; cleanup only
 
                 let result = await controller.loadInitialReviewPackageIfPossible(correlationId: nil)
 
@@ -252,7 +252,7 @@ extension WebKitSerializedTests {
                     return .paneMissing
                 }
             )
-            defer { _ = controller.teardown() }  // fire-and-forget: defer cannot await; cleanup only
+            defer { _ = controller.beginTeardown() }  // fire-and-forget: defer cannot await; cleanup only
 
             let result = await controller.loadInitialReviewPackageIfPossible(correlationId: nil)
 
@@ -285,7 +285,7 @@ extension WebKitSerializedTests {
                 worktreeId: UUIDv7.generate(),
                 provider: provider
             )
-            defer { _ = controller.teardown() }  // fire-and-forget: defer cannot await; cleanup only
+            defer { _ = controller.beginTeardown() }  // fire-and-forget: defer cannot await; cleanup only
 
             let result = await controller.loadInitialReviewPackageIfPossible(correlationId: nil)
 
@@ -316,7 +316,7 @@ extension WebKitSerializedTests {
                 worktreeId: UUIDv7.generate(),
                 provider: provider
             )
-            defer { _ = controller.teardown() }  // fire-and-forget: defer cannot await; cleanup only
+            defer { _ = controller.beginTeardown() }  // fire-and-forget: defer cannot await; cleanup only
 
             let result = await controller.loadInitialReviewPackageIfPossible(correlationId: nil)
 
@@ -350,7 +350,7 @@ extension WebKitSerializedTests {
                 worktreeId: UUIDv7.generate(),
                 provider: provider
             )
-            defer { _ = controller.teardown() }  // fire-and-forget: defer cannot await; cleanup only
+            defer { _ = controller.beginTeardown() }  // fire-and-forget: defer cannot await; cleanup only
 
             let result = await controller.loadInitialReviewPackageIfPossible(correlationId: nil)
 
@@ -407,7 +407,7 @@ extension WebKitSerializedTests {
                 contentByHandleId: [:]
             )
             let controller = makeController(source: nil, worktreeId: nil, provider: provider)
-            defer { _ = controller.teardown() }  // fire-and-forget: defer cannot await; cleanup only
+            defer { _ = controller.beginTeardown() }  // fire-and-forget: defer cannot await; cleanup only
 
             let result = await controller.loadInitialReviewPackageIfPossible(correlationId: nil)
 
@@ -442,7 +442,7 @@ extension WebKitSerializedTests {
                 worktreeId: UUIDv7.generate(),
                 provider: provider
             )
-            defer { _ = controller.teardown() }  // fire-and-forget: defer cannot await; cleanup only
+            defer { _ = controller.beginTeardown() }  // fire-and-forget: defer cannot await; cleanup only
 
             // Act — wait for the exact scheduled attempt, not for elapsed time. A completion
             // callback that manufactures another intake replaces activeReviewRefreshTask before
@@ -477,7 +477,7 @@ extension WebKitSerializedTests {
                 worktreeId: UUIDv7.generate(),
                 provider: provider
             )
-            defer { _ = controller.teardown() }  // fire-and-forget: defer cannot await; cleanup only
+            defer { _ = controller.beginTeardown() }  // fire-and-forget: defer cannot await; cleanup only
             controller.paneState.diff.setStatus(.error, error: "metadataUnavailable")
 
             // Act
@@ -510,7 +510,7 @@ extension WebKitSerializedTests {
                 worktreeId: UUIDv7.generate(),
                 provider: provider
             )
-            defer { _ = controller.teardown() }  // fire-and-forget: defer cannot await; cleanup only
+            defer { _ = controller.beginTeardown() }  // fire-and-forget: defer cannot await; cleanup only
             controller.paneState.diff.setStatus(.error, error: "metadataUnavailable")
             // fire-and-forget: the test asserts admission state; the presentation transition handle is not its claim
             _ = controller.applyBridgePaneActivity(.loadedHidden)
@@ -569,7 +569,7 @@ extension WebKitSerializedTests {
                 gitReadContext: gitReadContext,
                 initialPaneActivity: .foreground
             )
-            defer { _ = controller.teardown() }  // fire-and-forget: defer cannot await; cleanup only
+            defer { _ = controller.beginTeardown() }  // fire-and-forget: defer cannot await; cleanup only
 
             // Act
             let result = await controller.loadInitialReviewPackageIfPossible(correlationId: nil)
@@ -657,7 +657,7 @@ extension WebKitSerializedTests {
                 worktreeId: worktreeId,
                 provider: provider
             )
-            defer { _ = controller.teardown() }  // fire-and-forget: defer cannot await; cleanup only
+            defer { _ = controller.beginTeardown() }  // fire-and-forget: defer cannot await; cleanup only
 
             let result = await controller.loadInitialReviewPackageIfPossible(correlationId: nil)
 
@@ -689,7 +689,7 @@ extension WebKitSerializedTests {
                 provider: provider,
                 initialPaneActivity: .loadedHidden
             )
-            defer { _ = controller.teardown() }  // fire-and-forget: defer cannot await; cleanup only
+            defer { _ = controller.beginTeardown() }  // fire-and-forget: defer cannot await; cleanup only
 
             // Act
             let foregroundTransition = controller.applyBridgePaneActivity(.foreground)
@@ -717,7 +717,7 @@ extension WebKitSerializedTests {
                 worktreeId: worktreeId,
                 provider: provider
             )
-            defer { _ = controller.teardown() }  // fire-and-forget: defer cannot await; cleanup only
+            defer { _ = controller.beginTeardown() }  // fire-and-forget: defer cannot await; cleanup only
             let productAdmission = try #require(controller.productAdmissionGate.acquire())
 
             // Act

@@ -101,7 +101,7 @@ extension WebKitSerializedTests {
                 ),
                 reviewSourceProvider: provider
             )
-            defer { _ = controller.teardown() }  // fire-and-forget: defer cannot await; cleanup only
+            defer { _ = controller.beginTeardown() }  // fire-and-forget: defer cannot await; cleanup only
             let firstCommandId = UUID()
             let secondCommandId = UUID()
 
@@ -187,7 +187,7 @@ extension WebKitSerializedTests {
                 ),
                 reviewSourceProvider: provider
             )
-            defer { _ = controller.teardown() }  // fire-and-forget: defer cannot await; cleanup only
+            defer { _ = controller.beginTeardown() }  // fire-and-forget: defer cannot await; cleanup only
             let firstCommandId = UUID()
             let secondCommandId = UUID()
 
@@ -252,7 +252,7 @@ extension WebKitSerializedTests {
         @Test("refresh preserves previous content authority when new metadata is invalid")
         func refresh_preserves_previous_content_authority_when_new_metadata_is_invalid() async throws {
             let fixture = makeRefreshRevisionFixture()
-            defer { _ = fixture.controller.teardown() }  // fire-and-forget: defer cannot await; cleanup only
+            defer { _ = fixture.controller.beginTeardown() }  // fire-and-forget: defer cannot await; cleanup only
             let initialHandle = BridgeReviewPackageBuilder.contentHandle(
                 for: makeBridgeEndpointChangedFile(
                     fileId: "old",
@@ -340,7 +340,7 @@ extension WebKitSerializedTests {
                 reviewGeneration: initialHandle.reviewGeneration.rawValue
             )
 
-            let teardownRetirement = fixture.controller.teardown()
+            let teardownRetirement = fixture.controller.beginTeardown()
 
             await #expect(throws: BridgeIPCProjectionError.self) {
                 _ = try await fixture.controller.loadContentForIPC(
@@ -401,7 +401,7 @@ extension WebKitSerializedTests {
             }
             await comparisonGate.waitForStartedComparisonCount(1)
 
-            let teardownRetirement = controller.teardown()
+            let teardownRetirement = controller.beginTeardown()
             await comparisonGate.releaseAll()
             let result = await loadTask.value
 
@@ -441,7 +441,7 @@ extension WebKitSerializedTests {
                 ),
                 reviewSourceProvider: provider
             )
-            defer { _ = controller.teardown() }  // fire-and-forget: defer cannot await; cleanup only
+            defer { _ = controller.beginTeardown() }  // fire-and-forget: defer cannot await; cleanup only
             let commandId = UUID()
             let invalidHandle = BridgeReviewPackageBuilder.contentHandle(
                 for: invalidFile,

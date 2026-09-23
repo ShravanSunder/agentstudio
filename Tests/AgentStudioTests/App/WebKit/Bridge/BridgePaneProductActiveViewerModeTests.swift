@@ -18,7 +18,7 @@ extension WebKitSerializedTests {
         @Test("committed File product mode accepts a worktree File source")
         func committedFileProductModeAcceptsWorktreeFileSource() async throws {
             let controller = makeController()
-            defer { _ = controller.teardown() }  // fire-and-forget: defer cannot await; cleanup only
+            defer { _ = controller.beginTeardown() }  // fire-and-forget: defer cannot await; cleanup only
             let productAdmission = try #require(controller.productAdmissionGate.acquire())
             let activeSource = BridgeActiveViewerSource(
                 protocolId: .worktreeFile,
@@ -44,7 +44,7 @@ extension WebKitSerializedTests {
         func backgroundReviewWarmupPreservesFileAuthorityWithoutPackage() async throws {
             // Arrange
             let controller = makeController()
-            defer { _ = controller.teardown() }  // fire-and-forget: defer cannot await; cleanup only
+            defer { _ = controller.beginTeardown() }  // fire-and-forget: defer cannot await; cleanup only
             let productAdmission = try #require(controller.productAdmissionGate.acquire())
             let activeSource = BridgeActiveViewerSource(
                 protocolId: .worktreeFile,
@@ -81,7 +81,7 @@ extension WebKitSerializedTests {
         func backgroundReviewWarmupPreservesFileAuthorityWithPackage() async throws {
             // Arrange
             let controller = makeController()
-            defer { _ = controller.teardown() }  // fire-and-forget: defer cannot await; cleanup only
+            defer { _ = controller.beginTeardown() }  // fire-and-forget: defer cannot await; cleanup only
             let productAdmission = try #require(controller.productAdmissionGate.acquire())
             let foregroundWorkAdmission = try #require(
                 controller.refreshAdmissionCoordinator.acquireForegroundWork()
@@ -132,7 +132,7 @@ extension WebKitSerializedTests {
         func closedPaneAdmissionSuppressesCommittedActiveViewerMutation() async throws {
             // Arrange
             let controller = makeController()
-            defer { _ = controller.teardown() }  // fire-and-forget: defer cannot await; cleanup only
+            defer { _ = controller.beginTeardown() }  // fire-and-forget: defer cannot await; cleanup only
             let productAdmission = try #require(controller.productAdmissionGate.acquire())
             controller.productAdmissionGate.close()
 
@@ -158,7 +158,7 @@ extension WebKitSerializedTests {
         @Test("committed Review product mode accepts the current stream and generation")
         func committedReviewProductModeAcceptsCurrentStreamAndGeneration() async throws {
             let controller = makeController()
-            defer { _ = controller.teardown() }  // fire-and-forget: defer cannot await; cleanup only
+            defer { _ = controller.beginTeardown() }  // fire-and-forget: defer cannot await; cleanup only
             let productAdmission = try #require(controller.productAdmissionGate.acquire())
             let foregroundWorkAdmission = try #require(
                 controller.refreshAdmissionCoordinator.acquireForegroundWork()
@@ -197,7 +197,7 @@ extension WebKitSerializedTests {
         @Test("successor Review source commit invalidates an impossible retained exact target")
         func successorReviewSourceCommitInvalidatesImpossibleRetainedExactTarget() async throws {
             let controller = makeController()
-            defer { _ = controller.teardown() }  // fire-and-forget: defer cannot await; cleanup only
+            defer { _ = controller.beginTeardown() }  // fire-and-forget: defer cannot await; cleanup only
             let productAdmission = try #require(controller.productAdmissionGate.acquire())
             let foregroundWorkAdmission = try #require(
                 controller.refreshAdmissionCoordinator.acquireForegroundWork()
@@ -243,7 +243,7 @@ extension WebKitSerializedTests {
         @Test("committed Review product mode rejects a stale generation")
         func committedReviewProductModeRejectsStaleGeneration() async throws {
             let controller = makeController()
-            defer { _ = controller.teardown() }  // fire-and-forget: defer cannot await; cleanup only
+            defer { _ = controller.beginTeardown() }  // fire-and-forget: defer cannot await; cleanup only
             let productAdmission = try #require(controller.productAdmissionGate.acquire())
             let foregroundWorkAdmission = try #require(
                 controller.refreshAdmissionCoordinator.acquireForegroundWork()
@@ -279,7 +279,7 @@ extension WebKitSerializedTests {
         @Test("committed Review product mode rejects a mismatched stream")
         func committedReviewProductModeRejectsMismatchedStream() async throws {
             let controller = makeController()
-            defer { _ = controller.teardown() }  // fire-and-forget: defer cannot await; cleanup only
+            defer { _ = controller.beginTeardown() }  // fire-and-forget: defer cannot await; cleanup only
             let productAdmission = try #require(controller.productAdmissionGate.acquire())
             let foregroundWorkAdmission = try #require(
                 controller.refreshAdmissionCoordinator.acquireForegroundWork()
@@ -316,7 +316,7 @@ extension WebKitSerializedTests {
         func reviewPackageStateIsInstalledBeforeProductReadyPublication() async throws {
             // Arrange
             let harness = ProductActiveViewerReviewPublicationHarness.make()
-            defer { _ = harness.controller.teardown() }  // fire-and-forget: defer cannot await; cleanup only
+            defer { _ = harness.controller.beginTeardown() }  // fire-and-forget: defer cannot await; cleanup only
             let openedSubscription = try await harness.openReviewMetadataSubscription()
 
             let reviewPackage = try productActiveViewerReviewPackageFixture()
@@ -361,7 +361,7 @@ extension WebKitSerializedTests {
         func closedAdmissionRejectsReviewPackageStatePublication() async throws {
             // Arrange
             let controller = makeController()
-            defer { _ = controller.teardown() }  // fire-and-forget: defer cannot await; cleanup only
+            defer { _ = controller.beginTeardown() }  // fire-and-forget: defer cannot await; cleanup only
             let reviewPackage = try productActiveViewerReviewPackageFixture()
             let reviewDelta = BridgeReviewDelta(
                 packageId: reviewPackage.packageId,
@@ -398,7 +398,7 @@ extension WebKitSerializedTests {
         @Test("replayed committed File hint cannot replace the accepted sequence")
         func replayedCommittedFileHintIsIgnored() async throws {
             let controller = makeController()
-            defer { _ = controller.teardown() }  // fire-and-forget: defer cannot await; cleanup only
+            defer { _ = controller.beginTeardown() }  // fire-and-forget: defer cannot await; cleanup only
             let productAdmission = try #require(controller.productAdmissionGate.acquire())
             let acceptedSource = BridgeActiveViewerSource(
                 protocolId: .worktreeFile,
@@ -432,7 +432,7 @@ extension WebKitSerializedTests {
         @Test("new product session accepts a lower sequence")
         func newProductSessionAcceptsLowerSequence() async throws {
             let controller = makeController()
-            defer { _ = controller.teardown() }  // fire-and-forget: defer cannot await; cleanup only
+            defer { _ = controller.beginTeardown() }  // fire-and-forget: defer cannot await; cleanup only
             let productAdmission = try #require(controller.productAdmissionGate.acquire())
             await controller.handleCommittedProductActiveViewerModeUpdate(
                 sessionId: "first-product-session",
@@ -467,7 +467,7 @@ extension WebKitSerializedTests {
         @Test("mismatched product File source fails open")
         func mismatchedProductFileSourceFailsOpen() async throws {
             let controller = makeController()
-            defer { _ = controller.teardown() }  // fire-and-forget: defer cannot await; cleanup only
+            defer { _ = controller.beginTeardown() }  // fire-and-forget: defer cannot await; cleanup only
             let productAdmission = try #require(controller.productAdmissionGate.acquire())
 
             await controller.handleCommittedProductActiveViewerModeUpdate(
@@ -488,7 +488,7 @@ extension WebKitSerializedTests {
         @Test("accepted active-viewer sequence admits the exact native surface receipt")
         func acceptedSequenceAdmitsExactNativeSurfaceReceipt() async throws {
             let controller = makeController()
-            defer { _ = controller.teardown() }  // fire-and-forget: defer cannot await; cleanup only
+            defer { _ = controller.beginTeardown() }  // fire-and-forget: defer cannot await; cleanup only
             let productAdmission = try #require(controller.productAdmissionGate.acquire())
             let bootstrap = try #require(await controller.productSessionOwner.activeBootstrap())
             controller.surfaceSelectionAuthority.retainIntent(surface: .file)
@@ -527,7 +527,7 @@ extension WebKitSerializedTests {
         @Test("stale active-viewer sequence cannot consume a native surface receipt")
         func staleSequenceCannotConsumeNativeSurfaceReceipt() async throws {
             let controller = makeController()
-            defer { _ = controller.teardown() }  // fire-and-forget: defer cannot await; cleanup only
+            defer { _ = controller.beginTeardown() }  // fire-and-forget: defer cannot await; cleanup only
             let productAdmission = try #require(controller.productAdmissionGate.acquire())
             let bootstrap = try #require(await controller.productSessionOwner.activeBootstrap())
             await controller.handleCommittedProductActiveViewerModeUpdate(

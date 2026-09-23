@@ -22,7 +22,7 @@ final class WorkspaceActionExecutor {
         self.store = store
         coordinator.workspaceActionSubmission = { [weak self] action in
             // fire-and-forget: coordinator-originated action; stopAcceptingCommandsAndDrain awaits the tail
-            _ = self?.submit(action)
+            _ = self?.submitAction(action)
         }
     }
 
@@ -221,7 +221,7 @@ final class WorkspaceActionExecutor {
 
     func prepareHeldPanePreview() {
         // fire-and-forget: preparation is synchronous; the deferred geometry reevaluation reports nothing
-        _ = coordinator.prepareHeldPanePreview()
+        _ = coordinator.beginHeldPanePreviewPreparation()
     }
 
     private func drawerParentByPaneId() -> [UUID: UUID] {
@@ -247,10 +247,10 @@ final class WorkspaceActionExecutor {
     /// Validate/canonicalize a WorkspaceActionCommand against current state, then execute it.
     @discardableResult
     func execute(_ action: WorkspaceActionCommand) async -> Bool {
-        await submit(action).value
+        await submitAction(action).value
     }
 
-    func submit(_ action: WorkspaceActionCommand) -> Task<Bool, Never> {
+    func submitAction(_ action: WorkspaceActionCommand) -> Task<Bool, Never> {
         submitGesture { execute in await execute(action) }
     }
 
