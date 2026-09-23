@@ -340,6 +340,23 @@ let package = Package(
                 .swiftLanguageMode(.v6)
             ]
         ),
+        .target(
+            name: "AgentStudioTestHarness",
+            path: "Tests/AgentStudioTestHarness",
+            swiftSettings: [
+                .swiftLanguageMode(.v6)
+            ]
+        ),
+        .testTarget(
+            name: "AgentStudioTestHarnessTests",
+            dependencies: [
+                "AgentStudioTestHarness"
+            ],
+            path: "Tests/AgentStudioTestHarnessTests",
+            swiftSettings: [
+                .swiftLanguageMode(.v6)
+            ]
+        ),
         .testTarget(
             name: "AgentStudioBridgeDevelopmentServerTests",
             dependencies: [
