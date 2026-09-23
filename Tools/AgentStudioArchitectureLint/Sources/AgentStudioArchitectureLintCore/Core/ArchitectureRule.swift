@@ -57,6 +57,7 @@ enum ArchitectureRuleRegistry {
         TestPollingWaitRule(),
         TestBlockingWaitOffCooperativePoolRule(),
         TestCoreAtomFallbackOwnershipRule(),
+        CompletionHandleNotDiscardableRule(),
         TooltipSourceRule(),
         EventBusSubscriberPolicyRule(),
         TerminalLocalDispositionPublicationRule(),

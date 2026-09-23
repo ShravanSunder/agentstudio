@@ -48,6 +48,7 @@ under R19 is a review-visible severity change recorded in this inventory.
 | Tests avoid direct wall-clock `Task.sleep(...)` calls and wait for events, state, or injected fake clocks. | `agentstudio_no_task_sleep_in_tests` | error | `AGENTS.md#no-wall-clock-tests` |
 | Tests contain no polling wait: a loop around a scheduler yield, a sleep, or a clock deadline. Baseline `pollingWaitKnownDebt` is shrink-only. | `agentstudio_no_polling_wait_in_tests` | error | [`docs/architecture/testing/testing_architecture.md`](../testing/testing_architecture.md#how-a-test-may-wait) |
 | Tests install the shared Core atom fallback only through [`TestAtomRegistry.swift`](../../../Tests/AgentStudioTests/TestSupport/TestAtomRegistry.swift). | `agentstudio_test_core_atom_fallback_ownership` | error | [`docs/architecture/testing/testing_architecture.md`](../testing/testing_architecture.md#test-target-ownership) |
+| A completion handle (`Task`) is never discardable: no `@discardableResult` on a declaration returning `Task<…>`/`Task<…>?`, and an explicit `_ =` discard of a call to a task-returning function carries `// fire-and-forget: <reason>` on its line or the line directly above. | `agentstudio_completion_handle_not_discardable` | error | `docs/specs/2026-09-23-ci-guardrails/2026-09-23-ci-guardrails-program-design.md#completion-handles-s3` |
 | Dense action controls use typed tooltip sources instead of raw `.help("...")`, AppKit `toolTip = "..."`, or custom hover strings. Shared components consume resolved render values only. | `agentstudio_toolbar_tooltip_source` | error | `docs/architecture/commands/command_specs.md#tooltips-help-text-and-compact-control-copy` |
 | Production EventBus subscriptions and wait helpers name an explicit semantic subscriber policy; wrappers cannot hide a default or zero-argument policy. | `agentstudio_eventbus_subscriber_policy_required` | error | [`Sources/AgentStudio/Core/RuntimeEventSystem/Events/EventBus.swift`](../../../Sources/AgentStudio/Core/RuntimeEventSystem/Events/EventBus.swift) |
 | Terminal-local `GhosttyActionDisposition` branches contract locally and cannot reach the shared exact semantic publication edge. | `agentstudio_terminal_local_disposition_publication` | error | [Pane Runtime Contract 7](../runtime/pane_runtime_architecture.md#contract-7-typed-ghostty-source-admission-and-contraction) |
@@ -86,6 +87,16 @@ semantic edge while leaving `.exactFactOrControl` eligible for that ordered
 route. The rule does not perform general type resolution or control-flow
 analysis. It does not enforce Inbox classification; `InboxNotificationRouter`
 is outside this active guard.
+
+The completion-handle rule is syntax-only. Its explicit-discard predicate
+resolves a callee by base name against an index of every `func` declaration in
+the linted tree: a name declared anywhere with a `Task<…>` or `Task<…>?` result
+is indexed, and a name that is also declared with any other result (for example a
+second `submit` or a `Void` `teardown`) is ambiguous and not checked. Only a direct
+call (`f(…)`, `x.f(…)`, `x?.f(…)`) on the right of `_ =` is checked; `_ = await …`
+discards an awaited outcome, not the handle, and is not flagged. A bare, unused
+non-discardable result is rejected by the compiler instead: every repository-owned
+SwiftPM target sets `treatAllWarnings(as: .error)`.
 
 The retained `InboxNotificationRouter` source is dormant historical implementation:
 its exhaustive switches describe preserved source, not an active enforcement owner.
