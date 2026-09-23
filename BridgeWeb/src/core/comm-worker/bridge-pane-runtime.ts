@@ -47,6 +47,7 @@ export interface BridgePaneSessionPort {
 		readonly publishWorkerMessages: (messages: readonly BridgeWorkerServerToMainMessage[]) => void;
 	}) => BridgePaneCommWorkerDispatcher;
 	readonly dispose: () => void;
+	readonly handleNativeBootstrapFailure?: () => void;
 	readonly installNativeBootstrap: (bootstrap: BridgePaneCommWorkerNativeBootstrap) => void;
 	readonly installTelemetryProducer?: (
 		install: BridgePaneCommWorkerTelemetryProducerInstall,
@@ -87,6 +88,7 @@ export interface BridgePaneRuntime {
 	readonly lifecycleStore: BridgeWorkerRpcLifecycleStore;
 	readonly paneClient: BridgePaneClient;
 	readonly dispose: () => void;
+	readonly handleNativeBootstrapFailure: () => void;
 	readonly installNativeBootstrap: (bootstrap: BridgePaneCommWorkerNativeBootstrap) => void;
 	readonly installTelemetryProducer: (
 		install: BridgePaneCommWorkerTelemetryProducerInstall,
@@ -341,6 +343,10 @@ export function createBridgePaneRuntime(
 			dispatcher.dispose();
 			session.dispose();
 		},
+		handleNativeBootstrapFailure: (): void => {
+			if (isDisposed) return;
+			session.handleNativeBootstrapFailure?.();
+		},
 		installNativeBootstrap: (bootstrap): void => {
 			nativeBootstrapInstallAttemptCount += 1;
 			const installsReplacement = nativeBootstrapReplacementRequested;
@@ -473,6 +479,7 @@ function createDefaultBridgePaneSessionPort(
 				publishWorkerMessages: dispatcherProps.publishWorkerMessages,
 			}),
 		dispose: (): void => session.dispose(),
+		handleNativeBootstrapFailure: (): void => session.handleNativeBootstrapFailure(),
 		installNativeBootstrap: (bootstrap): void => session.installNativeBootstrap(bootstrap),
 		installTelemetryProducer: (install): void => session.installTelemetryProducer(install),
 		requestWorkerReplacement: (): void => session.requestWorkerReplacement(),

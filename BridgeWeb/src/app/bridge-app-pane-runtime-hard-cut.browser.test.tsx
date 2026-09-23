@@ -181,6 +181,7 @@ vi.mock('../core/comm-worker/bridge-pane-runtime.js', async (importOriginal) => 
 						};
 					},
 				},
+				handleNativeBootstrapFailure: vi.fn(),
 				setNativeBootstrapRequester: vi.fn(),
 				surfaceClient: (surface: 'fileView' | 'review') => {
 					paneRuntimeObservation.surfaceRequests.push(surface);

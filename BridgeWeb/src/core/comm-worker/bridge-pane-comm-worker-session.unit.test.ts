@@ -582,6 +582,54 @@ describe('Bridge pane comm worker session', () => {
 		}
 	});
 
+	test('re-requests native bootstrap after a failure reply within a bounded budget per replacement', async () => {
+		// Arrange
+		const firstWorker = new RecordingPaneCommWorker();
+		const secondWorker = new RecordingPaneCommWorker();
+		const workerFactory = vi
+			.fn<() => Worker>()
+			.mockReturnValueOnce(firstWorker)
+			.mockReturnValueOnce(secondWorker);
+		const nativeBootstrapRequests: string[] = [];
+		const session = new BridgePaneCommWorkerSession({
+			requestNativeBootstrap: (reason): void => {
+				nativeBootstrapRequests.push(reason);
+			},
+			workerFactory,
+		});
+		const dispatcher = session.createDispatcher({
+			bootstrapRequest: makeRuntimeBootstrapRequest('bounded-rerequest-bootstrap'),
+			publishWorkerMessages: (): void => {},
+		});
+		try {
+			// A failure reply with no replacement pending is not a request to retry.
+			session.handleNativeBootstrapFailure();
+			expect(nativeBootstrapRequests).toEqual([]);
+			session.installNativeBootstrap(makeNativeBootstrap('bounded-first-worker'));
+			await flushMicrotasks();
+			firstWorker.dispatchEvent(new Event('error'));
+			expect(nativeBootstrapRequests).toEqual(['workerReplacement']);
+
+			// Act: native answers every replacement request with a typed failure.
+			for (let reply = 0; reply < 4; reply += 1) session.handleNativeBootstrapFailure();
+
+			// Assert: three re-requests, then the session stops asking.
+			expect(nativeBootstrapRequests).toHaveLength(4);
+
+			// Act: a later successful bootstrap and a new failure start a fresh budget.
+			session.installNativeBootstrap(makeNativeBootstrap('bounded-second-worker'));
+			await flushMicrotasks();
+			secondWorker.dispatchEvent(new Event('error'));
+			session.handleNativeBootstrapFailure();
+
+			// Assert
+			expect(nativeBootstrapRequests).toHaveLength(6);
+		} finally {
+			dispatcher.dispose();
+			session.dispose();
+		}
+	});
+
 	test('requests one replacement when worker bootstrap readiness times out', async () => {
 		vi.useFakeTimers();
 		const worker = new RecordingPaneCommWorker();

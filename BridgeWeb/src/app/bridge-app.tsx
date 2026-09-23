@@ -454,6 +454,11 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 				paneRuntimeHost.runtime.setNativeBootstrapRequester(requestReplacementNativeBootstrap);
 				paneRuntimeHost.runtime.installNativeBootstrap(productSessionBootstrap);
 			},
+			onProductSessionBootstrapFailure: (failure): void => {
+				if (failure.requestReason === 'workerReplacement') {
+					paneRuntimeHost.runtime.handleNativeBootstrapFailure();
+				}
+			},
 			onReady: (): void => {
 				recordBridgePageReadyState('ready');
 				isBridgeReadyRef.current = true;

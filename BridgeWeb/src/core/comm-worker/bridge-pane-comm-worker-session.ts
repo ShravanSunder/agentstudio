@@ -56,6 +56,9 @@ interface BridgePaneCommWorkerClient {
 }
 
 const defaultWorkerScriptUrl = 'agentstudio://app/assets/bridge-comm-worker.js';
+// Re-requests after native answers a replacement bootstrap with a typed failure. Each
+// re-request is paced by native's answer to the previous one, so no clock is needed.
+const maximumReplacementBootstrapReRequestCount = 3;
 
 export class BridgePaneCommWorkerSession {
 	readonly #clients = new Set<BridgePaneCommWorkerClient>();
@@ -79,6 +82,7 @@ export class BridgePaneCommWorkerSession {
 	#mainPort: MessagePort | null = null;
 	#nativeBootstrap: BridgePaneCommWorkerNativeBootstrap | null = null;
 	#nativeBootstrapInstallCount = 0;
+	#replacementBootstrapReRequestCount = 0;
 	#replacementRequestCount = 0;
 	#state: BridgePaneCommWorkerSessionDiagnosticState = 'awaiting_bootstrap';
 	#telemetryProducerInstall: BridgePaneCommWorkerTelemetryProducerInstall | null = null;
@@ -110,9 +114,25 @@ export class BridgePaneCommWorkerSession {
 		this.#nativeBootstrap = nativeBootstrap;
 		this.#nativeBootstrapInstallCount += 1;
 		this.#isRestartRequested = false;
+		this.#replacementBootstrapReRequestCount = 0;
 		this.#state = 'bootstrapping';
 		this.#publishDiagnosticSnapshot();
 		void this.#ensureWorker().catch((): void => {});
+	}
+
+	/**
+	 * Native answered a bootstrap request with a typed failure. While a replacement is
+	 * outstanding, ask again within a bounded budget; otherwise there is nothing to retry.
+	 */
+	handleNativeBootstrapFailure(): void {
+		if (this.#isDisposed || this.#state !== 'replacement_requested') return;
+		if (this.#replacementBootstrapReRequestCount >= maximumReplacementBootstrapReRequestCount) {
+			return;
+		}
+		this.#replacementBootstrapReRequestCount += 1;
+		this.#replacementRequestCount += 1;
+		this.#publishDiagnosticSnapshot();
+		this.#requestNativeBootstrap('workerReplacement');
 	}
 
 	setNativeBootstrapRequester(requestNativeBootstrap: (reason: 'workerReplacement') => void): void {
@@ -336,6 +356,7 @@ export class BridgePaneCommWorkerSession {
 			return;
 		}
 		this.#isRestartRequested = true;
+		this.#replacementBootstrapReRequestCount = 0;
 		this.#replacementRequestCount += 1;
 		this.#state = 'replacement_requested';
 		this.#publishDiagnosticSnapshot();

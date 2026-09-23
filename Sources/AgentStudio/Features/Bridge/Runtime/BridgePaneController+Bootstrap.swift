@@ -331,37 +331,22 @@ extension BridgePaneController {
         )
         let installation: BridgeProductSessionInstallation
         if hasPublishedProductSessionBootstrap {
-            surfaceSelectionAuthority.invalidateCurrentBinding()
-            do {
-                let candidate = try await productSessionOwner.prepareCandidate(
+            guard
+                let replacement = await activateReplacementProductSessionInstallation(
+                    requestId: requestId,
+                    reason: reason,
                     productAdmission: productAdmission
                 )
-                let retirementReason: BridgePaneProductSessionRetirementReason =
-                    reason == .workerReplacement ? .workerReplacement : .pageReload
-                while await productSessionOwner.retire(reason: retirementReason) != .retired {
-                    guard (productAdmission.withValidAdmission { true }) == true else { return }
-                    await Task.yield()
-                }
-                guard
-                    await productSessionOwner.activatePreparedCandidate(
-                        candidate,
-                        productAdmission: productAdmission
-                    ) == .activated
-                else {
-                    setProductBootstrapConnectionErrorIfAdmitted(productAdmission)
-                    return
-                }
-                installation = candidate
-            } catch BridgePaneProductSessionOwnerError.ownerDisposed {
-                return
-            } catch {
-                bridgeProductBootstrapLogger.error("Bridge product session replacement failed: \(error)")
-                setProductBootstrapConnectionErrorIfAdmitted(productAdmission)
-                return
-            }
+            else { return }
+            installation = replacement
         } else {
             guard let activeInstallation = await productSessionOwner.activeInstallation else {
                 setProductBootstrapConnectionErrorIfAdmitted(productAdmission)
+                await answerProductSessionBootstrapFailure(
+                    requestId: requestId,
+                    reason: .noActiveSession,
+                    productAdmission: productAdmission
+                )
                 return
             }
             guard (productAdmission.withValidAdmission { true }) == true else { return }
@@ -403,15 +388,19 @@ extension BridgePaneController {
         } catch {
             bridgeProductBootstrapLogger.error("Bridge product session bootstrap delivery failed: \(error)")
             guard (productAdmission.withValidAdmission { true }) == true else { return }
-            while await productSessionOwner.retire(reason: .pageReload) != .retired {
-                guard (productAdmission.withValidAdmission { true }) == true else { return }
-                await Task.yield()
-            }
+            // The undelivered capability must not stay live. A failed retirement stays
+            // owned by the session owner and is retried by the page's next request.
+            _ = await productSessionOwner.retire(reason: .pageReload)
             setProductBootstrapConnectionErrorIfAdmitted(productAdmission)
+            await answerProductSessionBootstrapFailure(
+                requestId: requestId,
+                reason: .deliveryFailed,
+                productAdmission: productAdmission
+            )
         }
     }
 
-    private func setProductBootstrapConnectionErrorIfAdmitted(
+    func setProductBootstrapConnectionErrorIfAdmitted(
         _ productAdmission: BridgeProductAdmissionContext
     ) {
         _ = productAdmission.withValidAdmission {

@@ -389,6 +389,55 @@ describe('bridge page handshake', () => {
 		expect(deliveredWorkerInstanceIds).toEqual(['worker-1', 'worker-2']);
 	});
 
+	test('reports one correlated typed product bootstrap failure and ignores uncorrelated replies', () => {
+		// Arrange
+		const target = new EventTarget();
+		const bootstrapRequests: Array<{ readonly reason: string; readonly requestId: string }> = [];
+		target.addEventListener('__bridge_product_session_bootstrap_request', (event): void => {
+			bootstrapRequests.push(extractProductBootstrapRequest(event));
+		});
+		const failures: unknown[] = [];
+		const deliveredWorkerInstanceIds: string[] = [];
+		const session = installBridgePageHandshakeSession(target, {
+			onProductSessionBootstrap: ({ bootstrap }): void => {
+				deliveredWorkerInstanceIds.push(bootstrap.workerInstanceId);
+			},
+			onProductSessionBootstrapFailure: (failure): void => {
+				failures.push(failure);
+			},
+		});
+		session.requestProductSessionReplacement();
+		const [initialRequest, replacementRequest] = bootstrapRequests;
+		if (initialRequest === undefined || replacementRequest === undefined) {
+			throw new Error('Expected initial and replacement bootstrap requests.');
+		}
+		const dispatchFailure = (detail: object): void => {
+			target.dispatchEvent(new CustomEvent('__bridge_product_session_bootstrap', { detail }));
+		};
+
+		// Act
+		dispatchFailure({ failure: { reason: 'retirement_failed' }, requestId: 'uncorrelated' });
+		dispatchFailure({ failure: { reason: 'unknown_reason' }, requestId: initialRequest.requestId });
+		dispatchFailure({
+			failure: { reason: 'retirement_failed' },
+			requestId: replacementRequest.requestId,
+		});
+		dispatchFailure({
+			failure: { reason: 'retirement_failed' },
+			requestId: replacementRequest.requestId,
+		});
+		target.dispatchEvent(
+			new CustomEvent('__bridge_product_session_bootstrap', {
+				detail: makeProductBootstrapDetail(initialRequest.requestId, 'worker-initial'),
+			}),
+		);
+		session.uninstall();
+
+		// Assert: a malformed failure leaves its request pending for the real answer.
+		expect(failures).toEqual([{ reason: 'retirement_failed', requestReason: 'workerReplacement' }]);
+		expect(deliveredWorkerInstanceIds).toEqual(['worker-initial']);
+	});
+
 	test('copies an isolated-world product capability into the page realm', () => {
 		const target = new EventTarget();
 		const isolatedWorldCapability: unknown = runInNewContext(

@@ -22,6 +22,32 @@ const bridgeBootstrapAcknowledgementErrorSchema = z
 	})
 	.strict();
 
+// Native answers a bootstrap request it cannot fulfil with one of these reasons, so the
+// page never waits on a request native abandoned.
+const bridgeProductSessionBootstrapFailureSchema = z
+	.object({
+		failure: z
+			.object({
+				reason: z.enum([
+					'activation_failed',
+					'candidate_preparation_failed',
+					'delivery_failed',
+					'no_active_session',
+					'retirement_failed',
+				]),
+			})
+			.strict(),
+		requestId: z.string(),
+	})
+	.strict();
+
+type BridgeProductSessionBootstrapRequestReason = 'initial' | 'workerReplacement';
+
+export interface BridgeProductSessionBootstrapFailure {
+	readonly reason: z.infer<typeof bridgeProductSessionBootstrapFailureSchema>['failure']['reason'];
+	readonly requestReason: BridgeProductSessionBootstrapRequestReason;
+}
+
 type BridgeHandshakeTarget = Pick<
 	EventTarget,
 	'addEventListener' | 'dispatchEvent' | 'removeEventListener'
@@ -47,6 +73,9 @@ export interface InstallBridgePageHandshakeSessionProps {
 		readonly bootstrap: BridgeProductSessionBootstrap;
 		readonly productCapability: ArrayBuffer;
 	}) => void;
+	readonly onProductSessionBootstrapFailure?: (
+		failure: BridgeProductSessionBootstrapFailure,
+	) => void;
 	readonly onReadyError?: (error: BridgePageReadyError) => void;
 	readonly onTelemetrySessionBootstrap?: (
 		result:
@@ -104,7 +133,10 @@ export function installBridgePageHandshakeSession(
 	let isInstalled = true;
 	let telemetryConfig: BridgeTelemetryBootstrapConfig | null = null;
 	const deliveredProductWorkerInstanceIds = new Set<string>();
-	const pendingProductBootstrapRequestIds = new Set<string>();
+	const pendingProductBootstrapRequestReasonById = new Map<
+		string,
+		BridgeProductSessionBootstrapRequestReason
+	>();
 	const pendingTelemetryBootstrapRequestIds = new Set<string>();
 	let readyRequestId: string | null = null;
 	let readyRequestState: BridgePageReadyRequestState = 'awaiting';
@@ -197,6 +229,10 @@ export function installBridgePageHandshakeSession(
 			return;
 		}
 		const detail = event.detail;
+		if (typeof detail === 'object' && detail !== null && 'failure' in detail) {
+			handleProductSessionBootstrapFailure(detail);
+			return;
+		}
 		if (
 			typeof detail !== 'object' ||
 			detail === null ||
@@ -210,7 +246,7 @@ export function installBridgePageHandshakeSession(
 		const productCapability = copyProductCapabilityIntoCurrentRealm(detail.productCapability);
 		if (
 			typeof detail.requestId !== 'string' ||
-			!pendingProductBootstrapRequestIds.delete(detail.requestId) ||
+			!pendingProductBootstrapRequestReasonById.delete(detail.requestId) ||
 			!parsedBootstrap.success ||
 			productCapability === null
 		) {
@@ -225,12 +261,27 @@ export function installBridgePageHandshakeSession(
 			productCapability,
 		});
 	};
-	const requestProductSessionBootstrap = (reason: 'initial' | 'workerReplacement'): void => {
+	const handleProductSessionBootstrapFailure = (detail: object): void => {
+		const parsedFailure = bridgeProductSessionBootstrapFailureSchema.safeParse(detail);
+		if (!parsedFailure.success) return;
+		const requestReason = pendingProductBootstrapRequestReasonById.get(
+			parsedFailure.data.requestId,
+		);
+		if (requestReason === undefined) return;
+		pendingProductBootstrapRequestReasonById.delete(parsedFailure.data.requestId);
+		props.onProductSessionBootstrapFailure?.({
+			reason: parsedFailure.data.failure.reason,
+			requestReason,
+		});
+	};
+	const requestProductSessionBootstrap = (
+		reason: BridgeProductSessionBootstrapRequestReason,
+	): void => {
 		if (!isInstalled) {
 			return;
 		}
 		const requestId = createProductSessionBootstrapRequestId();
-		pendingProductBootstrapRequestIds.add(requestId);
+		pendingProductBootstrapRequestReasonById.set(requestId, reason);
 		target.dispatchEvent(
 			new CustomEvent('__bridge_product_session_bootstrap_request', {
 				detail: { reason, requestId },
@@ -286,7 +337,7 @@ export function installBridgePageHandshakeSession(
 		},
 		uninstall: (): void => {
 			isInstalled = false;
-			pendingProductBootstrapRequestIds.clear();
+			pendingProductBootstrapRequestReasonById.clear();
 			pendingTelemetryBootstrapRequestIds.clear();
 			clearReadyAcknowledgementTimeout();
 			target.removeEventListener('__bridge_ready_ack', handleReadyAcknowledgement);

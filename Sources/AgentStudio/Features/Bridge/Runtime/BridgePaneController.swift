@@ -100,6 +100,7 @@ package final class BridgePaneController {
 
     let bridgeWorld = WKContentWorld.world(name: "agentStudioBridge")
     let productSessionBootstrapSink: BridgeProductSessionBootstrapSink
+    let productSessionBootstrapFailureSink: BridgeProductSessionBootstrapFailureSink
     let telemetrySessionBootstrapSink: BridgeTelemetrySessionBootstrapSink
     private let userContentController: WKUserContentController
     private let bootstrapScript: WKUserScript
@@ -148,6 +149,8 @@ package final class BridgePaneController {
         telemetrySessionDependencies: BridgePaneTelemetrySessionDependencies? = nil,
         productSessionBootstrapSink: @escaping BridgeProductSessionBootstrapSink =
             BridgePaneController.dispatchProductSessionBootstrap,
+        productSessionBootstrapFailureSink: @escaping BridgeProductSessionBootstrapFailureSink =
+            BridgePaneController.dispatchProductSessionBootstrapFailure,
         telemetrySessionBootstrapSink: @escaping BridgeTelemetrySessionBootstrapSink =
             BridgePaneController.dispatchTelemetrySessionBootstrap,
         initialContributionTargetCommit:
@@ -241,6 +244,7 @@ package final class BridgePaneController {
         )
         self.userContentController = pageComposition.userContentController
         self.productSessionBootstrapSink = productSessionBootstrapSink
+        self.productSessionBootstrapFailureSink = productSessionBootstrapFailureSink
         self.telemetrySessionBootstrapSink = telemetrySessionBootstrapSink
         self.bootstrapScript = pageComposition.bootstrapScript
         self.page = pageComposition.page
