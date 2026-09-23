@@ -88,6 +88,7 @@ owner statements S1–S29 there):
 | S44 | “cmd click goes to our view with option to open as default shown in bridge for all files”; “we not gonna have settings in app we use agent to write settings for now through IPC commands with approval.” | Bridge is the ⌘-click default; the alternative is a setting written by an approved agent command. |
 | S45 | “Follow app styles and our standards… keyboard-nav navigable. Everything should be through the command spec… use the arrow keys.” | Popovers use AppStyles and are fully keyboard navigable through catalog commands. |
 | S46 | “The PR should be summaries… in the main [bar] it should just show if it's going well or not, and then the pop-up should show the details”; multi-repo work “should be its own work tree”. | Multi-member PR summary button + details popover (B3); the Bridge stack is its own worktree. |
+| S47 | On the revised Bridge design's new components (runtime Open view items, `PaneOpenViewPresentation`, `TerminalFileLinkResolver`, multi-member PR fold, one ⌘-click preference key): “it's fine.” | Structural realization of B1–B3 confirmed by the owner (2026-09-23). |
 
 Current source establishes what exists, not which alternative the owner has
 chosen. The [current-path evidence](./2026-09-12-proposal-and-tradeoffs.md#what-the-app-already-provides)
