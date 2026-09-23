@@ -242,8 +242,9 @@ sequenceDiagram
 ```
 
 The interactive path (human shortcut, management layer) keeps today's
-behavior: expand and focus. Only the agent-originated call uses the background
-variant.
+behavior: expand and focus. Every IPC-originated `drawer.addPane` (pane agents
+and CLI/debug automation alike) uses the background variant, so IPC has one
+behavior (implementation decision during A1, 2026-09-23).
 
 ## Failure and concurrency
 
