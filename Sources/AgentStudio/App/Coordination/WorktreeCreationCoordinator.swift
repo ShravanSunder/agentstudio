@@ -74,7 +74,7 @@ final class WorktreeCreationCoordinator {
     private func performCreation(_ request: WorktreeCreationRequest) async -> WorktreeCreationOutcome {
         guard let source = resolveSource(request.sourceWorktreeId) else { return .failed(.sourceUnavailable) }
         let destination: WorktreeCreationDestination
-        switch WorktreeDestinationPolicy.resolve(
+        switch await Self.resolveDestination(
             repositoryPath: source.repository.repoPath,
             branchName: request.branchName,
             watchedPaths: topology.watchedPaths,
@@ -151,6 +151,23 @@ final class WorktreeCreationCoordinator {
         } catch {
             return .forkFailure(error)
         }
+    }
+
+    /// Placement reads the filesystem (symlink resolution, existence), so it runs on the
+    /// global concurrent executor; the main actor only captures inputs and sequences.
+    @concurrent
+    private nonisolated static func resolveDestination(
+        repositoryPath: URL,
+        branchName: WorktreeBranchName,
+        watchedPaths: [WatchedPath],
+        probe: WorktreeDestinationProbe
+    ) async -> Result<WorktreeCreationDestination, WorktreeDestinationRejection> {
+        WorktreeDestinationPolicy.resolve(
+            repositoryPath: repositoryPath,
+            branchName: branchName,
+            watchedPaths: watchedPaths,
+            probe: probe
+        )
     }
 
     private func resolveSource(_ worktreeId: UUID) -> (worktree: Worktree, repository: Repo)? {

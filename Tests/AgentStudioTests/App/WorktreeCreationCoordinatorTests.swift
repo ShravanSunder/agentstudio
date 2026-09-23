@@ -123,6 +123,22 @@ struct WorktreeCreationCoordinatorTests {
         #expect(presented.failures == [.forkFailure(forkError)])
     }
 
+    @Test("destination probing runs off the main actor; the main actor only sequences")
+    func destinationProbingRunsOffMainActor() async throws {
+        let fixture = try Self.makeFixture()
+        let ledger = CreationLedger()
+        let presented = PresentedFailures()
+        let probeThreads = ProbeThreadRecorder()
+        let coordinator = Self.makeCoordinator(
+            fixture: fixture, ledger: ledger, presented: presented, probeThreads: probeThreads)
+
+        _ = await coordinator.create(try fixture.request(branch: "off-main")).value
+
+        let observations = probeThreads.observations
+        #expect(!observations.isEmpty)
+        #expect(observations.allSatisfy { $0 == .offMainThread })
+    }
+
     // MARK: - Fixtures
 
     private struct Fixture {
@@ -168,15 +184,22 @@ struct WorktreeCreationCoordinatorTests {
         presented: PresentedFailures,
         createError: GitDataPlaneError? = nil,
         forkError: GitWorktreeForkError? = nil,
-        existingPaths: Set<URL> = []
+        existingPaths: Set<URL> = [],
+        probeThreads: ProbeThreadRecorder = ProbeThreadRecorder()
     ) -> WorktreeCreationCoordinator {
         WorktreeCreationCoordinator(
             topology: fixture.store.repositoryTopologyAtom,
             gitClient: FakeWorktreeCreationGitClient(ledger: ledger, createError: createError, forkError: forkError),
             publication: FakeWorktreePublication(ledger: ledger),
             destinationProbe: WorktreeDestinationProbe(
-                canonicalWatchedRoot: { $0 },
-                pathExists: { existingPaths.contains($0.standardizedFileURL) }
+                canonicalWatchedRoot: { root in
+                    probeThreads.record()
+                    return root
+                },
+                pathExists: { path in
+                    probeThreads.record()
+                    return existingPaths.contains(path.standardizedFileURL)
+                }
             ),
             presentFailure: { presented.failures.append($0) }
         )
@@ -276,5 +299,21 @@ private final class FakeWorktreePublication: WorktreePublicationHolding {
 
     func refreshWatchedFolder(_ watchedPathID: UUID, among _: [WatchedPath]) async {
         await ledger.record(.refresh(watchedPathID))
+    }
+}
+
+/// Records which thread each destination probe ran on. Probes are synchronous, so the
+/// main-thread check is exact at the moment of the call.
+private final class ProbeThreadRecorder: @unchecked Sendable {
+    enum Observation: Equatable { case mainThread, offMainThread }
+
+    private let lock = NSLock()
+    private var recorded: [Observation] = []
+
+    var observations: [Observation] { lock.withLock { recorded } }
+
+    func record() {
+        let observation: Observation = pthread_main_np() != 0 ? .mainThread : .offMainThread
+        lock.withLock { recorded.append(observation) }
     }
 }
