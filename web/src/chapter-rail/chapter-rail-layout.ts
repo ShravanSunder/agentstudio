@@ -32,6 +32,12 @@ export interface ChapterRailLayoutProps {
   readonly surfaceTargets: ReadonlyMap<string, RailRect>;
   /** `data-rail-media-target` rectangles keyed by the anchor id they serve. */
   readonly mediaTargets: ReadonlyMap<string, RailRect>;
+  /**
+   * Each anchor's copy block: the eyebrow, title and any copy between the
+   * anchor and its media target, keyed by anchor id. Phone branches turn below
+   * it. A missing entry falls back to the anchor's own rectangle.
+   */
+  readonly copyBlocks: ReadonlyMap<string, RailRect>;
 }
 
 /** Which target edge a branch lands on: wide and laptop join the glass's left edge; phone drops into the media's top edge. */
@@ -206,13 +212,23 @@ function layoutWideBranch(node: RailPoint, surface: RailRect): ChapterRailBranch
 }
 
 /**
- * Phone: run right from the dot, take one git elbow, and drop into the media
- * glass's top edge in line with the chapter's text column, clear of its
- * rounded corner.
+ * Phone: the fork out of the dot moves at most this far right onto its
+ * parallel lane, and never more than halfway to the text column, so the lane
+ * stays inside the gutter.
+ */
+export const phoneParallelLaneOffset = 10;
+
+/**
+ * Phone: the branch must never cross the chapter's copy, which sits beside the
+ * rail. It forks out of the dot onto a short parallel lane inside the gutter,
+ * runs down past the copy block, turns right in the gap between the copy's
+ * bottom and the media glass's top, and drops into that top edge in line with
+ * the text column, clear of the glass's rounded corner.
  */
 function layoutPhoneBranch(
   node: RailPoint,
   anchor: RailRect,
+  copyBlock: RailRect,
   media: RailRect,
 ): ChapterRailBranchLayout | undefined {
   if (media.top <= node.y) {
@@ -223,10 +239,23 @@ function layoutPhoneBranch(
     media.width > railTargetCornerInset * 2
       ? clamp(anchor.left, media.left + railTargetCornerInset, mediaRight - railTargetCornerInset)
       : media.left + media.width / 2;
-  if (dropX <= node.x) {
+  const textColumnLeft = Math.min(anchor.left, copyBlock.left);
+  const parallelLaneX =
+    node.x + Math.max(0, Math.min(phoneParallelLaneOffset, (textColumnLeft - node.x) / 2));
+  if (dropX <= parallelLaneX) {
     return undefined;
   }
-  return branchFromPoints("top", [node, { x: dropX, y: node.y }, { x: dropX, y: media.top }]);
+  // Turn in the middle of the gap. Copy that reaches the glass leaves no gap,
+  // so the turn falls back to the glass's top edge.
+  const gapTop = clamp(copyBlock.top + copyBlock.height, node.y, media.top);
+  const crossingY = gapTop + (media.top - gapTop) / 2;
+  return branchFromPoints("top", [
+    node,
+    { x: parallelLaneX, y: node.y },
+    { x: parallelLaneX, y: crossingY },
+    { x: dropX, y: crossingY },
+    { x: dropX, y: media.top },
+  ]);
 }
 
 /**
@@ -257,7 +286,9 @@ export function layoutChapterRail(props: ChapterRailLayoutProps): ChapterRailLay
     const media = props.mediaTargets.get(anchor.id);
     let branch: ChapterRailBranchLayout | undefined;
     if (phoneLayout) {
-      branch = media === undefined ? undefined : layoutPhoneBranch(node, anchor.rect, media);
+      const copyBlock = props.copyBlocks.get(anchor.id) ?? anchor.rect;
+      branch =
+        media === undefined ? undefined : layoutPhoneBranch(node, anchor.rect, copyBlock, media);
     } else {
       branch = surface === undefined ? undefined : layoutWideBranch(node, surface);
     }

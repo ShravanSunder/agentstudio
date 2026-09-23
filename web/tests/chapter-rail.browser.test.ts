@@ -9,6 +9,7 @@ import {
   chapterRailTargetEdgeAttribute,
   initializeChapterRail,
 } from "../src/chapter-rail/chapter-rail-controller";
+import { railTargetCornerInset } from "../src/chapter-rail/chapter-rail-layout";
 import { railCurrentAttribute } from "../src/chapters/chapter-dom-contract";
 
 interface ChapterRailFixture {
@@ -34,17 +35,28 @@ const pageMarkup = `
     <div data-rail-surface-target="hero" data-rail-media-target="hero"
       style="margin-top:220px;width:min(640px,70vw);height:360px"></div>
   </section>
-  <section data-rail-surface-target="many-agents"
-    style="margin:900px 0 0 72px;width:min(720px,80vw);padding:40px 24px 40px 48px">
-    <p data-rail-anchor="many-agents" style="margin:0;height:16px">Chapter 1</p>
-    <div data-rail-media-target="many-agents" style="margin:120px 0 0 -40px;height:240px"></div>
-  </section>
-  <section data-rail-surface-target="context-with-task"
-    style="margin:1400px 0 2400px 72px;width:min(720px,80vw);padding:40px 24px 40px 48px">
-    <p data-rail-anchor="context-with-task" style="margin:0;height:16px">Chapter 2</p>
-    <div data-rail-media-target="context-with-task" style="margin:120px 0 0 -40px;height:240px"></div>
-  </section>
+  ${chapterMarkup("many-agents", "Chapter 1", "margin:900px 0 0 72px")}
+  ${chapterMarkup("context-with-task", "Chapter 2", "margin:1400px 0 2400px 72px")}
 `;
+
+/**
+ * A chapter shaped like ChapterSurface on phone: a boxless copy wrapper, a
+ * header holding the eyebrow anchor and the title, then the media stage.
+ */
+function chapterMarkup(chapterId: string, eyebrow: string, placement: string): string {
+  return `
+    <section data-rail-surface-target="${chapterId}"
+      style="${placement};width:min(720px,80vw);padding:40px 24px 40px 48px">
+      <div style="display:contents">
+        <header data-chapter-copy="${chapterId}">
+          <p data-rail-anchor="${chapterId}" style="margin:0;height:16px">${eyebrow}</p>
+          <h2 style="margin:12px 0 0;font-size:28px;line-height:32px">Many agents, one map.</h2>
+        </header>
+      </div>
+      <div data-rail-media-target="${chapterId}" style="margin-top:24px;height:240px"></div>
+    </section>
+  `;
+}
 
 function mountChapterRailFixture(contentMarkup: string): ChapterRailFixture {
   const host = document.createElement("div");
@@ -101,6 +113,18 @@ function branchEnd(artwork: SVGSVGElement, branch: SVGPathElement): DOMPoint {
   const end = branch.getPointAtLength(branch.getTotalLength());
   const artworkBounds = artwork.getBoundingClientRect();
   return new DOMPoint(artworkBounds.left + end.x, artworkBounds.top + end.y);
+}
+
+/** Points every 2px along a branch, in viewport coordinates. */
+function branchPoints(artwork: SVGSVGElement, branch: SVGPathElement): readonly DOMPoint[] {
+  const artworkBounds = artwork.getBoundingClientRect();
+  const totalLength = branch.getTotalLength();
+  const points: DOMPoint[] = [];
+  for (let length = 0; length <= totalLength; length += 2) {
+    const point = branch.getPointAtLength(length);
+    points.push(new DOMPoint(artworkBounds.left + point.x, artworkBounds.top + point.y));
+  }
+  return points;
 }
 
 function verticalCenter(element: Element): number {
@@ -180,10 +204,24 @@ describe("chapter rail", () => {
     // Assert
     for (const anchorId of ["many-agents", "context-with-task"]) {
       const anchor = requiredElement(`[data-rail-anchor="${anchorId}"]`);
+      const copy = requiredElement(`[data-chapter-copy="${anchorId}"]`).getBoundingClientRect();
       const media = requiredElement(`[data-rail-media-target="${anchorId}"]`);
-      const end = branchEnd(fixture.artwork, railBranch(fixture.artwork, anchorId));
+      const branch = railBranch(fixture.artwork, anchorId);
+      const end = branchEnd(fixture.artwork, branch);
       expect(Math.abs(end.y - media.getBoundingClientRect().top)).toBeLessThanOrEqual(1);
-      expect(Math.abs(end.x - anchor.getBoundingClientRect().left)).toBeLessThanOrEqual(1);
+      // The stage is flush with the text column, so the drop clears its corner.
+      expect(
+        Math.abs(end.x - (anchor.getBoundingClientRect().left + railTargetCornerInset)),
+      ).toBeLessThanOrEqual(1);
+      // No point of the branch passes through the eyebrow or the title.
+      const crossingPoints = branchPoints(fixture.artwork, branch).filter(
+        (point) =>
+          point.x > copy.left &&
+          point.x < copy.right &&
+          point.y > copy.top &&
+          point.y < copy.bottom,
+      );
+      expect(crossingPoints).toEqual([]);
     }
   });
 
