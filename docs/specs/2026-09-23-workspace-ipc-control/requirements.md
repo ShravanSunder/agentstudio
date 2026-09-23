@@ -74,6 +74,9 @@ Design (not yet written).
 | S22 | On constraining agents to their own pane (drawer children included) and not allowing destructive app-wide commands yet: "Maybe we should constrain the commands that we allow." Then: "Yes, we can drop approvals from V1. So we can do the others after we spec it out." |
 | S23 | ⌘-click: "cmd click goes to our view with option to open as default shown in bridge for all files." |
 | S24 | "No, agents cannot close their own pane." |
+| S26 | Structure: "We can separate them out into two different PR stacks… and you can use work trees for that." Destroying things outside the agent's own pane (step 3): "If we don't have to worry about step three yet, it's not really in scope." |
+| S27 | After evidence showed the terminal's Bridge exists today only as the transient full-screen companion (no stable per-terminal Bridge, no files outside the worktree, no line targeting): moving file opening, ⌘-click and Open view to the Bridge stack — "yes make sense". |
+| S28 | "We're not gonna have settings in app; we use agent to write settings for now through IPC commands with approval." |
 | S25 | Fast follow: "If I have a chief of staff agent and I want to open other panes and other tabs, that is a functionality that needs approval and it would probably open a bunch at the same time… that can be a separate work tree and a fast follow. But with approval system." |
 
 ## User requirements
@@ -89,7 +92,7 @@ unranked (owner has not ordered them).
 | U-IC-04 | Drawers never contain Bridge or code-viewer content. Terminals and browsers are allowed. | S4, S15 |
 | U-IC-09 | Within its own domain — its own terminal, that pane's drawer and drawer children, and that terminal's Bridge — an agent acts without asking. It cannot close its own pane, zoom it, move keyboard focus, touch other panes, tabs or windows, change app-wide UI, run app-wide destructive commands, or leave the app (Finder, editor, pull request, sign-in). | S16, S21, S22, S24 |
 | U-IC-05 | **Deferred from this version by the owner (S22); delivered by the fast-follow cross-pane control work (S25).** When an agent needs permission it does not have, the human sees a list of pending requests in a popover, with icon-only approve and deny buttons per row; approving allows that kind of action for that agent until the human clears the approval (no automatic expiry in this version; richer lifetime rules, e.g. tied to agent hooks, are later work). The popover offers clearing one approval and a Clear all, following the existing Inbox pattern (per-pane clear and clear-all are catalog commands, `AppCommand.clearPaneInboxNotifications` / `.clearAllInboxNotifications`), without reconnecting the Inbox. | S3, S9, S11, S12, S19, S20 |
-| U-IC-06 | The human can ⌘-click a file path printed in the terminal, including a path broken across wrapped lines, and it opens and is shown in that terminal's Bridge by default; a setting can make ⌘-clicked files open in the system default app instead. | S8, S23 |
+| U-IC-06 | The human can ⌘-click a file path printed in the terminal, including a path broken across wrapped lines, and it opens and is shown in that terminal's Bridge by default; a setting can make ⌘-clicked files open in the system default app instead; there is no settings screen, so agents change that setting through an approved IPC command (A2). | S8, S23, S28 |
 | U-IC-07 | Pop-ups are used only for things the human can act on now (in this version: Open view) and look like the app's existing bottom-bar native popovers. Informational and session events are not pop-ups. | S9, S10, S11 |
 | U-IC-08 | None of this adds heavy work to the main actor; it follows the Performance Lane Directive in the repo agent instructions (`AGENTS.md` / `CLAUDE.md`) and the documents it links, and reuses the existing IPC, Bridge, EventBus admission and command systems. | S13, S17 |
 | U-IC-10 | No changes to upstream or vendored projects (Ghostty, zmx, other dependencies). | S14 |
@@ -119,6 +122,14 @@ ledger and approval routes; typed descriptors and `command.execute`; the
 `AppCommand` catalog and its IPC projection; Bridge pane controllers; Ghostty
 link actions; the bottom-bar popover mechanism.
 
+**Delivery layers (S26, S27):** stack A — A1 own-pane agent control (U-IC-01,
+U-IC-02, U-IC-04, U-IC-08, U-IC-09, U-IC-10), A2 approvals and outside-pane
+control (U-IC-05, and settings written by agents with approval, S28); stack B —
+B1 stable per-terminal Bridge with multi-root membership, B2 file opening for
+agents and ⌘-click with Open view (U-IC-03, U-IC-06, U-IC-07), B3 multi-PR
+summary. B2's observable contract lives in the Bridge navigation
+Specification; this document remains the source of those needs.
+
 **Non-goals (owner-excluded or owned elsewhere):**
 
 - Reconnecting or removing the notification Inbox (S10; later PR).
@@ -135,7 +146,11 @@ link actions; the bottom-bar popover mechanism.
   worktree adds them with the approval popover (U-IC-05), first for a
   chief-of-staff agent opening other panes and tabs — possibly several in one
   request (S25). This version must not foreclose that: commands carry their
-  own-domain eligibility in the catalog so the follow-up can widen it.
+  own-domain eligibility in the catalog so the follow-up can widen it. Delivery
+  shape (S26): stack A — A1 this version (inside the agent's own pane), A2 the
+  fast follow (outside the pane, with approval). Destroying anything outside
+  the agent's own pane (closing other panes, tabs or windows, removing a repo,
+  deleting an arrangement) is out of scope for both layers.
 
 **Acceptable outcome evidence:** an agent through the bundled CLI performs each
 U row against a running app, authorized and unauthorized; native proof on a
