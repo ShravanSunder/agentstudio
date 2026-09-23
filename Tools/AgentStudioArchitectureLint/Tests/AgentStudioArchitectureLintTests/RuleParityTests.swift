@@ -757,23 +757,9 @@ struct RuleParityTests {
         files: [String],
         workspaceRootPath: String = FileManager.default.currentDirectoryPath
     ) throws -> [ArchitectureDiagnostic] {
-        let contexts = try files.map { file in
-            let source = try String(contentsOfFile: file, encoding: .utf8)
-            return ArchitectureLintContext(
-                path: file,
-                source: source,
-                sourceFile: Parser.parse(source: source),
-                workspaceRootPath: workspaceRootPath
-            )
-        }
-        var diagnostics: [ArchitectureDiagnostic] = []
-        for rule in ArchitectureRuleRegistry.rules {
-            let preparedRule = rule.prepared(for: contexts)
-            for context in contexts {
-                diagnostics.append(contentsOf: preparedRule.validate(context: context))
-            }
-        }
-        return diagnostics.sorted()
+        try ArchitectureLintEngine(rules: ArchitectureRuleRegistry.rules, workspaceRootPath: workspaceRootPath)
+            .lint(files: files)
+            .diagnostics
     }
 
     private func context(path: String, source: String) -> ArchitectureLintContext {

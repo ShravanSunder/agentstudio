@@ -84,6 +84,56 @@ struct ArchitectureLintCommandTests {
         )
     }
 
+    @Test("scoped run reports exactly the full run's diagnostics for the scoped files")
+    func scopedRunReportsFullRunDiagnosticsForScopedFiles() throws {
+        // Arrange: files whose verdict depends on cross-file prepared indexes
+        // (the atom owner index) as well as single-file rules.
+        let fixture = fixturePath("Bad")
+        let scopedRelativePaths = [
+            "Sources/AgentStudio/Core/State/MainActor/Atoms/BadFeatureAtomReference.swift",
+            "Sources/AgentStudio/Features/RepoExplorer/State/MainActor/Atoms/BadSiblingFeatureAtomReference.swift",
+            "Tests/AgentStudioTests/BadPollingWaitTest.swift",
+        ]
+        let scopedAbsolutePaths = scopedRelativePaths.map { "\(fixture)/\($0)" }
+
+        // Act
+        let fullResult = runCommand(arguments: [fixture], workspaceRootPath: fixture)
+        let scopedResult = runCommand(
+            arguments: [fixture] + scopedRelativePaths.flatMap { ["--only", $0] },
+            workspaceRootPath: fixture
+        )
+
+        // Assert
+        let fullLinesForScopedFiles = fullResult.output
+            .split(separator: "\n")
+            .filter { line in scopedAbsolutePaths.contains { line.hasPrefix("\($0):") } }
+        let scopedLines = scopedResult.output.split(separator: "\n")
+        #expect(!fullLinesForScopedFiles.isEmpty)
+        #expect(scopedLines == fullLinesForScopedFiles, Comment(rawValue: scopedResult.output))
+        #expect(scopedResult.exitCode == 1)
+    }
+
+    @Test("timings print per stage and per rule without changing the exit code")
+    func timingsPrintPerStageAndPerRuleWithoutChangingExitCode() throws {
+        let fixture = fixturePath("Good")
+        let result = runCommand(arguments: ["--timings", fixture], workspaceRootPath: fixture)
+
+        #expect(result.exitCode == 0, Comment(rawValue: result.output))
+        #expect(result.output.contains("architecture-lint timing stage=parse"))
+        #expect(result.output.contains("architecture-lint timing stage=validate"))
+        for expectedRule in ExpectedRuleInventory.rules {
+            #expect(result.output.contains("architecture-lint timing rule=\(expectedRule.id) ms="))
+        }
+    }
+
+    @Test("unknown options fail instead of being ignored")
+    func unknownOptionsFailInsteadOfBeingIgnored() throws {
+        let result = runCommand(arguments: ["--ledgr", "x"])
+
+        #expect(result.exitCode == 2)
+        #expect(result.output.contains("unknown option --ledgr"))
+    }
+
     @Test("relative single-file paths receive the same architecture classification")
     func relativeSingleFilePathsReceiveArchitectureClassification() throws {
         let badFixtureRoot = fixturePath("Bad")

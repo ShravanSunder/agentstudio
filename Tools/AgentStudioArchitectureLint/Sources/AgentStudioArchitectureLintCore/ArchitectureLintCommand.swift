@@ -1,5 +1,4 @@
 import Foundation
-import SwiftParser
 
 public struct ArchitectureLintCommand {
     private let fileManager: FileManager
@@ -37,76 +36,73 @@ public struct ArchitectureLintCommand {
     }
 
     public func run(arguments: [String]) -> Int32 {
-        if arguments.contains("--help") {
+        let parsedArguments: ArchitectureLintArguments
+        do {
+            parsedArguments = try ArchitectureLintArguments.parse(arguments)
+        } catch {
+            writeError("agentstudio-architecture-lint: \(error)\n")
+            return 2
+        }
+
+        switch parsedArguments.mode {
+        case .help:
             writeOutput(helpText)
             return 0
-        }
-        if arguments.contains("--print-rules") {
+        case .printRules:
             for rule in rules.sorted(by: { $0.id < $1.id }) {
                 writeOutput("\(rule.id) \(rule.severity.rawValue)\n")
             }
             return 0
+        case .lint:
+            break
         }
 
-        let roots = arguments.filter { !$0.hasPrefix("-") }
-        let requestedRoots = roots.isEmpty ? ["Sources", "Tests"] : roots
-        let discoveryRoots = requestedRoots.map { root in
-            guard !root.hasPrefix("/") else {
-                return root
-            }
-            return URL(
-                fileURLWithPath: root,
-                relativeTo: URL(fileURLWithPath: workspaceRootPath, isDirectory: true)
-            ).standardizedFileURL.path
-        }
-
+        let requestedRoots = parsedArguments.roots.isEmpty ? ["Sources", "Tests"] : parsedArguments.roots
         do {
-            let files = try SourceFileDiscovery(fileManager: fileManager)
-                .swiftFiles(under: discoveryRoots)
-            let diagnostics = try lint(files: files)
-            for diagnostic in diagnostics.sorted() {
+            let discovery = SourceFileDiscovery(fileManager: fileManager)
+            let onlyFiles = try discovery.swiftFiles(under: parsedArguments.onlyPaths.map(workspacePath))
+            let rootFiles = try discovery.swiftFiles(under: requestedRoots.map(workspacePath))
+            let rootFileSet = Set(rootFiles)
+            let files = rootFiles + onlyFiles.filter { !rootFileSet.contains($0) }
+            let run = try ArchitectureLintEngine(rules: rules, workspaceRootPath: workspaceRootPath)
+                .lint(
+                    files: files,
+                    validatedFiles: parsedArguments.onlyPaths.isEmpty ? nil : Set(onlyFiles)
+                )
+            for diagnostic in run.diagnostics {
                 writeOutput(diagnostic.rendered)
             }
-            return diagnostics.contains { $0.severity.affectsExitCode } ? 1 : 0
+            if parsedArguments.printsTimings {
+                writeOutput(run.timings.renderedLines)
+            }
+            return run.diagnostics.contains { $0.severity.affectsExitCode } ? 1 : 0
         } catch {
             writeError("agentstudio-architecture-lint: \(error)\n")
             return 2
         }
     }
 
-    private func lint(files: [String]) throws -> [ArchitectureDiagnostic] {
-        var seenSourceIdentities: Set<String> = []
-        let contexts = try files.compactMap { file -> ArchitectureLintContext? in
-            let source = try String(contentsOfFile: file, encoding: .utf8)
-            let sourceFile = Parser.parse(source: source)
-            let context = ArchitectureLintContext(
-                path: file,
-                source: source,
-                sourceFile: sourceFile,
-                workspaceRootPath: workspaceRootPath
-            )
-            guard seenSourceIdentities.insert(context.syntaxScopeSourceIdentity).inserted else {
-                return nil
-            }
-            return context
+    /// A root or scoped path as an absolute, standardized path, so the same
+    /// file named two ways is one file.
+    private func workspacePath(_ path: String) -> String {
+        guard !path.hasPrefix("/") else {
+            return URL(fileURLWithPath: path).standardizedFileURL.path
         }
-
-        var diagnostics: [ArchitectureDiagnostic] = []
-        for rule in rules {
-            let preparedRule = rule.prepared(for: contexts)
-            for context in contexts {
-                diagnostics.append(contentsOf: preparedRule.validate(context: context))
-            }
-        }
-        return diagnostics
+        return URL(
+            fileURLWithPath: path,
+            relativeTo: URL(fileURLWithPath: workspaceRootPath, isDirectory: true)
+        ).standardizedFileURL.path
     }
 
     private var helpText: String {
         """
         Usage:
-          agentstudio-architecture-lint [--print-rules] [paths...]
+          agentstudio-architecture-lint [--print-rules] [--timings] [--only file]... [paths...]
 
         Defaults to linting Sources and Tests when no paths are provided.
+        --only validates just the named files; every path is still parsed so
+        cross-file rules see the whole corpus.
+        --timings prints per-stage and per-rule times; they never change the exit code.
         Diagnostics use path:line:column: severity: [rule] message.
 
         """
