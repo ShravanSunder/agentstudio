@@ -396,6 +396,74 @@ struct RuleParityTests {
         #expect(boundClockDiagnostics.map(\.line) == [4])
     }
 
+    @Test(
+        "MainActor shape rules flag every Bad fixture site and no Good fixture site",
+        arguments: [
+            MainActorShapeFixture(
+                ruleID: "agentstudio_observation_rearm_guarded",
+                badFixture: "Bad/Sources/AgentStudio/App/BadObservationRearm.swift",
+                expectedLines: [9, 20, 33],
+                goodFixture: "Good/Sources/AgentStudio/App/GoodObservationRearm.swift"
+            ),
+            MainActorShapeFixture(
+                ruleID: "agentstudio_swiftui_body_derivation",
+                badFixture: "Bad/Sources/AgentStudio/App/BadSwiftUIBodyDerivation.swift",
+                expectedLines: [10, 12, 13, 16, 17, 29],
+                goodFixture: "Good/Sources/AgentStudio/App/GoodSwiftUIBodyDerivation.swift"
+            ),
+            MainActorShapeFixture(
+                ruleID: "agentstudio_atom_assign_only",
+                badFixture: "Bad/Sources/AgentStudio/Core/State/MainActor/Atoms/BadAtomSideEffects.swift",
+                expectedLines: [8, 9, 10, 11, 12, 13, 14, 15, 16, 17],
+                goodFixture: "Good/Sources/AgentStudio/Core/State/MainActor/Atoms/GoodAtomAssignOnly.swift"
+            ),
+            MainActorShapeFixture(
+                ruleID: "agentstudio_mainactor_hop_per_element",
+                badFixture: "Bad/Sources/AgentStudio/App/BadMainActorHopPerElement.swift",
+                expectedLines: [7, 16, 26, 40],
+                goodFixture: "Good/Sources/AgentStudio/App/GoodMainActorHopPerElement.swift"
+            ),
+            MainActorShapeFixture(
+                ruleID: "agentstudio_probe_reports_off_main",
+                badFixture: "Bad/Sources/AgentStudio/Infrastructure/Diagnostics/BadProbeRecorder.swift",
+                expectedLines: [1, 3, 8, 16],
+                goodFixture: "Good/Sources/AgentStudio/Infrastructure/Diagnostics/GoodProbeRecorder.swift"
+            ),
+        ]
+    )
+    func mainActorShapeRulesSeparateBadFromGoodFixtures(fixture: MainActorShapeFixture) throws {
+        let badDiagnostics = try lintFixtureCorpus("Bad").filter {
+            $0.ruleID == fixture.ruleID && $0.path.hasSuffix(fixture.badFixture)
+        }
+        let goodDiagnostics = try lintFixtureCorpus("Good").filter { $0.ruleID == fixture.ruleID }
+
+        #expect(badDiagnostics.map(\.line) == fixture.expectedLines)
+        #expect(goodDiagnostics.isEmpty, Comment(rawValue: goodDiagnostics.map(\.rendered).joined()))
+    }
+
+    @Test("MainActor shape rules leave test sources alone")
+    func mainActorShapeRulesLeaveTestSourcesAlone() {
+        let source = """
+            @MainActor
+            final class ObservingTestHelper {
+                var value = 0
+                func observe() {
+                    withObservationTracking { _ = value } onChange: { self.observe() }
+                }
+                func drain(stream: AsyncStream<Int>) async {
+                    for await element in stream { value = element }
+                }
+            }
+            """
+        let testContext = context(path: "Tests/AgentStudioTests/ObservingTestHelper.swift", source: source)
+        let sourceContext = context(path: "Sources/AgentStudio/App/ObservingHelper.swift", source: source)
+
+        #expect(ObservationRearmGuardedRule().validate(context: testContext).isEmpty)
+        #expect(MainActorHopPerElementRule().validate(context: testContext).isEmpty)
+        #expect(ObservationRearmGuardedRule().validate(context: sourceContext).map(\.line) == [5])
+        #expect(MainActorHopPerElementRule().validate(context: sourceContext).map(\.line) == [8])
+    }
+
     @Test("EventBus subscriber policy rule diagnoses every denied fixture call shape")
     func eventBusSubscriberPolicyRuleDiagnosesEveryDeniedFixtureCallShape() throws {
         let eventBusFixture = fixtureRoot()
@@ -740,4 +808,13 @@ struct RuleParityTests {
             .deletingLastPathComponent()
             .appendingPathComponent("Fixtures")
     }
+}
+
+struct MainActorShapeFixture: Sendable, CustomTestStringConvertible {
+    let ruleID: String
+    let badFixture: String
+    let expectedLines: [Int]
+    let goodFixture: String
+
+    var testDescription: String { ruleID }
 }

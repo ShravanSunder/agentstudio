@@ -57,5 +57,10 @@ enum ExpectedRuleInventory {
         ExpectedRule(id: "agentstudio_mainactor_unbounded_collection_work", severity: .error),
         ExpectedRule(id: "agentstudio_performance_constants_in_app_policies", severity: .error),
         ExpectedRule(id: "agentstudio_nonisolated_async_blocking_io_requires_concurrent", severity: .error),
+        ExpectedRule(id: "agentstudio_observation_rearm_guarded", severity: .error),
+        ExpectedRule(id: "agentstudio_swiftui_body_derivation", severity: .error),
+        ExpectedRule(id: "agentstudio_atom_assign_only", severity: .error),
+        ExpectedRule(id: "agentstudio_mainactor_hop_per_element", severity: .error),
+        ExpectedRule(id: "agentstudio_probe_reports_off_main", severity: .error),
     ]
 }

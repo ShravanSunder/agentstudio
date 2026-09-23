@@ -41,6 +41,12 @@ struct ArchitectureLintContext {
         return String(path.dropFirst(workingDirectoryPrefix.count))
     }
 
+    /// Under a `Sources/` directory, whether the path is absolute or
+    /// workspace-relative.
+    var isUnderSourcesDirectory: Bool {
+        "/\(normalizedPath)".contains("/Sources/")
+    }
+
     var syntaxScopeSourceIdentity: String {
         workspaceRelativePath ?? normalizedAbsolutePath
     }

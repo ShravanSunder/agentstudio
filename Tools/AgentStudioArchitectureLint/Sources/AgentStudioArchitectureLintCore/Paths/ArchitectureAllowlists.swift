@@ -26,6 +26,20 @@ enum ArchitectureAllowlists {
     static let performanceConstantAllowedPathSuffixes: [String] = []
     static let concurrentIOAllowedPathSuffixes: [String] = []
 
+    /// MainActor stream consumers the architecture prescribes as thin
+    /// adapters: the stream is already contracted off MainActor, so each
+    /// element is an admitted outcome, not a raw sample.
+    static let mainActorPerElementAdapters = [
+        NamedOwnerAllowance(
+            pathSuffix: "/Sources/AgentStudio/App/Coordination/WorkspaceSurfaceCoordinator.swift",
+            functionName: "startRuntimeReducerConsumers",
+            owner: "WorkspaceSurfaceCoordinator runtime reducer consumers",
+            reason:
+                "Consume NotificationReducer's critical and batched outputs after off-main contraction; the "
+                + "post-contraction MainActor adapter in pane_runtime_eventbus_design.md#admission-and-hop-shape"
+        )
+    ]
+
     /// Test files that own a blocking wait on purpose and document where the
     /// block lands: off the cooperative pool, or on a dispatch queue of their
     /// own such as the socket listener's handler queue.
@@ -86,4 +100,13 @@ enum ArchitectureAllowlists {
         "CoreAtoms",
         "CoreAtomScope",
     ])
+}
+
+/// One code site a rule allows on purpose, with who owns it and why. This is
+/// ownership, reviewed with the lint tool's source; debt lives in the ledger.
+struct NamedOwnerAllowance: Sendable {
+    let pathSuffix: String
+    let functionName: String
+    let owner: String
+    let reason: String
 }

@@ -246,14 +246,14 @@ extension ExprSyntax {
     fileprivate var namesADispatchTarget: Bool {
         if let reference = self.as(DeclReferenceExprSyntax.self) {
             let name = reference.baseName.text
-            return name == "Thread" || name.localizedCaseInsensitiveContains("queue")
+            return name == "Thread" || name.containsIgnoringASCIICase("queue")
         }
         if let call = self.as(FunctionCallExprSyntax.self) {
             return call.calledExpression.namesADispatchTarget
         }
         if let memberAccess = self.as(MemberAccessExprSyntax.self) {
             return memberAccess.base?.namesADispatchTarget == true
-                || memberAccess.declName.baseName.text.localizedCaseInsensitiveContains("queue")
+                || memberAccess.declName.baseName.text.containsIgnoringASCIICase("queue")
         }
         return false
     }

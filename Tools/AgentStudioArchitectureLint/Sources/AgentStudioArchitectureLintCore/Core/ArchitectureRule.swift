@@ -65,5 +65,10 @@ enum ArchitectureRuleRegistry {
         MainActorUnboundedCollectionWorkRule(),
         PerformanceConstantsInAppPoliciesRule(),
         NonisolatedAsyncBlockingIORule(),
+        ObservationRearmGuardedRule(),
+        SwiftUIBodyDerivationRule(),
+        AtomAssignOnlyRule(),
+        MainActorHopPerElementRule(),
+        ProbeReportsOffMainRule(),
     ]
 }

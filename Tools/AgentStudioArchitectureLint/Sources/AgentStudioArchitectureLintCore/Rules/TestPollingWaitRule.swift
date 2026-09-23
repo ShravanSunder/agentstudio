@@ -277,7 +277,7 @@ extension ExprSyntax {
         if let reference = self.as(DeclReferenceExprSyntax.self) {
             let name = reference.baseName.text
             return ClockTypeName.exact.contains(name)
-                || name.localizedCaseInsensitiveContains("clock")
+                || name.containsIgnoringASCIICase("clock")
         }
         if let call = self.as(FunctionCallExprSyntax.self) {
             return call.calledExpression.namesAClock
@@ -285,7 +285,7 @@ extension ExprSyntax {
         if let memberAccess = self.as(MemberAccessExprSyntax.self) {
             let name = memberAccess.declName.baseName.text
             return ClockTypeName.exact.contains(name)
-                || name.localizedCaseInsensitiveContains("clock")
+                || name.containsIgnoringASCIICase("clock")
                 || memberAccess.base?.namesAClock == true
         }
         return false
@@ -310,12 +310,12 @@ extension TypeSyntax {
         if let identifier = self.as(IdentifierTypeSyntax.self) {
             let name = identifier.name.text
             return ClockTypeName.exact.contains(name)
-                || name.localizedCaseInsensitiveContains("clock")
+                || name.containsIgnoringASCIICase("clock")
         }
         if let member = self.as(MemberTypeSyntax.self) {
             let name = member.name.text
             return ClockTypeName.exact.contains(name)
-                || name.localizedCaseInsensitiveContains("clock")
+                || name.containsIgnoringASCIICase("clock")
                 || member.baseType.namesAClockType
         }
         if let someOrAny = self.as(SomeOrAnyTypeSyntax.self) {
