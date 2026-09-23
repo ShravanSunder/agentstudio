@@ -128,7 +128,6 @@ export class BridgeCommWorkerProductController {
 	#fileSourceEnsure: Promise<void> | null = null;
 	#fileFrameObservationRecoveryAttempted = false;
 	#reviewSubscription: ReviewMetadataSubscription | null = null;
-	#reviewMetadataEnsure: Promise<void> | null = null;
 	readonly #reviewInterestItemIdsByLane = new Map<ReviewMetadataInterestLane, readonly string[]>();
 	#reviewInterestUpdate: Promise<void> = Promise.resolve();
 	#reviewDesiredInterestSignature: string | null = null;
@@ -322,7 +321,7 @@ export class BridgeCommWorkerProductController {
 				// The replacement source authority supersedes the retired subscription locally.
 			}
 		}
-		await this.#ensureReviewMetadataReady();
+		this.ensureReviewMetadata();
 	}
 
 	ensureFileSource(): Promise<void> {
@@ -339,44 +338,24 @@ export class BridgeCommWorkerProductController {
 	}
 
 	ensureReviewMetadata(): void {
-		void this.#ensureReviewMetadataReady().catch((): void => {});
-	}
-
-	#ensureReviewMetadataReady(): Promise<void> {
-		if (this.#reviewMetadataEnsure !== null) return this.#reviewMetadataEnsure;
-		if (this.#reviewSubscription !== null) return Promise.resolve();
-		const attempt = this.#openReviewMetadataWithAnnotationCutover();
-		const tracked = attempt.finally((): void => {
-			if (this.#reviewMetadataEnsure === tracked) this.#reviewMetadataEnsure = null;
-		});
-		this.#reviewMetadataEnsure = tracked;
-		return tracked;
-	}
-
-	async #openReviewMetadataWithAnnotationCutover(): Promise<void> {
-		const annotations = this.#annotationProjectionBySurface.review;
-		let succeeded = false;
+		if (this.#reviewSubscription !== null) return;
+		const interests = reviewMetadataInterestsInPriorityOrder(this.#reviewInterestItemIdsByLane);
+		const workerDerivationEpoch = this.#productTransport.bumpWorkerDerivationEpoch('review');
+		this.#reviewWorkerDerivationEpoch = workerDerivationEpoch;
+		this.#reviewDesiredInterestSignature = JSON.stringify(interests);
 		try {
-			const cancellation = annotations.prepareForSurfaceEpochChange();
-			if (cancellation !== undefined) await cancellation;
-			const interests = reviewMetadataInterestsInPriorityOrder(this.#reviewInterestItemIdsByLane);
-			const workerDerivationEpoch = this.#productTransport.bumpWorkerDerivationEpoch('review');
-			this.#reviewWorkerDerivationEpoch = workerDerivationEpoch;
-			this.#reviewDesiredInterestSignature = JSON.stringify(interests);
 			const subscription = this.#subscribeReview({ interests });
 			this.#reviewSubscription = subscription;
 			this.#onReviewWorkerDerivationEpochChanged(workerDerivationEpoch);
 			void this.#consumeReviewMetadataEvents(subscription, workerDerivationEpoch).catch(
 				(): void => {},
 			);
-			succeeded = true;
 		} catch (error) {
 			this.#reviewDesiredInterestSignature = null;
-			this.#onReviewMetadataFailure(error, this.#reviewWorkerDerivationEpoch);
+			this.#onReviewMetadataFailure(error, workerDerivationEpoch);
 			throw error;
-		} finally {
-			annotations.finishSurfaceEpochChange(succeeded);
 		}
+		this.#annotationProjectionBySurface.review.replaceSubscriptionForSurfaceEpoch();
 	}
 
 	async sendProductControl(command: BridgeProductControlCommand): Promise<unknown> {
@@ -486,19 +465,18 @@ export class BridgeCommWorkerProductController {
 	}
 
 	async #commitReviewMetadataInterests(): Promise<void> {
-		if (this.#reviewSubscription === null || this.#reviewMetadataEnsure !== null) {
-			await this.#ensureReviewMetadataReady();
-		}
 		const interests = reviewMetadataInterestsInPriorityOrder(this.#reviewInterestItemIdsByLane);
-		const subscription = this.#reviewSubscription;
-		if (subscription === null)
-			throw new Error('Bridge Review metadata subscription is unavailable.');
+		if (this.#reviewSubscription === null) {
+			this.ensureReviewMetadata();
+			return;
+		}
 		const signature = JSON.stringify(interests);
 		if (signature === this.#reviewDesiredInterestSignature) {
 			await this.#reviewInterestUpdate;
 			return;
 		}
 		this.#reviewDesiredInterestSignature = signature;
+		const subscription = this.#reviewSubscription;
 		const workerDerivationEpoch = this.#reviewWorkerDerivationEpoch;
 		const nextUpdate = this.#reviewInterestUpdate
 			.catch((): void => {})
@@ -537,7 +515,7 @@ export class BridgeCommWorkerProductController {
 			// The replacement subscription supersedes failed interest authority locally.
 		}
 		try {
-			await this.#ensureReviewMetadataReady();
+			this.ensureReviewMetadata();
 		} catch {
 			// ensureReviewMetadata publishes the typed failure through the injected callback.
 		}
@@ -591,7 +569,7 @@ export class BridgeCommWorkerProductController {
 				) {
 					this.#reviewFrameObservationRecoveryAttempted = true;
 					try {
-						await this.#ensureReviewMetadataReady();
+						this.ensureReviewMetadata();
 					} catch {
 						// The typed failure is already published; a later demand retries recovery.
 					}
@@ -633,7 +611,7 @@ export class BridgeCommWorkerProductController {
 		this.#reviewInterestUpdate = Promise.resolve();
 		if (!shouldReopen) return;
 		try {
-			await this.#ensureReviewMetadataReady();
+			this.ensureReviewMetadata();
 		} catch {
 			// ensureReviewMetadata publishes the typed failure through the injected callback.
 		}
@@ -664,30 +642,20 @@ export class BridgeCommWorkerProductController {
 			this.#onFileSourceUnavailable();
 			return;
 		}
-		const annotations = this.#annotationProjectionBySurface.file;
-		let succeeded = false;
-		try {
-			const cancellation = annotations.prepareForSurfaceEpochChange();
-			if (cancellation !== undefined) await cancellation;
-			const workerDerivationEpoch = this.#productTransport.bumpWorkerDerivationEpoch('file');
-			this.#fileWorkerDerivationEpoch = workerDerivationEpoch;
-			this.#filePathScope = [];
-			this.#fileDesiredInterestSignature = null;
-			this.#hasPublishedFileMetadataInterests = false;
-			this.#fileInterestRevision += 1;
-			const subscription = this.#subscribeFile({
-				interests: [],
-				pathScope: [],
-				source: discovery.source,
-			});
-			this.#fileSubscription = subscription;
-			void this.#consumeFileMetadataEvents(subscription, workerDerivationEpoch).catch(
-				(): void => {},
-			);
-			succeeded = true;
-		} finally {
-			annotations.finishSurfaceEpochChange(succeeded);
-		}
+		const workerDerivationEpoch = this.#productTransport.bumpWorkerDerivationEpoch('file');
+		this.#fileWorkerDerivationEpoch = workerDerivationEpoch;
+		this.#filePathScope = [];
+		this.#fileDesiredInterestSignature = null;
+		this.#hasPublishedFileMetadataInterests = false;
+		this.#fileInterestRevision += 1;
+		const subscription = this.#subscribeFile({
+			interests: [],
+			pathScope: [],
+			source: discovery.source,
+		});
+		this.#fileSubscription = subscription;
+		void this.#consumeFileMetadataEvents(subscription, workerDerivationEpoch).catch((): void => {});
+		this.#annotationProjectionBySurface.file.replaceSubscriptionForSurfaceEpoch();
 	}
 
 	#replaceFileInterestLane(lane: FileMetadataInterestLane, paths: readonly string[]): void {
@@ -873,7 +841,7 @@ export class BridgeCommWorkerProductController {
 			if (requestOrdinal !== this.#latestActiveViewerModeRequestOrdinal) return result;
 			this.#onActiveViewerModeAdmitted('review');
 			try {
-				await this.#ensureReviewMetadataReady();
+				this.ensureReviewMetadata();
 			} catch {
 				// Exact active-mode success remains independent of metadata-stream recovery.
 			}

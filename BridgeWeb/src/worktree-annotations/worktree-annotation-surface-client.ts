@@ -281,6 +281,13 @@ export function createWorktreeAnnotationSurfaceClient(
 						});
 					}
 				} else if (message.state.kind === 'refreshing') {
+					if (message.state.catalogAuthorityRetired) {
+						// A routine epoch replacement: comments stay visible as stale until the
+						// replacement catalog arrives, instead of reading as unavailable.
+						completedReviewAnnotationApplicationCheckpoint = null;
+						pendingReviewAnnotationApplicationCheckpoint = null;
+						projectionStore.prepareForWorkerReplacement();
+					}
 					projectionStore.markRefreshing();
 				} else {
 					if (message.state.catalogAuthorityRetired) {

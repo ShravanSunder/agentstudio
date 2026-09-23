@@ -291,7 +291,7 @@ describe('Bridge comm worker annotation runtime protocol', () => {
 		expect(postedMessages.map(({ message }) => message)).toContainEqual(
 			expect.objectContaining({
 				kind: 'annotationProjectionConvergence',
-				state: { kind: 'refreshing' },
+				state: { catalogAuthorityRetired: false, kind: 'refreshing' },
 				surface: 'fileView',
 			}),
 		);

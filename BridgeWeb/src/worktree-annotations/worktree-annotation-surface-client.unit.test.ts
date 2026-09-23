@@ -521,6 +521,61 @@ describe('worktree annotation surface command rendezvous', () => {
 		harness.client.dispose();
 	});
 
+	test('a routine epoch replacement keeps comments visible as refreshing until the replacement catalog commits', () => {
+		// Arrange: the drawer shows a current catalog.
+		const harness = createSurfaceClientHarness();
+		for (const message of catalogStagingMessages(20, 'fileView')) harness.publish(message);
+		harness.publish({
+			direction: 'serverWorkerToMain',
+			kind: 'annotationProjectionConvergence',
+			operationCorrelationId: 'a'.repeat(64),
+			state: {
+				contentSessionIds: [sessionId],
+				kind: 'ready',
+				snapshot: projectionSnapshot(20, 12),
+			},
+			surface: 'fileView',
+			transferDescriptors: [],
+			wireVersion: BRIDGE_WORKER_WIRE_VERSION,
+		});
+		const threadCountBeforeReplacement = harness.client.getSnapshot().threads.length;
+		expect(threadCountBeforeReplacement).toBeGreaterThan(0);
+
+		// Act: the worker moves annotations to a new surface epoch.
+		harness.publish({
+			direction: 'serverWorkerToMain',
+			kind: 'annotationProjectionConvergence',
+			operationCorrelationId: 'a'.repeat(64),
+			state: { catalogAuthorityRetired: true, kind: 'refreshing' },
+			surface: 'fileView',
+			transferDescriptors: [],
+			wireVersion: BRIDGE_WORKER_WIRE_VERSION,
+		});
+
+		// Assert: comments stay on screen, marked refreshing, never "Updates unavailable".
+		expect(harness.client.getSnapshot().readStatus).toEqual({ kind: 'refreshing' });
+		expect(harness.client.getSnapshot().threads).toHaveLength(threadCountBeforeReplacement);
+		expect(harness.client.getCatalogSnapshot()).toMatchObject({
+			catalog: { catalogRevision: 20 },
+			kind: 'stale',
+		});
+		for (const message of catalogStagingMessages(1, 'fileView')) {
+			harness.publish({
+				...message,
+				authority: {
+					...message.authority,
+					subscriptionId: 'fileView-annotation-subscription-2',
+					workerDerivationEpoch: 2,
+				},
+			});
+		}
+		expect(harness.client.getCatalogSnapshot()).toMatchObject({
+			catalog: { catalogRevision: 1 },
+			kind: 'current',
+		});
+		harness.client.dispose();
+	});
+
 	test('dispose rejects a pending command and ignores its late outcome', async () => {
 		const harness = createSurfaceClientHarness();
 		const pending = harness.client.execute({ kind: 'session.discover' });

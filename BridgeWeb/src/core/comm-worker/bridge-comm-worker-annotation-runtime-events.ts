@@ -84,7 +84,7 @@ export function bridgeCommWorkerAnnotationProjectionConvergenceEvent(props: {
 				readonly error: unknown;
 				readonly kind: 'unavailable';
 		  }
-		| { readonly kind: 'refreshing' };
+		| { readonly catalogAuthorityRetired: boolean; readonly kind: 'refreshing' };
 	readonly surface: 'file' | 'review';
 }): BridgeWorkerAnnotationProjectionConvergenceEvent {
 	const state =

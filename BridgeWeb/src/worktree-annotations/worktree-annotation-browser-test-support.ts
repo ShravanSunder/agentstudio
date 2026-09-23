@@ -260,7 +260,7 @@ export class RecordingAnnotationBrowserSurface {
 			direction: 'serverWorkerToMain',
 			kind: 'annotationProjectionConvergence',
 			operationCorrelationId: null,
-			state: { kind: 'refreshing' },
+			state: { catalogAuthorityRetired: false, kind: 'refreshing' },
 			surface: this.client.surface,
 			transferDescriptors: [],
 			wireVersion: 1,

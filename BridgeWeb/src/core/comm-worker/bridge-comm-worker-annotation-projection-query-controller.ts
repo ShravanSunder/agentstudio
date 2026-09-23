@@ -60,7 +60,7 @@ export interface BridgeCommWorkerAnnotationProjectionPublication {
 					| undefined;
 				readonly snapshot: BridgeWorkerAnnotationProjectionSnapshot;
 		  }
-		| { readonly kind: 'refreshing' };
+		| { readonly catalogAuthorityRetired: boolean; readonly kind: 'refreshing' };
 	readonly surface: BridgeCommWorkerAnnotationSurface;
 }
 
@@ -138,8 +138,7 @@ export class BridgeCommWorkerAnnotationProjectionQueryController {
 	#nextStageAttempt = 0;
 	#subscription: AnnotationMetadataSubscription | null = null;
 	#subscriptionRequested = false;
-	#surfaceEpochChangeInProgress = false;
-	#retiringSurfaceSubscription: AnnotationMetadataSubscription | null = null;
+	readonly #retiringSubscriptionCancellations = new Set<Promise<void>>();
 
 	constructor(props: CreateBridgeCommWorkerAnnotationProjectionQueryControllerProps) {
 		this.#onCatalog = props.onCatalog;
@@ -152,13 +151,7 @@ export class BridgeCommWorkerAnnotationProjectionQueryController {
 
 	ensureSubscription(): void {
 		this.#subscriptionRequested = true;
-		if (
-			this.#disposed ||
-			this.#surfaceEpochChangeInProgress ||
-			this.#retiringSurfaceSubscription !== null ||
-			this.#subscription !== null
-		)
-			return;
+		if (this.#disposed || this.#subscription !== null) return;
 		let subscription: AnnotationMetadataSubscription;
 		try {
 			subscription = this.#transport.subscribe(this.#surface);
@@ -173,43 +166,36 @@ export class BridgeCommWorkerAnnotationProjectionQueryController {
 		});
 	}
 
-	prepareForSurfaceEpochChange(): Promise<void> | undefined {
-		this.#surfaceEpochChangeInProgress = true;
-		const subscription = this.#retiringSurfaceSubscription ?? this.#subscription;
-		this.#retiringSurfaceSubscription = subscription;
+	/**
+	 * Follows the surface metadata to its newly advanced worker epoch. Native resets
+	 * the older-epoch subscription on its own, so the replacement opens now instead
+	 * of waiting on that retirement, and the drawer keeps its comments visible as
+	 * refreshing rather than reporting the routine switch as unavailable.
+	 */
+	replaceSubscriptionForSurfaceEpoch(): void {
+		if (this.#disposed) return;
+		const retiringSubscription = this.#subscription;
 		this.#subscription = null;
-		this.#controlReady = false;
-		this.#metadataApplication.retireAuthority();
-		const operationCorrelationId = this.#invalidation?.operationCorrelationId ?? null;
-		this.#invalidation = null;
-		this.#invalidationGeneration += 1;
-		this.#abortController?.abort();
-		if (subscription !== null) {
+		this.#automaticSubscriptionReopenConsumed = false;
+		if (retiringSubscription !== null) {
+			this.#controlReady = false;
+			this.#metadataApplication.retireAuthority();
+			const operationCorrelationId = this.#invalidation?.operationCorrelationId ?? null;
+			this.#invalidation = null;
+			this.#invalidationGeneration += 1;
+			this.#abortController?.abort();
 			this.#onConvergence({
 				operationCorrelationId,
-				state: {
-					catalogAuthorityRetired: true,
-					error: new Error('Annotation source is being refreshed.'),
-					kind: 'unavailable',
-				},
+				state: { catalogAuthorityRetired: true, kind: 'refreshing' },
 				surface: this.#surface,
 			});
-			// Settled either way, the sibling is terminal: a reset that races its cancel
-			// retires it just as completely, and the surface epoch may then advance.
-			return subscription
-				.cancel()
-				.catch((): void => {})
-				.then((): void => {
-					this.#retiringSurfaceSubscription = null;
-				});
+			const cancellation = retiringSubscription.cancel().catch((): void => {});
+			this.#retiringSubscriptionCancellations.add(cancellation);
+			void cancellation.then((): void => {
+				this.#retiringSubscriptionCancellations.delete(cancellation);
+			});
 		}
-		return undefined;
-	}
-
-	finishSurfaceEpochChange(succeeded: boolean): void {
-		this.#surfaceEpochChangeInProgress = false;
-		this.#automaticSubscriptionReopenConsumed = false;
-		if (succeeded && this.#subscriptionRequested && !this.#disposed) this.ensureSubscription();
+		if (this.#subscriptionRequested) this.ensureSubscription();
 	}
 
 	setDemand(demand: BridgeCommWorkerAnnotationProjectionDemand): void {
@@ -305,9 +291,7 @@ export class BridgeCommWorkerAnnotationProjectionQueryController {
 		this.#subscription = null;
 		await Promise.allSettled([
 			...(subscription === null ? [] : [subscription.cancel()]),
-			...(this.#retiringSurfaceSubscription === null
-				? []
-				: [this.#retiringSurfaceSubscription.cancel()]),
+			...this.#retiringSubscriptionCancellations,
 			...(this.#scheduledQueryStart === null ? [] : [this.#scheduledQueryStart]),
 			...(this.#scheduledSubscriptionReopen === null ? [] : [this.#scheduledSubscriptionReopen]),
 			...this.#queryAttempts,
@@ -464,7 +448,7 @@ export class BridgeCommWorkerAnnotationProjectionQueryController {
 		this.#abortController = abortController;
 		this.#onConvergence({
 			operationCorrelationId: invalidation.operationCorrelationId,
-			state: { kind: 'refreshing' },
+			state: { catalogAuthorityRetired: false, kind: 'refreshing' },
 			surface: this.#surface,
 		});
 		this.#recordLifecycle(

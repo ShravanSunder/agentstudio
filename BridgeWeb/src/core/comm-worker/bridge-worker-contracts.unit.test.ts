@@ -100,7 +100,7 @@ describe('BridgeWorkerContracts', () => {
 			direction: 'serverWorkerToMain',
 			kind: 'annotationProjectionConvergence',
 			operationCorrelationId: 'a'.repeat(64),
-			state: { kind: 'refreshing' },
+			state: { catalogAuthorityRetired: false, kind: 'refreshing' },
 			surface: command.surface,
 			transferDescriptors: [],
 		} as const;
