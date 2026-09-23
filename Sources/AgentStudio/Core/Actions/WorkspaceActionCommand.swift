@@ -190,6 +190,8 @@ package enum WorkspaceActionCommand: Equatable, Hashable {
         direction: SplitNewDirection,
         sizingMode: DropSizingMode
     )
+    /// Commit a Pane Zoom terminal/Viewer split ratio after a finished divider drag.
+    case setZoomSplitRatio(tabId: UUID, ratio: Double)
     /// Commit the owning pane's normal drawer height after a completed resize.
     case setDrawerNormalHeightRatio(parentPaneId: UUID, ratio: Double)
     /// Choose the Pane Zoom region the owning pane's drawer covers.

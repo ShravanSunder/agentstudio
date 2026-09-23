@@ -610,6 +610,7 @@ extension AppDelegate {
         }
         coordinator.preparedTerminalGeometryReevaluationHandler = { [weak self] framesByPaneID in
             guard let preparedMountOwners = self?.installedWorkspacePreparedContentMountOwners else { return }
+            _ = preparedMountOwners.terminalAdmissionPort.refreshQueuedTrustedFrames(framesByPaneID)
             let acceptedPaneIDs = preparedMountOwners.terminalAdmissionPort.acceptLaterTrustedFrames(framesByPaneID)
             guard !acceptedPaneIDs.isEmpty else { return }
             await preparedMountOwners.coordinator.acceptTerminalGeometry(acceptedPaneIDs)

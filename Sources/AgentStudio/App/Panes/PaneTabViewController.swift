@@ -3317,6 +3317,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             }
             if didShowViewer {
                 executor.refreshZoomCompanionActivities()
+                executor.reevaluatePreparedTerminalGeometry()
             }
             return didShowViewer
         case .retryable:
@@ -3354,6 +3355,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             }
             if didToggle {
                 executor.refreshZoomCompanionActivities()
+                executor.reevaluatePreparedTerminalGeometry()
             }
             return .toggled(didToggle)
         case .retainedVisible, .unavailableVisible:
@@ -3367,6 +3369,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             }
             if didToggle {
                 executor.refreshZoomCompanionActivities()
+                executor.reevaluatePreparedTerminalGeometry()
             }
             return .toggled(didToggle)
         case .retryable:
@@ -3375,6 +3378,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
                 owningTabId: activeTabId,
                 viewerSurfaceRequest: bridgeViewerSurfaceRequestHandler
             )
+            executor.reevaluatePreparedTerminalGeometry()
             return .toggled(reconciledPresentation.companionPaneId != nil)
         }
     }
@@ -3469,6 +3473,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
                 tabId: capability.tabId
             )
             executor.refreshZoomCompanionActivities()
+            executor.reevaluatePreparedTerminalGeometry()
             requestPaneRefocus(.explicit)
             return true
         case .retarget:
@@ -3498,6 +3503,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             owningTabId: capability.tabId,
             viewerSurfaceRequest: bridgeViewerSurfaceRequestHandler
         )
+        executor.reevaluatePreparedTerminalGeometry()
         requestPaneRefocus(.explicit)
         return true
     }

@@ -106,6 +106,7 @@ final class WorkspaceSurfaceCoordinator {
     /// window and in test harnesses that never install a cohort.
     var acceptedPreparedContentMountGeneration: WorkspaceContentMountGeneration?
     /// `reevaluatePreparedTerminalGeometry()`'s sole path to
+    /// `PreparedTerminalMountAdmissionPort.refreshQueuedTrustedFrames`,
     /// `PreparedTerminalMountAdmissionPort.acceptLaterTrustedFrames` and
     /// `WorkspacePreparedContentMountCoordinator.acceptTerminalGeometry` —
     /// both installed-owner-scoped objects this coordinator has no other

@@ -64,6 +64,35 @@ struct ZoomPresentationContainerGeometryTests {
         #expect(outline.maxX < region.maxX)
     }
 
+    @Test("Zoom drawer paint and bootstrap resolve the same outline for the same input")
+    func zoomDrawerPaintMatchesBootstrapGeometry() throws {
+        for side in DrawerZoomSide.allCases {
+            let frames = try mountedZoomDrawerFrames(zoomSide: side)
+            let painted = try #require(frames.outline)
+            // Bootstrap derives the split area from the container and the
+            // shared toolbar metric, never from SwiftUI measurement.
+            let regions = DrawerPresentationGeometryResolver.zoomRegions(
+                splitArea: CGRect(x: 0, y: 0, width: 1000, height: 640 - DrawerLayout.iconBarFrameHeight),
+                sourceSplitRatio: 0.7,
+                reservesCompanionSpace: true,
+                isCompanionVisible: true
+            )
+            let bootstrap = try #require(
+                DrawerPresentationGeometryResolver.resolve(
+                    DrawerPresentationGeometryInput(
+                        containerBounds: CGRect(x: 0, y: 0, width: 1000, height: 640),
+                        preference: DrawerPresentationPreference.default.replacingZoomSide(side),
+                        placement: .zoom(terminalRegion: regions.terminal, visibleBridgeRegion: regions.bridge)
+                    )
+                )
+            )
+            #expect(abs(painted.minX - bootstrap.outlineFrame.minX) < 0.5, "\(side)")
+            #expect(abs(painted.minY - bootstrap.outlineFrame.minY) < 0.5, "\(side)")
+            #expect(abs(painted.width - bootstrap.outlineFrame.width) < 0.5, "\(side)")
+            #expect(abs(painted.height - bootstrap.outlineFrame.height) < 0.5, "\(side)")
+        }
+    }
+
     private struct MountedZoomDrawerFrames {
         let outline: CGRect?
         let terminalRegion: CGRect

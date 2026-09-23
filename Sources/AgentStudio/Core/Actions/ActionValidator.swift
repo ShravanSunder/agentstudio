@@ -438,6 +438,15 @@ package enum WorkspaceCommandValidator {
             }
             return .success(ValidatedAction(action))
 
+        case .setZoomSplitRatio(let tabId, let ratio):
+            guard state.tab(tabId) != nil else {
+                return .failure(.tabNotFound(tabId: tabId))
+            }
+            guard state.zoomSourcePaneIdByTabId[tabId] != nil, ratio.isFinite, ratio > 0, ratio < 1 else {
+                return .failure(.invalidRatio(ratio: ratio))
+            }
+            return .success(ValidatedAction(action))
+
         case .setDrawerNormalHeightRatio(let parentPaneId, let ratio):
             guard state.tabOwning(paneId: parentPaneId) != nil,
                 state.drawerParentByPaneId[parentPaneId] == nil

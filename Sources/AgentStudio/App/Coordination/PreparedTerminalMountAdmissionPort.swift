@@ -111,8 +111,9 @@ final class PreparedTerminalMountAdmissionPort: TerminalActivationAdmissionPort 
     /// SPEC R5 retry: accepts later-arriving geometry for panes still under
     /// `deferredGeometry` custody in this generation. Never replaces the
     /// frame of a queued, attaching, ready, failed, or replaced member —
-    /// those hold `mounting` or `completed` custody, never `deferredGeometry`,
-    /// so this guard excludes them without inspecting scheduler state.
+    /// those hold `pending`, `mounting` or `completed` custody, never
+    /// `deferredGeometry`; queued members are refreshed separately by
+    /// `refreshQueuedTrustedFrames`.
     /// Returns the accepted subset of `framesByPaneID`'s keys.
     func acceptLaterTrustedFrames(_ framesByPaneID: [PaneId: NSRect]) -> Set<PaneId> {
         var acceptedPaneIDs: Set<PaneId> = []
@@ -140,6 +141,36 @@ final class PreparedTerminalMountAdmissionPort: TerminalActivationAdmissionPort 
         guard !acceptedPaneIDs.isEmpty else { return acceptedPaneIDs }
         trustedFrameState = .installed(updatedFramesByPaneID)
         return acceptedPaneIDs
+    }
+
+    /// Recovery-pass frame currency for queued members: refreshes the trusted
+    /// frame of members still in `.pending` custody, and of members claimed
+    /// but not yet activated, so a child queued under an older presentation
+    /// (normal mode, another Zoom side or split) mounts at the current size.
+    /// Members that started mounting, are ready, failed, were replaced, or are
+    /// deferred are untouched here; deferred members use
+    /// `acceptLaterTrustedFrames`. Returns the refreshed subset.
+    func refreshQueuedTrustedFrames(_ framesByPaneID: [PaneId: NSRect]) -> Set<PaneId> {
+        guard case .installed(var installedFrames) = trustedFrameState else { return [] }
+        var refreshedPaneIDs: Set<PaneId> = []
+        for (paneID, frame) in framesByPaneID {
+            guard Self.isFiniteNonEmptyFrame(frame), descriptorsByPaneID[paneID] != nil else { continue }
+            switch viewRegistry.preparedContentMountState(for: paneID, generation: generation) {
+            case .pending(owner: .terminal)?:
+                guard claimTrackingByPaneID[paneID] == nil else { continue }
+                installedFrames[paneID] = frame
+                refreshedPaneIDs.insert(paneID)
+            case .mounting(owner: .terminal)?:
+                guard case .claimed(let claimID, let admission, _) = claimTrackingByPaneID[paneID] else { continue }
+                claimTrackingByPaneID[paneID] = .claimed(claimID: claimID, admission: admission, frame: frame)
+                installedFrames[paneID] = frame
+                refreshedPaneIDs.insert(paneID)
+            default:
+                continue
+            }
+        }
+        trustedFrameState = .installed(installedFrames)
+        return refreshedPaneIDs
     }
 
     private func installedFramesSnapshot() -> [PaneId: NSRect] {

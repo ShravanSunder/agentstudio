@@ -33,6 +33,34 @@ struct ZoomPresentationChild {
     let toolbarPresentation: PaneSurfaceToolbarPresentation
 }
 
+/// How a Zoom composition's companion (Bridge) region occupies the split:
+/// whether the divider space is reserved and whether the region is visible.
+/// Shared by the live container and drawer bootstrap geometry.
+struct ZoomCompanionRegionLayout: Equatable {
+    let reservesCompanionSpace: Bool
+    let isCompanionVisible: Bool
+
+    /// Mirrors `ZoomPresentationContainer.resolveRenderState`: a visible
+    /// unavailable Viewer still occupies its region; a retained companion
+    /// counts only once its host is registered.
+    static func resolve(
+        viewerPresentation: ZoomViewerPresentation,
+        companionHostIsReady: (UUID) -> Bool
+    ) -> Self {
+        switch viewerPresentation {
+        case .unavailable, .retryable:
+            return Self(reservesCompanionSpace: false, isCompanionVisible: false)
+        case .unavailableVisible:
+            return Self(reservesCompanionSpace: true, isCompanionVisible: true)
+        case .retainedHidden(let companionPaneId):
+            return Self(reservesCompanionSpace: companionHostIsReady(companionPaneId), isCompanionVisible: false)
+        case .retainedVisible(let companionPaneId):
+            let isReady = companionHostIsReady(companionPaneId)
+            return Self(reservesCompanionSpace: isReady, isCompanionVisible: isReady)
+        }
+    }
+}
+
 @MainActor
 struct ZoomPresentationRenderState {
     let layout: AgentStudioCore.Layout
@@ -205,12 +233,11 @@ struct ZoomPresentationContainer: View {
         }
     }
 
+    /// A finished divider drag commits through the workspace action route,
+    /// which writes the ratio and then re-evaluates queued drawer geometry.
     private func persistSplitRatio(_ splitRatio: CGFloat) {
         guard let tabId else { return }
-        store.panePresentationAtom.setZoomSplitRatio(
-            Double(splitRatio),
-            inTab: tabId
-        )
+        actionDispatcher.dispatch(.setZoomSplitRatio(tabId: tabId, ratio: Double(splitRatio)))
     }
 
     private var viewerPresentationSplit: Binding<CGFloat> {

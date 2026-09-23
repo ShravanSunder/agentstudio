@@ -528,6 +528,10 @@ extension WorkspaceSurfaceCoordinator {
                 sizingMode: sizingMode
             )
 
+        case .setZoomSplitRatio(let tabId, let ratio):
+            _ = store.panePresentationAtom.setZoomSplitRatio(ratio, inTab: tabId)
+            Task { [weak self] in await self?.reevaluatePreparedTerminalGeometry() }
+
         case .setDrawerNormalHeightRatio(let parentPaneId, let ratio):
             store.paneAtom.setDrawerNormalHeightRatio(ratio, forOwner: parentPaneId)
             Task { [weak self] in await self?.reevaluatePreparedTerminalGeometry() }
