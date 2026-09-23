@@ -194,7 +194,7 @@ const hasQuery = commandBar.query !== "";
   }
 
   .kit-command-bar__row[data-selected] {
-    background: rgb(64 156 255 / 18%);
+    background: var(--kit-command-selected);
   }
 
   .kit-command-bar__label {
@@ -253,7 +253,7 @@ const hasQuery = commandBar.query !== "";
     background: rgb(255 255 255 / 8%);
   }
 
-  @container recreation-kit (max-width: 540px) {
+  @container recreation-kit (max-width: 600px) {
     .kit-command-bar {
       top: 8%;
       width: 92%;

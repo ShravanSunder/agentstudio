@@ -3,6 +3,7 @@ import { afterEach, beforeAll, describe, expect, inject, it } from "vitest";
 
 import { chapterCatalog } from "../src/chapters/chapter-catalog";
 import { sceneRootAttribute } from "../src/chapters/chapter-dom-contract";
+import type { ChapterStepId } from "../src/chapters/chapter-ids";
 import {
   isSceneId,
   sceneIds,
@@ -10,7 +11,10 @@ import {
   type SceneTimeline,
 } from "../src/motion-scenes/scene-contract";
 import { resolveSceneModule } from "../src/motion-scenes/scene-registry";
-import { kitPhoneAttribute } from "../src/recreation-kit/recreation-kit-dom";
+import { chapterContextWithTaskStepKeyParts } from "../src/motion-scenes/scenes/chapter-context-with-task/chapter-context-with-task-fixture";
+import { chapterFindAndFocusStepKeyParts } from "../src/motion-scenes/scenes/chapter-find-and-focus/chapter-find-and-focus-fixture";
+import { chapterManyAgentsStepKeyParts } from "../src/motion-scenes/scenes/chapter-many-agents/chapter-many-agents-fixture";
+import { kitPhoneAttribute, scenePartSelector } from "../src/recreation-kit/recreation-kit-dom";
 
 declare module "vitest" {
   export interface ProvidedContext {
@@ -22,7 +26,22 @@ declare module "vitest" {
 const sceneMarkupPagePath = "/";
 
 const desktopStage = { width: 1100, height: 688 } as const;
-const phoneStage = { width: 358, height: 224 } as const;
+// A 390px phone viewport leaves a 330px-wide stage, portrait 4:5 below the phone breakpoint.
+const phoneStage = { width: 330, height: 412 } as const;
+
+// Smallest recreation text a phone reader can read without zooming.
+const minimumPhoneFontSizePx = 11;
+
+// Each beat must show its subject within half a second of its label.
+const keyElementDeadlineSeconds = 0.5;
+
+const sceneStepKeyParts: Readonly<
+  Record<SceneId, Readonly<Partial<Record<ChapterStepId, string>>>>
+> = {
+  "chapter-many-agents": chapterManyAgentsStepKeyParts,
+  "chapter-context-with-task": chapterContextWithTaskStepKeyParts,
+  "chapter-find-and-focus": chapterFindAndFocusStepKeyParts,
+};
 
 interface SceneMarkupSource {
   readonly styles: readonly HTMLStyleElement[];
@@ -154,6 +173,57 @@ function snapshotVisibleState(elements: readonly HTMLElement[]): readonly string
   });
 }
 
+function ownText(element: Element): string {
+  return Array.from(element.childNodes)
+    .filter((node) => node.nodeType === Node.TEXT_NODE)
+    .map((node) => node.textContent ?? "")
+    .join("")
+    .trim();
+}
+
+/** Font sizes of every element that renders its own text (display: none excluded). */
+function renderedTextFontSizes(root: HTMLElement): readonly { text: string; sizePx: number }[] {
+  return [root, ...root.querySelectorAll("*")]
+    .filter((element) => ownText(element) !== "" && element.getClientRects().length > 0)
+    .map((element) => ({
+      text: ownText(element),
+      sizePx: Number.parseFloat(getComputedStyle(element).fontSize),
+    }));
+}
+
+/** Visible means rendered, not faded out, and at least partly inside the stage. */
+function describeVisibility(root: HTMLElement, element: Element): string {
+  const bounds = element.getBoundingClientRect();
+  const stageBounds = root.getBoundingClientRect();
+  const overlapWidth =
+    Math.min(bounds.right, stageBounds.right) - Math.max(bounds.left, stageBounds.left);
+  const overlapHeight =
+    Math.min(bounds.bottom, stageBounds.bottom) - Math.max(bounds.top, stageBounds.top);
+  let fadedAncestor = "";
+  for (let current: Element | null = element; current !== null; current = current.parentElement) {
+    if (Number.parseFloat(getComputedStyle(current).opacity) === 0) {
+      fadedAncestor = current === element ? "itself" : current.className;
+      break;
+    }
+    if (current === root) {
+      break;
+    }
+  }
+  if (bounds.width === 0 || bounds.height === 0) {
+    return "not rendered";
+  }
+  if (getComputedStyle(element).visibility !== "visible") {
+    return "visibility hidden";
+  }
+  if (fadedAncestor !== "") {
+    return `opacity 0 (${fadedAncestor})`;
+  }
+  if (overlapWidth <= 0 || overlapHeight <= 0) {
+    return "outside the stage";
+  }
+  return "visible";
+}
+
 function countRenderedPanes(root: HTMLElement): number {
   return Array.from(root.querySelectorAll<HTMLElement>(".kit-pane")).filter((pane) => {
     const bounds = pane.getBoundingClientRect();
@@ -243,6 +313,83 @@ describe("motion scenes on their real markup", () => {
         expect(startState).not.toEqual(settledMarkupState);
         expect(endState).toEqual(settledMarkupState);
         expect(replayedEndState).toEqual(settledMarkupState);
+      });
+
+      it("renders every recreation text at a readable size on a phone stage", () => {
+        // Arrange
+        const root = mountScene(sceneId, phoneStage);
+        const timeline = buildMountedScene(sceneId, root, 1);
+        const undersizedTexts = new Set<string>();
+
+        // Act: every label's beat, since collapsed elements render later.
+        for (const labelTime of [...Object.values(timeline.labels), timeline.duration()]) {
+          timeline.time(labelTime + keyElementDeadlineSeconds);
+          for (const { text, sizePx } of renderedTextFontSizes(root)) {
+            if (sizePx < minimumPhoneFontSizePx) {
+              undersizedTexts.add(`${text} (${String(sizePx)}px)`);
+            }
+          }
+        }
+
+        // Assert
+        expect(renderedTextFontSizes(root).length).toBeGreaterThan(5);
+        expect(Array.from(undersizedTexts)).toEqual([]);
+      });
+
+      for (const [stageName, stage] of [
+        ["desktop", desktopStage],
+        ["phone", phoneStage],
+      ] as const) {
+        it(`shows each beat's key element within half a second of its label on ${stageName}`, () => {
+          // Arrange
+          const root = mountScene(sceneId, stage);
+          const timeline = buildMountedScene(sceneId, root, 1);
+          const steps = resolveSceneModule(sceneId)?.steps ?? [];
+
+          // Act
+          const visibilityByStep = steps.map((step) => {
+            const keyPart = sceneStepKeyParts[sceneId][step.stepId];
+            const keyElement =
+              keyPart === undefined ? null : root.querySelector(scenePartSelector(keyPart));
+            timeline.time((timeline.labels[step.timelineLabel] ?? 0) + keyElementDeadlineSeconds);
+            return `${step.stepId}: ${
+              keyElement === null ? "no key element" : describeVisibility(root, keyElement)
+            }`;
+          });
+
+          // Assert
+          expect(steps.length).toBeGreaterThan(0);
+          expect(visibilityByStep).toEqual(steps.map((step) => `${step.stepId}: visible`));
+        });
+      }
+
+      it("stays beneath a host layer painted over it, as the real-capture proof is", () => {
+        // Arrange: the host stacks an opaque layer after the scene, like ChapterStage's proof.
+        const root = mountScene(sceneId, phoneStage);
+        const timeline = buildMountedScene(sceneId, root, 1);
+        timeline.progress(1);
+        const stageElement = root.parentElement;
+        if (stageElement === null) {
+          throw new Error("Mounted scene has no stage");
+        }
+        stageElement.style.position = "relative";
+        const hostLayer = document.createElement("div");
+        hostLayer.style.cssText = "position:absolute;inset:0;background:#000";
+        stageElement.append(hostLayer);
+        const stageBounds = stageElement.getBoundingClientRect();
+
+        // Act
+        const probePoints = [0.25, 0.5, 0.75].flatMap((xFraction) =>
+          [0.25, 0.5, 0.75].map((yFraction) =>
+            document.elementFromPoint(
+              stageBounds.left + stageBounds.width * xFraction,
+              stageBounds.top + stageBounds.height * yFraction,
+            ),
+          ),
+        );
+
+        // Assert
+        expect(probePoints.every((element) => element === hostLayer)).toBe(true);
       });
 
       it("shows fewer panes in the phone crop than on desktop", () => {

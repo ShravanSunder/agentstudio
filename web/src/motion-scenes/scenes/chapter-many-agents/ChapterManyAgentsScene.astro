@@ -23,6 +23,7 @@ const sceneRootAttributes = { [sceneRootAttribute]: "chapter-many-agents" };
 <!-- Settled frame of "Many agents, one map"; the scene module animates toward it. -->
 <AppWindow
   {...sceneRootAttributes}
+  class="scene-many-agents"
   role="img"
   aria-label={manyAgentsAccessibleLabel}
   toolbar={manyAgentsToolbar}
@@ -43,3 +44,28 @@ const sceneRootAttributes = { [sceneRootAttribute]: "chapter-many-agents" };
     </Pane>
   </PaneGrid>
 </AppWindow>
+
+<style is:global>
+  /*
+   * --scene-sidebar-focus is tweened on the scene root; the declared value is
+   * the settled frame. Desktop keeps the sidebar beside the panes, so only the
+   * phone crop reads it: the pane owns the crop until the watch-folders beat,
+   * then the sidebar slides over it.
+   */
+  .scene-many-agents {
+    --scene-sidebar-focus: 1;
+  }
+
+  @container recreation-kit (max-width: 600px) {
+    .scene-many-agents .kit-window__body {
+      position: relative;
+    }
+
+    .scene-many-agents .kit-sidebar {
+      position: absolute;
+      inset: 0;
+      z-index: 1;
+      translate: calc((var(--scene-sidebar-focus) - 1) * 100%) 0;
+    }
+  }
+</style>

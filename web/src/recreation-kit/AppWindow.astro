@@ -50,10 +50,13 @@ const { toolbar, arrangementSuffixPart, class: className, ...rootAttributes } = 
     min-height: 0;
   }
 
-  @container recreation-kit (max-width: 540px) {
+  @container recreation-kit (max-width: 600px) {
     .kit-window {
-      /* Phone focused crop: fewer elements, each larger. */
-      font-size: clamp(9px, 3.2cqi, 14px);
+      /*
+       * Phone focused crop: fewer elements, each larger. The 13px floor keeps the
+       * kit's smallest role (0.85em) at 11px or more on a 330px phone stage.
+       */
+      font-size: clamp(13px, 4cqi, 16px);
       border-radius: 0.7em;
     }
   }

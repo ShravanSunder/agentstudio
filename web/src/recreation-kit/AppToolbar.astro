@@ -186,11 +186,16 @@ const { toolbar, arrangementSuffixPart } = Astro.props;
     font-size: 0.85em;
   }
 
-  @container recreation-kit (max-width: 540px) {
+  @container recreation-kit (max-width: 600px) {
     .kit-toolbar {
       gap: 0.5em;
       height: 2.8em;
       padding-inline: 0.7em;
+    }
+
+    /* The phone crop shows one tab; its name matters more than its shortcut. */
+    .kit-toolbar__tab-shortcut {
+      display: none;
     }
   }
 </style>
