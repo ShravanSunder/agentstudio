@@ -113,8 +113,43 @@ struct HeldStepTests {
 
         // Assert
         await #expect(throws: CancellationError.self) { try await cancelled.value }
+        try await step.cancellationObserved()
         step.release()
         try await stillHeld.value
+    }
+
+    @Test("a hold-through-cancellation step keeps a cancelled arrival held and reports the cancellation")
+    func holdThroughCancellationKeepsTheArrivalHeld() async throws {
+        // Arrange
+        let step = HeldStep<Int>("hold-through-cancellation", cancellation: .holdThroughCancellation)
+        let cancelled = Task { try await step.arrive(5) }
+        _ = try await step.firstArrival()
+
+        // Act
+        cancelled.cancel()
+        try await step.cancellationObserved()
+        let arrivalsWhileHeld = step.recordedArrivals
+        step.release()
+
+        // Assert
+        #expect(arrivalsWhileHeld == [5])
+        try await cancelled.value
+    }
+
+    @Test("a blocking arrival from inside a task is rejected, naming the step, and does not park")
+    func blockingArrivalInsideATaskIsRejected() async throws {
+        // Arrange
+        let step = HeldStep<Int>("blocking-inside-task")
+
+        // Act
+        let rejection = #expect(throws: HeldStepBlockingArrivalInsideTask.self) {
+            try step.arriveBlocking(6)
+        }
+
+        // Assert
+        #expect(rejection?.stepName == "blocking-inside-task")
+        #expect(step.recordedArrivals.isEmpty)
+        await #expect(throws: HeldStepBlockingArrivalInsideTask.self) { try await step.firstArrival() }
     }
 
     @Test("a blocking arrival parks a real thread until release")

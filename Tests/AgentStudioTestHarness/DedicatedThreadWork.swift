@@ -8,12 +8,13 @@ import Foundation
 /// task stays free to await ``HeldStep/firstArrival()`` and end the step while
 /// the work is parked. The work itself cannot be cancelled; the runner's hang
 /// bound is what ends a call that never returns.
-package func valueFromDedicatedThread<Value: Sendable>(
-    _ blockingWork: @escaping @Sendable () throws -> Value
-) async throws -> Value {
-    try await withCheckedThrowingContinuation { continuation in
+package func valueFromDedicatedThread<Value: Sendable, Failure: Error>(
+    _ blockingWork: @escaping @Sendable () throws(Failure) -> Value
+) async throws(Failure) -> Value {
+    let outcome = await withCheckedContinuation { (continuation: CheckedContinuation<Result<Value, Failure>, Never>) in
         Thread.detachNewThread {
-            continuation.resume(with: Result { try blockingWork() })
+            continuation.resume(returning: Result { () throws(Failure) -> Value in try blockingWork() })
         }
     }
+    return try outcome.get()
 }

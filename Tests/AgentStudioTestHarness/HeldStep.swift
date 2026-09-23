@@ -1,37 +1,40 @@
 import Dispatch
 import Synchronization
 
-/// One point in the work under test where that work stops until the test
+/// One named point in the work under test where that work stops until the test
 /// decides how the step ends.
 ///
 /// A fake dependency calls ``arrive(_:)`` (async seam) or ``arriveBlocking(_:)``
-/// (synchronous seam) at the point it stands in for. The test awaits
-/// ``firstArrival()`` — which completes because the work got there, never
-/// because time passed — then ends the step with ``release()``, ``fail(_:)`` or
-/// ``retire()``. The first terminal call wins and is sticky: every parked
-/// arrival resumes with it, and every later arrival passes (or throws the same
-/// error) immediately. A terminal call made before any arrival is kept, so an
-/// early `release()` cannot be lost.
+/// (synchronous seam reached from a dedicated thread) at the point it stands in
+/// for. The test awaits ``firstArrival()`` — which completes because the work got
+/// there, never because time passed — then ends the step with ``release()``,
+/// ``fail(_:)`` or ``retire()``. The first terminal call wins and is sticky:
+/// every parked arrival resumes with it, and every later arrival passes (or
+/// throws the same error) immediately. A terminal call made before any arrival is
+/// kept, so an early `release()` cannot be lost.
 ///
 /// This is a class over a `Mutex`, not an actor, so a synchronous production
-/// seam can arrive without an `await`. No detached task relays a resume:
-/// cancellation resumes a parked arrival inside its cancellation handler under
-/// the same lock, and terminal transitions resume arrivals after the state
-/// change is recorded, so an arrival that immediately arrives again sees the
-/// terminal state.
+/// seam can arrive without an `await`. State changes happen under the lock;
+/// continuations and semaphores are resumed after it is released, and no
+/// detached task relays a resume. An arrival that immediately arrives again
+/// therefore sees the terminal state.
 package final class HeldStep<Arrival: Sendable>: Sendable {
-    /// Names the step in the error a waiter throws when the runner's hang
-    /// bound cancels it, so a step that is never reached is identifiable.
+    /// Names the step in every failure the harness reports for it, so a step
+    /// that is never reached, or is reached the wrong way, is identifiable.
     package let name: String
+    private let cancellationPolicy: HeldStepCancellationPolicy
     private let state = Mutex(HeldStepState<Arrival>())
 
-    package init(_ name: String) {
+    package init(_ name: String, cancellation cancellationPolicy: HeldStepCancellationPolicy = .resumeOnCancellation) {
         self.name = name
+        self.cancellationPolicy = cancellationPolicy
     }
 
     /// Records an arrival and suspends until the step is released, failed or
-    /// retired. Throws the failure error on `fail`, and `CancellationError` on
-    /// `retire` or when the arriving task is cancelled first.
+    /// retired. Throws the failure error on `fail` and `CancellationError` on
+    /// `retire`. When the arriving task is cancelled first, the cancellation
+    /// policy decides: resume it as cancelled, or keep it held until a terminal
+    /// call. Either way ``cancellationObserved()`` completes.
     package func arrive(_ arrival: Arrival) async throws {
         let admission = admitArrival(arrival, parking: .async)
         if let terminal = admission.terminal {
@@ -39,13 +42,14 @@ package final class HeldStep<Arrival: Sendable>: Sendable {
             return
         }
         let parkingID = admission.parkingID
+        let resumesOnCancellation = cancellationPolicy == .resumeOnCancellation
         try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
                 let terminal = state.withLock { state -> HeldStepTerminal? in
                     if let terminal = state.terminal {
                         return terminal
                     }
-                    if Task.isCancelled {
+                    if Task.isCancelled, resumesOnCancellation {
                         return .retired
                     }
                     state.parkedAsyncArrivals[parkingID] = continuation
@@ -54,19 +58,34 @@ package final class HeldStep<Arrival: Sendable>: Sendable {
                 terminal?.resume(continuation)
             }
         } onCancel: {
-            state.withLock { state in
-                state.parkedAsyncArrivals.removeValue(forKey: parkingID)?.resume(throwing: CancellationError())
+            let cancellation = state.withLock {
+                $0.observeCancellation(of: parkingID, resumingArrival: resumesOnCancellation)
+            }
+            cancellation.cancelledArrival?.resume(throwing: CancellationError())
+            for observer in cancellation.cancellationObservers {
+                observer.resume()
             }
         }
     }
 
     /// Records an arrival and parks the calling thread until the step ends.
     ///
-    /// For a synchronous seam such as a socket join or an FSEvents stream
-    /// factory. The block lands on a semaphore this harness owns for this one
-    /// arrival; call it only from a thread that may block (the seam's own
-    /// thread or a dispatch queue), never from the cooperative pool.
+    /// For a synchronous seam reached from a thread that may block: a socket
+    /// listener's accept queue, or a thread from ``valueFromDedicatedThread(_:)``.
+    /// The block lands on a semaphore this harness owns for this one arrival.
+    /// Called from inside a task — the cooperative pool or an actor — it would
+    /// park a thread other work needs, so it does not park: it throws
+    /// ``HeldStepBlockingArrivalInsideTask`` and makes every ``firstArrival()``
+    /// throw the same failure, naming the step.
     package func arriveBlocking(_ arrival: Arrival) throws {
+        guard !Self.isRunningInsideTask else {
+            let misuse = HeldStepBlockingArrivalInsideTask(stepName: name)
+            let firstArrivalWaiters = state.withLock { $0.rejectBlockingArrival(misuse) }
+            for waiter in firstArrivalWaiters {
+                waiter.resume(throwing: misuse)
+            }
+            throw misuse
+        }
         let parkingSemaphore = DispatchSemaphore(value: 0)
         let admission = admitArrival(arrival, parking: .blocking(parkingSemaphore))
         if let terminal = admission.terminal {
@@ -84,27 +103,61 @@ package final class HeldStep<Arrival: Sendable>: Sendable {
     /// The first arrival's value, once the work reaches the step.
     ///
     /// Has no deadline. When the step is never reached, the runner's hang bound
-    /// cancels the waiting test and this throws ``HeldStepNeverReached``
-    /// naming the step.
+    /// cancels the waiting test and this throws ``HeldStepNeverReached`` naming
+    /// the step.
     package func firstArrival() async throws -> Arrival {
         let waiterID = state.withLock { $0.allocateID() }
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Arrival, any Error>) in
-                state.withLock { state in
-                    if let firstArrival = state.arrivals.first {
-                        continuation.resume(returning: firstArrival)
-                    } else if Task.isCancelled {
-                        continuation.resume(throwing: HeldStepNeverReached(stepName: name))
-                    } else {
-                        state.firstArrivalWaiters[waiterID] = continuation
+                let outcome = state.withLock { state -> Result<Arrival, any Error>? in
+                    if let misuse = state.blockingArrivalMisuse {
+                        return .failure(misuse)
                     }
+                    if let firstArrival = state.arrivals.first {
+                        return .success(firstArrival)
+                    }
+                    if Task.isCancelled {
+                        return .failure(HeldStepNeverReached(stepName: name))
+                    }
+                    state.firstArrivalWaiters[waiterID] = continuation
+                    return nil
+                }
+                if let outcome {
+                    continuation.resume(with: outcome)
                 }
             }
         } onCancel: {
-            state.withLock { state in
-                state.firstArrivalWaiters.removeValue(forKey: waiterID)?
-                    .resume(throwing: HeldStepNeverReached(stepName: name))
+            let waiter = state.withLock { $0.firstArrivalWaiters.removeValue(forKey: waiterID) }
+            waiter?.resume(throwing: HeldStepNeverReached(stepName: name))
+        }
+    }
+
+    /// Returns once an arriving task has been cancelled while at the step.
+    ///
+    /// The event a `.holdThroughCancellation` interleaving waits on. Has no
+    /// deadline; when no cancellation happens, the runner's hang bound cancels
+    /// the waiting test and this throws ``HeldStepNeverReached`` naming the step.
+    package func cancellationObserved() async throws {
+        let observerID = state.withLock { $0.allocateID() }
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
+                let outcome = state.withLock { state -> Result<Void, any Error>? in
+                    if state.hasObservedCancellation {
+                        return .success(())
+                    }
+                    if Task.isCancelled {
+                        return .failure(HeldStepNeverReached(stepName: name))
+                    }
+                    state.cancellationObservers[observerID] = continuation
+                    return nil
+                }
+                if let outcome {
+                    continuation.resume(with: outcome)
+                }
             }
+        } onCancel: {
+            let observer = state.withLock { $0.cancellationObservers.removeValue(forKey: observerID) }
+            observer?.resume(throwing: HeldStepNeverReached(stepName: name))
         }
     }
 
@@ -130,6 +183,10 @@ package final class HeldStep<Arrival: Sendable>: Sendable {
         settle(.retired)
     }
 
+    private static var isRunningInsideTask: Bool {
+        withUnsafeCurrentTask { $0 != nil }
+    }
+
     private func admitArrival(_ arrival: Arrival, parking: HeldStepParking) -> HeldStepAdmission<Arrival> {
         let admission = state.withLock { $0.admit(arrival, parking: parking) }
         for waiter in admission.firstArrivalWaiters {
@@ -149,13 +206,36 @@ package final class HeldStep<Arrival: Sendable>: Sendable {
     }
 }
 
-/// Thrown by ``HeldStep/firstArrival()`` when the waiting task is cancelled
-/// before the work reached the step — in practice, the runner's hang bound.
+/// What a held async arrival does when its task is cancelled before the step
+/// ends.
+package enum HeldStepCancellationPolicy: Sendable {
+    /// The arrival resumes at once, throwing `CancellationError`.
+    case resumeOnCancellation
+    /// The arrival stays held until `release`, `fail` or `retire`, the way a
+    /// dependency that ignores cancellation behaves. The test observes the
+    /// cancellation through ``HeldStep/cancellationObserved()``.
+    case holdThroughCancellation
+}
+
+/// Thrown by ``HeldStep/firstArrival()`` and ``HeldStep/cancellationObserved()``
+/// when the waiting task is cancelled before the awaited event — in practice,
+/// the runner's hang bound.
 package struct HeldStepNeverReached: Error, CustomStringConvertible {
     package let stepName: String
 
     package var description: String {
         "HeldStep '\(stepName)' was never reached"
+    }
+}
+
+/// A blocking arrival made from inside a task, which would have parked a
+/// cooperative-pool or actor thread. The step reports it instead of parking.
+package struct HeldStepBlockingArrivalInsideTask: Error, CustomStringConvertible {
+    package let stepName: String
+
+    package var description: String {
+        "HeldStep '\(stepName)' was reached by a blocking arrival from inside a task; "
+            + "reach it from a dedicated thread or use arrive(_:)"
     }
 }
 
@@ -205,12 +285,21 @@ private struct HeldStepSettlement {
     var parkedBlockingArrivals: [DispatchSemaphore] = []
 }
 
+/// What an arriving task's cancellation must resume once the lock is released.
+private struct HeldStepCancellation {
+    let cancelledArrival: CheckedContinuation<Void, any Error>?
+    let cancellationObservers: [CheckedContinuation<Void, any Error>]
+}
+
 private struct HeldStepState<Arrival: Sendable> {
     var arrivals: [Arrival] = []
     var terminal: HeldStepTerminal?
+    var blockingArrivalMisuse: HeldStepBlockingArrivalInsideTask?
+    var hasObservedCancellation = false
     var parkedAsyncArrivals: [UInt64: CheckedContinuation<Void, any Error>] = [:]
     var parkedBlockingArrivals: [UInt64: DispatchSemaphore] = [:]
     var firstArrivalWaiters: [UInt64: CheckedContinuation<Arrival, any Error>] = [:]
+    var cancellationObservers: [UInt64: CheckedContinuation<Void, any Error>] = [:]
     private var nextID: UInt64 = 1
 
     mutating func allocateID() -> UInt64 {
@@ -235,6 +324,27 @@ private struct HeldStepState<Arrival: Sendable> {
             parkedBlockingArrivals[parkingID] = semaphore
         }
         return HeldStepAdmission(parkingID: parkingID, terminal: nil, firstArrivalWaiters: waiters)
+    }
+
+    /// Records a blocking arrival made from inside a task and hands back every
+    /// waiting `firstArrival` caller, which must fail with it.
+    mutating func rejectBlockingArrival(
+        _ misuse: HeldStepBlockingArrivalInsideTask
+    ) -> [CheckedContinuation<Arrival, any Error>] {
+        blockingArrivalMisuse = blockingArrivalMisuse ?? misuse
+        let waiters = Array(firstArrivalWaiters.values)
+        firstArrivalWaiters.removeAll()
+        return waiters
+    }
+
+    /// Records that an arriving task was cancelled. Under the resume policy the
+    /// parked arrival leaves the state; under the hold policy it stays parked.
+    mutating func observeCancellation(of parkingID: UInt64, resumingArrival: Bool) -> HeldStepCancellation {
+        hasObservedCancellation = true
+        let observers = Array(cancellationObservers.values)
+        cancellationObservers.removeAll()
+        let cancelledArrival = resumingArrival ? parkedAsyncArrivals.removeValue(forKey: parkingID) : nil
+        return HeldStepCancellation(cancelledArrival: cancelledArrival, cancellationObservers: observers)
     }
 
     /// Records the first terminal state and hands back every parked arrival.
