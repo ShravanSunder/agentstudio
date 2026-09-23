@@ -46,6 +46,8 @@ export function initializeTopologyScrollReveal(
   let pendingAnimationFrame: number | undefined;
   let currentNodes = new Set<SVGGraphicsElement>();
   let litTarget: HTMLElement | undefined;
+  /** The lowest fog edge reached so far, in artwork coordinates; it never retreats. */
+  let furthestRevealY: number | undefined;
 
   const updateCurrentNodes = (revealProgress: number, enabled: boolean): void => {
     const nextCurrentNodes = new Set<SVGGraphicsElement>();
@@ -195,13 +197,16 @@ export function initializeTopologyScrollReveal(
     if (!Number.isFinite(topologyStartY) || !Number.isFinite(topologyEndY)) {
       return;
     }
-    // The fog edge follows scroll progress through the topology, and never
-    // sits above the reading line, so everything read so far stays lit.
+    // The fog edge follows scroll progress through the topology and never sits
+    // above the reading line. The first render reveals the whole first
+    // viewport, and the edge only ever moves down, so what was seen stays lit.
     const span = Math.max(topologyEndY - topologyStartY, 1);
     const progressY = topologyStartY + span * scrollProgress;
+    furthestRevealY ??= window.innerHeight - artworkTop;
+    furthestRevealY = Math.max(furthestRevealY, progressY, readingLineY);
     const revealY = reducedMotionQuery.matches
       ? topologyEndY
-      : Math.min(Math.max(progressY, readingLineY), topologyEndY);
+      : Math.min(furthestRevealY, topologyEndY);
     const revealProgress = clamp((revealY - topologyStartY) / span, 0, 1);
     const fadeHeight = revealProgress >= 1 ? 0 : Math.min(288, Math.max(96, span * 0.06));
     verticalRevealSolid.setAttribute(

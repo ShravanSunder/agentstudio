@@ -1,4 +1,3 @@
-export const maximumRenderedTopologyRowCount = 128;
 export const topologyRowUnit = 96;
 
 export type WorktreeEndKind = "merge" | "open";
@@ -11,6 +10,12 @@ export type WorktreeEndKind = "merge" | "open";
 export const topologyColumnUnitMinimum = 40;
 export const topologyColumnUnitViewportRatio = 0.05;
 export const topologyColumnUnitMaximum = 96;
+
+/**
+ * At most this many worktree lanes. The columns are anchored from the content
+ * edge, so a wider gutter leaves empty whitespace left of the mainline.
+ */
+export const topologyMaximumLaneCount = 4;
 
 /** The mainline never sits closer than this to the page's left edge. */
 export const topologyGutterEdgeMargin = 16;
@@ -26,10 +31,14 @@ export function topologyColumnUnitFor(viewportWidth: number): number {
  * Worktree lanes that fit between the mainline and the content: every lane
  * needs its own column, plus one for the mainline, and the outermost lane is
  * always the column adjacent to the content (`attachX - unit`). Zero lanes
- * means a cramped gutter: only the mainline is drawn.
+ * means a cramped gutter: only the mainline is drawn. Capped at
+ * `topologyMaximumLaneCount`.
  */
 export function topologyLaneCountFor(attachX: number, columnUnit: number): number {
-  return Math.max(0, Math.floor((attachX - topologyGutterEdgeMargin) / columnUnit) - 1);
+  return Math.min(
+    topologyMaximumLaneCount,
+    Math.max(0, Math.floor((attachX - topologyGutterEdgeMargin) / columnUnit) - 1),
+  );
 }
 
 export interface TopologyGutterColumns {
