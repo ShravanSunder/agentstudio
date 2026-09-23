@@ -1,6 +1,7 @@
 import AgentStudioInfrastructure
 import AgentStudioTestSupport
 import Foundation
+import Testing
 
 /// The outcome of one bash command run by a Swift lane runner test.
 struct LaneScriptBashResult: Sendable {
@@ -60,4 +61,22 @@ func laneScriptNamedBlock(startingWith marker: String, endingBefore terminator: 
 
 enum LaneScriptTestError: Error {
     case missingBlock(String)
+}
+
+/// The non-empty lines of a script's output.
+func laneOutputLines(_ output: String) -> [String] {
+    output.split(separator: "\n").map(String.init)
+}
+
+/// Runs a lane script command that must succeed, and returns its output.
+func laneBash(_ command: String) async throws -> String {
+    let result = try await runLaneScriptBash(command)
+    #expect(result.exitCode == 0, Comment(rawValue: result.output))
+    return result.output
+}
+
+/// For scripts that deliberately fail: these tests drive crashing and hung
+/// children, so a non-zero status is the expected outcome.
+func laneBashAllowingFailure(_ command: String) async throws -> String {
+    (try await runLaneScriptBash(command)).output
 }

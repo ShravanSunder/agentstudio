@@ -490,9 +490,11 @@ jobs:
           # or a child dies without recording a failure. It is the only
           # authoritative record of which tests started and never ended; the
           # console stream is block-buffered and stops mid-line at a wedge. A
-          # timed-out lane also keeps a swift-inspect task dump per stuck test
-          # process, which names every suspended task and where it would resume.
+          # timed-out lane also keeps, beside its ledger, a swift-inspect task dump
+          # per stuck test process (every suspended task and where it would
+          # resume) and the held-step log naming the harness steps never reached.
           path: |
             tmp/plan-workflows/ci-runs/lane-*.events.jsonl
             tmp/plan-workflows/ci-runs/lane-*.task-dump.txt
+            tmp/plan-workflows/ci-runs/lane-*.held-steps.log
           if-no-files-found: ignore

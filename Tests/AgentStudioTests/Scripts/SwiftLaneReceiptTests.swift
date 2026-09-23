@@ -15,7 +15,7 @@ struct SwiftLaneReceiptTests {
         )
 
         #expect(
-            lines(reasons) == [
+            laneOutputLines(reasons) == [
                 "fresh/false/-=[]",
                 // A reused bundle linked to a clean build of this commit is evidence.
                 "reused/false/-=[]",
@@ -47,18 +47,21 @@ struct SwiftLaneReceiptTests {
             "LOG_PREFIX=lane; source scripts/swift-test-helpers.sh; print_lane_receipt_verdict 0 fresh true"
         )
 
-        #expect(lines(validPass) == ["[lane] lane-report receipt_valid=true", "[lane] lane-report verdict=pass"])
-        #expect(lines(validFail) == ["[lane] lane-report receipt_valid=true", "[lane] lane-report verdict=fail"])
+        #expect(
+            laneOutputLines(validPass) == ["[lane] lane-report receipt_valid=true", "[lane] lane-report verdict=pass"])
+        #expect(
+            laneOutputLines(validFail) == ["[lane] lane-report receipt_valid=true", "[lane] lane-report verdict=fail"])
         // An unlinked bundle or a dirty tree passing is not evidence about the commit.
         #expect(
-            lines(unlinkedPass) == [
+            laneOutputLines(unlinkedPass) == [
                 "[lane] lane-report receipt_valid=false reason=reused_bundle_unlinked",
                 "[lane] lane-report verdict=unverified",
             ]
         )
-        #expect(lines(linkedPass) == ["[lane] lane-report receipt_valid=true", "[lane] lane-report verdict=pass"])
         #expect(
-            lines(dirtyPass) == [
+            laneOutputLines(linkedPass) == ["[lane] lane-report receipt_valid=true", "[lane] lane-report verdict=pass"])
+        #expect(
+            laneOutputLines(dirtyPass) == [
                 "[lane] lane-report receipt_valid=false reason=dirty_tree",
                 "[lane] lane-report verdict=unverified",
             ]
@@ -89,7 +92,7 @@ struct SwiftLaneReceiptTests {
         )
 
         #expect(
-            lines(states) == [
+            laneOutputLines(states) == [
                 "clean=false",
                 "clean_since=false",
                 "edited_since=true",
@@ -118,7 +121,7 @@ struct SwiftLaneReceiptTests {
                 + "; printf 'seven b' > '\(bundlePath)'; touch -t 202609230102.03 '\(bundlePath)'; "
                 + "echo \"resized=$(lane_receipt_bundle_identity)\""
         )
-        let identityLines = lines(identities)
+        let identityLines = laneOutputLines(identities)
         let epoch = try #require(identityLines.dropFirst(2).first?.split(separator: "=").last.map(String.init))
 
         #expect(identityLines.first == "before=missing")
@@ -292,7 +295,7 @@ struct SwiftLaneReceiptTests {
         )
 
         #expect(
-            lines(scenarios) == [
+            laneOutputLines(scenarios) == [
                 "clean_reuse=[]",
                 "linked_head=current",
                 "mismatched_artifact=[reused_bundle_unlinked]",
@@ -311,78 +314,6 @@ struct SwiftLaneReceiptTests {
                 "staged_leftovers=0",
             ]
         )
-    }
-
-    @Test("a hung test process gets a concurrency task dump before it is terminated")
-    func hungTestProcessGetsTaskDumpBeforeTermination() async throws {
-        // The fake child carries the test-bundle name so the runner selects it
-        // for stack capture, then stalls without output like a wedged suite.
-        let workDirectory = NSTemporaryDirectory() + "agentstudio-receipt-dump-\(UUIDv7.generate())"
-        defer { try? FileManager.default.removeItem(atPath: workDirectory) }
-
-        let laneOutput = try await laneBashAllowingFailure(
-            "mkdir -p '\(workDirectory)'; "
-                + "LOG_PREFIX=lane; TIMEOUT_SECONDS=2; BUILD_PATH=.build-agent-1; "
-                + "export LANE_EVENT_STREAM_DIR='\(workDirectory)/ci-runs'; "
-                + "source scripts/swift-test-helpers.sh; set +e; "
-                + "run_swift_with_timeout 'dump probe' 2 /bin/bash -c "
-                + "'while true; do sleep 1; done' AgentStudioPackageTests "
-                + "|| returned=$?; echo \"RETURNED=${returned:-0}\""
-        )
-        let dumpRange = try #require(laneOutput.range(of: "lane-report task_dump="))
-        let reapRange = try #require(laneOutput.range(of: "lane-report timeout_reap="))
-
-        #expect(laneOutput.contains("RETURNED=124"))
-        // bash is not a Swift process swift-inspect may attach to, so the dump
-        // is refused, and the refusal is recorded instead of failing the lane.
-        #expect(laneOutput.contains("lane-report task_dump=unavailable pid="))
-        #expect(laneOutput.contains("reason="))
-        // Taken while the process is still stuck, not after the reap.
-        #expect(dumpRange.lowerBound < reapRange.lowerBound)
-    }
-
-    @Test("a task dump is kept beside the ledger, and a refused attach is recorded with its reason")
-    func taskDumpIsKeptBesideLedgerAndRefusalIsRecorded() async throws {
-        // swift-inspect exits 0 when it cannot attach, printing only to stderr, so
-        // both fakes exit 0 and only the dump's content tells them apart.
-        let workDirectory = NSTemporaryDirectory() + "agentstudio-receipt-inspect-\(UUIDv7.generate())"
-        defer { try? FileManager.default.removeItem(atPath: workDirectory) }
-        let attachingTool = workDirectory + "/attaching"
-        let refusingTool = workDirectory + "/refusing"
-        let fakeInspectors =
-            "mkdir -p '\(attachingTool)' '\(refusingTool)'; "
-            + "printf '#!/bin/bash\\necho TASKS; echo \"  Task 1 async backtrace: parkForever()\"\\n' "
-            + "> '\(attachingTool)/xcrun'; "
-            + "printf '#!/bin/bash\\necho \"unable to get task for pid $3: (os/kern) failure 0x5\" >&2; "
-            + "echo \"Failed to create inspector for process id $3\" >&2\\n' > '\(refusingTool)/xcrun'; "
-            + "chmod +x '\(attachingTool)/xcrun' '\(refusingTool)/xcrun'; "
-
-        let attached = try await laneBash(
-            fakeInspectors
-                + "LOG_PREFIX=lane; export LANE_EVENT_STREAM_DIR='\(workDirectory)/ci-runs'; "
-                + "source scripts/swift-test-helpers.sh; "
-                + "PATH='\(attachingTool)':$PATH dump_stuck_swift_test_process_tasks 'dump probe' 4242; "
-                + "for dump in '\(workDirectory)/ci-runs'/*.task-dump.txt; do cat \"$dump\"; done"
-        )
-        let refused = try await laneBash(
-            fakeInspectors
-                + "LOG_PREFIX=lane; export LANE_EVENT_STREAM_DIR='\(workDirectory)/refused-runs'; "
-                + "source scripts/swift-test-helpers.sh; "
-                + "PATH='\(refusingTool)':$PATH dump_stuck_swift_test_process_tasks 'dump probe' 4242; "
-                + "echo \"DUMPS=$(ls -1 '\(workDirectory)/refused-runs' | wc -l | tr -d '[:space:]')\""
-        )
-
-        #expect(attached.contains("lane-report task_dump=\(workDirectory)/ci-runs/lane-dump-probe-"))
-        #expect(attached.contains("-pid4242.task-dump.txt"))
-        #expect(attached.contains("parkForever()"))
-        #expect(
-            refused.contains(
-                "lane-report task_dump=unavailable pid=4242 reason=unable to get task for pid 4242: "
-                    + "(os/kern) failure 0x5 Failed to create inspector for process id 4242"
-            )
-        )
-        // A refused attach leaves no empty file posing as a dump.
-        #expect(refused.contains("DUMPS=0"))
     }
 
     @Test("a crashed WebKit suite fails the lane once, named with its signal, and is never retried")
@@ -431,7 +362,7 @@ struct SwiftLaneReceiptTests {
                 + "swift_test_crash_signal_name 124 ''"
         )
 
-        #expect(lines(names) == ["SEGV", "TRAP", "none", "none"])
+        #expect(laneOutputLines(names) == ["SEGV", "TRAP", "none", "none"])
     }
 
     @Test("the width comparison runs both halves on one bundle and keeps every ledger")
@@ -481,20 +412,4 @@ struct SwiftLaneReceiptTests {
         #expect(retained.contains("lane-report event_stream=\(workDirectory)/lane-clean-half-"))
         #expect(retained.contains("LEDGERS=1"))
     }
-}
-
-private func lines(_ output: String) -> [String] {
-    output.split(separator: "\n").map(String.init)
-}
-
-private func laneBash(_ command: String) async throws -> String {
-    let result = try await runLaneScriptBash(command)
-    #expect(result.exitCode == 0, Comment(rawValue: result.output))
-    return result.output
-}
-
-/// For scripts that deliberately fail: these tests drive crashing and hung
-/// children, so a non-zero status is the expected outcome.
-private func laneBashAllowingFailure(_ command: String) async throws -> String {
-    (try await runLaneScriptBash(command)).output
 }

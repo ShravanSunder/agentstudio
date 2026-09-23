@@ -219,6 +219,7 @@ lane_event_stream_label_slug() {
 preserve_lane_event_stream() {
   local label="$1"
   local event_stream_file="${2:-}"
+  local evidence_stem="${3:-$(lane_evidence_stem "$label")}"
 
   if [ -z "$event_stream_file" ] || [ ! -r "$event_stream_file" ]; then
     echo "[$LOG_PREFIX] lane-report event_stream=unavailable"
@@ -229,7 +230,7 @@ preserve_lane_event_stream() {
   label_slug="$(lane_event_stream_label_slug "$label")"
   mkdir -p "$LANE_EVENT_STREAM_DIR"
   local preserved_path
-  preserved_path="$LANE_EVENT_STREAM_DIR/lane-$label_slug-$(date +%Y%m%dT%H%M%S)-$$.events.jsonl"
+  preserved_path="$evidence_stem.events.jsonl"
   if cp "$event_stream_file" "$preserved_path" 2>/dev/null; then
     echo "[$LOG_PREFIX] lane-report event_stream=$preserved_path"
     prune_lane_event_streams "$label_slug"
@@ -238,14 +239,67 @@ preserve_lane_event_stream() {
   fi
 }
 
+# Where one test invocation's hang evidence goes: the event ledger, one task dump
+# per stuck process, and the held-step log all share this stem, so the files that
+# explain one wedge sit side by side as
+# `lane-<label>-<timestamp>-<runner pid>.{events.jsonl,held-steps.log}` and
+# `...-pid<pid>.task-dump.txt`.
+lane_evidence_stem() {
+  echo "$LANE_EVENT_STREAM_DIR/lane-$(lane_event_stream_label_slug "$1")-$(date +%Y%m%dT%H%M%S)-$$"
+}
+
+# The held steps a hung lane was still waiting on. The causal-test harness
+# appends `waiting <name> <test>` when a test parks on a held step and
+# `arrived <name>` when the step is reached; each arrival matches the earliest
+# unmatched wait of that name. Every wait left unmatched is printed. A missing
+# or empty log prints nothing.
+print_held_steps_unarrived_at_timeout() {
+  local held_step_log="${1:-}"
+  local held_step_name
+  local held_step_test
+
+  [ -n "$held_step_log" ] && [ -s "$held_step_log" ] || return 0
+  /usr/bin/awk '
+    $1 == "waiting" && NF >= 2 {
+      waiting_test = $0
+      sub(/^waiting[ \t]+[^ \t]+[ \t]*/, "", waiting_test)
+      wait_count[$2]++
+      waiting[$2, wait_count[$2]] = waiting_test
+      order_name[++order_count] = $2
+      order_index[order_count] = wait_count[$2]
+      next
+    }
+    $1 == "arrived" && NF >= 2 { arrival_count[$2]++ }
+    END {
+      for (position = 1; position <= order_count; position++) {
+        name = order_name[position]
+        if (order_index[position] > arrival_count[name]) {
+          printf "%s\t%s\n", name, waiting[name, order_index[position]]
+        }
+      }
+    }
+  ' "$held_step_log" 2>/dev/null | while IFS=$'\t' read -r held_step_name held_step_test; do
+    echo "[$LOG_PREFIX] lane-report held_step_unarrived name=$held_step_name test=$held_step_test"
+  done || true
+}
+
+# A held-step log is evidence only when a test wrote to it.
+discard_empty_held_step_log() {
+  local held_step_log="${1:-}"
+
+  if [ -n "$held_step_log" ] && [ ! -s "$held_step_log" ]; then
+    rm -f "$held_step_log"
+  fi
+}
+
 # Keeps the newest `LANE_EVENT_STREAM_KEEP_PER_LABEL` ledgers, and the newest as
-# many task dumps, for one label.
+# many task dumps and held-step logs, for one label.
 prune_lane_event_streams() {
   local label_slug="$1"
   local retained_suffix
   local surplus_file
 
-  for retained_suffix in events.jsonl task-dump.txt; do
+  for retained_suffix in events.jsonl task-dump.txt held-steps.log; do
     # A label with no files of one kind is normal (most ledgers have no dump),
     # and under pipefail and set -e the failing `ls` would end the lane.
     # shellcheck disable=SC2012
@@ -1124,16 +1178,34 @@ run_swift_with_timeout() {
   # Both `swift test` and swiftpm-testing-helper accept these trailing flags on
   # Swift 6.3.3 (neither advertises them in --help).
   local event_stream_file=""
+  local evidence_stem
+  evidence_stem="$(lane_evidence_stem "$label")"
+  # The test process appends to this log through AGENTSTUDIO_HELD_STEP_LOG; it is
+  # handed over as an absolute path because the test process's working directory
+  # is not this script's to promise.
+  local held_step_log=""
   if swift_test_command_accepts_event_stream "$@"; then
     event_stream_file="$(mktemp "${TMPDIR:-/tmp}/agentstudio-swift-test-events.XXXXXX")"
     set -- "$@" --event-stream-version 0 --event-stream-output-path "$event_stream_file"
+    mkdir -p "$LANE_EVENT_STREAM_DIR"
+    held_step_log="$evidence_stem.held-steps.log"
+    case "$held_step_log" in
+      /*) ;;
+      *) held_step_log="$PWD/$held_step_log" ;;
+    esac
+    : >"$held_step_log"
   fi
 
   # Run command piped through xcbeautify in a subshell so we track one PID.
   # Subshell inherits pipefail from parent — swift exit code propagates.
   #
   # shellcheck disable=SC2086
-  ( "$@" 2>&1 | tee "$output_file" | $xcb_pipe ) &
+  (
+    if [ -n "$held_step_log" ]; then
+      export AGENTSTUDIO_HELD_STEP_LOG="$held_step_log"
+    fi
+    "$@" 2>&1 | tee "$output_file" | $xcb_pipe
+  ) &
   local command_pid=$!
 
   while kill -0 "$command_pid" 2>/dev/null; do
@@ -1174,7 +1246,8 @@ run_swift_with_timeout() {
     # Read the stream before terminating anything: this names what was still
     # executing at the timeout, not what survived the kill.
     print_running_parameterized_cases_at_timeout "$event_stream_file"
-    print_timeout_process_diagnostics "$label" "$command_pid"
+    print_held_steps_unarrived_at_timeout "$held_step_log"
+    print_timeout_process_diagnostics "$label" "$command_pid" "$evidence_stem"
     echo "[$LOG_PREFIX] raw output tail for '$label':"
     tail -n 120 "$output_file" || true
     # Copy the ledger BEFORE anything is signalled, while the writer is still
@@ -1183,7 +1256,7 @@ run_swift_with_timeout() {
     # the writer's fd pointing at a file that still exists, which a
     # cross-filesystem move would not — it would leave the child appending to an
     # unlinked inode.
-    preserve_lane_event_stream "$label" "$event_stream_file"
+    preserve_lane_event_stream "$label" "$event_stream_file" "$evidence_stem"
     terminate_lane_child_tree TERM "$command_pid"
     # Writing the report IS the grace period. It is work the lane must do anyway,
     # so a child that honours TERM exits while it happens and no `sleep` has to
@@ -1205,6 +1278,7 @@ run_swift_with_timeout() {
       echo "[$LOG_PREFIX] lane-report timeout_reap=terminated"
       wait "$command_pid" 2>/dev/null || true
     fi
+    discard_empty_held_step_log "$held_step_log"
     rm -f "$output_file" ${event_stream_file:+"$event_stream_file"}
     return 124
   fi
@@ -1233,7 +1307,11 @@ run_swift_with_timeout() {
   swift_test_record_lane_peaks "$output_file" "$event_stream_file"
   # A width comparison compares what ran, so it keeps every ledger, passing or not.
   if [ "$should_preserve_event_stream" -eq 1 ] || [ "${LANE_EVENT_STREAM_RETAIN_ALWAYS:-0}" = "1" ]; then
-    preserve_lane_event_stream "$label" "$event_stream_file"
+    preserve_lane_event_stream "$label" "$event_stream_file" "$evidence_stem"
+    discard_empty_held_step_log "$held_step_log"
+  elif [ -n "$held_step_log" ]; then
+    # A run that ended cleanly has nothing to explain, so it keeps nothing.
+    rm -f "$held_step_log"
   fi
   rm -f "$output_file" ${event_stream_file:+"$event_stream_file"}
   return "$command_status"
@@ -1302,11 +1380,12 @@ swift_test_output_has_failures() {
 print_timeout_process_diagnostics() {
   local label="$1"
   local root_pid="$2"
+  local evidence_stem="${3:-$(lane_evidence_stem "$label")}"
 
   echo "[$LOG_PREFIX] process tree for timed out '$label' (root pid=$root_pid):"
   print_timeout_process_tree "$root_pid" 0
   print_timeout_process_snapshot "$label" "$root_pid"
-  sample_stuck_swift_test_processes "$label" "$root_pid"
+  sample_stuck_swift_test_processes "$label" "$root_pid" "$evidence_stem"
 }
 
 print_timeout_process_tree() {
@@ -1351,6 +1430,7 @@ descendant_process_pids() {
 sample_stuck_swift_test_processes() {
   local label="$1"
   local root_pid="$2"
+  local evidence_stem="${3:-$(lane_evidence_stem "$label")}"
   local sampled_count=0
 
   if [ ! -x /usr/bin/sample ]; then
@@ -1365,7 +1445,7 @@ sample_stuck_swift_test_processes() {
     case "$process_command" in
       *AgentStudioPackageTests* | *.xctest* | *"swift test"*)
         sample_stuck_swift_test_process "$label" "$process_pid"
-        dump_stuck_swift_test_process_tasks "$label" "$process_pid"
+        dump_stuck_swift_test_process_tasks "$label" "$process_pid" "$evidence_stem"
         sampled_count=$((sampled_count + 1))
         if [ "$sampled_count" -ge 3 ]; then
           break
@@ -1406,6 +1486,7 @@ sample_stuck_swift_test_process() {
 dump_stuck_swift_test_process_tasks() {
   local label="$1"
   local process_pid="$2"
+  local evidence_stem="${3:-$(lane_evidence_stem "$label")}"
   local label_slug
   local dump_path
   local dump_error_file
@@ -1413,7 +1494,7 @@ dump_stuck_swift_test_process_tasks() {
 
   label_slug="$(lane_event_stream_label_slug "$label")"
   mkdir -p "$LANE_EVENT_STREAM_DIR"
-  dump_path="$LANE_EVENT_STREAM_DIR/lane-$label_slug-$(date +%Y%m%dT%H%M%S)-$$-pid$process_pid.task-dump.txt"
+  dump_path="$evidence_stem-pid$process_pid.task-dump.txt"
   dump_error_file="$(mktemp "${TMPDIR:-/tmp}/agentstudio-swift-inspect-error.XXXXXX")"
 
   if xcrun swift-inspect dump-concurrency "$process_pid" >"$dump_path" 2>"$dump_error_file" &&

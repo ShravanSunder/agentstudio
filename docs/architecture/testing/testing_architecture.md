@@ -393,13 +393,23 @@ signal.
    `SWIFT_TEST_TIMEOUT_SECONDS=90 mise run test:swift:fast`. When a helper is
    parked, `xcrun swift-inspect dump-concurrency <pid>` lists every parked task
    with its resume function. It is unprivileged, and it is the only tool that
-   shows suspended tasks — `sample` cannot. The runner takes this dump itself
-   when the hang bound fires, for each sampled test process and before anything
-   is terminated. It keeps the dump beside the ledger as
-   `lane-*-pid<pid>.task-dump.txt`, and CI uploads it with the ledgers. When the
-   tool cannot attach, the receipt says `task_dump=unavailable reason=…`. It
-   cannot attach to a binary without `get-task-allow`, and `swift-inspect` exits
-   0 even then, which is why the runner judges success by the dump's content.
+   shows suspended tasks — `sample` cannot. When the hang bound fires, the runner
+   gathers the evidence itself before anything is terminated, and keeps it
+   beside the ledger under one stem, `lane-<label>-<time>-<pid>`. CI uploads
+   all three with the ledgers:
+   - `…-pid<pid>.task-dump.txt`: one task dump per sampled test process. When
+     the tool cannot attach, the receipt says
+     `task_dump=unavailable reason=…`. It cannot attach to a binary without
+     `get-task-allow`, and `swift-inspect` exits 0 even then, which is why the
+     runner judges success by the dump's content.
+   - `….held-steps.log`: the lane hands each test process this path as
+     `AGENTSTUDIO_HELD_STEP_LOG`. The causal-test harness appends
+     `waiting <name> <test>` and `arrived <name>` lines, and the hang report
+     prints every wait that never arrived as
+     `held_step_unarrived name=<name> test=<test>`.
+   - `….events.jsonl`: the event ledger itself.
+
+   The hang verdict is failed whatever evidence was gathered.
 5. **Classify the owner, then fix it there.** Test oracle (the assertion is
    wrong about what should happen), product (the behavior is wrong), runner
    (the lane, filter, or isolation is wrong), or harness (the fake is wrong).

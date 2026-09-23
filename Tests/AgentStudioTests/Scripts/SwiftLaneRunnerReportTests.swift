@@ -128,6 +128,8 @@ struct SwiftLaneRunnerReportTests {
                 "failed_isolated_suite",
                 "failed_isolated_suites",
                 "head_sha",
+                // The harness steps a hung lane was still waiting on.
+                "held_step_unarrived",
                 "isolated_process_concurrency",
                 "memory_bytes",
                 "parallelization_width",
@@ -566,7 +568,9 @@ struct SwiftLaneRunnerReportTests {
     }
 }
 
-/// Every `lane-report <label>=` key the shell scripts can emit, sorted.
+/// Every `lane-report <label>=` key the shell scripts can emit, sorted. A label
+/// followed by fields (`held_step_unarrived name=… test=…`) counts too; prose
+/// such as "lane-report prefix as" does not.
 private func laneReportLabels(in script: String) -> [String] {
     let marker = "lane-report "
     var labels: Set<String> = []
@@ -574,7 +578,12 @@ private func laneReportLabels(in script: String) -> [String] {
     for line in script.split(separator: "\n") {
         guard let markerRange = line.range(of: marker) else { continue }
         let label = line[markerRange.upperBound...].prefix { $0.isLowercase || $0 == "_" }
-        guard !label.isEmpty, line[markerRange.upperBound...].dropFirst(label.count).first == "=" else { continue }
+        let afterLabel = line[markerRange.upperBound...].dropFirst(label.count)
+        let firstFieldName = afterLabel.dropFirst().prefix { $0.isLowercase || $0 == "_" }
+        let startsFields =
+            afterLabel.first == " " && !firstFieldName.isEmpty
+            && afterLabel.dropFirst(1 + firstFieldName.count).first == "="
+        guard !label.isEmpty, afterLabel.first == "=" || startsFields else { continue }
         labels.insert(String(label))
     }
     return labels.sorted()
