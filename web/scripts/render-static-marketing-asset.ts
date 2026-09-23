@@ -1,10 +1,12 @@
 import { spawn } from "node:child_process";
-import { access, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
 import sharp from "sharp";
+
+import { resolveChromeExecutable, stopBrowserProcess } from "./headless-chrome-process.ts";
 
 interface StaticTemplateReplacement {
   readonly token: string;
@@ -20,37 +22,6 @@ interface RenderStaticMarketingAssetProps {
   readonly templatePath: string;
   readonly temporaryDirectoryPrefix: string;
   readonly width: number;
-}
-
-const chromeCandidates = [
-  process.env["CHROME_BIN"],
-  "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-  "/Applications/Google Chrome Canary.app/Contents/MacOS/Google Chrome Canary",
-  "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser",
-].filter((candidate): candidate is string => candidate !== undefined);
-
-async function resolveChromeExecutable(assetName: string): Promise<string> {
-  const resolvedCandidates = await Promise.all(
-    chromeCandidates.map(async (candidate): Promise<string | null> => {
-      try {
-        await access(candidate);
-        return candidate;
-      } catch {
-        return null;
-      }
-    }),
-  );
-  const chromeExecutable = resolvedCandidates.find(
-    (candidate): candidate is string => candidate !== null,
-  );
-
-  if (chromeExecutable !== undefined) {
-    return chromeExecutable;
-  }
-
-  throw new Error(
-    `Generating the ${assetName} requires Chrome or Brave. Set CHROME_BIN to a Chromium executable.`,
-  );
 }
 
 async function waitForScreenshot(props: {
@@ -93,35 +64,6 @@ async function waitForScreenshot(props: {
   });
 }
 
-async function stopBrowserProcess(browserProcess: ReturnType<typeof spawn>): Promise<void> {
-  if (browserProcess.exitCode !== null || browserProcess.signalCode !== null) return;
-
-  await new Promise<void>((resolveExit) => {
-    let settled = false;
-
-    const finish = (): void => {
-      if (settled) return;
-
-      settled = true;
-      clearTimeout(forcedExitTimeout);
-      browserProcess.off("exit", finish);
-      resolveExit();
-    };
-
-    const forcedExitTimeout = setTimeout((): void => {
-      browserProcess.kill("SIGKILL");
-      finish();
-    }, 5_000);
-
-    browserProcess.once("exit", finish);
-    if (browserProcess.exitCode !== null || browserProcess.signalCode !== null) {
-      finish();
-      return;
-    }
-    browserProcess.kill("SIGTERM");
-  });
-}
-
 function applyTemplateReplacements(props: {
   readonly replacements: readonly StaticTemplateReplacement[];
   readonly template: string;
@@ -154,7 +96,7 @@ export async function renderStaticMarketingAsset(
     const chromeProfileDirectory = resolve(temporaryDirectory, "chrome-profile");
     await writeFile(temporaryTemplatePath, renderedTemplate, "utf8");
 
-    const chromeExecutable = await resolveChromeExecutable(props.assetName);
+    const chromeExecutable = await resolveChromeExecutable(`Generating the ${props.assetName}`);
     const browserProcess = spawn(
       chromeExecutable,
       [
