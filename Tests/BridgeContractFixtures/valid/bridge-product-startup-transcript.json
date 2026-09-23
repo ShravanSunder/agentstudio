@@ -154,12 +154,10 @@
         "subscription": {
           "subscriptionKind": "file.metadata",
           "source": {
+            "collectionToken": "root-token-startup-1",
             "cwdScope": null,
             "freshness": "live",
-            "includeStatuses": true,
-            "repoId": "00000000-0000-4000-8000-000000000001",
-            "rootPathToken": "root-token-startup-1",
-            "worktreeId": "00000000-0000-4000-8000-000000000002"
+            "includeStatuses": true
           }
         }
       }
@@ -224,12 +222,11 @@
           "event": {
             "eventKind": "file.sourceAccepted",
             "source": {
-              "repoId": "00000000-0000-4000-8000-000000000001",
+              "collectionToken": "root-token-1",
               "rootRevisionToken": null,
               "sourceCursor": "source-cursor-startup-1",
               "sourceId": "file-source-startup-1",
-              "subscriptionGeneration": 11,
-              "worktreeId": "00000000-0000-4000-8000-000000000002"
+              "subscriptionGeneration": 11
             }
           }
         }
@@ -330,12 +327,11 @@
           "fileId": "file-startup-1",
           "maximumBytes": 3,
           "source": {
-            "repoId": "00000000-0000-4000-8000-000000000001",
+            "collectionToken": "root-token-1",
             "rootRevisionToken": null,
             "sourceCursor": "source-cursor-startup-1",
             "sourceId": "file-source-startup-1",
-            "subscriptionGeneration": 11,
-            "worktreeId": "00000000-0000-4000-8000-000000000002"
+            "subscriptionGeneration": 11
           },
           "window": {
             "kind": "prefix",
@@ -367,12 +363,11 @@
           "descriptorId": "file-descriptor-startup-1",
           "fileId": "file-startup-1",
           "source": {
-            "repoId": "00000000-0000-4000-8000-000000000001",
+            "collectionToken": "root-token-1",
             "rootRevisionToken": null,
             "sourceCursor": "source-cursor-startup-1",
             "sourceId": "file-source-startup-1",
-            "subscriptionGeneration": 11,
-            "worktreeId": "00000000-0000-4000-8000-000000000002"
+            "subscriptionGeneration": 11
           },
           "window": {
             "kind": "prefix",

@@ -113,9 +113,7 @@ struct BridgeProductBootstrapHardCutContractTests {
             Issue.record("Expected authenticated startup and current File source responses")
             return
         }
-        #expect(currentSource.repoId == repoId.uuidString)
-        #expect(currentSource.worktreeId == worktreeId.uuidString)
-        #expect(currentSource.rootPathToken == worktree.stableKey)
+        #expect(currentSource.collectionToken == worktree.stableKey)
         #expect(modeResponses.compactMap(bridgeProductStartupCompletedMethod) == modeMethods)
         #expect(await activeModeRecorder.methods == modeMethods)
         #expect(

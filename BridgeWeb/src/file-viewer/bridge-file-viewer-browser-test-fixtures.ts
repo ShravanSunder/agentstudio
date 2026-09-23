@@ -505,12 +505,11 @@ export function makeSourceIdentity(
 	} = {},
 ): BridgeProductFileSourceIdentity {
 	return {
-		repoId: '00000000-0000-4000-8000-000000000001',
+		collectionToken: 'root-token-1',
 		rootRevisionToken: 'root-revision-1',
 		sourceCursor: props.sourceCursor ?? 'cursor-1',
 		sourceId: 'dev-worktree-source',
 		subscriptionGeneration: props.subscriptionGeneration ?? 1,
-		worktreeId: '00000000-0000-4000-8000-000000000002',
 	};
 }
 

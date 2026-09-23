@@ -298,12 +298,11 @@ struct BridgeProductFileMetadataContractTests {
 
     private var source: [String: Any] {
         [
-            "repoId": "00000000-0000-4000-8000-000000000001",
+            "collectionToken": "root-token-1",
             "rootRevisionToken": NSNull(),
             "sourceCursor": "source-cursor-1",
             "sourceId": "source-1",
             "subscriptionGeneration": 11,
-            "worktreeId": "00000000-0000-4000-8000-000000000002",
         ]
     }
 

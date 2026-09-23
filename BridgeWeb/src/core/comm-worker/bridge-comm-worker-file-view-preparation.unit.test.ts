@@ -518,12 +518,11 @@ function makeContentRequest(
 			fileId: itemId,
 			maximumBytes: encodedBytes.byteLength,
 			source: {
-				repoId: '00000000-0000-4000-8000-000000000001',
+				collectionToken: 'root-token-1',
 				rootRevisionToken: `root-revision-${itemId}`,
 				sourceCursor: `cursor-${itemId}`,
 				sourceId: `source-${itemId}`,
 				subscriptionGeneration: 7,
-				worktreeId: '00000000-0000-4000-8000-000000000002',
 			},
 			window: {
 				kind: 'prefix',

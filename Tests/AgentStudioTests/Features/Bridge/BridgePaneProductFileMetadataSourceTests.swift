@@ -839,12 +839,10 @@ struct ProductFileSourceFixture {
             values: [
                 "subscription": [
                     "source": [
+                        "collectionToken": StableKey.fromPath(rootURL),
                         "cwdScope": cwdScopeValue,
                         "freshness": "live",
                         "includeStatuses": true,
-                        "repoId": repoId.uuidString,
-                        "rootPathToken": StableKey.fromPath(rootURL),
-                        "worktreeId": worktreeId.uuidString,
                     ],
                     "subscriptionKind": "file.metadata",
                 ],
@@ -954,12 +952,10 @@ struct ProductFileSourceFixture {
     private var openSnapshotSubscriptionObject: [String: Any] {
         [
             "source": [
+                "collectionToken": StableKey.fromPath(rootURL),
                 "cwdScope": NSNull(),
                 "freshness": "live",
                 "includeStatuses": true,
-                "repoId": repoId.uuidString,
-                "rootPathToken": StableKey.fromPath(rootURL),
-                "worktreeId": worktreeId.uuidString,
             ],
             "subscriptionKind": "file.metadata",
         ]

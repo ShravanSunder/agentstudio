@@ -2,21 +2,19 @@ import AgentStudioCore
 import Foundation
 
 enum BridgePaneProductFileMetadataEncoding {
+    /// A single-worktree source is a collection of one whose token is the
+    /// worktree's root token; `openSource` rejects any other collection.
     static func legacySourceSpec(
         sourceSpec: BridgeProductFileSourceSpec,
+        worktree: Worktree,
         subscriptionId: String,
         pathScope: [String]
-    ) throws -> BridgeWorktreeFileSurfaceSourceSpec {
-        guard let repoId = UUID(uuidString: sourceSpec.repoId),
-            let worktreeId = UUID(uuidString: sourceSpec.worktreeId)
-        else {
-            throw BridgeWorktreeFileSourceProviderError.worktreeMismatch
-        }
-        return .init(
+    ) -> BridgeWorktreeFileSurfaceSourceSpec {
+        .init(
             clientRequestId: subscriptionId,
-            repoId: repoId,
-            worktreeId: worktreeId,
-            rootPathToken: sourceSpec.rootPathToken,
+            repoId: worktree.repoId,
+            worktreeId: worktree.id,
+            rootPathToken: sourceSpec.collectionToken,
             cwdScope: sourceSpec.cwdScope,
             pathScope: pathScope,
             includeStatuses: sourceSpec.includeStatuses,

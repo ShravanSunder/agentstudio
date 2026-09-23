@@ -41,13 +41,11 @@ extension WebKitSerializedTests {
             )
             try await expectAvailableFileSource(
                 from: firstView.controller,
-                repoId: setup.repoId,
-                worktreeId: setup.worktree.id
+                collectionToken: setup.worktree.stableKey
             )
             try await expectAvailableFileSource(
                 from: secondView.controller,
-                repoId: setup.repoId,
-                worktreeId: setup.worktree.id
+                collectionToken: setup.worktree.stableKey
             )
 
             await harness.finish()
@@ -781,8 +779,7 @@ private func seedStandaloneBridgeRecord(
 @MainActor
 private func expectAvailableFileSource(
     from controller: BridgePaneController,
-    repoId: UUID,
-    worktreeId: UUID
+    collectionToken: String
 ) async throws {
     let provider = try #require(controller.productSchemeProvider)
     let request = try bridgeFileSourceCurrentRequest(paneId: controller.paneId)
@@ -792,8 +789,7 @@ private func expectAvailableFileSource(
         Issue.record("Expected production-injected File source authority")
         return
     }
-    #expect(source.repoId == repoId.uuidString)
-    #expect(source.worktreeId == worktreeId.uuidString)
+    #expect(source.collectionToken == collectionToken)
 }
 
 private func bridgeFileSourceCurrentRequest(paneId: UUID) throws -> BridgeProductControlRequest {

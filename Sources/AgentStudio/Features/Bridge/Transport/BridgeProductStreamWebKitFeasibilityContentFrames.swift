@@ -66,12 +66,11 @@ enum BridgeProductStreamWebKitFeasibilityContentFrames {
                 "fileId":"s2a-file",
                 "maximumBytes":\#(BridgeProductWireContract.maximumContentDataPayloadBytes),
                 "source":{
-                  "repoId":"00000000-0000-4000-8000-000000000001",
+                  "collectionToken":"root-token-1",
                   "rootRevisionToken":null,
                   "sourceCursor":"s2a-source-cursor",
                   "sourceId":"s2a-source",
-                  "subscriptionGeneration":1,
-                  "worktreeId":"00000000-0000-4000-8000-000000000002"
+                  "subscriptionGeneration":1
                 },
                 "window":{
                   "kind":"prefix",

@@ -730,8 +730,8 @@ extension BridgePaneProductFileMetadataSource {
         for productSource: BridgeProductFileSourceIdentity
     ) -> WorktreeAnnotationSourceFingerprint {
         WorktreeAnnotationSourceFingerprint(
-            repositoryID: productSource.repoId.lowercased(),
-            worktreeID: productSource.worktreeId.lowercased(),
+            repositoryID: authority.worktree.repoId.uuidString.lowercased(),
+            worktreeID: authority.worktree.id.uuidString.lowercased(),
             fileSourceIdentity: productSource.sourceId,
             reviewComparisonOrigin: nil
         )

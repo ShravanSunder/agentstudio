@@ -157,12 +157,11 @@ struct BridgeDevelopmentProductHostTests {
             version: .current
         )
         let source = try BridgeProductFileSourceIdentity(
-            repoId: "11111111-1111-7111-8111-111111111111",
+            collectionToken: "collection-token-1",
             rootRevisionToken: "root-revision-7",
             sourceCursor: "file-cursor-7",
             sourceId: "file-source-7",
-            subscriptionGeneration: 7,
-            worktreeId: "22222222-2222-7222-8222-222222222222"
+            subscriptionGeneration: 7
         )
 
         // Act
@@ -194,20 +193,18 @@ struct BridgeDevelopmentProductHostTests {
     func distinctAcceptedFileSourceAdvancesBindingRevision() throws {
         // Arrange
         let firstSource = try BridgeProductFileSourceIdentity(
-            repoId: "11111111-1111-7111-8111-111111111111",
+            collectionToken: "collection-token-1",
             rootRevisionToken: "root-revision-1",
             sourceCursor: "file-cursor-1",
             sourceId: "file-source-1",
-            subscriptionGeneration: 1,
-            worktreeId: "22222222-2222-7222-8222-222222222222"
+            subscriptionGeneration: 1
         )
         let secondSource = try BridgeProductFileSourceIdentity(
-            repoId: "11111111-1111-7111-8111-111111111111",
+            collectionToken: "collection-token-1",
             rootRevisionToken: "root-revision-2",
             sourceCursor: "file-cursor-2",
             sourceId: "file-source-2",
-            subscriptionGeneration: 2,
-            worktreeId: "22222222-2222-7222-8222-222222222222"
+            subscriptionGeneration: 2
         )
 
         // Act
@@ -270,20 +267,18 @@ struct BridgeDevelopmentProductHostTests {
     func olderFilePublishCompletionPreservesNewerPublishedSource() throws {
         // Arrange
         let olderSource = try BridgeProductFileSourceIdentity(
-            repoId: "11111111-1111-7111-8111-111111111111",
+            collectionToken: "collection-token-1",
             rootRevisionToken: "root-revision-a",
             sourceCursor: "file-cursor-a",
             sourceId: "file-source-a",
-            subscriptionGeneration: 8,
-            worktreeId: "22222222-2222-7222-8222-222222222222"
+            subscriptionGeneration: 8
         )
         let newerSource = try BridgeProductFileSourceIdentity(
-            repoId: "11111111-1111-7111-8111-111111111111",
+            collectionToken: "collection-token-1",
             rootRevisionToken: "root-revision-b",
             sourceCursor: "file-cursor-b",
             sourceId: "file-source-b",
-            subscriptionGeneration: 9,
-            worktreeId: "22222222-2222-7222-8222-222222222222"
+            subscriptionGeneration: 9
         )
 
         // Act

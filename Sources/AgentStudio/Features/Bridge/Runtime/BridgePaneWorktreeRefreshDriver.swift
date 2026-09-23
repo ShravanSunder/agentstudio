@@ -394,8 +394,7 @@ final class BridgePaneWorktreeRefreshDriver {
         _ lhs: BridgeProductFileSourceIdentity,
         _ rhs: BridgeProductFileSourceIdentity
     ) -> Bool {
-        lhs.repoId == rhs.repoId
-            && lhs.worktreeId == rhs.worktreeId
+        lhs.collectionToken == rhs.collectionToken
             && lhs.rootRevisionToken == rhs.rootRevisionToken
     }
 

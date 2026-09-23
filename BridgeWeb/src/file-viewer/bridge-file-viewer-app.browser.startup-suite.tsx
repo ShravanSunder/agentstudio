@@ -93,12 +93,10 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 						return {
 							status: 'available',
 							source: {
+								collectionToken: 'root-token',
 								cwdScope: null,
 								freshness: 'live',
 								includeStatuses: true,
-								repoId: '00000000-0000-4000-8000-000000000001',
-								rootPathToken: 'root-token',
-								worktreeId: '00000000-0000-4000-8000-000000000002',
 							},
 						};
 					},

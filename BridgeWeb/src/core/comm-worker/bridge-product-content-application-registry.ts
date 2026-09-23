@@ -108,12 +108,11 @@ function bridgeProductContentIdentitiesEqual(
 			return (
 				left.descriptorId === right.descriptorId &&
 				left.fileId === right.fileId &&
-				left.source.repoId === right.source.repoId &&
+				left.source.collectionToken === right.source.collectionToken &&
 				left.source.rootRevisionToken === right.source.rootRevisionToken &&
 				left.source.sourceCursor === right.source.sourceCursor &&
 				left.source.sourceId === right.source.sourceId &&
 				left.source.subscriptionGeneration === right.source.subscriptionGeneration &&
-				left.source.worktreeId === right.source.worktreeId &&
 				left.window.kind === right.window.kind &&
 				left.window.maximumBytes === right.window.maximumBytes &&
 				left.window.maximumLines === right.window.maximumLines &&

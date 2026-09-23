@@ -111,16 +111,10 @@ enum BridgeProductFileSourceCurrentResult: Codable, Equatable, Sendable {
 }
 
 extension BridgeProductFileSourceSpec {
-    init(
-        currentAuthorityRepoId: UUID,
-        currentAuthorityRootPathToken: String,
-        currentAuthorityWorktreeId: UUID
-    ) {
+    init(currentCollectionToken: String) {
+        self.collectionToken = currentCollectionToken
         self.cwdScope = nil
         self.includeStatuses = true
-        self.repoId = currentAuthorityRepoId.uuidString
-        self.rootPathToken = currentAuthorityRootPathToken
-        self.worktreeId = currentAuthorityWorktreeId.uuidString
     }
 }
 

@@ -4,12 +4,11 @@ import { BridgeCommWorkerFileMetadataProjection } from './bridge-comm-worker-fil
 import type { BridgeProductSubscriptionEvent } from './bridge-product-subscription-contracts.js';
 
 const source = {
-	repoId: '00000000-0000-4000-8000-000000000001',
+	collectionToken: 'root-token-1',
 	rootRevisionToken: 'root-revision-large',
 	sourceCursor: 'source-cursor-large',
 	sourceId: 'file-source-large',
 	subscriptionGeneration: 9,
-	worktreeId: '00000000-0000-4000-8000-000000000002',
 } as const;
 
 describe('Bridge comm worker incremental File metadata projection', () => {

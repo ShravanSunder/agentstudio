@@ -168,12 +168,11 @@ function makeCompleteFileContentDescriptor(props: {
 		fileId: 'complete-file-1',
 		maximumBytes: props.byteLength,
 		source: {
-			repoId: '00000000-0000-4000-8000-000000000001',
+			collectionToken: 'root-token-1',
 			rootRevisionToken: 'complete-file-root-revision',
 			sourceCursor: 'complete-file-source-cursor',
 			sourceId: 'complete-file-source',
 			subscriptionGeneration: 1,
-			worktreeId: '00000000-0000-4000-8000-000000000002',
 		},
 		window: {
 			kind: 'prefix',

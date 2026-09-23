@@ -127,12 +127,10 @@ func refreshAdmissionFileSubscriptionOpenRequest(
         "requestSequence": 2,
         "subscription": [
             "source": [
+                "collectionToken": "root-token-refresh-admission",
                 "cwdScope": NSNull(),
                 "freshness": "live",
                 "includeStatuses": true,
-                "repoId": "00000000-0000-4000-8000-000000000001",
-                "rootPathToken": "root-token-refresh-admission",
-                "worktreeId": "00000000-0000-4000-8000-000000000002",
             ],
             "subscriptionKind": "file.metadata",
         ],

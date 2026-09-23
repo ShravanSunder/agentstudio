@@ -371,12 +371,11 @@ export function fileContentDescriptor(descriptorId: string): BridgeProductFileCo
 		fileId: `file-${descriptorId}`,
 		maximumBytes: 3,
 		source: {
-			repoId: '00000000-0000-4000-8000-000000000001',
+			collectionToken: 'root-token-1',
 			rootRevisionToken: null,
 			sourceCursor: 'source-cursor-1',
 			sourceId: 'source-1',
 			subscriptionGeneration: 1,
-			worktreeId: '00000000-0000-4000-8000-000000000002',
 		},
 		window: { kind: 'prefix', maximumBytes: 3, maximumLines: 10_000, startByte: 0 },
 	} as const;

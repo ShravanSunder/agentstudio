@@ -4,11 +4,7 @@ import Foundation
 extension BridgePaneProductFileMetadataSource {
     func currentSource() -> BridgeProductFileSourceCurrentResult {
         .available(
-            BridgeProductFileSourceSpec(
-                currentAuthorityRepoId: authority.worktree.repoId,
-                currentAuthorityRootPathToken: authority.worktree.stableKey,
-                currentAuthorityWorktreeId: authority.worktree.id
-            )
+            BridgeProductFileSourceSpec(currentCollectionToken: authority.worktree.stableKey)
         )
     }
 

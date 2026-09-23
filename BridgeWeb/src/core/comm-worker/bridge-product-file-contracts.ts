@@ -8,12 +8,11 @@ import {
 
 export const bridgeProductFileSourceIdentitySchema = z
 	.object({
-		repoId: z.uuid(),
+		collectionToken: bridgeProductOpaqueReferenceSchema,
 		rootRevisionToken: bridgeProductOpaqueReferenceSchema.nullable(),
 		sourceCursor: bridgeProductOpaqueReferenceSchema,
 		sourceId: bridgeProductIdentifierSchema,
 		subscriptionGeneration: bridgeProductNonnegativeSequenceSchema,
-		worktreeId: z.uuid(),
 	})
 	.strict();
 

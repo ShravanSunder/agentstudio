@@ -25,12 +25,10 @@ const reviewPublicationIdentity = {
 } as const;
 
 const currentFileSource = {
+	collectionToken: 'root-token-1',
 	cwdScope: null,
 	freshness: 'live',
 	includeStatuses: true,
-	repoId: '00000000-0000-4000-8000-000000000001',
-	rootPathToken: 'root-token-1',
-	worktreeId: '00000000-0000-4000-8000-000000000002',
 } as const;
 
 function viewedItem(index: number): {

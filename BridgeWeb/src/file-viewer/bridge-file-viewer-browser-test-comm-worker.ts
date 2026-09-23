@@ -637,12 +637,10 @@ function defaultBrowserTestCurrentSource(): BridgeProductCallResult<'file.source
 	return {
 		status: 'available',
 		source: {
+			collectionToken: 'browser-test-root',
 			cwdScope: null,
 			freshness: 'live',
 			includeStatuses: true,
-			repoId: '00000000-0000-4000-8000-000000000001',
-			rootPathToken: 'browser-test-root',
-			worktreeId: '00000000-0000-4000-8000-000000000002',
 		},
 	};
 }

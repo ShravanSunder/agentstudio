@@ -94,12 +94,10 @@
         "subscription": {
           "subscriptionKind": "review.metadata",
           "source": {
+            "collectionToken": "root-token-1",
             "cwdScope": null,
             "freshness": "live",
-            "includeStatuses": true,
-            "repoId": "00000000-0000-4000-8000-000000000001",
-            "rootPathToken": "root-token-1",
-            "worktreeId": "00000000-0000-4000-8000-000000000002"
+            "includeStatuses": true
           }
         }
       }
@@ -405,12 +403,11 @@
           "event": {
             "eventKind": "file.sourceAccepted",
             "source": {
-              "repoId": "00000000-0000-4000-8000-000000000001",
+              "collectionToken": "root-token-1",
               "rootRevisionToken": null,
               "sourceCursor": "source-cursor-1",
               "sourceId": "source-1",
-              "subscriptionGeneration": 11,
-              "worktreeId": "00000000-0000-4000-8000-000000000002"
+              "subscriptionGeneration": 11
             }
           }
         }
@@ -503,12 +500,11 @@
           "maximumBytes": 2097152,
           "path": "src/file.ts",
           "source": {
-            "repoId": "00000000-0000-4000-8000-000000000001",
+            "collectionToken": "root-token-1",
             "rootRevisionToken": null,
             "sourceCursor": "source-cursor-1",
             "sourceId": "source-1",
-            "subscriptionGeneration": 11,
-            "worktreeId": "00000000-0000-4000-8000-000000000002"
+            "subscriptionGeneration": 11
           },
           "window": {
             "kind": "prefix",
@@ -520,7 +516,7 @@
       }
     },
     {
-      "name": "file content source rejects non-RFC UUID variant",
+      "name": "file content source rejects an invalid collection token",
       "contract": "contentRequest",
       "value": {
         "kind": "content.open",
@@ -540,12 +536,11 @@
           "fileId": "file-1",
           "maximumBytes": 2097152,
           "source": {
-            "repoId": "00000000-0000-0000-0000-000000000001",
+            "collectionToken": "invalid token",
             "rootRevisionToken": null,
             "sourceCursor": "source-cursor-1",
             "sourceId": "source-1",
-            "subscriptionGeneration": 11,
-            "worktreeId": "00000000-0000-4000-8000-000000000002"
+            "subscriptionGeneration": 11
           },
           "window": {
             "kind": "prefix",
@@ -586,12 +581,11 @@
           "fileId": "file-1",
           "maximumBytes": 4,
           "source": {
-            "repoId": "00000000-0000-4000-8000-000000000001",
+            "collectionToken": "root-token-1",
             "rootRevisionToken": null,
             "sourceCursor": "source-cursor-1",
             "sourceId": "source-1",
-            "subscriptionGeneration": 11,
-            "worktreeId": "00000000-0000-4000-8000-000000000002"
+            "subscriptionGeneration": 11
           },
           "window": {
             "kind": "prefix",
@@ -623,12 +617,11 @@
           "fileId": "file-1",
           "maximumBytes": 4294967296,
           "source": {
-            "repoId": "00000000-0000-4000-8000-000000000001",
+            "collectionToken": "root-token-1",
             "rootRevisionToken": null,
             "sourceCursor": "source-cursor-1",
             "sourceId": "source-1",
-            "subscriptionGeneration": 11,
-            "worktreeId": "00000000-0000-4000-8000-000000000002"
+            "subscriptionGeneration": 11
           },
           "window": {
             "kind": "prefix",
@@ -668,12 +661,11 @@
           "descriptorId": "file-descriptor-1",
           "fileId": "file-1",
           "source": {
-            "repoId": "00000000-0000-4000-8000-000000000001",
+            "collectionToken": "root-token-1",
             "rootRevisionToken": null,
             "sourceCursor": "source-cursor-1",
             "sourceId": "source-1",
-            "subscriptionGeneration": 11,
-            "worktreeId": "00000000-0000-4000-8000-000000000002"
+            "subscriptionGeneration": 11
           },
           "window": {
             "kind": "prefix",
@@ -704,12 +696,11 @@
           "descriptorId": "file-descriptor-1",
           "fileId": "file-1",
           "source": {
-            "repoId": "00000000-0000-4000-8000-000000000001",
+            "collectionToken": "root-token-1",
             "rootRevisionToken": null,
             "sourceCursor": "source-cursor-1",
             "sourceId": "source-1",
-            "subscriptionGeneration": 11,
-            "worktreeId": "00000000-0000-4000-8000-000000000002"
+            "subscriptionGeneration": 11
           },
           "window": {
             "kind": "prefix",
@@ -751,12 +742,11 @@
           "descriptorId": "file-descriptor-1",
           "fileId": "file-1",
           "source": {
-            "repoId": "00000000-0000-4000-8000-000000000001",
+            "collectionToken": "root-token-1",
             "rootRevisionToken": null,
             "sourceCursor": "source-cursor-1",
             "sourceId": "source-1",
-            "subscriptionGeneration": 11,
-            "worktreeId": "00000000-0000-4000-8000-000000000002"
+            "subscriptionGeneration": 11
           },
           "window": {
             "kind": "prefix",
@@ -787,12 +777,11 @@
           "descriptorId": "file-descriptor-1",
           "fileId": "file-1",
           "source": {
-            "repoId": "00000000-0000-4000-8000-000000000001",
+            "collectionToken": "root-token-1",
             "rootRevisionToken": null,
             "sourceCursor": "source-cursor-1",
             "sourceId": "source-1",
-            "subscriptionGeneration": 11,
-            "worktreeId": "00000000-0000-4000-8000-000000000002"
+            "subscriptionGeneration": 11
           },
           "window": {
             "kind": "prefix",
@@ -823,12 +812,11 @@
           "descriptorId": "file-descriptor-1",
           "fileId": "file-1",
           "source": {
-            "repoId": "00000000-0000-4000-8000-000000000001",
+            "collectionToken": "root-token-1",
             "rootRevisionToken": null,
             "sourceCursor": "source-cursor-1",
             "sourceId": "source-1",
-            "subscriptionGeneration": 11,
-            "worktreeId": "00000000-0000-4000-8000-000000000002"
+            "subscriptionGeneration": 11
           },
           "window": {
             "kind": "prefix",
@@ -1108,12 +1096,11 @@
           "fileId": "file-1",
           "maximumBytes": 2097152,
           "source": {
-            "repoId": "00000000-0000-4000-8000-000000000001",
+            "collectionToken": "root-token-1",
             "rootRevisionToken": null,
             "sourceCursor": "source-cursor-1",
             "sourceId": "source-1",
-            "subscriptionGeneration": 11,
-            "worktreeId": "00000000-0000-4000-8000-000000000002"
+            "subscriptionGeneration": 11
           },
           "window": {
             "kind": "prefix",
@@ -1144,12 +1131,11 @@
           "descriptorId": "file-descriptor-1",
           "fileId": "file-1",
           "source": {
-            "repoId": "00000000-0000-4000-8000-000000000001",
+            "collectionToken": "root-token-1",
             "rootRevisionToken": null,
             "sourceCursor": "source-cursor-1",
             "sourceId": "source-1",
-            "subscriptionGeneration": 11,
-            "worktreeId": "00000000-0000-4000-8000-000000000002"
+            "subscriptionGeneration": 11
           },
           "window": {
             "kind": "prefix",
@@ -1348,12 +1334,11 @@
           "descriptorId": "file-descriptor-1",
           "fileId": "file-1",
           "source": {
-            "repoId": "00000000-0000-4000-8000-000000000001",
+            "collectionToken": "root-token-1",
             "rootRevisionToken": null,
             "sourceCursor": "source-cursor-1",
             "sourceId": "source-1",
-            "subscriptionGeneration": 11,
-            "worktreeId": "00000000-0000-4000-8000-000000000002"
+            "subscriptionGeneration": 11
           },
           "window": {
             "kind": "prefix",
@@ -1384,12 +1369,11 @@
           "fileId": "file-1",
           "maximumBytes": 2097152,
           "source": {
-            "repoId": "00000000-0000-4000-8000-000000000001",
+            "collectionToken": "root-token-1",
             "rootRevisionToken": null,
             "sourceCursor": "source-cursor-1",
             "sourceId": "source-1",
-            "subscriptionGeneration": 11,
-            "worktreeId": "00000000-0000-4000-8000-000000000002"
+            "subscriptionGeneration": 11
           },
           "window": {
             "kind": "prefix",
@@ -1419,12 +1403,11 @@
           "descriptorId": "file-descriptor-1",
           "fileId": "file-1",
           "source": {
-            "repoId": "00000000-0000-4000-8000-000000000001",
+            "collectionToken": "root-token-1",
             "rootRevisionToken": null,
             "sourceCursor": "source-cursor-1",
             "sourceId": "source-1",
-            "subscriptionGeneration": 11,
-            "worktreeId": "00000000-0000-4000-8000-000000000002"
+            "subscriptionGeneration": 11
           },
           "window": {
             "kind": "prefix",

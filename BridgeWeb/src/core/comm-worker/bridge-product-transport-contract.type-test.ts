@@ -305,12 +305,10 @@ void reviewAnnotationProjectionQueryResult;
 const currentFileSourceResult = productTransport.call('file.source.current', {});
 const availableCurrentFileSourceResult: BridgeProductCallResult<'file.source.current'> = {
 	source: {
+		collectionToken: 'root-token-1',
 		cwdScope: null,
 		freshness: 'live',
 		includeStatuses: true,
-		repoId: '00000000-0000-4000-8000-000000000001',
-		rootPathToken: 'root-token-1',
-		worktreeId: '00000000-0000-4000-8000-000000000002',
 	},
 	status: 'available',
 };
@@ -347,12 +345,10 @@ const fileSubscription: BridgeProductMetadataApplicationSubscription<
 	interests: [{ lane: 'visible', paths: ['src/file.ts'] }],
 	pathScope: [],
 	source: {
+		collectionToken: 'root-token-1',
 		cwdScope: null,
 		freshness: 'live',
 		includeStatuses: true,
-		repoId: '00000000-0000-4000-8000-000000000001',
-		rootPathToken: 'root-token-1',
-		worktreeId: '00000000-0000-4000-8000-000000000002',
 	},
 });
 void fileSubscription.update({
@@ -455,12 +451,11 @@ const fileContent: BridgeProductContentStream<'file.content'> = productTransport
 		fileId: 'file-1',
 		maximumBytes: 2 * 1024 * 1024,
 		source: {
-			repoId: '00000000-0000-4000-8000-000000000001',
+			collectionToken: 'root-token-1',
 			rootRevisionToken: null,
 			sourceCursor: 'source-cursor-1',
 			sourceId: 'source-1',
 			subscriptionGeneration: 11,
-			worktreeId: '00000000-0000-4000-8000-000000000002',
 		},
 		window: {
 			kind: 'prefix',
@@ -549,12 +544,11 @@ void productTransport.openContent({
 	fileId: 'file-1',
 	maximumBytes: 2 * 1024 * 1024,
 	source: {
-		repoId: '00000000-0000-4000-8000-000000000001',
+		collectionToken: 'root-token-1',
 		rootRevisionToken: null,
 		sourceCursor: 'source-cursor-1',
 		sourceId: 'source-1',
 		subscriptionGeneration: 11,
-		worktreeId: '00000000-0000-4000-8000-000000000002',
 	},
 	window: {
 		kind: 'prefix',
@@ -604,12 +598,11 @@ acceptMetadataFrame({
 		event: {
 			eventKind: 'file.sourceAccepted',
 			source: {
-				repoId: '00000000-0000-4000-8000-000000000001',
+				collectionToken: 'root-token-1',
 				rootRevisionToken: null,
 				sourceCursor: 'source-cursor-1',
 				sourceId: 'source-1',
 				subscriptionGeneration: 1,
-				worktreeId: '00000000-0000-4000-8000-000000000002',
 			},
 		},
 		subscriptionKind: 'file.metadata',

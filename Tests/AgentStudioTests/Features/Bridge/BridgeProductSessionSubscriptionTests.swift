@@ -477,12 +477,10 @@ struct BridgeProductSessionSubscriptionTests {
         ]
         if subscriptionKind == .fileMetadata {
             subscription["source"] = [
+                "collectionToken": "root-token-1",
                 "cwdScope": NSNull(),
                 "freshness": "live",
                 "includeStatuses": true,
-                "repoId": "00000000-0000-4000-8000-000000000001",
-                "rootPathToken": "root-token-1",
-                "worktreeId": "00000000-0000-4000-8000-000000000002",
             ]
         }
         return try decode(

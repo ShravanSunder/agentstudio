@@ -874,12 +874,11 @@ function fileSourceIdentitiesEqual(
 	right: BridgeProductFileSourceIdentity,
 ): boolean {
 	return (
-		left.repoId === right.repoId &&
+		left.collectionToken === right.collectionToken &&
 		left.rootRevisionToken === right.rootRevisionToken &&
 		left.sourceCursor === right.sourceCursor &&
 		left.sourceId === right.sourceId &&
-		left.subscriptionGeneration === right.subscriptionGeneration &&
-		left.worktreeId === right.worktreeId
+		left.subscriptionGeneration === right.subscriptionGeneration
 	);
 }
 
