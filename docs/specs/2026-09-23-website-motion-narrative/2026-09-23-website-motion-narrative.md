@@ -116,6 +116,14 @@ commit, the chapter title is the message.
   0.9 / 0.08 / 0.1; merges mirror them). Lanes snap to its 96px column
   alignment and meet the frame edge. Loose rounded arcs "look like slop"
   (owner, 2026-09-23). No sine curves and no icons at tips.
+- **Grid (owner, 2026-09-23):** a git-graph grid of rows × columns, from the
+  topology-lab model (`topologyRowUnit`/`columnUnit` 96px,
+  `assignTopologyRowOwners`). **Exactly one dot per row**, owned by one lane.
+  Column 0 is the main lane (chapter progress); worktree lanes take columns
+  1..n in the gutter (the hero has peach and cyan lanes that fork from main
+  into the hero frame). Rows are piecewise-uniform: each gap between chapter
+  anchors is split into whole rows near the 96px pitch, so every eyebrow sits
+  on a row.
 - **Node types:** from the same code: small commit nodes (r=4) and terminal
   nodes (r=7 with halo), mapped onto the dot states below.
 - **Dots:** one per chapter. Current = `#89b4fa` ring with a filled center;
