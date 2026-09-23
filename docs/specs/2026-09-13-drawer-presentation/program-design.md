@@ -145,10 +145,19 @@ drawer or open Bridge. Controls are unavailable without the source's existing
 drawer. The Bridge-side preference may be selected while that region is hidden;
 effective placement still follows the specified terminal fallback.
 
-These commands are classified interactive-only in the exhaustive IPC projection:
-the current durable IPC targeting contract has no Zoom presentation target. This
-does not prevent the separate navigation track from designing its own target
-contract. No generic command-execute transport or new Bridge IPC is added here.
+**IPC classification (amended 2026-09-23 for merged Agent IPC v2 R-13).** The
+merged exhaustive projection (`App/Commands/AppCommand+IPCProjection.swift`) has
+no interactive-only class: every `AppCommand` declares an exposure, execution
+mode, privilege and target kind, and debug builds execute every command through
+typed `command.execute`. Both side commands join their drawer siblings
+(`toggleDrawer`, `addDrawerPane`): exposure `.debugTesting`, privilege
+`.layoutMutate`, target kind `.drawerParent`. The durable target is the owning
+pane handle, not a Zoom presentation object; the existing `setDrawerZoomSide`
+validation rejects an owner that is not the current Zoom source, so a stale or
+non-Zoom handle fails before mutation with the ordinary validation error.
+Widening exposure beyond debug is a program-level authority decision
+(workstream "IPC control surface"), not part of this slice. No new
+Bridge IPC and no new transport method are added here.
 
 ## One calculation for each presentation
 
