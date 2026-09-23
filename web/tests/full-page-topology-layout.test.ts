@@ -1,0 +1,335 @@
+import { describe, expect, it } from "vitest";
+
+import {
+  composeFullPageTopology,
+  topologyPhoneDropCornerInset,
+  type TopologyAnchorMeasurement,
+  type TopologyComposition,
+  type TopologyPageMeasurement,
+  type TopologyRect,
+} from "../src/topology-lab/full-page-topology-composition";
+import {
+  assignTopologyRowOwners,
+  topologyColumnUnitFor,
+  topologyColumnUnitMaximum,
+  topologyColumnUnitMinimum,
+  topologyRowUnit,
+} from "../src/topology-lab/full-page-topology-model";
+import { localForkPath } from "../src/topology-lab/full-page-topology-paths";
+
+function rect(left: number, top: number, width: number, height: number): TopologyRect {
+  return { left, top, width, height };
+}
+
+function clamp(value: number, minimum: number, maximum: number): number {
+  return Math.min(Math.max(value, minimum), maximum);
+}
+
+interface TopologyPageFixture {
+  readonly page: TopologyPageMeasurement;
+  /** Text the topology must never cross: eyebrows and copy blocks outside glass. */
+  readonly textRects: readonly TopologyRect[];
+}
+
+/**
+ * The home page at a viewport width, from the site's CSS: the centered site
+ * frame (≥ 1024px), `--spacing-page-inline`, and `--spacing-rail-gutter`.
+ */
+function homePageAt(viewportWidth: number): TopologyPageFixture {
+  const phone = viewportWidth < 620;
+  const frameLeft =
+    viewportWidth >= 1024 ? (viewportWidth - Math.min(viewportWidth - 32, 1440)) / 2 : 0;
+  const pageInline = phone ? 18 : clamp(viewportWidth * 0.033, 24, 72);
+  const railGutter = phone ? 22 : clamp(viewportWidth * 0.045, 40, 80);
+  const contentLeft = frameLeft + pageInline + railGutter;
+  const contentWidth = viewportWidth - frameLeft - pageInline - contentLeft;
+  const heroCopyLeft =
+    contentLeft + (viewportWidth >= 1024 ? clamp(viewportWidth * 0.026, 24, 56) : 0);
+  const heroFrame = rect(contentLeft, 540, contentWidth, (contentWidth * 10) / 16);
+  const anchors: TopologyAnchorMeasurement[] = [
+    {
+      id: "hero",
+      rect: rect(heroCopyLeft, 110, 400, 12),
+      surface: heroFrame,
+      media: heroFrame,
+      copyBlock: rect(heroCopyLeft, 110, contentWidth - 60, 380),
+    },
+  ];
+  const firstChapterTop = heroFrame.top + heroFrame.height + 250;
+  for (const index of [0, 1, 2, 3, 4]) {
+    const anchorTop = firstChapterTop + index * 760;
+    anchors.push(
+      phone
+        ? {
+            id: `chapter-${index + 1}`,
+            rect: rect(contentLeft, anchorTop, 90, 12),
+            surface: rect(contentLeft, anchorTop - 40, contentWidth, 560),
+            media: rect(contentLeft, anchorTop + 100, contentWidth, 220),
+            copyBlock: rect(contentLeft, anchorTop, contentWidth, 76),
+          }
+        : {
+            id: `chapter-${index + 1}`,
+            rect: rect(contentLeft + 54, anchorTop, 90, 12),
+            surface: rect(contentLeft, anchorTop - 54, contentWidth, 620),
+            media: rect(contentLeft + contentWidth * 0.37, anchorTop - 40, contentWidth * 0.6, 440),
+            copyBlock: rect(contentLeft + 54, anchorTop, 300, 110),
+          },
+    );
+  }
+  const lastAnchor = anchors.at(-1);
+  const page = {
+    viewportWidth,
+    height: (lastAnchor?.rect.top ?? 0) + 1400,
+    anchors,
+  };
+  const textRects = anchors.flatMap((anchor) =>
+    phone || anchor.id === "hero" ? [anchor.rect, anchor.copyBlock ?? anchor.rect] : [anchor.rect],
+  );
+  return { page, textRects };
+}
+
+function composed(fixture: TopologyPageFixture): TopologyComposition {
+  const composition = composeFullPageTopology(fixture.page);
+  if (composition === undefined) {
+    throw new Error("Expected a composed topology");
+  }
+  return composition;
+}
+
+interface PathPoint {
+  readonly x: number;
+  readonly y: number;
+}
+
+interface PathCommand {
+  readonly command: string;
+  readonly from: PathPoint;
+  readonly points: readonly PathPoint[];
+}
+
+function pathCommands(pathData: string): readonly PathCommand[] {
+  const tokens = pathData.trim().split(/[\s,]+/u);
+  const commands: PathCommand[] = [];
+  let current: PathPoint = { x: Number.NaN, y: Number.NaN };
+  let index = 0;
+  while (index < tokens.length) {
+    const command = tokens[index] ?? "";
+    const coordinateCount = command === "C" ? 6 : 2;
+    const values = tokens.slice(index + 1, index + 1 + coordinateCount).map(Number);
+    const points = Array.from({ length: coordinateCount / 2 }, (_, pointIndex) => ({
+      x: values[pointIndex * 2] ?? Number.NaN,
+      y: values[pointIndex * 2 + 1] ?? Number.NaN,
+    }));
+    commands.push({ command, from: current, points });
+    current = points.at(-1) ?? current;
+    index += 1 + coordinateCount;
+  }
+  return commands;
+}
+
+function samplePoints(pathData: string): readonly PathPoint[] {
+  return pathCommands(pathData)
+    .slice(1)
+    .flatMap((command) => {
+      const [first, second, end] =
+        command.command === "C"
+          ? command.points
+          : [command.from, command.points[0] ?? command.from, command.points[0] ?? command.from];
+      if (first === undefined || second === undefined || end === undefined) {
+        return [];
+      }
+      return Array.from({ length: 51 }, (_, step) => {
+        const t = step / 50;
+        const u = 1 - t;
+        const weigh = (a: number, b: number, c: number, d: number): number =>
+          u * u * u * a + 3 * u * u * t * b + 3 * u * t * t * c + t * t * t * d;
+        return {
+          x: weigh(command.from.x, first.x, second.x, end.x),
+          y: weigh(command.from.y, first.y, second.y, end.y),
+        };
+      });
+    });
+}
+
+const viewportWidths = [390, 1280, 1920, 2560] as const;
+
+describe("topology row ownership", () => {
+  it("distributes unreserved row dots across active worktrees and main", () => {
+    const owners = assignTopologyRowOwners({
+      reservedRows: new Set([0, 2, 4, 6, 10, 11, 14, 16, 17, 18, 20]),
+      rowCount: 21,
+      worktrees: [
+        { endRow: 18, id: "a", priority: 1, startRow: 2 },
+        { endRow: 10, id: "b", priority: 2, startRow: 4 },
+        { endRow: 20, id: "c", priority: 3, startRow: 6 },
+        { endRow: 16, id: "d", priority: 4, startRow: 14 },
+        { endRow: 17, id: "e", priority: 2, startRow: 11 },
+      ],
+    });
+
+    expect(owners).toHaveLength(10);
+    expect(new Set(owners.map((owner) => owner.row)).size).toBe(owners.length);
+    expect(new Set(owners.map((owner) => owner.ownerId))).toEqual(
+      new Set(["main", "a", "b", "c", "d", "e"]),
+    );
+    expect(owners.filter((owner) => owner.ownerId === "main").length).toBeLessThan(owners.length);
+  });
+
+  it("uses main only when no worktree is active", () => {
+    expect(
+      assignTopologyRowOwners({
+        reservedRows: new Set([0, 3]),
+        rowCount: 4,
+        worktrees: [],
+      }),
+    ).toEqual([
+      { ownerId: "main", row: 1 },
+      { ownerId: "main", row: 2 },
+    ]);
+  });
+});
+
+describe("gutter columns", () => {
+  it("scales the column unit with the viewport inside its clamp", () => {
+    for (const width of [390, 768, 1024, 1280, 1440, 1920, 2560]) {
+      const unit = topologyColumnUnitFor(width);
+      expect(unit).toBeGreaterThanOrEqual(topologyColumnUnitMinimum);
+      expect(unit).toBeLessThanOrEqual(topologyColumnUnitMaximum);
+    }
+    expect(topologyColumnUnitFor(1280)).toBeGreaterThan(topologyColumnUnitFor(1024));
+  });
+
+  it("fills the gutter with as many lane columns as fit: none when cramped, more when wide", () => {
+    // Act
+    const laneCounts = viewportWidths.map((width) => composed(homePageAt(width)).laneXs.length);
+
+    // Assert
+    expect(laneCounts).toEqual([0, 0, 2, 6]);
+  });
+
+  it("puts the outermost lane in the column next to the content, one unit apart", () => {
+    for (const width of viewportWidths) {
+      // Act
+      const composition = composed(homePageAt(width));
+
+      // Assert
+      const columnXs = [composition.mainlineX, ...composition.laneXs];
+      for (const [index, x] of columnXs.slice(1).entries()) {
+        expect(x - (columnXs[index] ?? 0)).toBeCloseTo(composition.columnUnit, 6);
+      }
+      expect(composition.mainlineX).toBeGreaterThanOrEqual(16);
+    }
+  });
+});
+
+describe("composed topology", () => {
+  for (const width of viewportWidths) {
+    describe(`at ${width}px`, () => {
+      const fixture = homePageAt(width);
+      const composition = composed(fixture);
+
+      it("runs the mainline from the top of the page", () => {
+        expect(composition.mainlinePath).toMatch(
+          new RegExp(`^M ${composition.mainlineX} 0 L `, "u"),
+        );
+      });
+
+      it("gives every row exactly one dot, on a lane column", () => {
+        const columnXs = [composition.mainlineX, ...composition.laneXs];
+        expect(composition.rows.map((dot) => dot.row)).toEqual(
+          composition.rowYs.map((_, row) => row),
+        );
+        for (const dot of composition.rows) {
+          expect(columnXs).toContain(dot.x);
+        }
+        for (const [index, y] of composition.rowYs.slice(1).entries()) {
+          const pitch = y - (composition.rowYs[index] ?? 0);
+          expect(pitch).toBeGreaterThanOrEqual(topologyRowUnit * 0.75);
+          expect(pitch).toBeLessThanOrEqual(topologyRowUnit * 1.25);
+        }
+      });
+
+      it("keeps each chapter's mainline dot level with its eyebrow", () => {
+        for (const anchor of fixture.page.anchors) {
+          const dot = composition.rows.find((row) => row.anchorId === anchor.id);
+          expect(dot?.kind).toBe("chapter");
+          expect(dot?.x).toBe(composition.mainlineX);
+          expect(dot?.y).toBeCloseTo(anchor.rect.top + anchor.rect.height / 2, 6);
+        }
+      });
+
+      it("moves every fork and merge exactly one column, with no longer horizontal run", () => {
+        for (const route of composition.routes) {
+          expect(route.column).toBe(route.parentColumn + 1);
+          for (const command of pathCommands(route.pathData).slice(1)) {
+            const end = command.points.at(-1) ?? command.from;
+            expect(Math.abs(end.x - command.from.x)).toBeLessThanOrEqual(
+              composition.columnUnit + 0.01,
+            );
+          }
+        }
+      });
+
+      it("attaches each target with the retired bend, one column × one row, one row above the edge", () => {
+        const attaches = composition.routes.filter((route) => route.kind === "attach");
+        expect(attaches.map((route) => route.anchorId)).toEqual(
+          fixture.page.anchors.map((anchor) => anchor.id),
+        );
+        for (const attach of attaches) {
+          const [move, bend] = pathCommands(attach.pathData);
+          const start = move?.points[0];
+          const end = bend?.points.at(-1);
+          if (start === undefined || end === undefined) {
+            throw new Error("Attach branch is empty");
+          }
+          expect(end.x - start.x).toBeCloseTo(composition.columnUnit, 6);
+          expect(end.y - start.y).toBeGreaterThan(0);
+          expect(end.y - start.y).toBeLessThanOrEqual(topologyRowUnit * 1.25);
+          expect(attach.pathData).toBe(localForkPath(start.x, end.x, start.y, end.y).join(" "));
+        }
+      });
+
+      it("never draws a branch through or beside text", () => {
+        for (const route of composition.routes) {
+          const besideText = samplePoints(route.pathData).filter((point) =>
+            fixture.textRects.some(
+              (text) =>
+                point.x > text.left - 8 &&
+                point.x < text.left + text.width &&
+                point.y > text.top &&
+                point.y < text.top + text.height,
+            ),
+          );
+          expect(besideText).toEqual([]);
+        }
+      });
+    });
+  }
+
+  it("draws only the mainline in a cramped phone gutter, with short drops into each stage", () => {
+    // Arrange
+    const fixture = homePageAt(390);
+
+    // Act
+    const composition = composed(fixture);
+
+    // Assert
+    expect(composition.laneXs).toEqual([]);
+    expect(composition.routes.every((route) => route.kind === "attach")).toBe(true);
+    for (const route of composition.routes) {
+      const anchor = fixture.page.anchors.find((candidate) => candidate.id === route.anchorId);
+      const media = anchor?.media;
+      expect(route.targetEdge).toBe("top");
+      expect(route.endY).toBe(media?.top);
+      expect(route.endY - route.startY).toBeLessThanOrEqual(topologyRowUnit);
+      const end = pathCommands(route.pathData).at(-1)?.points.at(-1);
+      expect(end?.x).toBe((media?.left ?? 0) + topologyPhoneDropCornerInset);
+    }
+  });
+
+  it("draws nothing without chapter anchors", () => {
+    expect(
+      composeFullPageTopology({ viewportWidth: 1280, height: 4000, anchors: [] }),
+    ).toBeUndefined();
+  });
+});
