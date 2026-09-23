@@ -45,13 +45,40 @@ struct LibGit2WorktreeCreationGitClient: WorktreeCreationGitClient {
     }
 }
 
-/// Live fork-eligibility port. The SDK's read-only `forkWorktreeEligibility` query is not
-/// in the pinned revision yet, so this reports `.available` and leaves the decision to
-/// `forkWorktree`'s own preflight rejection, which is authoritative either way. The app
-/// never re-implements the SDK's eligibility rules.
+/// Live fork-eligibility port over the SDK's read-only `forkWorktreeEligibility` query:
+/// host, volume, and File Provider facts only. The app never re-implements those rules;
+/// it turns the SDK's reason into row copy, and `forkWorktree`'s own preflight rejection
+/// stays authoritative after `.available`.
 struct SDKWorktreeForkEligibilityChecker: WorktreeForkEligibilityChecking {
+    typealias EligibilityQuery =
+        @Sendable (_ sourceWorktreePath: URL, _ destinationPath: URL) async -> GitWorktreeForkEligibility
+
+    /// The branch name is not typed yet when the source is chosen, so the query names a
+    /// placeholder leaf in the directory every sibling destination shares.
+    static let destinationProbeName = "agentstudio-fork-eligibility-probe"
+
+    private let query: EligibilityQuery
+
+    init(
+        query: @escaping EligibilityQuery = { sourceWorktreePath, destinationPath in
+            await LibGit2AgentStudioGitLocalClient().forkWorktreeEligibility(
+                sourceWorktreePath: sourceWorktreePath,
+                destinationPath: destinationPath
+            )
+        }
+    ) {
+        self.query = query
+    }
+
     @concurrent
-    func forkEligibility(sourceWorktreePath _: URL, destinationDirectory _: URL) async -> WorktreeForkEligibility {
-        .available
+    func forkEligibility(sourceWorktreePath: URL, destinationDirectory: URL) async -> WorktreeForkEligibility {
+        let destinationPath = destinationDirectory.appending(
+            path: Self.destinationProbeName, directoryHint: .isDirectory)
+        switch await query(sourceWorktreePath, destinationPath) {
+        case .available:
+            return .available
+        case .unavailable(let reason):
+            return .unavailable(reason: WorktreeForkRejectionCopy.phrase(for: reason))
+        }
     }
 }

@@ -135,6 +135,8 @@ enum WorktreeForkRejectionCopy {
         case .branchAlreadyExists: "a branch with that name already exists"
         case .branchNotAtCapturedHead: "the branch does not point at the source's HEAD"
         case .branchCheckedOut: "the branch is checked out in another worktree"
+        case .fileProviderManagedLocation: "the location is managed by iCloud Drive or another File Provider"
+        case .datalessContent: "some files have not been downloaded to this Mac"
         }
     }
 }
