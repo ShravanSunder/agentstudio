@@ -65,24 +65,6 @@ export function layoutRailRows(props: {
   return { rowYs, anchorRowIndexes };
 }
 
-/** The distance from a row to the next one (the last row reuses the previous pitch). */
-export function railRowPitchAt(
-  rowYs: readonly number[],
-  rowIndex: number,
-  rowUnit: number,
-): number {
-  const rowY = rowYs[rowIndex];
-  const nextY = rowYs[rowIndex + 1];
-  const previousY = rowYs[rowIndex - 1];
-  if (rowY !== undefined && nextY !== undefined) {
-    return nextY - rowY;
-  }
-  if (rowY !== undefined && previousY !== undefined) {
-    return rowY - previousY;
-  }
-  return rowUnit;
-}
-
 /**
  * Lane x positions, centered in the gutter like the old topology's
  * `centeredTopologyColumnXs`. Column 0 is the main lane.

@@ -3,6 +3,8 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 import {
+  phoneRailBendCornerSize,
+  railBendCornerSize,
   railBendHorizontalControlRatio,
   railBendHorizontalLiftRatio,
   railBendVerticalControlRatio,
@@ -48,6 +50,7 @@ interface RailPageFixture {
   readonly rowUnit: number;
   readonly columnCount: number;
   readonly heroAccents: readonly string[];
+  readonly bendCornerSize: number;
 }
 
 function railPageFixture(props: {
@@ -58,6 +61,7 @@ function railPageFixture(props: {
   readonly rowUnit: number;
   readonly columnCount: number;
   readonly heroAccents: readonly string[];
+  readonly bendCornerSize: number;
 }): RailPageFixture {
   return {
     name: props.name,
@@ -73,6 +77,7 @@ function railPageFixture(props: {
     rowUnit: props.rowUnit,
     columnCount: props.columnCount,
     heroAccents: props.heroAccents,
+    bendCornerSize: props.bendCornerSize,
   };
 }
 
@@ -86,6 +91,7 @@ const wideFixture = railPageFixture({
   rowUnit: railRowUnit,
   columnCount: 3,
   heroAccents: ["peach", "cyan"],
+  bendCornerSize: railBendCornerSize,
   chapters: [
     {
       id: "hero",
@@ -111,6 +117,7 @@ const laptopFixture = railPageFixture({
   rowUnit: railRowUnit,
   columnCount: 2,
   heroAccents: ["peach"],
+  bendCornerSize: railBendCornerSize,
   chapters: [
     {
       id: "hero",
@@ -136,6 +143,7 @@ const phoneFixture = railPageFixture({
   rowUnit: phoneRailRowUnit,
   columnCount: 2,
   heroAccents: ["peach"],
+  bendCornerSize: phoneRailBendCornerSize,
   chapters: [
     {
       id: "hero",
@@ -307,7 +315,17 @@ describe("layoutChapterRail grid", () => {
                   near(end?.y ?? Number.NaN, command.from.y),
               ).toBe(true);
             } else {
+              // The retired bend's shape, confined to one square corner box.
               expect(isTightBend(command)).toBe(true);
+              const end = command.points[2];
+              expect(Math.abs((end?.x ?? Number.NaN) - command.from.x)).toBeCloseTo(
+                fixture.bendCornerSize,
+                1,
+              );
+              expect(Math.abs((end?.y ?? Number.NaN) - command.from.y)).toBeCloseTo(
+                fixture.bendCornerSize,
+                1,
+              );
             }
           }
           expect(nearPoint(endPoint(branch.pathData), branch.end)).toBe(true);

@@ -1,13 +1,14 @@
 // The rail's corner language, recovered from the retired full-page topology
 // (`localForkPath` / `localMergePath` in topology-lab/full-page-topology-paths.ts
 // at 721d72458). A path is straight horizontal and vertical runs; every turn is
-// one tight cubic bend that hugs the horizontal run and reaches vertical within
-// a tenth of the vertical run:
+// one cubic bend with the old curve's control ratios, confined to a small
+// square corner box so the turn reads as a crisp right angle with a softened
+// corner:
 //
 //   fork  (horizontal into vertical): C (x0 + dx*0.9, y0 + dy*0.08) (x1, y0 + dy*0.1) (x1, y1)
 //   merge (vertical into horizontal): the same bend traversed in reverse
 //
-// Any other curve is not part of the language.
+// where dx = dy = the box size. Any other curve is not part of the language.
 
 export interface RailPoint {
   readonly x: number;
@@ -20,6 +21,11 @@ export const railBendHorizontalControlRatio = 0.9;
 export const railBendHorizontalLiftRatio = 0.08;
 /** The other control sits on the vertical run, this fraction of it past the corner. */
 export const railBendVerticalControlRatio = 0.1;
+
+/** Wide and laptop: each bend's square corner box, in px. Everything else is straight. */
+export const railBendCornerSize = 16;
+/** Phone: the corner box, scaled down with the phone gutter. */
+export const phoneRailBendCornerSize = 12;
 
 export function roundRailCoordinate(value: number): number {
   return Math.round(value * 100) / 100;
@@ -48,19 +54,30 @@ export function railRouteCorners(points: readonly RailPoint[]): readonly RailPoi
 }
 
 /**
- * How much of a run one bend may use. A run at the start or end of the route
- * serves one bend and gives it all of its length; a run between two bends
- * gives each half. Vertical runs also stop at one row, as the old topology
- * bent from one row to the next.
+ * How much of one run a bend may use. A run at the start or end of the route
+ * serves one bend and offers all of its length; a run between two bends
+ * offers each half.
  */
-export function railBendSpan(props: {
-  readonly runLength: number;
-  readonly sharedWithAnotherBend: boolean;
-  readonly vertical: boolean;
-  readonly verticalSpanLimit: number;
+function availableRunLength(runLength: number, sharedWithAnotherBend: boolean): number {
+  return sharedWithAnotherBend ? runLength / 2 : runLength;
+}
+
+/**
+ * A bend's square box: the corner size, shrunk only when a run it touches is
+ * too short to give it that much.
+ */
+export function railBendBoxSize(props: {
+  readonly cornerSize: number;
+  readonly incomingRunLength: number;
+  readonly incomingShared: boolean;
+  readonly outgoingRunLength: number;
+  readonly outgoingShared: boolean;
 }): number {
-  const available = props.sharedWithAnotherBend ? props.runLength / 2 : props.runLength;
-  return props.vertical ? Math.min(props.verticalSpanLimit, available) : available;
+  return Math.min(
+    props.cornerSize,
+    availableRunLength(props.incomingRunLength, props.incomingShared),
+    availableRunLength(props.outgoingRunLength, props.outgoingShared),
+  );
 }
 
 function formatPoint(point: RailPoint): string {
@@ -81,7 +98,7 @@ function towards(from: RailPoint, to: RailPoint, distance: number): RailPoint {
  * Draws an orthogonal route (only horizontal and vertical runs between its
  * points) with the rail's tight bend at every turn.
  */
-export function railBendPath(points: readonly RailPoint[], verticalSpanLimit: number): string {
+export function railBendPath(points: readonly RailPoint[], cornerSize: number): string {
   const corners = railRouteCorners(points);
   const start = corners[0];
   const end = corners.at(-1);
@@ -99,20 +116,15 @@ export function railBendPath(points: readonly RailPoint[], verticalSpanLimit: nu
       continue;
     }
     const incomingVertical = Math.abs(previous.x - corner.x) < 0.01;
-    const incomingSpan = railBendSpan({
-      runLength: Math.hypot(corner.x - previous.x, corner.y - previous.y),
-      sharedWithAnotherBend: index > 1,
-      vertical: incomingVertical,
-      verticalSpanLimit,
+    const boxSize = railBendBoxSize({
+      cornerSize,
+      incomingRunLength: Math.hypot(corner.x - previous.x, corner.y - previous.y),
+      incomingShared: index > 1,
+      outgoingRunLength: Math.hypot(next.x - corner.x, next.y - corner.y),
+      outgoingShared: index + 1 < lastIndex,
     });
-    const outgoingSpan = railBendSpan({
-      runLength: Math.hypot(next.x - corner.x, next.y - corner.y),
-      sharedWithAnotherBend: index + 1 < lastIndex,
-      vertical: !incomingVertical,
-      verticalSpanLimit,
-    });
-    const bendStart = towards(corner, previous, incomingSpan);
-    const bendEnd = towards(corner, next, outgoingSpan);
+    const bendStart = towards(corner, previous, boxSize);
+    const bendEnd = towards(corner, next, boxSize);
     const horizontalEnd = incomingVertical ? bendEnd : bendStart;
     const verticalEnd = incomingVertical ? bendStart : bendEnd;
     const horizontalControl = {

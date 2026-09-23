@@ -90,8 +90,11 @@
     stroke: var(--color-glyph);
   }
 
-  /* The current chapter is a terminal node: a filled primary disc whose halo
-     ring pulses outward. Other chapter rows show only their commit node. */
+  /* The current chapter is a terminal node: a filled primary disc with a halo
+     ring. When a chapter becomes current its halo pulses outward once, then
+     settles into a static ring; the circles are display: none until then, so
+     the pulse restarts each time. Other chapter rows show only their commit
+     node. */
   .chapter-rail :global(.chapter-rail-terminal),
   .chapter-rail :global(.chapter-rail-terminal-halo) {
     display: none;
@@ -112,26 +115,38 @@
     fill: none;
     stroke: var(--chapter-rail-current);
     stroke-width: 2px;
-    opacity: 0;
+    opacity: 0.72;
+    transform: scale(1.6);
     transform-box: fill-box;
     transform-origin: center;
-    animation: chapter-rail-terminal-halo 3.2s ease-out infinite;
+    animation: chapter-rail-terminal-halo-pulse 1.8s ease-out 1 both;
   }
 
-  @keyframes chapter-rail-terminal-halo {
+  /* The retired topology's halo pulse (scale 1 → 2.35 while fading), played
+     once, then the ring grows back in and holds at its resting size. */
+  @keyframes chapter-rail-terminal-halo-pulse {
     0% {
       opacity: 0.72;
       transform: scale(1);
     }
 
-    70%,
-    100% {
+    55% {
       opacity: 0;
       transform: scale(2.35);
     }
+
+    56% {
+      opacity: 0;
+      transform: scale(1);
+    }
+
+    100% {
+      opacity: 0.72;
+      transform: scale(1.6);
+    }
   }
 
-  /* Reduced motion: the halo holds still as a ring around the filled disc. */
+  /* Reduced motion: no pulse; the halo is a static ring around the disc. */
   @media (prefers-reduced-motion: reduce) {
     .chapter-rail {
       --chapter-rail-transition: 0s;
@@ -139,8 +154,6 @@
 
     .chapter-rail :global([data-chapter-rail-state="current"] .chapter-rail-terminal-halo) {
       animation: none;
-      opacity: 0.72;
-      transform: scale(1.6);
     }
   }
 </style>

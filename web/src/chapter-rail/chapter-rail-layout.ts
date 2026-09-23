@@ -8,7 +8,8 @@
 
 import {
   railBendPath,
-  railBendSpan,
+  phoneRailBendCornerSize,
+  railBendCornerSize,
   roundRailCoordinate,
   type RailPoint,
 } from "./chapter-rail-bend-path";
@@ -20,7 +21,6 @@ import {
   minimumWideRailColumnSpacing,
   phoneRailColumnCount,
   phoneRailRowUnit,
-  railRowPitchAt,
   railRowUnit,
   wideRailColumnCount,
   type RailWorktreeRowClaim,
@@ -169,6 +169,8 @@ interface RailGrid {
   readonly rowUnit: number;
   readonly mainX: number;
   readonly worktreeXs: readonly number[];
+  /** The square box each bend fits in (see chapter-rail-bend-path.ts). */
+  readonly bendCornerSize: number;
 }
 
 const noRoutes: AnchorRoutes = { branches: [], lanes: [], reservedDots: new Map() };
@@ -184,7 +186,7 @@ function straightBranch(anchorId: string, dot: RailPoint, surface: RailRect): An
         anchorId,
         accent: "main",
         targetEdge: "left",
-        pathData: railBendPath([dot, { x: surface.left, y: dot.y }], railRowUnit),
+        pathData: railBendPath([dot, { x: surface.left, y: dot.y }], railBendCornerSize),
         end: { x: roundRailCoordinate(surface.left), y: dot.y },
       },
     ],
@@ -198,10 +200,9 @@ function straightBranch(anchorId: string, dot: RailPoint, surface: RailRect): An
  * the main lane on consecutive rows starting at the anchor row, outermost
  * column first, run down their columns, and enter the frame's left edge on
  * consecutive rows inside it, in the same order. Opening and closing in the
- * same order keeps every horizontal run clear of the other lanes. Each fork
- * bends from one row to the next and each entry from the row above, like the
- * old topology. Without a free worktree column the branch uses a lane midway
- * to the frame that carries no dots.
+ * same order keeps every horizontal run clear of the other lanes. Every turn
+ * is one corner-box bend; the rest is straight. Without a free worktree column
+ * the branch uses a lane midway to the frame that carries no dots.
  */
 function worktreeEntryRoutes(props: {
   readonly anchorId: string;
@@ -244,7 +245,6 @@ function worktreeEntryRoutes(props: {
     const accent: RailLaneAccent = routeLane.carriesDots
       ? (worktreeAccents[laneIndex] ?? "peach")
       : "main";
-    const pitch = railRowPitchAt(grid.rowYs, forkRow, grid.rowUnit);
     branches.push({
       anchorId,
       accent,
@@ -256,7 +256,7 @@ function worktreeEntryRoutes(props: {
           { x: routeLane.x, y: entryY },
           { x: surface.left, y: entryY },
         ],
-        pitch,
+        grid.bendCornerSize,
       ),
       end: { x: roundRailCoordinate(surface.left), y: roundRailCoordinate(entryY) },
     });
@@ -265,13 +265,12 @@ function worktreeEntryRoutes(props: {
     }
     reservedDots.set(entryRow, { x: grid.mainX, accent: "main", anchorId: undefined });
     if (routeLane.carriesDots) {
-      const verticalSpan = Math.min(pitch, (entryY - forkY) / 2);
       lanes.push({
         laneId: `${anchorId}-${accent}`,
         x: routeLane.x,
         accent,
-        straightTop: forkY + verticalSpan,
-        straightBottom: entryY - verticalSpan,
+        straightTop: forkY + grid.bendCornerSize,
+        straightBottom: entryY - grid.bendCornerSize,
       });
     }
     previousEntryRow = entryRow;
@@ -313,12 +312,6 @@ function phoneDropRoute(props: {
   // so the turn falls back to the glass's top edge.
   const gapTop = clamp(bottomOf(copyBlock), dot.y, media.top);
   const crossingY = gapTop + (media.top - gapTop) / 2;
-  const verticalSpan = railBendSpan({
-    runLength: crossingY - dot.y,
-    sharedWithAnotherBend: true,
-    vertical: true,
-    verticalSpanLimit: grid.rowUnit,
-  });
   return {
     branches: [
       {
@@ -333,7 +326,7 @@ function phoneDropRoute(props: {
             { x: dropX, y: crossingY },
             { x: dropX, y: media.top },
           ],
-          grid.rowUnit,
+          grid.bendCornerSize,
         ),
         end: { x: roundRailCoordinate(dropX), y: roundRailCoordinate(media.top) },
       },
@@ -346,8 +339,8 @@ function phoneDropRoute(props: {
               laneId: `${anchorId}-${accent}`,
               x: laneX,
               accent,
-              straightTop: dot.y + verticalSpan,
-              straightBottom: crossingY - verticalSpan,
+              straightTop: dot.y + grid.bendCornerSize,
+              straightBottom: crossingY - grid.bendCornerSize,
             },
           ],
     reservedDots: new Map(),
@@ -387,7 +380,13 @@ export function layoutChapterRail(props: ChapterRailLayoutProps): ChapterRailLay
     rowUnit,
   });
   const rowYs = rawRowYs.map(roundRailCoordinate);
-  const grid: RailGrid = { rowYs, rowUnit, mainX, worktreeXs: columnXs.slice(1) };
+  const grid: RailGrid = {
+    rowYs,
+    rowUnit,
+    mainX,
+    worktreeXs: columnXs.slice(1),
+    bendCornerSize: phoneLayout ? phoneRailBendCornerSize : railBendCornerSize,
+  };
 
   const anchorNodes = props.anchors.map((anchor, index): ChapterRailAnchorNode => {
     const rowIndex = anchorRowIndexes[index] ?? 0;
