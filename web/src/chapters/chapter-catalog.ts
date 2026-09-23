@@ -2,10 +2,13 @@ import type { ImageMetadata } from "astro";
 
 // Relative imports (not the "@/" alias) keep this catalog loadable by the
 // Vitest unit project, which has no alias configuration.
+import commandBarPhoneImage from "../assets/captures/command-bar-phone.png";
 import commandBarImage from "../assets/captures/command-bar.png";
 import parallelAgentsImage from "../assets/captures/parallel-agents.png";
+import parallelWorkPhoneImage from "../assets/captures/parallel-work-phone.png";
 import reviewPhoneImage from "../assets/captures/review-phone.png";
 import reviewImage from "../assets/captures/review.png";
+import taskDrawerToolsPhoneImage from "../assets/captures/task-drawer-tools-phone.png";
 import taskDrawerToolsImage from "../assets/captures/task-drawer-tools.png";
 import sessionRestorePoster from "../assets/media/session-restore-poster.jpg";
 import sessionRestoreVideoUrl from "../assets/media/session-restore.mp4?url";
@@ -26,6 +29,8 @@ export type ChapterStage =
       readonly kind: "scene";
       readonly sceneId: SceneId;
       readonly proofImage: ImageMetadata;
+      /** Purpose-made phone crop of the same capture, shown below the phone breakpoint. */
+      readonly proofPhoneImage: ImageMetadata;
       readonly proofAlt: string;
     }
   | {
@@ -113,6 +118,7 @@ export const chapterCatalog: readonly Chapter[] = [
       kind: "scene",
       sceneId: "chapter-many-agents",
       proofImage: parallelAgentsImage,
+      proofPhoneImage: parallelWorkPhoneImage,
       proofAlt: stories.parallelWork.imageDescription,
     },
   },
@@ -144,6 +150,7 @@ export const chapterCatalog: readonly Chapter[] = [
       kind: "scene",
       sceneId: "chapter-context-with-task",
       proofImage: taskDrawerToolsImage,
+      proofPhoneImage: taskDrawerToolsPhoneImage,
       proofAlt: taskToolsDetail.imageDescription,
     },
   },
@@ -169,6 +176,7 @@ export const chapterCatalog: readonly Chapter[] = [
       kind: "scene",
       sceneId: "chapter-find-and-focus",
       proofImage: commandBarImage,
+      proofPhoneImage: commandBarPhoneImage,
       proofAlt: stories.quickFind.imageDescription,
     },
   },

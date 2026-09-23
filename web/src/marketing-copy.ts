@@ -109,7 +109,10 @@ export const marketingCopy = {
       eyebrow: "Chapter 5",
       title: { beforeAccent: "Close the app. ", accent: "Agents keep running", afterAccent: "." },
       sessionRestoreVideoLabel: "Agent Studio persistent session restore demonstration",
+      sessionRestoreVideoFallback: "This browser cannot play the session restore video.",
     },
+    // Marks the real app screenshot that follows each recreated scene.
+    realCaptureLabel: "Real capture",
   },
   // Accessible names for pause/play controls on motion that runs longer than
   // five seconds (WCAG 2.2.2).

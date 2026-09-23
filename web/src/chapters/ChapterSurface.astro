@@ -1,7 +1,5 @@
 ---
-import MotionPlaybackToggle from "@/home-page/MotionPlaybackToggle.astro";
 import ScrollMaterialSurface from "@/home-page/ScrollMaterialSurface.astro";
-import { marketingCopy } from "@/marketing-copy";
 
 import type { Chapter } from "./chapter-catalog";
 import {
@@ -18,7 +16,6 @@ interface Props {
 const { chapter } = Astro.props;
 const titleId = `chapter-${chapter.id}-title`;
 const hasStepSelector = chapter.steps.length > 1;
-const hasScenePlayback = chapter.stage.kind === "scene";
 const railAnchorAttributes = { [railAnchorAttribute]: chapter.id };
 const surfaceAttributes = { [railSurfaceTargetAttribute]: chapter.id };
 const stageAttributes = { [railMediaTargetAttribute]: chapter.id, [playbackStageAttribute]: "" };
@@ -107,16 +104,6 @@ const stageAttributes = { [railMediaTargetAttribute]: chapter.id, [playbackStage
       class="scroll-material-pane chapter-surface__stage relative flex min-w-0 items-center overflow-clip rounded-material-pane border border-line p-1 max-lg:order-2"
     >
       <slot name="stage" />
-      {
-        hasScenePlayback && (
-          <MotionPlaybackToggle
-            controlAttribute="data-scene-playback-toggle"
-            pauseLabel={marketingCopy.motionControls.pauseAnimation}
-            playLabel={marketingCopy.motionControls.playAnimation}
-            class="absolute right-3 bottom-3 z-[3]"
-          />
-        )
-      }
     </div>
   </ScrollMaterialSurface>
 </article>
