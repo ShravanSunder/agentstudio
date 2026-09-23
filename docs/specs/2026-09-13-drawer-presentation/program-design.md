@@ -167,6 +167,32 @@ observer, registry, atom, bus event or timer is added; each trigger is an
 existing discrete action. The recovery pass reads current shared state, so a
 trigger that arrives after a newer change recomputes from the newer state.
 
+**Frame currency for queued children.** Recovery today only re-admits children
+held in `.deferredGeometry` (`PreparedTerminalMountAdmissionPort.acceptLaterTrustedFrames`);
+a child already given a trusted frame keeps it through `.pending`, claim and
+activation (`claimPreparedTerminal`, `activateClaimedTerminal` read the frame
+installed or captured earlier). A drawer child queued with a normal-mode frame
+would therefore mount at that size after the user entered Zoom or moved the
+drawer. The port — the existing owner of trusted frames — gains one more
+operation in the same contract: refresh the trusted frame of members still in
+`.pending` custody, or claimed but not yet activated, from a recovery pass.
+Claim and activation read the port's current frame for the member at the moment
+of use instead of a copy captured earlier. Members that have started mounting,
+are ready, failed or were replaced are not touched; their size is owned by
+host layout. The three outcomes of a recovery pass are therefore:
+
+| Member custody | Recovery effect | Owner |
+| --- | --- | --- |
+| `.deferredGeometry` | admitted with the new frame (existing) | admission port |
+| `.pending`, or claimed and not yet activated | trusted frame refreshed (added) | admission port |
+| mounting, ready | none; the host view is sized by layout from the resolver's current output, and the terminal runtime receives the actual size through existing native size feedback | host layout |
+
+A drawer child that becomes mounted while the user drags the Zoom divider gets
+its creation frame from the committed ratio; its host is laid out inside the
+visible overlay from the live resolver output before first display, so the
+first displayed size matches the overlay. This is stated behavior with its own
+proof below, not an exemption.
+
 **Commands.** Add `moveZoomDrawerToTerminal` and `moveZoomDrawerToBridge` through
 the existing `AppCommand` catalog. Their display and invocation
 contexts derive the owning pane from the active Zoom source, even when focus is
@@ -389,7 +415,9 @@ sequenceDiagram
   Rec->>Pres: read ZoomPresentation (source, ratio, viewer presentation)
   Rec->>Res: canonical Zoom input + committed preference
   alt geometry available
-    Res-->>Adm: child content frames → install / resize
+    Res-->>Adm: deferred members admitted with frame (existing)
+    Res-->>Adm: pending or claimed-not-activated members get refreshed trusted frame (added)
+    Note over Adm: mounting or ready members untouched, sized by host layout
   else unavailable
     Res-->>Adm: unavailable → existing .deferredGeometry, next trigger retries
   end
@@ -456,7 +484,12 @@ interaction under test.
   child sizing and hit/dismissal consumers. Prove measured and bootstrap paths,
   collapsed/background drawer admission, later recovery of unavailable bounds,
   and recovery after each Zoom trigger: enter/exit, a finished divider drag at
-  unequal ratios, Bridge hide/show, and a side change.
+  unequal ratios, Bridge hide/show, and a side change. Hold an already-framed
+  pending drawer child across normal→Zoom and a side/split change with a causal
+  barrier, release its claim, and assert the frame actually supplied to
+  mounting is the current Zoom frame; separately, a child mounting during a
+  divider drag shows the overlay's size at first display. The existing
+  unavailable→valid case stays its own proof.
 - **Performance (owner rule 2026-09-23: nothing heavy on the MainActor; review caution):** marker-scoped
   measurement of the overlay's body/read counts and synchronous MainActor
   held time during normal drag and divider drag under the current workload;
