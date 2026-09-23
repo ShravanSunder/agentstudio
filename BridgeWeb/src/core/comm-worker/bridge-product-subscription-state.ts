@@ -642,8 +642,10 @@ export class BridgeProductSubscriptionState<
 
 	/**
 	 * Sends the cancel control and marks the subscription released. Returns false
-	 * when native refused it for a stale epoch: native still owns the subscription
-	 * and will end it, so its frames drain here instead of poisoning the stream.
+	 * when native refused it: either native still owns the subscription (a stale
+	 * epoch) or it already ended it and the terminal frame is still in flight
+	 * (native answers that cancel as unknown). Either way this subscription keeps
+	 * routing and drains until native's terminal instead of poisoning the stream.
 	 */
 	async #releaseNativeSubscription(): Promise<boolean> {
 		this.#released = true;
@@ -655,9 +657,7 @@ export class BridgeProductSubscriptionState<
 			});
 			return true;
 		} catch (error) {
-			if (error instanceof BridgeProductControlRequestError && error.code === 'resync_required') {
-				return false;
-			}
+			if (error instanceof BridgeProductControlRequestError) return false;
 			this.#released = false;
 			throw error;
 		}

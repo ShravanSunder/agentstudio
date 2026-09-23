@@ -120,6 +120,11 @@ export class TestProductServer {
 	metadataFetchCount = 0;
 	metadataReaderCancelCount = 0;
 	nextAcknowledgementStatus = 204;
+	cancelHandler:
+		| ((
+				request: Extract<BridgeProductControlRequest, { kind: 'subscription.cancel' }>,
+		  ) => Promise<Response> | Response)
+		| null = null;
 	nextAcknowledgementHandler:
 		| ((request: BridgeProductFrameAcknowledgementRequest) => Response | Promise<Response>)
 		| null = null;
@@ -311,6 +316,7 @@ export class TestProductServer {
 					updateId: request.updateId,
 				});
 			case 'subscription.cancel':
+				if (this.cancelHandler !== null) return await this.cancelHandler(request);
 				return jsonResponse({
 					...identity,
 					kind: 'subscription.cancelAccepted',
@@ -476,6 +482,31 @@ export function subscriptionCancelled(props: {
 		subscriptionId: props.subscriptionId,
 		subscriptionKind: props.kind ?? 'review.metadata',
 		subscriptionSequence: props.subscriptionSequence ?? 1,
+		workerDerivationEpoch: props.epoch,
+	});
+}
+
+export function subscriptionReset(props: {
+	readonly epoch: number;
+	readonly interestHash: string;
+	readonly kind: BridgeProductSubscriptionKind;
+	readonly reason: 'stale_source';
+	readonly request: BridgeProductMetadataStreamRequest;
+	readonly streamSequence: number;
+	readonly subscriptionId: string;
+	readonly subscriptionSequence: number;
+}): BridgeProductMetadataFrame {
+	return bridgeProductMetadataFrameSchema.parse({
+		...metadataIdentity(props.request, props.streamSequence),
+		cursor: null,
+		interestRevision: 0,
+		interestSha256: props.interestHash,
+		kind: 'subscription.reset',
+		reason: props.reason,
+		sourceGeneration: 0,
+		subscriptionId: props.subscriptionId,
+		subscriptionKind: props.kind,
+		subscriptionSequence: props.subscriptionSequence,
 		workerDerivationEpoch: props.epoch,
 	});
 }

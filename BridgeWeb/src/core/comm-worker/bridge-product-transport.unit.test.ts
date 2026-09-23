@@ -19,6 +19,7 @@ import {
 	reviewData,
 	subscriptionAccepted,
 	subscriptionCancelled,
+	subscriptionReset,
 	waitForCondition,
 } from './test-fixtures/bridge-product-transport-metadata.test-support.js';
 
@@ -537,6 +538,103 @@ describe('Bridge product transport', () => {
 			'cancel:review.annotations:1',
 			'open:review.metadata:2',
 		]);
+		await expect(siblingTerminal).rejects.toMatchObject({
+			name: 'BridgeProductSubscriptionEpochRetiredError',
+			nextWorkerDerivationEpoch: nextEpoch,
+		});
+	});
+
+	test('keeps routing a retired sibling whose cancel native refused until its in-flight terminal lands', async () => {
+		// Arrange: native already reset the Review annotation subscription and dropped
+		// its record, so it refuses the retirement cancel while the reset frame is still
+		// queued on the shared metadata stream.
+		const harness = createTransportHarness();
+		const sibling = harness.transport.subscribe(
+			bridgeProductReviewAnnotationMetadataApplicationProtocol,
+			{},
+		);
+		const siblingTerminal = sibling.events[Symbol.asyncIterator]().next();
+		void siblingTerminal.catch((): void => {});
+		await harness.server.waitForMetadataStream();
+		const request = harness.server.requiredMetadataRequest();
+		const siblingHash = emptyInterestHash('review.annotations');
+		harness.server.emitMetadata(metadataAccepted(request, 0));
+		harness.server.emitMetadata(
+			subscriptionAccepted({
+				epoch: 0,
+				interestHash: siblingHash,
+				kind: 'review.annotations',
+				request,
+				streamSequence: 1,
+				subscriptionId: sibling.subscriptionId,
+			}),
+		);
+		await harness.server.waitForControlKind('subscription.open');
+		await harness.server.waitForFrameAcknowledgementCount(2);
+		harness.server.cancelHandler = (cancel): Response =>
+			new Response(
+				JSON.stringify({
+					code: 'internal',
+					kind: 'request.error',
+					nextExpectedRequestSequence: cancel.requestSequence + 1,
+					paneSessionId: cancel.paneSessionId,
+					requestId: cancel.requestId,
+					requestSequence: cancel.requestSequence,
+					retryAfterMilliseconds: null,
+					retryable: false,
+					safeMessage: null,
+					wireVersion: cancel.wireVersion,
+					workerInstanceId: cancel.workerInstanceId,
+				}),
+				{ headers: { 'Content-Type': 'application/json' } },
+			);
+
+		// Act: Review advances and subscribes its metadata; native then delivers the
+		// sibling's queued reset ahead of the new subscription's frames.
+		const nextEpoch = harness.transport.advanceWorkerDerivationEpoch('review');
+		const metadata = harness.transport.subscribe(bridgeProductReviewMetadataApplicationProtocol, {
+			interests: [],
+		});
+		await harness.server.waitForControlKind('subscription.open', 2);
+		const metadataHash = emptyInterestHash('review.metadata');
+		harness.server.emitMetadata(
+			subscriptionReset({
+				epoch: 0,
+				interestHash: siblingHash,
+				kind: 'review.annotations',
+				reason: 'stale_source',
+				request,
+				streamSequence: 2,
+				subscriptionId: sibling.subscriptionId,
+				subscriptionSequence: 1,
+			}),
+		);
+		harness.server.emitMetadata(
+			subscriptionAccepted({
+				epoch: nextEpoch,
+				interestHash: metadataHash,
+				kind: 'review.metadata',
+				request,
+				streamSequence: 3,
+				subscriptionId: metadata.subscriptionId,
+			}),
+		);
+		harness.server.emitMetadata(
+			reviewData({
+				epoch: nextEpoch,
+				interestHash: metadataHash,
+				request,
+				streamSequence: 4,
+				subscriptionId: metadata.subscriptionId,
+				subscriptionSequence: 1,
+			}),
+		);
+
+		// Assert: the refused sibling's terminal drains instead of poisoning the shared
+		// stream, so Review metadata keeps flowing and the sibling is retired, not failed.
+		const metadataEvent = await metadata.events[Symbol.asyncIterator]().next();
+		expect(metadataEvent.done).toBe(false);
+		expect(harness.transport.metadataStreamDiagnostics?.().routeFailureCode).toBeNull();
 		await expect(siblingTerminal).rejects.toMatchObject({
 			name: 'BridgeProductSubscriptionEpochRetiredError',
 			nextWorkerDerivationEpoch: nextEpoch,
