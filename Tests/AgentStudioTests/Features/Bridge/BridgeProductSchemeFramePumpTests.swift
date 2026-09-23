@@ -205,8 +205,9 @@ struct BridgeProductSchemeFramePumpTests {
 
     /// Retirement may report success only after the lifecycle acknowledgement
     /// it awaits has succeeded. The acknowledgement is held; failing it must
-    /// fail the retirement and keep the lease registered, and releasing it
-    /// must clear the lease's frame observation before retirement succeeds.
+    /// fail the retirement with the producer unregistered and its lifecycle
+    /// acknowledgement still pending, and releasing it must clear the lease's
+    /// frame observation before retirement succeeds.
     @Test("producer retirement reply depends on the lifecycle acknowledgement")
     func producerRetirementReplyDependsOnLifecycleAcknowledgement() async throws {
         try await proveReplyDependsOnStep(
@@ -259,6 +260,7 @@ struct BridgeProductSchemeFramePumpTests {
             replyReportsFailure: { (retired: Bool, scenario: ProducerRetirementScenario) async -> Bool in
                 guard !retired else { return false }
                 let snapshot = await scenario.session.producerSnapshot()
+                #expect(snapshot.activeProducerCount == 0)
                 #expect(snapshot.pendingLifecycleAcknowledgementCount == 1)
                 #expect(!snapshot.hasZeroResidue)
                 return true
