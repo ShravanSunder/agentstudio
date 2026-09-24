@@ -143,6 +143,14 @@ enum DrawerOverlayPresentation: Equatable {
 /// refocus underlying AppKit content.
 struct DrawerPanelOverlay: View {
     static let outlineAccessibilityIdentifier = "drawerPanel.outline"
+    static let moveControlAccessibilityIdentifier = "drawerPanel.moveZoomSide"
+
+    /// The on-drawer move control: the side command it offers and the panel
+    /// edge its tab sits on, the edge facing the other Zoom region.
+    struct MoveControlPlacement: Equatable {
+        let command: AppCommand
+        let edge: HorizontalEdge
+    }
 
     private struct ExpandedPaneInfo {
         let paneId: UUID
@@ -181,6 +189,7 @@ struct DrawerPanelOverlay: View {
     @State private var dismissMonitor = DrawerDismissMonitor()
     /// Local normal-mode resize session; per-sample state never leaves the overlay.
     @State private var resizeSession: DrawerNormalResizeSession?
+    @State private var isMoveControlHovered = false
 
     /// Find the pane whose drawer is currently expanded.
     /// Invariant: only one drawer can be expanded at a time (toggle behavior).
@@ -301,6 +310,9 @@ struct DrawerPanelOverlay: View {
                 )
                 .id(paneId)
                 .frame(width: outlineFrame.width)
+                .overlay(alignment: moveControlAlignment(mode: geometry.mode)) {
+                    moveControl(mode: geometry.mode, ownerPaneId: paneId)
+                }
 
                 // Connector space (visual bridge from panel to its anchor)
                 Color.clear
@@ -310,23 +322,6 @@ struct DrawerPanelOverlay: View {
             .contentShape(outlineShape)
             .shadow(color: .black.opacity(AppStyles.General.Stroke.muted), radius: 4, y: 2)
             .shadow(color: .black.opacity(AppStyles.General.Stroke.hover), radius: 16, y: 8)
-            .overlay(alignment: .topTrailing) {
-                if let moveCommand = Self.moveControlCommand(
-                    mode: geometry.mode,
-                    isManagementLayerActive: atom(\.managementLayer).isActive
-                ),
-                    let moveAction = TargetedCommandControlAction.resolve(
-                        command: moveCommand,
-                        surface: .inlineControl,
-                        target: paneId,
-                        targetType: .pane,
-                        dispatcher: AppCommandDispatcher.shared
-                    )
-                {
-                    ZoomDrawerMoveControl(action: moveAction, octiconLoader: octiconLoader)
-                        .padding(AppStyles.General.Spacing.standard)
-                }
-            }
             .background {
                 AccessibilityLabelBridge(
                     identifier: Self.outlineAccessibilityIdentifier,
@@ -420,13 +415,54 @@ struct DrawerPanelOverlay: View {
     }
 
     /// The on-drawer move control exists only in Pane Zoom while the
-    /// management layer is active; it offers the other region's side command.
-    static func moveControlCommand(
+    /// management layer is active. It offers the other region's side command
+    /// on the panel edge facing that region: the right edge over the terminal,
+    /// the left edge over the Bridge.
+    static func moveControlPlacement(
         mode: DrawerPresentationGeometry.Mode,
         isManagementLayerActive: Bool
-    ) -> AppCommand? {
+    ) -> MoveControlPlacement? {
         guard isManagementLayerActive, case .zoom(let effectiveSide) = mode else { return nil }
-        return AppCommand.moveZoomDrawerCommand(awayFrom: effectiveSide)
+        return MoveControlPlacement(
+            command: AppCommand.moveZoomDrawerCommand(awayFrom: effectiveSide),
+            edge: effectiveSide == .terminal ? .trailing : .leading
+        )
+    }
+
+    private func moveControlAlignment(mode: DrawerPresentationGeometry.Mode) -> Alignment {
+        let placement = Self.moveControlPlacement(mode: mode, isManagementLayerActive: true)
+        return placement?.edge == .leading ? .leading : .trailing
+    }
+
+    /// Edge tab from the shared management edge-tab component. Icon, label,
+    /// and tooltip project from the side command's catalog spec.
+    @ViewBuilder
+    private func moveControl(mode: DrawerPresentationGeometry.Mode, ownerPaneId: UUID) -> some View {
+        if let placement = Self.moveControlPlacement(
+            mode: mode,
+            isManagementLayerActive: atom(\.managementLayer).isActive
+        ),
+            let moveAction = TargetedCommandControlAction.resolve(
+                command: placement.command,
+                surface: .inlineControl,
+                target: ownerPaneId,
+                targetType: .pane,
+                dispatcher: AppCommandDispatcher.shared
+            ),
+            case .system(let symbol) = moveAction.commandSpec.icon
+        {
+            ManagementEdgeTabButton(
+                systemName: symbol.rawValue,
+                attachedEdge: placement.edge,
+                isHovered: isMoveControlHovered,
+                isEnabled: moveAction.isEnabled,
+                tooltip: moveAction.commandSpec.controlTooltipRenderValue(),
+                accessibilityIdentifier: Self.moveControlAccessibilityIdentifier,
+                onAnchorViewChanged: nil,
+                action: moveAction.perform
+            )
+            .onHover { isMoveControlHovered = $0 }
+        }
     }
 
     /// Height the resolver would display for a requested live height.

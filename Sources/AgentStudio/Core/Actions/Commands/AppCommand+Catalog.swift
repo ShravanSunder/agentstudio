@@ -612,7 +612,7 @@ extension AppCommand {
             return AppCommandSpec(
                 command: self,
                 label: "Move Drawer to Terminal",
-                icon: .system(.rectangleLefthalfInsetFilled),
+                icon: .system(.arrowLeft),
                 helpText: "Place the Pane Zoom drawer over the terminal",
                 surfacePolicy: .exposed([.commandBar, .inlineControl]),
                 targeting: .contextualAndTargeted([.pane], preferredInvocation: .contextual),
@@ -624,7 +624,7 @@ extension AppCommand {
             return AppCommandSpec(
                 command: self,
                 label: "Move Drawer to Worktree Viewer",
-                icon: .system(.rectangleRighthalfInsetFilled),
+                icon: .system(.arrowRight),
                 helpText: "Place the Pane Zoom drawer over the Worktree Viewer",
                 surfacePolicy: .exposed([.commandBar, .inlineControl]),
                 targeting: .contextualAndTargeted([.pane], preferredInvocation: .contextual),

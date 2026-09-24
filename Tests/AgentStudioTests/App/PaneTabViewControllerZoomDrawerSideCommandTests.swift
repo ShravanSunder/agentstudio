@@ -203,21 +203,25 @@ struct PaneTabViewControllerZoomDrawerSideCommandTests {
         }
     }
 
-    @Test("move control appears only in Pane Zoom with the management layer active")
-    func moveControlPresence() {
+    @Test("move control appears only in Pane Zoom with the management layer, on the edge facing the other region")
+    func moveControlPlacement() {
+        let placement = DrawerPanelOverlay.moveControlPlacement
         #expect(
-            DrawerPanelOverlay.moveControlCommand(mode: .zoom(effectiveSide: .terminal), isManagementLayerActive: true)
-                == .moveZoomDrawerToBridge
+            placement(.zoom(effectiveSide: .terminal), true)
+                == .init(command: .moveZoomDrawerToBridge, edge: .trailing)
         )
         #expect(
-            DrawerPanelOverlay.moveControlCommand(mode: .zoom(effectiveSide: .bridge), isManagementLayerActive: true)
-                == .moveZoomDrawerToTerminal
+            placement(.zoom(effectiveSide: .bridge), true)
+                == .init(command: .moveZoomDrawerToTerminal, edge: .leading)
         )
-        #expect(
-            DrawerPanelOverlay.moveControlCommand(mode: .zoom(effectiveSide: .terminal), isManagementLayerActive: false)
-                == nil
-        )
-        #expect(DrawerPanelOverlay.moveControlCommand(mode: .normal, isManagementLayerActive: true) == nil)
+        #expect(placement(.zoom(effectiveSide: .terminal), false) == nil)
+        #expect(placement(.normal, true) == nil)
+    }
+
+    @Test("each side command's catalog icon points where the drawer will go")
+    func sideCommandIconsPointTowardTheDestination() {
+        #expect(AppCommand.moveZoomDrawerToBridge.definition.icon == .system(.arrowRight))
+        #expect(AppCommand.moveZoomDrawerToTerminal.definition.icon == .system(.arrowLeft))
     }
 
     private func drawerParentRequest(

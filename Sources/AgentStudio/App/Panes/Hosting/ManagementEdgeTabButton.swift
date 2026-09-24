@@ -3,9 +3,12 @@ import AgentStudioSharedComponents
 import AppKit
 import SwiftUI
 
+/// Management-mode tab that sits flush against one edge of a pane or drawer:
+/// flat on the attached edge, rounded on the side facing inward.
 @MainActor
-struct ManagementTrailingEdgeTabButton: View {
+struct ManagementEdgeTabButton: View {
     let systemName: String
+    var attachedEdge: HorizontalEdge = .trailing
     let isHovered: Bool
     let isEnabled: Bool
     let tooltip: ControlTooltipRenderValue
@@ -25,26 +28,13 @@ struct ManagementTrailingEdgeTabButton: View {
                     height: AppStyles.Shell.PaneChrome.paneEdgeButtonHeight
                 )
                 .background(
-                    UnevenRoundedRectangle(
-                        topLeadingRadius: AppStyles.General.CornerRadius.panel + 4,
-                        bottomLeadingRadius: AppStyles.General.CornerRadius.panel + 4,
-                        bottomTrailingRadius: 0,
-                        topTrailingRadius: 0
-                    )
-                    .fill(
+                    tabShape.fill(
                         Color.black.opacity(
                             AppStyles.Shell.ManagementLayer.backgroundOpacity(isHovered: isHovered)
                         )
                     )
                 )
-                .contentShape(
-                    UnevenRoundedRectangle(
-                        topLeadingRadius: AppStyles.General.CornerRadius.panel + 4,
-                        bottomLeadingRadius: AppStyles.General.CornerRadius.panel + 4,
-                        bottomTrailingRadius: 0,
-                        topTrailingRadius: 0
-                    )
-                )
+                .contentShape(tabShape)
         }
         .buttonStyle(.plain)
         .disabled(!isEnabled)
@@ -62,6 +52,26 @@ struct ManagementTrailingEdgeTabButton: View {
                     ManagementEdgeTabAnchorBridge(onViewChanged: onAnchorViewChanged)
                 }
             }
+        }
+    }
+
+    private var tabShape: UnevenRoundedRectangle {
+        let innerRadius = AppStyles.General.CornerRadius.panel + 4
+        return switch attachedEdge {
+        case .trailing:
+            UnevenRoundedRectangle(
+                topLeadingRadius: innerRadius,
+                bottomLeadingRadius: innerRadius,
+                bottomTrailingRadius: 0,
+                topTrailingRadius: 0
+            )
+        case .leading:
+            UnevenRoundedRectangle(
+                topLeadingRadius: 0,
+                bottomLeadingRadius: 0,
+                bottomTrailingRadius: innerRadius,
+                topTrailingRadius: innerRadius
+            )
         }
     }
 }

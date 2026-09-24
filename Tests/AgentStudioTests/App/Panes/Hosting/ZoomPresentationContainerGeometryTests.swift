@@ -71,23 +71,7 @@ struct ZoomPresentationContainerGeometryTests {
         for side in DrawerZoomSide.allCases {
             let frames = try mountedZoomDrawerFrames(zoomSide: side)
             let painted = try #require(frames.outline)
-            // Bootstrap derives the split area from the container and the
-            // shared toolbar metric, never from SwiftUI measurement.
-            let regions = DrawerPresentationGeometryResolver.zoomRegions(
-                splitArea: CGRect(x: 0, y: 0, width: 1000, height: 640 - DrawerLayout.iconBarFrameHeight),
-                sourceSplitRatio: 0.7,
-                reservesCompanionSpace: true,
-                isCompanionVisible: true
-            )
-            let bootstrap = try #require(
-                DrawerPresentationGeometryResolver.resolve(
-                    DrawerPresentationGeometryInput(
-                        containerBounds: CGRect(x: 0, y: 0, width: 1000, height: 640),
-                        preference: DrawerPresentationPreference.default.replacingZoomSide(side),
-                        placement: .zoom(terminalRegion: regions.terminal, visibleBridgeRegion: regions.bridge)
-                    )
-                )
-            )
+            let bootstrap = try bootstrapGeometry(zoomSide: side)
             let devicePixel = frames.devicePixel
             #expect(abs(painted.minX - bootstrap.outlineFrame.minX) < devicePixel, "\(side)")
             #expect(abs(painted.minY - bootstrap.outlineFrame.minY) < devicePixel, "\(side)")
@@ -96,12 +80,66 @@ struct ZoomPresentationContainerGeometryTests {
         }
     }
 
+    @Test("Zoom move tab sits mid-edge facing the other region, clear of the child's edge tabs")
+    func zoomMoveTabSitsOnTheInnerEdgeClearOfChildTabs() throws {
+        for side in DrawerZoomSide.allCases {
+            let frames = try mountedZoomDrawerFrames(zoomSide: side, managementLayerActive: true)
+            let moveTab = try #require(frames.moveTab, "\(side)")
+            let childAddTab = try #require(frames.childAddTab, "\(side)")
+            let childDetachTab = try #require(frames.childDetachTab, "\(side)")
+            let panel = try bootstrapGeometry(zoomSide: side).panelFrame
+            let devicePixel = frames.devicePixel
+
+            // Terminal side: the right edge faces Bridge; Bridge side: the left edge faces the terminal.
+            switch side {
+            case .terminal:
+                #expect(abs(moveTab.maxX - panel.maxX) < devicePixel, "\(side)")
+            case .bridge:
+                #expect(abs(moveTab.minX - panel.minX) < devicePixel, "\(side)")
+            }
+            #expect(abs(moveTab.midY - panel.midY) < devicePixel, "\(side)")
+            #expect(moveTab.size.width == AppStyles.Shell.PaneChrome.paneSplitButtonSize, "\(side)")
+            #expect(moveTab.size.height == AppStyles.Shell.PaneChrome.paneEdgeButtonHeight, "\(side)")
+            // The globe tab stacks directly under the `+` tab in the same column.
+            let childGlobeTab = childAddTab.offsetBy(
+                dx: 0,
+                dy: childAddTab.height + AppStyles.General.Spacing.standard
+            )
+            for childTab in [childAddTab, childGlobeTab, childDetachTab] {
+                #expect(!moveTab.intersects(childTab), "\(side) overlaps \(childTab)")
+            }
+        }
+    }
+
+    /// Bootstrap derives the split area from the container and the shared
+    /// toolbar metric, never from SwiftUI measurement.
+    private func bootstrapGeometry(zoomSide: DrawerZoomSide) throws -> DrawerPresentationGeometry {
+        let regions = DrawerPresentationGeometryResolver.zoomRegions(
+            splitArea: CGRect(x: 0, y: 0, width: 1000, height: 640 - DrawerLayout.iconBarFrameHeight),
+            sourceSplitRatio: 0.7,
+            reservesCompanionSpace: true,
+            isCompanionVisible: true
+        )
+        return try #require(
+            DrawerPresentationGeometryResolver.resolve(
+                DrawerPresentationGeometryInput(
+                    containerBounds: CGRect(x: 0, y: 0, width: 1000, height: 640),
+                    preference: DrawerPresentationPreference.default.replacingZoomSide(zoomSide),
+                    placement: .zoom(terminalRegion: regions.terminal, visibleBridgeRegion: regions.bridge)
+                )
+            )
+        )
+    }
+
     private struct MountedZoomDrawerFrames {
         let outline: CGRect?
         let terminalRegion: CGRect
         let bridgeRegion: CGRect
         let zoomToolbarButton: CGRect
         let hasResizeHandle: Bool
+        let moveTab: CGRect?
+        let childAddTab: CGRect?
+        let childDetachTab: CGRect?
         let devicePixel: CGFloat
     }
 
@@ -113,7 +151,10 @@ struct ZoomPresentationContainerGeometryTests {
         1 / (hostingView.window?.backingScaleFactor ?? 1)
     }
 
-    private func mountedZoomDrawerFrames(zoomSide: DrawerZoomSide) throws -> MountedZoomDrawerFrames {
+    private func mountedZoomDrawerFrames(
+        zoomSide: DrawerZoomSide,
+        managementLayerActive: Bool = false
+    ) throws -> MountedZoomDrawerFrames {
         try withTestCoreAtoms { coreAtoms in
             let store = WorkspaceStore(
                 identityAtom: coreAtoms.workspaceIdentity,
@@ -130,7 +171,13 @@ struct ZoomPresentationContainerGeometryTests {
             store.setActiveTab(tab.id)
             let drawerChild = try #require(store.addDrawerPane(to: sourcePane.id))
             let viewRegistry = ViewRegistry()
-            viewRegistry.ensureSlot(for: drawerChild.id)
+            if managementLayerActive {
+                // A mounted host renders the child's management edge tabs.
+                viewRegistry.register(PaneHostView(paneId: drawerChild.id), for: drawerChild.id)
+                atom(\.managementLayer).activate()
+            } else {
+                viewRegistry.ensureSlot(for: drawerChild.id)
+            }
             #expect(store.paneAtom.pane(sourcePane.id)?.drawer?.isExpanded == true)
             store.paneAtom.setDrawerZoomSide(zoomSide, forOwner: sourcePane.id)
             let companionPaneId = UUIDv7.generate()
@@ -179,6 +226,7 @@ struct ZoomPresentationContainerGeometryTests {
             window.contentView = hostingView
             window.makeKeyAndOrderFront(nil)
             defer {
+                atom(\.managementLayer).deactivate()
                 window.orderOut(nil)
                 window.contentView = nil
                 window.close()
@@ -199,6 +247,9 @@ struct ZoomPresentationContainerGeometryTests {
                 bridgeRegion: try #require(frame("zoom-companion-region-probe")),
                 zoomToolbarButton: try #require(frame("paneSurfaceToolbar.pane zoom")),
                 hasResizeHandle: frame(DrawerResizeHandle.accessibilityIdentifier) != nil,
+                moveTab: frame(DrawerPanelOverlay.moveControlAccessibilityIdentifier),
+                childAddTab: frame("paneManagement.addPane"),
+                childDetachTab: frame("paneManagement.detachDrawerPane"),
                 devicePixel: Self.devicePixel(of: hostingView)
             )
         }
