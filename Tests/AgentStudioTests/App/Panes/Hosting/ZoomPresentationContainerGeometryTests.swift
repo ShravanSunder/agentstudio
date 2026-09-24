@@ -80,26 +80,20 @@ struct ZoomPresentationContainerGeometryTests {
         }
     }
 
-    @Test("Zoom move tab sits mid-edge facing the other region, clear of the child's edge tabs")
-    func zoomMoveTabSitsOnTheInnerEdgeClearOfChildTabs() throws {
+    @Test("Zoom move tab stacks directly above the child's detach tab on both sides, clear of every child tab")
+    func zoomMoveTabStacksAboveDetachOnBothSides() throws {
         for side in DrawerZoomSide.allCases {
             let frames = try mountedZoomDrawerFrames(zoomSide: side, managementLayerActive: true)
             let moveTab = try #require(frames.moveTab, "\(side)")
             let childAddTab = try #require(frames.childAddTab, "\(side)")
             let childDetachTab = try #require(frames.childDetachTab, "\(side)")
-            let panel = try bootstrapGeometry(zoomSide: side).panelFrame
             let devicePixel = frames.devicePixel
 
-            // Terminal side: the right edge faces Bridge; Bridge side: the left edge faces the terminal.
-            switch side {
-            case .terminal:
-                #expect(abs(moveTab.maxX - panel.maxX) < devicePixel, "\(side)")
-            case .bridge:
-                #expect(abs(moveTab.minX - panel.minX) < devicePixel, "\(side)")
-            }
-            #expect(abs(moveTab.midY - panel.midY) < devicePixel, "\(side)")
-            #expect(moveTab.size.width == AppStyles.Shell.PaneChrome.paneSplitButtonSize, "\(side)")
-            #expect(moveTab.size.height == AppStyles.Shell.PaneChrome.paneEdgeButtonHeight, "\(side)")
+            // Same column and size as detach, one standard gap above it.
+            #expect(abs(moveTab.maxX - childDetachTab.maxX) < devicePixel, "\(side)")
+            let expectedMaxY = childDetachTab.minY - AppStyles.General.Spacing.standard
+            #expect(abs(moveTab.maxY - expectedMaxY) < devicePixel, "\(side)")
+            #expect(moveTab.size == childDetachTab.size, "\(side)")
             // The globe tab stacks directly under the `+` tab in the same column.
             let childGlobeTab = childAddTab.offsetBy(
                 dx: 0,

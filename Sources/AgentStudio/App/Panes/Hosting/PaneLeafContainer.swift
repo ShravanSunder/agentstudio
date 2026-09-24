@@ -482,7 +482,7 @@ struct PaneLeafContainer: View {
                             ) {
                             case .detachDrawerPane:
                                 if let detachPresentation {
-                                    ManagementEdgeTabButton(
+                                    ManagementTrailingEdgeTabButton(
                                         systemName: SystemSymbol.rectanglePortraitAndArrowRight.rawValue,
                                         isHovered: isDetachHovered,
                                         isEnabled: detachPresentation.isEnabled,
@@ -854,7 +854,7 @@ extension PaneLeafContainer {
     private func movePaneTrailingEdgeTabButton(
         _ presentation: PaneLeafCommandPresentation
     ) -> some View {
-        ManagementEdgeTabButton(
+        ManagementTrailingEdgeTabButton(
             systemName: SystemSymbol.arrowLeftArrowRight.rawValue,
             isHovered: isMovePaneHovered,
             isEnabled: presentation.isEnabled,
