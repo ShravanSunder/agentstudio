@@ -29,6 +29,35 @@ func shouldAbortKeyDownForKeyboardLayoutChange(
     return keyboardLayoutIDBefore != currentKeyboardLayoutID()
 }
 
+/// Control characters belong to an active input method when they arrive as a
+/// single C0 scalar; printable and multi-scalar text remains terminal input.
+func shouldSuppressComposingControlInput(_ text: String?, composing: Bool) -> Bool {
+    guard composing, let text else { return false }
+    let scalars = text.unicodeScalars
+    guard let scalar = scalars.first,
+        scalars.index(after: scalars.startIndex) == scalars.endIndex
+    else {
+        return false
+    }
+    return scalar.value < 0x20
+}
+
+/// After an IME commits preedit text, replay only navigation keys that should
+/// still affect the terminal after the composition has ended.
+func shouldReplayCommittedPreeditKey(
+    keyCode: UInt16,
+    modifierFlags: NSEvent.ModifierFlags
+) -> Bool {
+    switch keyCode {
+    case 0x7D, 0x7C, 0x7E:  // Down, right, and up
+        return true
+    case 0x7B:  // Plain left is already handled by AppKit after Korean commit.
+        return !modifierFlags.isDisjoint(with: [.shift, .control, .option, .command])
+    default:
+        return false
+    }
+}
+
 /// Converts NSEvent modifier flags to Ghostty modifier bitmask
 func ghosttyMods(from flags: NSEvent.ModifierFlags) -> ghostty_input_mods_e {
     var mods = GHOSTTY_MODS_NONE.rawValue

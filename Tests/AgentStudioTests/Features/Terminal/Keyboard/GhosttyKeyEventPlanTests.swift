@@ -5,9 +5,9 @@ import Testing
 
 @testable import AgentStudioTerminal
 
-/// The key input each AppKit event sends to Ghostty. Modifier events follow
-/// upstream Ghostty's `flagsChanged`; key-down text and modifiers stay as the
-/// terminal has always sent them.
+/// The key input each AppKit event sends to Ghostty. Plans preserve original
+/// modifiers and carry translated text and composing state; modifier events
+/// follow upstream Ghostty's `flagsChanged`.
 @Suite
 struct GhosttyKeyEventPlanTests {
     struct KeyboardLayoutChangeCase: CustomTestStringConvertible, Sendable {
@@ -16,6 +16,22 @@ struct GhosttyKeyEventPlanTests {
         let keyboardLayoutIDBefore: String?
         let keyboardLayoutIDAfter: String?
         let shouldAbortKeyDown: Bool
+        var testDescription: String { name }
+    }
+
+    struct ComposingSuppressionCase: CustomTestStringConvertible, Sendable {
+        let name: String
+        let text: String?
+        let composing: Bool
+        let shouldSuppress: Bool
+        var testDescription: String { name }
+    }
+
+    struct CommittedPreeditReplayCase: CustomTestStringConvertible, Sendable {
+        let name: String
+        let keyCode: UInt16
+        let modifiers: NSEvent.ModifierFlags
+        let shouldReplay: Bool
         var testDescription: String { name }
     }
 
@@ -55,6 +71,31 @@ struct GhosttyKeyEventPlanTests {
             keyboardLayoutIDAfter: "layout-b",
             shouldAbortKeyDown: false
         ),
+    ]
+
+    static let composingSuppressionCases: [ComposingSuppressionCase] = [
+        .init(name: "control character while composing", text: "\u{8}", composing: true, shouldSuppress: true),
+        .init(name: "unit separator while composing", text: "\u{1F}", composing: true, shouldSuppress: true),
+        .init(name: "control character outside composition", text: "\u{8}", composing: false, shouldSuppress: false),
+        .init(name: "missing text while composing", text: nil, composing: true, shouldSuppress: false),
+        .init(
+            name: "multi-character control text while composing", text: "\u{3}x", composing: true, shouldSuppress: false
+        ),
+        .init(name: "printable text while composing", text: "あ", composing: true, shouldSuppress: false),
+        .init(name: "delete character while composing", text: "\u{7F}", composing: true, shouldSuppress: false),
+    ]
+
+    static let committedPreeditReplayCases: [CommittedPreeditReplayCase] = [
+        .init(name: "down arrow", keyCode: 0x7D, modifiers: [], shouldReplay: true),
+        .init(name: "right arrow", keyCode: 0x7C, modifiers: [], shouldReplay: true),
+        .init(name: "up arrow", keyCode: 0x7E, modifiers: [], shouldReplay: true),
+        .init(name: "plain left arrow", keyCode: 0x7B, modifiers: [], shouldReplay: false),
+        .init(name: "shift left arrow", keyCode: 0x7B, modifiers: .shift, shouldReplay: true),
+        .init(name: "control left arrow", keyCode: 0x7B, modifiers: .control, shouldReplay: true),
+        .init(name: "option left arrow", keyCode: 0x7B, modifiers: .option, shouldReplay: true),
+        .init(name: "command left arrow", keyCode: 0x7B, modifiers: .command, shouldReplay: true),
+        .init(name: "caps-lock left arrow", keyCode: 0x7B, modifiers: .capsLock, shouldReplay: false),
+        .init(name: "escape", keyCode: 0x35, modifiers: [], shouldReplay: false),
     ]
 
     struct ModifierCase: CustomTestStringConvertible, Sendable {
@@ -111,6 +152,38 @@ struct GhosttyKeyEventPlanTests {
 
         #expect(shouldAbortKeyDown == testCase.shouldAbortKeyDown)
         #expect(layoutIDReads == (testCase.hasMarkedTextBefore ? 0 : 1))
+    }
+
+    @Test("single control characters are suppressed only while composing", arguments: composingSuppressionCases)
+    func composingSuppressionDecision(testCase: ComposingSuppressionCase) {
+        #expect(
+            shouldSuppressComposingControlInput(testCase.text, composing: testCase.composing)
+                == testCase.shouldSuppress
+        )
+    }
+
+    @Test(
+        "committed preedit replays only navigation keys that still affect the terminal",
+        arguments: committedPreeditReplayCases)
+    func committedPreeditReplayDecision(testCase: CommittedPreeditReplayCase) {
+        #expect(
+            shouldReplayCommittedPreeditKey(keyCode: testCase.keyCode, modifierFlags: testCase.modifiers)
+                == testCase.shouldReplay
+        )
+    }
+
+    @Test("key event plans preserve the composing state")
+    func keyEventPlanComposingState() throws {
+        let event = try Self.keyEvent(.keyDown, characters: "a", flags: [], keyCode: 0)
+
+        let plan = ghosttyKeyEventPlan(
+            for: event,
+            action: GHOSTTY_ACTION_PRESS,
+            text: "a",
+            composing: true
+        )
+
+        #expect(plan.composing)
     }
 
     @Test("modifier events press or release by side and never read or send text", arguments: modifierCases)

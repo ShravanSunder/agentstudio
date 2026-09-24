@@ -12,6 +12,7 @@ struct GhosttyKeyEventPlan: Equatable {
     let unshiftedCodepoint: UInt32
     /// Printable text only; control characters are encoded by Ghostty.
     let text: String?
+    let composing: Bool
 }
 
 /// The AppKit event used to translate a key under Ghostty's configured
@@ -78,7 +79,8 @@ func ghosttyKeyEventPlan(
     for event: NSEvent,
     action: ghostty_input_action_e,
     text: String?,
-    translationModifiers: NSEvent.ModifierFlags? = nil
+    translationModifiers: NSEvent.ModifierFlags? = nil,
+    composing: Bool = false
 ) -> GhosttyKeyEventPlan {
     var unshiftedCodepoint: UInt32 = 0
     if event.type == .keyDown || event.type == .keyUp,
@@ -95,7 +97,8 @@ func ghosttyKeyEventPlan(
             from: (translationModifiers ?? event.modifierFlags).subtracting([.control, .command])
         ),
         unshiftedCodepoint: unshiftedCodepoint,
-        text: shouldSendKeyEventText(text) ? text : nil
+        text: shouldSendKeyEventText(text) ? text : nil,
+        composing: composing
     )
 }
 

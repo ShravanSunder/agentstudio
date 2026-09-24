@@ -66,8 +66,38 @@ extension Ghostty.SurfaceView {
             )
         else { return }
 
+        syncPreedit(clearIfNeeded: hasMarkedTextBefore)
+        let composing = markedText.length > 0 || hasMarkedTextBefore
+
+        if hasMarkedTextBefore,
+            let list = keyTextAccumulator,
+            !list.isEmpty
+        {
+            for text in list {
+                guard !shouldSuppressComposingControlInput(text, composing: composing) else { continue }
+                _ = committedTextAction(action, text: text)
+            }
+
+            if shouldReplayCommittedPreeditKey(
+                keyCode: translationEvent.keyCode,
+                modifierFlags: translationEvent.modifierFlags
+            ) {
+                sendKeyEvent(
+                    ghosttyKeyEventPlan(
+                        for: event,
+                        action: action,
+                        text: nil,
+                        translationModifiers: translationEvent.modifierFlags,
+                        composing: false
+                    )
+                )
+            }
+            return
+        }
+
         if let list = keyTextAccumulator, !list.isEmpty {
             for text in list {
+                guard !shouldSuppressComposingControlInput(text, composing: composing) else { continue }
                 sendKeyEvent(
                     ghosttyKeyEventPlan(
                         for: event,
@@ -78,12 +108,14 @@ extension Ghostty.SurfaceView {
                 )
             }
         } else {
+            guard !shouldSuppressComposingControlInput(event.characters, composing: composing) else { return }
             sendKeyEvent(
                 ghosttyKeyEventPlan(
                     for: event,
                     action: action,
                     text: ghosttyKeyEventText(for: translationEvent),
-                    translationModifiers: translationEvent.modifierFlags
+                    translationModifiers: translationEvent.modifierFlags,
+                    composing: composing
                 )
             )
         }
@@ -281,7 +313,7 @@ extension Ghostty.SurfaceView {
         keyEvent.action = plan.action
         keyEvent.mods = plan.mods
         keyEvent.keycode = plan.keycode
-        keyEvent.composing = false
+        keyEvent.composing = plan.composing
         keyEvent.unshifted_codepoint = plan.unshiftedCodepoint
         keyEvent.consumed_mods = plan.consumedMods
 
@@ -293,6 +325,40 @@ extension Ghostty.SurfaceView {
         } else {
             keyEvent.text = nil
             ghostty_surface_key(surface, keyEvent)
+        }
+    }
+
+    private func committedTextAction(_ action: ghostty_input_action_e, text: String) -> Bool {
+        guard let surface else { return false }
+
+        var keyEvent = ghostty_input_key_s()
+        keyEvent.action = action
+        keyEvent.keycode = 0
+        keyEvent.text = nil
+        keyEvent.composing = false
+        keyEvent.mods = GHOSTTY_MODS_NONE
+        keyEvent.consumed_mods = GHOSTTY_MODS_NONE
+        keyEvent.unshifted_codepoint = 0
+
+        return text.withCString { pointer in
+            keyEvent.text = pointer
+            return ghostty_surface_key(surface, keyEvent)
+        }
+    }
+
+    /// Syncs AppKit's marked text with Ghostty's preedit state.
+    private func syncPreedit(clearIfNeeded: Bool = true) {
+        guard let surface else { return }
+
+        if markedText.length > 0 {
+            let text = markedText.string
+            let utf8Length = text.utf8CString.count
+            guard utf8Length > 0 else { return }
+            text.withCString { pointer in
+                ghostty_surface_preedit(surface, pointer, UInt(utf8Length - 1))
+            }
+        } else if clearIfNeeded {
+            ghostty_surface_preedit(surface, nil, 0)
         }
     }
 
@@ -504,10 +570,16 @@ extension Ghostty.SurfaceView: @preconcurrency NSTextInputClient {
         } else if let attributedString = string as? NSAttributedString {
             markedText = NSMutableAttributedString(attributedString: attributedString)
         }
+
+        if keyTextAccumulator == nil {
+            syncPreedit()
+        }
     }
 
     package func unmarkText() {
-        markedText = NSMutableAttributedString()
+        guard markedText.length > 0 else { return }
+        markedText.mutableString.setString("")
+        syncPreedit()
     }
 
     package func selectedRange() -> NSRange {
