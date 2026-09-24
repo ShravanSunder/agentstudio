@@ -405,6 +405,9 @@ struct SwiftLaneReceiptTests {
         )
         #expect(half.contains("trap print_closing_lane_report EXIT\n    trap_lane_termination_signals\n"))
         #expect(half.contains("LANE_EVENT_STREAM_RETAIN_ALWAYS=1"))
+        // Each half reuses the parent's bundle, so its receipt says `reused` and is
+        // valid only when linked to the build receipt that prebuild published.
+        #expect(half.contains("    LANE_BUNDLE_STATE=reused\n"))
         #expect(half.contains("unset SWIFT_TEST_PARALLELIZATION_WIDTH"))
         #expect(half.contains("tee \"$ledger_directory/lane-output.log\""))
         // A passing run keeps its ledger when retention is forced.

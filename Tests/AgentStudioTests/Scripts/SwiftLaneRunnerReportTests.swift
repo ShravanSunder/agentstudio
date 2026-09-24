@@ -138,6 +138,7 @@ struct SwiftLaneRunnerReportTests {
                 "peak_running_parameterized_cases",
                 "receipt_valid",
                 "running_parameterized_cases_at_timeout",
+                "stack_sample",
                 "swift",
                 "task_dump",
                 "timeout_reap",

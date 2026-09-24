@@ -4,15 +4,13 @@ name: CI / Swift width comparison
 # width 3 (this runner's core count) and with the width unset, on that one bundle.
 # Both receipts and every event-stream ledger are kept whether each half passes or
 # fails. Neither result changes the default width, which stays unset.
-#
-# It carries no first-attempt gate on purpose: it is dispatch-only and never a
-# merge gate, so re-running it is another experiment, not a way to hide a red
-# required check.
 on:
   workflow_dispatch:
 
 permissions:
   contents: read
+  # The first-attempt gate reads a pull request's live labels.
+  issues: read
 
 jobs:
   swift-width-comparison:
@@ -23,6 +21,39 @@ jobs:
       XCB_EXTRA_ARGS: "--renderer github-actions"
 
     steps:
+      # The same first-attempt gate every ci.yml job starts with, copied because
+      # YAML anchors cannot cross files; CIFirstAttemptGateWorkflowTests pins the
+      # copy to the ci.yml step. A re-run of a dispatch has no pull request, so
+      # it fails here: a new comparison is a new dispatch.
+      - name: First-attempt gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+          EVENT_NAME: ${{ github.event_name }}
+          PULL_REQUEST_NUMBER: ${{ github.event.pull_request.number }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          override_label=ci-rerun-approved
+          if [ "$RUN_ATTEMPT" -le 1 ]; then
+            echo "first-attempt gate: attempt $RUN_ATTEMPT, nothing to check"
+            exit 0
+          fi
+          if [ "$EVENT_NAME" != "pull_request" ] || [ -z "${PULL_REQUEST_NUMBER:-}" ]; then
+            echo "::error::Re-run attempt $RUN_ATTEMPT of a $EVENT_NAME run is refused: only a pull request carrying the '$override_label' label may be re-run. Diagnose the red run and start a new one instead."
+            exit 1
+          fi
+          if ! labels="$(gh api --paginate "repos/$REPOSITORY/issues/$PULL_REQUEST_NUMBER/labels" --jq '.[].name' 2>&1)"; then
+            echo "::error::Re-run attempt $RUN_ATTEMPT refused: the labels of PR #$PULL_REQUEST_NUMBER could not be read, and the gate fails closed. $labels"
+            exit 1
+          fi
+          if grep -Fxq -- "$override_label" <<<"$labels"; then
+            echo "first-attempt gate: re-run attempt $RUN_ATTEMPT allowed by the '$override_label' label on PR #$PULL_REQUEST_NUMBER"
+            exit 0
+          fi
+          echo "::error::Re-run attempt $RUN_ATTEMPT refused: a red run is diagnosed, not re-run. Add the '$override_label' label to PR #$PULL_REQUEST_NUMBER to allow this re-run."
+          exit 1
+
       - name: Checkout
         uses: actions/checkout@v4
         with:

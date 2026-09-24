@@ -46,7 +46,9 @@ struct SwiftLaneHangEvidenceTests {
         let evidenceDirectory = workDirectory + "/ci-runs"
         try FileManager.default.createDirectory(atPath: workDirectory + "/bin", withIntermediateDirectories: true)
         try """
-        printf 'waiting\\tgate A\\tSuite.swift first()\\nwaiting\\tgate B\\tSuite.swift second()\\narrived\\tgate A\\n' \
+        printf 'waiting\\tstep-1\\tgate A\\tSuite.swift first()\\nwaiting\\tstep-2\\tgate B\\tSuite.swift second()\\n' \
+          >> "$AGENTSTUDIO_HELD_STEP_LOG"
+        printf 'arrived\\tstep-1\\tgate A\\n' \
           >> "$AGENTSTUDIO_HELD_STEP_LOG"
         while true; do sleep 1; done
 
@@ -77,7 +79,9 @@ struct SwiftLaneHangEvidenceTests {
         // The hang verdict is failed whatever evidence was gathered.
         #expect(laneOutput.contains("RETURNED=124"))
         // Only the wait that never arrived is named, before anything is reaped.
-        #expect(laneOutput.contains("lane-report held_step_unarrived name=gate B test=Suite.swift second()"))
+        #expect(
+            laneOutput.contains("lane-report held_step_unarrived name=gate B id=step-2 test=Suite.swift second()")
+        )
         #expect(!laneOutput.contains("held_step_unarrived name=gate A"))
         #expect(unarrivedRange.lowerBound < reapRange.lowerBound)
         // Dump, held-step log and ledger share one stem, side by side.
@@ -101,17 +105,23 @@ struct SwiftLaneHangEvidenceTests {
         }
     }
 
-    @Test("held-step waits are matched to arrivals in order, and a missing or empty log prints nothing")
-    func heldStepWaitsAreMatchedToArrivalsInOrder() async throws {
+    @Test("held-step waits are paired to arrivals by instance id, and a missing or empty log prints nothing")
+    func heldStepWaitsArePairedToArrivalsByInstanceID() async throws {
         let logDirectory = NSTemporaryDirectory() + "agentstudio-receipt-held-\(UUIDv7.generate())"
         defer { try? FileManager.default.removeItem(atPath: logDirectory) }
 
+        // TAB-separated, as the harness writes it; step names contain spaces.
+        // step-2 arrives before its wait is even logged, and shares its name with
+        // step-1, which never arrives: pairing by name would let step-2's arrival
+        // settle step-1's wait and hide the one step that is actually stuck.
         let report = try await laneBash(
             "mkdir -p '\(logDirectory)'; "
-                // TAB-separated, as the harness writes it: step names contain spaces.
-                + "printf 'waiting\\tsocket stop gate\\tListenerTests.swift one()\\n"
-                + "waiting\\tsocket stop gate\\tListenerTests.swift two()\\narrived\\tsocket stop gate\\n"
-                + "waiting\\tpane focus\\tFocusTests.swift three()\\n' > '\(logDirectory)/held.log'; "
+                + "printf 'waiting\\tstep-1\\tsocket stop gate\\tListenerTests.swift one()\\n"
+                + "arrived\\tstep-2\\tsocket stop gate\\n"
+                + "waiting\\tstep-2\\tsocket stop gate\\tListenerTests.swift two()\\n"
+                + "waiting\\tstep-3\\tpane focus\\tFocusTests.swift three()\\n"
+                + "arrived\\tstep-3\\tpane focus\\n"
+                + "waiting\\tstep-4\\tbridge retire\\tBridgeTests.swift four()\\n' > '\(logDirectory)/held.log'; "
                 + ": > '\(logDirectory)/empty.log'; "
                 + "LOG_PREFIX=lane; source scripts/swift-test-helpers.sh; "
                 + "print_held_steps_unarrived_at_timeout '\(logDirectory)/held.log'; echo MISSING:; "
@@ -122,14 +132,63 @@ struct SwiftLaneHangEvidenceTests {
 
         #expect(
             laneOutputLines(report) == [
-                // One arrival settles the earliest wait of that name.
-                "[lane] lane-report held_step_unarrived name=socket stop gate test=ListenerTests.swift two()",
-                "[lane] lane-report held_step_unarrived name=pane focus test=FocusTests.swift three()",
+                "[lane] lane-report held_step_unarrived name=socket stop gate id=step-1 test=ListenerTests.swift one()",
+                "[lane] lane-report held_step_unarrived name=bridge retire id=step-4 test=BridgeTests.swift four()",
                 "MISSING:",
                 "EMPTY:",
                 "UNSET:",
             ]
         )
+    }
+
+    @Test("a missing stack sampler does not cost the task dump, and each missing tool says why")
+    func missingStackSamplerDoesNotCostTheTaskDump() async throws {
+        let workDirectory = NSTemporaryDirectory() + "agentstudio-receipt-nosample-\(UUIDv7.generate())"
+        defer { try? FileManager.default.removeItem(atPath: workDirectory) }
+        for (toolDirectory, fakeInspector) in [
+            ("attaching", "echo TASKS; echo \"  Task 1 async backtrace: parkForever()\""),
+            ("refusing", "echo \"unable to get task for pid $3: (os/kern) failure 0x5\" >&2"),
+        ] {
+            try FileManager.default.createDirectory(
+                atPath: workDirectory + "/" + toolDirectory,
+                withIntermediateDirectories: true
+            )
+            try "#!/bin/bash\n\(fakeInspector)\n"
+                .write(toFile: workDirectory + "/\(toolDirectory)/xcrun", atomically: true, encoding: .utf8)
+            try FileManager.default.setAttributes(
+                [.posixPermissions: 0o755],
+                ofItemAtPath: workDirectory + "/\(toolDirectory)/xcrun"
+            )
+        }
+        func wedgedLane(inspectorDirectory: String) -> String {
+            "LOG_PREFIX=lane; TIMEOUT_SECONDS=2; BUILD_PATH=.build-agent-1; "
+                + "export LANE_EVENT_STREAM_DIR='\(workDirectory)/\(inspectorDirectory)-runs'; "
+                + "export LANE_STACK_SAMPLE_TOOL='\(workDirectory)/no-such-sample'; "
+                + "export PATH='\(workDirectory)/\(inspectorDirectory)':$PATH; "
+                + "source scripts/swift-test-helpers.sh; set +e; "
+                + "run_swift_with_timeout 'no sample probe' 2 /bin/bash -c 'while true; do sleep 1; done' "
+                + "AgentStudioPackageTests || returned=$?; echo \"RETURNED=${returned:-0}\"; "
+                + "echo \"DUMPS=$(ls -1 '\(workDirectory)/\(inspectorDirectory)-runs' | grep -c task-dump || true)\""
+        }
+
+        let samplerMissing = try await laneBashAllowingFailure(wedgedLane(inspectorDirectory: "attaching"))
+        let bothMissing = try await laneBashAllowingFailure(wedgedLane(inspectorDirectory: "refusing"))
+
+        for laneOutput in [samplerMissing, bothMissing] {
+            #expect(laneOutput.contains("RETURNED=124"))
+            #expect(
+                laneOutput.contains(
+                    "lane-report stack_sample=unavailable pid="
+                ) && laneOutput.contains("reason=\(workDirectory)/no-such-sample is not executable")
+            )
+        }
+        // The sampler was missing, and the dump was still taken and kept.
+        #expect(samplerMissing.contains("lane-report task_dump=\(workDirectory)/attaching-runs/lane-no-sample-probe-"))
+        #expect(!samplerMissing.contains("DUMPS=0"))
+        // With both tools unavailable, both say why, and the hang is still red.
+        #expect(bothMissing.contains("lane-report task_dump=unavailable pid="))
+        #expect(bothMissing.contains("reason=unable to get task for pid"))
+        #expect(bothMissing.contains("DUMPS=0"))
     }
 
     @Test("a task dump is kept beside the ledger, and a refused attach is recorded with its reason")

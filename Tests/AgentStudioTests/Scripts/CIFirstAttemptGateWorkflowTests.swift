@@ -42,6 +42,23 @@ struct CIFirstAttemptGateWorkflowTests {
         #expect(gateEnvironment["PULL_REQUEST_NUMBER"] == "${{ github.event.pull_request.number }}")
     }
 
+    @Test("the width comparison workflow starts with the same gate, since anchors cannot cross files")
+    func widthComparisonWorkflowStartsWithTheSameGate() async throws {
+        // A re-run of a dispatch has no pull request to carry the label, so it
+        // must fail too; the copy is pinned to the ci.yml step so they cannot drift.
+        let ciJobs = try #require(try await parsedWorkflow(at: ".github/workflows/ci.yml")["jobs"] as? [String: Any])
+        let widthWorkflow = try await parsedWorkflow(at: ".github/workflows/swift-width-comparison.yml")
+        let widthJobs = try #require(widthWorkflow["jobs"] as? [String: Any])
+        let gateStep = try firstStep(of: "code-quality", in: ciJobs)
+        let widthSteps = try steps(of: "swift-width-comparison", in: widthJobs)
+        let widthPermissions = try #require(widthWorkflow["permissions"] as? [String: String])
+
+        #expect(widthJobs.count == 1)
+        #expect(NSDictionary(dictionary: try #require(widthSteps.first)).isEqual(to: gateStep))
+        #expect(widthSteps.dropFirst().first?["name"] as? String == "Checkout")
+        #expect(widthPermissions["issues"] == "read")
+    }
+
     @Test("the gate passes first attempts and labelled re-runs, and fails every other re-run closed")
     func gatePassesFirstAttemptsAndLabelledRerunsOnly() async throws {
         let workflow = try await parsedWorkflow(at: ".github/workflows/ci.yml")

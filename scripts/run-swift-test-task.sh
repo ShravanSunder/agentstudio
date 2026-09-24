@@ -169,8 +169,8 @@ finish_lane_invocation() {
   fi
 }
 
-# One half of a width comparison: the fast lane on the bundle this invocation
-# already built, at one width. It is a subshell with its own opening and closing
+# One half of a width comparison: the fast lane, at one width, reusing the bundle
+# this invocation already built. It is a subshell with its own opening and closing
 # receipt, and it keeps every event-stream ledger it writes, pass or fail, in a
 # directory named for its width and that bundle, beside the half's full output.
 #
@@ -192,6 +192,9 @@ run_width_comparison_half() {
       unset SWIFT_TEST_PARALLELIZATION_WIDTH
     fi
     LOG_PREFIX="test-fast-width-$(swift_test_parallelization_width_label)"
+    # The half runs on the bundle its parent built, so its receipt says so and
+    # is valid only when linked to the build receipt that prebuild published.
+    LANE_BUNDLE_STATE=reused
     LANE_EVENT_STREAM_DIR="$ledger_directory"
     LANE_EVENT_STREAM_RETAIN_ALWAYS=1
     print_opening_lane_report

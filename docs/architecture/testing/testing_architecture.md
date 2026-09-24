@@ -123,7 +123,7 @@ calls those same mise tasks; it never recreates a raw `swift test` command.
 | fast | `test:swift:fast` | Everything not claimed by another lane, run concurrently inside one process by Swift Testing itself, then the isolated process-global phases |
 | large | `test:swift:large` | `Script`, `SourceScan`, `Smoke`, `Integration` families and named heavy suites (`large_non_webkit_filter_pattern`), then a serial phase for subprocess workload fixtures, then its own isolated process-global phase |
 | WebKit | `test:swift:webkit` | Real WKWebView runtime suites, one filter at a time. A teardown signal crash fails the lane and the receipt names the suite and signal; the runner never retries |
-| width comparison | `test:swift:width-comparison` | One prebuild, then the fast lane at width 3 and with the width unset on that same bundle. Each half prints its own receipt and keeps every ledger under `tmp/plan-workflows/ci-runs/width-comparison/`. It is an experiment, not a pull-request gate, and it never changes the default width |
+| width comparison | `test:swift:width-comparison` | One prebuild, then the fast lane at width 3 and with the width unset on that same bundle. Each half prints its own receipt as a `reused` bundle linked to that prebuild's build receipt and keeps every ledger under `tmp/plan-workflows/ci-runs/width-comparison/`. It is an experiment, not a pull-request gate, and it never changes the default width |
 | E2E | `test:swift:e2e` | `E2ESerializedTests`; inside `mise run test` only when `SWIFT_TEST_INCLUDE_E2E=1` |
 | zmx E2E | `test:swift:zmx-e2e` | `ZmxE2ETests`; opt-in, not a pull-request gate |
 | benchmark | `test:swift:benchmark` | The two benchmark suites; post-merge, not a pull-request gate |
@@ -397,17 +397,20 @@ signal.
    gathers the evidence itself before anything is terminated, and keeps it
    beside the ledger under one stem, `lane-<label>-<time>-<pid>`. CI uploads
    all three with the ledgers:
-   - `…-pid<pid>.task-dump.txt`: one task dump per sampled test process. When
-     the tool cannot attach, the receipt says
+   - `…-pid<pid>.task-dump.txt`: one task dump per stuck test process, taken
+     whether or not the thread sampler (`sample`) is available. Each tool that
+     cannot run says why: `stack_sample=unavailable reason=…` and
      `task_dump=unavailable reason=…`. It cannot attach to a binary without
      `get-task-allow`, and `swift-inspect` exits 0 even then, which is why the
      runner judges success by the dump's content.
    - `….held-steps.log`: the lane hands each test process this path as
      `AGENTSTUDIO_HELD_STEP_LOG`. The causal-test harness appends one
      TAB-separated line per event, because step names contain spaces:
-     `waiting<TAB><name><TAB><fileID function>` and `arrived<TAB><name>`. The
-     hang report prints every wait that never arrived as
-     `held_step_unarrived name=<name> test=<fileID function>`.
+     `waiting<TAB><instance id><TAB><name><TAB><fileID function>` and
+     `arrived<TAB><instance id><TAB><name>`. Waits and arrivals pair by instance
+     id, so one step's arrival cannot hide another same-named step's missing
+     one. The hang report prints every wait that never arrived as
+     `held_step_unarrived name=<name> id=<id> test=<fileID function>`.
    - `….events.jsonl`: the event ledger itself.
 
    The hang verdict is failed whatever evidence was gathered.

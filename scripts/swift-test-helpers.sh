@@ -197,6 +197,8 @@ swift_test_running_case_ids_from_events() {
 # instead.
 LANE_EVENT_STREAM_DIR="${LANE_EVENT_STREAM_DIR:-tmp/plan-workflows/ci-runs}"
 LANE_EVENT_STREAM_KEEP_PER_LABEL="${LANE_EVENT_STREAM_KEEP_PER_LABEL:-5}"
+# The thread-stack sampler a hang report uses; the task dump does not depend on it.
+LANE_STACK_SAMPLE_TOOL="${LANE_STACK_SAMPLE_TOOL:-/usr/bin/sample}"
 
 # Lane labels are prose ("native-concurrent fast non-WebKit suites"), so they are
 # slugged before reaching a filename.
@@ -250,36 +252,38 @@ lane_evidence_stem() {
 
 # The held steps a hung lane was still waiting on. The causal-test harness
 # appends one TAB-separated line per event, with a single O_APPEND write:
-# `waiting<TAB><name><TAB><fileID function>` when a test parks on a held step
-# and `arrived<TAB><name>` when the step is reached. Names contain spaces, so
-# only tabs separate fields. Each arrival matches the earliest unmatched wait of
-# that name, and every wait left unmatched is printed. A missing or empty log
-# prints nothing.
+#   waiting<TAB><instance id><TAB><name><TAB><fileID function>
+#   arrived<TAB><instance id><TAB><name>
+# Names contain spaces, so only tabs separate fields. An arrival settles only
+# the wait with the same instance id: two steps can share a name, and one
+# instance arriving (even before any wait was logged) must not hide another
+# instance's missing arrival. Every wait left unmatched is printed, in the
+# order it was logged. A missing or empty log prints nothing.
 print_held_steps_unarrived_at_timeout() {
   local held_step_log="${1:-}"
   local held_step_name
+  local held_step_id
   local held_step_test
 
   [ -n "$held_step_log" ] && [ -s "$held_step_log" ] || return 0
   /usr/bin/awk -F '\t' '
-    $1 == "waiting" && NF >= 2 && $2 != "" {
-      wait_count[$2]++
-      waiting[$2, wait_count[$2]] = $3
-      order_name[++order_count] = $2
-      order_index[order_count] = wait_count[$2]
+    $1 == "waiting" && NF >= 3 && $2 != "" {
+      if (!($2 in waiting_name)) { order_id[++order_count] = $2 }
+      waiting_name[$2] = $3
+      waiting_test[$2] = $4
       next
     }
-    $1 == "arrived" && NF >= 2 { arrival_count[$2]++ }
+    $1 == "arrived" && NF >= 2 && $2 != "" { arrived[$2] = 1 }
     END {
       for (position = 1; position <= order_count; position++) {
-        name = order_name[position]
-        if (order_index[position] > arrival_count[name]) {
-          printf "%s\t%s\n", name, waiting[name, order_index[position]]
+        instance_id = order_id[position]
+        if (!(instance_id in arrived)) {
+          printf "%s\t%s\t%s\n", waiting_name[instance_id], instance_id, waiting_test[instance_id]
         }
       }
     }
-  ' "$held_step_log" 2>/dev/null | while IFS=$'\t' read -r held_step_name held_step_test; do
-    echo "[$LOG_PREFIX] lane-report held_step_unarrived name=$held_step_name test=$held_step_test"
+  ' "$held_step_log" 2>/dev/null | while IFS=$'\t' read -r held_step_name held_step_id held_step_test; do
+    echo "[$LOG_PREFIX] lane-report held_step_unarrived name=$held_step_name id=$held_step_id test=$held_step_test"
   done || true
 }
 
@@ -1433,11 +1437,9 @@ sample_stuck_swift_test_processes() {
   local evidence_stem="${3:-$(lane_evidence_stem "$label")}"
   local sampled_count=0
 
-  if [ ! -x /usr/bin/sample ]; then
-    echo "[$LOG_PREFIX] sample unavailable; skipping stuck Swift test stack capture"
-    return 0
-  fi
-
+  # Each process gets a stack sample and a task dump, attempted independently:
+  # the two tools are separately available, and a missing one must not cost the
+  # evidence the other can still give.
   local process_pid
   for process_pid in $(descendant_process_pids "$root_pid"); do
     local process_command
@@ -1463,14 +1465,22 @@ sample_stuck_swift_test_process() {
   local label="$1"
   local process_pid="$2"
   local sample_file
+  local sample_status=0
 
+  if [ ! -x "$LANE_STACK_SAMPLE_TOOL" ]; then
+    echo "[$LOG_PREFIX] lane-report stack_sample=unavailable pid=$process_pid" \
+      "reason=$LANE_STACK_SAMPLE_TOOL is not executable"
+    return 0
+  fi
   sample_file="$(mktemp "${TMPDIR:-/tmp}/agentstudio-swift-test-sample.XXXXXX")"
   echo "[$LOG_PREFIX] sampling stuck Swift test process pid=$process_pid for '$label'"
-  if /usr/bin/sample "$process_pid" 3 1 -file "$sample_file" >/dev/null 2>&1; then
+  "$LANE_STACK_SAMPLE_TOOL" "$process_pid" 3 1 -file "$sample_file" >/dev/null 2>&1 || sample_status=$?
+  if [ "$sample_status" -eq 0 ]; then
     echo "[$LOG_PREFIX] sampled stuck Swift test process pid=$process_pid:"
     sed -n '1,220p' "$sample_file" | sed "s/^/[$LOG_PREFIX] /" || true
   else
-    echo "[$LOG_PREFIX] sample failed for Swift test process pid=$process_pid"
+    echo "[$LOG_PREFIX] lane-report stack_sample=unavailable pid=$process_pid" \
+      "reason=$LANE_STACK_SAMPLE_TOOL exited $sample_status"
   fi
   rm -f "$sample_file"
 }
