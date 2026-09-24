@@ -129,12 +129,13 @@ struct AppIPCStartOutcomeTraceTests {
                 == .serverStartFailed)
     }
 
-    @Test("a started server records app.ipc.start started")
-    func startedServerIsRecorded() async throws {
+    @Test("a server starts under a 0755 data root and records app.ipc.start started")
+    func serverStartsUnderGroupReadableDataRoot() async throws {
         let trace = StartupTraceCapture()
         let windowLifecycleStore = WindowLifecycleAtom()
         windowLifecycleStore.recordFirstInteractiveFramePublished(source: .presented)
         let harness = try makeServerCapableAppIPCTestHarness(windowLifecycleStore: windowLifecycleStore)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: harness.rootDirectory.path)
         harness.appDelegate.startupTraceRecorder = trace.recorder
         do {
             harness.appDelegate.scheduleAppIPCInitialization()
