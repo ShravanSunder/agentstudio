@@ -58,6 +58,34 @@ func shouldReplayCommittedPreeditKey(
     }
 }
 
+// MARK: - UTF-16 Surrogate Handling
+
+struct GhosttyLeadSurrogate: Equatable, Sendable {
+    let codeUnit: Unicode.UTF16.CodeUnit
+
+    init?(_ text: NSString) {
+        guard text.length == 1 else { return nil }
+        let codeUnit = text.character(at: 0)
+        guard Unicode.UTF16.isLeadSurrogate(codeUnit) else { return nil }
+        self.codeUnit = codeUnit
+    }
+
+    func encode(trail: GhosttyTrailSurrogate) -> String {
+        String(decoding: [codeUnit, trail.codeUnit], as: Unicode.UTF16.self)
+    }
+}
+
+struct GhosttyTrailSurrogate: Equatable, Sendable {
+    let codeUnit: Unicode.UTF16.CodeUnit
+
+    init?(_ text: NSString) {
+        guard text.length == 1 else { return nil }
+        let codeUnit = text.character(at: 0)
+        guard Unicode.UTF16.isTrailSurrogate(codeUnit) else { return nil }
+        self.codeUnit = codeUnit
+    }
+}
+
 /// Converts NSEvent modifier flags to Ghostty modifier bitmask
 func ghosttyMods(from flags: NSEvent.ModifierFlags) -> ghostty_input_mods_e {
     var mods = GHOSTTY_MODS_NONE.rawValue

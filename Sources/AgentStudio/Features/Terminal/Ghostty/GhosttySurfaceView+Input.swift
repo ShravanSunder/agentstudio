@@ -540,14 +540,22 @@ extension Ghostty.SurfaceView {
 extension Ghostty.SurfaceView: @preconcurrency NSTextInputClient {
     package func insertText(_ string: Any, replacementRange: NSRange) {
         guard NSApp.currentEvent != nil else { return }
-        guard let surface else { return }
 
-        let text: String
-        if let str = string as? String {
-            text = str
-        } else if let attrStr = string as? NSAttributedString {
-            text = attrStr.string
-        } else {
+        var text = ""
+        switch string {
+        case let attributedString as NSAttributedString:
+            text = attributedString.string
+        case let inputString as NSString:
+            if let lead = GhosttyLeadSurrogate(inputString) {
+                leadSurrogate = lead
+            } else if let trail = GhosttyTrailSurrogate(inputString) {
+                text = leadSurrogate?.encode(trail: trail) ?? ""
+                leadSurrogate = nil
+            } else {
+                text = inputString as String
+                leadSurrogate = nil
+            }
+        default:
             return
         }
 
@@ -559,8 +567,8 @@ extension Ghostty.SurfaceView: @preconcurrency NSTextInputClient {
             return
         }
 
-        text.withCString { ptr in
-            ghostty_surface_text(surface, ptr, UInt(text.utf8.count))
+        if !text.isEmpty {
+            _ = committedTextAction(GHOSTTY_ACTION_PRESS, text: text)
         }
     }
 

@@ -186,6 +186,21 @@ struct GhosttyKeyEventPlanTests {
         #expect(plan.composing)
     }
 
+    @Test("split UTF-16 surrogate input joins into one committed scalar")
+    func splitSurrogateInputJoinsIntoOneScalar() {
+        let leadText = Self.nsString(codeUnits: [0xD83D])
+        let trailText = Self.nsString(codeUnits: [0xDE00])
+
+        guard let lead = GhosttyLeadSurrogate(leadText), let trail = GhosttyTrailSurrogate(trailText) else {
+            #expect(Bool(false))
+            return
+        }
+
+        #expect(lead.encode(trail: trail) == "😀")
+        #expect(GhosttyLeadSurrogate(Self.nsString(codeUnits: [0xD83D, 0xDE00])) == nil)
+        #expect(GhosttyTrailSurrogate(Self.nsString(codeUnits: [0xD83D, 0xDE00])) == nil)
+    }
+
     @Test("modifier events press or release by side and never read or send text", arguments: modifierCases)
     func modifierEventPlan(testCase: ModifierCase) throws {
         // Arrange
@@ -405,5 +420,12 @@ struct GhosttyKeyEventPlanTests {
                 keyCode: keyCode
             )
         )
+    }
+
+    private static func nsString(codeUnits: [UInt16]) -> NSString {
+        codeUnits.withUnsafeBufferPointer { buffer in
+            guard let characters = buffer.baseAddress else { return NSString(string: "") }
+            return NSString(characters: characters, length: buffer.count)
+        }
     }
 }
