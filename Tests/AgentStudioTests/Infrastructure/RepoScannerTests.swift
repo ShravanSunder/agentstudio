@@ -1,6 +1,6 @@
+import AgentStudioTestHarness
 import Foundation
 import Testing
-import os
 
 @testable import AgentStudioInfrastructure
 
@@ -619,14 +619,9 @@ struct RepoScannerClassificationTests {
 }
 
 /// Runs a fixture `git` command to exit with no per-test time limit; the lane's hang
-/// bound is the only elapsed-time bound on the child. The exit arrives through
-/// `terminationHandler`, so no cooperative thread is parked, both streams go to files so
-/// a large output cannot fill a pipe, and cancelling the task terminates the child.
-///
-/// This duplicates `runProcessToExit` in AgentStudioTestSupport because
-/// AgentStudioInfrastructureTests must not depend on TestSupport
-/// (testing_architecture.md, Test target ownership). Move both into
-/// AgentStudioTestHarness, which Infrastructure tests may use.
+/// bound is the only elapsed-time bound on the child. Both streams go to files so a
+/// large output cannot fill a pipe, and `AgentStudioTestHarness` owns cancellable
+/// launch and exit observation shared with other test targets.
 private func runFixtureGitToExit(arguments: [String]) async throws -> FixtureGitResult {
     let captureDirectory = try FileManager.default.url(
         for: .itemReplacementDirectory,
@@ -651,27 +646,7 @@ private func runFixtureGitToExit(arguments: [String]) async throws -> FixtureGit
     process.arguments = ["git"] + arguments
     process.standardOutput = standardOutputHandle
     process.standardError = standardErrorHandle
-    let exitCode = try await withTaskCancellationHandler {
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Int32, any Error>) in
-            let pendingContinuation = OSAllocatedUnfairLock<CheckedContinuation<Int32, any Error>?>(
-                initialState: continuation
-            )
-            process.terminationHandler = { exitedProcess in
-                pendingContinuation.withLock { $0.take() }?.resume(returning: exitedProcess.terminationStatus)
-            }
-            do {
-                try process.run()
-            } catch {
-                process.terminationHandler = nil
-                pendingContinuation.withLock { $0.take() }?.resume(throwing: error)
-            }
-        }
-    } onCancel: {
-        if process.isRunning {
-            process.terminate()
-        }
-    }
-    try Task.checkCancellation()
+    let exitCode = try await awaitProcessExit(process)
     return FixtureGitResult(
         exitCode: exitCode,
         standardError: String(data: try Data(contentsOf: standardErrorURL), encoding: .utf8) ?? ""

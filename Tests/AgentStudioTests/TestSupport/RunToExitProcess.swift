@@ -1,5 +1,5 @@
+import AgentStudioTestHarness
 import Foundation
-import os
 
 /// What a subprocess left behind once it exited: its status and both streams,
 /// untrimmed.
@@ -70,28 +70,7 @@ package func runProcessToExit(
     process.standardOutput = standardOutputHandle
     process.standardError = standardErrorHandle
 
-    let terminationStatus = try await withTaskCancellationHandler {
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Int32, any Error>) in
-            // The handler is installed before `run()` so an exit can never be missed, and the
-            // continuation is taken exactly once whichever of exit or launch failure comes first.
-            let pendingContinuation = OSAllocatedUnfairLock<CheckedContinuation<Int32, any Error>?>(
-                initialState: continuation
-            )
-            process.terminationHandler = { exitedProcess in
-                pendingContinuation.withLock { $0.take() }?.resume(returning: exitedProcess.terminationStatus)
-            }
-            do {
-                try process.run()
-            } catch {
-                process.terminationHandler = nil
-                pendingContinuation.withLock { $0.take() }?.resume(throwing: error)
-            }
-        }
-    } onCancel: {
-        if process.isRunning {
-            process.terminate()
-        }
-    }
+    let terminationStatus = try await awaitProcessExit(process)
     try Task.checkCancellation()
 
     return ExitedProcessOutput(

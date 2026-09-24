@@ -375,6 +375,7 @@ let package = Package(
             name: "AgentStudioInfrastructureTests",
             dependencies: [
                 "AgentStudioInfrastructure",
+                "AgentStudioTestHarness",
                 .product(name: "GRDB", package: "GRDB.swift"),
                 .product(name: "Metrics", package: "swift-metrics"),
                 .product(name: "Tracing", package: "swift-distributed-tracing"),

@@ -1,4 +1,5 @@
 import AgentStudioIPCTransport
+import AgentStudioTestHarness
 import Foundation
 import Testing
 
@@ -232,22 +233,10 @@ private func decodeRequestInChildProcess(_ payload: String) async throws -> Deco
     process.environment = ProcessInfo.processInfo.environment.merging(
         ["AGENTSTUDIO_JSONRPC_CODEC_UPPER_BOUNDARY_PROBE": "1"]
     ) { _, newValue in newValue }
-    typealias ChildExit = (status: Int32, reason: Process.TerminationReason)
-    let childExit: ChildExit = try await withCheckedThrowingContinuation { continuation in
-        process.terminationHandler = { exitedProcess in
-            continuation.resume(
-                returning: (status: exitedProcess.terminationStatus, reason: exitedProcess.terminationReason))
-        }
-        do {
-            try process.run()
-        } catch {
-            process.terminationHandler = nil
-            continuation.resume(throwing: error)
-        }
-    }
+    let exitStatus = try await awaitProcessExit(process)
     return .init(
-        exitStatus: childExit.status,
-        terminationReason: childExit.reason,
+        exitStatus: exitStatus,
+        terminationReason: process.terminationReason,
         standardError: String(data: try Data(contentsOf: standardErrorURL), encoding: .utf8) ?? ""
     )
 }
