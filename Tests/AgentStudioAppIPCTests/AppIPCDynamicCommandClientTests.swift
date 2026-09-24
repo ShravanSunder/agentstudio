@@ -231,6 +231,37 @@ struct AppIPCDynamicCommandClientTests {
         #expect(scenario.commandPort.receivedExecutionRequests == [request])
     }
 
+    @Test("built CLI reports terminal wait timeout by its documented reason")
+    func builtCLIRendersTerminalWaitTimeout() async throws {
+        let paneId = UUIDv7.generate()
+        let fixture = try LiveServerFixture(
+            accessMode: .unsafeDebug,
+            channel: .debug,
+            panes: [makePaneSummary(id: paneId, ordinal: 1)]
+        )
+        defer { fixture.cleanup() }
+        try fixture.server.start()
+
+        let result = try await runCLI(
+            executableURL: cliExecutableURL(),
+            arguments: [
+                "terminal.wait",
+                "--handle", paneId.uuidString,
+                "--condition", "titleChanged",
+                "--timeout-seconds", "1",
+            ],
+            environment: makeCLIEnvironment(socketPath: fixture.paths.socketURL.path)
+        )
+        let structuredError = try requireStructuredCLIError(result)
+        let errorObject = try #require(
+            JSONSerialization.jsonObject(with: result.standardError) as? [String: Any]
+        )
+
+        #expect(structuredError.reason == "timeout")
+        #expect(Set(errorObject.keys) == ["reason"])
+        #expect(errorObject["reason"] as? String == "timeout")
+    }
+
     @Test("built CLI renders an unknown dynamic command correction without reflecting its identifier")
     func builtCLIRendersUnknownDynamicCommandCorrection() async throws {
         let scenario = try DynamicCommandScenario.make()

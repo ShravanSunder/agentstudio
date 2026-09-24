@@ -117,7 +117,7 @@ package struct IPCTerminalMethodDescriptors: Sendable {
             principalAvailability: .authenticated,
             resultSemantics: .accepted,
             documentedErrors: IPCBuiltInDescriptorSupport.documentedErrors(
-                Self.terminalErrors, agentEligibility: .ownPane),
+                Self.terminalWaitErrors, agentEligibility: .ownPane),
             isMutating: false,
             correlationPolicy: .notAccepted,
             agentEligibility: .ownPane
@@ -129,6 +129,19 @@ package struct IPCTerminalMethodDescriptors: Sendable {
             IPCBuiltInDescriptorSupport.invalidParams,
             IPCBuiltInDescriptorSupport.targetNotFound,
             .init(reason: "runtimeNotReady", description: "The terminal runtime cannot accept the request."),
+        ]
+    }
+
+    private static var terminalWaitErrors: [IPCMethodErrorCase] {
+        Self.terminalErrors + [
+            .init(
+                reason: "timeout",
+                description: "The condition was not observed before the bounded timeout"
+            ),
+            .init(
+                reason: "replayGap",
+                description: "Events after `afterSequence` are no longer retained"
+            ),
         ]
     }
 

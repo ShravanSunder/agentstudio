@@ -144,6 +144,19 @@ struct IPCBuiltInMethodCatalogTests {
         #expect(properties["timeoutSeconds"]?["maximum"] as? Double == suppliedMaximum)
     }
 
+    @Test("terminal wait documents timeout and replay-gap runtime failures")
+    func terminalWaitDocumentsTimeoutAndReplayGap() throws {
+        let catalog = try makeCatalog(waitMaximum: 9)
+        let documentedErrors = Dictionary(
+            uniqueKeysWithValues: catalog.terminal.terminalWait.documentedErrors.map {
+                ($0.reason, $0.description)
+            }
+        )
+
+        #expect(documentedErrors["timeout"] == "The condition was not observed before the bounded timeout")
+        #expect(documentedErrors["replayGap"] == "Events after `afterSequence` are no longer retained")
+    }
+
     @Test("Bridge search retains text default and the 4096 UTF-16-unit limit")
     func bridgeSearchPreservesExistingWireRules() throws {
         let catalog = try makeCatalog(waitMaximum: 9)

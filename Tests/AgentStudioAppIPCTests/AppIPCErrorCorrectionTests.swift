@@ -1,12 +1,34 @@
-import AgentStudioAppIPC
 import AgentStudioIPCTransport
 import AgentStudioInfrastructure
 import AgentStudioProgrammaticControl
 import Foundation
 import Testing
 
+@testable import AgentStudioAppIPC
+
 @Suite("App IPC finite error corrections", .serialized)
 struct AppIPCErrorCorrectionTests {
+    @Test("runtime errors preserve codes and expose canonical data reasons")
+    func runtimeErrorsPreserveCodesAndExposeCanonicalReasons() {
+        let cases: [(AppIPCRuntimeError.Reason, Int, JSONValue?)] = [
+            (.targetNotFound, -32_004, .object(["reason": .string("targetNotFound")])),
+            (.noRuntime, -32_005, .object(["reason": .string("runtimeNotReady")])),
+            (.runtimeNotReady, -32_005, .object(["reason": .string("runtimeNotReady")])),
+            (.backendUnavailable, -32_005, .object(["reason": .string("runtimeNotReady")])),
+            (.validationRejected, -32_007, .object(["reason": .string("invalidParams")])),
+            (.timeout, -32_009, .object(["reason": .string("timeout")])),
+            (.replayGap, -32_010, .object(["reason": .string("replayGap")])),
+            (.unsupportedCommand, -32_003, nil),
+        ]
+
+        for (reason, expectedCode, expectedData) in cases {
+            let requestError = AgentStudioAppIPCRequestError(AppIPCRuntimeError(reason: reason))
+
+            #expect(requestError.code == expectedCode)
+            #expect(requestError.data == expectedData)
+        }
+    }
+
     @Test("a pane agent's cross-pane command is refused by name before execution")
     func crossPaneCommandIsNotYetAllowedForPaneAgent() async throws {
         let boundPaneId = UUIDv7.generate()
