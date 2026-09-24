@@ -1,20 +1,48 @@
+import AgentStudioCore
 import Foundation
 
-struct WorktreeAnnotationMarkdownPresentationContext: Equatable, Sendable {
-    let worktreeLabel: String
-    let comparisonLabel: String?
+enum WorktreeAnnotationMarkdownPresentationContext: Equatable, Sendable {
+    case git(worktreeLabel: String, comparisonLabel: String?)
+    case localDocument(documentLocation: BridgeDocumentLocation)
+
+    init(worktreeLabel: String, comparisonLabel: String?) {
+        self = .git(worktreeLabel: worktreeLabel, comparisonLabel: comparisonLabel)
+    }
+
+    func matches(_ subject: WorktreeAnnotationBatchSnapshotV3.SessionContext.Subject) -> Bool {
+        switch (subject, self) {
+        case (.git, .git): true
+        case (.localFile(let subjectLocation), .localDocument(let documentLocation)):
+            subjectLocation == documentLocation
+        default:
+            false
+        }
+    }
 }
 
 enum WorktreeAnnotationMarkdownProjector {
     static func project(
-        _ snapshot: WorktreeAnnotationBatchSnapshotV2,
+        _ snapshot: WorktreeAnnotationBatchSnapshotV3,
         presentation: WorktreeAnnotationMarkdownPresentationContext
     ) -> Data {
-        var markdown = "# Worktree annotation batch\n\n"
+        var markdown: String
+        switch snapshot.session.subject {
+        case .git:
+            markdown = "# Worktree annotation batch\n\n"
+        case .localFile:
+            markdown = "# Local document annotation batch\n\n"
+        }
         markdown += "Session: \(snapshot.session.label)\n"
-        markdown += "Worktree: \(inlineCode(presentation.worktreeLabel))\n"
-        if let comparisonLabel = presentation.comparisonLabel {
-            markdown += "Comparison: \(inlineCode(comparisonLabel))\n"
+        switch (snapshot.session.subject, presentation) {
+        case (.git, .git(let worktreeLabel, let comparisonLabel)):
+            markdown += "Worktree: \(inlineCode(worktreeLabel))\n"
+            if let comparisonLabel {
+                markdown += "Comparison: \(inlineCode(comparisonLabel))\n"
+            }
+        case (.localFile(let location), .localDocument):
+            markdown += "Document: \(inlineCode(location.canonicalPath))\n"
+        default:
+            break
         }
         for entry in snapshot.entries {
             markdown += "\n---\n\n"
@@ -27,7 +55,7 @@ enum WorktreeAnnotationMarkdownProjector {
         return Data(markdown.utf8)
     }
 
-    private static func context(for entry: WorktreeAnnotationBatchSnapshotV2.Entry) -> String {
+    private static func context(for entry: WorktreeAnnotationBatchSnapshotV3.Entry) -> String {
         let currentCoordinate: WorktreeAnnotationBatchSnapshot.Coordinate? =
             switch entry.placement {
             case .exact(let coordinate), .relocated(let coordinate): coordinate

@@ -3,10 +3,11 @@ import Foundation
 typealias WorktreeAnnotationBatchSnapshotV1 = WorktreeAnnotationBatchSnapshot
 
 enum WorktreeAnnotationBatchFormatVersion {
-    static let current = WorktreeAnnotationBatchSnapshotV2.currentFormatVersion
+    static let current = WorktreeAnnotationBatchSnapshotV3.currentFormatVersion
     static let supported = Set([
         WorktreeAnnotationBatchSnapshotV1.currentFormatVersion,
         WorktreeAnnotationBatchSnapshotV2.currentFormatVersion,
+        WorktreeAnnotationBatchSnapshotV3.currentFormatVersion,
     ])
 }
 
@@ -170,11 +171,13 @@ struct WorktreeAnnotationBatchSnapshotV2: Codable, Equatable, Sendable {
 enum WorktreeAnnotationStoredBatchDocument: Equatable, Sendable {
     case v1(WorktreeAnnotationBatchSnapshotV1)
     case v2(WorktreeAnnotationBatchSnapshotV2)
+    case v3(WorktreeAnnotationBatchSnapshotV3)
 
     var formatVersion: Int {
         switch self {
         case .v1(let snapshot): snapshot.formatVersion
         case .v2(let snapshot): snapshot.formatVersion
+        case .v3(let snapshot): snapshot.formatVersion
         }
     }
 
@@ -182,6 +185,7 @@ enum WorktreeAnnotationStoredBatchDocument: Equatable, Sendable {
         switch self {
         case .v1(let snapshot): snapshot.session.sessionID
         case .v2(let snapshot): snapshot.session.sessionID
+        case .v3(let snapshot): snapshot.session.sessionID
         }
     }
 
@@ -189,6 +193,7 @@ enum WorktreeAnnotationStoredBatchDocument: Equatable, Sendable {
         switch self {
         case .v1(let snapshot): snapshot.entries.map(\.messageID)
         case .v2(let snapshot): snapshot.entries.map(\.messageID)
+        case .v3(let snapshot): snapshot.entries.map(\.messageID)
         }
     }
 
@@ -196,6 +201,7 @@ enum WorktreeAnnotationStoredBatchDocument: Equatable, Sendable {
         switch self {
         case .v1(let snapshot): snapshot.entries.map(\.savedRevision)
         case .v2(let snapshot): snapshot.entries.map(\.savedRevision)
+        case .v3(let snapshot): snapshot.entries.map(\.savedRevision)
         }
     }
 
@@ -203,6 +209,7 @@ enum WorktreeAnnotationStoredBatchDocument: Equatable, Sendable {
         switch self {
         case .v1(let snapshot): snapshot.entries.map(\.batchOrdinal)
         case .v2(let snapshot): snapshot.entries.map(\.batchOrdinal)
+        case .v3(let snapshot): snapshot.entries.map(\.batchOrdinal)
         }
     }
 
@@ -222,6 +229,8 @@ enum WorktreeAnnotationStoredBatchDocument: Equatable, Sendable {
             return .v1(snapshot)
         case WorktreeAnnotationBatchSnapshotV2.currentFormatVersion:
             return .v2(try WorktreeAnnotationBatchProjector.decodeJSON(data))
+        case WorktreeAnnotationBatchSnapshotV3.currentFormatVersion:
+            return .v3(try WorktreeAnnotationBatchProjector.decodeJSONV3(data))
         default:
             throw WorktreeAnnotationBatchProjectorError.unsupportedFormatVersion
         }
@@ -232,6 +241,8 @@ enum WorktreeAnnotationStoredBatchDocument: Equatable, Sendable {
         case .v1(let snapshot):
             try WorktreeAnnotationBatchProjector.jsonData(forV1: snapshot)
         case .v2(let snapshot):
+            try WorktreeAnnotationBatchProjector.jsonData(for: snapshot)
+        case .v3(let snapshot):
             try WorktreeAnnotationBatchProjector.jsonData(for: snapshot)
         }
     }

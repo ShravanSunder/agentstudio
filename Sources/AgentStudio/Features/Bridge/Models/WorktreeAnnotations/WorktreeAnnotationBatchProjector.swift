@@ -8,9 +8,6 @@ enum WorktreeAnnotationBatchProjectorError: Error, Equatable, Sendable {
     case invalidGeneratedContext
     case savedMessageNotFound
     case unsupportedFormatVersion
-    /// Batch snapshot V2 names a Git repository and worktree; a local
-    /// document's session has neither.
-    case localSubjectUnsupported
 }
 
 enum WorktreeAnnotationBatchProjector {
@@ -34,7 +31,7 @@ enum WorktreeAnnotationBatchProjector {
         let savedRevision: Int
     }
 
-    static func makeSnapshot(_ input: Input) throws -> WorktreeAnnotationBatchSnapshotV2 {
+    static func makeSnapshot(_ input: Input) throws -> WorktreeAnnotationBatchSnapshotV3 {
         guard !input.selectedMessages.isEmpty else {
             throw WorktreeAnnotationBatchProjectorError.emptySelection
         }
@@ -46,7 +43,7 @@ enum WorktreeAnnotationBatchProjector {
         let selectionByMessageID = Dictionary(
             uniqueKeysWithValues: input.selectedMessages.map { ($0.messageID, $0.expectedSavedRevision) }
         )
-        var entries: [WorktreeAnnotationBatchSnapshotV2.Entry] = []
+        var entries: [WorktreeAnnotationBatchSnapshotV3.Entry] = []
         for threadDetail in input.sessionDetail.threads {
             guard case .located(let locatedOrigin) = threadDetail.thread.origin else {
                 if threadDetail.messages.contains(where: { selectionByMessageID[$0.id] != nil }) {
@@ -97,23 +94,26 @@ enum WorktreeAnnotationBatchProjector {
         }
         entries.sort(by: entryPrecedes)
         entries = entries.enumerated().map { ordinal, entry in
-            WorktreeAnnotationBatchSnapshotV2.Entry(
+            WorktreeAnnotationBatchSnapshotV3.Entry(
                 batchOrdinal: ordinal,
                 thread: entry.thread,
                 message: entry.message
             )
         }
-        guard case .git(let repositoryID, let worktreeID) = input.sessionDetail.session.subject else {
-            throw WorktreeAnnotationBatchProjectorError.localSubjectUnsupported
+        let subject: WorktreeAnnotationBatchSnapshotV3.SessionContext.Subject
+        switch input.sessionDetail.session.subject {
+        case .git(let repositoryID, let worktreeID):
+            subject = .git(repositoryID: repositoryID, worktreeID: worktreeID)
+        case .localFile(let location):
+            subject = .localFile(location)
         }
-        let snapshot = WorktreeAnnotationBatchSnapshotV2(
+        let snapshot = WorktreeAnnotationBatchSnapshotV3(
             batchID: input.batchID,
             createdAt: createdAtString(input.createdAt),
             session: .init(
                 sessionID: input.sessionDetail.session.id,
                 label: input.sessionLabel,
-                repositoryID: repositoryID,
-                worktreeID: worktreeID,
+                subject: subject,
                 lifecycle: input.sessionDetail.session.lifecycle,
                 sourceRelationship: input.sessionDetail.session.sourceRelationship
             ),
@@ -124,7 +124,7 @@ enum WorktreeAnnotationBatchProjector {
     }
 
     static func markdownData(
-        for snapshot: WorktreeAnnotationBatchSnapshotV2,
+        for snapshot: WorktreeAnnotationBatchSnapshotV3,
         presentation: WorktreeAnnotationMarkdownPresentationContext
     ) -> Data {
         WorktreeAnnotationMarkdownProjector.project(snapshot, presentation: presentation)
@@ -137,9 +137,27 @@ enum WorktreeAnnotationBatchProjector {
         return try encoder.encode(snapshot)
     }
 
+    static func jsonData(for snapshot: WorktreeAnnotationBatchSnapshotV3) throws -> Data {
+        try validate(snapshot)
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
+        return try encoder.encode(snapshot)
+    }
+
     static func decodeJSON(_ data: Data) throws -> WorktreeAnnotationBatchSnapshotV2 {
         let snapshot = try BridgeProductStrictJSON.decode(
             WorktreeAnnotationBatchSnapshotV2.self,
+            from: data,
+            memberVocabulary: WorktreeAnnotationBatchJSON.memberVocabulary,
+            maximumInputBytes: nil
+        )
+        try validate(snapshot)
+        return snapshot
+    }
+
+    static func decodeJSONV3(_ data: Data) throws -> WorktreeAnnotationBatchSnapshotV3 {
+        let snapshot = try BridgeProductStrictJSON.decode(
+            WorktreeAnnotationBatchSnapshotV3.self,
             from: data,
             memberVocabulary: WorktreeAnnotationBatchJSON.memberVocabulary,
             maximumInputBytes: nil
@@ -183,6 +201,68 @@ enum WorktreeAnnotationBatchProjector {
             }
             contextByThreadID[entry.threadID] = entry.thread
         }
+    }
+
+    static func validate(_ snapshot: WorktreeAnnotationBatchSnapshotV3) throws {
+        guard snapshot.schema == WorktreeAnnotationBatchSnapshotV3.schema else {
+            throw WorktreeAnnotationBatchProjectorError.invalidDocument
+        }
+        guard snapshot.formatVersion == WorktreeAnnotationBatchSnapshotV3.currentFormatVersion else {
+            throw WorktreeAnnotationBatchProjectorError.unsupportedFormatVersion
+        }
+        guard isRFC3339UTC(snapshot.createdAt),
+            isNonemptyContext(snapshot.session.label),
+            !snapshot.entries.isEmpty
+        else {
+            throw WorktreeAnnotationBatchProjectorError.invalidDocument
+        }
+        switch snapshot.session.subject {
+        case .git(let repositoryID, let worktreeID):
+            guard !repositoryID.isEmpty, !worktreeID.isEmpty else {
+                throw WorktreeAnnotationBatchProjectorError.invalidDocument
+            }
+        case .localFile(let location):
+            guard
+                snapshot.entries.allSatisfy({ entry in
+                    guard entry.origin.path == location.displayName,
+                        case .file = entry.origin.source
+                    else { return false }
+                    return switch entry.placement {
+                    case .exact(let coordinate), .relocated(let coordinate):
+                        coordinate.path == location.displayName && isFileSource(coordinate.source)
+                    case .outdated, .unavailable:
+                        true
+                    }
+                })
+            else {
+                throw WorktreeAnnotationBatchProjectorError.invalidDocument
+            }
+        }
+        guard snapshot.entries.enumerated().allSatisfy({ $0.offset == $0.element.batchOrdinal }),
+            Set(snapshot.entries.map(\.messageID)).count == snapshot.entries.count,
+            snapshot.entries.elementsEqual(snapshot.entries.sorted(by: entryPrecedes))
+        else {
+            throw WorktreeAnnotationBatchProjectorError.invalidDocument
+        }
+
+        var contextByThreadID: [WorktreeAnnotationThreadID: WorktreeAnnotationBatchSnapshotV2.ThreadContext] = [:]
+        for entry in snapshot.entries {
+            guard entry.messageOrdinal >= 0, entry.savedRevision > 0 else {
+                throw WorktreeAnnotationBatchProjectorError.invalidDocument
+            }
+            _ = try WorktreeAnnotationMessagePolicy.validate(entry.bodyMarkdown)
+            try validate(origin: entry.origin)
+            try validate(placement: entry.placement)
+            if let priorContext = contextByThreadID[entry.threadID], priorContext != entry.thread {
+                throw WorktreeAnnotationBatchProjectorError.invalidDocument
+            }
+            contextByThreadID[entry.threadID] = entry.thread
+        }
+    }
+
+    private static func isFileSource(_ source: WorktreeAnnotationBatchSnapshot.Source) -> Bool {
+        if case .file = source { return true }
+        return false
     }
 
     static func jsonData(forV1 snapshot: WorktreeAnnotationBatchSnapshotV1) throws -> Data {
@@ -437,8 +517,19 @@ enum WorktreeAnnotationBatchProjector {
     }
 
     private static func validateGeneratedContext(_ input: Input) throws {
-        let values = [input.sessionLabel, input.worktreeLabel] + (input.comparisonLabel.map { [$0] } ?? [])
-        guard values.allSatisfy(isNonemptyContext), !input.worktreeLabel.hasPrefix("/") else {
+        var values = [input.sessionLabel]
+        if case .git = input.sessionDetail.session.subject {
+            values.append(input.worktreeLabel)
+            if let comparisonLabel = input.comparisonLabel {
+                values.append(comparisonLabel)
+            }
+        }
+        guard values.allSatisfy(isNonemptyContext) else {
+            throw WorktreeAnnotationBatchProjectorError.invalidGeneratedContext
+        }
+        if case .git = input.sessionDetail.session.subject,
+            input.worktreeLabel.hasPrefix("/")
+        {
             throw WorktreeAnnotationBatchProjectorError.invalidGeneratedContext
         }
     }
@@ -563,7 +654,7 @@ enum WorktreeAnnotationBatchJSON {
             "origin", "path", "placement", "remoteName", "repositoryId", "resolution",
             "resolvedTargetOID", "reviewedHeadOID", "savedRevision", "schema", "session", "sessionId",
             "side", "source", "sourceIdentity", "sourceRelationship", "startLine", "status",
-            "symbolicTarget", "text", "thread", "threadId", "worktreeId",
+            "subject", "symbolicTarget", "text", "thread", "threadId", "documentLocation", "worktreeId",
         ])
     )
 }

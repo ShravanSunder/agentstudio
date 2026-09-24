@@ -1,3 +1,4 @@
+import AgentStudioCore
 import Foundation
 import Testing
 
@@ -35,6 +36,34 @@ struct WorktreeAnnotationOutputCoordinatorTests {
         }
         #expect(output.attempt.state == .succeeded)
         #expect(await fixture.recorder.events == ["prepare", "effect", "finalize"])
+    }
+
+    @Test("local output names its canonical document without Git labels")
+    func localOutputUsesCanonicalDocumentLabel() async throws {
+        let location = try #require(BridgeDocumentLocation(canonicalPath: "/tmp/notes.md"))
+        let fixture = makeCoordinatorFixture(
+            effectOutcome: .succeeded,
+            subject: .localFile(location)
+        )
+
+        let result = try await fixture.coordinator.executeNew(
+            fixture.request(worktreeLabel: "unrelated-review-worktree")
+        )
+
+        guard case .succeeded(let output) = result else {
+            Issue.record("Expected successful local document output")
+            return
+        }
+        guard case .v3(let snapshot) = output.canonicalSnapshot else {
+            Issue.record("Expected a V3 stored snapshot")
+            return
+        }
+        #expect(snapshot.session.subject == .localFile(location))
+        #expect(output.attempt.formatVersion == 3)
+        let markdown = try #require(String(data: output.attempt.exactBytes, encoding: .utf8))
+        #expect(markdown.contains("Document: `\(location.canonicalPath)`"))
+        #expect(!markdown.contains("Worktree:"))
+        #expect(!markdown.contains("Comparison:"))
     }
 
     @Test("JSON destination cancellation occurs before attempt preparation")
@@ -218,7 +247,7 @@ private struct OutputCoordinatorFixture {
     let recorder: OutputSequenceRecorder
     let detail: WorktreeAnnotationSessionDetail
     let selection: WorktreeAnnotationSQLiteRepository.OutputMessageSelection
-    let snapshot: WorktreeAnnotationBatchSnapshotV2
+    let snapshot: WorktreeAnnotationBatchSnapshotV3
 
     func request(
         outputKind: WorktreeAnnotationOutputKind = .clipboardMarkdown,
@@ -231,7 +260,7 @@ private struct OutputCoordinatorFixture {
             placementsByThreadID: [
                 detail.threads[0].thread.id: .init(
                     placement: .exact,
-                    currentPath: "Sources/Feature.swift",
+                    currentPath: annotationDocumentPath(for: detail.session.subject),
                     currentStartLine: 1,
                     currentEndLine: 1,
                     currentSourceIdentity: "source-1"
@@ -248,7 +277,8 @@ private func makeCoordinatorFixture(
     effectOutcome: WorktreeAnnotationOutputEffectOutcome,
     destinationOutcome: WorktreeAnnotationOutputDestinationOutcome = .selected(
         path: "/tmp/default-review-comments.json"
-    )
+    ),
+    subject: WorktreeAnnotationSubject = .git(repositoryID: "repository-1", worktreeID: "worktree-1")
 ) -> OutputCoordinatorFixture {
     let recorder = OutputSequenceRecorder()
     let store = TestOutputStore(recorder: recorder)
@@ -263,7 +293,8 @@ private func makeCoordinatorFixture(
     let detail = makeCoordinatorSessionDetail(
         sessionID: sessionID,
         threadID: threadID,
-        messageID: messageID
+        messageID: messageID,
+        subject: subject
     )
     let selection = WorktreeAnnotationSQLiteRepository.OutputMessageSelection(
         messageID: messageID,
@@ -294,16 +325,17 @@ private func makeCoordinatorFixture(
 private func makeCoordinatorSessionDetail(
     sessionID: WorktreeAnnotationSessionID,
     threadID: WorktreeAnnotationThreadID,
-    messageID: WorktreeAnnotationMessageID
+    messageID: WorktreeAnnotationMessageID,
+    subject: WorktreeAnnotationSubject
 ) -> WorktreeAnnotationSessionDetail {
     WorktreeAnnotationSessionDetail(
         session: .init(
             id: sessionID,
-            subject: .git(repositoryID: "repository-1", worktreeID: "worktree-1"),
+            subject: subject,
             lifecycle: .living,
             sourceRelationship: .applicable,
             acceptedSourceFingerprint: .init(
-                subject: .git(repositoryID: "repository-1", worktreeID: "worktree-1"),
+                subject: subject,
                 fileSourceIdentity: "source-1",
                 reviewComparisonOrigin: nil
             ),
@@ -319,7 +351,7 @@ private func makeCoordinatorSessionDetail(
                     sessionID: sessionID,
                     origin: .located(
                         .init(
-                            repositoryRelativePath: "Sources/Feature.swift",
+                            repositoryRelativePath: annotationDocumentPath(for: subject),
                             startLine: 1,
                             endLine: 1,
                             sourceRole: .file,
@@ -357,11 +389,15 @@ private func makeCoordinatorSessionDetail(
     )
 }
 
+private func annotationDocumentPath(for subject: WorktreeAnnotationSubject) -> String {
+    subject.localDocument?.displayName ?? "Sources/Feature.swift"
+}
+
 private func makeCoordinatorSnapshot(
     detail: WorktreeAnnotationSessionDetail,
     selection: WorktreeAnnotationSQLiteRepository.OutputMessageSelection,
     threadID: WorktreeAnnotationThreadID
-) -> WorktreeAnnotationBatchSnapshotV2 {
+) -> WorktreeAnnotationBatchSnapshotV3 {
     let initialAttemptID = WorktreeAnnotationOutputAttemptID(rawValue: outputCoordinatorTestUUID(10))
     return try! WorktreeAnnotationBatchProjector.makeSnapshot(
         .init(
@@ -372,7 +408,7 @@ private func makeCoordinatorSnapshot(
             placementsByThreadID: [
                 threadID: .init(
                     placement: .exact,
-                    currentPath: "Sources/Feature.swift",
+                    currentPath: annotationDocumentPath(for: detail.session.subject),
                     currentStartLine: 1,
                     currentEndLine: 1,
                     currentSourceIdentity: "source-1"
@@ -546,7 +582,7 @@ private actor TestOutputStore: WorktreeAnnotationOutputServiceAccess {
     func installRepeatSource(
         attemptID: WorktreeAnnotationOutputAttemptID,
         outputKind: WorktreeAnnotationOutputKind = .clipboardMarkdown,
-        snapshot: WorktreeAnnotationBatchSnapshotV2,
+        snapshot: WorktreeAnnotationBatchSnapshotV3,
         exactBytes: Data,
         destinationPath: String? = nil
     ) {
@@ -609,7 +645,7 @@ private actor TestOutputEffect: WorktreeAnnotationOutputEffect {
 private struct PreparedOutputProps {
     let attemptID: WorktreeAnnotationOutputAttemptID
     let outputKind: WorktreeAnnotationOutputKind
-    let snapshot: WorktreeAnnotationBatchSnapshotV2
+    let snapshot: WorktreeAnnotationBatchSnapshotV3
     let exactBytes: Data
     let destinationPath: String?
     let repeatedFromAttemptID: WorktreeAnnotationOutputAttemptID?
@@ -635,7 +671,7 @@ private func preparedOutput(_ props: PreparedOutputProps) -> WorktreeAnnotationS
             createdAt: Date(timeIntervalSince1970: 10),
             updatedAt: Date(timeIntervalSince1970: 10)
         ),
-        canonicalSnapshot: .v2(props.snapshot),
+        canonicalSnapshot: .v3(props.snapshot),
         memberships: props.snapshot.entries.map {
             .init(
                 messageID: $0.messageID,

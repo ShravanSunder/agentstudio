@@ -32,7 +32,7 @@ struct WorktreeAnnotationOutputSelectionTests {
 
         let resolvedRequests = await outputEffect.requests
         #expect(resolvedRequests.count == 2)
-        let resolvedPendingSnapshot = try WorktreeAnnotationBatchProjector.decodeJSON(
+        let resolvedPendingSnapshot = try WorktreeAnnotationBatchProjector.decodeJSONV3(
             try #require(resolvedRequests.first?.exactBytes)
         )
         #expect(
@@ -41,7 +41,7 @@ struct WorktreeAnnotationOutputSelectionTests {
         )
         #expect(resolvedPendingSnapshot.entries.first?.placement != .unavailable)
 
-        let allSnapshot = try WorktreeAnnotationBatchProjector.decodeJSON(
+        let allSnapshot = try WorktreeAnnotationBatchProjector.decodeJSONV3(
             try #require(resolvedRequests.last?.exactBytes)
         )
         #expect(
@@ -79,7 +79,7 @@ struct WorktreeAnnotationOutputSelectionTests {
 
         let reopenedRequests = await outputEffect.requests
         #expect(reopenedRequests.count == 3)
-        let reopenedPendingSnapshot = try WorktreeAnnotationBatchProjector.decodeJSON(
+        let reopenedPendingSnapshot = try WorktreeAnnotationBatchProjector.decodeJSONV3(
             try #require(reopenedRequests.last?.exactBytes)
         )
         #expect(
@@ -308,7 +308,7 @@ private func createSavedOutputRoot(
 }
 
 private func outputBodiesByMessageID(
-    _ snapshot: WorktreeAnnotationBatchSnapshotV2
+    _ snapshot: WorktreeAnnotationBatchSnapshotV3
 ) -> [WorktreeAnnotationMessageID: String] {
     Dictionary(uniqueKeysWithValues: snapshot.entries.map { ($0.messageID, $0.bodyMarkdown) })
 }

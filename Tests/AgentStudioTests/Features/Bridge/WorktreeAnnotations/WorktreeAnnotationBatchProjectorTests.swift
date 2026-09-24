@@ -1,3 +1,4 @@
+import AgentStudioCore
 import Foundation
 import Testing
 
@@ -5,19 +6,27 @@ import Testing
 
 @Suite("Worktree annotation batch projector")
 struct WorktreeAnnotationBatchProjectorTests {
-    @Test("new v2 snapshot order, authors, and Markdown are deterministic")
-    func deterministicExactV2SnapshotAndMarkdown() throws {
+    @Test("new v3 snapshot order, authors, and Git Markdown are deterministic")
+    func deterministicExactV3SnapshotAndMarkdown() throws {
         let fixture = makeBatchFixture()
         let snapshot = try WorktreeAnnotationBatchProjector.makeSnapshot(
             fixture.input(selectedMessages: fixture.selections.reversed())
         )
 
         #expect(snapshot.schema == "agentstudio.worktree-annotations.batch")
-        #expect(snapshot.formatVersion == 2)
+        #expect(snapshot.formatVersion == 3)
         #expect(snapshot.entries.map(\.batchOrdinal) == [0, 1])
         #expect(snapshot.entries.map(\.origin.path) == ["Sources/A.swift", "Sources/B.swift"])
         #expect(snapshot.entries.map(\.bodyMarkdown) == ["## Request A", "## Request B"])
         #expect(snapshot.entries.map(\.message.author.kind.rawValue) == ["human", "agent"])
+        let json = try WorktreeAnnotationBatchProjector.jsonData(for: snapshot)
+        let jsonObject = try #require(JSONSerialization.jsonObject(with: json) as? [String: Any])
+        let session = try #require(jsonObject["session"] as? [String: Any])
+        let subject = try #require(session["subject"] as? [String: Any])
+        #expect(subject["kind"] as? String == "git")
+        #expect(subject["repositoryId"] as? String == "repository-1")
+        #expect(subject["worktreeId"] as? String == "worktree-1")
+        #expect(try WorktreeAnnotationBatchProjector.decodeJSONV3(json) == snapshot)
 
         let markdown = try #require(
             String(
@@ -39,12 +48,51 @@ struct WorktreeAnnotationBatchProjectorTests {
         #expect(markdown.contains("Author: Agent\n\nMessage:\n\n## Request B"))
     }
 
-    @Test("exact v2 JSON round trips and rejects closed-contract violations")
-    func exactV2JSONRoundTripAndRejection() throws {
-        let fixture = makeBatchFixture()
+    @Test("local-file output uses a V3 canonical document subject")
+    func localFileOutputUsesV3CanonicalDocumentSubject() throws {
+        let location = try #require(BridgeDocumentLocation(canonicalPath: "/tmp/notes.md"))
+        let fixture = makeBatchFixture(localDocumentLocation: location)
         let snapshot = try WorktreeAnnotationBatchProjector.makeSnapshot(
             fixture.input(selectedMessages: fixture.selections)
         )
+        let json = try WorktreeAnnotationBatchProjector.jsonData(for: snapshot)
+        let object = try #require(JSONSerialization.jsonObject(with: json) as? [String: Any])
+        let session = try #require(object["session"] as? [String: Any])
+        let subject = try #require(session["subject"] as? [String: Any])
+
+        #expect(snapshot.formatVersion == 3)
+        #expect(subject["kind"] as? String == "localFile")
+        #expect(subject["documentLocation"] as? String == location.canonicalPath)
+        #expect(session["repositoryId"] == nil)
+        #expect(session["worktreeId"] == nil)
+        #expect(try WorktreeAnnotationBatchProjector.decodeJSONV3(json) == snapshot)
+        let stored = try WorktreeAnnotationStoredBatchDocument.decodeJSON(
+            json,
+            persistedFormatVersion: 3
+        )
+        #expect(stored == .v3(snapshot))
+
+        let markdown = try #require(
+            String(
+                data: WorktreeAnnotationBatchProjector.markdownData(
+                    for: snapshot,
+                    presentation: .localDocument(documentLocation: location)
+                ),
+                encoding: .utf8
+            )
+        )
+        #expect(markdown.contains("Document: `\(location.canonicalPath)`"))
+        #expect(!markdown.contains("Worktree:"))
+        #expect(!markdown.contains("Comparison:"))
+    }
+
+    @Test("exact v2 JSON round trips and rejects closed-contract violations")
+    func exactV2JSONRoundTripAndRejection() throws {
+        let fixture = makeBatchFixture()
+        let currentSnapshot = try WorktreeAnnotationBatchProjector.makeSnapshot(
+            fixture.input(selectedMessages: fixture.selections)
+        )
+        let snapshot = try makeV2Snapshot(from: currentSnapshot)
         let json = try WorktreeAnnotationBatchProjector.jsonData(for: snapshot)
         let decoded = try WorktreeAnnotationBatchProjector.decodeJSON(json)
         #expect(decoded == snapshot)
@@ -97,9 +145,10 @@ struct WorktreeAnnotationBatchProjectorTests {
     @Test("stored v1 remains strict and byte-stable under persisted-version dispatch")
     func storedV1StrictIdentityAndVersionDispatch() throws {
         let fixture = makeBatchFixture()
-        let v2 = try WorktreeAnnotationBatchProjector.makeSnapshot(
+        let currentSnapshot = try WorktreeAnnotationBatchProjector.makeSnapshot(
             fixture.input(selectedMessages: fixture.selections)
         )
+        let v2 = try makeV2Snapshot(from: currentSnapshot)
         let v2JSON = try WorktreeAnnotationBatchProjector.jsonData(for: v2)
         let v2JSONString = try #require(String(data: v2JSON, encoding: .utf8))
         let v1JSON = Data(
@@ -181,6 +230,27 @@ struct WorktreeAnnotationBatchProjectorTests {
     }
 }
 
+private func makeV2Snapshot(
+    from snapshot: WorktreeAnnotationBatchSnapshotV3
+) throws -> WorktreeAnnotationBatchSnapshotV2 {
+    guard case .git(let repositoryID, let worktreeID) = snapshot.session.subject else {
+        throw WorktreeAnnotationBatchProjectorError.invalidDocument
+    }
+    return WorktreeAnnotationBatchSnapshotV2(
+        batchID: snapshot.batchID,
+        createdAt: snapshot.createdAt,
+        session: .init(
+            sessionID: snapshot.session.sessionID,
+            label: snapshot.session.label,
+            repositoryID: repositoryID,
+            worktreeID: worktreeID,
+            lifecycle: snapshot.session.lifecycle,
+            sourceRelationship: snapshot.session.sourceRelationship
+        ),
+        entries: snapshot.entries
+    )
+}
+
 private struct BatchFixture {
     let sessionDetail: WorktreeAnnotationSessionDetail
     let selections: [WorktreeAnnotationSQLiteRepository.OutputMessageSelection]
@@ -202,15 +272,24 @@ private struct BatchFixture {
     }
 }
 
-private func makeBatchFixture(trailingBlankLineInFirstOrigin: Bool = false) -> BatchFixture {
+private func makeBatchFixture(
+    trailingBlankLineInFirstOrigin: Bool = false,
+    localDocumentLocation: BridgeDocumentLocation? = nil
+) -> BatchFixture {
     let sessionID = WorktreeAnnotationSessionID(rawValue: batchTestUUID(1))
+    let subject: WorktreeAnnotationSubject =
+        if let localDocumentLocation {
+            .localFile(localDocumentLocation)
+        } else {
+            .git(repositoryID: "repository-1", worktreeID: "worktree-1")
+        }
     let session = WorktreeAnnotationSession(
         id: sessionID,
-        subject: .git(repositoryID: "repository-1", worktreeID: "worktree-1"),
+        subject: subject,
         lifecycle: .living,
         sourceRelationship: .applicable,
         acceptedSourceFingerprint: .init(
-            subject: .git(repositoryID: "repository-1", worktreeID: "worktree-1"),
+            subject: subject,
             fileSourceIdentity: "file-source",
             reviewComparisonOrigin: nil
         ),
@@ -243,8 +322,9 @@ private func makeBatchFixture(trailingBlankLineInFirstOrigin: Bool = false) -> B
         let messageID = WorktreeAnnotationMessageID(rawValue: batchTestUUID(20 + specification.number))
         let sourceIdentity = "source-\(specification.number)"
         let includesTrailingBlankLine = trailingBlankLineInFirstOrigin && specification.number == 1
+        let path = localDocumentLocation?.displayName ?? specification.path
         let origin = WorktreeAnnotationLocatedOrigin(
-            repositoryRelativePath: specification.path,
+            repositoryRelativePath: path,
             startLine: specification.line,
             endLine: specification.line + (includesTrailingBlankLine ? 1 : 0),
             sourceRole: .file,
@@ -285,7 +365,7 @@ private func makeBatchFixture(trailingBlankLineInFirstOrigin: Bool = false) -> B
         selections.append(.init(messageID: messageID, expectedSavedRevision: 1))
         placements[threadID] = .init(
             placement: .exact,
-            currentPath: specification.path,
+            currentPath: path,
             currentStartLine: specification.line,
             currentEndLine: specification.line + (includesTrailingBlankLine ? 1 : 0),
             currentSourceIdentity: sourceIdentity

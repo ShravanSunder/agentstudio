@@ -501,7 +501,7 @@ struct WorktreeAnnotationSQLiteRepositoryTests {
                 attemptID: firstAttemptID,
                 sessionID: detail.session.id,
                 outputKind: .clipboardMarkdown,
-                formatVersion: 2,
+                formatVersion: 3,
                 contentType: "text/markdown; charset=utf-8",
                 canonicalSnapshot: firstSnapshot,
                 exactBytes: exactBytes,
@@ -770,7 +770,7 @@ private func verifyFinalizedOutputLocksSavedMessage(
             attemptID: attemptID,
             sessionID: detail.session.id,
             outputKind: .clipboardMarkdown,
-            formatVersion: 2,
+            formatVersion: 3,
             contentType: "text/markdown; charset=utf-8",
             canonicalSnapshot: snapshot,
             exactBytes: exactBytes,
@@ -889,7 +889,7 @@ private func verifyLaterSuccessHandlesClearedRevision(
             attemptID: repeatedAttemptID,
             sessionID: clearedDetail.session.id,
             outputKind: .clipboardMarkdown,
-            formatVersion: 2,
+            formatVersion: 3,
             contentType: "text/markdown; charset=utf-8",
             canonicalSnapshot: repeatedSnapshot,
             exactBytes: repeatedBytes,
@@ -919,7 +919,7 @@ private func makeOutputSnapshot(
     messageID: WorktreeAnnotationMessageID,
     savedRevision: Int,
     createdAt: Date
-) throws -> WorktreeAnnotationBatchSnapshotV2 {
+) throws -> WorktreeAnnotationBatchSnapshotV3 {
     try WorktreeAnnotationBatchProjector.makeSnapshot(
         .init(
             batchID: attemptID,

@@ -217,7 +217,7 @@ package actor WorktreeAnnotationOutputCoordinatorActor {
     }
 
     private struct MaterializedOutput: Sendable {
-        let snapshot: WorktreeAnnotationBatchSnapshotV2
+        let snapshot: WorktreeAnnotationBatchSnapshotV3
         let exactBytes: Data
         let contentType: String
         let markdownPresentation: WorktreeAnnotationMarkdownPresentationContext?
@@ -436,10 +436,16 @@ package actor WorktreeAnnotationOutputCoordinatorActor {
         )
         switch request.outputKind {
         case .clipboardMarkdown:
-            let presentation = WorktreeAnnotationMarkdownPresentationContext(
-                worktreeLabel: request.worktreeLabel,
-                comparisonLabel: request.comparisonLabel
-            )
+            let presentation: WorktreeAnnotationMarkdownPresentationContext
+            switch snapshot.session.subject {
+            case .git:
+                presentation = .init(
+                    worktreeLabel: request.worktreeLabel,
+                    comparisonLabel: request.comparisonLabel
+                )
+            case .localFile(let location):
+                presentation = .localDocument(documentLocation: location)
+            }
             return MaterializedOutput(
                 snapshot: snapshot,
                 exactBytes: WorktreeAnnotationBatchProjector.markdownData(

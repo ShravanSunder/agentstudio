@@ -13,7 +13,7 @@ extension WorktreeAnnotationSQLiteRepository {
         let outputKind: WorktreeAnnotationOutputKind
         let formatVersion: Int
         let contentType: String
-        let canonicalSnapshot: WorktreeAnnotationBatchSnapshotV2
+        let canonicalSnapshot: WorktreeAnnotationBatchSnapshotV3
         let exactBytes: Data
         let markdownPresentation: WorktreeAnnotationMarkdownPresentationContext?
         let destinationPath: String?
@@ -29,7 +29,7 @@ extension WorktreeAnnotationSQLiteRepository {
             outputKind: WorktreeAnnotationOutputKind,
             formatVersion: Int,
             contentType: String,
-            canonicalSnapshot: WorktreeAnnotationBatchSnapshotV2,
+            canonicalSnapshot: WorktreeAnnotationBatchSnapshotV3,
             exactBytes: Data,
             markdownPresentation: WorktreeAnnotationMarkdownPresentationContext?,
             destinationPath: String?,
@@ -104,7 +104,7 @@ extension WorktreeAnnotationSQLiteRepository {
             props.outputKind == .clipboardMarkdown
             ? "text/markdown; charset=utf-8"
             : "application/json; charset=utf-8"
-        guard props.formatVersion == WorktreeAnnotationBatchSnapshotV2.currentFormatVersion,
+        guard props.formatVersion == WorktreeAnnotationBatchSnapshotV3.currentFormatVersion,
             props.contentType == expectedContentType,
             props.canonicalSnapshot.createdAt == WorktreeAnnotationBatchProjector.createdAtString(props.now)
         else {
@@ -115,7 +115,7 @@ extension WorktreeAnnotationSQLiteRepository {
             guard props.destinationPath == nil, let markdownPresentation = props.markdownPresentation else {
                 throw WorktreeAnnotationRepositoryError.invalidState
             }
-            guard
+            guard markdownPresentation.matches(props.canonicalSnapshot.session.subject),
                 props.exactBytes
                     == WorktreeAnnotationBatchProjector.markdownData(
                         for: props.canonicalSnapshot,
@@ -255,6 +255,15 @@ extension WorktreeAnnotationSQLiteRepository {
     ) throws -> WorktreeAnnotationCommittedMutation<PreparedOutput> {
         try databaseWriter.write { database in
             let source = try loadPreparedOutput(database, attemptID: sourceAttemptID)
+            guard
+                let snapshotJSONString = try String.fetchOne(
+                    database,
+                    sql: "SELECT snapshot_json FROM annotation_output_attempt WHERE id = ?",
+                    arguments: [sourceAttemptID.databaseValue]
+                )
+            else {
+                throw WorktreeAnnotationRepositoryError.notFound
+            }
             guard source.attempt.state == .unknown else {
                 throw WorktreeAnnotationRepositoryError.invalidState
             }
@@ -272,8 +281,6 @@ extension WorktreeAnnotationSQLiteRepository {
                     throw WorktreeAnnotationRepositoryError.invalidState
                 }
             }
-            let snapshotJSON = try source.canonicalSnapshot.jsonData()
-            let snapshotJSONString = try Self.requireUTF8String(snapshotJSON)
             try database.execute(
                 sql: """
                     INSERT INTO annotation_output_attempt(
@@ -703,8 +710,7 @@ extension WorktreeAnnotationSQLiteRepository {
         let detail = try loadSessionDetail(database, sessionID: props.sessionID)
         let snapshot = props.canonicalSnapshot
         guard snapshot.session.sessionID == detail.session.id,
-            detail.session.subject
-                == .git(repositoryID: snapshot.session.repositoryID, worktreeID: snapshot.session.worktreeID),
+            snapshot.session.subject.domainValue == detail.session.subject,
             snapshot.session.lifecycle == detail.session.lifecycle,
             snapshot.session.sourceRelationship == detail.session.sourceRelationship
         else {

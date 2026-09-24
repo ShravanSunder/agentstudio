@@ -595,7 +595,7 @@ struct WorktreeAnnotationTransportAdapterTests {
         let requests = await outputEffect.requests
         #expect(requests.count == 2)
         for request in requests {
-            let snapshot = try WorktreeAnnotationBatchProjector.decodeJSON(request.exactBytes)
+            let snapshot = try WorktreeAnnotationBatchProjector.decodeJSONV3(request.exactBytes)
             #expect(snapshot.entries.map(\.messageID) == orderedMessageIDs)
             #expect(snapshot.entries.map(\.batchOrdinal) == Array(0..<130))
         }

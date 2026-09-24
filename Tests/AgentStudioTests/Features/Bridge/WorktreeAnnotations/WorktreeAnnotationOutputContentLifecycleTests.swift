@@ -64,7 +64,7 @@ struct WorktreeAnnotationOutputContentLifecycleTests {
         #expect(newestBody.data == fixture.exactBytes)
     }
 
-    @Test("strict output content contracts accept exactly stored versions one and two")
+    @Test("strict output content contracts accept exactly versions one, two, and three")
     func strictOutputContentContractsAcceptOnlySupportedVersions() throws {
         let descriptor: [String: Any] = [
             "attemptId": "00000000-0000-7000-8000-000000000015",
@@ -80,7 +80,7 @@ struct WorktreeAnnotationOutputContentLifecycleTests {
             "surface": "file",
         ]
 
-        for supportedVersion in [1, 2] {
+        for supportedVersion in [1, 2, 3] {
             let request = try BridgeProductStrictJSON.decode(
                 BridgeProductContentRequest.self,
                 from: try JSONSerialization.data(withJSONObject: [
@@ -114,7 +114,7 @@ struct WorktreeAnnotationOutputContentLifecycleTests {
             ["contentKind": "annotation.bytes"],
             ["contentType": "application/json; charset=utf-8"],
             ["formatVersion": 0],
-            ["formatVersion": 3],
+            ["formatVersion": 4],
             ["unexpected": true],
         ] {
             #expect(throws: (any Error).self) {
@@ -437,7 +437,7 @@ private func prepareSavedOutput(
             attemptID: attemptID,
             sessionID: savedFixture.detail.session.id,
             outputKind: .clipboardMarkdown,
-            formatVersion: 2,
+            formatVersion: 3,
             contentType: "text/markdown; charset=utf-8",
             canonicalSnapshot: snapshot,
             exactBytes: exactBytes,
@@ -519,7 +519,7 @@ private func createSavedLocatedMessage(
 private func makeSavedOutputSnapshot(
     attemptID: WorktreeAnnotationOutputAttemptID,
     savedFixture: SavedLocatedMessageFixture
-) throws -> WorktreeAnnotationBatchSnapshotV2 {
+) throws -> WorktreeAnnotationBatchSnapshotV3 {
     try WorktreeAnnotationBatchProjector.makeSnapshot(
         .init(
             batchID: attemptID,

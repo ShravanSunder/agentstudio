@@ -17,7 +17,7 @@ struct WorktreeAnnotationOutputRepositoryTests {
 
         let preparedRevision = try contentSessionRevision(preparedMutation)
         #expect(preparedRevision == fixture.detail.session.semanticRevision + 1)
-        #expect(prepared.canonicalSnapshot == .v2(fixture.snapshot))
+        #expect(prepared.canonicalSnapshot == .v3(fixture.snapshot))
         #expect(prepared.attempt.exactBytes == fixture.exactBytes)
         #expect(
             prepared.memberships == [
@@ -36,11 +36,11 @@ struct WorktreeAnnotationOutputRepositoryTests {
             )
         }
         #expect(storedSnapshotJSON.map { Data($0.utf8) } == fixture.snapshotJSON)
-        #expect(prepared.attempt.formatVersion == 2)
+        #expect(prepared.attempt.formatVersion == 3)
     }
 
-    @Test("new preparation rejects any non-v2 format declaration")
-    func newPreparationRejectsV1FormatDeclaration() throws {
+    @Test("new preparation rejects historical format declarations")
+    func newPreparationRejectsHistoricalFormatDeclaration() throws {
         let fixture = try makeOutputRepositoryFixture()
         let props = try fixture.prepareProps()
 
@@ -50,7 +50,7 @@ struct WorktreeAnnotationOutputRepositoryTests {
                     attemptID: props.attemptID,
                     sessionID: props.sessionID,
                     outputKind: props.outputKind,
-                    formatVersion: 1,
+                    formatVersion: 2,
                     contentType: props.contentType,
                     canonicalSnapshot: props.canonicalSnapshot,
                     exactBytes: props.exactBytes,
@@ -64,8 +64,11 @@ struct WorktreeAnnotationOutputRepositoryTests {
         }
     }
 
-    @Test("historical v1 inspection and repeat preserve exact stored document and effect bytes")
-    func historicalV1InspectionAndRepeatPreserveExactBytes() throws {
+    @Test(
+        "historical v1 and v2 inspection and repeat preserve exact stored document and effect bytes",
+        arguments: [1, 2]
+    )
+    func historicalInspectionAndRepeatPreserveExactBytes(formatVersion: Int) throws {
         let fixture = try makeOutputRepositoryFixture()
         let prepared = try fixture.repository.prepareOutput(fixture.prepareProps()).canonicalResult
         let unknown = try fixture.repository.markPreparedOutputAttemptsUnknown(
@@ -73,22 +76,29 @@ struct WorktreeAnnotationOutputRepositoryTests {
         )
         #expect(unknown.canonicalResult == 1)
         let unknownRevision = try contentSessionRevision(unknown)
-        let v2SnapshotJSONString = try #require(String(data: fixture.snapshotJSON, encoding: .utf8))
-        let v1SnapshotJSONString = v2SnapshotJSONString.replacingOccurrences(
-            of: "\"formatVersion\":2",
-            with: "\"formatVersion\":1"
-        )
-        let v1SnapshotJSON = Data(v1SnapshotJSONString.utf8)
-        let historicalExactBytes = Data("historical v1 exact bytes".utf8)
+        let v2Snapshot = try makeV2Snapshot(from: fixture.snapshot)
+        let v2SnapshotJSON = try WorktreeAnnotationBatchProjector.jsonData(for: v2Snapshot)
+        let v2SnapshotJSONString = try #require(String(data: v2SnapshotJSON, encoding: .utf8))
+        let historicalSnapshotJSONString =
+            " \n"
+            + (formatVersion == 1
+                ? v2SnapshotJSONString.replacingOccurrences(
+                    of: "\"formatVersion\":2",
+                    with: "\"formatVersion\":1"
+                )
+                : v2SnapshotJSONString)
+        let historicalSnapshotJSON = Data(historicalSnapshotJSONString.utf8)
+        let historicalExactBytes = Data("historical v\(formatVersion) exact bytes".utf8)
         try fixture.databaseQueue.write { database in
             try database.execute(
                 sql: """
                     UPDATE annotation_output_attempt
-                    SET format_version = 1, snapshot_json = ?, exact_bytes = ?
+                    SET format_version = ?, snapshot_json = ?, exact_bytes = ?
                     WHERE id = ?
                     """,
                 arguments: [
-                    v1SnapshotJSONString,
+                    formatVersion,
+                    historicalSnapshotJSONString,
                     historicalExactBytes,
                     prepared.attempt.id.databaseValue,
                 ]
@@ -96,7 +106,7 @@ struct WorktreeAnnotationOutputRepositoryTests {
         }
 
         let inspected = try fixture.repository.inspectOutputAttempt(attemptID: prepared.attempt.id)
-        #expect(inspected.canonicalSnapshot.formatVersion == 1)
+        #expect(inspected.canonicalSnapshot.formatVersion == formatVersion)
         #expect(inspected.attempt.exactBytes == historicalExactBytes)
 
         let repeatedAttemptID = WorktreeAnnotationOutputAttemptID(rawValue: testUUID(92))
@@ -108,7 +118,7 @@ struct WorktreeAnnotationOutputRepositoryTests {
         )
         let repeated = repeatedMutation.canonicalResult
         #expect(try contentSessionRevision(repeatedMutation) == unknownRevision + 1)
-        #expect(repeated.attempt.formatVersion == 1)
+        #expect(repeated.attempt.formatVersion == formatVersion)
         #expect(repeated.attempt.exactBytes == historicalExactBytes)
 
         let storedRows = try fixture.databaseQueue.read { database in
@@ -125,10 +135,35 @@ struct WorktreeAnnotationOutputRepositoryTests {
         }
         #expect(storedRows.count == 2)
         for row in storedRows {
-            #expect(row["format_version"] as Int == 1)
-            #expect(Data((row["snapshot_json"] as String).utf8) == v1SnapshotJSON)
+            #expect(row["format_version"] as Int == formatVersion)
+            #expect(Data((row["snapshot_json"] as String).utf8) == historicalSnapshotJSON)
             #expect(row["exact_bytes"] as Data == historicalExactBytes)
         }
+    }
+
+    @Test("V3 local output persists its canonical document and exact output bytes")
+    func v3LocalSubjectPreparationPersistsCanonicalDocumentAndExactBytes() throws {
+        let location = try #require(BridgeDocumentLocation(canonicalPath: "/tmp/notes.md"))
+        let fixture = try makeOutputRepositoryFixture(subject: .localFile(location))
+        let prepared = try fixture.repository.prepareOutput(fixture.prepareProps()).canonicalResult
+        let inspected = try fixture.repository.inspectOutputAttempt(attemptID: prepared.attempt.id)
+        let inspectedSnapshotObject = try #require(
+            JSONSerialization.jsonObject(with: fixture.snapshotJSON) as? [String: Any]
+        )
+        let inspectedSession = try #require(inspectedSnapshotObject["session"] as? [String: Any])
+        let inspectedSubject = try #require(inspectedSession["subject"] as? [String: Any])
+
+        #expect(inspected.canonicalSnapshot.formatVersion == 3)
+        #expect(inspected.canonicalSnapshot.sessionID == fixture.detail.session.id)
+        #expect(inspected.attempt.exactBytes == fixture.exactBytes)
+        #expect(inspectedSubject["kind"] as? String == "localFile")
+        #expect(inspectedSubject["documentLocation"] as? String == location.canonicalPath)
+        #expect(inspectedSession["repositoryId"] == nil)
+        #expect(inspectedSession["worktreeId"] == nil)
+        let markdown = try #require(String(data: inspected.attempt.exactBytes, encoding: .utf8))
+        #expect(markdown.contains("Document: `\(location.canonicalPath)`"))
+        #expect(!markdown.contains("Worktree:"))
+        #expect(!markdown.contains("Comparison:"))
     }
 
     @Test("inspection fails closed when persisted canonical semantics are malformed")
@@ -167,7 +202,7 @@ struct WorktreeAnnotationOutputRepositoryTests {
                 bodyMarkdown: "Fabricated output body"
             )
         )
-        let fabricatedSnapshot = WorktreeAnnotationBatchSnapshotV2(
+        let fabricatedSnapshot = WorktreeAnnotationBatchSnapshotV3(
             batchID: fixture.snapshot.batchID,
             createdAt: fixture.snapshot.createdAt,
             session: fixture.snapshot.session,
@@ -180,7 +215,7 @@ struct WorktreeAnnotationOutputRepositoryTests {
                     canonicalSnapshot: fabricatedSnapshot,
                     exactBytes: WorktreeAnnotationBatchProjector.markdownData(
                         for: fabricatedSnapshot,
-                        presentation: outputRepositoryMarkdownPresentation
+                        presentation: outputRepositoryMarkdownPresentation(for: fabricatedSnapshot)
                     )
                 )
             )
@@ -242,9 +277,9 @@ struct WorktreeAnnotationOutputRepositoryTests {
                     canonicalSnapshot: nextSnapshot,
                     exactBytes: WorktreeAnnotationBatchProjector.markdownData(
                         for: nextSnapshot,
-                        presentation: outputRepositoryMarkdownPresentation
+                        presentation: outputRepositoryMarkdownPresentation(for: nextSnapshot)
                     ),
-                    markdownPresentation: outputRepositoryMarkdownPresentation,
+                    markdownPresentation: outputRepositoryMarkdownPresentation(for: nextSnapshot),
                     destinationPath: nil,
                     repeatedFromAttemptID: nil,
                     selectedMessages: [
@@ -485,7 +520,7 @@ private struct OutputRepositoryFixture {
     let message: WorktreeAnnotationMessage
     let savedRevision: Int
     let attemptID: WorktreeAnnotationOutputAttemptID
-    let snapshot: WorktreeAnnotationBatchSnapshotV2
+    let snapshot: WorktreeAnnotationBatchSnapshotV3
     let snapshotJSON: Data
     let exactBytes: Data
 
@@ -493,7 +528,7 @@ private struct OutputRepositoryFixture {
         attemptID: WorktreeAnnotationOutputAttemptID? = nil,
         now: Date = Date(timeIntervalSince1970: 3),
         sessionDetail: WorktreeAnnotationSessionDetail? = nil,
-        canonicalSnapshot: WorktreeAnnotationBatchSnapshotV2? = nil,
+        canonicalSnapshot: WorktreeAnnotationBatchSnapshotV3? = nil,
         exactBytes: Data? = nil
     ) throws -> WorktreeAnnotationSQLiteRepository.PrepareOutputProps {
         let selectedAttemptID = attemptID ?? self.attemptID
@@ -514,19 +549,20 @@ private struct OutputRepositoryFixture {
                     comparisonLabel: nil
                 )
             )
+        let presentation = outputRepositoryMarkdownPresentation(for: selectedSnapshot)
         return .init(
             attemptID: selectedAttemptID,
             sessionID: selectedSessionDetail.session.id,
             outputKind: .clipboardMarkdown,
-            formatVersion: WorktreeAnnotationBatchSnapshotV2.currentFormatVersion,
+            formatVersion: WorktreeAnnotationBatchSnapshotV3.currentFormatVersion,
             contentType: "text/markdown; charset=utf-8",
             canonicalSnapshot: selectedSnapshot,
             exactBytes: exactBytes
                 ?? WorktreeAnnotationBatchProjector.markdownData(
                     for: selectedSnapshot,
-                    presentation: outputRepositoryMarkdownPresentation
+                    presentation: presentation
                 ),
-            markdownPresentation: outputRepositoryMarkdownPresentation,
+            markdownPresentation: presentation,
             destinationPath: nil,
             repeatedFromAttemptID: nil,
             selectedMessages: [
@@ -537,7 +573,9 @@ private struct OutputRepositoryFixture {
     }
 }
 
-private func makeOutputRepositoryFixture() throws -> OutputRepositoryFixture {
+private func makeOutputRepositoryFixture(
+    subject: WorktreeAnnotationSubject = .git(repositoryID: "repository-1", worktreeID: "worktree-1")
+) throws -> OutputRepositoryFixture {
     let databaseQueue = try SQLiteDatabaseFactory.makeInMemoryQueue()
     try WorkspaceLocalMigrations.migrate(databaseQueue)
     let repository = WorktreeAnnotationSQLiteRepository(databaseWriter: databaseQueue)
@@ -545,13 +583,13 @@ private func makeOutputRepositoryFixture() throws -> OutputRepositoryFixture {
         .init(
             admission: .implicitOrSingle,
             sourceFingerprint: .init(
-                subject: .git(repositoryID: "repository-1", worktreeID: "worktree-1"),
+                subject: subject,
                 fileSourceIdentity: "source-1",
                 reviewComparisonOrigin: nil
             ),
             origin: .located(
                 .init(
-                    repositoryRelativePath: "Sources/Feature.swift",
+                    repositoryRelativePath: subject.localDocument?.displayName ?? "Sources/Feature.swift",
                     startLine: 1,
                     endLine: 1,
                     sourceRole: .file,
@@ -606,15 +644,42 @@ private func makeOutputRepositoryFixture() throws -> OutputRepositoryFixture {
         snapshotJSON: WorktreeAnnotationBatchProjector.jsonData(for: snapshot),
         exactBytes: WorktreeAnnotationBatchProjector.markdownData(
             for: snapshot,
-            presentation: outputRepositoryMarkdownPresentation
+            presentation: outputRepositoryMarkdownPresentation(for: snapshot)
         )
     )
 }
 
-private let outputRepositoryMarkdownPresentation = WorktreeAnnotationMarkdownPresentationContext(
-    worktreeLabel: "agent-studio.review-comments",
-    comparisonLabel: nil
-)
+private func outputRepositoryMarkdownPresentation(
+    for snapshot: WorktreeAnnotationBatchSnapshotV3
+) -> WorktreeAnnotationMarkdownPresentationContext {
+    switch snapshot.session.subject {
+    case .git:
+        .init(worktreeLabel: "agent-studio.review-comments", comparisonLabel: nil)
+    case .localFile(let location):
+        .localDocument(documentLocation: location)
+    }
+}
+
+private func makeV2Snapshot(
+    from snapshot: WorktreeAnnotationBatchSnapshotV3
+) throws -> WorktreeAnnotationBatchSnapshotV2 {
+    guard case .git(let repositoryID, let worktreeID) = snapshot.session.subject else {
+        throw WorktreeAnnotationRepositoryError.invalidState
+    }
+    return WorktreeAnnotationBatchSnapshotV2(
+        batchID: snapshot.batchID,
+        createdAt: snapshot.createdAt,
+        session: .init(
+            sessionID: snapshot.session.sessionID,
+            label: snapshot.session.label,
+            repositoryID: repositoryID,
+            worktreeID: worktreeID,
+            lifecycle: snapshot.session.lifecycle,
+            sourceRelationship: snapshot.session.sourceRelationship
+        ),
+        entries: snapshot.entries
+    )
+}
 
 private func outputRepositoryPlacements(
     _ detail: WorktreeAnnotationSessionDetail
@@ -625,7 +690,7 @@ private func outputRepositoryPlacements(
                 threadDetail.thread.id,
                 .init(
                     placement: .exact,
-                    currentPath: "Sources/Feature.swift",
+                    currentPath: detail.session.subject.localDocument?.displayName ?? "Sources/Feature.swift",
                     currentStartLine: 1,
                     currentEndLine: 1,
                     currentSourceIdentity: "source-1"
