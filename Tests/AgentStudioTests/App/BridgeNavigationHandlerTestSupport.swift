@@ -96,6 +96,8 @@ final class RecordingReceiverPresentation: BridgeReceiverPresentation {
     private(set) var preparationCount = 0
     private(set) var activatedLocations: [BridgeDocumentLocation] = []
     private(set) var requestedSurfaces: [BridgeProductSurface] = []
+    var searchOutcome: BridgeFilesSearchOutcome = .unavailable(.noLivePage)
+    private(set) var searchedCriteria: [BridgeFilesSearchCriteria] = []
     private var heldArrival: CheckedContinuation<BridgeFileActivationArrival, Never>?
     private var heldActivationWaiter: CheckedContinuation<Void, Never>?
 
@@ -113,6 +115,11 @@ final class RecordingReceiverPresentation: BridgeReceiverPresentation {
             heldActivationWaiter?.resume()
             heldActivationWaiter = nil
         }
+    }
+
+    func searchFilesCollection(_ criteria: BridgeFilesSearchCriteria) async -> BridgeFilesSearchOutcome {
+        searchedCriteria.append(criteria)
+        return searchOutcome
     }
 
     @discardableResult

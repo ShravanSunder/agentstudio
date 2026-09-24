@@ -258,6 +258,10 @@ private final class FlushThenMoveCWDPresentation: BridgeReceiverPresentation {
         .cancelled
     }
 
+    func searchFilesCollection(_: BridgeFilesSearchCriteria) async -> BridgeFilesSearchOutcome {
+        .unavailable(.noLivePage)
+    }
+
     @discardableResult
     func requestViewerSurface(_: BridgeProductSurface) -> Bool { true }
 }

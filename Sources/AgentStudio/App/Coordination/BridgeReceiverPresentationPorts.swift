@@ -3,11 +3,13 @@ import AgentStudioCore
 import Foundation
 
 /// The mounted controller surface the navigation handler drives for one
-/// receiver: the editor barrier, exact File activation and surface requests.
+/// receiver: the editor barrier, exact File activation, collection search and
+/// surface requests.
 @MainActor
 protocol BridgeReceiverPresentation: AnyObject {
     func prepareActiveEditorsForNavigation() async -> BridgeEditorPreparationOutcome
     func activateFileDocument(_ location: BridgeDocumentLocation) async -> BridgeFileActivationArrival
+    func searchFilesCollection(_ criteria: BridgeFilesSearchCriteria) async -> BridgeFilesSearchOutcome
     @discardableResult
     func requestViewerSurface(_ surface: BridgeProductSurface) -> Bool
 }

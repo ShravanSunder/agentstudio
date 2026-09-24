@@ -433,6 +433,7 @@ function bridgePaneReplacementReplayIdentity(
 		case 'fileDisplayResync':
 		case 'fileRefreshRetry':
 		case 'fileSelectionReceipt':
+		case 'fileCollectionSearch':
 		case 'hover':
 		case 'markFileViewed':
 		case 'renderDisposition':

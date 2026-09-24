@@ -446,6 +446,7 @@ export function applyBridgeWorkerMessagesToFileViewerRenderSnapshotStore(props: 
 			case 'subscription':
 			case 'reviewComparisonTargetsQuery':
 			case 'reviewPublicationInstallAdmission':
+			case 'fileCollectionSearch':
 				break;
 			default:
 				assertNeverBridgeFileViewerWorkerServerMessage(message);

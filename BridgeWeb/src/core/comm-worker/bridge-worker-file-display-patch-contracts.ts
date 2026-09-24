@@ -199,7 +199,13 @@ const bridgeWorkerFileMemberGroupsDisplayPatchSchema = z.discriminatedUnion('ope
 	z
 		.object({
 			operation: z.literal('upsert'),
-			payload: z.object({ groups: bridgeProductFileMemberGroupListSchema }).strict(),
+			payload: z
+				.object({
+					groups: bridgeProductFileMemberGroupListSchema,
+					/** The native membership revision these groups belong to. */
+					membershipRevision: bridgeProductNonnegativeSequenceSchema,
+				})
+				.strict(),
 			slice: z.literal('fileMemberGroups'),
 		})
 		.strict(),

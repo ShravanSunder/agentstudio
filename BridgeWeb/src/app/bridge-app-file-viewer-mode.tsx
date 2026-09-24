@@ -20,6 +20,7 @@ import {
 	bridgeFileViewerDisplayModelForSnapshot,
 	type BridgeFileViewerDisplaySource,
 } from '../file-viewer/bridge-file-viewer-display-model.js';
+import { useBridgeFileViewerNativeCollectionSearch } from '../file-viewer/bridge-file-viewer-native-collection-search.js';
 import {
 	BridgeFileViewerSurfaceClientProvider,
 	useBridgeFileViewerRenderSnapshotController,
@@ -72,6 +73,7 @@ export function BridgeFileViewerMode(props: BridgeFileViewerModeProps): ReactEle
 	const isActiveRef = useRef(props.isActive);
 	isActiveRef.current = props.isActive;
 	useEffect((): (() => void) => startBridgeFrameLivenessProbe(), []);
+	useBridgeFileViewerNativeCollectionSearch(props.fileViewClient);
 	useEffect(
 		(): (() => void) =>
 			startBridgeFrameJankProbe({

@@ -62,6 +62,7 @@ import {
 	type BridgeWorkerSelectCommand,
 	type BridgeWorkerServerToMainMessage,
 } from './bridge-worker-contracts.js';
+import type { BridgeWorkerFileCollectionSearchCommand } from './bridge-worker-file-collection-search-contracts.js';
 import {
 	bridgeWorkerFileRenderPatchesFromSlicePatchEvent,
 	prepareBridgeWorkerFileRenderPatchEvent,
@@ -415,6 +416,9 @@ export function createBridgeCommWorkerCommandHandler(
 				...(props.updateFileDisplayQuery === undefined
 					? {}
 					: { updateFileDisplayQuery: props.updateFileDisplayQuery }),
+				...(props.searchFileCollection === undefined
+					? {}
+					: { searchFileCollection: props.searchFileCollection }),
 				...(props.updateReviewDisplayProjection === undefined
 					? {}
 					: { updateReviewDisplayProjection: props.updateReviewDisplayProjection }),
@@ -451,6 +455,9 @@ interface HandleBridgeWorkerCommandProps {
 	readonly updateFileMetadataDemand?: (demand: BridgeCommWorkerFileMetadataDemand) => void;
 	readonly updateFileDisplayQuery?: (
 		command: BridgeWorkerFileQueryUpdateCommand,
+	) => readonly BridgeWorkerServerToMainMessage[];
+	readonly searchFileCollection?: (
+		command: BridgeWorkerFileCollectionSearchCommand,
 	) => readonly BridgeWorkerServerToMainMessage[];
 	readonly updateReviewDisplayProjection?: (
 		command: BridgeWorkerReviewProjectionUpdateCommand,
@@ -512,6 +519,12 @@ function handleBridgeWorkerCommand(
 		case 'fileQueryUpdate':
 			return (
 				props.updateFileDisplayQuery?.(props.message) ?? [
+					buildBridgeWorkerUnimplementedHealthEvent(props.message),
+				]
+			);
+		case 'fileCollectionSearch':
+			return (
+				props.searchFileCollection?.(props.message) ?? [
 					buildBridgeWorkerUnimplementedHealthEvent(props.message),
 				]
 			);

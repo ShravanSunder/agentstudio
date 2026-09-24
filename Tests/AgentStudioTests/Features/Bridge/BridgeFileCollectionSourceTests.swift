@@ -11,7 +11,7 @@ struct BridgeFileCollectionSourceTests {
     @Test("two worktrees with equal relative paths and an opened document share one collection identity")
     func equalRelativePathsStayDistinctUnderOneIdentity() async throws {
         // Arrange
-        let fixture = try await FileCollectionFixture()
+        let fixture = try await BridgeFileCollectionTestFixture()
         defer { fixture.remove() }
         let collection = fixture.makeCollection(
             members: [fixture.alpha, fixture.beta],
@@ -96,7 +96,7 @@ struct BridgeFileCollectionSourceTests {
     @Test("a displayed key resolves back to its document only at the live source generation")
     func displayedKeysResolveBackToDocuments() async throws {
         // Arrange
-        let fixture = try await FileCollectionFixture()
+        let fixture = try await BridgeFileCollectionTestFixture()
         defer { fixture.remove() }
         let collection = fixture.makeCollection(
             members: [fixture.alpha, fixture.beta],
@@ -167,7 +167,7 @@ struct BridgeFileCollectionSourceTests {
     @Test("one failing member leaves the other members browsable and reports the failure")
     func failingMemberLeavesOthersBrowsable() async throws {
         // Arrange
-        let fixture = try await FileCollectionFixture()
+        let fixture = try await BridgeFileCollectionTestFixture()
         defer { fixture.remove() }
         let failingMember = BridgeFileCollectionMemberSource(
             worktreeId: fixture.beta.worktreeId,
@@ -202,7 +202,7 @@ struct BridgeFileCollectionSourceTests {
     @Test("a nested worktree's files are listed once, under the deepest member")
     func nestedWorktreeFilesAreListedOnce() async throws {
         // Arrange
-        let fixture = try await FileCollectionFixture()
+        let fixture = try await BridgeFileCollectionTestFixture()
         defer { fixture.remove() }
         let nestedRoot = fixture.alphaRoot.appending(path: ".worktrees/feature")
         try FileManager.default.createDirectory(at: nestedRoot, withIntermediateDirectories: true)
@@ -234,7 +234,7 @@ struct BridgeFileCollectionSourceTests {
     @Test("adding and removing sources later arrives as deltas and revokes only the removed source")
     func membershipChangesArriveAsDeltas() async throws {
         // Arrange
-        let fixture = try await FileCollectionFixture()
+        let fixture = try await BridgeFileCollectionTestFixture()
         defer { fixture.remove() }
         let collection = fixture.makeCollection(members: [fixture.alpha], openedDocuments: [])
         let collector = ProductFileMetadataEventCollector()
@@ -413,7 +413,9 @@ private func fileContentRequest(
     return request
 }
 
-private struct FileCollectionFixture {
+/// Two Git-free member roots with equal relative paths plus a loose document,
+/// shared by the collection source and collection search suites.
+struct BridgeFileCollectionTestFixture {
     let baseURL: URL
     let alphaRoot: URL
     let alpha: BridgeFileCollectionMemberSource

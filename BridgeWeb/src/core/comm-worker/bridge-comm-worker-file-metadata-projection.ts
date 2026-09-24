@@ -143,7 +143,11 @@ export class BridgeCommWorkerFileMetadataProjection {
 			case 'file.memberGroups': {
 				this.#memberGroupsRevision = event.membershipRevision;
 				patches = [
-					{ operation: 'upsert', payload: { groups: event.groups }, slice: 'fileMemberGroups' },
+					{
+						operation: 'upsert',
+						payload: { groups: event.groups, membershipRevision: event.membershipRevision },
+						slice: 'fileMemberGroups',
+					},
 				];
 				runtimeMutation = null;
 				break;

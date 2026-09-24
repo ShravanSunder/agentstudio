@@ -1,4 +1,9 @@
 import { compileBridgeFileTreeSearchPattern } from '../models/bridge-file-tree-search.js';
+import {
+	searchBridgeFileCollection,
+	type BridgeFileCollectionSearchCriteria,
+	type BridgeFileCollectionSearchResult,
+} from './bridge-comm-worker-file-collection-search.js';
 import type { BridgeCommWorkerFileDisplayEventAuthority } from './bridge-comm-worker-file-display-event-authority.js';
 import {
 	BRIDGE_WORKER_FILE_DISPLAY_PATCH_LIMIT,
@@ -142,6 +147,30 @@ export class BridgeCommWorkerFileQueryProjection {
 			[...projectedPatches, ...(queryStatusChanged ? [this.#publishedQueryStatusPatch()] : [])],
 			evaluatedRowCount,
 		);
+	}
+
+	/**
+	 * Search every listed row of the current source, independent of the
+	 * published viewer query. `complete` is false until the source's initial
+	 * tree was committed, so an empty result is not yet proof of absence.
+	 */
+	searchCollection(criteria: BridgeFileCollectionSearchCriteria): {
+		readonly complete: boolean;
+		readonly membershipRevision: number | null;
+		readonly result: BridgeFileCollectionSearchResult;
+		readonly source: { readonly sourceGeneration: number; readonly sourceId: string } | null;
+	} {
+		return {
+			complete: this.#fileTreeReplacementCommitted,
+			membershipRevision: this.#fileMemberGroupsPatch?.payload.membershipRevision ?? null,
+			result: searchBridgeFileCollection({
+				criteria,
+				memberGroups: this.#fileMemberGroupsPatch?.payload.groups ?? [],
+				rows: this.#rawRowsById.values(),
+			}),
+			source:
+				this.#fileTreeResetPatch.operation === 'reset' ? this.#fileTreeResetPatch.payload : null,
+		};
 	}
 
 	snapshotDisplayPatches(): readonly BridgeWorkerFileDisplayPatch[] {

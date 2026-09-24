@@ -368,6 +368,7 @@ function makeFileDisplayEvent(fileContents: string): BridgeWorkerFileDisplayPatc
 							worktreeId: positionReviewWorktreeId,
 						},
 					],
+					membershipRevision: 0,
 				},
 				slice: 'fileMemberGroups',
 			},

@@ -559,7 +559,11 @@ describe('Bridge comm worker File metadata projection', () => {
 		// Assert
 		expect(lateMembershipA.patches).toEqual([]);
 		expect(replacementGroups.patches).toEqual([
-			{ operation: 'upsert', payload: { groups: groupsB }, slice: 'fileMemberGroups' },
+			{
+				operation: 'upsert',
+				payload: { groups: groupsB, membershipRevision: 0 },
+				slice: 'fileMemberGroups',
+			},
 		]);
 		expect(lateReplacedSource.patches).toEqual([]);
 	});

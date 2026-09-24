@@ -18,6 +18,7 @@ import type {
 	BridgeWorkerRenderDispositionCommand,
 	BridgeWorkerServerToMainMessage,
 } from './bridge-worker-contracts.js';
+import type { BridgeWorkerFileCollectionSearchCommand } from './bridge-worker-file-collection-search-contracts.js';
 import type {
 	BridgeWorkerRenderFulfillmentIdentifierPurpose,
 	BridgeWorkerRenderFulfillmentRegistryContext,
@@ -58,6 +59,9 @@ export interface CreateBridgeCommWorkerCommandHandlerProps {
 	readonly updateFileMetadataDemand?: (demand: BridgeCommWorkerFileMetadataDemand) => void;
 	readonly updateFileDisplayQuery?: (
 		command: BridgeWorkerFileQueryUpdateCommand,
+	) => readonly BridgeWorkerServerToMainMessage[];
+	readonly searchFileCollection?: (
+		command: BridgeWorkerFileCollectionSearchCommand,
 	) => readonly BridgeWorkerServerToMainMessage[];
 	readonly updateReviewDisplayProjection?: (
 		command: BridgeWorkerReviewProjectionUpdateCommand,

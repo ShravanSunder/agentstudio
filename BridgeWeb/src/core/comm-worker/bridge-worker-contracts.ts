@@ -53,6 +53,10 @@ import {
 	bridgeWorkerAnnotationProjectionRetryCommandSchema,
 } from './bridge-worker-annotation-contracts.js';
 import {
+	bridgeWorkerFileCollectionSearchCommandSchema,
+	bridgeWorkerFileCollectionSearchEventSchema,
+} from './bridge-worker-file-collection-search-contracts.js';
+import {
 	BRIDGE_WORKER_FILE_DISPLAY_PATCH_LIMIT,
 	bridgeWorkerFileDisplayPatchSchema,
 } from './bridge-worker-file-display-patch-contracts.js';
@@ -327,6 +331,7 @@ export const bridgeWorkerMainToServerCommandSchema = z.discriminatedUnion('comma
 	bridgeWorkerFileQueryUpdateCommandSchema,
 	bridgeWorkerFileRefreshRetryCommandSchema,
 	bridgeWorkerFileSelectionReceiptCommandSchema,
+	bridgeWorkerFileCollectionSearchCommandSchema,
 	bridgeWorkerFileDisplayResyncCommandSchema,
 	bridgeWorkerRenderDispositionCommandSchema,
 ]);
@@ -823,6 +828,7 @@ export const bridgeWorkerFilePierreRenderJobEventSchema = bridgeWorkerServerToMa
 	});
 
 export const bridgeWorkerServerToMainMessageSchema = z.discriminatedUnion('kind', [
+	bridgeWorkerFileCollectionSearchEventSchema,
 	bridgeWorkerAnnotationCatalogStagingEventSchema,
 	bridgeWorkerAnnotationCommandAcceptedEventSchema,
 	bridgeWorkerAnnotationOutputInspectionEventSchema,
@@ -845,6 +851,7 @@ export const bridgeWorkerServerToMainMessageSchema = z.discriminatedUnion('kind'
 ]);
 
 export const bridgeWorkerServerToMainWireMessageSchema = z.discriminatedUnion('kind', [
+	bridgeWorkerFileCollectionSearchEventSchema,
 	bridgeWorkerAnnotationCatalogStagingEventSchema,
 	bridgeWorkerAnnotationCommandAcceptedEventSchema,
 	bridgeWorkerAnnotationOutputInspectionEventSchema,

@@ -43,6 +43,7 @@ export type BridgeCommWorkerTelemetryCommand =
 	| 'fileQueryUpdate'
 	| 'fileRefreshRetry'
 	| 'fileSelectionReceipt'
+	| 'fileCollectionSearch'
 	| 'fileSourceDiscovery'
 	| 'hover'
 	| 'markFileViewed'
