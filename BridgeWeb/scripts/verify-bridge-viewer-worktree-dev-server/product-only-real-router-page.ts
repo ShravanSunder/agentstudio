@@ -33,6 +33,7 @@ import {
 	bridgeViewerJourneyFailureCode,
 	BridgeViewerProductOnlyJourneyFailure,
 } from './product-only-real-router-failure.ts';
+import { BridgeViewerLegacyMetadataCompletion } from './product-only-real-router-legacy-completion.ts';
 import { installBridgeViewerBrowserErrorCapture } from './product-only-real-router-page-error.ts';
 import {
 	BridgeViewerReloadJoinDiagnosticRecorder,
@@ -411,9 +412,8 @@ async function readMainWindowProductRouteTranscript(
 export class BridgeViewerRealRouterObserver {
 	readonly #documentGenerations: BridgeViewerDocumentGenerations;
 	readonly #page: Page;
-	readonly #legacyCompletion: Promise<void>;
+	readonly #legacyCompletion = new BridgeViewerLegacyMetadataCompletion();
 	readonly #legacyEntries: MutableLegacyRouteTranscriptEntry[] = [];
-	#legacyMetadataObserved = false;
 	readonly #productEntries: MutableProductRouteTranscriptEntry[] = [];
 	readonly #productEntryByRequest = new WeakMap<
 		PlaywrightRequest,
@@ -429,14 +429,10 @@ export class BridgeViewerRealRouterObserver {
 	readonly #reloadJoinDiagnostics = new BridgeViewerReloadJoinDiagnosticRecorder();
 	#productActivityRevision = 0;
 	#nextOrdinal = 1;
-	#resolveLegacyCompletion: (() => void) | null = null;
 
 	constructor(page: Page, documentGenerations: BridgeViewerDocumentGenerations) {
 		this.#documentGenerations = documentGenerations;
 		this.#page = page;
-		this.#legacyCompletion = new Promise((resolve): void => {
-			this.#resolveLegacyCompletion = resolve;
-		});
 		page.on('request', (request): void => this.#observeRequest(request));
 		page.on('requestfailed', (request): void => this.#observeRequestSettled(request));
 		page.on('requestfinished', (request): void => this.#observeRequestSettled(request));
@@ -477,6 +473,7 @@ export class BridgeViewerRealRouterObserver {
 				.toSorted((left, right): number => left - right),
 			unresolvedWaiters: [
 				...this.#reloadJoinDiagnostics.unresolvedWaiters(),
+				...this.#legacyCompletion.unresolvedWaiters(),
 				...(this.#productResponseClosureWaiters.size > 0
 					? [
 							{
@@ -500,14 +497,17 @@ export class BridgeViewerRealRouterObserver {
 	}
 
 	async waitForObservedLegacyMetadataCompletion(): Promise<void> {
-		await this.flushResponseParsers();
-		if (!this.#legacyMetadataObserved || this.#legacyEntries.some((entry) => entry.finalWindow)) {
-			return;
-		}
-		await withBoundedTimeout(
-			this.#legacyCompletion,
-			productJourneyTimeoutMilliseconds,
-			'legacy Review metadata completion',
+		await this.#legacyCompletion.waitForGeneration(
+			this.#documentGenerations.currentGeneration(),
+			async (completion: Promise<void>): Promise<void> => {
+				// A final window already received may still be parsing.
+				await this.flushResponseParsers();
+				await withBoundedTimeout(
+					completion,
+					productJourneyTimeoutMilliseconds,
+					'legacy Review metadata completion',
+				);
+			},
 		);
 	}
 
@@ -581,7 +581,7 @@ export class BridgeViewerRealRouterObserver {
 		if (legacyEntry === undefined) return;
 		legacyEntry.httpStatus = response.status();
 		if (legacyEntry.path === '/__bridge-worktree/review-metadata') {
-			this.#legacyMetadataObserved = true;
+			this.#legacyCompletion.observeMetadataResponse(legacyEntry.documentGeneration);
 			this.#responseParsers.track(
 				this.#parseLegacyMetadataResponse(response, legacyEntry),
 				legacyEntry.documentGeneration,
@@ -672,10 +672,7 @@ export class BridgeViewerRealRouterObserver {
 		entry.frameKind = stringValue(protocolFrame?.['frameKind']);
 		entry.sequence = integerValue(protocolFrame?.['sequence']);
 		entry.finalWindow = responseBody?.['nextWindowCursor'] === null;
-		if (entry.finalWindow) {
-			this.#resolveLegacyCompletion?.();
-			this.#resolveLegacyCompletion = null;
-		}
+		if (entry.finalWindow) this.#legacyCompletion.observeFinalWindow(entry.documentGeneration);
 	}
 }
 

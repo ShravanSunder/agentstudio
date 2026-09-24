@@ -82,6 +82,7 @@ export interface BridgeViewerUnresolvedWaiter {
 	readonly name:
 		| 'file-metadata-open'
 		| 'frame-acknowledgement'
+		| 'legacy-metadata-completion'
 		| 'product-response-quiescence'
 		| 'review-metadata-open';
 }

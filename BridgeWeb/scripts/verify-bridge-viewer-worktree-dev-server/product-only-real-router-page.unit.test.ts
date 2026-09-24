@@ -232,6 +232,76 @@ describe('BridgeViewerRealRouterObserver', () => {
 		});
 	});
 
+	test('completes legacy metadata only with the awaited generation’s own final window', async () => {
+		// Arrange: generation 1 received a partial window and still has a final window in flight.
+		const harness = makeObserverHarness();
+		let documentGeneration = 1;
+		const observer = new BridgeViewerRealRouterObserver(
+			harness.page,
+			documentGenerationsAt((): number => documentGeneration),
+		);
+		const oldPartialRequest = makeLegacyMetadataRequest();
+		const oldFinalRequest = makeLegacyMetadataRequest();
+		harness.emit('request', oldPartialRequest);
+		harness.emit('response', makeLegacyMetadataResponse(oldPartialRequest, 'next-window'));
+		harness.emit('request', oldFinalRequest);
+
+		// Act: after the reload, generation 2 receives only a partial window, then the
+		// old document's final window arrives.
+		documentGeneration = 2;
+		const newPartialRequest = makeLegacyMetadataRequest();
+		harness.emit('request', newPartialRequest);
+		harness.emit('response', makeLegacyMetadataResponse(newPartialRequest, 'next-window'));
+		let completed = false;
+		const completion = observer.waitForObservedLegacyMetadataCompletion().then((): void => {
+			completed = true;
+		});
+		harness.emit('response', makeLegacyMetadataResponse(oldFinalRequest, null));
+		await flushMicrotasks();
+
+		// Assert: the old final window was parsed but settles nothing for generation 2
+		// (settling removes the waiter synchronously), and the failure diagnostic
+		// names the pending generation-2 waiter.
+		expect(observer.legacyRouteTranscript().map((entry) => entry.finalWindow)).toEqual([
+			false,
+			true,
+			false,
+		]);
+		expect(observer.failureTransportSnapshot().unresolvedWaiters).toContainEqual({
+			documentGeneration: 2,
+			name: 'legacy-metadata-completion',
+		});
+
+		// Act: generation 2's own final window arrives.
+		const newFinalRequest = makeLegacyMetadataRequest();
+		harness.emit('request', newFinalRequest);
+		harness.emit('response', makeLegacyMetadataResponse(newFinalRequest, null));
+		await completion;
+
+		// Assert
+		expect(completed).toBe(true);
+		expect(observer.failureTransportSnapshot().unresolvedWaiters).toEqual([]);
+	});
+
+	test('does not wait on legacy metadata a previous generation received', async () => {
+		// Arrange: only the old document received a (partial) legacy metadata window.
+		const harness = makeObserverHarness();
+		let documentGeneration = 1;
+		const observer = new BridgeViewerRealRouterObserver(
+			harness.page,
+			documentGenerationsAt((): number => documentGeneration),
+		);
+		const oldPartialRequest = makeLegacyMetadataRequest();
+		harness.emit('request', oldPartialRequest);
+		harness.emit('response', makeLegacyMetadataResponse(oldPartialRequest, 'next-window'));
+		await flushMicrotasks();
+		documentGeneration = 2;
+
+		// Act / Assert: the new document issued no legacy request, so nothing is awaited.
+		await expect(observer.waitForObservedLegacyMetadataCompletion()).resolves.toBeUndefined();
+		expect(observer.failureTransportSnapshot().unresolvedWaiters).toEqual([]);
+	});
+
 	test('settles a reload waiter only with a response to a request from the next page generation', async () => {
 		// Arrange: the previous document sent a frame acknowledgement before the reload.
 		const harness = makeObserverHarness();
@@ -568,6 +638,27 @@ function makeProductContentRequest(contentRequestId: string): PlaywrightRequest 
 			}),
 		url: (): string => 'http://127.0.0.1:5173/__bridge-product/content',
 	} as unknown as PlaywrightRequest;
+}
+
+function makeLegacyMetadataRequest(): PlaywrightRequest {
+	return {
+		method: (): string => 'GET',
+		postData: (): null => null,
+		url: (): string => 'http://127.0.0.1:5173/__bridge-worktree/review-metadata',
+	} as unknown as PlaywrightRequest;
+}
+
+function makeLegacyMetadataResponse(
+	request: PlaywrightRequest,
+	nextWindowCursor: string | null,
+): PlaywrightResponse {
+	return {
+		request: (): PlaywrightRequest => request,
+		status: (): number => 200,
+		text: async (): Promise<string> =>
+			JSON.stringify({ nextWindowCursor, protocolFrame: { frameKind: 'window', sequence: 1 } }),
+		url: (): string => request.url(),
+	} as unknown as PlaywrightResponse;
 }
 
 function makeFrameObservationRequest(): PlaywrightRequest {
