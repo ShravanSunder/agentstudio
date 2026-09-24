@@ -638,6 +638,17 @@ contracts together: a receiver collection identity wraps source-qualified member
 rows; row selection and content requests retain the member identity. Preserve
 Pierre tree/rendering ownership. Do not render one separate app per root.
 
+The mapping also runs in the other direction. File source metadata carries the
+member groups as `(worktreeId, groupPath)` pairs through the
+native/product/worker/display contracts. One BridgeWeb function maps
+`(worktreeId, relative path)` to the display key. Every handoff into Files that
+names a worktree-relative location uses that function: Review "Open in Files",
+Review-thread navigation and File-surface annotation placement. Surfaces never
+match a worktree-relative path against a display key directly. Until the
+receiver-addressed IPC lands, `bridge.fileTree.revealPath` keeps its
+worktree-relative contract and the controller translates it against the
+receiver's first member.
+
 Metadata/list revision and each member's authority generation are distinct.
 Adding a member or preparing a loose file cannot invalidate unrelated descriptors,
 reset selection, or replace an active editor. A newly added member may regroup a
