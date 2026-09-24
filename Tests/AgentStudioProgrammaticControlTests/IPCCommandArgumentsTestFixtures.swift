@@ -156,6 +156,13 @@ enum IPCCommandArgumentsTestFixtures {
                     targetPaneSelector: try paneSelector()
                 )
             ),
+            .bridgeDocumentInPane(
+                IPCBridgeDocumentInPaneCommandArguments(
+                    workspaceWindowId: workspaceWindowId,
+                    targetPaneSelector: try paneSelector(),
+                    path: "/tmp/project/notes.md"
+                )
+            ),
             .terminalFromWorktree(
                 IPCTerminalFromWorktreeCommandArguments(
                     workspaceWindowId: workspaceWindowId,

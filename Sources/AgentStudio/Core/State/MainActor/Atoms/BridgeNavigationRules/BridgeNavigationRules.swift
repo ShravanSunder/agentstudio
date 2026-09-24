@@ -116,6 +116,21 @@ package enum BridgeNavigationRules {
         return .activated(updated)
     }
 
+    /// Record a Files selection the page acknowledged as displayed: admit the
+    /// document from the identity the collection issued when it is not yet in
+    /// the inventory, then make it the Files selection and display Files. An
+    /// equal receipt produces an equal record.
+    package static func recordingDisplayedFilesSelection(
+        _ document: BridgeOpenedDocument,
+        in record: BridgeNavigationRecord
+    ) -> BridgeNavigationRecord {
+        let admitted = admitting(document, into: record).record
+        guard case .activated(let activated) = activatingFilesDocument(document.location, in: admitted) else {
+            return admitted
+        }
+        return activated
+    }
+
     /// Return to Files with its retained document.
     package static func showingFiles(in record: BridgeNavigationRecord) -> BridgeNavigationRecord {
         var updated = record
@@ -136,19 +151,6 @@ package enum BridgeNavigationRules {
             updated.selectedFilesDocument = nil
         }
         return .closed(updated, clearedFilesSelection: clearedSelection)
-    }
-
-    /// Narrow (or widen) the Files filter. Membership is unchanged.
-    package static func applyingFilesFilter(
-        _ filter: BridgeFilesFilter,
-        in record: BridgeNavigationRecord
-    ) -> BridgeMemberScopedOutcome {
-        if case .member(let worktreeId) = filter, !record.containsMember(worktreeId) {
-            return .notMember
-        }
-        var updated = record
-        updated.filesFilter = filter
-        return .applied(updated)
     }
 
     // MARK: - Review

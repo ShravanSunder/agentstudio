@@ -15,6 +15,7 @@ import {
 import type { BridgeMarkdownRenderWorkerClient } from '../app/markdown/worker/bridge-markdown-render-worker-client.js';
 import type { BridgePaneSurfaceClient } from '../core/comm-worker/bridge-pane-runtime.js';
 import type { BridgeTelemetryRecorder } from '../foundation/telemetry/bridge-telemetry-recorder.js';
+import { useWorktreeAnnotationEditorPreparationRegistration } from './worktree-annotation-editor-preparation-registry.js';
 import {
 	useWorktreeAnnotationInteraction,
 	WorktreeAnnotationInteractionProvider,
@@ -364,6 +365,7 @@ export function WorktreeAnnotationSurfaceProvider(
 		);
 		return results.every((result): boolean => result);
 	}, []);
+	useWorktreeAnnotationEditorPreparationRegistration(prepareActiveEditorsForInstallation);
 	const activeEditTokens = useMemo<ReadonlySet<string>>(
 		() => new Set(editSurfaceCountsByEditToken.keys()),
 		[editSurfaceCountsByEditToken],

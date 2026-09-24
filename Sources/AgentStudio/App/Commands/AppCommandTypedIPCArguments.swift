@@ -30,6 +30,7 @@ extension IPCCommandArguments {
         case .directory(let value): value.workspaceWindowId
         case .worktree(let value): value.workspaceWindowId
         case .worktreeInPane(let value): value.workspaceWindowId
+        case .bridgeDocumentInPane(let value): value.workspaceWindowId
         case .terminalFromWorktree(let value): value.workspaceWindowId
         case .terminalFromPane(let value): value.workspaceWindowId
         case .managementFromMainPane(let value): value.workspaceWindowId
@@ -60,6 +61,7 @@ extension IPCCommandArguments {
         case .drawerPane(let value): canonicalPaneTarget(value.parentPaneSelector)
         case .detachedDrawerPane(let value): canonicalPaneTarget(value.drawerPaneSelector)
         case .worktreeInPane(let value): canonicalPaneTarget(value.targetPaneSelector)
+        case .bridgeDocumentInPane(let value): canonicalPaneTarget(value.targetPaneSelector)
         case .terminalFromPane(let value): canonicalPaneTarget(value.sourcePaneSelector)
         case .managementFromMainPane(let value): canonicalPaneTarget(value.mainPaneSelector)
         case .managementFromDrawerPane(let value): canonicalPaneTarget(value.drawerPaneSelector)

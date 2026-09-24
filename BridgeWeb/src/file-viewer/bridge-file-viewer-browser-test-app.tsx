@@ -1,12 +1,15 @@
-import { useEffect, useMemo, useRef, type ReactElement } from 'react';
+import { useEffect, useMemo, useRef, type ReactElement, type ReactNode } from 'react';
 
 import { createBridgePaneRuntime } from '../core/comm-worker/bridge-pane-runtime.js';
+import type {
+	BridgeProductCallRequest,
+	BridgeProductCallResult,
+} from '../core/comm-worker/bridge-product-call-contracts.js';
 import type { BridgeProductFileContentDescriptor } from '../core/comm-worker/bridge-product-content-contracts.js';
 import type {
 	BridgeProductSubscriptionOptions,
 	BridgeProductSubscriptionUpdateOptions,
 } from '../core/comm-worker/bridge-product-subscription-contracts.js';
-import type { BridgeProductCallResult } from '../core/comm-worker/bridge-product-transport-contract.js';
 import type {
 	BridgeWorkerMainToServerMessage,
 	BridgeWorkerServerToMainMessage,
@@ -28,6 +31,8 @@ import { BridgeFileViewerSurfaceClientProvider } from './bridge-file-viewer-rend
 import { BridgeFileViewerShell } from './bridge-file-viewer-shell.js';
 
 export interface BridgeFileViewerBrowserHarnessAppProps extends BridgeFileViewerAppProps {
+	/** Rendered inside the annotation surface, beside the viewer (for editor fixtures). */
+	readonly annotationSurfaceChildren?: ReactNode;
 	readonly fileProductSession?: BridgeFileViewerBrowserTestProductSession;
 	readonly fileViewPaneSessionFactory?: BridgeFileViewerBrowserTestPaneSessionFactory;
 	readonly initialMetadataEvents?: readonly FileMetadataEvent[];
@@ -41,6 +46,9 @@ export interface BridgeFileViewerBrowserTestProductSession {
 	readonly onMetadataSubscription?: (publisher: PublishFileMetadataEvents) => void | (() => void);
 	readonly onMetadataSubscriptionOpen?: (
 		options: BridgeProductSubscriptionOptions<'file.metadata'>,
+	) => void;
+	readonly onFileSelectionReceipt?: (
+		receipt: BridgeProductCallRequest<'file.selection.receipt'>,
 	) => void;
 	readonly onMetadataInterestUpdate?: (
 		options: BridgeProductSubscriptionUpdateOptions<'file.metadata'>,
@@ -86,6 +94,7 @@ export function BridgeFileViewerBrowserHarnessApp(
 	);
 	useEffect((): (() => void) => (): void => paneRuntime.dispose(), [paneRuntime]);
 	const {
+		annotationSurfaceChildren,
 		fileProductSession: _fileProductSession,
 		fileViewPaneSessionFactory: _fileViewPaneSessionFactory,
 		initialMetadataEvents: _initialMetadataEvents,
@@ -103,6 +112,7 @@ export function BridgeFileViewerBrowserHarnessApp(
 					codeViewWorkerPoolEnabled={productionProps.codeViewWorkerPoolEnabled ?? false}
 					shellComponent={BridgeFileViewerShell}
 				/>
+				{annotationSurfaceChildren}
 			</WorktreeAnnotationSurfaceProvider>
 		</BridgeFileViewerSurfaceClientProvider>
 	);

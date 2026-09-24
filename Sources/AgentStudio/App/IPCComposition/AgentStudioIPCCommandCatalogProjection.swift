@@ -130,7 +130,7 @@ enum AgentStudioIPCCommandCatalogProjection {
         case .detachedDrawerPane:
             return .detachedDrawerPane(.init(workspaceWindowId: window, drawerPaneSelector: secondaryPane))
         case .directory, .repository, .standalonePane, .worktree, .worktreeInPane,
-            .terminalFromWorktree, .terminalFromPane, .managementFromMainPane,
+            .bridgeDocumentInPane, .terminalFromWorktree, .terminalFromPane, .managementFromMainPane,
             .managementFromDrawerPane, .floatingTerminal, .webview:
             // Owned by `exampleSurfaceArguments`. Spelled out rather than
             // defaulted so a new variant fails this build instead of failing a
@@ -161,6 +161,13 @@ enum AgentStudioIPCCommandCatalogProjection {
                     workspaceWindowId: window,
                     worktreeId: ExampleIdentities.worktree,
                     targetPaneSelector: pane
+                ))
+        case .bridgeDocumentInPane:
+            return .bridgeDocumentInPane(
+                .init(
+                    workspaceWindowId: window,
+                    targetPaneSelector: pane,
+                    path: ExampleIdentities.documentPath
                 ))
         case .terminalFromWorktree:
             return .terminalFromWorktree(
@@ -219,6 +226,7 @@ enum AgentStudioIPCCommandCatalogProjection {
         static let secondaryPane = fixedUUID("01994abc-4000-7000-8000-000000000008")
         static let name = "Example"
         static let directoryPath = "/tmp/example"
+        static let documentPath = "/tmp/example/notes.md"
         static let webviewURL = "https://github.com"
 
         static var paneSelector: IPCPaneSelector {

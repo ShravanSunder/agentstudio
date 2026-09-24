@@ -69,6 +69,8 @@ extension AppDelegate: ShellCommandHandling {
             .setInboxGroupingNone,
             .newFloatingTerminal, .openWebview, .reloadBridgeWebView, .showViewer,
             .showBridgeReview, .showBridgeFiles,
+            .activateBridgeFile, .activateBridgeReview, .closeBridgeFile,
+            .addBridgeWorktree, .selectBridgeWorktree, .removeBridgeWorktree,
             .setReposGroupingRepo, .setReposGroupingActivity,
             .setPanesGroupingRepo, .setPanesGroupingTab, .setPanesGroupingActivity,
             .setPanesSubgroupNone, .setPanesSubgroupActivity,
@@ -178,6 +180,8 @@ extension AppDelegate: ShellCommandHandling {
             .showPaneInboxNotifications, .clearPaneInboxNotifications,
             .newFloatingTerminal, .openWebview, .reloadBridgeWebView, .showViewer,
             .showBridgeReview, .showBridgeFiles,
+            .activateBridgeFile, .activateBridgeReview, .closeBridgeFile,
+            .addBridgeWorktree, .selectBridgeWorktree, .removeBridgeWorktree,
             .setReposGroupingRepo, .setReposGroupingActivity,
             .setPanesGroupingRepo, .setPanesGroupingTab, .setPanesGroupingActivity,
             .setPanesSubgroupNone, .setPanesSubgroupActivity,
@@ -241,6 +245,8 @@ extension AppDelegate: ShellCommandHandling {
             .showCommandBarEverything, .showCommandBarQuickOpen, .showCommandBarCommands,
             .showCommandBarPanes, .showCommandBarRepos,
             .openWebview, .reloadBridgeWebView, .showViewer, .showBridgeReview, .showBridgeFiles,
+            .activateBridgeFile, .activateBridgeReview, .closeBridgeFile,
+            .addBridgeWorktree, .selectBridgeWorktree, .removeBridgeWorktree,
             .openBridgeReviewInNewTab, .openBridgeFilesInNewTab, .signInGitHub, .signInGoogle,
             .filterSidebar, .openNewTerminalInTab:
             return false

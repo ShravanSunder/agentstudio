@@ -93,6 +93,77 @@ struct BridgeFileCollectionSourceTests {
         }
     }
 
+    @Test("a displayed key resolves back to its document only at the live source generation")
+    func displayedKeysResolveBackToDocuments() async throws {
+        // Arrange
+        let fixture = try await FileCollectionFixture()
+        defer { fixture.remove() }
+        let collection = fixture.makeCollection(
+            members: [fixture.alpha, fixture.beta],
+            openedDocuments: [fixture.notesLocation]
+        )
+        let collector = ProductFileMetadataEventCollector()
+        try await collection.open(
+            subscription: fixture.snapshot(revision: 0, foregroundPaths: []),
+            productAdmission: fixture.productAdmission.context,
+            foregroundWorkAdmission: fixture.foregroundWorkAdmission
+        ) { event in await collector.append(event) }
+        let source = try #require(
+            await collector.events.compactMap { event -> BridgeProductFileSourceIdentity? in
+                guard case .sourceAccepted(let accepted) = event else { return nil }
+                return accepted.source
+            }.first
+        )
+        let alphaRootPath = DarwinFSEventPathCanonicalizer.canonicalURL(fixture.alphaRoot).path
+        let alphaApp = try #require(BridgeDocumentLocation(canonicalPath: "\(alphaRootPath)/src/app.ts"))
+
+        // Act
+        let memberFile = await collection.displayedDocument(
+            displayPath: "alpha/src/app.ts",
+            sourceId: source.sourceId,
+            subscriptionGeneration: source.subscriptionGeneration
+        )
+        let openedDocument = await collection.displayedDocument(
+            displayPath: "Open Files/notes.md",
+            sourceId: source.sourceId,
+            subscriptionGeneration: source.subscriptionGeneration
+        )
+        let groupRow = await collection.displayedDocument(
+            displayPath: "alpha",
+            sourceId: source.sourceId,
+            subscriptionGeneration: source.subscriptionGeneration
+        )
+        let staleSource = await collection.displayedDocument(
+            displayPath: "alpha/src/app.ts",
+            sourceId: source.sourceId,
+            subscriptionGeneration: source.subscriptionGeneration + 1
+        )
+
+        // Assert
+        #expect(
+            memberFile
+                == .memberFile(worktreeId: fixture.alpha.worktreeId, relativePath: "src/app.ts", location: alphaApp)
+        )
+        #expect(openedDocument == .openedDocument(fixture.notesLocation))
+        #expect(groupRow == nil, "group rows are presentation keys, not documents")
+        #expect(staleSource == nil, "a receipt from another source generation never resolves")
+        #expect(await collection.listing(displayPath: "alpha/src/app.ts") == .listed)
+        #expect(await collection.listing(displayPath: "Open Files/notes.md") == .listed)
+        #expect(
+            await collection.listing(displayPath: "alpha/src/excluded.ts") == .notListed,
+            "a finished enumeration proves an absent row"
+        )
+        #expect(await collection.displayPath(for: alphaApp) == "alpha/src/app.ts")
+        #expect(await collection.displayPath(for: fixture.notesLocation) == "Open Files/notes.md")
+        #expect(
+            await collection.currentNavigationSource()
+                == BridgeProductNavigationFileSource(
+                    sourceId: source.sourceId,
+                    subscriptionGeneration: source.subscriptionGeneration
+                )
+        )
+    }
+
     @Test("one failing member leaves the other members browsable and reports the failure")
     func failingMemberLeavesOthersBrowsable() async throws {
         // Arrange

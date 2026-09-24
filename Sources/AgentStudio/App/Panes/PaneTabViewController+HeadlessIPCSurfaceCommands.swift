@@ -15,7 +15,15 @@ extension PaneTabViewController {
         case .worktree(let value):
             return await executeWorktreeCommand(command, worktreeId: value.worktreeId)
         case .worktreeInPane(let value):
+            if let request = Self.bridgeNavigationRequest(for: command, worktreeId: value.worktreeId) {
+                return await executeBridgeNavigationIPC(request, targetPaneSelector: value.targetPaneSelector)
+            }
             return await executeWorktreeInPaneCommand(command, arguments: value)
+        case .bridgeDocumentInPane(let value):
+            guard let request = Self.bridgeNavigationRequest(for: command, absolutePath: value.path) else {
+                return .unsupportedCommand
+            }
+            return await executeBridgeNavigationIPC(request, targetPaneSelector: value.targetPaneSelector)
         case .terminalFromWorktree(let value):
             guard command == .openNewTerminalInTab else { return .unsupportedCommand }
             return await applyWorkspaceAction(

@@ -43,7 +43,7 @@ import {
 } from '../foundation/telemetry/bridge-telemetry-recorder.js';
 import { recordBridgeViewerActivationRequestedTelemetrySample } from '../foundation/telemetry/bridge-viewer-activation-telemetry.js';
 import { setBridgeViewerNativeOpenAnchor } from '../foundation/telemetry/bridge-viewer-first-interaction.js';
-import { WorktreeAnnotationNavigationProvider } from '../worktree-annotations/worktree-annotation-navigation.js';
+import { BridgeAppAnnotationScope } from './bridge-app-annotation-scope.js';
 import type { BridgeAppControlProbe } from './bridge-app-control.js';
 import { BridgeFileViewerMode } from './bridge-app-file-viewer-mode.js';
 import {
@@ -826,7 +826,7 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 
 	return (
 		<BridgeViewerAppShell appOwner="BridgeApp" mode={activeViewerMode}>
-			<WorktreeAnnotationNavigationProvider controller={annotationNavigation}>
+			<BridgeAppAnnotationScope navigation={annotationNavigation}>
 				{mountedViewerModes.has('file') ? (
 					<div
 						aria-hidden={activeViewerMode !== 'file'}
@@ -919,7 +919,7 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 						/>
 					</div>
 				) : null}
-			</WorktreeAnnotationNavigationProvider>
+			</BridgeAppAnnotationScope>
 		</BridgeViewerAppShell>
 	);
 }

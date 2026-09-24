@@ -29,6 +29,7 @@ export function bridgeCommWorkerIntentEpochDomain(
 		case 'fileDisplayResync':
 		case 'fileQueryUpdate':
 		case 'fileRefreshRetry':
+		case 'fileSelectionReceipt':
 			return 'fileView';
 		case 'markFileViewed':
 		case 'metadataInterestUpdate':

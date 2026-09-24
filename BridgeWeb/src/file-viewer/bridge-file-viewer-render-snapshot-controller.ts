@@ -25,6 +25,7 @@ import {
 	type BridgeMainRenderSnapshotStore,
 } from '../core/comm-worker/bridge-main-render-snapshot-store.js';
 import type { BridgePaneSurfaceClient } from '../core/comm-worker/bridge-pane-runtime.js';
+import type { BridgeProductFileSelectionReceipt } from '../core/comm-worker/bridge-product-call-contracts.js';
 import type {
 	BridgeWorkerContentAvailabilityPatchPayload,
 	BridgeWorkerFileRenderPatch,
@@ -64,6 +65,7 @@ export interface BridgeFileViewerRenderSnapshotController {
 		readonly visibleItemIds: readonly string[];
 	}) => void;
 	readonly retryUnavailableFileRefresh: () => void;
+	readonly sendFileSelectionReceipt: (receipt: BridgeProductFileSelectionReceipt) => void;
 	readonly fileDisplaySnapshot: Pick<
 		BridgeMainRenderSnapshot,
 		| 'fileDisplayFreshness'
@@ -238,6 +240,16 @@ export function useBridgeFileViewerRenderSnapshotController(props: {
 			epoch: nextBridgeFileViewerWorkerEpoch(workerEpochRef),
 		});
 	}, [fileViewClient]);
+	const sendFileSelectionReceipt = useCallback(
+		(receipt: BridgeProductFileSelectionReceipt): void => {
+			fileViewClient.send({
+				command: 'fileSelectionReceipt',
+				epoch: nextBridgeFileViewerWorkerEpoch(workerEpochRef),
+				receipt,
+			});
+		},
+		[fileViewClient],
+	);
 	const selectedCodeViewItem = selectedBridgeFileViewerCodeViewItemForSnapshot({
 		renderSnapshot,
 		selection: props.selection,
@@ -260,6 +272,7 @@ export function useBridgeFileViewerRenderSnapshotController(props: {
 			dispatchSelectedFileViewContentRequest,
 			dispatchVisibleFileViewViewportFact,
 			retryUnavailableFileRefresh,
+			sendFileSelectionReceipt,
 			fileDisplaySnapshot: {
 				fileDisplayFreshness: renderSnapshot.fileDisplayFreshness,
 				fileItemById: renderSnapshot.fileItemById,
@@ -280,6 +293,7 @@ export function useBridgeFileViewerRenderSnapshotController(props: {
 			dispatchFileViewQueryFact,
 			dispatchVisibleFileViewViewportFact,
 			retryUnavailableFileRefresh,
+			sendFileSelectionReceipt,
 			renderSnapshotStore.completeFileQueryTransaction,
 			renderSnapshotStore.fileTreePatchStream,
 			fileViewClient.renderFulfillmentCoordinator,

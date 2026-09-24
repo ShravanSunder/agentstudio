@@ -278,7 +278,25 @@ extension IPCWorktreeInPaneCommandArguments {
                 IPCCommandArgumentSchemas.uuid("worktreeId", description: "Worktree UUID to open"),
                 IPCCommandArgumentSchemas.paneSelector(
                     "targetPaneSelector",
-                    description: "Pane selector providing the split anchor"
+                    description: "Pane selector naming the target pane"
+                ),
+            ])
+    }
+}
+
+extension IPCBridgeDocumentInPaneCommandArguments {
+    static func argumentSchema() throws -> IPCJSONSchema {
+        IPCCommandArgumentSchemas.object(
+            kind: .bridgeDocumentInPane,
+            fields: [
+                IPCCommandArgumentSchemas.workspaceWindow,
+                IPCCommandArgumentSchemas.paneSelector(
+                    "targetPaneSelector",
+                    description: "Pane selector naming the target pane"
+                ),
+                IPCCommandArgumentSchemas.string(
+                    "path",
+                    description: "Absolute local path of the document; relative paths are refused"
                 ),
             ])
     }

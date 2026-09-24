@@ -99,6 +99,21 @@ final class WorkspaceActionExecutor {
         coordinator.resolveBridgePaneCommand(worktreeId: worktreeId)
     }
 
+    func bridgeReceiver(forCommandPaneId paneId: UUID) -> BridgeReceiver? {
+        coordinator.bridgeReceiver(forCommandPaneId: paneId)
+    }
+
+    func bridgeNavigationRecord(for receiver: BridgeReceiver) -> BridgeNavigationRecord? {
+        coordinator.bridgeNavigationCommandHandler.record(for: receiver)
+    }
+
+    func performBridgeNavigation(
+        _ request: BridgeNavigationRequest,
+        forPaneId paneId: UUID
+    ) async -> BridgeNavigationCommandOutcome {
+        await coordinator.performBridgeNavigation(request, forPaneId: paneId)
+    }
+
     @discardableResult
     func requestBridgePaneSurface(_ surface: BridgeProductSurface, paneId: UUID) -> Bool {
         coordinator.requestBridgePaneSurface(surface, paneId: paneId)

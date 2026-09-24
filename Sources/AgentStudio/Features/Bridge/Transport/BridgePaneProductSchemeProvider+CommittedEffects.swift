@@ -161,6 +161,8 @@ extension BridgePaneProductSchemeProvider {
                 break
             case .fileRefreshRetry:
                 await applyFileRefreshRetry(productAdmission)
+            case .fileSelectionReceipt(let receipt):
+                await applyFileSelectionReceipt(receipt, productAdmission)
             case .fileActiveViewerModeUpdate, .reviewActiveViewerModeUpdate:
                 await applyActiveViewerModeUpdate(
                     committedProductCall,

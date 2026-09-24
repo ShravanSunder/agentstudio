@@ -564,7 +564,8 @@ export function fileTreeRowId(path: string): string {
 export function fileNavigationCommandForPath(path: string): FileNavigationCommand {
 	return {
 		bindingRevision: 1,
-		commandId: `test:file:${path}`,
+		// Native command ids are product identifiers; a path is not one.
+		commandId: `test:file:${path.replaceAll(/[^A-Za-z0-9._:-]/gu, '-')}`,
 		commandKind: 'activateTarget',
 		source: {
 			sourceId: 'dev-worktree-source',

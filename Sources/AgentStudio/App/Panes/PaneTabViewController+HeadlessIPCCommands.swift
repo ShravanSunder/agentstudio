@@ -44,7 +44,7 @@ extension PaneTabViewController {
             return await executeDrawerCommand(command, arguments: arguments)
         case .managementFromMainPane, .managementFromDrawerPane:
             return executeManagementLayerCommand(command, arguments: arguments)
-        case .worktree, .worktreeInPane, .terminalFromWorktree, .terminalFromPane,
+        case .worktree, .worktreeInPane, .bridgeDocumentInPane, .terminalFromWorktree, .terminalFromPane,
             .floatingTerminal, .webview:
             return await executeWorkspaceSurfaceCommand(command, arguments: arguments)
         case .directory:

@@ -357,6 +357,8 @@ export class BridgeCommWorkerProductController {
 		switch (command.method) {
 			case 'file.refresh.retry':
 				return await this.#productTransport.call('file.refresh.retry', {});
+			case 'file.selection.receipt':
+				return await this.#productTransport.call('file.selection.receipt', command.params);
 			case 'file.annotations.command':
 				return await this.#sendAnnotationCommand('file', command.params.operation, null);
 			case 'review.annotations.command':

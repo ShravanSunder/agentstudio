@@ -129,6 +129,13 @@ struct AgentStudioIPCCommandTargetResolver {
                     worktreeId: value.worktreeId,
                     targetPaneSelector: try await canonicalPane(value.targetPaneSelector, tools: tools)
                 ))
+        case .bridgeDocumentInPane(let value):
+            return .bridgeDocumentInPane(
+                .init(
+                    workspaceWindowId: value.workspaceWindowId,
+                    targetPaneSelector: try await canonicalPane(value.targetPaneSelector, tools: tools),
+                    path: value.path
+                ))
         case .terminalFromPane(let value):
             return .terminalFromPane(
                 .init(
@@ -217,6 +224,7 @@ struct AgentStudioIPCCommandTargetResolver {
             case .drawerPane(let value): [value.parentPaneSelector, value.drawerPaneSelector]
             case .detachedDrawerPane(let value): [value.drawerPaneSelector]
             case .worktreeInPane(let value): [value.targetPaneSelector]
+            case .bridgeDocumentInPane(let value): [value.targetPaneSelector]
             case .terminalFromPane(let value): [value.sourcePaneSelector]
             case .managementFromMainPane(let value): [value.mainPaneSelector]
             case .managementFromDrawerPane(let value): [value.parentPaneSelector, value.drawerPaneSelector]

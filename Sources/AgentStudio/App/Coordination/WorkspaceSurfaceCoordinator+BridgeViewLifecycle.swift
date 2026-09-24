@@ -62,6 +62,7 @@ extension WorkspaceSurfaceCoordinator {
                 onlyIfAbsent: false
             )
         )
+        bindDisplayedFilesSelection(of: controller, to: receiver)
         let view = BridgePaneMountView(paneId: pane.id, controller: controller)
         registerHostedView(mountedView: view, for: pane.id)
         refreshBridgePaneActivities()

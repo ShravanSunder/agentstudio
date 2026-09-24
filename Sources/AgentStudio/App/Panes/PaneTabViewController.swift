@@ -3236,26 +3236,31 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         case .showBridgeReview, .showBridgeFiles,
             .openBridgeReviewInNewTab, .openBridgeFilesInNewTab:
             return submitBridgeSurfaceCommand(command, worktreeId: nil)
+        case .activateBridgeFile, .closeBridgeFile:
+            return executeContextualBridgeNavigationCommand(command)
         default:
             return false
         }
     }
 
     private func resolvedBridgeCommandMountView() -> BridgePaneMountView? {
-        let paneId: UUID?
-        switch normalizedWorkspaceNavigationScopeState() {
-        case .mainPane(let mainPaneId):
-            paneId = mainPaneId ?? activeMainPaneId()
-        case .emptyDrawer(let parentPaneId):
-            paneId = parentPaneId
-        case .drawerPane(_, let drawerPaneId):
-            paneId = drawerPaneId
-        }
-
-        guard let paneId else {
+        guard let paneId = focusedBridgeCommandPaneId() else {
             return nil
         }
         return resolvedBridgeCommandMountView(paneId: paneId)
+    }
+
+    /// The pane a contextual Bridge command addresses: the focused main pane,
+    /// the parent of an empty drawer, or the focused drawer child.
+    func focusedBridgeCommandPaneId() -> UUID? {
+        switch normalizedWorkspaceNavigationScopeState() {
+        case .mainPane(let mainPaneId):
+            mainPaneId ?? activeMainPaneId()
+        case .emptyDrawer(let parentPaneId):
+            parentPaneId
+        case .drawerPane(_, let drawerPaneId):
+            drawerPaneId
+        }
     }
 
     func resolvedBridgeCommandMountView(paneId: UUID) -> BridgePaneMountView? {
@@ -4558,6 +4563,8 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         case .showBridgeReview, .showBridgeFiles,
             .openBridgeReviewInNewTab, .openBridgeFilesInNewTab:
             return submitBridgeSurfaceCommand(command, worktreeId: target)
+        case .activateBridgeReview, .addBridgeWorktree, .selectBridgeWorktree, .removeBridgeWorktree:
+            return executeTargetedBridgeNavigationCommand(command, worktreeId: target)
         default:
             return false
         }
@@ -4742,7 +4749,8 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
     private static func isTargetedBridgeCommand(_ command: AppCommand) -> Bool {
         switch command {
         case .showBridgeReview, .showBridgeFiles,
-            .openBridgeReviewInNewTab, .openBridgeFilesInNewTab:
+            .openBridgeReviewInNewTab, .openBridgeFilesInNewTab,
+            .activateBridgeReview, .addBridgeWorktree, .selectBridgeWorktree, .removeBridgeWorktree:
             true
         default:
             false

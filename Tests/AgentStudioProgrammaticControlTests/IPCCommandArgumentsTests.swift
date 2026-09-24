@@ -9,7 +9,7 @@ struct IPCCommandArgumentsTests {
         let samples = try IPCCommandArgumentsTestFixtures.allArguments()
         let sampleVariants = samples.map(\.variant)
 
-        #expect(samples.count == 27)
+        #expect(samples.count == 28)
         #expect(sampleVariants == IPCCommandArgumentVariant.allCases)
         #expect(Set(sampleVariants).count == IPCCommandArgumentVariant.allCases.count)
 
@@ -184,6 +184,35 @@ struct IPCCommandArgumentsTests {
         ] {
             #expect(throws: IPCSchemaValidationError.self) {
                 try schema.normalize(invalid)
+            }
+        }
+    }
+
+    @Test("a Bridge document names an absolute path; relative paths are refused")
+    func bridgeDocumentRequiresAbsolutePath() throws {
+        let schema = try IPCCommandArguments.ipcSchema(allowing: [.bridgeDocumentInPane])
+        let windowId = IPCCommandArgumentsTestFixtures.workspaceWindowId.uuidString
+        let absolute = try IPCCommandArgumentsTestFixtures.encodedObject([
+            "kind": "bridgeDocumentInPane",
+            "workspaceWindowId": windowId,
+            "targetPaneSelector": "self",
+            "path": "/tmp/project/notes.md",
+        ])
+        guard case .bridgeDocumentInPane(let decoded) = try schema.decode(IPCCommandArguments.self, from: absolute)
+        else {
+            Issue.record("Expected a Bridge document argument")
+            return
+        }
+        #expect(decoded.path == "/tmp/project/notes.md")
+        for relativePath in ["notes.md", "./notes.md", "../project/notes.md", "/"] {
+            let relative = try IPCCommandArgumentsTestFixtures.encodedObject([
+                "kind": "bridgeDocumentInPane",
+                "workspaceWindowId": windowId,
+                "targetPaneSelector": "self",
+                "path": relativePath,
+            ])
+            #expect(throws: (any Error).self) {
+                try schema.decode(IPCCommandArguments.self, from: relative)
             }
         }
     }

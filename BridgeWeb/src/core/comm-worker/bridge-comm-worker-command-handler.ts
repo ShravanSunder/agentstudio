@@ -555,6 +555,7 @@ function handleBridgeWorkerCommand(
 			return [buildBridgeWorkerReadyHealthEvent(props.message.requestId)];
 		case 'markFileViewed':
 		case 'fileRefreshRetry':
+		case 'fileSelectionReceipt':
 		case 'annotationCommand':
 		case 'metadataInterestUpdate':
 		case 'reviewIntakeReady':

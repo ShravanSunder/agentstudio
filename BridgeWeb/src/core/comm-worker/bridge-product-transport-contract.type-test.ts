@@ -150,6 +150,7 @@ const surfaceByCallKind = {
 	'file.activeViewerMode.update': 'file',
 	'file.source.current': 'file',
 	'file.refresh.retry': 'file',
+	'file.selection.receipt': 'file',
 	'review.activeViewerMode.update': 'review',
 	'review.comparison.update': 'review',
 	'review.comparisonTargets.query': 'review',

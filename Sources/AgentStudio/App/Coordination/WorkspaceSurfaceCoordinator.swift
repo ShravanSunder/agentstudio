@@ -163,10 +163,16 @@ final class WorkspaceSurfaceCoordinator {
     }
     var bridgeGitReadActivityPropagationTask: Task<Void, Never>?
     var zoomCompanionContinuityBySourcePaneId: [UUID: ZoomCompanionContinuity] = [:]
-    lazy var bridgeNavigationCommandHandler = BridgeNavigationCommandHandler(
-        navigationAtom: store.bridgeNavigationAtom,
-        repositoryTopologyAtom: store.repositoryTopologyAtom
-    )
+    /// Serializes catalog-unregistration propagation into receivers.
+    var bridgeCatalogUnregistrationTail: Task<Void, Never>?
+    lazy var bridgeNavigationCommandHandler: BridgeNavigationCommandHandler = {
+        let handler = BridgeNavigationCommandHandler(
+            navigationAtom: store.bridgeNavigationAtom,
+            repositoryTopologyAtom: store.repositoryTopologyAtom
+        )
+        handler.presentationPorts = bridgeReceiverPresentationPorts()
+        return handler
+    }()
 
     var arrangementView: WorkspaceArrangementViewDerived {
         WorkspaceArrangementViewDerived(
@@ -506,6 +512,14 @@ final class WorkspaceSurfaceCoordinator {
                 return
             }
             upsertPaneFilesystemProjectionContext(for: pane)
+            if case .terminal = pane.content, pane.parentPaneId == nil {
+                // A drawer terminal's CWD is a relative-path base only; it never
+                // injects or protects a member of its owner's receiver.
+                bridgeNavigationCommandHandler.applyAdmittedCWDAssociation(
+                    resolvedContext?.worktree.id,
+                    forTerminalPane: paneId
+                )
+            }
             reconcileZoomCompanionAfterCWDChange(sourcePaneId: paneId)
         case .unchanged:
             return
@@ -864,17 +878,28 @@ final class WorkspaceSurfaceCoordinator {
 
 extension WorkspaceSurfaceCoordinator: TopologyEffectHandler {
     func topologyDidChange(_ delta: WorktreeTopologyDelta) {
-        applyTopologyRemovals(from: [delta])
-        applyTopologyAdoptions(from: [delta])
-        refreshMountedBridgeFilesSources()
-        syncFilesystemRootsAndActivity()
+        topologyDidChange([delta])
     }
 
     func topologyDidChange(_ deltas: [WorktreeTopologyDelta]) {
         applyTopologyRemovals(from: deltas)
         applyTopologyAdoptions(from: deltas)
         refreshMountedBridgeFilesSources()
+        propagateCatalogUnregistrationToBridgeReceivers(deltas.flatMap(\.removedWorktrees))
         syncFilesystemRootsAndActivity()
+    }
+
+    /// Explicit catalog unregistration reaches every receiver that lists the
+    /// worktree through the navigation removal rules. Temporary unavailability
+    /// is not a removal and never takes this path.
+    private func propagateCatalogUnregistrationToBridgeReceivers(_ removed: [RemovedWorktreeEntry]) {
+        guard !removed.isEmpty || !bridgeNavigationCommandHandler.pendingCatalogUnregistrationRootsById.isEmpty
+        else { return }
+        let preceding = bridgeCatalogUnregistrationTail
+        bridgeCatalogUnregistrationTail = Task { [weak self] in
+            await preceding?.value
+            await self?.bridgeNavigationCommandHandler.applyCatalogUnregistration(of: removed)
+        }
     }
 
     private func applyTopologyRemovals(from deltas: [WorktreeTopologyDelta]) {

@@ -1,56 +1,6 @@
 import AgentStudioCore
 import Foundation
 
-struct BridgeProductFileSourceCurrentRequest: Codable, Equatable, Sendable {
-    private struct EmptyCodingKey: CodingKey {
-        let stringValue: String
-        let intValue: Int?
-
-        init?(stringValue _: String) { nil }
-        init?(intValue _: Int) { nil }
-    }
-
-    init() {}
-
-    init(from decoder: Decoder) throws {
-        try BridgeProductContractDecoding.rejectUnknownKeys(
-            from: decoder,
-            allowedKeys: [],
-            contract: "file.source.current request"
-        )
-        _ = try decoder.container(keyedBy: EmptyCodingKey.self)
-    }
-
-    func encode(to encoder: Encoder) throws {
-        _ = encoder.container(keyedBy: EmptyCodingKey.self)
-    }
-}
-
-struct BridgeProductFileRefreshRetryRequest: Codable, Equatable, Sendable {
-    private struct EmptyCodingKey: CodingKey {
-        let stringValue: String
-        let intValue: Int?
-
-        init?(stringValue _: String) { nil }
-        init?(intValue _: Int) { nil }
-    }
-
-    init() {}
-
-    init(from decoder: Decoder) throws {
-        try BridgeProductContractDecoding.rejectUnknownKeys(
-            from: decoder,
-            allowedKeys: [],
-            contract: "file.refresh.retry request"
-        )
-        _ = try decoder.container(keyedBy: EmptyCodingKey.self)
-    }
-
-    func encode(to encoder: Encoder) throws {
-        _ = encoder.container(keyedBy: EmptyCodingKey.self)
-    }
-}
-
 enum BridgeProductFileSourceCurrentUnavailableReason: String, Codable, Equatable, Sendable {
     case noFileSourceAuthority = "no-file-source-authority"
 }
@@ -469,6 +419,7 @@ enum BridgeProductCallRequest: Codable, Equatable, Sendable {
     case fileAnnotationsProjectionQuery(BridgeProductAnnotationProjectionQueryRequest)
     case fileSourceCurrent(BridgeProductFileSourceCurrentRequest)
     case fileRefreshRetry(BridgeProductFileRefreshRetryRequest)
+    case fileSelectionReceipt(BridgeProductFileSelectionReceiptRequest)
     case fileActiveViewerModeUpdate(BridgeProductActiveViewerModeUpdateRequest)
     case reviewActiveViewerModeUpdate(BridgeProductActiveViewerModeUpdateRequest)
     case reviewComparisonUpdate(BridgeProductReviewComparisonUpdateRequest)
@@ -493,6 +444,7 @@ enum BridgeProductCallRequest: Codable, Equatable, Sendable {
         case .fileAnnotationsProjectionQuery: "file.annotations.projection.query"
         case .fileSourceCurrent: "file.source.current"
         case .fileRefreshRetry: "file.refresh.retry"
+        case .fileSelectionReceipt: "file.selection.receipt"
         case .fileActiveViewerModeUpdate: "file.activeViewerMode.update"
         case .reviewActiveViewerModeUpdate: "review.activeViewerMode.update"
         case .reviewComparisonUpdate: "review.comparison.update"
@@ -513,6 +465,7 @@ enum BridgeProductCallRequest: Codable, Equatable, Sendable {
             .fileAnnotationsProjectionQuery,
             .fileSourceCurrent,
             .fileRefreshRetry,
+            .fileSelectionReceipt,
             .fileActiveViewerModeUpdate:
             .file
         case .reviewActiveViewerModeUpdate, .reviewComparisonUpdate, .reviewComparisonTargetsQuery, .reviewIntakeReady,
@@ -580,6 +533,10 @@ enum BridgeProductCallRequest: Codable, Equatable, Sendable {
         case "file.refresh.retry":
             return .fileRefreshRetry(
                 try container.decode(BridgeProductFileRefreshRetryRequest.self, forKey: .request)
+            )
+        case "file.selection.receipt":
+            return .fileSelectionReceipt(
+                try container.decode(BridgeProductFileSelectionReceiptRequest.self, forKey: .request)
             )
         case "file.activeViewerMode.update":
             return .fileActiveViewerModeUpdate(
@@ -694,6 +651,8 @@ enum BridgeProductCallRequest: Codable, Equatable, Sendable {
             try container.encode(request, forKey: .request)
         case .fileRefreshRetry(let request):
             try container.encode(request, forKey: .request)
+        case .fileSelectionReceipt(let request):
+            try container.encode(request, forKey: .request)
         case .fileActiveViewerModeUpdate(let request),
             .reviewActiveViewerModeUpdate(let request):
             try container.encode(request, forKey: .request)
@@ -719,6 +678,7 @@ enum BridgeProductCallResult: Codable, Equatable, Sendable {
     case fileAnnotationsProjectionQuery(BridgeProductAnnotationProjectionQueryResult)
     case fileSourceCurrent(BridgeProductFileSourceCurrentResult)
     case fileRefreshRetry
+    case fileSelectionReceipt
     case fileActiveViewerModeUpdate
     case reviewActiveViewerModeUpdate
     case reviewComparisonUpdate
@@ -743,6 +703,7 @@ enum BridgeProductCallResult: Codable, Equatable, Sendable {
         case .fileAnnotationsProjectionQuery: "file.annotations.projection.query"
         case .fileSourceCurrent: "file.source.current"
         case .fileRefreshRetry: "file.refresh.retry"
+        case .fileSelectionReceipt: "file.selection.receipt"
         case .fileActiveViewerModeUpdate: "file.activeViewerMode.update"
         case .reviewActiveViewerModeUpdate: "review.activeViewerMode.update"
         case .reviewComparisonUpdate: "review.comparison.update"
@@ -763,6 +724,7 @@ enum BridgeProductCallResult: Codable, Equatable, Sendable {
             .fileAnnotationsProjectionQuery,
             .fileSourceCurrent,
             .fileRefreshRetry,
+            .fileSelectionReceipt,
             .fileActiveViewerModeUpdate:
             .file
         case .reviewActiveViewerModeUpdate, .reviewComparisonUpdate, .reviewComparisonTargetsQuery, .reviewIntakeReady,
@@ -820,6 +782,13 @@ enum BridgeProductCallResult: Codable, Equatable, Sendable {
                 codingPath: decoder.codingPath
             )
             return .fileRefreshRetry
+        case "file.selection.receipt":
+            try BridgeProductContractDecoding.decodeRequiredNull(
+                forKey: .result,
+                from: container,
+                codingPath: decoder.codingPath
+            )
+            return .fileSelectionReceipt
         case "file.activeViewerMode.update":
             try BridgeProductContractDecoding.decodeRequiredNull(
                 forKey: .result,
@@ -971,7 +940,8 @@ enum BridgeProductCallResult: Codable, Equatable, Sendable {
             try container.encode(result, forKey: .result)
         case .fileSourceCurrent(let result):
             try container.encode(result, forKey: .result)
-        case .fileRefreshRetry, .fileActiveViewerModeUpdate, .reviewActiveViewerModeUpdate,
+        case .fileRefreshRetry, .fileSelectionReceipt, .fileActiveViewerModeUpdate,
+            .reviewActiveViewerModeUpdate,
             .reviewComparisonUpdate,
             .reviewIntakeReady, .reviewMarkFileViewed, .reviewPublicationApplied:
             try container.encodeNil(forKey: .result)

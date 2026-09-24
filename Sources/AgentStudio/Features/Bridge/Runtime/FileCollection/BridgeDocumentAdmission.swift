@@ -95,3 +95,16 @@ enum BridgeDocumentAdmission {
         return isDirectory.boolValue ? .notRegularFile : nil
     }
 }
+
+/// Canonicalizes a command's absolute document path off the MainActor so it
+/// matches the receiver's admitted locations. It admits nothing.
+package enum BridgeDocumentLocationCanonicalizer {
+    @concurrent
+    package static func canonicalLocation(ofAbsolutePath path: String) async -> BridgeDocumentLocation? {
+        guard path.hasPrefix("/") else { return nil }
+        let canonicalURL = DarwinFSEventPathCanonicalizer.canonicalURL(
+            URL(fileURLWithPath: path).standardizedFileURL
+        )
+        return BridgeDocumentLocation(canonicalPath: canonicalURL.path)
+    }
+}

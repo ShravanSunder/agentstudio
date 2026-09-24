@@ -107,6 +107,10 @@ package final class BridgePaneController {
     var pendingReviewPackageBuildReasons: Set<BridgeReviewPackageBuildReason> = []
     var activeViewerModeSignalState = BridgeActiveViewerModeSignalState()
     var surfaceSelectionAuthority = BridgePaneSurfaceSelectionAuthority()
+    /// Receives each displayed File selection mapped back to its document.
+    package var onFilesSelectionDisplayed: (@MainActor (BridgeFilesDisplayedSelection) -> Void)?
+    /// The one native Files activation still waiting for its displayed receipt.
+    var pendingFileActivation: BridgePendingFileActivation?
 
     // MARK: - Private State
 
@@ -544,6 +548,7 @@ package final class BridgePaneController {
             refreshAdmissionCoordinator.close()
             productAdmissionGate.close()
             surfaceSelectionAuthority.invalidate()
+            settlePendingFileActivation(.cancelled)
             let reviewPublicationCloseDrain = reviewPublicationCoordinator.close()
             let reviewPublicationCleanupSnapshot = reviewPublicationCoordinator.diagnosticSnapshot
             reviewRefreshCleanupTelemetryTask = makeReviewRefreshCleanupTelemetryTask(

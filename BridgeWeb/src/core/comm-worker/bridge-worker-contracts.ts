@@ -58,6 +58,7 @@ import {
 } from './bridge-worker-file-display-patch-contracts.js';
 import { bridgeWorkerFileQuerySchema } from './bridge-worker-file-query-contracts.js';
 import { bridgeWorkerFileRefreshRetryCommandSchema } from './bridge-worker-file-refresh-contracts.js';
+import { bridgeWorkerFileSelectionReceiptCommandSchema } from './bridge-worker-file-selection-receipt-contracts.js';
 import { bridgeWorkerPanelChromePatchSchema } from './bridge-worker-panel-chrome-contracts.js';
 import { validateBridgeWorkerPierreRenderPublicationIdentity } from './bridge-worker-pierre-publication-identity-contracts.js';
 import {
@@ -325,6 +326,7 @@ export const bridgeWorkerMainToServerCommandSchema = z.discriminatedUnion('comma
 	bridgeWorkerReviewPublicationInstalledCommandSchema,
 	bridgeWorkerFileQueryUpdateCommandSchema,
 	bridgeWorkerFileRefreshRetryCommandSchema,
+	bridgeWorkerFileSelectionReceiptCommandSchema,
 	bridgeWorkerFileDisplayResyncCommandSchema,
 	bridgeWorkerRenderDispositionCommandSchema,
 ]);

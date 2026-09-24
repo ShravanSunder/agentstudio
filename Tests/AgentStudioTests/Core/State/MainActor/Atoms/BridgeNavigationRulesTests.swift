@@ -208,20 +208,6 @@ struct BridgeNavigationRulesTests {
         #expect(BridgeNavigationRules.closingDocument(notes, in: closedSelected) == .notOpen)
     }
 
-    @Test("a member Files filter requires membership; filtering never changes membership")
-    func filesFilterRequiresMembership() throws {
-        let record = BridgeNavigationRules.seededRecord(knownTerminalWorktreeId: backend)
-
-        #expect(
-            BridgeNavigationRules.applyingFilesFilter(.member(worktreeId: frontend), in: record) == .notMember
-        )
-        let narrowed = try #require(
-            appliedRecord(BridgeNavigationRules.applyingFilesFilter(.member(worktreeId: backend), in: record))
-        )
-        #expect(narrowed.filesFilter == .member(worktreeId: backend))
-        #expect(narrowed.memberWorktreeIds == record.memberWorktreeIds)
-    }
-
     @Test(
         "grouping uses canonical containment: deepest member wins, outside is loose, equal roots are ambiguous",
         arguments: [

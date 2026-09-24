@@ -2,6 +2,7 @@ import { z } from 'zod';
 
 import { bridgeProductReviewComparisonTargetSchema } from './bridge-product-call-contracts.js';
 import {
+	bridgeProductFileSelectionReceiptRequestSchema,
 	bridgeProductReviewAnnotationPublicationIdentitySchema,
 	bridgeProductWorktreeAnnotationOperationSchema,
 } from './bridge-product-call-contracts.js';
@@ -81,6 +82,13 @@ const bridgeProductControlFileRefreshRetryCommandSchema = z
 	})
 	.strict();
 
+const bridgeProductControlFileSelectionReceiptCommandSchema = z
+	.object({
+		method: z.literal('file.selection.receipt'),
+		params: bridgeProductFileSelectionReceiptRequestSchema,
+	})
+	.strict();
+
 const bridgeProductControlReviewComparisonTargetsQueryCommandSchema = z
 	.object({
 		method: z.literal('review.comparisonTargets.query'),
@@ -116,6 +124,7 @@ const bridgeProductControlIntakeReadyCommandSchema = z
 
 export const bridgeProductControlCommandSchema = z.discriminatedUnion('method', [
 	bridgeProductControlFileRefreshRetryCommandSchema,
+	bridgeProductControlFileSelectionReceiptCommandSchema,
 	bridgeProductControlFileWorktreeAnnotationCommandSchema,
 	bridgeProductControlReviewWorktreeAnnotationCommandSchema,
 	bridgeProductControlMarkFileViewedCommandSchema,

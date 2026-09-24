@@ -11,8 +11,16 @@ import Foundation
 /// derives each controller's explicit source inputs from the record.
 @MainActor
 final class BridgeNavigationCommandHandler {
-    private let navigationAtom: BridgeNavigationAtom
-    private let repositoryTopologyAtom: RepositoryTopologyAtom
+    let navigationAtom: BridgeNavigationAtom
+    let repositoryTopologyAtom: RepositoryTopologyAtom
+    /// Supplied by the App composition once mounted Bridges can be reached.
+    var presentationPorts: BridgeReceiverPresentationPorts?
+    /// Advances per receiver for every navigation that awaits the page, so a
+    /// late result of an older request never publishes state.
+    var navigationGenerationByReceiver: [BridgeReceiver: Int] = [:]
+    /// Unregistered worktrees whose removal still waits on an unsaved draft in
+    /// some receiver, with the canonical root captured from the catalog delta.
+    var pendingCatalogUnregistrationRootsById: [UUID: String] = [:]
 
     init(navigationAtom: BridgeNavigationAtom, repositoryTopologyAtom: RepositoryTopologyAtom) {
         self.navigationAtom = navigationAtom
@@ -137,7 +145,7 @@ final class BridgeNavigationCommandHandler {
         }
     }
 
-    private func knownWorktree(_ worktreeId: UUID) -> Worktree? {
+    func knownWorktree(_ worktreeId: UUID) -> Worktree? {
         guard let repoId = repositoryTopologyAtom.repositoryId(containing: worktreeId) else { return nil }
         return repositoryTopologyAtom.validatedAssociation(repoId: repoId, worktreeId: worktreeId)?.worktree
     }

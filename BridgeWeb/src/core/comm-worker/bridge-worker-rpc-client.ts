@@ -152,6 +152,7 @@ function bridgeWorkerCommandMatchesSurface(
 		case 'fileDisplayResync':
 		case 'fileQueryUpdate':
 		case 'fileRefreshRetry':
+		case 'fileSelectionReceipt':
 			return surface === 'fileView';
 		case 'markFileViewed':
 		case 'metadataInterestUpdate':

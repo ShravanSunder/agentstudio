@@ -132,6 +132,13 @@ package enum AppCommand: String, CaseIterable {
     case showBridgeFiles
     case openBridgeReviewInNewTab
     case openBridgeFilesInNewTab
+    // Receiving Bridge navigation and membership
+    case activateBridgeFile
+    case activateBridgeReview
+    case closeBridgeFile
+    case addBridgeWorktree
+    case selectBridgeWorktree
+    case removeBridgeWorktree
     case signInGitHub
     case signInGoogle
     // Sidebar commands

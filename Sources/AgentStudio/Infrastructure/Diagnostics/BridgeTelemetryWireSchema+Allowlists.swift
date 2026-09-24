@@ -831,6 +831,7 @@ extension BridgeTelemetryWireSchema {
             "fileDisplayResync",
             "fileQueryUpdate",
             "fileRefreshRetry",
+            "fileSelectionReceipt",
             "fileSourceDiscovery",
             "hover",
             "markFileViewed",

@@ -69,7 +69,7 @@ final class BridgePaneProductCommittedCallTarget {
             .fileAnnotationsProjectionQuery,
             .reviewAnnotationsCommand, .reviewAnnotationsOutputInspect,
             .reviewAnnotationsProjectionQuery,
-            .fileSourceCurrent, .fileRefreshRetry:
+            .fileSourceCurrent, .fileRefreshRetry, .fileSelectionReceipt:
             return
         case .fileActiveViewerModeUpdate(let request):
             mode = .file
@@ -105,6 +105,13 @@ final class BridgePaneProductCommittedCallTarget {
     func applyFileRefreshRetry(productAdmission: BridgeProductAdmissionContext) async {
         guard (productAdmission.withValidAdmission { true }) == true else { return }
         controller?.retryUnavailableFileRefresh()
+    }
+
+    func applyFileSelectionReceipt(
+        _ receipt: BridgeProductFileSelectionReceiptRequest,
+        productAdmission: BridgeProductAdmissionContext
+    ) async {
+        await controller?.handleCommittedFileSelectionReceipt(receipt, productAdmission: productAdmission)
     }
 
     func applyReviewIntakeReady(
@@ -571,6 +578,12 @@ extension BridgePaneController {
             },
             applyReviewComparisonUpdate: committedCallTarget.applyReviewComparisonUpdate,
             applyFileRefreshRetry: committedCallTarget.applyFileRefreshRetry,
+            applyFileSelectionReceipt: { receipt, productAdmission in
+                await committedCallTarget.applyFileSelectionReceipt(
+                    receipt,
+                    productAdmission: productAdmission
+                )
+            },
             applyWorktreeAnnotationCommand: makeWorktreeAnnotationCommandHandler(
                 input,
                 fileMetadataSource: fileMetadataSource

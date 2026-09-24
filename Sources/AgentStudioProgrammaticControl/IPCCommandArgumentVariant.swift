@@ -24,6 +24,7 @@ package enum IPCCommandArgumentVariant: String, CaseIterable, Codable, Equatable
     case standalonePane
     case worktree
     case worktreeInPane
+    case bridgeDocumentInPane
     case terminalFromWorktree
     case terminalFromPane
     case managementFromMainPane
@@ -76,6 +77,8 @@ package enum IPCCommandArgumentVariant: String, CaseIterable, Codable, Equatable
                 try IPCWorktreeCommandArguments.argumentSchema()
             case .worktreeInPane:
                 try IPCWorktreeInPaneCommandArguments.argumentSchema()
+            case .bridgeDocumentInPane:
+                try IPCBridgeDocumentInPaneCommandArguments.argumentSchema()
             case .terminalFromWorktree:
                 try IPCTerminalFromWorktreeCommandArguments.argumentSchema()
             case .terminalFromPane:

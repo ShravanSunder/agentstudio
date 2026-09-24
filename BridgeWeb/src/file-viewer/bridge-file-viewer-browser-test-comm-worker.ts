@@ -13,7 +13,10 @@ import type {
 	CreateBridgePaneRuntimeProps,
 } from '../core/comm-worker/bridge-pane-runtime.js';
 import { BridgeProductBoundedAsyncQueue } from '../core/comm-worker/bridge-product-async-queue.js';
-import type { BridgeProductCallResult } from '../core/comm-worker/bridge-product-call-contracts.js';
+import type {
+	BridgeProductCallRequest,
+	BridgeProductCallResult,
+} from '../core/comm-worker/bridge-product-call-contracts.js';
 import {
 	bridgeProductFileContentDescriptorSchema,
 	type BridgeProductContentFrameFor,
@@ -520,6 +523,13 @@ function createBrowserTestProductTransport(props: {
 				}
 			}
 			if (method === 'file.activeViewerMode.update') return null as never;
+			if (method === 'file.selection.receipt') {
+				const [, receipt] = arguments_;
+				props.productSessionRef.current?.onFileSelectionReceipt?.(
+					receipt as BridgeProductCallRequest<'file.selection.receipt'>,
+				);
+				return null as never;
+			}
 			throw new Error(`Unexpected browser-test product call: ${method}.`);
 		},
 		openContent: (descriptor, signal): never => {
