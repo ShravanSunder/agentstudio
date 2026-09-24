@@ -290,7 +290,7 @@ function decodeAnnotationOutputDocument(
 	readonly matchingIdentity: AnnotationOutputIdentityCapture | null;
 } {
 	expect(document).toMatchObject({
-		formatVersion: 2,
+		formatVersion: 3,
 		schema: 'agentstudio.worktree-annotations.batch',
 	});
 	if (!isRecord(document) || !Array.isArray(document['entries'])) {
