@@ -1,0 +1,203 @@
+import AppKit
+import Foundation
+import GhosttyKit
+import Testing
+
+@testable import AgentStudioTerminal
+
+/// The key input each AppKit event sends to Ghostty. Modifier events follow
+/// upstream Ghostty's `flagsChanged`; key-down text and modifiers stay as the
+/// terminal has always sent them.
+@Suite
+struct GhosttyKeyEventPlanTests {
+    struct ModifierCase: CustomTestStringConvertible, Sendable {
+        let name: String
+        let keyCode: CGKeyCode
+        let flags: UInt64
+        let action: ghostty_input_action_e
+        var testDescription: String { name }
+    }
+
+    static let modifierCases: [ModifierCase] = [
+        .init(name: "left shift down", keyCode: 0x38, flags: shift | leftShift, action: GHOSTTY_ACTION_PRESS),
+        .init(name: "left shift up", keyCode: 0x38, flags: 0, action: GHOSTTY_ACTION_RELEASE),
+        .init(name: "right shift down", keyCode: 0x3C, flags: shift | rightShift, action: GHOSTTY_ACTION_PRESS),
+        .init(
+            name: "right shift up, left held", keyCode: 0x3C, flags: shift | leftShift,
+            action: GHOSTTY_ACTION_RELEASE),
+        .init(name: "left control down", keyCode: 0x3B, flags: control | leftControl, action: GHOSTTY_ACTION_PRESS),
+        .init(name: "left control up", keyCode: 0x3B, flags: 0, action: GHOSTTY_ACTION_RELEASE),
+        .init(name: "right control down", keyCode: 0x3E, flags: control | rightControl, action: GHOSTTY_ACTION_PRESS),
+        .init(
+            name: "right control up, left held", keyCode: 0x3E, flags: control | leftControl,
+            action: GHOSTTY_ACTION_RELEASE),
+        .init(name: "left option down", keyCode: 0x3A, flags: option | leftOption, action: GHOSTTY_ACTION_PRESS),
+        .init(name: "left option up", keyCode: 0x3A, flags: 0, action: GHOSTTY_ACTION_RELEASE),
+        .init(name: "right option down", keyCode: 0x3D, flags: option | rightOption, action: GHOSTTY_ACTION_PRESS),
+        .init(
+            name: "right option up, left held", keyCode: 0x3D, flags: option | leftOption,
+            action: GHOSTTY_ACTION_RELEASE),
+        .init(name: "left command down", keyCode: 0x37, flags: command | leftCommand, action: GHOSTTY_ACTION_PRESS),
+        .init(name: "left command up", keyCode: 0x37, flags: 0, action: GHOSTTY_ACTION_RELEASE),
+        .init(name: "right command down", keyCode: 0x36, flags: command | rightCommand, action: GHOSTTY_ACTION_PRESS),
+        .init(
+            name: "right command up, left held", keyCode: 0x36, flags: command | leftCommand,
+            action: GHOSTTY_ACTION_RELEASE),
+        .init(name: "caps lock on", keyCode: 0x39, flags: capsLock, action: GHOSTTY_ACTION_PRESS),
+        .init(name: "caps lock off", keyCode: 0x39, flags: 0, action: GHOSTTY_ACTION_RELEASE),
+    ]
+
+    @Test("modifier events press or release by side and never read or send text", arguments: modifierCases)
+    func modifierEventPlan(testCase: ModifierCase) throws {
+        // Arrange
+        let event = try Self.modifierEvent(keyCode: testCase.keyCode, flags: testCase.flags)
+
+        // Act
+        let plan = try #require(ghosttyModifierKeyEventPlan(for: event, hasMarkedText: false))
+
+        // Assert
+        #expect(plan.action == testCase.action)
+        #expect(plan.keycode == UInt32(testCase.keyCode))
+        #expect(plan.mods == ghosttyMods(from: event.modifierFlags))
+        #expect(plan.text == nil)
+        #expect(plan.unshiftedCodepoint == 0)
+    }
+
+    @Test("a held command modifier reaches Ghostty as SUPER")
+    func commandPressCarriesSuper() throws {
+        let event = try Self.modifierEvent(keyCode: 0x37, flags: Self.command | Self.leftCommand)
+
+        let plan = try #require(ghosttyModifierKeyEventPlan(for: event, hasMarkedText: false))
+
+        #expect(plan.mods.rawValue & GHOSTTY_MODS_SUPER.rawValue != 0)
+        #expect(plan.consumedMods.rawValue & GHOSTTY_MODS_SUPER.rawValue == 0)
+    }
+
+    @Test("no modifier event is sent while an input method is composing")
+    func markedTextSendsNothing() throws {
+        let event = try Self.modifierEvent(keyCode: 0x3A, flags: Self.option | Self.leftOption)
+
+        #expect(ghosttyModifierKeyEventPlan(for: event, hasMarkedText: true) == nil)
+    }
+
+    @Test("a key code that is not a modifier sends nothing")
+    func unknownModifierKeyCodeSendsNothing() throws {
+        let functionKeyCode: CGKeyCode = 0x3F
+        let event = try Self.modifierEvent(keyCode: functionKeyCode, flags: 0)
+
+        #expect(ghosttyModifierKeyEventPlan(for: event, hasMarkedText: false) == nil)
+    }
+
+    @Test("a key release sends no text")
+    func keyUpSendsNoText() throws {
+        let event = try Self.keyEvent(.keyUp, characters: "a", flags: [], keyCode: 0)
+
+        let plan = ghosttyKeyEventPlan(for: event, action: GHOSTTY_ACTION_RELEASE, text: nil)
+
+        #expect(plan.action == GHOSTTY_ACTION_RELEASE)
+        #expect(plan.text == nil)
+        #expect(ghosttyKeyEventText(for: event) == nil)
+    }
+
+    struct KeyDownCase: CustomTestStringConvertible, Sendable {
+        let name: String
+        let characters: String
+        let flags: NSEvent.ModifierFlags
+        let keyCode: UInt16
+        let text: String?
+        let mods: UInt32
+        let consumedMods: UInt32
+        var testDescription: String { name }
+    }
+
+    static let keyDownCases: [KeyDownCase] = [
+        .init(
+            name: "a", characters: "a", flags: [], keyCode: 0, text: "a",
+            mods: GHOSTTY_MODS_NONE.rawValue, consumedMods: GHOSTTY_MODS_NONE.rawValue),
+        .init(
+            name: "shift+a", characters: "A", flags: .shift, keyCode: 0, text: "A",
+            mods: GHOSTTY_MODS_SHIFT.rawValue, consumedMods: GHOSTTY_MODS_SHIFT.rawValue),
+        .init(
+            name: "option+a", characters: "å", flags: .option, keyCode: 0, text: "å",
+            mods: GHOSTTY_MODS_ALT.rawValue, consumedMods: GHOSTTY_MODS_ALT.rawValue),
+        .init(
+            name: "option+left arrow", characters: "\u{F702}", flags: .option, keyCode: 123, text: nil,
+            mods: GHOSTTY_MODS_ALT.rawValue, consumedMods: GHOSTTY_MODS_ALT.rawValue),
+        .init(
+            name: "control+c", characters: "\u{3}", flags: .control, keyCode: 8, text: "c",
+            mods: GHOSTTY_MODS_CTRL.rawValue, consumedMods: GHOSTTY_MODS_NONE.rawValue),
+    ]
+
+    @Test("key-down text and modifiers are unchanged", arguments: keyDownCases)
+    func keyDownPlanIsUnchanged(testCase: KeyDownCase) throws {
+        // Arrange
+        let event = try Self.keyEvent(
+            .keyDown, characters: testCase.characters, flags: testCase.flags, keyCode: testCase.keyCode)
+
+        // Act — the non-IME keyDown path.
+        let plan = ghosttyKeyEventPlan(for: event, action: GHOSTTY_ACTION_PRESS, text: ghosttyKeyEventText(for: event))
+
+        // Assert
+        #expect(plan.action == GHOSTTY_ACTION_PRESS)
+        #expect(plan.text == testCase.text)
+        #expect(plan.mods.rawValue == testCase.mods)
+        #expect(plan.consumedMods.rawValue == testCase.consumedMods)
+    }
+
+    @Test("input-method text reaches Ghostty unchanged")
+    func inputMethodTextIsUnchanged() throws {
+        let event = try Self.keyEvent(.keyDown, characters: "a", flags: [], keyCode: 0)
+
+        let plan = ghosttyKeyEventPlan(for: event, action: GHOSTTY_ACTION_PRESS, text: "あ")
+
+        #expect(plan.text == "あ")
+    }
+
+    // MARK: - Events
+
+    private static let shift = CGEventFlags.maskShift.rawValue
+    private static let control = CGEventFlags.maskControl.rawValue
+    private static let option = CGEventFlags.maskAlternate.rawValue
+    private static let command = CGEventFlags.maskCommand.rawValue
+    private static let capsLock = CGEventFlags.maskAlphaShift.rawValue
+    private static let leftShift = UInt64(NX_DEVICELSHIFTKEYMASK)
+    private static let rightShift = UInt64(NX_DEVICERSHIFTKEYMASK)
+    private static let leftControl = UInt64(NX_DEVICELCTLKEYMASK)
+    private static let rightControl = UInt64(NX_DEVICERCTLKEYMASK)
+    private static let leftOption = UInt64(NX_DEVICELALTKEYMASK)
+    private static let rightOption = UInt64(NX_DEVICERALTKEYMASK)
+    private static let leftCommand = UInt64(NX_DEVICELCMDKEYMASK)
+    private static let rightCommand = UInt64(NX_DEVICERCMDKEYMASK)
+
+    /// A real `.flagsChanged` event: reading `characters` from it raises.
+    private static func modifierEvent(keyCode: CGKeyCode, flags: UInt64) throws -> NSEvent {
+        let source = try #require(CGEvent(keyboardEventSource: nil, virtualKey: keyCode, keyDown: true))
+        source.type = .flagsChanged
+        source.flags = CGEventFlags(rawValue: flags)
+        let event = try #require(NSEvent(cgEvent: source))
+        #expect(event.type == .flagsChanged)
+        return event
+    }
+
+    private static func keyEvent(
+        _ type: NSEvent.EventType,
+        characters: String,
+        flags: NSEvent.ModifierFlags,
+        keyCode: UInt16
+    ) throws -> NSEvent {
+        try #require(
+            NSEvent.keyEvent(
+                with: type,
+                location: .zero,
+                modifierFlags: flags,
+                timestamp: 0,
+                windowNumber: 0,
+                context: nil,
+                characters: characters,
+                charactersIgnoringModifiers: characters,
+                isARepeat: false,
+                keyCode: keyCode
+            )
+        )
+    }
+}

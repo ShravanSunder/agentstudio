@@ -52,19 +52,23 @@ extension Ghostty.SurfaceView {
 
         if let list = keyTextAccumulator, !list.isEmpty {
             for text in list {
-                sendKeyEvent(event, action: action, text: text)
+                sendKeyEvent(ghosttyKeyEventPlan(for: event, action: action, text: text))
             }
         } else {
-            sendKeyEvent(event, action: action, text: ghosttyKeyEventText(for: event))
+            sendKeyEvent(ghosttyKeyEventPlan(for: event, action: action, text: ghosttyKeyEventText(for: event)))
         }
     }
 
+    /// Releases carry no text, as in upstream Ghostty.
     package override func keyUp(with event: NSEvent) {
-        sendKeyEvent(event, action: GHOSTTY_ACTION_RELEASE)
+        sendKeyEvent(ghosttyKeyEventPlan(for: event, action: GHOSTTY_ACTION_RELEASE, text: nil))
     }
 
+    /// Modifier-only events follow upstream Ghostty: press or release by
+    /// side, never text, and nothing while an input method is composing.
     package override func flagsChanged(with event: NSEvent) {
-        sendKeyEvent(event, action: GHOSTTY_ACTION_PRESS)
+        guard let plan = ghosttyModifierKeyEventPlan(for: event, hasMarkedText: hasMarkedText()) else { return }
+        sendKeyEvent(plan)
     }
 
     static let appOwnedShortcuts: [AppShortcut] = AppShortcut.allCases.filter {
@@ -239,31 +243,20 @@ extension Ghostty.SurfaceView {
 
     package override func doCommand(by selector: Selector) {}
 
-    private func sendKeyEvent(_ event: NSEvent, action: ghostty_input_action_e, text: String? = nil) {
+    private func sendKeyEvent(_ plan: GhosttyKeyEventPlan) {
         guard let surface else { return }
         performanceTraceRecorder?.recordSidebarPerformanceTerminalInput()
 
         var keyEvent = ghostty_input_key_s()
-        keyEvent.action = action
-        keyEvent.mods = ghosttyMods(from: event.modifierFlags)
-        keyEvent.keycode = UInt32(event.keyCode)
+        keyEvent.action = plan.action
+        keyEvent.mods = plan.mods
+        keyEvent.keycode = plan.keycode
         keyEvent.composing = false
+        keyEvent.unshifted_codepoint = plan.unshiftedCodepoint
+        keyEvent.consumed_mods = plan.consumedMods
 
-        if event.type == .keyDown || event.type == .keyUp,
-            let chars = event.characters(byApplyingModifiers: []),
-            let codepoint = chars.unicodeScalars.first
-        {
-            keyEvent.unshifted_codepoint = codepoint.value
-        }
-
-        let consumedMods = event.modifierFlags.subtracting([.control, .command])
-        keyEvent.consumed_mods = ghosttyMods(from: consumedMods)
-
-        let textToSend = text ?? ghosttyKeyEventText(for: event)
-        if let textToSend, !textToSend.isEmpty,
-            let codepoint = textToSend.utf8.first, codepoint >= 0x20
-        {
-            textToSend.withCString { ptr in
+        if let text = plan.text {
+            text.withCString { ptr in
                 keyEvent.text = ptr
                 ghostty_surface_key(surface, keyEvent)
             }

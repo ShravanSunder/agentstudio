@@ -48,11 +48,11 @@ func filterGhosttyCharacters(
     return characters
 }
 
-/// Text Ghostty receives for a key event. Only key-down and key-up carry
-/// characters; AppKit raises when `characters` is read from a modifier-only
-/// `.flagsChanged` event, so those send no text.
+/// Text Ghostty receives for a key-down event. Key-up and modifier-only
+/// events carry no text, as in upstream Ghostty; AppKit raises when
+/// `characters` is read from a `.flagsChanged` event.
 func ghosttyKeyEventText(for event: NSEvent) -> String? {
-    guard event.type == .keyDown || event.type == .keyUp else { return nil }
+    guard event.type == .keyDown else { return nil }
     return filterGhosttyCharacters(
         characters: event.characters,
         byApplyingModifiers: { event.characters(byApplyingModifiers: $0) },
