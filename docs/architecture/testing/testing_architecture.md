@@ -228,6 +228,12 @@ when its failure names the thing that never arrived; otherwise it is a budget
 with a friendlier name. A hang bound is never raised to make a correct but slow
 test pass. A test that needs a larger bound is telling you it violates the
 concurrency, waiting, or blocking rule, not that the bound is wrong.
+A subprocess runs to exit through `runProcessToExit` or `runCommandToExit`
+([`RunToExitProcess.swift`](../../../Tests/AgentStudioTests/TestSupport/RunToExitProcess.swift)),
+never under a per-call timeout. The `agentstudio_no_test_elapsed_time_budget` lint
+rule fails a `DefaultProcessExecutor` construction, a semaphore or group
+`wait(timeout:)`, an `asyncAfter`, or a timed `waitForFile` in a test outside its
+named owners.
 
 **Time as subject uses a controlled clock.** Where the behavior under test
 depends on time — debounce, cadence, backoff, retention — the test drives that
@@ -328,6 +334,7 @@ Everything in [`Tests/AgentStudioTests/TestSupport/`](../../../Tests/AgentStudio
 | Harness | What it fakes or controls | The wait it enables |
 | --- | --- | --- |
 | `BlockingWorkOffCooperativePool.swift` | Nothing; it delegates to the harness's `valueFromDedicatedThread` | Lets a test wait on process exit, a semaphore, or a socket read without parking a cooperative thread |
+| `RunToExitProcess.swift` | Nothing; it runs a real subprocess with both streams in files | `runProcessToExit` and `runCommandToExit` suspend until `terminationHandler` reports the exit — no timeout, no parked thread. `RunToExitProcessExecutor` adapts them to `ProcessExecutor` in the AgentStudioTests target |
 | `TestPushClock.swift` | A `Clock` the test advances by hand | Time as subject: advance, then await quiescence. Never real time |
 | `EventBusHarness.swift` | A real `EventBus` with a recording subscriber and an actor-backed buffer | `RecordedEventBuffer` resumes a stored continuation the moment a matching envelope arrives — await the element, not a count |
 | `RuntimeEnvelopeHarness.swift` | Typed envelope records for system, worktree, and pane scopes | Assert on the exact fact that was posted |
@@ -536,6 +543,7 @@ See [`BridgeWeb/AGENTS.md` — Test Waits](../../../BridgeWeb/AGENTS.md#test-wai
 | [`TestPollingWaitRule.swift`](../../../Tools/AgentStudioArchitectureLint/Sources/AgentStudioArchitectureLintCore/Rules/TestPollingWaitRule.swift) | `agentstudio_no_polling_wait_in_tests` |
 | [`TestBlockingWaitOffCooperativePoolRule.swift`](../../../Tools/AgentStudioArchitectureLint/Sources/AgentStudioArchitectureLintCore/Rules/TestBlockingWaitOffCooperativePoolRule.swift) | `agentstudio_test_blocking_wait_off_cooperative_pool` |
 | [`TestTaskSleepRule.swift`](../../../Tools/AgentStudioArchitectureLint/Sources/AgentStudioArchitectureLintCore/Rules/TestTaskSleepRule.swift) | `agentstudio_no_task_sleep_in_tests` |
+| [`TestElapsedTimeBudgetRule.swift`](../../../Tools/AgentStudioArchitectureLint/Sources/AgentStudioArchitectureLintCore/Rules/TestElapsedTimeBudgetRule.swift) | `agentstudio_no_test_elapsed_time_budget` |
 | [`architecture-debt-ledger.tsv`](../../../Tools/AgentStudioArchitectureLint/architecture-debt-ledger.tsv) | Permitted site counts per lint rule and file; only ever lowered |
 | [`check-ledger-ratchet.sh`](../../../Tools/AgentStudioArchitectureLint/check-ledger-ratchet.sh) | The CI step that rejects a raised count or a new ledger row against the merge base |
 | [`ArchitectureAllowlists.swift`](../../../Tools/AgentStudioArchitectureLint/Sources/AgentStudioArchitectureLintCore/Paths/ArchitectureAllowlists.swift) | Named owners of blocking waits and other allowed sites (ownership, not debt) |
