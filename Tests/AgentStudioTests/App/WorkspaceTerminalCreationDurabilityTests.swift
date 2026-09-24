@@ -108,6 +108,92 @@ struct WorkspaceTerminalCreationDurabilityTests {
         await coordinator.shutdown()
     }
 
+    @Test("adding a drawer replaces the expanded drawer and saves the composition")
+    func addDrawerPaneReplacesExpandedDrawerAndSavesComposition() async throws {
+        let workspaceID = UUIDv7.generate()
+        let fixture = try makeWorkspaceSQLiteBridgeFixture(workspaceId: workspaceID)
+        let datastore = try preparedWorkspaceSQLiteDatastore(from: fixture.backend)
+        let store = WorkspaceStore(
+            identityAtom: WorkspaceIdentityAtom(workspaceId: workspaceID),
+            sqliteDatastore: datastore,
+            startsObserving: false
+        )
+        let firstParent = store.createPane()
+        let tab = Tab(paneId: firstParent.id)
+        store.appendTab(tab)
+        let secondParent = store.createPane()
+        #expect(
+            store.tabLayoutAtom.insertNewPane(
+                secondParent.id,
+                inTab: tab.id,
+                at: firstParent.id,
+                direction: .horizontal,
+                position: .after,
+                sizingMode: .halveTarget
+            )
+        )
+
+        let coordinator = WorkspaceSurfaceCoordinator(
+            store: store,
+            viewRegistry: ViewRegistry(),
+            runtime: SessionRuntime(store: store),
+            surfaceManager: HardeningSurfaceManager(createSurfaceResult: .failure(.ghosttyNotInitialized)),
+            runtimeRegistry: RuntimeRegistry(),
+            windowLifecycleStore: WindowLifecycleAtom(),
+            ipcLifecycle: .testUnavailable,
+            bridgePaneAttendance: BridgePaneAttendanceAtom()
+        )
+        coordinator.windowLifecycleStore.recordTerminalContainerBounds(
+            CGRect(x: 0, y: 0, width: 1000, height: 600)
+        )
+
+        do {
+            try await coordinator.execute(.addDrawerPane(parentPaneId: firstParent.id))
+            let firstDrawerID = try #require(store.pane(firstParent.id)?.drawer?.drawerId)
+            #expect(store.pane(firstParent.id)?.drawer?.isExpanded == true)
+
+            try await coordinator.execute(.addDrawerPane(parentPaneId: firstParent.id))
+            let firstDrawerAfterRepeat = try #require(store.pane(firstParent.id)?.drawer)
+            let secondDrawerBeforeSwitch = try #require(store.pane(secondParent.id)?.drawer)
+            #expect(firstDrawerAfterRepeat.isExpanded)
+            #expect(firstDrawerAfterRepeat.paneIds.count == 2)
+            #expect(secondDrawerBeforeSwitch.isExpanded == false)
+            #expect(store.paneAtom.expandedDrawerID == firstDrawerID)
+
+            try await coordinator.execute(.addDrawerPane(parentPaneId: secondParent.id))
+
+            let firstDrawer = try #require(store.pane(firstParent.id)?.drawer)
+            let secondDrawer = try #require(store.pane(secondParent.id)?.drawer)
+            #expect(firstDrawer.isExpanded == false)
+            #expect(secondDrawer.isExpanded)
+            #expect(firstDrawerID != secondDrawer.drawerId)
+            #expect(secondDrawer.paneIds.count == 1)
+
+            let persistedGraph = try fixture.coreRepository.fetchPaneGraph(workspaceId: workspaceID)
+            #expect(persistedGraph.panes.contains { $0.id == secondDrawer.paneIds[0] })
+            #expect(await store.flushAsync() == .persisted)
+
+            let reloadDatastore = try await preparedWorkspaceSQLiteDatastore(
+                coreRepository: fixture.coreRepository,
+                preparedApplicationLocalRepository: fixture.localRepository
+            )
+            guard case .loaded(let workspace) = await reloadDatastore.loadWorkspaceSnapshot() else {
+                Issue.record("Expected the second drawer composition to reload")
+                return
+            }
+            let expandedDrawerIDs: [UUID] = workspace.panes.compactMap { (pane: Pane) -> UUID? in
+                guard let drawer = pane.drawer, drawer.isExpanded else { return nil }
+                return drawer.drawerId
+            }
+            #expect(expandedDrawerIDs == [secondDrawer.drawerId])
+        } catch {
+            await coordinator.shutdown()
+            throw error
+        }
+
+        await coordinator.shutdown()
+    }
+
     @Test(
         "new terminal ownership commits before surface launch", arguments: [false, true],
         TerminalDurabilityCreationPath.allCases)

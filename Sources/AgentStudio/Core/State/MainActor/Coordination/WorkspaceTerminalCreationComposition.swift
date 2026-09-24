@@ -165,6 +165,11 @@ enum WorkspaceTerminalCreationComposition {
                 arrangements: inserted.arrangements, activeArrangementId: inserted.activeArrangementId,
                 colorHex: original.colorHex)
             updated.tabs[tabIndex] = tab
+            // Match WorkspaceDrawerCursorAtom's single-ID expansion in the durable proposal.
+            for paneIndex in updated.panes.indices {
+                guard paneIndex != parentIndex else { continue }
+                updated.panes[paneIndex].withDrawer { $0.isExpanded = false }
+            }
             updated.panes[parentIndex].withDrawer {
                 $0.paneIds.append(pane.id)
                 $0.isExpanded = true
