@@ -1,6 +1,7 @@
 import AgentStudioCore
 import AgentStudioInfrastructure
 import AppKit
+import CoreText
 import GhosttyKit
 import Observation
 
@@ -640,14 +641,20 @@ extension Ghostty.SurfaceView: @preconcurrency NSTextInputClient {
     }
 
     package func selectedRange() -> NSRange {
-        NSRange(location: NSNotFound, length: 0)
+        guard let surface else { return NSRange() }
+
+        // Selection can change between reading this value and AppKit using it.
+        var text = ghostty_text_s()
+        guard ghostty_surface_read_selection(surface, &text) else { return NSRange() }
+        defer { ghostty_surface_free_text(surface, &text) }
+        return ghosttyTextInputSelectionRange(
+            offsetStart: Int(text.offset_start),
+            offsetLength: Int(text.offset_len)
+        )
     }
 
     package func markedRange() -> NSRange {
-        if markedText.length > 0 {
-            return NSRange(location: 0, length: markedText.length)
-        }
-        return NSRange(location: NSNotFound, length: 0)
+        ghosttyTextInputMarkedRange(length: markedText.length)
     }
 
     package func hasMarkedText() -> Bool {
@@ -657,7 +664,23 @@ extension Ghostty.SurfaceView: @preconcurrency NSTextInputClient {
     package func attributedSubstring(forProposedRange range: NSRange, actualRange: NSRangePointer?)
         -> NSAttributedString?
     {
-        nil
+        guard let surface else { return nil }
+        guard range.length > 0 else { return nil }
+
+        var text = ghostty_text_s()
+        guard ghostty_surface_read_selection(surface, &text) else { return nil }
+        defer { ghostty_surface_free_text(surface, &text) }
+
+        // AppKit sometimes proposes unrelated ranges, so return Ghostty's current selection.
+        var attributes: [NSAttributedString.Key: Any] = [:]
+        if let fontRaw = ghostty_surface_quicklook_font(surface) {
+            // The dictionary retains the unretained CTFont; release Ghostty's original copy.
+            let font = Unmanaged<CTFont>.fromOpaque(fontRaw)
+            attributes[.font] = font.takeUnretainedValue()
+            font.release()
+        }
+
+        return NSAttributedString(string: String(cString: text.text), attributes: attributes)
     }
 
     package func validAttributesForMarkedText() -> [NSAttributedString.Key] {
@@ -665,9 +688,39 @@ extension Ghostty.SurfaceView: @preconcurrency NSTextInputClient {
     }
 
     package func firstRect(forCharacterRange range: NSRange, actualRange: NSRangePointer?) -> NSRect {
-        guard let window else { return .zero }
-        let viewFrame = convert(bounds, to: nil)
-        return window.convertToScreen(viewFrame)
+        guard let surface else {
+            return NSRect(x: frame.origin.x, y: frame.origin.y, width: 0, height: 0)
+        }
+
+        let cellSize = reportedCellSize ?? .zero
+        var x: Double = 0
+        var y: Double = 0
+        var width = Double(cellSize.width)
+        var height = Double(cellSize.height)
+
+        // QuickLook requests a range that differs from the terminal selection.
+        if range.length > 0, range != selectedRange() {
+            var text = ghostty_text_s()
+            if ghostty_surface_read_selection(surface, &text) {
+                x = text.tl_px_x - 2
+                y = text.tl_px_y + 2
+                ghostty_surface_free_text(surface, &text)
+            } else {
+                ghostty_surface_ime_point(surface, &x, &y, &width, &height)
+            }
+        } else {
+            ghostty_surface_ime_point(surface, &x, &y, &width, &height)
+        }
+
+        let viewRect = ghosttyTextInputViewRect(
+            pointAndSize: GhosttyIMEPointAndSize(x: x, y: y, width: width, height: height),
+            characterRange: range,
+            cellSize: cellSize,
+            viewHeight: frame.size.height
+        )
+        let windowRect = convert(viewRect, to: nil)
+        guard let window else { return windowRect }
+        return window.convertToScreen(windowRect)
     }
 
     package func characterIndex(for point: NSPoint) -> Int {
