@@ -190,11 +190,6 @@ print(digest.hexdigest())
 PY
 }
 
-SOURCE_HEAD="$(git -C "$PROJECT_ROOT" rev-parse HEAD)"
-SOURCE_DIGEST="$(source_digest)"
-WORKTREE_IDENTITY="$(canonical_path "$PROJECT_ROOT")"
-WORKLOAD_FINGERPRINT="$(workload_fingerprint)"
-
 if [ -n "${AGENTSTUDIO_PERF_PROOF_ROOT:-}" ]; then
   PROOF_ROOT="$(absolute_path "$AGENTSTUDIO_PERF_PROOF_ROOT")"
 elif [ "$DRIVE_COMMAND_BAR" = "1" ]; then
@@ -2033,6 +2028,11 @@ if test_responses_enabled && [ "${AGENTSTUDIO_PERF_TEST_COMMON_DEBT_SNAPSHOT:-0}
   common_debt_snapshot "${AGENTSTUDIO_PERF_TEST_COMMON_DEBT_MINIMUM_TIMESTAMP:-0}"
   exit 0
 fi
+
+SOURCE_HEAD="$(git -C "$PROJECT_ROOT" rev-parse HEAD)"
+SOURCE_DIGEST="$(source_digest)"
+WORKTREE_IDENTITY="$(canonical_path "$PROJECT_ROOT")"
+WORKLOAD_FINGERPRINT="$(workload_fingerprint)"
 
 mkdir -p "$ARTIFACT" "$FIXTURE_ROOT" "$PID_DIR"
 : >"$COMMAND_LOG"

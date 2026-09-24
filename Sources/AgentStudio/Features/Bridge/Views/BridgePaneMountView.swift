@@ -45,6 +45,9 @@ package final class BridgePaneMountView: NSView, PaneMountedContent {
         let contentView = BridgePaneContentView(controller: controller)
         let hosting = NSHostingView(
             rootView: AnyView(contentView.tint(AppStyles.General.Accent.primaryColor)))
+        // PaneHostView owns the allocation; intrinsic measurement can remount WebView
+        // while its WebPage is still bound to the existing representable.
+        hosting.sizingOptions = []
         hosting.translatesAutoresizingMaskIntoConstraints = false
         addSubview(hosting)
 

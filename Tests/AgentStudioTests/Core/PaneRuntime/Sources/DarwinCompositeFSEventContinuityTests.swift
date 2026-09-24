@@ -193,6 +193,9 @@ struct DarwinCompositeFSEventContinuityTests {
         let fixture = try CompositeContinuityFixture()
         _ = try #require(await fixture.prepare())
         fixture.streamFactory.send(path: fixture.ancestorEventPath, eventId: 290)
+        // Without a committed baseline, the ancestor recheck must first fall back
+        // to an exact scan. Await that event before starting the replacement scan.
+        try #require(await fixture.waitForSharedFullRefresh())
 
         let authority = try #require(await fixture.prepareAuthority())
 
@@ -358,6 +361,8 @@ private final class CompositeContinuityFixture: @unchecked Sendable {
     private let fixtureRoot: URL
     private let activityObservationLock = NSLock()
     private var recordedActivityObservationBatches: [FSEventActivityObservationBatch] = []
+    private let fullRefreshEvents: AsyncStream<FSEventBatch>
+    private let fullRefreshContinuation: AsyncStream<FSEventBatch>.Continuation
     private var ingressTask: Task<Void, Never>?
 
     var activityObservationBatches: [FSEventActivityObservationBatch] {
@@ -370,6 +375,10 @@ private final class CompositeContinuityFixture: @unchecked Sendable {
         additionalSharedItemNames: [String] = [],
         regularFileOpened: @escaping CompositeRegularFileOpened = { _ in }
     ) throws {
+        (fullRefreshEvents, fullRefreshContinuation) = AsyncStream.makeStream(
+            of: FSEventBatch.self,
+            bufferingPolicy: .unbounded
+        )
         fixtureRoot = FileManager.default.temporaryDirectory.appending(
             path: "darwin-composite-continuity-\(UUIDv7.generate().uuidString)",
             directoryHint: .isDirectory
@@ -431,8 +440,10 @@ private final class CompositeContinuityFixture: @unchecked Sendable {
                     }
                 case .activityProcessingFence(let fenceID):
                     client.acknowledgeActivityProcessingFence(fenceID)
-                case .batch:
-                    break
+                case .batch(let batch):
+                    if batch.requiresFullGitRefresh {
+                        self?.fullRefreshContinuation.yield(batch)
+                    }
                 }
             }
         }
@@ -440,6 +451,7 @@ private final class CompositeContinuityFixture: @unchecked Sendable {
 
     deinit {
         ingressTask?.cancel()
+        fullRefreshContinuation.finish()
         streamFactory.allowBlockedFlush(result: false)
         client.shutdown()
         try? FileManager.default.removeItem(at: fixtureRoot)
@@ -456,6 +468,13 @@ private final class CompositeContinuityFixture: @unchecked Sendable {
     func prepareAuthority() async -> GitCleanContinuityAuthority? {
         guard let barrier = await prepare() else { return nil }
         return await client.commit(barrier).authority
+    }
+
+    func waitForSharedFullRefresh() async -> Bool {
+        for await batch in fullRefreshEvents where batch.worktreeId == worktreeId {
+            return true
+        }
+        return false
     }
 
     func sharedDeliveredEventID(in barrier: FSEventActivityBarrier) -> UInt64? {

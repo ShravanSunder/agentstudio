@@ -1,19 +1,18 @@
 import { afterEach, expect, test, vi } from 'vitest';
 
-import type { BridgePaneSessionPort } from './bridge-pane-runtime.js';
+import { createBridgePaneRuntime, type BridgePaneSessionPort } from './bridge-pane-runtime.js';
 
 afterEach((): void => {
 	vi.unstubAllGlobals();
 });
 
-test('surface recovery prepares both consumers through one pane session and cannot revive disposal', async () => {
+test('surface recovery prepares both consumers through one pane session and cannot revive disposal', () => {
 	// Arrange
 	vi.stubGlobal('cancelAnimationFrame', vi.fn());
 	vi.stubGlobal(
 		'requestAnimationFrame',
 		vi.fn((): number => 1),
 	);
-	const { createBridgePaneRuntime } = await import('./bridge-pane-runtime.js');
 	const requestWorkerReplacement = vi.fn<() => void>();
 	const session: BridgePaneSessionPort = {
 		createDispatcher: () => ({ dispatch: (): void => {}, dispose: (): void => {} }),
