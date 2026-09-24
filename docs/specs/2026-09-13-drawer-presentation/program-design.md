@@ -387,7 +387,18 @@ them in one local transaction (`INSERT OR IGNORE`, so a row an ordinary save
 already wrote is kept); new panes use `0.8`. The key is removed only after that
 transaction commits. If owner enumeration or the write fails, nothing is
 written, the key is kept, and the next boot tries again; local database opening
-is unaffected. After the import there is one read/write path: local
+is unaffected.
+
+A retried import must not reach panes created after the upgrade, because a pane
+that still reads the default has no row for `INSERT OR IGNORE` to protect. The
+first boot that finds the pending key records an import cutoff: the current
+time, stored next to the key in the same defaults domain, before any capture is
+attempted. Only owners created before the cutoff are imported. Pane ids are
+UUIDv7 (`Pane.init`), so an owner's creation time comes from
+`UUIDv7.timestamp(from:)`; an id that is not v7 predates this build and is
+always eligible. The cutoff is written once and is never moved by a later
+retry. Both values are removed together after the import commits. No registry,
+migration, atom or retry service is added. After the import there is one read/write path: local
 preferences. Both runtime global-height readers are removed; the key is never a
 runtime fallback. No conditionally registered migration, old/new runtime mode,
 or durable core/undo-payload migration is introduced.
