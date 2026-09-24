@@ -4,8 +4,9 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
+  # Every base, not only main: a stacked PR targets the branch below it and
+  # still has to pass the same gates before the stack merges.
   pull_request:
-    branches: [main]
 
 permissions:
   contents: read
