@@ -1,76 +1,79 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { page } from "vitest/browser";
 
-import { initializeTopologyScrollReveal } from "../src/topology-lab/topology-scroll-reveal";
+import { railCurrentAttribute } from "../src/chapters/chapter-dom-contract";
+import { layoutFullPageTopology } from "../src/topology-lab/full-page-topology-layout";
+import {
+  initializeTopologyScrollReveal,
+  topologyChapterStateAttribute,
+  topologyNodeRevealedAttribute,
+  topologyReadingLineRatio,
+} from "../src/topology-lab/topology-scroll-reveal";
+import {
+  mountTopologyFixture,
+  type TopologyFixture,
+  type TopologyFixtureLayout,
+} from "./topology-browser-fixture";
 
-interface TopologyRevealFixture {
-  readonly artwork: SVGSVGElement;
-  readonly corePath: SVGPathElement;
+interface RevealFixture extends TopologyFixture {
   readonly dispose: () => void;
-  readonly finalNode: SVGGElement;
-  readonly host: HTMLDivElement;
-  readonly middleNode: SVGGElement;
-  readonly startNode: SVGGElement;
 }
 
-const activeFixtures: TopologyRevealFixture[] = [];
+const activeFixtures: RevealFixture[] = [];
 
-function createTopologyRevealFixture(): TopologyRevealFixture {
-  const host = document.createElement("div");
-  host.style.height = "20000px";
-  host.innerHTML = `
-    <svg data-full-page-topology style="display:block;width:180px;height:1200px">
-      <rect data-topology-reveal-solid height="0"></rect>
-      <rect data-topology-reveal-fade height="0"></rect>
-      <path data-topology-path-role="core" data-topology-path-start="0" data-topology-path-end="1" d="M 50 5 L 50 1195"></path>
-      <g data-node-owner="main" data-topology-node-progress="0" transform="translate(50 5)"></g>
-      <g data-node-owner="main" data-topology-node-progress="0.5" transform="translate(50 600)"></g>
-      <g data-node-owner="main" data-topology-node-progress="1" transform="translate(50 1195)"></g>
-    </svg>
-  `;
-  document.body.append(host);
+const wideRevealLayout: TopologyFixtureLayout = {
+  contentLeft: 383,
+  anchorTops: [110, 1300, 2060, 2820, 3580],
+  height: 6000,
+  phone: false,
+};
 
-  const artwork = host.querySelector<SVGSVGElement>("[data-full-page-topology]");
-  const corePath = host.querySelector<SVGPathElement>('[data-topology-path-role="core"]');
-  const finalNode = host.querySelector<SVGGElement>('[data-topology-node-progress="1"]');
-  const middleNode = host.querySelector<SVGGElement>('[data-topology-node-progress="0.5"]');
-  const startNode = host.querySelector<SVGGElement>('[data-topology-node-progress="0"]');
-  if (
-    artwork === null ||
-    corePath === null ||
-    finalNode === null ||
-    middleNode === null ||
-    startNode === null
-  ) {
-    throw new Error("Topology reveal fixture is incomplete");
+const phoneRevealLayout: TopologyFixtureLayout = {
+  contentLeft: 40,
+  anchorTops: [96, 1100, 1700, 2300],
+  height: 3600,
+  phone: true,
+};
+
+function mountRevealFixture(layout: TopologyFixtureLayout = wideRevealLayout): RevealFixture {
+  const fixture = mountTopologyFixture(layout);
+  const revealFixture = {
+    ...fixture,
+    dispose: initializeTopologyScrollReveal(fixture.artwork, layoutFullPageTopology),
+  };
+  activeFixtures.push(revealFixture);
+  return revealFixture;
+}
+
+function revealEdgeY(artwork: SVGSVGElement): number {
+  return Number(artwork.dataset["topologyRevealEdgeY"]);
+}
+
+function readingLineY(artwork: SVGSVGElement): number {
+  return window.innerHeight * topologyReadingLineRatio - artwork.getBoundingClientRect().top;
+}
+
+/** The artwork y of a route's start or end. */
+function routePointY(group: Element, at: "start" | "end"): number {
+  const core = group.querySelector<SVGPathElement>('[data-topology-path-role="core"]');
+  if (core === null) {
+    return Number.NaN;
   }
-
-  const fixture = {
-    artwork,
-    corePath,
-    dispose: initializeTopologyScrollReveal(artwork, (svg): boolean => {
-      svg.dataset["topologyStartY"] = "5";
-      svg.dataset["topologyEndY"] = "1195";
-      return true;
-    }),
-    finalNode,
-    host,
-    middleNode,
-    startNode,
-  } satisfies TopologyRevealFixture;
-  activeFixtures.push(fixture);
-  return fixture;
+  return core.getPointAtLength(at === "start" ? 0 : core.getTotalLength()).y;
 }
 
-async function waitForRenderedProgress(artwork: SVGSVGElement, expected: number): Promise<void> {
+async function scrollAndSettle(artwork: SVGSVGElement, top: number): Promise<number> {
+  window.scrollTo(0, top);
+  const maximumScroll = Math.max(document.documentElement.scrollHeight - window.innerHeight, 1);
+  const expectedProgress = Math.min(Math.max(window.scrollY / maximumScroll, 0), 1);
   await vi.waitFor(() => {
-    expect(Number(artwork.dataset["topologyScrollProgress"])).toBeCloseTo(expected, 2);
+    expect(Number(artwork.dataset["topologyScrollProgress"])).toBeCloseTo(expectedProgress, 3);
   });
+  return revealEdgeY(artwork);
 }
 
-async function scrollToProgress(artwork: SVGSVGElement, progress: number): Promise<void> {
-  const maximumScroll = document.documentElement.scrollHeight - window.innerHeight;
-  window.scrollTo(0, maximumScroll * progress);
-  await waitForRenderedProgress(artwork, progress);
+function nodeY(node: Element): number {
+  return Number(node.querySelector("circle")?.getAttribute("cy"));
 }
 
 afterEach(() => {
@@ -83,43 +86,164 @@ afterEach(() => {
 });
 
 describe("full-page topology scroll reveal", () => {
-  it("shows only the start node before scroll begins", async () => {
-    const fixture = createTopologyRevealFixture();
+  for (const [label, width, height, layout] of [
+    ["wide", 1920, 1080, wideRevealLayout],
+    ["phone", 390, 844, phoneRevealLayout],
+  ] as const) {
+    it(`reveals the whole first viewport on load (${label})`, async () => {
+      // Arrange
+      await page.viewport(width, height);
 
-    await waitForRenderedProgress(fixture.artwork, 0);
+      // Act
+      const fixture = mountRevealFixture(layout);
 
-    expect(fixture.artwork.hasAttribute("data-topology-at-start")).toBe(true);
-    expect(fixture.corePath.style.visibility).toBe("hidden");
-    expect(fixture.startNode.style.opacity).toBe("1");
-    expect(fixture.middleNode.style.opacity).toBe("0");
-    expect(fixture.finalNode.style.opacity).toBe("0");
+      // Assert
+      await vi.waitFor(() => {
+        expect(Number.isFinite(revealEdgeY(fixture.artwork))).toBe(true);
+      });
+      const edge = revealEdgeY(fixture.artwork);
+      const viewportBottomY = window.innerHeight - fixture.artwork.getBoundingClientRect().top;
+      expect(edge).toBeGreaterThanOrEqual(viewportBottomY - 1);
+      const heroAttach = fixture.artwork.querySelector('[data-route-anchor="hero"]');
+      expect(heroAttach).not.toBeNull();
+      expect(routePointY(heroAttach ?? fixture.artwork, "end")).toBeLessThanOrEqual(edge);
+      for (const lane of fixture.artwork.querySelectorAll('[data-route-kind="worktree"]')) {
+        expect(routePointY(lane, "start")).toBeLessThanOrEqual(edge);
+      }
+      const solid = fixture.artwork.querySelector("[data-topology-reveal-solid]");
+      expect(Number(solid?.getAttribute("height"))).toBeGreaterThanOrEqual(viewportBottomY - 1);
+    });
+  }
+
+  it("only ever moves the fog edge down as the page scrolls either way", async () => {
+    // Arrange
+    await page.viewport(1920, 1080);
+    const fixture = mountRevealFixture();
+    await vi.waitFor(() => {
+      expect(Number.isFinite(revealEdgeY(fixture.artwork))).toBe(true);
+    });
+    const edges = [revealEdgeY(fixture.artwork)];
+
+    // Act: each scroll must settle before the next.
+    edges.push(await scrollAndSettle(fixture.artwork, 1200));
+    edges.push(await scrollAndSettle(fixture.artwork, 2600));
+    edges.push(await scrollAndSettle(fixture.artwork, 900));
+    edges.push(await scrollAndSettle(fixture.artwork, 0));
+
+    // Assert
+    for (const [index, edge] of edges.slice(1).entries()) {
+      expect(edge).toBeGreaterThanOrEqual(edges[index] ?? 0);
+    }
+    expect(edges[2]).toBeGreaterThan(edges[0] ?? 0);
+    expect(edges.at(-1)).toBe(Math.max(...edges));
   });
 
-  it("tracks document scroll with one current node per active tree", async () => {
-    const fixture = createTopologyRevealFixture();
+  it("fills dots with their lane color as the reveal passes them and keeps the rest hollow in the fog", async () => {
+    // Arrange
+    await page.viewport(1920, 1080);
+    const fixture = mountRevealFixture();
+    await vi.waitFor(() => {
+      expect(Number.isFinite(revealEdgeY(fixture.artwork))).toBe(true);
+    });
 
-    await scrollToProgress(fixture.artwork, 0.5);
+    // Act
+    window.scrollTo(0, 1800);
 
-    const revealFade = fixture.artwork.querySelector<SVGRectElement>("[data-topology-reveal-fade]");
-    expect(fixture.corePath.style.visibility).toBe("visible");
-    expect(Number(revealFade?.getAttribute("height"))).toBeGreaterThan(0);
-    expect(fixture.middleNode.hasAttribute("data-topology-current-node")).toBe(true);
-    expect(fixture.startNode.hasAttribute("data-topology-current-node")).toBe(false);
-
-    await scrollToProgress(fixture.artwork, 1);
-
-    expect(fixture.artwork.hasAttribute("data-topology-at-end")).toBe(true);
-    expect(Number(revealFade?.getAttribute("height"))).toBe(0);
-    expect(fixture.finalNode.hasAttribute("data-topology-current-node")).toBe(true);
-
-    await scrollToProgress(fixture.artwork, 0);
-
-    expect(fixture.artwork.hasAttribute("data-topology-at-start")).toBe(true);
-    expect(fixture.corePath.style.visibility).toBe("hidden");
-    expect(fixture.middleNode.hasAttribute("data-topology-current-node")).toBe(false);
+    // Assert
+    await vi.waitFor(() => {
+      expect(revealEdgeY(fixture.artwork)).toBeGreaterThanOrEqual(
+        readingLineY(fixture.artwork) - 1,
+      );
+    });
+    const edge = revealEdgeY(fixture.artwork);
+    const nodes = [...fixture.artwork.querySelectorAll<SVGGElement>("[data-node]")];
+    const above = nodes.filter((node) => nodeY(node) < edge - 1);
+    const below = nodes.filter((node) => nodeY(node) > edge + 1);
+    expect(above.length).toBeGreaterThan(0);
+    expect(below.length).toBeGreaterThan(0);
+    expect(above.every((node) => node.hasAttribute(topologyNodeRevealedAttribute))).toBe(true);
+    expect(below.some((node) => node.hasAttribute(topologyNodeRevealedAttribute))).toBe(false);
+    expect(
+      above.every((node) => /accent-(main|peach|cyan)/u.test(node.getAttribute("class") ?? "")),
+    ).toBe(true);
+    const solid = fixture.artwork.querySelector("[data-topology-reveal-solid]");
+    const fade = fixture.artwork.querySelector("[data-topology-reveal-fade]");
+    expect(Number(solid?.getAttribute("height"))).toBeCloseTo(edge, 0);
+    expect(Number(fade?.getAttribute("y"))).toBeCloseTo(edge, 0);
+    expect(Number(fade?.getAttribute("height"))).toBeGreaterThan(0);
   });
 
-  it("renders the complete topology without pulse state for reduced motion", async () => {
+  it("marks the chapter at the reading line current and lights its glass", async () => {
+    // Arrange
+    await page.viewport(1920, 1080);
+    const fixture = mountRevealFixture();
+    const secondChapter = fixture.host.querySelector<HTMLElement>('[data-rail-anchor="chapter-2"]');
+    if (secondChapter === null) {
+      throw new Error("Reveal fixture is missing chapter 2");
+    }
+
+    // Act: bring chapter 2's eyebrow just above the reading line.
+    window.scrollTo(
+      0,
+      window.scrollY +
+        secondChapter.getBoundingClientRect().top -
+        window.innerHeight * topologyReadingLineRatio +
+        20,
+    );
+
+    // Assert
+    await vi.waitFor(() => {
+      expect(
+        fixture.artwork
+          .querySelector('[data-topology-chapter-node="chapter-2"]')
+          ?.getAttribute(topologyChapterStateAttribute),
+      ).toBe("current");
+    });
+    expect(
+      fixture.artwork
+        .querySelector('[data-topology-chapter-node="chapter-1"]')
+        ?.getAttribute(topologyChapterStateAttribute),
+    ).toBe("passed");
+    expect(
+      [...document.querySelectorAll(`[${railCurrentAttribute}]`)].map((element) =>
+        element.getAttribute("data-rail-surface-target"),
+      ),
+    ).toEqual(["chapter-2"]);
+  });
+
+  it("draws a port only once its glass comes into view", async () => {
+    // Arrange
+    await page.viewport(1920, 1080);
+    const fixture = mountRevealFixture();
+    await vi.waitFor(() => {
+      expect(
+        fixture.artwork
+          .querySelector('[data-route-anchor="hero"]')
+          ?.hasAttribute("data-port-drawn"),
+      ).toBe(true);
+    });
+    const farPort = fixture.artwork.querySelector('[data-route-anchor="chapter-3"]');
+    const farGlass = fixture.host.querySelector('[data-rail-surface-target="chapter-3"]');
+    if (farPort === null || farGlass === null) {
+      throw new Error("Reveal fixture is missing chapter 3");
+    }
+    expect(farGlass.getBoundingClientRect().top).toBeGreaterThan(window.innerHeight);
+    expect(farPort.hasAttribute("data-port-drawn")).toBe(false);
+
+    // Act
+    window.scrollTo(
+      0,
+      window.scrollY + farGlass.getBoundingClientRect().top - window.innerHeight / 2,
+    );
+
+    // Assert
+    await vi.waitFor(() => {
+      expect(farPort.hasAttribute("data-port-drawn")).toBe(true);
+    });
+  });
+
+  it("shows the complete topology without pulse state for reduced motion", async () => {
+    // Arrange
     vi.spyOn(window, "matchMedia").mockImplementation(
       (query): MediaQueryList =>
         ({
@@ -133,14 +257,27 @@ describe("full-page topology scroll reveal", () => {
           removeListener: vi.fn(),
         }) satisfies MediaQueryList,
     );
-    const fixture = createTopologyRevealFixture();
+    await page.viewport(1920, 1080);
 
-    await waitForRenderedProgress(fixture.artwork, 0);
+    // Act
+    const fixture = mountRevealFixture();
 
-    const nodes = [fixture.startNode, fixture.middleNode, fixture.finalNode];
-    expect(nodes.every((node) => node.style.opacity === "1")).toBe(true);
-    expect(nodes.some((node) => node.hasAttribute("data-topology-current-node"))).toBe(false);
-    expect(fixture.artwork.hasAttribute("data-topology-at-start")).toBe(false);
-    expect(fixture.artwork.hasAttribute("data-topology-at-end")).toBe(false);
+    // Assert
+    await vi.waitFor(() => {
+      expect(Number.isFinite(revealEdgeY(fixture.artwork))).toBe(true);
+      expect(Number(fixture.artwork.dataset["topologyRevealEdgeY"])).toBe(
+        Number(fixture.artwork.dataset["topologyEndY"]),
+      );
+    });
+    const nodes = [...fixture.artwork.querySelectorAll("[data-node]")];
+    expect(nodes.every((node) => node.hasAttribute(topologyNodeRevealedAttribute))).toBe(true);
+    expect(fixture.artwork.querySelectorAll("[data-topology-current-node]")).toHaveLength(0);
+    expect(
+      Number(fixture.artwork.querySelector("[data-topology-reveal-fade]")?.getAttribute("height")),
+    ).toBe(0);
+    // Every port shows at once, with no draw-in.
+    const ports = [...fixture.artwork.querySelectorAll('[data-route-kind="attach"]')];
+    expect(ports.length).toBeGreaterThan(0);
+    expect(ports.every((port) => port.hasAttribute("data-port-drawn"))).toBe(true);
   });
 });

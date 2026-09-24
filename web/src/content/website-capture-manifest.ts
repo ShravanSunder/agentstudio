@@ -17,6 +17,28 @@ export interface NormalizedFocusRegion {
   readonly bottom: number;
 }
 
+/**
+ * Provenance of a phone crop cut directly from the record's approved master:
+ * a pixel-exact crop box with no resampling, so the crop never shows pixels
+ * the master does not.
+ */
+export interface MasterCropProjection {
+  readonly kind: "master-crop";
+  /** Crop box in master pixels. */
+  readonly cropBox: {
+    readonly x: number;
+    readonly y: number;
+    readonly width: number;
+    readonly height: number;
+  };
+  /** SHA-256 of the master file the crop was cut from (the website asset). */
+  readonly masterSha256: string;
+  /** SHA-256 of the decoded RGBA pixels, identical for the master region and the crop. */
+  readonly decodedRgbaSha256: string;
+  /** Who produced the crop and where its provenance note lives. */
+  readonly producedBy: string;
+}
+
 export interface WebsiteCaptureRecord {
   readonly id: WebsiteCaptureId;
   readonly assetPath: string;
@@ -37,6 +59,7 @@ export interface WebsiteCaptureRecord {
   readonly projectionPolicy?: "full-native-window" | "purpose-crop";
   readonly phoneWebsiteAssetSha256?: string;
   readonly phonePixelSize?: readonly [width: number, height: number];
+  readonly phoneProjection?: MasterCropProjection;
   readonly viewerSourceSha256?: string;
   readonly viewerWebsiteAssetSha256?: string;
   readonly viewerPixelSize?: readonly [width: number, height: number];
@@ -167,7 +190,7 @@ export const websiteCaptureSuite = {
     {
       id: "quick-find",
       assetPath: "../assets/captures/command-bar.png",
-      phoneAssetPath: "../assets/captures/command-bar-phone.png",
+      phoneAssetPath: "../assets/captures/command-bar-phone-4x5.png",
       viewerAssetPath: "../assets/captures/command-bar.png",
       alternativeText:
         "Agent Studio Command bar showing recent repositories, their worktree and open-pane counts, and command, pane, and repository scopes with the global sidebar hidden.",
@@ -181,8 +204,16 @@ export const websiteCaptureSuite = {
       sourceSha256: "65b8cd5e1574eab31f6f5eb5c9d9ae3e62bc1b078ed66dae5c5f720c7352f904",
       normalizedMasterSha256: "dd066ebb6cd50b196760337b20879b8304d6c956728c94754bb77991dd3ba33a",
       websiteAssetSha256: "dd066ebb6cd50b196760337b20879b8304d6c956728c94754bb77991dd3ba33a",
-      phoneWebsiteAssetSha256: "c45ccb9cc44969ab99a844f2b5d8d0db7f493d9ec9d81a7045e77984d37cff2b",
-      phonePixelSize: [1600, 1000],
+      phoneWebsiteAssetSha256: "c0eaff30781309893d75f2c413ae9904c441926078a672393561c6e03fbaea6a",
+      phonePixelSize: [1280, 1600],
+      phoneProjection: {
+        kind: "master-crop",
+        cropBox: { x: 640, y: 0, width: 1280, height: 1600 },
+        masterSha256: "dd066ebb6cd50b196760337b20879b8304d6c956728c94754bb77991dd3ba33a",
+        decodedRgbaSha256: "92ab2097a142355cba76ca31a75614ba78bc87b591478c199de93707e7b1972a",
+        producedBy:
+          "Agent Studio media production system, videos/website-stills/README.md (2026-09-23)",
+      },
       viewerSourceSha256: "65b8cd5e1574eab31f6f5eb5c9d9ae3e62bc1b078ed66dae5c5f720c7352f904",
       viewerWebsiteAssetSha256: "dd066ebb6cd50b196760337b20879b8304d6c956728c94754bb77991dd3ba33a",
       viewerPixelSize: [2560, 1600],
