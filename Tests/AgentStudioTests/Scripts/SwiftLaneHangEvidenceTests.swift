@@ -191,6 +191,68 @@ struct SwiftLaneHangEvidenceTests {
         #expect(bothMissing.contains("DUMPS=0"))
     }
 
+    @Test("retention keeps whole evidence stems, newest first, and an empty held-step log never holds a slot")
+    func retentionKeepsWholeEvidenceStems() async throws {
+        // Seven stems of one label. The newest real run (…000006) is a hang
+        // that left a ledger, three task dumps and an empty held-step log;
+        // the older runs left a ledger and one dump each, and …000002 also a
+        // non-empty held-step log. …000007 is only an empty held-step log from
+        // a run that never got further, so it is not evidence. Retention keeps
+        // 5 stems: counted per kind, the three newest dumps would evict the
+        // dumps of runs whose ledgers are kept, and the empty logs would count.
+        let evidenceDirectory = NSTemporaryDirectory() + "agentstudio-receipt-retention-\(UUIDv7.generate())"
+        defer { try? FileManager.default.removeItem(atPath: evidenceDirectory) }
+        let stemPrefix = "lane-retention-probe-20260924T00000"
+        var seededFiles: [(name: String, contents: String)] = []
+        for stemNumber in 1...5 {
+            seededFiles.append(("\(stemPrefix)\(stemNumber)-100.events.jsonl", "ledger"))
+            seededFiles.append(("\(stemPrefix)\(stemNumber)-100-pid\(stemNumber)0.task-dump.txt", "TASKS"))
+        }
+        seededFiles.append(("\(stemPrefix)2-100.held-steps.log", "waiting\tstep-1\tgate\tSuite.swift one()"))
+        seededFiles.append(("\(stemPrefix)6-100.events.jsonl", "ledger"))
+        for dumpedPid in [61, 62, 63] {
+            seededFiles.append(("\(stemPrefix)6-100-pid\(dumpedPid).task-dump.txt", "TASKS"))
+        }
+        seededFiles.append(("\(stemPrefix)6-100.held-steps.log", ""))
+        seededFiles.append(("\(stemPrefix)7-100.held-steps.log", ""))
+        // Another label whose slug merely starts with this one is not this label's.
+        seededFiles.append(("lane-retention-probe-extra-20260924T000009-100.events.jsonl", "ledger"))
+        try FileManager.default.createDirectory(atPath: evidenceDirectory, withIntermediateDirectories: true)
+        for seededFile in seededFiles {
+            try seededFile.contents.write(
+                toFile: evidenceDirectory + "/" + seededFile.name,
+                atomically: true,
+                encoding: .utf8
+            )
+        }
+
+        // Modification times follow the timestamps in the names, as a real run's would.
+        _ = try await laneBash(
+            "for evidence_file in '\(evidenceDirectory)'/lane-*; do "
+                + "stamp=$(basename \"$evidence_file\" | grep -Eo '20260924T[0-9]{6}'); "
+                + "touch -t \"$(printf '%s' \"$stamp\" | sed -E 's/^(........)T(....)(..)$/\\1\\2.\\3/')\" "
+                + "\"$evidence_file\"; done"
+        )
+        let pruned = try await laneBash(
+            "export LANE_EVENT_STREAM_DIR='\(evidenceDirectory)' LANE_EVENT_STREAM_KEEP_PER_LABEL=5; "
+                + "source scripts/swift-test-helpers.sh; set -euo pipefail; "
+                + "prune_lane_event_streams retention-probe; echo PRUNE_STATUS=$?"
+        )
+        let remainingFiles = try FileManager.default.contentsOfDirectory(atPath: evidenceDirectory).sorted()
+        let expectedFiles =
+            seededFiles.map(\.name)
+            .filter { name in
+                !name.hasPrefix("\(stemPrefix)1-") && !name.hasPrefix("\(stemPrefix)7-")
+            }
+            .sorted()
+
+        #expect(pruned.contains("PRUNE_STATUS=0"))
+        // Stems …2 through …6 survive whole: every ledger, every dump and the
+        // non-empty held-step log. The oldest stem is gone, and so is the stem
+        // made only of an empty held-step log, which never took a slot.
+        #expect(remainingFiles == expectedFiles)
+    }
+
     @Test("a task dump is kept beside the ledger, and a refused attach is recorded with its reason")
     func taskDumpIsKeptBesideLedgerAndRefusalIsRecorded() async throws {
         // swift-inspect exits 0 when it cannot attach, printing only to stderr, so

@@ -296,22 +296,81 @@ discard_empty_held_step_log() {
   fi
 }
 
-# Keeps the newest `LANE_EVENT_STREAM_KEEP_PER_LABEL` ledgers, and the newest as
-# many task dumps and held-step logs, for one label.
+# Keeps the evidence of the newest `LANE_EVENT_STREAM_KEEP_PER_LABEL` runs of one
+# label, one run at a time. A run's evidence is every file sharing its stem,
+# `lane-<label>-<YYYYmmddTHHMMSS>-<runner pid>`: the ledger (`.events.jsonl`),
+# the held-step log (`.held-steps.log`) and one task dump per stuck process
+# (`-pid<pid>.task-dump.txt`). Retention is by stem, never per kind, so one
+# hang's several dumps cannot evict the dump of a run whose ledger is kept.
+#
+# Stems are ordered newest first by name: the fixed-width timestamp sorts
+# chronologically, and file modification times are not the run's time (a
+# copied ledger is stamped when it is copied). An empty held-step log is not
+# evidence, so it never makes a stem count; a stem it is the only member of is
+# deleted. Files whose stem does not have this label's exact shape belong to
+# another label (`lane-foo-bar-…` is not `lane-foo`'s) and are left alone.
 prune_lane_event_streams() {
   local label_slug="$1"
-  local retained_suffix
-  local surplus_file
+  local stem_inventory
+  local kept_stems
+  local evidence_stem
+  local stem_counts
+  local evidence_name
 
-  for retained_suffix in events.jsonl task-dump.txt held-steps.log; do
-    # A label with no files of one kind is normal (most ledgers have no dump),
-    # and under pipefail and set -e the failing `ls` would end the lane.
-    # shellcheck disable=SC2012
-    ls -1t "$LANE_EVENT_STREAM_DIR"/lane-"$label_slug"-*."$retained_suffix" 2>/dev/null \
-      | tail -n +$((LANE_EVENT_STREAM_KEEP_PER_LABEL + 1)) \
-      | while IFS= read -r surplus_file; do
-        rm -f "$surplus_file"
-      done || true
+  [ -d "$LANE_EVENT_STREAM_DIR" ] || return 0
+  stem_inventory="$(lane_evidence_stem_inventory "lane-$label_slug-")"
+  [ -n "$stem_inventory" ] || return 0
+
+  kept_stems="$(
+    printf '%s\n' "$stem_inventory" | /usr/bin/awk '$2 == 1 { print $1 }' | sort -ru |
+      head -n "$LANE_EVENT_STREAM_KEEP_PER_LABEL"
+  )" || true
+  printf '%s\n' "$stem_inventory" | while read -r evidence_stem stem_counts evidence_name; do
+    if ! printf '%s\n' "$kept_stems" | grep -Fxq -- "$evidence_stem"; then
+      rm -f "$LANE_EVENT_STREAM_DIR/$evidence_name"
+    fi
+  done || true
+}
+
+# One `<stem> <counts> <file name>` line per evidence file of one label, where
+# counts is 0 for an empty held-step log and 1 otherwise. A function of its own,
+# not inline in the caller's `$(…)`: bash 3.2 (macOS /bin/bash) mis-parses
+# `case` patterns inside a command substitution.
+lane_evidence_stem_inventory() {
+  local label_prefix="$1"
+  local evidence_path
+  local evidence_name
+  local evidence_stem
+  local stem_tail
+  local stem_counts
+
+  for evidence_path in "$LANE_EVENT_STREAM_DIR/$label_prefix"*; do
+    [ -f "$evidence_path" ] || continue
+    evidence_name="${evidence_path##*/}"
+    stem_counts=1
+    case "$evidence_name" in
+      *.events.jsonl) evidence_stem="${evidence_name%.events.jsonl}" ;;
+      *.held-steps.log)
+        evidence_stem="${evidence_name%.held-steps.log}"
+        [ -s "$evidence_path" ] || stem_counts=0
+        ;;
+      *-pid*.task-dump.txt)
+        evidence_stem="${evidence_name%-pid*.task-dump.txt}"
+        case "${evidence_name#"$evidence_stem"-pid}" in
+          *[!0-9]*.task-dump.txt | .task-dump.txt) continue ;;
+        esac
+        ;;
+      *) continue ;;
+    esac
+    stem_tail="${evidence_stem#"$label_prefix"}"
+    case "$stem_tail" in
+      [0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]T[0-9][0-9][0-9][0-9][0-9][0-9]-*) ;;
+      *) continue ;;
+    esac
+    case "${stem_tail#*T??????-}" in
+      '' | *[!0-9]*) continue ;;
+    esac
+    printf '%s %s %s\n' "$evidence_stem" "$stem_counts" "$evidence_name"
   done
 }
 
@@ -1311,8 +1370,9 @@ run_swift_with_timeout() {
   swift_test_record_lane_peaks "$output_file" "$event_stream_file"
   # A width comparison compares what ran, so it keeps every ledger, passing or not.
   if [ "$should_preserve_event_stream" -eq 1 ] || [ "${LANE_EVENT_STREAM_RETAIN_ALWAYS:-0}" = "1" ]; then
-    preserve_lane_event_stream "$label" "$event_stream_file" "$evidence_stem"
+    # Discarded first, so retention never sees this run's empty held-step log.
     discard_empty_held_step_log "$held_step_log"
+    preserve_lane_event_stream "$label" "$event_stream_file" "$evidence_stem"
   elif [ -n "$held_step_log" ]; then
     # A run that ended cleanly has nothing to explain, so it keeps nothing.
     rm -f "$held_step_log"
