@@ -74,18 +74,28 @@ package func proveReplyDependsOnStep<Context: Sendable, Arrival: Sendable, Reply
 }
 
 /// Starts the work, waits until it reaches the step, ends the step, and
-/// returns the reply. The step is retired on every exit path, so a branch that
-/// throws never leaves the work parked.
+/// returns the reply. If the wait for the step fails (the hang bound cancelled
+/// the proof, or the step was reached the wrong way), the step is retired and
+/// the reply task this helper started is cancelled and joined before the
+/// failure propagates, so no work of the branch outlives the test.
 private func replyAfterEndingHeldStep<Context: Sendable, Arrival: Sendable, Reply: Sendable>(
     isolation: isolated (any Actor)? = #isolation,
     of scenario: HeldReplyScenario<Context, Arrival, Reply>,
     endStep: (HeldStep<Arrival>) -> Void
 ) async throws -> Reply {
     let step = scenario.step
-    defer { step.retire() }
     let produceReply = scenario.produceReply
     let replyTask = Task { await produceReply() }
-    _ = try await step.firstArrival()
+    do {
+        _ = try await step.firstArrival()
+    } catch {
+        step.retire()
+        replyTask.cancel()
+        _ = await replyTask.value
+        throw error
+    }
     endStep(step)
-    return await replyTask.value
+    let reply = await replyTask.value
+    step.retire()
+    return reply
 }

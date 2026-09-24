@@ -64,6 +64,43 @@ struct ReplyDependsOnStepProofTests {
         }
         #expect(violatingStep == stepName)
     }
+
+    @Test("a failed wait for the step cancels and joins the reply task before returning")
+    func failedWaitCancelsAndJoinsTheReplyTask() async throws {
+        // Arrange: the work is held at an earlier, cancellation-aware prerequisite,
+        // so it never reaches the step the proof waits for.
+        let prerequisite = HeldStep<Void>("earlier prerequisite")
+        let effect = CommittedEffect()
+        let proof = Task {
+            try await proveReplyDependsOnStep(
+                makeScenario: { () -> HeldReplyScenario<CommittedEffect, Void, StepReply> in
+                    let step = HeldStep<Void>("never reached")
+                    return HeldReplyScenario(context: effect, step: step) { () -> StepReply in
+                        defer { effect.commit() }  // marks the reply task as finished
+                        do {
+                            try await prerequisite.arrive(())
+                            try await step.arrive(())
+                            return .committed
+                        } catch {
+                            return .failed
+                        }
+                    }
+                },
+                replyReportsFailure: { (reply: StepReply, _: CommittedEffect) -> Bool in reply == .failed },
+                assertCommitted: { (_: StepReply, _: CommittedEffect) in }
+            )
+        }
+        try await prerequisite.firstArrival()
+
+        // Act
+        proof.cancel()
+        let failure = await #expect(throws: HeldStepNeverReached.self) { try await proof.value }
+
+        // Assert: the reply task observed the cancellation and finished before the proof returned.
+        #expect(failure?.stepName == "never reached")
+        #expect(prerequisite.hasObservedCancellation)
+        #expect(effect.isCommitted)
+    }
 }
 
 private enum StepReply: Sendable, Equatable {
