@@ -88,8 +88,11 @@ struct AgentStudioIPCWireGoldenTests {
         #expect(methodNames == methodNames.sorted())
         #expect(Set(methodNames).count == methodNames.count)
 
+        let freshlyEncodedCapabilities = try capabilities.descriptor.encodeResult(capabilities.result)
+        #expect(capabilities.encodedResult == freshlyEncodedCapabilities)
+
         let snapshot = StableIPCWireSnapshot(
-            systemCapabilitiesResult: try capabilities.descriptor.encodeResult(capabilities.result),
+            systemCapabilitiesResult: capabilities.encodedResult,
             commandListMethod: commandComposition.list.metadata,
             commandExecuteMethod: commandComposition.execute.metadata
         )

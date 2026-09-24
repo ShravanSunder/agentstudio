@@ -11,11 +11,10 @@ package struct IPCAnyMethodDescriptor: Sendable {
     ) throws where Parameters: Codable & Sendable, Result: Codable & Sendable {
         let parameterSchema = descriptor.contract.parameterSchema
         let resultSchema = descriptor.contract.resultSchema
+        // `IPCMethodDescriptor` validates each example when it is initialized.
+        // Erasure projects those validated examples into the catalog wire form;
+        // validating them again here repeats the same full-schema work.
         let examples = try descriptor.examples.map { example in
-            try descriptor.contract.validateExample(
-                parameters: example.parameters,
-                result: example.result
-            )
             let parameterData = try JSONEncoder().encode(example.parameters)
             let resultData = try JSONEncoder().encode(example.result)
             return try IPCMethodExampleDocument(
@@ -70,5 +69,21 @@ package struct IPCAnyMethodDescriptor: Sendable {
 
     package func normalizeParameters(_ data: Data) throws -> Data {
         try parameterNormalizer(data)
+    }
+}
+
+/// Keeps a typed method descriptor paired with the validated catalog
+/// representation produced from it, so composition consumers can reuse both
+/// without repeating schema validation during registration.
+package struct IPCMethodDescriptorRepresentations<
+    Parameters: Codable & Sendable,
+    Result: Codable & Sendable
+>: Sendable {
+    package let typedDescriptor: IPCMethodDescriptor<Parameters, Result>
+    package let erasedDescriptor: IPCAnyMethodDescriptor
+
+    package init(typedDescriptor: IPCMethodDescriptor<Parameters, Result>) throws {
+        self.typedDescriptor = typedDescriptor
+        erasedDescriptor = try IPCAnyMethodDescriptor(erasing: typedDescriptor)
     }
 }

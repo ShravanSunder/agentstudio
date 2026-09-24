@@ -100,6 +100,7 @@ package struct AppIPCTypedMethodRegistration<
     Result: Codable & Sendable
 >: Sendable {
     private let descriptor: IPCMethodDescriptor<Parameters, Result>
+    private let validatedErasedDescriptor: IPCAnyMethodDescriptor?
     private let correlation: AppIPCCorrelation<Parameters>
     private let resolveTarget:
         @Sendable (
@@ -128,6 +129,32 @@ package struct AppIPCTypedMethodRegistration<
         cachedTransportResult: AppIPCCachedTransportResult? = nil
     ) {
         self.descriptor = descriptor
+        validatedErasedDescriptor = nil
+        self.correlation = correlation
+        self.resolveTarget = resolveTarget
+        self.connectionHandler = connectionHandler
+        self.cachedTransportResult = cachedTransportResult
+    }
+
+    package init(
+        descriptorRepresentations: IPCMethodDescriptorRepresentations<Parameters, Result>,
+        correlation: AppIPCCorrelation<Parameters>,
+        resolveTarget:
+            @escaping @Sendable (
+                Parameters,
+                AppIPCConnectionContext,
+                AppIPCTargetResolutionTools
+            ) async throws -> AppIPCTargetResolution<Parameters>,
+        connectionHandler:
+            @escaping @Sendable (
+                Parameters,
+                AppIPCConnectionContext,
+                IPCTargetScope
+            ) async throws -> Result,
+        cachedTransportResult: AppIPCCachedTransportResult? = nil
+    ) {
+        descriptor = descriptorRepresentations.typedDescriptor
+        validatedErasedDescriptor = descriptorRepresentations.erasedDescriptor
         self.correlation = correlation
         self.resolveTarget = resolveTarget
         self.connectionHandler = connectionHandler
@@ -139,7 +166,12 @@ package struct AppIPCTypedMethodRegistration<
 
     package func erase() throws -> AnyAppIPCMethodRegistration {
         try validateCorrelationPolicy()
-        let erasedDescriptor = try IPCAnyMethodDescriptor(erasing: descriptor)
+        let erasedDescriptor: IPCAnyMethodDescriptor
+        if let validatedErasedDescriptor {
+            erasedDescriptor = validatedErasedDescriptor
+        } else {
+            erasedDescriptor = try IPCAnyMethodDescriptor(erasing: descriptor)
+        }
 
         return AnyAppIPCMethodRegistration(
             descriptor: erasedDescriptor,

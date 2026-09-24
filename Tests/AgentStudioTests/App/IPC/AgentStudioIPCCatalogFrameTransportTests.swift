@@ -60,7 +60,8 @@ struct AgentStudioIPCCatalogFrameTransportTests {
             harness.appDelegate.appIPCServer?.service.methodRegistry.capabilitiesTransportResultCache
         )
 
-        // Nothing has asked for the catalog yet, so nothing has encoded it.
+        // Startup composition already validated the catalog bytes; the cache has not
+        // materialized their JSONValue projection yet.
         #expect(capabilitiesCache.compositionCount == 0)
         #expect(!capabilitiesCache.hasComposedValue)
 
@@ -77,7 +78,8 @@ struct AgentStudioIPCCatalogFrameTransportTests {
         #expect(firstResult == secondResult)
         #expect(secondResult == thirdResult)
 
-        // Three requests crossed the socket; the catalog was encoded for one.
+        // Three requests crossed the socket; the cached transport value was
+        // materialized once from the validated composition result.
         #expect(capabilitiesCache.compositionCount == 1)
         #expect(capabilitiesCache.hasComposedValue)
 

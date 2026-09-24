@@ -44,14 +44,14 @@ package struct AppIPCMethodRegistry: Sendable {
                     IPCRecognizedUnexposedName(name: $0.name, agentEligibility: $0.agentEligibility ?? .notYetAllowed)
                 }
         )
-        let capabilityDescriptor = composition.descriptor
         let capabilityResult = composition.result
+        let encodedCapabilityResult = composition.encodedResult
         let capabilitiesTransportResultCache = AppIPCCachedTransportResult {
             try JSONDecoder().decode(
-                JSONValue.self, from: try capabilityDescriptor.encodeResult(capabilityResult))
+                JSONValue.self, from: encodedCapabilityResult)
         }
         let capabilityRegistration = try AppIPCTypedMethodRegistration(
-            descriptor: composition.descriptor,
+            descriptorRepresentations: composition.descriptorRepresentations,
             correlation: .notRequired,
             resolveTarget: { parameters, context, _ in
                 try AppIPCBuiltInRegistrationSupport.principalTarget(parameters, context: context)
