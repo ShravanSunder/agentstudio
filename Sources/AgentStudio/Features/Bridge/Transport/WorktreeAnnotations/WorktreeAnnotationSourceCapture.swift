@@ -562,8 +562,10 @@ enum WorktreeAnnotationSourceCapture {
             throw WorktreeAnnotationSourceResolutionError.unavailable
         }
         return WorktreeAnnotationSourceFingerprint(
-            repositoryID: package.query.repoId.uuidString.lowercased(),
-            worktreeID: package.query.worktreeId.uuidString.lowercased(),
+            subject: .git(
+                repositoryID: package.query.repoId.uuidString.lowercased(),
+                worktreeID: package.query.worktreeId.uuidString.lowercased()
+            ),
             fileSourceIdentity: nil,
             reviewComparisonOrigin: .init(
                 symbolicTarget: symbolicTarget,
@@ -730,8 +732,10 @@ extension BridgePaneProductFileMetadataSource {
         for productSource: BridgeProductFileSourceIdentity
     ) -> WorktreeAnnotationSourceFingerprint {
         WorktreeAnnotationSourceFingerprint(
-            repositoryID: authority.worktree.repoId.uuidString.lowercased(),
-            worktreeID: authority.worktree.id.uuidString.lowercased(),
+            subject: .git(
+                repositoryID: authority.worktree.repoId.uuidString.lowercased(),
+                worktreeID: authority.worktree.id.uuidString.lowercased()
+            ),
             fileSourceIdentity: productSource.sourceId,
             reviewComparisonOrigin: nil
         )

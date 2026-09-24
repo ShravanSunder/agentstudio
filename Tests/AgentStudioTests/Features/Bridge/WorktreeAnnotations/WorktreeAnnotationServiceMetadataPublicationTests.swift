@@ -11,17 +11,17 @@ struct WorktreeAnnotationServiceMetadataPublicationTests {
         // Arrange
         let detail = try makeCommittedDetail()
         let access = MetadataPublicationRepositoryAccess(
-            catalogCapture: .init(worktreeID: "worktree-1", sessions: [], threads: [], messages: [])
+            catalogCapture: .init(subject: defaultAnnotationSubject, sessions: [], threads: [], messages: [])
         )
         await access.enqueueMutation(.init(canonicalResult: detail, change: .noChange))
         let service = WorktreeAnnotationServiceActor(repositoryAccess: access)
-        let observer = await service.registerChangeObserver(worktreeID: "worktree-1")
+        let observer = await service.registerChangeObserver(subject: defaultAnnotationSubject)
         var iterator = observer.stream.makeAsyncIterator()
-        let initialCapture = try await service.captureCatalog(worktreeID: "worktree-1")
+        let initialCapture = try await service.captureCatalog(subject: defaultAnnotationSubject)
 
         // Act
         let returnedDetail = try await service.createRootDraft(makeCreateRootDraftProps())
-        let finalCapture = try await service.captureCatalog(worktreeID: "worktree-1")
+        let finalCapture = try await service.captureCatalog(subject: defaultAnnotationSubject)
         await service.removeChangeObserver(token: observer.token)
 
         // Assert
@@ -37,21 +37,21 @@ struct WorktreeAnnotationServiceMetadataPublicationTests {
         let sessionA = WorktreeAnnotationSessionID.generate()
         let sessionB = WorktreeAnnotationSessionID.generate()
         let access = MetadataPublicationRepositoryAccess(
-            catalogCapture: .init(worktreeID: "worktree-1", sessions: [], threads: [], messages: [])
+            catalogCapture: .init(subject: defaultAnnotationSubject, sessions: [], threads: [], messages: [])
         )
         for sessionChange in [
             WorktreeAnnotationCommittedSessionChange(
-                worktreeID: "worktree-1",
+                subject: defaultAnnotationSubject,
                 sessionID: sessionA,
                 semanticRevision: 2
             ),
             WorktreeAnnotationCommittedSessionChange(
-                worktreeID: "worktree-1",
+                subject: defaultAnnotationSubject,
                 sessionID: sessionB,
                 semanticRevision: 3
             ),
             WorktreeAnnotationCommittedSessionChange(
-                worktreeID: "worktree-1",
+                subject: defaultAnnotationSubject,
                 sessionID: sessionA,
                 semanticRevision: 4
             ),
@@ -61,7 +61,7 @@ struct WorktreeAnnotationServiceMetadataPublicationTests {
             )
         }
         let service = WorktreeAnnotationServiceActor(repositoryAccess: access)
-        let observer = await service.registerChangeObserver(worktreeID: "worktree-1")
+        let observer = await service.registerChangeObserver(subject: defaultAnnotationSubject)
         var iterator = observer.stream.makeAsyncIterator()
 
         // Act
@@ -83,25 +83,25 @@ struct WorktreeAnnotationServiceMetadataPublicationTests {
         // Arrange
         let detail = try makeCommittedDetail()
         let sessionChange = WorktreeAnnotationCommittedSessionChange(
-            worktreeID: "worktree-1",
+            subject: defaultAnnotationSubject,
             sessionID: detail.session.id,
             semanticRevision: detail.session.semanticRevision
         )
         let access = MetadataPublicationRepositoryAccess(
-            catalogCapture: .init(worktreeID: "worktree-1", sessions: [], threads: [], messages: [])
+            catalogCapture: .init(subject: defaultAnnotationSubject, sessions: [], threads: [], messages: [])
         )
         await access.enqueueMutation(
             .init(
                 canonicalResult: detail,
                 change: .control(
-                    worktreeIDs: ["worktree-1"],
+                    subjects: [defaultAnnotationSubject],
                     reason: .recovery,
                     sessionChanges: [sessionChange]
                 )
             )
         )
         let service = WorktreeAnnotationServiceActor(repositoryAccess: access)
-        let observer = await service.registerChangeObserver(worktreeID: "worktree-1")
+        let observer = await service.registerChangeObserver(subject: defaultAnnotationSubject)
         var iterator = observer.stream.makeAsyncIterator()
 
         // Act
@@ -120,8 +120,10 @@ struct WorktreeAnnotationServiceMetadataPublicationTests {
         let detail = try makeCommittedDetail()
         let previousWorktreeID = "worktree-previous"
         let currentWorktreeID = "worktree-current"
+        let previousSubject = WorktreeAnnotationSubject.git(repositoryID: "repo-1", worktreeID: previousWorktreeID)
+        let currentSubject = WorktreeAnnotationSubject.git(repositoryID: "repo-1", worktreeID: currentWorktreeID)
         let access = MetadataPublicationRepositoryAccess(
-            catalogCapture: .init(worktreeID: currentWorktreeID, sessions: [], threads: [], messages: [])
+            catalogCapture: .init(subject: currentSubject, sessions: [], threads: [], messages: [])
         )
         await access.enqueueMutation(
             .init(
@@ -129,7 +131,7 @@ struct WorktreeAnnotationServiceMetadataPublicationTests {
                 change: .content(
                     sessionChanges: [
                         .init(
-                            worktreeID: currentWorktreeID,
+                            subject: currentSubject,
                             sessionID: detail.session.id,
                             semanticRevision: 2
                         )
@@ -146,10 +148,10 @@ struct WorktreeAnnotationServiceMetadataPublicationTests {
             .init(
                 canonicalResult: association,
                 change: .catalog(
-                    worktreeIDs: [previousWorktreeID, currentWorktreeID],
+                    subjects: [previousSubject, currentSubject],
                     sessionChanges: [
                         .init(
-                            worktreeID: currentWorktreeID,
+                            subject: currentSubject,
                             sessionID: detail.session.id,
                             semanticRevision: 3
                         )
@@ -158,8 +160,8 @@ struct WorktreeAnnotationServiceMetadataPublicationTests {
             )
         )
         let service = WorktreeAnnotationServiceActor(repositoryAccess: access)
-        let previousObserver = await service.registerChangeObserver(worktreeID: previousWorktreeID)
-        let currentObserver = await service.registerChangeObserver(worktreeID: currentWorktreeID)
+        let previousObserver = await service.registerChangeObserver(subject: previousSubject)
+        let currentObserver = await service.registerChangeObserver(subject: currentSubject)
         var previousIterator = previousObserver.stream.makeAsyncIterator()
         var currentIterator = currentObserver.stream.makeAsyncIterator()
 
@@ -190,14 +192,14 @@ struct WorktreeAnnotationServiceMetadataPublicationTests {
         // Arrange
         let detail = try makeCommittedDetail()
         let access = MetadataPublicationRepositoryAccess(
-            catalogCapture: .init(worktreeID: "worktree-1", sessions: [], threads: [], messages: [])
+            catalogCapture: .init(subject: defaultAnnotationSubject, sessions: [], threads: [], messages: [])
         )
         await access.suspendCatalogCapture()
         await access.enqueueMutation(.catalog(detail))
         let service = WorktreeAnnotationServiceActor(repositoryAccess: access)
-        let observer = await service.registerChangeObserver(worktreeID: "worktree-1")
+        let observer = await service.registerChangeObserver(subject: defaultAnnotationSubject)
         var iterator = observer.stream.makeAsyncIterator()
-        let captureTask = Task { try await service.captureCatalog(worktreeID: "worktree-1") }
+        let captureTask = Task { try await service.captureCatalog(subject: defaultAnnotationSubject) }
         await access.waitForCatalogCapture()
 
         // Act
@@ -250,9 +252,9 @@ private actor MetadataPublicationRepositoryAccess: WorktreeAnnotationRepositoryA
         shouldSuspendCatalogCapture = false
     }
 
-    func discoverSessions(worktreeID _: String) async throws -> [WorktreeAnnotationSession] { [] }
+    func discoverSessions(subject _: WorktreeAnnotationSubject) async throws -> [WorktreeAnnotationSession] { [] }
 
-    func fetchCatalogCapture(worktreeID _: String) async throws -> WorktreeAnnotationCatalogCapture {
+    func fetchCatalogCapture(subject _: WorktreeAnnotationSubject) async throws -> WorktreeAnnotationCatalogCapture {
         didStartCatalogCapture = true
         catalogCaptureStartedContinuation?.resume()
         catalogCaptureStartedContinuation = nil
@@ -263,7 +265,7 @@ private actor MetadataPublicationRepositoryAccess: WorktreeAnnotationRepositoryA
     }
 
     func fetchProjectionSnapshot(
-        worktreeID _: String,
+        subject _: WorktreeAnnotationSubject,
         demandedSessionIDs _: [WorktreeAnnotationSessionID]
     ) async throws -> WorktreeAnnotationRepositoryProjectionSnapshot {
         .init(details: [], sessions: [])
@@ -319,8 +321,7 @@ private func makeAssociationProps(
             reviewedHeadOID: String(repeating: "a", count: 40)
         ),
         acceptedSourceFingerprint: .init(
-            repositoryID: "repo-1",
-            worktreeID: currentWorktreeID,
+            subject: .git(repositoryID: "repo-1", worktreeID: currentWorktreeID),
             fileSourceIdentity: "source-current",
             reviewComparisonOrigin: nil
         ),

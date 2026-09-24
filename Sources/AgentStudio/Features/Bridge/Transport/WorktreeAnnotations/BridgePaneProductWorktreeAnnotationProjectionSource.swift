@@ -71,7 +71,7 @@ actor BridgeAnnotationProjectionSource {
     static let unavailable = BridgeAnnotationProjectionSource(
         service: nil,
         sourceResolver: .unavailable,
-        worktreeID: "",
+        subject: nil,
         currentSourceGeneration: { _, _, _ in
             throw BridgeAnnotationProjectionSourceError.unavailable
         }
@@ -80,20 +80,20 @@ actor BridgeAnnotationProjectionSource {
     private let currentSourceGeneration: CurrentSourceGeneration
     private let service: WorktreeAnnotationServiceActor?
     private let sourceResolver: WorktreeAnnotationSourceResolver
-    private let worktreeID: String
+    private let subject: WorktreeAnnotationSubject?
     private var logicalReservation: LogicalReservation?
     private var pageReservationByDescriptorID: [String: PageReservation] = [:]
 
     init(
         service: WorktreeAnnotationServiceActor?,
         sourceResolver: WorktreeAnnotationSourceResolver,
-        worktreeID: String,
+        subject: WorktreeAnnotationSubject?,
         currentSourceGeneration: @escaping CurrentSourceGeneration
     ) {
         self.currentSourceGeneration = currentSourceGeneration
         self.service = service
         self.sourceResolver = sourceResolver
-        self.worktreeID = worktreeID
+        self.subject = subject
     }
 
     func descriptor(
@@ -104,7 +104,7 @@ actor BridgeAnnotationProjectionSource {
         guard let authority = RequestAuthority(issuing: request),
             request.surface == query.surface,
             let service,
-            !worktreeID.isEmpty
+            let subject
         else {
             throw BridgeAnnotationProjectionSourceError.unavailable
         }
@@ -133,7 +133,7 @@ actor BridgeAnnotationProjectionSource {
         let serviceCapture: WorktreeAnnotationServiceProjectionCapture
         do {
             serviceCapture = try await service.captureProjection(
-                worktreeID: worktreeID,
+                subject: subject,
                 demandedSessionIDs: demandedSessionIDs
             )
         } catch {
@@ -171,7 +171,7 @@ actor BridgeAnnotationProjectionSource {
             sourceCapture: sourceCapture
         )
         let capture = BridgeProductAnnotationProjectionCapture(
-            worktreeID: worktreeID,
+            subject: subject,
             recoveryStatus: projectionRecoveryStatus(serviceCapture.recoveryState),
             sessions: serviceCapture.repositorySnapshot.sessions,
             details: serviceCapture.repositorySnapshot.details,

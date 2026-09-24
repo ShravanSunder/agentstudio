@@ -544,11 +544,8 @@ private func makeOutputRepositoryFixture() throws -> OutputRepositoryFixture {
     var detail = try repository.createRootDraft(
         .init(
             admission: .implicitOrSingle,
-            repositoryID: "repository-1",
-            worktreeID: "worktree-1",
             sourceFingerprint: .init(
-                repositoryID: "repository-1",
-                worktreeID: "worktree-1",
+                subject: .git(repositoryID: "repository-1", worktreeID: "worktree-1"),
                 fileSourceIdentity: "source-1",
                 reviewComparisonOrigin: nil
             ),

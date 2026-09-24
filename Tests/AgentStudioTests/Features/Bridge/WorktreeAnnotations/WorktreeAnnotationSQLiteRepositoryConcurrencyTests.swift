@@ -29,9 +29,11 @@ struct WorktreeAnnotationSQLiteRepositoryConcurrencyTests {
         detail = try repository.createRootDraft(
             .init(
                 admission: .selected(detail.session.id),
-                repositoryID: detail.session.repositoryID,
-                worktreeID: detail.session.worktreeID,
-                sourceFingerprint: makeSourceFingerprint(worktreeID: detail.session.worktreeID),
+                sourceFingerprint: .init(
+                    subject: detail.session.subject,
+                    fileSourceIdentity: "file-source-1",
+                    reviewComparisonOrigin: nil
+                ),
                 origin: .session,
                 body: "Second independent draft",
                 editToken: "editor-second",

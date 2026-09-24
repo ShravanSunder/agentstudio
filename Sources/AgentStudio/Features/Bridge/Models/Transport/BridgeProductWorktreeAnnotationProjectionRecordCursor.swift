@@ -210,7 +210,7 @@ struct BridgeProductAnnotationProjectionRecordAnalysis: Sendable {
     ) throws {
         guard maximumPageCount > 0, maximumPageBytes > 0, maximumFrameBytes > 0,
             capture.projectionRevision >= 0, capture.sourceGeneration >= 0,
-            !capture.worktreeID.isEmpty
+            capture.subject.gitWorktreeID != nil
         else {
             throw BridgeProductAnnotationProjectionRecordCursorError.invalidCapture
         }
@@ -453,10 +453,10 @@ private func validateAndCount(
 ) throws -> BridgeProductAnnotationProjectionCounts {
     let sessionIDs = capture.sessions.map(\.id)
     guard Set(sessionIDs).count == sessionIDs.count,
-        capture.sessions.allSatisfy({ $0.worktreeID == capture.worktreeID }),
+        capture.sessions.allSatisfy({ $0.subject == capture.subject }),
         Set(capture.details.map { $0.session.id }).count == capture.details.count,
         capture.details.allSatisfy({ detail in
-            detail.session.worktreeID == capture.worktreeID
+            detail.session.subject == capture.subject
                 && capture.sessions.contains(detail.session)
         })
     else {
@@ -530,7 +530,8 @@ private func makeHeader(
         recoveryStatus: capture.recoveryStatus,
         sessions: summaries,
         sourceGeneration: capture.sourceGeneration,
-        worktreeID: capture.worktreeID
+        // S8(b) replaces the worktree with the pane's annotation scope key.
+        worktreeID: capture.subject.gitWorktreeID ?? ""
     )
 }
 

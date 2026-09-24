@@ -238,8 +238,6 @@ private func addSavedRootSession(
     let draftDetail = try repository.createRootDraft(
         .init(
             admission: .newSession,
-            repositoryID: "repo-1",
-            worktreeID: otherWorktreeID,
             sourceFingerprint: makeSourceFingerprint(worktreeID: otherWorktreeID),
             origin: .session,
             body: body,

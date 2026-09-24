@@ -592,8 +592,6 @@ struct WorktreeAnnotationSourceCaptureTests {
         let detail = try repository.createRootDraft(
             .init(
                 admission: .implicitOrSingle,
-                repositoryID: fingerprint.repositoryID,
-                worktreeID: fingerprint.worktreeID,
                 sourceFingerprint: fingerprint,
                 origin: .located(origin),
                 body: "Review this relocation",

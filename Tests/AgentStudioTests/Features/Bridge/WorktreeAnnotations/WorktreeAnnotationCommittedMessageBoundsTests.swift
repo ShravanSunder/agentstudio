@@ -59,7 +59,7 @@ struct WorktreeAnnotationCommittedMessageBoundsTests {
         let completeRecord = try JSONEncoder().encode(record)
         #expect(completeRecord.count <= BridgeProductWireContract.maximumContentDataPayloadBytes)
         let capture = BridgeProductAnnotationProjectionCapture(
-            worktreeID: persisted.session.worktreeID, recoveryStatus: .available,
+            subject: persisted.session.subject, recoveryStatus: .available,
             sessions: [persisted.session], details: [persisted], placementsByThreadID: [:],
             projectionRevision: persisted.session.semanticRevision, sourceGeneration: 1)
         let analysis = try BridgeProductAnnotationProjectionRecordAnalysis(capture: capture)

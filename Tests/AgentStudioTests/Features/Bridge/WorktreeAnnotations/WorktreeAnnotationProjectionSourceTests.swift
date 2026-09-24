@@ -362,7 +362,7 @@ private func makeProjectionSourceHarness(messageCount: Int) async throws -> Proj
         source: BridgeAnnotationProjectionSource(
             service: service,
             sourceResolver: sourceResolver,
-            worktreeID: detail.session.worktreeID,
+            subject: detail.session.subject,
             currentSourceGeneration: { _, _, _ in sourceGeneration }
         ),
         sourceGeneration: sourceGeneration
@@ -514,14 +514,14 @@ private func collectProjectionRecords(
 private actor ProjectionSnapshotRepositoryAccess: WorktreeAnnotationRepositoryAccess {
     let detail: WorktreeAnnotationSessionDetail
     init(detail: WorktreeAnnotationSessionDetail) { self.detail = detail }
-    func discoverSessions(worktreeID: String) async throws -> [WorktreeAnnotationSession] {
-        detail.session.worktreeID == worktreeID ? [detail.session] : []
+    func discoverSessions(subject: WorktreeAnnotationSubject) async throws -> [WorktreeAnnotationSession] {
+        detail.session.subject == subject ? [detail.session] : []
     }
     func fetchProjectionSnapshot(
-        worktreeID: String,
+        subject: WorktreeAnnotationSubject,
         demandedSessionIDs: [WorktreeAnnotationSessionID]
     ) async throws -> WorktreeAnnotationRepositoryProjectionSnapshot {
-        guard worktreeID == detail.session.worktreeID,
+        guard subject == detail.session.subject,
             demandedSessionIDs == [detail.session.id]
         else {
             throw WorktreeAnnotationRepositoryError.notFound

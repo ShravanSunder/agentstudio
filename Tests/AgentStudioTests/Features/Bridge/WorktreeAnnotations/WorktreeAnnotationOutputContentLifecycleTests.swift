@@ -429,7 +429,7 @@ private func prepareSavedOutput(
         )
     ]
     let projection = try await firstStore.captureProjection(
-        worktreeID: savedFixture.detail.session.worktreeID,
+        subject: savedFixture.detail.session.subject,
         demandedSessionIDs: [savedFixture.detail.session.id]
     )
     _ = try await firstStore.prepareOutput(
@@ -473,11 +473,8 @@ private func createSavedLocatedMessage(
     let draftDetail = try await store.createRootDraft(
         .init(
             admission: .implicitOrSingle,
-            repositoryID: "repo-1",
-            worktreeID: "worktree-1",
             sourceFingerprint: .init(
-                repositoryID: "repo-1",
-                worktreeID: "worktree-1",
+                subject: defaultAnnotationSubject,
                 fileSourceIdentity: "source-1",
                 reviewComparisonOrigin: nil
             ),

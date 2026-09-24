@@ -67,9 +67,9 @@ struct RepositoryLocalOrphanCleanupTests {
             }
             try database.execute(
                 sql: """
-                    INSERT INTO annotation_session(id, repository_id, worktree_id, lifecycle, source_relationship,
-                        accepted_source_fingerprint_json, created_at, updated_at)
-                    VALUES (?, ?, ?, 'active', 'current', '{}', 0, 0)
+                    INSERT INTO annotation_session(id, subject_kind, repository_id, worktree_id, lifecycle,
+                        source_relationship, accepted_source_fingerprint_json, created_at, updated_at)
+                    VALUES (?, 'git', ?, ?, 'active', 'current', '{}', 0, 0)
                     """, arguments: [sessionID.uuidString, deadRepoID.uuidString, UUIDv7.generate().uuidString])
         }
         let surviving = RepositoryRetentionSurvivingIdentity(

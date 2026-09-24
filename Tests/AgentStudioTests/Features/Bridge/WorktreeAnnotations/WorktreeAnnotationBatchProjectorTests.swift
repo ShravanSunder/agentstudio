@@ -206,13 +206,11 @@ private func makeBatchFixture(trailingBlankLineInFirstOrigin: Bool = false) -> B
     let sessionID = WorktreeAnnotationSessionID(rawValue: batchTestUUID(1))
     let session = WorktreeAnnotationSession(
         id: sessionID,
-        repositoryID: "repository-1",
-        worktreeID: "worktree-1",
+        subject: .git(repositoryID: "repository-1", worktreeID: "worktree-1"),
         lifecycle: .living,
         sourceRelationship: .applicable,
         acceptedSourceFingerprint: .init(
-            repositoryID: "repository-1",
-            worktreeID: "worktree-1",
+            subject: .git(repositoryID: "repository-1", worktreeID: "worktree-1"),
             fileSourceIdentity: "file-source",
             reviewComparisonOrigin: nil
         ),

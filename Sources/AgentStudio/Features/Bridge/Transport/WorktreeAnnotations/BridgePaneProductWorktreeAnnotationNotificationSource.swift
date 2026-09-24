@@ -24,22 +24,22 @@ actor BridgePaneAnnotationNotificationSource {
     }
 
     private let service: WorktreeAnnotationServiceActor?
-    private let worktreeID: String
+    private let subject: WorktreeAnnotationSubject?
     private let lifecycleTraceRecorder: (any BridgeProductMetadataLifecycleTraceRecording)?
 
     static let unavailable = BridgePaneAnnotationNotificationSource(
         service: nil,
-        worktreeID: "",
+        subject: nil,
         lifecycleTraceRecorder: nil
     )
 
     init(
         service: WorktreeAnnotationServiceActor?,
-        worktreeID: String,
+        subject: WorktreeAnnotationSubject?,
         lifecycleTraceRecorder: (any BridgeProductMetadataLifecycleTraceRecording)? = nil
     ) {
         self.service = service
-        self.worktreeID = worktreeID
+        self.subject = subject
         self.lifecycleTraceRecorder = lifecycleTraceRecorder
     }
 
@@ -48,8 +48,8 @@ actor BridgePaneAnnotationNotificationSource {
         surface: BridgeProductSurface,
         delivery: BridgePaneAnnotationNotificationDelivery
     ) async throws {
-        guard let service else { throw WorktreeAnnotationServiceError.unavailable }
-        let observer = await service.registerChangeObserver(worktreeID: worktreeID)
+        guard let service, let subject else { throw WorktreeAnnotationServiceError.unavailable }
+        let observer = await service.registerChangeObserver(subject: subject)
         do {
             let bootstrapContext = DeliveryLifecycleContext(
                 deliveryAttempt: 0,
@@ -66,7 +66,7 @@ actor BridgePaneAnnotationNotificationSource {
 
             for await change in observer.stream {
                 try Task.checkCancellation()
-                guard change.worktreeID == worktreeID else {
+                guard change.subject == subject else {
                     throw WorktreeAnnotationServiceError.unavailable
                 }
                 guard change.applicationSourceGeneration > publishedApplicationSourceGeneration else {
@@ -184,9 +184,10 @@ actor BridgePaneAnnotationNotificationSource {
     private func captureCurrentCatalog(
         service: WorktreeAnnotationServiceActor
     ) async throws -> WorktreeAnnotationServiceCatalogCapture {
+        guard let subject else { throw WorktreeAnnotationServiceError.unavailable }
         while true {
             do {
-                return try await service.captureCatalog(worktreeID: worktreeID)
+                return try await service.captureCatalog(subject: subject)
             } catch WorktreeAnnotationServiceError.staleSourceEpoch {
                 try Task.checkCancellation()
             }
@@ -196,7 +197,11 @@ actor BridgePaneAnnotationNotificationSource {
     private func eventAuthority(
         applicationSourceGeneration: Int
     ) throws -> BridgeProductWorktreeAnnotationEvent.Authority {
-        try .init(
+        // S8(b) replaces the worktree with the pane's annotation scope key.
+        guard let worktreeID = subject?.gitWorktreeID else {
+            throw WorktreeAnnotationServiceError.unavailable
+        }
+        return try .init(
             worktreeID: worktreeID,
             applicationSourceGeneration: applicationSourceGeneration
         )

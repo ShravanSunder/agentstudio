@@ -205,10 +205,10 @@ struct WorktreeAnnotationMigrationTests {
             try database.execute(
                 sql: """
                     INSERT INTO annotation_session(
-                        id, repository_id, worktree_id,
+                        id, subject_kind, repository_id, worktree_id,
                         lifecycle, source_relationship, accepted_source_fingerprint_json,
                         semantic_revision, created_at, updated_at, completed_at
-                    ) VALUES (?, 'repository', 'worktree', 'future_lifecycle',
+                    ) VALUES (?, 'git', 'repository', 'worktree', 'future_lifecycle',
                         'future_relationship', '{}', 0, 1, 1, NULL)
                     """,
                 arguments: [sessionId]
@@ -352,7 +352,8 @@ struct WorktreeAnnotationMigrationTests {
         let fixture = try seedReviewSubjectMigrationFixture(in: databaseQueue)
         let rowsBeforeMigration = try annotationRows(in: databaseQueue)
 
-        try WorkspaceLocalMigrations.migrate(databaseQueue)
+        // The subject migration (017) rebuilds the session table; it has its own suite.
+        try WorkspaceLocalMigrations.migrator.migrate(databaseQueue, upTo: "016_create_bridge_navigation_schema")
 
         let rowsAfterMigration = try annotationRows(in: databaseQueue)
         let reviewedSubjectJSONBySessionID = try databaseQueue.read { database in

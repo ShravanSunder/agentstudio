@@ -9,6 +9,7 @@ package enum WorkspaceLocalMigrations {
         registerReviewedSubjectMigrations(in: &migrator)
         registerPerScreenSidebarOrganizationMigration(in: &migrator)
         registerBridgeNavigationSchema(in: &migrator)
+        registerAnnotationSubjectVariants(in: &migrator)
         return migrator
     }
 

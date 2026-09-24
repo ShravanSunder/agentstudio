@@ -271,7 +271,7 @@ struct WorktreeAnnotationNotificationSourceTests {
         let operationCorrelationID = String(repeating: "c", count: 64)
         await harness.service.applyCommittedChange(
             .control(
-                worktreeIDs: ["worktree-1"],
+                subjects: [defaultAnnotationSubject],
                 reason: .recovery,
                 sessionChanges: []
             ),
@@ -377,7 +377,7 @@ private func makeNotificationSourceHarness(
         service: service,
         source: BridgePaneAnnotationNotificationSource(
             service: service,
-            worktreeID: "worktree-1"
+            subject: defaultAnnotationSubject
         ),
         subscription: subscription
     )

@@ -9,7 +9,7 @@ enum WorktreeAnnotationChangeDisposition: Equatable, Sendable {
 }
 
 struct WorktreeAnnotationChange: Equatable, Sendable {
-    let worktreeID: String
+    let subject: WorktreeAnnotationSubject
     let applicationSourceGeneration: Int
     let operationCorrelationID: String
     let deliveryAttempt: Int
@@ -17,7 +17,7 @@ struct WorktreeAnnotationChange: Equatable, Sendable {
     let sessionSemanticRevisionByID: [WorktreeAnnotationSessionID: Int]
 
     func merging(displaced: Self) -> Self {
-        precondition(worktreeID == displaced.worktreeID)
+        precondition(subject == displaced.subject)
         var mergedSessionSemanticRevisionByID = displaced.sessionSemanticRevisionByID
         for (sessionID, semanticRevision) in sessionSemanticRevisionByID {
             mergedSessionSemanticRevisionByID[sessionID] = max(
@@ -26,7 +26,7 @@ struct WorktreeAnnotationChange: Equatable, Sendable {
             )
         }
         return Self(
-            worktreeID: worktreeID,
+            subject: subject,
             applicationSourceGeneration: max(
                 applicationSourceGeneration,
                 displaced.applicationSourceGeneration
@@ -67,18 +67,18 @@ struct WorktreeAnnotationChangeObserver: Sendable {
 
 struct WorktreeAnnotationChangeObserverState {
     let continuation: AsyncStream<WorktreeAnnotationChange>.Continuation
-    let worktreeID: String
+    let subject: WorktreeAnnotationSubject
 }
 
 extension WorktreeAnnotationServiceActor {
-    func registerChangeObserver(worktreeID: String) -> WorktreeAnnotationChangeObserver {
+    func registerChangeObserver(subject: WorktreeAnnotationSubject) -> WorktreeAnnotationChangeObserver {
         let token = UUIDv7.generate()
         let stream = AsyncStream<WorktreeAnnotationChange>(
             bufferingPolicy: .bufferingNewest(1)
         ) { continuation in
             changeObserverByToken[token] = WorktreeAnnotationChangeObserverState(
                 continuation: continuation,
-                worktreeID: worktreeID
+                subject: subject
             )
             continuation.onTermination = { [weak self] _ in
                 Task { await self?.removeChangeObserver(token: token) }
@@ -101,7 +101,7 @@ extension WorktreeAnnotationServiceActor {
             let witness = try await repositoryAccess.fetchUnacknowledgedRecoveryProvenance()
             unacknowledgedRecoveryWitness = witness
             recoveryState = witness.map(WorktreeAnnotationRecoveryState.recoveredDegraded) ?? .available
-            await publishRecoveryCatalogChangeForObservedWorktrees()
+            await publishRecoveryCatalogChangeForObservedSubjects()
             return witness.map {
                 PersistenceRecoveryEvent(
                     store: .worktreeAnnotations,
@@ -113,7 +113,7 @@ extension WorktreeAnnotationServiceActor {
         } catch {
             unacknowledgedRecoveryWitness = nil
             recoveryState = .unavailable
-            await publishRecoveryCatalogChangeForObservedWorktrees()
+            await publishRecoveryCatalogChangeForObservedSubjects()
             return PersistenceRecoveryEvent(
                 store: .worktreeAnnotations,
                 workspaceId: nil,
@@ -135,17 +135,17 @@ extension WorktreeAnnotationServiceActor {
         )
         unacknowledgedRecoveryWitness = nil
         recoveryState = .available
-        await publishRecoveryControlChangeForObservedWorktrees()
+        await publishRecoveryControlChangeForObservedSubjects()
     }
 
-    func captureCatalog(worktreeID: String) async throws -> WorktreeAnnotationServiceCatalogCapture {
+    func captureCatalog(subject: WorktreeAnnotationSubject) async throws -> WorktreeAnnotationServiceCatalogCapture {
         try requireAvailableForReads()
         let capturedGeneration = projectionRevision
         let capturedRecoveryState = recoveryState
-        let repositoryCapture = try await repositoryAccess.fetchCatalogCapture(worktreeID: worktreeID)
+        let repositoryCapture = try await repositoryAccess.fetchCatalogCapture(subject: subject)
         guard projectionRevision == capturedGeneration,
             recoveryState == capturedRecoveryState,
-            repositoryCapture.worktreeID == worktreeID
+            repositoryCapture.subject == subject
         else {
             throw WorktreeAnnotationServiceError.staleSourceEpoch
         }
@@ -164,22 +164,22 @@ extension WorktreeAnnotationServiceActor {
         projectionRevision += 1
         let applicationSourceGeneration = projectionRevision
         let publication = Self.publicationComponents(for: committedChange)
-        for worktreeID in publication.worktreeIDs.sorted() {
+        for subject in publication.subjects.sorted() {
             await publishChange(
-                worktreeID: worktreeID,
+                subject: subject,
                 applicationSourceGeneration: applicationSourceGeneration,
                 operationCorrelationID: operationCorrelationID,
                 disposition: publication.disposition,
                 sessionSemanticRevisionByID: Self.newestSessionSemanticRevisionByID(
                     publication.sessionChanges,
-                    worktreeID: worktreeID
+                    subject: subject
                 )
             )
         }
     }
 
-    func publishRecoveryCatalogChangeForObservedWorktrees() async {
-        let observedWorktreeIDs = Set(changeObserverByToken.values.map(\.worktreeID))
+    func publishRecoveryCatalogChangeForObservedSubjects() async {
+        let observedSubjects = Set(changeObserverByToken.values.map(\.subject))
         let operationCorrelationID = BridgeOperationCorrelation.mintScrubbedID()
         await recordNativeAnnotationWork(
             operationCorrelationID: operationCorrelationID,
@@ -187,7 +187,7 @@ extension WorktreeAnnotationServiceActor {
             stage: .nativeWorkStarted
         )
         await applyCommittedChange(
-            .catalog(worktreeIDs: observedWorktreeIDs, sessionChanges: []),
+            .catalog(subjects: observedSubjects, sessionChanges: []),
             operationCorrelationID: operationCorrelationID
         )
         await recordNativeAnnotationWork(
@@ -197,8 +197,8 @@ extension WorktreeAnnotationServiceActor {
         )
     }
 
-    func publishRecoveryControlChangeForObservedWorktrees() async {
-        let observedWorktreeIDs = Set(changeObserverByToken.values.map(\.worktreeID))
+    func publishRecoveryControlChangeForObservedSubjects() async {
+        let observedSubjects = Set(changeObserverByToken.values.map(\.subject))
         let operationCorrelationID = BridgeOperationCorrelation.mintScrubbedID()
         await recordNativeAnnotationWork(
             operationCorrelationID: operationCorrelationID,
@@ -207,7 +207,7 @@ extension WorktreeAnnotationServiceActor {
         )
         await applyCommittedChange(
             .control(
-                worktreeIDs: observedWorktreeIDs,
+                subjects: observedSubjects,
                 reason: .recovery,
                 sessionChanges: []
             ),
@@ -224,7 +224,7 @@ extension WorktreeAnnotationServiceActor {
         for committedChange: WorktreeAnnotationCommittedChange
     ) -> (
         disposition: WorktreeAnnotationChangeDisposition,
-        worktreeIDs: Set<String>,
+        subjects: Set<WorktreeAnnotationSubject>,
         sessionChanges: [WorktreeAnnotationCommittedSessionChange]
     ) {
         switch committedChange {
@@ -233,19 +233,19 @@ extension WorktreeAnnotationServiceActor {
         case .content(let sessionChanges):
             return (
                 .content,
-                Set(sessionChanges.map(\.worktreeID)),
+                Set(sessionChanges.map(\.subject)),
                 sessionChanges
             )
-        case .control(let worktreeIDs, let reason, let sessionChanges):
+        case .control(let subjects, let reason, let sessionChanges):
             return (
                 .control(reason),
-                worktreeIDs.union(sessionChanges.map(\.worktreeID)),
+                subjects.union(sessionChanges.map(\.subject)),
                 sessionChanges
             )
-        case .catalog(let worktreeIDs, let sessionChanges):
+        case .catalog(let subjects, let sessionChanges):
             return (
                 .catalog,
-                worktreeIDs.union(sessionChanges.map(\.worktreeID)),
+                subjects.union(sessionChanges.map(\.subject)),
                 sessionChanges
             )
         }
@@ -253,10 +253,10 @@ extension WorktreeAnnotationServiceActor {
 
     private static func newestSessionSemanticRevisionByID(
         _ sessionChanges: [WorktreeAnnotationCommittedSessionChange],
-        worktreeID: String
+        subject: WorktreeAnnotationSubject
     ) -> [WorktreeAnnotationSessionID: Int] {
         var newestSemanticRevisionByID: [WorktreeAnnotationSessionID: Int] = [:]
-        for sessionChange in sessionChanges where sessionChange.worktreeID == worktreeID {
+        for sessionChange in sessionChanges where sessionChange.subject == subject {
             newestSemanticRevisionByID[sessionChange.sessionID] = max(
                 sessionChange.semanticRevision,
                 newestSemanticRevisionByID[sessionChange.sessionID] ?? sessionChange.semanticRevision
@@ -266,7 +266,7 @@ extension WorktreeAnnotationServiceActor {
     }
 
     private func publishChange(
-        worktreeID: String,
+        subject: WorktreeAnnotationSubject,
         applicationSourceGeneration: Int,
         operationCorrelationID: String,
         disposition: WorktreeAnnotationChangeDisposition,
@@ -274,7 +274,7 @@ extension WorktreeAnnotationServiceActor {
     ) async {
         let observerTokens =
             changeObserverByToken
-            .filter { $0.value.worktreeID == worktreeID }
+            .filter { $0.value.subject == subject }
             .map(\.key)
             .sorted { $0.uuidString < $1.uuidString }
         for (deliveryAttempt, token) in observerTokens.enumerated() {
@@ -290,7 +290,7 @@ extension WorktreeAnnotationServiceActor {
                 )
             )
             let change = WorktreeAnnotationChange(
-                worktreeID: worktreeID,
+                subject: subject,
                 applicationSourceGeneration: applicationSourceGeneration,
                 operationCorrelationID: operationCorrelationID,
                 deliveryAttempt: deliveryAttempt,

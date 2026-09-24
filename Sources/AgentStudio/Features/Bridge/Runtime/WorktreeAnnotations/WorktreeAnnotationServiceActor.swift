@@ -83,20 +83,20 @@ package actor WorktreeAnnotationServiceActor {
         }
     }
 
-    func discoverSessions(worktreeID: String) async throws -> [WorktreeAnnotationSession] {
+    func discoverSessions(subject: WorktreeAnnotationSubject) async throws -> [WorktreeAnnotationSession] {
         try requireAvailableForReads()
-        return try await repositoryAccess.discoverSessions(worktreeID: worktreeID)
+        return try await repositoryAccess.discoverSessions(subject: subject)
     }
 
     func captureProjection(
-        worktreeID: String,
+        subject: WorktreeAnnotationSubject,
         demandedSessionIDs: [WorktreeAnnotationSessionID]
     ) async throws -> WorktreeAnnotationServiceProjectionCapture {
         try requireAvailableForReads()
         let capturedRevision = projectionRevision
         let capturedRecoveryState = recoveryState
         let repositorySnapshot = try await repositoryAccess.fetchProjectionSnapshot(
-            worktreeID: worktreeID,
+            subject: subject,
             demandedSessionIDs: demandedSessionIDs
         )
         guard projectionRevision == capturedRevision,
@@ -112,7 +112,7 @@ package actor WorktreeAnnotationServiceActor {
     }
 
     func acquireDemand(
-        worktreeID: String,
+        subject: WorktreeAnnotationSubject,
         contextID: String,
         surface: BridgeProductSurface,
         sessionID: WorktreeAnnotationSessionID
@@ -143,7 +143,7 @@ package actor WorktreeAnnotationServiceActor {
         guard activeDemandGenerationByContextKey[contextKey] == demandGeneration else {
             throw WorktreeAnnotationServiceError.staleSourceEpoch
         }
-        guard detail.session.worktreeID == worktreeID else {
+        guard detail.session.subject == subject else {
             rollbackDemandRegistration(
                 contextKey: contextKey,
                 demandGeneration: demandGeneration
@@ -154,7 +154,7 @@ package actor WorktreeAnnotationServiceActor {
     }
 
     func releaseDemand(
-        worktreeID: String,
+        subject: WorktreeAnnotationSubject,
         contextID: String,
         surface: BridgeProductSurface,
         sessionID: WorktreeAnnotationSessionID

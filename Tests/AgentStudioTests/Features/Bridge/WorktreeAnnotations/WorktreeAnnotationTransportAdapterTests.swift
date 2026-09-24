@@ -25,7 +25,7 @@ struct WorktreeAnnotationTransportAdapterTests {
             )
         }
         let before = try await harness.store.captureProjection(
-            worktreeID: "worktree-1",
+            subject: transportAdapterAnnotationSubject,
             demandedSessionIDs: [savedMessage.detail.session.id]
         )
         let request = try decodeAnnotationCommand(
@@ -61,7 +61,7 @@ struct WorktreeAnnotationTransportAdapterTests {
                     )
                 ]))
         let afterChanged = try await harness.store.captureProjection(
-            worktreeID: "worktree-1",
+            subject: transportAdapterAnnotationSubject,
             demandedSessionIDs: [savedMessage.detail.session.id]
         )
         #expect(afterChanged.revision == before.revision + 1)
@@ -87,7 +87,7 @@ struct WorktreeAnnotationTransportAdapterTests {
                     )
                 ]))
         let afterRepeated = try await harness.store.captureProjection(
-            worktreeID: "worktree-1",
+            subject: transportAdapterAnnotationSubject,
             demandedSessionIDs: [savedMessage.detail.session.id]
         )
         #expect(afterRepeated.revision == afterChanged.revision)
@@ -122,7 +122,7 @@ struct WorktreeAnnotationTransportAdapterTests {
         let correlation = try makeAnnotationCorrelation(requestID: "annotation-create-1")
 
         // Act
-        let observer = await harness.store.registerChangeObserver(worktreeID: "worktree-1")
+        let observer = await harness.store.registerChangeObserver(subject: transportAdapterAnnotationSubject)
         var changes = observer.stream.makeAsyncIterator()
         let outcome = await harness.adapter.apply(
             request,
@@ -159,7 +159,7 @@ struct WorktreeAnnotationTransportAdapterTests {
         #expect(encodedMessage["messageId"] as? String == createdMessage.id.rawValue.uuidString.lowercased())
         #expect(encodedMessage["threadId"] as? String == createdThread.thread.id.rawValue.uuidString.lowercased())
         let change = try #require(await changes.next())
-        #expect(change.worktreeID == "worktree-1")
+        #expect(change.subject == transportAdapterAnnotationSubject)
         #expect(change.applicationSourceGeneration == 1)
         #expect(change.operationCorrelationID.count == 64)
         #expect(change.disposition == .catalog)
@@ -473,7 +473,7 @@ struct WorktreeAnnotationTransportAdapterTests {
         let sessionID = savedFixture.sessionID
         let outputCorrelation = try makeAnnotationCorrelation(requestID: "annotation-output-prepare")
         let projection = try await harness.store.captureProjection(
-            worktreeID: "worktree-1",
+            subject: transportAdapterAnnotationSubject,
             demandedSessionIDs: [sessionID]
         )
         let sessionRevision = try #require(projection.repositorySnapshot.details.first?.session.semanticRevision)
@@ -608,7 +608,7 @@ struct WorktreeAnnotationTransportAdapterTests {
         defer { try? FileManager.default.removeItem(at: harness.root) }
         let savedFixture = try await prepareSavedOutputCommandFixture(harness: harness)
         let projection = try await harness.store.captureProjection(
-            worktreeID: "worktree-1",
+            subject: transportAdapterAnnotationSubject,
             demandedSessionIDs: [savedFixture.sessionID]
         )
         let sessionRevision = try #require(

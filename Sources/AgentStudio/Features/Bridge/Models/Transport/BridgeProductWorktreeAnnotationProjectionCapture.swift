@@ -7,7 +7,7 @@ enum BridgeProductAnnotationProjectionRecoveryStatus: String, Codable, Equatable
 }
 
 struct BridgeProductAnnotationProjectionCapture: Sendable {
-    let worktreeID: String
+    let subject: WorktreeAnnotationSubject
     let recoveryStatus: BridgeProductAnnotationProjectionRecoveryStatus
     let sessions: [WorktreeAnnotationSession]
     let details: [WorktreeAnnotationSessionDetail]
@@ -16,7 +16,7 @@ struct BridgeProductAnnotationProjectionCapture: Sendable {
     let sourceGeneration: Int
 
     init(
-        worktreeID: String,
+        subject: WorktreeAnnotationSubject,
         recoveryStatus: BridgeProductAnnotationProjectionRecoveryStatus,
         sessions: [WorktreeAnnotationSession],
         details: [WorktreeAnnotationSessionDetail],
@@ -24,7 +24,7 @@ struct BridgeProductAnnotationProjectionCapture: Sendable {
         projectionRevision: Int,
         sourceGeneration: Int
     ) {
-        self.worktreeID = worktreeID
+        self.subject = subject
         self.recoveryStatus = recoveryStatus
         self.sessions = sessions.sorted(by: annotationProjectionSessionOrdering)
         self.details = details.sorted { lhs, rhs in

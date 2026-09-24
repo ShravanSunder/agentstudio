@@ -8,6 +8,9 @@ enum WorktreeAnnotationBatchProjectorError: Error, Equatable, Sendable {
     case invalidGeneratedContext
     case savedMessageNotFound
     case unsupportedFormatVersion
+    /// Batch snapshot V2 names a Git repository and worktree; a local
+    /// document's session has neither.
+    case localSubjectUnsupported
 }
 
 enum WorktreeAnnotationBatchProjector {
@@ -100,14 +103,17 @@ enum WorktreeAnnotationBatchProjector {
                 message: entry.message
             )
         }
+        guard case .git(let repositoryID, let worktreeID) = input.sessionDetail.session.subject else {
+            throw WorktreeAnnotationBatchProjectorError.localSubjectUnsupported
+        }
         let snapshot = WorktreeAnnotationBatchSnapshotV2(
             batchID: input.batchID,
             createdAt: createdAtString(input.createdAt),
             session: .init(
                 sessionID: input.sessionDetail.session.id,
                 label: input.sessionLabel,
-                repositoryID: input.sessionDetail.session.repositoryID,
-                worktreeID: input.sessionDetail.session.worktreeID,
+                repositoryID: repositoryID,
+                worktreeID: worktreeID,
                 lifecycle: input.sessionDetail.session.lifecycle,
                 sourceRelationship: input.sessionDetail.session.sourceRelationship
             ),

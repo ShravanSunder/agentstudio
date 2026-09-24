@@ -118,7 +118,7 @@ extension BridgeDevelopmentProductHost {
                 ),
                 annotationSource: BridgePaneAnnotationNotificationSource(
                     service: input.worktreeAnnotationStore,
-                    worktreeID: input.source.worktreeID.uuidString.lowercased()
+                    subject: input.source.annotationSubject
                 ),
                 applyWorktreeAnnotationCommand: annotationCommandHandler,
                 applyReviewComparisonUpdate: { request, productAdmission in

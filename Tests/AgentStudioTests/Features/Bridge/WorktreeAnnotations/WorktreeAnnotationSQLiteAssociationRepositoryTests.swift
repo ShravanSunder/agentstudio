@@ -13,8 +13,6 @@ struct WorktreeAnnotationSQLiteAssociationRepositoryTests {
         let first = try repository.createRootDraft(
             .init(
                 admission: .implicitOrSingle,
-                repositoryID: "repo-1",
-                worktreeID: "worktree-a",
                 sourceFingerprint: makeSourceFingerprint(worktreeID: "worktree-a"),
                 origin: .session,
                 body: "Foreign candidate",
@@ -25,11 +23,8 @@ struct WorktreeAnnotationSQLiteAssociationRepositoryTests {
         _ = try repository.createRootDraft(
             .init(
                 admission: .implicitOrSingle,
-                repositoryID: "repo-2",
-                worktreeID: "worktree-c",
                 sourceFingerprint: .init(
-                    repositoryID: "repo-2",
-                    worktreeID: "worktree-c",
+                    subject: .git(repositoryID: "repo-2", worktreeID: "worktree-c"),
                     fileSourceIdentity: "file-source-other",
                     reviewComparisonOrigin: nil
                 ),
@@ -60,8 +55,6 @@ struct WorktreeAnnotationSQLiteAssociationRepositoryTests {
         let original = try repository.createRootDraft(
             .init(
                 admission: .implicitOrSingle,
-                repositoryID: "repo-1",
-                worktreeID: "worktree-a",
                 sourceFingerprint: makeSourceFingerprint(worktreeID: "worktree-a"),
                 acceptedReviewedSubject: try .init(
                     branchName: "feature/x",
@@ -94,12 +87,14 @@ struct WorktreeAnnotationSQLiteAssociationRepositoryTests {
         #expect(moved.previousWorktreeID == "worktree-a")
         #expect(moved.currentWorktreeID == "worktree-b")
         #expect(moved.detail.session.id == original.session.id)
-        #expect(moved.detail.session.worktreeID == "worktree-b")
+        #expect(moved.detail.session.subject == .git(repositoryID: "repo-1", worktreeID: "worktree-b"))
         #expect(moved.detail.session.acceptedReviewedSubject == currentEvidence)
         #expect(moved.detail.session.sourceRelationship == .applicable)
         #expect(moved.detail.session.semanticRevision == original.session.semanticRevision + 1)
-        #expect(try repository.discoverSessions(worktreeID: "worktree-a").isEmpty)
-        #expect(try repository.discoverSessions(worktreeID: "worktree-b").map(\.id) == [original.session.id])
+        let previousSubject = makeSourceFingerprint(worktreeID: "worktree-a").subject
+        let currentSubject = makeSourceFingerprint(worktreeID: "worktree-b").subject
+        #expect(try repository.discoverSessions(subject: previousSubject).isEmpty)
+        #expect(try repository.discoverSessions(subject: currentSubject).map(\.id) == [original.session.id])
 
         #expect(
             throws: WorktreeAnnotationRepositoryError.conflict(currentRevision: moved.detail.session.semanticRevision)
@@ -127,8 +122,6 @@ struct WorktreeAnnotationSQLiteAssociationRepositoryTests {
         let secondRoot = try repository.createRootDraft(
             .init(
                 admission: .newSession,
-                repositoryID: "repo-1",
-                worktreeID: "worktree-1",
                 sourceFingerprint: makeSourceFingerprint(worktreeID: "worktree-1"),
                 origin: .session,
                 body: "Second root, same session",
@@ -139,7 +132,7 @@ struct WorktreeAnnotationSQLiteAssociationRepositoryTests {
 
         #expect(secondRoot.session.id == first.session.id)
         #expect(secondRoot.threads.count == 2)
-        #expect(try repository.discoverSessions(worktreeID: "worktree-1").count == 1)
+        #expect(try repository.discoverSessions(subject: defaultAnnotationSubject).count == 1)
     }
 }
 
@@ -151,8 +144,7 @@ func makeRepository() throws -> WorktreeAnnotationSQLiteRepository {
 
 func makeSourceFingerprint(worktreeID: String) -> WorktreeAnnotationSourceFingerprint {
     WorktreeAnnotationSourceFingerprint(
-        repositoryID: "repo-1",
-        worktreeID: worktreeID,
+        subject: .git(repositoryID: "repo-1", worktreeID: worktreeID),
         fileSourceIdentity: "file-source-1",
         reviewComparisonOrigin: nil
     )
@@ -162,8 +154,6 @@ func makeRootDraft(repository: WorktreeAnnotationSQLiteRepository) throws -> Wor
     try repository.createRootDraft(
         .init(
             admission: .implicitOrSingle,
-            repositoryID: "repo-1",
-            worktreeID: "worktree-1",
             sourceFingerprint: makeSourceFingerprint(worktreeID: "worktree-1"),
             origin: .located(
                 .init(

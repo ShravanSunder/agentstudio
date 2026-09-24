@@ -155,17 +155,15 @@ final class WorktreeAnnotationTransportAdapter {
     let contextID: String
     let outputCoordinator: WorktreeAnnotationOutputCoordinatorActor?
     let outputLabels: WorktreeAnnotationOutputLabels?
-    private let repositoryID: String
     let sourceResolver: WorktreeAnnotationSourceResolver
     let store: WorktreeAnnotationServiceActor
-    private let worktreeID: String
+    private let subject: WorktreeAnnotationSubject
     private var demandGenerationByKey: [WorktreeAnnotationTransportDemandKey: WorktreeAnnotationDemandGeneration] = [:]
 
     init(
         store: WorktreeAnnotationServiceActor,
         contextID: String,
-        repositoryID: String,
-        worktreeID: String,
+        subject: WorktreeAnnotationSubject,
         sourceResolver: WorktreeAnnotationSourceResolver,
         now: @escaping @Sendable () -> Date = Date.init,
         outputCoordinator: WorktreeAnnotationOutputCoordinatorActor? = nil,
@@ -173,8 +171,7 @@ final class WorktreeAnnotationTransportAdapter {
     ) {
         self.store = store
         self.contextID = contextID
-        self.repositoryID = repositoryID
-        self.worktreeID = worktreeID
+        self.subject = subject
         self.sourceResolver = sourceResolver
         self.now = now
         self.outputCoordinator = outputCoordinator
@@ -315,12 +312,12 @@ final class WorktreeAnnotationTransportAdapter {
     ) async throws -> WorktreeAnnotationSessionID? {
         switch operation {
         case .discoverSessions:
-            _ = try await store.discoverSessions(worktreeID: worktreeID)
+            _ = try await store.discoverSessions(subject: subject)
             return nil
         case .acquireDemand(let sessionID):
             let typedSessionID = WorktreeAnnotationSessionID(rawValue: sessionID)
             let demandGeneration = try await store.acquireDemand(
-                worktreeID: worktreeID,
+                subject: subject,
                 contextID: contextID,
                 surface: surface,
                 sessionID: typedSessionID
@@ -336,7 +333,7 @@ final class WorktreeAnnotationTransportAdapter {
                 surface: surface
             )
             await store.releaseDemand(
-                worktreeID: worktreeID,
+                subject: subject,
                 contextID: contextID,
                 surface: surface,
                 sessionID: typedSessionID
@@ -470,8 +467,6 @@ final class WorktreeAnnotationTransportAdapter {
         let detail = try await store.createRootDraft(
             .init(
                 admission: Self.sessionAdmission(input.admission),
-                repositoryID: repositoryID,
-                worktreeID: worktreeID,
                 sourceFingerprint: capturedSource.fingerprint,
                 origin: capturedSource.origin,
                 body: input.body,
@@ -696,9 +691,7 @@ final class WorktreeAnnotationTransportAdapter {
     }
 
     private func validateFingerprint(_ fingerprint: WorktreeAnnotationSourceFingerprint) throws {
-        guard fingerprint.repositoryID == repositoryID,
-            fingerprint.worktreeID == worktreeID
-        else {
+        guard fingerprint.subject == subject else {
             throw WorktreeAnnotationSourceResolutionError.invalidSource
         }
     }

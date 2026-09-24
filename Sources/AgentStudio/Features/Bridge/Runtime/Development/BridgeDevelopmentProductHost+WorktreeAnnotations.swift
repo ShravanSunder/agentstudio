@@ -24,7 +24,7 @@ extension BridgeDevelopmentProductHost {
         return BridgeAnnotationProjectionSource(
             service: service,
             sourceResolver: sourceResolver,
-            worktreeID: dependencies.source.worktreeID.uuidString.lowercased(),
+            subject: dependencies.source.annotationSubject,
             currentSourceGeneration: sourceResolver.currentSourceGeneration
         )
     }
@@ -61,8 +61,7 @@ extension BridgeDevelopmentProductHost {
         let adapter = WorktreeAnnotationTransportAdapter(
             store: store,
             contextID: dependencies.source.paneID.uuidString.lowercased(),
-            repositoryID: dependencies.source.repoID.uuidString.lowercased(),
-            worktreeID: dependencies.source.worktreeID.uuidString.lowercased(),
+            subject: dependencies.source.annotationSubject,
             sourceResolver: sourceResolver,
             outputCoordinator: dependencies.outputCoordinator,
             outputLabels: .init(
@@ -80,5 +79,14 @@ extension BridgeDevelopmentProductHost {
             )
         }
     }
+}
 
+extension BridgeDevelopmentProductSource {
+    /// The development pane's Git annotation subject.
+    var annotationSubject: WorktreeAnnotationSubject {
+        .git(
+            repositoryID: repoID.uuidString.lowercased(),
+            worktreeID: worktreeID.uuidString.lowercased()
+        )
+    }
 }

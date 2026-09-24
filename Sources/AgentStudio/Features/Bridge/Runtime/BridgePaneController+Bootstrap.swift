@@ -665,16 +665,26 @@ extension BridgePaneController {
         )
     }
 
+    /// The Git subject of the pane's runtime worktree.
+    private static func worktreeAnnotationSubject(
+        _ input: BridgeProductSessionDependencyInput
+    ) -> WorktreeAnnotationSubject? {
+        guard let repositoryID = input.runtime.metadata.repoId?.uuidString.lowercased(),
+            let worktreeID = input.runtime.metadata.worktreeId?.uuidString.lowercased()
+        else { return nil }
+        return .git(repositoryID: repositoryID, worktreeID: worktreeID)
+    }
+
     private static func makeWorktreeAnnotationSource(
         _ input: BridgeProductSessionDependencyInput,
         lifecycleTraceRecorder: (any BridgeProductMetadataLifecycleTraceRecording)?
     ) -> BridgePaneAnnotationNotificationSource {
         guard let service = input.worktreeAnnotationStore,
-            let worktreeID = input.runtime.metadata.worktreeId?.uuidString.lowercased()
+            let subject = worktreeAnnotationSubject(input)
         else { return .unavailable }
         return BridgePaneAnnotationNotificationSource(
             service: service,
-            worktreeID: worktreeID,
+            subject: subject,
             lifecycleTraceRecorder: lifecycleTraceRecorder
         )
     }
@@ -684,7 +694,7 @@ extension BridgePaneController {
         fileMetadataSource: any BridgePaneProductFileMetadataProducing
     ) -> BridgeAnnotationProjectionSource {
         guard let service = input.worktreeAnnotationStore,
-            let worktreeID = input.runtime.metadata.worktreeId?.uuidString.lowercased()
+            let subject = worktreeAnnotationSubject(input)
         else { return .unavailable }
         let sourceResolver = WorktreeAnnotationSourceCapture.resolver(
             fileMetadataSource: fileMetadataSource,
@@ -695,7 +705,7 @@ extension BridgePaneController {
         return BridgeAnnotationProjectionSource(
             service: service,
             sourceResolver: sourceResolver,
-            worktreeID: worktreeID,
+            subject: subject,
             currentSourceGeneration: sourceResolver.currentSourceGeneration
         )
     }
@@ -712,8 +722,7 @@ extension BridgePaneController {
         ) async -> BridgeProductWorktreeAnnotationCommandOutcomeDTO
     {
         guard let store = input.worktreeAnnotationStore,
-            let repositoryID = input.runtime.metadata.repoId?.uuidString.lowercased(),
-            let worktreeID = input.runtime.metadata.worktreeId?.uuidString.lowercased()
+            let subject = worktreeAnnotationSubject(input)
         else {
             return { _, surface, correlation, _ in
                 BridgeProductWorktreeAnnotationCommandOutcomeDTO(
@@ -735,8 +744,7 @@ extension BridgePaneController {
         let adapter = WorktreeAnnotationTransportAdapter(
             store: store,
             contextID: input.paneSessionId,
-            repositoryID: repositoryID,
-            worktreeID: worktreeID,
+            subject: subject,
             sourceResolver: sourceResolver,
             outputCoordinator: input.worktreeAnnotationOutputCoordinator,
             outputLabels: .init(

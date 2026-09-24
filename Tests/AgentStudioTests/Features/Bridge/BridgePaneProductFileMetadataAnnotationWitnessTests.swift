@@ -32,8 +32,13 @@ struct FileAnnotationSourceWitnessTests {
         // Assert
         #expect(generation == 1)
         #expect(fingerprint == refresh.fingerprint)
-        #expect(fingerprint.repositoryID == fixture.repoId.uuidString.lowercased())
-        #expect(fingerprint.worktreeID == fixture.worktreeId.uuidString.lowercased())
+        #expect(
+            fingerprint.subject
+                == .git(
+                    repositoryID: fixture.repoId.uuidString.lowercased(),
+                    worktreeID: fixture.worktreeId.uuidString.lowercased()
+                )
+        )
     }
 
     @Test(arguments: FileAnnotationRequirementOriginKind.allCases, WorktreeAnnotationSourceRole.allCases)
