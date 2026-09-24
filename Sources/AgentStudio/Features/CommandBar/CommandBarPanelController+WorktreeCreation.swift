@@ -46,7 +46,8 @@ extension CommandBarPanelController {
 
     /// A Fork Return that arrived before the eligibility answer waits for it (milliseconds)
     /// with the bar still open, then re-executes the row with the answer: fork where it is
-    /// available, the clean fallback where it is not. Without a query in flight nothing runs.
+    /// available, the clean fallback where it is not. Nothing runs without a query in flight,
+    /// or once the user has left the level the Return was pressed on.
     func resumeWorktreeCreationAfterForkEligibility(
         item: CommandBarItem,
         draft: CommandBarWorktreeCreationDraft,
@@ -57,11 +58,13 @@ extension CommandBarPanelController {
             let query = currentSessionForkEligibilityQuery(for: draft.sourceWorktreeId)
         else { return }
         let rootSessionGeneration = state.rootSessionGeneration
+        let levelVisitRevision = state.levelVisitRevision
         pendingWorktreeCreation = Task { @MainActor [weak self] in
             await query.task.value
             guard
                 let self,
                 self.state.rootSessionGeneration == rootSessionGeneration,
+                self.state.levelVisitRevision == levelVisitRevision,
                 let eligibility = self.state.forkEligibilityBySourceWorktreeId[draft.sourceWorktreeId]
             else { return }
             let answeredItem = item.projected(

@@ -44,7 +44,13 @@ package final class CommandBarState {
     // MARK: - Navigation
 
     /// Stack of nested levels. Empty = at root level.
-    var navigationStack: [CommandBarLevel] = []
+    var navigationStack: [CommandBarLevel] = [] {
+        didSet { levelVisitRevision += 1 }
+    }
+
+    /// Changes whenever the navigation stack does, so work deferred on one visit to a level
+    /// can tell that the user has since left it, even for a revisit of the same level.
+    private(set) var levelVisitRevision: Int = 0
 
     /// Root scope that remains stable while navigating nested levels.
     private(set) var pinnedScope: CommandBarScope = .everything

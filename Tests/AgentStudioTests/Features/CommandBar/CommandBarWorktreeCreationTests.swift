@@ -320,6 +320,53 @@ struct CommandBarWorktreeCreationTests {
         #expect(dispatcher.worktreeCreationDispatches.map(\.kind) == [.cleanCheckout])
     }
 
+    @Test(
+        "a Return still waiting for eligibility dispatches nothing once its branch level is left",
+        arguments: DraftAbandonment.allCases
+    )
+    func abandonedPendingReturnDispatchesNothing(abandonment: DraftAbandonment) async throws {
+        // Arrange
+        let fixture = Self.makeFixture()
+        let dispatcher = FakeAppCommandDispatcher()
+        let gate = GatedForkEligibilityChecker()
+        let controller = Self.makeController(
+            store: fixture.store, dispatcher: dispatcher, worktreeForkEligibility: gate)
+        try Self.openBranchLevel(controller: controller, store: fixture.store, source: fixture.worktree)
+        controller.state.rawInput = "feature/abandoned"
+        let pendingRow = try #require(
+            Self.snapshot(controller: controller, store: fixture.store, dispatcher: dispatcher).displayedItems.first)
+        controller.executeItem(pendingRow, modifier: .plain)
+
+        // Act
+        switch abandonment {
+        case .back:
+            controller.state.popLevel()
+        case .breadcrumb:
+            controller.state.navigateToBreadcrumb(at: 0)
+        case .backThenSameSourceAgain:
+            controller.state.popLevel()
+            let sourceRow = try #require(
+                controller.state.currentLevel?.items.first {
+                    $0.id == "target-worktree-creation-source-\(fixture.worktree.id.uuidString)"
+                })
+            controller.executeItem(sourceRow)
+        }
+        let levelIdAfterLeaving = controller.state.currentLevel?.id
+        await gate.answer(.available)
+        await controller.pendingWorktreeCreation?.value
+
+        // Assert
+        #expect(dispatcher.worktreeCreationDispatches.isEmpty)
+        #expect(controller.state.isVisible)
+        #expect(controller.state.currentLevel?.id == levelIdAfterLeaving)
+    }
+
+    enum DraftAbandonment: CaseIterable, Sendable {
+        case back
+        case breadcrumb
+        case backThenSameSourceAgain
+    }
+
     // MARK: - Fixtures
 
     private static func makeFixture() -> (store: WorkspaceStore, worktree: Worktree) {
@@ -475,6 +522,8 @@ private actor SequencedForkEligibilityChecker: WorktreeForkEligibilityChecking {
     private func resumeArrivalWaiters() {
         let arrived = arrivalWaiters.filter { $0.count <= arrivedQueryCount }
         arrivalWaiters.removeAll { $0.count <= arrivedQueryCount }
-        arrived.forEach { $0.continuation.resume() }
+        for waiter in arrived {
+            waiter.continuation.resume()
+        }
     }
 }
