@@ -29,6 +29,7 @@ import type { BridgeMainCodeViewItem } from '../../core/comm-worker/bridge-main-
 import type { BridgeWorkerPanelChromePatchPayload } from '../../core/comm-worker/bridge-worker-contracts.js';
 import { compileBridgeFileTreeSearchPattern } from '../../core/models/bridge-file-tree-search.js';
 import type { ReviewTreeRowMetadata } from '../../features/review/models/review-protocol-models.js';
+import type { BridgeWorktreeFileLocation } from '../../file-viewer/bridge-file-collection-display-path.js';
 import {
 	type BridgeReviewItemRegistry,
 	reviewItemPathLabel,
@@ -117,7 +118,7 @@ export interface ReviewViewerShellProps {
 	readonly showBinary?: boolean;
 	readonly showLarge?: boolean;
 	readonly onCodeViewControlHandleChange?: (handle: BridgeCodeViewControlHandle | null) => void;
-	readonly onOpenFile?: (path: string) => void;
+	readonly onOpenFile?: (location: BridgeWorktreeFileLocation) => void;
 	readonly onCodeViewVisibleItemIdsChange?: (itemIds: readonly string[]) => void;
 	readonly onAnnotationAttentionItemIdsChange?: (itemIds: readonly string[]) => void;
 	readonly onAnnotationEditorAttentionItemIdsChange?: (itemIds: readonly string[]) => void;

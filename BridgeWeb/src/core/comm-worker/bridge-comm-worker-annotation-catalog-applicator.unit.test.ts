@@ -16,7 +16,7 @@ const messageId = '01890abc-def0-7abc-8def-0123456789ad';
 const initialAuthority = {
 	subscriptionId: 'annotation-subscription-1',
 	workerDerivationEpoch: 1,
-	worktreeId: 'worktree-1',
+	scopeKey: 'worktree-1',
 } satisfies BridgeCommWorkerAnnotationCatalogAuthority;
 
 describe('Bridge communication worker annotation catalog applicator', () => {
@@ -104,7 +104,7 @@ describe('Bridge communication worker annotation catalog applicator', () => {
 		expect(
 			applicator.accept({
 				...event,
-				authority: { ...event.authority, worktreeId: 'worktree-2' },
+				authority: { ...event.authority, scopeKey: 'worktree-2' },
 			}),
 		).toEqual({ reason: 'unexpected_authority', status: 'rejected' });
 	});
@@ -126,7 +126,7 @@ function catalogEvent(
 	>['transfer'],
 ): Extract<BridgeProductWorktreeAnnotationEvent, { kind: 'annotation.catalog' }> {
 	return {
-		authority: { applicationSourceGeneration, worktreeId: initialAuthority.worktreeId },
+		authority: { applicationSourceGeneration, scopeKey: initialAuthority.scopeKey },
 		kind: 'annotation.catalog',
 		transfer,
 	};

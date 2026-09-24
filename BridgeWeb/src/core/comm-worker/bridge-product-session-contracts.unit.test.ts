@@ -104,11 +104,11 @@ describe('Bridge product session contracts', () => {
 	test('keeps the Swift and TypeScript corpora byte-identical at frozen hashes', () => {
 		const fixturePairs = [
 			{
-				expectedHash: '0e2d6b2f9c0577dda107f34df7e6cb79bbefe5f9ebaae15c2eb743cfd5e14893',
+				expectedHash: '9361799fbc5a5e8b01c8fedd810e767a3eb5d83501990f11be00a5392b7ed7cf',
 				kind: 'valid',
 			},
 			{
-				expectedHash: 'b21fd70db537c0d2fef3f05746da9d63daf8ea8ea2db911369ed2844af0992a9',
+				expectedHash: 'd6ee32a26811503e70547953a7a4e7660a7843c86d3c5602db5e0e27cd18d3cf',
 				kind: 'invalid',
 			},
 		] as const;

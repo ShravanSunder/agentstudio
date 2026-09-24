@@ -113,6 +113,8 @@ package enum AppShortcutDispatchPolicy {
             .showCommandBarPanes, .showCommandBarRepos, .openWebview, .reloadBridgeWebView,
             .showViewer,
             .showBridgeReview, .showBridgeFiles,
+            .activateBridgeFile, .activateBridgeReview, .closeBridgeFile,
+            .addBridgeWorktree, .selectBridgeWorktree, .removeBridgeWorktree, .searchBridgeFiles,
             .openBridgeReviewInNewTab, .openBridgeFilesInNewTab, .signInGitHub, .signInGoogle,
             .filterSidebar, .openNewTerminalInTab:
             return false

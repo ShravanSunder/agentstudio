@@ -259,7 +259,8 @@ actor BridgeDevelopmentSeededWorktreeObservation {
                         summary: snapshot.summary,
                         branch: snapshot.branch,
                         origin: nil
-                    )
+                    ),
+                    worktreeId: snapshot.worktreeId
                 )
             )
         case .filesystem, .gitWorkingDirectory, .forge, .security:

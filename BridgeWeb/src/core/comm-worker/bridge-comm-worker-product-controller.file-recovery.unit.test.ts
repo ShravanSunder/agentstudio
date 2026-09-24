@@ -18,21 +18,18 @@ type FileMetadataFrame = BridgeProductMetadataDataFrame<FileMetadataEvent>;
 type FileMetadataSubscription = BridgeProductMetadataApplicationSubscription<FileMetadataProtocol>;
 
 const fileSource = {
-	repoId: '00000000-0000-4000-8000-000000000001',
+	collectionToken: 'root-token-1',
 	rootRevisionToken: 'root-revision-1',
 	sourceCursor: 'source-cursor-1',
 	sourceId: 'file-source-1',
 	subscriptionGeneration: 3,
-	worktreeId: '00000000-0000-4000-8000-000000000002',
 } as const;
 
 const currentFileSourceConfiguration = {
+	collectionToken: 'root-token-1',
 	cwdScope: null,
 	freshness: 'live',
 	includeStatuses: true,
-	repoId: fileSource.repoId,
-	rootPathToken: 'root-token-1',
-	worktreeId: fileSource.worktreeId,
 } as const;
 
 describe('Bridge comm worker File metadata recovery', () => {

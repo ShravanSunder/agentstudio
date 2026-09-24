@@ -4,14 +4,21 @@ import Foundation
 
 @testable import AgentStudioBridge
 
+/// The Git subject every default annotation fixture belongs to.
+let defaultAnnotationSubject = WorktreeAnnotationSubject.git(repositoryID: "repo-1", worktreeID: "worktree-1")
+
+extension WorktreeAnnotationScope {
+    /// A one-subject scope keyed the way a Review surface keys its worktree.
+    static func testScope(_ subject: WorktreeAnnotationSubject) -> Self {
+        Self(key: subject.gitWorktreeID ?? "local-document-scope", subjects: [subject])
+    }
+}
+
 func makeCreateRootDraftProps() -> WorktreeAnnotationSQLiteRepository.CreateRootDraftProps {
     .init(
         admission: .implicitOrSingle,
-        repositoryID: "repo-1",
-        worktreeID: "worktree-1",
         sourceFingerprint: .init(
-            repositoryID: "repo-1",
-            worktreeID: "worktree-1",
+            subject: defaultAnnotationSubject,
             fileSourceIdentity: "source-1",
             reviewComparisonOrigin: nil
         ),
@@ -25,8 +32,6 @@ func makeCreateRootDraftProps() -> WorktreeAnnotationSQLiteRepository.CreateRoot
 func makeLocatedRootDraftProps() -> WorktreeAnnotationSQLiteRepository.CreateRootDraftProps {
     .init(
         admission: .implicitOrSingle,
-        repositoryID: "repo-1",
-        worktreeID: "worktree-1",
         sourceFingerprint: makeSourceFingerprint(identity: "source-original"),
         origin: .located(
             .init(
@@ -49,8 +54,7 @@ func makeLocatedRootDraftProps() -> WorktreeAnnotationSQLiteRepository.CreateRoo
 
 func makeSourceFingerprint(identity: String) -> WorktreeAnnotationSourceFingerprint {
     .init(
-        repositoryID: "repo-1",
-        worktreeID: "worktree-1",
+        subject: defaultAnnotationSubject,
         fileSourceIdentity: identity,
         reviewComparisonOrigin: nil
     )
@@ -68,8 +72,7 @@ func makeSourceUpdatedDetail(
     WorktreeAnnotationSessionDetail(
         session: WorktreeAnnotationSession(
             id: detail.session.id,
-            repositoryID: detail.session.repositoryID,
-            worktreeID: detail.session.worktreeID,
+            subject: detail.session.subject,
             lifecycle: detail.session.lifecycle,
             sourceRelationship: .applicable,
             acceptedSourceFingerprint: fingerprint,

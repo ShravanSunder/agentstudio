@@ -67,7 +67,7 @@ test('opens paired annotation projections once and returns native command correl
 		productTransport,
 	});
 	const projectionEvent: BridgeProductWorktreeAnnotationEvent = {
-		authority: { applicationSourceGeneration: 1, worktreeId: 'worktree-1' },
+		authority: { applicationSourceGeneration: 1, scopeKey: 'worktree-1' },
 		kind: 'annotation.controlChanged',
 		reason: 'discovery',
 	} as const;

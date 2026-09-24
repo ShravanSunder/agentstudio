@@ -263,7 +263,7 @@ struct BridgeDevelopmentSeededWorktreeObservationTests {
         let host = try await BridgeDevelopmentProductHost(
             source: source,
             statusPhysicalGate: statusPhysicalGate,
-            contributionTargetCommit: { _ in .unchanged(source.paneState) }
+            contributionTargetCommit: { _ in .unchanged(source.reviewComparison ?? .ref(name: "HEAD")) }
         )
         let observation = BridgeDevelopmentSeededWorktreeObservation(
             source: source,
@@ -380,15 +380,7 @@ private struct BridgeDevelopmentObservationFixture {
     static func makeSource(root: URL) -> BridgeDevelopmentProductSource {
         BridgeDevelopmentProductSource(
             paneID: UUID(uuidString: "00000000-0000-7000-8000-000000000063")!,
-            paneState: BridgePaneState(
-                panelKind: .diffViewer,
-                source: .workspace(
-                    rootPath: root.path,
-                    baseline: WorkspaceBaseline(
-                        contributionTarget: .ref(name: "HEAD")
-                    )
-                )
-            ),
+            reviewComparison: WorkspaceBaseline(contributionTarget: .ref(name: "HEAD")),
             repoID: UUID(uuidString: "00000000-0000-7000-8000-000000000061")!,
             reviewedSubjectLabel: "observation-tests",
             worktreeID: UUID(uuidString: "00000000-0000-7000-8000-000000000062")!,
@@ -457,7 +449,7 @@ private actor BridgeDevelopmentObservationProbe {
         switch invalidation {
         case .filesChanged(let changeset):
             fileChangesets.append(changeset)
-        case .statusChanged(let status):
+        case .statusChanged(let status, _):
             statuses.append(status)
         }
     }

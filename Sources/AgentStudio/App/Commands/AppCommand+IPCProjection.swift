@@ -116,7 +116,7 @@ extension AppCommand {
             .jumpToPreviousPrompt, .jumpToNextPrompt,
             .openPaneLocationInBookmarkedEditor, .openPaneLocationInFinder,
             .openPaneLocationInEditorMenu, .editPaneNote, .copyCurrentPanePath,
-            .openPullRequest, .reloadBridgeWebView, .showViewer:
+            .openPullRequest, .reloadBridgeWebView, .showViewer, .searchBridgeFiles:
             [.pane]
 
         case .focusPaneLeft, .focusPaneRight, .focusPaneUp, .focusPaneDown,
@@ -155,8 +155,12 @@ extension AppCommand {
             .showBridgeReview, .showBridgeFiles,
             .openBridgeReviewInNewTab, .openBridgeFilesInNewTab:
             [.worktree]
-        case .openWorktreeInPane:
+        case .openWorktreeInPane,
+            .activateBridgeReview, .addBridgeWorktree, .selectBridgeWorktree, .removeBridgeWorktree:
+            // B2: an explicit Review comparison and file over IPC for activateBridgeReview.
             [.worktreeInPane]
+        case .activateBridgeFile, .closeBridgeFile:
+            [.bridgeDocumentInPane]
         case .openNewTerminalInTab:
             [.terminalFromWorktree, .terminalFromPane]
 
@@ -179,7 +183,8 @@ extension AppCommand {
         // Own-pane commands reach pane agents on every channel.
         case .scrollToBottom, .scrollPageUp, .scrollPageDown,
             .scrollSmallStepUp, .scrollSmallStepDown,
-            .jumpToPreviousPrompt, .jumpToNextPrompt, .closeDrawerPane:
+            .jumpToPreviousPrompt, .jumpToNextPrompt, .closeDrawerPane,
+            .addBridgeWorktree, .searchBridgeFiles:
             .allChannels
         case .zoomPane, .reloadBridgeWebView,
             .showReposSidebar, .showPanesSidebar,
@@ -234,6 +239,8 @@ extension AppCommand {
             .showCommandBarCommands, .showCommandBarPanes, .showCommandBarRepos,
             .openWebview, .showViewer,
             .showBridgeReview, .showBridgeFiles,
+            .activateBridgeFile, .activateBridgeReview, .closeBridgeFile,
+            .selectBridgeWorktree, .removeBridgeWorktree,
             .openBridgeReviewInNewTab, .openBridgeFilesInNewTab,
             .signInGitHub, .signInGoogle, .filterSidebar,
             .openNewTerminalInTab:
@@ -299,6 +306,8 @@ extension AppCommand {
             .newFloatingTerminal, .newWindow, .closeWindow,
             .openWebview, .reloadBridgeWebView, .showViewer,
             .showBridgeReview, .showBridgeFiles,
+            .activateBridgeFile, .activateBridgeReview, .closeBridgeFile,
+            .addBridgeWorktree, .selectBridgeWorktree, .removeBridgeWorktree, .searchBridgeFiles,
             .openBridgeReviewInNewTab, .openBridgeFilesInNewTab,
             .openNewTerminalInTab:
             .headless
@@ -372,6 +381,8 @@ extension AppCommand {
             .newFloatingTerminal, .newWindow, .closeWindow,
             .openWebview, .showViewer,
             .showBridgeReview, .showBridgeFiles,
+            .activateBridgeFile, .activateBridgeReview, .closeBridgeFile,
+            .addBridgeWorktree, .selectBridgeWorktree, .removeBridgeWorktree, .searchBridgeFiles,
             .openBridgeReviewInNewTab, .openBridgeFilesInNewTab,
             .openNewTerminalInTab:
             .layoutMutate
@@ -441,7 +452,9 @@ extension AppCommand {
             .managementLayerEnterDrawer, .managementLayerExitDrawer,
             .managementLayerOpenDrawer, .managementLayerCreateTerminal,
             .managementLayerCreateBrowser, .openWorktreeInPane,
-            .openNewTerminalInTab:
+            .openNewTerminalInTab,
+            .activateBridgeFile, .activateBridgeReview, .closeBridgeFile,
+            .addBridgeWorktree, .selectBridgeWorktree, .removeBridgeWorktree, .searchBridgeFiles:
             [.window, .pane]
 
         case .movePaneToTab:
@@ -497,7 +510,9 @@ extension AppCommand {
             .managementLayerFocusLeft, .managementLayerFocusRight,
             .managementLayerEnterDrawer, .managementLayerExitDrawer,
             .managementLayerOpenDrawer, .managementLayerCreateTerminal,
-            .managementLayerCreateBrowser, .showViewer:
+            .managementLayerCreateBrowser, .showViewer,
+            .activateBridgeFile, .activateBridgeReview, .closeBridgeFile,
+            .addBridgeWorktree, .selectBridgeWorktree, .removeBridgeWorktree, .searchBridgeFiles:
             [.applied, .unavailable]
 
         case .closeTab, .breakUpTab, .renameTab, .newTerminalInTab, .newTab,
@@ -528,7 +543,9 @@ extension AppCommand {
         switch self {
         case .scrollToBottom, .scrollPageUp, .scrollPageDown,
             .scrollSmallStepUp, .scrollSmallStepDown,
-            .jumpToPreviousPrompt, .jumpToNextPrompt, .closeDrawerPane:
+            .jumpToPreviousPrompt, .jumpToNextPrompt, .closeDrawerPane,
+            // The caller's receiving Bridge belongs to its own pane (B1).
+            .addBridgeWorktree, .searchBridgeFiles:
             .ownPane
         case .newWindow, .closeWindow, .undoCloseTab, .newTab, .closeTab, .breakUpTab,
             .renameTab, .newTerminalInTab, .selectTab, .nextTab, .prevTab,
@@ -577,6 +594,9 @@ extension AppCommand {
             .newFloatingTerminal, .openWebview,
             .showBridgeReview, .showBridgeFiles,
             .openBridgeReviewInNewTab, .openBridgeFilesInNewTab,
+            // Human-only B1 receiver commands.
+            .activateBridgeFile, .activateBridgeReview, .closeBridgeFile,
+            .selectBridgeWorktree, .removeBridgeWorktree,
             .signInGitHub, .signInGoogle:
             .notYetAllowed
         }

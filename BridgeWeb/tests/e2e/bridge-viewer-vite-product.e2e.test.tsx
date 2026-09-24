@@ -9,6 +9,7 @@ import {
 	reviewTreeReachablePathScrollTopMap,
 	waitForVisibleReviewTreeFilePath,
 } from '../../scripts/verify-bridge-viewer-worktree-dev-server/review-tree-click.ts';
+import { bridgeViewerViteFileCollectionPath } from './bridge-viewer-vite-file-collection-path.ts';
 import {
 	decodePaintedSourceCorrelations,
 	type PaintedSourceCorrelation,
@@ -244,8 +245,12 @@ describe('Bridge Viewer dedicated Vite product E2E', () => {
 				workerUrls,
 			});
 
-			expect(deepScrollObservation.selectedPath).toBe(oracle.largeFilePath);
-			expect(deepScrollObservation.renderedPath).toBe(oracle.largeFilePath);
+			const largeFileCollectionPath = bridgeViewerViteFileCollectionPath(
+				oracle.worktreeRoot,
+				oracle.largeFilePath,
+			);
+			expect(deepScrollObservation.selectedPath).toBe(largeFileCollectionPath);
+			expect(deepScrollObservation.renderedPath).toBe(largeFileCollectionPath);
 			expect(deepScrollObservation.lineCount).toBe(oracle.largeFileLineCount);
 			expect(deepScrollObservation.scrollHeight).toBeGreaterThan(980);
 			expect(deepScrollObservation.scrollTop).toBeGreaterThan(0);
@@ -264,7 +269,8 @@ describe('Bridge Viewer dedicated Vite product E2E', () => {
 			).toBe(true);
 			expect(deepScrollObservation.paintedCorrelations).toEqual([
 				expect.objectContaining({
-					descriptorId: expect.stringMatching(/^file-content-[0-9a-f]{32}$/u),
+					// A collection member namespaces its descriptors with its identity prefix.
+					descriptorId: expect.stringMatching(/^m[0-9a-f]{12}\.file-content-[0-9a-f]{32}$/u),
 					disposition: 'painted',
 					itemId: deepScrollObservation.renderedItemId,
 					observedSha256: oracle.largeFileSha256,
@@ -332,13 +338,19 @@ describe('Bridge Viewer dedicated Vite product E2E', () => {
 					expectedSha256: mutatedContent.sha256,
 				}),
 			);
-			const initialRootRevisionToken = readFileDescriptorRootRevisionToken(
+			// A Files collection spans member roots, so its descriptors carry the
+			// collection's identity rather than one root revision.
+			const initialCollectionToken = readFileDescriptorSourceField(
 				initialRequest?.descriptor,
+				'collectionToken',
 			);
-			expect(initialRootRevisionToken).toEqual(expect.stringMatching(/\S/u));
-			expect(readFileDescriptorRootRevisionToken(replacementRequest?.descriptor)).toBe(
-				initialRootRevisionToken,
+			expect(initialCollectionToken).toEqual(expect.stringMatching(/\S/u));
+			expect(readFileDescriptorSourceField(replacementRequest?.descriptor, 'collectionToken')).toBe(
+				initialCollectionToken,
 			);
+			expect(
+				readFileDescriptorSourceField(initialRequest?.descriptor, 'rootRevisionToken'),
+			).toBeNull();
 		} catch (error: unknown) {
 			primaryFailure = { error };
 		} finally {
@@ -552,7 +564,10 @@ async function waitForSelectedFileContentReady(props: {
 		{
 			expectedLineCount: props.content.lineCount,
 			expectedSha256: props.content.sha256,
-			path: props.oracle.largeFilePath,
+			path: bridgeViewerViteFileCollectionPath(
+				props.oracle.worktreeRoot,
+				props.oracle.largeFilePath,
+			),
 		},
 		{ timeout: productJourneyTimeoutMilliseconds },
 	);
@@ -577,7 +592,7 @@ async function clearFileSearchAndScrollTreeDeep(props: {
 			scrollOwner.dispatchEvent(new Event('scroll', { bubbles: true }));
 			return scrollOwner.scrollTop > 0 && targetPath.length > 0;
 		},
-		props.oracle.fileTreeDeepPath,
+		bridgeViewerViteFileCollectionPath(props.oracle.worktreeRoot, props.oracle.fileTreeDeepPath),
 		{ timeout: productJourneyTimeoutMilliseconds },
 	);
 	await props.page.waitForFunction(
@@ -589,7 +604,7 @@ async function clearFileSearchAndScrollTreeDeep(props: {
 				treeHost?.shadowRoot?.querySelector(`[data-item-path="${CSS.escape(targetPath)}"]`) !== null
 			);
 		},
-		props.oracle.fileTreeDeepPath,
+		bridgeViewerViteFileCollectionPath(props.oracle.worktreeRoot, props.oracle.fileTreeDeepPath),
 		{ timeout: productJourneyTimeoutMilliseconds },
 	);
 }
@@ -709,7 +724,10 @@ async function readFileDeepScrollObservation(props: {
 			};
 		},
 		{
-			deepTreePath: props.oracle.fileTreeDeepPath,
+			deepTreePath: bridgeViewerViteFileCollectionPath(
+				props.oracle.worktreeRoot,
+				props.oracle.fileTreeDeepPath,
+			),
 			finalMarker: content.finalMarker,
 			workerUrls: props.workerUrls,
 		},
@@ -837,13 +855,12 @@ async function waitForReviewDirectoryDisclosure(props: {
 	);
 }
 
-function readFileDescriptorRootRevisionToken(
+function readFileDescriptorSourceField(
 	descriptor: Readonly<Record<string, unknown>> | undefined,
+	field: 'collectionToken' | 'rootRevisionToken',
 ): string | null {
 	const source = descriptor?.['source'];
-	return isUnknownRecord(source) && typeof source['rootRevisionToken'] === 'string'
-		? source['rootRevisionToken']
-		: null;
+	return isUnknownRecord(source) && typeof source[field] === 'string' ? source[field] : null;
 }
 
 async function selectReviewFileAndReadObservation(props: {

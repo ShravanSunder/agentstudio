@@ -1,8 +1,24 @@
-import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react';
+import {
+	useCallback,
+	useEffect,
+	useRef,
+	useState,
+	useSyncExternalStore,
+	type ReactElement,
+} from 'react';
 
 import type { BridgePaneSurfaceClient } from '../core/comm-worker/bridge-pane-runtime.js';
 import type { BridgeActiveViewerSource } from '../core/comm-worker/bridge-product-control-contracts.js';
+import type {
+	BridgeProductFileMemberGroup,
+	BridgeProductFileOpenedDocumentEntry,
+} from '../core/comm-worker/bridge-product-file-member-group-contracts.js';
 import type { BridgeProductNavigationCommand } from '../core/comm-worker/bridge-product-session-contracts.js';
+import type { BridgeProductWorktreeAnnotationSubject } from '../core/comm-worker/bridge-product-worktree-annotation-contracts.js';
+import {
+	fileCollectionOpenedDocumentSourceLocation,
+	fileCollectionSourceLocation,
+} from '../file-viewer/bridge-file-collection-display-path.js';
 import {
 	BridgeFileViewerApp,
 	type BridgeFileViewerAppProps,
@@ -11,6 +27,7 @@ import {
 	bridgeFileViewerDisplayModelForSnapshot,
 	type BridgeFileViewerDisplaySource,
 } from '../file-viewer/bridge-file-viewer-display-model.js';
+import { useBridgeFileViewerNativeCollectionSearch } from '../file-viewer/bridge-file-viewer-native-collection-search.js';
 import {
 	BridgeFileViewerSurfaceClientProvider,
 	useBridgeFileViewerRenderSnapshotController,
@@ -21,6 +38,10 @@ import { startBridgeFrameLivenessProbe } from '../foundation/diagnostics/bridge-
 import type { BridgeTelemetryRecorder } from '../foundation/telemetry/bridge-telemetry-recorder.js';
 import { recordBridgeFrameJankTelemetrySample } from '../foundation/telemetry/bridge-viewer-telemetry-adapter.js';
 import { WorktreeAnnotationSurfaceProvider } from '../worktree-annotations/worktree-annotation-surface-provider.js';
+import type {
+	WorktreeAnnotationThreadSource,
+	WorktreeAnnotationThreadSourcePresenter,
+} from '../worktree-annotations/worktree-annotation-thread-source-presentation.js';
 import type { BridgeAppNavigationSource } from './bridge-app-navigation-admission.js';
 import type { BridgeMermaidRenderer } from './markdown/bridge-mermaid-renderer.js';
 import type { BridgeMarkdownRenderWorkerClient } from './markdown/worker/bridge-markdown-render-worker-client.js';
@@ -59,6 +80,7 @@ export function BridgeFileViewerMode(props: BridgeFileViewerModeProps): ReactEle
 	const isActiveRef = useRef(props.isActive);
 	isActiveRef.current = props.isActive;
 	useEffect((): (() => void) => startBridgeFrameLivenessProbe(), []);
+	useBridgeFileViewerNativeCollectionSearch(props.fileViewClient);
 	useEffect(
 		(): (() => void) =>
 			startBridgeFrameJankProbe({
@@ -109,12 +131,17 @@ export function BridgeFileViewerMode(props: BridgeFileViewerModeProps): ReactEle
 		[onActiveSourceChange, reportNavigationDisplaySource],
 	);
 
+	const annotationThreadSourcePresenter = useFileCollectionAnnotationThreadSourcePresenter(
+		props.fileViewClient,
+	);
+
 	return (
 		<BridgeFileViewerSurfaceClientProvider surfaceClient={props.fileViewClient}>
 			<WorktreeAnnotationSurfaceProvider
 				markdownWorkerClient={props.markdownWorkerClient}
 				surfaceClient={props.fileViewClient}
 				telemetryRecorder={props.telemetryRecorder}
+				threadSourcePresenter={annotationThreadSourcePresenter}
 			>
 				{!props.isActive && !hasActivatedFileViewerShell ? (
 					!props.requiresNavigationSourceDiscovery ? null : (
@@ -147,6 +174,54 @@ export function BridgeFileViewerMode(props: BridgeFileViewerModeProps): ReactEle
 				)}
 			</WorktreeAnnotationSurfaceProvider>
 		</BridgeFileViewerSurfaceClientProvider>
+	);
+}
+
+/**
+ * File-surface annotations are stored subject-scoped: a member file by its
+ * worktree-relative path and member descriptor identity, a loose document by
+ * its name and own descriptor identity. Files lists members under their groups
+ * and loose documents under Open Files, both with prefixed descriptor
+ * identities, so threads are presented under the collection's keys. Groups and
+ * opened documents come from the render store because the projected tree can
+ * omit their rows while a query is active.
+ */
+function useFileCollectionAnnotationThreadSourcePresenter(
+	fileViewClient: BridgePaneSurfaceClient,
+): WorktreeAnnotationThreadSourcePresenter {
+	const renderStore = fileViewClient.renderStore;
+	const readMemberGroups = useCallback(
+		(): readonly BridgeProductFileMemberGroup[] => renderStore.getSnapshot().fileMemberGroupsSlice,
+		[renderStore],
+	);
+	const readOpenedDocuments = useCallback(
+		(): readonly BridgeProductFileOpenedDocumentEntry[] =>
+			renderStore.getSnapshot().fileOpenedDocumentsSlice,
+		[renderStore],
+	);
+	const memberGroups = useSyncExternalStore(
+		renderStore.subscribe,
+		readMemberGroups,
+		readMemberGroups,
+	);
+	const openedDocuments = useSyncExternalStore(
+		renderStore.subscribe,
+		readOpenedDocuments,
+		readOpenedDocuments,
+	);
+	return useCallback(
+		(
+			subject: BridgeProductWorktreeAnnotationSubject,
+			storedSource: WorktreeAnnotationThreadSource,
+		): WorktreeAnnotationThreadSource | null =>
+			subject.kind === 'git'
+				? fileCollectionSourceLocation(memberGroups, subject.worktreeId, storedSource)
+				: fileCollectionOpenedDocumentSourceLocation(
+						openedDocuments,
+						subject.documentLocation,
+						storedSource,
+					),
+		[memberGroups, openedDocuments],
 	);
 }
 

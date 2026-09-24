@@ -2,14 +2,13 @@ import Foundation
 
 extension BridgeProductFileSourceIdentity {
     init(
-        repoId: String,
+        collectionToken: String,
         rootRevisionToken: String?,
         sourceCursor: String,
         sourceId: String,
-        subscriptionGeneration: Int,
-        worktreeId: String
+        subscriptionGeneration: Int
     ) throws {
-        try BridgeProductContractDecoding.validateUUID(repoId, codingPath: [])
+        try BridgeProductContractDecoding.validateOpaqueReference(collectionToken, codingPath: [])
         if let rootRevisionToken {
             try BridgeProductContractDecoding.validateOpaqueReference(rootRevisionToken, codingPath: [])
         }
@@ -20,13 +19,11 @@ extension BridgeProductFileSourceIdentity {
             name: "subscriptionGeneration",
             codingPath: []
         )
-        try BridgeProductContractDecoding.validateUUID(worktreeId, codingPath: [])
-        self.repoId = repoId
+        self.collectionToken = collectionToken
         self.rootRevisionToken = rootRevisionToken
         self.sourceCursor = sourceCursor
         self.sourceId = sourceId
         self.subscriptionGeneration = subscriptionGeneration
-        self.worktreeId = worktreeId
     }
 }
 

@@ -369,13 +369,12 @@ extension WebKitSerializedTests {
             let gitReadContext = makeBridgeGitReadContext(rootURL: input.repoURL)
             return BridgePaneController(
                 paneId: input.paneId,
-                state: BridgePaneState(
-                    panelKind: .diffViewer,
-                    source: .workspace(
-                        rootPath: input.repoURL.path,
-                        baseline: .localDefaultBranch(branchName: "main")
-                    )
-                ),
+                state: BridgePaneState(panelKind: .diffViewer),
+                sourceConfiguration: BridgePaneSourceConfiguration(
+                    review: BridgeReviewSourceBinding(
+                        worktreeId: input.worktreeId, worktreeRootPath: input.repoURL.path,
+                        comparison: .localDefaultBranch(branchName: "main")),
+                    files: .testSingleWorktree(rootURL: input.repoURL, worktreeId: input.worktreeId)),
                 appRootURL: testBridgeAppRootURL(),
                 metadata: PaneMetadata(
                     paneId: PaneId(existingUUID: input.paneId),
@@ -693,15 +692,15 @@ extension WebKitSerializedTests {
             let paneId = UUIDv7.generate()
             let gitReadContext = makeBridgeGitReadContext(rootURL: repoURL)
             let statusPhysicalGate = AgentStudioGitStatusPhysicalGate()
+            let memberWorktreeId = UUIDv7.generate()
             return BridgePaneController(
                 paneId: paneId,
-                state: BridgePaneState(
-                    panelKind: .diffViewer,
-                    source: .workspace(
-                        rootPath: repoURL.path,
-                        baseline: .localDefaultBranch(branchName: "main")
-                    )
-                ),
+                state: BridgePaneState(panelKind: .diffViewer),
+                sourceConfiguration: BridgePaneSourceConfiguration(
+                    review: BridgeReviewSourceBinding(
+                        worktreeId: memberWorktreeId, worktreeRootPath: repoURL.path,
+                        comparison: .localDefaultBranch(branchName: "main")),
+                    files: .testSingleWorktree(rootURL: repoURL, worktreeId: memberWorktreeId)),
                 appRootURL: testBridgeAppRootURL(),
                 metadata: PaneMetadata(
                     paneId: PaneId(existingUUID: paneId),
@@ -710,7 +709,7 @@ extension WebKitSerializedTests {
                     title: "Bridge Product Carrier",
                     facets: PaneContextFacets(
                         repoId: UUIDv7.generate(),
-                        worktreeId: UUIDv7.generate(),
+                        worktreeId: memberWorktreeId,
                         worktreeName: "bridge-product-carrier",
                         cwd: repoURL
                     )

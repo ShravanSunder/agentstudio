@@ -8,7 +8,8 @@ where Parameters: Codable & Sendable, Result: Codable & Sendable {
     let correlation: (@Sendable (Parameters) throws -> UUID)?
     let rawHandle: @Sendable (Parameters) -> String
     let rebuild: @Sendable (Parameters, String) -> Parameters
-    let handler: @Sendable (Parameters) async throws -> Result
+    /// The pane agent's assertion travels to the port, which re-checks it at the effect.
+    let handler: @Sendable (Parameters, AppIPCOwnPaneAssertion?) async throws -> Result
 }
 
 extension AppIPCBuiltInMethodRegistrations {
@@ -88,8 +89,9 @@ extension AppIPCBuiltInMethodRegistrations {
                             correlationId: original.correlationId
                         )
                     },
-                    handler: { parameters in
-                        let result = try await inputs.ports.bridgePort.refreshReview(parameters)
+                    handler: { parameters, assertion in
+                        let result = try await inputs.ports.bridgePort.refreshReview(
+                            parameters, ownPaneAssertion: assertion)
                         await publishBridgeReviewUpdated(
                             paneId: result.paneId,
                             packageId: result.packageId,
@@ -107,8 +109,9 @@ extension AppIPCBuiltInMethodRegistrations {
                     correlation: nil,
                     rawHandle: { $0.handle },
                     rebuild: { _, canonicalHandle in IPCBridgePaneParams(handle: canonicalHandle) },
-                    handler: { parameters in
-                        try await inputs.ports.bridgePort.getPackage(IPCHandle.parse(parameters.handle))
+                    handler: { parameters, assertion in
+                        try await inputs.ports.bridgePort.getPackage(
+                            IPCHandle.parse(parameters.handle), ownPaneAssertion: assertion)
                     }
                 ),
                 inputs: inputs,
@@ -119,8 +122,9 @@ extension AppIPCBuiltInMethodRegistrations {
                     correlation: nil,
                     rawHandle: { $0.handle },
                     rebuild: { _, canonicalHandle in IPCBridgePaneParams(handle: canonicalHandle) },
-                    handler: { parameters in
-                        try await inputs.ports.bridgePort.renderState(IPCHandle.parse(parameters.handle))
+                    handler: { parameters, assertion in
+                        try await inputs.ports.bridgePort.renderState(
+                            IPCHandle.parse(parameters.handle), ownPaneAssertion: assertion)
                     }
                 ),
                 inputs: inputs,
@@ -139,8 +143,9 @@ extension AppIPCBuiltInMethodRegistrations {
                             correlationId: original.correlationId
                         )
                     },
-                    handler: { parameters in
-                        let result = try await inputs.ports.bridgePort.selectFile(parameters)
+                    handler: { parameters, assertion in
+                        let result = try await inputs.ports.bridgePort.selectFile(
+                            parameters, ownPaneAssertion: assertion)
                         if result.selected {
                             await publishBridgeFileSelected(
                                 paneId: result.paneId,
@@ -180,7 +185,9 @@ extension AppIPCBuiltInMethodRegistrations {
                     replacingHandle: binding.rebuild
                 )
             },
-            connectionHandler: { parameters, _, _ in try await binding.handler(parameters) }
+            connectionHandler: { parameters, context, _ in
+                try await binding.handler(parameters, AppIPCOwnPaneAssertion(principal: context.principal))
+            }
         ).erase()
     }
 

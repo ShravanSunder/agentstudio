@@ -39,12 +39,12 @@ extension WorkspaceSurfaceCoordinator {
             .flatMap { store.tabLayoutAtom.tab($0)?.activePaneId }
             .flatMap { store.paneAtom.pane($0) }
         guard
-            let context = bridgeReviewMetadata(
+            let metadata = bridgeReviewMetadata(
                 from: activePane,
                 worktreeId: worktreeId,
                 panelKind: .fileViewer
             ),
-            let resolvedWorktreeId = context.metadata.facets.worktreeId
+            let resolvedWorktreeId = metadata.facets.worktreeId
         else {
             return nil
         }
@@ -114,7 +114,7 @@ extension WorkspaceSurfaceCoordinator {
             .flatMap { store.tabLayoutAtom.tab($0)?.activePaneId }
             .flatMap { store.paneAtom.pane($0) }
         guard
-            let context = bridgeReviewMetadata(
+            var metadata = bridgeReviewMetadata(
                 from: activePane,
                 worktreeId: worktreeId,
                 panelKind: panelKind
@@ -122,8 +122,7 @@ extension WorkspaceSurfaceCoordinator {
         else {
             return nil
         }
-        let state = BridgePaneState(panelKind: panelKind, source: context.source)
-        var metadata = context.metadata
+        let state = BridgePaneState(panelKind: panelKind)
         metadata.updateTitle(title)
         guard
             let pane = store.paneAtom.createPane(
@@ -134,6 +133,13 @@ extension WorkspaceSurfaceCoordinator {
             Self.logger.error("\(logName) pane admission failed")
             return nil
         }
+        // The new standalone receiver's record is created with the pane; the
+        // pane payload never carries a source selection.
+        bridgeNavigationCommandHandler.ensureRecord(
+            for: .standalone(pane.id),
+            seedingKnownWorktreeId: metadata.worktreeId,
+            surface: panelKind == .diffViewer ? .review : .files
+        )
         viewRegistry.ensureSlot(for: pane.id)
 
         guard
@@ -143,6 +149,7 @@ extension WorkspaceSurfaceCoordinator {
             ) != nil
         else {
             Self.logger.error("\(logName) creation failed — rolling back pane \(pane.id)")
+            store.bridgeNavigationAtom.removeRecord(for: .standalone(pane.id))
             store.mutationCoordinator.removePane(pane.id)
             // Safe immediate deletion: creation failed before the pane entered a rendered layout.
             viewRegistry.removeSlot(for: pane.id)
@@ -162,7 +169,7 @@ extension WorkspaceSurfaceCoordinator {
         /// Open a deterministic Bridge review pane for local observability proof.
         @discardableResult
         func openBridgeReviewObservabilitySmoke() -> Pane? {
-            let state = BridgePaneState(panelKind: .diffViewer, source: nil)
+            let state = BridgePaneState(panelKind: .diffViewer)
             let smokeDirectory = FileManager.default.temporaryDirectory
             guard
                 let pane = store.paneAtom.createPane(
@@ -202,7 +209,7 @@ extension WorkspaceSurfaceCoordinator {
         from activePane: Pane?,
         worktreeId: UUID?,
         panelKind: BridgePanelKind
-    ) -> (metadata: PaneMetadata, source: BridgePaneSource?)? {
+    ) -> PaneMetadata? {
         if let worktreeId {
             guard
                 let worktree = store.repositoryTopologyAtom.worktree(worktreeId),
@@ -259,8 +266,8 @@ extension WorkspaceSurfaceCoordinator {
         worktree: Worktree,
         cwd: URL,
         panelKind _: BridgePanelKind
-    ) -> (metadata: PaneMetadata, source: BridgePaneSource?) {
-        let metadata = PaneMetadata(
+    ) -> PaneMetadata {
+        PaneMetadata(
             contentType: .diff,
             launchDirectory: worktree.path,
             title: "Bridge Review",
@@ -270,13 +277,6 @@ extension WorkspaceSurfaceCoordinator {
                 worktreeId: worktree.id,
                 worktreeName: worktree.name,
                 cwd: cwd
-            )
-        )
-        return (
-            metadata,
-            .workspace(
-                rootPath: worktree.path.path,
-                baseline: nil
             )
         )
     }

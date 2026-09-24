@@ -228,9 +228,18 @@ package struct WorkspaceLocalRepository: Sendable {
     func replaceWorkspaceSnapshotLocalState(
         cursorState: CursorStateRecord,
         windowState: WindowStateRecord?,
+        bridgeNavigationRows: [BridgeNavigationRow]? = nil,
         completedAt: Date
     ) throws {
         try databaseWriter.write { database in
+            if let bridgeNavigationRows {
+                try WorkspaceLocalRepositoryStorage.replaceBridgeNavigationRows(
+                    database,
+                    workspaceId: workspaceId,
+                    rows: bridgeNavigationRows,
+                    updatedAt: completedAt
+                )
+            }
             try WorkspaceLocalRepositoryStorage.replaceWindowStateRows(
                 database,
                 workspaceId: workspaceId,
@@ -498,6 +507,7 @@ enum WorkspaceLocalRepositoryError: Error, Equatable {
     case malformedDrawerId(String)
     case malformedRepoId(String)
     case malformedWorktreeId(String)
+    case malformedBridgeReceiverKind(String)
     case invalidWindowFramePayload
     case invalidCachePayload
     case missingRepoEnrichmentPayload(UUID)

@@ -363,7 +363,7 @@ struct AgentStudioIPCClientCoreTests {
         let matched = try IPCBuiltInMethodCatalog.matchingDiscoveredMethods(
             discovered, examples: .init(illustrativeIdentifier: UUIDv7.generate())
         )
-        #expect(matched.count == 47)
+        #expect(matched.count == 48)
         let wait = try parse(
             [
                 "terminal.wait", "--handle", "self", "--condition", "commandFinished", "--timeout-seconds", "9",

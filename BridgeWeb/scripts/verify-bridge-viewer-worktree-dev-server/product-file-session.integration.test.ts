@@ -14,6 +14,7 @@ import {
 	startOwnedBridgeDevelopmentServer,
 	type OwnedBridgeDevelopmentServer,
 } from '../dev-server/bridge-development-server-process.js';
+import { worktreeFileCollectionPath } from './file-collection-path.js';
 import { BridgeVerifierProductFileSession } from './product-file-session.js';
 
 const viteConfigFile = fileURLToPath(new URL('../../vite.config.ts', import.meta.url));
@@ -177,10 +178,16 @@ describe('Bridge verifier product File session', () => {
 			currentPhase = 'source.opening';
 			const source = await session.open();
 			const finalTreeWindow = source.treeWindows.findLast((event) => event.finalWindow);
+			const readmeFileCollectionPath = worktreeFileCollectionPath(
+				bridgeDevelopmentServerWorktreeRootPath,
+				'README.md',
+			);
 			const targetPath = source.treeWindows
 				.flatMap((event) => event.rows)
-				.find((row) => row.path === 'README.md' && !row.isDirectory)?.path;
-			if (targetPath === undefined) throw new Error('Expected README.md in the product File tree.');
+				.find((row) => row.path === readmeFileCollectionPath && !row.isDirectory)?.path;
+			if (targetPath === undefined) {
+				throw new Error(`Expected ${readmeFileCollectionPath} in the product File tree.`);
+			}
 			const secondTargetPath = source.treeWindows
 				.flatMap((event) => event.rows)
 				.find((row) => row.path !== targetPath && !row.isDirectory)?.path;

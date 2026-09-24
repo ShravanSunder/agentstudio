@@ -340,9 +340,10 @@ private func makeProjectionSourceHarness(messageCount: Int) async throws -> Proj
     let sourceGeneration = 7
     let sourceFingerprint = makeSourceFingerprint(identity: "source-current")
     let sourceResolver = WorktreeAnnotationSourceResolver(
+        scope: { _ in .testScope(defaultAnnotationSubject) },
         capture: { _, _, _, _ in throw WorktreeAnnotationSourceResolutionError.unavailable },
-        currentFingerprint: { _, _, _ in sourceFingerprint },
-        refresh: { _, _, _, _ in
+        currentFingerprint: { _, _, _, _ in sourceFingerprint },
+        refresh: { _, _, _, _, _ in
             WorktreeAnnotationSourceRefreshCapture(
                 fingerprint: sourceFingerprint,
                 material: .available([
@@ -362,7 +363,6 @@ private func makeProjectionSourceHarness(messageCount: Int) async throws -> Proj
         source: BridgeAnnotationProjectionSource(
             service: service,
             sourceResolver: sourceResolver,
-            worktreeID: detail.session.worktreeID,
             currentSourceGeneration: { _, _, _ in sourceGeneration }
         ),
         sourceGeneration: sourceGeneration
@@ -514,14 +514,14 @@ private func collectProjectionRecords(
 private actor ProjectionSnapshotRepositoryAccess: WorktreeAnnotationRepositoryAccess {
     let detail: WorktreeAnnotationSessionDetail
     init(detail: WorktreeAnnotationSessionDetail) { self.detail = detail }
-    func discoverSessions(worktreeID: String) async throws -> [WorktreeAnnotationSession] {
-        detail.session.worktreeID == worktreeID ? [detail.session] : []
+    func discoverSessions(subjects: Set<WorktreeAnnotationSubject>) async throws -> [WorktreeAnnotationSession] {
+        subjects.contains(detail.session.subject) ? [detail.session] : []
     }
     func fetchProjectionSnapshot(
-        worktreeID: String,
+        subjects: Set<WorktreeAnnotationSubject>,
         demandedSessionIDs: [WorktreeAnnotationSessionID]
     ) async throws -> WorktreeAnnotationRepositoryProjectionSnapshot {
-        guard worktreeID == detail.session.worktreeID,
+        guard subjects.contains(detail.session.subject),
             demandedSessionIDs == [detail.session.id]
         else {
             throw WorktreeAnnotationRepositoryError.notFound

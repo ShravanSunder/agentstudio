@@ -53,11 +53,16 @@ import {
 	bridgeWorkerAnnotationProjectionRetryCommandSchema,
 } from './bridge-worker-annotation-contracts.js';
 import {
+	bridgeWorkerFileCollectionSearchCommandSchema,
+	bridgeWorkerFileCollectionSearchEventSchema,
+} from './bridge-worker-file-collection-search-contracts.js';
+import {
 	BRIDGE_WORKER_FILE_DISPLAY_PATCH_LIMIT,
 	bridgeWorkerFileDisplayPatchSchema,
 } from './bridge-worker-file-display-patch-contracts.js';
 import { bridgeWorkerFileQuerySchema } from './bridge-worker-file-query-contracts.js';
 import { bridgeWorkerFileRefreshRetryCommandSchema } from './bridge-worker-file-refresh-contracts.js';
+import { bridgeWorkerFileSelectionReceiptCommandSchema } from './bridge-worker-file-selection-receipt-contracts.js';
 import { bridgeWorkerPanelChromePatchSchema } from './bridge-worker-panel-chrome-contracts.js';
 import { validateBridgeWorkerPierreRenderPublicationIdentity } from './bridge-worker-pierre-publication-identity-contracts.js';
 import {
@@ -325,6 +330,8 @@ export const bridgeWorkerMainToServerCommandSchema = z.discriminatedUnion('comma
 	bridgeWorkerReviewPublicationInstalledCommandSchema,
 	bridgeWorkerFileQueryUpdateCommandSchema,
 	bridgeWorkerFileRefreshRetryCommandSchema,
+	bridgeWorkerFileSelectionReceiptCommandSchema,
+	bridgeWorkerFileCollectionSearchCommandSchema,
 	bridgeWorkerFileDisplayResyncCommandSchema,
 	bridgeWorkerRenderDispositionCommandSchema,
 ]);
@@ -821,6 +828,7 @@ export const bridgeWorkerFilePierreRenderJobEventSchema = bridgeWorkerServerToMa
 	});
 
 export const bridgeWorkerServerToMainMessageSchema = z.discriminatedUnion('kind', [
+	bridgeWorkerFileCollectionSearchEventSchema,
 	bridgeWorkerAnnotationCatalogStagingEventSchema,
 	bridgeWorkerAnnotationCommandAcceptedEventSchema,
 	bridgeWorkerAnnotationOutputInspectionEventSchema,
@@ -843,6 +851,7 @@ export const bridgeWorkerServerToMainMessageSchema = z.discriminatedUnion('kind'
 ]);
 
 export const bridgeWorkerServerToMainWireMessageSchema = z.discriminatedUnion('kind', [
+	bridgeWorkerFileCollectionSearchEventSchema,
 	bridgeWorkerAnnotationCatalogStagingEventSchema,
 	bridgeWorkerAnnotationCommandAcceptedEventSchema,
 	bridgeWorkerAnnotationOutputInspectionEventSchema,

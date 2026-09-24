@@ -8,15 +8,16 @@ struct BridgeProductFileMetadataContractTests {
     func acceptsEveryClosedEventAndRoundTripsExactly() throws {
         let events: [[String: Any]] = [
             ["eventKind": "file.sourceAccepted", "source": source],
+            memberGroupsEvent,
             [
                 "eventKind": "file.treeWindow",
                 "finalWindow": true,
                 "lineage": ["lane": "foreground", "loadedBy": "startup_window"],
                 "pathScope": ["src"],
-                "rows": [row],
+                "rows": [row, openedDocumentRow],
                 "source": source,
                 "startIndex": 0,
-                "totalRowCount": 1,
+                "totalRowCount": 2,
             ],
             [
                 "eventKind": "file.treeDelta",
@@ -102,6 +103,13 @@ struct BridgeProductFileMetadataContractTests {
         missingFileClassRow.removeValue(forKey: "fileClass")
         var invalidFileClassRow = row
         invalidFileClassRow["fileClass"] = "text"
+        var missingDocumentLocationRow = row
+        missingDocumentLocationRow.removeValue(forKey: "documentLocation")
+        var relativeDocumentLocationRow = openedDocumentRow
+        relativeDocumentLocationRow["documentLocation"] = "tmp/notes.md"
+        var directoryDocumentLocationRow = openedDocumentRow
+        directoryDocumentLocationRow["isDirectory"] = true
+        directoryDocumentLocationRow["fileClass"] = NSNull()
         let closedStatusWindow: [String: Any] = [
             "eventKind": "file.treeWindow",
             "finalWindow": true,
@@ -142,9 +150,48 @@ struct BridgeProductFileMetadataContractTests {
             closedStatusWindow,
             treeWindow(row: missingFileClassRow),
             treeWindow(row: invalidFileClassRow),
+            treeWindow(row: missingDocumentLocationRow),
+            treeWindow(row: relativeDocumentLocationRow),
+            treeWindow(row: directoryDocumentLocationRow),
             crossWiredStatusPatch,
         ] {
             #expect(throws: (any Error).self) { _ = try decode(event) }
+        }
+    }
+
+    @Test("File member groups name each worktree, group path and opened document once and reject unknown keys")
+    func memberGroupsRejectDuplicatesAndUnknownKeys() throws {
+        // Arrange
+        var duplicateWorktree = memberGroupsEvent
+        duplicateWorktree["groups"] = [memberGroup("app", "worktree-a"), memberGroup("app (2)", "worktree-a")]
+        var duplicateGroupPath = memberGroupsEvent
+        duplicateGroupPath["groups"] = [memberGroup("app", "worktree-a"), memberGroup("app", "worktree-b")]
+        var unknownGroupKey = memberGroupsEvent
+        unknownGroupKey["groups"] = [memberGroup("app", "worktree-a").merging(["rootPath": "/tmp/app"]) { $1 }]
+        var missingNestedRoots = memberGroupsEvent
+        missingNestedRoots["groups"] = [
+            ["groupPath": "app", "identityPrefix": "mapp.", "worktreeId": "worktree-a"]
+        ]
+        var negativeRevision = memberGroupsEvent
+        negativeRevision["membershipRevision"] = -1
+        var missingRevision = memberGroupsEvent
+        missingRevision.removeValue(forKey: "membershipRevision")
+        var missingOpenedDocuments = memberGroupsEvent
+        missingOpenedDocuments.removeValue(forKey: "openedDocuments")
+        var duplicateDocumentLocation = memberGroupsEvent
+        duplicateDocumentLocation["openedDocuments"] = [
+            openedDocument("Open Files/notes.md", "/Users/example/notes.md"),
+            openedDocument("Open Files/notes (2).md", "/Users/example/notes.md"),
+        ]
+        var relativeDocumentLocation = memberGroupsEvent
+        relativeDocumentLocation["openedDocuments"] = [openedDocument("Open Files/notes.md", "notes.md")]
+
+        // Act / Assert
+        for invalid in [
+            duplicateWorktree, duplicateGroupPath, unknownGroupKey, missingNestedRoots, negativeRevision,
+            missingRevision, missingOpenedDocuments, duplicateDocumentLocation, relativeDocumentLocation,
+        ] {
+            #expect(throws: (any Error).self) { try decode(invalid) }
         }
     }
 
@@ -298,21 +345,38 @@ struct BridgeProductFileMetadataContractTests {
 
     private var source: [String: Any] {
         [
-            "repoId": "00000000-0000-4000-8000-000000000001",
+            "collectionToken": "root-token-1",
             "rootRevisionToken": NSNull(),
             "sourceCursor": "source-cursor-1",
             "sourceId": "source-1",
             "subscriptionGeneration": 11,
-            "worktreeId": "00000000-0000-4000-8000-000000000002",
         ]
     }
 
     private var row: [String: Any] { treeRow(index: 1) }
 
+    private var openedDocumentRow: [String: Any] {
+        [
+            "changeStatus": NSNull(),
+            "depth": 1,
+            "documentLocation": "/private/tmp/notes.md",
+            "fileId": "opened-file-1",
+            "fileClass": "docs",
+            "isDirectory": false,
+            "lineCount": NSNull(),
+            "name": "notes.md",
+            "parentPath": "Open Files",
+            "path": "Open Files/notes.md",
+            "rowId": "opened-row-1",
+            "sizeBytes": 42,
+        ]
+    }
+
     private func treeRow(index: Int) -> [String: Any] {
         [
             "changeStatus": "modified",
             "depth": 1,
+            "documentLocation": NSNull(),
             "fileId": "file-\(index)",
             "fileClass": "source",
             "isDirectory": false,
@@ -415,6 +479,42 @@ struct BridgeProductFileMetadataContractTests {
                 "maximumLines": 10_000,
                 "startByte": 0,
             ],
+        ]
+    }
+
+    /// Mirrored in BridgeWeb's `bridge-product-file-member-group-contracts.unit.test.ts`.
+    private var memberGroupsEvent: [String: Any] {
+        [
+            "eventKind": "file.memberGroups",
+            "groups": [
+                [
+                    "groupPath": "app",
+                    "identityPrefix": "m0123456789ab.",
+                    "nestedMemberRelativeRoots": [".worktrees/feature"],
+                    "worktreeId": "0198f3a2-0000-7000-8000-00000000000a",
+                ],
+                memberGroup("feature", "0198f3a2-0000-7000-8000-00000000000b"),
+            ],
+            "membershipRevision": 2,
+            "openedDocuments": [
+                [
+                    "displayPath": "Open Files/notes.md",
+                    "documentLocation": "/Users/example/notes.md",
+                    "identityPrefix": "d0123456789ab.",
+                ]
+            ],
+            "source": source,
+        ]
+    }
+
+    private func openedDocument(_ displayPath: String, _ documentLocation: String) -> [String: Any] {
+        ["displayPath": displayPath, "documentLocation": documentLocation, "identityPrefix": "dnotes."]
+    }
+
+    private func memberGroup(_ groupPath: String, _ worktreeId: String) -> [String: Any] {
+        [
+            "groupPath": groupPath, "identityPrefix": "m\(groupPath).", "nestedMemberRelativeRoots": [],
+            "worktreeId": worktreeId,
         ]
     }
 

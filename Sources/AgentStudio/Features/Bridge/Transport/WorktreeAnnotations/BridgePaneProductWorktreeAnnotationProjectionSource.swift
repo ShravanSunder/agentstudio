@@ -71,7 +71,6 @@ actor BridgeAnnotationProjectionSource {
     static let unavailable = BridgeAnnotationProjectionSource(
         service: nil,
         sourceResolver: .unavailable,
-        worktreeID: "",
         currentSourceGeneration: { _, _, _ in
             throw BridgeAnnotationProjectionSourceError.unavailable
         }
@@ -80,20 +79,17 @@ actor BridgeAnnotationProjectionSource {
     private let currentSourceGeneration: CurrentSourceGeneration
     private let service: WorktreeAnnotationServiceActor?
     private let sourceResolver: WorktreeAnnotationSourceResolver
-    private let worktreeID: String
     private var logicalReservation: LogicalReservation?
     private var pageReservationByDescriptorID: [String: PageReservation] = [:]
 
     init(
         service: WorktreeAnnotationServiceActor?,
         sourceResolver: WorktreeAnnotationSourceResolver,
-        worktreeID: String,
         currentSourceGeneration: @escaping CurrentSourceGeneration
     ) {
         self.currentSourceGeneration = currentSourceGeneration
         self.service = service
         self.sourceResolver = sourceResolver
-        self.worktreeID = worktreeID
     }
 
     func descriptor(
@@ -103,8 +99,7 @@ actor BridgeAnnotationProjectionSource {
     ) async throws -> BridgeProductAnnotationProjectionContentDescriptor {
         guard let authority = RequestAuthority(issuing: request),
             request.surface == query.surface,
-            let service,
-            !worktreeID.isEmpty
+            let service
         else {
             throw BridgeAnnotationProjectionSourceError.unavailable
         }
@@ -130,25 +125,24 @@ actor BridgeAnnotationProjectionSource {
         }
 
         let demandedSessionIDs = query.sessionIDs.map(WorktreeAnnotationSessionID.init(rawValue:))
+        let scope: WorktreeAnnotationScope
         let serviceCapture: WorktreeAnnotationServiceProjectionCapture
         do {
+            scope = try await sourceResolver.scope(query.surface)
             serviceCapture = try await service.captureProjection(
-                worktreeID: worktreeID,
+                subjects: scope.subjects,
                 demandedSessionIDs: demandedSessionIDs
             )
         } catch {
             throw BridgeAnnotationProjectionSourceError.projectionCaptureUnavailable
         }
-        let requirements = serviceCapture.repositorySnapshot.details.flatMap { detail in
-            WorktreeAnnotationServiceActor.sourceRefreshSnapshot(from: detail).requirements
-        }
-        let sourceCapture: WorktreeAnnotationSourceRefreshCapture
+        let refreshedGroups: [RefreshedSubjectGroup]
         do {
-            sourceCapture = try await sourceResolver.refresh(
-                query.surface,
-                query.reviewPublicationIdentity,
-                productAdmission,
-                requirements
+            refreshedGroups = try await refreshSubjectGroups(
+                details: serviceCapture.repositorySnapshot.details,
+                surface: query.surface,
+                reviewPublicationIdentity: query.reviewPublicationIdentity,
+                productAdmission: productAdmission
             )
         } catch {
             throw BridgeAnnotationProjectionSourceError.sourceRefreshUnavailable
@@ -164,14 +158,19 @@ actor BridgeAnnotationProjectionSource {
                 currentSourceGeneration: revalidatedGeneration
             )
         }
-        let placements = try evaluatePlacements(
-            details: serviceCapture.repositorySnapshot.details,
-            surface: query.surface,
-            sourceGeneration: currentGeneration,
-            sourceCapture: sourceCapture
-        )
+        var placements: [WorktreeAnnotationThreadID: WorktreeAnnotationThreadPlacementProjection] = [:]
+        for group in refreshedGroups {
+            placements.merge(
+                try evaluatePlacements(
+                    details: group.details,
+                    surface: query.surface,
+                    sourceGeneration: currentGeneration,
+                    sourceCapture: group.sourceCapture
+                )
+            ) { _, replacement in replacement }
+        }
         let capture = BridgeProductAnnotationProjectionCapture(
-            worktreeID: worktreeID,
+            scope: scope,
             recoveryStatus: projectionRecoveryStatus(serviceCapture.recoveryState),
             sessions: serviceCapture.repositorySnapshot.sessions,
             details: serviceCapture.repositorySnapshot.details,
@@ -239,6 +238,7 @@ actor BridgeAnnotationProjectionSource {
             surface,
             reviewPublicationIdentity,
             productAdmission,
+            detail.session.subject,
             requirements
         )
         let revalidatedGeneration = try await currentSourceGeneration(
@@ -339,6 +339,41 @@ actor BridgeAnnotationProjectionSource {
         reservation.nextPageOrdinal = pageOrdinal + 1
         logicalReservation = isLastPage ? nil : reservation
         return descriptor
+    }
+
+    private struct RefreshedSubjectGroup {
+        let details: [WorktreeAnnotationSessionDetail]
+        let sourceCapture: WorktreeAnnotationSourceRefreshCapture
+    }
+
+    /// Each subject's sessions are placed against that subject's own current
+    /// source: a member worktree, the Review worktree or a local document.
+    private func refreshSubjectGroups(
+        details: [WorktreeAnnotationSessionDetail],
+        surface: BridgeProductSurface,
+        reviewPublicationIdentity: BridgeProductReviewAnnotationPublicationIdentity?,
+        productAdmission: BridgeProductAdmissionContext
+    ) async throws -> [RefreshedSubjectGroup] {
+        let detailsBySubject = Dictionary(grouping: details, by: \.session.subject)
+        var groups: [RefreshedSubjectGroup] = []
+        for subject in detailsBySubject.keys.sorted() {
+            let subjectDetails = detailsBySubject[subject] ?? []
+            let requirements = subjectDetails.flatMap { detail in
+                WorktreeAnnotationServiceActor.sourceRefreshSnapshot(from: detail).requirements
+            }
+            let sourceCapture = try await sourceResolver.refresh(
+                surface,
+                reviewPublicationIdentity,
+                productAdmission,
+                subject,
+                requirements
+            )
+            guard sourceCapture.fingerprint.subject.key == subject.key else {
+                throw WorktreeAnnotationSourceResolutionError.invalidSource
+            }
+            groups.append(.init(details: subjectDetails, sourceCapture: sourceCapture))
+        }
+        return groups
     }
 
     private func evaluatePlacements(

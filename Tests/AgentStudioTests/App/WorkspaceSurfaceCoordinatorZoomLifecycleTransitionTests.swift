@@ -284,15 +284,15 @@ extension WebKitSerializedTests.WorkspaceSurfaceCoordinatorZoomLifecycleTests {
             target: unavailablePane.id,
             targetType: .pane
         )
-        #expect(
-            harness.store.panePresentationAtom.zoomPresentation(
-                forTab: unavailableTab.id
-            )?.viewerPresentation == .unavailable
+        // A terminal outside every known worktree still has a Files-only companion.
+        let filesOnlyCompanionPaneId = try zoomLifecycleCompanionPaneId(
+            for: unavailablePane.id,
+            in: harness
         )
 
         await harness.coordinator.shutdown()
 
-        for companionPaneId in [firstCompanionPaneId, secondCompanionPaneId] {
+        for companionPaneId in [firstCompanionPaneId, secondCompanionPaneId, filesOnlyCompanionPaneId] {
             expectZoomLifecycleResourcesRetired(companionPaneId, in: harness)
         }
         #expect(harness.runtimeRegistry.count == baselineRuntimeCount)

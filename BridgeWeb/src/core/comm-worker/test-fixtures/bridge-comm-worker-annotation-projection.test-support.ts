@@ -17,13 +17,20 @@ import type {
 	BridgeProductContentStream,
 	BridgeProductMetadataApplicationSubscription,
 } from '../bridge-product-transport-contract.js';
-import type { BridgeProductWorktreeAnnotationEvent } from '../bridge-product-worktree-annotation-contracts.js';
+import type {
+	BridgeProductWorktreeAnnotationEvent,
+	BridgeProductWorktreeAnnotationSubject,
+} from '../bridge-product-worktree-annotation-contracts.js';
 import type {
 	BridgeProductAnnotationProjectionContentDescriptor,
 	BridgeProductAnnotationProjectionQueryRequest,
 } from '../bridge-product-worktree-annotation-projection-query-contracts.js';
 
 export const worktreeId = 'worktree-annotations-1';
+export const annotationSubject: BridgeProductWorktreeAnnotationSubject = {
+	kind: 'git',
+	worktreeId,
+};
 export const sessionId = uuidv7(1);
 const threadId = uuidv7(2);
 
@@ -240,11 +247,12 @@ export async function makeProjectionPages(
 					semanticRevision: sourceGeneration,
 					sessionId,
 					sourceRelationship: 'applicable',
+					subject: annotationSubject,
 					updatedAtUnixMilliseconds: 2,
 				},
 			],
 			sourceGeneration,
-			worktreeId,
+			scopeKey: worktreeId,
 		},
 		kind: 'header',
 	};
@@ -264,6 +272,7 @@ export async function makeProjectionPages(
 						sourceIdentity: 'source-1',
 						sourceRole: 'file',
 						startLine: 10,
+						subject: annotationSubject,
 						threadId,
 					},
 					message: {
@@ -372,7 +381,7 @@ export function controlChanged(sourceGeneration: number): BridgeProductWorktreeA
 	return {
 		authority: {
 			applicationSourceGeneration: sourceGeneration,
-			worktreeId,
+			scopeKey: worktreeId,
 		},
 		kind: 'annotation.controlChanged',
 		reason: 'discovery',
@@ -386,7 +395,7 @@ export function sessionChanged(
 	return {
 		authority: {
 			applicationSourceGeneration: sourceGeneration,
-			worktreeId,
+			scopeKey: worktreeId,
 		},
 		kind: 'annotation.sessionChanged',
 		semanticRevision,
@@ -401,7 +410,7 @@ export function pushSessionCatalog(
 	const transferId = `catalog-transfer-${sourceGeneration}`;
 	const authority = {
 		applicationSourceGeneration: sourceGeneration,
-		worktreeId,
+		scopeKey: worktreeId,
 	} as const;
 	notifications.push({
 		authority,

@@ -30,6 +30,7 @@ function rawMessageReceipt(overrides: Record<string, unknown> = {}): Record<stri
 			sourceIdentity: 'review-source-1',
 			sourceRole: 'review_head',
 			startLine: 7,
+			subject: { kind: 'git', worktreeId: 'worktree-1' },
 			threadId,
 		},
 		kind: 'message',
@@ -186,6 +187,7 @@ describe('Bridge product worktree annotation canonical receipt contracts', () =>
 				...rawMessageReceipt().context,
 				path: '\u0001'.repeat(4096),
 				sourceIdentity: 'a'.repeat(128),
+				subject: { documentLocation: `/${'\u0001'.repeat(4095)}`, kind: 'localFile' },
 			},
 			message: {
 				...rawMessageReceipt().message,
@@ -203,9 +205,9 @@ describe('Bridge product worktree annotation canonical receipt contracts', () =>
 		expect(
 			bridgeProductWorktreeAnnotationDecodedCommandOutcomeSchema.safeParse(decodedOutcome).success,
 		).toBe(true);
-		expect(rawEncodedLength).toBe(222_140);
+		expect(rawEncodedLength).toBe(246_764);
 		expect(rawEncodedLength).toBeLessThanOrEqual(BRIDGE_PRODUCT_MAXIMUM_REQUEST_BODY_BYTES);
-		expect(decodedEncodedLength).toBe(222_124);
+		expect(decodedEncodedLength).toBe(246_748);
 		expect(decodedEncodedLength).toBeLessThanOrEqual(BRIDGE_PRODUCT_MAXIMUM_REQUEST_BODY_BYTES);
 	});
 

@@ -38,106 +38,224 @@ enum WorktreeAnnotationSourceCapture {
         )
     }
 
+    /// Read exactly the file a descriptor authorizes and prove its bytes are
+    /// the ones the descriptor names.
+    static func readCompleteDescribedFile(_ plan: BridgePaneProductFileContentReadPlan) async throws -> Data {
+        let reader = try await BridgePaneProductFileContentSource.openReadSession(plan)
+        var data = Data()
+        do {
+            while let chunk = try await reader.nextChunk(maximumByteCount: 128 * 1024) {
+                data.append(chunk)
+            }
+            await reader.close()
+        } catch {
+            await reader.close()
+            throw error
+        }
+        guard data.count == plan.descriptor.declaredByteLength,
+            sha256Hex(data) == plan.descriptor.expectedSha256
+        else {
+            throw WorktreeAnnotationSourceResolutionError.invalidSource
+        }
+        return data
+    }
+
+    static func sha256Hex(_ data: Data) -> String {
+        SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+    }
+
+    /// Review shows `reviewScope`, the pane's one Review worktree. Files shows
+    /// whatever its source lists now: every member worktree plus each loose
+    /// opened document.
     static func resolver(
         fileMetadataSource: any BridgePaneProductFileMetadataProducing,
+        reviewScope: WorktreeAnnotationScope?,
         reviewPublicationCoordinator: BridgeReviewPublicationCoordinator,
         reviewContentLoaderCache: BridgeReviewContentLoaderCache,
         gitEvidenceSource: (any WorktreeAnnotationGitEvidenceSource)? = nil
     ) -> WorktreeAnnotationSourceResolver {
         WorktreeAnnotationSourceResolver(
-            capture: { origin, surface, reviewPublicationIdentity, productAdmission in
-                switch surface {
-                case .file:
-                    try await fileMetadataSource.captureWorktreeAnnotationSource(
-                        origin: origin,
-                        productAdmission: productAdmission
-                    )
-                case .review:
-                    try await captureReviewSource(
-                        origin: origin,
-                        identity: try requireReviewIdentity(reviewPublicationIdentity),
-                        publicationCoordinator: reviewPublicationCoordinator,
-                        contentLoaderCache: reviewContentLoaderCache,
-                        productAdmission: productAdmission
-                    )
-                }
-            },
-            currentFingerprint: { surface, reviewPublicationIdentity, productAdmission in
-                switch surface {
-                case .file:
-                    try await fileMetadataSource.currentWorktreeAnnotationFingerprint(
-                        productAdmission: productAdmission
-                    )
-                case .review:
-                    try await reviewFingerprint(
-                        identity: try requireReviewIdentity(reviewPublicationIdentity),
-                        publicationCoordinator: reviewPublicationCoordinator,
-                        productAdmission: productAdmission
-                    )
-                }
-            },
-            refresh: { surface, reviewPublicationIdentity, productAdmission, requirements in
-                switch surface {
-                case .file:
-                    try await fileMetadataSource.currentWorktreeAnnotationRefresh(
-                        requirements: requirements,
-                        productAdmission: productAdmission
-                    )
-                case .review:
-                    try await reviewRefresh(
-                        identity: try requireReviewIdentity(reviewPublicationIdentity),
-                        publicationCoordinator: reviewPublicationCoordinator,
-                        contentLoaderCache: reviewContentLoaderCache,
-                        requirements: requirements,
-                        productAdmission: productAdmission
-                    )
-                }
-            },
-            currentSourceGeneration: { surface, reviewPublicationIdentity, productAdmission in
-                switch surface {
-                case .file:
-                    return try await fileMetadataSource.currentWorktreeAnnotationSourceGeneration(
-                        productAdmission: productAdmission
-                    )
-                case .review:
-                    let publication = try await retainedReviewPublication(
-                        identity: try requireReviewIdentity(reviewPublicationIdentity),
-                        publicationCoordinator: reviewPublicationCoordinator,
-                        productAdmission: productAdmission
-                    )
-                    return publication.package.reviewGeneration.rawValue
-                }
-            },
-            currentReviewedSubjectEvidence: { surface, reviewPublicationIdentity, productAdmission in
-                switch surface {
-                case .file:
-                    guard let gitEvidenceSource else {
-                        throw WorktreeAnnotationSourceResolutionError.unavailable
-                    }
-                    let sourceGeneration =
-                        try await fileMetadataSource
-                        .currentWorktreeAnnotationSourceGeneration(productAdmission: productAdmission)
-                    return try await gitEvidenceSource.currentWorktreeAnnotationReviewedSubjectEvidence(
-                        sourceGeneration: sourceGeneration
-                    )
-                case .review:
-                    let publication = try await retainedReviewPublication(
-                        identity: try requireReviewIdentity(reviewPublicationIdentity),
-                        publicationCoordinator: reviewPublicationCoordinator,
-                        productAdmission: productAdmission
-                    )
-                    return try reviewedSubjectEvidence(for: publication.package)
-                }
-            },
-            ancestryDisposition: { acceptedOID, currentOID, sourceGeneration in
-                guard let gitEvidenceSource else { return .readFailure }
-                return try await gitEvidenceSource.worktreeAnnotationAncestryDisposition(
-                    acceptedReviewedHeadOID: acceptedOID,
-                    currentReviewedHeadOID: currentOID,
-                    sourceGeneration: sourceGeneration
+            scope: annotationScopeResolver(fileMetadataSource: fileMetadataSource, reviewScope: reviewScope),
+            capture: annotationCaptureResolver(
+                fileMetadataSource: fileMetadataSource,
+                reviewPublicationCoordinator: reviewPublicationCoordinator,
+                reviewContentLoaderCache: reviewContentLoaderCache
+            ),
+            currentFingerprint: annotationFingerprintResolver(
+                fileMetadataSource: fileMetadataSource,
+                reviewPublicationCoordinator: reviewPublicationCoordinator
+            ),
+            refresh: annotationRefreshResolver(
+                fileMetadataSource: fileMetadataSource,
+                reviewPublicationCoordinator: reviewPublicationCoordinator,
+                reviewContentLoaderCache: reviewContentLoaderCache
+            ),
+            currentSourceGeneration: annotationSourceGenerationResolver(
+                fileMetadataSource: fileMetadataSource,
+                reviewPublicationCoordinator: reviewPublicationCoordinator
+            ),
+            currentReviewedSubjectEvidence: reviewedSubjectEvidenceResolver(
+                fileMetadataSource: fileMetadataSource,
+                reviewPublicationCoordinator: reviewPublicationCoordinator,
+                gitEvidenceSource: gitEvidenceSource
+            ),
+            ancestryDisposition: annotationAncestryResolver(gitEvidenceSource: gitEvidenceSource)
+        )
+    }
+
+    private static func annotationScopeResolver(
+        fileMetadataSource: any BridgePaneProductFileMetadataProducing,
+        reviewScope: WorktreeAnnotationScope?
+    ) -> WorktreeAnnotationSourceResolver.Scope {
+        { surface in
+            switch surface {
+            case .file:
+                return try await fileMetadataSource.worktreeAnnotationScope()
+            case .review:
+                guard let reviewScope else { throw WorktreeAnnotationSourceResolutionError.unavailable }
+                return reviewScope
+            }
+        }
+    }
+
+    private static func annotationCaptureResolver(
+        fileMetadataSource: any BridgePaneProductFileMetadataProducing,
+        reviewPublicationCoordinator: BridgeReviewPublicationCoordinator,
+        reviewContentLoaderCache: BridgeReviewContentLoaderCache
+    ) -> WorktreeAnnotationSourceResolver.Capture {
+        { origin, surface, reviewPublicationIdentity, productAdmission in
+            switch surface {
+            case .file:
+                try await fileMetadataSource.captureWorktreeAnnotationSource(
+                    origin: origin,
+                    productAdmission: productAdmission
+                )
+            case .review:
+                try await captureReviewSource(
+                    origin: origin,
+                    identity: try requireReviewIdentity(reviewPublicationIdentity),
+                    publicationCoordinator: reviewPublicationCoordinator,
+                    contentLoaderCache: reviewContentLoaderCache,
+                    productAdmission: productAdmission
                 )
             }
-        )
+        }
+    }
+
+    private static func annotationFingerprintResolver(
+        fileMetadataSource: any BridgePaneProductFileMetadataProducing,
+        reviewPublicationCoordinator: BridgeReviewPublicationCoordinator
+    ) -> WorktreeAnnotationSourceResolver.CurrentFingerprint {
+        { surface, reviewPublicationIdentity, productAdmission, subject in
+            switch surface {
+            case .file:
+                return try await fileMetadataSource.currentWorktreeAnnotationFingerprint(
+                    subject: subject,
+                    productAdmission: productAdmission
+                )
+            case .review:
+                let fingerprint = try await reviewFingerprint(
+                    identity: try requireReviewIdentity(reviewPublicationIdentity),
+                    publicationCoordinator: reviewPublicationCoordinator,
+                    productAdmission: productAdmission
+                )
+                guard fingerprint.subject.key == subject.key else {
+                    throw WorktreeAnnotationSourceResolutionError.unavailable
+                }
+                return fingerprint
+            }
+        }
+    }
+
+    private static func annotationRefreshResolver(
+        fileMetadataSource: any BridgePaneProductFileMetadataProducing,
+        reviewPublicationCoordinator: BridgeReviewPublicationCoordinator,
+        reviewContentLoaderCache: BridgeReviewContentLoaderCache
+    ) -> WorktreeAnnotationSourceResolver.Refresh {
+        { surface, reviewPublicationIdentity, productAdmission, subject, requirements in
+            switch surface {
+            case .file:
+                return try await fileMetadataSource.currentWorktreeAnnotationRefresh(
+                    subject: subject,
+                    requirements: requirements,
+                    productAdmission: productAdmission
+                )
+            case .review:
+                let capture = try await reviewRefresh(
+                    identity: try requireReviewIdentity(reviewPublicationIdentity),
+                    publicationCoordinator: reviewPublicationCoordinator,
+                    contentLoaderCache: reviewContentLoaderCache,
+                    requirements: requirements,
+                    productAdmission: productAdmission
+                )
+                guard capture.fingerprint.subject.key == subject.key else {
+                    throw WorktreeAnnotationSourceResolutionError.unavailable
+                }
+                return capture
+            }
+        }
+    }
+
+    private static func annotationSourceGenerationResolver(
+        fileMetadataSource: any BridgePaneProductFileMetadataProducing,
+        reviewPublicationCoordinator: BridgeReviewPublicationCoordinator
+    ) -> WorktreeAnnotationSourceResolver.CurrentSourceGeneration {
+        { surface, reviewPublicationIdentity, productAdmission in
+            switch surface {
+            case .file:
+                return try await fileMetadataSource.currentWorktreeAnnotationSourceGeneration(
+                    productAdmission: productAdmission
+                )
+            case .review:
+                let publication = try await retainedReviewPublication(
+                    identity: try requireReviewIdentity(reviewPublicationIdentity),
+                    publicationCoordinator: reviewPublicationCoordinator,
+                    productAdmission: productAdmission
+                )
+                return publication.package.reviewGeneration.rawValue
+            }
+        }
+    }
+
+    private static func reviewedSubjectEvidenceResolver(
+        fileMetadataSource: any BridgePaneProductFileMetadataProducing,
+        reviewPublicationCoordinator: BridgeReviewPublicationCoordinator,
+        gitEvidenceSource: (any WorktreeAnnotationGitEvidenceSource)?
+    ) -> WorktreeAnnotationSourceResolver.CurrentReviewedSubjectEvidence {
+        { surface, reviewPublicationIdentity, productAdmission in
+            switch surface {
+            case .file:
+                guard let gitEvidenceSource else {
+                    throw WorktreeAnnotationSourceResolutionError.unavailable
+                }
+                let sourceGeneration =
+                    try await fileMetadataSource
+                    .currentWorktreeAnnotationSourceGeneration(productAdmission: productAdmission)
+                return try await gitEvidenceSource.currentWorktreeAnnotationReviewedSubjectEvidence(
+                    sourceGeneration: sourceGeneration
+                )
+            case .review:
+                let publication = try await retainedReviewPublication(
+                    identity: try requireReviewIdentity(reviewPublicationIdentity),
+                    publicationCoordinator: reviewPublicationCoordinator,
+                    productAdmission: productAdmission
+                )
+                return try reviewedSubjectEvidence(for: publication.package)
+            }
+        }
+    }
+
+    private static func annotationAncestryResolver(
+        gitEvidenceSource: (any WorktreeAnnotationGitEvidenceSource)?
+    ) -> WorktreeAnnotationAncestryResolver {
+        { acceptedOID, currentOID, sourceGeneration in
+            guard let gitEvidenceSource else { return .readFailure }
+            return try await gitEvidenceSource.worktreeAnnotationAncestryDisposition(
+                acceptedReviewedHeadOID: acceptedOID,
+                currentReviewedHeadOID: currentOID,
+                sourceGeneration: sourceGeneration
+            )
+        }
     }
 
     static func reviewRefresh(
@@ -562,8 +680,10 @@ enum WorktreeAnnotationSourceCapture {
             throw WorktreeAnnotationSourceResolutionError.unavailable
         }
         return WorktreeAnnotationSourceFingerprint(
-            repositoryID: package.query.repoId.uuidString.lowercased(),
-            worktreeID: package.query.worktreeId.uuidString.lowercased(),
+            subject: .git(
+                repositoryID: package.query.repoId.uuidString.lowercased(),
+                worktreeID: package.query.worktreeId.uuidString.lowercased()
+            ),
             fileSourceIdentity: nil,
             reviewComparisonOrigin: .init(
                 symbolicTarget: symbolicTarget,
@@ -600,196 +720,13 @@ enum WorktreeAnnotationSourceCapture {
     }
 }
 
-extension BridgePaneProductFileMetadataSource {
-    func worktreeAnnotationAdmissionDiagnostic(
-        to productAdmission: BridgeProductAdmissionContext
-    ) -> BridgeWorktreeAnnotationAdmissionDiagnostic {
-        let relations = contextBySubscriptionId.values.map {
-            $0.productAdmission.diagnosticRelation(to: productAdmission)
-        }
-        return BridgeWorktreeAnnotationAdmissionDiagnostic(
-            relations: relations,
-            selectedGeneration: try? currentAnnotationContext(
-                productAdmission: productAdmission
-            ).productSource.subscriptionGeneration
-        )
-    }
-
-    func worktreeAnnotationRepositoryPath() -> URL {
-        authority.worktree.path
-    }
-
-    func worktreeAnnotationRefreshImplementation(
-        requirements: [WorktreeAnnotationSourceRefreshRequirement],
-        productAdmission: BridgeProductAdmissionContext
-    ) async throws -> WorktreeAnnotationSourceRefreshCapture {
-        let context = try currentAnnotationContext(productAdmission: productAdmission)
-        var candidatePaths = Set<String>(
-            context.descriptorByPath.compactMap { path, payload in
-                guard case .available = payload.availability else { return nil }
-                return path
-            }
-        )
-        for requirement in requirements {
-            switch requirement.origin {
-            case .session:
-                continue
-            case .wholeFile(let path, let sourceRole):
-                guard sourceRole == .file || sourceRole == .reviewHead else { continue }
-                candidatePaths.insert(path)
-            case .located(let origin):
-                guard origin.sourceRole == .file || origin.sourceRole == .reviewHead else {
-                    continue
-                }
-                candidatePaths.insert(origin.repositoryRelativePath)
-            }
-        }
-        let candidates = candidatePaths.sorted().map { path in
-            WorktreeAnnotationSourceMaterialCandidate(
-                path: path,
-                sourceRole: .file,
-                sourceIdentity: .currentFileDescriptor,
-                target: .workingTree
-            )
-        }
-        let provider = GitWorktreeAnnotationSourceMaterialProvider(
-            client: LibGit2AgentStudioGitLocalClient()
-        )
-        return WorktreeAnnotationSourceRefreshCapture(
-            fingerprint: annotationFingerprint(for: context.productSource),
-            material: await provider.material(
-                .init(repositoryPath: authority.worktree.path, candidates: candidates)
-            )
-        )
-    }
-
-    func captureWorktreeAnnotationSource(
-        origin: BridgeProductWorktreeAnnotationOrigin,
-        productAdmission: BridgeProductAdmissionContext
-    ) async throws -> WorktreeAnnotationCapturedSource {
-        let context = try currentAnnotationContext(productAdmission: productAdmission)
-        let fingerprint = annotationFingerprint(for: context.productSource)
-        let descriptor = try annotationContentDescriptor(
-            path: origin.path,
-            sourceIdentity: origin.sourceIdentity,
-            context: context
-        )
-        let data = try await readCompleteAnnotationFile(
-            descriptor: descriptor,
-            path: origin.path
-        )
-        return .init(
-            fingerprint: fingerprint,
-            origin: .located(
-                try WorktreeAnnotationSourceCapture.locatedOrigin(
-                    .init(
-                        data: data,
-                        path: origin.path,
-                        startLine: origin.startLine,
-                        endLine: origin.endLine,
-                        sourceRole: origin.sourceRole.domainValue,
-                        diffSide: origin.diffSide?.domainValue,
-                        sourceIdentity: origin.sourceIdentity
-                    )
-                )
-            )
-        )
-    }
-
-    func worktreeAnnotationFingerprintImplementation(
-        productAdmission: BridgeProductAdmissionContext
-    ) async throws -> WorktreeAnnotationSourceFingerprint {
-        let context = try currentAnnotationContext(productAdmission: productAdmission)
-        return annotationFingerprint(for: context.productSource)
-    }
-
-    func worktreeAnnotationSourceGenerationImplementation(
-        productAdmission: BridgeProductAdmissionContext
-    ) async throws -> Int {
-        try currentAnnotationContext(productAdmission: productAdmission)
-            .productSource.subscriptionGeneration
-    }
-
-    private func currentAnnotationContext(
-        productAdmission: BridgeProductAdmissionContext
-    ) throws -> SubscriptionContext {
-        let contexts = contextBySubscriptionId.values.filter {
-            $0.productAdmission.matches(productAdmission)
-        }
-        guard
-            let context = contexts.max(by: {
-                $0.productSource.subscriptionGeneration < $1.productSource.subscriptionGeneration
-            })
-        else {
-            throw WorktreeAnnotationSourceResolutionError.unavailable
-        }
-        return context
-    }
-
-    private func annotationFingerprint(
-        for productSource: BridgeProductFileSourceIdentity
-    ) -> WorktreeAnnotationSourceFingerprint {
-        WorktreeAnnotationSourceFingerprint(
-            repositoryID: productSource.repoId.lowercased(),
-            worktreeID: productSource.worktreeId.lowercased(),
-            fileSourceIdentity: productSource.sourceId,
-            reviewComparisonOrigin: nil
-        )
-    }
-
-    private func annotationContentDescriptor(
-        path: String,
-        sourceIdentity: String,
-        context: SubscriptionContext
-    ) throws -> BridgeProductFileContentDescriptor {
-        guard
-            let payload = context.descriptorByPath[path],
-            payload.source == context.productSource,
-            case .available(let descriptor) = payload.availability,
-            descriptor.descriptorId == sourceIdentity
-        else {
-            throw WorktreeAnnotationSourceResolutionError.invalidSource
-        }
-        return descriptor
-    }
-
-    private func readCompleteAnnotationFile(
-        descriptor: BridgeProductFileContentDescriptor,
-        path: String
-    ) async throws -> Data {
-        let plan = BridgePaneProductFileContentReadPlan(
-            descriptor: descriptor,
-            relativePath: path,
-            rootURL: authority.worktree.path
-        )
-        let reader = try await BridgePaneProductFileContentSource.openReadSession(plan)
-        var data = Data()
-        do {
-            while let chunk = try await reader.nextChunk(maximumByteCount: 128 * 1024) {
-                data.append(chunk)
-            }
-            await reader.close()
-        } catch {
-            await reader.close()
-            throw error
-        }
-        guard data.count == descriptor.declaredByteLength,
-            SHA256.hash(data: data).map({ String(format: "%02x", $0) }).joined()
-                == descriptor.expectedSha256
-        else {
-            throw WorktreeAnnotationSourceResolutionError.invalidSource
-        }
-        return data
-    }
-}
-
 struct BridgeWorktreeAnnotationAdmissionDiagnostic: Equatable, Sendable {
     let relations: [BridgeProductAdmissionDiagnosticRelation]
     let selectedGeneration: Int?
 }
 
 extension BridgeProductWorktreeAnnotationSourceRole {
-    fileprivate var domainValue: WorktreeAnnotationSourceRole {
+    var domainValue: WorktreeAnnotationSourceRole {
         switch self {
         case .file: .file
         case .reviewBase: .reviewBase
@@ -799,7 +736,7 @@ extension BridgeProductWorktreeAnnotationSourceRole {
 }
 
 extension BridgeProductWorktreeAnnotationDiffSide {
-    fileprivate var domainValue: WorktreeAnnotationDiffSide {
+    var domainValue: WorktreeAnnotationDiffSide {
         switch self {
         case .additions: .additions
         case .deletions: .deletions

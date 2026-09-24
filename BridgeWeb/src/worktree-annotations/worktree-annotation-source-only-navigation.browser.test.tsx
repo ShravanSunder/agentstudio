@@ -7,6 +7,7 @@ import {
 	annotationHeadThreadId,
 	annotationMessage,
 	annotationSessionId,
+	annotationSubject,
 	createWorktreeAnnotationBrowserProviderHarness,
 } from './worktree-annotation-browser-test-support.js';
 import {
@@ -79,6 +80,7 @@ test.each([
 					resolution: 'open',
 					startLine: line,
 					endLine: line,
+					subject: annotationSubject,
 					threadId: annotationHeadThreadId,
 				},
 				messages: [

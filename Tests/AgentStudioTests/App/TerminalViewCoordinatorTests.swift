@@ -79,7 +79,7 @@ extension WebKitSerializedTests {
 
             let pane = Pane(
                 id: UUIDv7.generate(),
-                content: .bridgePanel(BridgePaneState(panelKind: .diffViewer, source: .commit(sha: "abc123"))),
+                content: .bridgePanel(BridgePaneState(panelKind: .diffViewer)),
                 metadata: PaneMetadata()
             )
 
@@ -140,7 +140,7 @@ extension WebKitSerializedTests {
             defer { try? FileManager.default.removeItem(at: tempDir) }
             let pane = harness.store.createPane(
                 content: .bridgePanel(
-                    BridgePaneState(panelKind: .diffViewer, source: .commit(sha: "quick-restore"))
+                    BridgePaneState(panelKind: .diffViewer)
                 ),
                 metadata: PaneMetadata(
                     title: "Bridge Review",
@@ -164,7 +164,8 @@ extension WebKitSerializedTests {
             )
             let controller = BridgePaneController(
                 paneId: pane.id,
-                state: BridgePaneState(panelKind: .diffViewer, source: .commit(sha: "quick-restore")),
+                state: BridgePaneState(panelKind: .diffViewer),
+                sourceConfiguration: .unavailable,
                 appRootURL: testBridgeAppRootURL(),
                 metadata: pane.metadata,
                 initialPaneActivity: .foreground,
@@ -234,7 +235,7 @@ extension WebKitSerializedTests {
             defer { try? FileManager.default.removeItem(at: tempDir) }
             let pane = harness.store.createPane(
                 content: .bridgePanel(
-                    BridgePaneState(panelKind: .diffViewer, source: .commit(sha: "shutdown"))
+                    BridgePaneState(panelKind: .diffViewer)
                 ),
                 metadata: PaneMetadata(
                     title: "Bridge Review",
@@ -262,7 +263,7 @@ extension WebKitSerializedTests {
             defer { try? FileManager.default.removeItem(at: tempDir) }
             let pane = harness.store.createPane(
                 content: .bridgePanel(
-                    BridgePaneState(panelKind: .diffViewer, source: .commit(sha: "repair-close"))
+                    BridgePaneState(panelKind: .diffViewer)
                 ),
                 metadata: PaneMetadata(
                     title: "Bridge Review",
@@ -305,7 +306,8 @@ extension WebKitSerializedTests {
             var deliveredInstallations: [BridgeProductSessionInstallation] = []
             let controller = BridgePaneController(
                 paneId: paneId,
-                state: BridgePaneState(panelKind: .diffViewer, source: .commit(sha: "rotation")),
+                state: BridgePaneState(panelKind: .diffViewer),
+                sourceConfiguration: .unavailable,
                 appRootURL: testBridgeAppRootURL(),
                 initialPaneActivity: .foreground,
                 productSessionDependencies: BridgePaneProductSessionDependencies(
@@ -388,13 +390,7 @@ extension WebKitSerializedTests {
             let pane = Pane(
                 id: UUIDv7.generate(),
                 content: .bridgePanel(
-                    BridgePaneState(
-                        panelKind: .diffViewer,
-                        source: .workspace(
-                            rootPath: worktree.path.path,
-                            baseline: .localDefaultBranch(branchName: "main")
-                        )
-                    )
+                    BridgePaneState(panelKind: .diffViewer)
                 ),
                 metadata: PaneMetadata(
                     contentType: .diff,
@@ -403,6 +399,12 @@ extension WebKitSerializedTests {
                 )
             )
 
+            // The receiver record names the Review member, as the legacy source import
+            // leaves it; the controller identity is derived from that member's root.
+            _ = coordinator.bridgeNavigationCommandHandler.ensureRecord(
+                for: .standalone(pane.id),
+                seedingKnownWorktreeId: worktree.id
+            )
             let maybeView = coordinator.createViewForContent(pane: pane)
             guard let bridgeView = maybeView as? BridgePaneMountView else {
                 Issue.record("Expected a BridgePaneMountView")
@@ -430,10 +432,7 @@ extension WebKitSerializedTests {
             let pane = Pane(
                 id: UUIDv7.generate(),
                 content: .bridgePanel(
-                    BridgePaneState(
-                        panelKind: .fileViewer,
-                        source: nil
-                    )
+                    BridgePaneState(panelKind: .fileViewer)
                 ),
                 metadata: PaneMetadata(
                     contentType: .diff,
@@ -466,12 +465,7 @@ extension WebKitSerializedTests {
 
             let artifacts = BridgePaneController.makeBootstrapArtifacts(
                 paneId: UUIDv7.generate(),
-                state: BridgePaneState(
-                    panelKind: .diffViewer,
-                    source: .workspace(
-                        rootPath: rootPath.path,
-                        baseline: .localDefaultBranch(branchName: "main"))
-                ),
+                state: BridgePaneState(panelKind: .diffViewer),
                 telemetryScopeGate: BridgeTelemetryScopeGate(enabledScopes: []),
                 viewerOpenTelemetryAnchor: nil,
                 bridgeWorld: .page
@@ -486,12 +480,10 @@ extension WebKitSerializedTests {
         func fileViewerBootstrapSelectsWorktreeFileRouteWithoutSourceIdentity() {
             let paneId = UUIDv7.generate()
             let rootPath = URL(fileURLWithPath: "/tmp/agentstudio-file-view-root")
-            let state = BridgePaneState(
-                panelKind: .fileViewer,
-                source: .workspace(
-                    rootPath: rootPath.path,
-                    baseline: .localDefaultBranch(branchName: "main"))
-            )
+            let state = BridgePaneState(panelKind: .fileViewer)
+            let stateReview: BridgeReviewSourceBinding? = BridgeReviewSourceBinding(
+                worktreeId: UUIDv7.generate(), worktreeRootPath: rootPath.path,
+                comparison: .localDefaultBranch(branchName: "main"))
 
             let artifacts = BridgePaneController.makeBootstrapArtifacts(
                 paneId: paneId,
@@ -517,7 +509,7 @@ extension WebKitSerializedTests {
 
             let artifacts = BridgePaneController.makeBootstrapArtifacts(
                 paneId: UUIDv7.generate(),
-                state: BridgePaneState(panelKind: .diffViewer, source: nil),
+                state: BridgePaneState(panelKind: .diffViewer),
                 telemetryScopeGate: BridgeTelemetryScopeGate(enabledScopes: [.web]),
                 viewerOpenTelemetryAnchor: anchor,
                 bridgeWorld: .page
@@ -531,7 +523,7 @@ extension WebKitSerializedTests {
         func bridgeBootstrapDoesNotFabricateUserOpenAnchor() {
             let artifacts = BridgePaneController.makeBootstrapArtifacts(
                 paneId: UUIDv7.generate(),
-                state: BridgePaneState(panelKind: .diffViewer, source: nil),
+                state: BridgePaneState(panelKind: .diffViewer),
                 telemetryScopeGate: BridgeTelemetryScopeGate(enabledScopes: [.web]),
                 viewerOpenTelemetryAnchor: nil,
                 bridgeWorld: .page
@@ -555,7 +547,7 @@ extension WebKitSerializedTests {
             )
             let bridgePane = Pane(
                 id: UUIDv7.generate(),
-                content: .bridgePanel(BridgePaneState(panelKind: .diffViewer, source: .commit(sha: "def456"))),
+                content: .bridgePanel(BridgePaneState(panelKind: .diffViewer)),
                 metadata: PaneMetadata()
             )
             let fileURL = FileManager.default.temporaryDirectory

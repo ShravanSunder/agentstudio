@@ -100,7 +100,9 @@ enum AppIPCBuiltInRegistrationSupport {
         guard let pane = panes.first(where: { $0.id == paneId }) else {
             throw AppIPCBridgeError(reason: .targetNotFound)
         }
-        guard pane.contentKind == .bridgePanel else {
+        // A terminal addresses its own receiving Bridge; the Bridge port
+        // resolves terminal → receiver → current controller.
+        guard pane.contentKind == .bridgePanel || pane.contentKind == .terminal else {
             throw AppIPCBridgeError(reason: .unsupportedTarget)
         }
         return resolution

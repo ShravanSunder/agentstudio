@@ -19,6 +19,7 @@ struct BridgeProductPaintStartupDiagnosticTests {
     func bridgeProductPaintDiagnosticCorrelatesReviewAndFilePaint() {
         let javaScript = AppDelegate.bridgeProductPaintCorrelationJavaScript(
             relativePath: "tracked.txt",
+            fileDisplayPath: "repo/tracked.txt",
             sha256: "expected-sha",
             canary: "expected-canary"
         )
@@ -78,6 +79,7 @@ struct BridgeProductPaintStartupDiagnosticTests {
     func reviewIdentityChainDiagnosticUsesIdentityCandidates() throws {
         let javaScript = AppDelegate.bridgeProductPaintCorrelationJavaScript(
             relativePath: "tracked.txt",
+            fileDisplayPath: "repo/tracked.txt",
             sha256: "expected-sha",
             canary: "expected-canary"
         )
@@ -101,6 +103,7 @@ struct BridgeProductPaintStartupDiagnosticTests {
     func bridgeProductPaintDiagnosticPreservesAdjacentRenderedTextNodes() {
         let javaScript = AppDelegate.bridgeProductPaintCorrelationJavaScript(
             relativePath: "tracked.txt",
+            fileDisplayPath: "repo/tracked.txt",
             sha256: "expected-sha",
             canary: "expected-canary"
         )
@@ -114,6 +117,7 @@ struct BridgeProductPaintStartupDiagnosticTests {
         // Arrange / Act
         let javaScript = AppDelegate.bridgeProductPaintCorrelationJavaScript(
             relativePath: "tracked.txt",
+            fileDisplayPath: "repo/tracked.txt",
             sha256: "expected-sha",
             canary: "expected-canary"
         )
@@ -168,6 +172,7 @@ struct BridgeProductPaintStartupDiagnosticTests {
         // Arrange / Act
         let javaScript = AppDelegate.bridgeProductPaintCorrelationJavaScript(
             relativePath: "tracked.txt",
+            fileDisplayPath: "repo/tracked.txt",
             sha256: "expected-sha",
             canary: "expected-canary"
         )
@@ -186,10 +191,10 @@ struct BridgeProductPaintStartupDiagnosticTests {
         let activationGuard = javaScript[activationGuardRange.lowerBound..<activationAssignmentRange.lowerBound]
 
         // Assert
-        #expect(javaScript.contains(#"button[data-item-type="file"][data-item-path="${CSS.escape(relativePath)}"]"#))
+        #expect(javaScript.contains(#"button[data-item-type="file"][data-item-path="${CSS.escape(fileDisplayPath)}"]"#))
         #expect(
             javaScript.contains(
-                #"[data-type="item"][data-item-type="file"][data-item-path="${CSS.escape(relativePath)}"]"#))
+                #"[data-type="item"][data-item-type="file"][data-item-path="${CSS.escape(fileDisplayPath)}"]"#))
         #expect(javaScript.contains("const fileViewerIsActive ="))
         #expect(javaScript.contains("fileShell?.getAttribute('data-file-viewer-active') === 'true'"))
         #expect(activationGuard.contains("reviewPaintedSourceMatched"))
@@ -212,6 +217,7 @@ struct BridgeProductPaintStartupDiagnosticTests {
         // Arrange / Act
         let javaScript = AppDelegate.bridgeProductPaintCorrelationJavaScript(
             relativePath: "tracked.txt",
+            fileDisplayPath: "repo/tracked.txt",
             sha256: "expected-sha",
             canary: "expected-canary"
         )

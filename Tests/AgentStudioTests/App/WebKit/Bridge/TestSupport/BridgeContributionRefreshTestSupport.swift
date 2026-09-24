@@ -76,12 +76,13 @@ func makeContributionRefreshFixture() -> ContributionRefreshFixture {
     let paneId = UUIDv7.generate()
     let controller = BridgePaneController(
         paneId: paneId,
-        state: BridgePaneState(
-            panelKind: .diffViewer,
-            source: .workspace(
-                rootPath: "/tmp/contribution-refresh",
-                baseline: .ref(name: "target")
-            )
+        state: BridgePaneState(panelKind: .diffViewer),
+        sourceConfiguration: BridgePaneSourceConfiguration(
+            review: BridgeReviewSourceBinding(
+                worktreeId: symbolicBaseEndpoint.worktreeId, worktreeRootPath: "/tmp/contribution-refresh",
+                comparison: .ref(name: "target")),
+            files: .testSingleWorktree(
+                rootURL: URL(fileURLWithPath: "/tmp/contribution-refresh"), worktreeId: symbolicBaseEndpoint.worktreeId)
         ),
         appRootURL: testBridgeAppRootURL(),
         metadata: PaneMetadata(

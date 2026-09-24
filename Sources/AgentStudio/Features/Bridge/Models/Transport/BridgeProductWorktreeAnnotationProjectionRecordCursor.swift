@@ -8,9 +8,9 @@ struct BridgeProductAnnotationProjectionHeaderRecord: Codable, Equatable, Sendab
         case expectedThreadCount
         case projectionRevision
         case recoveryStatus
+        case scopeKey
         case sessions
         case sourceGeneration
-        case worktreeId
     }
 
     let expectedMessageCount: Int
@@ -20,7 +20,7 @@ struct BridgeProductAnnotationProjectionHeaderRecord: Codable, Equatable, Sendab
     let recoveryStatus: BridgeProductAnnotationProjectionRecoveryStatus
     let sessions: [BridgeProductWorktreeAnnotationSessionSummary]
     let sourceGeneration: Int
-    let worktreeID: String
+    let scopeKey: String
 
     init(
         expectedMessageCount: Int,
@@ -30,7 +30,7 @@ struct BridgeProductAnnotationProjectionHeaderRecord: Codable, Equatable, Sendab
         recoveryStatus: BridgeProductAnnotationProjectionRecoveryStatus,
         sessions: [BridgeProductWorktreeAnnotationSessionSummary],
         sourceGeneration: Int,
-        worktreeID: String
+        scopeKey: String
     ) {
         self.expectedMessageCount = expectedMessageCount
         self.expectedSessionCount = expectedSessionCount
@@ -39,7 +39,7 @@ struct BridgeProductAnnotationProjectionHeaderRecord: Codable, Equatable, Sendab
         self.recoveryStatus = recoveryStatus
         self.sessions = sessions
         self.sourceGeneration = sourceGeneration
-        self.worktreeID = worktreeID
+        self.scopeKey = scopeKey
     }
 
     init(from decoder: Decoder) throws {
@@ -58,9 +58,9 @@ struct BridgeProductAnnotationProjectionHeaderRecord: Codable, Equatable, Sendab
             forKey: .sessions
         )
         sourceGeneration = try container.decode(Int.self, forKey: .sourceGeneration)
-        worktreeID = try container.decode(String.self, forKey: .worktreeId)
+        scopeKey = try container.decode(String.self, forKey: .scopeKey)
         guard expectedMessageCount >= 0, expectedSessionCount >= 0, expectedThreadCount >= 0,
-            projectionRevision >= 0, sourceGeneration >= 0, !worktreeID.isEmpty,
+            projectionRevision >= 0, sourceGeneration >= 0, !scopeKey.isEmpty,
             expectedSessionCount == sessions.count
         else {
             throw BridgeProductContractDecoding.invalidValue(
@@ -79,7 +79,7 @@ struct BridgeProductAnnotationProjectionHeaderRecord: Codable, Equatable, Sendab
         try container.encode(recoveryStatus, forKey: .recoveryStatus)
         try container.encode(sessions, forKey: .sessions)
         try container.encode(sourceGeneration, forKey: .sourceGeneration)
-        try container.encode(worktreeID, forKey: .worktreeId)
+        try container.encode(scopeKey, forKey: .scopeKey)
     }
 }
 
@@ -210,7 +210,7 @@ struct BridgeProductAnnotationProjectionRecordAnalysis: Sendable {
     ) throws {
         guard maximumPageCount > 0, maximumPageBytes > 0, maximumFrameBytes > 0,
             capture.projectionRevision >= 0, capture.sourceGeneration >= 0,
-            !capture.worktreeID.isEmpty
+            !capture.scopeKey.isEmpty
         else {
             throw BridgeProductAnnotationProjectionRecordCursorError.invalidCapture
         }
@@ -383,6 +383,7 @@ private struct BridgeProductAnnotationProjectionTraversal: Sendable {
                 .init(
                     context: try BridgeProductWorktreeAnnotationThreadContext(
                         threadDetail.thread,
+                        subject: detail.session.subject,
                         placement: capture.placementsByThreadID[threadDetail.thread.id]
                     ),
                     message: try BridgeProductWorktreeAnnotationMessageEntry(
@@ -453,10 +454,10 @@ private func validateAndCount(
 ) throws -> BridgeProductAnnotationProjectionCounts {
     let sessionIDs = capture.sessions.map(\.id)
     guard Set(sessionIDs).count == sessionIDs.count,
-        capture.sessions.allSatisfy({ $0.worktreeID == capture.worktreeID }),
+        capture.sessions.allSatisfy({ capture.subjects.containsKey(of: $0.subject) }),
         Set(capture.details.map { $0.session.id }).count == capture.details.count,
         capture.details.allSatisfy({ detail in
-            detail.session.worktreeID == capture.worktreeID
+            capture.subjects.containsKey(of: detail.session.subject)
                 && capture.sessions.contains(detail.session)
         })
     else {
@@ -530,7 +531,7 @@ private func makeHeader(
         recoveryStatus: capture.recoveryStatus,
         sessions: summaries,
         sourceGeneration: capture.sourceGeneration,
-        worktreeID: capture.worktreeID
+        scopeKey: capture.scopeKey
     )
 }
 

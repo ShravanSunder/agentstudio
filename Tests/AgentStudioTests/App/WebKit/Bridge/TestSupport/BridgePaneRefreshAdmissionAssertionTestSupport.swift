@@ -10,12 +10,11 @@ func refreshAdmissionFileSourceAcceptedEvent() throws -> BridgeProductFileMetada
     .sourceAccepted(
         .init(
             source: try .init(
-                repoId: "00000000-0000-4000-8000-000000000001",
+                collectionToken: "root-token-1",
                 rootRevisionToken: "root-token-refresh-admission",
                 sourceCursor: "source-cursor-refresh-admission",
                 sourceId: "file-source-refresh-admission",
-                subscriptionGeneration: 1,
-                worktreeId: "00000000-0000-4000-8000-000000000002"
+                subscriptionGeneration: 1
             )
         )
     )

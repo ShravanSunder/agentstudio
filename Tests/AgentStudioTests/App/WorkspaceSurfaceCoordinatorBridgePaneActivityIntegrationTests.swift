@@ -58,10 +58,7 @@ extension WebKitSerializedTests {
             let harness = makeBridgePaneActivityTestHarness()
             let hiddenBridgePane = harness.store.createPane(
                 content: .bridgePanel(
-                    BridgePaneState(
-                        panelKind: .fileViewer,
-                        source: .commit(sha: "hidden-restore")
-                    )
+                    BridgePaneState(panelKind: .fileViewer)
                 ),
                 metadata: PaneMetadata(title: "Hidden files", facets: .init(cwd: harness.tempDirectory))
             )
@@ -187,10 +184,7 @@ extension WebKitSerializedTests {
 
             let previewPane = harness.store.createPane(
                 content: .bridgePanel(
-                    BridgePaneState(
-                        panelKind: .fileViewer,
-                        source: .commit(sha: "held-preview")
-                    )
+                    BridgePaneState(panelKind: .fileViewer)
                 ),
                 metadata: PaneMetadata(title: "Preview files", facets: .init(cwd: harness.tempDirectory))
             )

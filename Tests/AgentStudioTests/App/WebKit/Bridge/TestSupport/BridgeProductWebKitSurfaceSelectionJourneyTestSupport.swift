@@ -453,15 +453,15 @@ enum BridgeProductWebKitSurfaceJourneyTestSupport {
     private static func makeController(repoURL: URL) -> BridgePaneController {
         let paneId = UUIDv7.generate()
         let gitReadContext = makeBridgeGitReadContext(rootURL: repoURL)
+        let memberWorktreeId = UUIDv7.generate()
         return BridgePaneController(
             paneId: paneId,
-            state: BridgePaneState(
-                panelKind: .diffViewer,
-                source: .workspace(
-                    rootPath: repoURL.path,
-                    baseline: .localDefaultBranch(branchName: "main")
-                )
-            ),
+            state: BridgePaneState(panelKind: .diffViewer),
+            sourceConfiguration: BridgePaneSourceConfiguration(
+                review: BridgeReviewSourceBinding(
+                    worktreeId: memberWorktreeId, worktreeRootPath: repoURL.path,
+                    comparison: .localDefaultBranch(branchName: "main")),
+                files: .testSingleWorktree(rootURL: repoURL, worktreeId: memberWorktreeId)),
             appRootURL: testBridgeAppRootURL(),
             metadata: PaneMetadata(
                 paneId: PaneId(existingUUID: paneId),
@@ -470,7 +470,7 @@ enum BridgeProductWebKitSurfaceJourneyTestSupport {
                 title: "Bridge Native Surface Selection",
                 facets: PaneContextFacets(
                     repoId: UUIDv7.generate(),
-                    worktreeId: UUIDv7.generate(),
+                    worktreeId: memberWorktreeId,
                     worktreeName: "bridge-native-surface-selection",
                     cwd: repoURL
                 )

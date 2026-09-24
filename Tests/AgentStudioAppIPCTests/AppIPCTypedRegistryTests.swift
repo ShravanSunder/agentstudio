@@ -13,7 +13,7 @@ struct AppIPCTypedRegistryTests {
         let registrations = try fixture.registrations()
         let registry = try AppIPCMethodRegistry(registrations: registrations, recognizedCommands: [], channel: .debug)
         let names = registry.capabilities.methods.map(\.name)
-        #expect(names.count == 48)
+        #expect(names.count == 49)
         #expect(names == names.sorted())
         #expect(Set(names).count == names.count)
         #expect(names.filter { $0 == "system.capabilities" }.count == 1)
@@ -36,8 +36,9 @@ struct AppIPCTypedRegistryTests {
         let registry = try AppIPCMethodRegistry(
             registrations: fixture.registrations(), recognizedCommands: [], channel: channel)
         // 12 established all-channel methods plus the 13 methods pane agents
-        // may run in A1, which reach agents on every channel.
-        #expect(registry.capabilities.methods.count == 25)
+        // may run in A1 and the 13 own-Bridge methods of B1, which reach
+        // agents on every channel.
+        #expect(registry.capabilities.methods.count == 38)
         #expect(registry.capabilities.methods.allSatisfy { $0.exposure == .allChannels })
         #expect(registry.registration(named: "session.report") != nil)
         #expect(registry.registration(named: "session.query") != nil)

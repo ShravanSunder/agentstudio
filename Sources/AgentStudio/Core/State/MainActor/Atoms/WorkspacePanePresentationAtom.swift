@@ -42,18 +42,22 @@ package enum ZoomViewerVisibility: Equatable, Sendable {
 
 package struct ZoomCompanionMetadata: Equatable, Sendable {
     package var owningTabId: UUID
-    package let resolvedWorktreeId: UUID
+    /// The Review member the companion's controller was constructed for, or
+    /// nil when its receiver has no known Review target. Files membership and
+    /// terminal CWD changes update the companion in place; only a different
+    /// Review member replaces it.
+    package let reviewWorktreeId: UUID?
     package let companionPaneId: UUID
     package var lastZoomVisibility: ZoomViewerVisibility
 
     package init(
         owningTabId: UUID,
-        resolvedWorktreeId: UUID,
+        reviewWorktreeId: UUID?,
         companionPaneId: UUID,
         lastZoomVisibility: ZoomViewerVisibility
     ) {
         self.owningTabId = owningTabId
-        self.resolvedWorktreeId = resolvedWorktreeId
+        self.reviewWorktreeId = reviewWorktreeId
         self.companionPaneId = companionPaneId
         self.lastZoomVisibility = lastZoomVisibility
     }

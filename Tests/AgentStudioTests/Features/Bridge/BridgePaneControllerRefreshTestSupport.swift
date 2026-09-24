@@ -47,12 +47,11 @@ func makeRefreshRevisionFixture() -> RefreshRevisionFixture {
     let paneId = UUIDv7.generate()
     let controller = BridgePaneController(
         paneId: paneId,
-        state: BridgePaneState(
-            panelKind: .diffViewer,
-            source: .workspace(
-                rootPath: "/tmp/worktree",
-                baseline: .staged)
-        ),
+        state: BridgePaneState(panelKind: .diffViewer),
+        sourceConfiguration: BridgePaneSourceConfiguration(
+            review: BridgeReviewSourceBinding(
+                worktreeId: headEndpoint.worktreeId, worktreeRootPath: "/tmp/worktree", comparison: .staged),
+            files: nil),
         appRootURL: testBridgeAppRootURL(),
         metadata: PaneMetadata(
             contentType: .diff,
@@ -297,12 +296,12 @@ func makeRefreshAdmissionIntegrationFixture(
     )
     let controller = BridgePaneController(
         paneId: paneId,
-        state: BridgePaneState(
-            panelKind: .diffViewer,
-            source: .workspace(
-                rootPath: "/tmp/bridge-refresh-admission",
-                baseline: .staged)
-        ),
+        state: BridgePaneState(panelKind: .diffViewer),
+        sourceConfiguration: BridgePaneSourceConfiguration(
+            review: BridgeReviewSourceBinding(
+                worktreeId: headEndpoint.worktreeId, worktreeRootPath: "/tmp/bridge-refresh-admission",
+                comparison: .staged),
+            files: nil),
         appRootURL: testBridgeAppRootURL(),
         metadata: PaneMetadata(
             contentType: .diff,
@@ -820,12 +819,10 @@ private func refreshAdmissionFileSubscriptionOpenRequest(
         "requestSequence": 2,
         "subscription": [
             "source": [
+                "collectionToken": "root-token-refresh-admission",
                 "cwdScope": NSNull(),
                 "freshness": "live",
                 "includeStatuses": true,
-                "repoId": "00000000-0000-4000-8000-000000000001",
-                "rootPathToken": "root-token-refresh-admission",
-                "worktreeId": "00000000-0000-4000-8000-000000000002",
             ],
             "subscriptionKind": "file.metadata",
         ],
@@ -856,12 +853,11 @@ func refreshAdmissionFileSourceAcceptedEvent() throws -> BridgeProductFileMetada
     .sourceAccepted(
         .init(
             source: try .init(
-                repoId: "00000000-0000-4000-8000-000000000001",
+                collectionToken: "root-token-1",
                 rootRevisionToken: "root-token-refresh-admission",
                 sourceCursor: "source-cursor-refresh-admission",
                 sourceId: "file-source-refresh-admission",
-                subscriptionGeneration: 1,
-                worktreeId: "00000000-0000-4000-8000-000000000002"
+                subscriptionGeneration: 1
             )
         )
     )

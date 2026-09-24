@@ -67,7 +67,34 @@ struct AppIPCPaneAgentAuthorizationTests {
             to: scenario.principal(boundTo: boundPaneId).principalId
         )
 
-        for method in ["pane.focus", "pane.split", "drawer.toggle", "bridge.diff.getPackage", "sidebar.grouping.get"] {
+        for method in [
+            "pane.focus", "pane.split", "drawer.toggle", "bridge.telemetry.snapshot", "sidebar.grouping.get",
+        ] {
+            let refusal = try await scenario.refusal(boundPaneId, method, paneIds: [boundPaneId])
+            #expect(refusal == .notYetAllowed(method))
+        }
+    }
+
+    @Test("an agent reaches its own receiving Bridge through its own terminal and no other")
+    func bridgeMethodsReachOnlyTheOwnReceiver() async throws {
+        let scenario = try makeScenario()
+        let ownPaneBridgeMethods = [
+            "bridge.diff.refresh", "bridge.diff.getPackage", "bridge.diff.renderState", "bridge.diff.selectFile",
+            "bridge.diff.scrollToFile", "bridge.diff.expandFile", "bridge.diff.collapseFile",
+            "bridge.fileTree.search", "bridge.fileTree.setFilter", "bridge.fileTree.revealPath",
+            "bridge.fileView.getContent", "bridge.fileView.showMarkdownPreview", "bridge.files.search",
+        ]
+
+        for method in ownPaneBridgeMethods {
+            // The terminal agent's own terminal, and a drawer terminal's own self.
+            try await scenario.authorize(boundPaneId, method, paneIds: [boundPaneId])
+            try await scenario.authorize(drawerTerminalId, method, paneIds: [drawerTerminalId])
+            let otherTerminal = try await scenario.refusal(boundPaneId, method, paneIds: [otherPaneId])
+            #expect(otherTerminal == .notYetAllowed(method))
+        }
+        for method in [
+            "bridge.diff.load", "bridge.fileView.open", "bridge.telemetry.snapshot", "bridge.telemetry.flush",
+        ] {
             let refusal = try await scenario.refusal(boundPaneId, method, paneIds: [boundPaneId])
             #expect(refusal == .notYetAllowed(method))
         }

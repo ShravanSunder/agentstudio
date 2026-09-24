@@ -9,6 +9,7 @@ import {
 	annotationMessage,
 	annotationSessionId,
 	annotationSessionSummary,
+	annotationSubject,
 	RecordingAnnotationBrowserSurface,
 } from './worktree-annotation-browser-test-support.js';
 import { WorktreeAnnotationConversationFrame } from './worktree-annotation-conversation-frame.js';
@@ -722,6 +723,7 @@ const locatedContext: WorktreeAnnotationThreadContext = {
 	sourceIdentity: 'descriptor-inline-shell',
 	sourceRole: 'file',
 	startLine: 7,
+	subject: annotationSubject,
 	threadId,
 };
 

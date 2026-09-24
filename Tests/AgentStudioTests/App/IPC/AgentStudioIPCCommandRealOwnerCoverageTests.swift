@@ -235,6 +235,11 @@ struct AgentStudioIPCCommandRealOwnerCoverageTests {
                 .init(
                     workspaceWindowId: windowId, worktreeId: UUIDv7.generate(),
                     targetPaneSelector: paneSelector))
+        case .bridgeDocumentInPane:
+            .bridgeDocumentInPane(
+                .init(
+                    workspaceWindowId: windowId, targetPaneSelector: paneSelector,
+                    path: "\(directoryPath)/notes.md"))
         case .terminalFromWorktree:
             .terminalFromWorktree(
                 .init(

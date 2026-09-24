@@ -4,7 +4,7 @@ import Foundation
 
 package enum BridgePaneWorktreeProductInvalidation: Sendable {
     case filesChanged(FileChangeset)
-    case statusChanged(GitWorkingTreeStatus)
+    case statusChanged(GitWorkingTreeStatus, worktreeId: UUID)
 
     package var isGitInternalFileInvalidation: Bool {
         switch self {
@@ -107,29 +107,33 @@ extension BridgePaneController {
         let affectsReviewLane: Bool
         switch invalidation {
         case .filesChanged(let changeset):
-            let matchesPaneWorktree = changeset.worktreeId == runtime.metadata.worktreeId
-            let admitsCrossWorktreeContributionRefresh: Bool
-            if case .workspace(_, let baseline) = bridgePaneState.source {
-                admitsCrossWorktreeContributionRefresh =
-                    invalidation.isGitInternalFileInvalidation
-                    && baseline?.contributionTarget != nil
-            } else {
-                admitsCrossWorktreeContributionRefresh = false
-            }
-            guard changeset.repoId == runtime.metadata.repoId,
-                matchesPaneWorktree || admitsCrossWorktreeContributionRefresh
-            else { return }
+            // Files follow every member of the collection; Review follows only
+            // its own member, plus Git-internal changes that can move a
+            // contribution target in the same repository.
+            let isFilesMember = filesBinding?.members.contains { $0.id == changeset.worktreeId } == true
+            let isReviewMember = changeset.worktreeId == reviewBinding?.worktreeId
+            let admitsCrossWorktreeContributionRefresh =
+                invalidation.isGitInternalFileInvalidation
+                && reviewBinding?.comparison?.contributionTarget != nil
+                && changeset.repoId == runtime.metadata.repoId
+            let requiresReviewRefresh = isReviewMember || admitsCrossWorktreeContributionRefresh
+            guard isFilesMember || requiresReviewRefresh else { return }
             let affectedLanes = worktreeRefreshDriver.recordInvalidation(
-                fileChangeset: matchesPaneWorktree ? changeset : nil,
-                requiresReviewRefresh: true
+                fileChangeset: isFilesMember ? changeset : nil,
+                requiresReviewRefresh: requiresReviewRefresh
             )
             affectsFileLane = affectedLanes.contains(.file)
             affectsReviewLane = affectedLanes.contains(.review)
-        case .statusChanged(let status):
+        case .statusChanged(let status, let worktreeId):
+            // B3: the collection's single branch summary is its first member's
+            // status until B3's multi-member summary replaces it.
+            let isStatusMember = filesBinding?.members.first?.id == worktreeId
+            let isReviewMember = worktreeId == reviewBinding?.worktreeId
+            guard isStatusMember || isReviewMember else { return }
             let affectedLanes = worktreeRefreshDriver.recordInvalidation(
                 fileChangeset: nil,
-                latestFileStatus: status,
-                requiresReviewRefresh: true
+                latestFileStatus: isStatusMember ? status : nil,
+                requiresReviewRefresh: isReviewMember
             )
             affectsFileLane = affectedLanes.contains(.file)
             affectsReviewLane = affectedLanes.contains(.review)

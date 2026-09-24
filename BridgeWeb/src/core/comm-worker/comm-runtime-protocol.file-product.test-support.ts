@@ -19,12 +19,11 @@ import type {
 } from './bridge-product-transport.js';
 
 export const fileProductTestSource = {
-	repoId: '00000000-0000-4000-8000-000000000001',
+	collectionToken: 'root-token-1',
 	rootRevisionToken: 'root-revision-1',
 	sourceCursor: 'source-cursor-1',
 	sourceId: 'file-source-1',
 	subscriptionGeneration: 3,
-	worktreeId: '00000000-0000-4000-8000-000000000002',
 } as const;
 
 export const fileViewProductTestBudget = {
@@ -170,12 +169,10 @@ export async function drainFilePreparationUntilIdle(
 }
 
 const currentFileSourceConfiguration = {
+	collectionToken: 'root-token-1',
 	cwdScope: null,
 	freshness: 'live',
 	includeStatuses: true,
-	repoId: fileProductTestSource.repoId,
-	rootPathToken: 'root-token-1',
-	worktreeId: fileProductTestSource.worktreeId,
 } as const;
 
 export function makeTreeWindowEvent(): Parameters<typeof makeFileMetadataDataFrame>[0] {
@@ -188,6 +185,7 @@ export function makeTreeWindowEvent(): Parameters<typeof makeFileMetadataDataFra
 			{
 				changeStatus: 'modified',
 				depth: 0,
+				documentLocation: null,
 				fileId: 'file-1',
 				fileClass: 'source',
 				isDirectory: false,

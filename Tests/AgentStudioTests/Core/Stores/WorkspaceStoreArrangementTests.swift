@@ -251,7 +251,7 @@ final class WorkspaceStoreArrangementTests {
         let (tab, paneIds) = createTabWithPanes(2)
         let companion = ZoomCompanionMetadata(
             owningTabId: tab.id,
-            resolvedWorktreeId: UUID(),
+            reviewWorktreeId: UUID(),
             companionPaneId: UUID(),
             lastZoomVisibility: .hidden
         )

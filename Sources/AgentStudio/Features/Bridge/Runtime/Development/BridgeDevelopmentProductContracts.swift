@@ -3,7 +3,8 @@ import Foundation
 
 package struct BridgeDevelopmentProductSource: Equatable, Sendable {
     package let paneID: UUID
-    package let paneState: BridgePaneState
+    /// The seeded pane's retained Review comparison from its navigation record.
+    package let reviewComparison: WorkspaceBaseline?
     package let repoID: UUID
     package let reviewedSubjectLabel: String?
     package let worktreeID: UUID
@@ -11,14 +12,14 @@ package struct BridgeDevelopmentProductSource: Equatable, Sendable {
 
     package init(
         paneID: UUID,
-        paneState: BridgePaneState,
+        reviewComparison: WorkspaceBaseline?,
         repoID: UUID,
         reviewedSubjectLabel: String?,
         worktreeID: UUID,
         worktreeRoot: URL
     ) {
         self.paneID = paneID
-        self.paneState = paneState
+        self.reviewComparison = reviewComparison
         self.repoID = repoID
         self.reviewedSubjectLabel = reviewedSubjectLabel
         self.worktreeID = worktreeID

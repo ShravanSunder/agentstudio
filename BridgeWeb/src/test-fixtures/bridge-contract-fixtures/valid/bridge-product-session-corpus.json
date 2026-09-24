@@ -281,12 +281,10 @@
         "method": "file.source.current",
         "result": {
           "source": {
+            "collectionToken": "0123456789abcdef",
             "cwdScope": null,
             "freshness": "live",
-            "includeStatuses": true,
-            "repoId": "00000000-0000-4000-8000-000000000001",
-            "rootPathToken": "0123456789abcdef",
-            "worktreeId": "00000000-0000-4000-8000-000000000002"
+            "includeStatuses": true
           },
           "status": "available"
         }
@@ -436,12 +434,10 @@
       "subscription": {
         "subscriptionKind": "file.metadata",
         "source": {
+          "collectionToken": "root-token-1",
           "cwdScope": null,
           "freshness": "live",
-          "includeStatuses": true,
-          "repoId": "00000000-0000-4000-8000-000000000001",
-          "rootPathToken": "root-token-1",
-          "worktreeId": "00000000-0000-4000-8000-000000000002"
+          "includeStatuses": true
         }
       }
     },
@@ -890,12 +886,11 @@
         "event": {
           "eventKind": "file.sourceAccepted",
           "source": {
-            "repoId": "00000000-0000-4000-8000-000000000001",
+            "collectionToken": "root-token-1",
             "rootRevisionToken": null,
             "sourceCursor": "source-cursor-1",
             "sourceId": "source-1",
-            "subscriptionGeneration": 11,
-            "worktreeId": "00000000-0000-4000-8000-000000000002"
+            "subscriptionGeneration": 11
           }
         }
       }
@@ -954,12 +949,11 @@
         "event": {
           "eventKind": "file.sourceAccepted",
           "source": {
-            "repoId": "00000000-0000-4000-8000-000000000001",
+            "collectionToken": "root-token-1",
             "rootRevisionToken": null,
             "sourceCursor": "source-cursor-1",
             "sourceId": "source-1",
-            "subscriptionGeneration": 11,
-            "worktreeId": "00000000-0000-4000-8000-000000000002"
+            "subscriptionGeneration": 11
           }
         }
       }
@@ -1013,12 +1007,11 @@
         "descriptorId": "file-descriptor-1",
         "fileId": "file-1",
         "source": {
-          "repoId": "00000000-0000-4000-8000-000000000001",
+          "collectionToken": "root-token-1",
           "rootRevisionToken": null,
           "sourceCursor": "source-cursor-1",
           "sourceId": "source-1",
-          "subscriptionGeneration": 11,
-          "worktreeId": "00000000-0000-4000-8000-000000000002"
+          "subscriptionGeneration": 11
         },
         "window": {
           "kind": "prefix",
@@ -1094,12 +1087,11 @@
         "fileId": "file-1",
         "maximumBytes": 3,
         "source": {
-          "repoId": "00000000-0000-4000-8000-000000000001",
+          "collectionToken": "root-token-1",
           "rootRevisionToken": null,
           "sourceCursor": "source-cursor-1",
           "sourceId": "source-1",
-          "subscriptionGeneration": 11,
-          "worktreeId": "00000000-0000-4000-8000-000000000002"
+          "subscriptionGeneration": 11
         },
         "window": {
           "kind": "prefix",
@@ -1145,12 +1137,11 @@
         "descriptorId": "file-descriptor-1",
         "fileId": "file-1",
         "source": {
-          "repoId": "00000000-0000-4000-8000-000000000001",
+          "collectionToken": "root-token-1",
           "rootRevisionToken": null,
           "sourceCursor": "source-cursor-1",
           "sourceId": "source-1",
-          "subscriptionGeneration": 11,
-          "worktreeId": "00000000-0000-4000-8000-000000000002"
+          "subscriptionGeneration": 11
         },
         "window": {
           "kind": "prefix",
@@ -1200,11 +1191,11 @@
       "encodedBase64": "AAAALQIAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAGFiYw=="
     },
     "contentStream": {
-      "acceptedBodyJSON": "{\"contentRequestId\":\"content-request-1\",\"identity\":{\"contentKind\":\"file.content\",\"descriptorId\":\"file-descriptor-1\",\"fileId\":\"file-1\",\"source\":{\"repoId\":\"00000000-0000-4000-8000-000000000001\",\"rootRevisionToken\":null,\"sourceCursor\":\"source-cursor-1\",\"sourceId\":\"source-1\",\"subscriptionGeneration\":11,\"worktreeId\":\"00000000-0000-4000-8000-000000000002\"},\"window\":{\"kind\":\"prefix\",\"maximumBytes\":3,\"maximumLines\":10000,\"startByte\":0}},\"leaseId\":\"lease-1\",\"operationCorrelationId\":null,\"paneSessionId\":\"pane-session-1\",\"wireVersion\":2,\"workerDerivationEpoch\":2,\"workerInstanceId\":\"worker-instance-1\",\"declaredByteLength\":3,\"expectedSha256\":\"ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad\",\"maximumBytes\":3}",
+      "acceptedBodyJSON": "{\"contentRequestId\":\"content-request-1\",\"identity\":{\"contentKind\":\"file.content\",\"descriptorId\":\"file-descriptor-1\",\"fileId\":\"file-1\",\"source\":{\"collectionToken\":\"root-token-1\",\"rootRevisionToken\":null,\"sourceCursor\":\"source-cursor-1\",\"sourceId\":\"source-1\",\"subscriptionGeneration\":11},\"window\":{\"kind\":\"prefix\",\"maximumBytes\":3,\"maximumLines\":10000,\"startByte\":0}},\"leaseId\":\"lease-1\",\"operationCorrelationId\":null,\"paneSessionId\":\"pane-session-1\",\"wireVersion\":2,\"workerDerivationEpoch\":2,\"workerInstanceId\":\"worker-instance-1\",\"declaredByteLength\":3,\"expectedSha256\":\"ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad\",\"maximumBytes\":3}",
       "endBodyJSON": "{\"endOfSource\":true,\"operationCorrelationId\":null,\"observedByteLength\":3,\"observedSha256\":\"ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad\"}",
       "frameCount": 3,
-      "encodedByteLength": 945,
-      "encodedBase64": "AAAC1gEAAAAAeyJjb250ZW50UmVxdWVzdElkIjoiY29udGVudC1yZXF1ZXN0LTEiLCJpZGVudGl0eSI6eyJjb250ZW50S2luZCI6ImZpbGUuY29udGVudCIsImRlc2NyaXB0b3JJZCI6ImZpbGUtZGVzY3JpcHRvci0xIiwiZmlsZUlkIjoiZmlsZS0xIiwic291cmNlIjp7InJlcG9JZCI6IjAwMDAwMDAwLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMDAwMSIsInJvb3RSZXZpc2lvblRva2VuIjpudWxsLCJzb3VyY2VDdXJzb3IiOiJzb3VyY2UtY3Vyc29yLTEiLCJzb3VyY2VJZCI6InNvdXJjZS0xIiwic3Vic2NyaXB0aW9uR2VuZXJhdGlvbiI6MTEsIndvcmt0cmVlSWQiOiIwMDAwMDAwMC0wMDAwLTQwMDAtODAwMC0wMDAwMDAwMDAwMDIifSwid2luZG93Ijp7ImtpbmQiOiJwcmVmaXgiLCJtYXhpbXVtQnl0ZXMiOjMsIm1heGltdW1MaW5lcyI6MTAwMDAsInN0YXJ0Qnl0ZSI6MH19LCJsZWFzZUlkIjoibGVhc2UtMSIsIm9wZXJhdGlvbkNvcnJlbGF0aW9uSWQiOm51bGwsInBhbmVTZXNzaW9uSWQiOiJwYW5lLXNlc3Npb24tMSIsIndpcmVWZXJzaW9uIjoyLCJ3b3JrZXJEZXJpdmF0aW9uRXBvY2giOjIsIndvcmtlckluc3RhbmNlSWQiOiJ3b3JrZXItaW5zdGFuY2UtMSIsImRlY2xhcmVkQnl0ZUxlbmd0aCI6MywiZXhwZWN0ZWRTaGEyNTYiOiJiYTc4MTZiZjhmMDFjZmVhNDE0MTQwZGU1ZGFlMjIyM2IwMDM2MWEzOTYxNzdhOWNiNDEwZmY2MWYyMDAxNWFkIiwibWF4aW11bUJ5dGVzIjozfQAAAC0CAAAAAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABhYmMAAACiAwAAAAJ7ImVuZE9mU291cmNlIjp0cnVlLCJvcGVyYXRpb25Db3JyZWxhdGlvbklkIjpudWxsLCJvYnNlcnZlZEJ5dGVMZW5ndGgiOjMsIm9ic2VydmVkU2hhMjU2IjoiYmE3ODE2YmY4ZjAxY2ZlYTQxNDE0MGRlNWRhZTIyMjNiMDAzNjFhMzk2MTc3YTljYjQxMGZmNjFmMjAwMTVhZCJ9"
+      "encodedByteLength": 878,
+      "encodedBase64": "AAACkwEAAAAAeyJjb250ZW50UmVxdWVzdElkIjoiY29udGVudC1yZXF1ZXN0LTEiLCJpZGVudGl0eSI6eyJjb250ZW50S2luZCI6ImZpbGUuY29udGVudCIsImRlc2NyaXB0b3JJZCI6ImZpbGUtZGVzY3JpcHRvci0xIiwiZmlsZUlkIjoiZmlsZS0xIiwic291cmNlIjp7ImNvbGxlY3Rpb25Ub2tlbiI6InJvb3QtdG9rZW4tMSIsInJvb3RSZXZpc2lvblRva2VuIjpudWxsLCJzb3VyY2VDdXJzb3IiOiJzb3VyY2UtY3Vyc29yLTEiLCJzb3VyY2VJZCI6InNvdXJjZS0xIiwic3Vic2NyaXB0aW9uR2VuZXJhdGlvbiI6MTF9LCJ3aW5kb3ciOnsia2luZCI6InByZWZpeCIsIm1heGltdW1CeXRlcyI6MywibWF4aW11bUxpbmVzIjoxMDAwMCwic3RhcnRCeXRlIjowfX0sImxlYXNlSWQiOiJsZWFzZS0xIiwib3BlcmF0aW9uQ29ycmVsYXRpb25JZCI6bnVsbCwicGFuZVNlc3Npb25JZCI6InBhbmUtc2Vzc2lvbi0xIiwid2lyZVZlcnNpb24iOjIsIndvcmtlckRlcml2YXRpb25FcG9jaCI6Miwid29ya2VySW5zdGFuY2VJZCI6Indvcmtlci1pbnN0YW5jZS0xIiwiZGVjbGFyZWRCeXRlTGVuZ3RoIjozLCJleHBlY3RlZFNoYTI1NiI6ImJhNzgxNmJmOGYwMWNmZWE0MTQxNDBkZTVkYWUyMjIzYjAwMzYxYTM5NjE3N2E5Y2I0MTBmZjYxZjIwMDE1YWQiLCJtYXhpbXVtQnl0ZXMiOjN9AAAALQIAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAGFiYwAAAKIDAAAAAnsiZW5kT2ZTb3VyY2UiOnRydWUsIm9wZXJhdGlvbkNvcnJlbGF0aW9uSWQiOm51bGwsIm9ic2VydmVkQnl0ZUxlbmd0aCI6Mywib2JzZXJ2ZWRTaGEyNTYiOiJiYTc4MTZiZjhmMDFjZmVhNDE0MTQwZGU1ZGFlMjIyM2IwMDM2MWEzOTYxNzdhOWNiNDEwZmY2MWYyMDAxNWFkIn0="
     }
   }
 }

@@ -105,6 +105,7 @@ private func createHTTPRootAndFiveSavedReplies(
             body: rootBody,
             client: client,
             connection: connection,
+            annotatedFilePath: context.annotatedFilePath,
             descriptorID: context.descriptor.descriptorId,
             recorder: context.metadataStream.recorder
         )
@@ -181,6 +182,7 @@ private func createHTTPSavedRoot(
     body: String,
     client: some TestClientProtocol,
     connection: HTTPProductConnection,
+    annotatedFilePath: String,
     descriptorID: String,
     recorder: HTTPMetadataFrameRecorder
 ) async throws -> HTTPSavedRootObservation {
@@ -196,7 +198,7 @@ private func createHTTPSavedRoot(
                 "diffSide": NSNull(),
                 "endLine": 2,
                 "kind": "located",
-                "path": "tracked.txt",
+                "path": annotatedFilePath,
                 "sourceIdentity": descriptorID,
                 "sourceRole": "file",
                 "startLine": 2,

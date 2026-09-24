@@ -38,7 +38,7 @@ extension WebKitSerializedTests {
                 harness.store.panePresentationAtom.zoomCompanion(forSourcePane: sourcePane.id)
                     == ZoomCompanionMetadata(
                         owningTabId: sourceTab.id,
-                        resolvedWorktreeId: harness.worktree.id,
+                        reviewWorktreeId: harness.worktree.id,
                         companionPaneId: companionPaneId,
                         lastZoomVisibility: .visible
                     )
@@ -143,11 +143,19 @@ extension WebKitSerializedTests {
             #expect(didApplyTarget)
             #expect(hiddenPresentation == .retainedHidden(companionPaneId: companionPaneId))
             #expect(
-                mountedView.controller.bridgePaneState.source
-                    == .workspace(
-                        rootPath: harness.worktree.path.path,
-                        baseline: WorkspaceBaseline(contributionTarget: selectedTarget)
+                mountedView.controller.reviewBinding
+                    == BridgeReviewSourceBinding(
+                        worktreeId: harness.worktree.id,
+                        worktreeRootPath: harness.worktree.path.path,
+                        comparison: WorkspaceBaseline(contributionTarget: selectedTarget)
                     )
+            )
+            // The comparison lives in the terminal receiver's record, not in a
+            // transient companion payload.
+            #expect(
+                harness.store.bridgeNavigationAtom.record(for: .terminal(sourcePane.id))?
+                    .reviewComparisonsByWorktreeId[harness.worktree.id]
+                    == WorkspaceBaseline(contributionTarget: selectedTarget)
             )
             #expect(harness.store.pane(companionPaneId) == nil)
 
@@ -187,18 +195,13 @@ extension WebKitSerializedTests {
                 owningTabId: sourceTab.id
             )
             let companionPaneId = try #require(presentation.companionPaneId)
-            let companionState = try #require(
-                harness.viewRegistry.allBridgeViews[companionPaneId]?.controller.bridgePaneState
+            let companionReview = try #require(
+                harness.viewRegistry.allBridgeViews[companionPaneId]?.controller.reviewBinding,
+                "Expected the Zoom companion to review the terminal's known worktree"
             )
 
-            guard case .workspace(_, let comparisonIntent) = companionState.source else {
-                Issue.record("Expected Zoom companion to use a workspace source")
-                await harness.coordinator.shutdown()
-                return
-            }
-            #expect(
-                comparisonIntent == nil
-            )
+            #expect(companionReview.worktreeId == harness.worktree.id)
+            #expect(companionReview.comparison == nil)
 
             await harness.coordinator.shutdown()
         }
@@ -221,18 +224,13 @@ extension WebKitSerializedTests {
                 owningTabId: sourceTab.id
             )
             let companionPaneId = try #require(presentation.companionPaneId)
-            let companionState = try #require(
-                harness.viewRegistry.allBridgeViews[companionPaneId]?.controller.bridgePaneState
+            let companionReview = try #require(
+                harness.viewRegistry.allBridgeViews[companionPaneId]?.controller.reviewBinding,
+                "Expected the Zoom companion to review the terminal's known worktree"
             )
 
-            guard case .workspace(_, let comparisonIntent) = companionState.source else {
-                Issue.record("Expected Zoom companion to use a workspace source")
-                await harness.coordinator.shutdown()
-                return
-            }
-            #expect(
-                comparisonIntent == nil
-            )
+            #expect(companionReview.worktreeId == harness.worktree.id)
+            #expect(companionReview.comparison == nil)
 
             await harness.coordinator.shutdown()
         }
@@ -303,8 +301,9 @@ extension WebKitSerializedTests {
             await harness.coordinator.shutdown()
         }
 
-        @Test("home-fallback Zoom source keeps Viewer hidden without borrowing the only worktree")
-        func homeFallbackZoomSourceDoesNotBorrowOnlyRegisteredWorktree() async throws {
+        @Test("a terminal outside every known worktree gets a Files-only receiver without borrowing one")
+        func terminalOutsideKnownWorktreesGetsFilesOnlyReceiver() async throws {
+            // Arrange
             let harness = makeHarness()
             defer { try? FileManager.default.removeItem(at: harness.tempDir) }
             let repository = harness.store.addRepo(
@@ -316,32 +315,35 @@ extension WebKitSerializedTests {
             harness.store.appendTab(sourceTab)
             harness.store.setActiveTab(sourceTab.id)
             harness.store.setActivePane(sourcePane.id, inTab: sourceTab.id)
-
-            #expect(
-                harness.store.repositoryTopologyAtom.repos.flatMap(\.worktrees).map(\.id)
-                    == [onlyWorktree.id]
-            )
-            #expect(sourcePane.parentPaneId == nil)
             #expect(sourcePane.worktreeId == nil)
-            #expect(sourcePane.metadata.cwd == FileManager.default.homeDirectoryForCurrentUser)
 
+            // Act
             await harness.executeCommand(.zoomPane)
 
-            let companion = harness.store.panePresentationAtom.zoomCompanion(
-                forSourcePane: sourcePane.id
+            // Assert
+            let companion = try #require(
+                harness.store.panePresentationAtom.zoomCompanion(forSourcePane: sourcePane.id)
             )
-            #expect(companion == nil)
+            #expect(companion.reviewWorktreeId == nil)
+            let record = try #require(
+                harness.coordinator.bridgeNavigationCommandHandler.record(for: .terminal(sourcePane.id))
+            )
+            #expect(record.memberWorktreeIds.isEmpty)
+            #expect(!record.memberWorktreeIds.contains(onlyWorktree.id))
+            let controller = try #require(harness.viewRegistry.allBridgeViews[companion.companionPaneId]?.controller)
+            #expect(controller.reviewBinding == nil)
+            #expect(controller.filesBinding?.members.isEmpty == true)
             #expect(
                 harness.store.panePresentationAtom.zoomPresentation(forTab: sourceTab.id)?
-                    .viewerPresentation == .unavailable
+                    .viewerPresentation == .retainedVisible(companionPaneId: companion.companionPaneId)
             )
-            #expect(harness.viewRegistry.allBridgeViews.isEmpty)
 
             await harness.coordinator.shutdown()
         }
 
-        @Test("live CWD retargets a visible Review companion between registered worktrees")
-        func liveCWDRetargetsVisibleReviewCompanion() async throws {
+        @Test("live CWD into another known worktree joins Files without replacing the Review companion")
+        func liveCWDJoinsFilesWithoutReplacingReviewCompanion() async throws {
+            // Arrange
             let paneEventBus = makeTestPaneRuntimeEventBus()
             let harness = makeHarness(paneEventBus: paneEventBus)
             defer { try? FileManager.default.removeItem(at: harness.tempDir) }
@@ -353,65 +355,41 @@ extension WebKitSerializedTests {
             harness.store.setActiveTab(sourceTab.id)
             harness.store.setActivePane(sourcePane.id, inTab: sourceTab.id)
             await harness.executeCommand(.zoomPane)
-            let originalCompanionPaneId = try #require(
+            let companionPaneId = try #require(
                 harness.store.panePresentationAtom.zoomCompanion(forSourcePane: sourcePane.id)?
                     .companionPaneId
             )
-            #expect(
-                harness.coordinator.requestBridgePaneSurface(
-                    .review,
-                    paneId: originalCompanionPaneId
-                )
-            )
-            #expect(
-                harness.viewRegistry.allBridgeViews[originalCompanionPaneId]?.controller
-                    .retainedViewerSurface == .review
-            )
+            #expect(harness.coordinator.requestBridgePaneSurface(.review, paneId: companionPaneId))
+            let controller = try #require(harness.viewRegistry.allBridgeViews[companionPaneId]?.controller)
 
+            // Act
             await postCWDChange(
                 destinationWorktree.path.appending(path: "Sources"),
                 paneId: sourcePane.id,
                 to: paneEventBus
             )
-            await eventually("Zoom companion should retarget to the destination worktree") {
-                guard
-                    let replacement = harness.store.panePresentationAtom.zoomCompanion(
-                        forSourcePane: sourcePane.id
-                    )
-                else {
-                    return false
-                }
-                return replacement.resolvedWorktreeId == destinationWorktree.id
-                    && replacement.companionPaneId != originalCompanionPaneId
+            await eventually("the destination worktree should join the receiver's members") {
+                harness.coordinator.bridgeNavigationCommandHandler.record(for: .terminal(sourcePane.id))?
+                    .memberWorktreeIds == [sourceWorktree.id, destinationWorktree.id]
             }
+            await controller.filesSourceUpdateTail?.value
 
-            let replacementCompanionPaneId = try #require(
-                harness.store.panePresentationAtom.zoomCompanion(forSourcePane: sourcePane.id)?
-                    .companionPaneId
+            // Assert
+            let companion = try #require(
+                harness.store.panePresentationAtom.zoomCompanion(forSourcePane: sourcePane.id)
             )
-            await harness.coordinator.drainBridgePaneRetirements()
-
-            #expect(harness.viewRegistry.allBridgeViews[originalCompanionPaneId] == nil)
-            #expect(
-                harness.coordinator.runtimeForPane(
-                    PaneId(existingUUID: originalCompanionPaneId)
-                ) == nil
-            )
-            #expect(
-                harness.viewRegistry.allBridgeViews[replacementCompanionPaneId]?.controller
-                    .retainedViewerSurface == .review
-            )
-            #expect(
-                harness.store.panePresentationAtom.zoomPresentation(forTab: sourceTab.id)?
-                    .viewerPresentation
-                    == .retainedVisible(companionPaneId: replacementCompanionPaneId)
-            )
+            #expect(companion.companionPaneId == companionPaneId)
+            #expect(companion.reviewWorktreeId == sourceWorktree.id)
+            #expect(controller.filesBinding?.members.map(\.id) == [sourceWorktree.id, destinationWorktree.id])
+            #expect(controller.reviewBinding?.worktreeId == sourceWorktree.id)
+            #expect(controller.retainedViewerSurface == .review)
 
             await harness.coordinator.shutdown()
         }
 
-        @Test("leaving registered worktrees retires stale Viewer content and shows unavailable")
-        func leavingRegisteredWorktreesShowsUnavailableWithoutStaleContent() async throws {
+        @Test("leaving known worktrees keeps the receiver's members, Review and companion")
+        func leavingKnownWorktreesKeepsReceiverMembersAndCompanion() async throws {
+            // Arrange
             let paneEventBus = makeTestPaneRuntimeEventBus()
             let harness = makeHarness(paneEventBus: paneEventBus)
             defer { try? FileManager.default.removeItem(at: harness.tempDir) }
@@ -422,38 +400,47 @@ extension WebKitSerializedTests {
             harness.store.setActiveTab(sourceTab.id)
             harness.store.setActivePane(sourcePane.id, inTab: sourceTab.id)
             await harness.executeCommand(.zoomPane)
-            let originalCompanionPaneId = try #require(
+            let companionPaneId = try #require(
                 harness.store.panePresentationAtom.zoomCompanion(forSourcePane: sourcePane.id)?
                     .companionPaneId
             )
 
+            // Act
             await postCWDChange(
                 harness.tempDir.appending(path: "unwatched"),
                 paneId: sourcePane.id,
                 to: paneEventBus
             )
-            await eventually("Zoom Viewer should become visibly unavailable") {
-                harness.store.panePresentationAtom.zoomPresentation(forTab: sourceTab.id)?
-                    .viewerPresentation == .unavailableVisible
-                    && harness.store.panePresentationAtom.zoomCompanion(
-                        forSourcePane: sourcePane.id
-                    ) == nil
+            await eventually("the terminal should lose its known-worktree association") {
+                harness.store.pane(sourcePane.id)?.worktreeId == nil
             }
-            await harness.coordinator.drainBridgePaneRetirements()
-
-            #expect(harness.viewRegistry.allBridgeViews[originalCompanionPaneId] == nil)
-            #expect(
-                harness.coordinator.runtimeForPane(
-                    PaneId(existingUUID: originalCompanionPaneId)
-                ) == nil
+            _ = harness.coordinator.reconcileZoomCompanion(
+                sourcePaneId: sourcePane.id,
+                owningTabId: sourceTab.id
             )
-            #expect(harness.viewRegistry.allBridgeViews.isEmpty)
+
+            // Assert
+            let companion = try #require(
+                harness.store.panePresentationAtom.zoomCompanion(forSourcePane: sourcePane.id)
+            )
+            #expect(companion.companionPaneId == companionPaneId)
+            #expect(companion.reviewWorktreeId == sourceWorktree.id)
+            #expect(
+                harness.coordinator.bridgeNavigationCommandHandler.record(for: .terminal(sourcePane.id))?
+                    .memberWorktreeIds == [sourceWorktree.id]
+            )
+            #expect(harness.viewRegistry.allBridgeViews[companionPaneId] != nil)
+            #expect(
+                harness.store.panePresentationAtom.zoomPresentation(forTab: sourceTab.id)?
+                    .viewerPresentation == .retainedVisible(companionPaneId: companionPaneId)
+            )
 
             await harness.coordinator.shutdown()
         }
 
-        @Test("returning to a registered worktree restores hidden Review continuity")
-        func returningToRegisteredWorktreeRestoresHiddenReviewContinuity() async throws {
+        @Test("a hidden companion survives leaving and entering known worktrees")
+        func hiddenCompanionSurvivesLeavingAndEnteringKnownWorktrees() async throws {
+            // Arrange
             let paneEventBus = makeTestPaneRuntimeEventBus()
             let harness = makeHarness(paneEventBus: paneEventBus)
             defer { try? FileManager.default.removeItem(at: harness.tempDir) }
@@ -465,57 +452,42 @@ extension WebKitSerializedTests {
             harness.store.setActiveTab(sourceTab.id)
             harness.store.setActivePane(sourcePane.id, inTab: sourceTab.id)
             await harness.executeCommand(.zoomPane)
-            let originalCompanionPaneId = try #require(
+            let companionPaneId = try #require(
                 harness.store.panePresentationAtom.zoomCompanion(forSourcePane: sourcePane.id)?
                     .companionPaneId
             )
-            #expect(
-                harness.coordinator.requestBridgePaneSurface(
-                    .review,
-                    paneId: originalCompanionPaneId
-                )
-            )
+            #expect(harness.coordinator.requestBridgePaneSurface(.review, paneId: companionPaneId))
             await harness.executeCommand(.showViewer)
 
+            // Act
             await postCWDChange(
                 harness.tempDir.appending(path: "unwatched"),
                 paneId: sourcePane.id,
                 to: paneEventBus
             )
-            await eventually("hidden Viewer should become unavailable without opening its column") {
-                harness.store.panePresentationAtom.zoomPresentation(forTab: sourceTab.id)?
-                    .viewerPresentation == .unavailable
-            }
-
             await postCWDChange(
                 destinationWorktree.path.appending(path: "Sources"),
                 paneId: sourcePane.id,
                 to: paneEventBus
             )
-            await eventually("registered worktree should restore a hidden companion") {
-                guard
-                    let replacement = harness.store.panePresentationAtom.zoomCompanion(
-                        forSourcePane: sourcePane.id
-                    )
-                else {
-                    return false
-                }
-                return replacement.resolvedWorktreeId == destinationWorktree.id
-                    && replacement.lastZoomVisibility == .hidden
+            await eventually("the destination worktree should join the receiver's members") {
+                harness.coordinator.bridgeNavigationCommandHandler.record(for: .terminal(sourcePane.id))?
+                    .memberWorktreeIds == [sourceWorktree.id, destinationWorktree.id]
             }
 
-            let replacementCompanionPaneId = try #require(
-                harness.store.panePresentationAtom.zoomCompanion(forSourcePane: sourcePane.id)?
-                    .companionPaneId
+            // Assert
+            let companion = try #require(
+                harness.store.panePresentationAtom.zoomCompanion(forSourcePane: sourcePane.id)
             )
-            #expect(replacementCompanionPaneId != originalCompanionPaneId)
+            #expect(companion.companionPaneId == companionPaneId)
+            #expect(companion.reviewWorktreeId == sourceWorktree.id)
+            #expect(companion.lastZoomVisibility == .hidden)
             #expect(
                 harness.store.panePresentationAtom.zoomPresentation(forTab: sourceTab.id)?
-                    .viewerPresentation
-                    == .retainedHidden(companionPaneId: replacementCompanionPaneId)
+                    .viewerPresentation == .retainedHidden(companionPaneId: companionPaneId)
             )
             #expect(
-                harness.viewRegistry.allBridgeViews[replacementCompanionPaneId]?.controller
+                harness.viewRegistry.allBridgeViews[companionPaneId]?.controller
                     .retainedViewerSurface == .review
             )
 
@@ -551,7 +523,7 @@ extension WebKitSerializedTests {
 
             #expect(
                 harness.store.panePresentationAtom.zoomCompanion(forSourcePane: sourcePane.id)?
-                    .resolvedWorktreeId == sourceWorktree.id
+                    .reviewWorktreeId == sourceWorktree.id
             )
 
             await harness.coordinator.shutdown()
@@ -837,7 +809,7 @@ extension WebKitSerializedTests {
             await harness.coordinator.shutdown()
         }
 
-        @Test("unresolvable Zoom source keeps visible Viewer unavailable without partial resources")
+        @Test("a Zoom source outside its tab keeps the visible Viewer unavailable without partial resources")
         func unresolvableSourceLeavesNoPartialCompanionResources() async {
             let store = WorkspaceStore()
             let viewRegistry = ViewRegistry()
@@ -851,7 +823,9 @@ extension WebKitSerializedTests {
             )
             let sourcePane = store.createPane()
             let sourceTab = Tab(paneId: sourcePane.id)
+            let unrelatedTab = Tab(paneId: store.createPane().id)
             store.appendTab(sourceTab)
+            store.appendTab(unrelatedTab)
             store.setActiveTab(sourceTab.id)
             store.panePresentationAtom.enterZoom(
                 inTab: sourceTab.id,
@@ -859,16 +833,13 @@ extension WebKitSerializedTests {
                 viewerPresentation: .retryable
             )
 
+            // The source pane is not in the tab it is reconciled against.
             let presentation = coordinator.reconcileZoomCompanion(
                 sourcePaneId: sourcePane.id,
-                owningTabId: sourceTab.id
+                owningTabId: unrelatedTab.id
             )
 
             #expect(presentation == .unavailableVisible)
-            #expect(
-                store.panePresentationAtom.zoomPresentation(forTab: sourceTab.id)?
-                    .viewerPresentation == .unavailableVisible
-            )
             #expect(store.panePresentationAtom.zoomCompanion(forSourcePane: sourcePane.id) == nil)
             #expect(viewRegistry.allBridgeViews.isEmpty)
             #expect(viewRegistry.registeredPaneIds == [sourcePane.id] || viewRegistry.registeredPaneIds.isEmpty)

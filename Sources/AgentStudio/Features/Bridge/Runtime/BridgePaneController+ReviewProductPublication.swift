@@ -249,9 +249,7 @@ extension BridgePaneController {
     private func captureCommittedReviewComparisonPresentation(
         _ package: BridgeReviewPackage
     ) -> BridgePaneProductPresentationSnapshot {
-        if case .workspace(_, let baseline) = bridgePaneState.source,
-            baseline?.contributionTarget != nil
-        {
+        if reviewBinding?.comparison?.contributionTarget != nil {
             refreshAdmissionCoordinator.recordCommittedReviewComparisonSnapshot(
                 reviewGeneration: package.reviewGeneration.rawValue,
                 displayedSnapshotIdentity: BridgePaneReviewDisplayedSnapshotIdentity(

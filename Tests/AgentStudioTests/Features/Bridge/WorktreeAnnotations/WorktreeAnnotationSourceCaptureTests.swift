@@ -35,6 +35,7 @@ struct WorktreeAnnotationSourceCaptureTests {
         let evidenceSource = WorktreeAnnotationGitEvidenceSourceFake()
         let resolver = WorktreeAnnotationSourceCapture.resolver(
             fileMetadataSource: BridgeUnavailablePaneProductFileMetadataSource(),
+            reviewScope: nil,
             reviewPublicationCoordinator: publicationCoordinator,
             reviewContentLoaderCache: BridgeReviewContentLoaderCache(
                 provider: BridgeReviewSourceProviderFake(
@@ -592,8 +593,6 @@ struct WorktreeAnnotationSourceCaptureTests {
         let detail = try repository.createRootDraft(
             .init(
                 admission: .implicitOrSingle,
-                repositoryID: fingerprint.repositoryID,
-                worktreeID: fingerprint.worktreeID,
                 sourceFingerprint: fingerprint,
                 origin: .located(origin),
                 body: "Review this relocation",

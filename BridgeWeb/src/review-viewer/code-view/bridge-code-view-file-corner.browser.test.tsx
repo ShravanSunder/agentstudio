@@ -3,6 +3,7 @@ import { render } from 'vitest-browser-react';
 
 // oxlint-disable-next-line import/no-unassigned-import -- Browser Mode must load production CSS.
 import '../../app/bridge-app.css';
+import type { BridgeWorktreeFileLocation } from '../../file-viewer/bridge-file-collection-display-path.js';
 import { makeBridgeReviewPackage } from '../../foundation/review-package/bridge-review-package-test-support.js';
 import type { BridgeReviewPackage } from '../../foundation/review-package/bridge-review-package.js';
 import { createBridgeCodeViewHeaderRenderers } from './bridge-code-view-panel-support.js';
@@ -19,7 +20,7 @@ describe('Bridge CodeView file corner', () => {
 			...baseReviewPackage,
 			itemsById: { ...baseReviewPackage.itemsById, [item.itemId]: item },
 		};
-		const openFile = vi.fn<(path: string) => void>();
+		const openFile = vi.fn<(location: BridgeWorktreeFileLocation) => void>();
 		const headerRenderers = createBridgeCodeViewHeaderRenderers({
 			collapsedItemIds: new Set(),
 			onHeaderVisibilityChange: (): void => {},
@@ -64,7 +65,10 @@ describe('Bridge CodeView file corner', () => {
 		await rendered.getByRole('button', { name: `Open ${item.headPath} in Files` }).click();
 
 		// Assert
-		expect(openFile).toHaveBeenCalledExactlyOnceWith(item.headPath);
+		expect(openFile).toHaveBeenCalledExactlyOnceWith({
+			relativePath: item.headPath,
+			worktreeId: reviewPackage.query.worktreeId,
+		});
 	});
 });
 

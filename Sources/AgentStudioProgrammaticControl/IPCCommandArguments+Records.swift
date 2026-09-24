@@ -220,6 +220,41 @@ package struct IPCWorktreeInPaneCommandArguments: Codable, Equatable, Sendable {
     }
 }
 
+/// A document of the receiving Bridge named by an absolute local path. Relative
+/// paths are refused: resolving a path against a working directory belongs to
+/// the agent file-open method, not to Bridge navigation commands.
+package struct IPCBridgeDocumentInPaneCommandArguments: Codable, Equatable, Sendable {
+    private enum CodingKeys: String, CodingKey {
+        case workspaceWindowId
+        case targetPaneSelector
+        case path
+    }
+
+    package let workspaceWindowId: UUID
+    package let targetPaneSelector: IPCPaneSelector
+    package let path: String
+
+    package init(workspaceWindowId: UUID, targetPaneSelector: IPCPaneSelector, path: String) {
+        self.workspaceWindowId = workspaceWindowId
+        self.targetPaneSelector = targetPaneSelector
+        self.path = path
+    }
+
+    package init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        workspaceWindowId = try container.decode(UUID.self, forKey: .workspaceWindowId)
+        targetPaneSelector = try container.decode(IPCPaneSelector.self, forKey: .targetPaneSelector)
+        path = try container.decode(String.self, forKey: .path)
+        guard path.hasPrefix("/"), path.count > 1 else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .path,
+                in: container,
+                debugDescription: "Bridge document path must be absolute"
+            )
+        }
+    }
+}
+
 package struct IPCTerminalFromWorktreeCommandArguments: Codable, Equatable, Sendable {
     package let workspaceWindowId: UUID
     package let worktreeId: UUID

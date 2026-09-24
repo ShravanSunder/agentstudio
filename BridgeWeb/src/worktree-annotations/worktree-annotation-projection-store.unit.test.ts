@@ -3,6 +3,7 @@ import { describe, expect, test } from 'vitest';
 import type { BridgeCommWorkerAnnotationCatalog } from '../core/comm-worker/bridge-comm-worker-annotation-catalog-applicator.js';
 import type { BridgeWorkerAnnotationProjectionSnapshot } from '../core/comm-worker/bridge-comm-worker-annotation-projection-decoder.js';
 import { bridgeCommWorkerAnnotationCatalogStagingEvents } from '../core/comm-worker/bridge-comm-worker-annotation-runtime-events.js';
+import type { BridgeProductWorktreeAnnotationSubject } from '../core/comm-worker/bridge-product-worktree-annotation-contracts.js';
 import type { BridgeWorkerAnnotationCatalogStagingEvent } from '../core/comm-worker/bridge-worker-annotation-contracts.js';
 import { makeBridgeReviewPackage } from '../foundation/review-package/bridge-review-package-test-support.js';
 import { reviewAnnotationApplicationItemIds } from '../review-viewer/code-view/use-bridge-code-view-worktree-annotations.js';
@@ -11,6 +12,11 @@ import type {
 	WorktreeAnnotationCommandOutcome,
 	WorktreeAnnotationThreadContext,
 } from './worktree-annotation-surface-client.js';
+
+const annotationSubject: BridgeProductWorktreeAnnotationSubject = {
+	kind: 'git',
+	worktreeId: 'worktree-1',
+};
 
 describe('WorktreeAnnotationProjectionStore read convergence', () => {
 	test('starts without a pending Review annotation application', () => {
@@ -28,7 +34,7 @@ describe('WorktreeAnnotationProjectionStore read convergence', () => {
 			revision: null,
 			sessions: [],
 			threads: [],
-			worktreeId: null,
+			scopeKey: null,
 		});
 	});
 
@@ -396,6 +402,7 @@ describe('WorktreeAnnotationProjectionStore read convergence', () => {
 				sourceIdentity: 'head-old',
 				sourceRole: 'review_head' as const,
 				startLine: 7,
+				subject: annotationSubject,
 				threadId: '00000000-0000-7000-8000-000000000012',
 			},
 			messages: [],
@@ -567,7 +574,7 @@ describe('WorktreeAnnotationProjectionStore read convergence', () => {
 			authority: {
 				subscriptionId: 'annotation-subscription-large',
 				workerDerivationEpoch: 1,
-				worktreeId: 'worktree-1',
+				scopeKey: 'worktree-1',
 			},
 			catalogRevision: 7,
 			entries,
@@ -640,7 +647,7 @@ function catalogStaging(
 						windowCount: 1,
 					};
 	return {
-		authority: { subscriptionId, workerDerivationEpoch, worktreeId: 'worktree-1' },
+		authority: { subscriptionId, workerDerivationEpoch, scopeKey: 'worktree-1' },
 		direction: 'serverWorkerToMain',
 		kind: 'annotationCatalogStaging',
 		operationCorrelationId: 'a'.repeat(64),
@@ -664,7 +671,7 @@ function snapshot(
 		sessions: [],
 		sourceGeneration,
 		threads: [],
-		worktreeId: 'worktree-1',
+		scopeKey: 'worktree-1',
 	};
 }
 
@@ -722,6 +729,7 @@ const annotationThreadContext = {
 	sourceIdentity: 'source-1',
 	sourceRole: 'file',
 	startLine: 2,
+	subject: annotationSubject,
 	threadId: '01890abc-def0-7abc-8def-012345678902',
 } as const;
 
@@ -773,7 +781,7 @@ function projectionWithMessage(
 		sessions: [annotationSessionSummary(semanticRevision)],
 		sourceGeneration: semanticRevision,
 		threads: [{ context: annotationThreadContext, messages: [message] }],
-		worktreeId: 'worktree-1',
+		scopeKey: 'worktree-1',
 	};
 }
 
@@ -789,7 +797,7 @@ function projectionWithNoMessages(
 		sessions: [annotationSessionSummary(semanticRevision)],
 		sourceGeneration: semanticRevision,
 		threads: [],
-		worktreeId: 'worktree-1',
+		scopeKey: 'worktree-1',
 	};
 }
 
@@ -805,6 +813,7 @@ function annotationSessionSummary(
 		semanticRevision,
 		sessionId: '01890abc-def0-7abc-8def-0123456789ab',
 		sourceRelationship: 'applicable',
+		subject: annotationSubject,
 		updatedAt: semanticRevision,
 	};
 }

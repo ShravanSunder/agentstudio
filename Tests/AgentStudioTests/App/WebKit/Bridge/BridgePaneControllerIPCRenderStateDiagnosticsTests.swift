@@ -142,7 +142,8 @@ extension WebKitSerializedTests.BridgePaneControllerIPCProjectionTests {
     func ipcRenderState_projectsNativeDirtyAndCatchUpDiagnostics() async throws {
         let controller = BridgePaneController(
             paneId: UUIDv7.generate(),
-            state: BridgePaneState(panelKind: .diffViewer, source: nil),
+            state: BridgePaneState(panelKind: .diffViewer),
+            sourceConfiguration: BridgePaneSourceConfiguration(review: nil, files: nil),
             appRootURL: testBridgeAppRootURL(),
             initialPaneActivity: .loadedHidden
         )
@@ -184,7 +185,8 @@ extension WebKitSerializedTests.BridgePaneControllerIPCProjectionTests {
     func ipcRenderState_rejectsNegativeWorkerAcknowledgementDiagnostics() async throws {
         let controller = BridgePaneController(
             paneId: UUIDv7.generate(),
-            state: BridgePaneState(panelKind: .diffViewer, source: nil),
+            state: BridgePaneState(panelKind: .diffViewer),
+            sourceConfiguration: BridgePaneSourceConfiguration(review: nil, files: nil),
             appRootURL: testBridgeAppRootURL(),
             initialPaneActivity: .foreground
         )
@@ -215,7 +217,8 @@ extension WebKitSerializedTests.BridgePaneControllerIPCProjectionTests {
     func ipcRenderState_projectsBoundedReviewDOMFacts() async throws {
         let controller = BridgePaneController(
             paneId: UUIDv7.generate(),
-            state: BridgePaneState(panelKind: .diffViewer, source: nil),
+            state: BridgePaneState(panelKind: .diffViewer),
+            sourceConfiguration: BridgePaneSourceConfiguration(review: nil, files: nil),
             appRootURL: testBridgeAppRootURL(),
             initialPaneActivity: .foreground
         )
@@ -347,7 +350,8 @@ extension WebKitSerializedTests.BridgePaneControllerIPCProjectionTests {
     func ipcRenderState_rejectsInvalidAndAbsentReviewDOMFacts() async throws {
         let controller = BridgePaneController(
             paneId: UUIDv7.generate(),
-            state: BridgePaneState(panelKind: .diffViewer, source: nil),
+            state: BridgePaneState(panelKind: .diffViewer),
+            sourceConfiguration: BridgePaneSourceConfiguration(review: nil, files: nil),
             appRootURL: testBridgeAppRootURL(),
             initialPaneActivity: .foreground
         )
@@ -384,7 +388,8 @@ extension WebKitSerializedTests.BridgePaneControllerIPCProjectionTests {
     func ipcRenderState_leavesAbsentBridgeDiagnosticsProbesNil() async throws {
         let controller = BridgePaneController(
             paneId: UUIDv7.generate(),
-            state: BridgePaneState(panelKind: .diffViewer, source: nil),
+            state: BridgePaneState(panelKind: .diffViewer),
+            sourceConfiguration: BridgePaneSourceConfiguration(review: nil, files: nil),
             appRootURL: testBridgeAppRootURL(),
             initialPaneActivity: .foreground
         )
@@ -408,7 +413,8 @@ extension WebKitSerializedTests.BridgePaneControllerIPCProjectionTests {
     func ipcRenderState_preservesNativeProductSessionDiagnosticsWhenPageProjectionFails() async throws {
         let controller = BridgePaneController(
             paneId: UUIDv7.generate(),
-            state: BridgePaneState(panelKind: .diffViewer, source: nil),
+            state: BridgePaneState(panelKind: .diffViewer),
+            sourceConfiguration: BridgePaneSourceConfiguration(review: nil, files: nil),
             appRootURL: testBridgeAppRootURL(),
             initialPaneActivity: .foreground
         )
@@ -432,7 +438,8 @@ extension WebKitSerializedTests.BridgePaneControllerIPCProjectionTests {
 private func makeIPCRenderStateForegroundController() -> BridgePaneController {
     BridgePaneController(
         paneId: UUIDv7.generate(),
-        state: BridgePaneState(panelKind: .diffViewer, source: nil),
+        state: BridgePaneState(panelKind: .diffViewer),
+        sourceConfiguration: BridgePaneSourceConfiguration(review: nil, files: nil),
         appRootURL: testBridgeAppRootURL(),
         initialPaneActivity: .foreground
     )

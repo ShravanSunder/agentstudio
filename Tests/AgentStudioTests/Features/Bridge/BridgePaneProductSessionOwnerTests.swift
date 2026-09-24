@@ -766,12 +766,11 @@ private func paneOwnerContentRequest(
             "fileId": "file-\(identitySuffix)",
             "maximumBytes": 3,
             "source": {
-              "repoId": "00000000-0000-4000-8000-000000000001",
+              "collectionToken": "root-token-1",
               "rootRevisionToken": null,
               "sourceCursor": "source-cursor-\(identitySuffix)",
               "sourceId": "source-\(identitySuffix)",
-              "subscriptionGeneration": 11,
-              "worktreeId": "00000000-0000-4000-8000-000000000002"
+              "subscriptionGeneration": 11
             },
             "window": {
               "kind": "prefix",

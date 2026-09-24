@@ -484,12 +484,11 @@ private func producerPacingContentRequest(
             "fileId": "file-\(identifier)",
             "maximumBytes": 1,
             "source": [
-                "repoId": "00000000-0000-4000-8000-000000000001",
+                "collectionToken": "root-token-1",
                 "rootRevisionToken": NSNull(),
                 "sourceCursor": "source-cursor-\(identifier)",
                 "sourceId": "source-\(identifier)",
                 "subscriptionGeneration": 1,
-                "worktreeId": "00000000-0000-4000-8000-000000000002",
             ],
             "window": [
                 "kind": "prefix",

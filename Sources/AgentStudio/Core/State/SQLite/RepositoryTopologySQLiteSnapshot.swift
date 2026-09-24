@@ -29,16 +29,29 @@ struct RepositoryTopologySQLiteSnapshot: Equatable, Sendable {
     }
 }
 
+/// Captured receiver navigation for one ordinary save. `nil` on a bundle means
+/// the saving owner does not own navigation and its rows stay untouched.
+struct BridgeNavigationSaveSnapshot: Equatable, Sendable {
+    let records: [BridgeReceiver: BridgeNavigationRecord]
+    let revision: Int
+}
+
 struct WorkspaceSQLiteSaveBundle: Equatable, Sendable {
     let workspace: WorkspaceSQLiteSnapshot
     let captureRevision: WorkspaceCompositionRevision?
+    let bridgeNavigation: BridgeNavigationSaveSnapshot?
 
     var id: UUID { workspace.id }
     var updatedAt: Date { workspace.updatedAt }
 
-    init(workspace: WorkspaceSQLiteSnapshot, captureRevision: WorkspaceCompositionRevision? = nil) {
+    init(
+        workspace: WorkspaceSQLiteSnapshot,
+        captureRevision: WorkspaceCompositionRevision? = nil,
+        bridgeNavigation: BridgeNavigationSaveSnapshot? = nil
+    ) {
         self.workspace = workspace
         self.captureRevision = captureRevision
+        self.bridgeNavigation = bridgeNavigation
     }
 }
 

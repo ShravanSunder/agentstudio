@@ -12,6 +12,7 @@ package struct IPCBridgeControlMethodDescriptors: Sendable {
     package let bridgeFileViewGetContent: IPCMethodDescriptor<IPCBridgeContentGetParams, IPCBridgeContentGetResult>
     package let bridgeFileViewShowMarkdownPreview:
         IPCMethodDescriptor<IPCBridgeFileViewShowMarkdownPreviewParams, IPCBridgePageControlResult>
+    package let bridgeFilesSearch: IPCMethodDescriptor<IPCBridgeFilesSearchParams, IPCBridgeFilesSearchResult>
 
     init(examples: IPCBuiltInMethodExampleContext) throws {
         let itemId = "Sources/App.swift"
@@ -92,6 +93,7 @@ package struct IPCBridgeControlMethodDescriptors: Sendable {
             status: "rejected",
             reason: "unsupported_surface"
         )
+        bridgeFilesSearch = try Self.filesSearch(examples: examples)
     }
 
     private static func makeContentDescriptor(
@@ -127,9 +129,43 @@ package struct IPCBridgeControlMethodDescriptors: Sendable {
             privilege: .bridgeContentRead,
             dataScope: .bridgeContent,
             targetKinds: [.pane],
+            exposure: .allChannels,
             owner: .bridgeCapability,
             errors: Self.bridgeErrors,
-            agentEligibility: .notYetAllowed
+            agentEligibility: .ownPane
+        )
+    }
+
+    private static func filesSearch(
+        examples: IPCBuiltInMethodExampleContext
+    ) throws -> IPCMethodDescriptor<IPCBridgeFilesSearchParams, IPCBridgeFilesSearchResult> {
+        try IPCBuiltInDescriptorSupport.read(
+            name: "bridge.files.search",
+            description:
+                "Search every member worktree and opened document of one Bridge's Files collection without changing it.",
+            parameters: IPCBridgeFilesSearchParams(handle: "self", searchText: "App"),
+            result: IPCBridgeFilesSearchResult(
+                paneId: examples.paneId,
+                status: .results,
+                matches: [
+                    IPCBridgeFilesSearchMatch(
+                        displayPath: "app/Sources/App.swift",
+                        path: "/Users/example/app/Sources/App.swift",
+                        memberWorktreeId: examples.worktreeId,
+                        memberRelativePath: "Sources/App.swift"
+                    )
+                ],
+                totalMatchCount: 1,
+                truncated: false,
+                complete: true
+            ),
+            privilege: .bridgeRead,
+            dataScope: .bridgeReviewPackage,
+            targetKinds: [.pane],
+            exposure: .allChannels,
+            owner: .bridgeCapability,
+            errors: Self.bridgeErrors,
+            agentEligibility: .ownPane
         )
     }
 
@@ -177,7 +213,8 @@ package struct IPCBridgeControlMethodDescriptors: Sendable {
                 owner: .bridgeCapability,
                 semantics: .accepted,
                 errors: Self.bridgeErrors,
-                agentEligibility: .notYetAllowed)
+                exposure: .allChannels,
+                agentEligibility: .ownPane)
         )
     }
 
@@ -192,6 +229,7 @@ package struct IPCBridgeControlMethodDescriptors: Sendable {
                 IPCAnyMethodDescriptor(erasing: bridgeFileTreeRevealPath),
                 IPCAnyMethodDescriptor(erasing: bridgeFileViewGetContent),
                 IPCAnyMethodDescriptor(erasing: bridgeFileViewShowMarkdownPreview),
+                IPCAnyMethodDescriptor(erasing: bridgeFilesSearch),
             ]
         }
     }

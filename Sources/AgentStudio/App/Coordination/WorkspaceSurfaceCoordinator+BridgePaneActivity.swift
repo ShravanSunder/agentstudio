@@ -129,9 +129,10 @@ extension WorkspaceSurfaceCoordinator {
         let zoomCompanions = store.panePresentationAtom.zoomCompanionsBySourcePaneId
         let companionInputs: [BridgePaneActivityInput] =
             zoomCompanions.compactMap { sourcePaneId, companion in
-                guard let resolvedWorktree = store.repositoryTopologyAtom.worktree(companion.resolvedWorktreeId)
-                else {
-                    return nil
+                // A receiver without a known Review member still has an activity;
+                // only its Git read ranking needs a worktree.
+                let resolvedWorktree = companion.reviewWorktreeId.flatMap {
+                    store.repositoryTopologyAtom.worktree($0)
                 }
                 let zoomPresentation = store.panePresentationAtom.zoomPresentation(
                     forTab: companion.owningTabId

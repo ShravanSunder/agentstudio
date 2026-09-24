@@ -54,6 +54,7 @@ function fileRow(
 	return {
 		changeStatus: 'modified' as const,
 		depth: 1,
+		documentLocation: null,
 		fileId,
 		fileClass: 'source',
 		isDirectory: false,

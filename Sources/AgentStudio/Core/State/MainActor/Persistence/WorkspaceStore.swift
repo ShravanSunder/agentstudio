@@ -78,6 +78,7 @@ package final class WorkspaceStore {
     package let tabArrangementAtom: WorkspaceTabArrangementAtom
     package let tabLayoutAtom: WorkspaceTabLayoutAtom
     package let mutationCoordinator: WorkspaceMutationCoordinator
+    package let bridgeNavigationAtom: BridgeNavigationAtom
 
     private let sqliteDatastore: WorkspaceSQLiteDatastoreActor?
     private let sqliteSaveCoordinator: WorkspaceSQLiteSaveCoordinator?
@@ -104,6 +105,7 @@ package final class WorkspaceStore {
         paneAtom: WorkspacePaneAtom,
         tabLayoutAtom: WorkspaceTabLayoutAtom,
         mutationCoordinator: WorkspaceMutationCoordinator,
+        bridgeNavigationAtom: BridgeNavigationAtom = BridgeNavigationAtom(),
         sqliteDatastore: WorkspaceSQLiteDatastoreActor? = nil,
         sqliteSaveCoordinator: WorkspaceSQLiteSaveCoordinator? = nil,
         persistDebounceDuration: Duration = .milliseconds(500),
@@ -141,6 +143,7 @@ package final class WorkspaceStore {
         self.panePresentationAtom = resolvedTabArrangementAtom.presentationAtom
         self.tabLayoutAtom = tabLayoutAtom
         self.mutationCoordinator = mutationCoordinator
+        self.bridgeNavigationAtom = bridgeNavigationAtom
         let resolvedSQLiteSaveCoordinator =
             sqliteSaveCoordinator
             ?? sqliteDatastore.map { datastore in
@@ -150,6 +153,7 @@ package final class WorkspaceStore {
                     workspacePaneAtom: resolvedPaneAtom,
                     workspaceTabLayoutAtom: tabLayoutAtom,
                     repositoryTopologyAtom: repositoryTopologyAtom,
+                    bridgeNavigationAtom: bridgeNavigationAtom,
                     sqliteDatastore: datastore
                 )
             }
@@ -298,7 +302,19 @@ package final class WorkspaceStore {
             for reason in restoreReasons {
                 persistenceReasonReporter?(reason)
             }
-            switch await prepareAndApplyAuthoritativeSnapshot(snapshot) {
+            // The ordered legacy conversion runs before composition install so
+            // no save can precede it; records install before any mount.
+            let navigationHydration = await sqliteDatastore.prepareBridgeNavigationHydration(
+                workspaceID: snapshot.workspace.id,
+                knownWorktreeRootsByID: Dictionary(
+                    snapshot.repositoryTopology.worktrees.map { ($0.id, $0.path) },
+                    uniquingKeysWith: { first, _ in first }
+                )
+            )
+            switch await prepareAndApplyAuthoritativeSnapshot(
+                snapshot,
+                navigationHydration: navigationHydration
+            ) {
             case .success(let acceptance):
                 return .loaded(acceptance)
             case .failure(let failure):
@@ -355,7 +371,8 @@ package final class WorkspaceStore {
     }
 
     private func prepareAndApplyAuthoritativeSnapshot(
-        _ snapshot: WorkspaceCoreLoadSnapshot
+        _ snapshot: WorkspaceCoreLoadSnapshot,
+        navigationHydration: BridgeNavigationHydration = .empty
     ) async -> Result<WorkspacePreparedCompositionAcceptance, WorkspaceStoreLoadFailure> {
         let topologyPreparation = await WorkspacePersistenceTransformer.prepareRepositoryTopologyOffMain(
             snapshot.repositoryTopology
@@ -390,6 +407,8 @@ package final class WorkspaceStore {
                 preparedTopology,
                 repositoryTopologyAtom: repositoryTopologyAtom
             )
+            bridgeNavigationAtom.replaceAllRecords(navigationHydration.records)
+            bridgeNavigationAtom.replaceConversionUnavailablePaneIds(navigationHydration.failedConversionPaneIDs)
             paneAssociationBootReconciliationReporter?(paneReconciliation.associationSummary)
             isDirty = false
             if paneReconciliation.didChange {
@@ -436,6 +455,7 @@ package final class WorkspaceStore {
             _ = arrangementCursorAtom.activeArrangementIdsByTabId
             _ = arrangementCursorAtom.paneCursorsByArrangementId
             _ = arrangementCursorAtom.drawerCursorsByKey
+            _ = bridgeNavigationAtom.acceptedRevision
         } onChange: { [weak self] in
             MainActor.assumeIsolated {
                 guard let self else { return }

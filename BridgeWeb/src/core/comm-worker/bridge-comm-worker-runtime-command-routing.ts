@@ -15,6 +15,11 @@ export function bridgeWorkerRuntimeProductControlCommandForMessage(
 				command: { method: 'file.refresh.retry', params: {} },
 				requestId: message.requestId,
 			};
+		case 'fileSelectionReceipt':
+			return {
+				command: { method: 'file.selection.receipt', params: message.receipt },
+				requestId: message.requestId,
+			};
 		case 'annotationCommand':
 			return message.surface === 'fileView'
 				? {
@@ -103,6 +108,7 @@ export function bridgeWorkerRuntimeProductControlCommandForMessage(
 		case 'hover':
 		case 'metadataInterestUpdate':
 		case 'fileQueryUpdate':
+		case 'fileCollectionSearch':
 		case 'fileDisplayResync':
 		case 'mode':
 		case 'reviewInvalidate':
@@ -137,6 +143,7 @@ export function bridgeCommWorkerTelemetryLaneForMessage(
 			return 'selected';
 		case 'viewport':
 		case 'fileQueryUpdate':
+		case 'fileCollectionSearch':
 		case 'fileDisplayResync':
 		case 'fileRefreshRetry':
 		case 'hover':
@@ -147,6 +154,7 @@ export function bridgeCommWorkerTelemetryLaneForMessage(
 		case 'metadataInterestUpdate':
 			return message.request.lane === 'foreground' ? 'selected' : 'visible';
 		case 'activeViewerModeUpdate':
+		case 'fileSelectionReceipt':
 			return 'background';
 		case 'markFileViewed':
 		case 'mode':
@@ -172,6 +180,7 @@ export function bridgeCommWorkerSemanticClassForMessage(
 			return 'urgent_action';
 		case 'annotationOutputInspect':
 		case 'fileQueryUpdate':
+		case 'fileCollectionSearch':
 		case 'hover':
 		case 'metadataInterestUpdate':
 		case 'reviewComparisonTargetsQuery':
@@ -187,6 +196,7 @@ export function bridgeCommWorkerSemanticClassForMessage(
 		case 'annotationProjectionRetry':
 		case 'fileDisplayResync':
 		case 'fileRefreshRetry':
+		case 'fileSelectionReceipt':
 		case 'mode':
 		case 'reviewComparisonTargetsQueryCancel':
 		case 'reviewIntakeReady':

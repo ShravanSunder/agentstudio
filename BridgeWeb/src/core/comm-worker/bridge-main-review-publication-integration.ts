@@ -495,6 +495,7 @@ export function createBridgeMainReviewPublicationIntegration(props: {
 				case 'health':
 				case 'nativeSurfaceSelectionRequest':
 				case 'reviewComparisonTargetsQuery':
+				case 'fileCollectionSearch':
 				case 'slicePatch':
 				case 'subscription':
 					return false;

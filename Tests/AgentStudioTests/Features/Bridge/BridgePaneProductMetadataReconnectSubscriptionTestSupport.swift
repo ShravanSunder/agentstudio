@@ -346,12 +346,11 @@ func reconnectFileSourceAcceptedEvent(
     .sourceAccepted(
         .init(
             source: try .init(
-                repoId: "00000000-0000-4000-8000-000000000001",
+                collectionToken: "root-token-1",
                 rootRevisionToken: "root-token-reconnect",
                 sourceCursor: "source-cursor-\(cursor)",
                 sourceId: "file-source-reconnect",
-                subscriptionGeneration: 1,
-                worktreeId: "00000000-0000-4000-8000-000000000002"
+                subscriptionGeneration: 1
             )
         )
     )

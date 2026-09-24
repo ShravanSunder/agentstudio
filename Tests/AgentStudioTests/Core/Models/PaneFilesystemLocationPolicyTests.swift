@@ -14,20 +14,10 @@ struct PaneFilesystemLocationPolicyTests {
             WebviewState(url: try #require(URL(string: "https://example.com")))
         )
         let bridgeFiles = PaneContent.bridgePanel(
-            BridgePaneState(
-                panelKind: .fileViewer,
-                source: .workspace(
-                    rootPath: "/work/files",
-                    baseline: .ref(name: "HEAD~1"))
-            )
+            BridgePaneState(panelKind: .fileViewer)
         )
         let bridgeReview = PaneContent.bridgePanel(
-            BridgePaneState(
-                panelKind: .diffViewer,
-                source: .workspace(
-                    rootPath: "/work/review",
-                    baseline: .unstaged)
-            )
+            BridgePaneState(panelKind: .diffViewer)
         )
         let codeViewer = PaneContent.codeViewer(
             CodeViewerState(filePath: URL(filePath: "/work/code/Sources/App.swift"), scrollToLine: 8)
@@ -68,11 +58,7 @@ struct PaneFilesystemLocationPolicyTests {
             TerminalState(provider: .zmx, lifetime: .persistent, zmxSessionID: .generateUUIDv7())
         )
         let bridge = PaneContent.bridgePanel(
-            BridgePaneState(
-                panelKind: .diffViewer,
-                source: .workspace(
-                    rootPath: "/work/review", baseline: .staged)
-            )
+            BridgePaneState(panelKind: .diffViewer)
         )
         let codeViewer = PaneContent.codeViewer(
             CodeViewerState(filePath: URL(filePath: "/work/code/File.swift"), scrollToLine: nil)
@@ -89,7 +75,7 @@ struct PaneFilesystemLocationPolicyTests {
             PaneFilesystemLocationPolicy.resolveRestoredCWD(
                 for: bridge,
                 cwd: nil,
-                launchDirectory: URL(filePath: "/wrong-owner")
+                launchDirectory: URL(filePath: "/work/review")
             ) == .repaired(URL(filePath: "/work/review", directoryHint: .isDirectory))
         )
         #expect(
@@ -104,7 +90,7 @@ struct PaneFilesystemLocationPolicyTests {
     @Test("unrepairable required panes degrade while optional panes remain locationless")
     func unrepairableRequiredPanesDegradeWhileOptionalPanesRemainLocationless() throws {
         let bridgeWithoutWorkspace = PaneContent.bridgePanel(
-            BridgePaneState(panelKind: .diffViewer, source: .commit(sha: "abc123"))
+            BridgePaneState(panelKind: .diffViewer)
         )
         let webview = PaneContent.webview(
             WebviewState(url: try #require(URL(string: "https://example.com")))

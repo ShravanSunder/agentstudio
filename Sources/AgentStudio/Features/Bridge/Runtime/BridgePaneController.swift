@@ -79,11 +79,23 @@ package final class BridgePaneController {
     let reviewComparisonTargetProjection: BridgeReviewComparisonTargetProjection
     let worktreeAnnotationStore: WorktreeAnnotationServiceActor?
     let reviewChangeIndex = BridgeChangeIndex()
-    package var bridgePaneState: BridgePaneState
-    let initialContributionTargetCommit:
-        (@MainActor @Sendable (WorkspaceReviewContributionTarget) -> BridgePaneStateMutationResult)?
-    let contributionTargetCommit:
-        (@MainActor @Sendable (WorkspaceReviewContributionTarget) -> BridgePaneStateMutationResult)?
+    package let bridgePaneState: BridgePaneState
+    /// The controller's Review input. Only its comparison changes in place;
+    /// a different member replaces the controller.
+    package var reviewBinding: BridgeReviewSourceBinding?
+    /// The controller's Files input. Membership and opened documents change in
+    /// place through the mounted collection; the WebView is never recreated.
+    package internal(set) var filesBinding: BridgeFilesSourceBinding?
+    let fileCollectionSource: BridgeFileCollectionSource?
+    /// Serializes Files membership updates so a later binding always lands last.
+    var filesSourceUpdateTail: Task<Void, Never>?
+    /// The newest Files binding requested, applied or still queued.
+    var latestRequestedFilesBinding: BridgeFilesSourceBinding?
+    let fileGitReadScheduler: BridgeGitReadScheduler?
+    let worktreeProductConstructionCoordinator: BridgeWorktreeProductConstructionCoordinator?
+    let gitWorkingTreeStatusProvider: (any GitWorkingTreeStatusProvider)?
+    let initialContributionTargetCommit: BridgeReviewComparisonCommit?
+    let contributionTargetCommit: BridgeReviewComparisonCommit?
     var nextReviewGeneration: BridgeReviewGeneration = 0
     var pendingComparisonReviewGeneration: BridgeReviewGeneration?
     var reviewGitRefreshSeedHolder = BridgeReviewGitRefreshSeedHolder()
@@ -95,6 +107,10 @@ package final class BridgePaneController {
     var pendingReviewPackageBuildReasons: Set<BridgeReviewPackageBuildReason> = []
     var activeViewerModeSignalState = BridgeActiveViewerModeSignalState()
     var surfaceSelectionAuthority = BridgePaneSurfaceSelectionAuthority()
+    /// Receives each displayed File selection mapped back to its document.
+    package var onFilesSelectionDisplayed: (@MainActor (BridgeFilesDisplayedSelection) -> Void)?
+    /// The one native Files activation still waiting for its displayed receipt.
+    var pendingFileActivation: BridgePendingFileActivation?
 
     // MARK: - Private State
 
@@ -124,15 +140,18 @@ package final class BridgePaneController {
     ///
     /// - Parameters:
     ///   - paneId: Unique identifier for this pane instance.
-    ///   - state: Serializable bridge pane state (panel kind + source).
+    ///   - state: Bridge pane payload (panel kind).
+    ///   - sourceConfiguration: Review and Files inputs derived from the receiver's navigation record.
     ///   - metadata: Optional runtime metadata override used by runtime registration paths.
     package init(
         paneId: UUID,
         state: BridgePaneState,
+        sourceConfiguration: BridgePaneSourceConfiguration,
         appRootURL: URL,
         metadata: PaneMetadata? = nil,
         reviewSourceProvider: (any BridgeReviewSourceProvider)? = nil,
         gitReadContext: BridgeGitReadContext? = nil,
+        fileGitReadScheduler: BridgeGitReadScheduler? = nil,
         worktreeProductConstructionCoordinator: BridgeWorktreeProductConstructionCoordinator? = nil,
         worktreeAnnotationStore: WorktreeAnnotationServiceActor? = nil,
         worktreeAnnotationOutputCoordinator: WorktreeAnnotationOutputCoordinatorActor? = nil,
@@ -150,15 +169,17 @@ package final class BridgePaneController {
             BridgePaneController.dispatchProductSessionBootstrap,
         telemetrySessionBootstrapSink: @escaping BridgeTelemetrySessionBootstrapSink =
             BridgePaneController.dispatchTelemetrySessionBootstrap,
-        initialContributionTargetCommit:
-            (@MainActor @Sendable (WorkspaceReviewContributionTarget) -> BridgePaneStateMutationResult)? = nil,
-        contributionTargetCommit:
-            (@MainActor @Sendable (WorkspaceReviewContributionTarget) -> BridgePaneStateMutationResult)? = nil
+        initialContributionTargetCommit: BridgeReviewComparisonCommit? = nil,
+        contributionTargetCommit: BridgeReviewComparisonCommit? = nil
     ) {
-        (self.paneId, self.bridgePaneState) = (paneId, state)
-        let reviewComparisonTargetProjection = BridgeReviewComparisonTargetProjection(state: state)
+        (self.paneId, self.bridgePaneState, self.reviewBinding) = (paneId, state, sourceConfiguration.review)
+        let reviewBinding = sourceConfiguration.review
+        (self.filesBinding, self.latestRequestedFilesBinding) = (sourceConfiguration.files, sourceConfiguration.files)
+        self.fileGitReadScheduler = fileGitReadScheduler ?? gitReadContext?.scheduler
+        (self.worktreeProductConstructionCoordinator, self.gitWorkingTreeStatusProvider) =
+            (worktreeProductConstructionCoordinator, gitWorkingTreeStatusProvider)
+        let reviewComparisonTargetProjection = BridgeReviewComparisonTargetProjection(reviewBinding: reviewBinding)
         self.reviewComparisonTargetProjection = reviewComparisonTargetProjection
-        self.worktreeAnnotationStore = worktreeAnnotationStore
         let telemetryDependencies = Self.resolveTelemetryDependencies(
             traceRuntime: traceRuntime,
             telemetryRuntimePolicy: telemetryRuntimePolicy,
@@ -169,15 +190,15 @@ package final class BridgePaneController {
         self.telemetryScopeGate = telemetryDependencies.scopeGate
         self.telemetryRecorder = telemetryDependencies.recorder
         self.telemetrySessionOwner = telemetryDependencies.sessionDependencies?.owner
-        self.traceContextFactory = traceContextFactory
+        (self.traceContextFactory, self.worktreeAnnotationStore) = (traceContextFactory, worktreeAnnotationStore)
         let resolvedReviewSourceProvider = reviewSourceProvider ?? BridgeUnavailableReviewSourceProvider()
         self.reviewSourceProvider = resolvedReviewSourceProvider
-        self.initialContributionTargetCommit = initialContributionTargetCommit
-        self.contributionTargetCommit = contributionTargetCommit
+        (self.initialContributionTargetCommit, self.contributionTargetCommit) =
+            (initialContributionTargetCommit, contributionTargetCommit)
         let resolvedReviewContentLoaderCache = Self.makeReviewContentLoaderCache(resolvedReviewSourceProvider)
         self.reviewContentLoaderCache = resolvedReviewContentLoaderCache
         let resolvedRefreshAdmissionCoordinator = Self.makeRefreshAdmissionCoordinator(
-            state,
+            reviewBinding,
             initialActivity: initialPaneActivity
         )
         self.refreshAdmissionCoordinator = resolvedRefreshAdmissionCoordinator
@@ -186,10 +207,11 @@ package final class BridgePaneController {
         let reviewDependencies = Self.makeReviewDependencies(
             provider: resolvedReviewSourceProvider,
             coordinator: worktreeProductConstructionCoordinator,
-            state: state
+            reviewBinding: reviewBinding
         )
-        self.reviewPipeline = reviewDependencies.pipeline
-        self.reviewSharedConstructionBinder = reviewDependencies.binder
+        (self.reviewPipeline, self.reviewSharedConstructionBinder) = (
+            reviewDependencies.pipeline, reviewDependencies.binder
+        )
         let resolvedRuntime = Self.makeRuntime(paneId, for: state, overriding: metadata)
         self.runtime = resolvedRuntime
         let resolvedProductSessionDependencies =
@@ -198,8 +220,10 @@ package final class BridgePaneController {
                 BridgeProductSessionDependencyInput(
                     paneSessionId: paneId.uuidString,
                     runtime: resolvedRuntime,
-                    state: state,
+                    reviewBinding: reviewBinding,
+                    filesBinding: sourceConfiguration.files,
                     gitReadContext: gitReadContext,
+                    fileGitReadScheduler: fileGitReadScheduler ?? gitReadContext?.scheduler,
                     worktreeProductConstructionCoordinator: worktreeProductConstructionCoordinator,
                     worktreeAnnotationStore: worktreeAnnotationStore,
                     worktreeAnnotationOutputCoordinator: worktreeAnnotationOutputCoordinator,
@@ -215,6 +239,7 @@ package final class BridgePaneController {
             )
         self.productSessionOwner = resolvedProductSessionDependencies.owner
         self.productSchemeProvider = resolvedProductSessionDependencies.productProvider
+        self.fileCollectionSource = resolvedProductSessionDependencies.fileCollectionSource
         let refreshDriver = Self.makeWorktreeRefreshDriver(
             coordinator: resolvedRefreshAdmissionCoordinator,
             productSessionDependencies: resolvedProductSessionDependencies
@@ -242,8 +267,7 @@ package final class BridgePaneController {
         self.userContentController = pageComposition.userContentController
         self.productSessionBootstrapSink = productSessionBootstrapSink
         self.telemetrySessionBootstrapSink = telemetrySessionBootstrapSink
-        self.bootstrapScript = pageComposition.bootstrapScript
-        self.page = pageComposition.page
+        (self.bootstrapScript, self.page) = (pageComposition.bootstrapScript, pageComposition.page)
 
         finishRuntimeSetup(
             pageComposition.readyMessageHandler,
@@ -342,7 +366,7 @@ package final class BridgePaneController {
     private static func makeReviewDependencies(
         provider: any BridgeReviewSourceProvider,
         coordinator: BridgeWorktreeProductConstructionCoordinator?,
-        state: BridgePaneState
+        reviewBinding: BridgeReviewSourceBinding?
     ) -> (
         pipeline: BridgeReviewPipeline,
         binder: BridgePaneReviewSharedConstructionBinder?
@@ -352,16 +376,16 @@ package final class BridgePaneController {
             coordinator: coordinator,
             pipeline: pipeline,
             provider: provider,
-            state: state
+            reviewBinding: reviewBinding
         )
         return (pipeline, binder)
     }
 
     private static func initialReviewComparisonPresentation(
-        for state: BridgePaneState
+        for reviewBinding: BridgeReviewSourceBinding?
     ) -> BridgePaneReviewComparisonPresentation? {
-        guard case .workspace(_, let baseline) = state.source else { return nil }
-        guard let baseline else {
+        guard let reviewBinding else { return nil }
+        guard let baseline = reviewBinding.comparison else {
             return BridgePaneReviewComparisonPresentation(
                 activeTarget: nil,
                 attempt: .selectionRequired,
@@ -377,12 +401,12 @@ package final class BridgePaneController {
     }
 
     private static func makeRefreshAdmissionCoordinator(
-        _ state: BridgePaneState,
+        _ reviewBinding: BridgeReviewSourceBinding?,
         initialActivity: BridgePaneActivity
     ) -> BridgePaneRefreshAdmissionCoordinator {
         BridgePaneRefreshAdmissionCoordinator(
             initialActivity: initialActivity,
-            initialReviewComparison: initialReviewComparisonPresentation(for: state)
+            initialReviewComparison: initialReviewComparisonPresentation(for: reviewBinding)
         )
     }
 
@@ -524,6 +548,7 @@ package final class BridgePaneController {
             refreshAdmissionCoordinator.close()
             productAdmissionGate.close()
             surfaceSelectionAuthority.invalidate()
+            settlePendingFileActivation(.cancelled)
             let reviewPublicationCloseDrain = reviewPublicationCoordinator.close()
             let reviewPublicationCleanupSnapshot = reviewPublicationCoordinator.diagnosticSnapshot
             reviewRefreshCleanupTelemetryTask = makeReviewRefreshCleanupTelemetryTask(

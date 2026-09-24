@@ -93,12 +93,7 @@ extension WebKitSerializedTests {
                 )
             )
             let controller = makeController(
-                state: BridgePaneState(
-                    panelKind: .diffViewer,
-                    source: .workspace(
-                        rootPath: "Sources",
-                        baseline: .unstaged)
-                ),
+                state: BridgePaneState(panelKind: .diffViewer),
                 reviewSourceProvider: provider
             )
             defer { controller.teardown() }
@@ -179,12 +174,7 @@ extension WebKitSerializedTests {
                 ]
             )
             let controller = makeController(
-                state: BridgePaneState(
-                    panelKind: .diffViewer,
-                    source: .workspace(
-                        rootPath: "Sources",
-                        baseline: .unstaged)
-                ),
+                state: BridgePaneState(panelKind: .diffViewer),
                 reviewSourceProvider: provider
             )
             defer { controller.teardown() }
@@ -370,12 +360,7 @@ extension WebKitSerializedTests {
                 comparisonGate: comparisonGate
             )
             let controller = makeController(
-                state: BridgePaneState(
-                    panelKind: .diffViewer,
-                    source: .workspace(
-                        rootPath: "Sources",
-                        baseline: .unstaged)
-                ),
+                state: BridgePaneState(panelKind: .diffViewer),
                 reviewSourceProvider: provider
             )
             let commandId = UUID()
@@ -431,12 +416,7 @@ extension WebKitSerializedTests {
                 contentByHandleId: [:]
             )
             let controller = makeController(
-                state: BridgePaneState(
-                    panelKind: .diffViewer,
-                    source: .workspace(
-                        rootPath: "Sources",
-                        baseline: .unstaged)
-                ),
+                state: BridgePaneState(panelKind: .diffViewer),
                 reviewSourceProvider: provider
             )
             defer { controller.teardown() }
@@ -477,6 +457,14 @@ extension WebKitSerializedTests {
             BridgePaneController(
                 paneId: UUIDv7.generate(),
                 state: state,
+                sourceConfiguration: BridgePaneSourceConfiguration(
+                    review: BridgeReviewSourceBinding(
+                        worktreeId: UUIDv7.generate(),
+                        worktreeRootPath: "Sources",
+                        comparison: .unstaged
+                    ),
+                    files: nil
+                ),
                 appRootURL: testBridgeAppRootURL(),
                 reviewSourceProvider: reviewSourceProvider,
                 initialPaneActivity: .foreground

@@ -38,6 +38,34 @@ describe('Bridge comm worker File query projection', () => {
 		expect(queryStatus(invalid).searchError).toBe('Invalid regex');
 	});
 
+	test('searches member groups and opened documents of a collection without merging equal paths', () => {
+		// Arrange
+		const scheduler = new DeterministicFileQueryScheduler();
+		const projection = makeProjection(scheduler);
+		projection.applyDisplayPatches(collectionDisplayPatches());
+
+		// Act
+		const equalRelativePath = applyQueryAndDrain(
+			projection,
+			scheduler,
+			query({ searchText: 'app.ts' }),
+		);
+		const memberGroup = applyQueryAndDrain(projection, scheduler, query({ searchText: 'backend' }));
+		const openedLocation = applyQueryAndDrain(
+			projection,
+			scheduler,
+			query({ searchText: '/private/tmp' }),
+		);
+
+		// Assert
+		expect(projectedFilePaths(equalRelativePath)).toEqual([
+			'frontend/src/app.ts',
+			'backend/src/app.ts',
+		]);
+		expect(projectedFilePaths(memberGroup)).toEqual(['backend/src/app.ts']);
+		expect(projectedFilePaths(openedLocation)).toEqual(['Open Files/notes.md']);
+	});
+
 	test('retains file-class query and reevaluates a class-only row correction', () => {
 		const scheduler = new DeterministicFileQueryScheduler();
 		const projection = makeProjection(scheduler);
@@ -460,6 +488,7 @@ function fileTreeRowOperation(
 		row: {
 			changeStatus: null,
 			depth: pathSegments.length - 1,
+			documentLocation: null,
 			fileId,
 			fileClass: isDirectory ? null : fileClass,
 			isDirectory,
@@ -476,6 +505,50 @@ function fileTreeRowOperation(
 
 function fileTreeBatch(operations: readonly FileTreeOperation[]): FileTreePatch {
 	return { operation: 'batch', payload: { operations }, slice: 'fileTree' };
+}
+
+function collectionDisplayPatches(): readonly BridgeWorkerFileDisplayPatch[] {
+	const openedDocument = fileTreeRowOperation(
+		'row-opened-notes',
+		'file-opened-notes',
+		'Open Files/notes.md',
+		7,
+		false,
+		'docs',
+	);
+	if (openedDocument.operation !== 'upsert') throw new Error('Expected an upserted row.');
+	return [
+		{
+			operation: 'reset',
+			payload: { sourceGeneration: 1, sourceId: 'collection-source-1' },
+			slice: 'fileTree',
+		},
+		fileTreeBatch([
+			fileTreeRowOperation('row-frontend', null, 'frontend', 0, true),
+			fileTreeRowOperation('row-frontend-src', null, 'frontend/src', 1, true),
+			fileTreeRowOperation('row-frontend-app', 'file-frontend-app', 'frontend/src/app.ts', 2),
+			fileTreeRowOperation('row-backend', null, 'backend', 3, true),
+			fileTreeRowOperation('row-backend-src', null, 'backend/src', 4, true),
+			fileTreeRowOperation('row-backend-app', 'file-backend-app', 'backend/src/app.ts', 5),
+			fileTreeRowOperation('row-opened', null, 'Open Files', 6, true),
+			{
+				...openedDocument,
+				row: { ...openedDocument.row, documentLocation: '/private/tmp/notes.md' },
+			},
+		]),
+	];
+}
+
+function projectedFilePaths(result: BridgeCommWorkerFileQueryProjectionResult): readonly string[] {
+	return result.patches.flatMap((patch): readonly string[] =>
+		patch.slice !== 'fileTree' || patch.operation !== 'batch'
+			? []
+			: patch.payload.operations.flatMap((operation): readonly string[] =>
+					operation.operation === 'upsert' && !operation.row.isDirectory
+						? [operation.row.path]
+						: [],
+				),
+	);
 }
 
 function chunkTreeOperations(

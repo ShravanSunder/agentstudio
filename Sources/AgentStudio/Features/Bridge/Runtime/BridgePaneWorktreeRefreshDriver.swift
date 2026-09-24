@@ -320,7 +320,7 @@ final class BridgePaneWorktreeRefreshDriver {
 
         var fileRefreshFailure: BridgePaneProductFileRefreshFailure?
         var filePrepareStageAttempt = reservation.operationStageAttempt * 2
-        if let changeset = reservation.fileChangeset {
+        for changeset in reservation.fileChangesets {
             let disposition = await publishFileChangeset(
                 changeset,
                 productAdmission,
@@ -394,8 +394,7 @@ final class BridgePaneWorktreeRefreshDriver {
         _ lhs: BridgeProductFileSourceIdentity,
         _ rhs: BridgeProductFileSourceIdentity
     ) -> Bool {
-        lhs.repoId == rhs.repoId
-            && lhs.worktreeId == rhs.worktreeId
+        lhs.collectionToken == rhs.collectionToken
             && lhs.rootRevisionToken == rhs.rootRevisionToken
     }
 

@@ -145,7 +145,7 @@ export const bridgeWorkerAnnotationCatalogStagingEventSchema = bridgeWorkerServe
 			.object({
 				subscriptionId: bridgeProductIdentifierSchema,
 				workerDerivationEpoch: bridgeProductNonnegativeSequenceSchema,
-				worktreeId: bridgeProductIdentifierSchema,
+				scopeKey: bridgeProductIdentifierSchema,
 			})
 			.strict(),
 		kind: z.literal('annotationCatalogStaging'),

@@ -654,12 +654,11 @@ function makeProductFileViewContentRequest(
 			fileId: 'file-1',
 			maximumBytes: 2 * 1024 * 1024,
 			source: {
-				repoId: '00000000-0000-4000-8000-000000000001',
+				collectionToken: 'root-token-1',
 				rootRevisionToken: 'root-revision-1',
 				sourceCursor: `source-cursor-${subscriptionGeneration}`,
 				sourceId: 'file-source-1',
 				subscriptionGeneration,
-				worktreeId: '00000000-0000-4000-8000-000000000002',
 			},
 			window: {
 				kind: 'prefix',

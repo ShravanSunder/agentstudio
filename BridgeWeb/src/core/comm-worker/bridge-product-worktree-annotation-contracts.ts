@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { createBridgeMetadataCatalogTransferSchema } from './bridge-metadata-catalog-transfer-contracts.js';
 import {
 	bridgeProductDisplayPathSchema,
+	bridgeProductDocumentLocationSchema,
 	bridgeProductIdentifierSchema,
 	bridgeProductNonnegativeSequenceSchema,
 	bridgeProductUnicodeScalarUtf8ByteLength,
@@ -10,6 +11,22 @@ import {
 import { bridgeProductReviewPublicationIdSchema } from './bridge-product-review-primitives.js';
 
 const annotationUnixMillisecondsSchema = bridgeProductNonnegativeSequenceSchema;
+
+/**
+ * What an annotation session is about: the member worktree whose Files group
+ * lists it, or a local document outside every worktree, named by its
+ * canonical location.
+ */
+export const bridgeProductWorktreeAnnotationSubjectSchema = z.discriminatedUnion('kind', [
+	z.object({ kind: z.literal('git'), worktreeId: bridgeProductIdentifierSchema }).strict(),
+	z
+		.object({ documentLocation: bridgeProductDocumentLocationSchema, kind: z.literal('localFile') })
+		.strict(),
+]);
+
+export type BridgeProductWorktreeAnnotationSubject = z.infer<
+	typeof bridgeProductWorktreeAnnotationSubjectSchema
+>;
 
 const annotationOutputResultSummarySchema = z
 	.object({
@@ -347,6 +364,7 @@ export const bridgeProductWorktreeAnnotationReceiptContextSchema = z
 		sourceIdentity: bridgeProductIdentifierSchema,
 		sourceRole: z.enum(['file', 'review_base', 'review_head']),
 		startLine: bridgeProductNonnegativeSequenceSchema.positive(),
+		subject: bridgeProductWorktreeAnnotationSubjectSchema,
 		threadId: bridgeProductReviewPublicationIdSchema,
 	})
 	.strict()
@@ -521,10 +539,14 @@ export const bridgeProductWorktreeAnnotationCatalogEntrySchema = z.discriminated
 		.strict(),
 ]);
 
+/**
+ * `scopeKey` names the surface's annotation scope: the Files collection token,
+ * or the Review worktree.
+ */
 export const bridgeProductWorktreeAnnotationEventAuthoritySchema = z
 	.object({
 		applicationSourceGeneration: bridgeProductNonnegativeSequenceSchema,
-		worktreeId: bridgeProductIdentifierSchema,
+		scopeKey: bridgeProductIdentifierSchema,
 	})
 	.strict();
 

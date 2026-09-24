@@ -27,7 +27,7 @@ package enum PaneContent: Hashable, Sendable {
 
 extension PaneContent: Codable {
     /// Current schema version. Bump when any variant's state shape changes.
-    static let currentVersion = 3
+    static let currentVersion = 4
 
     private enum ContentType: String, Codable {
         case terminal

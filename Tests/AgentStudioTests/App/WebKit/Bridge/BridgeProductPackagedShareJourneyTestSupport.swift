@@ -303,8 +303,6 @@ enum BridgeProductPackagedShareJourneyTestSupport {
         var detail = try await store.createRootDraft(
             .init(
                 admission: .implicitOrSingle,
-                repositoryID: fingerprint.repositoryID,
-                worktreeID: fingerprint.worktreeID,
                 sourceFingerprint: fingerprint,
                 origin: .located(
                     .init(

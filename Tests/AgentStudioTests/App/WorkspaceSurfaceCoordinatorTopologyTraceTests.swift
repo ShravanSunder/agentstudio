@@ -130,12 +130,7 @@ struct WorkspaceSurfaceCoordinatorTopologyTraceTests {
     ) -> Pane {
         store.createPane(
             content: .bridgePanel(
-                BridgePaneState(
-                    panelKind: .diffViewer,
-                    source: .workspace(
-                        rootPath: cwd.path,
-                        baseline: .localDefaultBranch(branchName: "main"))
-                )
+                BridgePaneState(panelKind: .diffViewer)
             ),
             metadata: PaneMetadata(
                 contentType: .diff,

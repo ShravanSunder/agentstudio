@@ -23,9 +23,9 @@ struct RepositoryRetentionProtectedHistoryTests {
             try database.execute(
                 sql: """
                     INSERT INTO annotation_session(
-                        id, repository_id, worktree_id, lifecycle, source_relationship,
+                        id, subject_kind, repository_id, worktree_id, lifecycle, source_relationship,
                         accepted_source_fingerprint_json, semantic_revision, created_at, updated_at
-                    ) VALUES (?, ?, ?, 'living', 'applicable', '{}', 7, 1, 2)
+                    ) VALUES (?, 'git', ?, ?, 'living', 'applicable', '{}', 7, 1, 2)
                     """, arguments: [sessionID, repositoryID, worktreeID])
             try database.execute(
                 sql: """

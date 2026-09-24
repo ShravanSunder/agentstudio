@@ -43,12 +43,12 @@ extension WebKitSerializedTests {
             let recorder = BridgeTelemetryRecorderSpy()
             let controller = BridgePaneController(
                 paneId: UUIDv7.generate(),
-                state: BridgePaneState(
-                    panelKind: .diffViewer,
-                    source: .workspace(
-                        rootPath: "/tmp/worktree",
-                        baseline: .ref(name: "HEAD~1"))
-                ),
+                state: BridgePaneState(panelKind: .diffViewer),
+                sourceConfiguration: BridgePaneSourceConfiguration(
+                    review: BridgeReviewSourceBinding(
+                        worktreeId: UUIDv7.generate(), worktreeRootPath: "/tmp/worktree",
+                        comparison: .ref(name: "HEAD~1")),
+                    files: nil),
                 appRootURL: testBridgeAppRootURL(),
                 reviewSourceProvider: provider,
                 telemetryScopeGate: BridgeTelemetryScopeGate(enabledScopes: [.swift, .webKit]),
@@ -104,12 +104,12 @@ extension WebKitSerializedTests {
             let recorder = BridgeTelemetryRecorderSpy()
             let controller = BridgePaneController(
                 paneId: UUIDv7.generate(),
-                state: BridgePaneState(
-                    panelKind: .diffViewer,
-                    source: .workspace(
-                        rootPath: "/tmp/worktree",
-                        baseline: .ref(name: "HEAD~1"))
-                ),
+                state: BridgePaneState(panelKind: .diffViewer),
+                sourceConfiguration: BridgePaneSourceConfiguration(
+                    review: BridgeReviewSourceBinding(
+                        worktreeId: UUIDv7.generate(), worktreeRootPath: "/tmp/worktree",
+                        comparison: .ref(name: "HEAD~1")),
+                    files: nil),
                 appRootURL: testBridgeAppRootURL(),
                 telemetryRuntimePolicy: BridgeTelemetryRuntimePolicy(isDebugBuild: false),
                 telemetryScopeGate: BridgeTelemetryScopeGate(enabledScopes: [.swift, .web, .webKit]),
@@ -139,7 +139,8 @@ extension WebKitSerializedTests {
             await recorder.setDrainFailure()
             let controller = BridgePaneController(
                 paneId: UUIDv7.generate(),
-                state: BridgePaneState(panelKind: .diffViewer, source: nil),
+                state: BridgePaneState(panelKind: .diffViewer),
+                sourceConfiguration: BridgePaneSourceConfiguration(review: nil, files: nil),
                 appRootURL: testBridgeAppRootURL(),
                 telemetryRecorder: recorder,
                 initialPaneActivity: .foreground

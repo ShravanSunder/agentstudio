@@ -17,7 +17,7 @@ extension WorktreeAnnotationSQLiteRepository {
         let changed: Bool
         let results: [WorktreeAnnotationViewedResult]
         let sessionID: WorktreeAnnotationSessionID
-        let worktreeID: String
+        let subject: WorktreeAnnotationSubject
     }
 
     func markMessagesViewed(_ props: MarkMessagesViewedProps) throws
@@ -32,14 +32,17 @@ extension WorktreeAnnotationSQLiteRepository {
             guard
                 let sessionRow = try Row.fetchOne(
                     database,
-                    sql: "SELECT semantic_revision, worktree_id FROM annotation_session WHERE id = ?",
+                    sql: """
+                        SELECT semantic_revision, subject_kind, repository_id, worktree_id, local_document_path
+                        FROM annotation_session WHERE id = ?
+                        """,
                     arguments: [props.sessionID.databaseValue]
                 )
             else {
                 throw WorktreeAnnotationRepositoryError.notFound
             }
             let currentSessionRevision: Int = sessionRow["semantic_revision"]
-            let worktreeID: String = sessionRow["worktree_id"]
+            let subject = try WorktreeAnnotationSubject.decodeSessionRow(sessionRow)
             var evaluations: [ViewedItemEvaluation] = []
             evaluations.reserveCapacity(props.items.count)
             var changedMessageIDs: [WorktreeAnnotationMessageID] = []
@@ -116,7 +119,7 @@ extension WorktreeAnnotationSQLiteRepository {
                 changed: changed,
                 results: evaluations.map { $0.result(committedSessionRevision: committedSessionRevision) },
                 sessionID: props.sessionID,
-                worktreeID: worktreeID
+                subject: subject
             )
             return Self.committedViewedMutation(
                 canonicalResult,
@@ -134,7 +137,7 @@ extension WorktreeAnnotationSQLiteRepository {
             ? .content(
                 sessionChanges: [
                     WorktreeAnnotationCommittedSessionChange(
-                        worktreeID: canonicalResult.worktreeID,
+                        subject: canonicalResult.subject,
                         sessionID: canonicalResult.sessionID,
                         semanticRevision: semanticRevision
                     )

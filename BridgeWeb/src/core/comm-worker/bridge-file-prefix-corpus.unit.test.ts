@@ -406,12 +406,11 @@ function productDescriptorForCase(props: {
 		rowId: `row-${props.fixtureCase.name.replaceAll('_', '-')}`,
 		sizeBytes: props.sourceBytes.byteLength,
 		source: {
-			repoId: '00000000-0000-4000-8000-000000000001',
+			collectionToken: 'root-token-1',
 			rootRevisionToken: 'root-revision-1',
 			sourceCursor: 'source-cursor-1',
 			sourceId: 'file-source-1',
 			subscriptionGeneration: 1,
-			worktreeId: '00000000-0000-4000-8000-000000000002',
 		},
 	} as const;
 	if (props.fixtureCase.productAvailability !== 'available') {

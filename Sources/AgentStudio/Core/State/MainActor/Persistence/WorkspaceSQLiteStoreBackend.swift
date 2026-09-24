@@ -108,11 +108,13 @@ struct WorkspaceSQLiteStoreBackend {
 
     func writeLocalSnapshot(
         _ snapshot: WorkspaceSQLiteSnapshot,
+        bridgeNavigationRows: [BridgeNavigationRow]? = nil,
         localRepository: WorkspaceLocalRepository
     ) throws {
         try localRepository.replaceWorkspaceSnapshotLocalState(
             cursorState: WorkspaceSQLiteStateBridge.cursorStateRecord(from: snapshot),
             windowState: WorkspaceSQLiteStateBridge.windowStateRecord(from: snapshot),
+            bridgeNavigationRows: bridgeNavigationRows,
             completedAt: snapshot.updatedAt
         )
     }
@@ -121,12 +123,16 @@ struct WorkspaceSQLiteStoreBackend {
     func replaceWorkspaceSnapshot(
         _ bundle: WorkspaceSQLiteSaveBundle,
         updatesActiveSelection: Bool,
-        undoChange: WorkspaceUndoJournalChange? = nil
+        undoChange: WorkspaceUndoJournalChange? = nil,
+        preservingLegacyBridgePayloads: [UUID: String] = [:]
     ) throws -> WorkspaceUndoJournalReceipt? {
         let snapshot = bundle.workspace
         return try coreRepository.replaceWorkspaceSnapshot(
             workspace: WorkspaceSQLiteStateBridge.workspaceRecord(from: snapshot),
-            paneGraph: try WorkspaceSQLiteStateBridge.paneGraphRecord(from: snapshot),
+            paneGraph: WorkspaceSQLiteStateBridge.preservingLegacyBridgePayloads(
+                preservingLegacyBridgePayloads,
+                in: try WorkspaceSQLiteStateBridge.paneGraphRecord(from: snapshot)
+            ),
             tabShells: WorkspaceSQLiteStateBridge.tabShellRecords(from: snapshot),
             tabGraph: WorkspaceSQLiteStateBridge.tabGraphRecord(from: snapshot),
             updatesActiveSelection: updatesActiveSelection,
@@ -205,6 +211,34 @@ enum WorkspaceLocalSQLiteStoreBackendError: Error {
 }
 
 enum WorkspaceSQLiteStateBridge {
+    /// Substitute the exact stored legacy payload for Bridge panes whose local
+    /// import is not yet acknowledged, so an ordinary save cannot discard the
+    /// legacy `source` field before the ordered conversion.
+    static func preservingLegacyBridgePayloads(
+        _ legacyPayloadsByPaneID: [UUID: String],
+        in graph: WorkspaceCoreRepository.PaneGraphRecord
+    ) -> WorkspaceCoreRepository.PaneGraphRecord {
+        guard !legacyPayloadsByPaneID.isEmpty else { return graph }
+        var preserved = graph
+        preserved.panes = graph.panes.map { pane in
+            guard
+                let legacyPayloadJSON = legacyPayloadsByPaneID[pane.id],
+                case .payload(let contentType, let payloadKind, _) = pane.content,
+                payloadKind == "bridgePanel"
+            else {
+                return pane
+            }
+            var preservedPane = pane
+            preservedPane.content = .payload(
+                contentType: contentType,
+                payloadKind: payloadKind,
+                payloadJSON: legacyPayloadJSON
+            )
+            return preservedPane
+        }
+        return preserved
+    }
+
     struct Snapshot {
         var workspace: WorkspaceCoreRepository.WorkspaceRecord
         var paneGraph: WorkspaceCoreRepository.PaneGraphRecord
@@ -622,7 +656,8 @@ enum WorkspaceSQLiteStateBridge {
         switch PaneFilesystemLocationPolicy.resolveRestoredCWD(
             for: content,
             cwd: record.metadata.durableFacets.cwd,
-            launchDirectory: record.metadata.launchDirectory
+            launchDirectory: legacyBridgeWorkspaceRoot(in: record)
+                ?? record.metadata.launchDirectory
         ) {
         case .valid(let cwd):
             restoredCWD = cwd
@@ -643,6 +678,26 @@ enum WorkspaceSQLiteStateBridge {
             residency: paneResidency(from: record.residency),
             kind: try paneKind(from: record, cursorState: cursorState)
         )
+    }
+
+    /// A Bridge payload that still awaits the ordered legacy conversion keeps
+    /// its old workspace root as the restore repair location, exactly as the
+    /// legacy source did. This is hydration-time conversion input only.
+    private static func legacyBridgeWorkspaceRoot(
+        in record: WorkspaceCoreRepository.PaneRecord
+    ) -> URL? {
+        guard
+            case .payload(_, let payloadKind, let payloadJSON) = record.content,
+            payloadKind == "bridgePanel",
+            let legacy = try? BridgeLegacySourceConversion.legacyPayload(
+                paneId: record.id,
+                storedPayloadJSON: payloadJSON
+            ),
+            case .workspace(let rootPath, _)? = legacy.legacySource
+        else {
+            return nil
+        }
+        return URL(filePath: rootPath)
     }
 
     private static func paneContent(

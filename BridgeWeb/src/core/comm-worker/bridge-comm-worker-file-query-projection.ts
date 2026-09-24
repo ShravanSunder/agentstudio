@@ -1,4 +1,9 @@
 import { compileBridgeFileTreeSearchPattern } from '../models/bridge-file-tree-search.js';
+import {
+	searchBridgeFileCollection,
+	type BridgeFileCollectionSearchCriteria,
+	type BridgeFileCollectionSearchResult,
+} from './bridge-comm-worker-file-collection-search.js';
 import type { BridgeCommWorkerFileDisplayEventAuthority } from './bridge-comm-worker-file-display-event-authority.js';
 import {
 	BRIDGE_WORKER_FILE_DISPLAY_PATCH_LIMIT,
@@ -21,6 +26,10 @@ type FileTreeRow = Extract<FileTreeOperation, { readonly operation: 'upsert' }>[
 type FileItemPatch = Extract<BridgeWorkerFileDisplayPatch, { readonly slice: 'fileItem' }>;
 type FileItemPayload = Extract<FileItemPatch, { readonly operation: 'upsert' }>['payload'];
 type FileStatusPatch = Extract<BridgeWorkerFileDisplayPatch, { readonly slice: 'fileStatus' }>;
+type FileMemberGroupsPatch = Extract<
+	BridgeWorkerFileDisplayPatch,
+	{ readonly slice: 'fileMemberGroups' }
+>;
 
 const defaultBridgeWorkerFileQuery: BridgeWorkerFileQuery = {
 	filterMode: 'all',
@@ -48,6 +57,8 @@ interface BridgeCommWorkerFileQueryOutcome {
 
 export class BridgeCommWorkerFileQueryProjection {
 	readonly #fileItemsById = new Map<string, FileItemPayload>();
+	#fileMemberGroupsPatch: Extract<FileMemberGroupsPatch, { readonly operation: 'upsert' }> | null =
+		null;
 	#fileStatusPatch: Extract<FileStatusPatch, { readonly operation: 'upsert' }> | null = null;
 	#fileTreeReplacementCommitted = false;
 	#fileTreeResetPatch: FileTreeResetPatch = { operation: 'clear', slice: 'fileTree' };
@@ -117,6 +128,12 @@ export class BridgeCommWorkerFileQueryProjection {
 					this.#fileStatusPatch = patch.operation === 'upsert' ? patch : null;
 					projectedPatches.push(patch);
 					break;
+				case 'fileMemberGroups':
+					// Member groups map worktree-relative locations to display keys;
+					// no query filters them, so they pass through unprojected.
+					this.#fileMemberGroupsPatch = patch.operation === 'upsert' ? patch : null;
+					projectedPatches.push(patch);
+					break;
 				case 'fileQuery':
 					throw new Error('File query projection cannot consume its own display patch.');
 				default:
@@ -132,6 +149,30 @@ export class BridgeCommWorkerFileQueryProjection {
 		);
 	}
 
+	/**
+	 * Search every listed row of the current source, independent of the
+	 * published viewer query. `complete` is false until the source's initial
+	 * tree was committed, so an empty result is not yet proof of absence.
+	 */
+	searchCollection(criteria: BridgeFileCollectionSearchCriteria): {
+		readonly complete: boolean;
+		readonly membershipRevision: number | null;
+		readonly result: BridgeFileCollectionSearchResult;
+		readonly source: { readonly sourceGeneration: number; readonly sourceId: string } | null;
+	} {
+		return {
+			complete: this.#fileTreeReplacementCommitted,
+			membershipRevision: this.#fileMemberGroupsPatch?.payload.membershipRevision ?? null,
+			result: searchBridgeFileCollection({
+				criteria,
+				memberGroups: this.#fileMemberGroupsPatch?.payload.groups ?? [],
+				rows: this.#rawRowsById.values(),
+			}),
+			source:
+				this.#fileTreeResetPatch.operation === 'reset' ? this.#fileTreeResetPatch.payload : null,
+		};
+	}
+
 	snapshotDisplayPatches(): readonly BridgeWorkerFileDisplayPatch[] {
 		const projectedTreeOperations: FileTreeOperation[] = [...this.#projectedRowsById.values()]
 			.toSorted((left, right) => left.projectionIndex - right.projectionIndex)
@@ -143,8 +184,10 @@ export class BridgeCommWorkerFileQueryProjection {
 			this.#fileTreeResetPatch,
 			{ operation: 'reset', slice: 'fileItem' },
 			{ operation: 'reset', slice: 'fileStatus' },
+			{ operation: 'reset', slice: 'fileMemberGroups' },
 			...fileItemPatches,
 			...(this.#fileStatusPatch === null ? [] : [this.#fileStatusPatch]),
+			...(this.#fileMemberGroupsPatch === null ? [] : [this.#fileMemberGroupsPatch]),
 			...fileTreeOperationBatches(projectedTreeOperations),
 			...(this.#fileTreeReplacementCommitted && this.#fileTreeResetPatch.operation === 'reset'
 				? [
@@ -390,7 +433,7 @@ export class BridgeCommWorkerFileQueryProjection {
 	): boolean {
 		if (querySearchError !== null) return false;
 		if (queryPattern !== null) {
-			if (row.isDirectory || !queryPattern.test(row.path)) return false;
+			if (row.isDirectory || !rowPathOrLocationMatches(row, queryPattern)) return false;
 		}
 		if (row.isDirectory) return query.filterMode === 'all';
 		if (query.filterMode === 'all') return true;
@@ -565,10 +608,20 @@ function fileQueriesEqual(left: BridgeWorkerFileQuery, right: BridgeWorkerFileQu
 	);
 }
 
+/**
+ * A collection row matches on its collection path (which carries the member
+ * worktree group) or, for an individually opened document, on its real location.
+ */
+function rowPathOrLocationMatches(row: FileTreeRow, queryPattern: RegExp): boolean {
+	if (queryPattern.test(row.path)) return true;
+	return row.documentLocation !== null && queryPattern.test(row.documentLocation);
+}
+
 function fileTreeRowsEqual(left: FileTreeRow, right: FileTreeRow): boolean {
 	return (
 		left.changeStatus === right.changeStatus &&
 		left.depth === right.depth &&
+		left.documentLocation === right.documentLocation &&
 		left.fileId === right.fileId &&
 		left.fileClass === right.fileClass &&
 		left.isDirectory === right.isDirectory &&

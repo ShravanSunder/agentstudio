@@ -277,7 +277,7 @@ function catalogAuthoritiesEqual(
 	return (
 		left.subscriptionId === right.subscriptionId &&
 		left.workerDerivationEpoch === right.workerDerivationEpoch &&
-		left.worktreeId === right.worktreeId
+		left.scopeKey === right.scopeKey
 	);
 }
 

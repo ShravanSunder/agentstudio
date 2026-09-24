@@ -59,11 +59,8 @@ package enum PaneFilesystemLocationPolicy {
         launchDirectory: URL?
     ) -> URL? {
         switch content {
-        case .terminal:
+        case .terminal, .bridgePanel:
             return normalizedAbsoluteFileURL(launchDirectory)
-        case .bridgePanel(let state):
-            guard case .workspace(let rootPath, _) = state.source else { return nil }
-            return normalizedAbsoluteFileURL(URL(filePath: rootPath))
         case .codeViewer(let state):
             return normalizedAbsoluteFileURL(state.filePath.deletingLastPathComponent())
         case .webview, .unsupported:

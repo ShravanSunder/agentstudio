@@ -17,15 +17,15 @@ struct AgentStudioIPCRegistryAuthorizationTests {
         #expect(canonical.dataScope == .sidebarState)
     }
 
-    @Test("debug registry exposes the 47 typed bindings and computed capabilities only")
+    @Test("debug registry exposes the 48 typed bindings and computed capabilities only")
     func debugRegistryHasTypedCatalogAndComputedCapabilities() throws {
         let fixture = BuiltInMethodRegistrationsFixture()
         let registry = try AppIPCMethodRegistry(
             registrations: fixture.registrations(), recognizedCommands: [], channel: .debug)
         let names = registry.capabilities.methods.map(\.name)
 
-        #expect(names.count == 48)
-        #expect(Set(names).count == 48)
+        #expect(names.count == 49)
+        #expect(Set(names).count == 49)
         #expect(registry.registration(named: "system.capabilities") != nil)
         #expect(registry.registration(named: "pane.snapshot") != nil)
         #expect(registry.registration(named: "permission.request") == nil)
@@ -49,6 +49,12 @@ struct AgentStudioIPCRegistryAuthorizationTests {
                     "drawer.addPane", "pane.close", "pane.current", "pane.list", "pane.snapshot",
                     "terminal.send", "terminal.snapshot", "terminal.status", "terminal.wait",
                     "window.current", "window.list", "workspace.current", "workspace.list",
+                    // A pane agent's own receiving Bridge (B1).
+                    "bridge.diff.refresh", "bridge.diff.getPackage", "bridge.diff.renderState",
+                    "bridge.diff.selectFile", "bridge.diff.scrollToFile", "bridge.diff.expandFile",
+                    "bridge.diff.collapseFile", "bridge.fileTree.search", "bridge.fileTree.setFilter",
+                    "bridge.fileTree.revealPath", "bridge.fileView.getContent",
+                    "bridge.fileView.showMarkdownPreview", "bridge.files.search",
                 ])
         )
         #expect(registry.registration(named: "system.capabilities") != nil)

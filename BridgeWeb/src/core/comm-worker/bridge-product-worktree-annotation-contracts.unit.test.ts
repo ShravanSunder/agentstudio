@@ -36,7 +36,7 @@ describe('Bridge product worktree annotation contracts', () => {
 	test('accepts the strict catalog, session-change, and control-change metadata events', () => {
 		const authority = {
 			applicationSourceGeneration: 7,
-			worktreeId: 'worktree-1',
+			scopeKey: 'worktree-1',
 		} as const;
 		const transferId = '01890abc-def0-7abc-8def-012345678900';
 		const events = [
@@ -83,7 +83,7 @@ describe('Bridge product worktree annotation contracts', () => {
 	test('rejects legacy invalidation, unknown members, invalid ranges, and catalog authority mismatch', () => {
 		const authority = {
 			applicationSourceGeneration: 7,
-			worktreeId: 'worktree-1',
+			scopeKey: 'worktree-1',
 		} as const;
 		const controlChanged = {
 			authority,
@@ -102,11 +102,15 @@ describe('Bridge product worktree annotation contracts', () => {
 				eventKind: 'snapshot.required',
 				operationCorrelationId: 'a'.repeat(64),
 				sourceGeneration: 7,
-				worktreeId: authority.worktreeId,
+				worktreeId: authority.scopeKey,
 			},
 			{ ...controlChanged, authority: { ...authority, applicationSourceGeneration: -1 } },
 			{ ...controlChanged, authority: { ...authority, applicationSourceGeneration: 1.5 } },
-			{ ...controlChanged, authority: { ...authority, worktreeId: '' } },
+			{ ...controlChanged, authority: { ...authority, scopeKey: '' } },
+			{
+				...controlChanged,
+				authority: { applicationSourceGeneration: 7, worktreeId: 'worktree-1' },
+			},
 			{ ...controlChanged, reason: 'unsupported' },
 			{ ...controlChanged, payload: { body: 'must not enter metadata' } },
 			{ ...sessionChanged, semanticRevision: 0 },

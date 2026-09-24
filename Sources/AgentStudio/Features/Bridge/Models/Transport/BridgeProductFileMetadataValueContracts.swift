@@ -53,6 +53,7 @@ struct BridgeProductFileTreeRow: Codable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey, CaseIterable {
         case changeStatus
         case depth
+        case documentLocation
         case fileId
         case fileClass
         case isDirectory
@@ -66,6 +67,10 @@ struct BridgeProductFileTreeRow: Codable, Equatable, Sendable {
 
     let changeStatus: BridgeProductFileChangeStatus?
     let depth: Int
+    /// The canonical absolute location of an individually opened document that
+    /// sits outside every member worktree; nil for member-worktree rows, whose
+    /// location is their member root plus relative path.
+    let documentLocation: String?
     let fileId: String?
     let fileClass: BridgeFileClass?
     let isDirectory: Bool
@@ -79,6 +84,7 @@ struct BridgeProductFileTreeRow: Codable, Equatable, Sendable {
     init(
         changeStatus: BridgeProductFileChangeStatus?,
         depth: Int,
+        documentLocation: String?,
         fileId: String?,
         fileClass: BridgeFileClass?,
         isDirectory: Bool,
@@ -91,6 +97,7 @@ struct BridgeProductFileTreeRow: Codable, Equatable, Sendable {
     ) throws {
         self.changeStatus = changeStatus
         self.depth = depth
+        self.documentLocation = documentLocation
         self.fileId = fileId
         self.fileClass = fileClass
         self.isDirectory = isDirectory
@@ -117,6 +124,12 @@ struct BridgeProductFileTreeRow: Codable, Equatable, Sendable {
             codingPath: decoder.codingPath
         )
         self.depth = try container.decode(Int.self, forKey: .depth)
+        self.documentLocation = try BridgeProductContractDecoding.decodeRequiredNullable(
+            String.self,
+            forKey: .documentLocation,
+            from: container,
+            codingPath: decoder.codingPath
+        )
         self.fileId = try BridgeProductContractDecoding.decodeRequiredNullable(
             String.self,
             forKey: .fileId,
@@ -159,6 +172,7 @@ struct BridgeProductFileTreeRow: Codable, Equatable, Sendable {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(changeStatus, forKey: .changeStatus)
         try container.encode(depth, forKey: .depth)
+        try container.encode(documentLocation, forKey: .documentLocation)
         try container.encode(fileId, forKey: .fileId)
         try container.encode(fileClass, forKey: .fileClass)
         try container.encode(isDirectory, forKey: .isDirectory)
@@ -172,6 +186,15 @@ struct BridgeProductFileTreeRow: Codable, Equatable, Sendable {
 
     private func validate(codingPath: [any CodingKey]) throws {
         try BridgeProductContractDecoding.validateNonnegative(depth, name: "depth", codingPath: codingPath)
+        if let documentLocation {
+            try BridgeProductContractDecoding.validateDisplayPath(documentLocation, codingPath: codingPath)
+            guard documentLocation.hasPrefix("/"), !isDirectory else {
+                throw BridgeProductContractDecoding.invalidValue(
+                    "File metadata document locations must be absolute file locations",
+                    codingPath: codingPath
+                )
+            }
+        }
         if let fileId {
             try BridgeProductContractDecoding.validateIdentifier(fileId, codingPath: codingPath)
         }

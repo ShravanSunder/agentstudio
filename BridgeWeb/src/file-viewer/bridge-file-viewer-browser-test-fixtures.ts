@@ -285,6 +285,24 @@ export function makeSourceAcceptedMetadataEvent(
 	return parseFileMetadataEvent({ eventKind: 'file.sourceAccepted', source: sourceIdentity });
 }
 
+/** Lists each member worktree's files under its collection group path. */
+export function makeFileMemberGroupsMetadataEvent(props: {
+	readonly groups: readonly { readonly groupPath: string; readonly worktreeId: string }[];
+	readonly source: BridgeProductFileSourceIdentity;
+}): FileMetadataEvent {
+	return parseFileMetadataEvent({
+		eventKind: 'file.memberGroups',
+		groups: props.groups.map((group, groupIndex) => ({
+			...group,
+			identityPrefix: `m${groupIndex}.`,
+			nestedMemberRelativeRoots: [],
+		})),
+		membershipRevision: 0,
+		openedDocuments: [],
+		source: props.source,
+	});
+}
+
 export function makeSourceSnapshotMetadataEvents(props: {
 	readonly sequence?: number;
 	readonly sourceIdentity: BridgeProductFileSourceIdentity;
@@ -379,6 +397,7 @@ export function makeTreeRow(props: {
 	return {
 		changeStatus: props.changeStatus ?? null,
 		depth: props.depth,
+		documentLocation: null,
 		fileId: props.fileId ?? null,
 		fileClass: props.isDirectory ? null : (props.fileClass ?? 'source'),
 		isDirectory: props.isDirectory,
@@ -505,12 +524,11 @@ export function makeSourceIdentity(
 	} = {},
 ): BridgeProductFileSourceIdentity {
 	return {
-		repoId: '00000000-0000-4000-8000-000000000001',
+		collectionToken: 'root-token-1',
 		rootRevisionToken: 'root-revision-1',
 		sourceCursor: props.sourceCursor ?? 'cursor-1',
 		sourceId: 'dev-worktree-source',
 		subscriptionGeneration: props.subscriptionGeneration ?? 1,
-		worktreeId: '00000000-0000-4000-8000-000000000002',
 	};
 }
 
@@ -547,7 +565,8 @@ export function fileTreeRowId(path: string): string {
 export function fileNavigationCommandForPath(path: string): FileNavigationCommand {
 	return {
 		bindingRevision: 1,
-		commandId: `test:file:${path}`,
+		// Native command ids are product identifiers; a path is not one.
+		commandId: `test:file:${path.replaceAll(/[^A-Za-z0-9._:-]/gu, '-')}`,
 		commandKind: 'activateTarget',
 		source: {
 			sourceId: 'dev-worktree-source',

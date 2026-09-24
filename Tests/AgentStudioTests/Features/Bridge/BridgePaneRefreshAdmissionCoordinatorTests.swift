@@ -24,6 +24,33 @@ struct BridgePaneRefreshAdmissionCoordinatorTests {
         #expect(coordinator.productPresentationSnapshot.fileRefreshFailure == nil)
     }
 
+    @Test("File changes from two member worktrees stay under their own authority")
+    func fileChangesFromTwoMembersStayUnderTheirOwnAuthority() throws {
+        // Arrange
+        let coordinator = BridgePaneRefreshAdmissionCoordinator(initialActivity: .dormant)
+        let firstMember = UUID(uuidString: "33333333-3333-3333-3333-333333333333")!
+        let secondMember = UUID(uuidString: "44444444-4444-4444-4444-444444444444")!
+
+        // Act
+        for (path, batchSequence, worktreeId) in [
+            ("Sources/A.swift", UInt64(71), firstMember),
+            ("Sources/B.swift", UInt64(72), secondMember),
+            ("Sources/C.swift", UInt64(73), firstMember),
+        ] {
+            coordinator.recordInvalidation(
+                fileChangeset: makeFileChangeset(paths: [path], batchSequence: batchSequence, worktreeId: worktreeId),
+                requiresReviewRefresh: false
+            )
+        }
+        coordinator.applyActivity(.foreground)
+        let reservation = try #require(coordinator.reserveForegroundRefreshPass(for: .file))
+
+        // Assert
+        #expect(reservation.fileChangesets.map(\.worktreeId) == [firstMember, secondMember])
+        #expect(reservation.fileChangesets.first?.paths == ["Sources/A.swift", "Sources/C.swift"])
+        #expect(reservation.fileChangesets.last?.paths == ["Sources/B.swift"])
+    }
+
     @Test("explicit File retry advances authority and clears retained failure")
     func explicitFileRetryAdvancesAuthorityAndClearsRetainedFailure() throws {
         // Arrange
@@ -598,7 +625,7 @@ struct BridgePaneRefreshAdmissionCoordinatorTests {
         let reviewReservation = try #require(coordinator.reserveForegroundRefreshPass())
 
         // Assert
-        #expect(fileReservation.fileChangeset == nil)
+        #expect(fileReservation.fileChangesets.isEmpty)
         #expect(fileReservation.latestFileStatus == latestStatus)
         #expect(fileReservation.lanes == [.file])
         #expect(reviewReservation.lanes == [.review])

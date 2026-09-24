@@ -282,12 +282,12 @@ export async function verifyWorktreeFileStaleRefresh(props: {
 	readonly fixture: WorktreeFileStaleRefreshFixture;
 	readonly page: Page;
 }): Promise<WorktreeFileStaleRefreshProof> {
-	await fillWorktreeFileSearch(props.page, props.fixture.relativePath);
+	await fillWorktreeFileSearch(props.page, props.fixture.fileCollectionPath);
 	await waitForWorktreeFileFilterStatus(props.page, 1, undefined);
-	await clickWorktreeFilePath(props.page, props.fixture.relativePath);
+	await clickWorktreeFilePath(props.page, props.fixture.fileCollectionPath);
 	await waitForWorktreeOpenFileState({
 		page: props.page,
-		path: props.fixture.relativePath,
+		path: props.fixture.fileCollectionPath,
 		state: 'ready',
 	});
 	await assertWorktreeVisibleContentText({
@@ -298,12 +298,12 @@ export async function verifyWorktreeFileStaleRefresh(props: {
 	await writeFile(props.fixture.absolutePath, props.fixture.updatedContent);
 	const replacementSurface = await fetchWorktreeSurface();
 	const replacementDescriptor = await fetchFetchableWorktreeFileDescriptorForPath({
-		path: props.fixture.relativePath,
+		path: props.fixture.fileCollectionPath,
 		surface: replacementSurface,
 	});
 	if (replacementDescriptor.contentHandle === props.descriptor.contentHandle) {
 		throw new Error(
-			`Expected stale-refresh proof to use replacement content handle for ${props.fixture.relativePath}`,
+			`Expected stale-refresh proof to use replacement content handle for ${props.fixture.fileCollectionPath}`,
 		);
 	}
 	const refreshGate = makeDeferred<void>();
@@ -320,7 +320,7 @@ export async function verifyWorktreeFileStaleRefresh(props: {
 	});
 	await waitForWorktreeOpenFileState({
 		page: props.page,
-		path: props.fixture.relativePath,
+		path: props.fixture.fileCollectionPath,
 		state: 'stale',
 	});
 	await waitForWorktreeSourceCursor({
@@ -340,7 +340,7 @@ export async function verifyWorktreeFileStaleRefresh(props: {
 		await setWorktreeOpenStateWaitLabel(props.page, 'stale-refresh-auto-ready');
 		await waitForWorktreeOpenFileState({
 			page: props.page,
-			path: props.fixture.relativePath,
+			path: props.fixture.fileCollectionPath,
 			state: 'ready',
 		});
 	} catch (error) {
@@ -352,7 +352,7 @@ export async function verifyWorktreeFileStaleRefresh(props: {
 				replacementContentHandle: replacementDescriptor.contentHandle,
 				replacementContentHash: replacementDescriptor.contentHash ?? null,
 				replacementSourceCursor: replacementSurface.source.sourceCursor,
-				proofPath: props.fixture.relativePath,
+				proofPath: props.fixture.fileCollectionPath,
 				waitFailureMessage,
 			})}`,
 			{ cause: error },
@@ -498,12 +498,12 @@ export async function verifyWorktreeFileSplitResetReplacement(props: {
 	readonly fixture: WorktreeFileStaleRefreshFixture;
 	readonly page: Page;
 }): Promise<WorktreeFileSplitResetReplacementProof> {
-	await fillWorktreeFileSearch(props.page, props.fixture.relativePath);
+	await fillWorktreeFileSearch(props.page, props.fixture.fileCollectionPath);
 	await waitForWorktreeFileFilterStatus(props.page, 1, undefined);
-	await clickWorktreeFilePath(props.page, props.fixture.relativePath);
+	await clickWorktreeFilePath(props.page, props.fixture.fileCollectionPath);
 	await waitForWorktreeOpenFileState({
 		page: props.page,
-		path: props.fixture.relativePath,
+		path: props.fixture.fileCollectionPath,
 		state: 'ready',
 	});
 	await assertWorktreeVisibleContentText({
@@ -514,12 +514,12 @@ export async function verifyWorktreeFileSplitResetReplacement(props: {
 	await writeFile(props.fixture.absolutePath, props.fixture.updatedContent);
 	const replacementSurface = await fetchWorktreeSurface();
 	const replacementDescriptor = await fetchFetchableWorktreeFileDescriptorForPath({
-		path: props.fixture.relativePath,
+		path: props.fixture.fileCollectionPath,
 		surface: replacementSurface,
 	});
 	if (replacementDescriptor.contentHandle === props.descriptor.contentHandle) {
 		throw new Error(
-			`Expected split-reset proof to create a replacement content handle for ${props.fixture.relativePath}`,
+			`Expected split-reset proof to create a replacement content handle for ${props.fixture.fileCollectionPath}`,
 		);
 	}
 	const refreshGate = makeDeferred<void>();
@@ -540,7 +540,7 @@ export async function verifyWorktreeFileSplitResetReplacement(props: {
 		await waitForWorktreeFileSourceCleared(props.page);
 		await waitForWorktreeOpenFileState({
 			page: props.page,
-			path: props.fixture.relativePath,
+			path: props.fixture.fileCollectionPath,
 			state: 'stale',
 		});
 		const staleNotice = props.page.locator('[data-testid="worktree-file-content-stale"]');
@@ -556,11 +556,11 @@ export async function verifyWorktreeFileSplitResetReplacement(props: {
 		staleMessageVisible = await staleNotice.isVisible();
 		staleText = await worktreeVisibleContentText(props.page);
 		const postReplacementContentRouteHitCount = refreshRouteProbe.hitCount();
-		await clickWorktreeFilePath(props.page, props.fixture.relativePath);
+		await clickWorktreeFilePath(props.page, props.fixture.fileCollectionPath);
 		await setWorktreeOpenStateWaitLabel(props.page, 'split-reset-refresh-ready');
 		await waitForWorktreeOpenFileState({
 			page: props.page,
-			path: props.fixture.relativePath,
+			path: props.fixture.fileCollectionPath,
 			state: 'ready',
 		});
 		const postRefreshContentRouteHitCount = refreshRouteProbe.hitCount();
@@ -596,7 +596,7 @@ export async function verifyWorktreeFileSplitResetReplacement(props: {
 			postRefreshContentRouteHitCount,
 			postReplacementContentRouteHitCount,
 			preDispatchContentRouteHitCount,
-			proofPath: props.fixture.relativePath,
+			proofPath: props.fixture.fileCollectionPath,
 			refreshDisabledAtFirstStale,
 			refreshEnabledAfterReplacement,
 			refreshedContentVisible: renderedTextIncludesContent(

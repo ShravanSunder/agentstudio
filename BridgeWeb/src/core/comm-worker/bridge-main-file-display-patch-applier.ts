@@ -7,6 +7,10 @@ import {
 } from './bridge-main-file-tree-display-index.js';
 import { BRIDGE_PRODUCT_MAXIMUM_METADATA_FRAME_BYTES } from './bridge-product-contract-primitives.js';
 import type {
+	BridgeProductFileMemberGroup,
+	BridgeProductFileOpenedDocumentEntry,
+} from './bridge-product-file-member-group-contracts.js';
+import type {
 	BridgeWorkerFileDisplayPatch,
 	BridgeWorkerFileDisplayPatchEvent,
 } from './bridge-worker-contracts.js';
@@ -33,6 +37,11 @@ export interface BridgeMainFileDisplayFreshness {
 
 export interface BridgeMainFileTreeDisplaySlice {
 	readonly index: BridgeMainFileTreeDisplayIndex;
+	/**
+	 * Whether the source's initial tree finished. Only then is a row absent
+	 * from the index proven absent; a status can arrive earlier.
+	 */
+	readonly replacementCommitted: boolean;
 	readonly sourceGeneration: number | null;
 	readonly sourceId: string | null;
 }
@@ -40,6 +49,10 @@ export interface BridgeMainFileTreeDisplaySlice {
 export interface BridgeMainFileDisplayState {
 	readonly fileDisplayFreshness: BridgeMainFileDisplayFreshness | null;
 	readonly fileItemById: BridgeMainFileItemDisplayIndex<BridgeMainFileItemDisplayPayload>;
+	/** Member worktrees and their group paths, never filtered by the file query. */
+	readonly fileMemberGroupsSlice: readonly BridgeProductFileMemberGroup[];
+	/** Loose opened documents and their display keys, never filtered by the file query. */
+	readonly fileOpenedDocumentsSlice: readonly BridgeProductFileOpenedDocumentEntry[];
 	readonly fileQuerySlice: BridgeMainFileQueryDisplayPayload | null;
 	readonly fileStatusSlice: BridgeMainFileStatusDisplayPayload | null;
 	readonly fileTreeSlice: BridgeMainFileTreeDisplaySlice;
@@ -207,6 +220,13 @@ export class BridgeMainFileDisplayPatchApplier {
 					...state,
 					fileStatusSlice: patch.operation === 'upsert' ? patch.payload : null,
 				};
+			case 'fileMemberGroups':
+				return {
+					...state,
+					fileMemberGroupsSlice: patch.operation === 'upsert' ? patch.payload.groups : [],
+					fileOpenedDocumentsSlice:
+						patch.operation === 'upsert' ? patch.payload.openedDocuments : [],
+				};
 			case 'fileQuery':
 				return { ...state, fileQuerySlice: patch.payload };
 			default:
@@ -220,7 +240,7 @@ export class BridgeMainFileDisplayPatchApplier {
 	): BridgeMainFileDisplayState {
 		if (patch.operation === 'replacementCommit') {
 			this.#fileTreePatchStream.append({ kind: 'replacementCommit' });
-			return state;
+			return { ...state, fileTreeSlice: { ...state.fileTreeSlice, replacementCommitted: true } };
 		}
 		if (patch.operation === 'reset') {
 			this.#fileTreePatchStream.append({ kind: 'reset' });
@@ -228,6 +248,7 @@ export class BridgeMainFileDisplayPatchApplier {
 				...state,
 				fileTreeSlice: {
 					index: BridgeMainFileTreeDisplayIndex.empty(),
+					replacementCommitted: false,
 					sourceGeneration: patch.payload.sourceGeneration,
 					sourceId: patch.payload.sourceId,
 				},
@@ -279,6 +300,8 @@ export class BridgeMainFileDisplayPatchApplier {
 				transactionId: transaction.transactionId,
 				treeSlice: {
 					index: BridgeMainFileTreeDisplayIndex.empty(),
+					// A query re-projects the same source; it does not re-open its tree.
+					replacementCommitted: this.#state.fileTreeSlice.replacementCommitted,
 					sourceGeneration: this.#state.fileTreeSlice.sourceGeneration,
 					sourceId: this.#state.fileTreeSlice.sourceId,
 				},
@@ -471,6 +494,8 @@ function emptyBridgeMainFileDisplayState(): BridgeMainFileDisplayState {
 	return {
 		fileDisplayFreshness: null,
 		fileItemById: BridgeMainImmutableStringMap.empty(),
+		fileMemberGroupsSlice: [],
+		fileOpenedDocumentsSlice: [],
 		fileQuerySlice: null,
 		fileStatusSlice: null,
 		fileTreeSlice: emptyBridgeMainFileTreeSlice(),
@@ -480,6 +505,7 @@ function emptyBridgeMainFileDisplayState(): BridgeMainFileDisplayState {
 function emptyBridgeMainFileTreeSlice(): BridgeMainFileTreeDisplaySlice {
 	return {
 		index: BridgeMainFileTreeDisplayIndex.empty(),
+		replacementCommitted: false,
 		sourceGeneration: null,
 		sourceId: null,
 	};

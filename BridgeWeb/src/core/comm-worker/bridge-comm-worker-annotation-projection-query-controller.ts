@@ -107,7 +107,7 @@ interface AnnotationProjectionInvalidation {
 	readonly queryKind: 'content' | 'control';
 	readonly sessionIds: readonly string[];
 	readonly sourceGeneration: number;
-	readonly worktreeId: string;
+	readonly scopeKey: string;
 }
 
 export class BridgeCommWorkerAnnotationProjectionQueryController {
@@ -312,7 +312,7 @@ export class BridgeCommWorkerAnnotationProjectionQueryController {
 						queryKind: 'control',
 						sessionIds: [],
 						sourceGeneration: event.authority.applicationSourceGeneration,
-						worktreeId: event.authority.worktreeId,
+						scopeKey: event.authority.scopeKey,
 					});
 					break;
 				case 'control':
@@ -322,7 +322,7 @@ export class BridgeCommWorkerAnnotationProjectionQueryController {
 						queryKind: 'control',
 						sessionIds: [],
 						sourceGeneration: event.authority.applicationSourceGeneration,
-						worktreeId: event.authority.worktreeId,
+						scopeKey: event.authority.scopeKey,
 					});
 					break;
 				case 'content':
@@ -331,7 +331,7 @@ export class BridgeCommWorkerAnnotationProjectionQueryController {
 						queryKind: 'content',
 						sessionIds: this.#sessionIds,
 						sourceGeneration: event.authority.applicationSourceGeneration,
-						worktreeId: event.authority.worktreeId,
+						scopeKey: event.authority.scopeKey,
 					});
 					break;
 				case 'none':
@@ -644,7 +644,7 @@ export class BridgeCommWorkerAnnotationProjectionQueryController {
 				expectedPage.operationCorrelationId !== invalidation.operationCorrelationId ||
 				snapshot.projectionRevision !== expectedPage.projectionRevision ||
 				snapshot.sourceGeneration !== expectedPage.sourceGeneration ||
-				snapshot.worktreeId !== invalidation.worktreeId ||
+				snapshot.scopeKey !== invalidation.scopeKey ||
 				snapshot.expectedSessionCount !== expectedPage.expectedSessionCount ||
 				snapshot.expectedThreadCount !== expectedPage.expectedThreadCount ||
 				snapshot.expectedMessageCount !== expectedPage.expectedMessageCount

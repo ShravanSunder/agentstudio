@@ -108,10 +108,7 @@ extension WebKitSerializedTests {
                 harness.store.paneAtom.addDrawerPane(
                     to: harness.siblingPane.id,
                     content: .bridgePanel(
-                        BridgePaneState(
-                            panelKind: .diffViewer,
-                            source: .commit(sha: "drawer-zoom")
-                        )
+                        BridgePaneState(panelKind: .diffViewer)
                     ),
                     metadata: PaneMetadata(
                         title: "Drawer review",

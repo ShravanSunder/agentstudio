@@ -145,10 +145,21 @@ actor BridgePaneProductFileMetadataSource: BridgePaneProductFileMetadataProducin
         sourceAcceptedObserver = observer
     }
 
+    func worktreeAnnotationScope() -> WorktreeAnnotationScope {
+        WorktreeAnnotationScope(
+            key: worktreeAnnotationSubject.gitWorktreeID ?? "",
+            subjects: [worktreeAnnotationSubject]
+        )
+    }
+
     func currentWorktreeAnnotationFingerprint(
+        subject: WorktreeAnnotationSubject,
         productAdmission: BridgeProductAdmissionContext
     ) async throws -> WorktreeAnnotationSourceFingerprint {
-        try await worktreeAnnotationFingerprintImplementation(productAdmission: productAdmission)
+        guard subject.key == worktreeAnnotationSubject.key else {
+            throw WorktreeAnnotationSourceResolutionError.unavailable
+        }
+        return try await worktreeAnnotationFingerprintImplementation(productAdmission: productAdmission)
     }
 
     func currentWorktreeAnnotationSourceGeneration(
@@ -158,10 +169,14 @@ actor BridgePaneProductFileMetadataSource: BridgePaneProductFileMetadataProducin
     }
 
     func currentWorktreeAnnotationRefresh(
+        subject: WorktreeAnnotationSubject,
         requirements: [WorktreeAnnotationSourceRefreshRequirement],
         productAdmission: BridgeProductAdmissionContext
     ) async throws -> WorktreeAnnotationSourceRefreshCapture {
-        try await worktreeAnnotationRefreshImplementation(
+        guard subject.key == worktreeAnnotationSubject.key else {
+            throw WorktreeAnnotationSourceResolutionError.unavailable
+        }
+        return try await worktreeAnnotationRefreshImplementation(
             requirements: requirements,
             productAdmission: productAdmission
         )
@@ -625,8 +640,9 @@ actor BridgePaneProductFileMetadataSource: BridgePaneProductFileMetadataProducin
         foregroundWorkAdmission: BridgePaneRefreshWorkAdmission
     ) throws -> SubscriptionContext? {
         let sourceGeneration = nextSourceGeneration + 1
-        let legacySourceSpec = try BridgePaneProductFileMetadataEncoding.legacySourceSpec(
+        let legacySourceSpec = BridgePaneProductFileMetadataEncoding.legacySourceSpec(
             sourceSpec: sourceSpec,
+            worktree: authority.worktree,
             subscriptionId: subscription.subscriptionId,
             pathScope: pathScope
         )
@@ -637,12 +653,11 @@ actor BridgePaneProductFileMetadataSource: BridgePaneProductFileMetadataProducin
             subscriptionGeneration: sourceGeneration
         )
         let productSource = try BridgeProductFileSourceIdentity(
-            repoId: openedSource.source.repoId,
+            collectionToken: sourceSpec.collectionToken,
             rootRevisionToken: openedSource.source.rootRevisionToken,
             sourceCursor: openedSource.source.sourceCursor,
             sourceId: openedSource.source.sourceId,
-            subscriptionGeneration: openedSource.source.subscriptionGeneration,
-            worktreeId: openedSource.source.worktreeId
+            subscriptionGeneration: openedSource.source.subscriptionGeneration
         )
         let context = SubscriptionContext(
             manifestIndex: .init(

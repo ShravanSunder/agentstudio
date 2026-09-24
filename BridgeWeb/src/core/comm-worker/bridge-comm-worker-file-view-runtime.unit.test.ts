@@ -690,12 +690,11 @@ function makeContentRequest(text: string): BridgeCommWorkerFileViewContentReques
 			fileId: 'file-1',
 			maximumBytes: encodedBytes.byteLength,
 			source: {
-				repoId: '00000000-0000-4000-8000-000000000001',
+				collectionToken: 'root-token-1',
 				rootRevisionToken: 'root-revision-file-1',
 				sourceCursor: 'cursor-file-1',
 				sourceId: 'source-file-1',
 				subscriptionGeneration: 7,
-				worktreeId: '00000000-0000-4000-8000-000000000002',
 			},
 			window: {
 				kind: 'prefix',

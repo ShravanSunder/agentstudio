@@ -12,6 +12,7 @@ import {
 import { markdownCanvas } from '../app/markdown/bridge-markdown-annotation-test-support.js';
 import { useBridgeAnnotationNavigation } from '../app/use-bridge-annotation-navigation.js';
 import type { BridgeWorkerServerToMainMessage } from '../core/comm-worker/bridge-worker-contracts.js';
+import { fileCollectionSourceLocation } from '../file-viewer/bridge-file-collection-display-path.js';
 import { useWorktreeAnnotationNavigationTarget } from './use-worktree-annotation-navigation-target.js';
 import {
 	annotationSessionId,
@@ -19,6 +20,7 @@ import {
 	annotationBaseThreadId,
 	annotationSecondSessionId,
 	annotationSessionSummary,
+	annotationSubject,
 	createWorktreeAnnotationBrowserProviderHarness,
 } from './worktree-annotation-browser-test-support.js';
 import {
@@ -414,6 +416,92 @@ describe('annotation destination navigation', () => {
 			.toBe(1);
 	});
 
+	test('resolves a Review-origin thread in Files under its own member collection path', async () => {
+		// Arrange — two members list the same relative path; the projection belongs to worktree-1.
+		const memberGroups = [
+			{
+				groupPath: 'frontend',
+				identityPrefix: 'mfrontend.',
+				nestedMemberRelativeRoots: [],
+				worktreeId: 'worktree-0',
+			},
+			{
+				groupPath: 'backend',
+				identityPrefix: 'mbackend.',
+				nestedMemberRelativeRoots: [],
+				worktreeId: 'worktree-1',
+			},
+		];
+		const harness = createWorktreeAnnotationBrowserProviderHarness('fileView', {
+			threadSourcePresenter: (subject, storedSource) =>
+				subject.kind === 'git'
+					? fileCollectionSourceLocation(memberGroups, subject.worktreeId, storedSource)
+					: null,
+		});
+		let controller: WorktreeAnnotationNavigationController | null = null;
+		function Destination(): ReactElement {
+			const target = useWorktreeAnnotationNavigationTarget('file', true);
+			return (
+				<output data-testid="destination-path">
+					{target === null
+						? 'waiting'
+						: `${target.thread.context.path} ${target.thread.context.sourceIdentity}`}
+				</output>
+			);
+		}
+		function Fixture(): ReactElement {
+			controller = useBridgeAnnotationNavigation({
+				activeSurface: 'file',
+				activateDestination: (): boolean => true,
+			});
+			return (
+				<WorktreeAnnotationNavigationProvider controller={controller}>
+					{harness.wrap(<Destination />)}
+				</WorktreeAnnotationNavigationProvider>
+			);
+		}
+		const screen = await render(<Fixture />);
+		const reviewThread = threadFixture(4);
+		const reviewOriginThread = {
+			...reviewThread,
+			context: { ...reviewThread.context, sourceRole: 'review_head' as const },
+		};
+		await act(async (): Promise<void> => {
+			harness.surface.publishProjectionState({
+				expectedThreadCount: 1,
+				revision: 1,
+				sessions: [annotationSessionSummary({ sessionId: annotationSessionId, revision: 1 })],
+			});
+			harness.surface.publishThreadMessages(reviewOriginThread);
+		});
+
+		// Act — Review's "Open in Files" on the thread; its content arrives after the demand.
+		await act(async (): Promise<void> => {
+			if (controller === null) throw new Error('Missing navigation controller');
+			controller.open({
+				destination: 'file',
+				sessionId: annotationSessionId,
+				threadId: annotationHeadThreadId,
+			});
+		});
+		await expect
+			.poll(() =>
+				harness.surface.sentOperations.some(
+					(operation): boolean =>
+						operation.kind === 'demand.acquire' && operation.sessionId === annotationSessionId,
+				),
+			)
+			.toBe(true);
+		await act(async (): Promise<void> => {
+			harness.surface.publishThreadMessages(reviewOriginThread);
+		});
+
+		// Assert
+		await expect
+			.element(screen.getByTestId('destination-path'))
+			.toHaveTextContent('backend/plan.md mbackend.plan-descriptor-1');
+	});
+
 	test('a missing destination session reports unavailability instead of waiting forever', async () => {
 		const harness = createWorktreeAnnotationBrowserProviderHarness('fileView');
 		const finish = vi.fn<WorktreeAnnotationNavigationController['finish']>();
@@ -511,6 +599,7 @@ function threadFixture(line: number): WorktreeAnnotationThreadProjection {
 			resolution: 'open',
 			startLine: line,
 			endLine: line,
+			subject: annotationSubject,
 			threadId: annotationHeadThreadId,
 		},
 		messages: [

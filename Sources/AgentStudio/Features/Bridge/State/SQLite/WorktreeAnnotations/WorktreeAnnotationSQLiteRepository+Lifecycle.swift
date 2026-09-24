@@ -85,7 +85,10 @@ extension WorktreeAnnotationSQLiteRepository {
             guard
                 let row = try Row.fetchOne(
                     database,
-                    sql: "SELECT repository_id, worktree_id, semantic_revision FROM annotation_session WHERE id = ?",
+                    sql: """
+                        SELECT repository_id, worktree_id, semantic_revision FROM annotation_session
+                        WHERE id = ? AND subject_kind = 'git'
+                        """,
                     arguments: [props.sessionID.databaseValue]
                 )
             else {
@@ -95,10 +98,11 @@ extension WorktreeAnnotationSQLiteRepository {
             guard currentRevision == props.expectedSessionRevision else {
                 throw WorktreeAnnotationRepositoryError.conflict(currentRevision: currentRevision)
             }
-            guard row["repository_id"] as String == props.expectedRepositoryID,
-                row["worktree_id"] as String == props.previousWorktreeID,
-                props.acceptedSourceFingerprint.repositoryID == props.expectedRepositoryID,
-                props.acceptedSourceFingerprint.worktreeID == props.currentWorktreeID
+            // Transfer moves a Git session between worktrees of one repository.
+            guard row["repository_id"] as String? == props.expectedRepositoryID,
+                row["worktree_id"] as String? == props.previousWorktreeID,
+                props.acceptedSourceFingerprint.subject
+                    == .git(repositoryID: props.expectedRepositoryID, worktreeID: props.currentWorktreeID)
             else {
                 throw WorktreeAnnotationRepositoryError.invalidState
             }
@@ -129,16 +133,19 @@ extension WorktreeAnnotationSQLiteRepository {
                 previousWorktreeID: props.previousWorktreeID,
                 currentWorktreeID: props.currentWorktreeID
             )
-            let worktreeIDs = Set([props.previousWorktreeID, props.currentWorktreeID])
+            let subjects: Set<WorktreeAnnotationSubject> = [
+                .git(repositoryID: props.expectedRepositoryID, worktreeID: props.previousWorktreeID),
+                .git(repositoryID: props.expectedRepositoryID, worktreeID: props.currentWorktreeID),
+            ]
             let sessionChanges = [canonicalResult.detail.committedSessionChange]
             let change: WorktreeAnnotationCommittedChange =
                 props.previousWorktreeID == props.currentWorktreeID
                 ? .control(
-                    worktreeIDs: worktreeIDs,
+                    subjects: subjects,
                     reason: .discovery,
                     sessionChanges: sessionChanges
                 )
-                : .catalog(worktreeIDs: worktreeIDs, sessionChanges: sessionChanges)
+                : .catalog(subjects: subjects, sessionChanges: sessionChanges)
             return WorktreeAnnotationCommittedMutation(
                 canonicalResult: canonicalResult,
                 change: change

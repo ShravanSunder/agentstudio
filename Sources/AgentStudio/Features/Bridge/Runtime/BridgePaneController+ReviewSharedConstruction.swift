@@ -6,16 +6,16 @@ extension BridgePaneController {
         coordinator: BridgeWorktreeProductConstructionCoordinator?,
         pipeline: BridgeReviewPipeline,
         provider: any BridgeReviewSourceProvider,
-        state: BridgePaneState
+        reviewBinding: BridgeReviewSourceBinding?
     ) -> BridgePaneReviewSharedConstructionBinder? {
         guard let coordinator,
             provider is any BridgeSharedReviewConstructionSourceProvider,
-            case .workspace(let rootPath, _) = state.source
+            let reviewBinding
         else { return nil }
         return BridgePaneReviewSharedConstructionBinder(
             coordinator: coordinator,
             pipeline: pipeline,
-            repositoryPath: URL(fileURLWithPath: rootPath)
+            repositoryPath: URL(fileURLWithPath: reviewBinding.worktreeRootPath)
         )
     }
 

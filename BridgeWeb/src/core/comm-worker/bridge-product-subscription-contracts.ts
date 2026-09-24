@@ -18,6 +18,7 @@ import {
 	bridgeProductFileSourceIdentitySchema,
 	type BridgeProductFileSourceIdentity,
 } from './bridge-product-file-contracts.js';
+import { bridgeProductFileMemberGroupsEventSchema } from './bridge-product-file-member-group-contracts.js';
 import {
 	bridgeProductFileChangeStatusSchema,
 	bridgeProductFileTreeRowSchema,
@@ -114,12 +115,10 @@ export const bridgeProductReviewMetadataSubscriptionOptionsSchema = z
 
 export const bridgeProductFileSourceConfigurationSchema = z
 	.object({
+		collectionToken: bridgeProductOpaqueReferenceSchema,
 		cwdScope: bridgeProductDisplayPathSchema.nullable(),
 		freshness: z.literal('live'),
 		includeStatuses: z.boolean(),
-		repoId: z.uuid(),
-		rootPathToken: bridgeProductOpaqueReferenceSchema,
-		worktreeId: z.uuid(),
 	})
 	.strict();
 
@@ -709,6 +708,7 @@ const bridgeProductFileInvalidatedEventSchema = z
 
 export const bridgeProductFileMetadataEventSchema = z.discriminatedUnion('eventKind', [
 	bridgeProductFileSourceAcceptedEventSchema,
+	bridgeProductFileMemberGroupsEventSchema,
 	bridgeProductFileTreeWindowEventSchema,
 	bridgeProductFileTreeDeltaEventSchema,
 	bridgeProductFileStatusPatchEventSchema,
@@ -721,12 +721,11 @@ function bridgeProductFileSourceIdentitiesEqual(
 	right: BridgeProductFileSourceIdentity,
 ): boolean {
 	return (
-		left.repoId === right.repoId &&
+		left.collectionToken === right.collectionToken &&
 		left.rootRevisionToken === right.rootRevisionToken &&
 		left.sourceCursor === right.sourceCursor &&
 		left.sourceId === right.sourceId &&
-		left.subscriptionGeneration === right.subscriptionGeneration &&
-		left.worktreeId === right.worktreeId
+		left.subscriptionGeneration === right.subscriptionGeneration
 	);
 }
 

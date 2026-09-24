@@ -2,6 +2,7 @@ import type { Page } from 'playwright';
 
 import { reviewContentRouteDeltaSatisfied } from '../verify-bridge-viewer-worktree-review-proof.ts';
 import {
+	fileToReviewHandoffFixtureFileCollectionPath,
 	fileToReviewHandoffFixtureRelativePath,
 	minimumExpectedReviewMetadataRouteHitCount,
 	worktreeDevServerUrl,
@@ -36,17 +37,20 @@ export async function verifyWorktreeFileToReviewHandoff(): Promise<WorktreeFileT
 	const page = await makeVerificationPage();
 	const routeProbe = await installReviewRouteProbe(page);
 	try {
-		const expectedDisplayPath = fileToReviewHandoffFixtureRelativePath;
-		const expectedReviewItemId = await fetchWorktreeReviewItemIdForDisplayPath(expectedDisplayPath);
+		// Files keys the canary under the worktree group; Review keeps the worktree-relative path.
+		const expectedFileDisplayPath = fileToReviewHandoffFixtureFileCollectionPath;
+		const expectedReviewDisplayPath = fileToReviewHandoffFixtureRelativePath;
+		const expectedReviewItemId =
+			await fetchWorktreeReviewItemIdForDisplayPath(expectedReviewDisplayPath);
 		const expectedContentDescriptorIds =
 			await fetchWorktreeReviewContentDescriptorIdsForItemId(expectedReviewItemId);
 		await page.goto(worktreeDevServerUrl, { waitUntil: 'domcontentloaded', timeout: 30_000 });
 		await page.waitForSelector('[data-testid="bridge-file-viewer-shell"]', { timeout: 30_000 });
 		await waitForWorktreeFileViewerSurfaceReady(page);
-		await clickWorktreeFilePathViaSearch({ page, path: expectedDisplayPath });
+		await clickWorktreeFilePathViaSearch({ page, path: expectedFileDisplayPath });
 		const openFileState = await waitForWorktreeOpenFileReadyOrStale({
 			page,
-			path: expectedDisplayPath,
+			path: expectedFileDisplayPath,
 		});
 		if (openFileState === 'stale') {
 			const refreshButton = page.locator('[data-testid="worktree-file-refresh"]:visible').first();
@@ -54,14 +58,14 @@ export async function verifyWorktreeFileToReviewHandoff(): Promise<WorktreeFileT
 				await refreshButton.click();
 				await waitForWorktreeOpenFileState({
 					page,
-					path: expectedDisplayPath,
+					path: expectedFileDisplayPath,
 					state: 'ready',
 				});
 			}
 		} else {
 			await waitForWorktreeOpenFileState({
 				page,
-				path: expectedDisplayPath,
+				path: expectedFileDisplayPath,
 				state: 'ready',
 			});
 		}
@@ -70,7 +74,7 @@ export async function verifyWorktreeFileToReviewHandoff(): Promise<WorktreeFileT
 		await clickWorktreeFileControl(page, 'worktree-file-open-review-comparison');
 		await page.waitForSelector('[data-testid="review-viewer-shell"]', { timeout: 30_000 });
 		await waitForReviewSelectedContentState({
-			displayPath: expectedDisplayPath,
+			displayPath: expectedReviewDisplayPath,
 			page,
 			state: 'ready',
 		});
@@ -276,7 +280,7 @@ export async function verifyWorktreeFileToReviewHandoff(): Promise<WorktreeFileT
 					contentPanel?.getAttribute('data-worktree-open-file-path') === expected.displayPath
 				);
 			},
-			{ displayPath: expectedDisplayPath },
+			{ displayPath: expectedFileDisplayPath },
 			{ timeout: 20_000 },
 		);
 		const returnToFileProof = await page.evaluate(() => {
@@ -300,7 +304,7 @@ export async function verifyWorktreeFileToReviewHandoff(): Promise<WorktreeFileT
 		});
 		await page.click('[data-testid="bridge-viewer-context-review"]:visible');
 		await waitForReviewSelectedContentState({
-			displayPath: expectedDisplayPath,
+			displayPath: expectedReviewDisplayPath,
 			page,
 			state: 'ready',
 		});
@@ -339,7 +343,8 @@ export async function verifyWorktreeFileToReviewHandoff(): Promise<WorktreeFileT
 			...returnToFileProof,
 			...returnToReviewProof,
 			beforeLocationHref,
-			expectedDisplayPath,
+			expectedFileDisplayPath,
+			expectedReviewDisplayPath,
 			expectedReviewItemId,
 			reviewHandoffContentRouteProof,
 			reviewContentRouteHitCount: routeProbe.contentHitCount(),
@@ -362,7 +367,7 @@ export async function verifyWorktreeFileToReviewHandoff(): Promise<WorktreeFileT
 			handoffProof.fileViewerShellCountAfterSwitch === 1 ? null : 'fileViewerShellCountAfterSwitch',
 			handoffProof.fileModeHostHiddenAfterSwitch ? null : 'fileModeHostHiddenAfterSwitch',
 			handoffProof.fileViewerShellHiddenAfterSwitch ? null : 'fileViewerShellHiddenAfterSwitch',
-			handoffProof.fileViewerSelectedPathAfterSwitch === expectedDisplayPath
+			handoffProof.fileViewerSelectedPathAfterSwitch === expectedFileDisplayPath
 				? null
 				: 'fileViewerSelectedPathAfterSwitch',
 			handoffProof.reviewModeAfterReturnToFile === 'file' ? null : 'reviewModeAfterReturnToFile',
@@ -372,7 +377,7 @@ export async function verifyWorktreeFileToReviewHandoff(): Promise<WorktreeFileT
 			!handoffProof.fileModeHostHiddenAfterReturnToFile
 				? null
 				: 'fileModeHostHiddenAfterReturnToFile',
-			handoffProof.fileViewerSelectedPathAfterReturnToFile === expectedDisplayPath
+			handoffProof.fileViewerSelectedPathAfterReturnToFile === expectedFileDisplayPath
 				? null
 				: 'fileViewerSelectedPathAfterReturnToFile',
 			handoffProof.reviewModeAfterReturnToReview === 'review'
@@ -387,11 +392,11 @@ export async function verifyWorktreeFileToReviewHandoff(): Promise<WorktreeFileT
 			handoffProof.reviewContextButtonSelectedAfterReturnToReview === 'true'
 				? null
 				: 'reviewContextButtonSelectedAfterReturnToReview',
-			handoffProof.reviewSelectedDisplayPathAfterReturnToReview === expectedDisplayPath
+			handoffProof.reviewSelectedDisplayPathAfterReturnToReview === expectedReviewDisplayPath
 				? null
 				: 'reviewSelectedDisplayPathAfterReturnToReview',
 			handoffProof.selectedContentState === 'ready' ? null : 'selectedContentState',
-			handoffProof.selectedDisplayPath === expectedDisplayPath ? null : 'selectedDisplayPath',
+			handoffProof.selectedDisplayPath === expectedReviewDisplayPath ? null : 'selectedDisplayPath',
 			handoffProof.selectedItemId === expectedReviewItemId ? null : 'selectedItemId',
 			handoffProof.selectedMaterializedItemType === 'file' ? null : 'selectedMaterializedItemType',
 			handoffProof.selectedMaterializedFileLineCount > 0

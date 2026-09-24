@@ -299,13 +299,11 @@ private func makeCoordinatorSessionDetail(
     WorktreeAnnotationSessionDetail(
         session: .init(
             id: sessionID,
-            repositoryID: "repository-1",
-            worktreeID: "worktree-1",
+            subject: .git(repositoryID: "repository-1", worktreeID: "worktree-1"),
             lifecycle: .living,
             sourceRelationship: .applicable,
             acceptedSourceFingerprint: .init(
-                repositoryID: "repository-1",
-                worktreeID: "worktree-1",
+                subject: .git(repositoryID: "repository-1", worktreeID: "worktree-1"),
                 fileSourceIdentity: "source-1",
                 reviewComparisonOrigin: nil
             ),

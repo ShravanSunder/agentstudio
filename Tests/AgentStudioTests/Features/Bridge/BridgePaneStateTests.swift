@@ -4,106 +4,35 @@ import Testing
 
 @testable import AgentStudioBridge
 
-/// Tests for BridgePaneState Codable round-trip and Hashable conformance.
-///
-/// BridgePaneState is the persistence model for bridge-backed panels (diff viewer,
-/// code review, etc.). These tests verify that all BridgePaneSource variants
-/// survive JSON encode/decode and that equality/hashing work correctly.
+/// Tests for the source-free `BridgePaneState` payload and the legacy source
+/// conversion DTO that reads the retired `source` field during the ordered
+/// navigation import.
 @Suite(.serialized)
 final class BridgePaneStateTests {
 
-    // MARK: - Codable Round-Trip
+    // MARK: - Source-free payload
 
     @Test
-    func test_codable_roundTrip_diffViewer() throws {
-        let state = BridgePaneState(panelKind: .diffViewer, source: nil)
-        let data = try JSONEncoder().encode(state)
-        let decoded = try JSONDecoder().decode(BridgePaneState.self, from: data)
-        #expect(decoded == state)
-    }
-
-    @Test
-    func test_codable_roundTrip_with_commitSource() throws {
-        let state = BridgePaneState(
-            panelKind: .diffViewer,
-            source: .commit(sha: "abc123")
-        )
-        let data = try JSONEncoder().encode(state)
-        let decoded = try JSONDecoder().decode(BridgePaneState.self, from: data)
-        #expect(decoded == state)
-    }
-
-    @Test
-    func test_codable_roundTrip_with_branchDiffSource() throws {
-        let state = BridgePaneState(
-            panelKind: .diffViewer,
-            source: .branchDiff(head: "feature", base: "main")
-        )
-        let data = try JSONEncoder().encode(state)
-        let decoded = try JSONDecoder().decode(BridgePaneState.self, from: data)
-        #expect(decoded == state)
-    }
-
-    @Test
-    func test_codable_roundTrip_with_workspaceSource() throws {
-        let state = BridgePaneState(
-            panelKind: .diffViewer,
-            source: .workspace(
-                rootPath: "/tmp/repo",
-                baseline: .ref(name: "HEAD~1")
-            )
-        )
-        let data = try JSONEncoder().encode(state)
-        let decoded = try JSONDecoder().decode(BridgePaneState.self, from: data)
-        #expect(decoded == state)
-    }
-
-    @Test
-    func test_codable_roundTrip_preservesContributionTargetsAndNarrowBaselines() throws {
-        let baselines: [WorkspaceBaseline?] = [
-            .localDefaultBranch(branchName: "main"),
-            .originDefaultBranch(remoteName: "origin", branchName: "main"),
-            .branch(name: "feature/review"),
-            .commit(oid: "0123456789abcdef0123456789abcdef01234567"),
-            .ref(name: "v1.2.3"),
-            .headMinusOne,
-            .staged,
-            .unstaged,
-            nil,
-        ]
-        let states = baselines.map { baseline in
-            BridgePaneState(
-                panelKind: .diffViewer,
-                source: .workspace(rootPath: "/tmp/repo", baseline: baseline)
-            )
-        }
-
-        for state in states {
+    func test_codable_roundTrip_panelKinds() throws {
+        for panelKind in [BridgePanelKind.diffViewer, .fileViewer] {
+            let state = BridgePaneState(panelKind: panelKind)
             let data = try JSONEncoder().encode(state)
             let decoded = try JSONDecoder().decode(BridgePaneState.self, from: data)
             #expect(decoded == state)
+            let json = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+            #expect(json["source"] == nil, "live pane state never writes a source selection")
         }
     }
 
     @Test
-    func test_codable_emitsTargetOnlyWorkspacePayloadForSelectedContribution() throws {
-        let state = BridgePaneState(
-            panelKind: .diffViewer,
-            source: .workspace(
-                rootPath: "/tmp/repo",
-                baseline: .localDefaultBranch(branchName: "develop")
-            )
-        )
+    func test_decodingLegacyPayloadIgnoresSourceField() throws {
+        let json = """
+            {"panelKind":"diffViewer","source":{"workspace":{"rootPath":"/tmp/repo"}}}
+            """
 
-        let data = try JSONEncoder().encode(state)
-        let json = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
-        let source = try #require(json["source"] as? [String: Any])
-        let workspace = try #require(source["workspace"] as? [String: Any])
+        let decoded = try JSONDecoder().decode(BridgePaneState.self, from: Data(json.utf8))
 
-        let target = try #require(workspace["comparisonTarget"] as? [String: Any])
-        #expect(target["kind"] as? String == "localDefaultBranch")
-        #expect(target["branchName"] as? String == "develop")
-        #expect(workspace["baseline"] == nil)
+        #expect(decoded == BridgePaneState(panelKind: .diffViewer))
     }
 
     @Test
@@ -131,120 +60,76 @@ final class BridgePaneStateTests {
     }
 
     @Test(arguments: legacyWorkspaceIntentCases)
-    func test_codable_decodesLegacyWorkspacePayload(
+    func test_legacyDTO_decodesLegacyWorkspacePayload(
         legacyJSON: String,
         expectedBaseline: WorkspaceBaseline?
     ) throws {
         let json = """
-            {
-              "panelKind": "diffViewer",
-              "source": {
-                "workspace": {
-                  "rootPath": "/tmp/repo",
-                  "baseline": \(legacyJSON)
-                }
-              }
-            }
+            {"workspace":{"rootPath":"/tmp/repo","baseline":\(legacyJSON)}}
             """
 
-        let decoded = try JSONDecoder().decode(BridgePaneState.self, from: Data(json.utf8))
+        let decoded = try JSONDecoder().decode(LegacyBridgePaneSourceDTO.self, from: Data(json.utf8))
 
-        #expect(
-            decoded.source
-                == .workspace(rootPath: "/tmp/repo", baseline: expectedBaseline)
+        #expect(decoded == .workspace(rootPath: "/tmp/repo", baseline: expectedBaseline))
+    }
+
+    @Test
+    func test_legacyDTO_decodesComparisonTargetAndNonWorkspaceVariants() throws {
+        let target = try JSONDecoder().decode(
+            LegacyBridgePaneSourceDTO.self,
+            from: Data(
+                #"{"workspace":{"rootPath":"/tmp/repo","comparisonTarget":{"kind":"branch","name":"develop"}}}"#.utf8
+            )
         )
+        let commit = try JSONDecoder().decode(
+            LegacyBridgePaneSourceDTO.self,
+            from: Data(#"{"commit":{"sha":"abc123"}}"#.utf8)
+        )
+        let branchDiff = try JSONDecoder().decode(
+            LegacyBridgePaneSourceDTO.self,
+            from: Data(#"{"branchDiff":{"head":"feature","base":"main"}}"#.utf8)
+        )
+
+        #expect(target == .workspace(rootPath: "/tmp/repo", baseline: .branch(name: "develop")))
+        #expect(commit == .commit(sha: "abc123"))
+        #expect(commit.importedVariant == .commit)
+        #expect(branchDiff == .branchDiff(head: "feature", base: "main"))
     }
 
     @Test(arguments: malformedLegacyWorkspaceBaselines)
-    func test_codable_rejectsMalformedKeyedLegacyWorkspaceBaseline(
+    func test_legacyDTO_rejectsMalformedKeyedLegacyWorkspaceBaseline(
         legacyJSON: String
     ) {
         let json = """
-            {
-              "panelKind": "diffViewer",
-              "source": {
-                "workspace": {
-                  "rootPath": "/tmp/repo",
-                  "baseline": \(legacyJSON)
-                }
-              }
-            }
+            {"workspace":{"rootPath":"/tmp/repo","baseline":\(legacyJSON)}}
             """
 
         #expect(throws: Error.self) {
-            _ = try JSONDecoder().decode(BridgePaneState.self, from: Data(json.utf8))
+            _ = try JSONDecoder().decode(LegacyBridgePaneSourceDTO.self, from: Data(json.utf8))
         }
     }
 
     @Test
-    func test_codable_rejectsMultipleOuterSourceCases() {
+    func test_legacyDTO_rejectsMultipleOuterSourceCases() {
         let json = """
-            {
-              "panelKind": "diffViewer",
-              "source": {
-                "commit": { "sha": "abc123" },
-                "branchDiff": { "head": "feature", "base": "main" }
-              }
-            }
+            {"commit":{"sha":"abc123"},"branchDiff":{"head":"feature","base":"main"}}
             """
 
         #expect(throws: Error.self) {
-            _ = try JSONDecoder().decode(BridgePaneState.self, from: Data(json.utf8))
+            _ = try JSONDecoder().decode(LegacyBridgePaneSourceDTO.self, from: Data(json.utf8))
         }
-    }
-
-    @Test
-    func test_codable_roundTrip_with_agentSnapshotSource() throws {
-        let id = UUID()
-        let date = Date(timeIntervalSince1970: 1_000_000)
-        let state = BridgePaneState(
-            panelKind: .diffViewer,
-            source: .agentSnapshot(taskId: id, timestamp: date)
-        )
-        let data = try JSONEncoder().encode(state)
-        let decoded = try JSONDecoder().decode(BridgePaneState.self, from: data)
-        #expect(decoded == state)
-    }
-
-    // MARK: - Hashable
-
-    @Test
-    func test_hashable() {
-        let a = BridgePaneState(panelKind: .diffViewer, source: nil)
-        let b = BridgePaneState(panelKind: .diffViewer, source: nil)
-        #expect(a == b)
-        #expect(a.hashValue == b.hashValue)
-    }
-
-    @Test
-    func test_different_sources_not_equal() {
-        let a = BridgePaneState(panelKind: .diffViewer, source: .commit(sha: "abc"))
-        let b = BridgePaneState(panelKind: .diffViewer, source: .commit(sha: "def"))
-        #expect(a != b)
     }
 
     // MARK: - PaneContent.bridgePanel Codable Round-Trip
 
     @Test
     func test_paneContent_bridgePanel_codable_roundTrip() throws {
-        let bridgeState = BridgePaneState(
-            panelKind: .diffViewer,
-            source: .branchDiff(head: "feature", base: "main")
-        )
+        let bridgeState = BridgePaneState(panelKind: .fileViewer)
         let content = PaneContent.bridgePanel(bridgeState)
         let data = try JSONEncoder().encode(content)
         let decoded = try JSONDecoder().decode(PaneContent.self, from: data)
 
-        let decodedState = try #require(
-            {
-                if case .bridgePanel(let value) = decoded {
-                    return value
-                }
-                return nil
-            }(),
-            "Expected .bridgePanel, got \(decoded)"
-        )
-        #expect(decodedState == bridgeState)
+        #expect(decoded == content)
     }
 
     @Test

@@ -53,12 +53,11 @@ describe('worktree dev-server verifier Review interaction contract', () => {
 
 	test('reads Worktree/File rows from typed product tree windows', () => {
 		const source = {
-			repoId: '11111111-1111-4111-8111-111111111111',
+			collectionToken: 'root-token-1',
 			rootRevisionToken: 'revision-1',
 			sourceCursor: 'cursor-1',
 			sourceId: 'source-1',
 			subscriptionGeneration: 1,
-			worktreeId: '22222222-2222-4222-8222-222222222222',
 		};
 		expect(
 			worktreeFileTreeRows([
@@ -322,9 +321,9 @@ describe('worktree dev-server verifier Review interaction contract', () => {
 	test('uses a stable Worktree/File first-load canary instead of the alphabetically first repo file', async () => {
 		const verifierSource = await readWorktreeDevServerVerifierSource();
 
-		expect(verifierSource).toContain('initialContentFixtureRelativePath');
+		expect(verifierSource).toContain('initialContentFixtureFileCollectionPath');
 		expect(verifierSource).toContain('fetchFetchableWorktreeFileDescriptorForPath({');
-		expect(verifierSource).toContain('path: initialContentFixtureRelativePath');
+		expect(verifierSource).toContain('path: initialContentFixtureFileCollectionPath');
 		expect(verifierSource).toContain(
 			'await clickWorktreeFilePathViaSearch({ page, path: initialDescriptor.path })',
 		);
@@ -344,7 +343,7 @@ describe('worktree dev-server verifier Review interaction contract', () => {
 		expect(handoffSource).toContain("state === 'stale'");
 		expect(handoffSource).toContain('worktree-file-refresh');
 		expect(handoffSource).toContain("state: 'ready'");
-		expect(handoffSource).toContain('path: expectedDisplayPath');
+		expect(handoffSource).toContain('path: expectedFileDisplayPath');
 		expect(handoffSource).not.toContain(
 			"document\\n\\t\\t\\t\\t\\t.querySelector('[data-worktree-open-file-state]')",
 		);

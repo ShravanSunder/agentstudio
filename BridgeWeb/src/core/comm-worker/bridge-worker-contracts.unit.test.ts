@@ -90,8 +90,8 @@ describe('BridgeWorkerContracts', () => {
 					recoveryStatus: 'available',
 					sessions: [],
 					sourceGeneration: 1,
+					scopeKey: 'worktree-1',
 					threads: [],
-					worktreeId: 'worktree-1',
 				},
 			},
 		} as const;

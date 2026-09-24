@@ -147,6 +147,18 @@ private struct ActivityOrderingTestSetup {
         let controller = BridgePaneController(
             paneId: pane.id,
             state: state,
+            sourceConfiguration: BridgePaneSourceConfiguration(
+                review: pane.metadata.worktreeId.flatMap { worktreeId in
+                    pane.metadata.launchDirectory.map { root in
+                        BridgeReviewSourceBinding(
+                            worktreeId: worktreeId,
+                            worktreeRootPath: root.path,
+                            comparison: .ref(name: "HEAD~1")
+                        )
+                    }
+                },
+                files: nil
+            ),
             appRootURL: testBridgeAppRootURL(),
             metadata: pane.metadata,
             initialPaneActivity: .dormant
@@ -292,12 +304,7 @@ private func makeBridgePane(
 ) -> Pane {
     store.createPane(
         content: .bridgePanel(
-            BridgePaneState(
-                panelKind: .diffViewer,
-                source: .workspace(
-                    rootPath: worktree.path.path,
-                    baseline: .ref(name: "HEAD~1"))
-            )
+            BridgePaneState(panelKind: .diffViewer)
         ),
         metadata: PaneMetadata(
             contentType: .diff,

@@ -427,12 +427,12 @@ struct AppIPCDynamicCommandClientTests {
 
         let result = try await runCLI(
             executableURL: cliExecutableURL(),
-            arguments: ["bridge.diff.getPackage", "--handle", "self"],
+            arguments: ["bridge.telemetry.snapshot", "--handle", "self"],
             environment: scenario.cliEnvironment
         )
         let structuredError = try requireStructuredCLIError(result)
         #expect(structuredError.reason == "notYetAllowed")
-        #expect(structuredError.refusedName == "bridge.diff.getPackage")
+        #expect(structuredError.refusedName == "bridge.telemetry.snapshot")
         #expect(structuredError.requiredScope == nil)
     }
 

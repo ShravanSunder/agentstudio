@@ -1,6 +1,7 @@
 import type { CodeViewOptions, CodeViewScrollBehavior, SelectedLineRange } from '@pierre/diffs';
 
 import type { BridgeMainCodeViewItem } from '../../core/comm-worker/bridge-main-render-snapshot-store.js';
+import type { BridgeWorktreeFileLocation } from '../../file-viewer/bridge-file-collection-display-path.js';
 import type { BridgeReviewPackage } from '../../foundation/review-package/bridge-review-package.js';
 import type { BridgeTelemetryRecorder } from '../../foundation/telemetry/bridge-telemetry-recorder.js';
 import type { BridgeTraceContext } from '../../foundation/telemetry/bridge-trace-context.js';
@@ -38,7 +39,7 @@ export interface BridgeCodeViewPanelProps {
 	readonly onAnnotationAttentionItemIdsChange?: (itemIds: readonly string[]) => void;
 	readonly onAnnotationEditorAttentionItemIdsChange?: (itemIds: readonly string[]) => void;
 	readonly onAnnotationRevealComplete?: (requestId: number) => void;
-	readonly onOpenFile?: (path: string) => void;
+	readonly onOpenFile?: (location: BridgeWorktreeFileLocation) => void;
 	readonly onReadingPositionItemIdChange?: (itemId: string | null) => void;
 	readonly onScrollActivityChange?: (isActive: boolean) => void;
 	readonly onVisibleItemIdsChange?: (itemIds: readonly string[]) => void;

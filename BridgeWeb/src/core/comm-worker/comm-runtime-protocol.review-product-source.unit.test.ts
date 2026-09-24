@@ -545,7 +545,7 @@ function annotationCatalogFrames(
 ): readonly WorktreeAnnotationMetadataFrame[] {
 	const authority = {
 		applicationSourceGeneration: sourceGeneration,
-		worktreeId: 'worktree-1',
+		scopeKey: 'worktree-1',
 	};
 	const transferId = 'review-annotation-catalog-transfer';
 	return [

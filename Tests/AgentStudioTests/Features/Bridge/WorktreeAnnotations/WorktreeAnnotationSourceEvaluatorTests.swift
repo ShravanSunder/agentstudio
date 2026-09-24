@@ -15,8 +15,7 @@ struct WorktreeAnnotationSourceEvaluatorTests {
             baseOID: "base-oid"
         )
         let accepted = WorktreeAnnotationSourceFingerprint(
-            repositoryID: "repo-1",
-            worktreeID: "worktree-1",
+            subject: defaultAnnotationSubject,
             fileSourceIdentity: "file-old",
             reviewComparisonOrigin: reviewOrigin
         )
@@ -29,8 +28,7 @@ struct WorktreeAnnotationSourceEvaluatorTests {
                 surface: .file,
                 sourceEpoch: "1",
                 currentFingerprint: .init(
-                    repositoryID: "repo-1",
-                    worktreeID: "worktree-1",
+                    subject: defaultAnnotationSubject,
                     fileSourceIdentity: "file-new",
                     reviewComparisonOrigin: nil
                 ),
@@ -49,8 +47,7 @@ struct WorktreeAnnotationSourceEvaluatorTests {
                 surface: .review,
                 sourceEpoch: "2",
                 currentFingerprint: .init(
-                    repositoryID: "repo-1",
-                    worktreeID: "worktree-1",
+                    subject: defaultAnnotationSubject,
                     fileSourceIdentity: "foreign-file-value",
                     reviewComparisonOrigin: reviewOrigin
                 ),
@@ -65,8 +62,7 @@ struct WorktreeAnnotationSourceEvaluatorTests {
         let session = makeSourceEvaluationSession()
         let thread = makeLocatedEvaluationThread(sessionID: session.id)
         let currentFingerprint = WorktreeAnnotationSourceFingerprint(
-            repositoryID: "repo-1",
-            worktreeID: "worktree-1",
+            subject: defaultAnnotationSubject,
             fileSourceIdentity: "file-source-2",
             reviewComparisonOrigin: nil
         )
@@ -118,8 +114,7 @@ struct WorktreeAnnotationSourceEvaluatorTests {
                 surface: .file,
                 sourceEpoch: "file-epoch-2",
                 currentFingerprint: .init(
-                    repositoryID: "repo-1",
-                    worktreeID: "worktree-1",
+                    subject: defaultAnnotationSubject,
                     fileSourceIdentity: "file-source-2",
                     reviewComparisonOrigin: nil
                 ),
@@ -158,8 +153,7 @@ struct WorktreeAnnotationSourceEvaluatorTests {
                 surface: .file,
                 sourceEpoch: "file-epoch-trailing-blank",
                 currentFingerprint: .init(
-                    repositoryID: "repo-1",
-                    worktreeID: "worktree-1",
+                    subject: defaultAnnotationSubject,
                     fileSourceIdentity: "file-source-2",
                     reviewComparisonOrigin: nil
                 ),
@@ -202,8 +196,7 @@ struct WorktreeAnnotationSourceEvaluatorTests {
                 surface: .file,
                 sourceEpoch: "file-epoch-2",
                 currentFingerprint: .init(
-                    repositoryID: "repo-1",
-                    worktreeID: "worktree-1",
+                    subject: defaultAnnotationSubject,
                     fileSourceIdentity: "file-source-2",
                     reviewComparisonOrigin: nil
                 ),
@@ -227,8 +220,7 @@ struct WorktreeAnnotationSourceEvaluatorTests {
         let session = makeSourceEvaluationSession()
         let thread = makeLocatedEvaluationThread(sessionID: session.id)
         let currentFingerprint = WorktreeAnnotationSourceFingerprint(
-            repositoryID: "repo-1",
-            worktreeID: "worktree-1",
+            subject: defaultAnnotationSubject,
             fileSourceIdentity: "file-source-2",
             reviewComparisonOrigin: nil
         )
@@ -343,14 +335,12 @@ struct WorktreeAnnotationSourceEvaluatorTests {
         let session = makeSourceEvaluationSession()
         let thread = makeLocatedEvaluationThread(sessionID: session.id)
         let missingEvidence = WorktreeAnnotationSourceFingerprint(
-            repositoryID: "repo-1",
-            worktreeID: "worktree-1",
+            subject: defaultAnnotationSubject,
             fileSourceIdentity: nil,
             reviewComparisonOrigin: nil
         )
         let differentLineage = WorktreeAnnotationSourceFingerprint(
-            repositoryID: "repo-2",
-            worktreeID: "worktree-2",
+            subject: .git(repositoryID: "repo-2", worktreeID: "worktree-2"),
             fileSourceIdentity: "file-source-2",
             reviewComparisonOrigin: nil
         )
@@ -382,8 +372,7 @@ struct WorktreeAnnotationSourceEvaluatorTests {
                 surface: .file,
                 sourceEpoch: "file-epoch-2",
                 currentFingerprint: WorktreeAnnotationSourceFingerprint(
-                    repositoryID: "repo-1",
-                    worktreeID: "worktree-1",
+                    subject: defaultAnnotationSubject,
                     fileSourceIdentity: "file-source-2",
                     reviewComparisonOrigin: nil
                 ),
@@ -402,16 +391,14 @@ struct WorktreeAnnotationSourceEvaluatorTests {
 
 private func makeSourceEvaluationSession(
     fingerprint: WorktreeAnnotationSourceFingerprint = .init(
-        repositoryID: "repo-1",
-        worktreeID: "worktree-1",
+        subject: defaultAnnotationSubject,
         fileSourceIdentity: "file-source-1",
         reviewComparisonOrigin: nil
     )
 ) -> WorktreeAnnotationSession {
     WorktreeAnnotationSession(
         id: .generate(),
-        repositoryID: "repo-1",
-        worktreeID: "worktree-1",
+        subject: defaultAnnotationSubject,
         lifecycle: .living,
         sourceRelationship: .applicable,
         acceptedSourceFingerprint: fingerprint,

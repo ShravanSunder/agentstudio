@@ -29,15 +29,18 @@ extension WorktreeAnnotationSQLiteRepository {
         _ database: Database,
         props: CreateRootDraftProps
     ) throws -> WorktreeAnnotationSessionID {
+        let subjectPredicate = WorktreeAnnotationSubject.sessionRowPredicate(
+            for: [props.sourceFingerprint.subject]
+        )
         let candidateRows = try Row.fetchAll(
             database,
             sql: """
                 SELECT id, source_relationship FROM annotation_session
-                WHERE worktree_id = ? AND lifecycle = 'living'
+                WHERE \(subjectPredicate.sql) AND lifecycle = 'living'
                   AND source_relationship IN ('applicable', 'uncertain')
                 ORDER BY created_at ASC, id ASC
                 """,
-            arguments: [props.worktreeID]
+            arguments: subjectPredicate.arguments
         )
         let candidates = try candidateRows.map { row -> (WorktreeAnnotationSessionID, String) in
             (try decodeIdentity(row["id"] as String), row["source_relationship"])
@@ -116,21 +119,24 @@ extension WorktreeAnnotationSQLiteRepository {
         props: CreateRootDraftProps
     ) throws -> WorktreeAnnotationSessionID {
         let sessionID = WorktreeAnnotationSessionID.generate()
+        let subject = props.sourceFingerprint.subject
         let fingerprintJSON = try Self.encodeJSONString(props.sourceFingerprint)
         let reviewedSubjectJSON = try props.acceptedReviewedSubject.map(Self.encodeJSONString)
         try database.execute(
             sql: """
                 INSERT INTO annotation_session(
-                    id, repository_id, worktree_id,
+                    id, subject_kind, repository_id, worktree_id, local_document_path,
                     lifecycle, source_relationship, accepted_source_fingerprint_json,
                     accepted_reviewed_subject_json, semantic_revision,
                     created_at, updated_at, completed_at
-                ) VALUES (?, ?, ?, 'living', 'applicable', ?, ?, 1, ?, ?, NULL)
+                ) VALUES (?, ?, ?, ?, ?, 'living', 'applicable', ?, ?, 1, ?, ?, NULL)
                 """,
             arguments: [
                 sessionID.databaseValue,
-                props.repositoryID,
-                props.worktreeID,
+                subject.sessionKind,
+                subject.gitRepositoryID,
+                subject.gitWorktreeID,
+                subject.localDocument?.canonicalPath,
                 fingerprintJSON,
                 reviewedSubjectJSON,
                 props.now.timeIntervalSince1970,
@@ -272,14 +278,11 @@ extension WorktreeAnnotationSQLiteRepository {
             WorktreeAnnotationSourceFingerprint.self,
             from: Data(acceptedFingerprintJSON.utf8)
         )
-        guard acceptedFingerprint.repositoryID == sourceFingerprint.repositoryID,
-            acceptedFingerprint.worktreeID == sourceFingerprint.worktreeID
-        else {
+        guard acceptedFingerprint.subject == sourceFingerprint.subject else {
             throw WorktreeAnnotationRepositoryError.invalidState
         }
         let mergedFingerprint = WorktreeAnnotationSourceFingerprint(
-            repositoryID: sourceFingerprint.repositoryID,
-            worktreeID: sourceFingerprint.worktreeID,
+            subject: sourceFingerprint.subject,
             fileSourceIdentity: sourceFingerprint.fileSourceIdentity
                 ?? acceptedFingerprint.fileSourceIdentity,
             reviewComparisonOrigin: sourceFingerprint.reviewComparisonOrigin
@@ -473,16 +476,21 @@ extension WorktreeAnnotationSQLiteRepository {
     func decodeSession(_ row: Row) throws -> WorktreeAnnotationSession {
         let fingerprintJSON: String = row["accepted_source_fingerprint_json"]
         let reviewedSubjectJSON: String? = row["accepted_reviewed_subject_json"]
+        let subject = try WorktreeAnnotationSubject.decodeSessionRow(row)
+        let fingerprint = try Self.jsonDecoder.decode(
+            WorktreeAnnotationSourceFingerprint.self,
+            from: Data(fingerprintJSON.utf8)
+        )
+        // The row's columns and its accepted fingerprint name one subject.
+        guard fingerprint.subject == subject else {
+            throw WorktreeAnnotationRepositoryError.invalidState
+        }
         return try WorktreeAnnotationSession(
             id: decodeIdentity(row["id"] as String),
-            repositoryID: row["repository_id"],
-            worktreeID: row["worktree_id"],
+            subject: subject,
             lifecycle: decodeRawValue(row["lifecycle"] as String),
             sourceRelationship: decodeRawValue(row["source_relationship"] as String),
-            acceptedSourceFingerprint: Self.jsonDecoder.decode(
-                WorktreeAnnotationSourceFingerprint.self,
-                from: Data(fingerprintJSON.utf8)
-            ),
+            acceptedSourceFingerprint: fingerprint,
             acceptedReviewedSubject: try reviewedSubjectJSON.map {
                 try Self.jsonDecoder.decode(
                     WorktreeAnnotationReviewedSubjectEvidence.self,

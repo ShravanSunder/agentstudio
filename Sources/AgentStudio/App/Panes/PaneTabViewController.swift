@@ -3236,26 +3236,31 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         case .showBridgeReview, .showBridgeFiles,
             .openBridgeReviewInNewTab, .openBridgeFilesInNewTab:
             return submitBridgeSurfaceCommand(command, worktreeId: nil)
+        case .activateBridgeFile, .closeBridgeFile, .searchBridgeFiles:
+            return executeContextualBridgeNavigationCommand(command)
         default:
             return false
         }
     }
 
     private func resolvedBridgeCommandMountView() -> BridgePaneMountView? {
-        let paneId: UUID?
-        switch normalizedWorkspaceNavigationScopeState() {
-        case .mainPane(let mainPaneId):
-            paneId = mainPaneId ?? activeMainPaneId()
-        case .emptyDrawer(let parentPaneId):
-            paneId = parentPaneId
-        case .drawerPane(_, let drawerPaneId):
-            paneId = drawerPaneId
-        }
-
-        guard let paneId else {
+        guard let paneId = focusedBridgeCommandPaneId() else {
             return nil
         }
         return resolvedBridgeCommandMountView(paneId: paneId)
+    }
+
+    /// The pane a contextual Bridge command addresses: the focused main pane,
+    /// the parent of an empty drawer, or the focused drawer child.
+    func focusedBridgeCommandPaneId() -> UUID? {
+        switch normalizedWorkspaceNavigationScopeState() {
+        case .mainPane(let mainPaneId):
+            mainPaneId ?? activeMainPaneId()
+        case .emptyDrawer(let parentPaneId):
+            parentPaneId
+        case .drawerPane(_, let drawerPaneId):
+            drawerPaneId
+        }
     }
 
     func resolvedBridgeCommandMountView(paneId: UUID) -> BridgePaneMountView? {
@@ -3494,28 +3499,15 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         sourcePaneId: UUID,
         tabId: UUID
     ) -> ZoomViewerPresentation {
-        guard let resolvedWorktreeId = resolvedViewerWorktreeId(forPane: sourcePaneId) else {
-            return .unavailable
-        }
+        // Every terminal has a receiver, with or without a known worktree; the
+        // companion is reconciled from the receiver's navigation record.
         guard
             let companion = store.panePresentationAtom.zoomCompanion(forSourcePane: sourcePaneId),
-            companion.owningTabId == tabId,
-            companion.resolvedWorktreeId == resolvedWorktreeId
+            companion.owningTabId == tabId
         else {
             return .retryable
         }
         return .retainedVisible(companionPaneId: companion.companionPaneId)
-    }
-
-    private func resolvedViewerWorktreeId(forPane paneId: UUID) -> UUID? {
-        guard let paneState = store.paneAtom.graphAtom.paneState(paneId) else {
-            return nil
-        }
-        let facets = paneState.durableContextFacets
-        return store.repositoryTopologyAtom.validatedAssociation(
-            repoId: facets.repoId,
-            worktreeId: facets.worktreeId
-        )?.worktree.id
     }
 
     private func submitBridgeSurfaceCommand(_ command: AppCommand, worktreeId: UUID?) -> Bool {
@@ -4571,6 +4563,8 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         case .showBridgeReview, .showBridgeFiles,
             .openBridgeReviewInNewTab, .openBridgeFilesInNewTab:
             return submitBridgeSurfaceCommand(command, worktreeId: target)
+        case .activateBridgeReview, .addBridgeWorktree, .selectBridgeWorktree, .removeBridgeWorktree:
+            return executeTargetedBridgeNavigationCommand(command, worktreeId: target)
         default:
             return false
         }
@@ -4755,7 +4749,8 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
     private static func isTargetedBridgeCommand(_ command: AppCommand) -> Bool {
         switch command {
         case .showBridgeReview, .showBridgeFiles,
-            .openBridgeReviewInNewTab, .openBridgeFilesInNewTab:
+            .openBridgeReviewInNewTab, .openBridgeFilesInNewTab,
+            .activateBridgeReview, .addBridgeWorktree, .selectBridgeWorktree, .removeBridgeWorktree:
             true
         default:
             false

@@ -1,5 +1,5 @@
 import { chromium, type Browser, type Page } from 'playwright';
-import { expect, test } from 'vitest';
+import { expect, onTestFailed, test } from 'vitest';
 
 import { runAllOwnedCleanupOperations } from '../../scripts/dev-server/bridge-development-server-process.ts';
 import {
@@ -7,6 +7,7 @@ import {
 	waitForSelectedReviewReady,
 } from './bridge-viewer-vite-annotation-save-journey.ts';
 import { createBridgeViewerExplorationFixture } from './bridge-viewer-vite-exploration-fixture.ts';
+import { bridgeViewerViteFileCollectionPath } from './bridge-viewer-vite-file-collection-path.ts';
 import {
 	startBridgeViewerOwnedViteProductServer,
 	type BridgeViewerOwnedViteProductServer,
@@ -26,10 +27,22 @@ test.each(['mode round-trip', 'content refresh'] as const)(
 		let server: BridgeViewerOwnedViteProductServer | null = null;
 		let diagnostics: BrowserRuntimeDiagnostics | null = null;
 		let primaryFailure: { readonly error: unknown } | null = null;
+		let journeyPage: Page | null = null;
+		// The runner's hang bound is this journey's only clock. When it fires,
+		// name the readiness condition the journey was still waiting on.
+		onTestFailed(async (): Promise<void> => {
+			const waitingOn = await journeyPage
+				?.evaluate((): unknown => window.bridgeGuideRevisionWait ?? null)
+				.catch((error: unknown): string => `page unavailable: ${String(error)}`);
+			console.error(
+				`Markdown ${transition} scroll retention was waiting on ${JSON.stringify(waitingOn ?? null)}. Browser: ${await diagnostics?.describe()}`,
+			);
+		});
 		try {
 			server = await startBridgeViewerOwnedViteProductServer(fixture.oracle);
 			browser = await chromium.launch({ channel: 'chrome', headless: true });
 			const page = await browser.newPage({ viewport: { width: 1728, height: 980 } });
+			journeyPage = page;
 			// The vitest hang bound is the only clock this journey is allowed.
 			page.setDefaultTimeout(0);
 			page.setDefaultNavigationTimeout(0);
@@ -37,7 +50,11 @@ test.each(['mode round-trip', 'content refresh'] as const)(
 			await page.goto(bridgeViewerViteProductFileUrl(server.origin, 'docs/guide.md'), {
 				waitUntil: 'domcontentloaded',
 			});
-			await waitForGuideRevision(page, 1);
+			const guideSourcePath = bridgeViewerViteFileCollectionPath(
+				fixture.oracle.worktreeRoot,
+				'docs/guide.md',
+			);
+			await waitForGuideRevision(page, { revision: 1, sourcePath: guideSourcePath });
 			const initialScrollTop = await page
 				.getByTestId('bridge-markdown-canvas')
 				.evaluate((article): number => {
@@ -68,7 +85,10 @@ test.each(['mode round-trip', 'content refresh'] as const)(
 			}
 
 			// Assert — exact document revision and diagrams are ready at the reader's prior offset.
-			await waitForGuideRevision(page, transition === 'content refresh' ? 2 : 1);
+			await waitForGuideRevision(page, {
+				revision: transition === 'content refresh' ? 2 : 1,
+				sourcePath: guideSourcePath,
+			});
 			const finalScrollTop = await page
 				.getByTestId('bridge-markdown-canvas')
 				.evaluate(
@@ -112,8 +132,16 @@ test.each(['mode round-trip', 'content refresh'] as const)(
 	},
 );
 
-async function waitForGuideRevision(page: Page, revision: number): Promise<void> {
-	await page.waitForFunction(guideRevisionIsReady, revision);
+interface GuideRevisionExpectation {
+	readonly revision: number;
+	readonly sourcePath: string;
+}
+
+async function waitForGuideRevision(
+	page: Page,
+	expectation: GuideRevisionExpectation,
+): Promise<void> {
+	await page.waitForFunction(guideRevisionIsReady, expectation);
 	// Do not accept the retained article in the frame before activation effects run.
 	await page.evaluate(async (): Promise<void> => {
 		await new Promise<void>((resolve): void => {
@@ -122,16 +150,40 @@ async function waitForGuideRevision(page: Page, revision: number): Promise<void>
 			});
 		});
 	});
-	await page.waitForFunction(guideRevisionIsReady, revision);
+	await page.waitForFunction(guideRevisionIsReady, expectation);
 }
 
-function guideRevisionIsReady(expectedRevision: number): boolean {
+declare global {
+	interface Window {
+		bridgeGuideRevisionWait?: {
+			readonly expectation: GuideRevisionExpectation;
+			readonly hostActive: string | null;
+			readonly mermaidStates: readonly (string | null)[];
+			readonly revisionTextPresent: boolean;
+			readonly sourcePath: string | null;
+		};
+	}
+}
+
+function guideRevisionIsReady(expectation: GuideRevisionExpectation): boolean {
 	const host = document.querySelector('[data-testid="bridge-viewer-mode-host-file"]');
 	const article = host?.querySelector('[data-testid="bridge-markdown-canvas"]');
+	const revisionTextPresent =
+		article?.textContent?.includes(`Document revision ${expectation.revision}.`) ?? false;
+	// Record the last observation so a hang names the unmet part.
+	window.bridgeGuideRevisionWait = {
+		expectation,
+		hostActive: host?.getAttribute('data-bridge-viewer-mode-active') ?? null,
+		mermaidStates: [...(article?.querySelectorAll('[data-bridge-mermaid-state]') ?? [])].map(
+			(placeholder): string | null => placeholder.getAttribute('data-bridge-mermaid-state'),
+		),
+		revisionTextPresent,
+		sourcePath: article?.getAttribute('data-bridge-markdown-source-path') ?? null,
+	};
 	return (
 		host?.getAttribute('data-bridge-viewer-mode-active') === 'true' &&
-		article?.getAttribute('data-bridge-markdown-source-path') === 'docs/guide.md' &&
-		(article.textContent?.includes(`Document revision ${expectedRevision}.`) ?? false) &&
+		article?.getAttribute('data-bridge-markdown-source-path') === expectation.sourcePath &&
+		revisionTextPresent &&
 		article.querySelector('[data-bridge-mermaid-state="ready"] svg') !== null
 	);
 }

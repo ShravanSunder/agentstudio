@@ -34,6 +34,29 @@ export { bridgeProductReviewComparisonTargetSchema } from './bridge-product-revi
 export const bridgeProductFileSourceCurrentRequestSchema = z.object({}).strict();
 export const bridgeProductFileRefreshRetryRequestSchema = z.object({}).strict();
 export const bridgeProductFileRefreshRetryResultSchema = z.null();
+/**
+ * The File viewer's receipt for a selection it actually displayed, or for a
+ * native file navigation it could not display: `refused` when an editor could
+ * not be flushed, `notListed` when the unfiltered tree has no such file row.
+ * The source identity lets native reject receipts from an older source.
+ */
+export const bridgeProductFileSelectionReceiptRequestSchema = z
+	.object({
+		displayPath: bridgeProductDisplayPathSchema,
+		nativeNavigationCommandId: bridgeProductIdentifierSchema.nullable(),
+		outcome: z.enum(['displayed', 'notListed', 'refused', 'unavailable']),
+		source: z
+			.object({
+				sourceId: bridgeProductIdentifierSchema,
+				subscriptionGeneration: z.number().int().nonnegative(),
+			})
+			.strict(),
+	})
+	.strict();
+export const bridgeProductFileSelectionReceiptResultSchema = z.null();
+export type BridgeProductFileSelectionReceipt = z.infer<
+	typeof bridgeProductFileSelectionReceiptRequestSchema
+>;
 export const bridgeProductFileSourceCurrentResultSchema = z.discriminatedUnion('status', [
 	z
 		.object({
@@ -365,6 +388,11 @@ export type BridgeProductCallRegistry = {
 		readonly result: z.infer<typeof bridgeProductFileRefreshRetryResultSchema>;
 		readonly surface: 'file';
 	};
+	readonly 'file.selection.receipt': {
+		readonly request: z.infer<typeof bridgeProductFileSelectionReceiptRequestSchema>;
+		readonly result: z.infer<typeof bridgeProductFileSelectionReceiptResultSchema>;
+		readonly surface: 'file';
+	};
 	readonly 'file.activeViewerMode.update': {
 		readonly request: z.infer<typeof bridgeProductFileActiveViewerModeUpdateRequestSchema>;
 		readonly result: z.infer<typeof bridgeProductActiveViewerModeUpdateResultSchema>;
@@ -435,6 +463,7 @@ const bridgeProductSurfaceByCallKind = {
 	'file.activeViewerMode.update': 'file',
 	'file.source.current': 'file',
 	'file.refresh.retry': 'file',
+	'file.selection.receipt': 'file',
 	'review.activeViewerMode.update': 'review',
 	'review.comparison.update': 'review',
 	'review.comparisonTargets.query': 'review',
@@ -487,6 +516,12 @@ export const bridgeProductCallRequestSchema = z.discriminatedUnion('method', [
 		.object({
 			method: z.literal('file.refresh.retry'),
 			request: bridgeProductFileRefreshRetryRequestSchema,
+		})
+		.strict(),
+	z
+		.object({
+			method: z.literal('file.selection.receipt'),
+			request: bridgeProductFileSelectionReceiptRequestSchema,
 		})
 		.strict(),
 	z
@@ -592,6 +627,12 @@ export const bridgeProductCallResultSchema = z.discriminatedUnion('method', [
 		.object({
 			method: z.literal('file.refresh.retry'),
 			result: bridgeProductFileRefreshRetryResultSchema,
+		})
+		.strict(),
+	z
+		.object({
+			method: z.literal('file.selection.receipt'),
+			result: bridgeProductFileSelectionReceiptResultSchema,
 		})
 		.strict(),
 	z
@@ -702,6 +743,7 @@ export function bridgeProductCallResultForMethod<TCallKind extends BridgeProduct
 			}
 			return call.result;
 		case 'file.refresh.retry':
+		case 'file.selection.receipt':
 		case 'file.activeViewerMode.update':
 		case 'review.activeViewerMode.update':
 		case 'review.comparison.update':

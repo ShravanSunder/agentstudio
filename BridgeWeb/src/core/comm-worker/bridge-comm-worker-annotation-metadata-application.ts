@@ -29,7 +29,7 @@ export class BridgeCommWorkerAnnotationMetadataApplication {
 		const authority = {
 			subscriptionId: frame.subscriptionId,
 			workerDerivationEpoch: frame.workerDerivationEpoch,
-			worktreeId: event.authority.worktreeId,
+			scopeKey: event.authority.scopeKey,
 		} satisfies BridgeCommWorkerAnnotationCatalogAuthority;
 		if (!this.#admitCatalogEventAuthority(event.kind, authority)) return { kind: 'none' };
 		switch (event.kind) {
@@ -97,7 +97,7 @@ export class BridgeCommWorkerAnnotationMetadataApplication {
 		if (
 			this.#catalogAuthority.subscriptionId === authority.subscriptionId &&
 			this.#catalogAuthority.workerDerivationEpoch === authority.workerDerivationEpoch &&
-			this.#catalogAuthority.worktreeId === authority.worktreeId
+			this.#catalogAuthority.scopeKey === authority.scopeKey
 		) {
 			return true;
 		}

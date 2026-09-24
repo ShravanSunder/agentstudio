@@ -33,12 +33,10 @@ import type { BridgeWorkerReviewContentRequestDescriptor } from './bridge-worker
 type ReviewMetadataDataFrame = ReturnType<typeof makeReviewMetadataDataFrame>;
 
 const currentFileSourceConfiguration = {
+	collectionToken: 'telemetry-root-token',
 	cwdScope: null,
 	freshness: 'live',
 	includeStatuses: true,
-	repoId: '00000000-0000-4000-8000-000000000001',
-	rootPathToken: 'telemetry-root-token',
-	worktreeId: '00000000-0000-4000-8000-000000000002',
 } as const;
 
 describe('Bridge comm worker runtime protocol telemetry', () => {

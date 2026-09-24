@@ -5,13 +5,13 @@ import Testing
 
 @Suite("IPC built-in typed method catalog")
 struct IPCBuiltInMethodCatalogTests {
-    @Test("catalog exposes exactly 47 unique static methods in name order")
+    @Test("catalog exposes exactly 48 unique static methods in name order")
     func catalogHasExactStaticSurface() throws {
         let catalog = try makeCatalog(waitMaximum: 9)
         let names = catalog.erasedDescriptors.map(\.metadata.name)
 
         #expect(names == expectedStaticMethodNames)
-        #expect(Set(names).count == 47)
+        #expect(Set(names).count == 48)
         #expect(names == names.sorted())
     }
 
@@ -67,7 +67,10 @@ struct IPCBuiltInMethodCatalogTests {
         )
         #expect(
             catalog.erasedDescriptors
-                .filter { $0.metadata.name.hasPrefix("bridge.") || $0.metadata.name.hasPrefix("sidebar.") }
+                .filter {
+                    ($0.metadata.name.hasPrefix("bridge.") && !ownPaneBridgeMethodNames.contains($0.metadata.name))
+                        || $0.metadata.name.hasPrefix("sidebar.")
+                }
                 .allSatisfy { $0.metadata.agentEligibility == .notYetAllowed }
         )
     }
@@ -264,10 +267,22 @@ struct IPCBuiltInMethodCatalogTests {
         try JSONSerialization.data(withJSONObject: value, options: [.sortedKeys])
     }
 
-    /// Established Agent IPC v2 methods plus every method a pane agent may
-    /// run in A1: agents reach eligible methods on every channel.
-    private var ordinaryMethodNames: Set<String> {
+    /// B1: a pane agent reaches its own receiving Bridge through its own
+    /// terminal. Opening Bridges and telemetry stay not yet allowed.
+    private var ownPaneBridgeMethodNames: Set<String> {
         [
+            "bridge.diff.collapseFile", "bridge.diff.expandFile", "bridge.diff.getPackage",
+            "bridge.diff.refresh", "bridge.diff.renderState", "bridge.diff.scrollToFile",
+            "bridge.diff.selectFile", "bridge.fileTree.revealPath", "bridge.fileTree.search",
+            "bridge.fileTree.setFilter", "bridge.fileView.getContent",
+            "bridge.fileView.showMarkdownPreview", "bridge.files.search",
+        ]
+    }
+
+    /// Established Agent IPC v2 methods plus every method a pane agent may
+    /// run in A1 and B1: agents reach eligible methods on every channel.
+    private var ordinaryMethodNames: Set<String> {
+        ownPaneBridgeMethodNames.union([
             "auth.login",
             "auth.status",
             "drawer.addPane",
@@ -292,7 +307,7 @@ struct IPCBuiltInMethodCatalogTests {
             "window.list",
             "workspace.current",
             "workspace.list",
-        ]
+        ])
     }
 
     /// The Program Design's A1 eligibility inventory. `nil` marks an
@@ -312,7 +327,7 @@ struct IPCBuiltInMethodCatalogTests {
         ]
         var inventory: [String: IPCAgentEligibility?] = [:]
         for name in expectedStaticMethodNames { inventory[name] = .some(.notYetAllowed) }
-        for name in ownPane { inventory[name] = .some(.ownPane) }
+        for name in ownPane + ownPaneBridgeMethodNames { inventory[name] = .some(.ownPane) }
         for name in anyTarget { inventory[name] = .some(.anyTarget) }
         for name in established { inventory[name] = .some(nil) }
         return inventory
@@ -366,6 +381,7 @@ struct IPCBuiltInMethodCatalogTests {
             "bridge.fileView.getContent",
             "bridge.fileView.open",
             "bridge.fileView.showMarkdownPreview",
+            "bridge.files.search",
             "bridge.telemetry.flush",
             "bridge.telemetry.snapshot",
             "drawer.addPane",

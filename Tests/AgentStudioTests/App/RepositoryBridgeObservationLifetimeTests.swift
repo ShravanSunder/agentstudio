@@ -42,8 +42,10 @@ extension WebKitSerializedTests {
     @MainActor
     @Suite(.serialized)
     struct RepositoryBridgeObservationLifetimeTests {
-        @Test("automatic checkout absence retires the zoom viewer while preserving its source terminal")
-        func automaticAbsenceRetiresZoomViewer() async throws {
+        @Test(
+            "automatic checkout absence replaces the zoom viewer with a Files-only receiver companion and keeps its source terminal"
+        )
+        func automaticAbsenceReplacesZoomViewerWithFilesOnlyCompanion() async throws {
             try await withAsyncTestCoreAtoms { atoms in
                 let harness = makeHarness()
                 defer { try? FileManager.default.removeItem(at: harness.tempDir) }
@@ -74,7 +76,13 @@ extension WebKitSerializedTests {
                     #expect(harness.store.pane(sourcePane.id)?.content == sourcePane.content)
                     #expect(harness.store.tab(sourceTab.id)?.allPaneIds == [sourcePane.id])
                     #expect(harness.store.tabLayoutAtom.activeTabId == sourceTab.id)
-                    #expect(harness.store.panePresentationAtom.zoomCompanion(forSourcePane: sourcePane.id) == nil)
+                    // The receiver outlives its Review member: the terminal keeps a
+                    // Files-only companion, and the Review-bound viewer is retired.
+                    let replacement = try #require(
+                        harness.store.panePresentationAtom.zoomCompanion(forSourcePane: sourcePane.id)
+                    )
+                    #expect(replacement.reviewWorktreeId == nil)
+                    #expect(replacement.companionPaneId != companionID)
                     #expect(harness.viewRegistry.allBridgeViews[companionID] == nil)
                     #expect(harness.runtimeRegistry.runtime(for: PaneId(existingUUID: companionID)) == nil)
                     #expect(harness.coordinator.bridgePaneActivityAuthorityIdentity(for: companionID) == nil)

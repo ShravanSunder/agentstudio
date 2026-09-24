@@ -17,7 +17,7 @@ struct WorktreeAnnotationStoreSourceRefreshTests {
         let detail = try await store.createRootDraft(makeLocatedRootDraftProps())
 
         let initialDemandGeneration = try await store.acquireDemand(
-            worktreeID: detail.session.worktreeID,
+            subjects: [detail.session.subject],
             contextID: "pane-a",
             surface: .file,
             sessionID: detail.session.id
@@ -45,14 +45,13 @@ struct WorktreeAnnotationStoreSourceRefreshTests {
             )
         )
         await store.releaseDemand(
-            worktreeID: detail.session.worktreeID,
             contextID: "pane-a",
             surface: .file,
             sessionID: detail.session.id
         )
 
         let restartedDemandGeneration = try await store.acquireDemand(
-            worktreeID: detail.session.worktreeID,
+            subjects: [detail.session.subject],
             contextID: "pane-a",
             surface: .file,
             sessionID: detail.session.id
@@ -99,7 +98,7 @@ struct WorktreeAnnotationStoreSourceRefreshTests {
         )
         let store = WorktreeAnnotationServiceActor(repositoryAccess: access)
         let earlierDemandGeneration = try await store.acquireDemand(
-            worktreeID: initialDetail.session.worktreeID,
+            subjects: [initialDetail.session.subject],
             contextID: "pane-a",
             surface: .file,
             sessionID: initialDetail.session.id
@@ -133,7 +132,7 @@ struct WorktreeAnnotationStoreSourceRefreshTests {
         await access.waitForSourceCommit()
 
         let currentDemandGeneration = try await store.acquireDemand(
-            worktreeID: initialDetail.session.worktreeID,
+            subjects: [initialDetail.session.subject],
             contextID: "pane-a",
             surface: .file,
             sessionID: initialDetail.session.id
@@ -168,7 +167,6 @@ struct WorktreeAnnotationStoreSourceRefreshTests {
         )
         #expect(currentDetail == initialDetail)
         await store.releaseDemand(
-            worktreeID: initialDetail.session.worktreeID,
             contextID: "pane-a",
             surface: .file,
             sessionID: initialDetail.session.id
@@ -181,7 +179,7 @@ struct WorktreeAnnotationStoreSourceRefreshTests {
         let access = ControllableSourceRefreshDetailLoadAccess(detail: detail)
         let store = WorktreeAnnotationServiceActor(repositoryAccess: access)
         let earlierDemandGeneration = try await store.acquireDemand(
-            worktreeID: detail.session.worktreeID,
+            subjects: [detail.session.subject],
             contextID: "pane-a",
             surface: .file,
             sessionID: detail.session.id
@@ -213,7 +211,7 @@ struct WorktreeAnnotationStoreSourceRefreshTests {
         await access.waitForDetailLoad()
 
         _ = try await store.acquireDemand(
-            worktreeID: detail.session.worktreeID,
+            subjects: [detail.session.subject],
             contextID: "pane-a",
             surface: .file,
             sessionID: detail.session.id
@@ -234,7 +232,7 @@ struct WorktreeAnnotationStoreSourceRefreshTests {
 
         let delayedAcquire = Task {
             try await store.acquireDemand(
-                worktreeID: detail.session.worktreeID,
+                subjects: [detail.session.subject],
                 contextID: "pane-a",
                 surface: .file,
                 sessionID: detail.session.id
@@ -243,7 +241,7 @@ struct WorktreeAnnotationStoreSourceRefreshTests {
         await access.waitForFirstDetailLoad()
 
         _ = try await store.acquireDemand(
-            worktreeID: detail.session.worktreeID,
+            subjects: [detail.session.subject],
             contextID: "pane-a",
             surface: .file,
             sessionID: detail.session.id
@@ -256,7 +254,6 @@ struct WorktreeAnnotationStoreSourceRefreshTests {
             _ = try await delayedAcquire.value
         }
         await store.releaseDemand(
-            worktreeID: detail.session.worktreeID,
             contextID: "pane-a",
             surface: .file,
             sessionID: detail.session.id
@@ -271,7 +268,7 @@ struct WorktreeAnnotationStoreSourceRefreshTests {
 
         let initiatingAcquire = Task {
             try await store.acquireDemand(
-                worktreeID: detail.session.worktreeID,
+                subjects: [detail.session.subject],
                 contextID: "pane-a",
                 surface: .file,
                 sessionID: detail.session.id
@@ -280,13 +277,12 @@ struct WorktreeAnnotationStoreSourceRefreshTests {
         await access.waitForFirstDetailLoad()
 
         _ = try await store.acquireDemand(
-            worktreeID: detail.session.worktreeID,
+            subjects: [detail.session.subject],
             contextID: "pane-b",
             surface: .file,
             sessionID: detail.session.id
         )
         await store.releaseDemand(
-            worktreeID: detail.session.worktreeID,
             contextID: "pane-a",
             surface: .file,
             sessionID: detail.session.id
@@ -298,7 +294,6 @@ struct WorktreeAnnotationStoreSourceRefreshTests {
         }
         #expect(await access.detailLoadCount == 2)
         await store.releaseDemand(
-            worktreeID: detail.session.worktreeID,
             contextID: "pane-b",
             surface: .file,
             sessionID: detail.session.id
@@ -318,7 +313,7 @@ struct WorktreeAnnotationStoreSourceRefreshTests {
         )
         let store = WorktreeAnnotationServiceActor(repositoryAccess: access)
         let demandGeneration = try await store.acquireDemand(
-            worktreeID: initialDetail.session.worktreeID,
+            subjects: [initialDetail.session.subject],
             contextID: "pane-a",
             surface: .file,
             sessionID: initialDetail.session.id
@@ -389,7 +384,7 @@ private actor ControllableSourceRefreshAnnotationAccess: WorktreeAnnotationRepos
         commitContinuation = nil
     }
 
-    func discoverSessions(worktreeID _: String) async throws -> [WorktreeAnnotationSession] {
+    func discoverSessions(subjects _: Set<WorktreeAnnotationSubject>) async throws -> [WorktreeAnnotationSession] {
         [initialDetail.session]
     }
 
@@ -449,7 +444,7 @@ private actor ControllableDemandDetailLoadAccess: WorktreeAnnotationRepositoryAc
         firstDetailLoadContinuation = nil
     }
 
-    func discoverSessions(worktreeID _: String) async throws -> [WorktreeAnnotationSession] {
+    func discoverSessions(subjects _: Set<WorktreeAnnotationSubject>) async throws -> [WorktreeAnnotationSession] {
         [detail.session]
     }
 
@@ -504,7 +499,7 @@ private actor ControllableSourceRefreshDetailLoadAccess: WorktreeAnnotationRepos
         detailLoadContinuation = nil
     }
 
-    func discoverSessions(worktreeID _: String) async throws -> [WorktreeAnnotationSession] {
+    func discoverSessions(subjects _: Set<WorktreeAnnotationSubject>) async throws -> [WorktreeAnnotationSession] {
         [detail.session]
     }
 
@@ -552,12 +547,13 @@ actor RepositoryBackedWorktreeAnnotationAccess: WorktreeAnnotationRepositoryAcce
         self.repository = repository
     }
 
-    func discoverSessions(worktreeID: String) async throws -> [WorktreeAnnotationSession] {
-        try repository.discoverSessions(worktreeID: worktreeID)
+    func discoverSessions(subjects: Set<WorktreeAnnotationSubject>) async throws -> [WorktreeAnnotationSession] {
+        try repository.discoverSessions(subjects: subjects)
     }
 
-    func fetchCatalogCapture(worktreeID: String) async throws -> WorktreeAnnotationCatalogCapture {
-        try repository.fetchCatalogCapture(worktreeID: worktreeID)
+    func fetchCatalogCapture(subjects: Set<WorktreeAnnotationSubject>) async throws -> WorktreeAnnotationCatalogCapture
+    {
+        try repository.fetchCatalogCapture(subjects: subjects)
     }
 
     func fetchSessionDetail(sessionID: WorktreeAnnotationSessionID) async throws

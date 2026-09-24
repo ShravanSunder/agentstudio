@@ -558,15 +558,15 @@ enum BridgeProductWebKitTwoPaneJourneyTestSupport {
 
     private static func makeController(_ input: ControllerInput) -> BridgePaneController {
         let paneId = UUIDv7.generate()
+        let memberWorktreeId = UUIDv7.generate()
         return BridgePaneController(
             paneId: paneId,
-            state: BridgePaneState(
-                panelKind: .diffViewer,
-                source: .workspace(
-                    rootPath: input.repoURL.path,
-                    baseline: .localDefaultBranch(branchName: "main")
-                )
-            ),
+            state: BridgePaneState(panelKind: .diffViewer),
+            sourceConfiguration: BridgePaneSourceConfiguration(
+                review: BridgeReviewSourceBinding(
+                    worktreeId: memberWorktreeId, worktreeRootPath: input.repoURL.path,
+                    comparison: .localDefaultBranch(branchName: "main")),
+                files: .testSingleWorktree(rootURL: input.repoURL, worktreeId: memberWorktreeId)),
             appRootURL: testBridgeAppRootURL(),
             metadata: PaneMetadata(
                 paneId: PaneId(existingUUID: paneId),
@@ -575,7 +575,7 @@ enum BridgeProductWebKitTwoPaneJourneyTestSupport {
                 title: input.title,
                 facets: PaneContextFacets(
                     repoId: UUIDv7.generate(),
-                    worktreeId: UUIDv7.generate(),
+                    worktreeId: memberWorktreeId,
                     worktreeName: input.title,
                     cwd: input.repoURL
                 )
@@ -626,8 +626,10 @@ enum BridgeProductWebKitTwoPaneJourneyTestSupport {
         paths: [String],
         batchSequence: UInt64
     ) throws -> FileChangeset {
-        let worktreeId = try #require(controller.runtime.metadata.worktreeId)
-        let rootPath = try #require(controller.runtime.metadata.cwd)
+        // Refresh routes by the controller's explicit Files member binding.
+        let member = try #require(controller.filesBinding?.members.first)
+        let worktreeId = member.id
+        let rootPath = member.path
         return FileChangeset(
             worktreeId: worktreeId,
             repoId: controller.runtime.metadata.repoId,

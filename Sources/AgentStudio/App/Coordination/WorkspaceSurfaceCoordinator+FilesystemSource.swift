@@ -240,6 +240,9 @@ extension WorkspaceSurfaceCoordinator {
         guard
             admitsCrossWorktreeGitInternalInvalidation
                 || affectedKeys.worktreeIds.contains(worktreeId)
+                || viewRegistry.allBridgeViews.values.contains(where: {
+                    $0.controller.readsWorktree(worktreeId)
+                })
         else { return }
 
         // Close the observation callback scheduling gap before admitting work from
@@ -255,26 +258,21 @@ extension WorkspaceSurfaceCoordinator {
             )
         }
 
+        // Route by each controller's explicit source bindings: a Files member
+        // or the Review member, never the pane's own CWD association.
         for bridgeView in viewRegistry.allBridgeViews.values {
             guard acceptsFilesystemProjectionSource(envelope) else { return }
             let controller = bridgeView.controller
-            guard controller.runtime.metadata.repoId == worktreeEnvelope.repoId else {
-                continue
-            }
-            let matchesPaneWorktree = controller.runtime.metadata.worktreeId == worktreeId
+            let readsWorktree = controller.readsWorktree(worktreeId)
             switch worktreeEnvelope.event {
             case .filesystem(.filesChanged(let changeset)):
                 let invalidation = BridgePaneWorktreeProductInvalidation.filesChanged(changeset)
-                guard
-                    invalidation.isGitInternalFileInvalidation
-                        || (affectedKeys.paneIds.contains(controller.paneId) && matchesPaneWorktree)
-                else {
+                guard invalidation.isGitInternalFileInvalidation || readsWorktree else {
                     continue
                 }
                 await controller.handleWorktreeProductInvalidation(invalidation)
             case .gitWorkingDirectory(.snapshotChanged(let snapshot)):
-                guard affectedKeys.paneIds.contains(controller.paneId),
-                    matchesPaneWorktree,
+                guard readsWorktree,
                     snapshot.worktreeId == worktreeId,
                     snapshot.repoId == worktreeEnvelope.repoId
                 else {
@@ -286,7 +284,8 @@ extension WorkspaceSurfaceCoordinator {
                             summary: snapshot.summary,
                             branch: snapshot.branch,
                             origin: nil
-                        )
+                        ),
+                        worktreeId: worktreeId
                     )
                 )
             case .filesystem, .gitWorkingDirectory, .forge, .security:

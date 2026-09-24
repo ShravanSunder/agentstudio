@@ -18,22 +18,18 @@ extension WebKitSerializedTests {
         @Test("committed comparison update adopts the canonical workspace target")
         func committedComparisonUpdateAdoptsCanonicalWorkspaceTarget() async throws {
             let target = WorkspaceReviewContributionTarget.branch(name: "stack/base")
-            let canonicalState = BridgePaneState(
-                panelKind: .diffViewer,
-                source: .workspace(
-                    rootPath: "/tmp/worktree",
-                    baseline: WorkspaceBaseline(contributionTarget: target)
-                )
-            )
+            let canonicalComparison = WorkspaceBaseline(contributionTarget: target)
             let controller = BridgePaneController(
                 paneId: UUIDv7.generate(),
-                state: BridgePaneState(
-                    panelKind: .diffViewer,
-                    source: .workspace(rootPath: "/tmp/worktree", baseline: .branch(name: "main"))
-                ),
+                state: BridgePaneState(panelKind: .diffViewer),
+                sourceConfiguration: BridgePaneSourceConfiguration(
+                    review: BridgeReviewSourceBinding(
+                        worktreeId: UUIDv7.generate(), worktreeRootPath: "/tmp/worktree",
+                        comparison: .branch(name: "main")),
+                    files: nil),
                 appRootURL: testBridgeAppRootURL(),
                 initialPaneActivity: .dormant,
-                contributionTargetCommit: { _ in .applied(canonicalState) }
+                contributionTargetCommit: { _ in .applied(canonicalComparison) }
             )
             defer { controller.teardown() }
             let productAdmission = try #require(controller.productAdmissionGate.acquire())
@@ -43,7 +39,7 @@ extension WebKitSerializedTests {
                 productAdmission: productAdmission
             )
 
-            #expect(controller.bridgePaneState == canonicalState)
+            #expect(controller.reviewBinding?.comparison == canonicalComparison)
             #expect(didAdopt)
             #expect(controller.productAdmissionGate.diagnosticSnapshot.isOpen)
         }
@@ -52,22 +48,16 @@ extension WebKitSerializedTests {
         func noncanonicalCommittedComparisonResultClosesPaneAdmission() async throws {
             let controller = BridgePaneController(
                 paneId: UUIDv7.generate(),
-                state: BridgePaneState(
-                    panelKind: .diffViewer,
-                    source: .workspace(rootPath: "/tmp/worktree", baseline: .branch(name: "main"))
-                ),
+                state: BridgePaneState(panelKind: .diffViewer),
+                sourceConfiguration: BridgePaneSourceConfiguration(
+                    review: BridgeReviewSourceBinding(
+                        worktreeId: UUIDv7.generate(), worktreeRootPath: "/tmp/worktree",
+                        comparison: .branch(name: "main")),
+                    files: nil),
                 appRootURL: testBridgeAppRootURL(),
                 initialPaneActivity: .dormant,
                 contributionTargetCommit: { _ in
-                    .unchanged(
-                        BridgePaneState(
-                            panelKind: .diffViewer,
-                            source: .workspace(
-                                rootPath: "/tmp/worktree",
-                                baseline: .branch(name: "different-target")
-                            )
-                        )
-                    )
+                    .unchanged(.branch(name: "different-target"))
                 }
             )
             defer { controller.teardown() }
@@ -129,18 +119,12 @@ extension WebKitSerializedTests {
             let successorTarget = WorkspaceReviewContributionTarget.branch(name: "stack/base")
             let comparison = makeComparison()
             let provider = makeContributionProvider(comparison: comparison)
-            let canonicalSuccessorState = BridgePaneState(
-                panelKind: .diffViewer,
-                source: .workspace(
-                    rootPath: "/tmp/worktree",
-                    baseline: WorkspaceBaseline(contributionTarget: successorTarget)
-                )
-            )
+            let canonicalSuccessorComparison = WorkspaceBaseline(contributionTarget: successorTarget)
             let controller = makeController(
                 target: initialTarget,
                 comparison: comparison,
                 provider: provider,
-                contributionTargetCommit: { _ in .applied(canonicalSuccessorState) }
+                contributionTargetCommit: { _ in .applied(canonicalSuccessorComparison) }
             )
             defer { controller.teardown() }
             guard case .success = await controller.loadInitialReviewPackageIfPossible(correlationId: nil)
@@ -192,16 +176,10 @@ extension WebKitSerializedTests {
             // Arrange
             let initialTarget = WorkspaceReviewContributionTarget.branch(name: "main")
             let successorTarget = WorkspaceReviewContributionTarget.branch(name: "stack/base")
-            let canonicalSuccessorState = BridgePaneState(
-                panelKind: .diffViewer,
-                source: .workspace(
-                    rootPath: "/tmp/bridge-refresh-admission",
-                    baseline: WorkspaceBaseline(contributionTarget: successorTarget)
-                )
-            )
+            let canonicalSuccessorComparison = WorkspaceBaseline(contributionTarget: successorTarget)
             let fixture = try await makeRefreshAdmissionIntegrationFixture(
                 initialContributionTarget: initialTarget,
-                contributionTargetCommit: { _ in .applied(canonicalSuccessorState) }
+                contributionTargetCommit: { _ in .applied(canonicalSuccessorComparison) }
             )
             defer { fixture.controller.teardown() }
             try await fixture.loadInitialReviewPackage()
@@ -297,18 +275,12 @@ extension WebKitSerializedTests {
                 comparison: comparison,
                 repositoryDefaultTarget: initialDefaultTarget
             )
-            let canonicalSuccessorState = BridgePaneState(
-                panelKind: .diffViewer,
-                source: .workspace(
-                    rootPath: "/tmp/worktree",
-                    baseline: WorkspaceBaseline(contributionTarget: successorTarget)
-                )
-            )
+            let canonicalSuccessorComparison = WorkspaceBaseline(contributionTarget: successorTarget)
             let controller = makeController(
                 target: initialTarget,
                 comparison: comparison,
                 provider: provider,
-                contributionTargetCommit: { _ in .applied(canonicalSuccessorState) }
+                contributionTargetCommit: { _ in .applied(canonicalSuccessorComparison) }
             )
             defer { controller.teardown() }
             guard case .success = await controller.loadInitialReviewPackageIfPossible(correlationId: nil)
@@ -381,18 +353,17 @@ extension WebKitSerializedTests {
             target: WorkspaceReviewContributionTarget,
             comparison: BridgeEndpointComparison,
             provider: BridgeReviewSourceProviderFake,
-            contributionTargetCommit:
-                (@MainActor @Sendable (WorkspaceReviewContributionTarget) -> BridgePaneStateMutationResult)? = nil
+            contributionTargetCommit: BridgeReviewComparisonCommit? = nil
         ) -> BridgePaneController {
             BridgePaneController(
                 paneId: UUIDv7.generate(),
-                state: BridgePaneState(
-                    panelKind: .diffViewer,
-                    source: .workspace(
-                        rootPath: "/tmp/worktree",
-                        baseline: WorkspaceBaseline(contributionTarget: target)
-                    )
-                ),
+                state: BridgePaneState(panelKind: .diffViewer),
+                sourceConfiguration: BridgePaneSourceConfiguration(
+                    review: BridgeReviewSourceBinding(
+                        worktreeId: comparison.headEndpoint.worktreeId, worktreeRootPath: "/tmp/worktree",
+                        comparison: WorkspaceBaseline(contributionTarget: target)),
+                    files: .testSingleWorktree(
+                        rootURL: URL(fileURLWithPath: "/tmp/worktree"), worktreeId: comparison.headEndpoint.worktreeId)),
                 appRootURL: testBridgeAppRootURL(),
                 metadata: PaneMetadata(
                     contentType: .diff,

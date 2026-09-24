@@ -386,6 +386,28 @@ extension AppCommand {
         )
     }
 
+    /// Commands that act on the receiving Bridge of the focused pane: its
+    /// terminal's receiver, or a standalone Bridge pane itself.
+    func bridgeReceiverDefinition(
+        label: String,
+        icon: CommandIcon,
+        helpText: String,
+        surfacePolicy: AppCommandSurfacePolicy,
+        targeting: AppCommandTargeting
+    ) -> AppCommandSpec {
+        AppCommandSpec(
+            command: self,
+            label: label,
+            icon: icon,
+            helpText: helpText,
+            surfacePolicy: surfacePolicy,
+            targeting: targeting,
+            visibleWhen: [.hasActivePane],
+            commandBarGroupName: "Bridge",
+            commandBarGroupPriority: CommandBarGroupPriority.bridge
+        )
+    }
+
     func authenticationDefinition(providerName: String) -> AppCommandSpec {
         AppCommandSpec(
             command: self,

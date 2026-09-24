@@ -60,8 +60,7 @@ extension WorkspaceSurfaceCoordinator {
         )
         retireLostZoomCompanion(
             forSourcePane: sourcePaneId,
-            viewerWorktreeStillResolves: resolvedContext?.worktree.id
-                == companion.resolvedWorktreeId
+            viewerWorktreeStillResolves: resolvedContext != nil
         )
     }
 
@@ -177,12 +176,30 @@ extension WorkspaceSurfaceCoordinator {
             return .unavailable
         }
 
-        if store.panePresentationAtom.zoomCompanion(forSourcePane: sourcePaneId) != nil {
+        // The receiver and its record outlive the companion: CWD only injects
+        // and protects a member, it never selects what the companion shows.
+        let receiver = BridgeReceiver.terminal(sourcePaneId)
+        let knownCWDWorktreeId = context.association?.worktree.id
+        bridgeNavigationCommandHandler.ensureRecord(
+            for: receiver,
+            seedingKnownWorktreeId: knownCWDWorktreeId
+        )
+        bridgeNavigationCommandHandler.applyKnownCWDAssociation(
+            knownCWDWorktreeId,
+            forTerminalPane: sourcePaneId
+        )
+        let reviewBinding = bridgeNavigationCommandHandler.reviewBinding(for: receiver)
+
+        if let companion = store.panePresentationAtom.zoomCompanion(forSourcePane: sourcePaneId) {
             if let retained = retainedZoomCompanionPresentation(
                 sourcePaneId: sourcePaneId,
                 owningTabId: owningTabId,
-                resolvedWorktreeId: context.worktree.id
+                reviewWorktreeId: reviewBinding?.worktreeId
             ) {
+                if let files = bridgeNavigationCommandHandler.filesBinding(for: receiver) {
+                    viewRegistry.allBridgeViews[companion.companionPaneId]?.controller
+                        .enqueueFilesSourceUpdate(files)
+                }
                 return retained
             }
             retireLostZoomCompanion(
@@ -191,33 +208,26 @@ extension WorkspaceSurfaceCoordinator {
             )
         }
 
+        // The companion describes what its receiver's record reads, not the
+        // terminal's latest CWD association.
+        let displayed = reviewBinding.flatMap { binding in
+            store.repositoryTopologyAtom.repositoryId(containing: binding.worktreeId).flatMap {
+                store.repositoryTopologyAtom.validatedAssociation(repoId: $0, worktreeId: binding.worktreeId)
+            }
+        }
         let companionPaneId = UUIDv7.generate()
-        let companionState = BridgePaneState(
-            panelKind: .fileViewer,
-            source: .workspace(
-                rootPath: context.worktree.path.path,
-                baseline: nil
-            )
-        )
+        let companionState = BridgePaneState(panelKind: .fileViewer)
         let companionPane = Pane(
             id: companionPaneId,
             content: .bridgePanel(companionState),
-            metadata: PaneMetadata(
-                contentType: .diff,
-                launchDirectory: context.worktree.path,
-                title: "Files",
-                facets: PaneContextFacets(
-                    repoId: context.repo.id,
-                    repoName: context.repo.name,
-                    worktreeId: context.worktree.id,
-                    worktreeName: context.worktree.name,
-                    cwd: context.sourcePane.metadata.cwd ?? context.worktree.path
-                )
+            metadata: Self.zoomCompanionMetadata(
+                displayed: displayed,
+                sourcePaneCWD: context.sourcePane.metadata.cwd
             )
         )
 
         viewRegistry.ensureSlot(for: companionPaneId)
-        _ = createZoomCompanionBridgePaneView(for: companionPane, state: companionState)
+        _ = createBridgePaneView(for: companionPane, state: companionState, receiver: receiver)
         guard viewerSurfaceRequest(continuity.surface, companionPaneId) else {
             teardownView(for: companionPaneId)
             retireBridgePaneActivityAuthority(for: companionPaneId)
@@ -232,7 +242,7 @@ extension WorkspaceSurfaceCoordinator {
         store.panePresentationAtom.cacheZoomCompanion(
             ZoomCompanionMetadata(
                 owningTabId: owningTabId,
-                resolvedWorktreeId: context.worktree.id,
+                reviewWorktreeId: reviewBinding?.worktreeId,
                 companionPaneId: companionPaneId,
                 lastZoomVisibility: continuity.visibility
             ),
@@ -248,43 +258,15 @@ extension WorkspaceSurfaceCoordinator {
         }
     }
 
-    private func createZoomCompanionBridgePaneView(
-        for companionPane: Pane,
-        state companionState: BridgePaneState
-    ) -> BridgePaneMountView {
-        let transientContributionTargetCommit:
-            @MainActor @Sendable (WorkspaceReviewContributionTarget) -> BridgePaneStateMutationResult =
-                { target in
-                    guard case .workspace(let rootPath, _) = companionState.source else {
-                        return .notWorkspaceSource
-                    }
-                    return .applied(
-                        BridgePaneState(
-                            panelKind: companionState.panelKind,
-                            source: .workspace(
-                                rootPath: rootPath,
-                                baseline: WorkspaceBaseline(contributionTarget: target)
-                            )
-                        )
-                    )
-                }
-        return createBridgePaneView(
-            for: companionPane,
-            state: companionState,
-            initialContributionTargetCommit: transientContributionTargetCommit,
-            contributionTargetCommit: transientContributionTargetCommit
-        )
-    }
-
     private func retainedZoomCompanionPresentation(
         sourcePaneId: UUID,
         owningTabId: UUID,
-        resolvedWorktreeId: UUID
+        reviewWorktreeId: UUID?
     ) -> ZoomViewerPresentation? {
         guard
             let companion = store.panePresentationAtom.zoomCompanion(forSourcePane: sourcePaneId),
             companion.owningTabId == owningTabId,
-            companion.resolvedWorktreeId == resolvedWorktreeId,
+            companion.reviewWorktreeId == reviewWorktreeId,
             viewRegistry.allBridgeViews[companion.companionPaneId] != nil,
             runtimeForPane(PaneId(existingUUID: companion.companionPaneId)) is BridgeRuntime
         else {
@@ -303,10 +285,13 @@ extension WorkspaceSurfaceCoordinator {
         }
     }
 
+    /// The source pane of a Zoom companion and its current known-worktree
+    /// association, which is nil for a terminal outside every known worktree.
+    /// A receiver does not need a worktree to exist.
     private func zoomCompanionContext(
         sourcePaneId: UUID,
         owningTabId: UUID
-    ) -> (sourcePane: Pane, repo: Repo, worktree: Worktree)? {
+    ) -> (sourcePane: Pane, association: (repo: Repo, worktree: Worktree)?)? {
         guard
             let tab = store.tabLayoutAtom.tab(owningTabId),
             tab.allPaneIds.contains(sourcePaneId),
@@ -315,14 +300,37 @@ extension WorkspaceSurfaceCoordinator {
         else {
             return nil
         }
+        let association = store.repositoryTopologyAtom.validatedAssociation(
+            repoId: sourcePane.repoId,
+            worktreeId: sourcePane.worktreeId
+        )
+        return (sourcePane, association.map { (repo: $0.repo, worktree: $0.worktree) })
+    }
 
-        guard
-            let resolved = store.repositoryTopologyAtom.validatedAssociation(
-                repoId: sourcePane.repoId,
-                worktreeId: sourcePane.worktreeId
+    private static func zoomCompanionMetadata(
+        displayed: (repo: Repo, worktree: Worktree)?,
+        sourcePaneCWD: URL?
+    ) -> PaneMetadata {
+        guard let displayed else {
+            return PaneMetadata(
+                contentType: .diff,
+                launchDirectory: sourcePaneCWD,
+                title: "Files",
+                facets: PaneContextFacets(cwd: sourcePaneCWD)
             )
-        else { return nil }
-        return (sourcePane, resolved.repo, resolved.worktree)
+        }
+        return PaneMetadata(
+            contentType: .diff,
+            launchDirectory: displayed.worktree.path,
+            title: "Files",
+            facets: PaneContextFacets(
+                repoId: displayed.repo.id,
+                repoName: displayed.repo.name,
+                worktreeId: displayed.worktree.id,
+                worktreeName: displayed.worktree.name,
+                cwd: displayed.worktree.path
+            )
+        )
     }
 
     func reconcileZoomCompanionAfterCWDChange(sourcePaneId: UUID) {

@@ -4,6 +4,7 @@ import { expect, test } from 'vitest';
 import { runAllOwnedCleanupOperations } from '../../scripts/dev-server/bridge-development-server-process.ts';
 import { waitForSelectedFileReady } from './bridge-viewer-vite-annotation-save-journey.ts';
 import { createBridgeViewerExplorationFixture } from './bridge-viewer-vite-exploration-fixture.ts';
+import { bridgeViewerViteFileCollectionPath } from './bridge-viewer-vite-file-collection-path.ts';
 import { observeInteractionProfileFailures } from './bridge-viewer-vite-interaction-profile-diagnostics.ts';
 import {
 	startBridgeViewerOwnedViteProductServer,
@@ -50,7 +51,9 @@ test.each(['Markdown', 'code'] as const)(
 			// Act — select one discovered target; do not rebootstrap or reselect.
 			await page
 				.getByTestId('bridge-viewer-mode-host-file')
-				.locator(`[data-item-path="${nextPath}"]`)
+				.locator(
+					`[data-item-path="${bridgeViewerViteFileCollectionPath(fixture.oracle.worktreeRoot, nextPath)}"]`,
+				)
 				.click();
 
 			// Assert — the selected renderer completes the exact new target.

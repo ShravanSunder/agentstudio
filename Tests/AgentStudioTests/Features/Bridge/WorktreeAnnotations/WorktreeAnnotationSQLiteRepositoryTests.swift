@@ -124,13 +124,11 @@ struct WorktreeAnnotationSQLiteRepositoryTests {
         let repository = try makeRepository()
         let sourceFingerprint = makeSourceFingerprint(worktreeID: "worktree-1")
 
-        #expect(try repository.discoverSessions(worktreeID: "worktree-1").isEmpty)
+        #expect(try repository.discoverSessions(subjects: [defaultAnnotationSubject]).isEmpty)
 
         let first = try repository.createRootDraft(
             .init(
                 admission: .implicitOrSingle,
-                repositoryID: "repo-1",
-                worktreeID: "worktree-1",
                 sourceFingerprint: sourceFingerprint,
                 origin: .session,
                 body: "First draft",
@@ -138,7 +136,7 @@ struct WorktreeAnnotationSQLiteRepositoryTests {
                 now: Date(timeIntervalSince1970: 10)
             )
         ).canonicalResult
-        let discovery = try repository.discoverSessions(worktreeID: "worktree-1")
+        let discovery = try repository.discoverSessions(subjects: [defaultAnnotationSubject])
         #expect(discovery.map(\.id) == [first.session.id])
 
         let completedFirst = try repository.setSessionLifecycle(
@@ -154,8 +152,6 @@ struct WorktreeAnnotationSQLiteRepositoryTests {
         let second = try repository.createRootDraft(
             .init(
                 admission: .newSession,
-                repositoryID: "repo-1",
-                worktreeID: "worktree-1",
                 sourceFingerprint: sourceFingerprint,
                 origin: .session,
                 body: "Second session",
@@ -174,7 +170,7 @@ struct WorktreeAnnotationSQLiteRepositoryTests {
             )
         )
         #expect(first.session.id != second.session.id)
-        #expect(try repository.discoverSessions(worktreeID: "worktree-1").count == 2)
+        #expect(try repository.discoverSessions(subjects: [defaultAnnotationSubject]).count == 2)
 
         #expect(
             throws: WorktreeAnnotationRepositoryError.sessionSelectionRequired(
@@ -187,8 +183,6 @@ struct WorktreeAnnotationSQLiteRepositoryTests {
             try repository.createRootDraft(
                 .init(
                     admission: .implicitOrSingle,
-                    repositoryID: "repo-1",
-                    worktreeID: "worktree-1",
                     sourceFingerprint: sourceFingerprint,
                     origin: .session,
                     body: "Ambiguous",
@@ -201,8 +195,6 @@ struct WorktreeAnnotationSQLiteRepositoryTests {
         let selected = try repository.createRootDraft(
             .init(
                 admission: .selected(first.session.id),
-                repositoryID: "repo-1",
-                worktreeID: "worktree-1",
                 sourceFingerprint: sourceFingerprint,
                 origin: .session,
                 body: "Explicit continuation",
@@ -231,8 +223,6 @@ struct WorktreeAnnotationSQLiteRepositoryTests {
         let second = try repository.createRootDraft(
             .init(
                 admission: .newSession,
-                repositoryID: "repo-1",
-                worktreeID: "worktree-1",
                 sourceFingerprint: makeSourceFingerprint(worktreeID: "worktree-1"),
                 origin: .session,
                 body: "Second session",
@@ -252,7 +242,7 @@ struct WorktreeAnnotationSQLiteRepositoryTests {
         )
 
         let snapshot = try repository.fetchProjectionSnapshot(
-            worktreeID: "worktree-1",
+            subjects: [defaultAnnotationSubject],
             demandedSessionIDs: [second.session.id]
         )
 
@@ -262,7 +252,7 @@ struct WorktreeAnnotationSQLiteRepositoryTests {
 
         #expect(throws: WorktreeAnnotationRepositoryError.notFound) {
             try repository.fetchProjectionSnapshot(
-                worktreeID: "another-worktree",
+                subjects: [.git(repositoryID: "repo-1", worktreeID: "another-worktree")],
                 demandedSessionIDs: [first.session.id]
             )
         }
@@ -281,11 +271,8 @@ struct WorktreeAnnotationSQLiteRepositoryTests {
         let reviewDetail = try repository.createRootDraft(
             .init(
                 admission: .implicitOrSingle,
-                repositoryID: "repo-1",
-                worktreeID: "worktree-1",
                 sourceFingerprint: .init(
-                    repositoryID: "repo-1",
-                    worktreeID: "worktree-1",
+                    subject: defaultAnnotationSubject,
                     fileSourceIdentity: nil,
                     reviewComparisonOrigin: reviewComparisonOrigin
                 ),
@@ -311,8 +298,6 @@ struct WorktreeAnnotationSQLiteRepositoryTests {
         let mixedDetail = try repository.createRootDraft(
             .init(
                 admission: .selected(reviewDetail.session.id),
-                repositoryID: "repo-1",
-                worktreeID: "worktree-1",
                 sourceFingerprint: makeSourceFingerprint(worktreeID: "worktree-1"),
                 origin: .located(
                     .init(
@@ -365,8 +350,6 @@ struct WorktreeAnnotationSQLiteRepositoryTests {
             try repository.createRootDraft(
                 .init(
                     admission: .implicitOrSingle,
-                    repositoryID: "repo-1",
-                    worktreeID: "worktree-1",
                     sourceFingerprint: makeSourceFingerprint(worktreeID: "worktree-1"),
                     origin: .session,
                     body: "Must choose continuity first",
@@ -375,7 +358,7 @@ struct WorktreeAnnotationSQLiteRepositoryTests {
                 )
             )
         }
-        #expect(try repository.discoverSessions(worktreeID: "worktree-1").count == 1)
+        #expect(try repository.discoverSessions(subjects: [defaultAnnotationSubject]).count == 1)
     }
 
     @Test("draft save revert replies and resolution use revisions and flat ordering")
@@ -740,8 +723,6 @@ private func assertCompletedSessionRejectsAuthoring(
         try repository.createRootDraft(
             .init(
                 admission: .selected(detail.session.id),
-                repositoryID: "repo-1",
-                worktreeID: "worktree-1",
                 sourceFingerprint: makeSourceFingerprint(worktreeID: "worktree-1"),
                 origin: .session,
                 body: "Must reopen first",

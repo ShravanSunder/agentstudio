@@ -24,6 +24,7 @@ package enum IPCCommandArguments: IPCSchemaProviding, Equatable, Sendable {
     case standalonePane(IPCStandalonePaneCommandArguments)
     case worktree(IPCWorktreeCommandArguments)
     case worktreeInPane(IPCWorktreeInPaneCommandArguments)
+    case bridgeDocumentInPane(IPCBridgeDocumentInPaneCommandArguments)
     case terminalFromWorktree(IPCTerminalFromWorktreeCommandArguments)
     case terminalFromPane(IPCTerminalFromPaneCommandArguments)
     case managementFromMainPane(IPCManagementFromMainPaneCommandArguments)
@@ -54,6 +55,7 @@ package enum IPCCommandArguments: IPCSchemaProviding, Equatable, Sendable {
         case .standalonePane: .standalonePane
         case .worktree: .worktree
         case .worktreeInPane: .worktreeInPane
+        case .bridgeDocumentInPane: .bridgeDocumentInPane
         case .terminalFromWorktree: .terminalFromWorktree
         case .terminalFromPane: .terminalFromPane
         case .managementFromMainPane: .managementFromMainPane
@@ -112,6 +114,8 @@ package enum IPCCommandArguments: IPCSchemaProviding, Equatable, Sendable {
             self = .worktree(try IPCWorktreeCommandArguments(from: decoder))
         case .worktreeInPane:
             self = .worktreeInPane(try IPCWorktreeInPaneCommandArguments(from: decoder))
+        case .bridgeDocumentInPane:
+            self = .bridgeDocumentInPane(try IPCBridgeDocumentInPaneCommandArguments(from: decoder))
         case .terminalFromWorktree:
             self = .terminalFromWorktree(try IPCTerminalFromWorktreeCommandArguments(from: decoder))
         case .terminalFromPane:
@@ -176,6 +180,7 @@ package enum IPCCommandArguments: IPCSchemaProviding, Equatable, Sendable {
         case .standalonePane(let arguments): try encode(arguments, to: encoder)
         case .worktree(let arguments): try encode(arguments, to: encoder)
         case .worktreeInPane(let arguments): try encode(arguments, to: encoder)
+        case .bridgeDocumentInPane(let arguments): try encode(arguments, to: encoder)
         case .terminalFromWorktree(let arguments): try encode(arguments, to: encoder)
         case .terminalFromPane(let arguments): try encode(arguments, to: encoder)
         case .managementFromMainPane(let arguments): try encode(arguments, to: encoder)

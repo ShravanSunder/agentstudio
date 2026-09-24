@@ -6,6 +6,7 @@ import { useLayoutEffect } from 'react';
 import { bridgeViewerChromeCompactMetadataClassName } from '../../app/bridge-viewer-chrome.js';
 import { cn } from '../../app/class-name.js';
 import { Button } from '../../components/ui/button.js';
+import type { BridgeWorktreeFileLocation } from '../../file-viewer/bridge-file-collection-display-path.js';
 import type { BridgeReviewPackage } from '../../foundation/review-package/bridge-review-package.js';
 import { isBridgeCodeViewItem } from './bridge-code-view-panel-support.js';
 
@@ -18,7 +19,7 @@ interface CreateBridgeCodeViewHeaderRenderersProps {
 	readonly collapsedItemIds: ReadonlySet<string>;
 	readonly onHeaderVisibilityChange: (itemId: string, isVisible: boolean) => void;
 	readonly onToggleItemCollapse: (itemId: string) => void;
-	readonly onOpenFile: ((path: string) => void) | undefined;
+	readonly onOpenFile: ((location: BridgeWorktreeFileLocation) => void) | undefined;
 	readonly reviewPackage: BridgeReviewPackage;
 }
 
@@ -117,7 +118,10 @@ function renderBridgeCodeViewHeaderMetadata(props: RenderBridgeCodeViewHeaderPro
 					onClick={(event): void => {
 						event.preventDefault();
 						event.stopPropagation();
-						props.onOpenFile?.(filePath);
+						props.onOpenFile?.({
+							relativePath: filePath,
+							worktreeId: props.reviewPackage.query.worktreeId,
+						});
 					}}
 					size="icon-sm"
 					title="Open in Files"

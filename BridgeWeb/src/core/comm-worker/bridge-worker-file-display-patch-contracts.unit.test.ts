@@ -13,6 +13,7 @@ import {
 const fileTreeRow = {
 	changeStatus: 'modified',
 	depth: 1,
+	documentLocation: null,
 	fileId: 'file-1',
 	fileClass: 'source',
 	isDirectory: false,

@@ -455,7 +455,7 @@ struct WorkspacePanePresentationAtomTests {
     ) -> ZoomCompanionMetadata {
         ZoomCompanionMetadata(
             owningTabId: tabId,
-            resolvedWorktreeId: UUID(),
+            reviewWorktreeId: UUID(),
             companionPaneId: UUID(),
             lastZoomVisibility: visibility
         )

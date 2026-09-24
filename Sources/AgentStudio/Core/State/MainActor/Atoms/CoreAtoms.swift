@@ -35,6 +35,7 @@ package final class CoreAtoms {
     package let sessionRuntime: SessionRuntimeAtom
     package let paneActivityStatus: PaneActivityStatusAtom
     package let welcome: WelcomeAtom
+    package let bridgeNavigation: BridgeNavigationAtom
 
     package init(
         activeWorkspaceSelection: ActiveWorkspaceSelectionAtom = .init(),
@@ -67,7 +68,8 @@ package final class CoreAtoms {
         workspaceFocusOwner: WorkspaceFocusOwnerAtom = .init(),
         sessionRuntime: SessionRuntimeAtom = .init(),
         paneActivityStatus: PaneActivityStatusAtom = .init(),
-        welcome: WelcomeAtom = .init()
+        welcome: WelcomeAtom = .init(),
+        bridgeNavigation: BridgeNavigationAtom = .init()
     ) {
         self.activeWorkspaceSelection = activeWorkspaceSelection
         self.workspaceIdentity = workspaceIdentity
@@ -139,6 +141,7 @@ package final class CoreAtoms {
         self.sessionRuntime = sessionRuntime
         self.paneActivityStatus = paneActivityStatus
         self.welcome = welcome
+        self.bridgeNavigation = bridgeNavigation
     }
 
     private static func resolveWorkspacePane(

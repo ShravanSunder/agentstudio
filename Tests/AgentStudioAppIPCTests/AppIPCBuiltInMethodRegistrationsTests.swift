@@ -15,8 +15,8 @@ struct AppIPCBuiltInMethodRegistrationsTests {
         let registrationMetadata = registrations.map(\.descriptor.metadata)
         let expectedMetadata = catalog.erasedDescriptors.map(\.metadata)
 
-        #expect(registrations.count == 47)
-        #expect(Set(registrationMetadata.map(\.name)).count == 47)
+        #expect(registrations.count == 48)
+        #expect(Set(registrationMetadata.map(\.name)).count == 48)
         #expect(registrationMetadata.map(\.name) == registrationMetadata.map(\.name).sorted())
         #expect(registrationMetadata == expectedMetadata)
         #expect(!registrationMetadata.map(\.name).contains("system.capabilities"))
@@ -229,7 +229,8 @@ struct AppIPCBuiltInMethodRegistrationsTests {
         #expect((await eventSubscriber.snapshot()).count == 1)
 
         let nonBridgeRegistrations = try fixture.registrations(
-            queryPort: FakeQueryPort(panes: [fixture.paneSummary(contentKind: .terminal)]),
+            // A terminal reaches its receiving Bridge; a webview reaches none.
+            queryPort: FakeQueryPort(panes: [fixture.paneSummary(contentKind: .webview)]),
             bridgePort: FakeBridgePort(paneId: fixture.paneId)
         )
         let nonBridgeRefresh = try fixture.registration(

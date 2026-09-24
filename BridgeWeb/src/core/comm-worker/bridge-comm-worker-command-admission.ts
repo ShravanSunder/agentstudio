@@ -29,6 +29,8 @@ export function bridgeCommWorkerIntentEpochDomain(
 		case 'fileDisplayResync':
 		case 'fileQueryUpdate':
 		case 'fileRefreshRetry':
+		case 'fileSelectionReceipt':
+		case 'fileCollectionSearch':
 			return 'fileView';
 		case 'markFileViewed':
 		case 'metadataInterestUpdate':
@@ -51,10 +53,15 @@ export function bridgeCommWorkerIntentEpochDomain(
 	}
 }
 
+/**
+ * Render dispositions and collection searches carry no viewer intent: a search
+ * is a read answered by request id, so it neither advances nor waits on the
+ * File surface's intent epoch.
+ */
 export function bridgeCommWorkerCommandUsesIntentEpochAdmission(
 	message: BridgeWorkerMainToServerMessage,
 ): boolean {
-	return message.command !== 'renderDisposition';
+	return message.command !== 'renderDisposition' && message.command !== 'fileCollectionSearch';
 }
 
 interface RejectStaleOrReplayedBridgeWorkerCommandProps {

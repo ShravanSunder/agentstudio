@@ -196,7 +196,7 @@ struct BridgePaneWorktreeRefreshDriverTests {
         driver.recordFileSourceAccepted(
             try makeRefreshDriverSource(
                 generation: 31,
-                repoId: "00000000-0000-7000-8000-000000000099"
+                collectionToken: "foreign-collection"
             )
         )
         driver.recordFileSourceAccepted(
@@ -465,17 +465,15 @@ private func makeRefreshDriverChangeset(
 
 private func makeRefreshDriverSource(
     generation: Int,
-    repoId: String = "00000000-0000-7000-8000-000000000002",
-    rootRevisionToken: String = "bridge-refresh-driver-root",
-    worktreeId: String = "00000000-0000-7000-8000-000000000001"
+    collectionToken: String = "bridge-refresh-driver-collection",
+    rootRevisionToken: String = "bridge-refresh-driver-root"
 ) throws -> BridgeProductFileSourceIdentity {
     try BridgeProductFileSourceIdentity(
-        repoId: repoId,
+        collectionToken: collectionToken,
         rootRevisionToken: rootRevisionToken,
         sourceCursor: "generation-\(generation)",
         sourceId: "bridge-refresh-driver-source-\(generation)",
-        subscriptionGeneration: generation,
-        worktreeId: worktreeId
+        subscriptionGeneration: generation
     )
 }
 

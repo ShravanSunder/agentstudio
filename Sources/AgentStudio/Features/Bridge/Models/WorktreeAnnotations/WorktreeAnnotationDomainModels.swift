@@ -106,9 +106,9 @@ struct WorktreeAnnotationAdmissionChoice: Equatable, Sendable {
 }
 
 struct WorktreeAnnotationSourceFingerprint: Codable, Equatable, Sendable {
-    let repositoryID: String
-    let worktreeID: String
+    let subject: WorktreeAnnotationSubject
     let fileSourceIdentity: String?
+    /// Git subjects only: a local document has no comparison.
     let reviewComparisonOrigin: WorktreeAnnotationReviewComparisonOrigin?
 }
 
@@ -231,8 +231,7 @@ enum WorktreeAnnotationThreadOrigin: Codable, Equatable, Sendable {
 
 struct WorktreeAnnotationSession: Equatable, Sendable {
     let id: WorktreeAnnotationSessionID
-    let repositoryID: String
-    let worktreeID: String
+    let subject: WorktreeAnnotationSubject
     let lifecycle: WorktreeAnnotationSessionLifecycle
     let sourceRelationship: WorktreeAnnotationSourceRelationship
     let acceptedSourceFingerprint: WorktreeAnnotationSourceFingerprint
@@ -244,8 +243,7 @@ struct WorktreeAnnotationSession: Equatable, Sendable {
 
     init(
         id: WorktreeAnnotationSessionID,
-        repositoryID: String,
-        worktreeID: String,
+        subject: WorktreeAnnotationSubject,
         lifecycle: WorktreeAnnotationSessionLifecycle,
         sourceRelationship: WorktreeAnnotationSourceRelationship,
         acceptedSourceFingerprint: WorktreeAnnotationSourceFingerprint,
@@ -256,8 +254,7 @@ struct WorktreeAnnotationSession: Equatable, Sendable {
         completedAt: Date?
     ) {
         self.id = id
-        self.repositoryID = repositoryID
-        self.worktreeID = worktreeID
+        self.subject = subject
         self.lifecycle = lifecycle
         self.sourceRelationship = sourceRelationship
         self.acceptedSourceFingerprint = acceptedSourceFingerprint

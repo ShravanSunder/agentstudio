@@ -509,12 +509,10 @@ private func bootstrapContextFileSubscriptionOpenRequest(
         ).merging([
             "subscription": [
                 "source": [
+                    "collectionToken": StableKey.fromPath(fixture.rootURL),
                     "cwdScope": NSNull(),
                     "freshness": "live",
                     "includeStatuses": true,
-                    "repoId": fixture.repoId.uuidString,
-                    "rootPathToken": StableKey.fromPath(fixture.rootURL),
-                    "worktreeId": fixture.worktreeId.uuidString,
                 ],
                 "subscriptionKind": "file.metadata",
             ],

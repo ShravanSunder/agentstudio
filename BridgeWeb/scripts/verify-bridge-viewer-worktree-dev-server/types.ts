@@ -642,7 +642,10 @@ export interface WorktreeFileToReviewHandoffProof {
 	readonly appOwner: string | null;
 	readonly beforeLocationHref: string;
 	readonly afterLocationHref: string;
-	readonly expectedDisplayPath: string;
+	/** File-surface key of the canary: `<group>/<relative path>`. */
+	readonly expectedFileDisplayPath: string;
+	/** Review-surface path of the canary: worktree-relative. */
+	readonly expectedReviewDisplayPath: string;
 	readonly expectedReviewItemId: string;
 	readonly fileContextButtonSelectedAfterSwitch: string | null;
 	readonly fileModeHostHiddenAfterSwitch: boolean;

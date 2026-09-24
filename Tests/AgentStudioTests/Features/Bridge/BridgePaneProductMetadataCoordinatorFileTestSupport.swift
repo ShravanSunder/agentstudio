@@ -143,12 +143,11 @@ actor CoordinatorFileMetadataSource: BridgePaneProductFileMetadataProducing {
             .sourceAccepted(
                 .init(
                     source: try .init(
-                        repoId: "00000000-0000-4000-8000-000000000001",
+                        collectionToken: "root-token-1",
                         rootRevisionToken: "root-token-1",
                         sourceCursor: "source-cursor-1",
                         sourceId: "file-source-1",
-                        subscriptionGeneration: 1,
-                        worktreeId: "00000000-0000-4000-8000-000000000002"
+                        subscriptionGeneration: 1
                     )
                 )
             )

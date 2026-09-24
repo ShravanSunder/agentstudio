@@ -86,7 +86,7 @@ export function createBridgeReviewAnnotationRetentionWitness(
 			authority: {
 				subscriptionId: 'review-annotation-retention-subscription',
 				workerDerivationEpoch: 1,
-				worktreeId: 'worktree-1',
+				scopeKey: 'worktree-1',
 			},
 			direction: 'serverWorkerToMain' as const,
 			kind: 'annotationCatalogStaging' as const,
@@ -174,7 +174,7 @@ export function createBridgeReviewAnnotationRetentionWitness(
 						],
 						sourceGeneration: sessionRevision,
 						threads,
-						worktreeId: 'worktree-1',
+						scopeKey: 'worktree-1',
 					},
 				},
 				surface: 'review',

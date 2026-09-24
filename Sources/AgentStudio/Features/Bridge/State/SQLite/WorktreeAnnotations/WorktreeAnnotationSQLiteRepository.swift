@@ -10,8 +10,7 @@ struct WorktreeAnnotationSQLiteRepository {
 
     struct CreateRootDraftProps: Sendable {
         let admission: SessionAdmission
-        let repositoryID: String
-        let worktreeID: String
+        /// Its subject is the new thread's session subject.
         let sourceFingerprint: WorktreeAnnotationSourceFingerprint
         let acceptedReviewedSubject: WorktreeAnnotationReviewedSubjectEvidence?
         let origin: WorktreeAnnotationThreadOrigin
@@ -21,8 +20,6 @@ struct WorktreeAnnotationSQLiteRepository {
 
         init(
             admission: SessionAdmission,
-            repositoryID: String,
-            worktreeID: String,
             sourceFingerprint: WorktreeAnnotationSourceFingerprint,
             acceptedReviewedSubject: WorktreeAnnotationReviewedSubjectEvidence? = nil,
             origin: WorktreeAnnotationThreadOrigin,
@@ -31,8 +28,6 @@ struct WorktreeAnnotationSQLiteRepository {
             now: Date
         ) {
             self.admission = admission
-            self.repositoryID = repositoryID
-            self.worktreeID = worktreeID
             self.sourceFingerprint = sourceFingerprint
             self.acceptedReviewedSubject = acceptedReviewedSubject
             self.origin = origin
@@ -142,9 +137,9 @@ struct WorktreeAnnotationSQLiteRepository {
 
     let databaseWriter: any DatabaseWriter
 
-    func discoverSessions(worktreeID: String) throws -> [WorktreeAnnotationSession] {
+    func discoverSessions(subjects: Set<WorktreeAnnotationSubject>) throws -> [WorktreeAnnotationSession] {
         try databaseWriter.read { database in
-            try loadSessions(database, worktreeID: worktreeID)
+            try loadSessions(database, subjects: subjects)
         }
     }
 
@@ -157,7 +152,8 @@ struct WorktreeAnnotationSQLiteRepository {
                 database,
                 sql: """
                     SELECT * FROM annotation_session
-                    WHERE repository_id = ? AND worktree_id != ? AND lifecycle = 'living'
+                    WHERE subject_kind = 'git' AND repository_id = ? AND worktree_id != ?
+                      AND lifecycle = 'living'
                       AND source_relationship IN ('applicable', 'uncertain')
                     ORDER BY created_at ASC, id ASC
                     """,
@@ -167,11 +163,11 @@ struct WorktreeAnnotationSQLiteRepository {
     }
 
     func fetchProjectionSnapshot(
-        worktreeID: String,
+        subjects: Set<WorktreeAnnotationSubject>,
         demandedSessionIDs: [WorktreeAnnotationSessionID]
     ) throws -> WorktreeAnnotationRepositoryProjectionSnapshot {
         try databaseWriter.read { database in
-            let sessions = try loadSessions(database, worktreeID: worktreeID)
+            let sessions = try loadSessions(database, subjects: subjects)
             let sessionIDs = Set(sessions.map(\.id))
             guard demandedSessionIDs.allSatisfy(sessionIDs.contains) else {
                 throw WorktreeAnnotationRepositoryError.notFound
@@ -193,16 +189,17 @@ struct WorktreeAnnotationSQLiteRepository {
 
     private func loadSessions(
         _ database: Database,
-        worktreeID: String
+        subjects: Set<WorktreeAnnotationSubject>
     ) throws -> [WorktreeAnnotationSession] {
-        try Row.fetchAll(
+        let predicate = WorktreeAnnotationSubject.sessionRowPredicate(for: subjects)
+        return try Row.fetchAll(
             database,
             sql: """
                 SELECT * FROM annotation_session
-                WHERE worktree_id = ?
+                WHERE \(predicate.sql)
                 ORDER BY created_at ASC, id ASC
                 """,
-            arguments: [worktreeID]
+            arguments: predicate.arguments
         ).map(decodeSession)
     }
 

@@ -201,7 +201,7 @@ private func installZoomPresentations(
     store.panePresentationAtom.cacheZoomCompanion(
         ZoomCompanionMetadata(
             owningTabId: firstTab.id,
-            resolvedWorktreeId: UUIDv7.generate(),
+            reviewWorktreeId: UUIDv7.generate(),
             companionPaneId: firstCompanionPaneId,
             lastZoomVisibility: .visible
         ),
@@ -217,7 +217,7 @@ private func installZoomPresentations(
     store.panePresentationAtom.cacheZoomCompanion(
         ZoomCompanionMetadata(
             owningTabId: secondTab.id,
-            resolvedWorktreeId: UUIDv7.generate(),
+            reviewWorktreeId: UUIDv7.generate(),
             companionPaneId: secondCompanionPaneId,
             lastZoomVisibility: .hidden
         ),

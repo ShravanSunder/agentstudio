@@ -28,6 +28,11 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
             BridgeProductAdmissionContext
         ) async -> Void
     let applyFileRefreshRetry: @MainActor @Sendable (BridgeProductAdmissionContext) async -> Void
+    let applyFileSelectionReceipt:
+        @MainActor @Sendable (
+            BridgeProductFileSelectionReceiptRequest,
+            BridgeProductAdmissionContext
+        ) async -> Void
     let applyWorktreeAnnotationCommand:
         @MainActor @Sendable (
             BridgeProductWorktreeAnnotationCommandRequest,
@@ -102,6 +107,11 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
             ) async -> Void = { _, _ in },
         applyFileRefreshRetry:
             @escaping @MainActor @Sendable (BridgeProductAdmissionContext) async -> Void = { _ in },
+        applyFileSelectionReceipt:
+            @escaping @MainActor @Sendable (
+                BridgeProductFileSelectionReceiptRequest,
+                BridgeProductAdmissionContext
+            ) async -> Void = { _, _ in },
         applyWorktreeAnnotationCommand:
             @escaping @MainActor @Sendable (
                 BridgeProductWorktreeAnnotationCommandRequest,
@@ -158,6 +168,7 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
         self.reviewContentSource = reviewContentSource
         self.applyActiveViewerModeUpdate = applyActiveViewerModeUpdate
         self.applyFileRefreshRetry = applyFileRefreshRetry
+        self.applyFileSelectionReceipt = applyFileSelectionReceipt
         self.applyReviewComparisonUpdate = applyReviewComparisonUpdate
         self.applyWorktreeAnnotationCommand = applyWorktreeAnnotationCommand
         self.authorizeReviewComparisonTargets = authorizeReviewComparisonTargets
@@ -262,6 +273,8 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
             )
         case .fileRefreshRetry:
             return try .callCompleted(correlating: request, result: .fileRefreshRetry)
+        case .fileSelectionReceipt:
+            return try .callCompleted(correlating: request, result: .fileSelectionReceipt)
         case .fileActiveViewerModeUpdate:
             return try .callCompleted(correlating: request, result: .fileActiveViewerModeUpdate)
         case .reviewActiveViewerModeUpdate:

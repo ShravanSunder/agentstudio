@@ -703,8 +703,8 @@ extension WorktreeAnnotationSQLiteRepository {
         let detail = try loadSessionDetail(database, sessionID: props.sessionID)
         let snapshot = props.canonicalSnapshot
         guard snapshot.session.sessionID == detail.session.id,
-            snapshot.session.repositoryID == detail.session.repositoryID,
-            snapshot.session.worktreeID == detail.session.worktreeID,
+            detail.session.subject
+                == .git(repositoryID: snapshot.session.repositoryID, worktreeID: snapshot.session.worktreeID),
             snapshot.session.lifecycle == detail.session.lifecycle,
             snapshot.session.sourceRelationship == detail.session.sourceRelationship
         else {
@@ -800,14 +800,17 @@ extension WorktreeAnnotationSQLiteRepository {
         guard
             let row = try Row.fetchOne(
                 database,
-                sql: "SELECT worktree_id, semantic_revision FROM annotation_session WHERE id = ?",
+                sql: """
+                    SELECT subject_kind, repository_id, worktree_id, local_document_path, semantic_revision
+                    FROM annotation_session WHERE id = ?
+                    """,
                 arguments: [sessionID.databaseValue]
             )
         else {
             throw WorktreeAnnotationRepositoryError.notFound
         }
         return WorktreeAnnotationCommittedSessionChange(
-            worktreeID: row["worktree_id"],
+            subject: try WorktreeAnnotationSubject.decodeSessionRow(row),
             sessionID: sessionID,
             semanticRevision: row["semantic_revision"]
         )

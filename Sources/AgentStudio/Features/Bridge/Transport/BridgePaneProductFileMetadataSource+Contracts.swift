@@ -81,17 +81,21 @@ protocol BridgePaneProductFileMetadataProducing: Sendable {
         origin: BridgeProductWorktreeAnnotationOrigin,
         productAdmission: BridgeProductAdmissionContext
     ) async throws -> WorktreeAnnotationCapturedSource
+    /// The annotation subjects the File surface shows now, under the key
+    /// the page knows them by.
+    func worktreeAnnotationScope() async throws -> WorktreeAnnotationScope
     func currentWorktreeAnnotationFingerprint(
+        subject: WorktreeAnnotationSubject,
         productAdmission: BridgeProductAdmissionContext
     ) async throws -> WorktreeAnnotationSourceFingerprint
     func currentWorktreeAnnotationSourceGeneration(
         productAdmission: BridgeProductAdmissionContext
     ) async throws -> Int
     func currentWorktreeAnnotationRefresh(
+        subject: WorktreeAnnotationSubject,
         requirements: [WorktreeAnnotationSourceRefreshRequirement],
         productAdmission: BridgeProductAdmissionContext
     ) async throws -> WorktreeAnnotationSourceRefreshCapture
-    func worktreeAnnotationRepositoryPath() async throws -> URL
 }
 
 extension BridgePaneProductFileMetadataProducing {
@@ -107,7 +111,12 @@ extension BridgePaneProductFileMetadataProducing {
         throw WorktreeAnnotationSourceResolutionError.unavailable
     }
 
+    func worktreeAnnotationScope() async throws -> WorktreeAnnotationScope {
+        throw WorktreeAnnotationSourceResolutionError.unavailable
+    }
+
     func currentWorktreeAnnotationFingerprint(
+        subject _: WorktreeAnnotationSubject,
         productAdmission _: BridgeProductAdmissionContext
     ) async throws -> WorktreeAnnotationSourceFingerprint {
         throw WorktreeAnnotationSourceResolutionError.unavailable
@@ -120,13 +129,10 @@ extension BridgePaneProductFileMetadataProducing {
     }
 
     func currentWorktreeAnnotationRefresh(
+        subject _: WorktreeAnnotationSubject,
         requirements _: [WorktreeAnnotationSourceRefreshRequirement],
         productAdmission _: BridgeProductAdmissionContext
     ) async throws -> WorktreeAnnotationSourceRefreshCapture {
-        throw WorktreeAnnotationSourceResolutionError.unavailable
-    }
-
-    func worktreeAnnotationRepositoryPath() async throws -> URL {
         throw WorktreeAnnotationSourceResolutionError.unavailable
     }
 }

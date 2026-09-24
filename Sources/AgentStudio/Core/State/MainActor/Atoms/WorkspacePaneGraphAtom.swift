@@ -248,14 +248,6 @@ package enum WorkspacePaneGraphReplacementRejection: Error, Equatable, Sendable 
     case duplicateDrawerChildMembership(UUID)
 }
 
-package enum BridgePaneStateMutationResult: Equatable, Sendable {
-    case applied(BridgePaneState)
-    case unchanged(BridgePaneState)
-    case paneMissing
-    case notBridgePane
-    case notWorkspaceSource
-}
-
 @MainActor
 @Observable
 package final class WorkspacePaneGraphAtom {
@@ -601,87 +593,6 @@ package final class WorkspacePaneGraphAtom {
         guard paneState.content != .webview(state) else { return }
         mutatePaneStates { paneStates in
             paneStates[paneId]?.content = .webview(state)
-        }
-    }
-
-    @discardableResult
-    package func updateBridgePaneState(
-        _ paneId: UUID,
-        state: BridgePaneState
-    ) -> BridgePaneStateMutationResult {
-        mutatePaneStates { paneStates in
-            guard let paneState = paneStates[paneId] else {
-                return .paneMissing
-            }
-            guard case .bridgePanel(let currentState) = paneState.content else {
-                return .notBridgePane
-            }
-            guard currentState != state else {
-                return .unchanged(currentState)
-            }
-            paneStates[paneId]?.content = .bridgePanel(state)
-            return .applied(state)
-        }
-    }
-
-    @discardableResult
-    package func setInitialBridgeContributionTargetIfAbsent(
-        _ paneId: UUID,
-        target: WorkspaceReviewContributionTarget
-    ) -> BridgePaneStateMutationResult {
-        mutatePaneStates { paneStates in
-            guard let paneState = paneStates[paneId] else {
-                return .paneMissing
-            }
-            guard case .bridgePanel(let currentState) = paneState.content else {
-                return .notBridgePane
-            }
-            guard case .workspace(let rootPath, let baseline) = currentState.source else {
-                return .notWorkspaceSource
-            }
-            guard baseline == nil else {
-                return .unchanged(currentState)
-            }
-
-            let updatedState = BridgePaneState(
-                panelKind: currentState.panelKind,
-                source: .workspace(
-                    rootPath: rootPath,
-                    baseline: WorkspaceBaseline(contributionTarget: target)
-                )
-            )
-            paneStates[paneId]?.content = .bridgePanel(updatedState)
-            return .applied(updatedState)
-        }
-    }
-
-    @discardableResult
-    package func setBridgeContributionTarget(
-        _ paneId: UUID,
-        target: WorkspaceReviewContributionTarget
-    ) -> BridgePaneStateMutationResult {
-        mutatePaneStates { paneStates in
-            guard let paneState = paneStates[paneId] else {
-                return .paneMissing
-            }
-            guard case .bridgePanel(let currentState) = paneState.content else {
-                return .notBridgePane
-            }
-            guard case .workspace(let rootPath, _) = currentState.source else {
-                return .notWorkspaceSource
-            }
-            let updatedState = BridgePaneState(
-                panelKind: currentState.panelKind,
-                source: .workspace(
-                    rootPath: rootPath,
-                    baseline: WorkspaceBaseline(contributionTarget: target)
-                )
-            )
-            guard updatedState != currentState else {
-                return .unchanged(currentState)
-            }
-            paneStates[paneId]?.content = .bridgePanel(updatedState)
-            return .applied(updatedState)
         }
     }
 

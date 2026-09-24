@@ -83,20 +83,20 @@ package actor WorktreeAnnotationServiceActor {
         }
     }
 
-    func discoverSessions(worktreeID: String) async throws -> [WorktreeAnnotationSession] {
+    func discoverSessions(subjects: Set<WorktreeAnnotationSubject>) async throws -> [WorktreeAnnotationSession] {
         try requireAvailableForReads()
-        return try await repositoryAccess.discoverSessions(worktreeID: worktreeID)
+        return try await repositoryAccess.discoverSessions(subjects: subjects)
     }
 
     func captureProjection(
-        worktreeID: String,
+        subjects: Set<WorktreeAnnotationSubject>,
         demandedSessionIDs: [WorktreeAnnotationSessionID]
     ) async throws -> WorktreeAnnotationServiceProjectionCapture {
         try requireAvailableForReads()
         let capturedRevision = projectionRevision
         let capturedRecoveryState = recoveryState
         let repositorySnapshot = try await repositoryAccess.fetchProjectionSnapshot(
-            worktreeID: worktreeID,
+            subjects: subjects,
             demandedSessionIDs: demandedSessionIDs
         )
         guard projectionRevision == capturedRevision,
@@ -112,7 +112,7 @@ package actor WorktreeAnnotationServiceActor {
     }
 
     func acquireDemand(
-        worktreeID: String,
+        subjects: Set<WorktreeAnnotationSubject>,
         contextID: String,
         surface: BridgeProductSurface,
         sessionID: WorktreeAnnotationSessionID
@@ -143,7 +143,7 @@ package actor WorktreeAnnotationServiceActor {
         guard activeDemandGenerationByContextKey[contextKey] == demandGeneration else {
             throw WorktreeAnnotationServiceError.staleSourceEpoch
         }
-        guard detail.session.worktreeID == worktreeID else {
+        guard subjects.containsKey(of: detail.session.subject) else {
             rollbackDemandRegistration(
                 contextKey: contextKey,
                 demandGeneration: demandGeneration
@@ -154,7 +154,6 @@ package actor WorktreeAnnotationServiceActor {
     }
 
     func releaseDemand(
-        worktreeID: String,
         contextID: String,
         surface: BridgeProductSurface,
         sessionID: WorktreeAnnotationSessionID

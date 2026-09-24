@@ -245,13 +245,7 @@ extension WebKitSerializedTests {
                 let unmountedBridgePane = try #require(
                     harness.store.paneAtom.createPane(
                         content: .bridgePanel(
-                            BridgePaneState(
-                                panelKind: .fileViewer,
-                                source: .workspace(
-                                    rootPath: worktree.path.path,
-                                    baseline: .localDefaultBranch(branchName: "main")
-                                )
-                            )
+                            BridgePaneState(panelKind: .fileViewer)
                         ),
                         metadata: PaneMetadata(
                             title: "Unmounted Bridge",

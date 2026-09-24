@@ -123,6 +123,8 @@ public struct AppIPCBridgeError: Error, Equatable, Sendable {
         case noActiveWindow
         case targetNotFound
         case unsupportedTarget
+        /// The target's receiving Bridge has no mounted page to answer.
+        case notMounted
         case packageUnavailable
         case itemNotFound
         case contentUnavailable
@@ -141,20 +143,44 @@ public struct AppIPCBridgeError: Error, Equatable, Sendable {
 public protocol AppIPCBridgePort: Sendable {
     func openReview(_ params: IPCBridgeReviewOpenParams) throws -> IPCBridgeReviewOpenResult
     func openFileView(_ params: IPCBridgeFileViewOpenParams) throws -> IPCBridgeFileViewOpenResult
-    func refreshReview(_ params: IPCBridgeReviewRefreshParams) async throws -> IPCBridgeReviewRefreshResult
-    func getPackage(_ handle: IPCHandle) throws -> IPCBridgeReviewPackageResult
-    func renderState(_ handle: IPCHandle) async throws -> IPCBridgeRenderStateResult
-    func selectFile(_ params: IPCBridgeReviewSelectFileParams) async throws -> IPCBridgeReviewSelectFileResult
-    func scrollToFile(_ params: IPCBridgeDiffScrollToFileParams) async throws -> IPCBridgePageControlResult
-    func expandFile(_ params: IPCBridgeDiffExpandFileParams) async throws -> IPCBridgePageControlResult
-    func collapseFile(_ params: IPCBridgeDiffCollapseFileParams) async throws -> IPCBridgePageControlResult
-    func searchFileTree(_ params: IPCBridgeFileTreeSearchParams) async throws -> IPCBridgePageControlResult
-    func setFileTreeFilter(_ params: IPCBridgeFileTreeSetFilterParams) async throws -> IPCBridgePageControlResult
-    func revealFileTreePath(_ params: IPCBridgeFileTreeRevealPathParams) async throws -> IPCBridgePageControlResult
-    func showMarkdownPreview(
-        _ params: IPCBridgeFileViewShowMarkdownPreviewParams
+    func refreshReview(
+        _ params: IPCBridgeReviewRefreshParams, ownPaneAssertion: AppIPCOwnPaneAssertion?
+    ) async throws -> IPCBridgeReviewRefreshResult
+    func getPackage(_ handle: IPCHandle, ownPaneAssertion: AppIPCOwnPaneAssertion?) throws
+        -> IPCBridgeReviewPackageResult
+    func renderState(
+        _ handle: IPCHandle, ownPaneAssertion: AppIPCOwnPaneAssertion?
+    ) async throws -> IPCBridgeRenderStateResult
+    func selectFile(
+        _ params: IPCBridgeReviewSelectFileParams, ownPaneAssertion: AppIPCOwnPaneAssertion?
+    ) async throws -> IPCBridgeReviewSelectFileResult
+    func scrollToFile(
+        _ params: IPCBridgeDiffScrollToFileParams, ownPaneAssertion: AppIPCOwnPaneAssertion?
     ) async throws -> IPCBridgePageControlResult
-    func getContent(_ params: IPCBridgeContentGetParams) async throws -> IPCBridgeContentGetResult
+    func expandFile(
+        _ params: IPCBridgeDiffExpandFileParams, ownPaneAssertion: AppIPCOwnPaneAssertion?
+    ) async throws -> IPCBridgePageControlResult
+    func collapseFile(
+        _ params: IPCBridgeDiffCollapseFileParams, ownPaneAssertion: AppIPCOwnPaneAssertion?
+    ) async throws -> IPCBridgePageControlResult
+    func searchFileTree(
+        _ params: IPCBridgeFileTreeSearchParams, ownPaneAssertion: AppIPCOwnPaneAssertion?
+    ) async throws -> IPCBridgePageControlResult
+    func setFileTreeFilter(
+        _ params: IPCBridgeFileTreeSetFilterParams, ownPaneAssertion: AppIPCOwnPaneAssertion?
+    ) async throws -> IPCBridgePageControlResult
+    func revealFileTreePath(
+        _ params: IPCBridgeFileTreeRevealPathParams, ownPaneAssertion: AppIPCOwnPaneAssertion?
+    ) async throws -> IPCBridgePageControlResult
+    func showMarkdownPreview(
+        _ params: IPCBridgeFileViewShowMarkdownPreviewParams, ownPaneAssertion: AppIPCOwnPaneAssertion?
+    ) async throws -> IPCBridgePageControlResult
+    func getContent(
+        _ params: IPCBridgeContentGetParams, ownPaneAssertion: AppIPCOwnPaneAssertion?
+    ) async throws -> IPCBridgeContentGetResult
+    func searchFiles(
+        _ params: IPCBridgeFilesSearchParams, ownPaneAssertion: AppIPCOwnPaneAssertion?
+    ) async throws -> IPCBridgeFilesSearchResult
     func telemetrySnapshot(_ handle: IPCHandle) async throws -> IPCBridgeTelemetrySnapshotResult
     func flushTelemetry(_ handle: IPCHandle) async throws -> IPCBridgeTelemetryFlushResult
 }

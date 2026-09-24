@@ -673,6 +673,7 @@ export function applyBridgeWorkerMessagesToMainRenderSnapshotStore(props: {
 			case 'subscription':
 			case 'reviewComparisonTargetsQuery':
 			case 'reviewPublicationInstallAdmission':
+			case 'fileCollectionSearch':
 				break;
 			case 'reviewPierreRenderJob':
 				if (

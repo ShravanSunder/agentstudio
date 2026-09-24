@@ -99,6 +99,47 @@ describe('Bridge main render snapshot store File display', () => {
 		expect(nextSnapshot.fileTreeSlice.index.size).toBe(0);
 	});
 
+	test('only the committed initial tree proves a row absent, not an earlier File status', () => {
+		// Arrange — a collection forwards member status while its tree is still enumerating.
+		const store = createBridgeMainRenderSnapshotStore();
+		const initialEvent = makeFileDisplayPatchEvent();
+
+		// Act
+		store.applyFileDisplayPatchEvent(initialEvent);
+		const beforeCommit = store.getSnapshot();
+		store.applyFileDisplayPatchEvent({
+			...initialEvent,
+			patches: [
+				{
+					operation: 'replacementCommit',
+					payload: { sourceGeneration: 6, sourceId: 'file-source-1' },
+					slice: 'fileTree',
+				},
+			],
+			projectionRevision: 9,
+			sequence: 13,
+		});
+		const afterCommit = store.getSnapshot();
+		store.applyFileDisplayPatchEvent({
+			...initialEvent,
+			patches: [
+				{
+					operation: 'reset',
+					payload: { sourceGeneration: 7, sourceId: 'file-source-1' },
+					slice: 'fileTree',
+				},
+			],
+			projectionRevision: 10,
+			sequence: 14,
+		});
+
+		// Assert
+		expect(beforeCommit.fileStatusSlice).not.toBeNull();
+		expect(beforeCommit.fileTreeSlice.replacementCommitted).toBe(false);
+		expect(afterCommit.fileTreeSlice.replacementCommitted).toBe(true);
+		expect(store.getSnapshot().fileTreeSlice.replacementCommitted).toBe(false);
+	});
+
 	test('applies File tree removals and File item/status reset variants', () => {
 		const store = createBridgeMainRenderSnapshotStore();
 		const initialEvent = makeFileDisplayPatchEvent();
@@ -190,6 +231,7 @@ function makeFileDisplayPatchEvent(): BridgeWorkerFileDisplayPatchEvent {
 							row: {
 								changeStatus: 'modified',
 								depth: 1,
+								documentLocation: null,
 								fileId: 'file-1',
 								fileClass: 'source',
 								isDirectory: false,

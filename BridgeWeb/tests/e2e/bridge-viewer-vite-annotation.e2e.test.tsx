@@ -8,6 +8,7 @@ import {
 	selectReviewFile,
 	waitForSelectedReviewReady,
 } from './bridge-viewer-vite-annotation-save-journey.ts';
+import { bridgeViewerViteFileCollectionPath } from './bridge-viewer-vite-file-collection-path.ts';
 import {
 	createBridgeViewerViteProductFixture,
 	startBridgeViewerOwnedViteProductServer,
@@ -120,7 +121,13 @@ test.each([
 				{ waitUntil: 'domcontentloaded' },
 			);
 			if (surface === 'file') {
-				await waitForFileSurfaceReady({ page, path: fixture.oracle.largeFilePath });
+				await waitForFileSurfaceReady({
+					page,
+					path: bridgeViewerViteFileCollectionPath(
+						fixture.oracle.worktreeRoot,
+						fixture.oracle.largeFilePath,
+					),
+				});
 			} else {
 				await selectReviewFile({ page, path: reviewFile?.path ?? '' });
 				await waitForSelectedReviewReady({ itemId: reviewFile?.itemId ?? '', page });
@@ -145,7 +152,13 @@ test.each([
 			// Assert: the backend persisted it, so a brand new document still shows it exactly once.
 			await page.reload({ waitUntil: 'domcontentloaded' });
 			if (surface === 'file') {
-				await waitForFileSurfaceReady({ page, path: fixture.oracle.largeFilePath });
+				await waitForFileSurfaceReady({
+					page,
+					path: bridgeViewerViteFileCollectionPath(
+						fixture.oracle.worktreeRoot,
+						fixture.oracle.largeFilePath,
+					),
+				});
 			} else {
 				await selectReviewFile({ page, path: reviewFile?.path ?? '' });
 				await waitForSelectedReviewReady({ itemId: reviewFile?.itemId ?? '', page });

@@ -41,13 +41,15 @@ extension WebKitSerializedTests {
             )
             try await expectAvailableFileSource(
                 from: firstView.controller,
-                repoId: setup.repoId,
-                worktreeId: setup.worktree.id
+                collectionToken: BridgeFilesSourceBinding.collectionToken(
+                    forReceiverPaneId: setup.firstPane.id
+                )
             )
             try await expectAvailableFileSource(
                 from: secondView.controller,
-                repoId: setup.repoId,
-                worktreeId: setup.worktree.id
+                collectionToken: BridgeFilesSourceBinding.collectionToken(
+                    forReceiverPaneId: setup.secondPane.id
+                )
             )
 
             await harness.finish()
@@ -101,12 +103,7 @@ extension WebKitSerializedTests {
             let worktree = try #require(
                 harness.store.repo(repo.id)?.worktrees.first(where: { $0.isMainWorktree })
             )
-            let state = BridgePaneState(
-                panelKind: .diffViewer,
-                source: .workspace(
-                    rootPath: worktree.path.path,
-                    baseline: .unstaged)
-            )
+            let state = BridgePaneState(panelKind: .diffViewer)
             let pane = makeBridgePane(
                 title: "Create-before-tab Review",
                 repo: repo,
@@ -219,15 +216,17 @@ extension WebKitSerializedTests {
 
             // Assert — pane creation establishes activity but does not choose a metadata mode.
             guard case .bridgePanel(let persistedBridgeState) = harness.store.pane(pane.id)?.content,
-                case .workspace(_, let comparisonIntent) = persistedBridgeState.source
+                let record = harness.store.bridgeNavigationAtom.record(for: .standalone(pane.id))
             else {
-                Issue.record("Production Review open did not persist a workspace Bridge source")
+                Issue.record("Production Review open did not create the standalone receiver record")
                 await harness.finish()
                 return
             }
-            #expect(
-                comparisonIntent == nil
-            )
+            #expect(persistedBridgeState == BridgePaneState(panelKind: .diffViewer))
+            #expect(record.memberWorktreeIds == [worktree.id])
+            #expect(record.reviewSelection == .member(worktreeId: worktree.id))
+            #expect(record.selectedReviewComparison == nil)
+            #expect(record.surface == .review)
             #expect(harness.coordinator.bridgePaneActivity(for: pane.id) == .foreground)
             #expect(controller.refreshAdmissionCoordinator.diagnosticSnapshot.activity == .foreground)
             #expect(controller.activeReviewRefreshTask == nil)
@@ -276,15 +275,16 @@ extension WebKitSerializedTests {
 
             // Assert
             guard case .bridgePanel(let persistedBridgeState) = harness.store.pane(pane.id)?.content,
-                case .workspace(_, let comparisonIntent) = persistedBridgeState.source
+                let record = harness.store.bridgeNavigationAtom.record(for: .standalone(pane.id))
             else {
-                Issue.record("Production File View open did not persist a workspace Bridge source")
+                Issue.record("Production File View open did not create the standalone receiver record")
                 await harness.finish()
                 return
             }
-            #expect(
-                comparisonIntent == nil
-            )
+            #expect(persistedBridgeState == BridgePaneState(panelKind: .fileViewer))
+            #expect(record.memberWorktreeIds == [worktree.id])
+            #expect(record.selectedReviewComparison == nil)
+            #expect(record.surface == .files)
             let controller = try #require(
                 harness.viewRegistry.allBridgeViews[pane.id]?.controller
             )
@@ -303,12 +303,14 @@ extension WebKitSerializedTests {
             defer { FilesystemTestGitRepo.destroy(repositoryURL) }
             try await FilesystemTestGitRepo.seedTrackedAndUntrackedChanges(at: repositoryURL)
             try await withBridgeConstructionCommandHarness { harness, executor in
-                let state = BridgePaneState(
-                    panelKind: .diffViewer,
-                    source: .workspace(
-                        rootPath: repositoryURL.path,
-                        baseline: .unstaged)
+                // The member is known to the catalog but its repository is not
+                // yet available when the restored pane mounts.
+                let knownRepo = harness.store.addRepo(at: repositoryURL)
+                let knownWorktree = try #require(
+                    harness.store.repo(knownRepo.id)?.worktrees.first(where: { $0.isMainWorktree })
                 )
+                harness.store.mutationCoordinator.markRepoUnavailable(knownRepo.id)
+                let state = BridgePaneState(panelKind: .diffViewer)
                 let pane = harness.store.createPane(
                     content: .bridgePanel(state),
                     metadata: PaneMetadata(
@@ -316,6 +318,12 @@ extension WebKitSerializedTests {
                         launchDirectory: repositoryURL,
                         title: "Restored Review before topology"
                     )
+                )
+                seedStandaloneBridgeRecord(
+                    paneId: pane.id,
+                    worktreeId: knownWorktree.id,
+                    comparison: .unstaged,
+                    store: harness.store
                 )
                 harness.viewRegistry.ensureSlot(for: pane.id)
                 let reviewProvider = BridgeReviewSourceProviderFake(
@@ -346,6 +354,7 @@ extension WebKitSerializedTests {
                 let initialView = harness.coordinator.createBridgePaneView(for: pane, state: state)
 
                 // Assert — initial construction cannot acquire worktree-scoped Review work.
+                #expect(initialView.controller.reviewBinding == nil)
                 #expect(initialView.controller.runtime.metadata.repoId == nil)
                 #expect(initialView.controller.runtime.metadata.worktreeId == nil)
                 #expect(initialView.controller.activeReviewRefreshTask == nil)
@@ -686,12 +695,7 @@ private func makeTwoPaneWorktreeSetup(
     let worktree = try #require(
         harness.store.repo(repo.id)?.worktrees.first(where: { $0.isMainWorktree })
     )
-    let state = BridgePaneState(
-        panelKind: .diffViewer,
-        source: .workspace(
-            rootPath: worktree.path.path,
-            baseline: .unstaged)
-    )
+    let state = BridgePaneState(panelKind: .diffViewer)
     let firstPane = makeBridgePane(
         title: "First shared construction pane",
         repo: repo,
@@ -727,9 +731,10 @@ private func makeBridgePane(
     repo: Repo,
     worktree: Worktree,
     state: BridgePaneState,
+    comparison: WorkspaceBaseline = .unstaged,
     store: WorkspaceStore
 ) -> Pane {
-    store.createPane(
+    let pane = store.createPane(
         content: .bridgePanel(state),
         metadata: PaneMetadata(
             contentType: .diff,
@@ -743,13 +748,42 @@ private func makeBridgePane(
             )
         )
     )
+    seedStandaloneBridgeRecord(
+        paneId: pane.id,
+        worktreeId: worktree.id,
+        comparison: comparison,
+        store: store
+    )
+    return pane
+}
+
+/// Seed the standalone receiver's navigation record the way pane creation
+/// does: its known worktree selected for Review with a retained comparison.
+@MainActor
+private func seedStandaloneBridgeRecord(
+    paneId: UUID,
+    worktreeId: UUID,
+    comparison: WorkspaceBaseline,
+    store: WorkspaceStore
+) {
+    let seeded = BridgeNavigationRules.seededRecord(knownTerminalWorktreeId: worktreeId, surface: .review)
+    guard
+        case .applied(let record) = BridgeNavigationRules.recordingReviewComparison(
+            comparison,
+            for: worktreeId,
+            in: seeded
+        )
+    else {
+        Issue.record("Could not seed the standalone Bridge navigation record")
+        return
+    }
+    store.bridgeNavigationAtom.setRecord(record, for: .standalone(paneId))
 }
 
 @MainActor
 private func expectAvailableFileSource(
     from controller: BridgePaneController,
-    repoId: UUID,
-    worktreeId: UUID
+    collectionToken: String
 ) async throws {
     let provider = try #require(controller.productSchemeProvider)
     let request = try bridgeFileSourceCurrentRequest(paneId: controller.paneId)
@@ -759,8 +793,7 @@ private func expectAvailableFileSource(
         Issue.record("Expected production-injected File source authority")
         return
     }
-    #expect(source.repoId == repoId.uuidString)
-    #expect(source.worktreeId == worktreeId.uuidString)
+    #expect(source.collectionToken == collectionToken)
 }
 
 private func bridgeFileSourceCurrentRequest(paneId: UUID) throws -> BridgeProductControlRequest {

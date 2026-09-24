@@ -5,12 +5,11 @@ import type { BridgeProductSubscriptionEvent } from './bridge-product-subscripti
 import { bridgeWorkerFileDisplayPatchSchema } from './bridge-worker-contracts.js';
 
 const source = {
-	repoId: '00000000-0000-4000-8000-000000000001',
+	collectionToken: 'root-token-1',
 	rootRevisionToken: 'root-revision-1',
 	sourceCursor: 'source-cursor-1',
 	sourceId: 'file-source-1',
 	subscriptionGeneration: 3,
-	worktreeId: '00000000-0000-4000-8000-000000000002',
 } as const;
 
 describe('Bridge comm worker File metadata projection', () => {
@@ -157,6 +156,7 @@ describe('Bridge comm worker File metadata projection', () => {
 				},
 				{ operation: 'reset', slice: 'fileItem' },
 				{ operation: 'reset', slice: 'fileStatus' },
+				{ operation: 'reset', slice: 'fileMemberGroups' },
 			],
 			projectionRevision: 1,
 		});
@@ -483,7 +483,7 @@ describe('Bridge comm worker File metadata projection', () => {
 		expect([first.projectionRevision, second.projectionRevision, third.projectionRevision]).toEqual(
 			[1, 2, 3],
 		);
-		expect(second.patches).toEqual([
+		const sourceSliceResets = [
 			{
 				operation: 'reset',
 				payload: { sourceGeneration: 4, sourceId: 'file-source-2' },
@@ -491,8 +491,85 @@ describe('Bridge comm worker File metadata projection', () => {
 			},
 			{ operation: 'reset', slice: 'fileItem' },
 			{ operation: 'reset', slice: 'fileStatus' },
+		];
+		// A new source also drops the previous source's member groups; a
+		// source reset keeps the current membership.
+		expect(second.patches).toEqual([
+			...sourceSliceResets,
+			{ operation: 'reset', slice: 'fileMemberGroups' },
 		]);
-		expect(third.patches).toEqual(second.patches);
+		expect(third.patches).toEqual(sourceSliceResets);
+	});
+
+	test('keeps the newest member groups when a superseded list arrives late', () => {
+		// Arrange — membership A then B on one source, then a replacement source.
+		const projection = new BridgeCommWorkerFileMetadataProjection();
+		const nextSource = {
+			...source,
+			sourceCursor: 'source-cursor-2',
+			sourceId: 'file-source-2',
+			subscriptionGeneration: 4,
+		};
+		const groupsA = [
+			{
+				groupPath: 'app',
+				identityPrefix: 'mapp.',
+				nestedMemberRelativeRoots: [],
+				worktreeId: 'worktree-a',
+			},
+		];
+		const groupsB = [
+			...groupsA,
+			{
+				groupPath: 'api',
+				identityPrefix: 'mapi.',
+				nestedMemberRelativeRoots: [],
+				worktreeId: 'worktree-b',
+			},
+		];
+		projection.apply({ eventKind: 'file.sourceAccepted', source });
+		projection.apply({
+			eventKind: 'file.memberGroups',
+			groups: groupsB,
+			membershipRevision: 2,
+			openedDocuments: [],
+			source,
+		});
+
+		// Act
+		const lateMembershipA = projection.apply({
+			eventKind: 'file.memberGroups',
+			groups: groupsA,
+			membershipRevision: 1,
+			openedDocuments: [],
+			source,
+		});
+		projection.apply({ eventKind: 'file.sourceAccepted', source: nextSource });
+		const replacementGroups = projection.apply({
+			eventKind: 'file.memberGroups',
+			groups: groupsB,
+			membershipRevision: 0,
+			openedDocuments: [],
+			source: nextSource,
+		});
+		const lateReplacedSource = projection.apply({
+			eventKind: 'file.memberGroups',
+			groups: groupsA,
+			membershipRevision: 3,
+			openedDocuments: [],
+			source,
+		});
+
+		// Assert
+		expect(lateMembershipA.patches).toEqual([]);
+		expect(replacementGroups.patches).toEqual([
+			{
+				operation: 'upsert',
+				payload: { groups: groupsB, membershipRevision: 0, openedDocuments: [] },
+				slice: 'fileMemberGroups',
+			},
+		]);
+		expect(lateReplacedSource.patches).toEqual([]);
 	});
 
 	test('projects streamed tree and descriptor facts into worker-owned File runtime state', () => {
@@ -510,6 +587,7 @@ describe('Bridge comm worker File metadata projection', () => {
 				{
 					changeStatus: null,
 					depth: 0,
+					documentLocation: null,
 					fileId: null,
 					fileClass: null,
 					isDirectory: true,
@@ -523,6 +601,7 @@ describe('Bridge comm worker File metadata projection', () => {
 				{
 					changeStatus: 'modified',
 					depth: 1,
+					documentLocation: null,
 					fileId: 'file-1',
 					fileClass: 'source',
 					isDirectory: false,
@@ -709,6 +788,7 @@ function makeFileTreeRow(): Extract<
 	return {
 		changeStatus: 'modified',
 		depth: 1,
+		documentLocation: null,
 		fileId: 'file-1',
 		fileClass: 'source',
 		isDirectory: false,

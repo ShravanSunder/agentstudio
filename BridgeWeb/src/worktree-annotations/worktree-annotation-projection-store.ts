@@ -78,7 +78,7 @@ export interface WorktreeAnnotationProjectionSnapshot {
 	readonly sourceGeneration: number;
 	readonly threads: readonly WorktreeAnnotationThreadProjection[];
 	readonly unreconciledCommandReceiptSessionIds: readonly string[];
-	readonly worktreeId: string | null;
+	readonly scopeKey: string | null;
 }
 
 export type WorktreeAnnotationCatalogProjection =
@@ -102,7 +102,7 @@ export const emptyWorktreeAnnotationProjectionSnapshot: WorktreeAnnotationProjec
 	sourceGeneration: 0,
 	threads: [],
 	unreconciledCommandReceiptSessionIds: [],
-	worktreeId: null,
+	scopeKey: null,
 };
 
 export class WorktreeAnnotationProjectionStore {
@@ -146,7 +146,7 @@ export class WorktreeAnnotationProjectionStore {
 		const snapshot = props.snapshot;
 		const catalogProjection = this.#catalogProjection;
 		if (catalogProjection.kind !== 'current') return false;
-		if (snapshot.worktreeId !== catalogProjection.catalog.authority.worktreeId) return false;
+		if (snapshot.scopeKey !== catalogProjection.catalog.authority.scopeKey) return false;
 		if (
 			snapshot.sessions.some(
 				(session) => !catalogProjection.catalog.sessionsById.has(session.sessionId),
@@ -243,7 +243,7 @@ export class WorktreeAnnotationProjectionStore {
 				this.#commandConfirmedMessagesById.values(),
 				this.#commandConfirmedRemovalsByMessageId.values(),
 			),
-			worktreeId: snapshot.worktreeId,
+			scopeKey: snapshot.scopeKey,
 		});
 		return true;
 	}

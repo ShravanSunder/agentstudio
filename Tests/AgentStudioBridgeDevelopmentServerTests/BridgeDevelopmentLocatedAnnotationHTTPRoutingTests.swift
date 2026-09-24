@@ -57,7 +57,15 @@ struct BridgeDevelopmentLocatedAnnotationHTTPRoutingTests {
         #expect(restoredMessage.messageId == savedAnnotation.messageID)
         #expect(restoredMessage.savedRevision == savedAnnotation.savedRevision)
         #expect(restoredBatch.messages.first?.context.placement == .exact)
-        #expect(restoredBatch.messages.first?.context.sourceIdentity == savedAnnotation.descriptorID)
+        // The annotation keeps the member's own descriptor identity; Files lists
+        // it under the member group's prefixed identity the page captured with.
+        let memberGroup = try #require(
+            await restartedRuntime.host.fileCollectionSource.layout.memberGroup(
+                for: restartedRuntime.composition.productSource.worktreeID
+            )
+        )
+        let restoredIdentity = try #require(restoredBatch.messages.first?.context.sourceIdentity)
+        #expect(savedAnnotation.descriptorID == memberGroup.identityPrefix + restoredIdentity)
     }
 }
 
@@ -92,7 +100,7 @@ private func createHTTPSavedLocatedAnnotationBeforeRestart(
                     "diffSide": NSNull(),
                     "endLine": 2,
                     "kind": "located",
-                    "path": "tracked.txt",
+                    "path": context.annotatedFilePath,
                     "sourceIdentity": context.descriptor.descriptorId,
                     "sourceRole": "file",
                     "startLine": 2,

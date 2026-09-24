@@ -1,0 +1,62 @@
+import AgentStudioProgrammaticControl
+import Testing
+
+@testable import AgentStudio
+@testable import AgentStudioCore
+
+@MainActor
+@Suite("Bridge receiver navigation command contracts")
+struct BridgeReceiverNavigationCommandContractTests {
+    private static let documentCommands: [AppCommand] = [.activateBridgeFile, .closeBridgeFile]
+    /// Agents reach these through their own terminal's receiver; the rest are
+    /// human-only in B1.
+    private static let ownPaneCommands: Set<AppCommand> = [.addBridgeWorktree, .searchBridgeFiles]
+    private static let worktreeCommands: [AppCommand] = [
+        .activateBridgeReview, .addBridgeWorktree, .selectBridgeWorktree, .removeBridgeWorktree,
+    ]
+
+    @Test("receiver commands are headless layout commands by pane; only add and search reach agents")
+    func ipcClassification() {
+        for command in Self.documentCommands + Self.worktreeCommands + [.searchBridgeFiles] {
+            let spec = command.ipcSpec
+            let agentReachable = Self.ownPaneCommands.contains(command)
+            #expect(spec.exposure == (agentReachable ? .allChannels : .debugTesting), "\(command.rawValue)")
+            #expect(spec.agentEligibility == (agentReachable ? .ownPane : .notYetAllowed), "\(command.rawValue)")
+            #expect(spec.executionMode == .headless, "\(command.rawValue)")
+            #expect(spec.requiredPrivilege == .layoutMutate, "\(command.rawValue)")
+            #expect(spec.allowedTargetKinds == [.window, .pane], "\(command.rawValue)")
+            #expect(spec.resultVariants == [.applied, .unavailable], "\(command.rawValue)")
+        }
+    }
+
+    @Test("documents are named by an absolute path; worktrees reuse the worktree-in-pane shape")
+    func ipcArguments() {
+        for command in Self.documentCommands {
+            #expect(command.ipcSpec.argumentVariants == [.bridgeDocumentInPane], "\(command.rawValue)")
+        }
+        for command in Self.worktreeCommands {
+            #expect(command.ipcSpec.argumentVariants == [.worktreeInPane], "\(command.rawValue)")
+        }
+    }
+
+    @Test("B1 receiver commands add no command-bar rows (R7); membership commands still target a worktree")
+    func interactivePresentation() {
+        for command in [AppCommand.addBridgeWorktree, .selectBridgeWorktree, .removeBridgeWorktree] {
+            let definition = AppCommandDispatcher.shared.definition(for: command)
+            #expect(definition.surfacePolicy == .notPresented, "\(command.rawValue)")
+            #expect(definition.targeting == .targeted([.worktree]), "\(command.rawValue)")
+            #expect(definition.shortcut == nil, "\(command.rawValue)")
+        }
+        for command in Self.documentCommands + [.activateBridgeReview, .searchBridgeFiles] {
+            #expect(AppCommandDispatcher.shared.definition(for: command).surfacePolicy == .notPresented)
+        }
+    }
+
+    @Test("Files search is a catalog identity addressed by pane; its results are the bridge.files.search read")
+    func searchIdentity() {
+        let definition = AppCommandDispatcher.shared.definition(for: .searchBridgeFiles)
+        #expect(definition.targeting == .contextual)
+        #expect(definition.shortcut == nil)
+        #expect(AppCommand.searchBridgeFiles.ipcSpec.argumentVariants == [.pane])
+    }
+}

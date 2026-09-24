@@ -52,9 +52,10 @@ extension PaneTabViewController {
             return await executeDrawerCommand(command, arguments: arguments, ownPaneAssertion: ownPaneAssertion)
         case .managementFromMainPane, .managementFromDrawerPane:
             return executeManagementLayerCommand(command, arguments: arguments)
-        case .worktree, .worktreeInPane, .terminalFromWorktree, .terminalFromPane,
+        case .worktree, .worktreeInPane, .bridgeDocumentInPane, .terminalFromWorktree, .terminalFromPane,
             .floatingTerminal, .webview:
-            return await executeWorkspaceSurfaceCommand(command, arguments: arguments)
+            return await executeWorkspaceSurfaceCommand(
+                command, arguments: arguments, ownPaneAssertion: ownPaneAssertion)
         case .directory:
             return .unsupportedCommand
         }
@@ -239,13 +240,8 @@ extension PaneTabViewController {
             return await executeTerminalRuntimeCommand(command, paneId: paneId, ownPaneAssertion: ownPaneAssertion)
         case .focusPreviousPinnedPane, .focusNextPinnedPane:
             return .stateUnavailable
-        case .reloadBridgeWebView:
-            guard let mountView = resolvedBridgeCommandMountView(paneId: paneId),
-                mountView.controller.reloadWebView()
-            else { return .stateUnavailable }
-            // The webview reload is initiated here and completes in WebKit, so
-            // the receipt is acceptance rather than application.
-            return .accepted(operationId: nil)
+        case .reloadBridgeWebView, .searchBridgeFiles:
+            return await executeBridgePaneCommand(command, paneId: paneId, ownPaneAssertion: ownPaneAssertion)
         case .openPaneLocationInBookmarkedEditor:
             guard let targetPath = targetedPaneLocationPath(paneId: paneId) else {
                 return .unavailable(.noApplicableTarget)

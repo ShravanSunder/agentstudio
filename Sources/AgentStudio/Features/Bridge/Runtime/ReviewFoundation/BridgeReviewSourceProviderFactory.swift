@@ -22,12 +22,12 @@ package enum BridgeReviewRepositoryLocation: Equatable, Sendable {
 
 package enum BridgeReviewSourceProviderFactory {
     package static func repositoryLocation(
-        source: BridgePaneSource?,
+        reviewRootPath: String?,
         launchDirectory: URL?,
         currentWorkingDirectory: URL?
     ) -> BridgeReviewRepositoryLocation {
-        if case .workspace(let rootPath, _) = source {
-            return .workspaceSource(URL(fileURLWithPath: rootPath))
+        if let reviewRootPath {
+            return .workspaceSource(URL(fileURLWithPath: reviewRootPath))
         }
         if let launchDirectory {
             return .launchDirectory(launchDirectory)

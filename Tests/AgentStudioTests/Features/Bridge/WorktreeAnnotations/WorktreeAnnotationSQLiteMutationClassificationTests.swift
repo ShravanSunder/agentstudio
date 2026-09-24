@@ -14,10 +14,10 @@ struct WorktreeAnnotationMutationClassificationTests {
         #expect(
             created.change
                 == .catalog(
-                    worktreeIDs: ["worktree-1"],
+                    subjects: [defaultAnnotationSubject],
                     sessionChanges: [
                         .init(
-                            worktreeID: "worktree-1",
+                            subject: defaultAnnotationSubject,
                             sessionID: createdDetail.session.id,
                             semanticRevision: createdDetail.session.semanticRevision
                         )
@@ -42,7 +42,7 @@ struct WorktreeAnnotationMutationClassificationTests {
                 == .content(
                     sessionChanges: [
                         .init(
-                            worktreeID: "worktree-1",
+                            subject: defaultAnnotationSubject,
                             sessionID: content.canonicalResult.detail.session.id,
                             semanticRevision: content.canonicalResult.detail.session.semanticRevision
                         )
@@ -76,11 +76,11 @@ struct WorktreeAnnotationMutationClassificationTests {
         #expect(
             control.change
                 == .control(
-                    worktreeIDs: ["worktree-1"],
+                    subjects: [defaultAnnotationSubject],
                     reason: .discovery,
                     sessionChanges: [
                         .init(
-                            worktreeID: "worktree-1",
+                            subject: defaultAnnotationSubject,
                             sessionID: control.canonicalResult.session.id,
                             semanticRevision: control.canonicalResult.session.semanticRevision
                         )
@@ -108,11 +108,11 @@ struct WorktreeAnnotationMutationClassificationTests {
         )
 
         #expect(deleted.canonicalResult.detail.threads.isEmpty)
-        guard case .catalog(let worktreeIDs, let sessionChanges) = deleted.change else {
+        guard case .catalog(let subjects, let sessionChanges) = deleted.change else {
             Issue.record("Expected a catalog-classified deletion")
             return
         }
-        #expect(worktreeIDs == ["worktree-1"])
+        #expect(subjects == [defaultAnnotationSubject])
         #expect(sessionChanges.map(\.semanticRevision) == [deleted.canonicalResult.detail.session.semanticRevision])
     }
 }
@@ -120,8 +120,6 @@ struct WorktreeAnnotationMutationClassificationTests {
 private func classificationRootProps() -> WorktreeAnnotationSQLiteRepository.CreateRootDraftProps {
     .init(
         admission: .implicitOrSingle,
-        repositoryID: "repo-1",
-        worktreeID: "worktree-1",
         sourceFingerprint: makeSourceFingerprint(worktreeID: "worktree-1"),
         origin: .session,
         body: "Initial draft",

@@ -93,15 +93,13 @@ enum WorktreeAnnotationSourceEvaluator {
         return switch input.surface {
         case .file:
             WorktreeAnnotationSourceFingerprint(
-                repositoryID: current.repositoryID,
-                worktreeID: current.worktreeID,
+                subject: current.subject,
                 fileSourceIdentity: current.fileSourceIdentity,
                 reviewComparisonOrigin: accepted.reviewComparisonOrigin
             )
         case .review:
             WorktreeAnnotationSourceFingerprint(
-                repositoryID: current.repositoryID,
-                worktreeID: current.worktreeID,
+                subject: current.subject,
                 fileSourceIdentity: accepted.fileSourceIdentity,
                 reviewComparisonOrigin: current.reviewComparisonOrigin
             )
@@ -113,9 +111,7 @@ enum WorktreeAnnotationSourceEvaluator {
     ) -> WorktreeAnnotationSourceRelationship {
         let accepted = input.session.acceptedSourceFingerprint
         let current = input.currentFingerprint
-        guard accepted.repositoryID == current.repositoryID,
-            accepted.worktreeID == current.worktreeID
-        else {
+        guard accepted.subject == current.subject else {
             return .detached
         }
         switch input.surface {

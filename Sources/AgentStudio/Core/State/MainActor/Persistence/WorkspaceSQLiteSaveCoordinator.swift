@@ -27,6 +27,7 @@ struct WorkspaceSQLiteSaveCapture: Sendable {
     let windowFrame: CGRect?
     let createdAt: Date
     let persistedAt: Date
+    let bridgeNavigation: BridgeNavigationSaveSnapshot?
 }
 
 enum WorkspaceSQLiteSavePreparation {
@@ -105,7 +106,8 @@ enum WorkspaceSQLiteSavePreparation {
                 createdAt: capture.createdAt,
                 updatedAt: capture.persistedAt
             ),
-            captureRevision: capture.revision
+            captureRevision: capture.revision,
+            bridgeNavigation: capture.bridgeNavigation
         )
     }
 }
@@ -117,6 +119,7 @@ package final class WorkspaceSQLiteSaveCoordinator {
     private let workspacePaneAtom: WorkspacePaneAtom
     private let workspaceTabLayoutAtom: WorkspaceTabLayoutAtom
     private let repositoryTopologyAtom: RepositoryTopologyAtom?
+    private let bridgeNavigationAtom: BridgeNavigationAtom?
     private let sqliteDatastore: WorkspaceSQLiteDatastoreActor
 
     package init(
@@ -125,6 +128,7 @@ package final class WorkspaceSQLiteSaveCoordinator {
         workspacePaneAtom: WorkspacePaneAtom,
         workspaceTabLayoutAtom: WorkspaceTabLayoutAtom,
         repositoryTopologyAtom: RepositoryTopologyAtom? = nil,
+        bridgeNavigationAtom: BridgeNavigationAtom? = nil,
         sqliteDatastore: WorkspaceSQLiteDatastoreActor
     ) {
         self.identityAtom = identityAtom
@@ -132,6 +136,7 @@ package final class WorkspaceSQLiteSaveCoordinator {
         self.workspacePaneAtom = workspacePaneAtom
         self.workspaceTabLayoutAtom = workspaceTabLayoutAtom
         self.repositoryTopologyAtom = repositoryTopologyAtom
+        self.bridgeNavigationAtom = bridgeNavigationAtom
         self.sqliteDatastore = sqliteDatastore
     }
 
@@ -161,7 +166,10 @@ package final class WorkspaceSQLiteSaveCoordinator {
             sidebarWidth: windowMemoryAtom.sidebarWidth,
             windowFrame: windowMemoryAtom.windowFrame,
             createdAt: identityAtom.createdAt,
-            persistedAt: persistedAt
+            persistedAt: persistedAt,
+            bridgeNavigation: bridgeNavigationAtom.map { atom in
+                BridgeNavigationSaveSnapshot(records: atom.recordsSnapshot(), revision: atom.acceptedRevision)
+            }
         )
     }
 

@@ -47,12 +47,12 @@ func makeRefreshRevisionFixture() -> RefreshRevisionFixture {
     let paneId = UUIDv7.generate()
     let controller = BridgePaneController(
         paneId: paneId,
-        state: BridgePaneState(
-            panelKind: .diffViewer,
-            source: .workspace(
-                rootPath: "/tmp/worktree",
-                baseline: .unstaged)
-        ),
+        state: BridgePaneState(panelKind: .diffViewer),
+        sourceConfiguration: BridgePaneSourceConfiguration(
+            review: BridgeReviewSourceBinding(
+                worktreeId: headEndpoint.worktreeId, worktreeRootPath: "/tmp/worktree", comparison: .unstaged),
+            files: .testSingleWorktree(
+                rootURL: URL(fileURLWithPath: "/tmp/worktree"), worktreeId: headEndpoint.worktreeId)),
         appRootURL: testBridgeAppRootURL(),
         metadata: PaneMetadata(
             contentType: .diff,

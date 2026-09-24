@@ -31,6 +31,8 @@ struct HTTPDevelopmentProductRuntime {
 
 @MainActor
 struct HTTPAnnotationAuthoringContext {
+    /// `tracked.txt` under the File collection's group path, as the page names it.
+    let annotatedFilePath: String
     let descriptor: BridgeProductFileContentDescriptor
     let fileSourceGeneration: Int
     let metadataStream: HTTPMetadataStreamHandle
@@ -125,8 +127,9 @@ func prepareHTTPAnnotationAuthoring(
             else { return nil }
             return event.source
         }
+    let annotatedFilePath = try await httpFileCollectionPath("tracked.txt", runtime: runtime)
     try await demandHTTPFileMetadataPath(
-        "tracked.txt",
+        annotatedFilePath,
         client: client,
         connection: connection,
         openResponse: fileMetadataSubscription,
@@ -165,9 +168,25 @@ func prepareHTTPAnnotationAuthoring(
         recorder: metadataStream.recorder
     )
     return .init(
+        annotatedFilePath: annotatedFilePath,
         descriptor: descriptor,
         fileSourceGeneration: acceptedFileSource.subscriptionGeneration,
         metadataStream: metadataStream
+    )
+}
+
+/// The File surface lists the dev host's worktree under the collection's group
+/// path, exactly as the app's file collection does.
+@MainActor
+func httpFileCollectionPath(
+    _ relativePath: String,
+    runtime: HTTPDevelopmentProductRuntime
+) async throws -> String {
+    try #require(
+        await runtime.host.fileCollectionSource.displayPath(
+            worktreeId: runtime.composition.productSource.worktreeID,
+            relativePath: relativePath
+        )
     )
 }
 

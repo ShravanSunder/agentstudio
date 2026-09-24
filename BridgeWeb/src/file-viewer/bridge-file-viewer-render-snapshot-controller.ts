@@ -25,6 +25,7 @@ import {
 	type BridgeMainRenderSnapshotStore,
 } from '../core/comm-worker/bridge-main-render-snapshot-store.js';
 import type { BridgePaneSurfaceClient } from '../core/comm-worker/bridge-pane-runtime.js';
+import type { BridgeProductFileSelectionReceipt } from '../core/comm-worker/bridge-product-call-contracts.js';
 import type {
 	BridgeWorkerContentAvailabilityPatchPayload,
 	BridgeWorkerFileRenderPatch,
@@ -64,9 +65,15 @@ export interface BridgeFileViewerRenderSnapshotController {
 		readonly visibleItemIds: readonly string[];
 	}) => void;
 	readonly retryUnavailableFileRefresh: () => void;
+	readonly sendFileSelectionReceipt: (receipt: BridgeProductFileSelectionReceipt) => void;
 	readonly fileDisplaySnapshot: Pick<
 		BridgeMainRenderSnapshot,
-		'fileDisplayFreshness' | 'fileItemById' | 'fileQuerySlice' | 'fileStatusSlice' | 'fileTreeSlice'
+		| 'fileDisplayFreshness'
+		| 'fileItemById'
+		| 'fileMemberGroupsSlice'
+		| 'fileQuerySlice'
+		| 'fileStatusSlice'
+		| 'fileTreeSlice'
 	>;
 	readonly panelChromeSlice: BridgeMainRenderSnapshot['panelChromeSlice'];
 	readonly selectedContentAvailability: BridgeWorkerContentAvailabilityPatchPayload | null;
@@ -233,6 +240,16 @@ export function useBridgeFileViewerRenderSnapshotController(props: {
 			epoch: nextBridgeFileViewerWorkerEpoch(workerEpochRef),
 		});
 	}, [fileViewClient]);
+	const sendFileSelectionReceipt = useCallback(
+		(receipt: BridgeProductFileSelectionReceipt): void => {
+			fileViewClient.send({
+				command: 'fileSelectionReceipt',
+				epoch: nextBridgeFileViewerWorkerEpoch(workerEpochRef),
+				receipt,
+			});
+		},
+		[fileViewClient],
+	);
 	const selectedCodeViewItem = selectedBridgeFileViewerCodeViewItemForSnapshot({
 		renderSnapshot,
 		selection: props.selection,
@@ -255,9 +272,11 @@ export function useBridgeFileViewerRenderSnapshotController(props: {
 			dispatchSelectedFileViewContentRequest,
 			dispatchVisibleFileViewViewportFact,
 			retryUnavailableFileRefresh,
+			sendFileSelectionReceipt,
 			fileDisplaySnapshot: {
 				fileDisplayFreshness: renderSnapshot.fileDisplayFreshness,
 				fileItemById: renderSnapshot.fileItemById,
+				fileMemberGroupsSlice: renderSnapshot.fileMemberGroupsSlice,
 				fileQuerySlice: renderSnapshot.fileQuerySlice,
 				fileStatusSlice,
 				fileTreeSlice: renderSnapshot.fileTreeSlice,
@@ -274,11 +293,13 @@ export function useBridgeFileViewerRenderSnapshotController(props: {
 			dispatchFileViewQueryFact,
 			dispatchVisibleFileViewViewportFact,
 			retryUnavailableFileRefresh,
+			sendFileSelectionReceipt,
 			renderSnapshotStore.completeFileQueryTransaction,
 			renderSnapshotStore.fileTreePatchStream,
 			fileViewClient.renderFulfillmentCoordinator,
 			renderSnapshot.fileDisplayFreshness,
 			renderSnapshot.fileItemById,
+			renderSnapshot.fileMemberGroupsSlice,
 			renderSnapshot.panelChromeSlice,
 			renderSnapshot.fileQuerySlice,
 			renderSnapshot.fileTreeSlice,
@@ -425,6 +446,7 @@ export function applyBridgeWorkerMessagesToFileViewerRenderSnapshotStore(props: 
 			case 'subscription':
 			case 'reviewComparisonTargetsQuery':
 			case 'reviewPublicationInstallAdmission':
+			case 'fileCollectionSearch':
 				break;
 			default:
 				assertNeverBridgeFileViewerWorkerServerMessage(message);

@@ -115,6 +115,32 @@ final class WorkspaceActionExecutor {
         coordinator.resolveBridgePaneCommand(worktreeId: worktreeId)
     }
 
+    func bridgeReceiver(forCommandPaneId paneId: UUID) -> BridgeReceiver? {
+        coordinator.bridgeReceiver(forCommandPaneId: paneId)
+    }
+
+    func mountedBridgeController(forCommandPaneId paneId: UUID) -> BridgePaneController? {
+        coordinator.bridgeReceiver(forCommandPaneId: paneId).flatMap { coordinator.mountedBridgeController(for: $0) }
+    }
+
+    func bridgeNavigationRecord(for receiver: BridgeReceiver) -> BridgeNavigationRecord? {
+        coordinator.bridgeNavigationCommandHandler.record(for: receiver)
+    }
+
+    func performBridgeNavigation(
+        _ request: BridgeNavigationRequest,
+        forPaneId paneId: UUID
+    ) async -> BridgeNavigationCommandOutcome {
+        await coordinator.performBridgeNavigation(request, forPaneId: paneId)
+    }
+
+    func searchBridgeFiles(
+        _ criteria: BridgeFilesSearchCriteria,
+        forPaneId paneId: UUID
+    ) async -> BridgeFilesSearchRequestOutcome {
+        await coordinator.searchBridgeFiles(criteria, forPaneId: paneId)
+    }
+
     @discardableResult
     func requestBridgePaneSurface(_ surface: BridgeProductSurface, paneId: UUID) -> Bool {
         coordinator.requestBridgePaneSurface(surface, paneId: paneId)

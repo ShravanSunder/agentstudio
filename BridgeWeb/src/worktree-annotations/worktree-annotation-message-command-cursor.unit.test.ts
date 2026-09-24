@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'vitest';
 
+import type { BridgeProductWorktreeAnnotationSubject } from '../core/comm-worker/bridge-product-worktree-annotation-contracts.js';
 import {
 	messageCommandCursorFromOutcome,
 	newestCommandConfirmedThreadRevision,
@@ -7,6 +8,11 @@ import {
 	type WorktreeAnnotationMessageCommandCursor,
 } from './worktree-annotation-message-command-cursor.js';
 import type { WorktreeAnnotationCommandOutcome } from './worktree-annotation-surface-client.js';
+
+const annotationSubject: BridgeProductWorktreeAnnotationSubject = {
+	kind: 'git',
+	worktreeId: 'worktree-1',
+};
 
 describe('newestMessageCommandCursor', () => {
 	const currentCursor = {
@@ -111,6 +117,7 @@ function canonicalMessageOutcome(): WorktreeAnnotationCommandOutcome {
 				sourceIdentity: 'source-1',
 				sourceRole: 'file',
 				startLine: 2,
+				subject: annotationSubject,
 				threadId: '01890abc-def0-7abc-8def-012345678902',
 			},
 			kind: 'message',

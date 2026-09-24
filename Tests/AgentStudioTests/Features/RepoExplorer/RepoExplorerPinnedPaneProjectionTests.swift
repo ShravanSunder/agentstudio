@@ -24,7 +24,7 @@ struct RepoExplorerPinnedPaneProjectionTests {
             let terminal = store.createPane(title: "Alpha")
             let bridge = try #require(
                 store.paneAtom.createPane(
-                    content: .bridgePanel(BridgePaneState(panelKind: .fileViewer, source: nil)),
+                    content: .bridgePanel(BridgePaneState(panelKind: .fileViewer)),
                     metadata: PaneMetadata(
                         contentType: .diff, launchDirectory: URL(filePath: "/tmp"), title: "Bridge", isPinned: true)
                 ))

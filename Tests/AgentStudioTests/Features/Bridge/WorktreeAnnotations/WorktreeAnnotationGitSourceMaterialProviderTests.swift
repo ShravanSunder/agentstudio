@@ -329,8 +329,7 @@ private func makeGitSourceFixture() async throws -> URL {
 
 private func makeGitSourceFingerprint() -> WorktreeAnnotationSourceFingerprint {
     .init(
-        repositoryID: "repo-1",
-        worktreeID: "worktree-1",
+        subject: defaultAnnotationSubject,
         fileSourceIdentity: "file-current",
         reviewComparisonOrigin: nil
     )
@@ -339,8 +338,7 @@ private func makeGitSourceFingerprint() -> WorktreeAnnotationSourceFingerprint {
 private func makeGitSourceSession() -> WorktreeAnnotationSession {
     .init(
         id: .generate(),
-        repositoryID: "repo-1",
-        worktreeID: "worktree-1",
+        subject: defaultAnnotationSubject,
         lifecycle: .living,
         sourceRelationship: .applicable,
         acceptedSourceFingerprint: makeGitSourceFingerprint(),

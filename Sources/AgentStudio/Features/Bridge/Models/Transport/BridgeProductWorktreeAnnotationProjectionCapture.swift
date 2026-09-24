@@ -7,7 +7,10 @@ enum BridgeProductAnnotationProjectionRecoveryStatus: String, Codable, Equatable
 }
 
 struct BridgeProductAnnotationProjectionCapture: Sendable {
-    let worktreeID: String
+    /// The key the page knows this surface's annotations by.
+    let scopeKey: String
+    /// Every session of the capture belongs to one of these subjects.
+    let subjects: Set<WorktreeAnnotationSubject>
     let recoveryStatus: BridgeProductAnnotationProjectionRecoveryStatus
     let sessions: [WorktreeAnnotationSession]
     let details: [WorktreeAnnotationSessionDetail]
@@ -16,7 +19,7 @@ struct BridgeProductAnnotationProjectionCapture: Sendable {
     let sourceGeneration: Int
 
     init(
-        worktreeID: String,
+        scope: WorktreeAnnotationScope,
         recoveryStatus: BridgeProductAnnotationProjectionRecoveryStatus,
         sessions: [WorktreeAnnotationSession],
         details: [WorktreeAnnotationSessionDetail],
@@ -24,7 +27,8 @@ struct BridgeProductAnnotationProjectionCapture: Sendable {
         projectionRevision: Int,
         sourceGeneration: Int
     ) {
-        self.worktreeID = worktreeID
+        scopeKey = scope.key
+        subjects = scope.subjects
         self.recoveryStatus = recoveryStatus
         self.sessions = sessions.sorted(by: annotationProjectionSessionOrdering)
         self.details = details.sorted { lhs, rhs in

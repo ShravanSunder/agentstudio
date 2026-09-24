@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'vitest';
 
+import type { BridgeProductWorktreeAnnotationSubject } from '../../core/comm-worker/bridge-product-worktree-annotation-contracts.js';
 import { makeBridgeReviewPackage } from '../../foundation/review-package/bridge-review-package-test-support.js';
 import type { WorktreeAnnotationThreadProjection } from '../../worktree-annotations/worktree-annotation-surface-client.js';
 import { bridgeCodeViewReadingPositionItemId } from './bridge-code-view-panel-support.js';
@@ -87,6 +88,11 @@ function bounds(input: { readonly bottom: number; readonly top: number }): DOMRe
 	return new DOMRect(0, input.top, 100, input.bottom - input.top);
 }
 
+const threadContextSubject: BridgeProductWorktreeAnnotationSubject = {
+	kind: 'git',
+	worktreeId: 'worktree-1',
+};
+
 function threadContext(props: {
 	readonly path: string;
 	readonly sourceRole: 'review_base' | 'review_head';
@@ -99,6 +105,7 @@ function threadContext(props: {
 		scope: 'located',
 		sourceIdentity: 'source-identity',
 		startLine: 2,
+		subject: threadContextSubject,
 		threadId: '00000000-0000-7000-8000-000000000001',
 	} as const;
 	return props.sourceRole === 'review_base'

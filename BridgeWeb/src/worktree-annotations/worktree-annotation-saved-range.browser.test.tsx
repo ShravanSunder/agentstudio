@@ -17,6 +17,7 @@ import {
 	annotationMessage,
 	annotationSessionId,
 	annotationSessionSummary,
+	annotationSubject,
 	RecordingAnnotationBrowserSurface,
 } from './worktree-annotation-browser-test-support.js';
 import type { WorktreeAnnotationThreadContext } from './worktree-annotation-surface-client.js';
@@ -368,6 +369,7 @@ const fileRangeContext: WorktreeAnnotationThreadContext = {
 	sourceIdentity: 'descriptor-file-1',
 	sourceRole: 'file',
 	startLine: 4,
+	subject: annotationSubject,
 	threadId: annotationHeadThreadId,
 };
 
@@ -381,6 +383,7 @@ const reviewRangeContext: WorktreeAnnotationThreadContext = {
 	sourceIdentity: 'handle-item-source-head',
 	sourceRole: 'review_head',
 	startLine: 2,
+	subject: annotationSubject,
 	threadId: annotationHeadThreadId,
 };
 

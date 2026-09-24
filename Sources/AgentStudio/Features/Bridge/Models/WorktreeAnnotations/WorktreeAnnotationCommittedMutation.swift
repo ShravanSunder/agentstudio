@@ -6,7 +6,7 @@ struct WorktreeAnnotationCommittedMutation<CanonicalResult: Sendable>: Sendable 
 extension WorktreeAnnotationCommittedMutation: Equatable where CanonicalResult: Equatable {}
 
 struct WorktreeAnnotationCommittedSessionChange: Equatable, Sendable {
-    let worktreeID: String
+    let subject: WorktreeAnnotationSubject
     let sessionID: WorktreeAnnotationSessionID
     let semanticRevision: Int
 }
@@ -20,12 +20,12 @@ enum WorktreeAnnotationCommittedChange: Equatable, Sendable {
     case noChange
     case content(sessionChanges: [WorktreeAnnotationCommittedSessionChange])
     case control(
-        worktreeIDs: Set<String>,
+        subjects: Set<WorktreeAnnotationSubject>,
         reason: WorktreeAnnotationControlChangeReason,
         sessionChanges: [WorktreeAnnotationCommittedSessionChange]
     )
     case catalog(
-        worktreeIDs: Set<String>,
+        subjects: Set<WorktreeAnnotationSubject>,
         sessionChanges: [WorktreeAnnotationCommittedSessionChange]
     )
 }
@@ -40,12 +40,12 @@ extension WorktreeAnnotationCommittedMutation where CanonicalResult == WorktreeA
 
     static func catalog(
         _ canonicalResult: CanonicalResult,
-        worktreeIDs: Set<String>? = nil
+        subjects: Set<WorktreeAnnotationSubject>? = nil
     ) -> Self {
         Self(
             canonicalResult: canonicalResult,
             change: .catalog(
-                worktreeIDs: worktreeIDs ?? [canonicalResult.session.worktreeID],
+                subjects: subjects ?? [canonicalResult.session.subject],
                 sessionChanges: [canonicalResult.committedSessionChange]
             )
         )
@@ -58,7 +58,7 @@ extension WorktreeAnnotationCommittedMutation where CanonicalResult == WorktreeA
         Self(
             canonicalResult: canonicalResult,
             change: .control(
-                worktreeIDs: [canonicalResult.session.worktreeID],
+                subjects: [canonicalResult.session.subject],
                 reason: reason,
                 sessionChanges: [canonicalResult.committedSessionChange]
             )
@@ -69,7 +69,7 @@ extension WorktreeAnnotationCommittedMutation where CanonicalResult == WorktreeA
 extension WorktreeAnnotationSessionDetail {
     var committedSessionChange: WorktreeAnnotationCommittedSessionChange {
         WorktreeAnnotationCommittedSessionChange(
-            worktreeID: session.worktreeID,
+            subject: session.subject,
             sessionID: session.id,
             semanticRevision: session.semanticRevision
         )

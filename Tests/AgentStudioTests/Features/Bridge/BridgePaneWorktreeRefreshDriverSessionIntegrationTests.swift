@@ -293,12 +293,11 @@ private func sessionIntegrationFileSource(
     generation: Int
 ) throws -> BridgeProductFileSourceIdentity {
     try .init(
-        repoId: "00000000-0000-4000-8000-000000000001",
+        collectionToken: "root-token-1",
         rootRevisionToken: "root-token-1",
         sourceCursor: "generation-\(generation)",
         sourceId: "file-source-\(generation)",
-        subscriptionGeneration: generation,
-        worktreeId: "00000000-0000-4000-8000-000000000002"
+        subscriptionGeneration: generation
     )
 }
 

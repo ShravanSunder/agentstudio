@@ -18,10 +18,17 @@ enum BridgePaneSurfaceSelectionIntent: Equatable, Sendable {
         source: BridgeProductNavigationReviewSource,
         target: BridgeProductNavigationReviewTarget
     )
+    case fileTarget(
+        commandId: String,
+        source: BridgeProductNavigationFileSource,
+        target: BridgeProductNavigationFileTarget
+    )
 
     var commandId: String {
         switch self {
-        case .context(let commandId, _), .reviewTarget(let commandId, _, _): commandId
+        case .context(let commandId, _), .reviewTarget(let commandId, _, _),
+            .fileTarget(let commandId, _, _):
+            commandId
         }
     }
 
@@ -29,6 +36,7 @@ enum BridgePaneSurfaceSelectionIntent: Equatable, Sendable {
         switch self {
         case .context(_, let surface): surface
         case .reviewTarget: .review
+        case .fileTarget: .file
         }
     }
 
@@ -42,6 +50,13 @@ enum BridgePaneSurfaceSelectionIntent: Equatable, Sendable {
             )
         case .reviewTarget(let commandId, let source, let target):
             .activateReviewTarget(
+                commandId: commandId,
+                bindingRevision: revision,
+                source: source,
+                target: target
+            )
+        case .fileTarget(let commandId, let source, let target):
+            .activateFileTarget(
                 commandId: commandId,
                 bindingRevision: revision,
                 source: source,
@@ -126,6 +141,24 @@ struct BridgePaneSurfaceSelectionAuthority: Sendable {
         return commandId
     }
 
+    /// Retain an exact File document target in the receiver's current Files
+    /// source. Its receipt is the displayed selection, not the surface switch.
+    @discardableResult
+    mutating func retainFileTarget(
+        source: BridgeProductNavigationFileSource,
+        target: BridgeProductNavigationFileTarget
+    ) -> String {
+        let commandId = UUIDv7.generate().uuidString
+        replaceRetainedIntent(
+            .fileTarget(
+                commandId: commandId,
+                source: source,
+                target: target
+            )
+        )
+        return commandId
+    }
+
     mutating func bindRetainedIntent(
         commandId: String,
         paneSessionId: String,
@@ -149,12 +182,13 @@ struct BridgePaneSurfaceSelectionAuthority: Sendable {
     }
 
     mutating func invalidateFailedExactIntent(commandId: String) {
-        guard case .reviewTarget(let retainedCommandId, _, _) = retainedIntent,
-            retainedCommandId == commandId
-        else {
+        switch retainedIntent {
+        case .reviewTarget(let retainedCommandId, _, _), .fileTarget(let retainedCommandId, _, _):
+            guard retainedCommandId == commandId else { return }
+            invalidate()
+        case .context, nil:
             return
         }
-        invalidate()
     }
 
     private mutating func bindCurrentRetainedIntent(

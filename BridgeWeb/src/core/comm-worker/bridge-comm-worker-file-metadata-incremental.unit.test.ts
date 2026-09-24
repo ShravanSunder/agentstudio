@@ -4,12 +4,11 @@ import { BridgeCommWorkerFileMetadataProjection } from './bridge-comm-worker-fil
 import type { BridgeProductSubscriptionEvent } from './bridge-product-subscription-contracts.js';
 
 const source = {
-	repoId: '00000000-0000-4000-8000-000000000001',
+	collectionToken: 'root-token-1',
 	rootRevisionToken: 'root-revision-large',
 	sourceCursor: 'source-cursor-large',
 	sourceId: 'file-source-large',
 	subscriptionGeneration: 9,
-	worktreeId: '00000000-0000-4000-8000-000000000002',
 } as const;
 
 describe('Bridge comm worker incremental File metadata projection', () => {
@@ -220,6 +219,7 @@ function makeFileTreeRow(index: number): FileTreeRow {
 	return {
 		changeStatus: 'modified',
 		depth: 1,
+		documentLocation: null,
 		fileId: `file-${index}`,
 		fileClass: 'source',
 		isDirectory: false,
@@ -236,6 +236,7 @@ function makeSourcesRow(rowId: string): FileTreeRow {
 	return {
 		changeStatus: null,
 		depth: 0,
+		documentLocation: null,
 		fileId: null,
 		fileClass: null,
 		isDirectory: true,

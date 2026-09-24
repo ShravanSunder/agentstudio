@@ -3,10 +3,15 @@ import { z } from 'zod';
 import {
 	BRIDGE_PRODUCT_MAXIMUM_CONTENT_BYTES,
 	bridgeProductDisplayPathSchema,
+	bridgeProductDocumentLocationSchema,
 	bridgeProductIdentifierSchema,
 	bridgeProductNonnegativeSequenceSchema,
 	bridgeProductSafeMessageSchema,
 } from './bridge-product-contract-primitives.js';
+import {
+	bridgeProductFileMemberGroupListSchema,
+	bridgeProductFileOpenedDocumentListSchema,
+} from './bridge-product-file-member-group-contracts.js';
 import {
 	bridgeProductFileChangeStatusSchema,
 	bridgeProductFileTreeFileClassSchema,
@@ -21,6 +26,7 @@ const bridgeWorkerFileTreeDisplayRowSchema = z
 	.object({
 		changeStatus: bridgeProductFileChangeStatusSchema.nullable(),
 		depth: bridgeProductNonnegativeSequenceSchema,
+		documentLocation: bridgeProductDocumentLocationSchema.nullable(),
 		fileId: bridgeProductIdentifierSchema.nullable(),
 		fileClass: bridgeProductFileTreeFileClassSchema.nullable(),
 		isDirectory: z.boolean(),
@@ -192,6 +198,24 @@ const bridgeWorkerFileStatusDisplayPatchSchema = z.discriminatedUnion('operation
 	z.object({ operation: z.literal('reset'), slice: z.literal('fileStatus') }).strict(),
 ]);
 
+const bridgeWorkerFileMemberGroupsDisplayPatchSchema = z.discriminatedUnion('operation', [
+	z
+		.object({
+			operation: z.literal('upsert'),
+			payload: z
+				.object({
+					groups: bridgeProductFileMemberGroupListSchema,
+					/** The native membership revision these groups belong to. */
+					membershipRevision: bridgeProductNonnegativeSequenceSchema,
+					openedDocuments: bridgeProductFileOpenedDocumentListSchema,
+				})
+				.strict(),
+			slice: z.literal('fileMemberGroups'),
+		})
+		.strict(),
+	z.object({ operation: z.literal('reset'), slice: z.literal('fileMemberGroups') }).strict(),
+]);
+
 const bridgeWorkerFileQueryDisplayPatchSchema = z
 	.object({
 		operation: z.literal('upsert'),
@@ -204,6 +228,7 @@ export const bridgeWorkerFileDisplayPatchSchema = z.discriminatedUnion('slice', 
 	bridgeWorkerFileTreeDisplayPatchSchema,
 	bridgeWorkerFileItemDisplayPatchSchema,
 	bridgeWorkerFileStatusDisplayPatchSchema,
+	bridgeWorkerFileMemberGroupsDisplayPatchSchema,
 	bridgeWorkerFileQueryDisplayPatchSchema,
 ]);
 

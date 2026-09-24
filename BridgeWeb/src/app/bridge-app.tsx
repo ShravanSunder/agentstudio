@@ -25,6 +25,7 @@ import {
 } from '../core/telemetry-worker/bridge-pane-telemetry-worker-session.js';
 import { bridgeTelemetryWorkerBootstrapSchema } from '../core/telemetry-worker/bridge-telemetry-worker-contracts.js';
 import { bridgeTelemetryCompactSampleForEvent } from '../core/telemetry-worker/bridge-telemetry-worker-event-adapter.js';
+import type { BridgeWorktreeFileLocation } from '../file-viewer/bridge-file-collection-display-path.js';
 import type {
 	BridgeFileViewerAppProps,
 	BridgeFileViewerOpenPathCommand,
@@ -42,7 +43,7 @@ import {
 } from '../foundation/telemetry/bridge-telemetry-recorder.js';
 import { recordBridgeViewerActivationRequestedTelemetrySample } from '../foundation/telemetry/bridge-viewer-activation-telemetry.js';
 import { setBridgeViewerNativeOpenAnchor } from '../foundation/telemetry/bridge-viewer-first-interaction.js';
-import { WorktreeAnnotationNavigationProvider } from '../worktree-annotations/worktree-annotation-navigation.js';
+import { BridgeAppAnnotationScope } from './bridge-app-annotation-scope.js';
 import type { BridgeAppControlProbe } from './bridge-app-control.js';
 import { BridgeFileViewerMode } from './bridge-app-file-viewer-mode.js';
 import {
@@ -269,14 +270,14 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 		[activateViewerMode, requestContextSwitcherFocusHandoff],
 	);
 	const openReviewFileInFileViewer = useCallback(
-		(path: string): void => {
+		(location: BridgeWorktreeFileLocation): void => {
 			openFileFromReviewCommandSequenceRef.current += 1;
 			const activation = activateViewerMode('file', 'review_file_corner');
 			if (activation === null) return;
 			setOpenFileFromReviewCommand({
 				activationStartedAtPerfNow: activation.startedAtPerfNow,
 				commandId: openFileFromReviewCommandSequenceRef.current,
-				path,
+				location,
 				traceContext: null,
 			});
 		},
@@ -825,7 +826,7 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 
 	return (
 		<BridgeViewerAppShell appOwner="BridgeApp" mode={activeViewerMode}>
-			<WorktreeAnnotationNavigationProvider controller={annotationNavigation}>
+			<BridgeAppAnnotationScope navigation={annotationNavigation}>
 				{mountedViewerModes.has('file') ? (
 					<div
 						aria-hidden={activeViewerMode !== 'file'}
@@ -918,7 +919,7 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 						/>
 					</div>
 				) : null}
-			</WorktreeAnnotationNavigationProvider>
+			</BridgeAppAnnotationScope>
 		</BridgeViewerAppShell>
 	);
 }

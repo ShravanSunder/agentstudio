@@ -343,8 +343,7 @@ struct ReviewAnnotationProportionalSourceCaptureTests {
         let sessionID = WorktreeAnnotationSessionID.generate()
         let session = WorktreeAnnotationSession(
             id: sessionID,
-            repositoryID: capture.fingerprint.repositoryID,
-            worktreeID: capture.fingerprint.worktreeID,
+            subject: capture.fingerprint.subject,
             lifecycle: .living,
             sourceRelationship: .applicable,
             acceptedSourceFingerprint: capture.fingerprint,
@@ -394,7 +393,7 @@ struct ReviewAnnotationProportionalSourceCaptureTests {
             )
         }
         return BridgeProductAnnotationProjectionCapture(
-            worktreeID: evaluated.session.worktreeID,
+            scope: .testScope(evaluated.session.subject),
             recoveryStatus: .available,
             sessions: [evaluated.session],
             details: [

@@ -78,7 +78,7 @@ struct AgentStudioIPCCommandCatalogDiscoveryTests {
             if recomposed != command { driftedCommandIdentifiers.append(command.id.rawValue) }
         }
 
-        #expect(catalog.commands.count == 152)
+        #expect(catalog.commands.count == 159)
         #expect(driftedCommandIdentifiers.isEmpty, "drifted: \(driftedCommandIdentifiers)")
     }
     @Test("the bundled CLI reaches the server for command.list and command.execute")

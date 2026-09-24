@@ -96,13 +96,11 @@ private func projectionEntry(
 ) throws -> BridgeProductWorktreeAnnotationMessageEntry {
     let session = WorktreeAnnotationSession(
         id: .generate(),
-        repositoryID: "repository",
-        worktreeID: "worktree",
+        subject: .git(repositoryID: "repository", worktreeID: "worktree"),
         lifecycle: .living,
         sourceRelationship: .applicable,
         acceptedSourceFingerprint: .init(
-            repositoryID: "repository",
-            worktreeID: "worktree",
+            subject: .git(repositoryID: "repository", worktreeID: "worktree"),
             fileSourceIdentity: "source",
             reviewComparisonOrigin: nil
         ),

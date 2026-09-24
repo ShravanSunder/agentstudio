@@ -44,9 +44,7 @@ struct BridgeProductFileSourceCurrentTests {
             Issue.record("Expected the closed file.source.current request and result variants")
             return
         }
-        #expect(source.repoId == productFileSourceCurrentRepoId.uuidString)
-        #expect(source.worktreeId == productFileSourceCurrentWorktreeId.uuidString)
-        #expect(source.rootPathToken == "0123456789abcdef")
+        #expect(source.collectionToken == "0123456789abcdef")
         #expect(reason == .noFileSourceAuthority)
         #expect(try productFileSourceCurrentCorpusMirrorsMatch())
 
@@ -147,9 +145,7 @@ struct BridgeProductFileSourceCurrentTests {
         }
         #expect(source.cwdScope == nil)
         #expect(source.includeStatuses)
-        #expect(source.repoId == worktree.repoId.uuidString)
-        #expect(source.worktreeId == worktree.id.uuidString)
-        #expect(source.rootPathToken == StableKey.fromPath(rootURL))
+        #expect(source.collectionToken == StableKey.fromPath(rootURL))
         #expect(emissionsAfterQuery.isEmpty)
     }
 
@@ -192,12 +188,10 @@ private let productFileSourceCurrentWorktreeId = UUID(
 
 private var productFileSourceCurrentSourceObject: [String: Any] {
     [
+        "collectionToken": "0123456789abcdef",
         "cwdScope": NSNull(),
         "freshness": "live",
         "includeStatuses": true,
-        "repoId": productFileSourceCurrentRepoId.uuidString,
-        "rootPathToken": "0123456789abcdef",
-        "worktreeId": productFileSourceCurrentWorktreeId.uuidString,
     ]
 }
 

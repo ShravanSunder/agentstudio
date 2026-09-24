@@ -20,6 +20,7 @@ import {
 	annotationMessage,
 	annotationSessionId,
 	annotationSessionSummary,
+	annotationSubject,
 	RecordingAnnotationBrowserSurface,
 } from './worktree-annotation-browser-test-support.js';
 import type { WorktreeAnnotationThreadContext } from './worktree-annotation-surface-client.js';
@@ -124,6 +125,7 @@ describe('worktree annotation Pierre integration', () => {
 						sourceIdentity: 'descriptor-file-1',
 						sourceRole: 'file',
 						startLine: 4,
+						subject: annotationSubject,
 						threadId: annotationHeadThreadId,
 					},
 					message: {
@@ -191,6 +193,7 @@ describe('worktree annotation Pierre integration', () => {
 			sourceIdentity: 'descriptor-file-1',
 			sourceRole: 'file',
 			startLine: 4,
+			subject: annotationSubject,
 			threadId: annotationHeadThreadId,
 		};
 		const rendered = await render(
@@ -549,6 +552,7 @@ describe('worktree annotation Pierre integration', () => {
 						sourceIdentity: 'descriptor-file-2',
 						sourceRole: 'file',
 						startLine: 4,
+						subject: annotationSubject,
 						threadId: annotationHeadThreadId,
 					},
 					message: {
@@ -622,6 +626,7 @@ describe('worktree annotation Pierre integration', () => {
 					sourceIdentity: 'descriptor-file-1',
 					sourceRole: 'file',
 					startLine: index === 0 ? 3 : 4,
+					subject: annotationSubject,
 					threadId,
 				} satisfies WorktreeAnnotationThreadContext;
 				const rootMessage = annotationMessage({
@@ -752,6 +757,7 @@ function annotationContext(
 		sourceIdentity:
 			props.sourceRole === 'review_base' ? 'handle-item-source-base' : 'handle-item-source-head',
 		startLine: props.endLine,
+		subject: annotationSubject,
 		threadId: props.threadId,
 	} as const;
 	return props.sourceRole === 'review_base'

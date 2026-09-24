@@ -22,10 +22,11 @@ extension WebKitSerializedTests.BridgePaneControllerTests {
         )
         let controller = BridgePaneController(
             paneId: UUIDv7.generate(),
-            state: BridgePaneState(
-                panelKind: .fileViewer,
-                source: .workspace(rootPath: "/tmp/worktree", baseline: .unstaged)
-            ),
+            state: BridgePaneState(panelKind: .fileViewer),
+            sourceConfiguration: BridgePaneSourceConfiguration(
+                review: BridgeReviewSourceBinding(
+                    worktreeId: worktreeId, worktreeRootPath: "/tmp/worktree", comparison: .unstaged),
+                files: .testSingleWorktree(rootURL: URL(fileURLWithPath: "/tmp/worktree"), worktreeId: worktreeId)),
             appRootURL: testBridgeAppRootURL(),
             metadata: PaneMetadata(
                 contentType: .diff,
@@ -44,7 +45,8 @@ extension WebKitSerializedTests.BridgePaneControllerTests {
                     summary: GitWorkingTreeSummary(changed: 1, staged: 0, untracked: 0),
                     branch: nil,
                     origin: nil
-                )
+                ),
+                worktreeId: worktreeId
             )
         )
         await waitForActiveReviewRefreshTaskToFinish(controller)
@@ -454,7 +456,8 @@ extension WebKitSerializedTests.BridgePaneControllerTests {
                 )
             )
         )
-        await fixture.controller.handleWorktreeProductInvalidation(.statusChanged(firstStatus))
+        await fixture.controller.handleWorktreeProductInvalidation(
+            .statusChanged(firstStatus, worktreeId: fixture.headEndpoint.worktreeId))
         await fixture.controller.handleWorktreeProductInvalidation(
             .filesChanged(
                 fixture.makeChangeset(
@@ -463,7 +466,8 @@ extension WebKitSerializedTests.BridgePaneControllerTests {
                 )
             )
         )
-        await fixture.controller.handleWorktreeProductInvalidation(.statusChanged(latestStatus))
+        await fixture.controller.handleWorktreeProductInvalidation(
+            .statusChanged(latestStatus, worktreeId: fixture.headEndpoint.worktreeId))
 
         // Assert — loaded-hidden retains one pane-wide fact and starts no product work.
         let hiddenSnapshot = fixture.controller.refreshAdmissionCoordinator.diagnosticSnapshot
@@ -945,12 +949,7 @@ extension WebKitSerializedTests.BridgePaneControllerTests {
     func controllerTeardownSynchronouslyClosesRefreshWorkGate() async throws {
         // Arrange
         let controller = makeController(
-            state: BridgePaneState(
-                panelKind: .diffViewer,
-                source: .workspace(
-                    rootPath: "/tmp/bridge-refresh-teardown",
-                    baseline: .ref(name: "HEAD~1"))
-            )
+            state: BridgePaneState(panelKind: .diffViewer)
         )
         controller.applyBridgePaneActivity(.foreground)
         controller.reviewGitRefreshSeedHolder.commit(

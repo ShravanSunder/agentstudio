@@ -7,7 +7,7 @@ import Testing
 
 @Suite("Bridge review source provider factory")
 struct BridgeReviewSourceProviderFactoryTests {
-    @Test("workspace source root is the durable provider identity")
+    @Test("the Review member root is the durable provider identity")
     func workspaceSourceRootWinsOverPaneMetadata() {
         // Arrange
         let sourceRoot = URL(fileURLWithPath: "/accepted/source-root")
@@ -16,8 +16,7 @@ struct BridgeReviewSourceProviderFactoryTests {
 
         // Act
         let location = BridgeReviewSourceProviderFactory.repositoryLocation(
-            source: .workspace(
-                rootPath: sourceRoot.path, baseline: .unstaged),
+            reviewRootPath: sourceRoot.path,
             launchDirectory: launchDirectory,
             currentWorkingDirectory: currentWorkingDirectory
         )
@@ -26,7 +25,7 @@ struct BridgeReviewSourceProviderFactoryTests {
         #expect(location == .workspaceSource(sourceRoot))
     }
 
-    @Test("non-workspace sources use the accepted launch directory")
+    @Test("a controller without a Review member uses the accepted launch directory")
     func nonWorkspaceSourceUsesLaunchDirectory() {
         // Arrange
         let launchDirectory = URL(fileURLWithPath: "/accepted/launch-directory")
@@ -34,7 +33,7 @@ struct BridgeReviewSourceProviderFactoryTests {
 
         // Act
         let location = BridgeReviewSourceProviderFactory.repositoryLocation(
-            source: .commit(sha: "abc123"),
+            reviewRootPath: nil,
             launchDirectory: launchDirectory,
             currentWorkingDirectory: currentWorkingDirectory
         )
@@ -50,7 +49,7 @@ struct BridgeReviewSourceProviderFactoryTests {
 
         // Act
         let location = BridgeReviewSourceProviderFactory.repositoryLocation(
-            source: .branchDiff(head: "feature", base: "main"),
+            reviewRootPath: nil,
             launchDirectory: nil,
             currentWorkingDirectory: currentWorkingDirectory
         )
@@ -100,7 +99,7 @@ struct BridgeReviewSourceProviderFactoryTests {
     func missingAcceptedRepositoryLocationIsUnavailable() async {
         // Arrange / Act
         let location = BridgeReviewSourceProviderFactory.repositoryLocation(
-            source: .agentSnapshot(taskId: UUIDv7.generate(), timestamp: Date(timeIntervalSince1970: 0)),
+            reviewRootPath: nil,
             launchDirectory: nil,
             currentWorkingDirectory: nil
         )

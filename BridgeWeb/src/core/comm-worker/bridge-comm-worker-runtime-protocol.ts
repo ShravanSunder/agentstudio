@@ -10,6 +10,7 @@ import {
 	type BridgeCommWorkerSelectedFileViewContentReadyPreparationRequest,
 } from './bridge-comm-worker-command-handler.js';
 import type { BridgeCommWorkerPort } from './bridge-comm-worker-entry.js';
+import { answerBridgeWorkerFileCollectionSearch } from './bridge-comm-worker-file-collection-search-command.js';
 import {
 	abortAllBridgeCommWorkerFileContentPreparations,
 	abortBridgeCommWorkerFileContentPreparation,
@@ -508,6 +509,9 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 			}
 			return [];
 		},
+		// A read of the projected rows; without a File source it answers noSource.
+		searchFileCollection: (command) =>
+			answerBridgeWorkerFileCollectionSearch({ command, projection: fileQueryProjection }),
 		updateFileViewRuntimeSource: (source: BridgeCommWorkerFileViewRuntimeSource): void => {
 			fileViewRuntimeSource = source;
 		},

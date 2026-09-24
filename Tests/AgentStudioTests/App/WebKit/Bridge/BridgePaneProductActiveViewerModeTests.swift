@@ -573,12 +573,12 @@ extension WebKitSerializedTests {
         private func makeController() -> BridgePaneController {
             BridgePaneController(
                 paneId: UUIDv7.generate(),
-                state: BridgePaneState(
-                    panelKind: .fileViewer,
-                    source: .workspace(
-                        rootPath: "/tmp/product-file-viewer",
-                        baseline: .unstaged)
-                ),
+                state: BridgePaneState(panelKind: .fileViewer),
+                sourceConfiguration: BridgePaneSourceConfiguration(
+                    review: BridgeReviewSourceBinding(
+                        worktreeId: UUIDv7.generate(), worktreeRootPath: "/tmp/product-file-viewer",
+                        comparison: .unstaged),
+                    files: nil),
                 appRootURL: testBridgeAppRootURL(),
                 initialPaneActivity: .foreground
             )
@@ -634,10 +634,8 @@ private struct ProductActiveViewerReviewPublicationHarness {
         )
         let controller = BridgePaneController(
             paneId: paneId,
-            state: BridgePaneState(
-                panelKind: .diffViewer,
-                source: .commit(sha: "product-ready-ordering")
-            ),
+            state: BridgePaneState(panelKind: .diffViewer),
+            sourceConfiguration: .unavailable,
             appRootURL: testBridgeAppRootURL(),
             initialPaneActivity: .foreground,
             productSessionDependencies: BridgePaneProductSessionDependencies(

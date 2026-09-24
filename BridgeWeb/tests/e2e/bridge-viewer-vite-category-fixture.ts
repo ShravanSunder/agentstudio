@@ -6,6 +6,7 @@ import { dirname, join } from 'node:path';
 import { promisify } from 'node:util';
 
 import { runAllOwnedCleanupOperations } from '../../scripts/dev-server/bridge-development-server-process.ts';
+import { bridgeViewerViteFileCollectionPath } from './bridge-viewer-vite-file-collection-path.ts';
 import type { BridgeViewerViteProductFixtureOracle } from './bridge-viewer-vite-product-fixture.ts';
 
 const execFileAsync = promisify(execFile);
@@ -104,16 +105,18 @@ export async function createBridgeViewerCategoryFixture(): Promise<BridgeViewerC
 
 		const changedPaths = fixtureFiles.map(({ path }): string => path).toSorted();
 		const categoryCases: readonly BridgeViewerCategoryCase[] = [
-			categoryCase('Source code', ['category-corpus/source/component.ts']),
-			categoryCase('Tests', [
+			categoryCase(worktreeRoot, 'Source code', ['category-corpus/source/component.ts']),
+			categoryCase(worktreeRoot, 'Tests', [
 				'category-corpus/specimens/component.spec.jsx',
 				'category-corpus/specimens/component.test.tsx',
 			]),
-			categoryCase('Documentation', ['category-corpus/docs/guide.md']),
-			categoryCase('Configuration', ['category-corpus/config/package.json']),
-			categoryCase('Test data', ['category-corpus/test-fixtures/sample.txt']),
+			categoryCase(worktreeRoot, 'Documentation', ['category-corpus/docs/guide.md']),
+			categoryCase(worktreeRoot, 'Configuration', ['category-corpus/config/package.json']),
+			categoryCase(worktreeRoot, 'Test data', ['category-corpus/test-fixtures/sample.txt']),
 		];
-		const expectedAllTreePaths = corpusTreePathsForFiles(changedPaths);
+		const expectedAllTreePaths = corpusTreePathsForFiles(changedPaths).map((path): string =>
+			bridgeViewerViteFileCollectionPath(worktreeRoot, path),
+		);
 		const expectedReviewDefaultTreePaths = reviewTreePathsForFiles(changedPaths);
 		return {
 			categoryCases,
@@ -186,13 +189,21 @@ export async function createBridgeViewerCategoryFixture(): Promise<BridgeViewerC
 	}
 }
 
-function categoryCase(label: string, filePaths: readonly string[]): BridgeViewerCategoryCase {
+function categoryCase(
+	worktreeRoot: string,
+	label: string,
+	filePaths: readonly string[],
+): BridgeViewerCategoryCase {
 	return {
+		// The worktree folder row holds only `category-corpus/`, so the flattened
+		// File tree shows every path under the folder name with no extra row.
 		expectedFileTreePaths: [
 			...new Set(
 				filePaths.flatMap((filePath): readonly string[] => [`${dirname(filePath)}/`, filePath]),
 			),
-		].toSorted(),
+		]
+			.map((path): string => bridgeViewerViteFileCollectionPath(worktreeRoot, path))
+			.toSorted(),
 		expectedReviewTreePaths: reviewTreePathsForFiles(filePaths),
 		label,
 	};

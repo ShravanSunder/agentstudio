@@ -16,6 +16,7 @@ import {
 } from './bridge-app-pane-runtime-control-test-support.js';
 import {
 	assertSurfacePositionRetained,
+	bridgePanePositionFileGroupPath,
 	establishSemanticSurfacePosition,
 	waitForScrollableSurfaceOwners,
 } from './bridge-app-pane-runtime-position-test-support.js';
@@ -77,8 +78,10 @@ export async function runBridgeAppFileCornerSwitchJourney(props: {
 				viewportOpenFileButton(retainedReviewHost, reviewOwners.codeScrollOwner),
 			),
 		);
-		const openedFilePath = openFileButton.getAttribute('data-bridge-code-view-file-path');
-		if (openedFilePath === null) throw new Error('Missing file-corner command path.');
+		const openedReviewPath = openFileButton.getAttribute('data-bridge-code-view-file-path');
+		if (openedReviewPath === null) throw new Error('Missing file-corner command path.');
+		// Files lists the Review worktree under its collection group.
+		const openedFilePath = `${bridgePanePositionFileGroupPath}/${openedReviewPath}`;
 		await actClick(openFileButton);
 
 		expect(await pollWithinActUntilEqual(() => appRoot.dataset['bridgeViewerMode'], 'file')).toBe(

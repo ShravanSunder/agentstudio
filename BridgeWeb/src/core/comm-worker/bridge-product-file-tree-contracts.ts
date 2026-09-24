@@ -2,6 +2,7 @@ import { z } from 'zod';
 
 import {
 	bridgeProductDisplayPathSchema,
+	bridgeProductDocumentLocationSchema,
 	bridgeProductIdentifierSchema,
 	bridgeProductNonnegativeSequenceSchema,
 } from './bridge-product-contract-primitives.js';
@@ -28,6 +29,7 @@ export const bridgeProductFileTreeRowSchema = z
 	.object({
 		changeStatus: bridgeProductFileChangeStatusSchema.nullable(),
 		depth: bridgeProductNonnegativeSequenceSchema,
+		documentLocation: bridgeProductDocumentLocationSchema.nullable(),
 		fileId: bridgeProductIdentifierSchema.nullable(),
 		fileClass: bridgeProductFileTreeFileClassSchema.nullable(),
 		isDirectory: z.boolean(),
@@ -52,6 +54,13 @@ export const bridgeProductFileTreeRowSchema = z
 				code: 'custom',
 				message: 'File metadata file rows require a path-and-size-backed file class.',
 				path: ['fileClass'],
+			});
+		}
+		if (row.isDirectory && row.documentLocation !== null) {
+			context.addIssue({
+				code: 'custom',
+				message: 'File metadata directory rows cannot carry a document location.',
+				path: ['documentLocation'],
 			});
 		}
 	});

@@ -1,4 +1,5 @@
 import AgentStudioCore
+import AgentStudioInfrastructure
 import Foundation
 import Testing
 
@@ -691,12 +692,10 @@ struct BridgeProductReviewComparisonContractTests {
         }
         let targetProjection = await MainActor.run {
             BridgeReviewComparisonTargetProjection(
-                state: BridgePaneState(
-                    panelKind: .diffViewer,
-                    source: .workspace(
-                        rootPath: "/tmp/worktree",
-                        baseline: .branch(name: "stack/base")
-                    )
+                reviewBinding: BridgeReviewSourceBinding(
+                    worktreeId: UUIDv7.generate(),
+                    worktreeRootPath: "/tmp/worktree",
+                    comparison: .branch(name: "stack/base")
                 )
             )
         }

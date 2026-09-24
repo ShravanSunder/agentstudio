@@ -12,9 +12,9 @@ struct WorktreeAnnotationSQLiteCatalogRepositoryTests {
     func emptyWorktreeReturnsEmptyCapture() throws {
         let fixture = try WorktreeAnnotationCatalogRepositoryFixture()
 
-        let capture = try fixture.repository.fetchCatalogCapture(worktreeID: "worktree-empty")
+        let capture = try fixture.repository.fetchCatalogCapture(subjects: [catalogSubject("worktree-empty")])
 
-        #expect(capture.worktreeID == "worktree-empty")
+        #expect(capture.subjects == [catalogSubject("worktree-empty")])
         #expect(capture.sessions.isEmpty)
         #expect(capture.threads.isEmpty)
         #expect(capture.messages.isEmpty)
@@ -73,7 +73,7 @@ struct WorktreeAnnotationSQLiteCatalogRepositoryTests {
         try fixture.insertMessage(id: secondMessageID, threadID: firstThreadID, ordinal: 1)
         try fixture.insertMessage(id: firstMessageID, threadID: firstThreadID, ordinal: 0)
 
-        let capture = try fixture.repository.fetchCatalogCapture(worktreeID: "worktree-order")
+        let capture = try fixture.repository.fetchCatalogCapture(subjects: [catalogSubject("worktree-order")])
 
         let tiedSessionIDsInOrder = tiedSessionIDs.sorted { $0.databaseValue < $1.databaseValue }
         #expect(
@@ -117,7 +117,7 @@ struct WorktreeAnnotationSQLiteCatalogRepositoryTests {
         try fixture.insertMessage(id: localMessageID, threadID: localThreadID)
         try fixture.insertMessage(id: foreignMessageID, threadID: foreignThreadID)
 
-        let capture = try fixture.repository.fetchCatalogCapture(worktreeID: "worktree-local")
+        let capture = try fixture.repository.fetchCatalogCapture(subjects: [catalogSubject("worktree-local")])
 
         #expect(capture.sessions.map(\.sessionID) == [localSessionID])
         #expect(capture.threads.map(\.threadID) == [localThreadID])
@@ -146,7 +146,7 @@ struct WorktreeAnnotationSQLiteCatalogRepositoryTests {
         try fixture.insertMalformedDraft(messageID: messageID)
         try fixture.insertMalformedOutput(sessionID: sessionID, messageID: messageID)
 
-        let capture = try fixture.repository.fetchCatalogCapture(worktreeID: "worktree-body-free")
+        let capture = try fixture.repository.fetchCatalogCapture(subjects: [catalogSubject("worktree-body-free")])
 
         #expect(capture.sessions.map(\.sessionID) == [sessionID])
         #expect(capture.threads.map(\.threadID) == [threadID])
@@ -159,7 +159,7 @@ struct WorktreeAnnotationSQLiteCatalogRepositoryTests {
         try fixture.insertRawSessionID("not-a-uuid", worktreeID: "worktree-invalid-identity")
 
         #expect(throws: WorktreeAnnotationRepositoryError.invalidState) {
-            try fixture.repository.fetchCatalogCapture(worktreeID: "worktree-invalid-identity")
+            try fixture.repository.fetchCatalogCapture(subjects: [catalogSubject("worktree-invalid-identity")])
         }
     }
 
@@ -176,7 +176,7 @@ struct WorktreeAnnotationSQLiteCatalogRepositoryTests {
         )
 
         #expect(throws: WorktreeAnnotationRepositoryError.invalidState) {
-            try fixture.repository.fetchCatalogCapture(worktreeID: "worktree-invalid-scope")
+            try fixture.repository.fetchCatalogCapture(subjects: [catalogSubject("worktree-invalid-scope")])
         }
     }
 }
@@ -215,10 +215,10 @@ private struct WorktreeAnnotationCatalogRepositoryFixture {
             try database.execute(
                 sql: """
                     INSERT INTO annotation_session(
-                        id, repository_id, worktree_id, lifecycle, source_relationship,
+                        id, subject_kind, repository_id, worktree_id, lifecycle, source_relationship,
                         accepted_source_fingerprint_json, semantic_revision,
                         created_at, updated_at, completed_at
-                    ) VALUES (?, 'repository', ?, 'living', 'applicable', '{}', ?, ?, ?, NULL)
+                    ) VALUES (?, 'git', 'repository', ?, 'living', 'applicable', '{}', ?, ?, ?, NULL)
                     """,
                 arguments: [id, worktreeID, semanticRevision, createdAt, createdAt]
             )
@@ -336,4 +336,8 @@ private struct WorktreeAnnotationCatalogRepositoryFixture {
             )
         }
     }
+}
+
+private func catalogSubject(_ worktreeID: String) -> WorktreeAnnotationSubject {
+    .git(repositoryID: "repository", worktreeID: worktreeID)
 }

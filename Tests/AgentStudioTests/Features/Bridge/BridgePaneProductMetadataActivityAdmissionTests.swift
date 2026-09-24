@@ -534,12 +534,11 @@ private func activityFileSourceAcceptedEvent() throws -> BridgeProductFileMetada
     .sourceAccepted(
         .init(
             source: try .init(
-                repoId: "00000000-0000-4000-8000-000000000001",
+                collectionToken: "root-token-1",
                 rootRevisionToken: "root-token-activity",
                 sourceCursor: "source-cursor-activity",
                 sourceId: "file-source-activity",
-                subscriptionGeneration: 1,
-                worktreeId: "00000000-0000-4000-8000-000000000002"
+                subscriptionGeneration: 1
             )
         )
     )

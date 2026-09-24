@@ -902,6 +902,65 @@ extension AppCommand {
                 icon: .system(.folder),
                 helpText: "Open an independent worktree file viewer in a new tab"
             )
+        case .activateBridgeFile:
+            return bridgeReceiverDefinition(
+                label: "Show File in Bridge",
+                icon: .system(.docText),
+                helpText: "Show an opened document of this pane's Bridge in Files",
+                surfacePolicy: .notPresented,
+                targeting: .contextual
+            )
+        case .activateBridgeReview:
+            return bridgeReceiverDefinition(
+                label: "Review Worktree in Bridge",
+                icon: .system(.rectangleSplit2x1),
+                helpText: "Show one member worktree's Review in this pane's Bridge",
+                surfacePolicy: .notPresented,
+                targeting: .targeted([.worktree])
+            )
+        case .closeBridgeFile:
+            return bridgeReceiverDefinition(
+                label: "Close File in Bridge",
+                icon: .system(.xmark),
+                helpText: "Remove an opened document from this pane's Bridge without touching the file",
+                surfacePolicy: .notPresented,
+                targeting: .contextual
+            )
+        case .addBridgeWorktree:
+            return bridgeReceiverDefinition(
+                label: "Add Worktree to Bridge",
+                icon: .system(.plusCircle),
+                helpText: "Add a known worktree to this pane's Bridge Files and Review",
+                surfacePolicy: .notPresented,
+                targeting: .targeted([.worktree])
+            )
+        case .selectBridgeWorktree:
+            return bridgeReceiverDefinition(
+                label: "Select Worktree for Review",
+                icon: .system(.checkmarkCircle),
+                helpText: "Choose which member worktree this pane's Bridge reviews",
+                surfacePolicy: .notPresented,
+                targeting: .targeted([.worktree])
+            )
+        case .removeBridgeWorktree:
+            return bridgeReceiverDefinition(
+                label: "Remove Worktree from Bridge",
+                icon: .system(.minusCircle),
+                helpText: "Remove a member worktree from this pane's Bridge without unregistering it",
+                surfacePolicy: .notPresented,
+                targeting: .targeted([.worktree])
+            )
+        case .searchBridgeFiles:
+            // B2: the Files search affordance this command opens. In B1 the
+            // results are read through `bridge.files.search`, and the command
+            // shows the receiver's Files surface.
+            return bridgeReceiverDefinition(
+                label: "Search Files in Bridge",
+                icon: .system(.magnifyingglass),
+                helpText: "Search every member worktree and opened document of this pane's Bridge",
+                surfacePolicy: .notPresented,
+                targeting: .contextual
+            )
         case .signInGitHub:
             return authenticationDefinition(providerName: "GitHub")
         case .signInGoogle:

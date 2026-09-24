@@ -638,21 +638,18 @@ function panelChromeStateAfterPublications(
 }
 
 const fileSource = {
-	repoId: '00000000-0000-4000-8000-000000000001',
+	collectionToken: 'root-token-1',
 	rootRevisionToken: 'root-revision-updating-chrome',
 	sourceCursor: 'source-cursor-updating-chrome',
 	sourceId: 'file-source-updating-chrome',
 	subscriptionGeneration: 1,
-	worktreeId: '00000000-0000-4000-8000-000000000002',
 } as const;
 
 const currentFileSourceConfiguration = {
+	collectionToken: 'root-token-updating-chrome',
 	cwdScope: null,
 	freshness: 'live',
 	includeStatuses: true,
-	repoId: fileSource.repoId,
-	rootPathToken: 'root-token-updating-chrome',
-	worktreeId: fileSource.worktreeId,
 } as const;
 
 const reviewSourceAcceptedEvent = {

@@ -11,6 +11,7 @@ import {
 	annotationSessionId,
 	annotationSecondSessionId,
 	annotationSessionSummary,
+	annotationSubject,
 	RecordingAnnotationBrowserSurface,
 } from '../worktree-annotations/worktree-annotation-browser-test-support.js';
 import { WorktreeAnnotationSurfaceProvider } from '../worktree-annotations/worktree-annotation-surface-provider.js';
@@ -584,6 +585,7 @@ async function publishSavedComment(
 				sourceIdentity: 'descriptor-file-1',
 				sourceRole: 'file',
 				startLine: 4,
+				subject: annotationSubject,
 				threadId: annotationHeadThreadId,
 			},
 			messages: [

@@ -498,6 +498,7 @@ describe('worktree annotation editor convergence', () => {
 								sourceIdentity: locatedContext.sourceIdentity,
 								sourceRole: locatedContext.sourceRole,
 								startLine: locatedContext.startLine,
+								subject: locatedContext.subject,
 								threadId: locatedContext.threadId,
 							},
 							kind: 'message',
