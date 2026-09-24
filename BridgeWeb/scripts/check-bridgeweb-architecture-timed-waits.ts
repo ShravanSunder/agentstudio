@@ -16,8 +16,9 @@ import ts from 'typescript';
 //   `node:timers/promises`;
 // - an awaited `new Promise` whose only resolution is a timer, whatever its delay
 //   (a zero-delay timer is still a wait on time);
-// - any other timer that settles a promise (a deadline or race), unless its delay
-//   is one of the shared hang bounds exported by `tests/vitest-hang-bounds.ts`.
+// - any other timer that settles a promise, unless the promise is written directly
+//   in a `Promise.race([...])` array and its delay is exactly a hang-bound constant
+//   imported from `tests/vitest-hang-bounds.ts`.
 
 export interface TimedWaitSourceFile {
 	readonly relativePath: string;
@@ -279,13 +280,47 @@ function describeTimedWait(node: ts.Node, hangBoundNames: ReadonlySet<string>): 
 	if (!ts.isNewExpression(node)) return null;
 	const timerSettlement = describeTimerSettledPromise(node);
 	if (timerSettlement === null) return null;
+	if (isHangBoundRaceElement(node, timerSettlement, hangBoundNames)) return null;
 	if (timerSettlement.timerOnlyResolution && isAwaited(node)) {
 		return 'awaited Promise resolved only by a timer';
 	}
-	if (timerSettlement.delays.every((delay): boolean => referencesAny(delay, hangBoundNames))) {
-		return null;
+	return 'timer promise that is not a Promise.race hang bound';
+}
+
+// The one permitted timer: a promise written directly in the array passed to
+// `Promise.race(...)`, racing a condition, whose every delay is exactly an
+// imported hang-bound constant (no arithmetic, no indirection).
+function isHangBoundRaceElement(
+	timerPromise: ts.NewExpression,
+	timerSettlement: TimerSettledPromise,
+	hangBoundNames: ReadonlySet<string>,
+): boolean {
+	let raceArray: ts.Node = timerPromise.parent;
+	let raceElement: ts.Node = timerPromise;
+	while (ts.isParenthesizedExpression(raceArray)) {
+		raceElement = raceArray;
+		raceArray = raceArray.parent;
 	}
-	return 'timer deadline whose delay is not a shared hang bound';
+	if (
+		!ts.isArrayLiteralExpression(raceArray) ||
+		!raceArray.elements.some((element) => element === raceElement)
+	) {
+		return false;
+	}
+	const raceCall = raceArray.parent;
+	if (
+		!ts.isCallExpression(raceCall) ||
+		raceCall.arguments[0] !== raceArray ||
+		!ts.isPropertyAccessExpression(raceCall.expression) ||
+		!ts.isIdentifier(raceCall.expression.expression) ||
+		raceCall.expression.expression.text !== 'Promise' ||
+		raceCall.expression.name.text !== 'race'
+	) {
+		return false;
+	}
+	return timerSettlement.delays.every(
+		(delay): boolean => ts.isIdentifier(delay) && hangBoundNames.has(delay.text),
+	);
 }
 
 interface TimerSettledPromise {
@@ -353,15 +388,6 @@ function isAwaited(expression: ts.Expression): boolean {
 	let parent = expression.parent;
 	while (ts.isParenthesizedExpression(parent)) parent = parent.parent;
 	return ts.isAwaitExpression(parent);
-}
-
-function referencesAny(expression: ts.Node, names: ReadonlySet<string>): boolean {
-	if (ts.isIdentifier(expression)) return names.has(expression.text);
-	let found = false;
-	expression.forEachChild((child: ts.Node): void => {
-		if (!found && referencesAny(child, names)) found = true;
-	});
-	return found;
 }
 
 function calleeName(expression: ts.Expression): string | null {

@@ -841,7 +841,7 @@ describe('BridgeWeb architecture checker', () => {
 		).rejects.toThrow(/bridgeweb-debt-ledger\.tsv:2: malformed debt ledger: count must be/u);
 	});
 
-	test('reports a timer deadline unless its delay is a shared hang bound', async () => {
+	test('permits a timer only as a direct Promise.race element whose delay is a bare hang bound', async () => {
 		await withFixtureTree(
 			{
 				...timedWaitFixturePackage,
@@ -865,6 +865,8 @@ describe('BridgeWeb architecture checker', () => {
 								resolve();
 							});
 						});
+						const delayed = new Promise<void>((resolve) => setTimeout(resolve, hangBound));
+						await delayed;
 						void options;
 					}
 				`,
@@ -885,13 +887,17 @@ describe('BridgeWeb architecture checker', () => {
 			async (packageRootPath: string): Promise<void> => {
 				const report = await checkBridgeWebArchitecture({ packageRootPath });
 
+				// Only the direct race with the bare hang bound (line 8) passes: a step
+				// deadline, arithmetic on the bound, and a timer promise awaited later fail.
 				expect(
 					report.violations.map(
 						(violation: ArchitectureViolation): string =>
 							`${violation.relativePath}:${violation.line} ${violation.message.split(' in a ')[0]}`,
 					),
 				).toEqual([
-					'tests/e2e/bounded-journey.e2e.test.ts:12 timer deadline whose delay is not a shared hang bound',
+					'tests/e2e/bounded-journey.e2e.test.ts:12 timer promise that is not a Promise.race hang bound',
+					'tests/e2e/bounded-journey.e2e.test.ts:14 timer promise that is not a Promise.race hang bound',
+					'tests/e2e/bounded-journey.e2e.test.ts:21 timer promise that is not a Promise.race hang bound',
 				]);
 			},
 		);
