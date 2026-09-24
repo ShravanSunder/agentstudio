@@ -43,6 +43,11 @@ extension Ghostty.SurfaceView {
     }
 
     package override func keyDown(with event: NSEvent) {
+        guard surface != nil else {
+            interpretKeyEvents([event])
+            return
+        }
+
         let action = event.isARepeat ? GHOSTTY_ACTION_REPEAT : GHOSTTY_ACTION_PRESS
         let translation = ghosttyKeyTranslationPlan(for: event) { originalMods in
             guard let surface else { return originalMods }
@@ -56,6 +61,9 @@ extension Ghostty.SurfaceView {
         let hasMarkedTextBefore = markedText.length > 0
         let keyboardLayoutIDBefore = hasMarkedTextBefore ? nil : currentKeyboardLayoutID()
 
+        // If we are in a keyDown then we don't need to redispatch a command-modded
+        // key event, so reset this to nil because `interpretKeyEvents` may dispatch it.
+        self.lastPerformKeyEvent = nil
         interpretKeyEvents([translationEvent])
 
         guard
