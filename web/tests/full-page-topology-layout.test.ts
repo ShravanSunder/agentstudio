@@ -5,6 +5,7 @@ import {
   topologyHeroLaneMaximumTravel,
   topologyHeroLaneMinimumTravel,
   topologyPhoneDropCornerInset,
+  topologyPhoneVerticalEntry,
   type TopologyAnchorMeasurement,
   type TopologyComposition,
   type TopologyPageMeasurement,
@@ -397,9 +398,24 @@ describe("composed topology", () => {
               ? [`M ${start.x} ${start.y}`, ...localMergePath(end.x, start.x, start.y, end.y)].join(
                   " ",
                 )
-              : localForkPath(start.x, end.x, start.y, end.y).join(" "),
+              : [
+                  ...localForkPath(
+                    start.x,
+                    end.x,
+                    start.y,
+                    end.y - Math.min(topologyPhoneVerticalEntry, (end.y - start.y) / 2),
+                  ),
+                  `L ${end.x} ${end.y}`,
+                ].join(" "),
           );
           const anchor = fixture.page.anchors.find((candidate) => candidate.id === attach.anchorId);
+          if (attach.targetEdge === "top") {
+            // Phone ports enter the stage's top edge straight down, clear of its corner.
+            const lastRun = pathCommands(attach.pathData).at(-1);
+            expect(lastRun?.command).toBe("L");
+            expect(lastRun?.from.x).toBe(end.x);
+            expect(end.x - (anchor?.media?.left ?? 0)).toBeGreaterThanOrEqual(14 + 8);
+          }
           const edge =
             attach.targetEdge === "left"
               ? { x: anchor?.surface?.left ?? Number.NaN, y: end.y }

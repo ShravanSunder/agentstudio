@@ -24,11 +24,59 @@ export interface TopologyGlyphObservation {
   readonly terminalDisplay: string | undefined;
 }
 
+/** One port's line, read with its real styles. */
+export interface TopologyPortObservation {
+  readonly source: string;
+  readonly strokeWidth: string;
+  readonly laneStrokeWidth: string;
+  /** The computed `stroke`: a `url(#…)` gradient reference when the port leaves a worktree lane. */
+  readonly stroke: string;
+  readonly firstStopColor: string | undefined;
+  /** The computed stroke of the lane the port leaves. */
+  readonly sourceLaneStroke: string | undefined;
+  readonly nodeRadius: number;
+}
+
 export interface TopologyNodeVocabularyResult {
   readonly canvasColor: string;
   readonly primaryColor: string;
   readonly beforeReveal: readonly TopologyGlyphObservation[];
   readonly afterReveal: readonly TopologyGlyphObservation[];
+  readonly ports: readonly TopologyPortObservation[];
+}
+
+function readPorts(): TopologyPortObservation[] {
+  const artwork = document.querySelector("[data-full-page-topology]");
+  if (artwork === null) {
+    throw new Error("The home page has no topology artwork");
+  }
+  const laneCore = (accent: string): SVGPathElement | null =>
+    artwork.querySelector<SVGPathElement>(
+      `[data-route-kind="worktree"].accent-${accent} > [data-topology-path-role="core"]`,
+    );
+  const anyLane =
+    artwork.querySelector<SVGPathElement>(
+      '[data-route-kind="worktree"] > [data-topology-path-role="core"]',
+    ) ?? artwork.querySelector<SVGPathElement>("[data-mainline]");
+  return [...artwork.querySelectorAll<SVGGElement>('[data-route-kind="attach"]')].map((group) => {
+    const core = group.querySelector<SVGPathElement>('[data-topology-path-role="core"]');
+    const node = group.querySelector<SVGCircleElement>("[data-topology-port-node]");
+    if (core === null || node === null || anyLane === null) {
+      throw new Error("A port is missing its line or node");
+    }
+    const source = group.dataset["routeSource"] ?? "";
+    const firstStop = group.querySelector("[data-topology-port-gradient] stop");
+    const sourceLane = laneCore(source);
+    return {
+      source,
+      strokeWidth: getComputedStyle(core).strokeWidth,
+      laneStrokeWidth: getComputedStyle(anyLane).strokeWidth,
+      stroke: getComputedStyle(core).stroke,
+      firstStopColor: firstStop === null ? undefined : getComputedStyle(firstStop).stopColor,
+      sourceLaneStroke: sourceLane === null ? undefined : getComputedStyle(sourceLane).stroke,
+      nodeRadius: node.r.baseVal.value,
+    };
+  });
 }
 
 function readGlyphs(): TopologyGlyphObservation[] {
@@ -114,7 +162,8 @@ export const verifyTopologyNodeVocabulary = defineBrowserCommand(
           primaryColor: port === null ? "" : getComputedStyle(port).fill,
         };
       });
-      return { canvasColor, primaryColor, beforeReveal, afterReveal };
+      const ports = await applicationPage.evaluate(readPorts);
+      return { canvasColor, primaryColor, beforeReveal, afterReveal, ports };
     } finally {
       await applicationPage.close();
     }

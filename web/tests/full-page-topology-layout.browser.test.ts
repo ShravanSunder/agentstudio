@@ -58,7 +58,7 @@ describe("full-page topology layout", () => {
     expect(fixture.artwork.dataset["topologyHiddenReason"]).toBe("no-rail-anchors");
   });
 
-  it("draws the mainline from the page top with one dot per row and chapter dots level with their eyebrows", async () => {
+  it("draws the mainline from the page top with one dot per row and chapter dots level with their titles' first lines", async () => {
     // Arrange
     await page.viewport(1920, 1080);
     const fixture = mount({
@@ -82,13 +82,19 @@ describe("full-page topology layout", () => {
       const id = anchor.dataset["railAnchor"];
       const node = required(fixture.artwork, `[data-topology-chapter-node="${id}"]`);
       const nodeBounds = node.getBoundingClientRect();
-      const anchorBounds = anchor.getBoundingClientRect();
+      const range = document.createRange();
+      range.selectNodeContents(anchor);
+      const [firstLine] = range.getClientRects();
+      if (firstLine === undefined) {
+        throw new Error(`Anchor ${id ?? ""} has no line box`);
+      }
       expect(
-        Math.abs(
-          nodeBounds.top + nodeBounds.height / 2 - (anchorBounds.top + anchorBounds.height / 2),
-        ),
+        Math.abs(nodeBounds.top + nodeBounds.height / 2 - (firstLine.top + firstLine.height / 2)),
       ).toBeLessThanOrEqual(1);
     }
+    // Chapter titles wrap, so the first line sits above the title's centre.
+    const title = required(fixture.host, '[data-rail-anchor="chapter-1"]');
+    expect(title.getClientRects()[0]?.height).toBeGreaterThan(40);
     expect(Number(fixture.artwork.dataset["laneCount"])).toBeGreaterThan(0);
   });
 

@@ -37,6 +37,10 @@ export const topologyNodeRadii = {
 export const topologyChapterNodeAttribute = "data-topology-chapter-node";
 /** The primary-blue node where a port meets its target edge. */
 export const topologyPortNodeAttribute = "data-topology-port-node";
+/** The gradient a port's stroke shifts along, from its source lane to primary. */
+export const topologyPortGradientAttribute = "data-topology-port-gradient";
+/** Set on an attach route group once its target is in view and the port has drawn in. */
+export const topologyPortDrawnAttribute = "data-port-drawn";
 /** `"left" | "top"` on a chapter node: the target edge its branch enters (which target lights). */
 export const topologyChapterTargetEdgeAttribute = "data-topology-target-edge";
 
@@ -109,14 +113,24 @@ function measureAnchors(artwork: SVGSVGElement): readonly TopologyAnchorMeasurem
   return [...elementsById(ownerDocument, railAnchorAttribute)].map(([id, anchor]) => {
     const surface = surfaces.get(id);
     const media = medias.get(id);
+    const firstLine = firstLineBox(anchor);
     return {
       id,
       rect: measure(anchor),
       surface: surface === undefined ? undefined : measure(surface),
       media: media === undefined ? undefined : measure(media),
       copyBlock: media === undefined ? undefined : measure(findCopyBlock(anchor, media)),
+      lineY:
+        firstLine === undefined ? undefined : firstLine.top - origin.top + firstLine.height / 2,
     };
   });
+}
+
+/** The box of an element's first rendered line of text, in viewport coordinates. */
+function firstLineBox(element: Element): DOMRect | undefined {
+  const range = element.ownerDocument.createRange();
+  range.selectNodeContents(element);
+  return [...range.getClientRects()].find((box) => box.width > 0 && box.height > 0);
 }
 
 /** The final call to action the rail ends at, from `data-rail-end-section` and `data-rail-end`. */
@@ -146,6 +160,45 @@ function progressForY(composition: TopologyComposition, y: number): number {
   return endY <= startY ? 1 : Math.min(Math.max((y - startY) / (endY - startY), 0), 1);
 }
 
+/**
+ * A port leaving a worktree lane shifts hue along its length: a gradient from
+ * the lane's stroke color to the port's muted primary, laid out in user space
+ * from the port's start to its end. Ports leaving the mainline (already
+ * primary) need none.
+ */
+function portGradientFor(
+  ownerDocument: Document,
+  route: TopologyRoute,
+): SVGLinearGradientElement | undefined {
+  if (
+    route.kind !== "attach" ||
+    route.sourceAccent === undefined ||
+    route.sourceAccent === "main"
+  ) {
+    return undefined;
+  }
+  const gradient = createSvgElement(ownerDocument, "linearGradient");
+  gradient.id = `topology-port-gradient-${route.id}`;
+  gradient.setAttribute("gradientUnits", "userSpaceOnUse");
+  gradient.setAttribute(topologyPortGradientAttribute, "");
+  for (const [offset, accent] of [
+    ["0", route.sourceAccent],
+    ["1", "port"],
+  ] as const) {
+    const stop = createSvgElement(ownerDocument, "stop");
+    stop.setAttribute("offset", offset);
+    stop.setAttribute("class", `topology-port-stop topology-port-stop-${accent}`);
+    gradient.append(stop);
+  }
+  return gradient;
+}
+
+/** The first point of a path's data (its `M x y`). */
+function pathStartPoint(pathData: string): { readonly x: number; readonly y: number } {
+  const [, x = "0", y = "0"] = /^M\s*(-?[\d.]+)[\s,]+(-?[\d.]+)/u.exec(pathData) ?? [];
+  return { x: Number(x), y: Number(y) };
+}
+
 function createRouteGroup(ownerDocument: Document, route: TopologyRoute): SVGGElement {
   const group = createSvgElement(ownerDocument, "g");
   group.setAttribute("class", `topology-route accent-${route.accent}`);
@@ -155,8 +208,13 @@ function createRouteGroup(ownerDocument: Document, route: TopologyRoute): SVGGEl
   group.setAttribute("data-end-kind", "merge");
   group.setAttribute("data-route-column", String(route.column));
   group.setAttribute("data-route-parent-column", String(route.parentColumn));
+  group.setAttribute("data-route-source", route.sourceAccent ?? "");
   if (route.anchorId !== undefined) {
     group.setAttribute("data-route-anchor", route.anchorId);
+  }
+  const gradient = portGradientFor(ownerDocument, route);
+  if (gradient !== undefined) {
+    group.append(gradient);
   }
   for (const role of ["clearance", "core"] as const) {
     const path = createSvgElement(ownerDocument, "path");
@@ -166,6 +224,13 @@ function createRouteGroup(ownerDocument: Document, route: TopologyRoute): SVGGEl
     );
     path.setAttribute("data-route", "");
     path.setAttribute("data-topology-path-role", role);
+    if (route.kind === "attach") {
+      // A unit path length lets the port draw in with one dash.
+      path.setAttribute("pathLength", "1");
+    }
+    if (role === "core" && gradient !== undefined) {
+      path.style.stroke = `url(#${gradient.id})`;
+    }
     group.append(path);
   }
   if (route.portNode !== undefined) {
@@ -290,7 +355,8 @@ export function layoutFullPageTopology(artwork: SVGSVGElement): boolean {
     composition.routes.some(
       (route, index) =>
         routeGroups[index]?.dataset["routeId"] !== route.id ||
-        !routeGroups[index]?.classList.contains(`accent-${route.accent}`),
+        !routeGroups[index]?.classList.contains(`accent-${route.accent}`) ||
+        routeGroups[index]?.dataset["routeSource"] !== (route.sourceAccent ?? ""),
     );
   const renderedRouteGroups = routesChanged
     ? composition.routes.map((route) => createRouteGroup(ownerDocument, route))
@@ -323,6 +389,14 @@ export function layoutFullPageTopology(artwork: SVGSVGElement): boolean {
     if (port !== null && route.portNode !== undefined) {
       setAttributeIfChanged(port, "cx", String(route.portNode.x));
       setAttributeIfChanged(port, "cy", String(route.portNode.y));
+    }
+    const gradient = group.querySelector(`[${topologyPortGradientAttribute}]`);
+    if (gradient !== null && route.portNode !== undefined) {
+      const start = pathStartPoint(route.pathData);
+      setAttributeIfChanged(gradient, "x1", String(start.x));
+      setAttributeIfChanged(gradient, "y1", String(start.y));
+      setAttributeIfChanged(gradient, "x2", String(route.portNode.x));
+      setAttributeIfChanged(gradient, "y2", String(route.portNode.y));
     }
   }
 

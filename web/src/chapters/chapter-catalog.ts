@@ -61,7 +61,6 @@ export interface ChapterTitle {
 
 export interface Chapter {
   readonly id: ChapterId;
-  readonly eyebrow: string;
   readonly title: ChapterTitle;
   readonly steps: readonly ChapterStep[];
   readonly stage: ChapterStage;
@@ -92,7 +91,6 @@ const { stories, chapters } = marketingCopy;
 export const chapterCatalog: readonly Chapter[] = [
   {
     id: "many-agents",
-    eyebrow: chapters.manyAgents.eyebrow,
     title: chapters.manyAgents.title,
     steps: [
       {
@@ -124,7 +122,6 @@ export const chapterCatalog: readonly Chapter[] = [
   },
   {
     id: "context-with-task",
-    eyebrow: chapters.contextWithTask.eyebrow,
     title: chapters.contextWithTask.title,
     steps: [
       {
@@ -156,7 +153,6 @@ export const chapterCatalog: readonly Chapter[] = [
   },
   {
     id: "find-and-focus",
-    eyebrow: chapters.findAndFocus.eyebrow,
     title: chapters.findAndFocus.title,
     steps: [
       {
@@ -182,7 +178,6 @@ export const chapterCatalog: readonly Chapter[] = [
   },
   {
     id: "review",
-    eyebrow: chapters.review.eyebrow,
     title: chapters.review.title,
     steps: [
       {
@@ -201,7 +196,6 @@ export const chapterCatalog: readonly Chapter[] = [
   },
   {
     id: "come-back",
-    eyebrow: chapters.comeBack.eyebrow,
     title: chapters.comeBack.title,
     steps: [
       {

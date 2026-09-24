@@ -37,6 +37,11 @@ export interface TopologyAnchorMeasurement {
   readonly media: TopologyRect | undefined;
   /** The copy between the anchor and its media target; phone branches turn below it. */
   readonly copyBlock: TopologyRect | undefined;
+  /**
+   * The vertical center of the anchor's first line of text: a wrapped chapter
+   * title's marker sits level with its first line. Defaults to the rect's center.
+   */
+  readonly lineY?: number | undefined;
 }
 
 export interface TopologyPageMeasurement {
@@ -80,6 +85,8 @@ export interface TopologyRoute {
   readonly targetEdge: TopologyTargetEdge | undefined;
   /** Attach branches only: the port node exactly on the target edge. */
   readonly portNode: { readonly x: number; readonly y: number } | undefined;
+  /** Attach branches only: the accent of the lane the port leaves, where its gradient starts. */
+  readonly sourceAccent: TopologyAccent | undefined;
 }
 
 export type TopologyDotKind = "chapter" | "commit" | "fork" | "merge" | "end";
@@ -116,9 +123,11 @@ export const topologyPhoneBreakpointWidth = 620;
 export const topologyAttachBandInset = 40;
 /**
  * Phone: the branch drops on the text line, but at least this far inside the
- * media glass's left edge, clear of its rounded corner (14px on phone).
+ * media glass's left edge: its rounded corner (14px on phone) plus a clear gap.
  */
-export const topologyPhoneDropCornerInset = 16;
+export const topologyPhoneDropCornerInset = 24;
+/** Phone: the drop ends in a straight vertical run this long into the stage's top edge. */
+export const topologyPhoneVerticalEntry = 8;
 /**
  * Phone: when the row above the stage sits inside the copy, the branch forks
  * this far below the copy instead, giving the drop the whole gap's height.
@@ -307,6 +316,15 @@ function leftEdgePortPath(sourceX: number, edgeX: number, forkY: number, attachY
   return [`M ${sourceX} ${forkY}`, ...localMergePath(edgeX, sourceX, forkY, attachY)].join(" ");
 }
 
+/**
+ * A phone port: the retired fork bend runs out from the mainline and turns
+ * down, then a short straight vertical run enters the stage's top edge.
+ */
+function phoneDropPortPath(sourceX: number, dropX: number, forkY: number, edgeY: number): string {
+  const entry = Math.min(topologyPhoneVerticalEntry, (edgeY - forkY) / 2);
+  return [...localForkPath(sourceX, dropX, forkY, edgeY - entry), `L ${dropX} ${edgeY}`].join(" ");
+}
+
 function worktreePath(lane: WorktreeLane, rowYs: readonly number[]): string {
   const forkY = rowYs[lane.forkRow] ?? 0;
   const arrivalY = rowYs[lane.forkRow + 1] ?? forkY;
@@ -333,7 +351,7 @@ export function composeFullPageTopology(
     ...(attachXs.length > 0 ? attachXs : page.anchors.map((anchor) => anchor.rect.left)),
   );
   const { rowYs, anchorRows } = measureTopologyRows({
-    anchorYs: page.anchors.map((anchor) => centerYOf(anchor.rect)),
+    anchorYs: page.anchors.map((anchor) => anchor.lineY ?? centerYOf(anchor.rect)),
     endY: topologyEndY(
       page,
       measureTopologyGutterColumns({ attachX: contentX, viewportWidth: page.viewportWidth })
@@ -461,7 +479,7 @@ export function composeFullPageTopology(
         id: `attach-${anchor.id}`,
         kind: "attach",
         accent: "port",
-        pathData: localForkPath(source.x, attachX, forkY, target.top).join(" "),
+        pathData: phoneDropPortPath(source.x, attachX, forkY, target.top),
         parentColumn: source.column,
         column: source.column + 1,
         startY: forkY,
@@ -469,6 +487,7 @@ export function composeFullPageTopology(
         anchorId: anchor.id,
         targetEdge: "top",
         portNode: { x: attachX, y: target.top },
+        sourceAccent: source.accent,
       });
       continue;
     }
@@ -514,6 +533,7 @@ export function composeFullPageTopology(
       anchorId: anchor.id,
       targetEdge: "left",
       portNode: { x: attachX, y: attachY },
+      sourceAccent: source.accent,
     });
   }
 
@@ -569,6 +589,7 @@ export function composeFullPageTopology(
     anchorId: undefined,
     targetEdge: undefined,
     portNode: undefined,
+    sourceAccent: undefined,
   }));
 
   return {

@@ -12,6 +12,10 @@ import {
 // without moving focus; a visitor's selection asks the scene to seek there.
 
 const stepSelector = "[data-chapter-step]";
+/** Below the phone breakpoint the steps render as a horizontal dot row. */
+export const chapterStepRowMediaQuery = "(width < 38.75rem)";
+
+type StepListOrientation = "horizontal" | "vertical";
 const panelSelector = "[data-chapter-step-panel]";
 
 export type ChapterStepState = "passed" | "current" | "upcoming";
@@ -88,10 +92,14 @@ function renderStaticContract(contract: ChapterStepsDomContract): void {
   contract.root.dataset["enhanced"] = "false";
 }
 
-function renderSelectedStep(contract: ChapterStepsDomContract, selectedIndex: number): void {
+function renderSelectedStep(
+  contract: ChapterStepsDomContract,
+  selectedIndex: number,
+  orientation: StepListOrientation,
+): void {
   const idPrefix = `chapter-step-${contract.root.dataset["chapterStepsRoot"] ?? "chapter"}`;
   contract.list.setAttribute("role", "tablist");
-  contract.list.setAttribute("aria-orientation", "vertical");
+  contract.list.setAttribute("aria-orientation", orientation);
   contract.steps.forEach(({ panel, selector, stepId }, stepIndex): void => {
     const isSelected = stepIndex === selectedIndex;
     selector.disabled = false;
@@ -150,11 +158,24 @@ export function initializeChapterSteps(root: HTMLElement): ChapterStepsControlle
     const validatedContract = validateChapterStepsDom(root);
     contract = validatedContract;
     let selectedIndex = 0;
+    const stepRowQuery = window.matchMedia(chapterStepRowMediaQuery);
+    const currentOrientation = (): StepListOrientation =>
+      stepRowQuery.matches ? "horizontal" : "vertical";
 
     const selectStep = (stepIndex: number): void => {
       selectedIndex = stepIndex;
-      renderSelectedStep(validatedContract, selectedIndex);
+      renderSelectedStep(validatedContract, selectedIndex, currentOrientation());
     };
+
+    // The row turns vertical again on wider screens; keep the announced
+    // orientation in step with the layout.
+    stepRowQuery.addEventListener(
+      "change",
+      (): void => {
+        validatedContract.list.setAttribute("aria-orientation", currentOrientation());
+      },
+      { signal: lifecycle.signal },
+    );
 
     // A visitor's choice: select, then ask the scene to seek and play there.
     const chooseStep = (stepIndex: number): void => {

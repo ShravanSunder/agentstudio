@@ -118,20 +118,57 @@
     stroke: color-mix(in srgb, var(--color-primary) 46%, transparent);
   }
 
-  /* Ports: the primary-blue connector into a target edge, ending in a
-     commit-sized node exactly on that edge. */
+  /* Ports: the connector into a target edge. The line has exactly the lanes'
+     weight and muted strength; only its hue turns primary, along a gradient
+     from the lane it leaves (stop colors match each lane's stroke). Emphasis
+     lives in the node: full-strength primary, exactly on the edge. */
   :global(.accent-port) {
     color: var(--color-primary);
   }
 
   :global(.accent-port > path:not(.topology-clearance)) {
-    stroke: var(--color-primary);
+    stroke: color-mix(in srgb, var(--color-primary) 46%, transparent);
+  }
+
+  :global(.topology-port-stop-main),
+  :global(.topology-port-stop-port) {
+    stop-color: color-mix(in srgb, var(--color-primary) 46%, transparent);
+  }
+
+  :global(.topology-port-stop-peach) {
+    stop-color: color-mix(in srgb, var(--color-parallel) 34%, transparent);
+  }
+
+  :global(.topology-port-stop-cyan) {
+    stop-color: color-mix(in srgb, var(--color-glyph) 36%, transparent);
   }
 
   :global(.topology-route > .node-port) {
     fill: var(--color-primary);
     stroke: var(--color-primary);
     stroke-width: 1.5px;
+  }
+
+  /* A port draws in along its length once its target glass is in view
+     (topology-scroll-reveal.ts sets data-port-drawn), and its node appears as
+     the line arrives. */
+  :global([data-route-kind="attach"] > path) {
+    stroke-dasharray: 1;
+    stroke-dashoffset: 1;
+    transition: stroke-dashoffset 520ms ease-out;
+  }
+
+  :global([data-route-kind="attach"][data-port-drawn] > path) {
+    stroke-dashoffset: 0;
+  }
+
+  :global([data-route-kind="attach"] > .node-port) {
+    opacity: 0;
+    transition: opacity 160ms ease-out 440ms;
+  }
+
+  :global([data-route-kind="attach"][data-port-drawn] > .node-port) {
+    opacity: 1;
   }
 
   /* Node vocabulary, by data-node-kind:
@@ -264,7 +301,9 @@
     :global([data-node] .node-commit),
     :global([data-node] .node-chapter),
     :global([data-node] .node-merge-ring),
-    :global([data-node] .node-merge-core) {
+    :global([data-node] .node-merge-core),
+    :global([data-route-kind="attach"] > path),
+    :global([data-route-kind="attach"] > .node-port) {
       transition: none;
     }
 

@@ -41,12 +41,17 @@ function box(left: number, top: number, width: number, height: number): string {
   return `position:absolute;left:${left}px;top:${top}px;width:${width}px;height:${height}px;margin:0`;
 }
 
+// Chapter titles wrap onto two lines, so the first line's centre differs from
+// the element's centre, as on the real page.
+const titleStyle = "font-size:28px;line-height:1.2";
+const titleWords = "a title long enough to wrap";
+
 function chapterMarkup(id: string, layout: TopologyFixtureLayout, anchorTop: number): string {
   const { contentLeft, phone } = layout;
   const width = `calc(100% - ${contentLeft + 24}px)`;
   if (phone) {
     return `
-      <p data-rail-anchor="${id}" style="${box(contentLeft, anchorTop, 90, 12)}">${id}</p>
+      <h2 data-rail-anchor="${id}" style="position:absolute;left:${contentLeft}px;top:${anchorTop}px;width:220px;margin:0;${titleStyle}">${id} ${titleWords}</h2>
       <section data-rail-surface-target="${id}" style="position:absolute;left:${contentLeft}px;top:${anchorTop - 40}px;width:${width};height:560px"></section>
       <div data-rail-media-target="${id}" style="position:absolute;left:${contentLeft}px;top:${anchorTop + 100}px;width:${width};height:220px"></div>
     `;
@@ -54,7 +59,7 @@ function chapterMarkup(id: string, layout: TopologyFixtureLayout, anchorTop: num
   return `
     <section data-rail-surface-target="${id}" style="position:absolute;left:${contentLeft}px;top:${anchorTop - 54}px;width:${width};height:620px">
       <header style="position:absolute;left:54px;top:54px;width:300px;height:110px">
-        <p data-rail-anchor="${id}" style="margin:0;height:12px">${id}</p>
+        <h2 data-rail-anchor="${id}" style="margin:0;${titleStyle}">${id} ${titleWords}</h2>
       </header>
       <div data-rail-media-target="${id}" style="position:absolute;left:40%;top:14px;width:55%;height:440px"></div>
     </section>
@@ -69,7 +74,7 @@ export function mountTopologyFixture(layout: TopologyFixtureLayout): TopologyFix
   host.innerHTML = `
     ${artworkMarkup}
     <div style="${box(layout.contentLeft, heroTop, 700, 380)}">
-      <p data-rail-anchor="hero" style="margin:0;height:12px">Hero eyebrow</p>
+      <p data-rail-anchor="hero" style="margin:0">Hero eyebrow</p>
     </div>
     <div data-rail-surface-target="hero" data-rail-media-target="hero"
       style="position:absolute;left:${layout.contentLeft}px;top:${heroFrameTop}px;width:calc(100% - ${layout.contentLeft + 24}px);height:400px"></div>

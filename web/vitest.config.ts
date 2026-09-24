@@ -2,6 +2,10 @@ import { playwright } from "@vitest/browser-playwright";
 import { defineConfig } from "vitest/config";
 
 import { verifyChapterAnchorLanding } from "./tests/chapter-anchor-browser-command.ts";
+import {
+  verifyChapterStepRow,
+  verifyChapterTitleAnchors,
+} from "./tests/chapter-surface-browser-command.ts";
 import { buildSceneBundlesForBrowserTest } from "./tests/scene-bundle-browser-command.ts";
 import { verifySiteFooterResponsiveLayout } from "./tests/site-footer-browser-command.ts";
 import { verifySiteHeaderScrollStability } from "./tests/site-header-browser-command.ts";
@@ -30,6 +34,8 @@ export default defineConfig({
             commands: {
               buildSceneBundlesForBrowserTest,
               verifyChapterAnchorLanding,
+              verifyChapterStepRow,
+              verifyChapterTitleAnchors,
               verifySiteFooterResponsiveLayout,
               verifySiteHeaderScrollStability,
               verifyTopologyEnd,

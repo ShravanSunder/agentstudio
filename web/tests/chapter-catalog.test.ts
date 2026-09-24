@@ -35,7 +35,6 @@ describe("chapter catalog", () => {
 
   it("gives every chapter and step readable copy", () => {
     for (const chapter of chapterCatalog) {
-      expect(chapter.eyebrow.trim()).not.toBe("");
       expect(chapter.title.accent.trim()).not.toBe("");
       expect(chapter.steps.length).toBeGreaterThan(0);
       for (const step of chapter.steps) {

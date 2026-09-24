@@ -41,15 +41,10 @@ const stageAttributes = { [railMediaTargetAttribute]: chapter.id, [playbackStage
       class="scroll-material-pane chapter-surface__copy flex min-w-0 flex-col rounded-material-pane border border-line p-[clamp(28px,3vw,48px)] max-lg:contents"
     >
       <header class="max-lg:order-1 max-lg:px-7 max-lg:pt-7 max-lg:pb-3 max-phone:p-0">
-        <p
-          {...railAnchorAttributes}
-          class="m-0 font-mono-product text-eyebrow tracking-[0.24em] text-primary uppercase"
-        >
-          {chapter.eyebrow}
-        </p>
         <h2
+          {...railAnchorAttributes}
           id={titleId}
-          class="mt-5 mb-0 font-display text-[clamp(30px,3.4vw,60px)] leading-[0.98] font-extrabold tracking-[-0.045em] text-balance text-ink max-phone:mt-3"
+          class="m-0 font-display text-[clamp(30px,3.4vw,60px)] leading-[0.98] font-extrabold tracking-[-0.045em] text-balance text-ink"
         >
           {chapter.title.beforeAccent}<span class="text-primary">{chapter.title.accent}</span
           >{chapter.title.afterAccent}
@@ -71,16 +66,21 @@ const stageAttributes = { [railMediaTargetAttribute]: chapter.id, [playbackStage
                     tabindex="-1"
                   >
                     <span class="chapter-step__dot" aria-hidden="true" />
-                    <span>{step.label}</span>
+                    <span class="max-phone:sr-only" data-chapter-step-label>
+                      {step.label}
+                    </span>
                   </button>
                 ))}
               </div>
               {chapter.steps.map((step, stepIndex) => (
                 <div
-                  class="mt-5 max-w-[440px] rounded-control text-[16px] leading-[1.55] text-ink-muted max-lg:max-w-none max-phone:text-sm"
+                  class="chapter-step-panel mt-5 max-w-[440px] rounded-control text-[16px] leading-[1.55] text-ink-muted max-lg:max-w-none max-phone:mt-4 max-phone:text-sm"
                   data-chapter-step-panel={step.id}
                   hidden={stepIndex !== 0}
                 >
+                  <p class="m-0 hidden text-base leading-snug text-ink max-phone:mb-1.5 max-phone:block">
+                    {step.label}
+                  </p>
                   <p class="m-0 max-phone:hidden">{step.description}</p>
                   <p class="m-0 hidden max-phone:block">{step.phoneDescription}</p>
                 </div>
@@ -159,12 +159,52 @@ const stageAttributes = { [railMediaTargetAttribute]: chapter.id, [playbackStage
       0 0 0 5px rgb(137 180 250 / 55%);
   }
 
+  /* Phone: the incoming step's copy fades in as the previous one leaves. */
+  @media (width < 38.75rem) and (prefers-reduced-motion: no-preference) {
+    .chapter-step-panel {
+      transition: opacity 150ms ease-out;
+
+      @starting-style {
+        opacity: 0;
+      }
+    }
+  }
+
   /* The rail marks the current chapter's target; its hairline lights blue. */
   :global(.chapter-surface.scroll-material-surface[data-rail-current]) {
     border-color: rgb(137 180 250 / 88%);
   }
 
   @media (width < 38.75rem) {
+    /*
+      Phone: the steps become a mini lane of dots under the stage. Each dot is
+      a tab (its label stays as the accessible name); only the current step's
+      label and description show below the row.
+    */
+    .chapter-step-list {
+      display: flex;
+      width: fit-content;
+      gap: 36px;
+      align-items: center;
+    }
+
+    .chapter-step-list::before {
+      top: calc(50% - 0.75px);
+      right: 16px;
+      bottom: auto;
+      left: 16px;
+      width: auto;
+      height: 1.5px;
+    }
+
+    .chapter-step {
+      width: 32px;
+      height: 32px;
+      justify-content: center;
+      gap: 0;
+      padding: 0;
+    }
+
     /* Phone: the copy sits beside the rail and the media stage is the glass. */
     :global(.chapter-surface.scroll-material-surface[data-scroll-material-surface]) {
       border-width: 0;

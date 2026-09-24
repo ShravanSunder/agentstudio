@@ -6,6 +6,7 @@ import {
 import {
   topologyChapterNodeAttribute,
   topologyChapterTargetEdgeAttribute,
+  topologyPortDrawnAttribute,
 } from "./full-page-topology-layout";
 
 type LayoutTopologyArtwork = (artwork: SVGSVGElement) => boolean;
@@ -116,6 +117,31 @@ export function initializeTopologyScrollReveal(
     currentNodes = nextCurrentNodes;
   };
 
+  // A port draws in once its target glass enters the viewport, and stays
+  // drawn. Reduced motion shows every port at once.
+  const updatePortDraws = (): void => {
+    for (const group of routeGroups) {
+      if (
+        group.dataset["routeKind"] !== "attach" ||
+        group.hasAttribute(topologyPortDrawnAttribute)
+      ) {
+        continue;
+      }
+      const targetAttribute =
+        group.dataset["targetEdge"] === "top"
+          ? railMediaTargetAttribute
+          : railSurfaceTargetAttribute;
+      const target = artwork.ownerDocument.querySelector(
+        `[${targetAttribute}="${group.dataset["routeAnchor"] ?? ""}"]`,
+      );
+      const bounds = target?.getBoundingClientRect();
+      const inView = bounds !== undefined && bounds.top < window.innerHeight && bounds.bottom > 0;
+      if (reducedMotionQuery.matches || inView) {
+        group.setAttribute(topologyPortDrawnAttribute, "");
+      }
+    }
+  };
+
   const lightTarget = (nextTarget: HTMLElement | undefined): void => {
     if (litTarget === nextTarget) {
       return;
@@ -183,6 +209,7 @@ export function initializeTopologyScrollReveal(
     const artworkTop = artwork.getBoundingClientRect().top;
     const readingLineY = window.innerHeight * topologyReadingLineRatio - artworkTop;
     updateCurrentChapter(readingLineY);
+    updatePortDraws();
 
     const maximumScroll = Math.max(document.documentElement.scrollHeight - window.innerHeight, 1);
     const scrollProgress = clamp(window.scrollY / maximumScroll, 0, 1);

@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { page } from "vitest/browser";
 
 import { initializeChapterSteps } from "../src/chapters/chapter-step-controller";
 import {
@@ -81,7 +82,8 @@ afterEach(() => {
 });
 
 describe("chapter step tabs", () => {
-  it("enhances the static steps into a vertical tablist with synchronized panels", () => {
+  it("enhances the static steps into a vertical tablist with synchronized panels", async () => {
+    await page.viewport(1280, 800);
     const root = createChapterStepsFixture();
     const list = requiredHtmlElement(root, "[data-chapter-step-list]");
     const firstStep = requiredButton(root, '[data-chapter-step="task-drawers"]');
@@ -107,6 +109,25 @@ describe("chapter step tabs", () => {
     expect(root.dataset["enhanced"]).toBe("false");
     expect(list.hasAttribute("role")).toBe(false);
     expect(firstStep.disabled).toBe(true);
+  });
+
+  it("announces a horizontal tablist on phones and follows the viewport across the breakpoint", async () => {
+    // Arrange
+    await page.viewport(390, 844);
+    const root = createChapterStepsFixture();
+    const list = requiredHtmlElement(root, "[data-chapter-step-list]");
+
+    // Act
+    const controller = initializeChapterSteps(root);
+
+    // Assert
+    expect(list.getAttribute("aria-orientation")).toBe("horizontal");
+    await page.viewport(1280, 800);
+    await vi.waitFor(() => {
+      expect(list.getAttribute("aria-orientation")).toBe("vertical");
+    });
+
+    controller.destroy();
   });
 
   it("selects a clicked step, shows its panel, and asks the scene to seek there", () => {
