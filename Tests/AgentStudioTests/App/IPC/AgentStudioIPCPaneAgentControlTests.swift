@@ -79,7 +79,14 @@ struct AgentStudioIPCPaneAgentControlTests {
             token: token, method: "pane.focus",
             params: .object(["handle": .string(own), "correlationId": .string(UUIDv7.generate().uuidString)]))
         let bridge = try await harness.response(
+            token: token, method: "bridge.telemetry.snapshot", params: .object(["handle": .string(own)]))
+        // B1: the agent's own terminal reaches its receiving Bridge, which has
+        // no mounted page here; another pane's Bridge is refused by name.
+        let ownBridge = try await harness.response(
             token: token, method: "bridge.diff.getPackage", params: .object(["handle": .string(own)]))
+        let otherBridge = try await harness.response(
+            token: token, method: "bridge.diff.getPackage",
+            params: .object(["handle": .string(harness.otherPaneId.uuidString)]))
         let zoom = try await harness.response(
             token: token, method: "command.execute",
             params: try harness.command(.zoomPane, arguments: try harness.paneArguments(harness.mainPaneId)))
@@ -93,7 +100,9 @@ struct AgentStudioIPCPaneAgentControlTests {
 
         #expect(PaneAgentRefusal(otherPaneInput) == .notYetAllowed("terminal.send"))
         #expect(PaneAgentRefusal(focus) == .notYetAllowed("pane.focus"))
-        #expect(PaneAgentRefusal(bridge) == .notYetAllowed("bridge.diff.getPackage"))
+        #expect(PaneAgentRefusal(bridge) == .notYetAllowed("bridge.telemetry.snapshot"))
+        #expect(PaneAgentRefusal(ownBridge) == PaneAgentRefusal(code: -32_005, reason: "notMounted", name: nil))
+        #expect(PaneAgentRefusal(otherBridge) == .notYetAllowed("bridge.diff.getPackage"))
         #expect(PaneAgentRefusal(zoom) == .notYetAllowed("zoomPane"))
         #expect(PaneAgentRefusal(split) == .notYetAllowed("splitRight"))
         #expect(PaneAgentRefusal(closeSelf) == .refusedForAgent("pane.close"))

@@ -8,15 +8,20 @@ import Testing
 @Suite("Bridge receiver navigation command contracts")
 struct BridgeReceiverNavigationCommandContractTests {
     private static let documentCommands: [AppCommand] = [.activateBridgeFile, .closeBridgeFile]
+    /// Agents reach these through their own terminal's receiver; the rest are
+    /// human-only in B1.
+    private static let ownPaneCommands: Set<AppCommand> = [.addBridgeWorktree, .searchBridgeFiles]
     private static let worktreeCommands: [AppCommand] = [
         .activateBridgeReview, .addBridgeWorktree, .selectBridgeWorktree, .removeBridgeWorktree,
     ]
 
-    @Test("every receiver command is a debug-channel headless layout command addressed by pane")
+    @Test("receiver commands are headless layout commands by pane; only add and search reach agents")
     func ipcClassification() {
         for command in Self.documentCommands + Self.worktreeCommands + [.searchBridgeFiles] {
             let spec = command.ipcSpec
-            #expect(spec.exposure == .debugTesting, "\(command.rawValue)")
+            let agentReachable = Self.ownPaneCommands.contains(command)
+            #expect(spec.exposure == (agentReachable ? .allChannels : .debugTesting), "\(command.rawValue)")
+            #expect(spec.agentEligibility == (agentReachable ? .ownPane : .notYetAllowed), "\(command.rawValue)")
             #expect(spec.executionMode == .headless, "\(command.rawValue)")
             #expect(spec.requiredPrivilege == .layoutMutate, "\(command.rawValue)")
             #expect(spec.allowedTargetKinds == [.window, .pane], "\(command.rawValue)")

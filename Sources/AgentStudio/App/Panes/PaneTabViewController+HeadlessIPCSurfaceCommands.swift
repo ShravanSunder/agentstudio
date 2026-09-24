@@ -9,21 +9,24 @@ import Foundation
 extension PaneTabViewController {
     func executeWorkspaceSurfaceCommand(
         _ command: AppCommand,
-        arguments: IPCCommandArguments
+        arguments: IPCCommandArguments,
+        ownPaneAssertion: WorkspaceOwnPaneAssertion?
     ) async -> AppCommandExecutionOutcome {
         switch arguments {
         case .worktree(let value):
             return await executeWorktreeCommand(command, worktreeId: value.worktreeId)
         case .worktreeInPane(let value):
             if let request = Self.bridgeNavigationRequest(for: command, worktreeId: value.worktreeId) {
-                return await executeBridgeNavigationIPC(request, targetPaneSelector: value.targetPaneSelector)
+                return await executeBridgeNavigationIPC(
+                    request, targetPaneSelector: value.targetPaneSelector, ownPaneAssertion: ownPaneAssertion)
             }
             return await executeWorktreeInPaneCommand(command, arguments: value)
         case .bridgeDocumentInPane(let value):
             guard let request = Self.bridgeNavigationRequest(for: command, absolutePath: value.path) else {
                 return .unsupportedCommand
             }
-            return await executeBridgeNavigationIPC(request, targetPaneSelector: value.targetPaneSelector)
+            return await executeBridgeNavigationIPC(
+                request, targetPaneSelector: value.targetPaneSelector, ownPaneAssertion: ownPaneAssertion)
         case .terminalFromWorktree(let value):
             guard command == .openNewTerminalInTab else { return .unsupportedCommand }
             return await applyWorkspaceAction(

@@ -183,7 +183,8 @@ extension AppCommand {
         // Own-pane commands reach pane agents on every channel.
         case .scrollToBottom, .scrollPageUp, .scrollPageDown,
             .scrollSmallStepUp, .scrollSmallStepDown,
-            .jumpToPreviousPrompt, .jumpToNextPrompt, .closeDrawerPane:
+            .jumpToPreviousPrompt, .jumpToNextPrompt, .closeDrawerPane,
+            .addBridgeWorktree, .searchBridgeFiles:
             .allChannels
         case .zoomPane, .reloadBridgeWebView,
             .showReposSidebar, .showPanesSidebar,
@@ -239,7 +240,7 @@ extension AppCommand {
             .openWebview, .showViewer,
             .showBridgeReview, .showBridgeFiles,
             .activateBridgeFile, .activateBridgeReview, .closeBridgeFile,
-            .addBridgeWorktree, .selectBridgeWorktree, .removeBridgeWorktree, .searchBridgeFiles,
+            .selectBridgeWorktree, .removeBridgeWorktree,
             .openBridgeReviewInNewTab, .openBridgeFilesInNewTab,
             .signInGitHub, .signInGoogle, .filterSidebar,
             .openNewTerminalInTab:
@@ -542,7 +543,9 @@ extension AppCommand {
         switch self {
         case .scrollToBottom, .scrollPageUp, .scrollPageDown,
             .scrollSmallStepUp, .scrollSmallStepDown,
-            .jumpToPreviousPrompt, .jumpToNextPrompt, .closeDrawerPane:
+            .jumpToPreviousPrompt, .jumpToNextPrompt, .closeDrawerPane,
+            // The caller's receiving Bridge belongs to its own pane (B1).
+            .addBridgeWorktree, .searchBridgeFiles:
             .ownPane
         case .newWindow, .closeWindow, .undoCloseTab, .newTab, .closeTab, .breakUpTab,
             .renameTab, .newTerminalInTab, .selectTab, .nextTab, .prevTab,
@@ -591,6 +594,9 @@ extension AppCommand {
             .newFloatingTerminal, .openWebview,
             .showBridgeReview, .showBridgeFiles,
             .openBridgeReviewInNewTab, .openBridgeFilesInNewTab,
+            // Human-only B1 receiver commands.
+            .activateBridgeFile, .activateBridgeReview, .closeBridgeFile,
+            .selectBridgeWorktree, .removeBridgeWorktree,
             .signInGitHub, .signInGoogle:
             .notYetAllowed
         }

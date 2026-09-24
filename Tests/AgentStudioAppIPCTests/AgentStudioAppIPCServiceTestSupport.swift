@@ -175,6 +175,27 @@ final class BridgeSearchModeInvocationRecorder: @unchecked Sendable {
     }
 }
 
+/// Records which canonical handle and pane agent reached `bridge.files.search`.
+final class BridgeFilesSearchInvocationRecorder: @unchecked Sendable {
+    struct Invocation: Equatable {
+        let handle: String
+        let boundPaneId: UUID?
+    }
+
+    private let lock = NSLock()
+    private var invocations: [Invocation] = []
+
+    func record(handle: String, ownPaneAssertion: AppIPCOwnPaneAssertion?) {
+        lock.withLock {
+            invocations.append(Invocation(handle: handle, boundPaneId: ownPaneAssertion?.boundPaneId))
+        }
+    }
+
+    func snapshot() -> [Invocation] {
+        lock.withLock { invocations }
+    }
+}
+
 struct FakeBridgePort: AppIPCBridgePort {
     let paneId: UUID
     let itemId: String
@@ -184,6 +205,8 @@ struct FakeBridgePort: AppIPCBridgePort {
     let renderStateResult: IPCBridgeRenderStateResult?
     let pageControlInvocationRecorder: BridgePageControlInvocationRecorder?
     let searchModeInvocationRecorder: BridgeSearchModeInvocationRecorder?
+    let filesSearchRecorder: BridgeFilesSearchInvocationRecorder?
+    let filesSearchFailure: AppIPCBridgeError?
 
     nonisolated init(
         paneId: UUID = UUID(),
@@ -193,7 +216,9 @@ struct FakeBridgePort: AppIPCBridgePort {
         pageControlReason: String? = nil,
         renderStateResult: IPCBridgeRenderStateResult? = nil,
         pageControlInvocationRecorder: BridgePageControlInvocationRecorder? = nil,
-        searchModeInvocationRecorder: BridgeSearchModeInvocationRecorder? = nil
+        searchModeInvocationRecorder: BridgeSearchModeInvocationRecorder? = nil,
+        filesSearchRecorder: BridgeFilesSearchInvocationRecorder? = nil,
+        filesSearchFailure: AppIPCBridgeError? = nil
     ) {
         self.paneId = paneId
         self.itemId = itemId
@@ -203,6 +228,8 @@ struct FakeBridgePort: AppIPCBridgePort {
         self.renderStateResult = renderStateResult
         self.pageControlInvocationRecorder = pageControlInvocationRecorder
         self.searchModeInvocationRecorder = searchModeInvocationRecorder
+        self.filesSearchRecorder = filesSearchRecorder
+        self.filesSearchFailure = filesSearchFailure
     }
 
     func openReview(_ params: IPCBridgeReviewOpenParams) throws -> IPCBridgeReviewOpenResult {
@@ -221,7 +248,9 @@ struct FakeBridgePort: AppIPCBridgePort {
         )
     }
 
-    func refreshReview(_ params: IPCBridgeReviewRefreshParams) async throws -> IPCBridgeReviewRefreshResult {
+    func refreshReview(
+        _ params: IPCBridgeReviewRefreshParams, ownPaneAssertion _: AppIPCOwnPaneAssertion?
+    ) async throws -> IPCBridgeReviewRefreshResult {
         IPCBridgeReviewRefreshResult(
             paneId: paneId,
             refreshed: true,
@@ -232,7 +261,7 @@ struct FakeBridgePort: AppIPCBridgePort {
         )
     }
 
-    func getPackage(_: IPCHandle) throws -> IPCBridgeReviewPackageResult {
+    func getPackage(_: IPCHandle, ownPaneAssertion _: AppIPCOwnPaneAssertion?) throws -> IPCBridgeReviewPackageResult {
         IPCBridgeReviewPackageResult(
             paneId: paneId,
             status: "ready",
@@ -250,7 +279,9 @@ struct FakeBridgePort: AppIPCBridgePort {
         )
     }
 
-    func renderState(_: IPCHandle) async throws -> IPCBridgeRenderStateResult {
+    func renderState(
+        _: IPCHandle, ownPaneAssertion _: AppIPCOwnPaneAssertion?
+    ) async throws -> IPCBridgeRenderStateResult {
         if let renderStateResult {
             return renderStateResult
         }
@@ -288,7 +319,9 @@ struct FakeBridgePort: AppIPCBridgePort {
         )
     }
 
-    func selectFile(_ params: IPCBridgeReviewSelectFileParams) async throws -> IPCBridgeReviewSelectFileResult {
+    func selectFile(
+        _ params: IPCBridgeReviewSelectFileParams, ownPaneAssertion _: AppIPCOwnPaneAssertion?
+    ) async throws -> IPCBridgeReviewSelectFileResult {
         IPCBridgeReviewSelectFileResult(
             paneId: paneId,
             itemId: params.itemId,
@@ -297,7 +330,9 @@ struct FakeBridgePort: AppIPCBridgePort {
         )
     }
 
-    func scrollToFile(_ params: IPCBridgeDiffScrollToFileParams) async throws -> IPCBridgePageControlResult {
+    func scrollToFile(
+        _ params: IPCBridgeDiffScrollToFileParams, ownPaneAssertion _: AppIPCOwnPaneAssertion?
+    ) async throws -> IPCBridgePageControlResult {
         bridgePageControlResult(
             method: "bridge.diff.scrollToFile",
             itemId: params.itemId,
@@ -306,7 +341,9 @@ struct FakeBridgePort: AppIPCBridgePort {
         )
     }
 
-    func expandFile(_ params: IPCBridgeDiffExpandFileParams) async throws -> IPCBridgePageControlResult {
+    func expandFile(
+        _ params: IPCBridgeDiffExpandFileParams, ownPaneAssertion _: AppIPCOwnPaneAssertion?
+    ) async throws -> IPCBridgePageControlResult {
         bridgePageControlResult(
             method: "bridge.diff.expandFile",
             itemId: params.itemId,
@@ -315,7 +352,9 @@ struct FakeBridgePort: AppIPCBridgePort {
         )
     }
 
-    func collapseFile(_ params: IPCBridgeDiffCollapseFileParams) async throws -> IPCBridgePageControlResult {
+    func collapseFile(
+        _ params: IPCBridgeDiffCollapseFileParams, ownPaneAssertion _: AppIPCOwnPaneAssertion?
+    ) async throws -> IPCBridgePageControlResult {
         bridgePageControlResult(
             method: "bridge.diff.collapseFile",
             itemId: params.itemId,
@@ -324,7 +363,9 @@ struct FakeBridgePort: AppIPCBridgePort {
         )
     }
 
-    func searchFileTree(_ params: IPCBridgeFileTreeSearchParams) async throws -> IPCBridgePageControlResult {
+    func searchFileTree(
+        _ params: IPCBridgeFileTreeSearchParams, ownPaneAssertion _: AppIPCOwnPaneAssertion?
+    ) async throws -> IPCBridgePageControlResult {
         searchModeInvocationRecorder?.record(params.searchMode)
         return bridgePageControlResult(
             method: "bridge.fileTree.search",
@@ -335,7 +376,9 @@ struct FakeBridgePort: AppIPCBridgePort {
         )
     }
 
-    func setFileTreeFilter(_ params: IPCBridgeFileTreeSetFilterParams) async throws -> IPCBridgePageControlResult {
+    func setFileTreeFilter(
+        _ params: IPCBridgeFileTreeSetFilterParams, ownPaneAssertion _: AppIPCOwnPaneAssertion?
+    ) async throws -> IPCBridgePageControlResult {
         pageControlInvocationRecorder?.recordFilterCandidate(params.candidate)
         return switch params.candidate {
         case .files(let categoryFilter):
@@ -362,7 +405,9 @@ struct FakeBridgePort: AppIPCBridgePort {
         }
     }
 
-    func revealFileTreePath(_ params: IPCBridgeFileTreeRevealPathParams) async throws -> IPCBridgePageControlResult {
+    func revealFileTreePath(
+        _ params: IPCBridgeFileTreeRevealPathParams, ownPaneAssertion _: AppIPCOwnPaneAssertion?
+    ) async throws -> IPCBridgePageControlResult {
         bridgePageControlResult(
             method: "bridge.fileTree.revealPath",
             itemId: itemId,
@@ -372,7 +417,7 @@ struct FakeBridgePort: AppIPCBridgePort {
     }
 
     func showMarkdownPreview(
-        _ params: IPCBridgeFileViewShowMarkdownPreviewParams
+        _ params: IPCBridgeFileViewShowMarkdownPreviewParams, ownPaneAssertion _: AppIPCOwnPaneAssertion?
     ) async throws -> IPCBridgePageControlResult {
         bridgePageControlResult(
             method: "bridge.fileView.showMarkdownPreview",
@@ -383,7 +428,9 @@ struct FakeBridgePort: AppIPCBridgePort {
         )
     }
 
-    func getContent(_: IPCBridgeContentGetParams) async throws -> IPCBridgeContentGetResult {
+    func getContent(
+        _: IPCBridgeContentGetParams, ownPaneAssertion _: AppIPCOwnPaneAssertion?
+    ) async throws -> IPCBridgeContentGetResult {
         IPCBridgeContentGetResult(
             paneId: paneId,
             handle: bridgeContentHandleSummary,
@@ -391,8 +438,12 @@ struct FakeBridgePort: AppIPCBridgePort {
         )
     }
 
-    func searchFiles(_ params: IPCBridgeFilesSearchParams) async throws -> IPCBridgeFilesSearchResult {
-        IPCBridgeFilesSearchResult(
+    func searchFiles(
+        _ params: IPCBridgeFilesSearchParams, ownPaneAssertion: AppIPCOwnPaneAssertion?
+    ) async throws -> IPCBridgeFilesSearchResult {
+        filesSearchRecorder?.record(handle: params.handle, ownPaneAssertion: ownPaneAssertion)
+        if let filesSearchFailure { throw filesSearchFailure }
+        return IPCBridgeFilesSearchResult(
             paneId: paneId,
             status: .results,
             matches: [

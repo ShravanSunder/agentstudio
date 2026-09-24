@@ -42,16 +42,34 @@ extension PaneTabViewController {
 
     func executeBridgeNavigationIPC(
         _ request: BridgeNavigationRequest,
-        targetPaneSelector: IPCPaneSelector
+        targetPaneSelector: IPCPaneSelector,
+        ownPaneAssertion: WorkspaceOwnPaneAssertion?
     ) async -> AppCommandExecutionOutcome {
         guard let paneId = AppCommandTypedIPCPane.canonicalId(targetPaneSelector) else {
             return .unavailable(.noApplicableTarget)
+        }
+        return await performBridgeNavigation(request, paneId: paneId, ownPaneAssertion: ownPaneAssertion)
+    }
+
+    /// A pane agent's own pane is re-checked in the same main-actor step that
+    /// hands the request to the navigation owner.
+    private func performBridgeNavigation(
+        _ request: BridgeNavigationRequest,
+        paneId: UUID,
+        ownPaneAssertion: WorkspaceOwnPaneAssertion?
+    ) async -> AppCommandExecutionOutcome {
+        if let ownPaneAssertion, !store.ownPaneAssertionHolds(ownPaneAssertion, for: paneId) {
+            return .outsideOwnPane
         }
         return await executor.performBridgeNavigation(request, forPaneId: paneId).commandExecutionOutcome
     }
 
     /// Pane-addressed Bridge commands over IPC.
-    func executeBridgePaneCommand(_ command: AppCommand, paneId: UUID) async -> AppCommandExecutionOutcome {
+    func executeBridgePaneCommand(
+        _ command: AppCommand,
+        paneId: UUID,
+        ownPaneAssertion: WorkspaceOwnPaneAssertion?
+    ) async -> AppCommandExecutionOutcome {
         switch command {
         case .reloadBridgeWebView:
             guard let mountView = resolvedBridgeCommandMountView(paneId: paneId),
@@ -62,7 +80,7 @@ extension PaneTabViewController {
             return .accepted(operationId: nil)
         case .searchBridgeFiles:
             // B2: the Files search affordance; agents read results through `bridge.files.search`.
-            return await executor.performBridgeNavigation(.showFiles, forPaneId: paneId).commandExecutionOutcome
+            return await performBridgeNavigation(.showFiles, paneId: paneId, ownPaneAssertion: ownPaneAssertion)
         default:
             return .unsupportedCommand
         }

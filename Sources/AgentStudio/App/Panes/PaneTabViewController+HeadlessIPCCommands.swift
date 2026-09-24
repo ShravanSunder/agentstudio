@@ -54,7 +54,8 @@ extension PaneTabViewController {
             return executeManagementLayerCommand(command, arguments: arguments)
         case .worktree, .worktreeInPane, .bridgeDocumentInPane, .terminalFromWorktree, .terminalFromPane,
             .floatingTerminal, .webview:
-            return await executeWorkspaceSurfaceCommand(command, arguments: arguments)
+            return await executeWorkspaceSurfaceCommand(
+                command, arguments: arguments, ownPaneAssertion: ownPaneAssertion)
         case .directory:
             return .unsupportedCommand
         }
@@ -240,7 +241,7 @@ extension PaneTabViewController {
         case .focusPreviousPinnedPane, .focusNextPinnedPane:
             return .stateUnavailable
         case .reloadBridgeWebView, .searchBridgeFiles:
-            return await executeBridgePaneCommand(command, paneId: paneId)
+            return await executeBridgePaneCommand(command, paneId: paneId, ownPaneAssertion: ownPaneAssertion)
         case .openPaneLocationInBookmarkedEditor:
             guard let targetPath = targetedPaneLocationPath(paneId: paneId) else {
                 return .unavailable(.noApplicableTarget)

@@ -119,6 +119,10 @@ final class WorkspaceActionExecutor {
         coordinator.bridgeReceiver(forCommandPaneId: paneId)
     }
 
+    func mountedBridgeController(forCommandPaneId paneId: UUID) -> BridgePaneController? {
+        coordinator.bridgeReceiver(forCommandPaneId: paneId).flatMap { coordinator.mountedBridgeController(for: $0) }
+    }
+
     func bridgeNavigationRecord(for receiver: BridgeReceiver) -> BridgeNavigationRecord? {
         coordinator.bridgeNavigationCommandHandler.record(for: receiver)
     }

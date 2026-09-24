@@ -229,7 +229,8 @@ struct AppIPCBuiltInMethodRegistrationsTests {
         #expect((await eventSubscriber.snapshot()).count == 1)
 
         let nonBridgeRegistrations = try fixture.registrations(
-            queryPort: FakeQueryPort(panes: [fixture.paneSummary(contentKind: .terminal)]),
+            // A terminal reaches its receiving Bridge; a webview reaches none.
+            queryPort: FakeQueryPort(panes: [fixture.paneSummary(contentKind: .webview)]),
             bridgePort: FakeBridgePort(paneId: fixture.paneId)
         )
         let nonBridgeRefresh = try fixture.registration(

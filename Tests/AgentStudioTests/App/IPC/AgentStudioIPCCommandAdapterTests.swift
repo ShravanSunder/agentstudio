@@ -19,9 +19,11 @@ struct AgentStudioIPCCommandAdapterTests {
         let ids = Set(catalog.commands.map(\.id.rawValue))
 
         #expect(catalog.compatibility == .current)
-        #expect(catalog.commands.count == 24)
+        #expect(catalog.commands.count == 26)
         #expect(ids.contains(AppCommand.zoomPane.rawValue))
         #expect(ids.contains(AppCommand.closeDrawerPane.rawValue))
+        #expect(ids.contains(AppCommand.addBridgeWorktree.rawValue))
+        #expect(ids.contains(AppCommand.searchBridgeFiles.rawValue))
         #expect(ids.contains(AppCommand.reloadBridgeWebView.rawValue))
         #expect(ids.contains(AppCommand.showReposSidebar.rawValue))
         #expect(ids.contains(AppCommand.pinRepo.rawValue))
@@ -305,7 +307,7 @@ struct AgentStudioIPCCommandAdapterTests {
         )
 
         #expect(builtIns.erasedDescriptors.count == 48)
-        #expect(commandCatalog.commands.count == 24)
+        #expect(commandCatalog.commands.count == 26)
         #expect(capabilities.result.methods.count == 51)
 
         let encodedCatalog = try capabilities.descriptor.encodeResult(capabilities.result)

@@ -513,13 +513,13 @@ struct AgentStudioIPCBridgeServiceTests {
         #expect(expandResult.correlationId == expandCorrelationId)
     }
 
-    @Test("Bridge methods reject valid non-Bridge pane targets as unsupported")
+    @Test("Bridge methods reject panes that neither are a Bridge nor reach one as unsupported")
     func bridgeMethodsRejectValidNonBridgePaneTargetsAsUnsupported() throws {
         let paneId = UUID()
         let fixture = try LiveServerFixture(
             accessMode: .unsafeDebug,
             channel: .debug,
-            panes: [makePaneSummary(id: paneId, ordinal: 1, contentKind: .terminal)]
+            panes: [makePaneSummary(id: paneId, ordinal: 1, contentKind: .webview)]
         )
         defer {
             fixture.cleanup()
@@ -549,7 +549,7 @@ struct AgentStudioIPCBridgeServiceTests {
         let fixture = try LiveServerFixture(
             accessMode: .unsafeDebug,
             channel: .debug,
-            panes: [makePaneSummary(id: paneId, ordinal: 1, contentKind: .terminal)]
+            panes: [makePaneSummary(id: paneId, ordinal: 1, contentKind: .webview)]
         )
         defer {
             fixture.cleanup()
@@ -586,7 +586,7 @@ struct AgentStudioIPCBridgeServiceTests {
     func diagnosticBridgeReadsRejectNonBridgePaneTargets() throws {
         let paneId = UUID()
         let fixture = try LiveServerFixture(
-            panes: [makePaneSummary(id: paneId, ordinal: 1, contentKind: .terminal)]
+            panes: [makePaneSummary(id: paneId, ordinal: 1, contentKind: .webview)]
         )
         defer {
             fixture.cleanup()

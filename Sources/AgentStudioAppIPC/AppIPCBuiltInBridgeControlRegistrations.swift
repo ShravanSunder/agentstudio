@@ -7,7 +7,8 @@ where Parameters: Codable & Sendable {
     let correlation: @Sendable (Parameters) throws -> UUID
     let rawHandle: @Sendable (Parameters) -> String
     let rebuild: @Sendable (Parameters, String) -> Parameters
-    let handler: @Sendable (Parameters) async throws -> IPCBridgePageControlResult
+    /// The pane agent's assertion travels to the port, which re-checks it at the effect.
+    let handler: @Sendable (Parameters, AppIPCOwnPaneAssertion?) async throws -> IPCBridgePageControlResult
     let publishesSelection: Bool
 }
 
@@ -39,7 +40,9 @@ extension AppIPCBuiltInMethodRegistrations {
                         limit: original.limit
                     )
                 },
-                handler: { parameters in try await inputs.ports.bridgePort.searchFiles(parameters) }
+                handler: { parameters, assertion in
+                    try await inputs.ports.bridgePort.searchFiles(parameters, ownPaneAssertion: assertion)
+                }
             ),
             inputs: inputs
         )
@@ -62,7 +65,7 @@ extension AppIPCBuiltInMethodRegistrations {
                             correlationId: original.correlationId
                         )
                     },
-                    handler: { try await inputs.ports.bridgePort.scrollToFile($0) },
+                    handler: { try await inputs.ports.bridgePort.scrollToFile($0, ownPaneAssertion: $1) },
                     publishesSelection: true
                 ),
                 inputs: inputs
@@ -87,7 +90,7 @@ extension AppIPCBuiltInMethodRegistrations {
                             correlationId: original.correlationId
                         )
                     },
-                    handler: { try await inputs.ports.bridgePort.expandFile($0) },
+                    handler: { try await inputs.ports.bridgePort.expandFile($0, ownPaneAssertion: $1) },
                     publishesSelection: false
                 ),
                 inputs: inputs
@@ -104,7 +107,7 @@ extension AppIPCBuiltInMethodRegistrations {
                             correlationId: original.correlationId
                         )
                     },
-                    handler: { try await inputs.ports.bridgePort.collapseFile($0) },
+                    handler: { try await inputs.ports.bridgePort.collapseFile($0, ownPaneAssertion: $1) },
                     publishesSelection: false
                 ),
                 inputs: inputs
@@ -122,7 +125,7 @@ extension AppIPCBuiltInMethodRegistrations {
                             correlationId: original.correlationId
                         )
                     },
-                    handler: { try await inputs.ports.bridgePort.searchFileTree($0) },
+                    handler: { try await inputs.ports.bridgePort.searchFileTree($0, ownPaneAssertion: $1) },
                     publishesSelection: false
                 ),
                 inputs: inputs
@@ -139,7 +142,7 @@ extension AppIPCBuiltInMethodRegistrations {
                             correlationId: original.correlationId
                         )
                     },
-                    handler: { try await inputs.ports.bridgePort.setFileTreeFilter($0) },
+                    handler: { try await inputs.ports.bridgePort.setFileTreeFilter($0, ownPaneAssertion: $1) },
                     publishesSelection: false
                 ),
                 inputs: inputs
@@ -156,7 +159,7 @@ extension AppIPCBuiltInMethodRegistrations {
                             correlationId: original.correlationId
                         )
                     },
-                    handler: { try await inputs.ports.bridgePort.revealFileTreePath($0) },
+                    handler: { try await inputs.ports.bridgePort.revealFileTreePath($0, ownPaneAssertion: $1) },
                     publishesSelection: true
                 ),
                 inputs: inputs
@@ -182,8 +185,9 @@ extension AppIPCBuiltInMethodRegistrations {
                             reviewGeneration: original.reviewGeneration
                         )
                     },
-                    handler: { parameters in
-                        let result = try await inputs.ports.bridgePort.getContent(parameters)
+                    handler: { parameters, assertion in
+                        let result = try await inputs.ports.bridgePort.getContent(
+                            parameters, ownPaneAssertion: assertion)
                         await publishBridgeEvent(
                             name: .bridgeContentReady,
                             payload: IPCBridgeEventPayload(
@@ -210,7 +214,7 @@ extension AppIPCBuiltInMethodRegistrations {
                             correlationId: original.correlationId
                         )
                     },
-                    handler: { try await inputs.ports.bridgePort.showMarkdownPreview($0) },
+                    handler: { try await inputs.ports.bridgePort.showMarkdownPreview($0, ownPaneAssertion: $1) },
                     publishesSelection: false
                 ),
                 inputs: inputs
@@ -221,7 +225,7 @@ extension AppIPCBuiltInMethodRegistrations {
                     correlation: nil,
                     rawHandle: { $0.handle },
                     rebuild: { _, canonicalHandle in IPCBridgePaneParams(handle: canonicalHandle) },
-                    handler: { parameters in
+                    handler: { parameters, _ in
                         try await inputs.ports.bridgePort.telemetrySnapshot(IPCHandle.parse(parameters.handle))
                     }
                 ),
@@ -238,7 +242,7 @@ extension AppIPCBuiltInMethodRegistrations {
                             correlationId: original.correlationId
                         )
                     },
-                    handler: { parameters in
+                    handler: { parameters, _ in
                         let result = try await inputs.ports.bridgePort.flushTelemetry(
                             IPCHandle.parse(parameters.handle)
                         )
@@ -266,8 +270,8 @@ extension AppIPCBuiltInMethodRegistrations {
                 correlation: binding.correlation,
                 rawHandle: binding.rawHandle,
                 rebuild: binding.rebuild,
-                handler: { parameters in
-                    let result = try await binding.handler(parameters)
+                handler: { parameters, assertion in
+                    let result = try await binding.handler(parameters, assertion)
                     if binding.publishesSelection,
                         result.status == "accepted",
                         let itemId = result.itemId

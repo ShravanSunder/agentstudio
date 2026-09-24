@@ -54,7 +54,7 @@ struct AgentStudioIPCCommandChannelCoverageTests {
         let catalog = try CommandAdapterHarness(channel: channel).adapter.listCommands()
         let ids = Set(catalog.commands.map(\.id.rawValue))
 
-        #expect(catalog.commands.count == 24)
+        #expect(catalog.commands.count == 26)
         #expect(ids == Set(Self.admittedHeadlessCommands.map(\.rawValue)))
         #expect(catalog.commands.allSatisfy { $0.exposure == .allChannels })
     }
@@ -229,11 +229,13 @@ struct AgentStudioIPCCommandChannelCoverageTests {
             .pinRepo, .unpinRepo, .pinPane, .unpinPane, .focusSidebar,
         ] + agentOwnPaneCommands
 
-    /// A1's own-pane command set; pane agents reach it on every channel.
+    /// A1's own-pane command set plus B1's own receiving Bridge; pane agents
+    /// reach it on every channel.
     static let agentOwnPaneCommands: [AppCommand] = [
         .scrollToBottom, .scrollPageUp, .scrollPageDown,
         .scrollSmallStepUp, .scrollSmallStepDown,
         .jumpToPreviousPrompt, .jumpToNextPrompt, .closeDrawerPane,
+        .addBridgeWorktree, .searchBridgeFiles,
     ]
 
     @Test("only the own-pane commands are agent eligible, and discovery reports each command's eligibility")

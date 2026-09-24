@@ -252,6 +252,12 @@ extension AgentStudioAppIPCRequestError {
             self = Self(code: -32_004, message: "target not found")
         case .unsupportedTarget:
             self = Self(code: -32_003, message: "unsupported target")
+        case .notMounted:
+            self = Self(
+                code: -32_005,
+                message: "bridge not mounted",
+                data: .object(["reason": .string("notMounted")])
+            )
         case .packageUnavailable:
             self = Self(code: -32_005, message: "package unavailable")
         case .itemNotFound:
