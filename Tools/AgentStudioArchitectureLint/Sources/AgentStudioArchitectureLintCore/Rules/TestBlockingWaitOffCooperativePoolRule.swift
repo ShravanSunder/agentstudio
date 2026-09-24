@@ -308,10 +308,15 @@ extension TypeSyntax {
 
 extension FunctionCallExprSyntax {
     /// The call already moved this work off the cooperative executor: the shared
-    /// wrapper, a `DispatchQueue` submission, or a thread of its own. A socket
-    /// listener hands its handler such a queue too, so those bodies are fine.
+    /// wrappers (the harness's `valueFromDedicatedThread` and TestSupport's
+    /// `withoutBlockingCooperativePool`, which delegates to it), a
+    /// `DispatchQueue` submission, or a thread of its own. A socket listener
+    /// hands its handler such a queue too, so those bodies are fine.
     fileprivate var isCooperativePoolOffloadCall: Bool {
-        if calledExpression.as(DeclReferenceExprSyntax.self)?.baseName.text == "withoutBlockingCooperativePool" {
+        let offloadHelperNames: Set<String> = ["withoutBlockingCooperativePool", "valueFromDedicatedThread"]
+        if let helperName = calledExpression.as(DeclReferenceExprSyntax.self)?.baseName.text,
+            offloadHelperNames.contains(helperName)
+        {
             return true
         }
         guard let memberAccess = calledExpression.as(MemberAccessExprSyntax.self) else { return false }

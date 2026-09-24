@@ -50,6 +50,13 @@ enum ArchitectureAllowlists {
     /// this list is ownership, not debt.
     static let blockingTestWaitOwners = [
         BlockingWaitOwner(
+            path: "Tests/AgentStudioTestHarness/HeldStep.swift",
+            owner: "HeldStep.arriveBlocking",
+            reason:
+                "The harness-owned blocking arrival: parks only a dedicated thread, and refuses a blocking "
+                + "arrival made from inside a task"
+        ),
+        BlockingWaitOwner(
             path: "Tests/AgentStudioAppIPCTests/AgentStudioAppIPCSocketTestSupport.swift",
             owner: "AppIPC synchronous client shims",
             reason:

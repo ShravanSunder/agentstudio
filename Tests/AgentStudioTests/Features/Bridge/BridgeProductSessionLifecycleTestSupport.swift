@@ -1,3 +1,4 @@
+import AgentStudioTestHarness
 import Foundation
 import Testing
 
@@ -97,17 +98,17 @@ struct BridgeProductSessionLifecycleHarness {
     }
 
     func admitMetadataFrames(through lastSequence: Int) async throws -> BridgeProductProducerLease {
-        let operation = SessionMetadataProducerGate()
+        let operation = HeldStep<BridgeProductProducerLease>("operation")
         let request = try metadataStreamRequest()
         let progressSubscription = try metadataProgressSubscriptionCorrelation()
         let registration = await session.registerMetadataProducer(
             request: request,
             productAdmission: productAdmission.context
         ) { lease in
-            await operation.run(lease)
+            try? await operation.arrive(lease)
         }
         let lease = try #require(lifecycleProducerLease(registration))
-        _ = await operation.waitUntilStarted()
+        _ = try await operation.firstArrival()
 
         let opening = try await session.enqueueRequiredProducerOpeningFrame(
             for: lease,
@@ -477,44 +478,4 @@ private func controlIdentity(
         "wireVersion": BridgeProductWireContract.version,
         "workerInstanceId": "worker-instance-1",
     ]
-}
-
-private actor SessionMetadataProducerGate {
-    private var cancellationContinuation: CheckedContinuation<Void, Never>?
-    private var cancellationWasRequested = false
-    private var startedLease: BridgeProductProducerLease?
-    private var startWaiters: [CheckedContinuation<BridgeProductProducerLease, Never>] = []
-
-    func run(_ lease: BridgeProductProducerLease) async {
-        startedLease = lease
-        let waiters = startWaiters
-        startWaiters.removeAll()
-        for waiter in waiters {
-            waiter.resume(returning: lease)
-        }
-        await withTaskCancellationHandler {
-            await withCheckedContinuation { continuation in
-                if cancellationWasRequested || Task.isCancelled {
-                    continuation.resume()
-                } else {
-                    cancellationContinuation = continuation
-                }
-            }
-        } onCancel: {
-            Task { await self.releaseForCancellation() }
-        }
-    }
-
-    func waitUntilStarted() async -> BridgeProductProducerLease {
-        if let startedLease { return startedLease }
-        return await withCheckedContinuation { continuation in
-            startWaiters.append(continuation)
-        }
-    }
-
-    private func releaseForCancellation() {
-        cancellationWasRequested = true
-        cancellationContinuation?.resume()
-        cancellationContinuation = nil
-    }
 }

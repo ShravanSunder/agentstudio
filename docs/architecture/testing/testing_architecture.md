@@ -71,9 +71,20 @@ AgentStudioSharedComponentsTests   ──► AgentStudioSharedComponents
 AgentStudioCoreTests               ──► AgentStudioCore + AgentStudioTestSupport
 AgentStudio<Feature>Tests          ──► matching Feature + lower modules
 AgentStudioTests                   ──► AgentStudio executable + product modules
+AgentStudioTestHarnessTests        ──► AgentStudioTestHarness
 ```
 
-`AgentStudioTestSupport` depends only on `AgentStudioCore`. Its sources live at
+`AgentStudioTestHarness` depends only on the standard library, Foundation and
+`Synchronization`. Its sources live at
+[`Tests/AgentStudioTestHarness`](../../../Tests/AgentStudioTestHarness) and its
+declarations are `package`. It owns the primitives every test target shares —
+`HeldStep`, `proveReplyDependsOnStep` and `valueFromDedicatedThread` (see
+[How a test may wait](#how-a-test-may-wait)) — so a target that cannot see
+`AgentStudioTestSupport` depends on the harness instead of copying a gate.
+`AgentStudioTestSupport` depends on it too. Its self-tests live in
+[`Tests/AgentStudioTestHarnessTests`](../../../Tests/AgentStudioTestHarnessTests).
+
+`AgentStudioTestSupport` depends on `AgentStudioCore` and `AgentStudioTestHarness`. Its sources live at
 [`Tests/AgentStudioTests/TestSupport`](../../../Tests/AgentStudioTests/TestSupport) (a nested path under the executable test
 folder, a separate SwiftPM target). It provides Core-level fixtures and helpers
 without becoming an App or Feature registry. Infrastructure and SharedComponents
@@ -162,6 +173,8 @@ These are the permitted forms. Anything not in the left column is a poll.
 | --- | --- | --- |
 | State changes and is observable | Await the observed change until a predicate holds | Re-reading the value in a loop |
 | A component or test double knows when something happened | Await its event or completion signal | Polling a counter it keeps |
+| A test double must hold work at one point | A `HeldStep`: await `firstArrival()`, then `release()`, `fail(_:)` or `retire()` | A hand-rolled gate type, a flag read in a loop |
+| A reply must depend on a held dependency's outcome | `proveReplyDependsOnStep` (fail branch and release branch) | "Not replied yet" asserted after a delay |
 | Delivery on a stream or the bus | Subscribe before the stimulus, then await the specific element | Polling subscriber counts or received arrays |
 | Work finishes but announces nothing | Await the owner's quiescence ([Quiescence](#quiescence)) | Yield-and-hope |
 | Something must not happen | Await quiescence, then assert once | "Did not happen in N turns/seconds" |
@@ -174,6 +187,37 @@ complete because a named event, a completion signal, an observed state change,
 or a quiescence signal occurred. The test for whether a wait is a budget: *can
 it expire while the awaited work is correct and still in flight?* If yes, it is
 a budget.
+
+**Holding work: `HeldStep`.** A test double that stands in for a dependency
+holds the work under test with a named
+[`HeldStep`](../../../Tests/AgentStudioTestHarness/HeldStep.swift). The double
+calls `arrive(_:)` at the point it replaces; the test awaits `firstArrival()`,
+which completes because the work got there and returns what arrived, then ends
+the step. The first of `release()`, `fail(_:)` and `retire()` wins and is sticky,
+and one made before any arrival is kept. A cancelled arrival resumes as
+cancelled by default; `.holdThroughCancellation` keeps it held, the way a
+dependency that ignores cancellation behaves, and `cancellationObserved()` is the
+event to await. A synchronous seam reached from a thread that may block (a
+socket accept queue, a thread from `valueFromDedicatedThread`) uses
+`arriveBlocking(_:)`; called from inside a task it parks nothing and fails naming
+the step. No harness wait has a deadline: a step that is never reached leaves the
+test waiting for the hang bound, whose cancellation makes the wait throw
+`HeldStepNeverReached` with the step's name. A lane's own hang bound kills the
+process instead of cancelling the task, so when `AGENTSTUDIO_HELD_STEP_LOG` names a
+file every step appends `waiting` and `arrived` lines there
+([`HeldStepEventLog.swift`](../../../Tests/AgentStudioTestHarness/HeldStepEventLog.swift)),
+and a step with a wait and no arrival is the one never reached. Do not add a new
+gate type; the existing ones are frozen by the lint baseline and move onto
+`HeldStep`.
+
+**Causal replies: `proveReplyDependsOnStep`.** Where a boundary's held
+dependency can report failure through its own contract, prove that the reply
+comes from the effect rather than from starting it: the helper builds a fresh
+scenario twice, fails the step in one and releases it in the other, and requires
+the reply to report failure and success respectively. A reply produced before the
+step finishes cannot depend on it, so an early reply fails the test with no clock
+and no quiescence wait. The helper never invents an error the boundary does not
+have.
 
 **One hang bound, never tuned.** The only elapsed-time bound permitted in a test
 is the runner-owned hang bound: the framework's time limit on the test, and the
@@ -203,8 +247,10 @@ a semaphore, a lock held across long work, or synchronous I/O. On three cores
 there are three threads; the in-process IPC server answers every accepted
 connection from a `Task` on that same pool, so a test blocking there is starving
 the server it is waiting on. Route the block through
+[`valueFromDedicatedThread`](../../../Tests/AgentStudioTestHarness/DedicatedThreadWork.swift),
+which lands it on a thread of its own, or through
 [`withoutBlockingCooperativePool`](../../../Tests/AgentStudioTests/TestSupport/BlockingWorkOffCooperativePool.swift),
-which lands it on libdispatch. `@concurrent` is not a substitute — it still
+which delegates to it. `@concurrent` is not a substitute — it still
 draws from the cooperative pool. The
 `agentstudio_test_blocking_wait_off_cooperative_pool` lint rule enforces this.
 
@@ -267,11 +313,20 @@ production owner.
 
 ## Harness catalog
 
+[`Tests/AgentStudioTestHarness/`](../../../Tests/AgentStudioTestHarness), the Core-free `AgentStudioTestHarness`
+target that every test target may depend on:
+
+| Harness | What it fakes or controls | The wait it enables |
+| --- | --- | --- |
+| `HeldStep.swift` | One named point where a test double holds the work under test | `firstArrival()` returns what arrived; `cancellationObserved()` for hold-through-cancellation interleavings; no deadlines |
+| `ReplyDependsOnStepProof.swift` | Two fresh scenarios, one failed and one released at the held step | `proveReplyDependsOnStep` rejects a reply that does not depend on the step's outcome |
+| `DedicatedThreadWork.swift` | Nothing; it runs blocking work on a thread of its own | `valueFromDedicatedThread` returns the blocking work's value without parking a cooperative thread |
+
 Everything in [`Tests/AgentStudioTests/TestSupport/`](../../../Tests/AgentStudioTests/TestSupport), the `AgentStudioTestSupport` target.
 
 | Harness | What it fakes or controls | The wait it enables |
 | --- | --- | --- |
-| `BlockingWorkOffCooperativePool.swift` | Nothing; it moves blocking work to a libdispatch thread | Lets a test wait on process exit, a semaphore, or a socket read without parking a cooperative thread |
+| `BlockingWorkOffCooperativePool.swift` | Nothing; it delegates to the harness's `valueFromDedicatedThread` | Lets a test wait on process exit, a semaphore, or a socket read without parking a cooperative thread |
 | `TestPushClock.swift` | A `Clock` the test advances by hand | Time as subject: advance, then await quiescence. Never real time |
 | `EventBusHarness.swift` | A real `EventBus` with a recording subscriber and an actor-backed buffer | `RecordedEventBuffer` resumes a stored continuation the moment a matching envelope arrives — await the element, not a count |
 | `RuntimeEnvelopeHarness.swift` | Typed envelope records for system, worktree, and pane scopes | Assert on the exact fact that was posted |

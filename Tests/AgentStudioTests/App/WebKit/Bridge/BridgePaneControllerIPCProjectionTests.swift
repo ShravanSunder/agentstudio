@@ -1,4 +1,5 @@
 import AgentStudioProgrammaticControl
+import AgentStudioTestHarness
 import Foundation
 import Testing
 
@@ -343,7 +344,7 @@ extension WebKitSerializedTests {
                 contentHash: bridgeSHA256ContentHash("let value = 1\n"),
                 sizeBytes: 14
             )
-            let gate = BridgeContentLoadGate()
+            let gate = HeldStep<Void>("gate", cancellation: .holdThroughCancellation)
             let provider = BridgeReviewSourceProviderFake(
                 comparison: BridgeEndpointComparison(
                     baseEndpoint: makeBridgeEndpoint(endpointId: "index", kind: .index),
@@ -372,7 +373,7 @@ extension WebKitSerializedTests {
 
             #expect(result.handle.handleId == handle.handleId)
             #expect(await provider.recordedContentRequestsCount() == 0)
-            await gate.releaseAll()
+            gate.release()
         }
 
         @Test("IPC content descriptor reflects active handle after byte cap tightens")
