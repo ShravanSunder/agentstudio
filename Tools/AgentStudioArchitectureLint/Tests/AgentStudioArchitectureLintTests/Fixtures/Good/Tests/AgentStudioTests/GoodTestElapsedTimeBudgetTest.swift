@@ -17,6 +17,13 @@ struct GoodTestElapsedTimeBudgetTest {
         await withoutBlockingCooperativePool { semaphore.wait() }
     }
 
+    func waitsOnExplicitInitUntimedOffThePool() async {
+        await withoutBlockingCooperativePool {
+            DispatchSemaphore.init(value: 0).wait()
+            DispatchGroup.init().wait()
+        }
+    }
+
     func readsTheFileEvent(fixture: LauncherFixture, url: URL) async throws {
         try await fixture.waitForFile(url, containing: "ready")
     }

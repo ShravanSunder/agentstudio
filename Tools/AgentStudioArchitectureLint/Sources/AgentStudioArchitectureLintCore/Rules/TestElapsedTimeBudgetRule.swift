@@ -205,7 +205,11 @@ private final class ElapsedTimeBudgetVisitor: SyntaxVisitor {
             return
         }
         let calleeName = memberAccess.declName.baseName.text
-        recordProcessExecutor(named: calleeName, node: node)
+        let processExecutorName =
+            calleeName == "init"
+            ? memberAccess.base?.finalMemberName ?? calleeName
+            : calleeName
+        recordProcessExecutor(named: processExecutorName, node: node)
         recordFileWaitBudget(named: calleeName, node: node)
         if calleeName == "asyncAfter" {
             record(
@@ -283,7 +287,18 @@ private final class ElapsedTimeBudgetVisitor: SyntaxVisitor {
 }
 
 extension ExprSyntax {
-    /// `DispatchSemaphore(value: 0)` or `DispatchGroup()`, optionally module-qualified.
+    fileprivate var finalMemberName: String? {
+        if let reference = self.as(DeclReferenceExprSyntax.self) {
+            return reference.baseName.text
+        }
+        if let memberAccess = self.as(MemberAccessExprSyntax.self) {
+            return memberAccess.declName.baseName.text
+        }
+        return nil
+    }
+
+    /// `DispatchSemaphore(value: 0)`, `DispatchSemaphore.init(value: 0)`, or
+    /// `DispatchGroup()`, optionally module-qualified.
     fileprivate var isDispatchWaitableConstruction: Bool {
         guard let call = self.as(FunctionCallExprSyntax.self) else {
             return false
@@ -292,6 +307,9 @@ extension ExprSyntax {
             return DispatchWaitableType.names.contains(reference.baseName.text)
         }
         if let memberAccess = call.calledExpression.as(MemberAccessExprSyntax.self) {
+            if memberAccess.declName.baseName.text == "init" {
+                return memberAccess.base?.finalMemberName.map(DispatchWaitableType.names.contains) ?? false
+            }
             return DispatchWaitableType.names.contains(memberAccess.declName.baseName.text)
         }
         return false

@@ -38,3 +38,16 @@ final class BudgetedRelease: @unchecked Sendable {
 func waitsForFileWithBudget(fixture: LauncherFixture, url: URL) throws {
     try fixture.waitForFile(url, containing: "ready", timeoutSeconds: 5)
 }
+
+func runsScriptUnderExplicitInitTimeout() async throws {
+    _ = try await DefaultProcessExecutor.init(timeout: 10).execute(
+        command: "bash", args: [], cwd: nil, environment: nil)
+}
+
+func waitsForSemaphoreInitWithDeadline() async {
+    _ = await DispatchSemaphore.init(value: 0).wait(timeout: .now() + 20)
+}
+
+func waitsForGroupInitWithWallDeadline() async {
+    _ = await DispatchGroup.init().wait(wallTimeout: .now() + 5)
+}

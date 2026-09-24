@@ -17,7 +17,7 @@ struct ElapsedTimeBudgetRuleTests {
             $0.ruleID == Self.ruleID && $0.path.hasSuffix("BadTestElapsedTimeBudgetTest.swift")
         }
 
-        #expect(badDiagnostics.map(\.line) == [5, 9, 13, 19, 23, 30, 34, 39])
+        #expect(badDiagnostics.map(\.line) == [5, 9, 13, 19, 23, 30, 34, 39, 43, 48, 52])
     }
 
     @Test("leaves run-to-exit, untimed waits, product timeouts, and unrelated wait(timeout:) alone")
