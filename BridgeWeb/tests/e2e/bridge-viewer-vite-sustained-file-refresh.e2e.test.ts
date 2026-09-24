@@ -162,7 +162,7 @@ test('retains the scrolled selected File through sixteen distinct worktree edits
 			...(primaryFailure === null ? {} : { primaryError: primaryFailure.error }),
 		});
 	}
-}, 120_000);
+});
 
 async function observeFileScrollRetention(page: Page): Promise<JSHandle<FileScrollRetentionProbe>> {
 	return await page.evaluateHandle((): FileScrollRetentionProbe => {
