@@ -1,6 +1,7 @@
 import type { LineAnnotation } from '@pierre/diffs';
 import { describe, expect, test, vi } from 'vitest';
 
+import type { BridgeProductWorktreeAnnotationSubject } from '../../core/comm-worker/bridge-product-worktree-annotation-contracts.js';
 import {
 	makeBridgeReviewItem,
 	makeBridgeReviewPackage,
@@ -198,6 +199,11 @@ function threadAnnotation(threadId: string, presentationIdentity: string): LineA
 	});
 }
 
+const threadOwnerSubject: BridgeProductWorktreeAnnotationSubject = {
+	kind: 'git',
+	worktreeId: 'worktree-1',
+};
+
 function threadOwnerContext(path: string): WorktreeAnnotationThreadContext {
 	return {
 		diffSide: 'additions' as const,
@@ -209,6 +215,7 @@ function threadOwnerContext(path: string): WorktreeAnnotationThreadContext {
 		sourceIdentity: `source:${path}`,
 		sourceRole: 'review_head' as const,
 		startLine: 2,
+		subject: threadOwnerSubject,
 		threadId: `thread:${path}`,
 	};
 }

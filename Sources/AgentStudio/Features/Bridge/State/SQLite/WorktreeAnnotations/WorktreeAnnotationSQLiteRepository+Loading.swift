@@ -29,7 +29,9 @@ extension WorktreeAnnotationSQLiteRepository {
         _ database: Database,
         props: CreateRootDraftProps
     ) throws -> WorktreeAnnotationSessionID {
-        let subjectPredicate = props.sourceFingerprint.subject.sessionRowPredicate()
+        let subjectPredicate = WorktreeAnnotationSubject.sessionRowPredicate(
+            for: [props.sourceFingerprint.subject]
+        )
         let candidateRows = try Row.fetchAll(
             database,
             sql: """
@@ -134,7 +136,7 @@ extension WorktreeAnnotationSQLiteRepository {
                 subject.sessionKind,
                 subject.gitRepositoryID,
                 subject.gitWorktreeID,
-                subject.localDocumentPath,
+                subject.localDocument?.canonicalPath,
                 fingerprintJSON,
                 reviewedSubjectJSON,
                 props.now.timeIntervalSince1970,

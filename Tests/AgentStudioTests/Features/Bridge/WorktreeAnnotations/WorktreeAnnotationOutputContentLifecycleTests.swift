@@ -429,7 +429,7 @@ private func prepareSavedOutput(
         )
     ]
     let projection = try await firstStore.captureProjection(
-        subject: savedFixture.detail.session.subject,
+        subjects: [savedFixture.detail.session.subject],
         demandedSessionIDs: [savedFixture.detail.session.id]
     )
     _ = try await firstStore.prepareOutput(

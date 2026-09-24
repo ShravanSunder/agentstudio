@@ -4,6 +4,7 @@ import type { BridgeWorkerAnnotationProjectionSnapshot } from '../core/comm-work
 import { createBridgeMainRenderFulfillmentCoordinator } from '../core/comm-worker/bridge-main-render-fulfillment-coordinator.js';
 import { createBridgeMainRenderSnapshotStore } from '../core/comm-worker/bridge-main-render-snapshot-store.js';
 import type { BridgePaneSurfaceClient } from '../core/comm-worker/bridge-pane-runtime.js';
+import type { BridgeProductWorktreeAnnotationSubject } from '../core/comm-worker/bridge-product-worktree-annotation-contracts.js';
 import {
 	BRIDGE_WORKER_WIRE_VERSION,
 	type BridgeWorkerServerToMainMessage,
@@ -20,6 +21,10 @@ const sessionId = '00000000-0000-7000-8000-000000000011';
 const siblingSessionId = '00000000-0000-7000-8000-000000000014';
 const threadId = '00000000-0000-7000-8000-000000000012';
 const messageId = '00000000-0000-7000-8000-000000000013';
+const annotationSubject: BridgeProductWorktreeAnnotationSubject = {
+	kind: 'git',
+	worktreeId: 'worktree-1',
+};
 
 describe('worktree annotation finite projection store', () => {
 	test('installs one complete finite snapshot atomically', () => {
@@ -35,7 +40,7 @@ describe('worktree annotation finite projection store', () => {
 			presentationRevision: 2,
 			revision: 4,
 			readStatus: { kind: 'ready' },
-			worktreeId: 'worktree-1',
+			scopeKey: 'worktree-1',
 		});
 		expect(store.getSnapshot().threads[0]?.messages[0]?.messageId).toBe(messageId);
 	});
@@ -399,6 +404,7 @@ describe('worktree annotation surface command rendezvous', () => {
 						sourceIdentity: 'source-1',
 						sourceRole: 'file',
 						startLine: 3,
+						subject: annotationSubject,
 						threadId,
 					},
 					kind: 'message',
@@ -687,7 +693,7 @@ function catalogStagingMessages(
 	const authority = {
 		subscriptionId: `${surface}-annotation-subscription-1`,
 		workerDerivationEpoch: 1,
-		worktreeId: 'worktree-1',
+		scopeKey: 'worktree-1',
 	} as const;
 	const transferId = `${surface}-annotation-catalog-${catalogRevision}`;
 	const entries = includeSession
@@ -802,6 +808,7 @@ function projectionSnapshot(
 				semanticRevision: projectionRevision,
 				sessionId,
 				sourceRelationship: 'applicable',
+				subject: annotationSubject,
 				updatedAt: 2,
 			},
 		],
@@ -818,6 +825,7 @@ function projectionSnapshot(
 					sourceIdentity: 'source-1',
 					sourceRole: 'file',
 					startLine: 3,
+					subject: annotationSubject,
 					threadId,
 				},
 				messages: [
@@ -841,7 +849,7 @@ function projectionSnapshot(
 				],
 			},
 		],
-		worktreeId: 'worktree-1',
+		scopeKey: 'worktree-1',
 	};
 }
 

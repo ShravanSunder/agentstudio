@@ -10,7 +10,7 @@ struct WorktreeAnnotationMetadataEventContractTests {
     func catalogEventRoundTripsInsideProductMetadataFrame() throws {
         // Arrange
         let authority = try BridgeProductWorktreeAnnotationEvent.Authority(
-            worktreeID: "worktree-1",
+            scopeKey: "worktree-1",
             applicationSourceGeneration: 7
         )
         let sessionID = WorktreeAnnotationSessionID(rawValue: UUIDv7.generate())
@@ -71,7 +71,7 @@ struct WorktreeAnnotationMetadataEventContractTests {
     func eventVariantsRoundTrip() throws {
         // Arrange
         let authority = try BridgeProductWorktreeAnnotationEvent.Authority(
-            worktreeID: "worktree-1",
+            scopeKey: "worktree-1",
             applicationSourceGeneration: 7
         )
         let sessionID = WorktreeAnnotationSessionID(rawValue: UUIDv7.generate())
@@ -218,7 +218,7 @@ struct WorktreeAnnotationMetadataEventContractTests {
         let event = BridgeProductWorktreeAnnotationEvent.controlChanged(
             .init(
                 authority: try .init(
-                    worktreeID: "worktree-1",
+                    scopeKey: "worktree-1",
                     applicationSourceGeneration: 7
                 ),
                 reason: .discovery

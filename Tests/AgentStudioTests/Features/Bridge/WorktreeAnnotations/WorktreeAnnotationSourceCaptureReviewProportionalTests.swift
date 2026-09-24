@@ -393,7 +393,7 @@ struct ReviewAnnotationProportionalSourceCaptureTests {
             )
         }
         return BridgeProductAnnotationProjectionCapture(
-            subject: evaluated.session.subject,
+            scope: .testScope(evaluated.session.subject),
             recoveryStatus: .available,
             sessions: [evaluated.session],
             details: [

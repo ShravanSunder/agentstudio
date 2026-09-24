@@ -46,8 +46,8 @@ struct WorktreeAnnotationSubjectMigrationTests {
 
         // Assert: the repository reads each migrated session back under its Git subject and fingerprint.
         let repository = WorktreeAnnotationSQLiteRepository(databaseWriter: databaseQueue)
-        let reviewSessions = try repository.discoverSessions(subject: fixture.reviewFingerprint.subject)
-        let fileSessions = try repository.discoverSessions(subject: fixture.fileFingerprint.subject)
+        let reviewSessions = try repository.discoverSessions(subjects: [fixture.reviewFingerprint.subject])
+        let fileSessions = try repository.discoverSessions(subjects: [fixture.fileFingerprint.subject])
         #expect(reviewSessions.map(\.id.rawValue) == [fixture.reviewSessionID])
         #expect(reviewSessions.first?.acceptedSourceFingerprint == fixture.reviewFingerprint)
         #expect(fileSessions.map(\.id.rawValue) == [fixture.fileSessionID])

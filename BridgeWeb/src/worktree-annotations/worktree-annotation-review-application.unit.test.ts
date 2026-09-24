@@ -8,6 +8,7 @@ import {
 } from '../core/comm-worker/bridge-main-render-snapshot-store.js';
 import type { BridgePaneSurfaceClient } from '../core/comm-worker/bridge-pane-runtime.js';
 import type { BridgeProductReviewAnnotationPublicationIdentity } from '../core/comm-worker/bridge-product-call-contracts.js';
+import type { BridgeProductWorktreeAnnotationSubject } from '../core/comm-worker/bridge-product-worktree-annotation-contracts.js';
 import {
 	BRIDGE_WORKER_WIRE_VERSION,
 	type BridgeWorkerServerToMainMessage,
@@ -21,6 +22,10 @@ import {
 const sessionId = '00000000-0000-7000-8000-000000000011';
 const threadId = '00000000-0000-7000-8000-000000000012';
 const messageId = '00000000-0000-7000-8000-000000000013';
+const annotationSubject: BridgeProductWorktreeAnnotationSubject = {
+	kind: 'git',
+	worktreeId: 'worktree-1',
+};
 const firstIdentity = reviewIdentity(1, '41');
 
 describe('Review annotation application checkpoint', () => {
@@ -349,6 +354,7 @@ function projectionSnapshot(projectionRevision: number): BridgeWorkerAnnotationP
 				semanticRevision: projectionRevision,
 				sessionId,
 				sourceRelationship: 'applicable',
+				subject: annotationSubject,
 				updatedAt: 2,
 			},
 		],
@@ -365,6 +371,7 @@ function projectionSnapshot(projectionRevision: number): BridgeWorkerAnnotationP
 					sourceIdentity: 'source-1',
 					sourceRole: 'review_head',
 					startLine: 3,
+					subject: annotationSubject,
 					threadId,
 				},
 				messages: [
@@ -388,7 +395,7 @@ function projectionSnapshot(projectionRevision: number): BridgeWorkerAnnotationP
 				],
 			},
 		],
-		worktreeId: 'worktree-1',
+		scopeKey: 'worktree-1',
 	};
 }
 
@@ -399,7 +406,7 @@ function annotationCatalogStagingMessages(): readonly Extract<
 	const authority = {
 		subscriptionId: 'review-annotation-subscription-1',
 		workerDerivationEpoch: 1,
-		worktreeId: 'worktree-1',
+		scopeKey: 'worktree-1',
 	} as const;
 	const transferId = 'review-annotation-catalog-1';
 	const entries = [

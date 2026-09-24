@@ -16,7 +16,7 @@ struct WorktreeAnnotationStoreTests {
             repositoryAccess: ImmediateWorktreeAnnotationAccess(detail: try makeCommittedDetail()),
             lifecycleTraceRecorder: recorder
         )
-        let observer = await service.registerChangeObserver(subject: defaultAnnotationSubject)
+        let observer = await service.registerChangeObserver(scope: .testScope(defaultAnnotationSubject))
         var iterator = observer.stream.makeAsyncIterator()
         let predecessorID = String(repeating: "a", count: 64)
         let successorID = String(repeating: "b", count: 64)
@@ -68,8 +68,8 @@ struct WorktreeAnnotationStoreTests {
         let service = WorktreeAnnotationServiceActor(
             repositoryAccess: RepositoryBackedWorktreeAnnotationAccess(repository: repository)
         )
-        let observerA = await service.registerChangeObserver(subject: defaultAnnotationSubject)
-        let observerB = await service.registerChangeObserver(subject: defaultAnnotationSubject)
+        let observerA = await service.registerChangeObserver(scope: .testScope(defaultAnnotationSubject))
+        let observerB = await service.registerChangeObserver(scope: .testScope(defaultAnnotationSubject))
         var iteratorA = observerA.stream.makeAsyncIterator()
         var iteratorB = observerB.stream.makeAsyncIterator()
 
@@ -80,10 +80,10 @@ struct WorktreeAnnotationStoreTests {
 
         let changeA = try #require(await iteratorA.next())
         let changeB = try #require(await iteratorB.next())
-        #expect(changeA.subject == defaultAnnotationSubject)
+        #expect(changeA.scopeKey == WorktreeAnnotationScope.testScope(defaultAnnotationSubject).key)
         #expect(changeA.disposition == .catalog)
         #expect(changeA.operationCorrelationID.count == 64)
-        #expect(changeB.subject == changeA.subject)
+        #expect(changeB.scopeKey == changeA.scopeKey)
         #expect(changeB.disposition == .catalog)
         #expect(changeB.operationCorrelationID == changeA.operationCorrelationID)
         await service.removeChangeObserver(token: observerA.token)
@@ -183,9 +183,9 @@ struct WorktreeAnnotationStoreTests {
             lifecycleTraceRecorder: traceRecorder
         )
         let props = makeCreateRootDraftProps()
-        let retiredObserver = await store.registerChangeObserver(subject: defaultAnnotationSubject)
+        let retiredObserver = await store.registerChangeObserver(scope: .testScope(defaultAnnotationSubject))
         var retiredIterator = retiredObserver.stream.makeAsyncIterator()
-        let committedObserver = await store.registerChangeObserver(subject: defaultAnnotationSubject)
+        let committedObserver = await store.registerChangeObserver(scope: .testScope(defaultAnnotationSubject))
         var committedIterator = committedObserver.stream.makeAsyncIterator()
 
         let mutation = Task { try await store.createRootDraft(props) }
@@ -204,7 +204,7 @@ struct WorktreeAnnotationStoreTests {
             Issue.record("Expected correlated committed invalidation")
             return
         }
-        #expect(committedChange.subject == defaultAnnotationSubject)
+        #expect(committedChange.scopeKey == WorktreeAnnotationScope.testScope(defaultAnnotationSubject).key)
         #expect(committedChange.disposition == .catalog)
         #expect(committedChange.operationCorrelationID == startedEvents.first?.operationCorrelationID)
         #expect(
@@ -218,7 +218,7 @@ struct WorktreeAnnotationStoreTests {
     func failedMutationEmitsNoInvalidation() async throws {
         let access = ControllableWorktreeAnnotationAccess()
         let store = WorktreeAnnotationServiceActor(repositoryAccess: access)
-        let observer = await store.registerChangeObserver(subject: defaultAnnotationSubject)
+        let observer = await store.registerChangeObserver(scope: .testScope(defaultAnnotationSubject))
         var iterator = observer.stream.makeAsyncIterator()
 
         let mutation = Task { try await store.createRootDraft(makeCreateRootDraftProps()) }
@@ -239,13 +239,13 @@ struct WorktreeAnnotationStoreTests {
         let store = WorktreeAnnotationServiceActor(repositoryAccess: access)
 
         _ = try await store.acquireDemand(
-            subject: defaultAnnotationSubject,
+            subjects: [defaultAnnotationSubject],
             contextID: "pane-b",
             surface: .file,
             sessionID: detail.session.id
         )
         _ = try await store.acquireDemand(
-            subject: defaultAnnotationSubject,
+            subjects: [defaultAnnotationSubject],
             contextID: "pane-a",
             surface: .file,
             sessionID: detail.session.id
@@ -254,13 +254,11 @@ struct WorktreeAnnotationStoreTests {
         #expect(await access.detailLoadCount == 2)
 
         await store.releaseDemand(
-            subject: defaultAnnotationSubject,
             contextID: "pane-b",
             surface: .file,
             sessionID: detail.session.id
         )
         await store.releaseDemand(
-            subject: defaultAnnotationSubject,
             contextID: "pane-a",
             surface: .file,
             sessionID: detail.session.id
@@ -269,7 +267,7 @@ struct WorktreeAnnotationStoreTests {
         #expect(await access.mutationCount == 0)
 
         _ = try await store.acquireDemand(
-            subject: defaultAnnotationSubject,
+            subjects: [defaultAnnotationSubject],
             contextID: "pane-a",
             surface: .file,
             sessionID: detail.session.id
@@ -288,7 +286,7 @@ struct WorktreeAnnotationStoreTests {
         )
         let access = ImmediateWorktreeAnnotationAccess(detail: try makeCommittedDetail(), witness: witness)
         let store = WorktreeAnnotationServiceActor(repositoryAccess: access)
-        let observer = await store.registerChangeObserver(subject: defaultAnnotationSubject)
+        let observer = await store.registerChangeObserver(scope: .testScope(defaultAnnotationSubject))
         var iterator = observer.stream.makeAsyncIterator()
 
         await store.restoreRecoveryState()
@@ -517,13 +515,13 @@ struct WorktreeAnnotationStoreTests {
 
         await #expect(throws: WorktreeAnnotationRepositoryError.invalidState) {
             try await store.acquireDemand(
-                subject: defaultAnnotationSubject,
+                subjects: [defaultAnnotationSubject],
                 contextID: "pane-a",
                 surface: .file,
                 sessionID: WorktreeAnnotationSessionID.generate()
             )
         }
-        #expect(try await store.discoverSessions(subject: defaultAnnotationSubject).isEmpty)
+        #expect(try await store.discoverSessions(subjects: [defaultAnnotationSubject]).isEmpty)
     }
 
     @Test("source refresh fences are context scoped and stale epochs cannot overwrite durable state")
@@ -534,7 +532,7 @@ struct WorktreeAnnotationStoreTests {
         )
         let detail = try await store.createRootDraft(makeLocatedRootDraftProps())
         let paneADemandGeneration = try await store.acquireDemand(
-            subject: detail.session.subject,
+            subjects: [detail.session.subject],
             contextID: "pane-a",
             surface: .file,
             sessionID: detail.session.id
@@ -561,7 +559,7 @@ struct WorktreeAnnotationStoreTests {
         )
         let afterFirstRefresh = try repository.fetchSessionDetail(sessionID: detail.session.id)
         let paneBDemandGeneration = try await store.acquireDemand(
-            subject: detail.session.subject,
+            subjects: [detail.session.subject],
             contextID: "pane-b",
             surface: .file,
             sessionID: detail.session.id
@@ -618,7 +616,7 @@ struct WorktreeAnnotationStoreTests {
         )
         let initialDetail = try await store.createRootDraft(makeLocatedRootDraftProps())
         let demandGeneration = try await store.acquireDemand(
-            subject: initialDetail.session.subject,
+            subjects: [initialDetail.session.subject],
             contextID: "pane-a",
             surface: .file,
             sessionID: initialDetail.session.id
@@ -794,7 +792,7 @@ private actor ControllableWorktreeAnnotationAccess: WorktreeAnnotationRepository
         createContinuation = nil
     }
 
-    func discoverSessions(subject _: WorktreeAnnotationSubject) async throws -> [WorktreeAnnotationSession] { [] }
+    func discoverSessions(subjects _: Set<WorktreeAnnotationSubject>) async throws -> [WorktreeAnnotationSession] { [] }
 
     func fetchSessionDetail(sessionID _: WorktreeAnnotationSessionID) async throws
         -> WorktreeAnnotationSessionDetail
@@ -833,7 +831,7 @@ private actor ImmediateWorktreeAnnotationAccess: WorktreeAnnotationRepositoryAcc
         self.witness = witness
     }
 
-    func discoverSessions(subject _: WorktreeAnnotationSubject) async throws -> [WorktreeAnnotationSession] {
+    func discoverSessions(subjects _: Set<WorktreeAnnotationSubject>) async throws -> [WorktreeAnnotationSession] {
         [detail.session]
     }
 
@@ -872,7 +870,7 @@ private actor ImmediateWorktreeAnnotationAccess: WorktreeAnnotationRepositoryAcc
 }
 
 private actor FailingHydrationWorktreeAnnotationAccess: WorktreeAnnotationRepositoryAccess {
-    func discoverSessions(subject _: WorktreeAnnotationSubject) async throws -> [WorktreeAnnotationSession] { [] }
+    func discoverSessions(subjects _: Set<WorktreeAnnotationSubject>) async throws -> [WorktreeAnnotationSession] { [] }
 
     func fetchSessionDetail(sessionID _: WorktreeAnnotationSessionID) async throws
         -> WorktreeAnnotationSessionDetail
@@ -918,7 +916,7 @@ private func isCatalogChange(
     _ change: WorktreeAnnotationChange?,
     subject: WorktreeAnnotationSubject
 ) -> Bool {
-    change?.subject == subject
+    change?.scopeKey == WorktreeAnnotationScope.testScope(subject).key
         && change?.disposition == .catalog
         && change?.operationCorrelationID.count == 64
 }
@@ -927,7 +925,7 @@ private func isRecoveryControlChange(
     _ change: WorktreeAnnotationChange?,
     subject: WorktreeAnnotationSubject
 ) -> Bool {
-    change?.subject == subject
+    change?.scopeKey == WorktreeAnnotationScope.testScope(subject).key
         && change?.disposition == .control(.recovery)
         && change?.operationCorrelationID.count == 64
 }

@@ -28,6 +28,13 @@ const memberGroupsEvent = {
 		memberGroup('feature', '0198f3a2-0000-7000-8000-00000000000b'),
 	],
 	membershipRevision: 2,
+	openedDocuments: [
+		{
+			displayPath: 'Open Files/notes.md',
+			documentLocation: '/Users/example/notes.md',
+			identityPrefix: 'd0123456789ab.',
+		},
+	],
 	source,
 } as const;
 

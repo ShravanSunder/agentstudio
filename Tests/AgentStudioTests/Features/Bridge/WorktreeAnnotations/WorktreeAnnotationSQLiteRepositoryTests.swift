@@ -124,7 +124,7 @@ struct WorktreeAnnotationSQLiteRepositoryTests {
         let repository = try makeRepository()
         let sourceFingerprint = makeSourceFingerprint(worktreeID: "worktree-1")
 
-        #expect(try repository.discoverSessions(subject: defaultAnnotationSubject).isEmpty)
+        #expect(try repository.discoverSessions(subjects: [defaultAnnotationSubject]).isEmpty)
 
         let first = try repository.createRootDraft(
             .init(
@@ -136,7 +136,7 @@ struct WorktreeAnnotationSQLiteRepositoryTests {
                 now: Date(timeIntervalSince1970: 10)
             )
         ).canonicalResult
-        let discovery = try repository.discoverSessions(subject: defaultAnnotationSubject)
+        let discovery = try repository.discoverSessions(subjects: [defaultAnnotationSubject])
         #expect(discovery.map(\.id) == [first.session.id])
 
         let completedFirst = try repository.setSessionLifecycle(
@@ -170,7 +170,7 @@ struct WorktreeAnnotationSQLiteRepositoryTests {
             )
         )
         #expect(first.session.id != second.session.id)
-        #expect(try repository.discoverSessions(subject: defaultAnnotationSubject).count == 2)
+        #expect(try repository.discoverSessions(subjects: [defaultAnnotationSubject]).count == 2)
 
         #expect(
             throws: WorktreeAnnotationRepositoryError.sessionSelectionRequired(
@@ -242,7 +242,7 @@ struct WorktreeAnnotationSQLiteRepositoryTests {
         )
 
         let snapshot = try repository.fetchProjectionSnapshot(
-            subject: defaultAnnotationSubject,
+            subjects: [defaultAnnotationSubject],
             demandedSessionIDs: [second.session.id]
         )
 
@@ -252,7 +252,7 @@ struct WorktreeAnnotationSQLiteRepositoryTests {
 
         #expect(throws: WorktreeAnnotationRepositoryError.notFound) {
             try repository.fetchProjectionSnapshot(
-                subject: .git(repositoryID: "repo-1", worktreeID: "another-worktree"),
+                subjects: [.git(repositoryID: "repo-1", worktreeID: "another-worktree")],
                 demandedSessionIDs: [first.session.id]
             )
         }
@@ -358,7 +358,7 @@ struct WorktreeAnnotationSQLiteRepositoryTests {
                 )
             )
         }
-        #expect(try repository.discoverSessions(subject: defaultAnnotationSubject).count == 1)
+        #expect(try repository.discoverSessions(subjects: [defaultAnnotationSubject]).count == 1)
     }
 
     @Test("draft save revert replies and resolution use revisions and flat ordering")

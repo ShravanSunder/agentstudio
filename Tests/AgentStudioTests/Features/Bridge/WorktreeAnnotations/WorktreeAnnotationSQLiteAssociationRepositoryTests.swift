@@ -93,8 +93,8 @@ struct WorktreeAnnotationSQLiteAssociationRepositoryTests {
         #expect(moved.detail.session.semanticRevision == original.session.semanticRevision + 1)
         let previousSubject = makeSourceFingerprint(worktreeID: "worktree-a").subject
         let currentSubject = makeSourceFingerprint(worktreeID: "worktree-b").subject
-        #expect(try repository.discoverSessions(subject: previousSubject).isEmpty)
-        #expect(try repository.discoverSessions(subject: currentSubject).map(\.id) == [original.session.id])
+        #expect(try repository.discoverSessions(subjects: [previousSubject]).isEmpty)
+        #expect(try repository.discoverSessions(subjects: [currentSubject]).map(\.id) == [original.session.id])
 
         #expect(
             throws: WorktreeAnnotationRepositoryError.conflict(currentRevision: moved.detail.session.semanticRevision)
@@ -132,7 +132,7 @@ struct WorktreeAnnotationSQLiteAssociationRepositoryTests {
 
         #expect(secondRoot.session.id == first.session.id)
         #expect(secondRoot.threads.count == 2)
-        #expect(try repository.discoverSessions(subject: defaultAnnotationSubject).count == 1)
+        #expect(try repository.discoverSessions(subjects: [defaultAnnotationSubject]).count == 1)
     }
 }
 

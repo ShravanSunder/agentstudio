@@ -1,6 +1,7 @@
 import type { LineAnnotation, SelectedLineRange } from '@pierre/diffs';
 import { describe, expect, test } from 'vitest';
 
+import type { BridgeProductWorktreeAnnotationSubject } from '../core/comm-worker/bridge-product-worktree-annotation-contracts.js';
 import { makeBridgeReviewItem } from '../foundation/review-package/bridge-review-package-test-support.js';
 import {
 	fileAnnotationOriginForPierreSelection,
@@ -363,6 +364,11 @@ describe('worktree annotation Pierre adapter', () => {
 	});
 });
 
+const annotationSubject: BridgeProductWorktreeAnnotationSubject = {
+	kind: 'git',
+	worktreeId: 'worktree-1',
+};
+
 function erasedPierreLineAnnotation(lineNumber: number, metadata: unknown): LineAnnotation {
 	const annotation: LineAnnotation = { lineNumber };
 	Object.defineProperty(annotation, 'metadata', { enumerable: true, value: metadata });
@@ -380,6 +386,7 @@ function threadProjection(
 		scope: 'located',
 		sourceIdentity: overrides.sourceIdentity ?? 'source-1',
 		startLine: overrides.startLine ?? 5,
+		subject: overrides.subject ?? annotationSubject,
 		threadId: overrides.threadId ?? '00000000-0000-7000-8000-000000000012',
 	} as const;
 	const context: WorktreeAnnotationThreadProjection['context'] =
@@ -432,6 +439,7 @@ function commandConfirmedThread(): WorktreeAnnotationCommandConfirmedThreadProje
 			sourceIdentity: 'source-command',
 			sourceRole: 'review_head',
 			startLine: 5,
+			subject: annotationSubject,
 			threadId: '00000000-0000-7000-8000-000000000071',
 		},
 		messages: [],

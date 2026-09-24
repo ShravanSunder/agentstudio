@@ -11,7 +11,7 @@ import {
 export interface BridgeCommWorkerAnnotationCatalogAuthority {
 	readonly subscriptionId: string;
 	readonly workerDerivationEpoch: number;
-	readonly worktreeId: string;
+	readonly scopeKey: string;
 }
 
 export interface BridgeCommWorkerAnnotationCatalog {
@@ -97,7 +97,7 @@ export class BridgeCommWorkerAnnotationCatalogApplicator {
 	}
 
 	accept(event: AnnotationCatalogEvent): BridgeCommWorkerAnnotationCatalogApplicatorResult {
-		if (event.authority.worktreeId !== this.#expectedAuthority.worktreeId) {
+		if (event.authority.scopeKey !== this.#expectedAuthority.scopeKey) {
 			return { reason: 'unexpected_authority', status: 'rejected' };
 		}
 		if (event.authority.applicationSourceGeneration !== event.transfer.catalogRevision) {
@@ -255,7 +255,7 @@ function annotationCatalogAuthoritiesEqual(
 	return (
 		left.subscriptionId === right.subscriptionId &&
 		left.workerDerivationEpoch === right.workerDerivationEpoch &&
-		left.worktreeId === right.worktreeId
+		left.scopeKey === right.scopeKey
 	);
 }
 

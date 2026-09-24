@@ -2,6 +2,7 @@ import { act, type ReactElement } from 'react';
 import { render } from 'vitest-browser-react';
 
 import type { BridgeMarkdownRenderWorkerClient } from '../app/markdown/worker/bridge-markdown-render-worker-client.js';
+import type { BridgeProductWorktreeAnnotationSubject } from '../core/comm-worker/bridge-product-worktree-annotation-contracts.js';
 import {
 	annotationHeadThreadId,
 	annotationMessage,
@@ -129,6 +130,11 @@ export function makeSavedMessage(props: {
 	};
 }
 
+export const locatedContextSubject: BridgeProductWorktreeAnnotationSubject = {
+	kind: 'git',
+	worktreeId: 'worktree-1',
+};
+
 export const locatedContext: WorktreeAnnotationThreadContext = {
 	diffSide: null,
 	endLine: 7,
@@ -139,6 +145,7 @@ export const locatedContext: WorktreeAnnotationThreadContext = {
 	sourceIdentity: 'descriptor-file-1',
 	sourceRole: 'file',
 	startLine: 4,
+	subject: locatedContextSubject,
 	threadId: annotationHeadThreadId,
 };
 

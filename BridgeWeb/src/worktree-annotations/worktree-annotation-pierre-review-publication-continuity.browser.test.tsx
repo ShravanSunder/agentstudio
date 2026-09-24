@@ -23,6 +23,7 @@ import {
 	annotationHeadThreadId,
 	annotationMessage,
 	annotationSessionId,
+	annotationSubject,
 	RecordingAnnotationBrowserSurface,
 } from './worktree-annotation-browser-test-support.js';
 import type { WorktreeAnnotationThreadContext } from './worktree-annotation-surface-client.js';
@@ -273,6 +274,7 @@ function annotationContext(): WorktreeAnnotationThreadContext {
 		sourceIdentity: 'handle-item-predecessor-head-7',
 		sourceRole: 'review_head',
 		startLine: 2,
+		subject: annotationSubject,
 		threadId: annotationHeadThreadId,
 	};
 }

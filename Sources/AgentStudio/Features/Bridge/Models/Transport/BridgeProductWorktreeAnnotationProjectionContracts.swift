@@ -23,6 +23,7 @@ struct BridgeProductWorktreeAnnotationSessionSummary: Codable, Equatable, Sendab
         case semanticRevision
         case sessionId
         case sourceRelationship
+        case subject
         case updatedAtUnixMilliseconds
     }
 
@@ -34,6 +35,7 @@ struct BridgeProductWorktreeAnnotationSessionSummary: Codable, Equatable, Sendab
     let semanticRevision: Int
     let sessionId: UUID
     let sourceRelationship: WorktreeAnnotationSourceRelationship
+    let subject: BridgeProductWorktreeAnnotationSubject
     let updatedAt: Date
 
     init(
@@ -49,6 +51,7 @@ struct BridgeProductWorktreeAnnotationSessionSummary: Codable, Equatable, Sendab
         semanticRevision = session.semanticRevision
         sessionId = session.id.rawValue
         sourceRelationship = session.sourceRelationship
+        subject = BridgeProductWorktreeAnnotationSubject(session.subject)
         updatedAt = session.updatedAt
     }
 
@@ -76,6 +79,7 @@ struct BridgeProductWorktreeAnnotationSessionSummary: Codable, Equatable, Sendab
             WorktreeAnnotationSourceRelationship.self,
             forKey: .sourceRelationship
         )
+        subject = try container.decode(BridgeProductWorktreeAnnotationSubject.self, forKey: .subject)
         updatedAt = annotationDateFromUnixMilliseconds(
             try container.decode(Int64.self, forKey: .updatedAtUnixMilliseconds)
         )
@@ -112,6 +116,7 @@ struct BridgeProductWorktreeAnnotationSessionSummary: Codable, Equatable, Sendab
             forKey: .sessionId
         )
         try container.encode(sourceRelationship, forKey: .sourceRelationship)
+        try container.encode(subject, forKey: .subject)
         try container.encode(
             annotationUnixMilliseconds(updatedAt),
             forKey: .updatedAtUnixMilliseconds
@@ -444,6 +449,7 @@ struct BridgeProductWorktreeAnnotationThreadContext: Codable, Equatable, Sendabl
         case sourceIdentity
         case sourceRole
         case startLine
+        case subject
         case threadId
     }
 
@@ -456,13 +462,18 @@ struct BridgeProductWorktreeAnnotationThreadContext: Codable, Equatable, Sendabl
     let sourceIdentity: String
     let sourceRole: WorktreeAnnotationSourceRole
     let startLine: Int
+    /// The subject of the thread's session: the page places the thread's
+    /// path under that member worktree or local document.
+    let subject: BridgeProductWorktreeAnnotationSubject
     let threadId: UUID
 
     init(
         _ thread: WorktreeAnnotationThread,
+        subject: WorktreeAnnotationSubject,
         placement currentPlacement: WorktreeAnnotationThreadPlacementProjection?
     ) throws {
         threadId = thread.id.rawValue
+        self.subject = BridgeProductWorktreeAnnotationSubject(subject)
         resolution = thread.resolution
         switch thread.origin {
         case .session, .wholeFile:
@@ -496,6 +507,7 @@ struct BridgeProductWorktreeAnnotationThreadContext: Codable, Equatable, Sendabl
         sourceIdentity = try container.decode(String.self, forKey: .sourceIdentity)
         sourceRole = try container.decode(WorktreeAnnotationSourceRole.self, forKey: .sourceRole)
         startLine = try container.decode(Int.self, forKey: .startLine)
+        subject = try container.decode(BridgeProductWorktreeAnnotationSubject.self, forKey: .subject)
         threadId = try container.decode(UUID.self, forKey: .threadId)
         guard scope == .located, !path.isEmpty, !sourceIdentity.isEmpty,
             startLine > 0, endLine >= startLine
@@ -518,6 +530,7 @@ struct BridgeProductWorktreeAnnotationThreadContext: Codable, Equatable, Sendabl
         try container.encode(sourceIdentity, forKey: .sourceIdentity)
         try container.encode(sourceRole, forKey: .sourceRole)
         try container.encode(startLine, forKey: .startLine)
+        try container.encode(subject, forKey: .subject)
         try container.encode(
             BridgeProductReviewPublicationIdContract.encode(threadId),
             forKey: .threadId

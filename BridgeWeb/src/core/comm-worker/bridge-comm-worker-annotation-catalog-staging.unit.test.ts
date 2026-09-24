@@ -51,7 +51,7 @@ function catalogWithEntries(
 		authority: {
 			subscriptionId: 'annotation-subscription-1',
 			workerDerivationEpoch: 1,
-			worktreeId: 'worktree-1',
+			scopeKey: 'worktree-1',
 		},
 		catalogRevision: 7,
 		entries,

@@ -75,10 +75,67 @@ struct BridgeProductFileMemberGroup: Codable, Equatable, Sendable {
     }
 }
 
+/// One opened document outside every member worktree, listed under the
+/// collection's opened-documents group. `documentLocation` is the document's
+/// canonical path, the identity its local annotations are recorded under;
+/// `displayPath` is the key the page lists it by.
+struct BridgeProductFileOpenedDocumentEntry: Codable, Equatable, Sendable {
+    private enum CodingKeys: String, CodingKey, CaseIterable {
+        case displayPath
+        case documentLocation
+        case identityPrefix
+    }
+
+    let displayPath: String
+    let documentLocation: String
+    let identityPrefix: String
+
+    init(displayPath: String, documentLocation: String, identityPrefix: String) throws {
+        self.displayPath = displayPath
+        self.documentLocation = documentLocation
+        self.identityPrefix = identityPrefix
+        try validate(codingPath: [])
+    }
+
+    init(from decoder: Decoder) throws {
+        try BridgeProductContractDecoding.rejectUnknownKeys(
+            from: decoder,
+            allowedKeys: Set(CodingKeys.allCases.map(\.rawValue)),
+            contract: "File opened-document entry"
+        )
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.displayPath = try container.decode(String.self, forKey: .displayPath)
+        self.documentLocation = try container.decode(String.self, forKey: .documentLocation)
+        self.identityPrefix = try container.decode(String.self, forKey: .identityPrefix)
+        try validate(codingPath: decoder.codingPath)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(displayPath, forKey: .displayPath)
+        try container.encode(documentLocation, forKey: .documentLocation)
+        try container.encode(identityPrefix, forKey: .identityPrefix)
+    }
+
+    private func validate(codingPath: [any CodingKey]) throws {
+        try BridgeProductContractDecoding.validateDisplayPath(displayPath, codingPath: codingPath)
+        try BridgeProductContractDecoding.validateIdentifier(identityPrefix, codingPath: codingPath)
+        try BridgeProductContractDecoding.validateDisplayPath(documentLocation, codingPath: codingPath)
+        guard documentLocation.hasPrefix("/") else {
+            throw BridgeProductContractDecoding.invalidValue(
+                "File opened-document location must be a canonical absolute path",
+                codingPath: codingPath
+            )
+        }
+    }
+}
+
 /// The complete member-group list of a Files collection. It replaces the
 /// previous list and is sent after the source is accepted and after every
 /// membership change, so a worktree-relative location can be mapped to its
-/// display key even while the tree itself is filtered.
+/// display key even while the tree itself is filtered. The opened documents
+/// outside every member ride along, so a local-file annotation can be mapped
+/// to its document's display key the same way.
 ///
 /// `source` and `membershipRevision` order the lists: a list from a superseded
 /// source or an older membership never replaces a newer one.
@@ -87,19 +144,23 @@ struct BridgeProductFileMemberGroupsEvent: Codable, Equatable, Sendable {
         case eventKind
         case groups
         case membershipRevision
+        case openedDocuments
         case source
     }
 
     let groups: [BridgeProductFileMemberGroup]
     let membershipRevision: Int
+    let openedDocuments: [BridgeProductFileOpenedDocumentEntry]
     let source: BridgeProductFileSourceIdentity
 
     init(
         groups: [BridgeProductFileMemberGroup],
         membershipRevision: Int,
+        openedDocuments: [BridgeProductFileOpenedDocumentEntry],
         source: BridgeProductFileSourceIdentity
     ) throws {
         self.groups = groups
+        self.openedDocuments = openedDocuments
         self.membershipRevision = membershipRevision
         self.source = source
         try validate(codingPath: [])
@@ -120,6 +181,10 @@ struct BridgeProductFileMemberGroupsEvent: Codable, Equatable, Sendable {
         }
         self.groups = try container.decode([BridgeProductFileMemberGroup].self, forKey: .groups)
         self.membershipRevision = try container.decode(Int.self, forKey: .membershipRevision)
+        self.openedDocuments = try container.decode(
+            [BridgeProductFileOpenedDocumentEntry].self,
+            forKey: .openedDocuments
+        )
         self.source = try container.decode(BridgeProductFileSourceIdentity.self, forKey: .source)
         try validate(codingPath: decoder.codingPath)
     }
@@ -129,6 +194,7 @@ struct BridgeProductFileMemberGroupsEvent: Codable, Equatable, Sendable {
         try container.encode("file.memberGroups", forKey: .eventKind)
         try container.encode(groups, forKey: .groups)
         try container.encode(membershipRevision, forKey: .membershipRevision)
+        try container.encode(openedDocuments, forKey: .openedDocuments)
         try container.encode(source, forKey: .source)
     }
 
@@ -144,6 +210,20 @@ struct BridgeProductFileMemberGroupsEvent: Codable, Equatable, Sendable {
             name: "File member group count",
             codingPath: codingPath
         )
+        try BridgeProductContractDecoding.validateMaximum(
+            openedDocuments.count,
+            maximum: BridgeProductWireContract.maximumFileCollectionOpenedDocumentCount,
+            name: "File opened-document count",
+            codingPath: codingPath
+        )
+        guard Set(openedDocuments.map(\.documentLocation)).count == openedDocuments.count,
+            Set(openedDocuments.map(\.displayPath)).count == openedDocuments.count
+        else {
+            throw BridgeProductContractDecoding.invalidValue(
+                "File opened documents must name each location and display path once",
+                codingPath: codingPath
+            )
+        }
         guard Set(groups.map(\.worktreeId)).count == groups.count,
             Set(groups.map(\.groupPath)).count == groups.count
         else {

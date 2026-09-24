@@ -13,6 +13,7 @@ import {
 	annotationMessage,
 	annotationSessionId,
 	annotationSessionSummary,
+	annotationSubject,
 	RecordingAnnotationBrowserSurface,
 } from './worktree-annotation-browser-test-support.js';
 import { WorktreeAnnotationShareHeaderControl } from './worktree-annotation-output-controls.js';
@@ -40,6 +41,7 @@ export const journeyOpenContext: WorktreeAnnotationThreadContext = {
 	sourceIdentity: 'journey-review-file',
 	sourceRole: 'review_head',
 	startLine: 14,
+	subject: annotationSubject,
 	threadId: annotationHeadThreadId,
 };
 

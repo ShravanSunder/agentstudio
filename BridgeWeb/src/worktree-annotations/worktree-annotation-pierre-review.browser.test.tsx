@@ -24,6 +24,7 @@ import {
 	annotationMessage,
 	annotationSessionId,
 	annotationSessionSummary,
+	annotationSubject,
 	RecordingAnnotationBrowserSurface,
 } from './worktree-annotation-browser-test-support.js';
 import type { WorktreeAnnotationThreadContext } from './worktree-annotation-surface-client.js';
@@ -538,6 +539,7 @@ function annotationContext(
 		sourceIdentity:
 			props.sourceRole === 'review_base' ? 'handle-item-source-base' : 'handle-item-source-head',
 		startLine: props.endLine,
+		subject: annotationSubject,
 		threadId: props.threadId,
 	} as const;
 	return props.sourceRole === 'review_base'

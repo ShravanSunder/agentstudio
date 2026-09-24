@@ -35,6 +35,7 @@ struct WorktreeAnnotationSourceCaptureTests {
         let evidenceSource = WorktreeAnnotationGitEvidenceSourceFake()
         let resolver = WorktreeAnnotationSourceCapture.resolver(
             fileMetadataSource: BridgeUnavailablePaneProductFileMetadataSource(),
+            reviewScope: nil,
             reviewPublicationCoordinator: publicationCoordinator,
             reviewContentLoaderCache: BridgeReviewContentLoaderCache(
                 provider: BridgeReviewSourceProviderFake(

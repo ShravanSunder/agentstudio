@@ -16,29 +16,37 @@ struct FileAnnotationSourceWitnessTests {
             productAdmission: fixture.productAdmission.context
         ) { _ in }
         let existentialSource: any BridgePaneProductFileMetadataProducing = source
+        let subject = WorktreeAnnotationSubject.git(
+            repositoryID: fixture.repoId.uuidString.lowercased(),
+            worktreeID: fixture.worktreeId.uuidString.lowercased()
+        )
 
         // Act
+        let scope = try await existentialSource.worktreeAnnotationScope()
         let generation = try await existentialSource.currentWorktreeAnnotationSourceGeneration(
             productAdmission: fixture.productAdmission.context
         )
         let fingerprint = try await existentialSource.currentWorktreeAnnotationFingerprint(
+            subject: subject,
             productAdmission: fixture.productAdmission.context
         )
         let refresh = try await existentialSource.currentWorktreeAnnotationRefresh(
+            subject: subject,
             requirements: [],
             productAdmission: fixture.productAdmission.context
         )
 
         // Assert
+        #expect(scope.subjects == [subject])
         #expect(generation == 1)
         #expect(fingerprint == refresh.fingerprint)
-        #expect(
-            fingerprint.subject
-                == .git(
-                    repositoryID: fixture.repoId.uuidString.lowercased(),
-                    worktreeID: fixture.worktreeId.uuidString.lowercased()
-                )
-        )
+        #expect(fingerprint.subject == subject)
+        await #expect(throws: WorktreeAnnotationSourceResolutionError.unavailable) {
+            try await existentialSource.currentWorktreeAnnotationFingerprint(
+                subject: .git(repositoryID: "another-repository", worktreeID: "another-worktree"),
+                productAdmission: fixture.productAdmission.context
+            )
+        }
     }
 
     @Test(arguments: FileAnnotationRequirementOriginKind.allCases, WorktreeAnnotationSourceRole.allCases)
@@ -62,7 +70,12 @@ struct FileAnnotationSourceWitnessTests {
                 await collector.append(event)
             }
             let existentialSource: any BridgePaneProductFileMetadataProducing = source
+            let subject = WorktreeAnnotationSubject.git(
+                repositoryID: fixture.repoId.uuidString.lowercased(),
+                worktreeID: fixture.worktreeId.uuidString.lowercased()
+            )
             let fingerprint = try await existentialSource.currentWorktreeAnnotationFingerprint(
+                subject: subject,
                 productAdmission: fixture.productAdmission.context
             )
             let diffSide: WorktreeAnnotationDiffSide? =
@@ -101,6 +114,7 @@ struct FileAnnotationSourceWitnessTests {
             // Act
             let eventsBeforeCapture = await collector.events
             let refresh = try await existentialSource.currentWorktreeAnnotationRefresh(
+                subject: subject,
                 requirements: [requirement],
                 productAdmission: fixture.productAdmission.context
             )

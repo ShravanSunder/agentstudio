@@ -250,14 +250,16 @@ enum BridgeProductWorktreeAnnotationEvent: Codable, Equatable, Sendable {
     struct Authority: Codable, Equatable, Sendable {
         private enum CodingKeys: String, CodingKey, CaseIterable {
             case applicationSourceGeneration
-            case worktreeID = "worktreeId"
+            case scopeKey
         }
 
-        let worktreeID: String
+        /// The key the page knows the surface's annotations by: the Files
+        /// collection token, or the Review worktree.
+        let scopeKey: String
         let applicationSourceGeneration: Int
 
-        init(worktreeID: String, applicationSourceGeneration: Int) throws {
-            self.worktreeID = worktreeID
+        init(scopeKey: String, applicationSourceGeneration: Int) throws {
+            self.scopeKey = scopeKey
             self.applicationSourceGeneration = applicationSourceGeneration
             try validate(codingPath: [])
         }
@@ -269,7 +271,7 @@ enum BridgeProductWorktreeAnnotationEvent: Codable, Equatable, Sendable {
                 contract: "worktree annotation event authority"
             )
             let container = try decoder.container(keyedBy: CodingKeys.self)
-            worktreeID = try container.decode(String.self, forKey: .worktreeID)
+            scopeKey = try container.decode(String.self, forKey: .scopeKey)
             applicationSourceGeneration = try container.decode(
                 Int.self,
                 forKey: .applicationSourceGeneration
@@ -281,7 +283,7 @@ enum BridgeProductWorktreeAnnotationEvent: Codable, Equatable, Sendable {
             try validate(codingPath: encoder.codingPath)
             var container = encoder.container(keyedBy: CodingKeys.self)
             try container.encode(applicationSourceGeneration, forKey: .applicationSourceGeneration)
-            try container.encode(worktreeID, forKey: .worktreeID)
+            try container.encode(scopeKey, forKey: .scopeKey)
         }
 
         private func validate(codingPath: [any CodingKey]) throws {
@@ -290,7 +292,7 @@ enum BridgeProductWorktreeAnnotationEvent: Codable, Equatable, Sendable {
                 name: "applicationSourceGeneration",
                 codingPath: codingPath
             )
-            try BridgeProductContractDecoding.validateIdentifier(worktreeID, codingPath: codingPath)
+            try BridgeProductContractDecoding.validateIdentifier(scopeKey, codingPath: codingPath)
         }
     }
 

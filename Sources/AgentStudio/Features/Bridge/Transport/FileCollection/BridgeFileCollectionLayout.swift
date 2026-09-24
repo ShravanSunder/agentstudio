@@ -222,8 +222,8 @@ extension BridgeFileCollectionLayout.MemberGroup {
 }
 
 extension BridgeFileCollectionLayout {
-    /// The wire member-group list. Opened documents are not members; their
-    /// display keys come from their own rows.
+    /// The wire member-group list plus the loose opened documents, whose
+    /// display keys the page needs to place local-file annotations.
     func memberGroupsEvent(
         source: BridgeProductFileSourceIdentity,
         membershipRevision: Int
@@ -239,6 +239,13 @@ extension BridgeFileCollectionLayout {
                     )
                 },
                 membershipRevision: membershipRevision,
+                openedDocuments: openedDocuments.map { entry in
+                    try BridgeProductFileOpenedDocumentEntry(
+                        displayPath: entry.displayPath,
+                        documentLocation: entry.location.canonicalPath,
+                        identityPrefix: entry.identityPrefix
+                    )
+                },
                 source: source
             )
         )

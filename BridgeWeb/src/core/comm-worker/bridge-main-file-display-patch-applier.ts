@@ -6,7 +6,10 @@ import {
 	type BridgeMainPierreFileTreeOperation,
 } from './bridge-main-file-tree-display-index.js';
 import { BRIDGE_PRODUCT_MAXIMUM_METADATA_FRAME_BYTES } from './bridge-product-contract-primitives.js';
-import type { BridgeProductFileMemberGroup } from './bridge-product-file-member-group-contracts.js';
+import type {
+	BridgeProductFileMemberGroup,
+	BridgeProductFileOpenedDocumentEntry,
+} from './bridge-product-file-member-group-contracts.js';
 import type {
 	BridgeWorkerFileDisplayPatch,
 	BridgeWorkerFileDisplayPatchEvent,
@@ -48,6 +51,8 @@ export interface BridgeMainFileDisplayState {
 	readonly fileItemById: BridgeMainFileItemDisplayIndex<BridgeMainFileItemDisplayPayload>;
 	/** Member worktrees and their group paths, never filtered by the file query. */
 	readonly fileMemberGroupsSlice: readonly BridgeProductFileMemberGroup[];
+	/** Loose opened documents and their display keys, never filtered by the file query. */
+	readonly fileOpenedDocumentsSlice: readonly BridgeProductFileOpenedDocumentEntry[];
 	readonly fileQuerySlice: BridgeMainFileQueryDisplayPayload | null;
 	readonly fileStatusSlice: BridgeMainFileStatusDisplayPayload | null;
 	readonly fileTreeSlice: BridgeMainFileTreeDisplaySlice;
@@ -219,6 +224,8 @@ export class BridgeMainFileDisplayPatchApplier {
 				return {
 					...state,
 					fileMemberGroupsSlice: patch.operation === 'upsert' ? patch.payload.groups : [],
+					fileOpenedDocumentsSlice:
+						patch.operation === 'upsert' ? patch.payload.openedDocuments : [],
 				};
 			case 'fileQuery':
 				return { ...state, fileQuerySlice: patch.payload };
@@ -488,6 +495,7 @@ function emptyBridgeMainFileDisplayState(): BridgeMainFileDisplayState {
 		fileDisplayFreshness: null,
 		fileItemById: BridgeMainImmutableStringMap.empty(),
 		fileMemberGroupsSlice: [],
+		fileOpenedDocumentsSlice: [],
 		fileQuerySlice: null,
 		fileStatusSlice: null,
 		fileTreeSlice: emptyBridgeMainFileTreeSlice(),

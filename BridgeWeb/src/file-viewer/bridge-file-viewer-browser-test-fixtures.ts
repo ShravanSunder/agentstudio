@@ -298,6 +298,7 @@ export function makeFileMemberGroupsMetadataEvent(props: {
 			nestedMemberRelativeRoots: [],
 		})),
 		membershipRevision: 0,
+		openedDocuments: [],
 		source: props.source,
 	});
 }

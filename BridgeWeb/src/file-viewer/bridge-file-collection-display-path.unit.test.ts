@@ -1,9 +1,13 @@
 import { describe, expect, test } from 'vitest';
 
-import type { BridgeProductFileMemberGroup } from '../core/comm-worker/bridge-product-file-member-group-contracts.js';
+import type {
+	BridgeProductFileMemberGroup,
+	BridgeProductFileOpenedDocumentEntry,
+} from '../core/comm-worker/bridge-product-file-member-group-contracts.js';
 import {
 	fileCollectionDescriptorIdentity,
 	fileCollectionDisplayPath,
+	fileCollectionOpenedDocumentSourceLocation,
 } from './bridge-file-collection-display-path.js';
 
 const frontendWorktreeId = '0198f3a2-0000-7000-8000-00000000000a';
@@ -111,6 +115,43 @@ describe('fileCollectionDescriptorIdentity', () => {
 		).toBeNull();
 		expect(
 			fileCollectionDescriptorIdentity(memberGroups, frontendWorktreeId, 'x'.repeat(120)),
+		).toBeNull();
+	});
+});
+
+describe('fileCollectionOpenedDocumentSourceLocation', () => {
+	const openedDocuments: readonly BridgeProductFileOpenedDocumentEntry[] = [
+		{
+			displayPath: 'Open Files/notes.md',
+			documentLocation: '/Users/dev/notes.md',
+			identityPrefix: 'lnotes.',
+		},
+	];
+
+	test('maps a matching document location to its opened-document display path and prefixed identity', () => {
+		// Act
+		const located = fileCollectionOpenedDocumentSourceLocation(
+			openedDocuments,
+			'/Users/dev/notes.md',
+			{
+				path: 'notes.md',
+				sourceIdentity: 'descriptor-notes',
+			},
+		);
+
+		// Assert
+		expect(located).toEqual({
+			path: 'Open Files/notes.md',
+			sourceIdentity: 'lnotes.descriptor-notes',
+		});
+	});
+
+	test('returns null when Files does not currently open that document location', () => {
+		expect(
+			fileCollectionOpenedDocumentSourceLocation(openedDocuments, '/Users/dev/closed.md', {
+				path: 'closed.md',
+				sourceIdentity: 'descriptor-closed',
+			}),
 		).toBeNull();
 	});
 });

@@ -7,6 +7,13 @@ import Foundation
 /// The Git subject every default annotation fixture belongs to.
 let defaultAnnotationSubject = WorktreeAnnotationSubject.git(repositoryID: "repo-1", worktreeID: "worktree-1")
 
+extension WorktreeAnnotationScope {
+    /// A one-subject scope keyed the way a Review surface keys its worktree.
+    static func testScope(_ subject: WorktreeAnnotationSubject) -> Self {
+        Self(key: subject.gitWorktreeID ?? "local-document-scope", subjects: [subject])
+    }
+}
+
 func makeCreateRootDraftProps() -> WorktreeAnnotationSQLiteRepository.CreateRootDraftProps {
     .init(
         admission: .implicitOrSingle,

@@ -10,13 +10,16 @@ struct BridgeProductAnnotationCommandThreadContext: Codable, Equatable, Sendable
     let sourceIdentity: String
     let sourceRole: WorktreeAnnotationSourceRole
     let startLine: Int
+    /// The subject of the thread's session, so the page can place a command-
+    /// confirmed thread before its session reaches a projection.
+    let subject: BridgeProductWorktreeAnnotationSubject
     let threadId: UUID
 
     private enum CodingKeys: String, CodingKey, CaseIterable {
-        case diffSide, endLine, path, resolution, scope, sourceIdentity, sourceRole, startLine, threadId
+        case diffSide, endLine, path, resolution, scope, sourceIdentity, sourceRole, startLine, subject, threadId
     }
 
-    init(_ thread: WorktreeAnnotationThread) throws {
+    init(_ thread: WorktreeAnnotationThread, subject: WorktreeAnnotationSubject) throws {
         guard case .located(let origin) = thread.origin else {
             throw BridgeProductWorktreeAnnotationProjectionError.unsupportedThreadOrigin
         }
@@ -28,6 +31,7 @@ struct BridgeProductAnnotationCommandThreadContext: Codable, Equatable, Sendable
         sourceIdentity = origin.sourceIdentity
         sourceRole = origin.sourceRole
         startLine = origin.startLine
+        self.subject = BridgeProductWorktreeAnnotationSubject(subject)
         threadId = thread.id.rawValue
     }
 
@@ -43,6 +47,7 @@ struct BridgeProductAnnotationCommandThreadContext: Codable, Equatable, Sendable
         sourceIdentity = try container.decode(String.self, forKey: .sourceIdentity)
         sourceRole = try container.decode(WorktreeAnnotationSourceRole.self, forKey: .sourceRole)
         startLine = try container.decode(Int.self, forKey: .startLine)
+        subject = try container.decode(BridgeProductWorktreeAnnotationSubject.self, forKey: .subject)
         threadId = try decodeReceiptID(container, key: .threadId, decoder: decoder)
         try BridgeProductContractDecoding.validateDisplayPath(path, codingPath: decoder.codingPath)
         try BridgeProductContractDecoding.validateIdentifier(sourceIdentity, codingPath: decoder.codingPath)
@@ -62,6 +67,7 @@ struct BridgeProductAnnotationCommandThreadContext: Codable, Equatable, Sendable
         try container.encode(sourceIdentity, forKey: .sourceIdentity)
         try container.encode(sourceRole, forKey: .sourceRole)
         try container.encode(startLine, forKey: .startLine)
+        try container.encode(subject, forKey: .subject)
         try container.encode(BridgeProductReviewPublicationIdContract.encode(threadId), forKey: .threadId)
     }
 }
@@ -97,7 +103,7 @@ enum BridgeProductWorktreeAnnotationMessageReceiptDTO: Codable, Equatable, Senda
         session: WorktreeAnnotationSession, thread: WorktreeAnnotationThread, message: WorktreeAnnotationMessage
     ) throws {
         self = .message(
-            context: try .init(thread),
+            context: try .init(thread, subject: session.subject),
             message: try .init(message: message, session: session, thread: thread))
     }
 

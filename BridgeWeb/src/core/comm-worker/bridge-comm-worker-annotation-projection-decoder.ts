@@ -11,6 +11,7 @@ import { parseBridgeProductStrictJSON } from './bridge-product-strict-json.js';
 import {
 	bridgeProductWorktreeAnnotationDecodedMessageEntrySchema,
 	bridgeProductWorktreeAnnotationMessageEntrySchema,
+	bridgeProductWorktreeAnnotationSubjectSchema,
 } from './bridge-product-worktree-annotation-contracts.js';
 
 const annotationProjectionUnixMillisecondsSchema = bridgeProductNonnegativeSequenceSchema;
@@ -25,6 +26,7 @@ export const bridgeWorkerAnnotationProjectionSessionSchema = z
 		semanticRevision: bridgeProductNonnegativeSequenceSchema,
 		sessionId: bridgeProductReviewPublicationIdSchema,
 		sourceRelationship: z.enum(['applicable', 'uncertain', 'detached']),
+		subject: bridgeProductWorktreeAnnotationSubjectSchema,
 		updatedAt: annotationProjectionUnixMillisecondsSchema,
 	})
 	.strict()
@@ -46,6 +48,7 @@ const bridgeWorkerAnnotationProjectionSessionWireSchema = z
 		semanticRevision: bridgeProductNonnegativeSequenceSchema,
 		sessionId: bridgeProductReviewPublicationIdSchema,
 		sourceRelationship: z.enum(['applicable', 'uncertain', 'detached']),
+		subject: bridgeProductWorktreeAnnotationSubjectSchema,
 		updatedAtUnixMilliseconds: annotationProjectionUnixMillisecondsSchema,
 	})
 	.strict()
@@ -75,6 +78,7 @@ export const bridgeWorkerAnnotationProjectionThreadContextSchema = z
 		sourceIdentity: bridgeProductIdentifierSchema,
 		sourceRole: z.enum(['file', 'review_base', 'review_head']),
 		startLine: bridgeProductNonnegativeSequenceSchema.positive(),
+		subject: bridgeProductWorktreeAnnotationSubjectSchema,
 		threadId: bridgeProductReviewPublicationIdSchema,
 	})
 	.strict()
@@ -90,9 +94,9 @@ export const bridgeWorkerAnnotationProjectionHeaderSchema = z
 		expectedThreadCount: bridgeProductNonnegativeSequenceSchema,
 		projectionRevision: bridgeProductNonnegativeSequenceSchema,
 		recoveryStatus: z.enum(['available', 'recovered_degraded', 'unavailable']),
+		scopeKey: bridgeProductIdentifierSchema,
 		sessions: z.array(bridgeWorkerAnnotationProjectionSessionWireSchema).max(128).readonly(),
 		sourceGeneration: bridgeProductNonnegativeSequenceSchema,
-		worktreeId: bridgeProductIdentifierSchema,
 	})
 	.strict()
 	.refine((header) => header.sessions.length === header.expectedSessionCount, {

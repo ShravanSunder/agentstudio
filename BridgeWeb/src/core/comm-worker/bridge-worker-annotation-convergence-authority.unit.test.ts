@@ -18,8 +18,8 @@ describe('Bridge worker annotation convergence authority', () => {
 				recoveryStatus: 'available' as const,
 				sessions: [],
 				sourceGeneration: 7,
+				scopeKey: 'worktree-1',
 				threads: [],
-				worktreeId: 'worktree-1',
 			},
 		};
 		const convergence = {

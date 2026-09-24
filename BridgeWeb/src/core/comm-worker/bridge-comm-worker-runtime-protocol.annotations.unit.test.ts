@@ -233,7 +233,7 @@ describe('Bridge comm worker annotation runtime protocol', () => {
 			authority: {
 				subscriptionId: 'annotation-subscription',
 				workerDerivationEpoch: 1,
-				worktreeId: annotationWorktreeId,
+				scopeKey: annotationWorktreeId,
 			},
 			operationCorrelationId: 'a'.repeat(64),
 		});
@@ -586,7 +586,7 @@ function annotationProjectionEvent(
 		data: {
 			authority: {
 				applicationSourceGeneration: revision,
-				worktreeId: annotationWorktreeId,
+				scopeKey: annotationWorktreeId,
 			},
 			kind: 'annotation.controlChanged',
 			reason: 'discovery',
@@ -608,7 +608,7 @@ function annotationCatalogFrames(
 ): readonly AnnotationMetadataFrame[] {
 	const authority = {
 		applicationSourceGeneration: revision,
-		worktreeId: annotationWorktreeId,
+		scopeKey: annotationWorktreeId,
 	} as const;
 	const transferId = `annotation-catalog-${revision}`;
 	const events: readonly BridgeProductWorktreeAnnotationEvent[] = [
@@ -689,11 +689,12 @@ function annotationProjectionPage(
 						semanticRevision: 1,
 						sessionId: '00000000-0000-7000-8000-000000000011',
 						sourceRelationship: 'applicable',
+						subject: { kind: 'git', worktreeId: annotationWorktreeId },
 						updatedAtUnixMilliseconds: 2,
 					},
 				],
 				sourceGeneration,
-				worktreeId: annotationWorktreeId,
+				scopeKey: annotationWorktreeId,
 			},
 			kind: 'header',
 		})}\n`,

@@ -67,7 +67,7 @@ func executeOutputScope(
 ) async throws {
     let sessionIDString = sessionID.rawValue.uuidString.lowercased()
     let projection = try await harness.store.captureProjection(
-        subject: transportAdapterAnnotationSubject,
+        subjects: [transportAdapterAnnotationSubject],
         demandedSessionIDs: [sessionID]
     )
     let sessionRevision = try #require(
@@ -125,7 +125,7 @@ func prepareTransportOutputHistoryFixture(
         comparisonLabel: nil
     )
     let projection = try await harness.store.captureProjection(
-        subject: transportAdapterAnnotationSubject,
+        subjects: [transportAdapterAnnotationSubject],
         demandedSessionIDs: [savedMessage.detail.session.id]
     )
     _ = try await harness.store.prepareOutput(
@@ -229,7 +229,7 @@ func persistedDetail(
     harness: WorktreeAnnotationTransportAdapterHarness
 ) async throws -> WorktreeAnnotationSessionDetail {
     let capture = try await harness.store.captureProjection(
-        subject: transportAdapterAnnotationSubject,
+        subjects: [transportAdapterAnnotationSubject],
         demandedSessionIDs: [sessionID]
     )
     return try #require(capture.repositorySnapshot.details.first)
@@ -259,6 +259,7 @@ func makeTransportAdapterHarness(
         reviewComparisonOrigin: nil
     )
     let sourceResolver = WorktreeAnnotationSourceResolver(
+        scope: { _ in .testScope(transportAdapterAnnotationSubject) },
         capture: { origin, _, _, _ in
             .init(
                 fingerprint: fingerprint,
@@ -277,8 +278,8 @@ func makeTransportAdapterHarness(
                 )
             )
         },
-        currentFingerprint: { _, _, _ in fingerprint },
-        refresh: { _, _, _, _ in
+        currentFingerprint: { _, _, _, _ in fingerprint },
+        refresh: { _, _, _, _, _ in
             .init(
                 fingerprint: fingerprint,
                 material: .available([
@@ -304,7 +305,6 @@ func makeTransportAdapterHarness(
         adapter: WorktreeAnnotationTransportAdapter(
             store: store,
             contextID: "pane-test",
-            subject: fingerprint.subject,
             sourceResolver: sourceResolver,
             now: { Date(timeIntervalSince1970: 100) },
             outputCoordinator: outputCoordinator,

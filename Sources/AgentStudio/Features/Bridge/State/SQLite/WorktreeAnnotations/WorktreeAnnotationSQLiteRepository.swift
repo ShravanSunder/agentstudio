@@ -137,9 +137,9 @@ struct WorktreeAnnotationSQLiteRepository {
 
     let databaseWriter: any DatabaseWriter
 
-    func discoverSessions(subject: WorktreeAnnotationSubject) throws -> [WorktreeAnnotationSession] {
+    func discoverSessions(subjects: Set<WorktreeAnnotationSubject>) throws -> [WorktreeAnnotationSession] {
         try databaseWriter.read { database in
-            try loadSessions(database, subject: subject)
+            try loadSessions(database, subjects: subjects)
         }
     }
 
@@ -163,11 +163,11 @@ struct WorktreeAnnotationSQLiteRepository {
     }
 
     func fetchProjectionSnapshot(
-        subject: WorktreeAnnotationSubject,
+        subjects: Set<WorktreeAnnotationSubject>,
         demandedSessionIDs: [WorktreeAnnotationSessionID]
     ) throws -> WorktreeAnnotationRepositoryProjectionSnapshot {
         try databaseWriter.read { database in
-            let sessions = try loadSessions(database, subject: subject)
+            let sessions = try loadSessions(database, subjects: subjects)
             let sessionIDs = Set(sessions.map(\.id))
             guard demandedSessionIDs.allSatisfy(sessionIDs.contains) else {
                 throw WorktreeAnnotationRepositoryError.notFound
@@ -189,9 +189,9 @@ struct WorktreeAnnotationSQLiteRepository {
 
     private func loadSessions(
         _ database: Database,
-        subject: WorktreeAnnotationSubject
+        subjects: Set<WorktreeAnnotationSubject>
     ) throws -> [WorktreeAnnotationSession] {
-        let predicate = subject.sessionRowPredicate()
+        let predicate = WorktreeAnnotationSubject.sessionRowPredicate(for: subjects)
         return try Row.fetchAll(
             database,
             sql: """

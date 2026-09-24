@@ -1,3 +1,4 @@
+import AgentStudioCore
 import Foundation
 
 /// What an annotation session is about: one Git worktree, or one local
@@ -5,8 +6,8 @@ import Foundation
 /// comparison or ancestry evidence.
 enum WorktreeAnnotationSubject: Hashable, Sendable {
     case git(repositoryID: String, worktreeID: String)
-    /// A local document named by its canonical absolute path.
-    case localFile(documentPath: String)
+    /// A local document named by its canonical location.
+    case localFile(BridgeDocumentLocation)
 
     var gitRepositoryID: String? {
         guard case .git(let repositoryID, _) = self else { return nil }
@@ -18,9 +19,9 @@ enum WorktreeAnnotationSubject: Hashable, Sendable {
         return worktreeID
     }
 
-    var localDocumentPath: String? {
-        guard case .localFile(let documentPath) = self else { return nil }
-        return documentPath
+    var localDocument: BridgeDocumentLocation? {
+        guard case .localFile(let location) = self else { return nil }
+        return location
     }
 }
 
@@ -61,12 +62,12 @@ extension WorktreeAnnotationSubject: Codable {
                     debugDescription: "A local annotation subject carries no Git identity")
             }
             let documentPath = try container.decode(String.self, forKey: .documentPath)
-            guard documentPath.hasPrefix("/"), documentPath.count > 1 else {
+            guard let location = BridgeDocumentLocation(canonicalPath: documentPath) else {
                 throw DecodingError.dataCorruptedError(
                     forKey: .documentPath, in: container,
                     debugDescription: "A local annotation subject names a canonical absolute path")
             }
-            self = .localFile(documentPath: documentPath)
+            self = .localFile(location)
         }
     }
 
@@ -77,9 +78,9 @@ extension WorktreeAnnotationSubject: Codable {
             try container.encode(Kind.git, forKey: .kind)
             try container.encode(repositoryID, forKey: .repositoryID)
             try container.encode(worktreeID, forKey: .worktreeID)
-        case .localFile(let documentPath):
+        case .localFile(let location):
             try container.encode(Kind.localFile, forKey: .kind)
-            try container.encode(documentPath, forKey: .documentPath)
+            try container.encode(location.canonicalPath, forKey: .documentPath)
         }
     }
 }
@@ -95,8 +96,34 @@ extension WorktreeAnnotationSubject: Comparable {
             true
         case (.localFile, .git):
             false
-        case (.localFile(let lhsPath), .localFile(let rhsPath)):
-            lhsPath < rhsPath
+        case (.localFile(let lhsLocation), .localFile(let rhsLocation)):
+            lhsLocation < rhsLocation
         }
+    }
+}
+
+/// What a surface finds a subject's sessions by: a Git session belongs to its
+/// worktree whichever repository it was recorded under, a local session to its
+/// document. A worktree moved to another repository therefore keeps its
+/// sessions in view; whether they still apply is continuity's call, which
+/// compares the whole subject.
+enum WorktreeAnnotationSubjectKey: Hashable, Sendable {
+    case gitWorktree(worktreeID: String)
+    case localDocument(BridgeDocumentLocation)
+}
+
+extension WorktreeAnnotationSubject {
+    var key: WorktreeAnnotationSubjectKey {
+        switch self {
+        case .git(_, let worktreeID): .gitWorktree(worktreeID: worktreeID)
+        case .localFile(let location): .localDocument(location)
+        }
+    }
+}
+
+extension Set where Element == WorktreeAnnotationSubject {
+    /// Whether one of these subjects finds `subject`'s sessions.
+    func containsKey(of subject: WorktreeAnnotationSubject) -> Bool {
+        contains { $0.key == subject.key }
     }
 }

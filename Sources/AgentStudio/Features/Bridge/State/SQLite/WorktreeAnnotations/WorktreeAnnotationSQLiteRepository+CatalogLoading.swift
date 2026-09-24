@@ -1,9 +1,12 @@
 import GRDB
 
 extension WorktreeAnnotationSQLiteRepository {
-    func fetchCatalogCapture(subject: WorktreeAnnotationSubject) throws -> WorktreeAnnotationCatalogCapture {
-        let sessionPredicate = subject.sessionRowPredicate()
-        let joinedPredicate = subject.sessionRowPredicate(columnPrefix: "session.")
+    func fetchCatalogCapture(subjects: Set<WorktreeAnnotationSubject>) throws -> WorktreeAnnotationCatalogCapture {
+        let sessionPredicate = WorktreeAnnotationSubject.sessionRowPredicate(for: subjects)
+        let joinedPredicate = WorktreeAnnotationSubject.sessionRowPredicate(
+            for: subjects,
+            columnPrefix: "session."
+        )
         return try databaseWriter.read { database in
             let sessions = try Row.fetchAll(
                 database,
@@ -57,7 +60,7 @@ extension WorktreeAnnotationSQLiteRepository {
                 )
             }
             return WorktreeAnnotationCatalogCapture(
-                subject: subject,
+                subjects: subjects,
                 sessions: sessions,
                 threads: threads,
                 messages: messages

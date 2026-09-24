@@ -1,9 +1,16 @@
 import type { BridgeProductWorktreeAnnotationOperation } from '../core/comm-worker/bridge-product-call-contracts.js';
+import type { BridgeProductWorktreeAnnotationSubject } from '../core/comm-worker/bridge-product-worktree-annotation-contracts.js';
 import type {
 	WorktreeAnnotationCommandOutcome,
 	WorktreeAnnotationMessageEntry,
 	WorktreeAnnotationThreadContext,
 } from './worktree-annotation-surface-client.js';
+
+/** The single member worktree every browser command-receipt fixture thread is anchored to. */
+const commandReceiptFixtureSubject: BridgeProductWorktreeAnnotationSubject = {
+	kind: 'git',
+	worktreeId: 'worktree-1',
+};
 
 type AnnotationCommandReceipt = NonNullable<WorktreeAnnotationCommandOutcome['receipt']>;
 type AnnotationMessageReceipt = Extract<AnnotationCommandReceipt, { readonly kind: 'message' }>;
@@ -56,6 +63,7 @@ export class WorktreeAnnotationBrowserCommandReceiptFixture {
 				sourceIdentity: operation.origin.sourceIdentity,
 				sourceRole: annotationReceiptSourceRole(operation.origin.sourceRole),
 				startLine: operation.origin.startLine,
+				subject: commandReceiptFixtureSubject,
 				threadId,
 			} satisfies AnnotationMessageReceiptContext;
 			this.#commandConfirmedThreadsById.set(threadId, { context, messages: [message] });
@@ -144,6 +152,7 @@ export class WorktreeAnnotationBrowserCommandReceiptFixture {
 				sourceIdentity: 'source-1',
 				sourceRole: 'file',
 				startLine: 4,
+				subject: commandReceiptFixtureSubject,
 				threadId,
 			} satisfies AnnotationMessageReceiptContext,
 			messages: [],

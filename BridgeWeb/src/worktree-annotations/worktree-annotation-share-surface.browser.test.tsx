@@ -35,6 +35,7 @@ import {
 	annotationSecondSessionId,
 	annotationSessionId,
 	annotationSessionSummary,
+	annotationSubject,
 	RecordingAnnotationBrowserSurface,
 } from './worktree-annotation-browser-test-support.js';
 import { WorktreeAnnotationShareHeaderControl } from './worktree-annotation-output-controls.js';
@@ -896,6 +897,7 @@ const locatedContext: WorktreeAnnotationThreadContext = {
 	sourceIdentity: 'descriptor-file-1',
 	sourceRole: 'file',
 	startLine: 4,
+	subject: annotationSubject,
 	threadId: annotationHeadThreadId,
 };
 

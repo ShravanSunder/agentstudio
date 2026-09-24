@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'vitest';
 
+import type { BridgeProductWorktreeAnnotationSubject } from '../core/comm-worker/bridge-product-worktree-annotation-contracts.js';
 import { mergeWorktreeAnnotationCommandConfirmedThreads } from './worktree-annotation-command-confirmed-presentation.js';
 import type {
 	WorktreeAnnotationCommandConfirmedThreadProjection,
@@ -60,11 +61,17 @@ function thread(
 			sourceIdentity: 'source-1',
 			sourceRole: 'file',
 			startLine: 2,
+			subject: annotationSubject,
 			threadId: '01890abc-def0-7abc-8def-012345678902',
 		},
 		messages,
 	};
 }
+
+const annotationSubject: BridgeProductWorktreeAnnotationSubject = {
+	kind: 'git',
+	worktreeId: 'worktree-1',
+};
 
 function message(props: {
 	readonly body: string;

@@ -145,7 +145,11 @@ export class BridgeCommWorkerFileMetadataProjection {
 				patches = [
 					{
 						operation: 'upsert',
-						payload: { groups: event.groups, membershipRevision: event.membershipRevision },
+						payload: {
+							groups: event.groups,
+							membershipRevision: event.membershipRevision,
+							openedDocuments: event.openedDocuments,
+						},
 						slice: 'fileMemberGroups',
 					},
 				];

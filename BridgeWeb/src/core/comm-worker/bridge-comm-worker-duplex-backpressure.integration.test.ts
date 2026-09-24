@@ -546,6 +546,7 @@ function annotationCapableReviewProductTransport(
 				sourceIdentity: 'review-source-duplex',
 				sourceRole: 'review_head',
 				startLine: 1,
+				subject: { kind: 'git', worktreeId: 'worktree-duplex' },
 				threadId: '00000000-0000-7000-8000-000000000074',
 			},
 			message: {

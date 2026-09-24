@@ -33,6 +33,7 @@ extension WorktreeAnnotationTransportAdapter {
             surface,
             reviewPublicationIdentity,
             productAdmission,
+            sessionDetail.session.subject,
             sourceSnapshot.requirements
         )
         let sourceEvaluation = try WorktreeAnnotationSourceEvaluator.evaluate(

@@ -17,7 +17,7 @@ struct WorktreeAnnotationCatalogMessageRow: Equatable, Sendable {
 }
 
 struct WorktreeAnnotationCatalogCapture: Equatable, Sendable {
-    let subject: WorktreeAnnotationSubject
+    let subjects: Set<WorktreeAnnotationSubject>
     let sessions: [WorktreeAnnotationCatalogSessionRow]
     let threads: [WorktreeAnnotationCatalogThreadRow]
     let messages: [WorktreeAnnotationCatalogMessageRow]

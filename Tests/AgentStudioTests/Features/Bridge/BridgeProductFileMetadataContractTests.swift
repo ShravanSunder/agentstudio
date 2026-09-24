@@ -159,7 +159,7 @@ struct BridgeProductFileMetadataContractTests {
         }
     }
 
-    @Test("File member groups name each worktree and group path once and reject unknown keys")
+    @Test("File member groups name each worktree, group path and opened document once and reject unknown keys")
     func memberGroupsRejectDuplicatesAndUnknownKeys() throws {
         // Arrange
         var duplicateWorktree = memberGroupsEvent
@@ -176,11 +176,20 @@ struct BridgeProductFileMetadataContractTests {
         negativeRevision["membershipRevision"] = -1
         var missingRevision = memberGroupsEvent
         missingRevision.removeValue(forKey: "membershipRevision")
+        var missingOpenedDocuments = memberGroupsEvent
+        missingOpenedDocuments.removeValue(forKey: "openedDocuments")
+        var duplicateDocumentLocation = memberGroupsEvent
+        duplicateDocumentLocation["openedDocuments"] = [
+            openedDocument("Open Files/notes.md", "/Users/example/notes.md"),
+            openedDocument("Open Files/notes (2).md", "/Users/example/notes.md"),
+        ]
+        var relativeDocumentLocation = memberGroupsEvent
+        relativeDocumentLocation["openedDocuments"] = [openedDocument("Open Files/notes.md", "notes.md")]
 
         // Act / Assert
         for invalid in [
             duplicateWorktree, duplicateGroupPath, unknownGroupKey, missingNestedRoots, negativeRevision,
-            missingRevision,
+            missingRevision, missingOpenedDocuments, duplicateDocumentLocation, relativeDocumentLocation,
         ] {
             #expect(throws: (any Error).self) { try decode(invalid) }
         }
@@ -487,8 +496,19 @@ struct BridgeProductFileMetadataContractTests {
                 memberGroup("feature", "0198f3a2-0000-7000-8000-00000000000b"),
             ],
             "membershipRevision": 2,
+            "openedDocuments": [
+                [
+                    "displayPath": "Open Files/notes.md",
+                    "documentLocation": "/Users/example/notes.md",
+                    "identityPrefix": "d0123456789ab.",
+                ]
+            ],
             "source": source,
         ]
+    }
+
+    private func openedDocument(_ displayPath: String, _ documentLocation: String) -> [String: Any] {
+        ["displayPath": displayPath, "documentLocation": documentLocation, "identityPrefix": "dnotes."]
     }
 
     private func memberGroup(_ groupPath: String, _ worktreeId: String) -> [String: Any] {

@@ -30,78 +30,67 @@ protocol WorktreeAnnotationGitEvidenceSource: Sendable {
 typealias WorktreeAnnotationAncestryResolver =
     @Sendable (String, String, Int) async throws -> WorktreeAnnotationAncestryDisposition
 
+/// Reads the current source of annotation subjects for one pane. Surface
+/// scope names which subjects a surface shows; the current fingerprint and
+/// refresh read one of those subjects from its own source.
 struct WorktreeAnnotationSourceResolver: Sendable {
-    let capture:
+    typealias Scope =
+        @Sendable (BridgeProductSurface) async throws -> WorktreeAnnotationScope
+    typealias Capture =
         @Sendable (
             BridgeProductWorktreeAnnotationOrigin,
             BridgeProductSurface,
             BridgeProductReviewAnnotationPublicationIdentity?,
             BridgeProductAdmissionContext
         ) async throws -> WorktreeAnnotationCapturedSource
-    let currentFingerprint:
-        @Sendable (
-            BridgeProductSurface,
-            BridgeProductReviewAnnotationPublicationIdentity?,
-            BridgeProductAdmissionContext
-        ) async throws -> WorktreeAnnotationSourceFingerprint
-    let refresh:
+    typealias CurrentFingerprint =
         @Sendable (
             BridgeProductSurface,
             BridgeProductReviewAnnotationPublicationIdentity?,
             BridgeProductAdmissionContext,
+            WorktreeAnnotationSubject
+        ) async throws -> WorktreeAnnotationSourceFingerprint
+    typealias Refresh =
+        @Sendable (
+            BridgeProductSurface,
+            BridgeProductReviewAnnotationPublicationIdentity?,
+            BridgeProductAdmissionContext,
+            WorktreeAnnotationSubject,
             [WorktreeAnnotationSourceRefreshRequirement]
         ) async throws -> WorktreeAnnotationSourceRefreshCapture
-    let currentSourceGeneration:
+    typealias CurrentSourceGeneration =
         @Sendable (
             BridgeProductSurface,
             BridgeProductReviewAnnotationPublicationIdentity?,
             BridgeProductAdmissionContext
         ) async throws -> Int
-    let currentReviewedSubjectEvidence:
+    typealias CurrentReviewedSubjectEvidence =
         @Sendable (
             BridgeProductSurface,
             BridgeProductReviewAnnotationPublicationIdentity?,
             BridgeProductAdmissionContext
         ) async throws -> WorktreeAnnotationReviewedSubjectEvidence?
+
+    let scope: Scope
+    let capture: Capture
+    let currentFingerprint: CurrentFingerprint
+    let refresh: Refresh
+    let currentSourceGeneration: CurrentSourceGeneration
+    let currentReviewedSubjectEvidence: CurrentReviewedSubjectEvidence
     let ancestryDisposition: WorktreeAnnotationAncestryResolver
 
     init(
-        capture:
-            @escaping @Sendable (
-                BridgeProductWorktreeAnnotationOrigin,
-                BridgeProductSurface,
-                BridgeProductReviewAnnotationPublicationIdentity?,
-                BridgeProductAdmissionContext
-            ) async throws -> WorktreeAnnotationCapturedSource,
-        currentFingerprint:
-            @escaping @Sendable (
-                BridgeProductSurface,
-                BridgeProductReviewAnnotationPublicationIdentity?,
-                BridgeProductAdmissionContext
-            ) async throws -> WorktreeAnnotationSourceFingerprint,
-        refresh:
-            @escaping @Sendable (
-                BridgeProductSurface,
-                BridgeProductReviewAnnotationPublicationIdentity?,
-                BridgeProductAdmissionContext,
-                [WorktreeAnnotationSourceRefreshRequirement]
-            ) async throws -> WorktreeAnnotationSourceRefreshCapture,
-        currentSourceGeneration:
-            @escaping @Sendable (
-                BridgeProductSurface,
-                BridgeProductReviewAnnotationPublicationIdentity?,
-                BridgeProductAdmissionContext
-            ) async throws -> Int = { _, _, _ in
-                throw WorktreeAnnotationSourceResolutionError.unavailable
-            },
-        currentReviewedSubjectEvidence:
-            @escaping @Sendable (
-                BridgeProductSurface,
-                BridgeProductReviewAnnotationPublicationIdentity?,
-                BridgeProductAdmissionContext
-            ) async throws -> WorktreeAnnotationReviewedSubjectEvidence? = { _, _, _ in nil },
+        scope: @escaping Scope,
+        capture: @escaping Capture,
+        currentFingerprint: @escaping CurrentFingerprint,
+        refresh: @escaping Refresh,
+        currentSourceGeneration: @escaping CurrentSourceGeneration = { _, _, _ in
+            throw WorktreeAnnotationSourceResolutionError.unavailable
+        },
+        currentReviewedSubjectEvidence: @escaping CurrentReviewedSubjectEvidence = { _, _, _ in nil },
         ancestryDisposition: @escaping WorktreeAnnotationAncestryResolver = { _, _, _ in .notEvaluated }
     ) {
+        self.scope = scope
         self.capture = capture
         self.currentFingerprint = currentFingerprint
         self.refresh = refresh
@@ -111,9 +100,10 @@ struct WorktreeAnnotationSourceResolver: Sendable {
     }
 
     static let unavailable = Self(
+        scope: { _ in throw WorktreeAnnotationSourceResolutionError.unavailable },
         capture: { _, _, _, _ in throw WorktreeAnnotationSourceResolutionError.unavailable },
-        currentFingerprint: { _, _, _ in throw WorktreeAnnotationSourceResolutionError.unavailable },
-        refresh: { _, _, _, _ in throw WorktreeAnnotationSourceResolutionError.unavailable }
+        currentFingerprint: { _, _, _, _ in throw WorktreeAnnotationSourceResolutionError.unavailable },
+        refresh: { _, _, _, _, _ in throw WorktreeAnnotationSourceResolutionError.unavailable }
     )
 }
 
@@ -157,13 +147,11 @@ final class WorktreeAnnotationTransportAdapter {
     let outputLabels: WorktreeAnnotationOutputLabels?
     let sourceResolver: WorktreeAnnotationSourceResolver
     let store: WorktreeAnnotationServiceActor
-    private let subject: WorktreeAnnotationSubject
     private var demandGenerationByKey: [WorktreeAnnotationTransportDemandKey: WorktreeAnnotationDemandGeneration] = [:]
 
     init(
         store: WorktreeAnnotationServiceActor,
         contextID: String,
-        subject: WorktreeAnnotationSubject,
         sourceResolver: WorktreeAnnotationSourceResolver,
         now: @escaping @Sendable () -> Date = Date.init,
         outputCoordinator: WorktreeAnnotationOutputCoordinatorActor? = nil,
@@ -171,7 +159,6 @@ final class WorktreeAnnotationTransportAdapter {
     ) {
         self.store = store
         self.contextID = contextID
-        self.subject = subject
         self.sourceResolver = sourceResolver
         self.now = now
         self.outputCoordinator = outputCoordinator
@@ -312,12 +299,13 @@ final class WorktreeAnnotationTransportAdapter {
     ) async throws -> WorktreeAnnotationSessionID? {
         switch operation {
         case .discoverSessions:
-            _ = try await store.discoverSessions(subject: subject)
+            let scope = try await sourceResolver.scope(surface)
+            _ = try await store.discoverSessions(subjects: scope.subjects)
             return nil
         case .acquireDemand(let sessionID):
             let typedSessionID = WorktreeAnnotationSessionID(rawValue: sessionID)
             let demandGeneration = try await store.acquireDemand(
-                subject: subject,
+                subjects: try await sourceResolver.scope(surface).subjects,
                 contextID: contextID,
                 surface: surface,
                 sessionID: typedSessionID
@@ -333,7 +321,6 @@ final class WorktreeAnnotationTransportAdapter {
                 surface: surface
             )
             await store.releaseDemand(
-                subject: subject,
                 contextID: contextID,
                 surface: surface,
                 sessionID: typedSessionID
@@ -463,7 +450,7 @@ final class WorktreeAnnotationTransportAdapter {
             input.reviewPublicationIdentity,
             input.productAdmission
         )
-        try validateFingerprint(capturedSource.fingerprint)
+        try await validateInScope(capturedSource.fingerprint, surface: input.surface)
         let detail = try await store.createRootDraft(
             .init(
                 admission: Self.sessionAdmission(input.admission),
@@ -625,12 +612,18 @@ final class WorktreeAnnotationTransportAdapter {
         let fingerprint: WorktreeAnnotationSourceFingerprint?
         switch body.decision {
         case .acceptCurrentSource:
+            let subject = try await store.sourceRefreshSnapshot(sessionID: sessionID)
+                .acceptedSourceFingerprint.subject
             let current = try await sourceResolver.currentFingerprint(
                 surface,
                 reviewPublicationIdentity,
-                productAdmission
+                productAdmission,
+                subject
             )
-            try validateFingerprint(current)
+            guard current.subject.key == subject.key else {
+                throw WorktreeAnnotationSourceResolutionError.invalidSource
+            }
+            try await validateInScope(current, surface: surface)
             relationship = .applicable
             fingerprint = current
         case .keepDetached:
@@ -664,16 +657,21 @@ final class WorktreeAnnotationTransportAdapter {
         guard demandGenerationByKey[demandKey] == demandGeneration else {
             throw WorktreeAnnotationServiceError.staleSourceEpoch
         }
+        let subject = refreshSnapshot.acceptedSourceFingerprint.subject
         let capture = try await sourceResolver.refresh(
             surface,
             reviewPublicationIdentity,
             productAdmission,
+            subject,
             refreshSnapshot.requirements
         )
         guard demandGenerationByKey[demandKey] == demandGeneration else {
             throw WorktreeAnnotationServiceError.staleSourceEpoch
         }
-        try validateFingerprint(capture.fingerprint)
+        guard capture.fingerprint.subject.key == subject.key else {
+            throw WorktreeAnnotationSourceResolutionError.invalidSource
+        }
+        try await validateInScope(capture.fingerprint, surface: surface)
         _ = try await store.refreshSource(
             .init(
                 contextID: contextID,
@@ -690,8 +688,12 @@ final class WorktreeAnnotationTransportAdapter {
         return sessionID
     }
 
-    private func validateFingerprint(_ fingerprint: WorktreeAnnotationSourceFingerprint) throws {
-        guard fingerprint.subject == subject else {
+    /// A fingerprint is admissible only for a subject the surface shows now.
+    private func validateInScope(
+        _ fingerprint: WorktreeAnnotationSourceFingerprint,
+        surface: BridgeProductSurface
+    ) async throws {
+        guard try await sourceResolver.scope(surface).subjects.containsKey(of: fingerprint.subject) else {
             throw WorktreeAnnotationSourceResolutionError.invalidSource
         }
     }

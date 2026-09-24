@@ -123,5 +123,12 @@ extension BridgePaneController {
             // reset and recovery path; the collection itself is already current.
             bridgeFileCollectionLogger.warning("Bridge Files membership update did not reach pane \(self.paneId)")
         }
+        // The File surface's annotations follow its members and loose opened
+        // documents; observers of this collection recapture their catalog.
+        if let worktreeAnnotationStore,
+            let annotationScope = try? await fileCollectionSource.worktreeAnnotationScope()
+        {
+            await worktreeAnnotationStore.updateObservedScope(annotationScope)
+        }
     }
 }

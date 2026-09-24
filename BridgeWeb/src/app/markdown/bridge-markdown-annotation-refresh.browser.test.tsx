@@ -5,6 +5,7 @@ import { cleanup, render } from 'vitest-browser-react';
 import {
 	annotationHeadThreadId,
 	annotationMessage,
+	annotationSubject,
 	createWorktreeAnnotationBrowserProviderHarness,
 } from '../../worktree-annotations/worktree-annotation-browser-test-support.js';
 import type { WorktreeAnnotationThreadProjection } from '../../worktree-annotations/worktree-annotation-surface-client.js';
@@ -106,6 +107,7 @@ function savedThread(version: number, line: number): WorktreeAnnotationThreadPro
 			resolution: 'open',
 			startLine: line,
 			endLine: line,
+			subject: annotationSubject,
 			threadId: annotationHeadThreadId,
 		},
 		messages: [

@@ -9,9 +9,16 @@ import {
 
 import type { BridgePaneSurfaceClient } from '../core/comm-worker/bridge-pane-runtime.js';
 import type { BridgeActiveViewerSource } from '../core/comm-worker/bridge-product-control-contracts.js';
-import type { BridgeProductFileMemberGroup } from '../core/comm-worker/bridge-product-file-member-group-contracts.js';
+import type {
+	BridgeProductFileMemberGroup,
+	BridgeProductFileOpenedDocumentEntry,
+} from '../core/comm-worker/bridge-product-file-member-group-contracts.js';
 import type { BridgeProductNavigationCommand } from '../core/comm-worker/bridge-product-session-contracts.js';
-import { fileCollectionSourceLocation } from '../file-viewer/bridge-file-collection-display-path.js';
+import type { BridgeProductWorktreeAnnotationSubject } from '../core/comm-worker/bridge-product-worktree-annotation-contracts.js';
+import {
+	fileCollectionOpenedDocumentSourceLocation,
+	fileCollectionSourceLocation,
+} from '../file-viewer/bridge-file-collection-display-path.js';
 import {
 	BridgeFileViewerApp,
 	type BridgeFileViewerAppProps,
@@ -171,11 +178,13 @@ export function BridgeFileViewerMode(props: BridgeFileViewerModeProps): ReactEle
 }
 
 /**
- * File-surface annotations are stored worktree-scoped (relative path and the
- * member's descriptor identity); Files lists each member under its group with
- * prefixed descriptor identities, so threads are presented under the
- * collection's keys. The member groups come from the render store
- * because the projected tree can omit a group row while a query is active.
+ * File-surface annotations are stored subject-scoped: a member file by its
+ * worktree-relative path and member descriptor identity, a loose document by
+ * its name and own descriptor identity. Files lists members under their groups
+ * and loose documents under Open Files, both with prefixed descriptor
+ * identities, so threads are presented under the collection's keys. Groups and
+ * opened documents come from the render store because the projected tree can
+ * omit their rows while a query is active.
  */
 function useFileCollectionAnnotationThreadSourcePresenter(
 	fileViewClient: BridgePaneSurfaceClient,
@@ -185,18 +194,34 @@ function useFileCollectionAnnotationThreadSourcePresenter(
 		(): readonly BridgeProductFileMemberGroup[] => renderStore.getSnapshot().fileMemberGroupsSlice,
 		[renderStore],
 	);
+	const readOpenedDocuments = useCallback(
+		(): readonly BridgeProductFileOpenedDocumentEntry[] =>
+			renderStore.getSnapshot().fileOpenedDocumentsSlice,
+		[renderStore],
+	);
 	const memberGroups = useSyncExternalStore(
 		renderStore.subscribe,
 		readMemberGroups,
 		readMemberGroups,
 	);
+	const openedDocuments = useSyncExternalStore(
+		renderStore.subscribe,
+		readOpenedDocuments,
+		readOpenedDocuments,
+	);
 	return useCallback(
 		(
-			worktreeId: string,
+			subject: BridgeProductWorktreeAnnotationSubject,
 			storedSource: WorktreeAnnotationThreadSource,
 		): WorktreeAnnotationThreadSource | null =>
-			fileCollectionSourceLocation(memberGroups, worktreeId, storedSource),
-		[memberGroups],
+			subject.kind === 'git'
+				? fileCollectionSourceLocation(memberGroups, subject.worktreeId, storedSource)
+				: fileCollectionOpenedDocumentSourceLocation(
+						openedDocuments,
+						subject.documentLocation,
+						storedSource,
+					),
+		[memberGroups, openedDocuments],
 	);
 }
 

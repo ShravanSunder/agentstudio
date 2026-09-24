@@ -8,7 +8,10 @@ import {
 	bridgeProductNonnegativeSequenceSchema,
 	bridgeProductSafeMessageSchema,
 } from './bridge-product-contract-primitives.js';
-import { bridgeProductFileMemberGroupListSchema } from './bridge-product-file-member-group-contracts.js';
+import {
+	bridgeProductFileMemberGroupListSchema,
+	bridgeProductFileOpenedDocumentListSchema,
+} from './bridge-product-file-member-group-contracts.js';
 import {
 	bridgeProductFileChangeStatusSchema,
 	bridgeProductFileTreeFileClassSchema,
@@ -204,6 +207,7 @@ const bridgeWorkerFileMemberGroupsDisplayPatchSchema = z.discriminatedUnion('ope
 					groups: bridgeProductFileMemberGroupListSchema,
 					/** The native membership revision these groups belong to. */
 					membershipRevision: bridgeProductNonnegativeSequenceSchema,
+					openedDocuments: bridgeProductFileOpenedDocumentListSchema,
 				})
 				.strict(),
 			slice: z.literal('fileMemberGroups'),

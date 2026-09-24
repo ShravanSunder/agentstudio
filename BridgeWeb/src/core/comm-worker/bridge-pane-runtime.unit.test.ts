@@ -366,7 +366,7 @@ describe('Bridge pane runtime', () => {
 			authority: {
 				subscriptionId: 'file-annotation-subscription-before-replacement',
 				workerDerivationEpoch: 2,
-				worktreeId: 'worktree-1',
+				scopeKey: 'worktree-1',
 			},
 			direction: 'serverWorkerToMain' as const,
 			kind: 'annotationCatalogStaging' as const,

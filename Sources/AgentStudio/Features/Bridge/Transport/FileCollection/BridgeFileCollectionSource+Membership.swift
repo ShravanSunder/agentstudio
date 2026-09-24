@@ -18,13 +18,15 @@ extension BridgeFileCollectionSource {
         let removedSources = previousIds.subtracting(nextIds).compactMap { memberSourcesById[$0] }
         let previousDocuments = Set(layout.openedDocuments.map(\.location))
         let previousMemberGroups = layout.memberGroups
+        let previousOpenedDocuments = layout.openedDocuments
         // A surviving member keeps its running source; only new members start one.
         for member in members where memberSourcesById[member.worktreeId] == nil {
             memberSourcesById[member.worktreeId] = member
         }
         openedDocumentLocations = openedDocuments
         layout = layout.updating(members: members.map(Self.canonicalMember), openedDocuments: openedDocuments)
-        let regrouped = layout.memberGroups != previousMemberGroups
+        let regrouped =
+            layout.memberGroups != previousMemberGroups || layout.openedDocuments != previousOpenedDocuments
         if regrouped { membershipRevision += 1 }
         let addedIds = layout.memberGroups.map(\.worktreeId).filter { !previousIds.contains($0) }
         let addedDocuments = layout.openedDocuments.filter { !previousDocuments.contains($0.location) }

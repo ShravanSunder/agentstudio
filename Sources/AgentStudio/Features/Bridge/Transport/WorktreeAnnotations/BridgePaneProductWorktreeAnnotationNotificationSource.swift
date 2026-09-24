@@ -24,22 +24,22 @@ actor BridgePaneAnnotationNotificationSource {
     }
 
     private let service: WorktreeAnnotationServiceActor?
-    private let subject: WorktreeAnnotationSubject?
+    private let scope: WorktreeAnnotationSourceResolver.Scope
     private let lifecycleTraceRecorder: (any BridgeProductMetadataLifecycleTraceRecording)?
 
     static let unavailable = BridgePaneAnnotationNotificationSource(
         service: nil,
-        subject: nil,
+        scope: { _ in throw WorktreeAnnotationServiceError.unavailable },
         lifecycleTraceRecorder: nil
     )
 
     init(
         service: WorktreeAnnotationServiceActor?,
-        subject: WorktreeAnnotationSubject?,
+        scope: @escaping WorktreeAnnotationSourceResolver.Scope,
         lifecycleTraceRecorder: (any BridgeProductMetadataLifecycleTraceRecording)? = nil
     ) {
         self.service = service
-        self.subject = subject
+        self.scope = scope
         self.lifecycleTraceRecorder = lifecycleTraceRecorder
     }
 
@@ -48,8 +48,9 @@ actor BridgePaneAnnotationNotificationSource {
         surface: BridgeProductSurface,
         delivery: BridgePaneAnnotationNotificationDelivery
     ) async throws {
-        guard let service, let subject else { throw WorktreeAnnotationServiceError.unavailable }
-        let observer = await service.registerChangeObserver(subject: subject)
+        guard let service else { throw WorktreeAnnotationServiceError.unavailable }
+        let openedScope = try await scope(surface)
+        let observer = await service.registerChangeObserver(scope: openedScope)
         do {
             let bootstrapContext = DeliveryLifecycleContext(
                 deliveryAttempt: 0,
@@ -61,12 +62,13 @@ actor BridgePaneAnnotationNotificationSource {
             var publishedApplicationSourceGeneration = try await publishCurrentCatalog(
                 context: bootstrapContext,
                 delivery: delivery,
-                service: service
+                service: service,
+                scopeKey: openedScope.key
             )
 
             for await change in observer.stream {
                 try Task.checkCancellation()
-                guard change.subject == subject else {
+                guard change.scopeKey == openedScope.key else {
                     throw WorktreeAnnotationServiceError.unavailable
                 }
                 guard change.applicationSourceGeneration > publishedApplicationSourceGeneration else {
@@ -84,12 +86,14 @@ actor BridgePaneAnnotationNotificationSource {
                     publishedApplicationSourceGeneration = try await publishCurrentCatalog(
                         context: context,
                         delivery: delivery,
-                        service: service
+                        service: service,
+                        scopeKey: openedScope.key
                     )
                 case .control(let reason):
                     let event = BridgeProductWorktreeAnnotationEvent.controlChanged(
                         .init(
-                            authority: try eventAuthority(
+                            authority: try .init(
+                                scopeKey: openedScope.key,
                                 applicationSourceGeneration: change.applicationSourceGeneration
                             ),
                             reason: controlChangedReason(reason)
@@ -112,7 +116,8 @@ actor BridgePaneAnnotationNotificationSource {
                         for (sessionID, semanticRevision) in orderedSessionRevisions {
                             let event = BridgeProductWorktreeAnnotationEvent.sessionChanged(
                                 try .init(
-                                    authority: eventAuthority(
+                                    authority: .init(
+                                        scopeKey: openedScope.key,
                                         applicationSourceGeneration: change.applicationSourceGeneration
                                     ),
                                     sessionID: sessionID,
@@ -143,9 +148,14 @@ actor BridgePaneAnnotationNotificationSource {
     private func publishCurrentCatalog(
         context: DeliveryLifecycleContext,
         delivery: BridgePaneAnnotationNotificationDelivery,
-        service: WorktreeAnnotationServiceActor
+        service: WorktreeAnnotationServiceActor,
+        scopeKey: String
     ) async throws -> Int {
-        let capture = try await captureCurrentCatalog(service: service)
+        let capture = try await captureCurrentCatalog(
+            service: service,
+            surface: context.surface,
+            scopeKey: scopeKey
+        )
         let publicationContext = DeliveryLifecycleContext(
             deliveryAttempt: context.deliveryAttempt,
             deliveryStartWasRecorded: context.deliveryStartWasRecorded,
@@ -153,7 +163,8 @@ actor BridgePaneAnnotationNotificationSource {
             sourceGeneration: capture.applicationSourceGeneration,
             surface: context.surface
         )
-        let authority = try eventAuthority(
+        let authority = try BridgeProductWorktreeAnnotationEvent.Authority(
+            scopeKey: scopeKey,
             applicationSourceGeneration: capture.applicationSourceGeneration
         )
         let entries = try Self.catalogEntries(from: capture.repositoryCapture)
@@ -181,30 +192,22 @@ actor BridgePaneAnnotationNotificationSource {
         return capture.applicationSourceGeneration
     }
 
+    /// Reads the surface's current subjects on every capture, so a Files
+    /// membership change is captured under the same scope key.
     private func captureCurrentCatalog(
-        service: WorktreeAnnotationServiceActor
+        service: WorktreeAnnotationServiceActor,
+        surface: BridgeProductSurface,
+        scopeKey: String
     ) async throws -> WorktreeAnnotationServiceCatalogCapture {
-        guard let subject else { throw WorktreeAnnotationServiceError.unavailable }
         while true {
+            let currentScope = try await scope(surface)
+            guard currentScope.key == scopeKey else { throw WorktreeAnnotationServiceError.unavailable }
             do {
-                return try await service.captureCatalog(subject: subject)
+                return try await service.captureCatalog(subjects: currentScope.subjects)
             } catch WorktreeAnnotationServiceError.staleSourceEpoch {
                 try Task.checkCancellation()
             }
         }
-    }
-
-    private func eventAuthority(
-        applicationSourceGeneration: Int
-    ) throws -> BridgeProductWorktreeAnnotationEvent.Authority {
-        // S8(b) replaces the worktree with the pane's annotation scope key.
-        guard let worktreeID = subject?.gitWorktreeID else {
-            throw WorktreeAnnotationServiceError.unavailable
-        }
-        return try .init(
-            worktreeID: worktreeID,
-            applicationSourceGeneration: applicationSourceGeneration
-        )
     }
 
     private static func catalogEntries(

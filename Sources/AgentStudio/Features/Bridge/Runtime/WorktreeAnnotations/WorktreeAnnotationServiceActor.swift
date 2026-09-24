@@ -83,20 +83,20 @@ package actor WorktreeAnnotationServiceActor {
         }
     }
 
-    func discoverSessions(subject: WorktreeAnnotationSubject) async throws -> [WorktreeAnnotationSession] {
+    func discoverSessions(subjects: Set<WorktreeAnnotationSubject>) async throws -> [WorktreeAnnotationSession] {
         try requireAvailableForReads()
-        return try await repositoryAccess.discoverSessions(subject: subject)
+        return try await repositoryAccess.discoverSessions(subjects: subjects)
     }
 
     func captureProjection(
-        subject: WorktreeAnnotationSubject,
+        subjects: Set<WorktreeAnnotationSubject>,
         demandedSessionIDs: [WorktreeAnnotationSessionID]
     ) async throws -> WorktreeAnnotationServiceProjectionCapture {
         try requireAvailableForReads()
         let capturedRevision = projectionRevision
         let capturedRecoveryState = recoveryState
         let repositorySnapshot = try await repositoryAccess.fetchProjectionSnapshot(
-            subject: subject,
+            subjects: subjects,
             demandedSessionIDs: demandedSessionIDs
         )
         guard projectionRevision == capturedRevision,
@@ -112,7 +112,7 @@ package actor WorktreeAnnotationServiceActor {
     }
 
     func acquireDemand(
-        subject: WorktreeAnnotationSubject,
+        subjects: Set<WorktreeAnnotationSubject>,
         contextID: String,
         surface: BridgeProductSurface,
         sessionID: WorktreeAnnotationSessionID
@@ -143,7 +143,7 @@ package actor WorktreeAnnotationServiceActor {
         guard activeDemandGenerationByContextKey[contextKey] == demandGeneration else {
             throw WorktreeAnnotationServiceError.staleSourceEpoch
         }
-        guard detail.session.subject == subject else {
+        guard subjects.containsKey(of: detail.session.subject) else {
             rollbackDemandRegistration(
                 contextKey: contextKey,
                 demandGeneration: demandGeneration
@@ -154,7 +154,6 @@ package actor WorktreeAnnotationServiceActor {
     }
 
     func releaseDemand(
-        subject: WorktreeAnnotationSubject,
         contextID: String,
         surface: BridgeProductSurface,
         sessionID: WorktreeAnnotationSessionID

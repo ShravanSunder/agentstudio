@@ -42,7 +42,7 @@ describe('Bridge communication worker annotation metadata application authority'
 			application.accept(
 				frame({
 					event: {
-						authority: { applicationSourceGeneration: 1, worktreeId: firstWorktreeId },
+						authority: { applicationSourceGeneration: 1, scopeKey: firstWorktreeId },
 						kind: 'annotation.controlChanged',
 						reason: 'discovery',
 					},
@@ -65,7 +65,7 @@ describe('Bridge communication worker annotation metadata application authority'
 			application.accept(
 				frame({
 					event: {
-						authority: { applicationSourceGeneration: 21, worktreeId: replacementWorktreeId },
+						authority: { applicationSourceGeneration: 21, scopeKey: replacementWorktreeId },
 						kind: 'annotation.controlChanged',
 						reason: 'discovery',
 					},
@@ -77,7 +77,7 @@ describe('Bridge communication worker annotation metadata application authority'
 			application.accept(
 				frame({
 					event: {
-						authority: { applicationSourceGeneration: 21, worktreeId: replacementWorktreeId },
+						authority: { applicationSourceGeneration: 21, scopeKey: replacementWorktreeId },
 						kind: 'annotation.sessionChanged',
 						semanticRevision: 4,
 						sessionId,
@@ -124,7 +124,7 @@ function commitCatalog(
 		{
 			authority: {
 				applicationSourceGeneration: props.catalogRevision,
-				worktreeId: props.worktreeId,
+				scopeKey: props.worktreeId,
 			},
 			kind: 'annotation.catalog',
 			transfer: {
@@ -137,7 +137,7 @@ function commitCatalog(
 		{
 			authority: {
 				applicationSourceGeneration: props.catalogRevision,
-				worktreeId: props.worktreeId,
+				scopeKey: props.worktreeId,
 			},
 			kind: 'annotation.catalog',
 			transfer: {
@@ -151,7 +151,7 @@ function commitCatalog(
 		{
 			authority: {
 				applicationSourceGeneration: props.catalogRevision,
-				worktreeId: props.worktreeId,
+				scopeKey: props.worktreeId,
 			},
 			kind: 'annotation.catalog',
 			transfer: {

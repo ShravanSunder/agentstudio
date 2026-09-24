@@ -1,12 +1,18 @@
 import { describe, expect, test } from 'vitest';
 
 import type { BridgeProductWorktreeAnnotationOperation } from '../core/comm-worker/bridge-product-call-contracts.js';
+import type { BridgeProductWorktreeAnnotationSubject } from '../core/comm-worker/bridge-product-worktree-annotation-contracts.js';
 import { WorktreeAnnotationEditOwnershipController } from './worktree-annotation-edit-ownership.js';
 import type {
 	WorktreeAnnotationMessageEntry,
 	WorktreeAnnotationProjectionSnapshot,
 	WorktreeAnnotationSurfaceClient,
 } from './worktree-annotation-surface-client.js';
+
+const annotationSubject: BridgeProductWorktreeAnnotationSubject = {
+	kind: 'git',
+	worktreeId: 'worktree-1',
+};
 
 describe('WorktreeAnnotationEditOwnershipController', () => {
 	test('uses the committed Save receipt while the server projection still contains the old draft', async () => {
@@ -120,6 +126,7 @@ function createOwnershipFixture(initialMessage: WorktreeAnnotationMessageEntry):
 					sourceIdentity: 'source-1',
 					sourceRole: 'file',
 					startLine: 1,
+					subject: annotationSubject,
 					threadId: message.threadId,
 				},
 				messages: [message],
@@ -127,7 +134,7 @@ function createOwnershipFixture(initialMessage: WorktreeAnnotationMessageEntry):
 		],
 		sourceGeneration: 0,
 		unreconciledCommandReceiptSessionIds: [],
-		worktreeId: 'worktree-1',
+		scopeKey: 'worktree-1',
 	});
 	const client: WorktreeAnnotationSurfaceClient = {
 		acquireSession: () => (): void => {},

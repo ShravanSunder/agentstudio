@@ -282,7 +282,7 @@ describe('Bridge product subscription state', () => {
 		const catalogBeginEvent = {
 			authority: {
 				applicationSourceGeneration: 1,
-				worktreeId: 'worktree-1',
+				scopeKey: 'worktree-1',
 			},
 			kind: 'annotation.catalog',
 			transfer: {
@@ -341,7 +341,7 @@ describe('Bridge product subscription state', () => {
 					event: {
 						authority: {
 							applicationSourceGeneration: 2,
-							worktreeId: 'worktree-1',
+							scopeKey: 'worktree-1',
 						},
 						kind: 'annotation.controlChanged',
 						reason: 'discovery',
@@ -356,7 +356,7 @@ describe('Bridge product subscription state', () => {
 					event: {
 						authority: {
 							applicationSourceGeneration: 3,
-							worktreeId: 'worktree-1',
+							scopeKey: 'worktree-1',
 						},
 						kind: 'annotation.sessionChanged',
 						semanticRevision: 4,

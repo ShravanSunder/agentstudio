@@ -37,7 +37,7 @@ struct WorktreeAnnotationNotificationSourceTests {
             openTask.cancel()
             return
         }
-        #expect(beginEvent.authority.worktreeID == "worktree-1")
+        #expect(beginEvent.authority.scopeKey == "worktree-1")
         #expect(beginEvent.authority.applicationSourceGeneration == 0)
         #expect(beginTransfer.expectedEntryCount == 0)
         guard
@@ -232,7 +232,7 @@ struct WorktreeAnnotationNotificationSourceTests {
             openTask.cancel()
             return
         }
-        #expect(event.authority.worktreeID == "worktree-1")
+        #expect(event.authority.scopeKey == "worktree-1")
         #expect(event.authority.applicationSourceGeneration == 2)
         #expect(event.sessionID == savedDetail.session.id)
         #expect(event.semanticRevision == savedDetail.session.semanticRevision)
@@ -294,7 +294,7 @@ struct WorktreeAnnotationNotificationSourceTests {
             openTask.cancel()
             return
         }
-        #expect(event.authority.worktreeID == "worktree-1")
+        #expect(event.authority.scopeKey == "worktree-1")
         #expect(event.authority.applicationSourceGeneration == 1)
         #expect(event.reason == .recovery)
         #expect(recorded.operationCorrelationID == operationCorrelationID)
@@ -377,7 +377,7 @@ private func makeNotificationSourceHarness(
         service: service,
         source: BridgePaneAnnotationNotificationSource(
             service: service,
-            subject: defaultAnnotationSubject
+            scope: { _ in .testScope(defaultAnnotationSubject) }
         ),
         subscription: subscription
     )

@@ -102,7 +102,7 @@ struct WorktreeAnnotationOutputSelectionTests {
             harness: harness
         )
         let displayedProjection = try await harness.store.captureProjection(
-            subject: transportAdapterAnnotationSubject,
+            subjects: [transportAdapterAnnotationSubject],
             demandedSessionIDs: [savedRoot.sessionID]
         )
         let displayedSessionRevision = try #require(

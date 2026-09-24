@@ -532,6 +532,7 @@ describe('Bridge comm worker File metadata projection', () => {
 			eventKind: 'file.memberGroups',
 			groups: groupsB,
 			membershipRevision: 2,
+			openedDocuments: [],
 			source,
 		});
 
@@ -540,6 +541,7 @@ describe('Bridge comm worker File metadata projection', () => {
 			eventKind: 'file.memberGroups',
 			groups: groupsA,
 			membershipRevision: 1,
+			openedDocuments: [],
 			source,
 		});
 		projection.apply({ eventKind: 'file.sourceAccepted', source: nextSource });
@@ -547,12 +549,14 @@ describe('Bridge comm worker File metadata projection', () => {
 			eventKind: 'file.memberGroups',
 			groups: groupsB,
 			membershipRevision: 0,
+			openedDocuments: [],
 			source: nextSource,
 		});
 		const lateReplacedSource = projection.apply({
 			eventKind: 'file.memberGroups',
 			groups: groupsA,
 			membershipRevision: 3,
+			openedDocuments: [],
 			source,
 		});
 
@@ -561,7 +565,7 @@ describe('Bridge comm worker File metadata projection', () => {
 		expect(replacementGroups.patches).toEqual([
 			{
 				operation: 'upsert',
-				payload: { groups: groupsB, membershipRevision: 0 },
+				payload: { groups: groupsB, membershipRevision: 0, openedDocuments: [] },
 				slice: 'fileMemberGroups',
 			},
 		]);

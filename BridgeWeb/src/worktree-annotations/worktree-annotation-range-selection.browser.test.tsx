@@ -20,6 +20,7 @@ import {
 	annotationMessage,
 	annotationSessionSummary,
 	annotationSessionId,
+	annotationSubject,
 	RecordingAnnotationBrowserSurface,
 } from './worktree-annotation-browser-test-support.js';
 import { WorktreeAnnotationSurfaceProvider } from './worktree-annotation-surface-provider.js';
@@ -388,6 +389,7 @@ describe('worktree annotation Pierre range selection', () => {
 						sourceIdentity: createOperation.origin.sourceIdentity,
 						sourceRole: 'review_head',
 						startLine: createOperation.origin.startLine,
+						subject: annotationSubject,
 						threadId: annotationHeadThreadId,
 					},
 					message: {

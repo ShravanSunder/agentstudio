@@ -145,10 +145,21 @@ actor BridgePaneProductFileMetadataSource: BridgePaneProductFileMetadataProducin
         sourceAcceptedObserver = observer
     }
 
+    func worktreeAnnotationScope() -> WorktreeAnnotationScope {
+        WorktreeAnnotationScope(
+            key: worktreeAnnotationSubject.gitWorktreeID ?? "",
+            subjects: [worktreeAnnotationSubject]
+        )
+    }
+
     func currentWorktreeAnnotationFingerprint(
+        subject: WorktreeAnnotationSubject,
         productAdmission: BridgeProductAdmissionContext
     ) async throws -> WorktreeAnnotationSourceFingerprint {
-        try await worktreeAnnotationFingerprintImplementation(productAdmission: productAdmission)
+        guard subject.key == worktreeAnnotationSubject.key else {
+            throw WorktreeAnnotationSourceResolutionError.unavailable
+        }
+        return try await worktreeAnnotationFingerprintImplementation(productAdmission: productAdmission)
     }
 
     func currentWorktreeAnnotationSourceGeneration(
@@ -158,10 +169,14 @@ actor BridgePaneProductFileMetadataSource: BridgePaneProductFileMetadataProducin
     }
 
     func currentWorktreeAnnotationRefresh(
+        subject: WorktreeAnnotationSubject,
         requirements: [WorktreeAnnotationSourceRefreshRequirement],
         productAdmission: BridgeProductAdmissionContext
     ) async throws -> WorktreeAnnotationSourceRefreshCapture {
-        try await worktreeAnnotationRefreshImplementation(
+        guard subject.key == worktreeAnnotationSubject.key else {
+            throw WorktreeAnnotationSourceResolutionError.unavailable
+        }
+        return try await worktreeAnnotationRefreshImplementation(
             requirements: requirements,
             productAdmission: productAdmission
         )

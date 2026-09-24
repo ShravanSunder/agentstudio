@@ -10,7 +10,7 @@ struct WorktreeAnnotationProjectionRecordCursorTests {
         // Arrange
         let capture = makeProjectionCapture(messageBodies: ["first", "second"])
         let differentlyOrderedCapture = BridgeProductAnnotationProjectionCapture(
-            subject: capture.subject,
+            scope: WorktreeAnnotationScope(key: capture.scopeKey, subjects: capture.subjects),
             recoveryStatus: capture.recoveryStatus,
             sessions: Array(capture.sessions.reversed()),
             details: capture.details.reversed().map { detail in
@@ -302,7 +302,7 @@ private func makeProjectionCapture(messageBodies: [String]) -> BridgeProductAnno
         )
     }
     return BridgeProductAnnotationProjectionCapture(
-        subject: .git(repositoryID: "repository-1", worktreeID: "worktree-1"),
+        scope: .testScope(.git(repositoryID: "repository-1", worktreeID: "worktree-1")),
         recoveryStatus: .available,
         sessions: [session],
         details: [.init(session: session, threads: [.init(thread: thread, messages: messages)])],

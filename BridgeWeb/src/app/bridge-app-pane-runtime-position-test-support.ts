@@ -369,6 +369,7 @@ function makeFileDisplayEvent(fileContents: string): BridgeWorkerFileDisplayPatc
 						},
 					],
 					membershipRevision: 0,
+					openedDocuments: [],
 				},
 				slice: 'fileMemberGroups',
 			},

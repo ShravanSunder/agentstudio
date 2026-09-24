@@ -10,6 +10,7 @@ import {
 	annotationMessage,
 	annotationSessionId,
 	annotationSessionSummary,
+	annotationSubject,
 	RecordingAnnotationBrowserSurface,
 } from './worktree-annotation-browser-test-support.js';
 import type { WorktreeAnnotationMessageEntry } from './worktree-annotation-surface-client.js';
@@ -186,6 +187,7 @@ const locatedContext = {
 	sourceIdentity: 'descriptor-file-1',
 	sourceRole: 'file',
 	startLine: 8,
+	subject: annotationSubject,
 	threadId: annotationHeadThreadId,
 } as const;
 

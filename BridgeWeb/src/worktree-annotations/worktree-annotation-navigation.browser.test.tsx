@@ -20,6 +20,7 @@ import {
 	annotationBaseThreadId,
 	annotationSecondSessionId,
 	annotationSessionSummary,
+	annotationSubject,
 	createWorktreeAnnotationBrowserProviderHarness,
 } from './worktree-annotation-browser-test-support.js';
 import {
@@ -432,8 +433,10 @@ describe('annotation destination navigation', () => {
 			},
 		];
 		const harness = createWorktreeAnnotationBrowserProviderHarness('fileView', {
-			threadSourcePresenter: (worktreeId, storedSource) =>
-				fileCollectionSourceLocation(memberGroups, worktreeId, storedSource),
+			threadSourcePresenter: (subject, storedSource) =>
+				subject.kind === 'git'
+					? fileCollectionSourceLocation(memberGroups, subject.worktreeId, storedSource)
+					: null,
 		});
 		let controller: WorktreeAnnotationNavigationController | null = null;
 		function Destination(): ReactElement {
@@ -596,6 +599,7 @@ function threadFixture(line: number): WorktreeAnnotationThreadProjection {
 			resolution: 'open',
 			startLine: line,
 			endLine: line,
+			subject: annotationSubject,
 			threadId: annotationHeadThreadId,
 		},
 		messages: [

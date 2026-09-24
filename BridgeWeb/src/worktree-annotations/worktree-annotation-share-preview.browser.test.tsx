@@ -4,6 +4,7 @@ import { page } from 'vitest/browser';
 
 // oxlint-disable-next-line import/no-unassigned-import -- Browser Mode must load production app CSS.
 import '../app/bridge-app.css';
+import type { BridgeProductWorktreeAnnotationSubject } from '../core/comm-worker/bridge-product-worktree-annotation-contracts.js';
 import {
 	WorktreeAnnotationSharePreview,
 	type WorktreeAnnotationSharePreviewReadiness,
@@ -373,6 +374,11 @@ describe('worktree annotation Share preview', () => {
 	});
 });
 
+const annotationSubject: BridgeProductWorktreeAnnotationSubject = {
+	kind: 'git',
+	worktreeId: 'worktree-1',
+};
+
 function threadFixture(props: {
 	readonly endLine: number;
 	readonly messages: readonly WorktreeAnnotationThreadProjection['messages'][number][];
@@ -393,6 +399,7 @@ function threadFixture(props: {
 			sourceIdentity: `source-${props.threadId}`,
 			sourceRole: 'file',
 			startLine: props.startLine,
+			subject: annotationSubject,
 			threadId: props.threadId,
 		},
 		messages: props.messages,

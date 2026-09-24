@@ -524,6 +524,7 @@ extension BridgePaneController {
         )
         let annotationSource = makeWorktreeAnnotationSource(
             input,
+            fileMetadataSource: fileMetadataSource,
             lifecycleTraceRecorder: lifecycleTraceRecorder
         )
         let annotationProjectionSource = makeWorktreeAnnotationProjectionSource(
@@ -665,26 +666,38 @@ extension BridgePaneController {
         )
     }
 
-    /// The Git subject of the pane's runtime worktree.
-    private static func worktreeAnnotationSubject(
-        _ input: BridgeProductSessionDependencyInput
-    ) -> WorktreeAnnotationSubject? {
-        guard let repositoryID = input.runtime.metadata.repoId?.uuidString.lowercased(),
-            let worktreeID = input.runtime.metadata.worktreeId?.uuidString.lowercased()
-        else { return nil }
-        return .git(repositoryID: repositoryID, worktreeID: worktreeID)
+    /// The Review surface shows the pane's one Review worktree; Files shows
+    /// whatever its File source lists now.
+    private static func makeWorktreeAnnotationSourceResolver(
+        _ input: BridgeProductSessionDependencyInput,
+        fileMetadataSource: any BridgePaneProductFileMetadataProducing
+    ) -> WorktreeAnnotationSourceResolver {
+        let reviewScope: WorktreeAnnotationScope? =
+            if let repositoryID = input.runtime.metadata.repoId?.uuidString.lowercased(),
+                let worktreeID = input.runtime.metadata.worktreeId?.uuidString.lowercased()
+            {
+                .review(repositoryID: repositoryID, worktreeID: worktreeID)
+            } else {
+                nil
+            }
+        return WorktreeAnnotationSourceCapture.resolver(
+            fileMetadataSource: fileMetadataSource,
+            reviewScope: reviewScope,
+            reviewPublicationCoordinator: input.reviewPublicationCoordinator,
+            reviewContentLoaderCache: input.reviewContentLoaderCache,
+            gitEvidenceSource: input.reviewSourceProvider as? any WorktreeAnnotationGitEvidenceSource
+        )
     }
 
     private static func makeWorktreeAnnotationSource(
         _ input: BridgeProductSessionDependencyInput,
+        fileMetadataSource: any BridgePaneProductFileMetadataProducing,
         lifecycleTraceRecorder: (any BridgeProductMetadataLifecycleTraceRecording)?
     ) -> BridgePaneAnnotationNotificationSource {
-        guard let service = input.worktreeAnnotationStore,
-            let subject = worktreeAnnotationSubject(input)
-        else { return .unavailable }
+        guard let service = input.worktreeAnnotationStore else { return .unavailable }
         return BridgePaneAnnotationNotificationSource(
             service: service,
-            subject: subject,
+            scope: makeWorktreeAnnotationSourceResolver(input, fileMetadataSource: fileMetadataSource).scope,
             lifecycleTraceRecorder: lifecycleTraceRecorder
         )
     }
@@ -693,19 +706,11 @@ extension BridgePaneController {
         _ input: BridgeProductSessionDependencyInput,
         fileMetadataSource: any BridgePaneProductFileMetadataProducing
     ) -> BridgeAnnotationProjectionSource {
-        guard let service = input.worktreeAnnotationStore,
-            let subject = worktreeAnnotationSubject(input)
-        else { return .unavailable }
-        let sourceResolver = WorktreeAnnotationSourceCapture.resolver(
-            fileMetadataSource: fileMetadataSource,
-            reviewPublicationCoordinator: input.reviewPublicationCoordinator,
-            reviewContentLoaderCache: input.reviewContentLoaderCache,
-            gitEvidenceSource: input.reviewSourceProvider as? any WorktreeAnnotationGitEvidenceSource
-        )
+        guard let service = input.worktreeAnnotationStore else { return .unavailable }
+        let sourceResolver = makeWorktreeAnnotationSourceResolver(input, fileMetadataSource: fileMetadataSource)
         return BridgeAnnotationProjectionSource(
             service: service,
             sourceResolver: sourceResolver,
-            subject: subject,
             currentSourceGeneration: sourceResolver.currentSourceGeneration
         )
     }
@@ -721,9 +726,7 @@ extension BridgePaneController {
             BridgeProductAdmissionContext
         ) async -> BridgeProductWorktreeAnnotationCommandOutcomeDTO
     {
-        guard let store = input.worktreeAnnotationStore,
-            let subject = worktreeAnnotationSubject(input)
-        else {
+        guard let store = input.worktreeAnnotationStore else {
             return { _, surface, correlation, _ in
                 BridgeProductWorktreeAnnotationCommandOutcomeDTO(
                     .init(
@@ -735,17 +738,10 @@ extension BridgePaneController {
                 )
             }
         }
-        let sourceResolver = WorktreeAnnotationSourceCapture.resolver(
-            fileMetadataSource: fileMetadataSource,
-            reviewPublicationCoordinator: input.reviewPublicationCoordinator,
-            reviewContentLoaderCache: input.reviewContentLoaderCache,
-            gitEvidenceSource: input.reviewSourceProvider as? any WorktreeAnnotationGitEvidenceSource
-        )
         let adapter = WorktreeAnnotationTransportAdapter(
             store: store,
             contextID: input.paneSessionId,
-            subject: subject,
-            sourceResolver: sourceResolver,
+            sourceResolver: makeWorktreeAnnotationSourceResolver(input, fileMetadataSource: fileMetadataSource),
             outputCoordinator: input.worktreeAnnotationOutputCoordinator,
             outputLabels: .init(
                 sessionLabel: "Current review",

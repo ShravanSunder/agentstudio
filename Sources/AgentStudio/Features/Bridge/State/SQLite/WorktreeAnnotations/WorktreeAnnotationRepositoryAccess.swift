@@ -2,18 +2,18 @@ import AgentStudioCore
 import Foundation
 
 protocol WorktreeAnnotationRepositoryAccess: Sendable {
-    func discoverSessions(subject: WorktreeAnnotationSubject) async throws -> [WorktreeAnnotationSession]
+    func discoverSessions(subjects: Set<WorktreeAnnotationSubject>) async throws -> [WorktreeAnnotationSession]
     func discoverForeignLivingSessionCandidates(
         repositoryID: String,
         excludingWorktreeID: String
     ) async throws -> [WorktreeAnnotationSession]
     func fetchProjectionSnapshot(
-        subject: WorktreeAnnotationSubject,
+        subjects: Set<WorktreeAnnotationSubject>,
         demandedSessionIDs: [WorktreeAnnotationSessionID]
     ) async throws -> WorktreeAnnotationRepositoryProjectionSnapshot
     func fetchSessionDetail(sessionID: WorktreeAnnotationSessionID) async throws
         -> WorktreeAnnotationSessionDetail
-    func fetchCatalogCapture(subject: WorktreeAnnotationSubject) async throws -> WorktreeAnnotationCatalogCapture
+    func fetchCatalogCapture(subjects: Set<WorktreeAnnotationSubject>) async throws -> WorktreeAnnotationCatalogCapture
     func createRootDraft(_ props: WorktreeAnnotationSQLiteRepository.CreateRootDraftProps) async throws
         -> WorktreeAnnotationCommittedMutation<WorktreeAnnotationSessionDetail>
     func flushDraft(_ props: WorktreeAnnotationSQLiteRepository.FlushDraftProps) async throws
@@ -87,8 +87,9 @@ protocol WorktreeAnnotationRepositoryAccess: Sendable {
 }
 
 extension WorktreeAnnotationRepositoryAccess {
-    func fetchCatalogCapture(subject: WorktreeAnnotationSubject) async throws -> WorktreeAnnotationCatalogCapture {
-        _ = subject
+    func fetchCatalogCapture(subjects: Set<WorktreeAnnotationSubject>) async throws -> WorktreeAnnotationCatalogCapture
+    {
+        _ = subjects
         throw WorktreeAnnotationRepositoryError.invalidState
     }
 
@@ -107,10 +108,10 @@ extension WorktreeAnnotationRepositoryAccess {
     }
 
     func fetchProjectionSnapshot(
-        subject: WorktreeAnnotationSubject,
+        subjects: Set<WorktreeAnnotationSubject>,
         demandedSessionIDs: [WorktreeAnnotationSessionID]
     ) async throws -> WorktreeAnnotationRepositoryProjectionSnapshot {
-        _ = (subject, demandedSessionIDs)
+        _ = (subjects, demandedSessionIDs)
         throw WorktreeAnnotationRepositoryError.invalidState
     }
 
@@ -196,8 +197,8 @@ package struct WorktreeAnnotationSQLiteDatastoreAdapter: WorktreeAnnotationRepos
         self.datastore = datastore
     }
 
-    func discoverSessions(subject: WorktreeAnnotationSubject) async throws -> [WorktreeAnnotationSession] {
-        try await restore { try $0.discoverSessions(subject: subject) }
+    func discoverSessions(subjects: Set<WorktreeAnnotationSubject>) async throws -> [WorktreeAnnotationSession] {
+        try await restore { try $0.discoverSessions(subjects: subjects) }
     }
 
     func discoverForeignLivingSessionCandidates(
@@ -213,12 +214,12 @@ package struct WorktreeAnnotationSQLiteDatastoreAdapter: WorktreeAnnotationRepos
     }
 
     func fetchProjectionSnapshot(
-        subject: WorktreeAnnotationSubject,
+        subjects: Set<WorktreeAnnotationSubject>,
         demandedSessionIDs: [WorktreeAnnotationSessionID]
     ) async throws -> WorktreeAnnotationRepositoryProjectionSnapshot {
         try await restore {
             try $0.fetchProjectionSnapshot(
-                subject: subject,
+                subjects: subjects,
                 demandedSessionIDs: demandedSessionIDs
             )
         }
@@ -230,8 +231,9 @@ package struct WorktreeAnnotationSQLiteDatastoreAdapter: WorktreeAnnotationRepos
         try await restore { try $0.fetchSessionDetail(sessionID: sessionID) }
     }
 
-    func fetchCatalogCapture(subject: WorktreeAnnotationSubject) async throws -> WorktreeAnnotationCatalogCapture {
-        try await restore { try $0.fetchCatalogCapture(subject: subject) }
+    func fetchCatalogCapture(subjects: Set<WorktreeAnnotationSubject>) async throws -> WorktreeAnnotationCatalogCapture
+    {
+        try await restore { try $0.fetchCatalogCapture(subjects: subjects) }
     }
 
     func createRootDraft(_ props: WorktreeAnnotationSQLiteRepository.CreateRootDraftProps) async throws

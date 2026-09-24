@@ -1,5 +1,8 @@
 import { bridgeProductIdentifierSchema } from '../core/comm-worker/bridge-product-contract-primitives.js';
-import type { BridgeProductFileMemberGroup } from '../core/comm-worker/bridge-product-file-member-group-contracts.js';
+import type {
+	BridgeProductFileMemberGroup,
+	BridgeProductFileOpenedDocumentEntry,
+} from '../core/comm-worker/bridge-product-file-member-group-contracts.js';
 
 /**
  * The Files display key of a worktree-relative location, or null when no
@@ -66,6 +69,27 @@ export function fileCollectionSourceLocation(
 		storedSource.sourceIdentity,
 	);
 	return path === null || sourceIdentity === null ? null : { path, sourceIdentity };
+}
+
+/**
+ * A local document's stored source (its name and its own descriptor identity,
+ * as annotations store it) under the collection's keys, or null when Files no
+ * longer lists that document. Local documents are matched by canonical
+ * location only, never by name.
+ */
+export function fileCollectionOpenedDocumentSourceLocation(
+	openedDocuments: readonly BridgeProductFileOpenedDocumentEntry[],
+	documentLocation: string,
+	storedSource: BridgeFileCollectionSourceLocation,
+): BridgeFileCollectionSourceLocation | null {
+	const entry = openedDocuments.find(
+		(candidate): boolean => candidate.documentLocation === documentLocation,
+	);
+	if (entry === undefined || storedSource.sourceIdentity.length === 0) return null;
+	const sourceIdentity = `${entry.identityPrefix}${storedSource.sourceIdentity}`;
+	return bridgeProductIdentifierSchema.safeParse(sourceIdentity).success
+		? { path: entry.displayPath, sourceIdentity }
+		: null;
 }
 
 function fileCollectionMemberGroup(

@@ -71,7 +71,7 @@ extension BridgeFileCollectionSource {
         }
     }
 
-    private func openedDocumentPayload(
+    func openedDocumentPayload(
         _ entry: BridgeFileCollectionLayout.OpenedDocumentEntry,
         source: BridgeProductFileSourceIdentity
     ) async throws -> BridgeProductFileDescriptorReadyPayload {

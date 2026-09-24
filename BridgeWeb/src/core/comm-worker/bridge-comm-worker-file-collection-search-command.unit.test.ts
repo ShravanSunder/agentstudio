@@ -230,6 +230,7 @@ function collectionDisplayPatches(props: {
 					},
 				],
 				membershipRevision: 2,
+				openedDocuments: [],
 			},
 			slice: 'fileMemberGroups',
 		},

@@ -9,6 +9,7 @@ import type {
 	BridgeProductReviewAnnotationPublicationIdentity,
 	BridgeProductWorktreeAnnotationOperation,
 } from '../core/comm-worker/bridge-product-call-contracts.js';
+import type { BridgeProductWorktreeAnnotationSubject } from '../core/comm-worker/bridge-product-worktree-annotation-contracts.js';
 import type { BridgeWorkerServerToMainMessage } from '../core/comm-worker/bridge-worker-contracts.js';
 import { WorktreeAnnotationBrowserCommandReceiptFixture } from './worktree-annotation-browser-command-receipt-fixture.js';
 import { reviewAnnotationPublicationIdentityForMainIdentity } from './worktree-annotation-review-application.js';
@@ -26,6 +27,11 @@ export const annotationSessionId = '00000000-0000-7000-8000-000000000011';
 export const annotationSecondSessionId = '00000000-0000-7000-8000-000000000014';
 export const annotationHeadThreadId = '00000000-0000-7000-8000-000000000012';
 export const annotationBaseThreadId = '00000000-0000-7000-8000-000000000013';
+export const annotationScopeKey = 'worktree-1';
+export const annotationSubject: BridgeProductWorktreeAnnotationSubject = {
+	kind: 'git',
+	worktreeId: annotationScopeKey,
+};
 const annotationSubscriptionId = 'annotation-browser-subscription-1';
 
 export interface WorktreeAnnotationBrowserProviderHarness {
@@ -82,7 +88,7 @@ type AnnotationBrowserProjectionEvent =
 				readonly recoveryStatus: 'available' | 'recovered_degraded' | 'unavailable';
 				readonly revision: number;
 				readonly sessions: readonly AnnotationSessionSummary[];
-				readonly worktreeId: string;
+				readonly scopeKey: string;
 			};
 	  };
 
@@ -203,6 +209,7 @@ export class RecordingAnnotationBrowserSurface {
 					semanticRevision: revision,
 					sessionId: annotationSessionId,
 					sourceRelationship: 'applicable',
+					subject: annotationSubject,
 					updatedAt: revision,
 				},
 			],
@@ -231,7 +238,7 @@ export class RecordingAnnotationBrowserSurface {
 					recoveryStatus: props.recoveryStatus ?? 'available',
 					revision: props.revision,
 					sessions: this.#sessions,
-					worktreeId: 'worktree-1',
+					scopeKey: annotationScopeKey,
 				},
 			},
 			props.subscriptionId,
@@ -619,7 +626,7 @@ export class RecordingAnnotationBrowserSurface {
 				recoveryStatus: 'available',
 				revision: this.#revision,
 				sessions: this.#sessions,
-				worktreeId: 'worktree-1',
+				scopeKey: annotationScopeKey,
 			},
 		});
 	}
@@ -699,7 +706,7 @@ export class RecordingAnnotationBrowserSurface {
 					sessions: this.#sessions,
 					sourceGeneration: this.#projectionDeclaration.revision,
 					threads: completeThreads,
-					worktreeId: 'worktree-1',
+					scopeKey: annotationScopeKey,
 				},
 			},
 			surface: this.client.surface,
@@ -744,7 +751,7 @@ export class RecordingAnnotationBrowserSurface {
 			authority: {
 				subscriptionId: `${this.client.surface}-browser-annotation-subscription`,
 				workerDerivationEpoch: 1,
-				worktreeId: 'worktree-1',
+				scopeKey: annotationScopeKey,
 			},
 			direction: 'serverWorkerToMain' as const,
 			kind: 'annotationCatalogStaging' as const,
@@ -828,6 +835,7 @@ export function annotationSessionSummary(props: {
 	readonly revision: number;
 	readonly sessionId: string;
 	readonly sourceRelationship?: 'applicable' | 'detached' | 'uncertain';
+	readonly subject?: BridgeProductWorktreeAnnotationSubject;
 }): AnnotationSessionSummary {
 	return {
 		completedAt: props.lifecycle === 'completed' ? props.revision : null,
@@ -838,6 +846,7 @@ export function annotationSessionSummary(props: {
 		semanticRevision: props.revision,
 		sessionId: props.sessionId,
 		sourceRelationship: props.sourceRelationship ?? 'applicable',
+		subject: props.subject ?? annotationSubject,
 		updatedAt: props.revision,
 	};
 }

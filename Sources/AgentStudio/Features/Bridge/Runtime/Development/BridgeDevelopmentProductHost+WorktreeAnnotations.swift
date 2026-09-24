@@ -11,20 +11,29 @@ extension BridgeDevelopmentProductHost {
         let reviewSourceProvider: any BridgeReviewSourceProvider
     }
 
-    static func makeWorktreeAnnotationProjectionSource(
+    static func makeWorktreeAnnotationSourceResolver(
         _ dependencies: WorktreeAnnotationCommandHandlerDependencies
-    ) -> BridgeAnnotationProjectionSource {
-        guard let service = dependencies.store else { return .unavailable }
-        let sourceResolver = WorktreeAnnotationSourceCapture.resolver(
+    ) -> WorktreeAnnotationSourceResolver {
+        WorktreeAnnotationSourceCapture.resolver(
             fileMetadataSource: dependencies.fileMetadataSource,
+            reviewScope: .review(
+                repositoryID: dependencies.source.repoID.uuidString.lowercased(),
+                worktreeID: dependencies.source.worktreeID.uuidString.lowercased()
+            ),
             reviewPublicationCoordinator: dependencies.reviewPublicationCoordinator,
             reviewContentLoaderCache: dependencies.reviewContentLoaderCache,
             gitEvidenceSource: dependencies.reviewSourceProvider as? any WorktreeAnnotationGitEvidenceSource
         )
+    }
+
+    static func makeWorktreeAnnotationProjectionSource(
+        _ dependencies: WorktreeAnnotationCommandHandlerDependencies
+    ) -> BridgeAnnotationProjectionSource {
+        guard let service = dependencies.store else { return .unavailable }
+        let sourceResolver = makeWorktreeAnnotationSourceResolver(dependencies)
         return BridgeAnnotationProjectionSource(
             service: service,
             sourceResolver: sourceResolver,
-            subject: dependencies.source.annotationSubject,
             currentSourceGeneration: sourceResolver.currentSourceGeneration
         )
     }
@@ -52,17 +61,10 @@ extension BridgeDevelopmentProductHost {
                 )
             }
         }
-        let sourceResolver = WorktreeAnnotationSourceCapture.resolver(
-            fileMetadataSource: dependencies.fileMetadataSource,
-            reviewPublicationCoordinator: dependencies.reviewPublicationCoordinator,
-            reviewContentLoaderCache: dependencies.reviewContentLoaderCache,
-            gitEvidenceSource: dependencies.reviewSourceProvider as? any WorktreeAnnotationGitEvidenceSource
-        )
         let adapter = WorktreeAnnotationTransportAdapter(
             store: store,
             contextID: dependencies.source.paneID.uuidString.lowercased(),
-            subject: dependencies.source.annotationSubject,
-            sourceResolver: sourceResolver,
+            sourceResolver: makeWorktreeAnnotationSourceResolver(dependencies),
             outputCoordinator: dependencies.outputCoordinator,
             outputLabels: .init(
                 sessionLabel: "Current review",
@@ -78,15 +80,5 @@ extension BridgeDevelopmentProductHost {
                 productAdmission: productAdmission
             )
         }
-    }
-}
-
-extension BridgeDevelopmentProductSource {
-    /// The development pane's Git annotation subject.
-    var annotationSubject: WorktreeAnnotationSubject {
-        .git(
-            repositoryID: repoID.uuidString.lowercased(),
-            worktreeID: worktreeID.uuidString.lowercased()
-        )
     }
 }
