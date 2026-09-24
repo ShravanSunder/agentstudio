@@ -5,6 +5,7 @@ import { verifyChapterAnchorLanding } from "./tests/chapter-anchor-browser-comma
 import { buildSceneBundlesForBrowserTest } from "./tests/scene-bundle-browser-command.ts";
 import { verifySiteFooterResponsiveLayout } from "./tests/site-footer-browser-command.ts";
 import { verifySiteHeaderScrollStability } from "./tests/site-header-browser-command.ts";
+import { verifyTopologyEnd } from "./tests/topology-end-browser-command.ts";
 import { verifyTopologyNodeVocabulary } from "./tests/topology-node-vocabulary-browser-command.ts";
 import { verifyWebsiteQualityLayout } from "./tests/website-quality-browser-command.ts";
 
@@ -31,6 +32,7 @@ export default defineConfig({
               verifyChapterAnchorLanding,
               verifySiteFooterResponsiveLayout,
               verifySiteHeaderScrollStability,
+              verifyTopologyEnd,
               verifyTopologyNodeVocabulary,
               verifyWebsiteQualityLayout,
             },

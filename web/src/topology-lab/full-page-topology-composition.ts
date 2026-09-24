@@ -15,6 +15,7 @@ import {
   assignTopologyRowOwners,
   measureTopologyGutterColumns,
   measureTopologyRows,
+  topologyRowUnit,
   type TopologyRowWorktree,
 } from "./full-page-topology-model";
 import { localForkPath, localMergePath } from "./full-page-topology-paths";
@@ -42,6 +43,18 @@ export interface TopologyPageMeasurement {
   readonly viewportWidth: number;
   readonly height: number;
   readonly anchors: readonly TopologyAnchorMeasurement[];
+  /**
+   * Where the rail ends (the final call to action). Without it, the topology
+   * runs to one row above the page end.
+   */
+  readonly end?: TopologyEndMeasurement;
+}
+
+export interface TopologyEndMeasurement {
+  /** `data-rail-end-section`: nothing is drawn under or beside it, or below. */
+  readonly section: TopologyRect;
+  /** `data-rail-end`: the end node sits level with its center when the gutter has room. */
+  readonly level: TopologyRect | undefined;
 }
 
 /**
@@ -113,6 +126,12 @@ export const topologyPhoneDropCornerInset = 16;
 export const topologyPhoneForkCopyClearance = 4;
 /** Phone: a row above the stage only hosts the fork when it leaves at least this much drop. */
 export const topologyPhoneMinimumDrop = 12;
+/**
+ * The end sits beside the install command only when that command starts at
+ * least this far right of the mainline; closer means the rail would run
+ * beside or under the call to action.
+ */
+export const topologyEndContentClearance = 48;
 
 /**
  * On wide screens the lane next to the content runs at least this many rows,
@@ -229,6 +248,24 @@ function planWorktreeLanes(props: {
 }
 
 /**
+ * The mainline's last row. Where the gutter has room beside the final call to
+ * action, the end sits level with the install command; where that content
+ * reaches the rail (phones), the rail stops one row above the section, so
+ * nothing runs under or beside it or through the footer.
+ */
+function topologyEndY(page: TopologyPageMeasurement, mainlineX: number): number {
+  const end = page.end;
+  if (end === undefined) {
+    return page.height - topologyRowUnit;
+  }
+  const level = end.level;
+  if (level !== undefined && level.left >= mainlineX + topologyEndContentClearance) {
+    return centerYOf(level);
+  }
+  return end.section.top - topologyRowUnit;
+}
+
+/**
  * Wide screens: the lanes fork from the middle of the hero copy, one column
  * per row, so the lane next to the content runs 2–4 rows before it leaves for
  * the hero frame. A frame far below the copy moves the forks down with it.
@@ -295,13 +332,13 @@ export function composeFullPageTopology(
   const contentX = Math.min(
     ...(attachXs.length > 0 ? attachXs : page.anchors.map((anchor) => anchor.rect.left)),
   );
-  const columns = measureTopologyGutterColumns({
-    attachX: contentX,
-    viewportWidth: page.viewportWidth,
-  });
   const { rowYs, anchorRows } = measureTopologyRows({
     anchorYs: page.anchors.map((anchor) => centerYOf(anchor.rect)),
-    height: page.height,
+    endY: topologyEndY(
+      page,
+      measureTopologyGutterColumns({ attachX: contentX, viewportWidth: page.viewportWidth })
+        .mainlineX,
+    ),
   });
   const finalRow = rowYs.length - 1;
   const firstAnchor = page.anchors[0];
@@ -311,11 +348,16 @@ export function composeFullPageTopology(
   });
 
   // Fewer lanes when the page has too few rows to open and close them all.
-  let laneXs = columns.laneXs;
+  // Each retry lays the columns out again, so the mainline moves right and
+  // every fork and merge still moves one column.
+  let columns = measureTopologyGutterColumns({
+    attachX: contentX,
+    viewportWidth: page.viewportWidth,
+  });
   let lanePlan: LanePlan | undefined;
   for (;;) {
     lanePlan = planWorktreeLanes({
-      laneXs,
+      laneXs: columns.laneXs,
       mainlineX: columns.mainlineX,
       rowYs,
       openRow: heroLaneOpenRow({
@@ -323,15 +365,19 @@ export function composeFullPageTopology(
         heroRow: anchorRows[0] ?? 0,
         heroCopy: firstAnchor?.copyBlock ?? firstAnchor?.rect,
         heroTarget: firstAnchor?.surface,
-        laneCount: laneXs.length,
+        laneCount: columns.laneXs.length,
       }),
       closeBelowY: Math.max(...targetBottoms, 0),
       lastUsableRow: finalRow - 1,
     });
-    if (lanePlan !== undefined || laneXs.length === 0) {
+    if (lanePlan !== undefined || columns.laneXs.length === 0) {
       break;
     }
-    laneXs = laneXs.slice(1);
+    columns = measureTopologyGutterColumns({
+      attachX: contentX,
+      viewportWidth: page.viewportWidth,
+      maximumLaneCount: columns.laneXs.length - 1,
+    });
   }
   const lanes = lanePlan?.lanes ?? [];
   const outermostLane = lanes.at(-1);

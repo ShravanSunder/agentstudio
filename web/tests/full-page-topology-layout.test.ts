@@ -80,10 +80,20 @@ function homePageAt(viewportWidth: number): TopologyPageFixture {
     );
   }
   const lastAnchor = anchors.at(-1);
+  // The final call to action: a centered install box, near full width on phones.
+  const ctaSection = rect(0, (lastAnchor?.rect.top ?? 0) + 760, viewportWidth, 700);
+  const installWidth = Math.min(560, viewportWidth - 2 * pageInline);
+  const installBox = rect(
+    (viewportWidth - installWidth) / 2,
+    ctaSection.top + 360,
+    installWidth,
+    phone ? 72 : 64,
+  );
   const page = {
     viewportWidth,
-    height: (lastAnchor?.rect.top ?? 0) + 1400,
+    height: ctaSection.top + ctaSection.height + 200,
     anchors,
+    end: { section: ctaSection, level: installBox },
   };
   const textRects = anchors.flatMap((anchor) =>
     phone || anchor.id === "hero" ? [anchor.rect, anchor.copyBlock ?? anchor.rect] : [anchor.rect],
@@ -434,6 +444,40 @@ describe("composed topology", () => {
       expect(route.endY - route.startY).toBeLessThanOrEqual(topologyRowUnit);
       const end = pathCommands(route.pathData).at(-1)?.points.at(-1);
       expect(end?.x).toBe((media?.left ?? 0) + topologyPhoneDropCornerInset);
+    }
+  });
+
+  it("ends the rail at the final call to action, never under, beside or below it", () => {
+    for (const width of [390, 1280, 1920]) {
+      // Arrange
+      const fixture = homePageAt(width);
+      const end = fixture.page.end;
+      if (end?.level === undefined) {
+        throw new Error("Fixture has no call to action");
+      }
+      const installBox = end.level;
+
+      // Act
+      const composition = composed(fixture);
+
+      // Assert: wide screens end level with the install box; phones end one
+      // row above the section, whose content reaches the rail.
+      const endDot = composition.rows.at(-1);
+      expect(endDot?.kind).toBe("end");
+      const expectedEndY =
+        width < 620 ? end.section.top - topologyRowUnit : installBox.top + installBox.height / 2;
+      expect(Math.abs((endDot?.y ?? Number.NaN) - expectedEndY)).toBeLessThanOrEqual(1);
+      const lowestPoint = Math.max(
+        ...composition.rows.map((dot) => dot.y),
+        ...composition.routes.flatMap((route) =>
+          samplePoints(route.pathData).map((point) => point.y),
+        ),
+        Number(/ ([\d.]+)$/u.exec(composition.mainlinePath)?.[1]),
+      );
+      expect(lowestPoint).toBeLessThanOrEqual((endDot?.y ?? 0) + 0.01);
+      if (width < 620) {
+        expect(lowestPoint).toBeLessThan(end.section.top);
+      }
     }
   });
 

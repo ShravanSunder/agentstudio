@@ -48,13 +48,21 @@ export interface TopologyGutterColumns {
   readonly laneXs: readonly number[];
 }
 
-/** Columns laid out leftward from the content edge, one unit apart. */
+/**
+ * Columns laid out leftward from the content edge, one unit apart. A lower
+ * `maximumLaneCount` (fewer rows than lanes need) moves the mainline right so
+ * every column stays one unit from the next.
+ */
 export function measureTopologyGutterColumns(props: {
   readonly attachX: number;
   readonly viewportWidth: number;
+  readonly maximumLaneCount?: number;
 }): TopologyGutterColumns {
   const columnUnit = topologyColumnUnitFor(props.viewportWidth);
-  const laneCount = topologyLaneCountFor(props.attachX, columnUnit);
+  const laneCount = Math.min(
+    props.maximumLaneCount ?? topologyMaximumLaneCount,
+    topologyLaneCountFor(props.attachX, columnUnit),
+  );
   return {
     columnUnit,
     mainlineX: props.attachX - (laneCount + 1) * columnUnit,
@@ -73,16 +81,16 @@ export interface TopologyRows {
 
 /**
  * Rows on the retired 96px pitch, made piecewise so every chapter anchor is a
- * row: each gap between anchors (and from the last anchor to one unit above
- * the page end) is split into `round(gap / 96)` equal rows.
+ * row: each gap between anchors (and from the last anchor to `endY`, the
+ * topology's last row) is split into `round(gap / 96)` equal rows.
  */
 export function measureTopologyRows(props: {
   readonly anchorYs: readonly number[];
-  readonly height: number;
+  readonly endY: number;
 }): TopologyRows {
   const rowYs: number[] = [];
   const anchorRows: number[] = [];
-  const pageEndY = props.height - topologyRowUnit;
+  const pageEndY = props.endY;
   for (const [index, anchorY] of props.anchorYs.entries()) {
     anchorRows.push(rowYs.length);
     rowYs.push(anchorY);

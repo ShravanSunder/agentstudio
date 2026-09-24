@@ -5,6 +5,8 @@
 // Relative imports keep this module loadable by Vitest, which has no "@/" alias.
 import {
   railAnchorAttribute,
+  railEndAttribute,
+  railEndSectionAttribute,
   railMediaTargetAttribute,
   railSurfaceTargetAttribute,
 } from "../chapters/chapter-dom-contract";
@@ -12,6 +14,7 @@ import {
   composeFullPageTopology,
   type TopologyAnchorMeasurement,
   type TopologyComposition,
+  type TopologyEndMeasurement,
   type TopologyRect,
   type TopologyRoute,
   type TopologyRowDot,
@@ -114,6 +117,27 @@ function measureAnchors(artwork: SVGSVGElement): readonly TopologyAnchorMeasurem
       copyBlock: media === undefined ? undefined : measure(findCopyBlock(anchor, media)),
     };
   });
+}
+
+/** The final call to action the rail ends at, from `data-rail-end-section` and `data-rail-end`. */
+function measureEnd(artwork: SVGSVGElement): TopologyEndMeasurement | undefined {
+  const ownerDocument = artwork.ownerDocument;
+  const section = ownerDocument.querySelector(`[${railEndSectionAttribute}]`);
+  if (section === null || section.getClientRects().length === 0) {
+    return undefined;
+  }
+  const origin = artwork.getBoundingClientRect();
+  const measure = (element: Element): TopologyRect => {
+    const bounds = element.getBoundingClientRect();
+    return {
+      left: bounds.left - origin.left,
+      top: bounds.top - origin.top,
+      width: bounds.width,
+      height: bounds.height,
+    };
+  };
+  const level = section.querySelector(`[${railEndAttribute}]`);
+  return { section: measure(section), level: level === null ? undefined : measure(level) };
 }
 
 function progressForY(composition: TopologyComposition, y: number): number {
@@ -225,10 +249,12 @@ export function layoutFullPageTopology(artwork: SVGSVGElement): boolean {
   if (ownerWindow === null || mainline === null || routeLayer === null || nodeLayer === null) {
     return hideTopology(artwork, "incomplete-artwork");
   }
+  const end = measureEnd(artwork);
   const composition = composeFullPageTopology({
     viewportWidth: ownerWindow.innerWidth,
     height: artwork.clientHeight,
     anchors: measureAnchors(artwork),
+    ...(end === undefined ? {} : { end }),
   });
   if (composition === undefined) {
     routeLayer.replaceChildren();
