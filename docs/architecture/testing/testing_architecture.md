@@ -84,7 +84,7 @@ declarations are `package`. It owns the primitives every test target shares —
 `AgentStudioTestSupport` depends on it too. Its self-tests live in
 [`Tests/AgentStudioTestHarnessTests`](../../../Tests/AgentStudioTestHarnessTests).
 
-`AgentStudioTestSupport` depends only on `AgentStudioCore`. Its sources live at
+`AgentStudioTestSupport` depends on `AgentStudioCore` and `AgentStudioTestHarness`. Its sources live at
 [`Tests/AgentStudioTests/TestSupport`](../../../Tests/AgentStudioTests/TestSupport) (a nested path under the executable test
 folder, a separate SwiftPM target). It provides Core-level fixtures and helpers
 without becoming an App or Feature registry. Infrastructure and SharedComponents
