@@ -14,6 +14,61 @@ struct GhosttyKeyEventPlan: Equatable {
     let text: String?
 }
 
+/// The AppKit event used to translate a key under Ghostty's configured
+/// translation modifiers. The original event remains the source of key mods.
+struct GhosttyKeyTranslationPlan {
+    let event: NSEvent
+}
+
+/// Applies Ghostty's translation-modifier policy while preserving AppKit's
+/// other modifier bits. Reusing the original event when the flags match is
+/// required for input methods such as Korean.
+func ghosttyKeyTranslationPlan(
+    for event: NSEvent,
+    using translationModsProvider: (ghostty_input_mods_e) -> ghostty_input_mods_e
+) -> GhosttyKeyTranslationPlan {
+    let translatedGhosttyMods = translationModsProvider(ghosttyMods(from: event.modifierFlags))
+    let translatedModifiers = ghosttyTranslationModifierFlags(from: translatedGhosttyMods)
+
+    var translationFlags = event.modifierFlags
+    for modifier in [NSEvent.ModifierFlags.shift, .control, .option, .command] {
+        if translatedModifiers.contains(modifier) {
+            translationFlags.insert(modifier)
+        } else {
+            translationFlags.remove(modifier)
+        }
+    }
+
+    guard translationFlags != event.modifierFlags else {
+        return GhosttyKeyTranslationPlan(event: event)
+    }
+
+    let translationEvent =
+        NSEvent.keyEvent(
+            with: event.type,
+            location: event.locationInWindow,
+            modifierFlags: translationFlags,
+            timestamp: event.timestamp,
+            windowNumber: event.windowNumber,
+            context: nil,
+            characters: event.characters(byApplyingModifiers: translationFlags) ?? "",
+            charactersIgnoringModifiers: event.charactersIgnoringModifiers ?? "",
+            isARepeat: event.isARepeat,
+            keyCode: event.keyCode
+        ) ?? event
+
+    return GhosttyKeyTranslationPlan(event: translationEvent)
+}
+
+private func ghosttyTranslationModifierFlags(from mods: ghostty_input_mods_e) -> NSEvent.ModifierFlags {
+    var flags: NSEvent.ModifierFlags = []
+    if mods.rawValue & GHOSTTY_MODS_SHIFT.rawValue != 0 { flags.insert(.shift) }
+    if mods.rawValue & GHOSTTY_MODS_CTRL.rawValue != 0 { flags.insert(.control) }
+    if mods.rawValue & GHOSTTY_MODS_ALT.rawValue != 0 { flags.insert(.option) }
+    if mods.rawValue & GHOSTTY_MODS_SUPER.rawValue != 0 { flags.insert(.command) }
+    return flags
+}
+
 /// Builds the key input for a key-down, key-up, or modifier event.
 ///
 /// `unshiftedCodepoint` reads `characters(byApplyingModifiers:)` only for
@@ -22,7 +77,8 @@ struct GhosttyKeyEventPlan: Equatable {
 func ghosttyKeyEventPlan(
     for event: NSEvent,
     action: ghostty_input_action_e,
-    text: String?
+    text: String?,
+    translationModifiers: NSEvent.ModifierFlags? = nil
 ) -> GhosttyKeyEventPlan {
     var unshiftedCodepoint: UInt32 = 0
     if event.type == .keyDown || event.type == .keyUp,
@@ -35,7 +91,9 @@ func ghosttyKeyEventPlan(
         action: action,
         keycode: UInt32(event.keyCode),
         mods: ghosttyMods(from: event.modifierFlags),
-        consumedMods: ghosttyMods(from: event.modifierFlags.subtracting([.control, .command])),
+        consumedMods: ghosttyMods(
+            from: (translationModifiers ?? event.modifierFlags).subtracting([.control, .command])
+        ),
         unshiftedCodepoint: unshiftedCodepoint,
         text: shouldSendKeyEventText(text) ? text : nil
     )

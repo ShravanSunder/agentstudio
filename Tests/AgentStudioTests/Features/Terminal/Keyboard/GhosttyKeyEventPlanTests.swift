@@ -173,6 +173,53 @@ struct GhosttyKeyEventPlanTests {
         #expect(plan.text == "あ")
     }
 
+    @Test("option-as-alt translation preserves original mods and excludes translated option from consumed mods")
+    func optionAsAltTranslationPreservesOriginalModifiers() throws {
+        let event = try Self.keyEvent(
+            .keyDown,
+            characters: "å",
+            flags: [.option, .shift, .control, .command, .capsLock, .numericPad],
+            keyCode: 0
+        )
+        var receivedModifiers: UInt32?
+        let fakeTranslationModsProvider: (ghostty_input_mods_e) -> ghostty_input_mods_e = { originalMods in
+            receivedModifiers = originalMods.rawValue
+            return ghostty_input_mods_e(rawValue: originalMods.rawValue & ~GHOSTTY_MODS_ALT.rawValue)
+        }
+
+        let translation = ghosttyKeyTranslationPlan(for: event, using: fakeTranslationModsProvider)
+        let plan = ghosttyKeyEventPlan(
+            for: event,
+            action: GHOSTTY_ACTION_PRESS,
+            text: "a",
+            translationModifiers: translation.event.modifierFlags
+        )
+
+        #expect(translation.event !== event)
+        #expect(translation.event.modifierFlags.contains(.shift))
+        #expect(translation.event.modifierFlags.contains(.control))
+        #expect(translation.event.modifierFlags.contains(.command))
+        #expect(!translation.event.modifierFlags.contains(.option))
+        #expect(translation.event.modifierFlags.contains(.capsLock))
+        #expect(translation.event.modifierFlags.contains(.numericPad))
+        #expect(receivedModifiers == ghosttyMods(from: event.modifierFlags).rawValue)
+        #expect(plan.mods.rawValue & GHOSTTY_MODS_ALT.rawValue != 0)
+        #expect(plan.consumedMods.rawValue & GHOSTTY_MODS_ALT.rawValue == 0)
+        #expect(plan.consumedMods.rawValue & GHOSTTY_MODS_SHIFT.rawValue != 0)
+        #expect(plan.consumedMods.rawValue & GHOSTTY_MODS_CTRL.rawValue == 0)
+        #expect(plan.consumedMods.rawValue & GHOSTTY_MODS_SUPER.rawValue == 0)
+    }
+
+    @Test("key translation reuses the original event when Ghostty leaves modifiers unchanged")
+    func unchangedKeyTranslationReusesOriginalEvent() throws {
+        let event = try Self.keyEvent(.keyDown, characters: "a", flags: [.shift, .option], keyCode: 0)
+
+        let translation = ghosttyKeyTranslationPlan(for: event) { originalMods in originalMods }
+
+        #expect(translation.event === event)
+        #expect(translation.event.modifierFlags == event.modifierFlags)
+    }
+
     // MARK: - Events
 
     private static let shift = CGEventFlags.maskShift.rawValue

@@ -44,18 +44,37 @@ extension Ghostty.SurfaceView {
 
     package override func keyDown(with event: NSEvent) {
         let action = event.isARepeat ? GHOSTTY_ACTION_REPEAT : GHOSTTY_ACTION_PRESS
+        let translation = ghosttyKeyTranslationPlan(for: event) { originalMods in
+            guard let surface else { return originalMods }
+            return ghostty_surface_key_translation_mods(surface, originalMods)
+        }
+        let translationEvent = translation.event
 
         keyTextAccumulator = []
         defer { keyTextAccumulator = nil }
 
-        interpretKeyEvents([event])
+        interpretKeyEvents([translationEvent])
 
         if let list = keyTextAccumulator, !list.isEmpty {
             for text in list {
-                sendKeyEvent(ghosttyKeyEventPlan(for: event, action: action, text: text))
+                sendKeyEvent(
+                    ghosttyKeyEventPlan(
+                        for: event,
+                        action: action,
+                        text: text,
+                        translationModifiers: translationEvent.modifierFlags
+                    )
+                )
             }
         } else {
-            sendKeyEvent(ghosttyKeyEventPlan(for: event, action: action, text: ghosttyKeyEventText(for: event)))
+            sendKeyEvent(
+                ghosttyKeyEventPlan(
+                    for: event,
+                    action: action,
+                    text: ghosttyKeyEventText(for: translationEvent),
+                    translationModifiers: translationEvent.modifierFlags
+                )
+            )
         }
     }
 
