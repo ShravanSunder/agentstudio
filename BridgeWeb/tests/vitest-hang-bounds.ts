@@ -1,12 +1,8 @@
-// The one declaration of every BridgeWeb Vitest suite's hang bound. A hang bound
-// only stops a wedged run; tests wait on application events or DOM conditions,
-// never on time, so these values are never tuned to make a test pass. The unit
-// and node-integration bounds are 120 s (owner decision 2026-09-24); every other
-// value equals the bound the suite already ran under.
-
-// A hang bound only fires on a real hang; it is set once per suite and never
-// raised for a failing test. Waits inside tests are judged by events
-// (no-timed-wait-in-tests).
+// Policy: tests should wait on application events or DOM conditions; suite bounds
+// are intended to catch hangs, not decide correctness. Current debt: frozen
+// timed-wait sites in architecture-debt-ledger.tsv are being retired. The unit
+// and node-integration bounds remain 120 s (owner decision 2026-09-24); every
+// other value remains the established bound for its suite.
 export const unitTestTimeoutMilliseconds = 120_000;
 
 export const nodeIntegrationTestTimeoutMilliseconds = 120_000;
