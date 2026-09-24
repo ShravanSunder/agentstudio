@@ -1,5 +1,11 @@
-import type { Page, Response as PlaywrightResponse } from 'playwright';
+import type {
+	Page,
+	Request as PlaywrightRequest,
+	Response as PlaywrightResponse,
+} from 'playwright';
 import { errors } from 'playwright';
+
+import type { BridgeViewerUnresolvedWaiter } from './product-only-real-router-contract.ts';
 
 const maximumCandidateCount = 32;
 const maximumStreamCount = 4;
@@ -37,6 +43,7 @@ type ReloadJoinWaiterState =
 
 interface ReloadJoinDiagnostics {
 	readonly armOrdinal: number;
+	readonly targetDocumentGeneration: number;
 	readonly candidates: ReloadJoinResponseObservation[];
 	candidateCount: number;
 	omittedCandidateCount: number;
@@ -49,6 +56,19 @@ export interface BridgeViewerReloadJoinResponses {
 	readonly reviewMetadataOpen: Promise<PlaywrightResponse>;
 }
 
+export interface ArmReloadJoinWaitersProps {
+	readonly armOrdinal: number;
+	readonly page: Page;
+	// The page generation stamped on a request at its `request` event, or null
+	// for a request the journey does not track.
+	readonly requestDocumentGeneration: (request: PlaywrightRequest) => number | null;
+	// Reload waiters are armed before navigation for the next page generation; a
+	// response settles a waiter only when its request carries this generation, so
+	// a late response to the previous document can never satisfy the reload join.
+	readonly targetDocumentGeneration: number;
+	readonly timeoutMilliseconds: number;
+}
+
 export class BridgeViewerReloadJoinDiagnosticRecorder {
 	#diagnostics: ReloadJoinDiagnostics | null = null;
 	readonly #observationByResponse = new WeakMap<
@@ -56,13 +76,13 @@ export class BridgeViewerReloadJoinDiagnosticRecorder {
 		ReloadJoinResponseObservation
 	>();
 
-	arm(
-		page: Page,
-		armOrdinal: number,
-		timeoutMilliseconds: number,
-	): BridgeViewerReloadJoinResponses {
+	arm(props: ArmReloadJoinWaitersProps): BridgeViewerReloadJoinResponses {
+		const { page, targetDocumentGeneration, timeoutMilliseconds } = props;
+		const responseIsFromTargetGeneration = (response: PlaywrightResponse): boolean =>
+			props.requestDocumentGeneration(response.request()) === targetDocumentGeneration;
 		this.#diagnostics = {
-			armOrdinal,
+			armOrdinal: props.armOrdinal,
+			targetDocumentGeneration,
 			candidateCount: 0,
 			candidates: [],
 			omittedCandidateCount: 0,
@@ -75,25 +95,44 @@ export class BridgeViewerReloadJoinDiagnosticRecorder {
 		return {
 			frameAcknowledgement: this.#observeWaiter(
 				'frame-acknowledgement',
-				page.waitForResponse((response): boolean => responseIsFrameObservation(response), {
-					timeout: timeoutMilliseconds,
-				}),
+				page.waitForResponse(
+					(response): boolean =>
+						responseIsFromTargetGeneration(response) && responseIsFrameObservation(response),
+					{ timeout: timeoutMilliseconds },
+				),
 			),
 			fileMetadataOpen: this.#observeWaiter(
 				'file-metadata-open',
 				page.waitForResponse(
-					(response): boolean => responseIsSubscriptionOpen(response, 'file.metadata'),
+					(response): boolean =>
+						responseIsFromTargetGeneration(response) &&
+						responseIsSubscriptionOpen(response, 'file.metadata'),
 					{ timeout: timeoutMilliseconds },
 				),
 			),
 			reviewMetadataOpen: this.#observeWaiter(
 				'review-metadata-open',
 				page.waitForResponse(
-					(response): boolean => responseIsSubscriptionOpen(response, 'review.metadata'),
+					(response): boolean =>
+						responseIsFromTargetGeneration(response) &&
+						responseIsSubscriptionOpen(response, 'review.metadata'),
 					{ timeout: timeoutMilliseconds },
 				),
 			),
 		};
+	}
+
+	unresolvedWaiters(): readonly BridgeViewerUnresolvedWaiter[] {
+		const diagnostics = this.#diagnostics;
+		if (diagnostics === null) return [];
+		return reloadJoinWaiterNames
+			.filter((name): boolean => diagnostics.waiters.get(name)?.state !== 'fulfilled')
+			.map(
+				(name): BridgeViewerUnresolvedWaiter => ({
+					documentGeneration: diagnostics.targetDocumentGeneration,
+					name,
+				}),
+			);
 	}
 
 	observeResponse(
@@ -123,11 +162,11 @@ export class BridgeViewerReloadJoinDiagnosticRecorder {
 			return;
 		}
 		writeLine(
-			`summary armed=true armOrdinal=${diagnostics.armOrdinal} candidates=${diagnostics.candidateCount} recorded=${diagnostics.candidates.length} omitted=${diagnostics.omittedCandidateCount}`,
+			`summary armed=true armOrdinal=${diagnostics.armOrdinal} targetGen=${diagnostics.targetDocumentGeneration} candidates=${diagnostics.candidateCount} recorded=${diagnostics.candidates.length} omitted=${diagnostics.omittedCandidateCount}`,
 		);
 		for (const name of reloadJoinWaiterNames) {
 			const state = diagnostics.waiters.get(name) ?? { state: 'armed' };
-			writeLine(waiterLine(name, state));
+			writeLine(waiterLine(name, diagnostics.targetDocumentGeneration, state));
 		}
 		for (const [index, observation] of diagnostics.candidates.entries()) {
 			writeLine(`candidate index=${index + 1} ${observationFields(observation)}`);
@@ -191,14 +230,19 @@ function entryIsCandidate(entry: ReloadJoinRouteEntry): boolean {
 	);
 }
 
-function waiterLine(name: ReloadJoinWaiterName, state: ReloadJoinWaiterState): string {
+function waiterLine(
+	name: ReloadJoinWaiterName,
+	targetDocumentGeneration: number,
+	state: ReloadJoinWaiterState,
+): string {
+	const waiter = `waiter name=${name} gen=${targetDocumentGeneration}`;
 	switch (state.state) {
 		case 'armed':
-			return `waiter name=${name} state=pending`;
+			return `${waiter} state=pending`;
 		case 'fulfilled':
-			return `waiter name=${name} state=fulfilled ${observationFields(state.observation)}`;
+			return `${waiter} state=fulfilled ${observationFields(state.observation)}`;
 		case 'rejected':
-			return `waiter name=${name} state=rejected reason=${state.reason}`;
+			return `${waiter} state=rejected reason=${state.reason}`;
 	}
 }
 

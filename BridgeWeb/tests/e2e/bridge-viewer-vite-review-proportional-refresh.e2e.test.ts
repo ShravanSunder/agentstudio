@@ -1,4 +1,4 @@
-import { chromium, type JSHandle, type Page, type Request } from 'playwright';
+import type { JSHandle, Page, Request } from 'playwright';
 import { describe, expect, test } from 'vitest';
 
 import { runAllOwnedCleanupOperations } from '../../scripts/dev-server/bridge-development-server-process.ts';
@@ -6,6 +6,7 @@ import {
 	selectReviewFile,
 	waitForSelectedReviewReady,
 } from './bridge-viewer-vite-annotation-save-journey.ts';
+import { launchBridgeViewerE2EChromium } from './bridge-viewer-vite-e2e-browser.ts';
 import {
 	createBridgeViewerViteProductFixture,
 	startBridgeViewerOwnedViteProductServer,
@@ -34,7 +35,7 @@ describe('Bridge Viewer proportional Review refresh E2E', () => {
 		async () => {
 			const fixture = await createBridgeViewerViteProductFixture();
 			let server: Awaited<ReturnType<typeof startBridgeViewerOwnedViteProductServer>> | null = null;
-			const browser = await chromium.launch({ channel: 'chrome', headless: true });
+			const browser = await launchBridgeViewerE2EChromium();
 			let page: Page | null = null;
 			let primaryFailure: { readonly error: unknown } | null = null;
 			try {

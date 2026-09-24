@@ -1,4 +1,4 @@
-import { chromium, type Browser, type Request, type Response } from 'playwright';
+import type { Browser, Request, Response } from 'playwright';
 import { expect, test } from 'vitest';
 
 import { decodeBridgeProductDevBootstrapDelivery } from '../../src/core/comm-worker/bridge-product-dev-bootstrap.js';
@@ -8,6 +8,7 @@ import {
 	waitForCommittedAnnotationCommand,
 	waitForSelectedReviewReady,
 } from './bridge-viewer-vite-annotation-save-journey.ts';
+import { launchBridgeViewerE2EChromium } from './bridge-viewer-vite-e2e-browser.ts';
 import {
 	createBridgeViewerViteProductFixture,
 	startBridgeViewerOwnedViteProductServer,
@@ -38,7 +39,7 @@ test('replaces the worker after exhausted installed receipts and installs the ne
 	};
 	try {
 		markPhase('browser-starting');
-		browser = await chromium.launch({ channel: 'chrome', headless: true });
+		browser = await launchBridgeViewerE2EChromium();
 		markPhase('server-starting');
 		server = await startBridgeViewerOwnedViteProductServer(fixture.oracle);
 		const page = await browser.newPage({ viewport: { height: 980, width: 1728 } });
@@ -160,7 +161,7 @@ test('reclaims a durable Review draft after worker failure and one unavailable r
 	let server: BridgeViewerOwnedViteProductServer | null = null;
 	let browser: Browser | null = null;
 	try {
-		browser = await chromium.launch({ channel: 'chrome', headless: true });
+		browser = await launchBridgeViewerE2EChromium();
 		server = await startBridgeViewerOwnedViteProductServer(fixture.oracle);
 		const page = await browser.newPage({ viewport: { height: 980, width: 1728 } });
 		const reviewFile = fixture.oracle.reviewFiles[0];

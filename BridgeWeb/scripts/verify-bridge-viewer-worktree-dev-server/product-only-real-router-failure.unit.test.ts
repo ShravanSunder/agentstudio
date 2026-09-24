@@ -4,7 +4,7 @@ import type { BridgeViewerProductOnlyJourneyFailureCheckpoint } from './product-
 import { BridgeViewerProductOnlyJourneyFailure } from './product-only-real-router-failure.ts';
 
 describe('Bridge Viewer product-only journey failure diagnostics', () => {
-	test('includes bounded browser diagnostics and failed-response count in the thrown message', () => {
+	test('includes unresolved waiters with their generation, browser diagnostics and failed-response count in the thrown message', () => {
 		const checkpoint = {
 			browserCleanup: {
 				browserConnectedAfterClose: false,
@@ -34,7 +34,14 @@ describe('Bridge Viewer product-only journey failure diagnostics', () => {
 			],
 			failureCode: 'UNCLASSIFIED_JOURNEY_FAILURE',
 			review: null,
-			transport: { entries: [], unfinishedRequestOrdinals: [] },
+			transport: {
+				entries: [],
+				unfinishedRequestOrdinals: [],
+				unresolvedWaiters: [
+					{ documentGeneration: 2, name: 'frame-acknowledgement' },
+					{ documentGeneration: 2, name: 'product-response-quiescence' },
+				],
+			},
 			workers: [],
 		} satisfies BridgeViewerProductOnlyJourneyFailureCheckpoint;
 
@@ -47,5 +54,8 @@ describe('Bridge Viewer product-only journey failure diagnostics', () => {
 			'browserDiagnostics=error:page:ReferenceError: startup failed',
 		);
 		expect(failure.message).toContain('failedResponses=1');
+		expect(failure.message).toContain(
+			'unresolved=frame-acknowledgement:g2,product-response-quiescence:g2 unsettled=none',
+		);
 	});
 });

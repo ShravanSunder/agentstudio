@@ -1,4 +1,4 @@
-import { chromium, type Browser, type Locator, type Page } from 'playwright';
+import type { Browser, Locator, Page } from 'playwright';
 import { expect, test } from 'vitest';
 
 import { runAllOwnedCleanupOperations } from '../../scripts/dev-server/bridge-development-server-process.ts';
@@ -6,6 +6,7 @@ import {
 	createBridgeViewerCategoryFixture,
 	type BridgeViewerCategoryCase,
 } from './bridge-viewer-vite-category-fixture.ts';
+import { launchBridgeViewerE2EChromium } from './bridge-viewer-vite-e2e-browser.ts';
 import {
 	startBridgeViewerOwnedViteProductServer,
 	type BridgeViewerOwnedViteProductServer,
@@ -25,7 +26,7 @@ test('filters File and Review trees with native-classified filesystem metadata',
 	let primaryFailure: { readonly error: unknown } | null = null;
 	try {
 		server = await startBridgeViewerOwnedViteProductServer(fixture.oracle);
-		browser = await chromium.launch({ channel: 'chrome', headless: true });
+		browser = await launchBridgeViewerE2EChromium();
 		const page = await browser.newPage({ viewport: { height: 980, width: 1728 } });
 		diagnostics = observeBrowserRuntimeDiagnostics(page);
 

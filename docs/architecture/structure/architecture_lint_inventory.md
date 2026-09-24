@@ -27,7 +27,7 @@ sites in the debt ledger instead.
 | --- | --- | --- |
 | `mise run lint` (locally, and the CI `Code quality` job) | swift-format, stock SwiftLint, then [`scripts/lint-swift.sh`](../../../scripts/lint-swift.sh) builds the architecture tool in release inside the build slot and runs it over `Sources`, `Tests` and every tracked `AGENTS.md` with `--ledger` | any `error`/`warning` diagnostic, including ledger drift |
 | `mise run lint -- <files>` (scoped) | the same tool, parsing the whole corpus but validating only the named `.swift` files and `AGENTS.md` files (`--only`) | the same diagnostics a full run reports for those files |
-| CI `Code quality` job, step `Debt ledger ratchet` | [`Tools/AgentStudioArchitectureLint/check-ledger-ratchet.sh`](../../../Tools/AgentStudioArchitectureLint/check-ledger-ratchet.sh) compares the ledger with its copy at the merge base (`--check-ledger-ratchet`) | a raised count or a new row |
+| CI `Code quality` job, step `Debt ledger ratchet` | [`Tools/AgentStudioArchitectureLint/check-ledger-ratchet.sh`](../../../Tools/AgentStudioArchitectureLint/check-ledger-ratchet.sh) compares each debt ledger — this tool's and [`BridgeWeb/architecture-debt-ledger.tsv`](../../../BridgeWeb/architecture-debt-ledger.tsv), which share one format — with its copy at the merge base (`--check-ledger-ratchet`) | a raised count or a new row in either ledger |
 | `mise run test:architecture` (part of `mise run test`) | the lint tool's own tests: rule inventory, Good/Bad fixtures per rule, ledger and ratchet tables, scoped-versus-full parity | a rule that stops matching its Bad fixture or starts matching its Good fixture |
 
 Every run prints `lint-swift timing stage=<stage> ms=<n>` per lint stage and

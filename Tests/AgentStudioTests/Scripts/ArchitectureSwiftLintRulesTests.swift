@@ -34,6 +34,12 @@ struct ArchitectureSwiftLintRulesTests {
         #expect(ciWorkflow.contains("brew install swift-format swiftlint"))
         #expect(ciWorkflow.contains("mise run test:architecture"))
         #expect(ciWorkflow.contains("Tools/AgentStudioArchitectureLint/check-ledger-ratchet.sh"))
+        let ratchetScript = try String(
+            contentsOfFile: "Tools/AgentStudioArchitectureLint/check-ledger-ratchet.sh",
+            encoding: .utf8
+        )
+        #expect(ratchetScript.contains("\"Tools/AgentStudioArchitectureLint/architecture-debt-ledger.tsv\""))
+        #expect(ratchetScript.contains("\"BridgeWeb/architecture-debt-ledger.tsv\""))
         #expect(ciWorkflow.contains("fetch-depth: 0"))
         #expect(!ciWorkflow.contains(legacyBuildToolName))
         #expect(!ciWorkflow.contains("ripgrep"))
