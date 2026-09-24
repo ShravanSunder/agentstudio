@@ -127,6 +127,46 @@ struct GuardrailRuleTests {
         #expect(goodDiagnostics.isEmpty, Comment(rawValue: goodDiagnostics.map(\.rendered).joined()))
     }
 
+    @Test("agent doc references cannot resolve outside the repository")
+    func agentDocReferencesCannotResolveOutsideRepository() throws {
+        let fixtureRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("AgentDocReferenceRuleTests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: fixtureRoot) }
+
+        let workspaceRoot = fixtureRoot.appendingPathComponent("repository", isDirectory: true)
+        let documentDirectory = workspaceRoot.appendingPathComponent("docs/nested", isDirectory: true)
+        let externalTarget = fixtureRoot.appendingPathComponent("outside.md")
+        let externalSymlink = documentDirectory.appendingPathComponent("external.md")
+        let relativeTarget = documentDirectory.appendingPathComponent("related.md")
+        let repositoryRootTarget = workspaceRoot.appendingPathComponent("docs/repository-guide.md")
+        try FileManager.default.createDirectory(at: documentDirectory, withIntermediateDirectories: true)
+        try Data().write(to: externalTarget)
+        try Data().write(to: relativeTarget)
+        try Data().write(to: repositoryRootTarget)
+        try FileManager.default.createSymbolicLink(at: externalSymlink, withDestinationURL: externalTarget)
+
+        let markdown = """
+            [absolute external](\(externalTarget.path))
+            [parent escape](../../../outside.md)
+            [symlink escape](external.md)
+            [home path](~/outside.md)
+            [document relative](related.md)
+            [repository rooted](docs/repository-guide.md)
+            """
+        let document = AgentDocumentContext(
+            path: documentDirectory.appendingPathComponent(AgentDocumentContext.fileName).path,
+            contents: markdown,
+            workspaceRootPath: workspaceRoot.path
+        )
+
+        let diagnostics = AgentDocReferenceRule().validate(document: document)
+
+        #expect(diagnostics.map(\.line) == [1, 2, 3, 4])
+        #expect(diagnostics.count == 4)
+        #expect(diagnostics.allSatisfy { $0.message.contains("points outside the repository") })
+        #expect(diagnostics.allSatisfy { !$0.message.contains("does not exist") })
+    }
+
     @Test(
         "heading anchors follow GitHub slug rules",
         arguments: [

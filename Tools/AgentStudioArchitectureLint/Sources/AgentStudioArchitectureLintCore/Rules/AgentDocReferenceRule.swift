@@ -68,21 +68,25 @@ struct AgentDocReferenceRule: ArchitectureDocumentRule {
         resolver: RepositoryReferenceResolver,
         anchorsByTargetPath: inout [String: Set<String>]
     ) -> String? {
-        guard let anchor = reference.anchor else {
-            if reference.path.isEmpty || !resolver.existingCandidates(for: reference.path).isEmpty {
+        if reference.path.isEmpty {
+            guard let anchor = reference.anchor else {
                 return nil
+            }
+            return scan.anchors.contains(anchor) ? nil : missingAnchor(reference, anchor: anchor)
+        }
+
+        let resolution = resolver.resolve(reference.path)
+        guard !resolution.existingCandidates.isEmpty else {
+            if resolution.pointsOutsideRepository {
+                return outsideRepositoryTarget(reference)
             }
             return missingTarget(reference, document: document)
         }
-        if reference.path.isEmpty {
-            return scan.anchors.contains(anchor) ? nil : missingAnchor(reference, anchor: anchor)
-        }
-        let candidates = resolver.existingCandidates(for: reference.path)
-        guard !candidates.isEmpty else {
-            return missingTarget(reference, document: document)
+        guard let anchor = reference.anchor else {
+            return nil
         }
         // An anchor into a non-Markdown file (a source line) is not checked.
-        let markdownCandidates = candidates.filter { $0.hasSuffix(".md") }
+        let markdownCandidates = resolution.existingCandidates.filter { $0.hasSuffix(".md") }
         guard !markdownCandidates.isEmpty else {
             return nil
         }
@@ -103,6 +107,10 @@ struct AgentDocReferenceRule: ArchitectureDocumentRule {
         return "\(reference.written) does not exist (resolved against \(documentName)'s folder and the repository root)"
     }
 
+    private func outsideRepositoryTarget(_ reference: MarkdownReference) -> String {
+        "\(reference.written) points outside the repository"
+    }
+
     private func missingAnchor(_ reference: MarkdownReference, anchor: String) -> String {
         "\(reference.written) names #\(anchor), which is not a heading or explicit anchor in its target"
     }
@@ -112,17 +120,53 @@ private struct RepositoryReferenceResolver {
     let workspaceRootPath: String
     let documentDirectoryPath: String
 
-    /// The existing absolute paths the reference can name: relative to the
-    /// document's folder, and relative to the repository root.
-    func existingCandidates(for path: String) -> [String] {
+    /// Resolve a reference against the document's folder and repository root,
+    /// retaining only existing candidates contained by the canonical root.
+    func resolve(_ path: String) -> RepositoryReferenceResolution {
         let decoded = path.removingPercentEncoding ?? path
+        guard !decoded.hasPrefix("/") && !decoded.hasPrefix("~") else {
+            return RepositoryReferenceResolution(existingCandidates: [], pointsOutsideRepository: true)
+        }
+
+        let canonicalWorkspaceRootPath = Self.canonicalPath(workspaceRootPath)
         let candidates = [documentDirectoryPath, workspaceRootPath].map { base in
-            URL(fileURLWithPath: decoded, relativeTo: URL(fileURLWithPath: base, isDirectory: true))
-                .standardizedFileURL.path
+            let candidatePath = URL(
+                fileURLWithPath: decoded,
+                relativeTo: URL(fileURLWithPath: base, isDirectory: true)
+            ).standardizedFileURL.path
+            return (path: candidatePath, canonicalPath: Self.canonicalPath(candidatePath))
         }
         var seen: Set<String> = []
-        return candidates.filter { seen.insert($0).inserted && FileManager.default.fileExists(atPath: $0) }
+        let uniqueCandidates = candidates.filter { seen.insert($0.path).inserted }
+        let candidatesOutsideRepository = uniqueCandidates.contains {
+            !Self.isWithinWorkspace($0.canonicalPath, workspaceRootPath: canonicalWorkspaceRootPath)
+        }
+        let existingCandidates = uniqueCandidates.filter {
+            Self.isWithinWorkspace($0.canonicalPath, workspaceRootPath: canonicalWorkspaceRootPath)
+                && FileManager.default.fileExists(atPath: $0.path)
+        }.map(\.path)
+        return RepositoryReferenceResolution(
+            existingCandidates: existingCandidates,
+            pointsOutsideRepository: candidatesOutsideRepository
+        )
     }
+
+    private static func canonicalPath(_ path: String) -> String {
+        URL(fileURLWithPath: path).standardizedFileURL.resolvingSymlinksInPath().standardizedFileURL.path
+    }
+
+    private static func isWithinWorkspace(_ candidatePath: String, workspaceRootPath: String) -> Bool {
+        guard candidatePath != workspaceRootPath else {
+            return true
+        }
+        let workspacePrefix = workspaceRootPath.hasSuffix("/") ? workspaceRootPath : "\(workspaceRootPath)/"
+        return candidatePath.hasPrefix(workspacePrefix)
+    }
+}
+
+private struct RepositoryReferenceResolution {
+    let existingCandidates: [String]
+    let pointsOutsideRepository: Bool
 }
 
 struct MarkdownReference: Equatable {
