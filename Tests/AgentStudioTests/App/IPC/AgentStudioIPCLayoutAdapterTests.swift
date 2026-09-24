@@ -338,7 +338,7 @@ struct AgentStudioIPCLayoutAdapterTests {
 
     @Test("a retained pane focus control rejects its shut down owner without changing selection")
     func retainedPaneFocusControlRejectsShutdownOwner() async throws {
-        try await withAsyncTestCoreAtoms { _ in
+        await withAsyncTestCoreAtoms { _ in
             let harness = makeHarness()
             let firstPane = harness.store.createPane(title: "First")
             let secondPane = harness.store.createPane(title: "Second")
@@ -630,9 +630,7 @@ extension WorkspaceWindowLifecycleSnapshot {
 
 @MainActor
 private func makeIPCLayoutWorkspaceStore() -> WorkspaceStore {
-    let tempDir = FileManager.default.temporaryDirectory
-        .appending(path: "agentstudio-ipc-layout-adapter-\(UUID().uuidString)")
-    return WorkspaceStore()
+    WorkspaceStore()
 }
 
 @MainActor

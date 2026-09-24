@@ -28,9 +28,7 @@ extension WebKitSerializedTests {
             defer { FilesystemTestGitRepo.destroy(repoURL) }
             try await FilesystemTestGitRepo.seedTrackedAndUntrackedChanges(at: repoURL)
             let harness = try await RealGitReviewLoadHarness.make(repositoryURL: repoURL)
-            defer {
-                harness.controller.teardown()
-            }
+            defer { _ = harness.controller.beginTeardown() }  // fire-and-forget: defer cannot await; cleanup only
             let metadataLease = try await harness.openReviewMetadataSubscription()
             let metadataEventsTask = Task { @MainActor in
                 let sourceAcceptedEvent = try await harness.nextReviewMetadataEvent(
@@ -106,7 +104,7 @@ extension WebKitSerializedTests {
             #expect(constructionSnapshot.leaseCount == 1)
             #expect(constructionSnapshot.payloadCount == 1)
             #expect(constructionSnapshot.locatorCount > 0)
-            #expect(await harness.controller.teardown().value)
+            #expect(await harness.controller.beginTeardown().value)
             #expect((await harness.installation.session.producerSnapshot()).hasZeroResidue)
             await assertBridgeConstructionCoordinatorDrained(harness.constructionCoordinator)
             #expect(await harness.reviewDataClient.registeredContentLocatorCount() == 0)
@@ -119,9 +117,7 @@ extension WebKitSerializedTests {
             defer { FilesystemTestGitRepo.destroy(repoURL) }
             let fixture = try await seedCompleteContribution(at: repoURL)
             let harness = try await RealGitReviewLoadHarness.make(repositoryURL: repoURL)
-            defer {
-                harness.controller.teardown()
-            }
+            defer { _ = harness.controller.beginTeardown() }  // fire-and-forget: defer cannot await; cleanup only
             let metadataLease = try await harness.openReviewMetadataSubscription()
             let initialEventsTask = Task { @MainActor in
                 let sourceAccepted = try await harness.nextReviewMetadataEvent(for: metadataLease)
@@ -215,7 +211,7 @@ extension WebKitSerializedTests {
             #expect(initialPackage.comparisonOrigin == .contribution(initialOrigin))
             #expect(initialPackage.itemsById.values.compactMap(\.headPath).contains("target-only.txt") == false)
 
-            #expect(await harness.controller.teardown().value)
+            #expect(await harness.controller.beginTeardown().value)
             #expect((await harness.installation.session.producerSnapshot()).hasZeroResidue)
             await assertBridgeConstructionCoordinatorDrained(harness.constructionCoordinator)
             #expect(await harness.reviewDataClient.registeredContentLocatorCount() == 0)

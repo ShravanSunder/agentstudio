@@ -537,7 +537,7 @@ enum BridgeProductWebKitTwoPaneJourneyTestSupport {
         windows: [NSWindow]
     ) async throws {
         for controller in controllers {
-            _ = await controller.teardown().value
+            _ = await controller.beginTeardown().value
             controller.page.stopLoading()
         }
         for window in windows {

@@ -173,7 +173,7 @@ extension SidebarPerformanceProofStartupDiagnosticTests {
         referenceDate: Date
     ) async throws -> (atom: RepositoryLocalActivityAtom, store: RepositoryLocalActivityStore) {
         let sqliteFixture = try makeWorkspaceSQLiteBridgeFixture(workspaceId: UUIDv7.generate())
-        let datastore = try await preparedWorkspaceSQLiteDatastore(from: sqliteFixture.backend)
+        let datastore = try preparedWorkspaceSQLiteDatastore(from: sqliteFixture.backend)
         let atom = RepositoryLocalActivityAtom()
         let store = RepositoryLocalActivityStore(atom: atom, sqliteDatastore: datastore)
         _ = try await store.commitAsync(

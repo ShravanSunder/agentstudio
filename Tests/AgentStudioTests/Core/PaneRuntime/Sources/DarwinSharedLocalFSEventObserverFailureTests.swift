@@ -377,10 +377,10 @@ struct DarwinSharedLocalFSEventObserverFailureTests {
         let client = DarwinFSEventStreamClient(localStreamFactory: streamFactory.makeStream)
         defer { client.shutdown() }
         let repositoryId = UUIDv7.generate()
-        client.register(worktreeId: UUIDv7.generate(), repoId: repositoryId, rootPath: firstRoot)
+        _ = client.register(worktreeId: UUIDv7.generate(), repoId: repositoryId, rootPath: firstRoot)
 
         // Act
-        client.register(worktreeId: UUIDv7.generate(), repoId: repositoryId, rootPath: secondRoot)
+        _ = client.register(worktreeId: UUIDv7.generate(), repoId: repositoryId, rootPath: secondRoot)
 
         // Assert
         #expect(streamFactory.rootChangedCallbackCompletedDuringFlush)
@@ -460,8 +460,8 @@ struct DarwinSharedLocalFSEventObserverFailureTests {
         let repositoryId = UUIDv7.generate()
         let firstWorktreeId = UUIDv7.generate()
         let secondWorktreeId = UUIDv7.generate()
-        client.register(worktreeId: firstWorktreeId, repoId: repositoryId, rootPath: firstRoot)
-        client.register(worktreeId: secondWorktreeId, repoId: repositoryId, rootPath: secondRoot)
+        _ = client.register(worktreeId: firstWorktreeId, repoId: repositoryId, rootPath: firstRoot)
+        _ = client.register(worktreeId: secondWorktreeId, repoId: repositoryId, rootPath: secondRoot)
         let fenceConsumer = Task {
             for await ingressItem in client.events() {
                 guard case .activityProcessingFence(let fenceID) = ingressItem else { continue }

@@ -639,7 +639,7 @@ struct DarwinSharedExactItemObserverTests {
         )
         defer { client.shutdown() }
         let worktreeId = UUIDv7.generate()
-        client.register(worktreeId: worktreeId, repoId: UUIDv7.generate(), rootPath: worktreeRoot)
+        _ = client.register(worktreeId: worktreeId, repoId: UUIDv7.generate(), rootPath: worktreeRoot)
         let observationPlan = AgentStudioGit.GitStatusObservationPlan(
             identity: AgentStudioGit.GitStatusObservationIdentity(rawValue: "shared-dependent"),
             scopes: [
@@ -693,7 +693,7 @@ struct DarwinSharedExactItemObserverTests {
             client.shutdown()
         }
         let worktreeId = UUIDv7.generate()
-        client.register(worktreeId: worktreeId, repoId: UUIDv7.generate(), rootPath: worktreeRoot)
+        _ = client.register(worktreeId: worktreeId, repoId: UUIDv7.generate(), rootPath: worktreeRoot)
         let observationPlan = AgentStudioGit.GitStatusObservationPlan(
             identity: AgentStudioGit.GitStatusObservationIdentity(rawValue: "shared-unregister-race"),
             scopes: [

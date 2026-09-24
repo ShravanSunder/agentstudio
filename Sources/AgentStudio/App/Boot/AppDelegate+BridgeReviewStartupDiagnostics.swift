@@ -187,7 +187,7 @@ extension AppDelegate {
             recordBridgeReviewObservabilitySmokePhase("telemetry_nonterminal_drain_finished", action: action)
             recordBridgeReviewObservabilitySmokePhase("telemetry_terminal_retirement_started", action: action)
             // Teardown force-attempts the terminal drain; Victoria is authoritative for its receipt validity.
-            let retired = await controller.teardown().value
+            let retired = await controller.beginTeardown().value
             recordBridgeReviewObservabilitySmokePhase(
                 retired
                     ? "telemetry_terminal_retirement_finished"
