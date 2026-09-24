@@ -126,6 +126,26 @@ struct GhosttyKeyEventPlanTests {
         .init(
             name: "control+c", characters: "\u{3}", flags: .control, keyCode: 8, text: "c",
             mods: GHOSTTY_MODS_CTRL.rawValue, consumedMods: GHOSTTY_MODS_NONE.rawValue),
+        .init(
+            name: "right shift+a", characters: "A",
+            flags: NSEvent.ModifierFlags(rawValue: UInt(shift | rightShift)), keyCode: 0, text: "A",
+            mods: GHOSTTY_MODS_SHIFT.rawValue | GHOSTTY_MODS_SHIFT_RIGHT.rawValue,
+            consumedMods: GHOSTTY_MODS_SHIFT.rawValue | GHOSTTY_MODS_SHIFT_RIGHT.rawValue),
+        .init(
+            name: "right control+c", characters: "c",
+            flags: NSEvent.ModifierFlags(rawValue: UInt(control | rightControl)), keyCode: 8, text: "c",
+            mods: GHOSTTY_MODS_CTRL.rawValue | GHOSTTY_MODS_CTRL_RIGHT.rawValue,
+            consumedMods: GHOSTTY_MODS_CTRL_RIGHT.rawValue),
+        .init(
+            name: "right option+a", characters: "å",
+            flags: NSEvent.ModifierFlags(rawValue: UInt(option | rightOption)), keyCode: 0, text: "å",
+            mods: GHOSTTY_MODS_ALT.rawValue | GHOSTTY_MODS_ALT_RIGHT.rawValue,
+            consumedMods: GHOSTTY_MODS_ALT.rawValue | GHOSTTY_MODS_ALT_RIGHT.rawValue),
+        .init(
+            name: "right command+a", characters: "a",
+            flags: NSEvent.ModifierFlags(rawValue: UInt(command | rightCommand)), keyCode: 0, text: "a",
+            mods: GHOSTTY_MODS_SUPER.rawValue | GHOSTTY_MODS_SUPER_RIGHT.rawValue,
+            consumedMods: GHOSTTY_MODS_SUPER_RIGHT.rawValue),
     ]
 
     @Test("key-down text and modifiers are unchanged", arguments: keyDownCases)
