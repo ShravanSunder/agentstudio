@@ -248,6 +248,26 @@ describe("gutter columns", () => {
     }
   });
 
+  it("marks each merge with the lane merging in and sits it on the receiving lane", () => {
+    for (const width of [1920, 2560]) {
+      // Act
+      const composition = composed(homePageAt(width));
+
+      // Assert
+      const merges = composition.rows.filter((dot) => dot.kind === "merge");
+      expect(merges).toHaveLength(composition.laneXs.length);
+      const columnXs = [composition.mainlineX, ...composition.laneXs];
+      for (const merge of merges) {
+        expect(merge.incomingAccent).toBeDefined();
+        expect(merge.incomingAccent).not.toBe(merge.accent);
+        // The receiving lane is one column left of the lane that merges in.
+        const receivingColumn = columnXs.indexOf(merge.x);
+        expect(receivingColumn).toBeGreaterThanOrEqual(0);
+        expect(receivingColumn).toBeLessThan(columnXs.length - 1);
+      }
+    }
+  });
+
   it("anchors the mainline from the content and leaves any wider gutter empty", () => {
     for (const width of viewportWidths) {
       // Arrange

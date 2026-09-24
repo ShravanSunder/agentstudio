@@ -18,9 +18,17 @@ import {
 } from "./full-page-topology-composition";
 
 const svgNamespace = "http://www.w3.org/2000/svg";
-// Node sizes from the retired artwork: commit nodes r=4, terminal nodes r=7.
-const commitNodeRadius = 4;
-const terminalNodeRadius = 7;
+// The node vocabulary, smallest to largest: commit and fork dots, the chapter
+// ring and the two-parent merge ring, then the current chapter's terminal
+// (r=7, from the retired artwork). The port keeps the retired commit size.
+export const topologyNodeRadii = {
+  commit: 3.5,
+  chapter: 5.5,
+  merge: 6,
+  mergeCore: 2.5,
+  terminal: 7,
+  port: 4,
+} as const;
 
 /** `<g data-topology-chapter-node="<anchorId>">`: the mainline dot level with each chapter anchor. */
 export const topologyChapterNodeAttribute = "data-topology-chapter-node";
@@ -140,16 +148,32 @@ function createRouteGroup(ownerDocument: Document, route: TopologyRoute): SVGGEl
     const port = createSvgElement(ownerDocument, "circle");
     port.setAttribute("class", "node-port");
     port.setAttribute(topologyPortNodeAttribute, "");
-    port.setAttribute("r", String(commitNodeRadius));
+    port.setAttribute("r", String(topologyNodeRadii.port));
     group.append(port);
   }
   return group;
 }
 
 function rowDotSignature(dot: TopologyRowDot): string {
-  return `${dot.kind}:${dot.accent}:${dot.ownerId}:${dot.anchorId ?? ""}`;
+  return `${dot.kind}:${dot.accent}:${dot.incomingAccent ?? ""}:${dot.ownerId}:${dot.anchorId ?? ""}`;
 }
 
+function createCircle(
+  ownerDocument: Document,
+  className: string,
+  radius: number,
+): SVGCircleElement {
+  const circle = createSvgElement(ownerDocument, "circle");
+  circle.setAttribute("class", className);
+  circle.setAttribute("r", String(radius));
+  return circle;
+}
+
+/**
+ * One row's glyph. The group's accent is the lane the dot sits on; a merge
+ * ring carries the incoming lane's accent, around a core in the receiving
+ * lane's color.
+ */
 function createRowNode(ownerDocument: Document, dot: TopologyRowDot): SVGGElement {
   const group = createSvgElement(ownerDocument, "g");
   const terminal = dot.kind === "chapter" || dot.kind === "end";
@@ -159,18 +183,25 @@ function createRowNode(ownerDocument: Document, dot: TopologyRowDot): SVGGElemen
   if (dot.anchorId !== undefined) {
     group.setAttribute(topologyChapterNodeAttribute, dot.anchorId);
   }
-  const commit = createSvgElement(ownerDocument, "circle");
-  commit.setAttribute("class", "node-commit");
-  commit.setAttribute("r", String(commitNodeRadius));
-  group.append(commit);
+  if (dot.kind === "merge") {
+    group.append(
+      createCircle(
+        ownerDocument,
+        `node-merge-ring accent-${dot.incomingAccent ?? dot.accent}`,
+        topologyNodeRadii.merge,
+      ),
+      createCircle(ownerDocument, "node-merge-core", topologyNodeRadii.mergeCore),
+    );
+  } else if (dot.kind === "chapter") {
+    group.append(createCircle(ownerDocument, "node-chapter", topologyNodeRadii.chapter));
+  } else {
+    group.append(createCircle(ownerDocument, "node-commit", topologyNodeRadii.commit));
+  }
   if (terminal) {
-    const halo = createSvgElement(ownerDocument, "circle");
-    halo.setAttribute("class", "node-terminal-halo");
-    halo.setAttribute("r", String(terminalNodeRadius));
-    const disc = createSvgElement(ownerDocument, "circle");
-    disc.setAttribute("class", "node-terminal");
-    disc.setAttribute("r", String(terminalNodeRadius));
-    group.append(halo, disc);
+    group.append(
+      createCircle(ownerDocument, "node-terminal-halo", topologyNodeRadii.terminal),
+      createCircle(ownerDocument, "node-terminal", topologyNodeRadii.terminal),
+    );
   }
   return group;
 }

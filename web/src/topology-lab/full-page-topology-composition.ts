@@ -80,6 +80,11 @@ export interface TopologyRowDot {
   readonly accent: TopologyAccent;
   readonly kind: TopologyDotKind;
   readonly anchorId: string | undefined;
+  /**
+   * Merge dots only: the color of the lane merging in. `accent` is the lane
+   * that receives the merge, which the dot sits on.
+   */
+  readonly incomingAccent?: TopologyAccent;
 }
 
 export interface TopologyComposition {
@@ -217,6 +222,7 @@ function planWorktreeLanes(props: {
       accent: parentAccent,
       kind: "merge",
       anchorId: undefined,
+      incomingAccent: lane.accent,
     });
   }
   return { lanes, reserved };

@@ -134,20 +134,55 @@
     stroke-width: 1.5px;
   }
 
-  /* Commit nodes: hollow until the reveal passes them, then filled with their
-     lane's color. */
-  :global([data-node] .node-commit) {
+  /* Node vocabulary, by data-node-kind:
+     - commit and fork: a small solid dot in its lane's color (the branch line
+       shows the fork);
+     - merge: a medium ring in the incoming lane's color around a small dot in
+       the receiving lane's color, a two-parent commit;
+     - chapter: a medium primary ring, hollow while upcoming, solid once passed;
+       the current chapter is the terminal node below;
+     - port: the primary node on a target edge; end: the terminal node.
+     Until the reveal reaches it, every glyph is a faint thin outline at its
+     own size, so the size hierarchy shows before identity and color do. */
+  :global([data-node] .node-commit),
+  :global([data-node] .node-chapter),
+  :global([data-node] .node-merge-ring) {
     fill: var(--color-canvas);
-    stroke: color-mix(in srgb, var(--color-ink-faint) 62%, transparent);
-    stroke-width: 1.5px;
+    stroke: color-mix(in srgb, var(--color-ink-faint) 45%, transparent);
+    stroke-width: 1px;
     transition:
       fill 240ms ease,
-      stroke 240ms ease;
+      stroke 240ms ease,
+      stroke-width 240ms ease;
+  }
+
+  :global([data-node] .node-merge-core) {
+    fill: currentColor;
+    opacity: 0;
+    transition: opacity 240ms ease;
   }
 
   :global([data-node][data-topology-node-revealed] .node-commit) {
     fill: currentColor;
     stroke: currentColor;
+  }
+
+  :global([data-node][data-topology-node-revealed] .node-merge-ring) {
+    stroke: currentColor;
+    stroke-width: 2px;
+  }
+
+  :global([data-node][data-topology-node-revealed] .node-merge-core) {
+    opacity: 1;
+  }
+
+  :global([data-node][data-topology-node-revealed] .node-chapter) {
+    stroke: var(--color-primary);
+    stroke-width: 2px;
+  }
+
+  :global([data-node][data-topology-node-revealed][data-chapter-state="passed"] .node-chapter) {
+    fill: var(--color-primary);
   }
 
   /* Terminal nodes: the current chapter and the page's last row. The current
@@ -157,7 +192,7 @@
     display: none;
   }
 
-  :global([data-chapter-state="current"] .node-commit),
+  :global([data-chapter-state="current"] .node-chapter),
   :global([data-node-kind="end"][data-topology-node-revealed] .node-commit) {
     display: none;
   }
@@ -226,7 +261,10 @@
       animation: none;
     }
 
-    :global([data-node] .node-commit) {
+    :global([data-node] .node-commit),
+    :global([data-node] .node-chapter),
+    :global([data-node] .node-merge-ring),
+    :global([data-node] .node-merge-core) {
       transition: none;
     }
 
