@@ -97,7 +97,7 @@ func ghosttyKeyEventPlan(
             from: (translationModifiers ?? event.modifierFlags).subtracting([.control, .command])
         ),
         unshiftedCodepoint: unshiftedCodepoint,
-        text: shouldSendKeyEventText(text) ? text : nil,
+        text: ghosttyKeyEventText(from: text),
         composing: composing
     )
 }

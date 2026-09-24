@@ -106,12 +106,12 @@ func ghosttyMods(from flags: NSEvent.ModifierFlags) -> ghostty_input_mods_e {
 
 // MARK: - Character Filtering
 
-/// Determines if text should be sent for a key event
-/// Control characters (< 0x20) should not be sent - Ghostty handles encoding
-func shouldSendKeyEventText(_ text: String?) -> Bool {
-    guard let text, !text.isEmpty else { return false }
-    guard let codepoint = text.utf8.first else { return false }
-    return codepoint >= 0x20
+/// Ghostty key-event text drops empty strings and strings beginning with an
+/// ASCII control scalar (C0 or DEL), preserving other text unchanged.
+func ghosttyKeyEventText(from text: String?) -> String? {
+    guard let text, !text.isEmpty, let firstScalar = text.unicodeScalars.first else { return nil }
+    guard firstScalar.value >= 0x20, firstScalar.value != 0x7F else { return nil }
+    return text
 }
 
 /// Filters characters for Ghostty key events
