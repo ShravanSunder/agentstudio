@@ -192,6 +192,62 @@ func determineKeyRouting(
     return .passToSystem
 }
 
+// MARK: - Key Equivalent Decision
+
+struct GhosttyKeyEquivalentInput: Equatable, Sendable {
+    let isGhosttyBinding: Bool
+    let characters: String?
+    let charactersIgnoringModifiers: String?
+    let modifierFlags: NSEvent.ModifierFlags
+    let timestamp: TimeInterval
+    let lastPerformKeyEvent: TimeInterval?
+}
+
+enum GhosttyKeyEquivalentDecision: Equatable, Sendable {
+    case handleGhosttyBinding
+    case handleControlReturn
+    case handleControlSlash
+    case passToSystem
+    case resetTimestampAndPassToSystem
+    case rememberTimestamp(TimeInterval)
+    case replayTimestampedKey(text: String)
+}
+
+/// The key-binding lookup uses AppKit's raw event text, including C0 values.
+func ghosttyBindingText(for characters: String?) -> String {
+    characters ?? ""
+}
+
+/// Pure counterpart of Ghostty's key-equivalent routing after the key-binding
+/// lookup. The caller applies timestamp state changes and dispatches the result.
+func ghosttyKeyEquivalentDecision(for input: GhosttyKeyEquivalentInput) -> GhosttyKeyEquivalentDecision {
+    guard !input.isGhosttyBinding else { return .handleGhosttyBinding }
+
+    switch input.charactersIgnoringModifiers {
+    case .some("\r"):
+        return input.modifierFlags.contains(.control) ? .handleControlReturn : .passToSystem
+    case .some("/"):
+        guard input.modifierFlags.contains(.control),
+            input.modifierFlags.isDisjoint(with: [.shift, .command, .option])
+        else {
+            return .passToSystem
+        }
+        return .handleControlSlash
+    default:
+        break
+    }
+
+    guard input.timestamp != 0 else { return .passToSystem }
+    guard input.modifierFlags.contains(.command) || input.modifierFlags.contains(.control) else {
+        return .resetTimestampAndPassToSystem
+    }
+
+    if input.lastPerformKeyEvent == input.timestamp {
+        return .replayTimestampedKey(text: input.characters ?? "")
+    }
+    return .rememberTimestamp(input.timestamp)
+}
+
 // MARK: - Mouse Button Mapping
 
 /// Maps macOS mouse button number to Ghostty button

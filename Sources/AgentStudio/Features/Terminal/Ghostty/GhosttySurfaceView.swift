@@ -289,8 +289,10 @@ extension Ghostty {
         /// Text accumulator for key events
         var keyTextAccumulator: [String]?
 
-        /// Lead UTF-16 code unit waiting for AppKit's next text-input callback.
+        /// Pending text and performKeyEquivalent state.
         var leadSurrogate: GhosttyLeadSurrogate?
+
+        var lastPerformKeyEvent: TimeInterval?
 
         /// Content size for the terminal (may differ from frame during resize)
         private var contentSize: NSSize = .zero

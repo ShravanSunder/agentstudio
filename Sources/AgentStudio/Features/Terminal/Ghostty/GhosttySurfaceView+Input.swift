@@ -240,70 +240,99 @@ extension Ghostty.SurfaceView {
         let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
 
         if mods.contains(.command) {
+            // App-owned exception 2/2: Agent Studio's menu chords outrank Ghostty defaults.
             if let mainMenu = NSApp.mainMenu, mainMenu.performKeyEquivalent(with: event) {
                 return true
             }
-
-            guard let surface else { return false }
-
-            var keyEvent = ghostty_input_key_s()
-            keyEvent.action = GHOSTTY_ACTION_PRESS
-            keyEvent.mods = ghosttyMods(from: event.modifierFlags)
-            keyEvent.keycode = UInt32(event.keyCode)
-            keyEvent.composing = false
-            keyEvent.text = nil
-
-            if event.type == .keyDown || event.type == .keyUp,
-                let chars = event.characters(byApplyingModifiers: []),
-                let codepoint = chars.unicodeScalars.first
-            {
-                keyEvent.unshifted_codepoint = codepoint.value
-            }
-
-            let consumedMods = event.modifierFlags.subtracting([.control, .command])
-            keyEvent.consumed_mods = ghosttyMods(from: consumedMods)
-
-            var flags = ghostty_binding_flags_e(0)
-            if ghostty_surface_key_is_binding(surface, keyEvent, &flags) {
-                keyDown(with: event)
-                return true
-            }
-
-            return false
         }
 
-        if mods.contains(.control) {
-            if event.charactersIgnoringModifiers == "\r" {
-                keyDown(with: event)
-                return true
-            }
+        // We do not port upstream's binding-specific menu dispatch: it depends on
+        // keySequence/keyTables and an AppDelegate route that this surface lacks.
+        let keyIsBinding = ghosttyKeyBindingMatches(event)
+        let decision = ghosttyKeyEquivalentDecision(
+            for: GhosttyKeyEquivalentInput(
+                isGhosttyBinding: keyIsBinding,
+                characters: event.characters,
+                charactersIgnoringModifiers: event.charactersIgnoringModifiers,
+                modifierFlags: event.modifierFlags,
+                timestamp: event.timestamp,
+                lastPerformKeyEvent: lastPerformKeyEvent
+            )
+        )
 
-            if event.charactersIgnoringModifiers == "/" {
-                if let modifiedEvent = NSEvent.keyEvent(
-                    with: .keyDown,
-                    location: event.locationInWindow,
-                    modifierFlags: event.modifierFlags,
-                    timestamp: event.timestamp,
-                    windowNumber: event.windowNumber,
-                    context: nil,
-                    characters: "_",
-                    charactersIgnoringModifiers: "_",
-                    isARepeat: event.isARepeat,
-                    keyCode: event.keyCode
-                ) {
-                    keyDown(with: modifiedEvent)
-                    return true
-                }
-            }
-
+        switch decision {
+        case .handleGhosttyBinding:
             keyDown(with: event)
             return true
+        case .handleControlReturn:
+            return sendKeyDownEquivalent(event, characters: "\r")
+        case .handleControlSlash:
+            return sendKeyDownEquivalent(event, characters: "_")
+        case .passToSystem:
+            return false
+        case .resetTimestampAndPassToSystem:
+            lastPerformKeyEvent = nil
+            return false
+        case .rememberTimestamp(let timestamp):
+            lastPerformKeyEvent = timestamp
+            return false
+        case .replayTimestampedKey(let text):
+            lastPerformKeyEvent = nil
+            return sendKeyDownEquivalent(event, characters: text)
         }
-
-        return false
     }
 
     package override func doCommand(by selector: Selector) {}
+
+    private func ghosttyKeyBindingMatches(_ event: NSEvent) -> Bool {
+        guard let surface else { return false }
+
+        var keyEvent = ghostty_input_key_s()
+        keyEvent.action = GHOSTTY_ACTION_PRESS
+        keyEvent.mods = ghosttyMods(from: event.modifierFlags)
+        keyEvent.keycode = UInt32(event.keyCode)
+        keyEvent.composing = false
+        keyEvent.text = nil
+
+        if event.type == .keyDown || event.type == .keyUp,
+            let characters = event.characters(byApplyingModifiers: []),
+            let codepoint = characters.unicodeScalars.first
+        {
+            keyEvent.unshifted_codepoint = codepoint.value
+        }
+
+        let consumedModifiers = event.modifierFlags.subtracting([.control, .command])
+        keyEvent.consumed_mods = ghosttyMods(from: consumedModifiers)
+        let bindingText = ghosttyBindingText(for: event.characters)
+
+        return bindingText.withCString { pointer in
+            keyEvent.text = pointer
+            var bindingFlags = ghostty_binding_flags_e(0)
+            return ghostty_surface_key_is_binding(surface, keyEvent, &bindingFlags)
+        }
+    }
+
+    private func sendKeyDownEquivalent(_ event: NSEvent, characters: String) -> Bool {
+        guard
+            let modifiedEvent = NSEvent.keyEvent(
+                with: .keyDown,
+                location: event.locationInWindow,
+                modifierFlags: event.modifierFlags,
+                timestamp: event.timestamp,
+                windowNumber: event.windowNumber,
+                context: nil,
+                characters: characters,
+                charactersIgnoringModifiers: characters,
+                isARepeat: event.isARepeat,
+                keyCode: event.keyCode
+            )
+        else {
+            return false
+        }
+
+        keyDown(with: modifiedEvent)
+        return true
+    }
 
     private func sendKeyEvent(_ plan: GhosttyKeyEventPlan) {
         guard let surface else { return }
