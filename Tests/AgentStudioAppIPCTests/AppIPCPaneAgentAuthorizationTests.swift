@@ -171,11 +171,33 @@ struct AppIPCPaneAgentAuthorizationTests {
             ) == nil)
     }
 
+    @Test("every decided pane-agent request records one authorization-time sample with its outcome")
+    func everyDecisionRecordsOneAuthorizationSample() async throws {
+        let log = AgentAuthorizationLog()
+        let scenario = try makeScenario(authorizationLog: log)
+
+        try await scenario.authorize(boundPaneId, "terminal.send", paneIds: [boundPaneId])
+        _ = try await scenario.refusal(boundPaneId, "pane.focus", paneIds: [boundPaneId])
+        _ = try await scenario.refusal(boundPaneId, "terminal.send", paneIds: [otherPaneId])
+        _ = try await scenario.refusal(
+            boundPaneId, "pane.close", paneIds: [boundPaneId], rule: .closesPane(boundPaneId))
+        let routed = scenario.service.paneAgentRoutingRefusal(methodName: "terminal.send", parameters: nil)
+        let hidden = scenario.service.paneAgentRoutingRefusal(methodName: "pane.focus", parameters: nil)
+        try await scenario.authorize(boundPaneId, "session.query", target: .pane(boundPaneId.uuidString))
+
+        // Routing that lets a request through, and an established v2 method
+        // with no eligibility, decide nothing here and record nothing.
+        #expect(routed == nil)
+        #expect(hidden == .notYetAllowed("pane.focus"))
+        #expect(log.outcomes == [.authorized, .notYetAllowed, .notYetAllowed, .refusedForAgent, .notYetAllowed])
+    }
+
     // MARK: - Scenario
 
     private func makeScenario(
         channel: AgentStudioIPCChannel = .debug,
-        unlistedPanesExist: Bool = true
+        unlistedPanesExist: Bool = true,
+        authorizationLog: AgentAuthorizationLog? = nil
     ) throws -> PaneAgentAuthorizationScenario {
         let fixture = BuiltInMethodRegistrationsFixture()
         let composition = try FixtureCommands.composition()
@@ -197,7 +219,8 @@ struct AppIPCPaneAgentAuthorizationTests {
                     boundPaneId: boundPaneId, isDrawerTerminal: false, drawerChildPaneIds: [childPaneId]),
                 AppIPCOwnPaneScope(boundPaneId: drawerTerminalId, isDrawerTerminal: true, drawerChildPaneIds: []),
             ],
-            unlistedPanesExist: unlistedPanesExist
+            unlistedPanesExist: unlistedPanesExist,
+            authorizationLog: authorizationLog
         )
         return PaneAgentAuthorizationScenario(
             registry: registry,

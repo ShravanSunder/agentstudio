@@ -116,6 +116,36 @@ struct AgentStudioOTLPPerformanceTraceProjectionTests {
         #expect(projection.attributes["agentstudio.performance.interaction.correlation_id"] == nil)
     }
 
+    @Test("pane-agent authorization time keeps its controlled outcome and drops anything else")
+    func agentAuthorizationKeepsControlledOutcome() {
+        func project(outcome: String) -> AgentStudioOTLPProjectedLogRecord {
+            AgentStudioOTLPTraceProjection.project(
+                AgentStudioTraceRecord(
+                    timeUnixNano: 123,
+                    severityText: .info,
+                    body: "performance.ipc.agent_authorization",
+                    traceID: nil,
+                    spanID: nil,
+                    parentSpanID: nil,
+                    resource: [:],
+                    scope: .init(name: "agentstudio.performance", version: "0.1.0"),
+                    attributes: [
+                        "agentstudio.performance.elapsed_ms": .double(0.2),
+                        "agentstudio.performance.ipc.agent_authorization.outcome": .string(outcome),
+                    ]
+                ))
+        }
+
+        let refused = project(outcome: "refused_for_agent")
+        let unexpected = project(outcome: UUIDv7.generate().uuidString)
+
+        #expect(refused.attributes["agentstudio.performance.elapsed_ms"] == .double(0.2))
+        #expect(
+            refused.attributes["agentstudio.performance.ipc.agent_authorization.outcome"]
+                == .string("refused_for_agent"))
+        #expect(unexpected.attributes["agentstudio.performance.ipc.agent_authorization.outcome"] == nil)
+    }
+
     @Test
     func performanceProjectionKeepsSafeNumericFieldsAndDropsUnsafeContext() {
         let worktreeID = UUID(uuidString: "6DE2BC87-AD1F-4271-96DD-7922D58612D5")!

@@ -320,7 +320,8 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
             throw AgentStudioAppIPCRequestError.unauthenticated
         }
         if let principal = connectionState.principal, case .spawnedPaneAgent = principal.kind,
-            let refusal = methodRegistry.paneAgentRoutingRefusal(methodName: request.method, parameters: request.params)
+            let refusal = authorizationService.paneAgentRoutingRefusal(
+                methodName: request.method, parameters: request.params)
         {
             throw refusal
         }

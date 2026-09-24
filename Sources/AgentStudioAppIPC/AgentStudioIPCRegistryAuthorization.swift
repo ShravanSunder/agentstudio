@@ -359,6 +359,12 @@ public struct AuthorizationService: Sendable {
             methodRegistry: methodRegistry, ownPaneScopePort: ownPaneScopePort)
     }
 
+    /// A pane agent's routing admission, before schema validation; see
+    /// `AppIPCMethodRegistry.paneAgentRoutingRefusal`.
+    package func paneAgentRoutingRefusal(methodName: String, parameters: JSONValue?) -> AuthorizationError? {
+        paneAgentAuthorization.routingRefusal(methodName: methodName, parameters: parameters)
+    }
+
     package func authorize(principal: IPCPrincipal, request: AppIPCMethodAuthorizationRequest) async throws {
         guard let registration = methodRegistry.registration(named: request.methodName) else {
             throw AuthorizationError(reason: .methodNotFound)

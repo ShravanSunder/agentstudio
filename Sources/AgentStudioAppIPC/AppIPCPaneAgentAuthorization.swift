@@ -1,3 +1,4 @@
+import AgentStudioIPCTransport
 import AgentStudioProgrammaticControl
 import Foundation
 
@@ -9,7 +10,43 @@ struct AppIPCPaneAgentAuthorization: Sendable {
     let methodRegistry: AppIPCMethodRegistry
     let ownPaneScopePort: any AppIPCOwnPaneScopePort
 
+    /// Decides one request and records the decision's duration as one
+    /// authorization-time sample, whether it admits or refuses.
     func authorize(
+        boundPaneId: String,
+        methodEligibility: IPCAgentEligibility,
+        request: AppIPCMethodAuthorizationRequest
+    ) async throws {
+        let clock = ContinuousClock()
+        let started = clock.now
+        do {
+            try await decide(boundPaneId: boundPaneId, methodEligibility: methodEligibility, request: request)
+            ownPaneScopePort.recordAgentAuthorization(elapsed: started.duration(to: clock.now), outcome: .authorized)
+        } catch let refusal as AuthorizationError {
+            ownPaneScopePort.recordAgentAuthorization(
+                elapsed: started.duration(to: clock.now), outcome: Self.outcome(of: refusal))
+            throw refusal
+        }
+    }
+
+    /// Routing admission before schema validation. A refusal here is the
+    /// request's decision, so it is recorded as one authorization-time sample;
+    /// a request routing lets through is recorded when `authorize` decides it.
+    func routingRefusal(methodName: String, parameters: JSONValue?) -> AuthorizationError? {
+        let clock = ContinuousClock()
+        let started = clock.now
+        guard let refusal = methodRegistry.paneAgentRoutingRefusal(methodName: methodName, parameters: parameters)
+        else { return nil }
+        ownPaneScopePort.recordAgentAuthorization(
+            elapsed: started.duration(to: clock.now), outcome: Self.outcome(of: refusal))
+        return refusal
+    }
+
+    private static func outcome(of refusal: AuthorizationError) -> AppIPCAgentAuthorizationOutcome {
+        refusal.reason == .refusedForAgent ? .refusedForAgent : .notYetAllowed
+    }
+
+    private func decide(
         boundPaneId: String,
         methodEligibility: IPCAgentEligibility,
         request: AppIPCMethodAuthorizationRequest

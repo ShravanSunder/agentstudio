@@ -110,6 +110,7 @@ package enum AgentStudioOTLPTraceProjection {
         "agentstudio.ghostty.route.reason",
         "agentstudio.ghostty.signal.class",
         "agentstudio.performance.interaction.kind", "agentstudio.performance.focus.responder_change.reason",
+        "agentstudio.performance.ipc.agent_authorization.outcome",
         "agentstudio.performance.startup.source",
         "agentstudio.performance.startup.deferral.gate",
         "agentstudio.performance.startup.deferral.outcome",
