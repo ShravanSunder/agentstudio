@@ -60,7 +60,7 @@ struct VendorConsumerWiringScriptTests {
         let stripMarker = root.appending(path: "strip-called")
         try writeExecutable(
             at: fakeBin.appending(path: "xcrun"), source: "#!/bin/bash\nprintf called > \"$STRIP_MARKER\"\n")
-        let result = try await DefaultProcessExecutor(timeout: 10).execute(
+        let result = try await RunToExitProcessExecutor().execute(
             command: "/usr/bin/python3", args: [helper.path], cwd: root,
             environment: ["PATH": "\(fakeBin.path):/usr/bin:/bin", "STRIP_MARKER": stripMarker.path]
         )

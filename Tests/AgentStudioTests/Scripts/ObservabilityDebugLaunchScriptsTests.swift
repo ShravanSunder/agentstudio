@@ -507,7 +507,7 @@ struct ObservabilityDebugLaunchScriptVerifierTests {
     }
 
     @Test("debug launcher falls back to direct executable when local app bundle is blocked")
-    func debugLauncherFallsBackToDirectExecutableWhenLaunchServicesBlocksLocalBundle() throws {
+    func debugLauncherFallsBackToDirectExecutableWhenLaunchServicesBlocksLocalBundle() async throws {
         let fixture = try LauncherScriptFixture()
         defer { fixture.cleanup() }
         let stateFile = fixture.url("latest.env")
@@ -598,9 +598,7 @@ struct ObservabilityDebugLaunchScriptVerifierTests {
             buildExecutable: buildPath.appending(path: "debug/AgentStudio"),
             hostileDataRoot: hostileDataRoot
         )
-        try fixture.waitForFile(
-            fixture.url("launched-env"), containing: "ipc_escrow=1", timeoutSeconds: 5)
-        let launchedEnv = try String(contentsOf: fixture.url("launched-env"), encoding: .utf8)
+        let launchedEnv = try await fixture.waitForFile(fixture.url("launched-env"), containing: "ipc_escrow=1")
         try expectDirectExecutableFallbackLaunchEnvironment(launchedEnv, hostileDataRoot: hostileDataRoot)
         #expect(!FileManager.default.fileExists(atPath: fixture.url("leaked-env").path))
     }

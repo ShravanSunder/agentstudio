@@ -71,7 +71,6 @@ struct RepositoryRetentionCommitBoundaryRecoveryTests {
             commitBarrier.releaseCommitCallback()
             await collection.value
 
-            #expect(!commitBarrier.didTimeOut)
             #expect(!fixture.coordinator.isCollectingRetainedLocations)
             #expect(fixture.store.repositoryTopologyAtom.repo(fixture.repositoryID) == nil)
             guard case .loaded(let topology) = await fixture.datastore.loadRepositoryTopologySnapshot() else {
@@ -348,20 +347,16 @@ private actor RetentionPersistenceAdmissionGate {
     }
 }
 
+/// Holds GRDB's writer inside the deletion commit callback until the test releases it.
+/// The hold is untimed: the test always releases it, and the lane's hang bound is the
+/// only elapsed-time bound.
 private final class RetentionDeleteCommitBarrier: TransactionObserver, @unchecked Sendable {
-    private static let timeout: DispatchTimeInterval = .seconds(5)
-
     private let lock = NSLock()
     private let releaseSemaphore = DispatchSemaphore(value: 0)
     private var isArmed = false
     private var observedDeletion = false
     private var committed = false
     private var commitContinuation: CheckedContinuation<Void, Never>?
-    private var timedOut = false
-
-    var didTimeOut: Bool {
-        lock.withLock { timedOut }
-    }
 
     func arm() {
         lock.withLock {
@@ -390,11 +385,7 @@ private final class RetentionDeleteCommitBarrier: TransactionObserver, @unchecke
             return true
         }
         guard shouldPause else { return }
-        if releaseSemaphore.wait(timeout: .now() + Self.timeout) == .timedOut {
-            lock.withLock {
-                timedOut = true
-            }
-        }
+        releaseSemaphore.wait()
     }
 
     func databaseDidRollback(_ database: Database) {

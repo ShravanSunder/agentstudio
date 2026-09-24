@@ -63,14 +63,45 @@ enum ArchitectureAllowlists {
                 "AgentStudioIPCClient blocks in UnixSocketConnection.receive; the shims move that wait to a "
                 + "libdispatch thread so the server's connection handler keeps its cooperative thread"
         ),
-        BlockingWaitOwner(
-            path: "Tests/AgentStudioAppIPCTests/CLISubprocessTestRunner.swift",
-            owner: "CLI subprocess runner",
+    ]
+
+    /// Test files that own an elapsed-time budget on purpose, with who owns it
+    /// and why. A full lint run fails when an owner's file is gone or no longer
+    /// carries a budget. Budgets outside these owners are frozen per file by
+    /// count in the debt ledger.
+    static let elapsedTimeBudgetOwners = [
+        ElapsedTimeBudgetOwner(
+            path: "Tests/AgentStudioTests/Infrastructure/ProcessExecutorTests.swift",
+            owner: "DefaultProcessExecutor",
             reason:
-                "Waits for the CLI child on a semaphore and reaps it with waitUntilExit on a dispatch thread, "
-                + "bounded by the runner's hang guard"
+                "The executor's timeout is the behavior under test: these tests construct it with short "
+                + "timeouts and assert the terminate-then-kill path"
+        ),
+        ElapsedTimeBudgetOwner(
+            path: "Tests/AgentStudioTests/App/Panes/TabBarAdapterMaterializationTestSupport.swift",
+            owner: "TabBar projection gate",
+            reason: projectionGateOnPoolReason
+        ),
+        ElapsedTimeBudgetOwner(
+            path: "Tests/AgentStudioTests/App/Windows/MainWindowControllerPresentationFactsTests.swift",
+            owner: "presentation-facts TabBar projection gate",
+            reason: projectionGateOnPoolReason
+        ),
+        ElapsedTimeBudgetOwner(
+            path: "Tests/AgentStudioTests/Infrastructure/AtomLib/EagerDerivedAtomTestSupport.swift",
+            owner: "EagerDerivedAtom projection gate",
+            reason: projectionGateOnPoolReason
         ),
     ]
+
+    /// Why the projection gates keep their deadlines for now. The fix is a
+    /// production seam, not a test change, so it is recorded here rather than
+    /// frozen as debt the tests could pay down.
+    private static let projectionGateOnPoolReason =
+        "The gate's hold runs on a cooperative-pool thread inside EagerDerivedAtom's detached projection task, "
+        + "so removing the deadline turns latent pool starvation into deadlock on a three-core runner. The fix "
+        + "is a production derivation-executor seam for EagerDerivedAtom; HeldStep does not fix it because "
+        + "arriveBlocking must not run on the pool either"
 
     static let rawRepoCacheMembers = Set([
         "repoEnrichmentByRepoId",
@@ -122,6 +153,14 @@ enum ArchitectureAllowlists {
 
 /// A test file allowed to block, with who owns the blocking wait and why.
 struct BlockingWaitOwner: Sendable {
+    /// Repository-relative path.
+    let path: String
+    let owner: String
+    let reason: String
+}
+
+/// A test file allowed to carry an elapsed-time budget, with who owns it and why.
+struct ElapsedTimeBudgetOwner: Sendable {
     /// Repository-relative path.
     let path: String
     let owner: String

@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import os
 
 @testable import AgentStudioInfrastructure
 
@@ -398,27 +399,13 @@ struct RepoScannerTests {
         try await runGit(at: path, args: ["config", "commit.gpgsign", "false"])
     }
 
-    /// Fixture `git` runs go through the shared executor because it drains stdout and
-    /// stderr concurrently with the child and joins on exit plus both EOFs. Waiting for
-    /// exit first deadlocks as soon as a `git` invocation outgrows the pipe buffer, and it
-    /// parks a cooperative-pool thread — on a three-core runner that starves the lane.
     private func runGit(at path: URL, args: [String]) async throws {
-        let result = try await Self.gitExecutor.execute(
-            command: "git",
-            args: ["-C", path.path] + args,
-            cwd: nil,
-            environment: nil
-        )
-        guard result.succeeded else {
-            Issue.record("git command failed: \(args.joined(separator: " ")) stderr=\(result.stderr)")
-            throw NSError(domain: "RepoScannerTests", code: result.exitCode)
+        let result = try await runFixtureGitToExit(arguments: ["-C", path.path] + args)
+        guard result.exitCode == 0 else {
+            Issue.record("git command failed: \(args.joined(separator: " ")) stderr=\(result.standardError)")
+            throw NSError(domain: "RepoScannerTests", code: Int(result.exitCode))
         }
     }
-
-    /// A hang bound, not a wait: it sits far above any healthy fixture `git` call, so the
-    /// verdict stays a function of git's behavior rather than of machine speed. It exists
-    /// only to turn a wedged child into a reported failure instead of a stuck lane.
-    private static let gitExecutor = DefaultProcessExecutor(timeout: 120)
 
     private func canonicalPath(_ url: URL) -> String {
         url.standardizedFileURL.resolvingSymlinksInPath().path
@@ -629,4 +616,69 @@ struct RepoScannerClassificationTests {
         #expect(groups[0].clonePath.standardizedFileURL == orphanedParentClonePath.standardizedFileURL)
         #expect(groups[0].linkedWorktreePaths == [linkedWorktreePath])
     }
+}
+
+/// Runs a fixture `git` command to exit with no per-test time limit; the lane's hang
+/// bound is the only elapsed-time bound on the child. The exit arrives through
+/// `terminationHandler`, so no cooperative thread is parked, both streams go to files so
+/// a large output cannot fill a pipe, and cancelling the task terminates the child.
+///
+/// This duplicates `runProcessToExit` in AgentStudioTestSupport because
+/// AgentStudioInfrastructureTests must not depend on TestSupport
+/// (testing_architecture.md, Test target ownership). Move both into
+/// AgentStudioTestHarness, which Infrastructure tests may use.
+private func runFixtureGitToExit(arguments: [String]) async throws -> FixtureGitResult {
+    let captureDirectory = try FileManager.default.url(
+        for: .itemReplacementDirectory,
+        in: .userDomainMask,
+        appropriateFor: FileManager.default.temporaryDirectory,
+        create: true
+    )
+    defer { try? FileManager.default.removeItem(at: captureDirectory) }
+    let standardErrorURL = captureDirectory.appending(path: "stderr")
+    let standardOutputURL = captureDirectory.appending(path: "stdout")
+    FileManager.default.createFile(atPath: standardErrorURL.path, contents: nil)
+    FileManager.default.createFile(atPath: standardOutputURL.path, contents: nil)
+    let standardErrorHandle = try FileHandle(forWritingTo: standardErrorURL)
+    let standardOutputHandle = try FileHandle(forWritingTo: standardOutputURL)
+    defer {
+        try? standardErrorHandle.close()
+        try? standardOutputHandle.close()
+    }
+
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+    process.arguments = ["git"] + arguments
+    process.standardOutput = standardOutputHandle
+    process.standardError = standardErrorHandle
+    let exitCode = try await withTaskCancellationHandler {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Int32, any Error>) in
+            let pendingContinuation = OSAllocatedUnfairLock<CheckedContinuation<Int32, any Error>?>(
+                initialState: continuation
+            )
+            process.terminationHandler = { exitedProcess in
+                pendingContinuation.withLock { $0.take() }?.resume(returning: exitedProcess.terminationStatus)
+            }
+            do {
+                try process.run()
+            } catch {
+                process.terminationHandler = nil
+                pendingContinuation.withLock { $0.take() }?.resume(throwing: error)
+            }
+        }
+    } onCancel: {
+        if process.isRunning {
+            process.terminate()
+        }
+    }
+    try Task.checkCancellation()
+    return FixtureGitResult(
+        exitCode: exitCode,
+        standardError: String(data: try Data(contentsOf: standardErrorURL), encoding: .utf8) ?? ""
+    )
+}
+
+private struct FixtureGitResult {
+    let exitCode: Int32
+    let standardError: String
 }
