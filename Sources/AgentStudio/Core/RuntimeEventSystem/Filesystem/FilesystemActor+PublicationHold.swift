@@ -5,13 +5,17 @@ package struct WatchedFolderPublicationHoldID: Hashable, Sendable {
     let rawValue: UUID
 }
 
-/// A released hold still covers every scan whose demand was accepted before release:
-/// such a scan may have observed the destination half-built or before a rollback removed
-/// it, so its result must not publish the destination even when applied after release.
+/// A released hold still covers every scan requested before release: such a scan may
+/// have observed the destination half-built or before a rollback removed it, so its
+/// result must not publish the destination even when applied after release. Requests
+/// are ordered by the submission sequence reserved before they are submitted, so a
+/// submission still in flight at release is covered too.
 struct ReleasedWatchedFolderPublicationHold: Sendable {
     let path: String
-    /// Per source, the latest scan demand accepted when the hold was released.
-    var demandCoverageAtReleaseBySourceID: [FilesystemSourceID: WatchedFolderScanDemandCoverage]
+    /// The highest submission sequence reserved when the hold was released.
+    let releasedThroughSubmissionSequence: UInt64
+    /// Sources that have not yet applied a result requested after release.
+    var pendingSourceIDs: Set<FilesystemSourceID>
 }
 
 /// A creation owner builds a checkout in place; linked-worktree metadata appears
@@ -32,44 +36,39 @@ extension FilesystemActor {
         guard let path = watchedFolderScanState.publicationHoldPathsByID.removeValue(forKey: holdID) else {
             return
         }
-        let demandCoverageAtRelease = watchedFolderScanState.latestDemandCoverageBySourceID
-        guard !demandCoverageAtRelease.isEmpty else { return }
+        let pendingSourceIDs = Set(watchedFolderScanState.registrationsBySourceID.keys)
+        guard !pendingSourceIDs.isEmpty else { return }
         watchedFolderScanState.releasedPublicationHoldsByID[holdID] = ReleasedWatchedFolderPublicationHold(
             path: path,
-            demandCoverageAtReleaseBySourceID: demandCoverageAtRelease
+            releasedThroughSubmissionSequence: watchedFolderScanState.lastReservedScanSubmissionSequence,
+            pendingSourceIDs: pendingSourceIDs
         )
     }
 
-    /// Paths a result from `sourceID` must not publish: every active hold, plus released
-    /// holds whose release came after the demand this result covers.
-    func publicationHeldPaths(
-        forResultFrom sourceID: FilesystemSourceID,
-        coverage: WatchedFolderScanDemandCoverage
-    ) -> Set<String> {
+    /// Paths a result for `request` must not publish: every active hold, plus released
+    /// holds whose release came after `request` was reserved.
+    func publicationHeldPaths(forResultOf request: WatchedFolderScanRequest) -> Set<String> {
         var heldPaths = Set(watchedFolderScanState.publicationHoldPathsByID.values)
-        for released in watchedFolderScanState.releasedPublicationHoldsByID.values {
-            guard let coverageAtRelease = released.demandCoverageAtReleaseBySourceID[sourceID],
-                coverageAtRelease.covers(coverage)
-            else { continue }
+        for released in watchedFolderScanState.releasedPublicationHoldsByID.values
+        where released.pendingSourceIDs.contains(request.sourceID)
+            && request.submissionSequence <= released.releasedThroughSubmissionSequence
+        {
             heldPaths.insert(released.path)
         }
         return heldPaths
     }
 
-    /// Once a source applies a result demanded after release, its released holds no longer
-    /// apply to it; a hold with no remaining sources is forgotten.
-    func retireReleasedPublicationHolds(
-        satisfiedBy coverage: WatchedFolderScanDemandCoverage,
-        from sourceID: FilesystemSourceID
-    ) {
-        for (holdID, released) in watchedFolderScanState.releasedPublicationHoldsByID {
-            guard let coverageAtRelease = released.demandCoverageAtReleaseBySourceID[sourceID],
-                !coverageAtRelease.covers(coverage)
-            else { continue }
+    /// Once a source applies a result requested after release, its released holds no longer
+    /// apply to it; a hold with no pending sources is forgotten.
+    func retireReleasedPublicationHolds(satisfiedBy request: WatchedFolderScanRequest) {
+        for (holdID, released) in watchedFolderScanState.releasedPublicationHoldsByID
+        where released.pendingSourceIDs.contains(request.sourceID)
+            && request.submissionSequence > released.releasedThroughSubmissionSequence
+        {
             var remaining = released
-            remaining.demandCoverageAtReleaseBySourceID.removeValue(forKey: sourceID)
+            remaining.pendingSourceIDs.remove(request.sourceID)
             watchedFolderScanState.releasedPublicationHoldsByID[holdID] =
-                remaining.demandCoverageAtReleaseBySourceID.isEmpty ? nil : remaining
+                remaining.pendingSourceIDs.isEmpty ? nil : remaining
         }
     }
 }

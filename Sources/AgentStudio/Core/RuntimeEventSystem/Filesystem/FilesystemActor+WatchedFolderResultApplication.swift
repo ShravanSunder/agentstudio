@@ -104,9 +104,9 @@ extension FilesystemActor {
         let latestCoverage = watchedFolderScanState.latestDemandCoverageBySourceID[sourceID]
         let scannerResult = WatchedFolderPublicationHolds.excludingHeldCheckouts(
             from: result.scannerResult,
-            heldPaths: publicationHeldPaths(forResultFrom: sourceID, coverage: result.demandCoverage)
+            heldPaths: publicationHeldPaths(forResultOf: result.request)
         )
-        retireReleasedPublicationHolds(satisfiedBy: result.demandCoverage, from: sourceID)
+        retireReleasedPublicationHolds(satisfiedBy: result.request)
         let reduction = WatchedFolderInventoryReducer.reduce(
             previousGroups: previousGroups,
             scannerResult: scannerResult,

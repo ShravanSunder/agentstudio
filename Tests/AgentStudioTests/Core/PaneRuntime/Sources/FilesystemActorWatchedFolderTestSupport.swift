@@ -92,3 +92,37 @@ actor TopologyEventRecorder {
     func reset() { events = TopologyEventSet() }
     func snapshot() -> TopologyEventSet { events }
 }
+
+/// Holds one armed submission's accepted result back from the FilesystemActor until opened,
+/// so actor work can be ordered between a scan starting and its acceptance returning.
+actor WatchedFolderScanAcceptanceGate {
+    private var isArmed = false
+    private var isOpen = false
+    private var parkedSubmission: CheckedContinuation<Void, Never>?
+
+    nonisolated var port: WatchedFolderScanSubmissionPort {
+        WatchedFolderScanSubmissionPort { scheduler, request, intent in
+            let result = await scheduler.submit(request, intent: intent)
+            await self.holdIfArmed()
+            return result
+        }
+    }
+
+    func arm() {
+        isArmed = true
+        isOpen = false
+    }
+
+    func open() {
+        isOpen = true
+        parkedSubmission?.resume()
+        parkedSubmission = nil
+    }
+
+    private func holdIfArmed() async {
+        guard isArmed else { return }
+        isArmed = false
+        guard !isOpen else { return }
+        await withCheckedContinuation { parkedSubmission = $0 }
+    }
+}
