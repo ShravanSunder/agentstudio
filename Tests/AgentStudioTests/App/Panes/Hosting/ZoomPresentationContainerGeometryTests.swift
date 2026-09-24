@@ -18,7 +18,7 @@ struct ZoomPresentationContainerGeometryTests {
 
     @Test("Zoom management identity spans the full content above the toolbar")
     func zoomManagementIdentitySpansFullContentAboveToolbar() throws {
-        let frames = mountedZoomManagementRegionFrames()
+        let (frames, devicePixel) = mountedZoomManagementRegionFrames()
         let identityFrame = try #require(frames["paneManagement.identityStrip"])
         let sourceFrame = try #require(frames["zoom-source-region-probe"])
         let companionFrame = try #require(frames["zoom-companion-region-probe"])
@@ -29,10 +29,10 @@ struct ZoomPresentationContainerGeometryTests {
             abs(
                 companionFrame.maxX - identityFrame.maxX
                     - AppStyles.General.Spacing.loose
-            ) < 0.5
+            ) < devicePixel
         )
         #expect(identityFrame.maxY <= toolbarFrame.minY)
-        #expect(abs(sourceFrame.height - companionFrame.height) < 0.5)
+        #expect(abs(sourceFrame.height - companionFrame.height) < devicePixel)
     }
 
     @Test("Zoom drawer outline sits on the terminal region bottom with no footer gap and no resize target")
@@ -40,14 +40,15 @@ struct ZoomPresentationContainerGeometryTests {
         let frames = try mountedZoomDrawerFrames(zoomSide: .terminal)
         let outline = try #require(frames.outline)
         let region = frames.terminalRegion
+        let devicePixel = frames.devicePixel
         // The split area ends where the shared toolbar begins, so the complete
         // outline sitting on the region bottom leaves no gap above the toolbar.
-        #expect(abs(outline.maxY - region.maxY) < 0.5)
+        #expect(abs(outline.maxY - region.maxY) < devicePixel)
         #expect(outline.maxY <= frames.zoomToolbarButton.minY)
         // Upper 15% of the region stays exposed; 97% of its width, centered.
-        #expect(abs(outline.minY - (region.minY + region.height * 0.15)) < 0.5)
-        #expect(abs(outline.width - region.width * 0.97) < 0.5)
-        #expect(abs(outline.midX - region.midX) < 0.5)
+        #expect(abs(outline.minY - (region.minY + region.height * 0.15)) < devicePixel)
+        #expect(abs(outline.width - region.width * 0.97) < devicePixel)
+        #expect(abs(outline.midX - region.midX) < devicePixel)
         #expect(frames.hasResizeHandle == false)
     }
 
@@ -56,10 +57,11 @@ struct ZoomPresentationContainerGeometryTests {
         let frames = try mountedZoomDrawerFrames(zoomSide: .bridge)
         let outline = try #require(frames.outline)
         let region = frames.bridgeRegion
+        let devicePixel = frames.devicePixel
 
-        #expect(abs(outline.maxY - region.maxY) < 0.5)
-        #expect(abs(outline.width - region.width * 0.97) < 0.5)
-        #expect(abs(outline.midX - region.midX) < 0.5)
+        #expect(abs(outline.maxY - region.maxY) < devicePixel)
+        #expect(abs(outline.width - region.width * 0.97) < devicePixel)
+        #expect(abs(outline.midX - region.midX) < devicePixel)
         #expect(outline.minX > region.minX)
         #expect(outline.maxX < region.maxX)
     }
@@ -86,10 +88,11 @@ struct ZoomPresentationContainerGeometryTests {
                     )
                 )
             )
-            #expect(abs(painted.minX - bootstrap.outlineFrame.minX) < 0.5, "\(side)")
-            #expect(abs(painted.minY - bootstrap.outlineFrame.minY) < 0.5, "\(side)")
-            #expect(abs(painted.width - bootstrap.outlineFrame.width) < 0.5, "\(side)")
-            #expect(abs(painted.height - bootstrap.outlineFrame.height) < 0.5, "\(side)")
+            let devicePixel = frames.devicePixel
+            #expect(abs(painted.minX - bootstrap.outlineFrame.minX) < devicePixel, "\(side)")
+            #expect(abs(painted.minY - bootstrap.outlineFrame.minY) < devicePixel, "\(side)")
+            #expect(abs(painted.width - bootstrap.outlineFrame.width) < devicePixel, "\(side)")
+            #expect(abs(painted.height - bootstrap.outlineFrame.height) < devicePixel, "\(side)")
         }
     }
 
@@ -99,6 +102,15 @@ struct ZoomPresentationContainerGeometryTests {
         let bridgeRegion: CGRect
         let zoomToolbarButton: CGRect
         let hasResizeHandle: Bool
+        let devicePixel: CGFloat
+    }
+
+    /// Native layout snaps every edge to the device pixel grid, so painted
+    /// frames agree with the resolver's exact arithmetic, and paint agrees with
+    /// bootstrap, to within one device pixel: 1 pt at 1x (CI runners), 0.5 pt
+    /// at 2x.
+    private static func devicePixel(of hostingView: NSView) -> CGFloat {
+        1 / (hostingView.window?.backingScaleFactor ?? 1)
     }
 
     private func mountedZoomDrawerFrames(zoomSide: DrawerZoomSide) throws -> MountedZoomDrawerFrames {
@@ -186,12 +198,13 @@ struct ZoomPresentationContainerGeometryTests {
                 terminalRegion: try #require(frame("zoom-source-region-probe")),
                 bridgeRegion: try #require(frame("zoom-companion-region-probe")),
                 zoomToolbarButton: try #require(frame("paneSurfaceToolbar.pane zoom")),
-                hasResizeHandle: frame(DrawerResizeHandle.accessibilityIdentifier) != nil
+                hasResizeHandle: frame(DrawerResizeHandle.accessibilityIdentifier) != nil,
+                devicePixel: Self.devicePixel(of: hostingView)
             )
         }
     }
 
-    private func mountedZoomManagementRegionFrames() -> [String: CGRect] {
+    private func mountedZoomManagementRegionFrames() -> (frames: [String: CGRect], devicePixel: CGFloat) {
         let store = WorkspaceStore()
         let repo = store.addRepo(at: URL(filePath: "/tmp/agent-studio"))
         let worktree = Worktree(
@@ -270,7 +283,7 @@ struct ZoomPresentationContainerGeometryTests {
 
         hostingView.layoutSubtreeIfNeeded()
 
-        return Dictionary(
+        let frames: [String: CGRect] = Dictionary(
             uniqueKeysWithValues: [
                 "paneManagement.identityStrip",
                 "zoom-source-region-probe",
@@ -283,6 +296,7 @@ struct ZoomPresentationContainerGeometryTests {
                 return (identifier, view.convert(view.bounds, to: hostingView))
             }
         )
+        return (frames, Self.devicePixel(of: hostingView))
     }
 
     private func probeAction(label: String) -> PaneSurfaceToolbarAction {
