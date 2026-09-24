@@ -1,3 +1,4 @@
+import AgentStudioTestHarness
 import AgentStudioTestSupport
 import CryptoKit
 import Foundation
@@ -114,7 +115,7 @@ struct BridgePaneProductReviewContentSourceTests {
     @Test("cancellation settles its coordinator lease exactly once")
     @MainActor
     func cancellationSettlesLeaseExactlyOnce() async throws {
-        let gate = BridgeContentLoadGate()
+        let gate = HeldStep<Void>("gate", cancellation: .holdThroughCancellation)
         let fixture = try await ReviewProductContentFixture(
             content: "cancelled",
             contentLoadGate: gate
@@ -126,10 +127,10 @@ struct BridgePaneProductReviewContentSourceTests {
                 productAdmission: fixture.productAdmission.context
             )
         }
-        await gate.waitForStartedLoadCount(1)
+        try await gate.firstArrival()
 
         load.cancel()
-        await gate.releaseAll()
+        gate.release()
 
         await #expect(throws: CancellationError.self) {
             _ = try await load.value
@@ -142,7 +143,7 @@ struct BridgePaneProductReviewContentSourceTests {
     @Test("failed success settlement is attempted exactly once")
     @MainActor
     func failedSuccessSettlementIsAttemptedExactlyOnce() async throws {
-        let gate = BridgeContentLoadGate()
+        let gate = HeldStep<Void>("gate", cancellation: .holdThroughCancellation)
         let fixture = try await ReviewProductContentFixture(
             content: "closed-after-load",
             contentLoadGate: gate
@@ -154,10 +155,10 @@ struct BridgePaneProductReviewContentSourceTests {
                 productAdmission: fixture.productAdmission.context
             )
         }
-        await gate.waitForStartedLoadCount(1)
+        try await gate.firstArrival()
 
         _ = fixture.coordinator.close()
-        await gate.releaseAll()
+        gate.release()
 
         await #expect(throws: BridgePaneProductReviewContentSourceError.unavailablePackage) {
             _ = try await load.value
@@ -170,7 +171,7 @@ struct BridgePaneProductReviewContentSourceTests {
     @Test("admitted A lease finishes after B commits")
     @MainActor
     func admittedALeaseFinishesAfterBCommits() async throws {
-        let gate = BridgeContentLoadGate()
+        let gate = HeldStep<Void>("gate", cancellation: .holdThroughCancellation)
         let fixture = try await ReviewProductContentFixture(
             content: "retained-A",
             contentLoadGate: gate
@@ -182,10 +183,10 @@ struct BridgePaneProductReviewContentSourceTests {
                 productAdmission: fixture.productAdmission.context
             )
         }
-        await gate.waitForStartedLoadCount(1)
+        try await gate.firstArrival()
 
         try await fixture.commitReplacementPublication()
-        await gate.releaseAll()
+        gate.release()
         let bodyA = try await loadA.value
 
         #expect(bodyA.data == Data("retained".utf8))
@@ -312,7 +313,7 @@ private final class ReviewProductContentFixture {
     init(
         content: String,
         providerHasContent: Bool = true,
-        contentLoadGate: BridgeContentLoadGate? = nil
+        contentLoadGate: HeldStep<Void>? = nil
     ) async throws {
         let contentData = Data(content.utf8)
         let handle = Self.makeHandle(

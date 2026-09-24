@@ -71,9 +71,20 @@ AgentStudioSharedComponentsTests   ──► AgentStudioSharedComponents
 AgentStudioCoreTests               ──► AgentStudioCore + AgentStudioTestSupport
 AgentStudio<Feature>Tests          ──► matching Feature + lower modules
 AgentStudioTests                   ──► AgentStudio executable + product modules
+AgentStudioTestHarnessTests        ──► AgentStudioTestHarness
 ```
 
-`AgentStudioTestSupport` depends only on `AgentStudioCore`. Its sources live at
+`AgentStudioTestHarness` depends only on the standard library, Foundation and
+`Synchronization`. Its sources live at
+[`Tests/AgentStudioTestHarness`](../../../Tests/AgentStudioTestHarness) and its
+declarations are `package`. It owns the primitives every test target shares —
+`HeldStep`, `proveReplyDependsOnStep` and `valueFromDedicatedThread` (see
+[How a test may wait](#how-a-test-may-wait)) — so a target that cannot see
+`AgentStudioTestSupport` depends on the harness instead of copying a gate.
+`AgentStudioTestSupport` depends on it too. Its self-tests live in
+[`Tests/AgentStudioTestHarnessTests`](../../../Tests/AgentStudioTestHarnessTests).
+
+`AgentStudioTestSupport` depends on `AgentStudioCore` and `AgentStudioTestHarness`. Its sources live at
 [`Tests/AgentStudioTests/TestSupport`](../../../Tests/AgentStudioTests/TestSupport) (a nested path under the executable test
 folder, a separate SwiftPM target). It provides Core-level fixtures and helpers
 without becoming an App or Feature registry. Infrastructure and SharedComponents
@@ -92,7 +103,7 @@ module test. This ownership does not replace the existing execution lanes:
 `mise run test:swift:fast`, `mise run test:swift:large`,
 `mise run test:swift:webkit`, `mise run test:swift:e2e`, and
 `mise run test:swift:zmx-e2e` retain their filter, serialization, prebuild,
-timeout, and retry semantics. `swift test --filter` selects tests to execute; it
+and timeout semantics. `swift test --filter` selects tests to execute; it
 does not redefine module ownership or guarantee that unrelated same-package test
 products avoid compilation.
 
@@ -122,7 +133,8 @@ calls those same mise tasks; it never recreates a raw `swift test` command.
 | --- | --- | --- |
 | fast | `test:swift:fast` | Everything not claimed by another lane, run concurrently inside one process by Swift Testing itself, then the isolated process-global phases |
 | large | `test:swift:large` | `Script`, `SourceScan`, `Smoke`, `Integration` families and named heavy suites (`large_non_webkit_filter_pattern`), then a serial phase for subprocess workload fixtures, then its own isolated process-global phase |
-| WebKit | `test:swift:webkit` | Real WKWebView runtime suites, one filter at a time, with a retry for teardown signal crashes |
+| WebKit | `test:swift:webkit` | Real WKWebView runtime suites, one filter at a time. A teardown signal crash fails the lane and the receipt names the suite and signal; the runner never retries |
+| width comparison | `test:swift:width-comparison` | One prebuild, then the fast lane at width 3 and with the width unset on that same bundle. Each half prints its own receipt as a `reused` bundle linked to that prebuild's build receipt and keeps every ledger under `tmp/plan-workflows/ci-runs/width-comparison/`. It is an experiment, not a pull-request gate, and it never changes the default width |
 | E2E | `test:swift:e2e` | `E2ESerializedTests`; inside `mise run test` only when `SWIFT_TEST_INCLUDE_E2E=1` |
 | zmx E2E | `test:swift:zmx-e2e` | `ZmxE2ETests`; opt-in, not a pull-request gate |
 | benchmark | `test:swift:benchmark` | The two benchmark suites; post-merge, not a pull-request gate |
@@ -162,6 +174,8 @@ These are the permitted forms. Anything not in the left column is a poll.
 | --- | --- | --- |
 | State changes and is observable | Await the observed change until a predicate holds | Re-reading the value in a loop |
 | A component or test double knows when something happened | Await its event or completion signal | Polling a counter it keeps |
+| A test double must hold work at one point | A `HeldStep`: await `firstArrival()`, then `release()`, `fail(_:)` or `retire()` | A hand-rolled gate type, a flag read in a loop |
+| A reply must depend on a held dependency's outcome | `proveReplyDependsOnStep` (fail branch and release branch) | "Not replied yet" asserted after a delay |
 | Delivery on a stream or the bus | Subscribe before the stimulus, then await the specific element | Polling subscriber counts or received arrays |
 | Work finishes but announces nothing | Await the owner's quiescence ([Quiescence](#quiescence)) | Yield-and-hope |
 | Something must not happen | Await quiescence, then assert once | "Did not happen in N turns/seconds" |
@@ -174,6 +188,37 @@ complete because a named event, a completion signal, an observed state change,
 or a quiescence signal occurred. The test for whether a wait is a budget: *can
 it expire while the awaited work is correct and still in flight?* If yes, it is
 a budget.
+
+**Holding work: `HeldStep`.** A test double that stands in for a dependency
+holds the work under test with a named
+[`HeldStep`](../../../Tests/AgentStudioTestHarness/HeldStep.swift). The double
+calls `arrive(_:)` at the point it replaces; the test awaits `firstArrival()`,
+which completes because the work got there and returns what arrived, then ends
+the step. The first of `release()`, `fail(_:)` and `retire()` wins and is sticky,
+and one made before any arrival is kept. A cancelled arrival resumes as
+cancelled by default; `.holdThroughCancellation` keeps it held, the way a
+dependency that ignores cancellation behaves, and `cancellationObserved()` is the
+event to await. A synchronous seam reached from a thread that may block (a
+socket accept queue, a thread from `valueFromDedicatedThread`) uses
+`arriveBlocking(_:)`; called from inside a task it parks nothing and fails naming
+the step. No harness wait has a deadline: a step that is never reached leaves the
+test waiting for the hang bound, whose cancellation makes the wait throw
+`HeldStepNeverReached` with the step's name. A lane's own hang bound kills the
+process instead of cancelling the task, so when `AGENTSTUDIO_HELD_STEP_LOG` names a
+file every step appends `waiting` and `arrived` lines there
+([`HeldStepEventLog.swift`](../../../Tests/AgentStudioTestHarness/HeldStepEventLog.swift)),
+and a step with a wait and no arrival is the one never reached. Do not add a new
+gate type; the existing ones are frozen by the lint baseline and move onto
+`HeldStep`.
+
+**Causal replies: `proveReplyDependsOnStep`.** Where a boundary's held
+dependency can report failure through its own contract, prove that the reply
+comes from the effect rather than from starting it: the helper builds a fresh
+scenario twice, fails the step in one and releases it in the other, and requires
+the reply to report failure and success respectively. A reply produced before the
+step finishes cannot depend on it, so an early reply fails the test with no clock
+and no quiescence wait. The helper never invents an error the boundary does not
+have.
 
 **One hang bound, never tuned.** The only elapsed-time bound permitted in a test
 is the runner-owned hang bound: the framework's time limit on the test, and the
@@ -203,8 +248,10 @@ a semaphore, a lock held across long work, or synchronous I/O. On three cores
 there are three threads; the in-process IPC server answers every accepted
 connection from a `Task` on that same pool, so a test blocking there is starving
 the server it is waiting on. Route the block through
+[`valueFromDedicatedThread`](../../../Tests/AgentStudioTestHarness/DedicatedThreadWork.swift),
+which lands it on a thread of its own, or through
 [`withoutBlockingCooperativePool`](../../../Tests/AgentStudioTests/TestSupport/BlockingWorkOffCooperativePool.swift),
-which lands it on libdispatch. `@concurrent` is not a substitute — it still
+which delegates to it. `@concurrent` is not a substitute — it still
 draws from the cooperative pool. The
 `agentstudio_test_blocking_wait_off_cooperative_pool` lint rule enforces this.
 
@@ -267,11 +314,20 @@ production owner.
 
 ## Harness catalog
 
+[`Tests/AgentStudioTestHarness/`](../../../Tests/AgentStudioTestHarness), the Core-free `AgentStudioTestHarness`
+target that every test target may depend on:
+
+| Harness | What it fakes or controls | The wait it enables |
+| --- | --- | --- |
+| `HeldStep.swift` | One named point where a test double holds the work under test | `firstArrival()` returns what arrived; `cancellationObserved()` for hold-through-cancellation interleavings; no deadlines |
+| `ReplyDependsOnStepProof.swift` | Two fresh scenarios, one failed and one released at the held step | `proveReplyDependsOnStep` rejects a reply that does not depend on the step's outcome |
+| `DedicatedThreadWork.swift` | Nothing; it runs blocking work on a thread of its own | `valueFromDedicatedThread` returns the blocking work's value without parking a cooperative thread |
+
 Everything in [`Tests/AgentStudioTests/TestSupport/`](../../../Tests/AgentStudioTests/TestSupport), the `AgentStudioTestSupport` target.
 
 | Harness | What it fakes or controls | The wait it enables |
 | --- | --- | --- |
-| `BlockingWorkOffCooperativePool.swift` | Nothing; it moves blocking work to a libdispatch thread | Lets a test wait on process exit, a semaphore, or a socket read without parking a cooperative thread |
+| `BlockingWorkOffCooperativePool.swift` | Nothing; it delegates to the harness's `valueFromDedicatedThread` | Lets a test wait on process exit, a semaphore, or a socket read without parking a cooperative thread |
 | `TestPushClock.swift` | A `Clock` the test advances by hand | Time as subject: advance, then await quiescence. Never real time |
 | `EventBusHarness.swift` | A real `EventBus` with a recording subscriber and an actor-backed buffer | `RecordedEventBuffer` resumes a stored continuation the moment a matching envelope arrives — await the element, not a count |
 | `RuntimeEnvelopeHarness.swift` | Typed envelope records for system, worktree, and pane scopes | Assert on the exact fact that was posted |
@@ -289,8 +345,8 @@ Everything in [`Tests/AgentStudioTests/TestSupport/`](../../../Tests/AgentStudio
 
 ### Legacy polling helpers — do not add call sites
 
-These exist, they are held by the lint baseline, and they are being converted
-under PR 2. Do not call them from new code.
+These exist, they are counted in the architecture debt ledger, and they are
+being converted under PR 2. Do not call them from new code.
 
 | Helper | Why it is a poll |
 | --- | --- |
@@ -342,13 +398,40 @@ signal.
 
 1. **Read the lane report.** Every lane prints `[<lane>] lane-report <label>=…`
    before and after its tests: `cpu_count`, `memory_bytes`,
-   `parallelization_width`, `isolated_process_concurrency`, then `exit_status`,
-   `wall_seconds`, `cpu_seconds`, `cpu_utilization`, `peak_started_tests`,
-   `peak_running_parameterized_cases`, `failed_isolated_suites`, and one
-   `failed_isolated_suite=` line per failure. Low utilization with long wall time
-   is blocking; high utilization is saturation. `peak_started_tests` counts tests
-   whose start event was *posted* and does not reflect any cap;
-   `peak_running_parameterized_cases` does, over the parameterized subset only.
+   `parallelization_width`, `isolated_process_concurrency`, `head_sha`,
+   `tree_dirty`, then `exit_status`, `wall_seconds`, `cpu_seconds`,
+   `cpu_utilization`, `peak_announced_tests`, `peak_running_parameterized_cases`,
+   `failed_isolated_suites`, one `failed_isolated_suite=` line per failure, and
+   the receipt identity: `head_sha`, `tree_dirty`, `bundle_state`,
+   `bundle_identity`, `receipt_valid`, `verdict`. Low utilization with long wall
+   time is blocking; high utilization is saturation. `peak_announced_tests` counts
+   tests whose start event was *posted*, which is an announcement, not a running
+   test, and does not reflect any cap; `peak_running_parameterized_cases` does,
+   over the parameterized subset only.
+
+   **A receipt is evidence only when it is valid.** A lane is valid when its
+   bundle is a clean build of this commit and the tree stayed clean from the
+   opening to the closing receipt. A lane that ran its own prebuild has
+   `bundle_state=fresh`. A lane that reused a bundle (`SWIFT_TEST_SKIP_PREBUILD=1`,
+   as every CI lane after the prebuild step) has `bundle_state=reused` and is
+   linked to the build receipt the prebuild published beside the bundle
+   (`<build path>/agentstudio-test-build-receipt`). The prebuild deletes that
+   receipt before compiling, samples `head_sha` and `tree_dirty` before
+   compiling, and publishes the receipt by atomic rename only after the build
+   succeeds. `bundle_identity` is the exact test executable: path, size and
+   modification time. The lane prints the receipt's commit as
+   `build_receipt_head_sha`. Otherwise the receipt reads
+   `receipt_valid=false reason=…`, where the reason is one of:
+   - `reused_bundle_unlinked`: no receipt, a malformed one, or one naming
+     another executable;
+   - `built_from_dirty_tree`: the build tree had uncommitted changes;
+   - `bundle_head_mismatch`: the receipt names another commit;
+   - `dirty_tree`: uncommitted changes now;
+   - `unbuilt_bundle`: the prebuild failed.
+
+   An invalid receipt's verdict is `unverified` whatever the exit status. The
+   exit status itself is unchanged, so the local edit-test loop still works. A
+   lane ended by a signal exits 128+signal and reports `verdict=fail`.
 2. **Download the ledger.** On a lane timeout the runner preserves Swift
    Testing's event-stream JSONL under `tmp/plan-workflows/ci-runs/lane-*.events.jsonl`,
    and CI uploads it as `swift-lane-event-streams-<run_id>`. Compute
@@ -365,7 +448,27 @@ signal.
    `SWIFT_TEST_TIMEOUT_SECONDS=90 mise run test:swift:fast`. When a helper is
    parked, `xcrun swift-inspect dump-concurrency <pid>` lists every parked task
    with its resume function. It is unprivileged, and it is the only tool that
-   shows suspended tasks — `sample` cannot.
+   shows suspended tasks — `sample` cannot. When the hang bound fires, the runner
+   gathers the evidence itself before anything is terminated, and keeps it
+   beside the ledger under one stem, `lane-<label>-<time>-<pid>`. CI uploads
+   all three with the ledgers:
+   - `…-pid<pid>.task-dump.txt`: one task dump per stuck test process, taken
+     whether or not the thread sampler (`sample`) is available. Each tool that
+     cannot run says why: `stack_sample=unavailable reason=…` and
+     `task_dump=unavailable reason=…`. It cannot attach to a binary without
+     `get-task-allow`, and `swift-inspect` exits 0 even then, which is why the
+     runner judges success by the dump's content.
+   - `….held-steps.log`: the lane hands each test process this path as
+     `AGENTSTUDIO_HELD_STEP_LOG`. The causal-test harness appends one
+     TAB-separated line per event, because step names contain spaces:
+     `waiting<TAB><instance id><TAB><name><TAB><fileID function>` and
+     `arrived<TAB><instance id><TAB><name>`. Waits and arrivals pair by instance
+     id, so one step's arrival cannot hide another same-named step's missing
+     one. The hang report prints every wait that never arrived as
+     `held_step_unarrived name=<name> id=<id> test=<fileID function>`.
+   - `….events.jsonl`: the event ledger itself.
+
+   The hang verdict is failed whatever evidence was gathered.
 5. **Classify the owner, then fix it there.** Test oracle (the assertion is
    wrong about what should happen), product (the behavior is wrong), runner
    (the lane, filter, or isolation is wrong), or harness (the fake is wrong).
@@ -376,19 +479,34 @@ hang bound; skipping the test; quarantining it; bumping a `.timeLimit`; removing
 an assertion without a replacement that states the invariant at least as
 strongly.
 
+**A red lint or ratchet step is diagnosed the same way.** A guardrail diagnostic
+names its rule and site; fix the site. A file over its count in the
+[debt ledger](../../../Tools/AgentStudioArchitectureLint/architecture-debt-ledger.tsv)
+reports every site in that file with both counts — the new site is the fix, not
+the row. A file under its count, or a row whose file is gone, names the row to
+lower or remove (`--lower-ledger-counts` does exactly that, and nothing more).
+The `Debt ledger ratchet` CI step fails when a pull request raises a row or adds
+one compared with the merge base; raising a count is never the response. The
+lint prints per-stage and per-rule timings on every run; a slow rule is a defect
+to fix, and no timing changes the verdict.
+
 ## Workarounds and hand-kept lists
 
 A version pin or a note that exists for a workaround must state the condition
 under which it is removed, and must be removed once that condition is met.
 
 A hand-maintained list that test correctness depends on — the set of suites that
-need process isolation, the lint baselines — must be verified by a gate, so that
+need process isolation, the lint debt — must be verified by a gate, so that
 a member cannot silently fall out. The isolation list has
 [`SwiftLaneIsolationListGateTests`](../../../Tests/AgentStudioTests/Scripts/SwiftLaneIsolationListGateTests.swift).
-The polling baseline, `ArchitectureAllowlists.pollingWaitKnownDebt`, is
-shrink-only: a file outside it that polls fails the gate, a file inside it
-that no longer polls fails the gate until its entry is removed, and a listed
-path that no longer exists fails the gate until its entry is removed.
+Lint debt — polling waits, blocking waits, ad-hoc gates, void wait helpers and
+the MainActor shapes — lives in one file,
+[`architecture-debt-ledger.tsv`](../../../Tools/AgentStudioArchitectureLint/architecture-debt-ledger.tsv),
+as a permitted site count per rule and file. Every lint run requires each file
+to hold exactly its count, so the ledger always states the real debt; the CI
+ratchet rejects a raised count or a new row. The ledger and the ratchet are
+described in the
+[architecture lint inventory](../structure/architecture_lint_inventory.md#debt-ledger).
 
 ## BridgeWeb
 
@@ -418,7 +536,9 @@ See [`BridgeWeb/AGENTS.md` — Test Waits](../../../BridgeWeb/AGENTS.md#test-wai
 | [`TestPollingWaitRule.swift`](../../../Tools/AgentStudioArchitectureLint/Sources/AgentStudioArchitectureLintCore/Rules/TestPollingWaitRule.swift) | `agentstudio_no_polling_wait_in_tests` |
 | [`TestBlockingWaitOffCooperativePoolRule.swift`](../../../Tools/AgentStudioArchitectureLint/Sources/AgentStudioArchitectureLintCore/Rules/TestBlockingWaitOffCooperativePoolRule.swift) | `agentstudio_test_blocking_wait_off_cooperative_pool` |
 | [`TestTaskSleepRule.swift`](../../../Tools/AgentStudioArchitectureLint/Sources/AgentStudioArchitectureLintCore/Rules/TestTaskSleepRule.swift) | `agentstudio_no_task_sleep_in_tests` |
-| [`ArchitectureAllowlists.swift`](../../../Tools/AgentStudioArchitectureLint/Sources/AgentStudioArchitectureLintCore/Paths/ArchitectureAllowlists.swift) | `pollingWaitKnownDebt` and `blockingTestWaitKnownDebt` baselines |
+| [`architecture-debt-ledger.tsv`](../../../Tools/AgentStudioArchitectureLint/architecture-debt-ledger.tsv) | Permitted site counts per lint rule and file; only ever lowered |
+| [`check-ledger-ratchet.sh`](../../../Tools/AgentStudioArchitectureLint/check-ledger-ratchet.sh) | The CI step that rejects a raised count or a new ledger row against the merge base |
+| [`ArchitectureAllowlists.swift`](../../../Tools/AgentStudioArchitectureLint/Sources/AgentStudioArchitectureLintCore/Paths/ArchitectureAllowlists.swift) | Named owners of blocking waits and other allowed sites (ownership, not debt) |
 | [`Tests/AgentStudioTests/TestSupport/`](../../../Tests/AgentStudioTests/TestSupport) | The `AgentStudioTestSupport` harnesses |
 | [`SwiftLaneIsolationListGateTests.swift`](../../../Tests/AgentStudioTests/Scripts/SwiftLaneIsolationListGateTests.swift) | The isolation-list gate |
 | [CI Reliability — Specification](../../specs/2026-09-17-ci-reliability/2026-09-17-ci-reliability.md) | The requirements this document implements |

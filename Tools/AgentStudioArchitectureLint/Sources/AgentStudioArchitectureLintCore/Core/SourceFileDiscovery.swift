@@ -7,7 +7,9 @@ struct SourceFileDiscovery {
         self.fileManager = fileManager
     }
 
-    func swiftFiles(under roots: [String]) throws -> [String] {
+    /// Swift sources and agent instruction documents (`AGENTS.md`) under the
+    /// roots, or the roots themselves when they name such files.
+    func lintedFiles(under roots: [String]) throws -> [String] {
         var files: [String] = []
         for root in roots {
             var isDirectory: ObjCBool = false
@@ -15,15 +17,15 @@ struct SourceFileDiscovery {
                 continue
             }
             if isDirectory.boolValue {
-                files.append(contentsOf: try swiftFiles(inDirectory: root))
-            } else if root.hasSuffix(".swift"), !shouldSkip(path: root) {
+                files.append(contentsOf: try lintedFiles(inDirectory: root))
+            } else if Self.isLinted(path: root), !shouldSkip(path: root) {
                 files.append(URL(fileURLWithPath: root).standardizedFileURL.path)
             }
         }
         return files.sorted()
     }
 
-    private func swiftFiles(inDirectory directory: String) throws -> [String] {
+    private func lintedFiles(inDirectory directory: String) throws -> [String] {
         guard
             let enumerator = fileManager.enumerator(
                 at: URL(fileURLWithPath: directory),
@@ -43,7 +45,7 @@ struct SourceFileDiscovery {
                 }
                 continue
             }
-            if path.hasSuffix(".swift"), isRegularFile(url: url) {
+            if Self.isLinted(path: path), isRegularFile(url: url) {
                 files.append(path)
             }
         }
@@ -51,10 +53,14 @@ struct SourceFileDiscovery {
     }
 
     private func shouldSkip(path: String) -> Bool {
-        let skippedComponents = Set(["vendor", ".build", "Frameworks"])
+        let skippedComponents = Set(["vendor", ".build", "Frameworks", "node_modules"])
         return URL(fileURLWithPath: path).pathComponents.contains { component in
             skippedComponents.contains(component)
         }
+    }
+
+    private static func isLinted(path: String) -> Bool {
+        path.hasSuffix(".swift") || AgentDocumentContext.isAgentDocument(path)
     }
 
     private func isRegularFile(url: URL) -> Bool {

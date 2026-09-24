@@ -14,8 +14,8 @@ struct RuleParityTests {
         #expect(try lintFixtureCorpus("Good").allSatisfy { $0.ruleID != "agentstudio_drawer_toolbar_owned_controls" })
     }
 
-    @Test("performance guard fixtures report all four advisory rules")
-    func performanceGuardFixturesReportAllFourAdvisoryRules() throws {
+    @Test("performance guard fixtures fail all four promoted performance rules")
+    func performanceGuardFixturesFailAllFourPromotedPerformanceRules() throws {
         let diagnostics = try lintFixtureCorpus("Bad")
         let performanceRuleIDs = Set(
             diagnostics.filter {
@@ -27,7 +27,7 @@ struct RuleParityTests {
         )
 
         #expect(performanceRuleIDs.count == 4)
-        #expect(diagnostics.filter { performanceRuleIDs.contains($0.ruleID) }.allSatisfy { $0.severity == .report })
+        #expect(diagnostics.filter { performanceRuleIDs.contains($0.ruleID) }.allSatisfy { $0.severity == .error })
     }
 
     @Test("bad fixture corpus exercises every migrated rule")
@@ -396,41 +396,6 @@ struct RuleParityTests {
         #expect(boundClockDiagnostics.map(\.line) == [4])
     }
 
-    @Test("polling wait baseline suppresses listed debt and fails once the debt is gone")
-    func pollingWaitBaselineSuppressesListedDebtAndFailsOnceDebtIsGone() {
-        let pollingViolation = ArchitectureViolation(
-            position: AbsolutePosition(utf8Offset: 0),
-            message: "polling"
-        )
-
-        #expect(
-            TestPollingWaitRule.pollingWaitOutcome(violations: [pollingViolation], isBaselined: false)
-                == .report([pollingViolation]))
-        #expect(
-            TestPollingWaitRule.pollingWaitOutcome(violations: [pollingViolation], isBaselined: true)
-                == .suppressedByBaseline)
-        #expect(TestPollingWaitRule.pollingWaitOutcome(violations: [], isBaselined: true) == .staleBaselineEntry)
-        #expect(TestPollingWaitRule.pollingWaitOutcome(violations: [], isBaselined: false) == .clean)
-    }
-
-    @Test("polling wait baseline reports listed files that no longer exist")
-    func pollingWaitBaselineReportsListedFilesThatNoLongerExist() {
-        let knownDebt = ["/Tests/StillHere.swift", "/Tests/Gone.swift"]
-
-        #expect(
-            TestPollingWaitRule.missingBaselineEntries(knownDebt: knownDebt) { path in
-                path == "/Tests/StillHere.swift"
-            } == ["/Tests/Gone.swift"])
-        #expect(
-            TestPollingWaitRule.missingBaselineEntries(knownDebt: knownDebt) { _ in
-                false
-            }.isEmpty)
-        #expect(
-            TestPollingWaitRule.missingBaselineEntries(knownDebt: []) { _ in
-                false
-            }.isEmpty)
-    }
-
     @Test("EventBus subscriber policy rule diagnoses every denied fixture call shape")
     func eventBusSubscriberPolicyRuleDiagnosesEveryDeniedFixtureCallShape() throws {
         let eventBusFixture = fixtureRoot()
@@ -747,46 +712,18 @@ struct RuleParityTests {
     }
 
     private func lintFixtureCorpus(_ corpus: String) throws -> [ArchitectureDiagnostic] {
-        let corpusRoot = fixtureRoot().appendingPathComponent(corpus)
-        let files = try SourceFileDiscovery(fileManager: .default)
-            .swiftFiles(under: [corpusRoot.path])
-        return try lint(files: files, workspaceRootPath: corpusRoot.path)
+        try LintTestSupport.lintFixtureCorpus(corpus)
     }
 
-    private func lint(
-        files: [String],
-        workspaceRootPath: String = FileManager.default.currentDirectoryPath
-    ) throws -> [ArchitectureDiagnostic] {
-        let contexts = try files.map { file in
-            let source = try String(contentsOfFile: file, encoding: .utf8)
-            return ArchitectureLintContext(
-                path: file,
-                source: source,
-                sourceFile: Parser.parse(source: source),
-                workspaceRootPath: workspaceRootPath
-            )
-        }
-        var diagnostics: [ArchitectureDiagnostic] = []
-        for rule in ArchitectureRuleRegistry.rules {
-            let preparedRule = rule.prepared(for: contexts)
-            for context in contexts {
-                diagnostics.append(contentsOf: preparedRule.validate(context: context))
-            }
-        }
-        return diagnostics.sorted()
+    private func lint(files: [String]) throws -> [ArchitectureDiagnostic] {
+        try LintTestSupport.lint(files: files)
     }
 
     private func context(path: String, source: String) -> ArchitectureLintContext {
-        ArchitectureLintContext(
-            path: path,
-            source: source,
-            sourceFile: Parser.parse(source: source)
-        )
+        LintTestSupport.context(path: path, source: source)
     }
 
     private func fixtureRoot() -> URL {
-        URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .appendingPathComponent("Fixtures")
+        LintTestSupport.fixtureRoot()
     }
 }

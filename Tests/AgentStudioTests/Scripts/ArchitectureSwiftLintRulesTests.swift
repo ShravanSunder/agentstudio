@@ -16,21 +16,25 @@ struct ArchitectureSwiftLintRulesTests {
         #expect(lintScript.contains("swiftlint lint --strict"))
         #expect(
             lintScript.contains(
-                "swift run --package-path Tools/AgentStudioArchitectureLint"
+                "swift build -c release --package-path Tools/AgentStudioArchitectureLint"
             ))
-        #expect(lintScript.contains("agentstudio-architecture-lint Sources Tests"))
+        #expect(lintScript.contains("release/agentstudio-architecture-lint\" --timings"))
+        #expect(lintScript.contains("--ledger Tools/AgentStudioArchitectureLint/architecture-debt-ledger.tsv"))
+        #expect(lintScript.contains("run_architecture_lint Sources Tests"))
         #expect(!miseConfig.contains(legacyRunnerScriptPath))
         #expect(!miseConfig.contains("scripts/check-core-boundary-imports.sh"))
         #expect(!miseConfig.contains("scripts/check-atomlib-boundaries.sh"))
         #expect(lintScript.contains("if [[ $# -eq 0 ]]"))
         #expect(lintScript.contains("swift_scoped_paths=()"))
-        #expect(lintScript.contains("swift-format lint --strict \"${swift_scoped_paths[@]}\""))
+        #expect(lintScript.contains("swift-format lint --strict --parallel \"${swift_scoped_paths[@]}\""))
         #expect(lintScript.contains("swiftlint lint --strict \"${swift_scoped_paths[@]}\""))
         #expect(!lintScript.contains("run_admission_contract"))
         #expect(lintScript.contains("run_release_contract=0"))
 
         #expect(ciWorkflow.contains("brew install swift-format swiftlint"))
         #expect(ciWorkflow.contains("mise run test:architecture"))
+        #expect(ciWorkflow.contains("Tools/AgentStudioArchitectureLint/check-ledger-ratchet.sh"))
+        #expect(ciWorkflow.contains("fetch-depth: 0"))
         #expect(!ciWorkflow.contains(legacyBuildToolName))
         #expect(!ciWorkflow.contains("ripgrep"))
 

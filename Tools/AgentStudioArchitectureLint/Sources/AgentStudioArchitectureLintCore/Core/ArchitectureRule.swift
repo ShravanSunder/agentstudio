@@ -7,11 +7,19 @@ protocol ArchitectureRule: Sendable {
 
     func prepared(for contexts: [ArchitectureLintContext]) -> any ArchitectureRule
     func validate(context: ArchitectureLintContext) -> [ArchitectureDiagnostic]
+    /// Problems with the rule's own allowances against the whole corpus,
+    /// such as a named owner whose file is gone. Reported only by a full run,
+    /// where every file is in scope, so a scoped run keeps full-run parity.
+    func configurationDiagnostics() -> [ArchitectureDiagnostic]
 }
 
 extension ArchitectureRule {
     func prepared(for contexts: [ArchitectureLintContext]) -> any ArchitectureRule {
         self
+    }
+
+    func configurationDiagnostics() -> [ArchitectureDiagnostic] {
+        []
     }
 
     func diagnostic(
@@ -65,5 +73,16 @@ enum ArchitectureRuleRegistry {
         MainActorUnboundedCollectionWorkRule(),
         PerformanceConstantsInAppPoliciesRule(),
         NonisolatedAsyncBlockingIORule(),
+        ObservationRearmGuardedRule(),
+        SwiftUIBodyDerivationRule(),
+        AtomAssignOnlyRule(),
+        MainActorHopPerElementRule(),
+        ProbeReportsOffMainRule(),
+        TestAdHocGateRule(),
+        TestWaitHelperReturnsObservationRule(),
+    ]
+
+    static let documentRules: [any ArchitectureDocumentRule] = [
+        AgentDocReferenceRule()
     ]
 }

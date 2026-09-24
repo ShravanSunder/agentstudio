@@ -6,9 +6,9 @@ import Testing
 struct RuleInventoryTests {
     @Test("registry preserves all expected rule ids and severities")
     func registryPreservesExpectedRules() {
-        let actual = ArchitectureRuleRegistry.rules.map { rule in
-            ExpectedRule(id: rule.id, severity: rule.severity)
-        }
+        let actual =
+            ArchitectureRuleRegistry.rules.map { ExpectedRule(id: $0.id, severity: $0.severity) }
+            + ArchitectureRuleRegistry.documentRules.map { ExpectedRule(id: $0.id, severity: $0.severity) }
 
         #expect(actual.sorted() == ExpectedRuleInventory.rules.sorted())
     }
@@ -53,9 +53,17 @@ enum ExpectedRuleInventory {
         ExpectedRule(id: "agentstudio_eventbus_subscriber_policy_required", severity: .error),
         ExpectedRule(id: "agentstudio_terminal_local_disposition_publication", severity: .error),
         ExpectedRule(id: "agentstudio_comparison_target_query_control_production", severity: .error),
-        ExpectedRule(id: "agentstudio_observation_capture_keyed_reads", severity: .report),
-        ExpectedRule(id: "agentstudio_mainactor_unbounded_collection_work", severity: .report),
-        ExpectedRule(id: "agentstudio_performance_constants_in_app_policies", severity: .report),
-        ExpectedRule(id: "agentstudio_nonisolated_async_blocking_io_requires_concurrent", severity: .report),
+        ExpectedRule(id: "agentstudio_observation_capture_keyed_reads", severity: .error),
+        ExpectedRule(id: "agentstudio_mainactor_unbounded_collection_work", severity: .error),
+        ExpectedRule(id: "agentstudio_performance_constants_in_app_policies", severity: .error),
+        ExpectedRule(id: "agentstudio_nonisolated_async_blocking_io_requires_concurrent", severity: .error),
+        ExpectedRule(id: "agentstudio_observation_rearm_guarded", severity: .error),
+        ExpectedRule(id: "agentstudio_swiftui_body_derivation", severity: .error),
+        ExpectedRule(id: "agentstudio_atom_assign_only", severity: .error),
+        ExpectedRule(id: "agentstudio_mainactor_hop_per_element", severity: .error),
+        ExpectedRule(id: "agentstudio_probe_reports_off_main", severity: .error),
+        ExpectedRule(id: "agentstudio_test_ad_hoc_gate", severity: .error),
+        ExpectedRule(id: "agentstudio_test_wait_helper_returns_observation", severity: .error),
+        ExpectedRule(id: "agentstudio_agent_doc_reference_resolves", severity: .error),
     ]
 }

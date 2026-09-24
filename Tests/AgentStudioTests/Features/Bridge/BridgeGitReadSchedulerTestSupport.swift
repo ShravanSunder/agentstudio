@@ -136,54 +136,6 @@ final class BridgeGitReadSchedulerEventProbe: @unchecked Sendable {
     }
 }
 
-actor BridgeGitReadOperationGate<ReturnValue: Sendable> {
-    private let returnValue: ReturnValue
-    private var invocationCount = 0
-    private var startWaiters: [CheckedContinuation<Void, Never>] = []
-    private var releaseContinuation: CheckedContinuation<Void, Never>?
-    private var isReleased = false
-
-    init(returnValue: ReturnValue) {
-        self.returnValue = returnValue
-    }
-
-    func run() async -> ReturnValue {
-        invocationCount += 1
-        let waiters = startWaiters
-        startWaiters.removeAll(keepingCapacity: false)
-        for waiter in waiters {
-            waiter.resume()
-        }
-        if !isReleased {
-            await withCheckedContinuation { continuation in
-                if isReleased {
-                    continuation.resume()
-                } else {
-                    releaseContinuation = continuation
-                }
-            }
-        }
-        return returnValue
-    }
-
-    func waitUntilStarted() async {
-        if invocationCount > 0 { return }
-        await withCheckedContinuation { continuation in
-            startWaiters.append(continuation)
-        }
-    }
-
-    func release() {
-        isReleased = true
-        releaseContinuation?.resume()
-        releaseContinuation = nil
-    }
-
-    func recordedInvocationCount() -> Int {
-        invocationCount
-    }
-}
-
 func makeBridgeGitReadSchedulerTopology(
     metadataSlotCount: Int = 1,
     contentSlotCount: Int = 1,
