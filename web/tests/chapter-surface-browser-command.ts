@@ -31,8 +31,33 @@ export interface ChapterStepSnapshot {
   readonly focusedStepId: string | undefined;
 }
 
+interface ViewportRect {
+  readonly top: number;
+  readonly bottom: number;
+  readonly left: number;
+  readonly right: number;
+}
+
+/** Where the title, stage, steps, and port sit relative to the chapter's glass. */
+export interface ChapterGlassLayoutObservation {
+  readonly glass: ViewportRect;
+  readonly title: ViewportRect;
+  readonly stage: ViewportRect;
+  readonly stepList: ViewportRect;
+  /** Whether each part is a descendant of the glass surface element. */
+  readonly titleInGlass: boolean;
+  readonly stageInGlass: boolean;
+  readonly stepListInGlass: boolean;
+  /** Elements in the chapter measured for autoplay centring, and whether the one is the stage. */
+  readonly playbackStageCount: number;
+  readonly playbackStageIsStage: boolean;
+  /** The center of the port node the rail draws for this chapter. */
+  readonly portNode: { readonly x: number; readonly y: number };
+}
+
 export interface ChapterStepRowObservation {
   readonly width: number;
+  readonly glassLayout: ChapterGlassLayoutObservation;
   readonly orientation: string | null;
   readonly role: string | null;
   readonly tabs: readonly ChapterStepTabObservation[];
@@ -150,6 +175,50 @@ function readStepTabs(chapterId: string): {
   };
 }
 
+function readGlassLayout(chapterId: string): ChapterGlassLayoutObservation {
+  const article = document.getElementById(chapterId);
+  if (article === null) {
+    throw new Error(`Chapter ${chapterId} is missing`);
+  }
+  const glass = document.querySelector(`[data-rail-surface-target="${chapterId}"]`);
+  const title = article.querySelector("[data-rail-anchor]");
+  const stage = article.querySelector("[data-rail-media-target]");
+  const stepList = article.querySelector("[data-chapter-step-list]");
+  const portNode = document.querySelector(
+    `[data-route-kind="attach"][data-route-anchor="${chapterId}"] [data-topology-port-node]`,
+  );
+  if (
+    glass === null ||
+    title === null ||
+    stage === null ||
+    stepList === null ||
+    portNode === null
+  ) {
+    throw new Error(`Chapter ${chapterId} is missing its glass, parts, or port`);
+  }
+  const box = (element: Element): ViewportRect => {
+    const bounds = element.getBoundingClientRect();
+    return { top: bounds.top, bottom: bounds.bottom, left: bounds.left, right: bounds.right };
+  };
+  const portBounds = portNode.getBoundingClientRect();
+  const playbackStages = [...article.querySelectorAll("[data-scroll-playback-stage]")];
+  return {
+    glass: box(glass),
+    title: box(title),
+    stage: box(stage),
+    stepList: box(stepList),
+    titleInGlass: glass.contains(title),
+    stageInGlass: glass.contains(stage),
+    stepListInGlass: glass.contains(stepList),
+    playbackStageCount: playbackStages.length,
+    playbackStageIsStage: playbackStages[0] === stage,
+    portNode: {
+      x: portBounds.left + portBounds.width / 2,
+      y: portBounds.top + portBounds.height / 2,
+    },
+  };
+}
+
 function readStepSnapshot(chapterId: string): ChapterStepSnapshot {
   const root = document.querySelector<HTMLElement>(`[data-chapter-steps-root="${chapterId}"]`);
   if (root === null) {
@@ -199,6 +268,7 @@ export const verifyChapterStepRow = defineBrowserCommand(
     const applicationPage = await context.newPage();
     const { chapterId } = request;
     let semantics: ReturnType<typeof readStepTabs>;
+    let glassLayout: ChapterGlassLayoutObservation;
     let initial: ChapterStepSnapshot;
     let afterSceneAdvance: ChapterStepSnapshot;
     let afterArrowRight: ChapterStepSnapshot;
@@ -210,6 +280,11 @@ export const verifyChapterStepRow = defineBrowserCommand(
         `[data-chapter-steps-root="${chapterId}"][data-enhanced="true"]`,
         { state: "attached" },
       );
+      await applicationPage.waitForSelector(
+        `[data-route-kind="attach"][data-route-anchor="${chapterId}"] [data-topology-port-node]`,
+        { state: "attached" },
+      );
+      glassLayout = await applicationPage.evaluate(readGlassLayout, chapterId);
       semantics = await applicationPage.evaluate(readStepTabs, chapterId);
       initial = await applicationPage.evaluate(readStepSnapshot, chapterId);
       const [, secondStep, thirdStep] = semantics.tabs;
@@ -265,6 +340,7 @@ export const verifyChapterStepRow = defineBrowserCommand(
 
     return {
       width: request.width,
+      glassLayout,
       orientation: semantics.orientation,
       role: semantics.role,
       tabs: semantics.tabs,

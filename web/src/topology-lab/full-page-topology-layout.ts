@@ -41,7 +41,7 @@ export const topologyPortNodeAttribute = "data-topology-port-node";
 export const topologyPortGradientAttribute = "data-topology-port-gradient";
 /** Set on an attach route group once its target is in view and the port has drawn in. */
 export const topologyPortDrawnAttribute = "data-port-drawn";
-/** `"left" | "top"` on a chapter node: the target edge its branch enters (which target lights). */
+/** `"left" | "top"` on a chapter node: the glass edge its branch enters; its glass lights when current. */
 export const topologyChapterTargetEdgeAttribute = "data-topology-target-edge";
 
 function createSvgElement<TTagName extends keyof SVGElementTagNameMap>(

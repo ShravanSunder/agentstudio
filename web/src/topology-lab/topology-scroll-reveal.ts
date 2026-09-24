@@ -1,8 +1,4 @@
-import {
-  railCurrentAttribute,
-  railMediaTargetAttribute,
-  railSurfaceTargetAttribute,
-} from "../chapters/chapter-dom-contract";
+import { railCurrentAttribute, railSurfaceTargetAttribute } from "../chapters/chapter-dom-contract";
 import {
   topologyChapterNodeAttribute,
   topologyChapterTargetEdgeAttribute,
@@ -127,12 +123,8 @@ export function initializeTopologyScrollReveal(
       ) {
         continue;
       }
-      const targetAttribute =
-        group.dataset["targetEdge"] === "top"
-          ? railMediaTargetAttribute
-          : railSurfaceTargetAttribute;
       const target = artwork.ownerDocument.querySelector(
-        `[${targetAttribute}="${group.dataset["routeAnchor"] ?? ""}"]`,
+        `[${railSurfaceTargetAttribute}="${group.dataset["routeAnchor"] ?? ""}"]`,
       );
       const bounds = target?.getBoundingClientRect();
       const inView = bounds !== undefined && bounds.top < window.innerHeight && bounds.bottom > 0;
@@ -152,7 +144,7 @@ export function initializeTopologyScrollReveal(
   };
 
   // The current chapter is the last chapter node at or above the reading line.
-  // Its node becomes a terminal node, and the target its branch enters lights.
+  // Its node becomes a terminal node, and the glass its branch enters lights.
   const updateCurrentChapter = (readingLineY: number): void => {
     const chapterNodes = [
       ...artwork.querySelectorAll<SVGGElement>(`[${topologyChapterNodeAttribute}]`),
@@ -178,19 +170,13 @@ export function initializeTopologyScrollReveal(
     }
     const currentNode = currentIndex === undefined ? undefined : chapterNodes[currentIndex];
     const anchorId = currentNode?.getAttribute(topologyChapterNodeAttribute) ?? undefined;
-    const edge = currentNode?.getAttribute(topologyChapterTargetEdgeAttribute);
-    const targetAttribute =
-      edge === "top"
-        ? railMediaTargetAttribute
-        : edge === "left"
-          ? railSurfaceTargetAttribute
-          : undefined;
+    const hasBranch = currentNode?.hasAttribute(topologyChapterTargetEdgeAttribute) ?? false;
     lightTarget(
-      anchorId === undefined || targetAttribute === undefined
+      anchorId === undefined || !hasBranch
         ? undefined
         : ([
             ...artwork.ownerDocument.querySelectorAll<HTMLElement>(
-              `[${targetAttribute}="${anchorId}"]`,
+              `[${railSurfaceTargetAttribute}="${anchorId}"]`,
             ),
           ].find((element) => element.getClientRects().length > 0) ?? undefined),
     );

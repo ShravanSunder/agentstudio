@@ -4,8 +4,9 @@ import {
   composeFullPageTopology,
   topologyHeroLaneMaximumTravel,
   topologyHeroLaneMinimumTravel,
-  topologyPhoneDropCornerInset,
-  topologyPhoneVerticalEntry,
+  topologyStackedDropCornerInset,
+  topologyStackedLayoutBreakpointWidth,
+  topologyStackedVerticalEntry,
   type TopologyAnchorMeasurement,
   type TopologyComposition,
   type TopologyPageMeasurement,
@@ -41,6 +42,7 @@ interface TopologyPageFixture {
  */
 function homePageAt(viewportWidth: number): TopologyPageFixture {
   const phone = viewportWidth < 620;
+  const stacked = viewportWidth < topologyStackedLayoutBreakpointWidth;
   const frameLeft =
     viewportWidth >= 1024 ? (viewportWidth - Math.min(viewportWidth - 32, 1440)) / 2 : 0;
   const pageInline = phone ? 18 : clamp(viewportWidth * 0.033, 24, 72);
@@ -62,14 +64,15 @@ function homePageAt(viewportWidth: number): TopologyPageFixture {
   const firstChapterTop = heroFrame.top + heroFrame.height + 250;
   for (const index of [0, 1, 2, 3, 4]) {
     const anchorTop = firstChapterTop + index * 760;
+    // Stacked (< lg): one glass holds the title at the top, then the stage.
     anchors.push(
-      phone
+      stacked
         ? {
             id: `chapter-${index + 1}`,
-            rect: rect(contentLeft, anchorTop, 90, 12),
-            surface: rect(contentLeft, anchorTop - 40, contentWidth, 560),
-            media: rect(contentLeft, anchorTop + 100, contentWidth, 220),
-            copyBlock: rect(contentLeft, anchorTop, contentWidth, 76),
+            rect: rect(contentLeft + 33, anchorTop, 250, 34),
+            surface: rect(contentLeft, anchorTop - 32, contentWidth, 640),
+            media: rect(contentLeft + 5, anchorTop + 60, contentWidth - 10, 320),
+            copyBlock: rect(contentLeft + 33, anchorTop, contentWidth - 66, 34),
           }
         : {
             id: `chapter-${index + 1}`,
@@ -97,7 +100,9 @@ function homePageAt(viewportWidth: number): TopologyPageFixture {
     end: { section: ctaSection, level: installBox },
   };
   const textRects = anchors.flatMap((anchor) =>
-    phone || anchor.id === "hero" ? [anchor.rect, anchor.copyBlock ?? anchor.rect] : [anchor.rect],
+    stacked || anchor.id === "hero"
+      ? [anchor.rect, anchor.copyBlock ?? anchor.rect]
+      : [anchor.rect],
   );
   return { page, textRects };
 }
@@ -165,7 +170,7 @@ function samplePoints(pathData: string): readonly PathPoint[] {
     });
 }
 
-const viewportWidths = [390, 1280, 1920, 2560, 3440] as const;
+const viewportWidths = [390, 800, 1280, 1920, 2560, 3440] as const;
 
 describe("topology row ownership", () => {
   it("distributes unreserved row dots across active worktrees and main", () => {
@@ -218,7 +223,7 @@ describe("gutter columns", () => {
     const laneCounts = viewportWidths.map((width) => composed(homePageAt(width)).laneXs.length);
 
     // Assert
-    expect(laneCounts).toEqual([0, 0, 2, 4, 4]);
+    expect(laneCounts).toEqual([0, 0, 0, 2, 4, 4]);
     expect(Math.max(...laneCounts)).toBeLessThanOrEqual(topologyMaximumLaneCount);
   });
 
@@ -288,11 +293,11 @@ describe("gutter columns", () => {
       const composition = composed(fixture);
 
       // Assert: the mainline sits (lanes + 1) columns left of the content edge
-      // (the glass on wide screens, the drop point on phones).
+      // (the glass's left edge on wide screens, the drop point where glasses stack).
       const hero = fixture.page.anchors[0];
       const contentX =
-        width < 620
-          ? (hero?.media?.left ?? 0) + topologyPhoneDropCornerInset
+        width < topologyStackedLayoutBreakpointWidth
+          ? (hero?.surface?.left ?? 0) + topologyStackedDropCornerInset
           : (hero?.surface?.left ?? 0);
       expect(
         Math.abs(
@@ -392,7 +397,7 @@ describe("composed topology", () => {
           expect(end.y - start.y).toBeGreaterThan(0);
           expect(end.y - start.y).toBeLessThanOrEqual(topologyRowUnit * 1.25);
           // Wide ports turn with the retired merge bend onto the target row and
-          // run into the left edge; phone ports drop with the fork bend.
+          // run into the left edge; stacked-glass ports drop with the fork bend.
           expect(attach.pathData).toBe(
             attach.targetEdge === "left"
               ? [`M ${start.x} ${start.y}`, ...localMergePath(end.x, start.x, start.y, end.y)].join(
@@ -403,23 +408,24 @@ describe("composed topology", () => {
                     start.x,
                     end.x,
                     start.y,
-                    end.y - Math.min(topologyPhoneVerticalEntry, (end.y - start.y) / 2),
+                    end.y - Math.min(topologyStackedVerticalEntry, (end.y - start.y) / 2),
                   ),
                   `L ${end.x} ${end.y}`,
                 ].join(" "),
           );
           const anchor = fixture.page.anchors.find((candidate) => candidate.id === attach.anchorId);
           if (attach.targetEdge === "top") {
-            // Phone ports enter the stage's top edge straight down, clear of its corner.
+            // Stacked ports enter the glass's top edge straight down, clear of its corner.
+            expect(width).toBeLessThan(topologyStackedLayoutBreakpointWidth);
             const lastRun = pathCommands(attach.pathData).at(-1);
             expect(lastRun?.command).toBe("L");
             expect(lastRun?.from.x).toBe(end.x);
-            expect(end.x - (anchor?.media?.left ?? 0)).toBeGreaterThanOrEqual(14 + 8);
+            expect(end.x - (anchor?.surface?.left ?? 0)).toBeGreaterThanOrEqual(16 + 8);
           }
           const edge =
             attach.targetEdge === "left"
               ? { x: anchor?.surface?.left ?? Number.NaN, y: end.y }
-              : { x: end.x, y: anchor?.media?.top ?? Number.NaN };
+              : { x: end.x, y: anchor?.surface?.top ?? Number.NaN };
           expect(Math.abs((attach.portNode?.x ?? Number.NaN) - edge.x)).toBeLessThanOrEqual(1);
           expect(Math.abs((attach.portNode?.y ?? Number.NaN) - edge.y)).toBeLessThanOrEqual(1);
         }
@@ -442,7 +448,7 @@ describe("composed topology", () => {
     });
   }
 
-  it("draws only the mainline in a cramped phone gutter, with short drops into each stage", () => {
+  it("draws only the mainline in a cramped phone gutter, with short drops into each glass's top edge", () => {
     // Arrange
     const fixture = homePageAt(390);
 
@@ -454,12 +460,12 @@ describe("composed topology", () => {
     expect(composition.routes.every((route) => route.kind === "attach")).toBe(true);
     for (const route of composition.routes) {
       const anchor = fixture.page.anchors.find((candidate) => candidate.id === route.anchorId);
-      const media = anchor?.media;
+      const glass = anchor?.surface;
       expect(route.targetEdge).toBe("top");
-      expect(route.endY).toBe(media?.top);
+      expect(route.endY).toBe(glass?.top);
       expect(route.endY - route.startY).toBeLessThanOrEqual(topologyRowUnit);
       const end = pathCommands(route.pathData).at(-1)?.points.at(-1);
-      expect(end?.x).toBe((media?.left ?? 0) + topologyPhoneDropCornerInset);
+      expect(end?.x).toBe((glass?.left ?? 0) + topologyStackedDropCornerInset);
     }
   });
 

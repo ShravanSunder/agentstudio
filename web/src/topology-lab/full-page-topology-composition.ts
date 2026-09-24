@@ -33,9 +33,9 @@ export interface TopologyAnchorMeasurement {
   readonly rect: TopologyRect;
   /** `data-rail-surface-target`: wide and laptop branches enter its left edge. */
   readonly surface: TopologyRect | undefined;
-  /** `data-rail-media-target`: phone branches drop into its top edge. */
+  /** `data-rail-media-target`: the stage inside the glass. */
   readonly media: TopologyRect | undefined;
-  /** The copy between the anchor and its media target; phone branches turn below it. */
+  /** The copy between the anchor and its media target; a hero phone branch turns below it. */
   readonly copyBlock: TopologyRect | undefined;
   /**
    * The vertical center of the anchor's first line of text: a wrapped chapter
@@ -117,24 +117,30 @@ export interface TopologyComposition {
   readonly mainlinePath: string;
 }
 
-/** Viewports narrower than this are phones (`--breakpoint-phone: 38.75rem`). */
-export const topologyPhoneBreakpointWidth = 620;
+/**
+ * Below this width chapter glasses stack (title, stage, steps in one glass),
+ * so branches drop into each glass's top edge; at and above it they enter the
+ * glass's left edge. Tailwind's `lg` boundary (`--breakpoint-lg: 64rem`).
+ */
+export const topologyStackedLayoutBreakpointWidth = 1024;
 /** A wide branch enters its glass on a row at least this far inside the glass. */
 export const topologyAttachBandInset = 40;
 /**
- * Phone: the branch drops on the text line, but at least this far inside the
- * media glass's left edge: its rounded corner (14px on phone) plus a clear gap.
+ * Stacked: the branch drops this far inside the glass's left edge: its
+ * rounded corner (16px) plus a clear gap.
  */
-export const topologyPhoneDropCornerInset = 24;
-/** Phone: the drop ends in a straight vertical run this long into the stage's top edge. */
-export const topologyPhoneVerticalEntry = 8;
+export const topologyStackedDropCornerInset = 24;
+/** Stacked: the drop ends in a straight vertical run this long into the glass's top edge. */
+export const topologyStackedVerticalEntry = 8;
 /**
- * Phone: when the row above the stage sits inside the copy, the branch forks
- * this far below the copy instead, giving the drop the whole gap's height.
+ * Stacked: when the row above the glass sits inside the copy above it (the
+ * hero), the branch forks this far below the copy instead.
  */
-export const topologyPhoneForkCopyClearance = 4;
-/** Phone: a row above the stage only hosts the fork when it leaves at least this much drop. */
-export const topologyPhoneMinimumDrop = 12;
+export const topologyStackedForkCopyClearance = 4;
+/** Stacked: a row above the glass only hosts the fork when it leaves at least this much drop. */
+export const topologyStackedMinimumDrop = 12;
+/** Stacked: with no free row above a chapter's glass, the fork sits this far above its top edge. */
+export const topologyStackedFallbackDrop = 32;
 /**
  * The end sits beside the install command only when that command starts at
  * least this far right of the mainline; closer means the rail would run
@@ -161,19 +167,18 @@ function centerYOf(rect: TopologyRect): number {
   return rect.top + rect.height / 2;
 }
 
-/** Where a branch lands: the glass's left edge on wide screens, the drop point on phones. */
-function attachXFor(anchor: TopologyAnchorMeasurement, phone: boolean): number | undefined {
-  if (phone) {
-    const media = anchor.media;
-    if (media === undefined) {
-      return undefined;
-    }
-    return Math.min(
-      Math.max(anchor.rect.left, media.left + topologyPhoneDropCornerInset),
-      media.left + media.width - topologyPhoneDropCornerInset,
-    );
+/**
+ * Where a branch lands: the glass's left edge on wide screens, the drop point
+ * on its top edge, clear of the corner, where glasses stack.
+ */
+function attachXFor(anchor: TopologyAnchorMeasurement, stacked: boolean): number | undefined {
+  const surface = anchor.surface;
+  if (surface === undefined) {
+    return undefined;
   }
-  return anchor.surface?.left;
+  return stacked
+    ? Math.min(surface.left + topologyStackedDropCornerInset, surface.left + surface.width / 2)
+    : surface.left;
 }
 
 interface WorktreeLane {
@@ -317,11 +322,11 @@ function leftEdgePortPath(sourceX: number, edgeX: number, forkY: number, attachY
 }
 
 /**
- * A phone port: the retired fork bend runs out from the mainline and turns
- * down, then a short straight vertical run enters the stage's top edge.
+ * A stacked-glass port: the retired fork bend runs out from the mainline and turns
+ * down, then a short straight vertical run enters the glass's top edge.
  */
-function phoneDropPortPath(sourceX: number, dropX: number, forkY: number, edgeY: number): string {
-  const entry = Math.min(topologyPhoneVerticalEntry, (edgeY - forkY) / 2);
+function stackedDropPortPath(sourceX: number, dropX: number, forkY: number, edgeY: number): string {
+  const entry = Math.min(topologyStackedVerticalEntry, (edgeY - forkY) / 2);
   return [...localForkPath(sourceX, dropX, forkY, edgeY - entry), `L ${dropX} ${edgeY}`].join(" ");
 }
 
@@ -342,9 +347,9 @@ export function composeFullPageTopology(
   if (page.anchors.length === 0) {
     return undefined;
   }
-  const phone = page.viewportWidth < topologyPhoneBreakpointWidth;
+  const stacked = page.viewportWidth < topologyStackedLayoutBreakpointWidth;
   const attachXs = page.anchors.flatMap((anchor) => {
-    const attachX = attachXFor(anchor, phone);
+    const attachX = attachXFor(anchor, stacked);
     return attachX === undefined ? [] : [attachX];
   });
   const contentX = Math.min(
@@ -360,10 +365,9 @@ export function composeFullPageTopology(
   });
   const finalRow = rowYs.length - 1;
   const firstAnchor = page.anchors[0];
-  const targetBottoms = page.anchors.flatMap((anchor) => {
-    const target = phone ? anchor.media : anchor.surface;
-    return target === undefined ? [] : [bottomOf(target)];
-  });
+  const targetBottoms = page.anchors.flatMap((anchor) =>
+    anchor.surface === undefined ? [] : [bottomOf(anchor.surface)],
+  );
 
   // Fewer lanes when the page has too few rows to open and close them all.
   // Each retry lays the columns out again, so the mainline moves right and
@@ -431,8 +435,8 @@ export function composeFullPageTopology(
   const attachRoutes: TopologyRoute[] = [];
   for (const [index, anchor] of page.anchors.entries()) {
     const anchorRow = anchorRows[index] ?? 0;
-    const attachX = attachXFor(anchor, phone);
-    const target = phone ? anchor.media : anchor.surface;
+    const attachX = attachXFor(anchor, stacked);
+    const target = anchor.surface;
     if (attachX === undefined || target === undefined) {
       continue;
     }
@@ -450,22 +454,31 @@ export function composeFullPageTopology(
           }
         : { id: mainlineOwnerId, x: columns.mainlineX, column: 0, accent: "main" };
 
-    if (phone) {
-      // Fork on the last row above the media's top edge when that row is below
-      // the copy; otherwise just below the copy.
-      const copyBottom = bottomOf(anchor.copyBlock ?? anchor.rect);
+    if (stacked) {
+      // The drop enters the glass's top edge, so the fork sits in the open
+      // space above it: below the copy when the copy sits above the glass (the
+      // hero), otherwise below the previous glass. It forks on the last free
+      // row there; otherwise just below the copy, or a short way above the glass.
+      const copyAboveGlass = anchor.rect.top < target.top;
+      const previousSurface = page.anchors[index - 1]?.surface;
+      const clearTop = copyAboveGlass
+        ? bottomOf(anchor.copyBlock ?? anchor.rect)
+        : previousSurface === undefined
+          ? 0
+          : bottomOf(previousSurface);
       const rowAbove = rowYs.findLastIndex((rowY) => rowY < target.top);
       const rowAboveY = rowYs[rowAbove];
       const forkOnRow =
         rowAboveY !== undefined &&
-        rowAbove > anchorRow &&
-        rowAboveY >= copyBottom &&
-        target.top - rowAboveY >= topologyPhoneMinimumDrop &&
+        rowAboveY >= clearTop &&
+        target.top - rowAboveY >= topologyStackedMinimumDrop &&
         !reserved.has(rowAbove);
-      const forkY = forkOnRow
-        ? rowAboveY
-        : copyBottom + Math.min(topologyPhoneForkCopyClearance, (target.top - copyBottom) / 2);
-      const source = sourceAt(forkOnRow ? rowAbove : anchorRow);
+      const gap = target.top - clearTop;
+      const fallbackForkY = copyAboveGlass
+        ? clearTop + Math.min(topologyStackedForkCopyClearance, gap / 2)
+        : target.top - Math.min(topologyStackedFallbackDrop, gap / 2);
+      const forkY = forkOnRow ? rowAboveY : fallbackForkY;
+      const source = sourceAt(forkOnRow ? rowAbove : Math.max(rowAbove, anchorRow));
       if (forkOnRow) {
         reserved.set(rowAbove, {
           x: source.x,
@@ -479,7 +492,7 @@ export function composeFullPageTopology(
         id: `attach-${anchor.id}`,
         kind: "attach",
         accent: "port",
-        pathData: phoneDropPortPath(source.x, attachX, forkY, target.top),
+        pathData: stackedDropPortPath(source.x, attachX, forkY, target.top),
         parentColumn: source.column,
         column: source.column + 1,
         startY: forkY,

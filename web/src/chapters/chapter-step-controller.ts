@@ -12,8 +12,12 @@ import {
 // without moving focus; a visitor's selection asks the scene to seek there.
 
 const stepSelector = "[data-chapter-step]";
-/** Below the phone breakpoint the steps render as a horizontal dot row. */
-export const chapterStepRowMediaQuery = "(width < 38.75rem)";
+/**
+ * Below Tailwind's `lg` boundary (`--breakpoint-lg: 64rem`) the chapter glass
+ * stacks (title, stage, steps) and the steps render as a horizontal dot row.
+ * ChapterSurface.astro styles the row under the same query.
+ */
+export const chapterStackedLayoutMediaQuery = "(width < 64rem)";
 
 type StepListOrientation = "horizontal" | "vertical";
 const panelSelector = "[data-chapter-step-panel]";
@@ -158,7 +162,7 @@ export function initializeChapterSteps(root: HTMLElement): ChapterStepsControlle
     const validatedContract = validateChapterStepsDom(root);
     contract = validatedContract;
     let selectedIndex = 0;
-    const stepRowQuery = window.matchMedia(chapterStepRowMediaQuery);
+    const stepRowQuery = window.matchMedia(chapterStackedLayoutMediaQuery);
     const currentOrientation = (): StepListOrientation =>
       stepRowQuery.matches ? "horizontal" : "vertical";
 

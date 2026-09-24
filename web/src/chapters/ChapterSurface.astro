@@ -34,13 +34,13 @@ const stageAttributes = { [railMediaTargetAttribute]: chapter.id, [playbackStage
 >
   <ScrollMaterialSurface
     {...surfaceAttributes}
-    class="chapter-surface grid grid-cols-[minmax(0,35fr)_minmax(0,65fr)] gap-1 border p-1 max-lg:grid-cols-1 max-phone:gap-6 max-phone:p-0"
+    class="chapter-surface grid grid-cols-[minmax(0,35fr)_minmax(0,65fr)] gap-1 border p-1 max-lg:grid-cols-1"
     data-chapter-steps-root={chapter.id}
   >
     <div
       class="scroll-material-pane chapter-surface__copy flex min-w-0 flex-col rounded-material-pane border border-line p-[clamp(28px,3vw,48px)] max-lg:contents"
     >
-      <header class="max-lg:order-1 max-lg:px-7 max-lg:pt-7 max-lg:pb-3 max-phone:p-0">
+      <header class="max-lg:order-1 max-lg:px-7 max-lg:pt-7 max-lg:pb-3">
         <h2
           {...railAnchorAttributes}
           id={titleId}
@@ -51,7 +51,7 @@ const stageAttributes = { [railMediaTargetAttribute]: chapter.id, [playbackStage
         </h2>
       </header>
 
-      <div class="mt-12 max-lg:order-3 max-lg:mt-0 max-lg:px-7 max-lg:pt-3 max-lg:pb-7 max-phone:p-0">
+      <div class="mt-12 max-lg:order-3 max-lg:mt-0 max-lg:px-7 max-lg:pt-4 max-lg:pb-7">
         {
           hasStepSelector ? (
             <>
@@ -66,7 +66,7 @@ const stageAttributes = { [railMediaTargetAttribute]: chapter.id, [playbackStage
                     tabindex="-1"
                   >
                     <span class="chapter-step__dot" aria-hidden="true" />
-                    <span class="max-phone:sr-only" data-chapter-step-label>
+                    <span class="max-lg:sr-only" data-chapter-step-label>
                       {step.label}
                     </span>
                   </button>
@@ -74,11 +74,11 @@ const stageAttributes = { [railMediaTargetAttribute]: chapter.id, [playbackStage
               </div>
               {chapter.steps.map((step, stepIndex) => (
                 <div
-                  class="chapter-step-panel mt-5 max-w-[440px] rounded-control text-[16px] leading-[1.55] text-ink-muted max-lg:max-w-none max-phone:mt-4 max-phone:text-sm"
+                  class="chapter-step-panel mt-5 max-w-[440px] rounded-control text-[16px] leading-[1.55] text-ink-muted max-lg:mt-4 max-lg:max-w-none max-phone:text-sm"
                   data-chapter-step-panel={step.id}
                   hidden={stepIndex !== 0}
                 >
-                  <p class="m-0 hidden text-base leading-snug text-ink max-phone:mb-1.5 max-phone:block">
+                  <p class="m-0 hidden text-[17px] leading-snug text-ink max-lg:mb-1.5 max-lg:block max-phone:text-base">
                     {step.label}
                   </p>
                   <p class="m-0 max-phone:hidden">{step.description}</p>
@@ -159,8 +159,8 @@ const stageAttributes = { [railMediaTargetAttribute]: chapter.id, [playbackStage
       0 0 0 5px rgb(137 180 250 / 55%);
   }
 
-  /* Phone: the incoming step's copy fades in as the previous one leaves. */
-  @media (width < 38.75rem) and (prefers-reduced-motion: no-preference) {
+  /* Stacked glass: the incoming step's copy fades in as the previous one leaves. */
+  @media (width < 64rem) and (prefers-reduced-motion: no-preference) {
     .chapter-step-panel {
       transition: opacity 150ms ease-out;
 
@@ -175,17 +175,21 @@ const stageAttributes = { [railMediaTargetAttribute]: chapter.id, [playbackStage
     border-color: rgb(137 180 250 / 88%);
   }
 
-  @media (width < 38.75rem) {
-    /*
-      Phone: the steps become a mini lane of dots under the stage. Each dot is
-      a tab (its label stays as the accessible name); only the current step's
-      label and description show below the row.
-    */
+  /*
+    Stacked glass (title, stage, then steps in one glass): the steps become a
+    mini lane of dots under the stage. Each dot is a tab whose label stays its
+    accessible name; only the current step's label and description show below
+    the row. The same query drives the tablist orientation in
+    chapter-step-controller.ts (chapterStackedLayoutMediaQuery).
+  */
+  @media (width < 64rem) {
     .chapter-step-list {
       display: flex;
       width: fit-content;
       gap: 36px;
       align-items: center;
+      /* The first dot's left edge lines up with the copy below. */
+      margin-inline-start: -9px;
     }
 
     .chapter-step-list::before {
@@ -203,20 +207,6 @@ const stageAttributes = { [railMediaTargetAttribute]: chapter.id, [playbackStage
       justify-content: center;
       gap: 0;
       padding: 0;
-    }
-
-    /* Phone: the copy sits beside the rail and the media stage is the glass. */
-    :global(.chapter-surface.scroll-material-surface[data-scroll-material-surface]) {
-      border-width: 0;
-      background: none;
-      box-shadow: none;
-      backdrop-filter: none;
-      -webkit-backdrop-filter: none;
-    }
-
-    :global(.chapter-surface[data-rail-current]) .chapter-surface__stage,
-    .chapter-surface__stage:global([data-rail-current]) {
-      border-color: var(--color-primary);
     }
   }
 </style>

@@ -134,7 +134,7 @@ describe("full-page topology layout", () => {
     }
   });
 
-  it("draws a single mainline on a phone and drops each branch into its stage's top edge", async () => {
+  it("draws a single mainline on a phone and drops each branch into its glass's top edge", async () => {
     // Arrange
     await page.viewport(390, 844);
     const fixture = mount({
@@ -154,11 +154,11 @@ describe("full-page topology layout", () => {
       '[data-route-kind="attach"]',
     )) {
       const anchorId = group.dataset["routeAnchor"];
-      const stage = required(fixture.host, `[data-rail-media-target="${anchorId}"]`);
+      const glass = required(fixture.host, `[data-rail-surface-target="${anchorId}"]`);
       const end = pathEnd(fixture.artwork, requiredPath(group, '[data-topology-path-role="core"]'));
-      const stageBounds = stage.getBoundingClientRect();
-      expect(Math.abs(end.y - stageBounds.top)).toBeLessThanOrEqual(1);
-      expect(end.x).toBeGreaterThan(stageBounds.left + 8);
+      const glassBounds = glass.getBoundingClientRect();
+      expect(Math.abs(end.y - glassBounds.top)).toBeLessThanOrEqual(1);
+      expect(end.x - glassBounds.left).toBeGreaterThanOrEqual(16 + 8);
     }
   });
 });
