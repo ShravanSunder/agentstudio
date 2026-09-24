@@ -360,9 +360,8 @@ function expectOutputEntriesMatchPreview(
 	expect(new Set(preview.map(({ messageId }) => messageId.toLowerCase())).size).toBe(
 		preview.length,
 	);
-	// S8: subject-aware output labels replace this. Until then the preview shows
-	// a File annotation under its collection key while output keeps the
-	// member-relative path, so the comparison is made on member-relative paths.
+	// BridgeFiles previews prefix member paths with a collection key, while
+	// output entries keep member-relative paths; strip that prefix for comparison.
 	const memberGroupPrefix = bridgeViewerViteFileCollectionPath(worktreeRoot, '');
 	const memberRelativePreview = preview.map(
 		(entry): AnnotationPreviewEntryCapture =>

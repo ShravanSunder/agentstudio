@@ -6,11 +6,11 @@ import Testing
 @testable import AgentStudioTerminal
 @testable import AgentStudioTestSupport
 
-/// S8's tab-switch claim (SPEC R5 presentation): split from
-/// `WorkspaceSurfaceCoordinatorTerminalRestoreIntegrationTests` into its own
-/// suite since that file was already at the repo's file-length gate. This is
-/// a pure `activeTabHasMissingVisibleView` integration test — it needs only
-/// the already-shared, non-private `makeWorkspaceSurfaceCoordinatorViewFactoryHarness()`
+/// The SPEC R5 tab-switch claim lives in its own suite because
+/// `WorkspaceSurfaceCoordinatorTerminalRestoreIntegrationTests` was already
+/// at the repository's file-length gate. This is a pure
+/// `activeTabHasMissingVisibleView` integration test — it needs only the
+/// already-shared, non-private `makeWorkspaceSurfaceCoordinatorViewFactoryHarness()`
 /// from `WorkspaceSurfaceCoordinatorViewFactoryTestSupport.swift`.
 @MainActor
 @Suite("Workspace surface coordinator waiting-for-geometry placeholder", .serialized)
