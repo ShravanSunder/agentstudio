@@ -29,6 +29,8 @@ export interface BridgeFileViewerDisplayModel {
 	readonly searchError: string | null;
 	readonly source: BridgeFileViewerDisplaySource | null;
 	readonly status: BridgeMainFileStatusDisplayPayload | null;
+	/** The source's initial tree finished; an absent row is then proven absent. */
+	readonly treeComplete: boolean;
 	readonly treeRowByPath: {
 		readonly get: (path: string) => BridgeFileViewerDisplayTreeRow | undefined;
 	};
@@ -84,6 +86,7 @@ export function bridgeFileViewerDisplayModelForSnapshot(
 						sourceId: snapshot.fileTreeSlice.sourceId,
 					},
 		status: snapshot.fileStatusSlice,
+		treeComplete: snapshot.fileTreeSlice.replacementCommitted,
 		treeRowByPath: { get: (path) => snapshot.fileTreeSlice.index.rowForPath(path) },
 		totalRowCount: snapshot.fileQuerySlice?.totalRowCount ?? snapshot.fileTreeSlice.index.size,
 		firstFileRow: snapshot.fileTreeSlice.index.firstFileRow(),

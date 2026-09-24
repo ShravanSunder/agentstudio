@@ -16,7 +16,7 @@ export interface UseBridgeFileViewerProgrammaticSelectionProps {
 	readonly autoOpenInitialFile: boolean;
 	readonly displayModel: Pick<
 		BridgeFileViewerDisplayModel,
-		'acceptedQueryKey' | 'firstFileRow' | 'memberGroups' | 'status' | 'treeRowByPath'
+		'acceptedQueryKey' | 'firstFileRow' | 'memberGroups' | 'treeComplete' | 'treeRowByPath'
 	>;
 	/** The query the viewer currently asks for, and whether it filters rows. */
 	readonly query: { readonly isUnfiltered: boolean; readonly key: string };
@@ -118,9 +118,10 @@ export function useBridgeFileViewerProgrammaticSelection(
 				revealAllRows();
 				return;
 			}
-			// The worker publishes a File status only once the source's initial
-			// tree is complete, so an absent row is then proven absent.
-			if (displayModel.status === null || displayModel.acceptedQueryKey !== query.key) return;
+			// Only the committed initial tree proves a row absent. A File status is
+			// no such proof: a collection forwards member status while it is
+			// still enumerating.
+			if (!displayModel.treeComplete || displayModel.acceptedQueryKey !== query.key) return;
 			appliedNavigationApplicationKeyRef.current = navigationApplicationKey;
 			reportNativeNavigationNotListed(navigationCommand);
 			return;
@@ -142,7 +143,7 @@ export function useBridgeFileViewerProgrammaticSelection(
 		autoOpenInitialFile,
 		displayModel.acceptedQueryKey,
 		displayModel.memberGroups,
-		displayModel.status,
+		displayModel.treeComplete,
 		displayModel.treeRowByPath,
 		displayModel.firstFileRow,
 		isActive,

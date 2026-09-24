@@ -83,6 +83,7 @@ const fileDisplaySnapshot: Pick<
 		untracked: 4,
 	},
 	fileTreeSlice: {
+		replacementCommitted: true,
 		index: BridgeMainFileTreeDisplayIndex.empty().applyOperations([
 			{
 				operation: 'upsert',
@@ -179,6 +180,7 @@ describe('Bridge File viewer worker display model', () => {
 		const collectionSnapshot = {
 			...fileDisplaySnapshot,
 			fileTreeSlice: {
+				replacementCommitted: true,
 				index: BridgeMainFileTreeDisplayIndex.empty().applyOperations([
 					collectionDirectoryRow('frontend', 0),
 					collectionFileRow({ fileId: 'file-frontend-app', path: 'frontend/app.ts', index: 1 }),

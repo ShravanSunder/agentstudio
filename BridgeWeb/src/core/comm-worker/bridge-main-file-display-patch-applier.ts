@@ -34,6 +34,11 @@ export interface BridgeMainFileDisplayFreshness {
 
 export interface BridgeMainFileTreeDisplaySlice {
 	readonly index: BridgeMainFileTreeDisplayIndex;
+	/**
+	 * Whether the source's initial tree finished. Only then is a row absent
+	 * from the index proven absent; a status can arrive earlier.
+	 */
+	readonly replacementCommitted: boolean;
 	readonly sourceGeneration: number | null;
 	readonly sourceId: string | null;
 }
@@ -228,7 +233,7 @@ export class BridgeMainFileDisplayPatchApplier {
 	): BridgeMainFileDisplayState {
 		if (patch.operation === 'replacementCommit') {
 			this.#fileTreePatchStream.append({ kind: 'replacementCommit' });
-			return state;
+			return { ...state, fileTreeSlice: { ...state.fileTreeSlice, replacementCommitted: true } };
 		}
 		if (patch.operation === 'reset') {
 			this.#fileTreePatchStream.append({ kind: 'reset' });
@@ -236,6 +241,7 @@ export class BridgeMainFileDisplayPatchApplier {
 				...state,
 				fileTreeSlice: {
 					index: BridgeMainFileTreeDisplayIndex.empty(),
+					replacementCommitted: false,
 					sourceGeneration: patch.payload.sourceGeneration,
 					sourceId: patch.payload.sourceId,
 				},
@@ -287,6 +293,8 @@ export class BridgeMainFileDisplayPatchApplier {
 				transactionId: transaction.transactionId,
 				treeSlice: {
 					index: BridgeMainFileTreeDisplayIndex.empty(),
+					// A query re-projects the same source; it does not re-open its tree.
+					replacementCommitted: this.#state.fileTreeSlice.replacementCommitted,
 					sourceGeneration: this.#state.fileTreeSlice.sourceGeneration,
 					sourceId: this.#state.fileTreeSlice.sourceId,
 				},
@@ -489,6 +497,7 @@ function emptyBridgeMainFileDisplayState(): BridgeMainFileDisplayState {
 function emptyBridgeMainFileTreeSlice(): BridgeMainFileTreeDisplaySlice {
 	return {
 		index: BridgeMainFileTreeDisplayIndex.empty(),
+		replacementCommitted: false,
 		sourceGeneration: null,
 		sourceId: null,
 	};
