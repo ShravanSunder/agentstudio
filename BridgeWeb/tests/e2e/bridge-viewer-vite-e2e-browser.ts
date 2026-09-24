@@ -1,6 +1,6 @@
 import { chromium, type Browser, type BrowserContext, type ConsoleMessage } from 'playwright';
 
-const reactActWarningMarker = 'not wrapped in act';
+import { isReactActWarning } from '../react-act-warning.ts';
 
 // Every Vite E2E journey launches Chromium here so a React act() warning inside
 // any page of any context fails the journey. The warning is re-reported through
@@ -16,7 +16,7 @@ export async function launchBridgeViewerE2EChromium(): Promise<Browser> {
 
 export function reportPageActWarning(message: Pick<ConsoleMessage, 'text'>): void {
 	const text = message.text();
-	if (text.includes(reactActWarningMarker)) {
+	if (isReactActWarning(text)) {
 		console.error(`E2E page console reported a React act() warning: ${text}`);
 	}
 }

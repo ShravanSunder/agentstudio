@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, inject } from 'vitest';
 
 import type { ConsoleErrorGuardScope } from './console-error-guard-scope.ts';
+import { isReactActWarning } from './react-act-warning.ts';
 
 // One console.error guard for every BridgeWeb Vitest suite (unit, node-integration,
 // browser-integration and E2E). Each config declares its scope (see
@@ -13,7 +14,6 @@ if (guardScope === undefined) {
 		'BridgeWeb console error guard needs `provide: { consoleErrorGuardScope }` in the Vitest config.',
 	);
 }
-const reactActWarningPattern = /not wrapped in act\(|not configured to support act\(/u;
 const allowedConsoleErrorSubstrings: readonly string[] = [
 	'flushSync was called from inside a lifecycle method',
 ];
@@ -60,7 +60,7 @@ function uninstallConsoleErrorGuard(): readonly string[] {
 
 function isGuardedConsoleError(message: string): boolean {
 	if (guardScope === 'react-act-warnings') {
-		return reactActWarningPattern.test(message);
+		return isReactActWarning(message);
 	}
 	return !allowedConsoleErrorSubstrings.some((allowedSubstring: string): boolean =>
 		message.includes(allowedSubstring),

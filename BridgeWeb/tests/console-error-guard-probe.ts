@@ -5,6 +5,9 @@ export const actWarningProbeComponentName = 'ActWarningProbe';
 interface DefineConsoleErrorGuardProbeProps {
 	readonly suiteName: string;
 	readonly emitActWarning: () => Promise<void>;
+	// The warning text the guard failure must carry; defaults to the update form,
+	// which names the component.
+	readonly expectedWarningText?: string;
 }
 
 // Proves the suite's configuration loads ./console-error-guard.ts by letting the
@@ -24,10 +27,11 @@ export function defineConsoleErrorGuardProbe(props: DefineConsoleErrorGuardProbe
 			await props.emitActWarning();
 		});
 
-		test('reports the act() warning with the component name', () => {
+		test('reports the act() warning text', () => {
 			expect(recordedGuardFailure).toContain('BridgeWeb console error guard tripped');
 			expect(recordedGuardFailure).toContain(
-				`An update to ${actWarningProbeComponentName} inside a test was not wrapped in act(...)`,
+				props.expectedWarningText ??
+					`An update to ${actWarningProbeComponentName} inside a test was not wrapped in act(...)`,
 			);
 		});
 	});
