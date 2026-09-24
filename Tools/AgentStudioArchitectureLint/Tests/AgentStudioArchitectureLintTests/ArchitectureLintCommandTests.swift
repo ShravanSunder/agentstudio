@@ -69,6 +69,28 @@ struct ArchitectureLintCommandTests {
         #expect(goodResult.output.isEmpty)
     }
 
+    @Test("blocking wait rule accepts a wait inside valueFromDedicatedThread and rejects the same wait outside it")
+    func blockingWaitRuleRecognizesTheHarnessDedicatedThreadHop() throws {
+        let badResult = runCommand(
+            arguments: [
+                fixturePath("Bad/Tests/AgentStudioTests/BadDedicatedThreadBlockingWaitTest.swift")
+            ]
+        )
+        let goodResult = runCommand(
+            arguments: [
+                fixturePath("Good/Tests/AgentStudioTests/GoodDedicatedThreadBlockingWaitTest.swift")
+            ]
+        )
+
+        #expect(badResult.exitCode == 1)
+        #expect(
+            badResult.output.components(separatedBy: "Wrap this semaphore wait").count - 1 == 1,
+            Comment(rawValue: badResult.output)
+        )
+        #expect(goodResult.exitCode == 0, Comment(rawValue: goodResult.output))
+        #expect(goodResult.output.isEmpty)
+    }
+
     @Test("PaneTab command presentation rejects bulk pane snapshots and wrappers")
     func paneTabCommandPresentationRejectsBulkPaneSnapshotsAndWrappers() throws {
         let result = runCommand(

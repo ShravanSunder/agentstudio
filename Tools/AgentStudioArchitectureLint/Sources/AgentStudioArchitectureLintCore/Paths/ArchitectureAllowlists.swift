@@ -30,6 +30,11 @@ enum ArchitectureAllowlists {
     /// block lands: off the cooperative pool, or on a dispatch queue of their
     /// own such as the socket listener's handler queue.
     static let blockingTestWaitOwners = [
+        // The harness-owned blocking arrival: parks only a dedicated thread, and
+        // refuses a blocking arrival made from inside a task.
+        "/Tests/AgentStudioTestHarness/HeldStep.swift",
+        // The harness-owned off-pool hop that every blocking test wait goes through.
+        "/Tests/AgentStudioTestHarness/DedicatedThreadWork.swift",
         "/Tests/AgentStudioTests/TestSupport/BlockingWorkOffCooperativePool.swift",
         "/Tests/AgentStudioAppIPCTests/AgentStudioAppIPCSocketTestSupport.swift",
         "/Tests/AgentStudioAppIPCTests/CLISubprocessTestRunner.swift",

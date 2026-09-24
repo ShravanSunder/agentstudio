@@ -1,3 +1,4 @@
+import AgentStudioTestHarness
 import Foundation
 import Testing
 
@@ -11,17 +12,17 @@ struct BridgeProductSessionProducerTests {
         let registry = BridgeProductProducerRegistryTestHarness()
         let activeRequest = try producerRegistryMetadataStreamRequest(resumeFromStreamSequence: nil)
         let duplicateRequest = try producerRegistryMetadataStreamRequest(resumeFromStreamSequence: nil)
-        let activeOperation = BridgeProductProducerOperationGate()
+        let activeOperation = HeldStep<BridgeProductProducerLease>("activeOperation")
         let duplicateInvocation = BridgeProductProducerInvocationCounter()
 
         // Act
         let activeRegistration = await registry.registerMetadataProducer(
             request: activeRequest
         ) { lease in
-            await activeOperation.run(lease)
+            try? await activeOperation.arrive(lease)
         }
         let activeLease = try #require(activeRegistration.lease)
-        _ = await activeOperation.waitUntilStarted()
+        _ = try await activeOperation.firstArrival()
         let beforeDuplicate = await registry.snapshot()
         let duplicateRegistration = await registry.registerMetadataProducer(
             request: duplicateRequest
@@ -54,22 +55,22 @@ struct BridgeProductSessionProducerTests {
         let registry = BridgeProductProducerRegistryTestHarness()
         let firstRequest = try producerRegistryContentRequest(workerDerivationEpoch: 2)
         let changedRequest = try producerRegistryContentRequest(workerDerivationEpoch: 3)
-        let firstOperation = BridgeProductProducerOperationGate()
-        let changedOperation = BridgeProductProducerOperationGate()
+        let firstOperation = HeldStep<BridgeProductProducerLease>("firstOperation")
+        let changedOperation = HeldStep<BridgeProductProducerLease>("changedOperation")
         let duplicateInvocation = BridgeProductProducerInvocationCounter()
 
         // Act
         let firstRegistration = await registry.registerContentProducer(request: firstRequest) { lease in
-            await firstOperation.run(lease)
+            try? await firstOperation.arrive(lease)
         }
-        _ = await firstOperation.waitUntilStarted()
+        _ = try await firstOperation.firstArrival()
         let duplicateRegistration = await registry.registerContentProducer(request: firstRequest) { _ in
             await duplicateInvocation.recordInvocation()
         }
         let changedRegistration = await registry.registerContentProducer(request: changedRequest) { lease in
-            await changedOperation.run(lease)
+            try? await changedOperation.arrive(lease)
         }
-        _ = await changedOperation.waitUntilStarted()
+        _ = try await changedOperation.firstArrival()
 
         // Assert
         #expect(firstRegistration.lease != nil)
@@ -85,12 +86,12 @@ struct BridgeProductSessionProducerTests {
         // Arrange
         let registry = BridgeProductProducerRegistryTestHarness()
         let request = try producerRegistryMetadataStreamRequest()
-        let operation = BridgeProductProducerOperationGate()
+        let operation = HeldStep<BridgeProductProducerLease>("operation")
         let registration = await registry.registerMetadataProducer(request: request) { lease in
-            await operation.run(lease)
+            try? await operation.arrive(lease)
         }
         let lease = try #require(registration.lease)
-        _ = await operation.waitUntilStarted()
+        _ = try await operation.firstArrival()
         let openingFrame = try await registry.enqueueRequiredOpeningFrame(
             for: lease,
             build: { sequence in
@@ -167,12 +168,12 @@ struct BridgeProductSessionProducerTests {
             terminalFrameReserve: 1
         )
         let registry = BridgeProductProducerRegistryTestHarness(limits: limits)
-        let operation = BridgeProductProducerOperationGate()
+        let operation = HeldStep<BridgeProductProducerLease>("operation")
         let registration = await registry.registerMetadataProducer(request: request) { lease in
-            await operation.run(lease)
+            try? await operation.arrive(lease)
         }
         let lease = try #require(registration.lease)
-        _ = await operation.waitUntilStarted()
+        _ = try await operation.firstArrival()
         _ = try await registry.enqueueRequiredOpeningFrame(
             for: lease,
             build: { _ in openingFrame }
@@ -261,12 +262,12 @@ struct BridgeProductSessionProducerTests {
             terminalFrameReserve: 1
         )
         let registry = BridgeProductProducerRegistryTestHarness(limits: limits)
-        let operation = BridgeProductProducerOperationGate()
+        let operation = HeldStep<BridgeProductProducerLease>("operation")
         let registration = await registry.registerMetadataProducer(request: request) { lease in
-            await operation.run(lease)
+            try? await operation.arrive(lease)
         }
         let lease = try #require(registration.lease)
-        _ = await operation.waitUntilStarted()
+        _ = try await operation.firstArrival()
         _ = try await registry.enqueueRequiredOpeningFrame(
             for: lease,
             build: { _ in openingFrame }
@@ -327,12 +328,12 @@ struct BridgeProductSessionProducerTests {
             terminalFrameReserve: 1
         )
         let registry = BridgeProductProducerRegistryTestHarness(limits: limits)
-        let operation = BridgeProductProducerOperationGate()
+        let operation = HeldStep<BridgeProductProducerLease>("operation")
         let registration = await registry.registerMetadataProducer(request: request) { lease in
-            await operation.run(lease)
+            try? await operation.arrive(lease)
         }
         let lease = try #require(registration.lease)
-        _ = await operation.waitUntilStarted()
+        _ = try await operation.firstArrival()
         _ = try await registry.enqueueRequiredOpeningFrame(
             for: lease,
             build: { _ in openingFrame }
@@ -390,12 +391,12 @@ struct BridgeProductSessionProducerTests {
             terminalFrameReserve: 1
         )
         let registry = BridgeProductProducerRegistryTestHarness(limits: limits)
-        let operation = BridgeProductProducerOperationGate()
+        let operation = HeldStep<BridgeProductProducerLease>("operation")
         let registration = await registry.registerContentProducer(request: request) { lease in
-            await operation.run(lease)
+            try? await operation.arrive(lease)
         }
         let lease = try #require(registration.lease)
-        _ = await operation.waitUntilStarted()
+        _ = try await operation.firstArrival()
 
         // Act
         let prematureTerminal = try await registry.enqueueTerminalFrame(
@@ -447,12 +448,12 @@ struct BridgeProductSessionProducerTests {
             terminalFrameReserve: 1
         )
         let registry = BridgeProductProducerRegistryTestHarness(limits: limits)
-        let operation = BridgeProductProducerOperationGate()
+        let operation = HeldStep<BridgeProductProducerLease>("operation")
         let registration = await registry.registerMetadataProducer(request: request) { lease in
-            await operation.run(lease)
+            try? await operation.arrive(lease)
         }
         let lease = try #require(registration.lease)
-        _ = await operation.waitUntilStarted()
+        _ = try await operation.firstArrival()
         let beforeOversizedFrame = await registry.snapshot()
 
         // Act
