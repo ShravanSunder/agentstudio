@@ -616,9 +616,6 @@ let package = Package(
                 "Integration",
                 "Scripts",
             ],
-            resources: [
-                .copy("Fixtures/IPC")
-            ],
             swiftSettings: [
                 .swiftLanguageMode(.v6)
             ]
