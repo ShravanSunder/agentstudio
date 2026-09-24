@@ -377,6 +377,45 @@ struct AgentStudioIPCClientCoreTests {
         }
     }
 
+    @Test("a method the channel hides but lists as recognized is typed by the compiled contract and framed")
+    func recognizedHiddenMethodIsFramedForTheApp() throws {
+        let catalog = try makeCatalog()
+        let ping = try IPCAnyMethodDescriptor(erasing: catalog.systemAndAuth.systemPing)
+        let hiddenNames: Set<String> = ["pane.focus", "bridge.diff.getPackage"]
+        let discovered = try IPCSystemCapabilitiesDescriptorFactory.compose(
+            compatibility: .current,
+            availableDescriptors: catalog.erasedDescriptors.filter { !hiddenNames.contains($0.metadata.name) },
+            illustrativeDescriptor: ping,
+            recognizedUnexposedMethods: [
+                IPCRecognizedUnexposedName(name: "pane.focus", agentEligibility: .notYetAllowed)
+            ]
+        ).result
+
+        let matched = try IPCBuiltInMethodCatalog.matchingDiscoveredMethods(
+            discovered, examples: .init(illustrativeIdentifier: UUIDv7.generate())
+        )
+        let focus = try parse(["pane.focus", "--handle", "self"], descriptors: matched).descriptorInvocation
+        let frame = try AgentStudioIPCClient(
+            configuration: .init(socketPath: "/tmp/unused.sock"), descriptors: matched
+        ).requestFrame(focus, requestID: 3)
+        let framed = try JSONRPCCodec.decodeRequest(frame)
+
+        #expect(framed.method == "pane.focus")
+        guard case .object(let parameters)? = framed.params else {
+            Issue.record("pane.focus framed without an object: \(String(describing: framed.params))")
+            return
+        }
+        #expect(parameters["handle"] == .string("self"))
+        // Hidden but not listed as recognized, and unknown: both stay local.
+        #expect(!matched.contains { $0.metadata.name == "bridge.diff.getPackage" })
+        #expect(throws: IPCDescriptorInvocationError.self) {
+            try parse(["bridge.diff.getPackage", "--handle", "self"], descriptors: matched)
+        }
+        #expect(throws: IPCDescriptorInvocationError.self) {
+            try parse(["bogus.method"], descriptors: matched)
+        }
+    }
+
     private func parse(_ arguments: [String], descriptors: [IPCAnyMethodDescriptor], input: Data = Data()) throws
         -> AgentStudioIPCClientInvocation
     {

@@ -220,8 +220,10 @@ package struct AgentStudioIPCClientCommandLineRunner {
             try write(response.normalizedResult)
             return .completed
         }
+        // The payload is read with the compiled envelope so a recognized hidden
+        // command's arguments survive parsing; the catalog then binds it.
         return .resolved(
-            authenticationDescriptors + [commands.executeDescriptor], commandCatalog: commands)
+            authenticationDescriptors + [commands.requestEnvelopeDescriptor], commandCatalog: commands)
     }
 
     /// Discovery never reached the app, so the notification is classified from

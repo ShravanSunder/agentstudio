@@ -110,30 +110,12 @@ package struct IPCCommandMethodComposition: Sendable {
             correlationPolicy: .notAccepted,
             agentEligibility: .anyTarget
         )
-        // Each command's own `agentEligibility` decides admission; the method
-        // itself only carries the pane-scoped class.
-        let execute = try IPCMethodDescriptor(
-            name: "command.execute",
+        let execute = try Self.makeExecute(
             description: "Execute one available App command through its typed arguments.",
-            parameterSchema: try IPCCommandExecutionRequest.ipcSchema(
-                allowing: argumentVariants
-            ),
-            resultSchema: try IPCCommandExecutionResult.ipcSchema(
-                allowing: resultVariants
-            ),
+            argumentVariants: argumentVariants,
+            resultVariants: resultVariants,
             examples: methodExamples,
-            exposure: .allChannels,
-            requiredPrivileges: [.appCommandExecute],
-            dataScope: .unspecified,
-            allowedTargetKinds: Set(commands.flatMap(\.allowedTargetKinds)),
-            commandRelationship: .appCommandParameter(field: "commandId"),
-            executionOwner: .appCommand,
-            principalAvailability: .authenticated,
-            resultSemantics: .discriminated,
-            documentedErrors: Self.executionErrors,
-            isMutating: true,
-            correlationPolicy: .required,
-            agentEligibility: .ownPane
+            allowedTargetKinds: Set(commands.flatMap(\.allowedTargetKinds))
         )
 
         _ = try list.encodeResult(catalogResult)
@@ -146,6 +128,55 @@ package struct IPCCommandMethodComposition: Sendable {
         self.catalogResult = catalogResult
         self.list = list
         self.execute = execute
+    }
+
+    /// The `command.execute` shape a client uses for a command the app
+    /// recognizes but this channel hides. The channel's catalog carries no
+    /// descriptor for such a command, so its request is typed against every
+    /// argument variant this build compiles; the app refuses a hidden command
+    /// by name before it validates arguments. A client uses it only for an
+    /// identifier the app listed as recognized and hidden; it is never
+    /// registered by the server.
+    package static func recognizedHiddenExecute() throws
+        -> IPCMethodDescriptor<IPCCommandExecutionRequest, IPCCommandExecutionResult>
+    {
+        try makeExecute(
+            description: "Name one App command this channel hides so the app refuses it by name.",
+            argumentVariants: IPCCommandArgumentVariant.allCases,
+            resultVariants: IPCCommandResultVariant.allCases,
+            examples: [],
+            allowedTargetKinds: Set(IPCHandleKind.allCases)
+        )
+    }
+
+    // Each command's own `agentEligibility` decides admission; the method
+    // itself only carries the pane-scoped class.
+    private static func makeExecute(
+        description: String,
+        argumentVariants: [IPCCommandArgumentVariant],
+        resultVariants: [IPCCommandResultVariant],
+        examples: [IPCMethodExample<IPCCommandExecutionRequest, IPCCommandExecutionResult>],
+        allowedTargetKinds: Set<IPCHandleKind>
+    ) throws -> IPCMethodDescriptor<IPCCommandExecutionRequest, IPCCommandExecutionResult> {
+        try IPCMethodDescriptor(
+            name: "command.execute",
+            description: description,
+            parameterSchema: try IPCCommandExecutionRequest.ipcSchema(allowing: argumentVariants),
+            resultSchema: try IPCCommandExecutionResult.ipcSchema(allowing: resultVariants),
+            examples: examples,
+            exposure: .allChannels,
+            requiredPrivileges: [.appCommandExecute],
+            dataScope: .unspecified,
+            allowedTargetKinds: allowedTargetKinds,
+            commandRelationship: .appCommandParameter(field: "commandId"),
+            executionOwner: .appCommand,
+            principalAvailability: .authenticated,
+            resultSemantics: .discriminated,
+            documentedErrors: executionErrors,
+            isMutating: true,
+            correlationPolicy: .required,
+            agentEligibility: .ownPane
+        )
     }
 
     private static func uniqueArgumentVariants(

@@ -1,4 +1,5 @@
 import AgentStudioIPCClientCore
+import AgentStudioIPCTransport
 import AgentStudioPrimitives
 import AgentStudioProgrammaticControl
 import Foundation
@@ -66,20 +67,66 @@ struct IPCCommandDiscoveryTests {
         #expect(wrongVariant.fieldPath == "$.arguments.kind")
     }
 
-    @Test("a recognized command the channel hides is sent for the app to refuse, not refused locally")
-    func recognizedHiddenCommandIsSentToTheApp() throws {
+    @Test(
+        "a recognized hidden command whose arguments no advertised command takes is framed for the app to refuse",
+        arguments: HiddenCommandCase.allCases
+    )
+    func recognizedHiddenCommandIsFramedForTheApp(hiddenCase: HiddenCommandCase) throws {
         let hiddenCommandId = IPCCommandIdentifier(rawValue: "fixture.hidden")
         let fixture = try IPCCommandDiscoveryFixture.make(recognizedUnexposedCommands: [
             IPCRecognizedUnexposedName(name: hiddenCommandId.rawValue, agentEligibility: .notYetAllowed)
         ])
         let catalog = try IPCCommandDiscovery(methodCatalog: fixture.methodCatalog)
             .decodeCommandCatalog(from: JSONEncoder().encode(fixture.commandComposition.catalogResult))
+        let arguments = hiddenCase.arguments(workspaceWindowId: fixture.workspaceWindowId)
+        let request = IPCCommandExecutionRequest(
+            commandId: hiddenCommandId, correlationId: fixture.correlationId, arguments: arguments)
+        let payload = try #require(String(data: JSONEncoder().encode(request), encoding: .utf8))
 
-        let invocation = try catalog.makeInvocation(
-            commandId: hiddenCommandId,
-            correlationId: fixture.correlationId,
-            arguments: try fixture.paneArguments()
+        // Gate 1: the CLI reads the payload with the catalog's envelope, not
+        // with the advertised union, which has no such argument variant.
+        let parsed = try IPCDescriptorInvocationParser.parse(
+            ["command.execute", "--json", payload],
+            descriptors: [catalog.requestEnvelopeDescriptor],
+            correlationIDGenerator: { UUIDv7.generate() }
         )
+        #expect(throws: (any Error).self) {
+            _ = try catalog.executeDescriptor.normalizeParameters(Data(payload.utf8))
+        }
+        let parsedRequest = try JSONDecoder().decode(IPCCommandExecutionRequest.self, from: parsed.normalizedParameters)
+        let invocation = try catalog.makeInvocation(
+            commandId: parsedRequest.commandId,
+            correlationId: parsedRequest.correlationId,
+            arguments: parsedRequest.arguments
+        )
+        // Gate 2: framing normalizes again, through the invocation's own
+        // descriptor.
+        let frame = try AgentStudioIPCClient(
+            configuration: .init(socketPath: "/tmp/unused.sock"), descriptors: []
+        ).requestFrame(invocation, requestID: 7)
+        let framed = try JSONRPCCodec.decodeRequest(frame)
+        let framedRequest = try JSONDecoder().decode(
+            IPCCommandExecutionRequest.self, from: JSONEncoder().encode(try #require(framed.params)))
+
+        #expect(framed.method == "command.execute")
+        #expect(framedRequest == request)
+    }
+
+    @Test("advertised commands keep their own variants and unknown identifiers stay local")
+    func advertisedCommandsKeepTypedValidation() throws {
+        let fixture = try IPCCommandDiscoveryFixture.make(recognizedUnexposedCommands: [
+            IPCRecognizedUnexposedName(name: "fixture.hidden", agentEligibility: .notYetAllowed)
+        ])
+        let catalog = try IPCCommandDiscovery(methodCatalog: fixture.methodCatalog)
+            .decodeCommandCatalog(from: JSONEncoder().encode(fixture.commandComposition.catalogResult))
+
+        let advertisedWithForeignVariant = try captureIPCCommandDiscoveryError {
+            _ = try catalog.makeInvocation(
+                commandId: fixture.noArgumentsCommandId,
+                correlationId: fixture.correlationId,
+                arguments: HiddenCommandCase.tab.arguments(workspaceWindowId: fixture.workspaceWindowId)
+            )
+        }
         let unknown = try captureIPCCommandDiscoveryError {
             _ = try catalog.makeInvocation(
                 commandId: IPCCommandIdentifier(rawValue: "future.private.command"),
@@ -88,15 +135,8 @@ struct IPCCommandDiscoveryTests {
             )
         }
 
-        #expect(invocation.descriptor.metadata.name == "command.execute")
-        #expect(
-            try JSONDecoder().decode(IPCCommandExecutionRequest.self, from: invocation.normalizedParameters)
-                == IPCCommandExecutionRequest(
-                    commandId: hiddenCommandId,
-                    correlationId: fixture.correlationId,
-                    arguments: try fixture.paneArguments()
-                )
-        )
+        #expect(advertisedWithForeignVariant.reason == .argumentVariantNotAllowed)
+        #expect(advertisedWithForeignVariant.fieldPath == "$.arguments.kind")
         #expect(unknown.reason == .unknownCommandIdentifier)
     }
 
@@ -161,6 +201,22 @@ struct IPCCommandDiscoveryTests {
         #expect(error.fieldPath == "$.commands")
         #expect(!String(describing: error).contains(privateValue))
         #expect(!String(describing: error).contains("private"))
+    }
+}
+
+/// Argument variants no fixture command advertises, as `closeTab` and `newTab`
+/// take on stable.
+enum HiddenCommandCase: CaseIterable, Sendable {
+    case tab
+    case newTab
+
+    func arguments(workspaceWindowId: UUID) -> IPCCommandArguments {
+        switch self {
+        case .tab:
+            .tab(IPCTabCommandArguments(workspaceWindowId: workspaceWindowId, tabId: UUIDv7.generate()))
+        case .newTab:
+            .newTab(IPCNewTabCommandArguments(workspaceWindowId: workspaceWindowId, launchDirectory: nil))
+        }
     }
 }
 

@@ -115,8 +115,21 @@ struct AgentStudioIPCCommandCatalogDiscoveryTests {
         #expect(execution.standardError.contains("\"fieldPath\":\"$.commandId\""))
     }
 
-    @Test("the bundled CLI takes a pane agent's hidden stable command to the app's named refusal")
-    func bundledCLIReachesTheAppForAHiddenStableCommand() async throws {
+    /// Stable-channel names the bundled CLI must send for the app to refuse:
+    /// commands whose argument variants the stable union may not carry, and a
+    /// debug-only method.
+    enum HiddenStableName: String, CaseIterable, Sendable {
+        case splitRight
+        case closeTab
+        case newTab
+        case paneFocus = "pane.focus"
+    }
+
+    @Test(
+        "the bundled CLI takes a pane agent's hidden stable name to the app's named refusal",
+        arguments: HiddenStableName.allCases
+    )
+    func bundledCLIReachesTheAppForAHiddenStableName(name: HiddenStableName) async throws {
         let harness = try await PaneAgentControlHarness.make(channel: .stable)
         defer { harness.tearDown() }
         let cli = try commandLineExecutableURL()
@@ -125,23 +138,41 @@ struct AgentStudioIPCCommandCatalogDiscoveryTests {
             "AGENTSTUDIO_PANE_TOKEN": try harness.agentToken(boundTo: harness.mainPaneId).rawValue,
             "PATH": "/usr/bin:/bin",
         ]
-        let executionPayload = try #require(
-            String(
-                bytes: try JSONEncoder().encode(
-                    harness.command(.splitRight, arguments: try harness.paneArguments(harness.mainPaneId))),
-                encoding: .utf8))
+        let before = harness.workspaceFacts()
 
         let execution = try await runCommandLineInterface(
-            executableURL: cli,
-            arguments: ["command.execute", "--json", executionPayload],
-            environment: environment)
+            executableURL: cli, arguments: try cliArguments(for: name, harness: harness), environment: environment)
 
-        // `splitRight` is not in the stable command list; the CLI must still
-        // send it so the app, not the client, answers with the named refusal.
+        // None of these is in the stable catalog. The CLI must still send it,
+        // typed by its compiled contract, so the app, not the client, answers
+        // with the named refusal.
         #expect(execution.exitCode != 0)
         #expect(execution.standardError.contains("\"reason\":\"notYetAllowed\""), "\(execution.standardError)")
-        #expect(execution.standardError.contains("\"refusedName\":\"splitRight\""), "\(execution.standardError)")
+        #expect(
+            execution.standardError.contains("\"refusedName\":\"\(name.rawValue)\""), "\(execution.standardError)")
         #expect(!execution.standardError.contains("\"reason\":\"unknownCommand\""))
+        #expect(!execution.standardError.contains("\"reason\":\"unknownMethod\""))
+        #expect(harness.workspaceFacts() == before)
+    }
+
+    private func cliArguments(for name: HiddenStableName, harness: PaneAgentControlHarness) throws -> [String] {
+        let arguments: IPCCommandArguments
+        switch name {
+        case .paneFocus:
+            return ["pane.focus", "--handle", "self"]
+        case .splitRight:
+            arguments = try harness.paneArguments(harness.mainPaneId)
+        case .closeTab:
+            let tabId = try #require(harness.store.tabLayoutAtom.activeTabId)
+            arguments = .tab(IPCTabCommandArguments(workspaceWindowId: harness.workspaceWindowId, tabId: tabId))
+        case .newTab:
+            arguments = .newTab(
+                IPCNewTabCommandArguments(workspaceWindowId: harness.workspaceWindowId, launchDirectory: nil))
+        }
+        let command = try #require(AppCommand(rawValue: name.rawValue))
+        let payload = try #require(
+            String(bytes: try JSONEncoder().encode(harness.command(command, arguments: arguments)), encoding: .utf8))
+        return ["command.execute", "--json", payload]
     }
 
     private func commandLineExecutableURL() throws -> URL {
