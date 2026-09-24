@@ -150,48 +150,6 @@ func ghosttyKeyEventText(for event: NSEvent) -> String? {
     )
 }
 
-// MARK: - Key Routing Decision
-
-/// Decision for how to route a key event
-enum KeyRoutingDecision: Equatable {
-    case passToSystem  // Return false, let macOS handle
-    case handleInTerminal  // Call keyDown, return true
-    case modifyAndHandle(String)  // Modify char, call keyDown, return true
-}
-
-/// Determines how to route a key equivalent event
-func determineKeyRouting(
-    eventType: NSEvent.EventType,
-    focused: Bool,
-    modifiers: NSEvent.ModifierFlags,
-    charactersIgnoringModifiers: String?
-) -> KeyRoutingDecision {
-    // Only handle keyDown
-    guard eventType == .keyDown else { return .passToSystem }
-
-    // Must be focused
-    guard focused else { return .passToSystem }
-
-    let mods = modifiers.intersection(.deviceIndependentFlagsMask)
-
-    // Command combinations go to macOS
-    if mods.contains(.command) {
-        return .passToSystem
-    }
-
-    // Control combinations go to terminal
-    if mods.contains(.control) {
-        // Ctrl+/ converts to Ctrl+_
-        if charactersIgnoringModifiers == "/" {
-            return .modifyAndHandle("_")
-        }
-        return .handleInTerminal
-    }
-
-    // Everything else flows to keyDown naturally
-    return .passToSystem
-}
-
 // MARK: - Key Equivalent Decision
 
 struct GhosttyKeyEquivalentInput: Equatable, Sendable {
