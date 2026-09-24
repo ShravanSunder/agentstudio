@@ -662,19 +662,31 @@ describe('BridgeWeb architecture checker', () => {
 		);
 	});
 
-	test('reports timed waits in configured test files and the harness modules they import', async () => {
+	test('reports timed waits in configured test files and every non-production module they reach', async () => {
 		await withFixtureTree(
 			{
 				...timedWaitFixturePackage,
+				'index.html': '<script type="module" src="/src/app/main.tsx"></script>',
+				'src/app/main.tsx': `
+					import { productDeadline } from './product-deadline.ts';
+					void productDeadline;
+				`,
 				'src/app/journey.unit.test.ts': `
 					import { settleJourney } from './journey.test-support.ts';
 					import { readyFixture } from '../../scripts/verify-fixture/ready-fixture.js';
 					import { productDeadline } from './product-deadline.ts';
+					import { mountHarness } from '../file-viewer/bridge-file-viewer-browser-test-harness.ts';
 					export async function run(page: { waitForTimeout(ms: number): Promise<void> }): Promise<void> {
 						await page.waitForTimeout(25);
 						await settleJourney();
 						await readyFixture();
 						await productDeadline();
+						await mountHarness();
+					}
+				`,
+				'src/file-viewer/bridge-file-viewer-browser-test-harness.ts': `
+					export async function mountHarness(): Promise<void> {
+						await new Promise<void>((resolve) => setTimeout(resolve, 0));
 					}
 				`,
 				'src/app/journey.test-support.ts': `
@@ -698,10 +710,8 @@ describe('BridgeWeb architecture checker', () => {
 					}
 				`,
 				'src/app/product-deadline.ts': `
-					import { settleJourney } from './journey.test-support.ts';
 					export async function productDeadline(): Promise<void> {
 						await new Promise<void>((resolve) => setTimeout(resolve, 10));
-						void settleJourney;
 					}
 				`,
 				'scripts/unreachable-poller.ts': `
@@ -718,8 +728,9 @@ describe('BridgeWeb architecture checker', () => {
 			async (packageRootPath: string): Promise<void> => {
 				const report = await checkBridgeWebArchitecture({ packageRootPath });
 
-				// A product module's own timer is product behavior and is not reported, even
-				// when a test imports it; the harness modules a test imports are.
+				// A module the product's index.html reaches is production: its timer is
+				// product behavior and is not reported even though a test imports it. Every
+				// other module a test reaches is test support, whatever its name, and is.
 				expect(report.ok).toBe(false);
 				expect(
 					report.violations.map(
@@ -730,8 +741,9 @@ describe('BridgeWeb architecture checker', () => {
 					'no-timed-wait-in-tests scripts/verify-fixture/ready-fixture.ts:3',
 					'no-timed-wait-in-tests scripts/verify-fixture/ready-fixture.ts:6',
 					'no-timed-wait-in-tests src/app/journey.test-support.ts:4',
-					'no-timed-wait-in-tests src/app/journey.unit.test.ts:6',
+					'no-timed-wait-in-tests src/app/journey.unit.test.ts:7',
 					'no-timed-wait-in-tests src/app/test-support/sleep-helper.ts:4',
+					'no-timed-wait-in-tests src/file-viewer/bridge-file-viewer-browser-test-harness.ts:3',
 				]);
 				expect(report.violations[0]?.message).toContain(
 					'imported by test file src/app/journey.unit.test.ts',

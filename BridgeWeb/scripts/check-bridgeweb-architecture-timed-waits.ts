@@ -1,4 +1,5 @@
-import { join, matchesGlob, relative } from 'node:path';
+import { readFileSync } from 'node:fs';
+import { dirname, join, matchesGlob, relative } from 'node:path';
 
 import ts from 'typescript';
 
@@ -7,10 +8,12 @@ import ts from 'typescript';
 //
 // Roots are the real test inventory: every file matched by an `include` glob or
 // named in `setupFiles` of any `vitest*.config.ts`. The rule follows each root's
-// runtime imports (resolved by TypeScript with BridgeWeb's tsconfig) into test
-// harness modules only (see `isTestHarnessModulePath`) and stops at production
-// modules: a product deadline is product behavior, not a test wait. It reports,
-// in every root and reachable harness module:
+// runtime imports (resolved by TypeScript with BridgeWeb's tsconfig) and stops
+// at production modules: a product deadline is product behavior, not a test
+// wait. Production modules are those reachable from the product's real
+// entrypoints (see `collectProductionModulePaths`); every other module a test
+// reaches is test support, whatever its file name, and is scanned. It reports,
+// in every root and reachable test-support module:
 // - `waitForTimeout(...)`;
 // - an awaited sleep/delay helper, or an awaited `setTimeout` from
 //   `node:timers/promises`;
@@ -38,16 +41,11 @@ export interface TimedWaitFinding {
 }
 
 const vitestConfigPathPattern = /^vitest(?:\.[\w-]+)?\.config\.ts$/u;
-const testFilePathPattern =
-	/\.test\.[cm]?[jt]sx?$|\.browser\.[a-z0-9-]+-suite\.[cm]?[jt]sx?$|\.benchmark\.[cm]?[jt]sx?$/u;
-const testHelperPathPattern = /(?:^|[/.-])test-(?:actions|fixtures?|helpers?|support)(?:[/.-]|$)/u;
-// Directories that hold only test harness code: E2E journeys and fixtures, the
-// dev-server verifier, and the owned development-server process harness.
-const testHarnessDirectoryPrefixes: readonly string[] = [
-	'tests/',
-	'scripts/verify-',
-	'scripts/dev-server/',
-];
+// The package scripts that build or audit the shipped product; their files are
+// production entrypoints alongside index.html, the tsdown entries and the
+// Vite and tsdown configs themselves.
+const productPackageScriptNames: readonly string[] = ['build', 'audit:assets'];
+const productConfigPaths: readonly string[] = ['vite.config.ts', 'tsdown.config.ts'];
 const hangBoundModulePath = 'tests/vitest-hang-bounds.ts';
 const sleepHelperNamePattern = /^(?:sleep|delay)(?:[A-Z0-9_]\w*)?$/u;
 const timerFunctionNames = new Set(['setTimeout', 'setInterval']);
@@ -77,7 +75,8 @@ export function findTimedWaitsInTestImportClosure(
 			]),
 		),
 	};
-	const reachingTestRootByPath = collectTestImportClosure(resolution);
+	const productionModulePaths = collectProductionModulePaths(resolution);
+	const reachingTestRootByPath = collectTestImportClosure(resolution, productionModulePaths);
 	const findings: TimedWaitFinding[] = [];
 
 	for (const [relativePath, reachingTestRoot] of reachingTestRootByPath) {
@@ -130,6 +129,7 @@ function readPackageCompilerOptions(packageRootPath: string): ts.CompilerOptions
 // each module so a finding can name how a test depends on it.
 function collectTestImportClosure(
 	resolution: ModuleResolutionContext,
+	productionModulePaths: ReadonlySet<string>,
 ): ReadonlyMap<string, string> {
 	const reachingTestRootByPath = new Map<string, string>();
 	const pendingPaths: string[] = [];
@@ -147,7 +147,7 @@ function collectTestImportClosure(
 		for (const importSpecifier of readRuntimeImportSpecifiers(importerFile.sourceFile)) {
 			const importedPath = resolveImportedSourcePath(importerFile, importSpecifier, resolution);
 			if (importedPath === null || reachingTestRootByPath.has(importedPath)) continue;
-			if (!isTestHarnessModulePath(importedPath)) continue;
+			if (productionModulePaths.has(importedPath)) continue;
 			reachingTestRootByPath.set(importedPath, reachingTestRoot);
 			pendingPaths.push(importedPath);
 		}
@@ -156,12 +156,111 @@ function collectTestImportClosure(
 	return reachingTestRootByPath;
 }
 
-export function isTestHarnessModulePath(relativePath: string): boolean {
-	return (
-		testFilePathPattern.test(relativePath) ||
-		testHelperPathPattern.test(relativePath) ||
-		testHarnessDirectoryPrefixes.some((prefix: string): boolean => relativePath.startsWith(prefix))
+// Every module the shipped product can load: the closure of runtime imports and
+// `new URL('<relative path>', import.meta.url)` references (worker entries and
+// bundled assets) from index.html's module scripts, the tsdown entries, the
+// Vite and tsdown configs, and the files the product package scripts run.
+function collectProductionModulePaths(resolution: ModuleResolutionContext): ReadonlySet<string> {
+	const productionModulePaths = new Set<string>();
+	const pendingPaths = readProductionEntrypointPaths(resolution).filter(
+		(relativePath: string): boolean => resolution.sourceFilesByPath.has(relativePath),
 	);
+	for (let pendingIndex = 0; pendingIndex < pendingPaths.length; pendingIndex += 1) {
+		const modulePath = pendingPaths[pendingIndex];
+		if (modulePath === undefined || productionModulePaths.has(modulePath)) continue;
+		const moduleFile = resolution.sourceFilesByPath.get(modulePath);
+		if (moduleFile === undefined) continue;
+		productionModulePaths.add(modulePath);
+		for (const importSpecifier of readRuntimeImportSpecifiers(moduleFile.sourceFile)) {
+			const importedPath = resolveImportedSourcePath(moduleFile, importSpecifier, resolution);
+			if (importedPath !== null) pendingPaths.push(importedPath);
+		}
+		for (const referencedPath of readImportMetaUrlReferences(moduleFile)) {
+			if (resolution.sourceFilesByPath.has(referencedPath)) pendingPaths.push(referencedPath);
+		}
+	}
+	return productionModulePaths;
+}
+
+function readProductionEntrypointPaths(resolution: ModuleResolutionContext): readonly string[] {
+	const entrypointPaths: string[] = [...productConfigPaths];
+	const indexHtml = readPackageTextFile(resolution.packageRootPath, 'index.html');
+	for (const match of indexHtml?.matchAll(/<script\b[^>]*\bsrc="\/?([^"]+)"/gu) ?? []) {
+		if (match[1] !== undefined) entrypointPaths.push(match[1]);
+	}
+	const tsdownConfig = resolution.sourceFilesByPath.get('tsdown.config.ts');
+	if (tsdownConfig !== undefined) {
+		visitNodes(tsdownConfig.sourceFile, (node: ts.Node): void => {
+			if (
+				!ts.isPropertyAssignment(node) ||
+				!ts.isIdentifier(node.name) ||
+				node.name.text !== 'entry' ||
+				!ts.isObjectLiteralExpression(node.initializer)
+			) {
+				return;
+			}
+			for (const property of node.initializer.properties) {
+				if (ts.isPropertyAssignment(property) && ts.isStringLiteralLike(property.initializer)) {
+					entrypointPaths.push(join(property.initializer.text).replaceAll('\\', '/'));
+				}
+			}
+		});
+	}
+	const packageJson = readPackageTextFile(resolution.packageRootPath, 'package.json');
+	const packageManifest: unknown = packageJson === null ? null : JSON.parse(packageJson);
+	const packageScripts: unknown =
+		typeof packageManifest === 'object' && packageManifest !== null
+			? Reflect.get(packageManifest, 'scripts')
+			: null;
+	for (const scriptName of productPackageScriptNames) {
+		const command: unknown =
+			typeof packageScripts === 'object' && packageScripts !== null
+				? Reflect.get(packageScripts, scriptName)
+				: undefined;
+		if (typeof command !== 'string') continue;
+		for (const match of command.matchAll(/(?:^|\s)(\S+\.tsx?)(?=\s|$)/gu)) {
+			if (match[1] !== undefined) entrypointPaths.push(match[1]);
+		}
+	}
+	return entrypointPaths;
+}
+
+function readImportMetaUrlReferences(moduleFile: TimedWaitSourceFile): readonly string[] {
+	const referencedPaths: string[] = [];
+	visitNodes(moduleFile.sourceFile, (node: ts.Node): void => {
+		if (
+			!ts.isNewExpression(node) ||
+			!ts.isIdentifier(node.expression) ||
+			node.expression.text !== 'URL'
+		) {
+			return;
+		}
+		const [urlArgument, baseArgument] = node.arguments ?? [];
+		if (
+			urlArgument === undefined ||
+			!ts.isStringLiteralLike(urlArgument) ||
+			!urlArgument.text.startsWith('.') ||
+			baseArgument === undefined ||
+			baseArgument.getText(moduleFile.sourceFile) !== 'import.meta.url'
+		) {
+			return;
+		}
+		referencedPaths.push(
+			join(dirname(moduleFile.relativePath), urlArgument.text.replace(/[?#].*$/u, '')).replaceAll(
+				'\\',
+				'/',
+			),
+		);
+	});
+	return referencedPaths;
+}
+
+function readPackageTextFile(packageRootPath: string, relativePath: string): string | null {
+	try {
+		return readFileSync(join(packageRootPath, relativePath), 'utf8');
+	} catch {
+		return null;
+	}
 }
 
 function collectTestRootPaths(
