@@ -195,7 +195,7 @@ struct WorkspaceDrawerPresentationPersistenceTests {
         )
 
         // Act 1: owner enumeration fails.
-        let failedCapture = LegacyDrawerPresentationImportCapture.capture(
+        let failedCapture = bootLegacyDrawerCapture(
             source: legacyValue.source,
             now: Date(),
             enumerateOwners: { throw CocoaError(.fileReadUnknown) }
@@ -216,7 +216,7 @@ struct WorkspaceDrawerPresentationPersistenceTests {
         let coreRepository = WorkspaceCoreRepository(
             databaseWriter: try DatabaseQueue(path: databases.coreDatabaseURL.path)
         )
-        let capture = LegacyDrawerPresentationImportCapture.capture(
+        let capture = bootLegacyDrawerCapture(
             source: legacyValue.source,
             now: Date(),
             enumerateOwners: { try coreRepository.fetchOwningLayoutPaneIDsByWorkspace() }
@@ -237,7 +237,7 @@ struct WorkspaceDrawerPresentationPersistenceTests {
         // Act 3: a later save changes a row, then a boot with no key runs the step.
         try databases.writeRawPresentationRow(
             workspaceId: workspaceId, ownerPaneId: paneA.id, ratioSQL: "0.7", zoomSide: "bridge")
-        let noKeyCapture = LegacyDrawerPresentationImportCapture.capture(
+        let noKeyCapture = bootLegacyDrawerCapture(
             source: legacyValue.source,
             now: Date(),
             enumerateOwners: { try coreRepository.fetchOwningLayoutPaneIDsByWorkspace() }
@@ -275,7 +275,7 @@ struct WorkspaceDrawerPresentationPersistenceTests {
         )
 
         // Act 1: the upgrade boot's owner capture fails.
-        let failedCapture = LegacyDrawerPresentationImportCapture.capture(
+        let failedCapture = bootLegacyDrawerCapture(
             source: legacyValue.source,
             now: Date(),
             enumerateOwners: { throw CocoaError(.fileReadUnknown) }
@@ -292,7 +292,7 @@ struct WorkspaceDrawerPresentationPersistenceTests {
         let recordedCutoff = try #require(legacyValue.importCutoff)
 
         // Act 2: a retry an hour later fails again.
-        let failedRetry = LegacyDrawerPresentationImportCapture.capture(
+        let failedRetry = bootLegacyDrawerCapture(
             source: legacyValue.source,
             now: Date(timeIntervalSinceNow: 3600),
             enumerateOwners: { throw CocoaError(.fileReadUnknown) }
@@ -328,6 +328,85 @@ struct WorkspaceDrawerPresentationPersistenceTests {
         #expect(legacyValue.importCutoff == nil)
     }
 
+    @Test("a boot that leaves local storage unavailable still fixes the cutoff before panes are created")
+    func localRecoveryFailureStillFixesImportCutoff() async throws {
+        // Arrange: a pre-upgrade owner in core, the local main file missing with
+        // an orphan WAL beside it, a local directory that refuses quarantine,
+        // and a pending legacy height.
+        let databases = try DrawerPresentationDatabases()
+        defer { databases.remove() }
+        let preUpgradeStore = try await databases.bootStore()
+        let oldOwner = appendPreUpgradeTabbedPane(to: preUpgradeStore)
+        #expect(await preUpgradeStore.flushAsync() == .persisted)
+        try databases.replaceLocalDatabaseWithOrphanWAL()
+        try databases.setLocalDirectoryWritable(false)
+        defer { try? databases.setLocalDirectoryWritable(true) }
+        let legacyValue = LegacyHeightValueBox(value: 0.45)
+
+        // Act 1: boot; local recovery cannot quarantine the orphan WAL.
+        let failedLocalDatastore = databases.makeDatastore(legacySource: legacyValue.source)
+        let failedLocalPreparation = await failedLocalDatastore.prepareDatabasesForBoot()
+
+        // Assert 1: local is unavailable, the key is still pending, and the
+        // cutoff is already recorded.
+        guard case .prepared(let receipt) = failedLocalPreparation, case .unavailable = receipt.local else {
+            Issue.record("Expected local unavailable after a failed quarantine, got \(failedLocalPreparation)")
+            return
+        }
+        #expect(legacyValue.value == 0.45)
+        let recordedCutoff = legacyValue.importCutoff
+        #expect(recordedCutoff != nil)
+
+        // Act 2: the running app creates a pane; its save commits core only.
+        let coreOnlyStore = WorkspaceStore(sqliteDatastore: failedLocalDatastore, startsObserving: false)
+        guard case .loaded = await coreOnlyStore.loadCanonicalComposition() else {
+            Issue.record("Expected the core-only store to load")
+            return
+        }
+        let newOwner = appendTabbedPane(to: coreOnlyStore)
+        _ = await coreOnlyStore.flushAsync()
+        let workspaceId = coreOnlyStore.identityAtom.workspaceId
+        #expect(try databases.coreOwningPaneIds(workspaceId: workspaceId) == [oldOwner.id, newOwner.id])
+
+        // Act 3: a healthy boot recovers local storage and imports.
+        try databases.setLocalDirectoryWritable(true)
+        let restored = try await databases.bootStore(legacySource: legacyValue.source)
+
+        // Assert 3: only the owner created before the recorded cutoff gets the
+        // legacy height; the key and the cutoff are cleared together.
+        #expect(
+            restored.paneAtom.drawerPresentationPreference(forOwner: oldOwner.id)
+                == DrawerPresentationPreference(normalHeightRatio: 0.45, zoomSide: .terminal)
+        )
+        #expect(
+            restored.paneAtom.drawerPresentationPreference(forOwner: newOwner.id)
+                == DrawerPresentationPreference(normalHeightRatio: 0.8, zoomSide: .terminal)
+        )
+        #expect(try databases.storedRatio(workspaceId: workspaceId, ownerPaneId: oldOwner.id) == 0.45)
+        #expect(try databases.storedRatio(workspaceId: workspaceId, ownerPaneId: newOwner.id) == nil)
+        #expect(legacyValue.value == nil)
+        #expect(legacyValue.importCutoff == nil)
+    }
+
+    @Test("capture refuses a pending legacy height without an established cutoff and writes nothing")
+    func captureWithoutEstablishedCutoffWritesNothing() {
+        // Arrange
+        let legacyValue = LegacyHeightValueBox(value: 0.45)
+
+        // Act
+        let capture = LegacyDrawerPresentationImportCapture.capture(
+            source: legacyValue.source,
+            importCutoff: nil,
+            enumerateOwners: { [UUIDv7.generate(): [UUIDv7.generate()]] }
+        )
+
+        // Assert
+        #expect(capture == .importCutoffNotEstablished)
+        #expect(capture.importToApply == nil)
+        #expect(legacyValue.importCutoff == nil)
+        #expect(legacyValue.value == 0.45)
+    }
+
     @Test("unknown side and non-finite ratio fall back to each field's default")
     func invalidStoredFieldsFallBackToDefaults() async throws {
         let databases = try DrawerPresentationDatabases()
@@ -351,6 +430,19 @@ struct WorkspaceDrawerPresentationPersistenceTests {
         #expect(
             restored.paneAtom.drawerPresentationPreference(forOwner: paneB.id)
                 == DrawerPresentationPreference(normalHeightRatio: 0.3, zoomSide: .terminal)
+        )
+    }
+
+    /// One boot's legacy step in datastore order: establish the cutoff, then capture.
+    private func bootLegacyDrawerCapture(
+        source: LegacyDrawerPresentationSource,
+        now: Date,
+        enumerateOwners: () throws -> [UUID: Set<UUID>]
+    ) -> LegacyDrawerPresentationImportCapture {
+        LegacyDrawerPresentationImportCapture.capture(
+            source: source,
+            importCutoff: source.establishPendingImportCutoff(now: now),
+            enumerateOwners: enumerateOwners
         )
     }
 
@@ -379,25 +471,32 @@ struct WorkspaceDrawerPresentationPersistenceTests {
 private struct DrawerPresentationDatabases {
     let directory: URL
     var coreDatabaseURL: URL { directory.appending(path: "core.sqlite") }
-    var localDatabaseURL: URL { directory.appending(path: "local.sqlite") }
+    /// Local lives in its own directory so a test can make only local
+    /// recovery fail.
+    var localDirectory: URL { directory.appending(path: "local") }
+    var localDatabaseURL: URL { localDirectory.appending(path: "local.sqlite") }
 
     init() throws {
         directory = FileManager.default.temporaryDirectory.appending(
             path: "agentstudio-drawer-presentation-\(UUIDv7.generate().uuidString)"
         )
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: localDirectory, withIntermediateDirectories: true)
     }
 
     func remove() {
         try? FileManager.default.removeItem(at: directory)
     }
 
-    func bootStore(legacySource: LegacyDrawerPresentationSource? = nil) async throws -> WorkspaceStore {
-        let datastore = WorkspaceSQLiteDatastoreFactory(
+    func makeDatastore(legacySource: LegacyDrawerPresentationSource?) -> WorkspaceSQLiteDatastoreActor {
+        WorkspaceSQLiteDatastoreFactory(
             coreDatabaseURL: coreDatabaseURL,
             localDatabaseURL: localDatabaseURL,
             legacyDrawerPresentationSource: legacySource
         ).makeDatastore()
+    }
+
+    func bootStore(legacySource: LegacyDrawerPresentationSource? = nil) async throws -> WorkspaceStore {
+        let datastore = makeDatastore(legacySource: legacySource)
         guard case .prepared = await datastore.prepareDatabasesForBoot() else {
             throw DrawerPresentationTestFailure.databasesNotPrepared
         }
@@ -420,6 +519,31 @@ private struct DrawerPresentationDatabases {
             )
         }
         return Set(ids.compactMap(UUID.init(uuidString:)))
+    }
+
+    func coreOwningPaneIds(workspaceId: UUID) throws -> Set<UUID> {
+        let coreRepository = WorkspaceCoreRepository(
+            databaseWriter: try DatabaseQueue(path: coreDatabaseURL.path)
+        )
+        return try coreRepository.fetchOwningLayoutPaneIDsByWorkspace()[workspaceId] ?? []
+    }
+
+    /// The incomplete local file set a crash can leave: the main file is gone
+    /// and only an orphan WAL remains.
+    func replaceLocalDatabaseWithOrphanWAL() throws {
+        for suffix in ["", "-wal", "-shm"] {
+            try? FileManager.default.removeItem(atPath: "\(localDatabaseURL.path)\(suffix)")
+        }
+        try Data("orphan wal".utf8).write(to: URL(fileURLWithPath: "\(localDatabaseURL.path)-wal"))
+    }
+
+    /// A read-only local directory makes local quarantine fail while core
+    /// stays writable.
+    func setLocalDirectoryWritable(_ isWritable: Bool) throws {
+        try FileManager.default.setAttributes(
+            [.posixPermissions: isWritable ? 0o755 : 0o555],
+            ofItemAtPath: localDirectory.path
+        )
     }
 
     func storedRatio(workspaceId: UUID, ownerPaneId: UUID) throws -> Double? {

@@ -29,17 +29,17 @@ extension WorkspaceSQLiteDatastoreActor {
         return localRepository
     }
 
-    /// Records the import cutoff on the first boot that finds the legacy key,
-    /// then captures the legacy global drawer height and the persisted owning
-    /// panes created before that cutoff, before the local migration transaction
-    /// opens. Core is prepared before local, so its owning panes are readable
-    /// here.
+    /// Captures the legacy global drawer height and the persisted owning panes
+    /// created before the cutoff that local boot preparation established, before
+    /// the local migration transaction opens. Core is prepared before local, so
+    /// its owning panes are readable here.
     func captureLegacyDrawerPresentationImport(
-        configuration: WorkspaceSQLiteDatastoreConfiguration
+        configuration: WorkspaceSQLiteDatastoreConfiguration,
+        importCutoff: Date?
     ) -> LegacyDrawerPresentationImportCapture {
         LegacyDrawerPresentationImportCapture.capture(
             source: configuration.legacyDrawerPresentationSource,
-            now: Date(),
+            importCutoff: importCutoff,
             enumerateOwners: { [backend] in
                 guard let backend else { throw WorkspaceSQLiteDatastoreError.databasesNotPrepared }
                 return try backend.coreRepository.fetchOwningLayoutPaneIDsByWorkspace()

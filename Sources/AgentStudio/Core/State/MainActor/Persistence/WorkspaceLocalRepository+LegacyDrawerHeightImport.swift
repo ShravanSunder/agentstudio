@@ -28,16 +28,23 @@ package enum LegacyDrawerPresentationImportCapture: Equatable, Sendable {
     /// Owning panes could not be read. Nothing is written and the legacy key
     /// stays as the pending marker for the next boot.
     case ownerEnumerationFailed
+    /// Programming error: a legacy height is pending but boot did not establish
+    /// the cutoff first. Capture never records one itself, so nothing is
+    /// written and the legacy key stays pending.
+    case importCutoffNotEstablished
 
+    /// Captures the owners created before `importCutoff`, the cutoff the boot
+    /// established with `establishPendingImportCutoff(now:)`. Capture only
+    /// reads the cutoff; that boot step is its one writer.
     package static func capture(
         source: LegacyDrawerPresentationSource?,
-        now: Date,
+        importCutoff: Date?,
         enumerateOwners: () throws -> [UUID: Set<UUID>]
     ) -> Self {
         guard let source, let legacyHeightRatio = source.readHeightRatio(),
             DrawerPresentationPreference.validatedNormalHeightRatio(legacyHeightRatio) != nil
         else { return .noLegacyValue }
-        let importCutoff = source.importCutoff(recordingIfAbsent: now)
+        guard let importCutoff else { return .importCutoffNotEstablished }
         guard let owningPaneIdsByWorkspaceId = try? enumerateOwners() else { return .ownerEnumerationFailed }
         guard
             let legacyImport = LegacyDrawerPresentationImport(
@@ -90,12 +97,18 @@ package struct LegacyDrawerPresentationSource: Sendable {
         self.clear = clear
     }
 
-    /// The cutoff recorded by the first boot that found the pending key. A
-    /// retry reuses it, so owners created after the upgrade are never imported.
-    /// It is truncated to whole milliseconds, the resolution of a UUIDv7
-    /// timestamp, so a pane minted in the cutoff's own millisecond is not
-    /// counted as older than the cutoff.
-    func importCutoff(recordingIfAbsent now: Date) -> Date {
+    /// Returns the import cutoff while a finite legacy height is pending, and
+    /// nil otherwise. The first boot that finds the pending key records `now`;
+    /// a retry reuses that value, so owners created after the upgrade are never
+    /// imported. Boot calls this before any local recovery branch can return,
+    /// so a boot that leaves local storage unavailable still fixes the cutoff
+    /// before panes can be created. The cutoff is truncated to whole
+    /// milliseconds, the resolution of a UUIDv7 timestamp, so a pane minted in
+    /// the cutoff's own millisecond is not counted as older than the cutoff.
+    package func establishPendingImportCutoff(now: Date) -> Date? {
+        guard let legacyHeightRatio = readHeightRatio(),
+            DrawerPresentationPreference.validatedNormalHeightRatio(legacyHeightRatio) != nil
+        else { return nil }
         if let recordedCutoff = readImportCutoff() { return recordedCutoff }
         let millisecondCutoff = Date(
             timeIntervalSince1970: (now.timeIntervalSince1970 * 1000).rounded(.down) / 1000
