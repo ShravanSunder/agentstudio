@@ -1,7 +1,33 @@
 import AppKit
+import Carbon
 import GhosttyKit
 
 // MARK: - Modifier Conversion
+
+/// Returns the current text input source ID, matching Ghostty's keyboard-layout
+/// identity used to discard key events that switch layouts during translation.
+func currentKeyboardLayoutID() -> String? {
+    guard
+        let source = TISCopyCurrentKeyboardInputSource()?.takeRetainedValue(),
+        let sourceIDPointer = TISGetInputSourceProperty(source, kTISPropertyInputSourceID)
+    else {
+        return nil
+    }
+
+    let sourceID = unsafeBitCast(sourceIDPointer, to: CFString.self)
+    return sourceID as String
+}
+
+/// A layout switch consumes a key only when marked text was not already active.
+/// The provider stays lazy to match upstream's short-circuit around TIS access.
+func shouldAbortKeyDownForKeyboardLayoutChange(
+    hasMarkedTextBefore: Bool,
+    keyboardLayoutIDBefore: String?,
+    currentKeyboardLayoutID: () -> String?
+) -> Bool {
+    guard !hasMarkedTextBefore else { return false }
+    return keyboardLayoutIDBefore != currentKeyboardLayoutID()
+}
 
 /// Converts NSEvent modifier flags to Ghostty modifier bitmask
 func ghosttyMods(from flags: NSEvent.ModifierFlags) -> ghostty_input_mods_e {

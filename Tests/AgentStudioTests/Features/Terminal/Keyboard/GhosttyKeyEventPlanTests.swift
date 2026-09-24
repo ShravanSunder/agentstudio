@@ -10,6 +10,53 @@ import Testing
 /// terminal has always sent them.
 @Suite
 struct GhosttyKeyEventPlanTests {
+    struct KeyboardLayoutChangeCase: CustomTestStringConvertible, Sendable {
+        let name: String
+        let hasMarkedTextBefore: Bool
+        let keyboardLayoutIDBefore: String?
+        let keyboardLayoutIDAfter: String?
+        let shouldAbortKeyDown: Bool
+        var testDescription: String { name }
+    }
+
+    static let keyboardLayoutChangeCases: [KeyboardLayoutChangeCase] = [
+        .init(
+            name: "unchanged layout without marked text",
+            hasMarkedTextBefore: false,
+            keyboardLayoutIDBefore: "layout-a",
+            keyboardLayoutIDAfter: "layout-a",
+            shouldAbortKeyDown: false
+        ),
+        .init(
+            name: "changed layout without marked text",
+            hasMarkedTextBefore: false,
+            keyboardLayoutIDBefore: "layout-a",
+            keyboardLayoutIDAfter: "layout-b",
+            shouldAbortKeyDown: true
+        ),
+        .init(
+            name: "missing layout becomes available without marked text",
+            hasMarkedTextBefore: false,
+            keyboardLayoutIDBefore: nil,
+            keyboardLayoutIDAfter: "layout-a",
+            shouldAbortKeyDown: true
+        ),
+        .init(
+            name: "unchanged unavailable layout without marked text",
+            hasMarkedTextBefore: false,
+            keyboardLayoutIDBefore: nil,
+            keyboardLayoutIDAfter: nil,
+            shouldAbortKeyDown: false
+        ),
+        .init(
+            name: "layout changes while marked text was already active",
+            hasMarkedTextBefore: true,
+            keyboardLayoutIDBefore: nil,
+            keyboardLayoutIDAfter: "layout-b",
+            shouldAbortKeyDown: false
+        ),
+    ]
+
     struct ModifierCase: CustomTestStringConvertible, Sendable {
         let name: String
         let keyCode: CGKeyCode
@@ -46,6 +93,25 @@ struct GhosttyKeyEventPlanTests {
         .init(name: "caps lock on", keyCode: 0x39, flags: capsLock, action: GHOSTTY_ACTION_PRESS),
         .init(name: "caps lock off", keyCode: 0x39, flags: 0, action: GHOSTTY_ACTION_RELEASE),
     ]
+
+    @Test(
+        "keyboard layout changes suppress keyDown only outside an existing composition",
+        arguments: keyboardLayoutChangeCases)
+    func keyboardLayoutChangeDecision(testCase: KeyboardLayoutChangeCase) {
+        var layoutIDReads = 0
+
+        let shouldAbortKeyDown = shouldAbortKeyDownForKeyboardLayoutChange(
+            hasMarkedTextBefore: testCase.hasMarkedTextBefore,
+            keyboardLayoutIDBefore: testCase.keyboardLayoutIDBefore,
+            currentKeyboardLayoutID: {
+                layoutIDReads += 1
+                return testCase.keyboardLayoutIDAfter
+            }
+        )
+
+        #expect(shouldAbortKeyDown == testCase.shouldAbortKeyDown)
+        #expect(layoutIDReads == (testCase.hasMarkedTextBefore ? 0 : 1))
+    }
 
     @Test("modifier events press or release by side and never read or send text", arguments: modifierCases)
     func modifierEventPlan(testCase: ModifierCase) throws {

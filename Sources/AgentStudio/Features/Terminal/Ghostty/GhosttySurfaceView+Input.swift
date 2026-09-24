@@ -53,7 +53,18 @@ extension Ghostty.SurfaceView {
         keyTextAccumulator = []
         defer { keyTextAccumulator = nil }
 
+        let hasMarkedTextBefore = markedText.length > 0
+        let keyboardLayoutIDBefore = hasMarkedTextBefore ? nil : currentKeyboardLayoutID()
+
         interpretKeyEvents([translationEvent])
+
+        guard
+            !shouldAbortKeyDownForKeyboardLayoutChange(
+                hasMarkedTextBefore: hasMarkedTextBefore,
+                keyboardLayoutIDBefore: keyboardLayoutIDBefore,
+                currentKeyboardLayoutID: { currentKeyboardLayoutID() }
+            )
+        else { return }
 
         if let list = keyTextAccumulator, !list.isEmpty {
             for text in list {
