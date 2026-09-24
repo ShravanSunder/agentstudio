@@ -114,6 +114,13 @@ final class WorkspaceActionExecutor {
         await coordinator.performBridgeNavigation(request, forPaneId: paneId)
     }
 
+    func searchBridgeFiles(
+        _ criteria: BridgeFilesSearchCriteria,
+        forPaneId paneId: UUID
+    ) async -> BridgeFilesSearchRequestOutcome {
+        await coordinator.searchBridgeFiles(criteria, forPaneId: paneId)
+    }
+
     @discardableResult
     func requestBridgePaneSurface(_ surface: BridgeProductSurface, paneId: UUID) -> Bool {
         coordinator.requestBridgePaneSurface(surface, paneId: paneId)

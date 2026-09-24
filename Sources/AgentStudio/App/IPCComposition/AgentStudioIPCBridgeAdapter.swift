@@ -8,6 +8,10 @@ import Foundation
 protocol AgentStudioIPCBridgeActionExecuting: AnyObject {
     func openBridgeReviewInNewTab(worktreeId: UUID?) -> Pane?
     func openBridgeFilesInNewTab(worktreeId: UUID?) -> Pane?
+    func searchBridgeFiles(
+        _ criteria: BridgeFilesSearchCriteria,
+        forPaneId paneId: UUID
+    ) async -> BridgeFilesSearchRequestOutcome
 }
 
 extension WorkspaceActionExecutor: AgentStudioIPCBridgeActionExecuting {}
@@ -159,6 +163,18 @@ struct AgentStudioIPCBridgeAdapter: AppIPCBridgePort, @unchecked Sendable {
         }
     }
 
+    /// Search the addressed Bridge's Files collection through its receiver.
+    /// Search-level outcomes are typed results; only an unknown or non-Bridge
+    /// target is an error.
+    func searchFiles(_ params: IPCBridgeFilesSearchParams) async throws -> IPCBridgeFilesSearchResult {
+        let paneId = try bridgePaneId(for: try IPCHandle.parse(params.handle))
+        let outcome = await actionExecutor.searchBridgeFiles(
+            BridgeFilesSearchIPCProjection.criteria(params),
+            forPaneId: paneId
+        )
+        return BridgeFilesSearchIPCProjection.result(outcome, paneId: paneId)
+    }
+
     func telemetrySnapshot(_ handle: IPCHandle) async throws -> IPCBridgeTelemetrySnapshotResult {
         try await bridgeController(for: handle).telemetrySnapshotForIPC()
     }
@@ -168,6 +184,18 @@ struct AgentStudioIPCBridgeAdapter: AppIPCBridgePort, @unchecked Sendable {
     }
 
     private func bridgeController(for handle: IPCHandle) throws -> BridgePaneController {
+        let paneId = try bridgePaneId(for: handle)
+        guard
+            let bridgeView = viewRegistry.view(for: paneId)?
+                .mountedContent(as: BridgePaneMountView.self)
+        else {
+            throw AppIPCBridgeError(reason: .targetNotFound)
+        }
+        return bridgeView.controller
+    }
+
+    /// The Bridge pane a handle names; any other pane kind is unsupported.
+    private func bridgePaneId(for handle: IPCHandle) throws -> UUID {
         let paneId = try resolvePaneId(handle)
         guard
             let pane = workspaceStore.programmaticControlSnapshot().panes.first(where: { $0.id == paneId })
@@ -177,13 +205,7 @@ struct AgentStudioIPCBridgeAdapter: AppIPCBridgePort, @unchecked Sendable {
         guard pane.contentKind == .bridgePanel else {
             throw AppIPCBridgeError(reason: .unsupportedTarget)
         }
-        guard
-            let bridgeView = viewRegistry.view(for: paneId)?
-                .mountedContent(as: BridgePaneMountView.self)
-        else {
-            throw AppIPCBridgeError(reason: .targetNotFound)
-        }
-        return bridgeView.controller
+        return paneId
     }
 
     private func resolvePaneId(_ handle: IPCHandle) throws -> UUID {

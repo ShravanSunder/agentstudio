@@ -29,6 +29,16 @@ extension WorkspaceSurfaceCoordinator {
         )
     }
 
+    /// Search the Files collection of the receiver `paneId` addresses. A read:
+    /// it never seeds a record, mounts a Bridge or changes navigation.
+    func searchBridgeFiles(
+        _ criteria: BridgeFilesSearchCriteria,
+        forPaneId paneId: UUID
+    ) async -> BridgeFilesSearchRequestOutcome {
+        guard let receiver = bridgeReceiver(forCommandPaneId: paneId) else { return .receiverUnavailable }
+        return await bridgeNavigationCommandHandler.searchFiles(criteria, in: receiver)
+    }
+
     /// Run one navigation command against the receiver `paneId` addresses.
     /// A terminal receiver's first record is seeded from its current known
     /// worktree, exactly as presenting its companion would seed it.

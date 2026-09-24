@@ -13,7 +13,7 @@ struct AppIPCTypedRegistryTests {
         let registrations = try fixture.registrations()
         let registry = try AppIPCMethodRegistry(registrations: registrations, channel: .debug)
         let names = registry.capabilities.methods.map(\.name)
-        #expect(names.count == 48)
+        #expect(names.count == 49)
         #expect(names == names.sorted())
         #expect(Set(names).count == names.count)
         #expect(names.filter { $0 == "system.capabilities" }.count == 1)

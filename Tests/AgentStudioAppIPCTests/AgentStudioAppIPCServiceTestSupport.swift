@@ -383,6 +383,24 @@ struct FakeBridgePort: AppIPCBridgePort {
         )
     }
 
+    func searchFiles(_ params: IPCBridgeFilesSearchParams) async throws -> IPCBridgeFilesSearchResult {
+        IPCBridgeFilesSearchResult(
+            paneId: paneId,
+            status: .results,
+            matches: [
+                IPCBridgeFilesSearchMatch(
+                    displayPath: "app/\(itemId)",
+                    path: "/tmp/app/\(itemId)",
+                    memberWorktreeId: params.worktreeId,
+                    memberRelativePath: itemId
+                )
+            ],
+            totalMatchCount: 1,
+            truncated: false,
+            complete: true
+        )
+    }
+
     func telemetrySnapshot(_: IPCHandle) async throws -> IPCBridgeTelemetrySnapshotResult {
         IPCBridgeTelemetrySnapshotResult(
             paneId: paneId,

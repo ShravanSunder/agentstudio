@@ -5,13 +5,13 @@ import Testing
 
 @Suite("IPC built-in typed method catalog")
 struct IPCBuiltInMethodCatalogTests {
-    @Test("catalog exposes exactly 47 unique static methods in name order")
+    @Test("catalog exposes exactly 48 unique static methods in name order")
     func catalogHasExactStaticSurface() throws {
         let catalog = try makeCatalog(waitMaximum: 9)
         let names = catalog.erasedDescriptors.map(\.metadata.name)
 
         #expect(names == expectedStaticMethodNames)
-        #expect(Set(names).count == 47)
+        #expect(Set(names).count == 48)
         #expect(names == names.sorted())
     }
 
@@ -283,6 +283,7 @@ struct IPCBuiltInMethodCatalogTests {
             "bridge.fileView.getContent",
             "bridge.fileView.open",
             "bridge.fileView.showMarkdownPreview",
+            "bridge.files.search",
             "bridge.telemetry.flush",
             "bridge.telemetry.snapshot",
             "drawer.addPane",

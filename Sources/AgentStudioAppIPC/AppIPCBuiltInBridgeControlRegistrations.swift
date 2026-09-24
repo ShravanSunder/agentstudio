@@ -18,6 +18,31 @@ extension AppIPCBuiltInMethodRegistrations {
         try bridgeReviewControlRegistrations(inputs: inputs)
             + bridgeRemainingPageControlRegistrations(inputs: inputs)
             + bridgeContentAndTelemetryRegistrations(inputs: inputs)
+            + [bridgeFilesSearchRegistration(inputs: inputs)]
+    }
+
+    private static func bridgeFilesSearchRegistration(
+        inputs: AppIPCBuiltInRegistrationInputs
+    ) throws -> AnyAppIPCMethodRegistration {
+        try bridgePaneRegistration(
+            binding: AppIPCBridgePaneBinding(
+                descriptor: inputs.catalog.bridge.control.bridgeFilesSearch,
+                correlation: nil,
+                rawHandle: { $0.handle },
+                rebuild: { original, canonicalHandle in
+                    IPCBridgeFilesSearchParams(
+                        handle: canonicalHandle,
+                        searchText: original.searchText,
+                        searchMode: original.searchMode,
+                        scope: original.scope,
+                        worktreeId: original.worktreeId,
+                        limit: original.limit
+                    )
+                },
+                handler: { parameters in try await inputs.ports.bridgePort.searchFiles(parameters) }
+            ),
+            inputs: inputs
+        )
     }
 
     private static func bridgeReviewControlRegistrations(

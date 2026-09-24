@@ -834,6 +834,11 @@ private func nonBridgeReadTargetRequests() -> [(id: Int, method: String, params:
             ])
         ),
         (89, "bridge.telemetry.snapshot", .object(["handle": .string("pane:1")])),
+        (
+            93,
+            "bridge.files.search",
+            .object(["handle": .string("pane:1"), "searchText": .string("App")])
+        ),
     ]
 }
 
