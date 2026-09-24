@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import GhosttyKit
 import Testing
 
 @testable import AgentStudioTerminal
@@ -152,5 +153,51 @@ final class KeyboardCharacterFilteringTests {
 
         // Assert
         #expect(result == nil, "Function keys should not be sent as text")
+    }
+
+    // MARK: - ghosttyKeyEventText Tests
+
+    @Test("a modifier-only flagsChanged event reads no characters and keeps its modifier state")
+    func test_ghosttyKeyEventText_flagsChanged_sendsNoTextAndKeepsMods() throws {
+        // Arrange - Command pressed alone, as AppKit delivers it to flagsChanged.
+        let commandKeyCode: CGKeyCode = 0x37
+        let source = try #require(CGEvent(keyboardEventSource: nil, virtualKey: commandKeyCode, keyDown: true))
+        source.type = .flagsChanged
+        source.flags = .maskCommand
+        let event = try #require(NSEvent(cgEvent: source))
+        #expect(event.type == .flagsChanged)
+
+        // Act - reading characters from this event raises in AppKit.
+        let text = ghosttyKeyEventText(for: event)
+        let mods = ghosttyMods(from: event.modifierFlags)
+
+        // Assert
+        #expect(text == nil)
+        #expect(mods.rawValue & GHOSTTY_MODS_SUPER.rawValue != 0)
+    }
+
+    @Test("a key-down event keeps its filtered text")
+    func test_ghosttyKeyEventText_keyDown_returnsCharacters() throws {
+        // Arrange
+        let event = try #require(
+            NSEvent.keyEvent(
+                with: .keyDown,
+                location: .zero,
+                modifierFlags: [],
+                timestamp: 0,
+                windowNumber: 0,
+                context: nil,
+                characters: "a",
+                charactersIgnoringModifiers: "a",
+                isARepeat: false,
+                keyCode: 0
+            )
+        )
+
+        // Act
+        let text = ghosttyKeyEventText(for: event)
+
+        // Assert
+        #expect(text == "a")
     }
 }

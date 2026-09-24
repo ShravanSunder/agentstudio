@@ -55,7 +55,7 @@ extension Ghostty.SurfaceView {
                 sendKeyEvent(event, action: action, text: text)
             }
         } else {
-            sendKeyEvent(event, action: action, text: ghosttyCharacters(from: event))
+            sendKeyEvent(event, action: action, text: ghosttyKeyEventText(for: event))
         }
     }
 
@@ -259,7 +259,7 @@ extension Ghostty.SurfaceView {
         let consumedMods = event.modifierFlags.subtracting([.control, .command])
         keyEvent.consumed_mods = ghosttyMods(from: consumedMods)
 
-        let textToSend = text ?? ghosttyCharacters(from: event)
+        let textToSend = text ?? ghosttyKeyEventText(for: event)
         if let textToSend, !textToSend.isEmpty,
             let codepoint = textToSend.utf8.first, codepoint >= 0x20
         {
@@ -271,22 +271,6 @@ extension Ghostty.SurfaceView {
             keyEvent.text = nil
             ghostty_surface_key(surface, keyEvent)
         }
-    }
-
-    private func ghosttyCharacters(from event: NSEvent) -> String? {
-        guard let characters = event.characters else { return nil }
-
-        if characters.count == 1, let scalar = characters.unicodeScalars.first {
-            if scalar.value < 0x20 {
-                return event.characters(byApplyingModifiers: event.modifierFlags.subtracting(.control))
-            }
-
-            if scalar.value >= 0xF700 && scalar.value <= 0xF8FF {
-                return nil
-            }
-        }
-
-        return characters
     }
 
     func ghosttyMods(from flags: NSEvent.ModifierFlags) -> ghostty_input_mods_e {
