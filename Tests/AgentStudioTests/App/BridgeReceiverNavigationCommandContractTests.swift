@@ -34,11 +34,11 @@ struct BridgeReceiverNavigationCommandContractTests {
         }
     }
 
-    @Test("membership commands are command-bar rows targeting a worktree; S5 commands are not presented")
+    @Test("B1 receiver commands add no command-bar rows (R7); membership commands still target a worktree")
     func interactivePresentation() {
         for command in [AppCommand.addBridgeWorktree, .selectBridgeWorktree, .removeBridgeWorktree] {
             let definition = AppCommandDispatcher.shared.definition(for: command)
-            #expect(definition.surfacePolicy == .exposed([.commandBar]), "\(command.rawValue)")
+            #expect(definition.surfacePolicy == .notPresented, "\(command.rawValue)")
             #expect(definition.targeting == .targeted([.worktree]), "\(command.rawValue)")
             #expect(definition.shortcut == nil, "\(command.rawValue)")
         }

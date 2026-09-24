@@ -931,7 +931,7 @@ extension AppCommand {
                 label: "Add Worktree to Bridge",
                 icon: .system(.plusCircle),
                 helpText: "Add a known worktree to this pane's Bridge Files and Review",
-                surfacePolicy: .exposed([.commandBar]),
+                surfacePolicy: .notPresented,
                 targeting: .targeted([.worktree])
             )
         case .selectBridgeWorktree:
@@ -939,7 +939,7 @@ extension AppCommand {
                 label: "Select Worktree for Review",
                 icon: .system(.checkmarkCircle),
                 helpText: "Choose which member worktree this pane's Bridge reviews",
-                surfacePolicy: .exposed([.commandBar]),
+                surfacePolicy: .notPresented,
                 targeting: .targeted([.worktree])
             )
         case .removeBridgeWorktree:
@@ -947,7 +947,7 @@ extension AppCommand {
                 label: "Remove Worktree from Bridge",
                 icon: .system(.minusCircle),
                 helpText: "Remove a member worktree from this pane's Bridge without unregistering it",
-                surfacePolicy: .exposed([.commandBar]),
+                surfacePolicy: .notPresented,
                 targeting: .targeted([.worktree])
             )
         case .signInGitHub:
