@@ -1,4 +1,5 @@
 import AgentStudioCore
+import AgentStudioInfrastructure
 import CoreGraphics
 import Foundation
 
@@ -83,7 +84,7 @@ struct DrawerResizeGestureID: Hashable, Sendable {
     let rawValue: UUID
 
     static func make() -> Self {
-        Self(rawValue: UUID())
+        Self(rawValue: UUIDv7.generate())
     }
 }
 
