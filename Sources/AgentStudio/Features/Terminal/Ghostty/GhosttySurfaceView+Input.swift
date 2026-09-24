@@ -378,6 +378,7 @@ extension Ghostty.SurfaceView {
 
     private func committedTextAction(_ action: ghostty_input_action_e, text: String) -> Bool {
         guard let surface else { return false }
+        performanceTraceRecorder?.recordSidebarPerformanceTerminalInput()
 
         var keyEvent = ghostty_input_key_s()
         keyEvent.action = action
