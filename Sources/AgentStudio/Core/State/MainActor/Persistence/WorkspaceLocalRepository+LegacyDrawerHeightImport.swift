@@ -1,3 +1,4 @@
+import AgentStudioInfrastructure
 import Foundation
 import GRDB
 
@@ -6,7 +7,8 @@ import GRDB
 package struct LegacyDrawerPresentationImport: Equatable, Sendable {
     /// Finite legacy ratio, already clamped into the saved range.
     let normalHeightRatio: Double
-    /// Owning layout panes of every persisted workspace at import time.
+    /// Owning layout panes of every persisted workspace that were created
+    /// before the import cutoff.
     let owningPaneIdsByWorkspaceId: [UUID: Set<UUID>]
 
     package init?(legacyHeightRatio: Double?, owningPaneIdsByWorkspaceId: [UUID: Set<UUID>]) {
@@ -29,19 +31,30 @@ package enum LegacyDrawerPresentationImportCapture: Equatable, Sendable {
 
     package static func capture(
         source: LegacyDrawerPresentationSource?,
+        now: Date,
         enumerateOwners: () throws -> [UUID: Set<UUID>]
     ) -> Self {
-        guard let legacyHeightRatio = source?.readHeightRatio(),
+        guard let source, let legacyHeightRatio = source.readHeightRatio(),
             DrawerPresentationPreference.validatedNormalHeightRatio(legacyHeightRatio) != nil
         else { return .noLegacyValue }
+        let importCutoff = source.importCutoff(recordingIfAbsent: now)
         guard let owningPaneIdsByWorkspaceId = try? enumerateOwners() else { return .ownerEnumerationFailed }
         guard
             let legacyImport = LegacyDrawerPresentationImport(
                 legacyHeightRatio: legacyHeightRatio,
-                owningPaneIdsByWorkspaceId: owningPaneIdsByWorkspaceId
+                owningPaneIdsByWorkspaceId: owningPaneIdsByWorkspaceId.mapValues { owningPaneIds in
+                    owningPaneIds.filter { ownerWasCreated($0, before: importCutoff) }
+                }
             )
         else { return .noLegacyValue }
         return .captured(legacyImport)
+    }
+
+    /// Pane ids are UUIDv7, so an owner's creation time is its id's timestamp.
+    /// An id that is not v7 predates this build and is always eligible.
+    private static func ownerWasCreated(_ ownerPaneId: UUID, before importCutoff: Date) -> Bool {
+        guard UUIDv7.isV7(ownerPaneId), let createdAt = UUIDv7.timestamp(from: ownerPaneId) else { return true }
+        return createdAt < importCutoff
     }
 
     package var importToApply: LegacyDrawerPresentationImport? {
@@ -51,29 +64,59 @@ package enum LegacyDrawerPresentationImportCapture: Equatable, Sendable {
 }
 
 /// Where the retired global drawer height is read from and cleared after the
-/// import commits. Its presence is the import's pending marker. Production
-/// uses the app's standard defaults; tests inject their own value so they never
-/// touch a developer's defaults domain.
+/// import commits. Its presence is the import's pending marker. The import
+/// cutoff is stored next to it in the same defaults domain, and both are
+/// removed together. Production uses the app's standard defaults; tests inject
+/// their own values so they never touch a developer's defaults domain.
 package struct LegacyDrawerPresentationSource: Sendable {
     package static let legacyHeightRatioKey = "drawerHeightRatio"
+    package static let importCutoffKey = "drawerHeightRatioImportCutoff"
 
     let readHeightRatio: @Sendable () -> Double?
+    let readImportCutoff: @Sendable () -> Date?
+    let writeImportCutoff: @Sendable (Date) -> Void
+    /// Removes the legacy height and the import cutoff together.
     let clear: @Sendable () -> Void
 
     package init(
         readHeightRatio: @escaping @Sendable () -> Double?,
+        readImportCutoff: @escaping @Sendable () -> Date?,
+        writeImportCutoff: @escaping @Sendable (Date) -> Void,
         clear: @escaping @Sendable () -> Void
     ) {
         self.readHeightRatio = readHeightRatio
+        self.readImportCutoff = readImportCutoff
+        self.writeImportCutoff = writeImportCutoff
         self.clear = clear
+    }
+
+    /// The cutoff recorded by the first boot that found the pending key. A
+    /// retry reuses it, so owners created after the upgrade are never imported.
+    /// It is truncated to whole milliseconds, the resolution of a UUIDv7
+    /// timestamp, so a pane minted in the cutoff's own millisecond is not
+    /// counted as older than the cutoff.
+    func importCutoff(recordingIfAbsent now: Date) -> Date {
+        if let recordedCutoff = readImportCutoff() { return recordedCutoff }
+        let millisecondCutoff = Date(
+            timeIntervalSince1970: (now.timeIntervalSince1970 * 1000).rounded(.down) / 1000
+        )
+        writeImportCutoff(millisecondCutoff)
+        return millisecondCutoff
     }
 
     package static let standardUserDefaults = Self(
         readHeightRatio: {
             UserDefaults.standard.object(forKey: legacyHeightRatioKey) as? Double
         },
+        readImportCutoff: {
+            UserDefaults.standard.object(forKey: importCutoffKey) as? Date
+        },
+        writeImportCutoff: { importCutoff in
+            UserDefaults.standard.set(importCutoff, forKey: importCutoffKey)
+        },
         clear: {
             UserDefaults.standard.removeObject(forKey: legacyHeightRatioKey)
+            UserDefaults.standard.removeObject(forKey: importCutoffKey)
         }
     )
 }

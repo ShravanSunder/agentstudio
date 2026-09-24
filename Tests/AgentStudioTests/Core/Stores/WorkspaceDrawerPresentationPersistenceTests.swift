@@ -154,8 +154,8 @@ struct WorkspaceDrawerPresentationPersistenceTests {
         let databases = try DrawerPresentationDatabases()
         defer { databases.remove() }
         let store = try await databases.bootStore()
-        let paneA = appendTabbedPane(to: store)
-        let paneB = appendTabbedPane(to: store)
+        let paneA = appendPreUpgradeTabbedPane(to: store)
+        let paneB = appendPreUpgradeTabbedPane(to: store)
         let drawerChild = try #require(store.addDrawerPane(to: paneA.id))
         #expect(await store.flushAsync() == .persisted)
         try databases.rewindLocalSchemaBeforeDrawerPresentation()
@@ -173,6 +173,7 @@ struct WorkspaceDrawerPresentationPersistenceTests {
         #expect(storedOwners == [paneA.id, paneB.id])
         #expect(!storedOwners.contains(drawerChild.id))
         #expect(legacyValue.value == nil)
+        #expect(legacyValue.importCutoff == nil)
     }
 
     @Test("the legacy height boot step waits for a successful owner capture, then becomes a no-op")
@@ -181,8 +182,8 @@ struct WorkspaceDrawerPresentationPersistenceTests {
         let databases = try DrawerPresentationDatabases()
         defer { databases.remove() }
         let store = try await databases.bootStore()
-        let paneA = appendTabbedPane(to: store)
-        let paneB = appendTabbedPane(to: store)
+        let paneA = appendPreUpgradeTabbedPane(to: store)
+        let paneB = appendPreUpgradeTabbedPane(to: store)
         #expect(await store.flushAsync() == .persisted)
         try databases.rewindLocalSchemaBeforeDrawerPresentation()
         let workspaceId = store.identityAtom.workspaceId
@@ -196,6 +197,7 @@ struct WorkspaceDrawerPresentationPersistenceTests {
         // Act 1: owner enumeration fails.
         let failedCapture = LegacyDrawerPresentationImportCapture.capture(
             source: legacyValue.source,
+            now: Date(),
             enumerateOwners: { throw CocoaError(.fileReadUnknown) }
         )
         _ = try WorkspaceSQLiteDatastoreActor.openConfiguredLocalRepository(
@@ -216,6 +218,7 @@ struct WorkspaceDrawerPresentationPersistenceTests {
         )
         let capture = LegacyDrawerPresentationImportCapture.capture(
             source: legacyValue.source,
+            now: Date(),
             enumerateOwners: { try coreRepository.fetchOwningLayoutPaneIDsByWorkspace() }
         )
         _ = try WorkspaceSQLiteDatastoreActor.openConfiguredLocalRepository(
@@ -229,12 +232,14 @@ struct WorkspaceDrawerPresentationPersistenceTests {
         #expect(try databases.storedOwnerPaneIds(workspaceId: workspaceId) == [paneA.id, paneB.id])
         #expect(try databases.storedRatio(workspaceId: workspaceId, ownerPaneId: paneA.id) == 0.45)
         #expect(legacyValue.value == nil)
+        #expect(legacyValue.importCutoff == nil)
 
         // Act 3: a later save changes a row, then a boot with no key runs the step.
         try databases.writeRawPresentationRow(
             workspaceId: workspaceId, ownerPaneId: paneA.id, ratioSQL: "0.7", zoomSide: "bridge")
         let noKeyCapture = LegacyDrawerPresentationImportCapture.capture(
             source: legacyValue.source,
+            now: Date(),
             enumerateOwners: { try coreRepository.fetchOwningLayoutPaneIDsByWorkspace() }
         )
         _ = try WorkspaceSQLiteDatastoreActor.openConfiguredLocalRepository(
@@ -247,6 +252,80 @@ struct WorkspaceDrawerPresentationPersistenceTests {
         #expect(noKeyCapture == .noLegacyValue)
         #expect(try databases.storedRatio(workspaceId: workspaceId, ownerPaneId: paneA.id) == 0.7)
         #expect(try databases.storedOwnerPaneIds(workspaceId: workspaceId) == [paneA.id, paneB.id])
+    }
+
+    @Test("a retried legacy import reaches only owners created before the first attempt's cutoff")
+    func retriedLegacyImportSkipsOwnersCreatedAfterCutoff() async throws {
+        // Arrange: a populated pre-upgrade database with a v7 owner and an
+        // owner whose id predates UUIDv7, plus a legacy global height.
+        let databases = try DrawerPresentationDatabases()
+        defer { databases.remove() }
+        let preUpgradeStore = try await databases.bootStore()
+        let oldOwner = appendPreUpgradeTabbedPane(to: preUpgradeStore)
+        // Historical ids of any UUID version stay valid pane identities.
+        let historicalOwner = appendTabbedPane(withId: UUID(), to: preUpgradeStore)
+        #expect(await preUpgradeStore.flushAsync() == .persisted)
+        try databases.rewindLocalSchemaBeforeDrawerPresentation()
+        let workspaceId = preUpgradeStore.identityAtom.workspaceId
+        let legacyValue = LegacyHeightValueBox(value: 0.45)
+        let configuration = WorkspaceSQLiteDatastoreConfiguration(
+            coreDatabaseURL: databases.coreDatabaseURL,
+            localDatabaseURL: databases.localDatabaseURL,
+            legacyDrawerPresentationSource: legacyValue.source
+        )
+
+        // Act 1: the upgrade boot's owner capture fails.
+        let failedCapture = LegacyDrawerPresentationImportCapture.capture(
+            source: legacyValue.source,
+            now: Date(),
+            enumerateOwners: { throw CocoaError(.fileReadUnknown) }
+        )
+        _ = try WorkspaceSQLiteDatastoreActor.openConfiguredLocalRepository(
+            workspaceId: UUIDv7.generate(),
+            configuration: configuration,
+            legacyDrawerPresentationCapture: failedCapture
+        )
+
+        // Assert 1: the cutoff is recorded next to the still-pending key.
+        #expect(failedCapture == .ownerEnumerationFailed)
+        #expect(legacyValue.value == 0.45)
+        let recordedCutoff = try #require(legacyValue.importCutoff)
+
+        // Act 2: a retry an hour later fails again.
+        let failedRetry = LegacyDrawerPresentationImportCapture.capture(
+            source: legacyValue.source,
+            now: Date(timeIntervalSinceNow: 3600),
+            enumerateOwners: { throw CocoaError(.fileReadUnknown) }
+        )
+
+        // Assert 2: the retry does not move the cutoff.
+        #expect(failedRetry == .ownerEnumerationFailed)
+        #expect(legacyValue.importCutoff == recordedCutoff)
+
+        // Act 3: the app runs, creates a pane through production creation, and
+        // saves it ordinarily; then the next boot imports successfully.
+        let runningStore = try await databases.bootStore()
+        let newOwner = appendTabbedPane(to: runningStore)
+        #expect(await runningStore.flushAsync() == .persisted)
+        let restored = try await databases.bootStore(legacySource: legacyValue.source)
+
+        // Assert 3: owners created before the cutoff get the legacy height; the
+        // new owner keeps its default; the key and the cutoff are cleared together.
+        #expect(
+            restored.paneAtom.drawerPresentationPreference(forOwner: oldOwner.id)
+                == DrawerPresentationPreference(normalHeightRatio: 0.45, zoomSide: .terminal)
+        )
+        #expect(
+            restored.paneAtom.drawerPresentationPreference(forOwner: historicalOwner.id)
+                == DrawerPresentationPreference(normalHeightRatio: 0.45, zoomSide: .terminal)
+        )
+        #expect(
+            restored.paneAtom.drawerPresentationPreference(forOwner: newOwner.id)
+                == DrawerPresentationPreference(normalHeightRatio: 0.8, zoomSide: .terminal)
+        )
+        #expect(try databases.storedRatio(workspaceId: workspaceId, ownerPaneId: newOwner.id) == nil)
+        #expect(legacyValue.value == nil)
+        #expect(legacyValue.importCutoff == nil)
     }
 
     @Test("unknown side and non-finite ratio fall back to each field's default")
@@ -277,6 +356,19 @@ struct WorkspaceDrawerPresentationPersistenceTests {
 
     private func appendTabbedPane(to store: WorkspaceStore) -> Pane {
         let pane = store.createPane()
+        store.appendTab(Tab(paneId: pane.id))
+        return pane
+    }
+
+    /// An owner that existed before the upgrade: its UUIDv7 id was minted an
+    /// hour before the upgrade boot records the import cutoff.
+    private func appendPreUpgradeTabbedPane(to store: WorkspaceStore) -> Pane {
+        appendTabbedPane(withId: UUIDv7.generate(timestamp: Date(timeIntervalSinceNow: -3600)), to: store)
+    }
+
+    private func appendTabbedPane(withId paneId: UUID, to store: WorkspaceStore) -> Pane {
+        let pane = makePane(id: paneId, launchDirectory: FileManager.default.temporaryDirectory)
+        store.paneAtom.addPane(pane)
         store.appendTab(Tab(paneId: pane.id))
         return pane
     }
@@ -378,10 +470,12 @@ private enum DrawerPresentationTestFailure: Error {
     case loadFailed(String)
 }
 
-/// Stand-in for the retired defaults key, so tests never touch a real defaults domain.
+/// Stand-in for the retired defaults key and its import cutoff, so tests never
+/// touch a real defaults domain.
 private final class LegacyHeightValueBox: @unchecked Sendable {
     private let lock = NSLock()
     private var storedValue: Double?
+    private var storedImportCutoff: Date?
 
     init(value: Double?) {
         storedValue = value
@@ -391,10 +485,21 @@ private final class LegacyHeightValueBox: @unchecked Sendable {
         lock.withLock { storedValue }
     }
 
+    var importCutoff: Date? {
+        lock.withLock { storedImportCutoff }
+    }
+
     var source: LegacyDrawerPresentationSource {
         LegacyDrawerPresentationSource(
             readHeightRatio: { [self] in lock.withLock { storedValue } },
-            clear: { [self] in lock.withLock { storedValue = nil } }
+            readImportCutoff: { [self] in lock.withLock { storedImportCutoff } },
+            writeImportCutoff: { [self] importCutoff in lock.withLock { storedImportCutoff = importCutoff } },
+            clear: { [self] in
+                lock.withLock {
+                    storedValue = nil
+                    storedImportCutoff = nil
+                }
+            }
         )
     }
 }
