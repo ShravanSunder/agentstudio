@@ -68,7 +68,7 @@ package final class CommandBarPanelController {
     private let interactionProbe: AgentStudioInteractionPerformanceProbe?
     private let animatePanelDismissal: Bool
     let worktreeForkEligibility: (any WorktreeForkEligibilityChecking)?
-    var forkEligibilityQueriesBySourceWorktreeId: [UUID: Task<Void, Never>] = [:]
+    var forkEligibilityQueriesBySourceWorktreeId: [UUID: InFlightForkEligibilityQuery] = [:]
     var pendingWorktreeCreation: Task<Void, Never>?
     private let resultSession: CommandBarResultSession
     private var activationGenerationGate = CommandBarActivationGenerationGate()

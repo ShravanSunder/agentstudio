@@ -1,29 +1,46 @@
 import AgentStudioCore
+import AgentStudioInfrastructure
 import Foundation
 
+/// One in-flight fork-eligibility query, owned by the bar session that issued it. A query
+/// from an earlier session never answers, or stands in for, a query of the current one.
+struct InFlightForkEligibilityQuery {
+    let rootSessionGeneration: Int
+    let token: UUID
+    let task: Task<Void, Never>
+}
+
 extension CommandBarPanelController {
-    /// Asks the fork-eligibility port about a text-entry level's source once, off the main
-    /// actor, and records the answer as bar-local state. The row shows Fork while pending.
+    /// Asks the fork-eligibility port about a text-entry level's source once per bar session,
+    /// off the main actor, and records the answer as bar-local state. The row shows Fork
+    /// while pending.
     @discardableResult
     func requestForkEligibilityIfNeeded(for level: CommandBarLevel) -> Task<Void, Never>? {
         guard
             let query = level.textEntry?.forkEligibilityQuery,
             let worktreeForkEligibility,
             state.forkEligibilityBySourceWorktreeId[query.sourceWorktreeId] == nil,
-            forkEligibilityQueriesBySourceWorktreeId[query.sourceWorktreeId] == nil
+            currentSessionForkEligibilityQuery(for: query.sourceWorktreeId) == nil
         else { return nil }
         let rootSessionGeneration = state.rootSessionGeneration
+        let token = UUIDv7.generate()
         let queryTask = Task { @MainActor [weak self] in
             let eligibility = await worktreeForkEligibility.forkEligibility(
                 sourceWorktreePath: query.sourceWorktreePath,
                 destinationDirectory: query.destinationDirectory
             )
             guard let self else { return }
-            self.forkEligibilityQueriesBySourceWorktreeId.removeValue(forKey: query.sourceWorktreeId)
+            if self.forkEligibilityQueriesBySourceWorktreeId[query.sourceWorktreeId]?.token == token {
+                self.forkEligibilityQueriesBySourceWorktreeId.removeValue(forKey: query.sourceWorktreeId)
+            }
             guard self.state.rootSessionGeneration == rootSessionGeneration else { return }
             self.state.recordForkEligibility(eligibility, forSourceWorktreeId: query.sourceWorktreeId)
         }
-        forkEligibilityQueriesBySourceWorktreeId[query.sourceWorktreeId] = queryTask
+        forkEligibilityQueriesBySourceWorktreeId[query.sourceWorktreeId] = InFlightForkEligibilityQuery(
+            rootSessionGeneration: rootSessionGeneration,
+            token: token,
+            task: queryTask
+        )
         return queryTask
     }
 
@@ -37,11 +54,11 @@ extension CommandBarPanelController {
     ) {
         guard
             CommandBarWorktreeCreationResolver.resolve(draft: draft, modifier: modifier) == .awaitingForkEligibility,
-            let query = forkEligibilityQueriesBySourceWorktreeId[draft.sourceWorktreeId]
+            let query = currentSessionForkEligibilityQuery(for: draft.sourceWorktreeId)
         else { return }
         let rootSessionGeneration = state.rootSessionGeneration
         pendingWorktreeCreation = Task { @MainActor [weak self] in
-            await query.value
+            await query.task.value
             guard
                 let self,
                 self.state.rootSessionGeneration == rootSessionGeneration,
@@ -54,5 +71,13 @@ extension CommandBarPanelController {
             )
             self.executeItem(answeredItem, modifier: modifier)
         }
+    }
+
+    private func currentSessionForkEligibilityQuery(for sourceWorktreeId: UUID) -> InFlightForkEligibilityQuery? {
+        guard
+            let query = forkEligibilityQueriesBySourceWorktreeId[sourceWorktreeId],
+            query.rootSessionGeneration == state.rootSessionGeneration
+        else { return nil }
+        return query
     }
 }

@@ -293,6 +293,33 @@ struct CommandBarWorktreeCreationTests {
         #expect(dispatcher.worktreeCreationDispatches.map(\.kind) == [expectedKind])
     }
 
+    @Test("an eligibility query from a dismissed bar neither answers nor blocks the reopened bar's query")
+    func reopenedBarIssuesItsOwnEligibilityQuery() async throws {
+        // Arrange
+        let fixture = Self.makeFixture()
+        let dispatcher = FakeAppCommandDispatcher()
+        let checker = SequencedForkEligibilityChecker()
+        let controller = Self.makeController(
+            store: fixture.store, dispatcher: dispatcher, worktreeForkEligibility: checker)
+        try Self.openBranchLevel(controller: controller, store: fixture.store, source: fixture.worktree)
+        await checker.awaitQueries(count: 1)
+        controller.dismiss()
+        try Self.openBranchLevel(controller: controller, store: fixture.store, source: fixture.worktree)
+        controller.state.rawInput = "feature/reopened"
+        let pendingRow = try #require(
+            Self.snapshot(controller: controller, store: fixture.store, dispatcher: dispatcher).displayedItems.first)
+
+        // Act: Return waits; the dismissed session's answer arrives first, then the reopened one's.
+        controller.executeItem(pendingRow, modifier: .plain)
+        await checker.answerQuery(at: 0, with: .available)
+        await checker.answerQuery(at: 1, with: .unavailable(reason: "the volume cannot clone files"))
+        await controller.pendingWorktreeCreation?.value
+
+        // Assert: the reopened bar asked again, and only its answer (unavailable) chose the command.
+        #expect(await checker.arrivedQueryCount == 2)
+        #expect(dispatcher.worktreeCreationDispatches.map(\.kind) == [.cleanCheckout])
+    }
+
     // MARK: - Fixtures
 
     private static func makeFixture() -> (store: WorkspaceStore, worktree: Worktree) {
@@ -410,5 +437,44 @@ private actor GatedForkEligibilityChecker: WorktreeForkEligibilityChecking {
         } else {
             releasedAnswer = eligibility
         }
+    }
+}
+
+/// Numbers eligibility queries in arrival order and parks each until the test answers it
+/// by number; an answer given before its query arrives is kept and returned on arrival.
+/// Lets a test hold queries from different bar sessions and answer them in a chosen order.
+private actor SequencedForkEligibilityChecker: WorktreeForkEligibilityChecking {
+    private(set) var arrivedQueryCount = 0
+    private var parkedQueriesByIndex: [Int: CheckedContinuation<WorktreeForkEligibility, Never>] = [:]
+    private var earlyAnswersByIndex: [Int: WorktreeForkEligibility] = [:]
+    private var arrivalWaiters: [(count: Int, continuation: CheckedContinuation<Void, Never>)] = []
+
+    func forkEligibility(sourceWorktreePath _: URL, destinationDirectory _: URL) async -> WorktreeForkEligibility {
+        let index = arrivedQueryCount
+        arrivedQueryCount += 1
+        resumeArrivalWaiters()
+        if let earlyAnswer = earlyAnswersByIndex.removeValue(forKey: index) {
+            return earlyAnswer
+        }
+        return await withCheckedContinuation { parkedQueriesByIndex[index] = $0 }
+    }
+
+    func awaitQueries(count: Int) async {
+        guard arrivedQueryCount < count else { return }
+        await withCheckedContinuation { arrivalWaiters.append((count, $0)) }
+    }
+
+    func answerQuery(at index: Int, with eligibility: WorktreeForkEligibility) {
+        if let parkedQuery = parkedQueriesByIndex.removeValue(forKey: index) {
+            parkedQuery.resume(returning: eligibility)
+        } else {
+            earlyAnswersByIndex[index] = eligibility
+        }
+    }
+
+    private func resumeArrivalWaiters() {
+        let arrived = arrivalWaiters.filter { $0.count <= arrivedQueryCount }
+        arrivalWaiters.removeAll { $0.count <= arrivedQueryCount }
+        arrived.forEach { $0.continuation.resume() }
     }
 }
