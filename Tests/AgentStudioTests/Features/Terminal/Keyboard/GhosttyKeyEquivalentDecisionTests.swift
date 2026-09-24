@@ -12,6 +12,14 @@ struct GhosttyKeyEquivalentDecisionTests {
         var testDescription: String { name }
     }
 
+    struct CommandEventRedispatchCase: CustomTestStringConvertible, Sendable {
+        let name: String
+        let lastPerformKeyEvent: TimeInterval?
+        let currentEventTimestamp: TimeInterval?
+        let shouldRedispatch: Bool
+        var testDescription: String { name }
+    }
+
     static let cases: [DecisionCase] = [
         .init(
             name: "Ghostty binding handles before timestamp routing",
@@ -207,9 +215,46 @@ struct GhosttyKeyEquivalentDecisionTests {
         ),
     ]
 
+    static let commandEventRedispatchCases: [CommandEventRedispatchCase] = [
+        .init(
+            name: "matching key equivalent timestamp redispatches",
+            lastPerformKeyEvent: 4,
+            currentEventTimestamp: 4,
+            shouldRedispatch: true
+        ),
+        .init(
+            name: "mismatched current event does not redispatch",
+            lastPerformKeyEvent: 4,
+            currentEventTimestamp: 5,
+            shouldRedispatch: false
+        ),
+        .init(
+            name: "missing prior timestamp does not redispatch",
+            lastPerformKeyEvent: nil,
+            currentEventTimestamp: 4,
+            shouldRedispatch: false
+        ),
+        .init(
+            name: "missing current event does not redispatch",
+            lastPerformKeyEvent: 4,
+            currentEventTimestamp: nil,
+            shouldRedispatch: false
+        ),
+    ]
+
     @Test("key equivalents follow Ghostty binding and timestamp routing", arguments: cases)
     func decisionMatchesUpstream(testCase: DecisionCase) {
         #expect(ghosttyKeyEquivalentDecision(for: testCase.input) == testCase.expected)
+    }
+
+    @Test("doCommand redispatches only the matching performKeyEquivalent event", arguments: commandEventRedispatchCases)
+    func commandEventRedispatchDecision(testCase: CommandEventRedispatchCase) {
+        #expect(
+            ghosttyShouldRedispatchCommandEvent(
+                lastPerformKeyEvent: testCase.lastPerformKeyEvent,
+                currentEventTimestamp: testCase.currentEventTimestamp
+            ) == testCase.shouldRedispatch
+        )
     }
 
     @Test("Ghostty binding text keeps raw event characters")

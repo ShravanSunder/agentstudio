@@ -248,6 +248,16 @@ func ghosttyKeyEquivalentDecision(for input: GhosttyKeyEquivalentInput) -> Ghost
     return .rememberTimestamp(input.timestamp)
 }
 
+/// AppKit can redirect a key equivalent through `doCommand`; only the exact
+/// timestamp saved by `performKeyEquivalent` belongs back in the event stream.
+func ghosttyShouldRedispatchCommandEvent(
+    lastPerformKeyEvent: TimeInterval?,
+    currentEventTimestamp: TimeInterval?
+) -> Bool {
+    guard let lastPerformKeyEvent, let currentEventTimestamp else { return false }
+    return lastPerformKeyEvent == currentEventTimestamp
+}
+
 // MARK: - Mouse Button Mapping
 
 /// Maps macOS mouse button number to Ghostty button

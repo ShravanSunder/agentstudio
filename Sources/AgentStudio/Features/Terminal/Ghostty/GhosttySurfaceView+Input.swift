@@ -282,7 +282,18 @@ extension Ghostty.SurfaceView {
         }
     }
 
-    package override func doCommand(by selector: Selector) {}
+    package override func doCommand(by selector: Selector) {
+        guard let currentEvent = NSApp.currentEvent,
+            ghosttyShouldRedispatchCommandEvent(
+                lastPerformKeyEvent: lastPerformKeyEvent,
+                currentEventTimestamp: currentEvent.timestamp
+            )
+        else {
+            return
+        }
+
+        NSApp.sendEvent(currentEvent)
+    }
 
     private func ghosttyKeyBindingMatches(_ event: NSEvent) -> Bool {
         guard let surface else { return false }
