@@ -625,7 +625,8 @@ struct RepoScannerClassificationTests {
 ///
 /// This duplicates `runProcessToExit` in AgentStudioTestSupport because
 /// AgentStudioInfrastructureTests must not depend on TestSupport
-/// (testing_architecture.md, Test target ownership).
+/// (testing_architecture.md, Test target ownership). Move both into
+/// AgentStudioTestHarness, which Infrastructure tests may use.
 private func runFixtureGitToExit(arguments: [String]) async throws -> FixtureGitResult {
     let captureDirectory = try FileManager.default.url(
         for: .itemReplacementDirectory,
