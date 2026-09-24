@@ -78,13 +78,30 @@ enum ArchitectureAllowlists {
                 + "timeouts and assert the terminate-then-kill path"
         ),
         ElapsedTimeBudgetOwner(
-            path: "Tests/AgentStudioTests/Helpers/ZmxTestHarness.swift",
-            owner: "ZmxBackend command retry path",
-            reason:
-                "The 0.5 s per-call timeout feeds ZmxBackend's retry policy on the opt-in zmx lane, which is "
-                + "not a pull-request gate; it is the product retry path, not a test verdict budget"
+            path: "Tests/AgentStudioTests/App/Panes/TabBarAdapterMaterializationTestSupport.swift",
+            owner: "TabBar projection gate",
+            reason: projectionGateOnPoolReason
+        ),
+        ElapsedTimeBudgetOwner(
+            path: "Tests/AgentStudioTests/App/Windows/MainWindowControllerPresentationFactsTests.swift",
+            owner: "presentation-facts TabBar projection gate",
+            reason: projectionGateOnPoolReason
+        ),
+        ElapsedTimeBudgetOwner(
+            path: "Tests/AgentStudioTests/Infrastructure/AtomLib/EagerDerivedAtomTestSupport.swift",
+            owner: "EagerDerivedAtom projection gate",
+            reason: projectionGateOnPoolReason
         ),
     ]
+
+    /// Why the projection gates keep their deadlines for now. The fix is a
+    /// production seam, not a test change, so it is recorded here rather than
+    /// frozen as debt the tests could pay down.
+    private static let projectionGateOnPoolReason =
+        "The gate's hold runs on a cooperative-pool thread inside EagerDerivedAtom's detached projection task, "
+        + "so removing the deadline turns latent pool starvation into deadlock on a three-core runner. The fix "
+        + "is a production derivation-executor seam for EagerDerivedAtom; HeldStep does not fix it because "
+        + "arriveBlocking must not run on the pool either"
 
     static let rawRepoCacheMembers = Set([
         "repoEnrichmentByRepoId",
