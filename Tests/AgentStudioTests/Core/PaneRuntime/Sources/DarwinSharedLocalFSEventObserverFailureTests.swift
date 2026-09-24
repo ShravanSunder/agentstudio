@@ -638,11 +638,14 @@ private final class RootChangeDuringFlushLocalFSEventStreamFactory: @unchecked S
                     ])
                     callbackCompleted.signal()
                 }
-                let didComplete = callbackCompleted.wait(timeout: .now() + 1) == .success
+                // Untimed: if flush held a lock the event handler needs, this deadlocks and
+                // the lane's hang bound reports it; a deadline here would also fail correct
+                // code whenever the callback queue ran late.
+                callbackCompleted.wait()
                 self.lock.withLock {
-                    self.callbackCompletedDuringFlush = didComplete
+                    self.callbackCompletedDuringFlush = true
                 }
-                return didComplete
+                return true
             }
         )
     }
