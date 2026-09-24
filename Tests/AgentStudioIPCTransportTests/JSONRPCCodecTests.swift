@@ -1,5 +1,4 @@
 import AgentStudioIPCTransport
-import Dispatch
 import Foundation
 import Testing
 
@@ -65,13 +64,13 @@ struct JSONRPCCodecTests {
     }
 
     @Test("rejects the rounded numeric upper boundary without crashing a decoder subprocess")
-    func rejectsRoundedNumericUpperBoundaryWithoutCrashingDecoderSubprocess() throws {
+    func rejectsRoundedNumericUpperBoundaryWithoutCrashingDecoderSubprocess() async throws {
         guard ProcessInfo.processInfo.environment["AGENTSTUDIO_JSONRPC_CODEC_UPPER_BOUNDARY_PROBE"] == nil else {
             return
         }
         let payload = #"{"jsonrpc":"2.0","id":9223372036854775808,"method":"system.identify","params":{}}"#
 
-        let result = try decodeRequestInChildProcess(payload)
+        let result = try await decodeRequestInChildProcess(payload)
 
         #expect(result.standardError.contains("jsonrpc-upper-boundary-probe"))
         #expect(result.terminationReason == .exit)
@@ -200,12 +199,26 @@ private struct DecoderChildProcessResult {
     let standardError: String
 }
 
-private func decodeRequestInChildProcess(_ payload: String) throws -> DecoderChildProcessResult {
+/// Runs the probe in a child test process and suspends until it exits, with no time limit: the
+/// verdict is the child's exit and stderr, never how fast a loaded runner schedules it. The exit
+/// arrives through `terminationHandler`, so no thread is parked, and stderr goes to a file so a
+/// crash report cannot fill a pipe the parent only reads after exit. This target cannot see
+/// `AgentStudioTestSupport`, so the wait is local.
+private func decodeRequestInChildProcess(_ payload: String) async throws -> DecoderChildProcessResult {
     let process = Process()
-    let completion = DispatchSemaphore(value: 0)
-    let standardError = Pipe()
     let testExecutableURL = try currentTestExecutableURL()
     let buildDirectory = try #require(ProcessInfo.processInfo.environment["SWIFT_BUILD_DIR"])
+    let captureDirectory = try FileManager.default.url(
+        for: .itemReplacementDirectory,
+        in: .userDomainMask,
+        appropriateFor: FileManager.default.temporaryDirectory,
+        create: true
+    )
+    defer { try? FileManager.default.removeItem(at: captureDirectory) }
+    let standardErrorURL = captureDirectory.appending(path: "stderr")
+    FileManager.default.createFile(atPath: standardErrorURL.path, contents: nil)
+    let standardErrorHandle = try FileHandle(forWritingTo: standardErrorURL)
+    defer { try? standardErrorHandle.close() }
     process.executableURL = try currentSwiftPMTestingHelperURL()
     process.arguments = [
         "--test-bundle-path", testExecutableURL.path,
@@ -215,25 +228,27 @@ private func decodeRequestInChildProcess(_ payload: String) throws -> DecoderChi
         testExecutableURL.path,
         "--testing-library", "swift-testing",
     ]
-    process.standardError = standardError
+    process.standardError = standardErrorHandle
     process.environment = ProcessInfo.processInfo.environment.merging(
         ["AGENTSTUDIO_JSONRPC_CODEC_UPPER_BOUNDARY_PROBE": "1"]
     ) { _, newValue in newValue }
-    process.terminationHandler = { _ in completion.signal() }
-    try process.run()
-    guard completion.wait(timeout: .now() + 10) == .success else {
-        process.terminate()
-        process.waitUntilExit()
-        throw JSONRPCCodecChildProcessError.timedOut
+    typealias ChildExit = (status: Int32, reason: Process.TerminationReason)
+    let childExit: ChildExit = try await withCheckedThrowingContinuation { continuation in
+        process.terminationHandler = { exitedProcess in
+            continuation.resume(
+                returning: (status: exitedProcess.terminationStatus, reason: exitedProcess.terminationReason))
+        }
+        do {
+            try process.run()
+        } catch {
+            process.terminationHandler = nil
+            continuation.resume(throwing: error)
+        }
     }
-    process.waitUntilExit()
     return .init(
-        exitStatus: process.terminationStatus,
-        terminationReason: process.terminationReason,
-        standardError: String(
-            data: standardError.fileHandleForReading.readDataToEndOfFile(),
-            encoding: .utf8
-        ) ?? ""
+        exitStatus: childExit.status,
+        terminationReason: childExit.reason,
+        standardError: String(data: try Data(contentsOf: standardErrorURL), encoding: .utf8) ?? ""
     )
 }
 
@@ -241,7 +256,6 @@ private enum JSONRPCCodecChildProcessError: Error {
     case swiftToolchainLookupFailed
     case testExecutableUnavailable
     case testingHelperUnavailable
-    case timedOut
 }
 
 private func currentSwiftPMTestingHelperURL() throws -> URL {

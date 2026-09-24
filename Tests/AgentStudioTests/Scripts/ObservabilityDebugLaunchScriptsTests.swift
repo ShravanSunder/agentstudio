@@ -598,8 +598,7 @@ struct ObservabilityDebugLaunchScriptVerifierTests {
             buildExecutable: buildPath.appending(path: "debug/AgentStudio"),
             hostileDataRoot: hostileDataRoot
         )
-        try await fixture.waitForFile(fixture.url("launched-env"), containing: "ipc_escrow=1")
-        let launchedEnv = try String(contentsOf: fixture.url("launched-env"), encoding: .utf8)
+        let launchedEnv = try await fixture.waitForFile(fixture.url("launched-env"), containing: "ipc_escrow=1")
         try expectDirectExecutableFallbackLaunchEnvironment(launchedEnv, hostileDataRoot: hostileDataRoot)
         #expect(!FileManager.default.fileExists(atPath: fixture.url("leaked-env").path))
     }

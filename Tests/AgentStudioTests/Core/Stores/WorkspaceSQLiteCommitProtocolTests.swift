@@ -487,11 +487,15 @@ private final class AuthoritativeReadBarrier: @unchecked Sendable {
     /// Returns `true` once the reader is paused at the barrier, `false` if the read
     /// finished without reaching it.
     func waitUntilReaderIsPaused() -> Bool {
-        readerPausedOrFinished.wait()
+        waitForSemaphore(readerPausedOrFinished)
         return lock.withLock { hasPaused }
     }
 
     func resumeReader() {
         readerResume.signal()
     }
+}
+
+private func waitForSemaphore(_ semaphore: DispatchSemaphore) {
+    semaphore.wait()
 }

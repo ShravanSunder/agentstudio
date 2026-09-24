@@ -156,14 +156,15 @@ struct LauncherScriptFixture {
         return String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
     }
 
-    /// Waits until `url` exists and contains `expectedContent`, with no deadline.
+    /// Waits until `url` exists and contains `expectedContent`, with no deadline, and returns
+    /// the contents that satisfied the wait.
     ///
     /// The detached child writes the file whenever it gets scheduled, so the wait
     /// completes on the filesystem event that makes the condition true; the lane's
     /// hang bound is the only elapsed-time bound on it. Each turn arms a watch on
     /// the file, or on its directory while the file does not exist yet, before it
     /// checks the condition, so a write between the check and the wait still wakes it.
-    func waitForFile(_ url: URL, containing expectedContent: String) async throws {
+    func waitForFile(_ url: URL, containing expectedContent: String) async throws -> String {
         try await withoutBlockingCooperativePool {
             while true {
                 let watchedURL =
@@ -189,14 +190,14 @@ struct LauncherScriptFixture {
                 source.resume()
 
                 let contents = try? String(contentsOf: url, encoding: .utf8)
-                let conditionHolds = contents?.contains(expectedContent) == true
-                if !conditionHolds {
+                let satisfyingContents = contents.flatMap { $0.contains(expectedContent) ? $0 : nil }
+                if satisfyingContents == nil {
                     changeSignal.wait()
                 }
                 source.cancel()
                 cancelSignal.wait()
-                if conditionHolds {
-                    return
+                if let satisfyingContents {
+                    return satisfyingContents
                 }
             }
         }
