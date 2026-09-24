@@ -139,6 +139,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     var isTraceIdentityCaptureInProgress = false
     var traceIdentityFleetCaptureCount: UInt64 = 0
     private var terminationDrainTask: Task<Void, Never>?
+    /// Ends the process once a cancelled termination has been finished.
+    /// Replaced in tests so the cancelled-quit path can be observed.
+    var exitProcess: @MainActor (Int32) -> Void = { status in exit(status) }
     var launchRestoreObservationTask: Task<Void, Never>?
     var windowRestoreBridge: WindowRestoreBridge?
     let launchRestoreObservationState = AppDelegateLaunchRestoreObservationState()
@@ -305,17 +308,31 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                     }
                     await self?.waitForRepositoryFactUpdatesToSettle()
                 },
-                reply: { outcome in
+                reply: { [weak self] outcome in
                     if outcome == .timedOut {
                         appLogger.warning(
                             "Termination drain exceeded its deadline; replying to AppKit without it"
                         )
                     }
-                    sender.reply(toApplicationShouldTerminate: true)
+                    replyToTerminationFinishingIfCancelled(
+                        reply: { sender.reply(toApplicationShouldTerminate: true) },
+                        finishCancelledTermination: { self?.finishTerminationCancelledAfterDrain() }
+                    )
                 }
             )
         }
         return .terminateLater
+    }
+
+    /// The drain has already stopped the executor, window controller, and
+    /// surface coordinator, so a quit AppKit cancelled afterwards cannot
+    /// resume the app. Finish it: run the synchronous will-terminate work,
+    /// forget the drain so nothing waits on it, and exit. State is flushed.
+    func finishTerminationCancelledAfterDrain() {
+        appLogger.error("AppKit cancelled termination after the drain; finishing the quit")
+        terminationDrainTask = nil
+        applicationWillTerminate(Notification(name: NSApplication.willTerminateNotification))
+        exitProcess(EXIT_SUCCESS)
     }
 
     func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool {
