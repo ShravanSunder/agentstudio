@@ -373,7 +373,7 @@ answers "inside" for that receiver, and eligibility per command is declared in
 | `addBridgeWorktree` (new) | Add a known worktree to this receiver only | B1 | own pane |
 | `activateBridgeFile` (new) | Show a document in the receiving collection, or return to Files | B1 | not yet allowed (human) |
 | `activateBridgeReview` (new) | Show an explicit known-worktree comparison and optional file | B1 | not yet allowed (human) |
-| `selectBridgeWorktree` (new) | Select a member for Review; an explicit Files variant only narrows its filter | B1 | not yet allowed (human) |
+| `selectBridgeWorktree` (new) | Select a member for Review. A persistent Files filter is optional (R2, C7) and is not built in B1: narrowing Files goes through `searchBridgeFiles`' explicit scope (C2), and inspection reports no Files filter | B1 | not yet allowed (human) |
 | `removeBridgeWorktree` (new) | Remove a nonprotected member, clear its selected file, apply Review fallback | B1 | not yet allowed (human) |
 | `closeBridgeFile` (new) | Remove an open inventory entry; protect draft if active | B1 | not yet allowed (human) |
 | `openTerminalFileLink` (new) | ⌘-click route: resolve a clicked path and show it in that terminal's receiver | B2 | not yet allowed (human) |
