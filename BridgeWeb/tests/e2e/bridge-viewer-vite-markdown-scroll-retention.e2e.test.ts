@@ -1,5 +1,5 @@
 import { chromium, type Browser, type Page } from 'playwright';
-import { expect, test } from 'vitest';
+import { expect, onTestFailed, test } from 'vitest';
 
 import { runAllOwnedCleanupOperations } from '../../scripts/dev-server/bridge-development-server-process.ts';
 import {
@@ -27,10 +27,22 @@ test.each(['mode round-trip', 'content refresh'] as const)(
 		let server: BridgeViewerOwnedViteProductServer | null = null;
 		let diagnostics: BrowserRuntimeDiagnostics | null = null;
 		let primaryFailure: { readonly error: unknown } | null = null;
+		let journeyPage: Page | null = null;
+		// The runner's hang bound is this journey's only clock. When it fires,
+		// name the readiness condition the journey was still waiting on.
+		onTestFailed(async (): Promise<void> => {
+			const waitingOn = await journeyPage
+				?.evaluate((): unknown => window.bridgeGuideRevisionWait ?? null)
+				.catch((error: unknown): string => `page unavailable: ${String(error)}`);
+			console.error(
+				`Markdown ${transition} scroll retention was waiting on ${JSON.stringify(waitingOn ?? null)}. Browser: ${await diagnostics?.describe()}`,
+			);
+		});
 		try {
 			server = await startBridgeViewerOwnedViteProductServer(fixture.oracle);
 			browser = await chromium.launch({ channel: 'chrome', headless: true });
 			const page = await browser.newPage({ viewport: { width: 1728, height: 980 } });
+			journeyPage = page;
 			// The vitest hang bound is the only clock this journey is allowed.
 			page.setDefaultTimeout(0);
 			page.setDefaultNavigationTimeout(0);
@@ -141,13 +153,37 @@ async function waitForGuideRevision(
 	await page.waitForFunction(guideRevisionIsReady, expectation);
 }
 
+declare global {
+	interface Window {
+		bridgeGuideRevisionWait?: {
+			readonly expectation: GuideRevisionExpectation;
+			readonly hostActive: string | null;
+			readonly mermaidStates: readonly (string | null)[];
+			readonly revisionTextPresent: boolean;
+			readonly sourcePath: string | null;
+		};
+	}
+}
+
 function guideRevisionIsReady(expectation: GuideRevisionExpectation): boolean {
 	const host = document.querySelector('[data-testid="bridge-viewer-mode-host-file"]');
 	const article = host?.querySelector('[data-testid="bridge-markdown-canvas"]');
+	const revisionTextPresent =
+		article?.textContent?.includes(`Document revision ${expectation.revision}.`) ?? false;
+	// Record the last observation so a hang names the unmet part.
+	window.bridgeGuideRevisionWait = {
+		expectation,
+		hostActive: host?.getAttribute('data-bridge-viewer-mode-active') ?? null,
+		mermaidStates: [...(article?.querySelectorAll('[data-bridge-mermaid-state]') ?? [])].map(
+			(placeholder): string | null => placeholder.getAttribute('data-bridge-mermaid-state'),
+		),
+		revisionTextPresent,
+		sourcePath: article?.getAttribute('data-bridge-markdown-source-path') ?? null,
+	};
 	return (
 		host?.getAttribute('data-bridge-viewer-mode-active') === 'true' &&
 		article?.getAttribute('data-bridge-markdown-source-path') === expectation.sourcePath &&
-		(article.textContent?.includes(`Document revision ${expectation.revision}.`) ?? false) &&
+		revisionTextPresent &&
 		article.querySelector('[data-bridge-mermaid-state="ready"] svg') !== null
 	);
 }

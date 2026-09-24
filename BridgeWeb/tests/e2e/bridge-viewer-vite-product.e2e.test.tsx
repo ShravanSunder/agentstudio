@@ -269,7 +269,8 @@ describe('Bridge Viewer dedicated Vite product E2E', () => {
 			).toBe(true);
 			expect(deepScrollObservation.paintedCorrelations).toEqual([
 				expect.objectContaining({
-					descriptorId: expect.stringMatching(/^file-content-[0-9a-f]{32}$/u),
+					// A collection member namespaces its descriptors with its identity prefix.
+					descriptorId: expect.stringMatching(/^m[0-9a-f]{12}\.file-content-[0-9a-f]{32}$/u),
 					disposition: 'painted',
 					itemId: deepScrollObservation.renderedItemId,
 					observedSha256: oracle.largeFileSha256,
@@ -337,13 +338,19 @@ describe('Bridge Viewer dedicated Vite product E2E', () => {
 					expectedSha256: mutatedContent.sha256,
 				}),
 			);
-			const initialRootRevisionToken = readFileDescriptorRootRevisionToken(
+			// A Files collection spans member roots, so its descriptors carry the
+			// collection's identity rather than one root revision.
+			const initialCollectionToken = readFileDescriptorSourceField(
 				initialRequest?.descriptor,
+				'collectionToken',
 			);
-			expect(initialRootRevisionToken).toEqual(expect.stringMatching(/\S/u));
-			expect(readFileDescriptorRootRevisionToken(replacementRequest?.descriptor)).toBe(
-				initialRootRevisionToken,
+			expect(initialCollectionToken).toEqual(expect.stringMatching(/\S/u));
+			expect(readFileDescriptorSourceField(replacementRequest?.descriptor, 'collectionToken')).toBe(
+				initialCollectionToken,
 			);
+			expect(
+				readFileDescriptorSourceField(initialRequest?.descriptor, 'rootRevisionToken'),
+			).toBeNull();
 		} catch (error: unknown) {
 			primaryFailure = { error };
 		} finally {
@@ -848,13 +855,12 @@ async function waitForReviewDirectoryDisclosure(props: {
 	);
 }
 
-function readFileDescriptorRootRevisionToken(
+function readFileDescriptorSourceField(
 	descriptor: Readonly<Record<string, unknown>> | undefined,
+	field: 'collectionToken' | 'rootRevisionToken',
 ): string | null {
 	const source = descriptor?.['source'];
-	return isUnknownRecord(source) && typeof source['rootRevisionToken'] === 'string'
-		? source['rootRevisionToken']
-		: null;
+	return isUnknownRecord(source) && typeof source[field] === 'string' ? source[field] : null;
 }
 
 async function selectReviewFileAndReadObservation(props: {

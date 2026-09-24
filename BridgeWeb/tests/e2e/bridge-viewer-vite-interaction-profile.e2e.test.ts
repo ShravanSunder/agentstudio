@@ -138,11 +138,24 @@ test('profiles repeated mode switches, Open in Files, Markdown and Mermaid throu
 						path: markdownPath,
 					},
 					async (): Promise<void> => {
-						await fileHost
-							.locator(
-								`[data-item-path="${bridgeViewerViteFileCollectionPath(fixture.oracle.worktreeRoot, markdownPath)}"]`,
-							)
-							.click();
+						const markdownRow = fileHost.locator(
+							`[data-item-path="${bridgeViewerViteFileCollectionPath(fixture.oracle.worktreeRoot, markdownPath)}"]`,
+						);
+						// The File tree is virtualized: scroll the row into the rendered
+						// window first, as a reader would, so the click cannot land on a
+						// recycled row. The sample starts at the click, not the scroll.
+						await markdownRow.evaluate((row): void => {
+							row.scrollIntoView({ block: 'center' });
+						});
+						await page.evaluate(
+							async (): Promise<void> =>
+								new Promise<void>((resolve): void => {
+									requestAnimationFrame((): void => {
+										requestAnimationFrame((): void => resolve());
+									});
+								}),
+						);
+						await markdownRow.click();
 					},
 				),
 			);

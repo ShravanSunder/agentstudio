@@ -9,6 +9,7 @@ import {
 	normalizedAnnotationEntries,
 	type AnnotationPreviewEntryCapture,
 } from './bridge-viewer-vite-annotation-preview-capture.ts';
+import { bridgeViewerViteFileCollectionPath } from './bridge-viewer-vite-file-collection-path.ts';
 
 interface AnnotationOutputCaptureJourneyProps {
 	readonly dataRootPath: string;
@@ -139,7 +140,7 @@ export async function verifyAnnotationOutputCaptures(
 	});
 	const document: unknown = JSON.parse(await readFile(jsonPath, 'utf8'));
 	const pendingOutput = decodeAnnotationOutputDocument(document, props.savedBody);
-	expectOutputEntriesMatchPreview(pendingOutput.entries, exportedPreview);
+	expectOutputEntriesMatchPreview(pendingOutput.entries, exportedPreview, props.worktreeRoot);
 	expectMarkdownMatchesOutputEntries(markdown, pendingOutput.entries, props.worktreeRoot);
 	const matchingIdentity = pendingOutput.matchingIdentity;
 	if (matchingIdentity === null) {
@@ -215,7 +216,7 @@ export async function verifyAnnotationOutputCaptures(
 		timeoutMilliseconds: props.timeoutMilliseconds,
 	});
 	const allOutput = decodeAnnotationOutputDocument(JSON.parse(allJSON), props.savedBody);
-	expectOutputEntriesMatchPreview(allOutput.entries, allExportedPreview);
+	expectOutputEntriesMatchPreview(allOutput.entries, allExportedPreview, props.worktreeRoot);
 	expectMarkdownMatchesOutputEntries(allMarkdown, allOutput.entries, props.worktreeRoot);
 
 	await setThreadResolution({
@@ -354,11 +355,24 @@ function outputEntryCoordinate(thread: Readonly<Record<string, unknown>>): {
 function expectOutputEntriesMatchPreview(
 	entries: readonly AnnotationOutputEntryCapture[],
 	preview: readonly AnnotationPreviewEntryCapture[],
+	worktreeRoot: string,
 ): void {
 	expect(new Set(preview.map(({ messageId }) => messageId.toLowerCase())).size).toBe(
 		preview.length,
 	);
-	expect(normalizedAnnotationEntries(entries)).toEqual(normalizedAnnotationEntries(preview));
+	// S8: subject-aware output labels replace this. Until then the preview shows
+	// a File annotation under its collection key while output keeps the
+	// member-relative path, so the comparison is made on member-relative paths.
+	const memberGroupPrefix = bridgeViewerViteFileCollectionPath(worktreeRoot, '');
+	const memberRelativePreview = preview.map(
+		(entry): AnnotationPreviewEntryCapture =>
+			entry.path.startsWith(memberGroupPrefix)
+				? { ...entry, path: entry.path.slice(memberGroupPrefix.length) }
+				: entry,
+	);
+	expect(normalizedAnnotationEntries(entries)).toEqual(
+		normalizedAnnotationEntries(memberRelativePreview),
+	);
 }
 
 function expectMarkdownMatchesOutputEntries(
