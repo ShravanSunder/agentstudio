@@ -195,6 +195,7 @@ extension Ghostty.SurfaceView {
 
     package override func performKeyEquivalent(with event: NSEvent) -> Bool {
         guard event.type == .keyDown else { return false }
+        // App-owned focus-hygiene exception from #285: reject stale terminal key-equivalent focus.
         guard
             Self.shouldAcceptKeyEquivalent(
                 isFocused: focused,
