@@ -16,8 +16,26 @@ enum AppIPCStartUnavailability: String, Equatable, Sendable {
     case localStoreUnavailable = "local_store_unavailable"
     case optionalSchemaUnavailable = "optional_schema_unavailable"
     case sessionsIngestionFailed = "sessions_ingestion_failed"
+    case noActiveWindow = "no_active_window"
+    case ipcPathUntrusted = "ipc_path_untrusted"
+    case socketInUse = "socket_in_use"
     case serverStartFailed = "server_start_failed"
     case restoreBoundsUnavailable = "restore_bounds_unavailable"
+
+    /// Names the server-start failures the owner can act on; anything else
+    /// stays `server_start_failed`.
+    init(serverStartError error: any Error) {
+        switch error {
+        case let layoutError as AppIPCLayoutError where layoutError.reason == .noActiveWindow:
+            self = .noActiveWindow
+        case is AgentStudioIPCFilesystemTrustError:
+            self = .ipcPathUntrusted
+        case let serverError as AgentStudioAppIPCServerError where serverError.reason == .liveSocketAlreadyExists:
+            self = .socketInUse
+        default:
+            self = .serverStartFailed
+        }
+    }
 }
 
 @MainActor
@@ -168,7 +186,7 @@ extension AppDelegate {
         } catch {
             appLogger.warning(
                 "App IPC server failed to start: \(error.localizedDescription, privacy: .private)")
-            recordAppIPCStart(unavailable: .serverStartFailed)
+            recordAppIPCStart(unavailable: AppIPCStartUnavailability(serverStartError: error))
         }
     }
 

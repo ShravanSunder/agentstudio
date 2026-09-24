@@ -1,3 +1,4 @@
+import AgentStudioAppIPC
 import AgentStudioInfrastructure
 import Foundation
 import GRDB
@@ -112,6 +113,22 @@ struct AppIPCStartOutcomeTraceTests {
         #expect(appDelegate.appIPCServer == nil)
     }
 
+    @Test("server-start failures are named when the owner can act on them")
+    func serverStartFailuresAreNamed() {
+        #expect(
+            AppIPCStartUnavailability(serverStartError: AppIPCLayoutError(reason: .noActiveWindow)) == .noActiveWindow)
+        #expect(
+            AppIPCStartUnavailability(
+                serverStartError: AgentStudioIPCFilesystemTrustError(reason: .symlinkNotAllowed, path: "/tmp"))
+                == .ipcPathUntrusted)
+        #expect(
+            AppIPCStartUnavailability(
+                serverStartError: AgentStudioAppIPCServerError(reason: .liveSocketAlreadyExists)) == .socketInUse)
+        #expect(
+            AppIPCStartUnavailability(serverStartError: AgentStudioAppIPCServerError(reason: .accessModeOff))
+                == .serverStartFailed)
+    }
+
     @Test("a started server records app.ipc.start started")
     func startedServerIsRecorded() async throws {
         let trace = StartupTraceCapture()
@@ -183,6 +200,7 @@ private final class StartupTraceCapture {
 @MainActor
 private final class InitializationCount {
     private(set) var count = 0
+    var isEmpty: Bool { count < 1 }
     func increment() { count += 1 }
 }
 
