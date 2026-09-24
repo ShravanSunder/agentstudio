@@ -23,6 +23,7 @@ package enum AgentStudioOTLPTraceProjection {
     private static let allowedStringAttributeKeys: Set<String> = Set([
         "agent.proof.marker",
         "agent.proof.launch",
+        "agentstudio.app.ipc.start.reason",
         "agentstudio.app.startup.outcome",
         "agentstudio.app.startup.phase",
         "agentstudio.bridge.activation.cause",

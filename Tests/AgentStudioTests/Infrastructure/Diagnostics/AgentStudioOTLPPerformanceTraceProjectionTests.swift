@@ -146,6 +146,34 @@ struct AgentStudioOTLPPerformanceTraceProjectionTests {
         #expect(unexpected.attributes["agentstudio.performance.ipc.agent_authorization.outcome"] == nil)
     }
 
+    @Test("app IPC start keeps its controlled unavailability reason and drops anything else")
+    func appIPCStartKeepsControlledReason() {
+        func project(reason: String) -> AgentStudioOTLPProjectedLogRecord {
+            AgentStudioOTLPTraceProjection.project(
+                AgentStudioTraceRecord(
+                    timeUnixNano: 123,
+                    severityText: .info,
+                    body: "app.ipc.start",
+                    traceID: nil,
+                    spanID: nil,
+                    parentSpanID: nil,
+                    resource: [:],
+                    scope: .init(name: "agentstudio.startup", version: "0.1.0"),
+                    attributes: [
+                        "agentstudio.app.startup.outcome": .string("unavailable"),
+                        "agentstudio.app.ipc.start.reason": .string(reason),
+                    ]
+                ))
+        }
+
+        let sessions = project(reason: "sessions_ingestion_failed")
+        let unexpected = project(reason: "/Users/example/.agentstudio/ipc")
+
+        #expect(sessions.attributes["agentstudio.app.ipc.start.reason"] == .string("sessions_ingestion_failed"))
+        #expect(sessions.attributes["agentstudio.app.startup.outcome"] == .string("unavailable"))
+        #expect(unexpected.attributes["agentstudio.app.ipc.start.reason"] == nil)
+    }
+
     @Test
     func performanceProjectionKeepsSafeNumericFieldsAndDropsUnsafeContext() {
         let worktreeID = UUID(uuidString: "6DE2BC87-AD1F-4271-96DD-7922D58612D5")!

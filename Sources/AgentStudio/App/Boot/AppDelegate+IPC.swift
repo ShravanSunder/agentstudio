@@ -7,17 +7,39 @@ import CryptoKit
 import Foundation
 import Security
 
+/// Why optional App IPC did not start. Agent IPC v2 R-25 keeps IPC
+/// unavailable without retry when its release edges or optional work fail;
+/// `app.ipc.start` records which, so the unavailability is explicit.
+enum AppIPCStartUnavailability: String, Equatable, Sendable {
+    case firstFrameCancelled = "first_frame_cancelled"
+    case firstFrameTimeout = "first_frame_timeout"
+    case localStoreUnavailable = "local_store_unavailable"
+    case optionalSchemaUnavailable = "optional_schema_unavailable"
+    case sessionsIngestionFailed = "sessions_ingestion_failed"
+    case serverStartFailed = "server_start_failed"
+    case restoreBoundsUnavailable = "restore_bounds_unavailable"
+}
+
 @MainActor
 enum AppIPCDeferredInitialization {
+    /// Runs `initialization` after the first interactive frame. Returns why it
+    /// did not run, or `nil` when it ran.
+    @discardableResult
     static func run(
         windowLifecycleStore: WindowLifecycleAtom,
         initialization: @escaping @MainActor @Sendable () async -> Void
-    ) async {
-        guard await windowLifecycleStore.waitUntilFirstInteractiveFramePublished() == .completed else {
-            return
+    ) async -> AppIPCStartUnavailability? {
+        switch await windowLifecycleStore.waitUntilFirstInteractiveFramePublished() {
+        case .completed:
+            break
+        case .fallbackTimeout:
+            return .firstFrameTimeout
+        case .cancelled:
+            return .firstFrameCancelled
         }
-        guard !Task.isCancelled else { return }
+        guard !Task.isCancelled else { return .firstFrameCancelled }
         await initialization()
+        return nil
     }
 
     static func prepareOptionalSchema(
@@ -95,26 +117,43 @@ extension AppDelegate {
         guard appIPCServer == nil, appIPCInitializationTask == nil else { return }
         let windowLifecycleStore = windowLifecycleStore!
         appIPCInitializationTask = Task { @MainActor [weak self] in
-            await AppIPCDeferredInitialization.run(
+            let unavailability = await AppIPCDeferredInitialization.run(
                 windowLifecycleStore: windowLifecycleStore
             ) { [weak self] in
                 await self?.startAppIPCServer()
             }
+            if let unavailability {
+                self?.recordAppIPCStart(unavailable: unavailability)
+            }
         }
+    }
+
+    /// Records `app.ipc.start`: started, or unavailable with its reason.
+    func recordAppIPCStart(unavailable reason: AppIPCStartUnavailability? = nil) {
+        startupTraceRecorder?.recordAppStartup(
+            "app.ipc.start",
+            phase: "app_ipc",
+            outcome: reason == nil ? "started" : "unavailable",
+            attributes: reason.map { ["agentstudio.app.ipc.start.reason": .string($0.rawValue)] } ?? [:]
+        )
     }
 
     func startAppIPCServer() async {
         guard appIPCServer == nil else { return }
         guard let workspaceSQLiteDatastore else {
             appLogger.warning("App IPC server skipped: local SQLite is unavailable")
+            recordAppIPCStart(unavailable: .localStoreUnavailable)
             return
         }
         guard await AppIPCDeferredInitialization.prepareOptionalSchema(using: workspaceSQLiteDatastore) else {
             appLogger.warning("App IPC server skipped: optional local schema is unavailable")
+            // A cancelled attempt is a shutdown, not an unavailable store.
+            if !Task.isCancelled { recordAppIPCStart(unavailable: .optionalSchemaUnavailable) }
             return
         }
         guard appIPCServer == nil else { return }
         guard let sessionsIngestion = await prepareAppIPCSessionsIngestion(datastore: workspaceSQLiteDatastore) else {
+            if !Task.isCancelled { recordAppIPCStart(unavailable: .sessionsIngestionFailed) }
             return
         }
 
@@ -125,9 +164,11 @@ extension AppDelegate {
             appLogger.info("App IPC server started at \(composition.socketURL.path, privacy: .private)")
             publishDebugCredentialEscrow(socketURL: composition.socketURL)
             startPaneReportSpoolDrain(sessionsIngestion: sessionsIngestion)
+            recordAppIPCStart()
         } catch {
             appLogger.warning(
                 "App IPC server failed to start: \(error.localizedDescription, privacy: .private)")
+            recordAppIPCStart(unavailable: .serverStartFailed)
         }
     }
 
