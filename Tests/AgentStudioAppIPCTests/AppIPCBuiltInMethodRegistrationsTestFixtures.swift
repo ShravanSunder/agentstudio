@@ -86,7 +86,8 @@ struct BuiltInMethodRegistrationsFixture {
                     sidebarPort: FakeSidebarPort(),
                     sessionsPort: sessionsPort ?? RecordingSessionsPort(),
                     permissionApprovalPort: FakePermissionApprovalPort(),
-                    ownPaneScopePort: StaticOwnPaneScopePort()
+                    ownPaneScopePort: StaticOwnPaneScopePort(),
+                    agentAuthorizationTelemetry: RecordingAgentAuthorizationTelemetry()
                 ),
                 eventBroker: eventBroker
             )

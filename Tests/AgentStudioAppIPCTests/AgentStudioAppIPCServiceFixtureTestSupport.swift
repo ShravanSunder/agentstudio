@@ -67,7 +67,8 @@ struct LiveServerFixture {
             permissionApprovalPort: FakePermissionApprovalPort(),
             // Unless a test names scopes, every bound pane is a main-layout
             // terminal with an empty drawer, so its own pane is itself.
-            ownPaneScopePort: StaticOwnPaneScopePort(scopes: ownPaneScopes)
+            ownPaneScopePort: StaticOwnPaneScopePort(scopes: ownPaneScopes),
+            agentAuthorizationTelemetry: RecordingAgentAuthorizationTelemetry()
         )
         let eventBroker = IPCEventBroker()
         let catalog = try makeLiveServerBuiltInCatalog(

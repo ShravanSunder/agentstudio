@@ -33,7 +33,8 @@ struct AgentStudioAppIPCServiceTests {
                 sidebarPort: FakeSidebarPort(),
                 sessionsPort: RecordingSessionsPort(),
                 permissionApprovalPort: FakePermissionApprovalPort(),
-                ownPaneScopePort: StaticOwnPaneScopePort()
+                ownPaneScopePort: StaticOwnPaneScopePort(),
+                agentAuthorizationTelemetry: RecordingAgentAuthorizationTelemetry()
             ),
             methodRegistry: registry,
             eventBroker: eventBroker

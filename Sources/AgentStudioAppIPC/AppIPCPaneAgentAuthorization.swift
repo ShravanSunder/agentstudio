@@ -9,6 +9,7 @@ import Foundation
 struct AppIPCPaneAgentAuthorization: Sendable {
     let methodRegistry: AppIPCMethodRegistry
     let ownPaneScopePort: any AppIPCOwnPaneScopePort
+    let telemetry: any AppIPCAgentAuthorizationTelemetry
 
     /// Decides one request and records the decision's duration as one
     /// authorization-time sample, whether it admits or refuses.
@@ -21,9 +22,9 @@ struct AppIPCPaneAgentAuthorization: Sendable {
         let started = clock.now
         do {
             try await decide(boundPaneId: boundPaneId, methodEligibility: methodEligibility, request: request)
-            ownPaneScopePort.recordAgentAuthorization(elapsed: started.duration(to: clock.now), outcome: .authorized)
+            telemetry.recordAgentAuthorization(elapsed: started.duration(to: clock.now), outcome: .authorized)
         } catch let refusal as AuthorizationError {
-            ownPaneScopePort.recordAgentAuthorization(
+            telemetry.recordAgentAuthorization(
                 elapsed: started.duration(to: clock.now), outcome: Self.outcome(of: refusal))
             throw refusal
         }
@@ -37,7 +38,7 @@ struct AppIPCPaneAgentAuthorization: Sendable {
         let started = clock.now
         guard let refusal = methodRegistry.paneAgentRoutingRefusal(methodName: methodName, parameters: parameters)
         else { return nil }
-        ownPaneScopePort.recordAgentAuthorization(
+        telemetry.recordAgentAuthorization(
             elapsed: started.duration(to: clock.now), outcome: Self.outcome(of: refusal))
         return refusal
     }

@@ -362,8 +362,9 @@ extension AppDelegate {
                 )
             ),
             permissionApprovalPort: AgentStudioIPCHumanApprovalPort(),
-            ownPaneScopePort: WorkspaceOwnPaneScopePort(
-                workspaceStore: store, performanceTraceRecorder: performanceTraceRecorder)
+            ownPaneScopePort: WorkspaceOwnPaneScopePort(workspaceStore: store),
+            agentAuthorizationTelemetry: AgentStudioIPCAgentAuthorizationTelemetry(
+                performanceTraceRecorder: performanceTraceRecorder)
         )
         let eventBroker = IPCEventBroker()
         let catalog = try Self.appIPCBuiltInMethodCatalog()

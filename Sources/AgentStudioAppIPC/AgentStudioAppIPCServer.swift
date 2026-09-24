@@ -86,7 +86,8 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
             methodRegistry: methodRegistry,
             grantLedger: grantLedger,
             canonicalizer: PermissionScopeCanonicalizer(),
-            ownPaneScopePort: service.ports.ownPaneScopePort
+            ownPaneScopePort: service.ports.ownPaneScopePort,
+            agentAuthorizationTelemetry: service.ports.agentAuthorizationTelemetry
         )
         self.permissionBroker = PermissionBroker(
             grantLedger: grantLedger,

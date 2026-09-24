@@ -30,28 +30,13 @@ package enum AppIPCOwnPaneMembership: Equatable, Sendable {
     case outside
 }
 
-/// The App's side of pane-agent authorization: answers "what is agent pane
-/// P's own pane now?" from the App's pane graph, and records how long each
-/// decision took. One bounded main-actor lookup per request; no disk or
-/// network access.
+/// Answers "what is agent pane P's own pane now?" from the App's pane graph.
+/// One bounded main-actor lookup per request; no disk or network access.
 @MainActor
 package protocol AppIPCOwnPaneScopePort: Sendable {
     /// `nil` when the bound pane no longer exists, so a principal that outlived
     /// its pane owns nothing.
     func ownPaneScope(boundPaneId: UUID) -> AppIPCOwnPaneScope?
-
-    /// Records one pane-agent authorization, from its first eligibility check
-    /// to the decision. Called once per request that reaches a decision, from
-    /// the authorizing task rather than the main actor.
-    nonisolated func recordAgentAuthorization(elapsed: Duration, outcome: AppIPCAgentAuthorizationOutcome)
-}
-
-/// How pane-agent authorization decided one request. The raw values are the
-/// marker's controlled vocabulary.
-package enum AppIPCAgentAuthorizationOutcome: String, Equatable, Sendable {
-    case authorized
-    case notYetAllowed = "not_yet_allowed"
-    case refusedForAgent = "refused_for_agent"
 }
 
 /// An argument whose effect decides agent admission beyond target identity.

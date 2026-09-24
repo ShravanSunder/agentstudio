@@ -350,13 +350,15 @@ public struct AuthorizationService: Sendable {
         methodRegistry: AppIPCMethodRegistry,
         grantLedger: GrantLedger,
         canonicalizer: PermissionScopeCanonicalizer,
-        ownPaneScopePort: any AppIPCOwnPaneScopePort
+        ownPaneScopePort: any AppIPCOwnPaneScopePort,
+        agentAuthorizationTelemetry: any AppIPCAgentAuthorizationTelemetry
     ) {
         self.methodRegistry = methodRegistry
         self.grantLedger = grantLedger
         self.canonicalizer = canonicalizer
         self.paneAgentAuthorization = AppIPCPaneAgentAuthorization(
-            methodRegistry: methodRegistry, ownPaneScopePort: ownPaneScopePort)
+            methodRegistry: methodRegistry, ownPaneScopePort: ownPaneScopePort,
+            telemetry: agentAuthorizationTelemetry)
     }
 
     /// A pane agent's routing admission, before schema validation; see

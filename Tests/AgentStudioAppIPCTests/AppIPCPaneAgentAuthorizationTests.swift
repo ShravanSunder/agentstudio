@@ -173,8 +173,8 @@ struct AppIPCPaneAgentAuthorizationTests {
 
     @Test("every decided pane-agent request records one authorization-time sample with its outcome")
     func everyDecisionRecordsOneAuthorizationSample() async throws {
-        let log = AgentAuthorizationLog()
-        let scenario = try makeScenario(authorizationLog: log)
+        let telemetry = RecordingAgentAuthorizationTelemetry()
+        let scenario = try makeScenario(telemetry: telemetry)
 
         try await scenario.authorize(boundPaneId, "terminal.send", paneIds: [boundPaneId])
         _ = try await scenario.refusal(boundPaneId, "pane.focus", paneIds: [boundPaneId])
@@ -189,7 +189,7 @@ struct AppIPCPaneAgentAuthorizationTests {
         // with no eligibility, decide nothing here and record nothing.
         #expect(routed == nil)
         #expect(hidden == .notYetAllowed("pane.focus"))
-        #expect(log.outcomes == [.authorized, .notYetAllowed, .notYetAllowed, .refusedForAgent, .notYetAllowed])
+        #expect(telemetry.outcomes == [.authorized, .notYetAllowed, .notYetAllowed, .refusedForAgent, .notYetAllowed])
     }
 
     // MARK: - Scenario
@@ -197,7 +197,7 @@ struct AppIPCPaneAgentAuthorizationTests {
     private func makeScenario(
         channel: AgentStudioIPCChannel = .debug,
         unlistedPanesExist: Bool = true,
-        authorizationLog: AgentAuthorizationLog? = nil
+        telemetry: RecordingAgentAuthorizationTelemetry = RecordingAgentAuthorizationTelemetry()
     ) throws -> PaneAgentAuthorizationScenario {
         let fixture = BuiltInMethodRegistrationsFixture()
         let composition = try FixtureCommands.composition()
@@ -219,8 +219,7 @@ struct AppIPCPaneAgentAuthorizationTests {
                     boundPaneId: boundPaneId, isDrawerTerminal: false, drawerChildPaneIds: [childPaneId]),
                 AppIPCOwnPaneScope(boundPaneId: drawerTerminalId, isDrawerTerminal: true, drawerChildPaneIds: []),
             ],
-            unlistedPanesExist: unlistedPanesExist,
-            authorizationLog: authorizationLog
+            unlistedPanesExist: unlistedPanesExist
         )
         return PaneAgentAuthorizationScenario(
             registry: registry,
@@ -229,7 +228,8 @@ struct AppIPCPaneAgentAuthorizationTests {
                 methodRegistry: registry,
                 grantLedger: grantLedger,
                 canonicalizer: PermissionScopeCanonicalizer(),
-                ownPaneScopePort: scopePort
+                ownPaneScopePort: scopePort,
+                agentAuthorizationTelemetry: telemetry
             ),
             runtimeId: fixture.runtimeId
         )

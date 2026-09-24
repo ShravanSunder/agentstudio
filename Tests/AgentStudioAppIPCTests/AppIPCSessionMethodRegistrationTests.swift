@@ -152,7 +152,8 @@ struct AppIPCSessionMethodRegistrationTests {
                 registrations: registrations, recognizedCommands: [], channel: .stable),
             grantLedger: GrantLedger(),
             canonicalizer: PermissionScopeCanonicalizer(),
-            ownPaneScopePort: StaticOwnPaneScopePort()
+            ownPaneScopePort: StaticOwnPaneScopePort(),
+            agentAuthorizationTelemetry: RecordingAgentAuthorizationTelemetry()
         )
     }
 

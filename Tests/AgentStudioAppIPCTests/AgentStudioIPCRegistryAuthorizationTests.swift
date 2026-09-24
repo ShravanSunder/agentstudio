@@ -85,7 +85,8 @@ struct AgentStudioIPCRegistryAuthorizationTests {
                 registrations: fixture.registrations(), recognizedCommands: [], channel: .debug),
             grantLedger: grantLedger,
             canonicalizer: PermissionScopeCanonicalizer(),
-            ownPaneScopePort: StaticOwnPaneScopePort()
+            ownPaneScopePort: StaticOwnPaneScopePort(),
+            agentAuthorizationTelemetry: RecordingAgentAuthorizationTelemetry()
         )
         let principal = automationPrincipal(runtimeId: fixture.runtimeId)
         let target = IPCTargetScope.pane("pane-1")
@@ -132,7 +133,8 @@ struct AgentStudioIPCRegistryAuthorizationTests {
             methodRegistry: registry,
             grantLedger: GrantLedger(),
             canonicalizer: PermissionScopeCanonicalizer(),
-            ownPaneScopePort: StaticOwnPaneScopePort()
+            ownPaneScopePort: StaticOwnPaneScopePort(),
+            agentAuthorizationTelemetry: RecordingAgentAuthorizationTelemetry()
         )
         let principal = panePrincipal(boundPaneId: "pane-1", runtimeId: fixture.runtimeId)
 
@@ -157,7 +159,8 @@ struct AgentStudioIPCRegistryAuthorizationTests {
         let ledger = GrantLedger()
         let service = AuthorizationService(
             methodRegistry: registry, grantLedger: ledger, canonicalizer: PermissionScopeCanonicalizer(),
-            ownPaneScopePort: StaticOwnPaneScopePort())
+            ownPaneScopePort: StaticOwnPaneScopePort(),
+            agentAuthorizationTelemetry: RecordingAgentAuthorizationTelemetry())
         let principal = panePrincipal(boundPaneId: "pane-1", runtimeId: fixture.runtimeId)
         let scope = IPCPermissionScope(
             privilege: .terminalInputWrite, target: .pane("pane-2"), dataScope: .terminalInput)
@@ -179,7 +182,8 @@ struct AgentStudioIPCRegistryAuthorizationTests {
             methodRegistry: registry,
             grantLedger: GrantLedger(),
             canonicalizer: PermissionScopeCanonicalizer(),
-            ownPaneScopePort: StaticOwnPaneScopePort()
+            ownPaneScopePort: StaticOwnPaneScopePort(),
+            agentAuthorizationTelemetry: RecordingAgentAuthorizationTelemetry()
         )
         let principal = panePrincipal(boundPaneId: "pane-1", runtimeId: fixture.runtimeId)
 
@@ -205,7 +209,8 @@ struct AgentStudioIPCRegistryAuthorizationTests {
                 registrations: fixture.registrations(), recognizedCommands: [], channel: .debug),
             grantLedger: ledger,
             canonicalizer: PermissionScopeCanonicalizer(),
-            ownPaneScopePort: StaticOwnPaneScopePort()
+            ownPaneScopePort: StaticOwnPaneScopePort(),
+            agentAuthorizationTelemetry: RecordingAgentAuthorizationTelemetry()
         )
         let principal = panePrincipal(boundPaneId: "pane-1", runtimeId: fixture.runtimeId)
         let additionalScope = IPCPermissionScope(
@@ -247,7 +252,8 @@ struct AgentStudioIPCRegistryAuthorizationTests {
                 registrations: fixture.registrations(), recognizedCommands: [], channel: .debug),
             grantLedger: GrantLedger(),
             canonicalizer: PermissionScopeCanonicalizer(),
-            ownPaneScopePort: StaticOwnPaneScopePort()
+            ownPaneScopePort: StaticOwnPaneScopePort(),
+            agentAuthorizationTelemetry: RecordingAgentAuthorizationTelemetry()
         )
         let request = authorizationRequest(
             method: "ui.commandBar.open",
@@ -304,7 +310,8 @@ struct AgentStudioIPCRegistryAuthorizationTests {
                 registrations: fixture.registrations(), recognizedCommands: [], channel: .debug),
             grantLedger: GrantLedger(),
             canonicalizer: PermissionScopeCanonicalizer(),
-            ownPaneScopePort: StaticOwnPaneScopePort()
+            ownPaneScopePort: StaticOwnPaneScopePort(),
+            agentAuthorizationTelemetry: RecordingAgentAuthorizationTelemetry()
         )
         let principal = diagnosticPrincipal(
             runtimeId: fixture.runtimeId,
@@ -336,7 +343,8 @@ struct AgentStudioIPCRegistryAuthorizationTests {
                 registrations: fixture.registrations(), recognizedCommands: [], channel: channel),
             grantLedger: GrantLedger(),
             canonicalizer: PermissionScopeCanonicalizer(),
-            ownPaneScopePort: StaticOwnPaneScopePort()
+            ownPaneScopePort: StaticOwnPaneScopePort(),
+            agentAuthorizationTelemetry: RecordingAgentAuthorizationTelemetry()
         )
         let principal = diagnosticPrincipal(
             runtimeId: fixture.runtimeId,
@@ -366,7 +374,8 @@ struct AgentStudioIPCRegistryAuthorizationTests {
             methodRegistry: registry,
             grantLedger: GrantLedger(),
             canonicalizer: PermissionScopeCanonicalizer(),
-            ownPaneScopePort: StaticOwnPaneScopePort()
+            ownPaneScopePort: StaticOwnPaneScopePort(),
+            agentAuthorizationTelemetry: RecordingAgentAuthorizationTelemetry()
         )
         let principal = panePrincipal(boundPaneId: "pane-1", runtimeId: fixture.runtimeId)
 
