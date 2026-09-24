@@ -118,6 +118,22 @@
     stroke: color-mix(in srgb, var(--color-primary) 46%, transparent);
   }
 
+  /* Ports: the primary-blue connector into a target edge, ending in a
+     commit-sized node exactly on that edge. */
+  :global(.accent-port) {
+    color: var(--color-primary);
+  }
+
+  :global(.accent-port > path:not(.topology-clearance)) {
+    stroke: var(--color-primary);
+  }
+
+  :global(.topology-route > .node-port) {
+    fill: var(--color-primary);
+    stroke: var(--color-primary);
+    stroke-width: 1.5px;
+  }
+
   /* Commit nodes: hollow until the reveal passes them, then filled with their
      lane's color. */
   :global([data-node] .node-commit) {

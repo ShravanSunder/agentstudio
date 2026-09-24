@@ -24,6 +24,8 @@ const terminalNodeRadius = 7;
 
 /** `<g data-topology-chapter-node="<anchorId>">`: the mainline dot level with each chapter anchor. */
 export const topologyChapterNodeAttribute = "data-topology-chapter-node";
+/** The primary-blue node where a port meets its target edge. */
+export const topologyPortNodeAttribute = "data-topology-port-node";
 /** `"left" | "top"` on a chapter node: the target edge its branch enters (which target lights). */
 export const topologyChapterTargetEdgeAttribute = "data-topology-target-edge";
 
@@ -133,6 +135,13 @@ function createRouteGroup(ownerDocument: Document, route: TopologyRoute): SVGGEl
     path.setAttribute("data-route", "");
     path.setAttribute("data-topology-path-role", role);
     group.append(path);
+  }
+  if (route.portNode !== undefined) {
+    const port = createSvgElement(ownerDocument, "circle");
+    port.setAttribute("class", "node-port");
+    port.setAttribute(topologyPortNodeAttribute, "");
+    port.setAttribute("r", String(commitNodeRadius));
+    group.append(port);
   }
   return group;
 }
@@ -252,6 +261,11 @@ export function layoutFullPageTopology(artwork: SVGSVGElement): boolean {
     }
     if (route.targetEdge !== undefined) {
       setAttributeIfChanged(group, "data-target-edge", route.targetEdge);
+    }
+    const port = group.querySelector(`[${topologyPortNodeAttribute}]`);
+    if (port !== null && route.portNode !== undefined) {
+      setAttributeIfChanged(port, "cx", String(route.portNode.x));
+      setAttributeIfChanged(port, "cy", String(route.portNode.y));
     }
   }
 

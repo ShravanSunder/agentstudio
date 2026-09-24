@@ -44,7 +44,11 @@ export interface TopologyPageMeasurement {
   readonly anchors: readonly TopologyAnchorMeasurement[];
 }
 
-export type TopologyAccent = "main" | "peach" | "cyan";
+/**
+ * A route's color. Lanes use the mainline or worktree colors; `port` is the
+ * primary-blue connector that enters a target edge.
+ */
+export type TopologyAccent = "main" | "peach" | "cyan" | "port";
 export type TopologyRouteKind = "worktree" | "attach";
 export type TopologyTargetEdge = "left" | "top";
 
@@ -61,6 +65,8 @@ export interface TopologyRoute {
   /** Attach branches only: the anchor whose target this branch enters. */
   readonly anchorId: string | undefined;
   readonly targetEdge: TopologyTargetEdge | undefined;
+  /** Attach branches only: the port node exactly on the target edge. */
+  readonly portNode: { readonly x: number; readonly y: number } | undefined;
 }
 
 export type TopologyDotKind = "chapter" | "commit" | "fork" | "merge" | "end";
@@ -102,6 +108,14 @@ export const topologyPhoneDropCornerInset = 16;
 export const topologyPhoneForkCopyClearance = 4;
 /** Phone: a row above the stage only hosts the fork when it leaves at least this much drop. */
 export const topologyPhoneMinimumDrop = 12;
+
+/**
+ * On wide screens the lane next to the content runs at least this many rows,
+ * and at most `topologyHeroLaneMaximumTravel`, between its fork and the row it
+ * leaves for the hero frame.
+ */
+export const topologyHeroLaneMinimumTravel = 2;
+export const topologyHeroLaneMaximumTravel = 4;
 
 export const mainlineOwnerId = "main";
 const worktreeAccents = ["peach", "cyan"] as const satisfies readonly TopologyAccent[];
@@ -147,15 +161,15 @@ interface LanePlan {
 
 /**
  * Worktree lanes open as a one-column staircase (lane k forks from lane k-1 on
- * consecutive rows) starting at the first row below the first anchor's copy,
- * and close the same way in reverse after the last target, so no lane runs
- * beside text and every fork and merge moves one column.
+ * consecutive rows) starting at `openRow`, in the gutter beside the hero copy,
+ * and close the same way in reverse after the last target, so every fork and
+ * merge moves one column.
  */
 function planWorktreeLanes(props: {
   readonly laneXs: readonly number[];
   readonly mainlineX: number;
   readonly rowYs: readonly number[];
-  readonly openBelowY: number;
+  readonly openRow: number;
   readonly closeBelowY: number;
   readonly lastUsableRow: number;
 }): LanePlan | undefined {
@@ -163,7 +177,7 @@ function planWorktreeLanes(props: {
   if (laneCount === 0) {
     return { lanes: [], reserved: new Map() };
   }
-  const openRow = props.rowYs.findIndex((rowY) => rowY >= props.openBelowY);
+  const openRow = props.openRow;
   const closeRow = props.rowYs.findIndex((rowY) => rowY >= props.closeBelowY);
   if (openRow < 0 || closeRow < 0 || closeRow + laneCount - 1 > props.lastUsableRow) {
     return undefined;
@@ -206,6 +220,48 @@ function planWorktreeLanes(props: {
     });
   }
   return { lanes, reserved };
+}
+
+/**
+ * Wide screens: the lanes fork from the middle of the hero copy, one column
+ * per row, so the lane next to the content runs 2–4 rows before it leaves for
+ * the hero frame. A frame far below the copy moves the forks down with it.
+ */
+function heroLaneOpenRow(props: {
+  readonly rowYs: readonly number[];
+  readonly heroRow: number;
+  readonly heroCopy: TopologyRect | undefined;
+  readonly heroTarget: TopologyRect | undefined;
+  readonly laneCount: number;
+}): number {
+  const { rowYs, heroRow, heroCopy, heroTarget, laneCount } = props;
+  const middleY = heroCopy === undefined ? (rowYs[heroRow] ?? 0) : centerYOf(heroCopy);
+  let middleRow = heroRow + 1;
+  for (const [row, rowY] of rowYs.entries()) {
+    if (
+      row > heroRow &&
+      Math.abs(rowY - middleY) < Math.abs((rowYs[middleRow] ?? Infinity) - middleY)
+    ) {
+      middleRow = row;
+    }
+  }
+  if (heroTarget === undefined) {
+    return middleRow;
+  }
+  const bandTop = heroTarget.top + Math.min(topologyAttachBandInset, heroTarget.height / 2);
+  const bandStartRow = rowYs.findIndex((rowY) => rowY >= bandTop);
+  // The outermost lane forks on `openRow + laneCount - 1` and leaves on the
+  // row above the frame's first band row, at most the maximum travel later.
+  const latestTravelOpenRow = bandStartRow - laneCount - topologyHeroLaneMaximumTravel;
+  return Math.max(heroRow + 1, middleRow, latestTravelOpenRow);
+}
+
+/**
+ * A port: from the source lane's dot, the retired merge bend turns onto the
+ * target row and runs one column straight into the target's left edge.
+ */
+function leftEdgePortPath(sourceX: number, edgeX: number, forkY: number, attachY: number): string {
+  return [`M ${sourceX} ${forkY}`, ...localMergePath(edgeX, sourceX, forkY, attachY)].join(" ");
 }
 
 function worktreePath(lane: WorktreeLane, rowYs: readonly number[]): string {
@@ -256,9 +312,13 @@ export function composeFullPageTopology(
       laneXs,
       mainlineX: columns.mainlineX,
       rowYs,
-      openBelowY: bottomOf(
-        firstAnchor?.copyBlock ?? firstAnchor?.rect ?? { left: 0, top: 0, width: 0, height: 0 },
-      ),
+      openRow: heroLaneOpenRow({
+        rowYs,
+        heroRow: anchorRows[0] ?? 0,
+        heroCopy: firstAnchor?.copyBlock ?? firstAnchor?.rect,
+        heroTarget: firstAnchor?.surface,
+        laneCount: laneXs.length,
+      }),
       closeBelowY: Math.max(...targetBottoms, 0),
       lastUsableRow: finalRow - 1,
     });
@@ -348,7 +408,7 @@ export function composeFullPageTopology(
       attachRoutes.push({
         id: `attach-${anchor.id}`,
         kind: "attach",
-        accent: source.accent,
+        accent: "port",
         pathData: localForkPath(source.x, attachX, forkY, target.top).join(" "),
         parentColumn: source.column,
         column: source.column + 1,
@@ -356,6 +416,7 @@ export function composeFullPageTopology(
         endY: target.top,
         anchorId: anchor.id,
         targetEdge: "top",
+        portNode: { x: attachX, y: target.top },
       });
       continue;
     }
@@ -366,7 +427,8 @@ export function composeFullPageTopology(
     const bandBottom = bottomOf(target) - Math.min(topologyAttachBandInset, target.height / 2);
     const forksFromOutermostLane = (forkRow: number): boolean =>
       outermostLane === undefined ||
-      (forkRow > outermostLane.forkRow && forkRow < outermostLane.mergeRow);
+      (forkRow >= outermostLane.forkRow + topologyHeroLaneMinimumTravel &&
+        forkRow < outermostLane.mergeRow);
     const attachRow = rowYs.findIndex(
       (rowY, row) =>
         row > 0 &&
@@ -391,14 +453,15 @@ export function composeFullPageTopology(
     attachRoutes.push({
       id: `attach-${anchor.id}`,
       kind: "attach",
-      accent: source.accent,
-      pathData: localForkPath(source.x, attachX, forkY, attachY).join(" "),
+      accent: "port",
+      pathData: leftEdgePortPath(source.x, attachX, forkY, attachY),
       parentColumn: source.column,
       column: source.column + 1,
       startY: forkY,
       endY: attachY,
       anchorId: anchor.id,
       targetEdge: "left",
+      portNode: { x: attachX, y: attachY },
     });
   }
 
@@ -453,6 +516,7 @@ export function composeFullPageTopology(
     endY: rowYs[lane.mergeRow] ?? 0,
     anchorId: undefined,
     targetEdge: undefined,
+    portNode: undefined,
   }));
 
   return {

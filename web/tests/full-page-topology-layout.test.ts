@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import {
   composeFullPageTopology,
+  topologyHeroLaneMaximumTravel,
+  topologyHeroLaneMinimumTravel,
   topologyPhoneDropCornerInset,
   type TopologyAnchorMeasurement,
   type TopologyComposition,
@@ -16,7 +18,7 @@ import {
   topologyMaximumLaneCount,
   topologyRowUnit,
 } from "../src/topology-lab/full-page-topology-model";
-import { localForkPath } from "../src/topology-lab/full-page-topology-paths";
+import { localForkPath, localMergePath } from "../src/topology-lab/full-page-topology-paths";
 
 function rect(left: number, top: number, width: number, height: number): TopologyRect {
   return { left, top, width, height };
@@ -209,6 +211,43 @@ describe("gutter columns", () => {
     expect(Math.max(...laneCounts)).toBeLessThanOrEqual(topologyMaximumLaneCount);
   });
 
+  it("forks the hero's lanes from the middle of the hero copy on wide screens", () => {
+    for (const width of [1920, 2560, 3440]) {
+      // Arrange
+      const fixture = homePageAt(width);
+      const heroCopy = fixture.page.anchors[0]?.copyBlock;
+      if (heroCopy === undefined) {
+        throw new Error("Fixture hero has no copy block");
+      }
+
+      // Act
+      const composition = composed(fixture);
+
+      // Assert
+      const firstLane = composition.routes.find((route) => route.kind === "worktree");
+      expect(firstLane?.startY).toBeGreaterThanOrEqual(heroCopy.top + heroCopy.height / 4);
+      expect(firstLane?.startY).toBeLessThanOrEqual(heroCopy.top + (heroCopy.height * 3) / 4);
+    }
+  });
+
+  it("runs the lane next to the content two to four rows before its hero port", () => {
+    for (const width of [1920, 2560, 3440]) {
+      // Act
+      const composition = composed(homePageAt(width));
+
+      // Assert
+      const lanes = composition.routes.filter((route) => route.kind === "worktree");
+      const outermost = lanes.at(-1);
+      const heroPort = composition.routes.find((route) => route.anchorId === "hero");
+      const forkRow = composition.rowYs.indexOf(outermost?.startY ?? Number.NaN);
+      const portRow = composition.rowYs.indexOf(heroPort?.startY ?? Number.NaN);
+      expect(forkRow).toBeGreaterThanOrEqual(0);
+      expect(portRow - forkRow).toBeGreaterThanOrEqual(topologyHeroLaneMinimumTravel);
+      expect(portRow - forkRow).toBeLessThanOrEqual(topologyHeroLaneMaximumTravel);
+      expect(heroPort?.parentColumn).toBe(outermost?.column);
+    }
+  });
+
   it("anchors the mainline from the content and leaves any wider gutter empty", () => {
     for (const width of viewportWidths) {
       // Arrange
@@ -305,22 +344,38 @@ describe("composed topology", () => {
         }
       });
 
-      it("attaches each target with the retired bend, one column × one row, one row above the edge", () => {
+      it("enters each target through a primary-blue port, one column × one row, ending in a node on the edge", () => {
         const attaches = composition.routes.filter((route) => route.kind === "attach");
         expect(attaches.map((route) => route.anchorId)).toEqual(
           fixture.page.anchors.map((anchor) => anchor.id),
         );
         for (const attach of attaches) {
-          const [move, bend] = pathCommands(attach.pathData);
-          const start = move?.points[0];
-          const end = bend?.points.at(-1);
+          const commands = pathCommands(attach.pathData);
+          const start = commands[0]?.points[0];
+          const end = commands.at(-1)?.points.at(-1);
           if (start === undefined || end === undefined) {
             throw new Error("Attach branch is empty");
           }
+          expect(attach.accent).toBe("port");
           expect(end.x - start.x).toBeCloseTo(composition.columnUnit, 6);
           expect(end.y - start.y).toBeGreaterThan(0);
           expect(end.y - start.y).toBeLessThanOrEqual(topologyRowUnit * 1.25);
-          expect(attach.pathData).toBe(localForkPath(start.x, end.x, start.y, end.y).join(" "));
+          // Wide ports turn with the retired merge bend onto the target row and
+          // run into the left edge; phone ports drop with the fork bend.
+          expect(attach.pathData).toBe(
+            attach.targetEdge === "left"
+              ? [`M ${start.x} ${start.y}`, ...localMergePath(end.x, start.x, start.y, end.y)].join(
+                  " ",
+                )
+              : localForkPath(start.x, end.x, start.y, end.y).join(" "),
+          );
+          const anchor = fixture.page.anchors.find((candidate) => candidate.id === attach.anchorId);
+          const edge =
+            attach.targetEdge === "left"
+              ? { x: anchor?.surface?.left ?? Number.NaN, y: end.y }
+              : { x: end.x, y: anchor?.media?.top ?? Number.NaN };
+          expect(Math.abs((attach.portNode?.x ?? Number.NaN) - edge.x)).toBeLessThanOrEqual(1);
+          expect(Math.abs((attach.portNode?.y ?? Number.NaN) - edge.y)).toBeLessThanOrEqual(1);
         }
       });
 
