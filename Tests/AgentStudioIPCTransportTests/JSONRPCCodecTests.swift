@@ -204,7 +204,7 @@ private struct DecoderChildProcessResult {
 /// verdict is the child's exit and stderr, never how fast a loaded runner schedules it. The exit
 /// arrives through `terminationHandler`, so no thread is parked, and stderr goes to a file so a
 /// crash report cannot fill a pipe the parent only reads after exit. This target cannot see
-/// `AgentStudioTestSupport`, so the wait is local.
+/// `AgentStudioTestSupport`, so `AgentStudioTestHarness` owns the shared cancellable wait.
 private func decodeRequestInChildProcess(_ payload: String) async throws -> DecoderChildProcessResult {
     let process = Process()
     let testExecutableURL = try currentTestExecutableURL()
