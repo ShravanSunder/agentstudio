@@ -103,7 +103,7 @@ module test. This ownership does not replace the existing execution lanes:
 `mise run test:swift:fast`, `mise run test:swift:large`,
 `mise run test:swift:webkit`, `mise run test:swift:e2e`, and
 `mise run test:swift:zmx-e2e` retain their filter, serialization, prebuild,
-timeout, and retry semantics. `swift test --filter` selects tests to execute; it
+and timeout semantics. `swift test --filter` selects tests to execute; it
 does not redefine module ownership or guarantee that unrelated same-package test
 products avoid compilation.
 
@@ -133,7 +133,8 @@ calls those same mise tasks; it never recreates a raw `swift test` command.
 | --- | --- | --- |
 | fast | `test:swift:fast` | Everything not claimed by another lane, run concurrently inside one process by Swift Testing itself, then the isolated process-global phases |
 | large | `test:swift:large` | `Script`, `SourceScan`, `Smoke`, `Integration` families and named heavy suites (`large_non_webkit_filter_pattern`), then a serial phase for subprocess workload fixtures, then its own isolated process-global phase |
-| WebKit | `test:swift:webkit` | Real WKWebView runtime suites, one filter at a time, with a retry for teardown signal crashes |
+| WebKit | `test:swift:webkit` | Real WKWebView runtime suites, one filter at a time. A teardown signal crash fails the lane and the receipt names the suite and signal; the runner never retries |
+| width comparison | `test:swift:width-comparison` | One prebuild, then the fast lane at width 3 and with the width unset on that same bundle. Each half prints its own receipt as a `reused` bundle linked to that prebuild's build receipt and keeps every ledger under `tmp/plan-workflows/ci-runs/width-comparison/`. It is an experiment, not a pull-request gate, and it never changes the default width |
 | E2E | `test:swift:e2e` | `E2ESerializedTests`; inside `mise run test` only when `SWIFT_TEST_INCLUDE_E2E=1` |
 | zmx E2E | `test:swift:zmx-e2e` | `ZmxE2ETests`; opt-in, not a pull-request gate |
 | benchmark | `test:swift:benchmark` | The two benchmark suites; post-merge, not a pull-request gate |
@@ -397,13 +398,40 @@ signal.
 
 1. **Read the lane report.** Every lane prints `[<lane>] lane-report <label>=…`
    before and after its tests: `cpu_count`, `memory_bytes`,
-   `parallelization_width`, `isolated_process_concurrency`, then `exit_status`,
-   `wall_seconds`, `cpu_seconds`, `cpu_utilization`, `peak_started_tests`,
-   `peak_running_parameterized_cases`, `failed_isolated_suites`, and one
-   `failed_isolated_suite=` line per failure. Low utilization with long wall time
-   is blocking; high utilization is saturation. `peak_started_tests` counts tests
-   whose start event was *posted* and does not reflect any cap;
-   `peak_running_parameterized_cases` does, over the parameterized subset only.
+   `parallelization_width`, `isolated_process_concurrency`, `head_sha`,
+   `tree_dirty`, then `exit_status`, `wall_seconds`, `cpu_seconds`,
+   `cpu_utilization`, `peak_announced_tests`, `peak_running_parameterized_cases`,
+   `failed_isolated_suites`, one `failed_isolated_suite=` line per failure, and
+   the receipt identity: `head_sha`, `tree_dirty`, `bundle_state`,
+   `bundle_identity`, `receipt_valid`, `verdict`. Low utilization with long wall
+   time is blocking; high utilization is saturation. `peak_announced_tests` counts
+   tests whose start event was *posted*, which is an announcement, not a running
+   test, and does not reflect any cap; `peak_running_parameterized_cases` does,
+   over the parameterized subset only.
+
+   **A receipt is evidence only when it is valid.** A lane is valid when its
+   bundle is a clean build of this commit and the tree stayed clean from the
+   opening to the closing receipt. A lane that ran its own prebuild has
+   `bundle_state=fresh`. A lane that reused a bundle (`SWIFT_TEST_SKIP_PREBUILD=1`,
+   as every CI lane after the prebuild step) has `bundle_state=reused` and is
+   linked to the build receipt the prebuild published beside the bundle
+   (`<build path>/agentstudio-test-build-receipt`). The prebuild deletes that
+   receipt before compiling, samples `head_sha` and `tree_dirty` before
+   compiling, and publishes the receipt by atomic rename only after the build
+   succeeds. `bundle_identity` is the exact test executable: path, size and
+   modification time. The lane prints the receipt's commit as
+   `build_receipt_head_sha`. Otherwise the receipt reads
+   `receipt_valid=false reason=…`, where the reason is one of:
+   - `reused_bundle_unlinked`: no receipt, a malformed one, or one naming
+     another executable;
+   - `built_from_dirty_tree`: the build tree had uncommitted changes;
+   - `bundle_head_mismatch`: the receipt names another commit;
+   - `dirty_tree`: uncommitted changes now;
+   - `unbuilt_bundle`: the prebuild failed.
+
+   An invalid receipt's verdict is `unverified` whatever the exit status. The
+   exit status itself is unchanged, so the local edit-test loop still works. A
+   lane ended by a signal exits 128+signal and reports `verdict=fail`.
 2. **Download the ledger.** On a lane timeout the runner preserves Swift
    Testing's event-stream JSONL under `tmp/plan-workflows/ci-runs/lane-*.events.jsonl`,
    and CI uploads it as `swift-lane-event-streams-<run_id>`. Compute
@@ -420,7 +448,27 @@ signal.
    `SWIFT_TEST_TIMEOUT_SECONDS=90 mise run test:swift:fast`. When a helper is
    parked, `xcrun swift-inspect dump-concurrency <pid>` lists every parked task
    with its resume function. It is unprivileged, and it is the only tool that
-   shows suspended tasks — `sample` cannot.
+   shows suspended tasks — `sample` cannot. When the hang bound fires, the runner
+   gathers the evidence itself before anything is terminated, and keeps it
+   beside the ledger under one stem, `lane-<label>-<time>-<pid>`. CI uploads
+   all three with the ledgers:
+   - `…-pid<pid>.task-dump.txt`: one task dump per stuck test process, taken
+     whether or not the thread sampler (`sample`) is available. Each tool that
+     cannot run says why: `stack_sample=unavailable reason=…` and
+     `task_dump=unavailable reason=…`. It cannot attach to a binary without
+     `get-task-allow`, and `swift-inspect` exits 0 even then, which is why the
+     runner judges success by the dump's content.
+   - `….held-steps.log`: the lane hands each test process this path as
+     `AGENTSTUDIO_HELD_STEP_LOG`. The causal-test harness appends one
+     TAB-separated line per event, because step names contain spaces:
+     `waiting<TAB><instance id><TAB><name><TAB><fileID function>` and
+     `arrived<TAB><instance id><TAB><name>`. Waits and arrivals pair by instance
+     id, so one step's arrival cannot hide another same-named step's missing
+     one. The hang report prints every wait that never arrived as
+     `held_step_unarrived name=<name> id=<id> test=<fileID function>`.
+   - `….events.jsonl`: the event ledger itself.
+
+   The hang verdict is failed whatever evidence was gathered.
 5. **Classify the owner, then fix it there.** Test oracle (the assertion is
    wrong about what should happen), product (the behavior is wrong), runner
    (the lane, filter, or isolation is wrong), or harness (the fake is wrong).

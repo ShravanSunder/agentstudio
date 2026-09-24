@@ -10,6 +10,8 @@ on:
 
 permissions:
   contents: read
+  # The first-attempt gate reads a pull request's live labels.
+  issues: read
   pull-requests: write
 
 jobs:
@@ -20,6 +22,40 @@ jobs:
       SWIFT_BUILD_DIR: .build-ci
 
     steps:
+      # First step of every job, before checkout: a re-run attempt fails here unless
+      # its pull request carries the ci-rerun-approved label right now. A red run is
+      # diagnosed, not re-run. Labels are read live because a re-run replays the
+      # original event payload. Defined once here; every other job starts with its alias.
+      - &first-attempt-gate
+        name: First-attempt gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+          EVENT_NAME: ${{ github.event_name }}
+          PULL_REQUEST_NUMBER: ${{ github.event.pull_request.number }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          override_label=ci-rerun-approved
+          if [ "$RUN_ATTEMPT" -le 1 ]; then
+            echo "first-attempt gate: attempt $RUN_ATTEMPT, nothing to check"
+            exit 0
+          fi
+          if [ "$EVENT_NAME" != "pull_request" ] || [ -z "${PULL_REQUEST_NUMBER:-}" ]; then
+            echo "::error::Re-run attempt $RUN_ATTEMPT of a $EVENT_NAME run is refused: only a pull request carrying the '$override_label' label may be re-run. Diagnose the red run and start a new one instead."
+            exit 1
+          fi
+          if ! labels="$(gh api --paginate "repos/$REPOSITORY/issues/$PULL_REQUEST_NUMBER/labels" --jq '.[].name' 2>&1)"; then
+            echo "::error::Re-run attempt $RUN_ATTEMPT refused: the labels of PR #$PULL_REQUEST_NUMBER could not be read, and the gate fails closed. $labels"
+            exit 1
+          fi
+          if grep -Fxq -- "$override_label" <<<"$labels"; then
+            echo "first-attempt gate: re-run attempt $RUN_ATTEMPT allowed by the '$override_label' label on PR #$PULL_REQUEST_NUMBER"
+            exit 0
+          fi
+          echo "::error::Re-run attempt $RUN_ATTEMPT refused: a red run is diagnosed, not re-run. Add the '$override_label' label to PR #$PULL_REQUEST_NUMBER to allow this re-run."
+          exit 1
+
       - name: Checkout
         uses: actions/checkout@v4
         with:
@@ -74,6 +110,8 @@ jobs:
     runs-on: macos-26
 
     steps:
+      - *first-attempt-gate
+
       - name: Checkout
         uses: actions/checkout@v4
         with:
@@ -109,6 +147,8 @@ jobs:
     runs-on: macos-26
 
     steps:
+      - *first-attempt-gate
+
       - name: Checkout
         uses: actions/checkout@v4
         with:
@@ -150,6 +190,8 @@ jobs:
       SWIFT_BUILD_DIR: .build-ci
 
     steps:
+      - *first-attempt-gate
+
       - name: Checkout
         uses: actions/checkout@v4
         with:
@@ -274,6 +316,8 @@ jobs:
       XCB_EXTRA_ARGS: "--renderer github-actions"
 
     steps:
+      - *first-attempt-gate
+
       - name: Checkout
         uses: actions/checkout@v4
         with:
@@ -415,7 +459,8 @@ jobs:
       - name: Test WebKit lane
         env:
           # WebKit teardown can crash swiftpm-testing-helper after assertions pass;
-          # this lane isolates real WebKit runtime suites and retries signal crashes.
+          # this lane isolates real WebKit runtime suites, one process each. A crash
+          # fails the lane and the receipt names the suite and signal; it is never retried.
           SWIFT_TEST_SKIP_PREBUILD: "1"
           SWIFT_TEST_TIMEOUT_SECONDS: "600"
           XCB_EXTRA_ARGS: "--renderer github-actions"
@@ -452,6 +497,12 @@ jobs:
           # The runner keeps the Swift Testing event stream when a lane times out
           # or a child dies without recording a failure. It is the only
           # authoritative record of which tests started and never ended; the
-          # console stream is block-buffered and stops mid-line at a wedge.
-          path: tmp/plan-workflows/ci-runs/lane-*.events.jsonl
+          # console stream is block-buffered and stops mid-line at a wedge. A
+          # timed-out lane also keeps, beside its ledger, a swift-inspect task dump
+          # per stuck test process (every suspended task and where it would
+          # resume) and the held-step log naming the harness steps never reached.
+          path: |
+            tmp/plan-workflows/ci-runs/lane-*.events.jsonl
+            tmp/plan-workflows/ci-runs/lane-*.task-dump.txt
+            tmp/plan-workflows/ci-runs/lane-*.held-steps.log
           if-no-files-found: ignore
