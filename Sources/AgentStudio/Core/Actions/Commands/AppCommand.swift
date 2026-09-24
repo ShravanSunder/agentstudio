@@ -139,6 +139,7 @@ package enum AppCommand: String, CaseIterable {
     case addBridgeWorktree
     case selectBridgeWorktree
     case removeBridgeWorktree
+    case searchBridgeFiles
     case signInGitHub
     case signInGoogle
     // Sidebar commands

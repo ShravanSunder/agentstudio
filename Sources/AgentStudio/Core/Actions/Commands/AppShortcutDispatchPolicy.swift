@@ -114,7 +114,7 @@ package enum AppShortcutDispatchPolicy {
             .showViewer,
             .showBridgeReview, .showBridgeFiles,
             .activateBridgeFile, .activateBridgeReview, .closeBridgeFile,
-            .addBridgeWorktree, .selectBridgeWorktree, .removeBridgeWorktree,
+            .addBridgeWorktree, .selectBridgeWorktree, .removeBridgeWorktree, .searchBridgeFiles,
             .openBridgeReviewInNewTab, .openBridgeFilesInNewTab, .signInGitHub, .signInGoogle,
             .filterSidebar, .openNewTerminalInTab:
             return false

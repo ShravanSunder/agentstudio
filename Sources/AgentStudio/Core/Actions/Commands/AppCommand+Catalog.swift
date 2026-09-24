@@ -950,6 +950,17 @@ extension AppCommand {
                 surfacePolicy: .notPresented,
                 targeting: .targeted([.worktree])
             )
+        case .searchBridgeFiles:
+            // B2: the Files search affordance this command opens. In B1 the
+            // results are read through `bridge.files.search`, and the command
+            // shows the receiver's Files surface.
+            return bridgeReceiverDefinition(
+                label: "Search Files in Bridge",
+                icon: .system(.magnifyingglass),
+                helpText: "Search every member worktree and opened document of this pane's Bridge",
+                surfacePolicy: .notPresented,
+                targeting: .contextual
+            )
         case .signInGitHub:
             return authenticationDefinition(providerName: "GitHub")
         case .signInGoogle:

@@ -38,6 +38,7 @@ beforeEach((): void => {
 
 afterEach((): void => {
 	pane.runtime.dispose();
+	vi.useRealTimers();
 	vi.unstubAllGlobals();
 });
 
@@ -97,6 +98,25 @@ describe('File viewer collection search requests', () => {
 
 		// Assert
 		await expect(answer).resolves.toEqual({ kind: 'unavailable', reason: 'refused' });
+		requests.dispose();
+	});
+
+	test('a search the worker never answers settles when the rpc request lifecycle times out', async () => {
+		// Arrange — the only clock is the rpc client's existing request timeout, driven by fake timers.
+		pane.runtime.dispose();
+		vi.useFakeTimers();
+		pane = makeSearchTestPane();
+		const requests = createBridgeFileViewerCollectionSearchRequests({
+			client: pane.runtime.surfaceClient('fileView'),
+		});
+		const answer = requests.search(searchCriteria);
+		onlyDispatchedRequestId();
+
+		// Act
+		await vi.runOnlyPendingTimersAsync();
+
+		// Assert
+		await expect(answer).resolves.toEqual({ kind: 'unavailable', reason: 'timedOut' });
 		requests.dispose();
 	});
 

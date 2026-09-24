@@ -14,7 +14,7 @@ struct BridgeReceiverNavigationCommandContractTests {
 
     @Test("every receiver command is a debug-channel headless layout command addressed by pane")
     func ipcClassification() {
-        for command in Self.documentCommands + Self.worktreeCommands {
+        for command in Self.documentCommands + Self.worktreeCommands + [.searchBridgeFiles] {
             let spec = command.ipcSpec
             #expect(spec.exposure == .debugTesting, "\(command.rawValue)")
             #expect(spec.executionMode == .headless, "\(command.rawValue)")
@@ -42,8 +42,16 @@ struct BridgeReceiverNavigationCommandContractTests {
             #expect(definition.targeting == .targeted([.worktree]), "\(command.rawValue)")
             #expect(definition.shortcut == nil, "\(command.rawValue)")
         }
-        for command in Self.documentCommands + [.activateBridgeReview] {
+        for command in Self.documentCommands + [.activateBridgeReview, .searchBridgeFiles] {
             #expect(AppCommandDispatcher.shared.definition(for: command).surfacePolicy == .notPresented)
         }
+    }
+
+    @Test("Files search is a catalog identity addressed by pane; its results are the bridge.files.search read")
+    func searchIdentity() {
+        let definition = AppCommandDispatcher.shared.definition(for: .searchBridgeFiles)
+        #expect(definition.targeting == .contextual)
+        #expect(definition.shortcut == nil)
+        #expect(AppCommand.searchBridgeFiles.ipcSpec.argumentVariants == [.pane])
     }
 }

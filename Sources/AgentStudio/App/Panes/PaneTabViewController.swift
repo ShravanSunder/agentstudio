@@ -3236,7 +3236,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         case .showBridgeReview, .showBridgeFiles,
             .openBridgeReviewInNewTab, .openBridgeFilesInNewTab:
             return submitBridgeSurfaceCommand(command, worktreeId: nil)
-        case .activateBridgeFile, .closeBridgeFile:
+        case .activateBridgeFile, .closeBridgeFile, .searchBridgeFiles:
             return executeContextualBridgeNavigationCommand(command)
         default:
             return false

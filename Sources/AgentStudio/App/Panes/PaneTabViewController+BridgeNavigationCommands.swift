@@ -9,7 +9,7 @@ import Foundation
 extension PaneTabViewController {
     static let bridgeNavigationCommands: Set<AppCommand> = [
         .activateBridgeFile, .activateBridgeReview, .closeBridgeFile,
-        .addBridgeWorktree, .selectBridgeWorktree, .removeBridgeWorktree,
+        .addBridgeWorktree, .selectBridgeWorktree, .removeBridgeWorktree, .searchBridgeFiles,
     ]
 
     /// The request a worktree-addressed navigation command makes.
@@ -50,17 +50,36 @@ extension PaneTabViewController {
         return await executor.performBridgeNavigation(request, forPaneId: paneId).commandExecutionOutcome
     }
 
+    /// Pane-addressed Bridge commands over IPC.
+    func executeBridgePaneCommand(_ command: AppCommand, paneId: UUID) async -> AppCommandExecutionOutcome {
+        switch command {
+        case .reloadBridgeWebView:
+            guard let mountView = resolvedBridgeCommandMountView(paneId: paneId),
+                mountView.controller.reloadWebView()
+            else { return .stateUnavailable }
+            // The webview reload is initiated here and completes in WebKit, so
+            // the receipt is acceptance rather than application.
+            return .accepted(operationId: nil)
+        case .searchBridgeFiles:
+            // B2: the Files search affordance; agents read results through `bridge.files.search`.
+            return await executor.performBridgeNavigation(.showFiles, forPaneId: paneId).commandExecutionOutcome
+        default:
+            return .unsupportedCommand
+        }
+    }
+
     // MARK: - Interactive
 
     /// Contextual invocation acts on the focused pane's receiver. File
     /// activation without a document returns to Files; closing without a
-    /// document closes the one Files displays.
+    /// document closes the one Files displays. Searching shows Files; the
+    /// search affordance itself arrives in B2.
     func executeContextualBridgeNavigationCommand(_ command: AppCommand) -> Bool {
         guard Self.bridgeNavigationCommands.contains(command), let paneId = focusedBridgeCommandPaneId() else {
             return false
         }
         switch command {
-        case .activateBridgeFile:
+        case .activateBridgeFile, .searchBridgeFiles:
             submitBridgeNavigation(.showFiles, paneId: paneId)
             return true
         case .closeBridgeFile:

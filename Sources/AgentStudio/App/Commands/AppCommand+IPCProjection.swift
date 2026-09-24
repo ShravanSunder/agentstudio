@@ -114,7 +114,7 @@ extension AppCommand {
             .jumpToPreviousPrompt, .jumpToNextPrompt,
             .openPaneLocationInBookmarkedEditor, .openPaneLocationInFinder,
             .openPaneLocationInEditorMenu, .editPaneNote, .copyCurrentPanePath,
-            .openPullRequest, .reloadBridgeWebView, .showViewer:
+            .openPullRequest, .reloadBridgeWebView, .showViewer, .searchBridgeFiles:
             [.pane]
 
         case .focusPaneLeft, .focusPaneRight, .focusPaneUp, .focusPaneDown,
@@ -234,7 +234,7 @@ extension AppCommand {
             .openWebview, .showViewer,
             .showBridgeReview, .showBridgeFiles,
             .activateBridgeFile, .activateBridgeReview, .closeBridgeFile,
-            .addBridgeWorktree, .selectBridgeWorktree, .removeBridgeWorktree,
+            .addBridgeWorktree, .selectBridgeWorktree, .removeBridgeWorktree, .searchBridgeFiles,
             .openBridgeReviewInNewTab, .openBridgeFilesInNewTab,
             .signInGitHub, .signInGoogle, .filterSidebar,
             .openNewTerminalInTab:
@@ -301,7 +301,7 @@ extension AppCommand {
             .openWebview, .reloadBridgeWebView, .showViewer,
             .showBridgeReview, .showBridgeFiles,
             .activateBridgeFile, .activateBridgeReview, .closeBridgeFile,
-            .addBridgeWorktree, .selectBridgeWorktree, .removeBridgeWorktree,
+            .addBridgeWorktree, .selectBridgeWorktree, .removeBridgeWorktree, .searchBridgeFiles,
             .openBridgeReviewInNewTab, .openBridgeFilesInNewTab,
             .openNewTerminalInTab:
             .headless
@@ -376,7 +376,7 @@ extension AppCommand {
             .openWebview, .showViewer,
             .showBridgeReview, .showBridgeFiles,
             .activateBridgeFile, .activateBridgeReview, .closeBridgeFile,
-            .addBridgeWorktree, .selectBridgeWorktree, .removeBridgeWorktree,
+            .addBridgeWorktree, .selectBridgeWorktree, .removeBridgeWorktree, .searchBridgeFiles,
             .openBridgeReviewInNewTab, .openBridgeFilesInNewTab,
             .openNewTerminalInTab:
             .layoutMutate
@@ -448,7 +448,7 @@ extension AppCommand {
             .managementLayerCreateBrowser, .openWorktreeInPane,
             .openNewTerminalInTab,
             .activateBridgeFile, .activateBridgeReview, .closeBridgeFile,
-            .addBridgeWorktree, .selectBridgeWorktree, .removeBridgeWorktree:
+            .addBridgeWorktree, .selectBridgeWorktree, .removeBridgeWorktree, .searchBridgeFiles:
             [.window, .pane]
 
         case .movePaneToTab:
@@ -506,7 +506,7 @@ extension AppCommand {
             .managementLayerOpenDrawer, .managementLayerCreateTerminal,
             .managementLayerCreateBrowser, .showViewer,
             .activateBridgeFile, .activateBridgeReview, .closeBridgeFile,
-            .addBridgeWorktree, .selectBridgeWorktree, .removeBridgeWorktree:
+            .addBridgeWorktree, .selectBridgeWorktree, .removeBridgeWorktree, .searchBridgeFiles:
             [.applied, .unavailable]
 
         case .closeTab, .breakUpTab, .renameTab, .newTerminalInTab, .newTab,
