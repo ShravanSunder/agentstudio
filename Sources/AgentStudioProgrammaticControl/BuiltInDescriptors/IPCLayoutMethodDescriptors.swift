@@ -101,15 +101,20 @@ package struct IPCLayoutMethodDescriptors: Sendable {
         )
     }
 
-    var erased: [IPCAnyMethodDescriptor] {
+    var descriptorRepresentations: [any IPCMethodDescriptorRepresentation] {
         get throws {
-            try [
-                IPCAnyMethodDescriptor(erasing: paneFocus),
-                IPCAnyMethodDescriptor(erasing: paneSplit),
-                IPCAnyMethodDescriptor(erasing: paneClose),
-                IPCAnyMethodDescriptor(erasing: drawerToggle),
-                IPCAnyMethodDescriptor(erasing: drawerAddPane),
+            let representations: [any IPCMethodDescriptorRepresentation] = try [
+                IPCMethodDescriptorRepresentations(typedDescriptor: paneFocus),
+                IPCMethodDescriptorRepresentations(typedDescriptor: paneSplit),
+                IPCMethodDescriptorRepresentations(typedDescriptor: paneClose),
+                IPCMethodDescriptorRepresentations(typedDescriptor: drawerToggle),
+                IPCMethodDescriptorRepresentations(typedDescriptor: drawerAddPane),
             ]
+            return representations
         }
+    }
+
+    var erased: [IPCAnyMethodDescriptor] {
+        get throws { try descriptorRepresentations.map(\.erasedDescriptor) }
     }
 }

@@ -1,5 +1,10 @@
 import Foundation
 
+package protocol IPCMethodDescriptorRepresentation: Sendable {
+    var methodName: String { get }
+    var erasedDescriptor: IPCAnyMethodDescriptor { get }
+}
+
 package struct IPCAnyMethodDescriptor: Sendable {
     package let metadata: IPCMethodCatalogEntry
     package let catalogEntrySchema: IPCJSONSchema
@@ -78,12 +83,19 @@ package struct IPCAnyMethodDescriptor: Sendable {
 package struct IPCMethodDescriptorRepresentations<
     Parameters: Codable & Sendable,
     Result: Codable & Sendable
->: Sendable {
+>: IPCMethodDescriptorRepresentation {
     package let typedDescriptor: IPCMethodDescriptor<Parameters, Result>
     package let erasedDescriptor: IPCAnyMethodDescriptor
+
+    package var methodName: String { typedDescriptor.name }
 
     package init(typedDescriptor: IPCMethodDescriptor<Parameters, Result>) throws {
         self.typedDescriptor = typedDescriptor
         erasedDescriptor = try IPCAnyMethodDescriptor(erasing: typedDescriptor)
     }
+}
+
+package enum IPCMethodDescriptorRepresentationLookupError: Error, Equatable, Sendable {
+    case missingMethod(String)
+    case descriptorTypeMismatch(String)
 }

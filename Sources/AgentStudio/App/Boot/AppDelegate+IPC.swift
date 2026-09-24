@@ -176,7 +176,7 @@ extension AppDelegate {
         }
 
         do {
-            let composition = try makeAppIPCServer(sessionsIngestion: sessionsIngestion)
+            guard let composition = try await makeAppIPCServer(sessionsIngestion: sessionsIngestion) else { return }
             try composition.server.start()
             appIPCServer = composition.server
             appLogger.info("App IPC server started at \(composition.socketURL.path, privacy: .private)")
@@ -368,7 +368,7 @@ extension AppDelegate {
 
     private func makeAppIPCServer(
         sessionsIngestion: SessionsIngestion
-    ) throws -> (server: AgentStudioAppIPCServer, socketURL: URL) {
+    ) async throws -> (server: AgentStudioAppIPCServer, socketURL: URL)? {
         let runtimeId = appIPCRuntimeID!
         let accessMode = Self.appIPCAccessMode()
         let paths = appIPCPaths!
@@ -426,25 +426,13 @@ extension AppDelegate {
                 performanceTraceRecorder: performanceTraceRecorder)
         )
         let eventBroker = IPCEventBroker()
-        let catalog = try Self.appIPCBuiltInMethodCatalog()
-        var registrations = try AppIPCBuiltInMethodRegistrations.make(
-            inputs: .init(catalog: catalog, runtimeId: runtimeId, ports: ports, eventBroker: eventBroker)
-        )
-        let commandListing = try ports.commandPort.listCommands()
-        let commandComposition = try IPCCommandMethodComposition(
-            compatibility: .current,
-            commands: commandListing.commands,
-            recognizedUnexposedCommands: commandListing.recognizedUnexposedCommands
-        )
-        registrations += try AppIPCCommandMethodRegistrations.make(
-            composition: commandComposition,
-            port: ports.commandPort
-        )
-        let registry = try AppIPCMethodRegistry(
-            registrations: registrations,
-            recognizedCommands: AgentStudioIPCCommandCatalogProjection.recognizedCommands,
-            channel: appIPCServerChannel
-        )
+        guard
+            let registry = try await makeAppIPCMethodRegistry(
+                runtimeId: runtimeId,
+                ports: ports,
+                eventBroker: eventBroker
+            )
+        else { return nil }
         let service = AgentStudioAppIPCService(
             configuration: AgentStudioAppIPCConfiguration(runtimeId: runtimeId, accessMode: accessMode),
             ports: ports,
@@ -463,24 +451,58 @@ extension AppDelegate {
         )
     }
 
+    private func makeAppIPCMethodRegistry(
+        runtimeId: UUID,
+        ports: AgentStudioAppIPCPorts,
+        eventBroker: IPCEventBroker
+    ) async throws -> AppIPCMethodRegistry? {
+        let channel = appIPCServerChannel
+        let commandListing = try ports.commandPort.listCommands()
+        let recognizedCommands = AgentStudioIPCCommandCatalogProjection.recognizedCommands
+        let builderInputs = AppIPCDescriptorCatalogBuildInputs(
+            builtInCatalogInputs: Self.appIPCBuiltInMethodCatalogInputs(),
+            commandCatalog: commandListing,
+            channel: channel
+        )
+        let descriptorComposition = try await AppIPCDescriptorCatalogBuilder.buildOffMain(inputs: builderInputs)
+        guard !Task.isCancelled, appIPCServer == nil else { return nil }
+
+        var registrations = try AppIPCBuiltInMethodRegistrations.make(
+            inputs: .init(
+                catalog: descriptorComposition.builtInCatalog,
+                runtimeId: runtimeId,
+                ports: ports,
+                eventBroker: eventBroker
+            )
+        )
+        registrations += try AppIPCCommandMethodRegistrations.make(
+            composition: descriptorComposition.commandComposition,
+            port: ports.commandPort
+        )
+        return try AppIPCMethodRegistry(
+            registrations: registrations,
+            recognizedCommands: recognizedCommands,
+            channel: channel,
+            capabilitiesComposition: descriptorComposition.systemCapabilities
+        )
+    }
+
     private static func appIPCAppVersion() -> String {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev"
     }
 
-    private static func appIPCBuiltInMethodCatalog() throws -> IPCBuiltInMethodCatalog {
-        try IPCBuiltInMethodCatalog(
-            inputs: .init(
-                terminalWaitMaximumSeconds: AppPolicies.IPC.maximumTerminalWaitSeconds,
-                relationships: .init(
-                    paneFocus: .appCommand(identifier: AppCommand.focusPane.rawValue),
-                    paneClose: .appCommand(identifier: AppCommand.closePane.rawValue),
-                    drawerToggle: .appCommand(identifier: AppCommand.toggleDrawer.rawValue),
-                    drawerAddPane: .appCommand(identifier: AppCommand.addDrawerPane.rawValue),
-                    bridgeDiffLoad: .appCommand(identifier: AppCommand.showBridgeReview.rawValue),
-                    bridgeFileViewOpen: .appCommand(identifier: AppCommand.showBridgeFiles.rawValue)
-                ),
-                examples: .init(illustrativeIdentifier: UUIDv7.generate())
-            )
+    private static func appIPCBuiltInMethodCatalogInputs() -> IPCBuiltInMethodCatalogInputs {
+        IPCBuiltInMethodCatalogInputs(
+            terminalWaitMaximumSeconds: AppPolicies.IPC.maximumTerminalWaitSeconds,
+            relationships: IPCBuiltInMethodRelationshipInputs(
+                paneFocus: .appCommand(identifier: AppCommand.focusPane.rawValue),
+                paneClose: .appCommand(identifier: AppCommand.closePane.rawValue),
+                drawerToggle: .appCommand(identifier: AppCommand.toggleDrawer.rawValue),
+                drawerAddPane: .appCommand(identifier: AppCommand.addDrawerPane.rawValue),
+                bridgeDiffLoad: .appCommand(identifier: AppCommand.showBridgeReview.rawValue),
+                bridgeFileViewOpen: .appCommand(identifier: AppCommand.showBridgeFiles.rawValue)
+            ),
+            examples: .init(illustrativeIdentifier: UUIDv7.generate())
         )
     }
 

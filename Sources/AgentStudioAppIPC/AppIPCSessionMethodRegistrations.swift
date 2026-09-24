@@ -50,7 +50,7 @@ extension AppIPCBuiltInMethodRegistrations {
         let port = inputs.ports.sessionsPort
         return try [
             AppIPCTypedMethodRegistration(
-                descriptor: descriptors.sessionReport,
+                descriptorRepresentations: try inputs.descriptorRepresentations(for: descriptors.sessionReport),
                 correlation: .required(\.correlationId),
                 resolveTarget: { parameters, _, tools in
                     try await AppIPCBuiltInRegistrationSupport.canonicalPaneTarget(
@@ -75,7 +75,7 @@ extension AppIPCBuiltInMethodRegistrations {
                 }
             ).erase(),
             AppIPCTypedMethodRegistration(
-                descriptor: descriptors.sessionMessage,
+                descriptorRepresentations: try inputs.descriptorRepresentations(for: descriptors.sessionMessage),
                 correlation: .required(\.correlationId),
                 resolveTarget: { parameters, _, tools in
                     try await AppIPCBuiltInRegistrationSupport.canonicalPaneTarget(
@@ -99,7 +99,7 @@ extension AppIPCBuiltInMethodRegistrations {
                 }
             ).erase(),
             AppIPCTypedMethodRegistration(
-                descriptor: descriptors.sessionEvent,
+                descriptorRepresentations: try inputs.descriptorRepresentations(for: descriptors.sessionEvent),
                 correlation: .required(\.correlationId),
                 resolveTarget: { parameters, _, tools in
                     try await AppIPCBuiltInRegistrationSupport.canonicalPaneTarget(
@@ -124,7 +124,7 @@ extension AppIPCBuiltInMethodRegistrations {
                 }
             ).erase(),
             AppIPCTypedMethodRegistration(
-                descriptor: descriptors.sessionQuery,
+                descriptorRepresentations: try inputs.descriptorRepresentations(for: descriptors.sessionQuery),
                 correlation: .notRequired,
                 resolveTarget: { parameters, _, tools in
                     try await AppIPCBuiltInRegistrationSupport.canonicalPaneTarget(

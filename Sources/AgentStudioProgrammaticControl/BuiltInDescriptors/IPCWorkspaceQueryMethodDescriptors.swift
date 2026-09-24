@@ -113,17 +113,22 @@ package struct IPCWorkspaceQueryMethodDescriptors: Sendable {
         )
     }
 
-    var erased: [IPCAnyMethodDescriptor] {
+    var descriptorRepresentations: [any IPCMethodDescriptorRepresentation] {
         get throws {
-            try [
-                IPCAnyMethodDescriptor(erasing: windowList),
-                IPCAnyMethodDescriptor(erasing: windowCurrent),
-                IPCAnyMethodDescriptor(erasing: workspaceList),
-                IPCAnyMethodDescriptor(erasing: workspaceCurrent),
-                IPCAnyMethodDescriptor(erasing: paneList),
-                IPCAnyMethodDescriptor(erasing: paneCurrent),
-                IPCAnyMethodDescriptor(erasing: paneSnapshot),
+            let representations: [any IPCMethodDescriptorRepresentation] = try [
+                IPCMethodDescriptorRepresentations(typedDescriptor: windowList),
+                IPCMethodDescriptorRepresentations(typedDescriptor: windowCurrent),
+                IPCMethodDescriptorRepresentations(typedDescriptor: workspaceList),
+                IPCMethodDescriptorRepresentations(typedDescriptor: workspaceCurrent),
+                IPCMethodDescriptorRepresentations(typedDescriptor: paneList),
+                IPCMethodDescriptorRepresentations(typedDescriptor: paneCurrent),
+                IPCMethodDescriptorRepresentations(typedDescriptor: paneSnapshot),
             ]
+            return representations
         }
+    }
+
+    var erased: [IPCAnyMethodDescriptor] {
+        get throws { try descriptorRepresentations.map(\.erasedDescriptor) }
     }
 }

@@ -23,7 +23,7 @@ extension AppIPCBuiltInMethodRegistrations {
         let descriptors = inputs.catalog.layout
         return try [
             AppIPCTypedMethodRegistration(
-                descriptor: descriptors.paneFocus,
+                descriptorRepresentations: try inputs.descriptorRepresentations(for: descriptors.paneFocus),
                 correlation: .required(\.correlationId),
                 resolveTarget: { parameters, _, tools in
                     try await AppIPCBuiltInRegistrationSupport.canonicalPaneTarget(
@@ -43,7 +43,7 @@ extension AppIPCBuiltInMethodRegistrations {
                 }
             ).erase(),
             AppIPCTypedMethodRegistration(
-                descriptor: descriptors.paneSplit,
+                descriptorRepresentations: try inputs.descriptorRepresentations(for: descriptors.paneSplit),
                 correlation: .required {
                     try AppIPCBuiltInRegistrationSupport.requiredCorrelation($0.correlationId)
                 },
@@ -66,7 +66,7 @@ extension AppIPCBuiltInMethodRegistrations {
                 }
             ).erase(),
             AppIPCTypedMethodRegistration(
-                descriptor: descriptors.paneClose,
+                descriptorRepresentations: try inputs.descriptorRepresentations(for: descriptors.paneClose),
                 correlation: .required {
                     try AppIPCBuiltInRegistrationSupport.requiredCorrelation($0.correlationId)
                 },
@@ -98,7 +98,7 @@ extension AppIPCBuiltInMethodRegistrations {
         let descriptors = inputs.catalog.layout
         return try [
             AppIPCTypedMethodRegistration(
-                descriptor: descriptors.drawerToggle,
+                descriptorRepresentations: try inputs.descriptorRepresentations(for: descriptors.drawerToggle),
                 correlation: .required {
                     try AppIPCBuiltInRegistrationSupport.requiredCorrelation($0.correlationId)
                 },
@@ -120,7 +120,7 @@ extension AppIPCBuiltInMethodRegistrations {
                 }
             ).erase(),
             AppIPCTypedMethodRegistration(
-                descriptor: descriptors.drawerAddPane,
+                descriptorRepresentations: try inputs.descriptorRepresentations(for: descriptors.drawerAddPane),
                 correlation: .required {
                     try AppIPCBuiltInRegistrationSupport.requiredCorrelation($0.correlationId)
                 },
@@ -155,13 +155,13 @@ extension AppIPCBuiltInMethodRegistrations {
         let descriptors = inputs.catalog.terminal
         return try [
             terminalPaneReadRegistration(
-                descriptor: descriptors.terminalStatus,
+                descriptorRepresentations: try inputs.descriptorRepresentations(for: descriptors.terminalStatus),
                 handler: { handle, assertion in
                     try await inputs.ports.runtimePort.terminalStatus(handle, ownPaneAssertion: assertion)
                 }
             ),
             AppIPCTypedMethodRegistration(
-                descriptor: descriptors.terminalSend,
+                descriptorRepresentations: try inputs.descriptorRepresentations(for: descriptors.terminalSend),
                 correlation: .required(\.correlationId),
                 resolveTarget: { parameters, _, tools in
                     try await AppIPCBuiltInRegistrationSupport.canonicalPaneTarget(
@@ -187,13 +187,13 @@ extension AppIPCBuiltInMethodRegistrations {
                 }
             ).erase(),
             terminalPaneReadRegistration(
-                descriptor: descriptors.terminalSnapshot,
+                descriptorRepresentations: try inputs.descriptorRepresentations(for: descriptors.terminalSnapshot),
                 handler: { handle, assertion in
                     try await inputs.ports.runtimePort.terminalSnapshot(handle, ownPaneAssertion: assertion)
                 }
             ),
             AppIPCTypedMethodRegistration(
-                descriptor: descriptors.terminalWait,
+                descriptorRepresentations: try inputs.descriptorRepresentations(for: descriptors.terminalWait),
                 correlation: .notRequired,
                 resolveTarget: { parameters, _, tools in
                     try await AppIPCBuiltInRegistrationSupport.canonicalPaneTarget(
@@ -224,12 +224,12 @@ extension AppIPCBuiltInMethodRegistrations {
     }
 
     private static func terminalPaneReadRegistration<Result>(
-        descriptor: IPCMethodDescriptor<IPCPaneSelectorParams, Result>,
+        descriptorRepresentations: IPCMethodDescriptorRepresentations<IPCPaneSelectorParams, Result>,
         handler: @escaping @Sendable (IPCHandle, AppIPCOwnPaneAssertion?) async throws -> Result
     ) throws -> AnyAppIPCMethodRegistration
     where Result: Codable & Sendable {
         try AppIPCTypedMethodRegistration(
-            descriptor: descriptor,
+            descriptorRepresentations: descriptorRepresentations,
             correlation: .notRequired,
             resolveTarget: { parameters, _, tools in
                 try await AppIPCBuiltInRegistrationSupport.canonicalPaneTarget(

@@ -48,6 +48,12 @@ package struct IPCCommandMethodComposition: Sendable {
     package let catalogResult: IPCCommandCatalogResult
     package let list: IPCMethodDescriptor<IPCEmptyParams, IPCCommandCatalogResult>
     package let execute: IPCMethodDescriptor<IPCCommandExecutionRequest, IPCCommandExecutionResult>
+    package let listRepresentations: IPCMethodDescriptorRepresentations<IPCEmptyParams, IPCCommandCatalogResult>
+    package let executeRepresentations:
+        IPCMethodDescriptorRepresentations<
+            IPCCommandExecutionRequest,
+            IPCCommandExecutionResult
+        >
 
     package init(
         compatibility: IPCProtocolCatalogCompatibility,
@@ -123,11 +129,15 @@ package struct IPCCommandMethodComposition: Sendable {
             _ = try execute.decodeParameters(from: JSONEncoder().encode(example.parameters))
             _ = try execute.encodeResult(example.result)
         }
+        let listRepresentations = try IPCMethodDescriptorRepresentations(typedDescriptor: list)
+        let executeRepresentations = try IPCMethodDescriptorRepresentations(typedDescriptor: execute)
 
         self.commands = commands
         self.catalogResult = catalogResult
         self.list = list
         self.execute = execute
+        self.listRepresentations = listRepresentations
+        self.executeRepresentations = executeRepresentations
     }
 
     /// The `command.execute` shape a client uses for a command the app

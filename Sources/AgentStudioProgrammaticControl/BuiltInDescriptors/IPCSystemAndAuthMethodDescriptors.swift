@@ -85,15 +85,20 @@ package struct IPCSystemAndAuthMethodDescriptors: Sendable {
         )
     }
 
-    var erased: [IPCAnyMethodDescriptor] {
+    var descriptorRepresentations: [any IPCMethodDescriptorRepresentation] {
         get throws {
-            try [
-                IPCAnyMethodDescriptor(erasing: systemPing),
-                IPCAnyMethodDescriptor(erasing: systemIdentify),
-                IPCAnyMethodDescriptor(erasing: systemVersion),
-                IPCAnyMethodDescriptor(erasing: authLogin),
-                IPCAnyMethodDescriptor(erasing: authStatus),
+            let representations: [any IPCMethodDescriptorRepresentation] = try [
+                IPCMethodDescriptorRepresentations(typedDescriptor: systemPing),
+                IPCMethodDescriptorRepresentations(typedDescriptor: systemIdentify),
+                IPCMethodDescriptorRepresentations(typedDescriptor: systemVersion),
+                IPCMethodDescriptorRepresentations(typedDescriptor: authLogin),
+                IPCMethodDescriptorRepresentations(typedDescriptor: authStatus),
             ]
+            return representations
         }
+    }
+
+    var erased: [IPCAnyMethodDescriptor] {
+        get throws { try descriptorRepresentations.map(\.erasedDescriptor) }
     }
 }

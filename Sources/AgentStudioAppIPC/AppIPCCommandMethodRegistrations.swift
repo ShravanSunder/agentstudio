@@ -9,7 +9,7 @@ package enum AppIPCCommandMethodRegistrations {
     ) throws -> [AnyAppIPCMethodRegistration] {
         try [
             AppIPCTypedMethodRegistration(
-                descriptor: composition.list,
+                descriptorRepresentations: composition.listRepresentations,
                 correlation: .notRequired,
                 resolveTarget: { parameters, context, _ in
                     try AppIPCBuiltInRegistrationSupport.principalTarget(parameters, context: context)
@@ -22,7 +22,7 @@ package enum AppIPCCommandMethodRegistrations {
                 }
             ).erase(),
             AppIPCTypedMethodRegistration(
-                descriptor: composition.execute,
+                descriptorRepresentations: composition.executeRepresentations,
                 correlation: .required(\.correlationId),
                 resolveTarget: { parameters, context, tools in
                     guard let principal = context.principal else {

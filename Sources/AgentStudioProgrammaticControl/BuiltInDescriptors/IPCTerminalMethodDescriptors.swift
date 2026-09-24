@@ -160,14 +160,19 @@ package struct IPCTerminalMethodDescriptors: Sendable {
         ])
     }
 
-    var erased: [IPCAnyMethodDescriptor] {
+    var descriptorRepresentations: [any IPCMethodDescriptorRepresentation] {
         get throws {
-            try [
-                IPCAnyMethodDescriptor(erasing: terminalStatus),
-                IPCAnyMethodDescriptor(erasing: terminalSend),
-                IPCAnyMethodDescriptor(erasing: terminalSnapshot),
-                IPCAnyMethodDescriptor(erasing: terminalWait),
+            let representations: [any IPCMethodDescriptorRepresentation] = try [
+                IPCMethodDescriptorRepresentations(typedDescriptor: terminalStatus),
+                IPCMethodDescriptorRepresentations(typedDescriptor: terminalSend),
+                IPCMethodDescriptorRepresentations(typedDescriptor: terminalSnapshot),
+                IPCMethodDescriptorRepresentations(typedDescriptor: terminalWait),
             ]
+            return representations
         }
+    }
+
+    var erased: [IPCAnyMethodDescriptor] {
+        get throws { try descriptorRepresentations.map(\.erasedDescriptor) }
     }
 }

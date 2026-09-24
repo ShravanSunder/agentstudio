@@ -204,16 +204,21 @@ package struct IPCBridgeReviewMethodDescriptors: Sendable {
         )
     }
 
-    var erased: [IPCAnyMethodDescriptor] {
+    var descriptorRepresentations: [any IPCMethodDescriptorRepresentation] {
         get throws {
-            try [
-                IPCAnyMethodDescriptor(erasing: bridgeDiffLoad),
-                IPCAnyMethodDescriptor(erasing: bridgeFileViewOpen),
-                IPCAnyMethodDescriptor(erasing: bridgeDiffRefresh),
-                IPCAnyMethodDescriptor(erasing: bridgeDiffGetPackage),
-                IPCAnyMethodDescriptor(erasing: bridgeDiffRenderState),
-                IPCAnyMethodDescriptor(erasing: bridgeDiffSelectFile),
+            let representations: [any IPCMethodDescriptorRepresentation] = try [
+                IPCMethodDescriptorRepresentations(typedDescriptor: bridgeDiffLoad),
+                IPCMethodDescriptorRepresentations(typedDescriptor: bridgeFileViewOpen),
+                IPCMethodDescriptorRepresentations(typedDescriptor: bridgeDiffRefresh),
+                IPCMethodDescriptorRepresentations(typedDescriptor: bridgeDiffGetPackage),
+                IPCMethodDescriptorRepresentations(typedDescriptor: bridgeDiffRenderState),
+                IPCMethodDescriptorRepresentations(typedDescriptor: bridgeDiffSelectFile),
             ]
+            return representations
         }
+    }
+
+    var erased: [IPCAnyMethodDescriptor] {
+        get throws { try descriptorRepresentations.map(\.erasedDescriptor) }
     }
 }

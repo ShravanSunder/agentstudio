@@ -80,14 +80,19 @@ package struct IPCPresentationAndSidebarMethodDescriptors: Sendable {
         IPCBuiltInDescriptorSupport.unavailable,
     ]
 
-    var erased: [IPCAnyMethodDescriptor] {
+    var descriptorRepresentations: [any IPCMethodDescriptorRepresentation] {
         get throws {
-            try [
-                IPCAnyMethodDescriptor(erasing: uiCommandBarOpen),
-                IPCAnyMethodDescriptor(erasing: uiArrangementsOpen),
-                IPCAnyMethodDescriptor(erasing: sidebarGroupingGet),
-                IPCAnyMethodDescriptor(erasing: sidebarSurfaceGet),
+            let representations: [any IPCMethodDescriptorRepresentation] = try [
+                IPCMethodDescriptorRepresentations(typedDescriptor: uiCommandBarOpen),
+                IPCMethodDescriptorRepresentations(typedDescriptor: uiArrangementsOpen),
+                IPCMethodDescriptorRepresentations(typedDescriptor: sidebarGroupingGet),
+                IPCMethodDescriptorRepresentations(typedDescriptor: sidebarSurfaceGet),
             ]
+            return representations
         }
+    }
+
+    var erased: [IPCAnyMethodDescriptor] {
+        get throws { try descriptorRepresentations.map(\.erasedDescriptor) }
     }
 }

@@ -18,6 +18,13 @@ package struct AppIPCBuiltInRegistrationInputs: Sendable {
         self.ports = ports
         self.eventBroker = eventBroker
     }
+
+    package func descriptorRepresentations<Parameters, Result>(
+        for descriptor: IPCMethodDescriptor<Parameters, Result>
+    ) throws -> IPCMethodDescriptorRepresentations<Parameters, Result>
+    where Parameters: Codable & Sendable, Result: Codable & Sendable {
+        try catalog.descriptorRepresentations(for: descriptor)
+    }
 }
 
 package enum AppIPCBuiltInMethodRegistrations {
