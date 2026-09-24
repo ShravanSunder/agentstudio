@@ -23,6 +23,25 @@ enum AgentStudioIPCCommandCatalogProjection {
         AppCommand.allCases.filter { admitsCommand($0, on: channel) }
     }
 
+    /// Every command on every channel, with its exposure and agent
+    /// eligibility, so the registry can refuse a pane agent by command name.
+    static var recognizedCommands: [AppIPCRecognizedEntry] {
+        AppCommand.allCases.map {
+            AppIPCRecognizedEntry(
+                name: $0.rawValue,
+                exposure: $0.ipcSpec.exposure,
+                agentEligibility: $0.ipcSpec.agentEligibility
+            )
+        }
+    }
+
+    /// Commands this build recognizes that the channel hides, for discovery.
+    static func recognizedUnexposedCommands(on channel: AgentStudioIPCChannel) -> [IPCRecognizedUnexposedName] {
+        AppCommand.allCases.filter { !admitsCommand($0, on: channel) }.map {
+            IPCRecognizedUnexposedName(name: $0.rawValue, agentEligibility: $0.ipcSpec.agentEligibility)
+        }
+    }
+
     static func makeDescriptor(for command: AppCommand) throws -> IPCCommandDescriptor {
         let examples = try command.ipcSpec.argumentVariants.map { variant in
             let request = try exampleRequest(for: command, variant: variant)

@@ -121,12 +121,13 @@ extension AppIPCBuiltInMethodRegistrations {
                         }
                     )
                 },
-                connectionHandler: { parameters, _, _ in
+                connectionHandler: { parameters, context, _ in
                     let handle = try IPCHandle.parse(parameters.handle)
                     guard case (.pane, .canonicalUUID(let paneId)) = (handle.kind, handle.reference) else {
                         throw AppIPCTypedMethodRegistrationError.targetKindNotAllowed
                     }
-                    return try await inputs.ports.queryPort.snapshotPane(paneId)
+                    return try await inputs.ports.queryPort.snapshotPane(
+                        paneId, ownPaneAssertion: AppIPCOwnPaneAssertion(principal: context.principal))
                 }
             ).erase(),
         ]

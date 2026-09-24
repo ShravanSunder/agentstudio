@@ -43,18 +43,18 @@ struct AgentStudioIPCCommandChannelCoverageTests {
             #expect(!descriptor.examples.isEmpty)
         }
         let debugOnly = catalog.commands.filter { $0.exposure == .debugTesting }
-        #expect(debugOnly.count == AppCommand.allCases.count - 16)
+        #expect(debugOnly.count == AppCommand.allCases.count - Self.admittedHeadlessCommands.count)
     }
 
     @Test(
-        "stable and beta discovery freezes the admitted 15 headless commands",
+        "stable and beta discovery admits the all-channel headless commands and the agent own-pane set",
         arguments: [AgentStudioIPCChannel.stable, .beta]
     )
     func admittedChannelCatalogStaysFrozen(channel: AgentStudioIPCChannel) throws {
         let catalog = try CommandAdapterHarness(channel: channel).adapter.listCommands()
         let ids = Set(catalog.commands.map(\.id.rawValue))
 
-        #expect(catalog.commands.count == 16)
+        #expect(catalog.commands.count == 24)
         #expect(ids == Set(Self.admittedHeadlessCommands.map(\.rawValue)))
         #expect(catalog.commands.allSatisfy { $0.exposure == .allChannels })
     }
@@ -86,7 +86,7 @@ struct AgentStudioIPCCommandChannelCoverageTests {
                             for: command, variant: variant)
                         let observedBefore = workspaceOwner.headlessRequests.count
                         do {
-                            let result = try await harness.adapter.executeCommand(request)
+                            let result = try await harness.adapter.executeCommand(request, ownPaneAssertion: nil)
                             if !command.ipcSpec.resultVariants.contains(result.variant) {
                                 mismatchedResults.append("\(command.rawValue):\(result.variant.rawValue)")
                             }
@@ -145,7 +145,7 @@ struct AgentStudioIPCCommandChannelCoverageTests {
                     let request = try AgentStudioIPCCommandCatalogProjection.exampleRequest(
                         for: command, variant: variant)
                     do {
-                        _ = try await harness.adapter.executeCommand(request)
+                        _ = try await harness.adapter.executeCommand(request, ownPaneAssertion: nil)
                         admitted.append(command.rawValue)
                     } catch let error as AppIPCCommandError {
                         #expect(error.reason == .unsupportedCommand)
@@ -185,7 +185,7 @@ struct AgentStudioIPCCommandChannelCoverageTests {
                             commandId: .init(rawValue: command.rawValue),
                             correlationId: UUIDv7.generate(),
                             arguments: .workspaceWindow(.init(workspaceWindowId: windowId))
-                        )
+                        ), ownPaneAssertion: nil
                     )
                     #expect(result.variant == .unavailable)
                 }
@@ -218,15 +218,46 @@ struct AgentStudioIPCCommandChannelCoverageTests {
         #expect(frame.count == frameByteCount)
     }
 
-    static let admittedHeadlessCommands: [AppCommand] = [
-        .zoomPane, .reloadBridgeWebView,
-        .showReposSidebar, .showPanesSidebar,
-        .setReposGroupingRepo, .setReposGroupingActivity,
-        .setReposSortFieldName, .setReposSortFieldActivity,
-        .toggleReposSortDirection,
-        .toggleReposShowsPinned, .togglePanesShowsPinned,
-        .pinRepo, .unpinRepo, .pinPane, .unpinPane, .focusSidebar,
+    static let admittedHeadlessCommands: [AppCommand] =
+        [
+            .zoomPane, .reloadBridgeWebView,
+            .showReposSidebar, .showPanesSidebar,
+            .setReposGroupingRepo, .setReposGroupingActivity,
+            .setReposSortFieldName, .setReposSortFieldActivity,
+            .toggleReposSortDirection,
+            .toggleReposShowsPinned, .togglePanesShowsPinned,
+            .pinRepo, .unpinRepo, .pinPane, .unpinPane, .focusSidebar,
+        ] + agentOwnPaneCommands
+
+    /// A1's own-pane command set; pane agents reach it on every channel.
+    static let agentOwnPaneCommands: [AppCommand] = [
+        .scrollToBottom, .scrollPageUp, .scrollPageDown,
+        .scrollSmallStepUp, .scrollSmallStepDown,
+        .jumpToPreviousPrompt, .jumpToNextPrompt, .closeDrawerPane,
     ]
+
+    @Test("only the own-pane commands are agent eligible, and discovery reports each command's eligibility")
+    func agentEligibilityMatchesTheOwnPaneSet() throws {
+        let ownPane = AppCommand.allCases.filter { $0.ipcSpec.agentEligibility == .ownPane }
+        let anyTarget = AppCommand.allCases.filter { $0.ipcSpec.agentEligibility == .anyTarget }
+
+        #expect(Set(ownPane) == Set(Self.agentOwnPaneCommands))
+        #expect(anyTarget.isEmpty)
+        #expect(ownPane.allSatisfy { $0.ipcSpec.exposure == .allChannels })
+
+        let catalog = try CommandAdapterHarness(channel: .stable).adapter.listCommands()
+        for descriptor in catalog.commands {
+            let command = try #require(AppCommand(rawValue: descriptor.id.rawValue))
+            #expect(descriptor.agentEligibility == command.ipcSpec.agentEligibility)
+        }
+        let encoded = try #require(
+            JSONSerialization.jsonObject(with: JSONEncoder().encode(catalog)) as? [String: Any])
+        let encodedCommands = try #require(encoded["commands"] as? [[String: Any]])
+        let scrollToBottom = try #require(encodedCommands.first { $0["id"] as? String == "scrollToBottom" })
+        let zoomPane = try #require(encodedCommands.first { $0["id"] as? String == "zoomPane" })
+        #expect(scrollToBottom["agentEligibility"] as? String == "ownPane")
+        #expect(zoomPane["agentEligibility"] as? String == "notYetAllowed")
+    }
 }
 
 /// Authorizes every durable identity so coverage tests exercise dispatch and

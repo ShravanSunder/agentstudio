@@ -1,4 +1,5 @@
 import AgentStudioIPCClientCore
+import AgentStudioIPCTransport
 import AgentStudioPrimitives
 import AgentStudioProgrammaticControl
 import Foundation
@@ -66,6 +67,79 @@ struct IPCCommandDiscoveryTests {
         #expect(wrongVariant.fieldPath == "$.arguments.kind")
     }
 
+    @Test(
+        "a recognized hidden command whose arguments no advertised command takes is framed for the app to refuse",
+        arguments: HiddenCommandCase.allCases
+    )
+    func recognizedHiddenCommandIsFramedForTheApp(hiddenCase: HiddenCommandCase) throws {
+        let hiddenCommandId = IPCCommandIdentifier(rawValue: "fixture.hidden")
+        let fixture = try IPCCommandDiscoveryFixture.make(recognizedUnexposedCommands: [
+            IPCRecognizedUnexposedName(name: hiddenCommandId.rawValue, agentEligibility: .notYetAllowed)
+        ])
+        let catalog = try IPCCommandDiscovery(methodCatalog: fixture.methodCatalog)
+            .decodeCommandCatalog(from: JSONEncoder().encode(fixture.commandComposition.catalogResult))
+        let arguments = hiddenCase.arguments(workspaceWindowId: fixture.workspaceWindowId)
+        let request = IPCCommandExecutionRequest(
+            commandId: hiddenCommandId, correlationId: fixture.correlationId, arguments: arguments)
+        let payload = try #require(String(data: JSONEncoder().encode(request), encoding: .utf8))
+
+        // Gate 1: the CLI reads the payload with the catalog's envelope, not
+        // with the advertised union, which has no such argument variant.
+        let parsed = try IPCDescriptorInvocationParser.parse(
+            ["command.execute", "--json", payload],
+            descriptors: [catalog.requestEnvelopeDescriptor],
+            correlationIDGenerator: { UUIDv7.generate() }
+        )
+        #expect(throws: (any Error).self) {
+            _ = try catalog.executeDescriptor.normalizeParameters(Data(payload.utf8))
+        }
+        let parsedRequest = try JSONDecoder().decode(IPCCommandExecutionRequest.self, from: parsed.normalizedParameters)
+        let invocation = try catalog.makeInvocation(
+            commandId: parsedRequest.commandId,
+            correlationId: parsedRequest.correlationId,
+            arguments: parsedRequest.arguments
+        )
+        // Gate 2: framing normalizes again, through the invocation's own
+        // descriptor.
+        let frame = try AgentStudioIPCClient(
+            configuration: .init(socketPath: "/tmp/unused.sock"), descriptors: []
+        ).requestFrame(invocation, requestID: 7)
+        let framed = try JSONRPCCodec.decodeRequest(frame)
+        let framedRequest = try JSONDecoder().decode(
+            IPCCommandExecutionRequest.self, from: JSONEncoder().encode(try #require(framed.params)))
+
+        #expect(framed.method == "command.execute")
+        #expect(framedRequest == request)
+    }
+
+    @Test("advertised commands keep their own variants and unknown identifiers stay local")
+    func advertisedCommandsKeepTypedValidation() throws {
+        let fixture = try IPCCommandDiscoveryFixture.make(recognizedUnexposedCommands: [
+            IPCRecognizedUnexposedName(name: "fixture.hidden", agentEligibility: .notYetAllowed)
+        ])
+        let catalog = try IPCCommandDiscovery(methodCatalog: fixture.methodCatalog)
+            .decodeCommandCatalog(from: JSONEncoder().encode(fixture.commandComposition.catalogResult))
+
+        let advertisedWithForeignVariant = try captureIPCCommandDiscoveryError {
+            _ = try catalog.makeInvocation(
+                commandId: fixture.noArgumentsCommandId,
+                correlationId: fixture.correlationId,
+                arguments: HiddenCommandCase.tab.arguments(workspaceWindowId: fixture.workspaceWindowId)
+            )
+        }
+        let unknown = try captureIPCCommandDiscoveryError {
+            _ = try catalog.makeInvocation(
+                commandId: IPCCommandIdentifier(rawValue: "future.private.command"),
+                correlationId: fixture.correlationId,
+                arguments: .noArguments
+            )
+        }
+
+        #expect(advertisedWithForeignVariant.reason == .argumentVariantNotAllowed)
+        #expect(advertisedWithForeignVariant.fieldPath == "$.arguments.kind")
+        #expect(unknown.reason == .unknownCommandIdentifier)
+    }
+
     @Test("command result decoding preserves typed identity and correlation")
     func resultIdentityAndCorrelationRemainTyped() throws {
         let fixture = try IPCCommandDiscoveryFixture.make()
@@ -130,6 +204,22 @@ struct IPCCommandDiscoveryTests {
     }
 }
 
+/// Argument variants no fixture command advertises, as `closeTab` and `newTab`
+/// take on stable.
+enum HiddenCommandCase: CaseIterable, Sendable {
+    case tab
+    case newTab
+
+    func arguments(workspaceWindowId: UUID) -> IPCCommandArguments {
+        switch self {
+        case .tab:
+            .tab(IPCTabCommandArguments(workspaceWindowId: workspaceWindowId, tabId: UUIDv7.generate()))
+        case .newTab:
+            .newTab(IPCNewTabCommandArguments(workspaceWindowId: workspaceWindowId, launchDirectory: nil))
+        }
+    }
+}
+
 private struct IPCCommandDiscoveryFixture {
     let noArgumentsCommandId: IPCCommandIdentifier
     let paneCommandId: IPCCommandIdentifier
@@ -138,7 +228,7 @@ private struct IPCCommandDiscoveryFixture {
     let commandComposition: IPCCommandMethodComposition
     let methodCatalog: IPCMethodCatalogResult
 
-    static func make() throws -> Self {
+    static func make(recognizedUnexposedCommands: [IPCRecognizedUnexposedName] = []) throws -> Self {
         let noArgumentsCommandId = IPCCommandIdentifier(rawValue: "fixture.noArguments")
         let paneCommandId = IPCCommandIdentifier(rawValue: "fixture.pane")
         let correlationId = UUIDv7.generate()
@@ -183,7 +273,8 @@ private struct IPCCommandDiscoveryFixture {
                                 )
                             )
                         )
-                    ]
+                    ],
+                    agentEligibility: .notYetAllowed
                 )
             ),
             IPCCommandDescriptorFactory.make(
@@ -210,14 +301,29 @@ private struct IPCCommandDiscoveryFixture {
                                 )
                             )
                         )
-                    ]
+                    ],
+                    agentEligibility: .notYetAllowed
                 )
             ),
         ]
         let commandComposition = try IPCCommandMethodComposition(
             compatibility: .current,
-            commands: commands
+            commands: commands,
+            recognizedUnexposedCommands: recognizedUnexposedCommands
         )
+        return Self(
+            noArgumentsCommandId: noArgumentsCommandId,
+            paneCommandId: paneCommandId,
+            correlationId: correlationId,
+            workspaceWindowId: workspaceWindowId,
+            commandComposition: commandComposition,
+            methodCatalog: try methodCatalog(advertising: commandComposition)
+        )
+    }
+
+    private static func methodCatalog(
+        advertising commandComposition: IPCCommandMethodComposition
+    ) throws -> IPCMethodCatalogResult {
         let examples = IPCBuiltInMethodExampleContext(illustrativeIdentifier: UUIDv7.generate())
         let bootstrap = try IPCBuiltInMethodCatalog.bootstrapDescriptors(examples: examples)
         let ping = try #require(bootstrap.first { $0.metadata.name == "system.ping" })
@@ -226,19 +332,11 @@ private struct IPCCommandDiscoveryFixture {
                 try IPCAnyMethodDescriptor(erasing: commandComposition.list),
                 try IPCAnyMethodDescriptor(erasing: commandComposition.execute),
             ]
-        let capabilities = try IPCSystemCapabilitiesDescriptorFactory.compose(
+        return try IPCSystemCapabilitiesDescriptorFactory.compose(
             compatibility: .current,
             availableDescriptors: advertised,
             illustrativeDescriptor: ping
-        )
-        return Self(
-            noArgumentsCommandId: noArgumentsCommandId,
-            paneCommandId: paneCommandId,
-            correlationId: correlationId,
-            workspaceWindowId: workspaceWindowId,
-            commandComposition: commandComposition,
-            methodCatalog: capabilities.result
-        )
+        ).result
     }
 
     func paneArguments() throws -> IPCCommandArguments {

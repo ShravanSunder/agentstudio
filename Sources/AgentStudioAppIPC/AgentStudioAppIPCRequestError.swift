@@ -118,7 +118,21 @@ extension AgentStudioAppIPCRequestError {
                     "requiredScope": scopeValue,
                 ])
             )
+        case .notYetAllowed:
+            self = Self.agentRefusal(
+                code: -32_011, message: "not yet allowed", reason: "notYetAllowed", name: error.refusedName)
+        case .refusedForAgent:
+            self = Self.agentRefusal(
+                code: -32_012, message: "refused for agent", reason: "refusedForAgent", name: error.refusedName)
         }
+    }
+
+    /// The agent outcomes name the refused method or command so an agent can
+    /// tell them apart from authentication and missing-target failures.
+    private static func agentRefusal(code: Int, message: String, reason: String, name: String?) -> Self {
+        var data: [String: JSONValue] = ["reason": .string(reason)]
+        if let name { data["name"] = .string(name) }
+        return Self(code: code, message: message, data: .object(data))
     }
 
     private init(_ reason: AppIPCQueryError.Reason) {

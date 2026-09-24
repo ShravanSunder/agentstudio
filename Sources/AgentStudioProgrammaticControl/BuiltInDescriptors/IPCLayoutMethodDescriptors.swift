@@ -20,7 +20,8 @@ package struct IPCLayoutMethodDescriptors: Sendable {
                 dataScope: .paneContext,
                 targetKinds: [.pane],
                 relationship: relationship.paneFocus,
-                owner: .workspaceAction)
+                owner: .workspaceAction,
+                agentEligibility: .notYetAllowed)
         )
         paneSplit = try IPCBuiltInDescriptorSupport.mutation(
             name: "pane.split",
@@ -39,7 +40,8 @@ package struct IPCLayoutMethodDescriptors: Sendable {
                 privilege: .layoutMutate,
                 dataScope: .paneContext,
                 targetKinds: [.pane],
-                owner: .workspaceAction)
+                owner: .workspaceAction,
+                agentEligibility: .notYetAllowed)
         )
         paneClose = try IPCBuiltInDescriptorSupport.mutation(
             name: "pane.close",
@@ -51,7 +53,9 @@ package struct IPCLayoutMethodDescriptors: Sendable {
                 dataScope: .paneContext,
                 targetKinds: [.pane],
                 relationship: relationship.paneClose,
-                owner: .workspaceAction)
+                owner: .workspaceAction,
+                exposure: .allChannels,
+                agentEligibility: .ownPane)
         )
         drawerToggle = try IPCBuiltInDescriptorSupport.mutation(
             name: "drawer.toggle",
@@ -69,17 +73,21 @@ package struct IPCLayoutMethodDescriptors: Sendable {
                 dataScope: .paneContext,
                 targetKinds: [.pane],
                 relationship: relationship.drawerToggle,
-                owner: .workspaceAction)
+                owner: .workspaceAction,
+                agentEligibility: .notYetAllowed)
         )
         drawerAddPane = try IPCBuiltInDescriptorSupport.mutation(
             name: "drawer.addPane",
-            description: "Add a terminal pane to one explicit parent pane's drawer.",
+            description:
+                "Add a terminal or browser to one explicit parent pane's drawer without expanding it or moving focus.",
             parameters: IPCDrawerAddPaneParams(
                 parentPaneHandle: "self",
+                content: .browser(url: "https://example.com"),
                 correlationId: example.correlationId
             ),
             result: IPCDrawerAddPaneResult(
                 parentPaneId: example.paneId,
+                childPaneId: example.commandId,
                 correlationId: example.correlationId
             ),
             metadata: .init(
@@ -87,7 +95,9 @@ package struct IPCLayoutMethodDescriptors: Sendable {
                 dataScope: .paneContext,
                 targetKinds: [.pane],
                 relationship: relationship.drawerAddPane,
-                owner: .workspaceAction)
+                owner: .workspaceAction,
+                exposure: .allChannels,
+                agentEligibility: .ownPane)
         )
     }
 

@@ -22,8 +22,10 @@ package struct IPCTerminalMethodDescriptors: Sendable {
             privilege: .terminalStatusRead,
             dataScope: .terminalStatus,
             targetKinds: [.pane],
+            exposure: .allChannels,
             owner: .runtimeCommand,
-            errors: Self.terminalErrors
+            errors: Self.terminalErrors,
+            agentEligibility: .ownPane
         )
         terminalSend = try IPCBuiltInDescriptorSupport.mutation(
             name: "terminal.send",
@@ -46,7 +48,9 @@ package struct IPCTerminalMethodDescriptors: Sendable {
                 targetKinds: [.pane],
                 owner: .runtimeCommand,
                 semantics: .accepted,
-                errors: Self.terminalErrors)
+                errors: Self.terminalErrors,
+                exposure: .allChannels,
+                agentEligibility: .ownPane)
         )
         terminalSnapshot = try IPCBuiltInDescriptorSupport.read(
             name: "terminal.snapshot",
@@ -66,8 +70,10 @@ package struct IPCTerminalMethodDescriptors: Sendable {
             privilege: .terminalSnapshotRead,
             dataScope: .terminalSnapshot,
             targetKinds: [.pane],
+            exposure: .allChannels,
             owner: .runtimeCommand,
-            errors: Self.terminalErrors
+            errors: Self.terminalErrors,
+            agentEligibility: .ownPane
         )
         terminalWait = try Self.makeWaitDescriptor(inputs: inputs)
     }
@@ -102,7 +108,7 @@ package struct IPCTerminalMethodDescriptors: Sendable {
                     )
                 )
             ],
-            exposure: .debugTesting,
+            exposure: .allChannels,
             requiredPrivileges: [.terminalWait],
             dataScope: .terminalWait,
             allowedTargetKinds: [.pane],
@@ -110,9 +116,11 @@ package struct IPCTerminalMethodDescriptors: Sendable {
             executionOwner: .runtimeCommand,
             principalAvailability: .authenticated,
             resultSemantics: .accepted,
-            documentedErrors: Self.terminalErrors,
+            documentedErrors: IPCBuiltInDescriptorSupport.documentedErrors(
+                Self.terminalErrors, agentEligibility: .ownPane),
             isMutating: false,
-            correlationPolicy: .notAccepted
+            correlationPolicy: .notAccepted,
+            agentEligibility: .ownPane
         )
     }
 

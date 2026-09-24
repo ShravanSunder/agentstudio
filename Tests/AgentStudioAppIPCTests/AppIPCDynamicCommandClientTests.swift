@@ -370,7 +370,33 @@ struct AppIPCDynamicCommandClientTests {
 
     @Test("built CLI preserves an App IPC missing grant scope")
     func builtCLIRendersCanonicalMissingGrantScope() async throws {
-        let scenario = try MissingGrantCredentialScenario.make()
+        let scenario = try PaneAgentCredentialScenario.make()
+        defer { scenario.fixture.cleanup() }
+        try scenario.fixture.server.start()
+
+        // An established session method keeps the grant-based admission, so a
+        // cross-pane query still carries the canonical required scope.
+        let result = try await runCLI(
+            executableURL: cliExecutableURL(),
+            arguments: ["session.query", "--handle", scenario.otherPaneId.uuidString],
+            environment: scenario.cliEnvironment
+        )
+        let structuredError = try requireStructuredCLIError(result)
+        #expect(structuredError.reason == "missingGrant")
+        #expect(structuredError.fieldPath == "$.authorization")
+        #expect(
+            structuredError.requiredScope
+                == IPCPermissionScope(
+                    privilege: .sessionStateRead,
+                    target: .pane(scenario.otherPaneId.uuidString),
+                    dataScope: .sessionState
+                ))
+        #expect(structuredError.catalogMethod == nil)
+    }
+
+    @Test("built CLI reports a pane agent's refused command as not yet allowed")
+    func builtCLIRendersNotYetAllowedCommand() async throws {
+        let scenario = try PaneAgentCredentialScenario.make()
         defer { scenario.fixture.cleanup() }
         try scenario.fixture.server.start()
 
@@ -387,11 +413,27 @@ struct AppIPCDynamicCommandClientTests {
             environment: scenario.cliEnvironment
         )
         let structuredError = try requireStructuredCLIError(result)
-        #expect(structuredError.reason == "missingGrant")
-        #expect(structuredError.fieldPath == "$.authorization")
-        #expect(structuredError.requiredScope == scenario.requiredScope)
-        #expect(structuredError.catalogMethod == nil)
+        #expect(structuredError.reason == "notYetAllowed")
+        #expect(structuredError.refusedName == scenario.commandId.rawValue)
+        #expect(structuredError.requiredScope == nil)
         #expect(scenario.commandPort.receivedExecutionRequests.isEmpty)
+    }
+
+    @Test("built CLI names a pane agent's refused method")
+    func builtCLIRendersNotYetAllowedMethodName() async throws {
+        let scenario = try PaneAgentCredentialScenario.make()
+        defer { scenario.fixture.cleanup() }
+        try scenario.fixture.server.start()
+
+        let result = try await runCLI(
+            executableURL: cliExecutableURL(),
+            arguments: ["bridge.diff.getPackage", "--handle", "self"],
+            environment: scenario.cliEnvironment
+        )
+        let structuredError = try requireStructuredCLIError(result)
+        #expect(structuredError.reason == "notYetAllowed")
+        #expect(structuredError.refusedName == "bridge.diff.getPackage")
+        #expect(structuredError.requiredScope == nil)
     }
 
     @Test("built CLI renders an unknown method correction without reflecting its identifier")
@@ -488,10 +530,10 @@ private struct DynamicCommandScenario {
     }
 }
 
-private struct MissingGrantCredentialScenario {
+private struct PaneAgentCredentialScenario {
     let commandId: IPCCommandIdentifier
     let correlationId: UUID
-    let requiredScope: IPCPermissionScope
+    let otherPaneId: UUID
     let commandPort: FakeCommandPort
     let fixture: LiveServerFixture
     let authenticationToken: String
@@ -503,7 +545,7 @@ private struct MissingGrantCredentialScenario {
     }
 
     static func make() throws -> Self {
-        let commandId = IPCCommandIdentifier(rawValue: "fixture.missingGrantCommand")
+        let commandId = IPCCommandIdentifier(rawValue: "fixture.notYetAllowedCommand")
         let correlationId = UUIDv7.generate()
         let descriptorResult = IPCCommandExecutionResult.applied(
             IPCCommandAppliedResult(commandId: commandId, correlationId: correlationId)
@@ -524,18 +566,16 @@ private struct MissingGrantCredentialScenario {
             compatibility: .current,
             commands: [descriptor]
         )
-        let requiredScope = IPCPermissionScope(
-            privilege: .appCommandExecute,
-            target: .app,
-            dataScope: .unspecified
-        )
+        let boundPaneId = UUIDv7.generate()
+        let otherPaneId = UUIDv7.generate()
         let fixture = try LiveServerFixture(
+            panes: [makePaneSummary(id: boundPaneId, ordinal: 1), makePaneSummary(id: otherPaneId, ordinal: 2)],
             commandPort: commandPort,
             commandComposition: composition
         )
         let authenticationToken = try fixture.issueTestCredential(
             for: .pane(
-                paneId: fixture.boundPaneId,
+                paneId: boundPaneId,
                 credentialRecordId: UUIDv7.generate(),
                 status: .registered
             )
@@ -543,7 +583,7 @@ private struct MissingGrantCredentialScenario {
         return Self(
             commandId: commandId,
             correlationId: correlationId,
-            requiredScope: requiredScope,
+            otherPaneId: otherPaneId,
             commandPort: commandPort,
             fixture: fixture,
             authenticationToken: authenticationToken.rawValue
@@ -573,6 +613,7 @@ private struct StructuredCLIError: Decodable {
     let expected: String?
     let catalogMethod: String?
     let requiredScope: IPCPermissionScope?
+    let refusedName: String?
 }
 
 private func makeCLIEnvironment(for scenario: DynamicCommandScenario) -> [String: String] {

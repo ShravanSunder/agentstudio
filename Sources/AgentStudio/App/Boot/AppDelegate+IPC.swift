@@ -149,7 +149,7 @@ extension AppDelegate {
     /// leaves debug authentication unavailable; it never falls back to the
     /// separate unsafe no-auth composition.
     private func publishDebugCredentialEscrow(socketURL: URL) {
-        guard Self.appIPCChannel() == .debug,
+        guard Self.compiledAppIPCChannel() == .debug,
             let escrowURL = appIPCDebugCredentialEscrowURL
         else { return }
         var credentialBytes = Data(count: 32)
@@ -343,7 +343,7 @@ extension AppDelegate {
             ),
             commandPort: AgentStudioIPCCommandAdapter(
                 workspaceId: store.identityAtom.workspaceId,
-                channel: Self.appIPCChannel(),
+                channel: appIPCServerChannel,
                 targetAuthorizer: WorkspaceDurableTargetAuthorizationPort(workspaceStore: store),
                 shellCommandHandler: self
             ),
@@ -361,22 +361,31 @@ extension AppDelegate {
                     profiles: appIPCSessionsProviderProfiles
                 )
             ),
-            permissionApprovalPort: AgentStudioIPCHumanApprovalPort()
+            permissionApprovalPort: AgentStudioIPCHumanApprovalPort(),
+            ownPaneScopePort: WorkspaceOwnPaneScopePort(workspaceStore: store),
+            agentAuthorizationTelemetry: AgentStudioIPCAgentAuthorizationTelemetry(
+                performanceTraceRecorder: performanceTraceRecorder)
         )
         let eventBroker = IPCEventBroker()
         let catalog = try Self.appIPCBuiltInMethodCatalog()
         var registrations = try AppIPCBuiltInMethodRegistrations.make(
             inputs: .init(catalog: catalog, runtimeId: runtimeId, ports: ports, eventBroker: eventBroker)
         )
+        let commandListing = try ports.commandPort.listCommands()
         let commandComposition = try IPCCommandMethodComposition(
             compatibility: .current,
-            commands: ports.commandPort.listCommands().commands
+            commands: commandListing.commands,
+            recognizedUnexposedCommands: commandListing.recognizedUnexposedCommands
         )
         registrations += try AppIPCCommandMethodRegistrations.make(
             composition: commandComposition,
             port: ports.commandPort
         )
-        let registry = try AppIPCMethodRegistry(registrations: registrations, channel: Self.appIPCChannel())
+        let registry = try AppIPCMethodRegistry(
+            registrations: registrations,
+            recognizedCommands: AgentStudioIPCCommandCatalogProjection.recognizedCommands,
+            channel: appIPCServerChannel
+        )
         let service = AgentStudioAppIPCService(
             configuration: AgentStudioAppIPCConfiguration(runtimeId: runtimeId, accessMode: accessMode),
             ports: ports,
@@ -387,7 +396,7 @@ extension AppDelegate {
             AgentStudioAppIPCServer(
                 service: service,
                 paths: paths,
-                channel: Self.appIPCChannel(),
+                channel: appIPCServerChannel,
                 principalRegistry: appIPCPrincipalRegistry,
                 credentialContinuityPort: appIPCContinuityRepository
             ),
@@ -416,7 +425,9 @@ extension AppDelegate {
         )
     }
 
-    private static func appIPCChannel() -> AgentStudioIPCChannel {
+    /// The channel this build serves. Composition reads `appIPCServerChannel`,
+    /// which starts from this value.
+    static func compiledAppIPCChannel() -> AgentStudioIPCChannel {
         #if DEBUG
             return .debug
         #else

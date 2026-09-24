@@ -87,7 +87,9 @@ package struct IPCWorkspaceQueryMethodDescriptors: Sendable {
             privilege: .paneContextRead,
             dataScope: .paneContext,
             targetKinds: [.pane],
-            errors: [IPCBuiltInDescriptorSupport.invalidParams, IPCBuiltInDescriptorSupport.targetNotFound]
+            exposure: .allChannels,
+            errors: [IPCBuiltInDescriptorSupport.invalidParams, IPCBuiltInDescriptorSupport.targetNotFound],
+            agentEligibility: .ownPane
         )
     }
 
@@ -105,7 +107,9 @@ package struct IPCWorkspaceQueryMethodDescriptors: Sendable {
             result: result,
             privilege: privilege,
             dataScope: dataScope,
-            errors: [IPCBuiltInDescriptorSupport.unavailable]
+            exposure: .allChannels,
+            errors: [IPCBuiltInDescriptorSupport.unavailable],
+            agentEligibility: .anyTarget
         )
     }
 

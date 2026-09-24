@@ -18,7 +18,8 @@ package enum IPCSystemCapabilitiesDescriptorFactory {
     package static func compose(
         compatibility: IPCProtocolCatalogCompatibility,
         availableDescriptors: [IPCAnyMethodDescriptor],
-        illustrativeDescriptor: IPCAnyMethodDescriptor
+        illustrativeDescriptor: IPCAnyMethodDescriptor,
+        recognizedUnexposedMethods: [IPCRecognizedUnexposedName] = []
     ) throws -> IPCSystemCapabilitiesComposition {
         guard compatibility == .current else {
             throw IPCSystemCapabilitiesCompositionError.incompatibleIdentity
@@ -68,13 +69,15 @@ package enum IPCSystemCapabilitiesDescriptorFactory {
                 )
             ],
             isMutating: false,
-            correlationPolicy: .notAccepted
+            correlationPolicy: .notAccepted,
+            agentEligibility: .anyTarget
         )
         let erasedDescriptor = try IPCAnyMethodDescriptor(erasing: descriptor)
         let result = IPCMethodCatalogResult(
             compatibility: compatibility,
             methods: (sortedAvailableDescriptors.map(\.metadata) + [erasedDescriptor.metadata])
-                .sorted { $0.name < $1.name }
+                .sorted { $0.name < $1.name },
+            recognizedUnexposedMethods: recognizedUnexposedMethods.sorted { $0.name < $1.name }
         )
 
         _ = try descriptor.encodeResult(result)

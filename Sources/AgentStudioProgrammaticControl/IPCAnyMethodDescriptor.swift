@@ -43,7 +43,8 @@ package struct IPCAnyMethodDescriptor: Sendable {
             correlationPolicy: descriptor.correlationPolicy,
             responseDelivery: descriptor.responseDelivery,
             offlineEligibility: descriptor.offlineEligibility,
-            modelCalls: descriptor.modelCalls
+            modelCalls: descriptor.modelCalls,
+            agentEligibility: descriptor.agentEligibility
         )
         catalogEntrySchema = try IPCMethodCatalogEntry.schemaForExamples(
             methodName: descriptor.name,

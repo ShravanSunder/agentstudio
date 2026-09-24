@@ -41,6 +41,8 @@ package struct IPCMethodCatalogEntry: Codable, Equatable, Sendable {
     package let responseDelivery: IPCMethodResponseDelivery
     package let offlineEligibility: IPCMethodOfflineEligibility
     package let modelCalls: [IPCModelCallProjection]
+    /// Absent for methods that keep the established Agent IPC v2 admission.
+    package let agentEligibility: IPCAgentEligibility?
 }
 
 extension IPCMethodCatalogEntry {
@@ -173,6 +175,9 @@ extension IPCMethodCatalogEntry {
             .init(
                 name: "modelCalls", description: "Small model-facing scalar projections",
                 schema: .array(items: try IPCModelCallProjection.ipcSchema())),
+            .optional(
+                "agentEligibility", description: "What a pane-bound agent may do with this method",
+                schema: try IPCAgentEligibility.ipcSchema()),
         ])
     }
 }

@@ -97,7 +97,14 @@ package final class WorkspaceMutationCoordinator {
     }
 
     func applyCommittedTerminalCreation(_ proposal: WorkspaceTerminalCreationProposal) {
-        workspacePaneAtom.insertCommittedTerminalPane(proposal.pane, associationOutcome: proposal.associationOutcome)
+        let expandsDrawer: Bool
+        if case .drawer(let insertion) = proposal.placement {
+            expandsDrawer = insertion.presentation == .interactive
+        } else {
+            expandsDrawer = true
+        }
+        workspacePaneAtom.insertCommittedTerminalPane(
+            proposal.pane, associationOutcome: proposal.associationOutcome, expandsDrawer: expandsDrawer)
         switch proposal.placement {
         case .newTab:
             workspaceTabShellAtom.appendTabShell(

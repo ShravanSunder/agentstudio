@@ -220,8 +220,10 @@ package struct AgentStudioIPCClientCommandLineRunner {
             try write(response.normalizedResult)
             return .completed
         }
+        // The payload is read with the compiled envelope so a recognized hidden
+        // command's arguments survive parsing; the catalog then binds it.
         return .resolved(
-            authenticationDescriptors + [commands.executeDescriptor], commandCatalog: commands)
+            authenticationDescriptors + [commands.requestEnvelopeDescriptor], commandCatalog: commands)
     }
 
     /// Discovery never reached the app, so the notification is classified from
@@ -393,6 +395,8 @@ private struct CLIErrorPresentation: Codable {
     let expected: String?
     let catalogMethod: String?
     let requiredScope: IPCPermissionScope?
+    /// The method or command a pane agent was refused, for the agent outcomes.
+    var refusedName: String?
 
     /// Every discovery failure already carries a field path and an expectation.
     /// Dropping them left a catalog mismatch indistinguishable from a bad
@@ -421,6 +425,15 @@ private struct CLIErrorPresentation: Codable {
     }
 
     init(remoteFailure: IPCDescriptorRemoteFailure) {
+        refusedName = remoteFailure.agentRefusal?.name
+        if let agentRefusal = remoteFailure.agentRefusal {
+            reason = agentRefusal.reason.rawValue
+            fieldPath = nil
+            expected = nil
+            catalogMethod = nil
+            requiredScope = nil
+            return
+        }
         if let requiredScope = remoteFailure.requiredScope {
             reason = "missingGrant"
             fieldPath = "$.authorization"
