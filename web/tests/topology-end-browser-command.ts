@@ -11,8 +11,9 @@ interface PageRect {
 export interface TopologyEndObservation {
   readonly width: number;
   readonly endNodeY: number;
-  readonly installCenterY: number;
-  readonly ctaTop: number;
+  readonly lastGlassBottom: number;
+  readonly ctaIconTop: number;
+  readonly hasEndMark: boolean;
   /** The lowest point of any rail path or node. */
   readonly lowestRailY: number;
   /** Rail path samples and nodes that fall inside a call-to-action or footer element's box. */
@@ -22,17 +23,27 @@ export interface TopologyEndObservation {
 function observeEnd(width: number): TopologyEndObservation {
   const artwork = document.querySelector<SVGSVGElement>("[data-full-page-topology]");
   const section = document.querySelector("[data-rail-end-section]");
-  const install = document.querySelector("[data-rail-end]");
+  const lastGlass = document.querySelector('[data-rail-surface-target="come-back"]');
+  const endMark = section?.querySelector("[data-rail-end-mark]");
+  const ctaIcon = endMark ?? section?.querySelector("img");
   const endNode = document.querySelector('[data-node-kind="end"] circle');
-  if (artwork === null || section === null || install === null || endNode === null) {
+  if (
+    artwork === null ||
+    section === null ||
+    lastGlass === null ||
+    ctaIcon === null ||
+    ctaIcon === undefined ||
+    endNode === null
+  ) {
     throw new Error("The home page is missing its rail end hooks");
   }
   const origin = artwork.getBoundingClientRect();
+  const scrollPosition = { x: window.scrollX, y: window.scrollY };
   const toPage = (bounds: DOMRect): PageRect => ({
-    left: bounds.left + window.scrollX,
-    top: bounds.top + window.scrollY,
-    right: bounds.right + window.scrollX,
-    bottom: bounds.bottom + window.scrollY,
+    left: bounds.left + scrollPosition.x,
+    top: bounds.top + scrollPosition.y,
+    right: bounds.right + scrollPosition.x,
+    bottom: bounds.bottom + scrollPosition.y,
   });
   const artworkTop = origin.top + window.scrollY;
   const artworkLeft = origin.left + window.scrollX;
@@ -56,12 +67,14 @@ function observeEnd(width: number): TopologyEndObservation {
   ]
     .filter((element) => element.getClientRects().length > 0)
     .map((element) => toPage(element.getBoundingClientRect()));
-  const installBox = toPage(install.getBoundingClientRect());
+  const lastGlassBox = toPage(lastGlass.getBoundingClientRect());
+  const ctaIconBox = toPage(ctaIcon.getBoundingClientRect());
   return {
     width,
     endNodeY: artworkTop + Number(endNode.getAttribute("cy")),
-    installCenterY: (installBox.top + installBox.bottom) / 2,
-    ctaTop: toPage(section.getBoundingClientRect()).top,
+    lastGlassBottom: lastGlassBox.bottom,
+    ctaIconTop: ctaIconBox.top,
+    hasEndMark: endMark !== null && endMark !== undefined,
     lowestRailY: Math.max(...points.map((point) => point.y)),
     pointsOverEndContent: points.filter((point) =>
       endContent.some(

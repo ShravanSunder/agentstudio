@@ -56,10 +56,10 @@ export interface TopologyPageMeasurement {
 }
 
 export interface TopologyEndMeasurement {
-  /** `data-rail-end-section`: nothing is drawn under or beside it, or below. */
+  /** `data-rail-end-section`: CTA section used when either midpoint input is unavailable. */
   readonly section: TopologyRect;
-  /** `data-rail-end`: the end node sits level with its center when the gutter has room. */
-  readonly level: TopologyRect | undefined;
+  /** `data-rail-end-mark`: the CTA icon. */
+  readonly mark: TopologyRect | undefined;
 }
 
 /**
@@ -141,13 +141,6 @@ export const topologyStackedForkCopyClearance = 4;
 export const topologyStackedMinimumDrop = 12;
 /** Stacked: with no free row above a chapter's glass, the fork sits this far above its top edge. */
 export const topologyStackedFallbackDrop = 32;
-/**
- * The end sits beside the install command only when that command starts at
- * least this far right of the mainline; closer means the rail would run
- * beside or under the call to action.
- */
-export const topologyEndContentClearance = 48;
-
 /**
  * On wide screens the lane next to the content runs at least this many rows,
  * and at most `topologyHeroLaneMaximumTravel`, between its fork and the row it
@@ -262,21 +255,26 @@ function planWorktreeLanes(props: {
 }
 
 /**
- * The mainline's last row. Where the gutter has room beside the final call to
- * action, the end sits level with the install command; where that content
- * reaches the rail (phones), the rail stops one row above the section, so
- * nothing runs under or beside it or through the footer.
+ * The mainline ends halfway between the bottom of the last chapter glass and
+ * the top of the CTA icon. Without both measurements, it falls back to one
+ * row above the CTA section or page end.
  */
-function topologyEndY(page: TopologyPageMeasurement, mainlineX: number): number {
+function topologyEndY(page: TopologyPageMeasurement): number {
   const end = page.end;
-  if (end === undefined) {
-    return page.height - topologyRowUnit;
+  const lastGlassBottom = page.anchors.reduce<number | undefined>((currentBottom, anchor) => {
+    if (anchor.surface === undefined) {
+      return currentBottom;
+    }
+    const glassBottom = bottomOf(anchor.surface);
+    return currentBottom === undefined ? glassBottom : Math.max(currentBottom, glassBottom);
+  }, undefined);
+  if (end?.mark !== undefined && lastGlassBottom !== undefined) {
+    return (lastGlassBottom + end.mark.top) / 2;
   }
-  const level = end.level;
-  if (level !== undefined && level.left >= mainlineX + topologyEndContentClearance) {
-    return centerYOf(level);
+  if (end !== undefined) {
+    return end.section.top - topologyRowUnit;
   }
-  return end.section.top - topologyRowUnit;
+  return page.height - topologyRowUnit;
 }
 
 /**
@@ -357,11 +355,7 @@ export function composeFullPageTopology(
   );
   const { rowYs, anchorRows } = measureTopologyRows({
     anchorYs: page.anchors.map((anchor) => anchor.lineY ?? centerYOf(anchor.rect)),
-    endY: topologyEndY(
-      page,
-      measureTopologyGutterColumns({ attachX: contentX, viewportWidth: page.viewportWidth })
-        .mainlineX,
-    ),
+    endY: topologyEndY(page),
   });
   const finalRow = rowYs.length - 1;
   const firstAnchor = page.anchors[0];

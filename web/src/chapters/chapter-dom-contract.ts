@@ -11,10 +11,10 @@ export const railSurfaceTargetAttribute = "data-rail-surface-target";
 /** `data-rail-media-target="<id>"`: phone branches drop into this element's top edge. */
 export const railMediaTargetAttribute = "data-rail-media-target";
 
-/** `data-rail-end`: where the gutter has room, the rail's end node sits level with this element's vertical center. */
-export const railEndAttribute = "data-rail-end";
+/** `data-rail-end-mark`: the final call to action's icon; the rail ends halfway between the last glass and it. */
+export const railEndMarkAttribute = "data-rail-end-mark";
 
-/** `data-rail-end-section`: the section the rail ends at; no rail is drawn under or beside it, or below. */
+/** `data-rail-end-section`: CTA section fallback when either midpoint input is unavailable. */
 export const railEndSectionAttribute = "data-rail-end-section";
 
 /** `data-rail-current`: set by the rail on the current chapter's target so its hairline lights. */

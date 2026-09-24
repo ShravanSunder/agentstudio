@@ -5,7 +5,7 @@
 // Relative imports keep this module loadable by Vitest, which has no "@/" alias.
 import {
   railAnchorAttribute,
-  railEndAttribute,
+  railEndMarkAttribute,
   railEndSectionAttribute,
   railMediaTargetAttribute,
   railSurfaceTargetAttribute,
@@ -133,7 +133,7 @@ function firstLineBox(element: Element): DOMRect | undefined {
   return [...range.getClientRects()].find((box) => box.width > 0 && box.height > 0);
 }
 
-/** The final call to action the rail ends at, from `data-rail-end-section` and `data-rail-end`. */
+/** The final call to action section and midpoint mark for the rail end. */
 function measureEnd(artwork: SVGSVGElement): TopologyEndMeasurement | undefined {
   const ownerDocument = artwork.ownerDocument;
   const section = ownerDocument.querySelector(`[${railEndSectionAttribute}]`);
@@ -150,8 +150,8 @@ function measureEnd(artwork: SVGSVGElement): TopologyEndMeasurement | undefined 
       height: bounds.height,
     };
   };
-  const level = section.querySelector(`[${railEndAttribute}]`);
-  return { section: measure(section), level: level === null ? undefined : measure(level) };
+  const mark = section.querySelector(`[${railEndMarkAttribute}]`);
+  return { section: measure(section), mark: mark === null ? undefined : measure(mark) };
 }
 
 function progressForY(composition: TopologyComposition, y: number): number {

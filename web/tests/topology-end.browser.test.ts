@@ -13,7 +13,7 @@ declare module "vitest/browser" {
 }
 
 describe("where the rail ends on the home page", () => {
-  it("ends at the install row where the gutter has room and above the call to action on phones", async () => {
+  it("ends halfway between the last glass and CTA icon at every width", async () => {
     // Act
     const observations = await commands.verifyTopologyEnd(
       inject("siteHeaderBrowserTestUrl"),
@@ -22,13 +22,11 @@ describe("where the rail ends on the home page", () => {
 
     // Assert
     for (const observation of observations) {
-      expect(observation.lowestRailY).toBeLessThanOrEqual(observation.endNodeY + 7.5);
+      const expectedMidpoint = (observation.lastGlassBottom + observation.ctaIconTop) / 2;
+      expect(Math.abs(observation.endNodeY - expectedMidpoint)).toBeLessThanOrEqual(1);
+      expect(observation.hasEndMark).toBe(true);
+      expect(observation.lowestRailY).toBeLessThanOrEqual(observation.endNodeY + 0.01);
       expect(observation.pointsOverEndContent).toBe(0);
-      if (observation.width < 620) {
-        expect(observation.lowestRailY).toBeLessThan(observation.ctaTop);
-      } else {
-        expect(Math.abs(observation.endNodeY - observation.installCenterY)).toBeLessThanOrEqual(1);
-      }
     }
   });
 });

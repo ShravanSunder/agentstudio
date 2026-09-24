@@ -84,20 +84,14 @@ function homePageAt(viewportWidth: number): TopologyPageFixture {
     );
   }
   const lastAnchor = anchors.at(-1);
-  // The final call to action: a centered install box, near full width on phones.
+  // The final call to action's centered logo.
   const ctaSection = rect(0, (lastAnchor?.rect.top ?? 0) + 760, viewportWidth, 700);
-  const installWidth = Math.min(560, viewportWidth - 2 * pageInline);
-  const installBox = rect(
-    (viewportWidth - installWidth) / 2,
-    ctaSection.top + 360,
-    installWidth,
-    phone ? 72 : 64,
-  );
+  const ctaIcon = rect((viewportWidth - 88) / 2, ctaSection.top + 100, 88, 88);
   const page = {
     viewportWidth,
     height: ctaSection.top + ctaSection.height + 200,
     anchors,
-    end: { section: ctaSection, level: installBox },
+    end: { section: ctaSection, mark: ctaIcon },
   };
   const textRects = anchors.flatMap((anchor) =>
     stacked || anchor.id === "hero"
@@ -218,12 +212,12 @@ describe("gutter columns", () => {
     expect(topologyColumnUnitFor(1280)).toBeGreaterThan(topologyColumnUnitFor(1024));
   });
 
-  it("fills the gutter with lane columns up to four: none when cramped, more when wide", () => {
+  it("limits lane columns when the midpoint leaves too few rows after the last glass", () => {
     // Act
     const laneCounts = viewportWidths.map((width) => composed(homePageAt(width)).laneXs.length);
 
     // Assert
-    expect(laneCounts).toEqual([0, 0, 0, 2, 4, 4]);
+    expect(laneCounts).toEqual([0, 0, 0, 1, 1, 1]);
     expect(Math.max(...laneCounts)).toBeLessThanOrEqual(topologyMaximumLaneCount);
   });
 
@@ -469,25 +463,27 @@ describe("composed topology", () => {
     }
   });
 
-  it("ends the rail at the final call to action, never under, beside or below it", () => {
+  it("ends halfway between the last glass and CTA icon, with no geometry below it", () => {
     for (const width of [390, 1280, 1920]) {
       // Arrange
       const fixture = homePageAt(width);
       const end = fixture.page.end;
-      if (end?.level === undefined) {
-        throw new Error("Fixture has no call to action");
+      if (end?.mark === undefined) {
+        throw new Error("Fixture has no CTA icon");
       }
-      const installBox = end.level;
+      const lastGlassBottom = Math.max(
+        ...fixture.page.anchors.flatMap((anchor) =>
+          anchor.surface === undefined ? [] : [anchor.surface.top + anchor.surface.height],
+        ),
+      );
 
       // Act
       const composition = composed(fixture);
 
-      // Assert: wide screens end level with the install box; phones end one
-      // row above the section, whose content reaches the rail.
+      // Assert: the end node bisects the gap between the last glass and CTA icon.
       const endDot = composition.rows.at(-1);
       expect(endDot?.kind).toBe("end");
-      const expectedEndY =
-        width < 620 ? end.section.top - topologyRowUnit : installBox.top + installBox.height / 2;
+      const expectedEndY = (lastGlassBottom + end.mark.top) / 2;
       expect(Math.abs((endDot?.y ?? Number.NaN) - expectedEndY)).toBeLessThanOrEqual(1);
       const lowestPoint = Math.max(
         ...composition.rows.map((dot) => dot.y),
@@ -497,10 +493,36 @@ describe("composed topology", () => {
         Number(/ ([\d.]+)$/u.exec(composition.mainlinePath)?.[1]),
       );
       expect(lowestPoint).toBeLessThanOrEqual((endDot?.y ?? 0) + 0.01);
-      if (width < 620) {
-        expect(lowestPoint).toBeLessThan(end.section.top);
-      }
     }
+  });
+
+  it("uses the existing CTA and page fallbacks when midpoint measurements are unavailable", () => {
+    // Arrange
+    const fixture = homePageAt(1280);
+    const end = fixture.page.end;
+    if (end === undefined) {
+      throw new Error("Fixture has no CTA section");
+    }
+
+    // Act
+    const sectionFallback = composeFullPageTopology({
+      ...fixture.page,
+      end: { section: end.section, mark: undefined },
+    });
+    const noGlassFallback = composeFullPageTopology({
+      ...fixture.page,
+      anchors: fixture.page.anchors.map((anchor) => ({ ...anchor, surface: undefined })),
+    });
+    const pageFallback = composeFullPageTopology({
+      viewportWidth: fixture.page.viewportWidth,
+      height: fixture.page.height,
+      anchors: fixture.page.anchors,
+    });
+
+    // Assert
+    expect(sectionFallback?.rows.at(-1)?.y).toBe(end.section.top - topologyRowUnit);
+    expect(noGlassFallback?.rows.at(-1)?.y).toBe(end.section.top - topologyRowUnit);
+    expect(pageFallback?.rows.at(-1)?.y).toBe(fixture.page.height - topologyRowUnit);
   });
 
   it("draws nothing without chapter anchors", () => {
