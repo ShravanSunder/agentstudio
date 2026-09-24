@@ -22,6 +22,11 @@ package final class HeldStep<Arrival: Sendable>: Sendable {
     /// Names the step in every failure the harness reports for it, so a step
     /// that is never reached, or is reached the wrong way, is identifiable.
     package let name: String
+    /// Unique among the steps of this process, in creation order. A process-local
+    /// counter rather than a UUIDv7: the harness depends on nothing beyond the
+    /// standard library, Foundation and Synchronization. The event log pairs a
+    /// wait with an arrival by this id, never by name.
+    package let instanceID: UInt64
     private let cancellationPolicy: HeldStepCancellationPolicy
     private let eventLog: HeldStepEventLog
     private let test: String
@@ -40,6 +45,7 @@ package final class HeldStep<Arrival: Sendable>: Sendable {
         function: String = #function
     ) {
         self.name = name
+        self.instanceID = heldStepInstanceCounter.wrappingAdd(1, ordering: .relaxed).newValue
         self.cancellationPolicy = cancellationPolicy
         self.eventLog = eventLog
         self.test = "\(fileID) \(function)"
@@ -123,7 +129,7 @@ package final class HeldStep<Arrival: Sendable>: Sendable {
     package func firstArrival() async throws -> Arrival {
         let (waiterID, hasArrival) = state.withLock { ($0.allocateID(), !$0.arrivals.isEmpty) }
         if !hasArrival {
-            eventLog.recordWaiting(stepName: name, test: test)
+            eventLog.recordWaiting(instanceID: instanceID, stepName: name, test: test)
         }
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Arrival, any Error>) in
@@ -215,7 +221,7 @@ package final class HeldStep<Arrival: Sendable>: Sendable {
     private func admitArrival(_ arrival: Arrival, parking: HeldStepParking) -> HeldStepAdmission<Arrival> {
         let admission = state.withLock { $0.admit(arrival, parking: parking) }
         if admission.isFirstArrival {
-            eventLog.recordArrived(stepName: name)
+            eventLog.recordArrived(instanceID: instanceID, stepName: name)
         }
         for waiter in admission.firstArrivalWaiters {
             waiter.resume(returning: arrival)
@@ -233,6 +239,8 @@ package final class HeldStep<Arrival: Sendable>: Sendable {
         }
     }
 }
+
+private let heldStepInstanceCounter = Atomic<UInt64>(0)
 
 /// What a held async arrival does when its task is cancelled before the step
 /// ends.

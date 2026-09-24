@@ -216,9 +216,38 @@ struct HeldStepTests {
         let lines = try String(contentsOf: logURL, encoding: .utf8).split(separator: "\n").map(String.init)
         #expect(
             lines == [
-                "waiting\tlogged step\tAgentStudioTestHarnessTests/HeldStepTests.swift "
+                "waiting\t\(step.instanceID)\tlogged step\tAgentStudioTestHarnessTests/HeldStepTests.swift "
                     + "eventLogRecordsWaitingAndFirstArrival()",
-                "arrived\tlogged step",
+                "arrived\t\(step.instanceID)\tlogged step",
+            ]
+        )
+    }
+
+    @Test("same-named steps log distinct instance ids, so one's arrival cannot answer the other's wait")
+    func sameNamedStepsLogDistinctInstances() async throws {
+        // Arrange
+        let logURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("held-step-log-\(ProcessInfo.processInfo.globallyUniqueString).log")
+        defer { try? FileManager.default.removeItem(at: logURL) }
+        let eventLog = HeldStepEventLog(path: logURL.path)
+        let arrivedFirst = HeldStep<Int>("shared name", eventLog: eventLog)
+        let neverReached = HeldStep<Int>("shared name", eventLog: eventLog)
+
+        // Act: one instance arrives before anyone waits; the other is waited on and never reached.
+        arrivedFirst.release()
+        try await arrivedFirst.arrive(1)
+        let waiting = Task { try await neverReached.firstArrival() }
+        waiting.cancel()
+        await #expect(throws: HeldStepNeverReached.self) { try await waiting.value }
+
+        // Assert
+        let lines = try String(contentsOf: logURL, encoding: .utf8).split(separator: "\n").map(String.init)
+        #expect(arrivedFirst.instanceID != neverReached.instanceID)
+        #expect(
+            lines == [
+                "arrived\t\(arrivedFirst.instanceID)\tshared name",
+                "waiting\t\(neverReached.instanceID)\tshared name\tAgentStudioTestHarnessTests/HeldStepTests.swift "
+                    + "sameNamedStepsLogDistinctInstances()",
             ]
         )
     }

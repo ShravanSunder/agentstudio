@@ -6,11 +6,13 @@ import Foundation
 /// A lane's hang bound ends a stuck test process with TERM and KILL, which
 /// never cancels the waiting task, so the step's own error cannot name it. The
 /// runner sets `AGENTSTUDIO_HELD_STEP_LOG` for each lane and, when the bound
-/// fires, reports every step that has a `waiting` line and no `arrived` line.
-/// Lines are tab-separated, because step names contain spaces:
+/// fires, reports every step instance that has a `waiting` line and no
+/// `arrived` line. Lines are tab-separated, because step names contain spaces,
+/// and pair by the step's process-unique instance id, so an arrival at one
+/// instance can never answer a wait on another instance with the same name:
 ///
-///     waiting<TAB><step name><TAB><test>
-///     arrived<TAB><step name>
+///     waiting<TAB><instance id><TAB><step name><TAB><test>
+///     arrived<TAB><instance id><TAB><step name>
 ///
 /// Each line is one `write(2)` on a descriptor opened with `O_APPEND`, so a
 /// process killed mid-test loses nothing it already logged and concurrent
@@ -30,12 +32,12 @@ package struct HeldStepEventLog: Sendable {
         self.path = path
     }
 
-    func recordWaiting(stepName: String, test: String) {
-        append("waiting\t\(stepName)\t\(test)\n")
+    func recordWaiting(instanceID: UInt64, stepName: String, test: String) {
+        append("waiting\t\(instanceID)\t\(stepName)\t\(test)\n")
     }
 
-    func recordArrived(stepName: String) {
-        append("arrived\t\(stepName)\n")
+    func recordArrived(instanceID: UInt64, stepName: String) {
+        append("arrived\t\(instanceID)\t\(stepName)\n")
     }
 
     private func append(_ line: String) {
