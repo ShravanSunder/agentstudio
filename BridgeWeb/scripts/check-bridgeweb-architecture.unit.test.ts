@@ -780,7 +780,7 @@ describe('BridgeWeb architecture checker', () => {
 		expect(
 			await reconcile({
 				'src/app/waits.unit.test.ts': twoTimedWaits,
-				'scripts/bridgeweb-debt-ledger.tsv': ledger([
+				'architecture-debt-ledger.tsv': ledger([
 					'no-timed-wait-in-tests\tBridgeWeb/src/app/waits.unit.test.ts\t2',
 				]),
 			}),
@@ -789,7 +789,7 @@ describe('BridgeWeb architecture checker', () => {
 		expect(
 			await reconcile({
 				'src/app/waits.unit.test.ts': twoTimedWaits,
-				'scripts/bridgeweb-debt-ledger.tsv': ledger([
+				'architecture-debt-ledger.tsv': ledger([
 					'no-timed-wait-in-tests\tBridgeWeb/src/app/waits.unit.test.ts\t1',
 				]),
 			}),
@@ -801,7 +801,7 @@ describe('BridgeWeb architecture checker', () => {
 		expect(
 			await reconcile({
 				'src/app/waits.unit.test.ts': twoTimedWaits,
-				'scripts/bridgeweb-debt-ledger.tsv': ledger([
+				'architecture-debt-ledger.tsv': ledger([
 					'no-timed-wait-in-tests\tBridgeWeb/src/app/waits.unit.test.ts\t3',
 				]),
 			}),
@@ -812,7 +812,7 @@ describe('BridgeWeb architecture checker', () => {
 		expect(
 			await reconcile({
 				'src/app/waits.unit.test.ts': 'export {};',
-				'scripts/bridgeweb-debt-ledger.tsv': ledger([
+				'architecture-debt-ledger.tsv': ledger([
 					'no-timed-wait-in-tests\tBridgeWeb/src/app/waits.unit.test.ts\t2',
 				]),
 			}),
@@ -822,13 +822,13 @@ describe('BridgeWeb architecture checker', () => {
 		// A row for a file that no longer exists fails at the ledger row.
 		expect(
 			await reconcile({
-				'scripts/bridgeweb-debt-ledger.tsv': ledger([
+				'architecture-debt-ledger.tsv': ledger([
 					'no-timed-wait-in-tests\tBridgeWeb/src/app/deleted.unit.test.ts\t1',
 				]),
 			}),
 		).toEqual([
 			expect.stringMatching(
-				/^scripts\/bridgeweb-debt-ledger\.tsv:2 .*deleted\.unit\.test\.ts, which no longer exists/u,
+				/^architecture-debt-ledger\.tsv:2 .*deleted\.unit\.test\.ts, which no longer exists/u,
 			),
 		]);
 		// A new site in a file without a row fails immediately.
@@ -836,7 +836,7 @@ describe('BridgeWeb architecture checker', () => {
 			await reconcile({
 				'src/app/waits.unit.test.ts': twoTimedWaits,
 				'src/app/new-waits.unit.test.ts': twoTimedWaits,
-				'scripts/bridgeweb-debt-ledger.tsv': ledger([
+				'architecture-debt-ledger.tsv': ledger([
 					'no-timed-wait-in-tests\tBridgeWeb/src/app/waits.unit.test.ts\t2',
 				]),
 			}),
@@ -847,10 +847,10 @@ describe('BridgeWeb architecture checker', () => {
 		// A malformed ledger fails closed, naming the file and line.
 		await expect(
 			reconcile({
-				'scripts/bridgeweb-debt-ledger.tsv':
+				'architecture-debt-ledger.tsv':
 					'rule_id\tpath\tcount\nno-timed-wait-in-tests\tBridgeWeb/x.ts\t0\n',
 			}),
-		).rejects.toThrow(/bridgeweb-debt-ledger\.tsv:2: malformed debt ledger: count must be/u);
+		).rejects.toThrow(/architecture-debt-ledger\.tsv:2: malformed debt ledger: count must be/u);
 	});
 
 	test('permits a timer only as a direct Promise.race element whose delay is a bare hang bound', async () => {

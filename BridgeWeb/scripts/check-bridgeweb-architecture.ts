@@ -72,7 +72,7 @@ interface AddViolationProps {
 
 const defaultPackageRootPath = fileURLToPath(new URL('../', import.meta.url));
 const checkedExtensions = new Set(['.ts', '.tsx']);
-const debtLedgerRelativePath = 'scripts/bridgeweb-debt-ledger.tsv';
+const debtLedgerRelativePath = 'architecture-debt-ledger.tsv';
 const debtLedgerRuleIds: ReadonlySet<string> = new Set<RuleId>(['no-timed-wait-in-tests']);
 const ignoredDirectoryNames = new Set(['node_modules', 'dist', 'coverage', '.vite']);
 const maxSourceFileLineCount = 1000;
