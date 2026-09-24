@@ -28,6 +28,7 @@ struct DarwinSharedExactItemRealStreamIntegrationTests {
                 repositoryPath: fixture.firstRepositoryPath
             )
         )
+        _ = try await fixture.fenceSecondAuthorityWindow()
         let secondAuthority = try #require(
             await fixture.establishAuthority(
                 worktreeId: fixture.secondWorktreeId,
@@ -127,6 +128,7 @@ struct DarwinSharedExactItemRealStreamIntegrationTests {
                 repositoryPath: fixture.firstRepositoryPath
             )
         )
+        _ = try await fixture.fenceSecondAuthorityWindow()
         let secondAuthority = try #require(
             await fixture.establishAuthority(
                 worktreeId: fixture.secondWorktreeId,
@@ -199,6 +201,7 @@ struct DarwinSharedExactItemRealStreamIntegrationTests {
                 repositoryPath: fixture.firstRepositoryPath
             )
         )
+        _ = try await fixture.fenceSecondAuthorityWindow()
         let secondAuthority = try #require(
             await fixture.establishAuthority(
                 worktreeId: fixture.secondWorktreeId,
@@ -247,6 +250,7 @@ struct DarwinSharedExactItemRealStreamIntegrationTests {
                 repositoryPath: fixture.firstRepositoryPath
             )
         )
+        _ = try await fixture.fenceSecondAuthorityWindow()
         let replacementSecondAuthority = try #require(
             await fixture.establishAuthority(
                 worktreeId: fixture.secondWorktreeId,
