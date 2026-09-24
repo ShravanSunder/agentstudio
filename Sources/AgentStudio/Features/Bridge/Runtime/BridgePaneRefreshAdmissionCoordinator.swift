@@ -16,7 +16,9 @@ enum BridgePaneRefreshCatchUpOutcome: Equatable, Sendable {
 
 struct BridgePaneRefreshDirtyFact: Sendable {
     let generation: UInt64
-    let fileChangeset: FileChangeset?
+    /// Pending File changes, merged per member worktree; a Files collection can
+    /// have changes from several members in one pass.
+    let fileChangesets: [FileChangeset]
     let latestFileStatus: GitWorkingTreeStatus?
     let latestBatchSequence: UInt64
     let requiresReviewRefresh: Bool
@@ -25,7 +27,7 @@ struct BridgePaneRefreshDirtyFact: Sendable {
     let operationStageAttempt: Int
 
     var filePaths: [String] {
-        fileChangeset?.paths ?? []
+        fileChangesets.flatMap(\.paths)
     }
 }
 
@@ -74,7 +76,7 @@ struct BridgePaneRefreshCatchUpReservation: Sendable {
     let authorityGeneration: UInt64
     let dirtyGeneration: UInt64
     let lanes: Set<BridgePaneRefreshLane>
-    let fileChangeset: FileChangeset?
+    let fileChangesets: [FileChangeset]
     let latestFileStatus: GitWorkingTreeStatus?
     let latestBatchSequence: UInt64
     let requiresReviewRefresh: Bool
@@ -86,7 +88,7 @@ struct BridgePaneRefreshCatchUpReservation: Sendable {
     fileprivate let dirtyFact: BridgePaneRefreshDirtyFact
 
     var filePaths: [String] {
-        fileChangeset?.paths ?? []
+        fileChangesets.flatMap(\.paths)
     }
 }
 
@@ -475,7 +477,7 @@ final class BridgePaneRefreshAdmissionCoordinator {
         guard let current else {
             return BridgePaneRefreshDirtyFact(
                 generation: generation,
-                fileChangeset: mergedFileChangeset(current: nil, incoming: fileChangeset),
+                fileChangesets: mergedFileChangesets(current: [], incoming: fileChangeset.map { [$0] } ?? []),
                 latestFileStatus: latestFileStatus,
                 latestBatchSequence: fileChangeset?.batchSeq ?? 0,
                 requiresReviewRefresh: requiresReviewRefresh,
@@ -486,13 +488,16 @@ final class BridgePaneRefreshAdmissionCoordinator {
         }
         return BridgePaneRefreshDirtyFact(
             generation: current.generation,
-            fileChangeset: mergedFileChangeset(current: current.fileChangeset, incoming: fileChangeset),
+            fileChangesets: mergedFileChangesets(
+                current: current.fileChangesets,
+                incoming: fileChangeset.map { [$0] } ?? []
+            ),
             latestFileStatus: latestFileStatus ?? current.latestFileStatus,
             latestBatchSequence: max(current.latestBatchSequence, fileChangeset?.batchSeq ?? 0),
             requiresReviewRefresh: current.requiresReviewRefresh || requiresReviewRefresh,
             reviewRefreshScope: mergedReviewRefreshScope(
                 current: current,
-                incomingChangeset: fileChangeset,
+                incomingChangesets: fileChangeset.map { [$0] } ?? [],
                 incomingScope: incomingReviewRefreshScope
             ),
             operationCorrelationID: current.operationCorrelationID,
@@ -520,7 +525,7 @@ final class BridgePaneRefreshAdmissionCoordinator {
             authorityGeneration: authorityGeneration,
             dirtyGeneration: dirtyFact.generation,
             lanes: [lane],
-            fileChangeset: dirtyFact.fileChangeset,
+            fileChangesets: dirtyFact.fileChangesets,
             latestFileStatus: dirtyFact.latestFileStatus,
             latestBatchSequence: dirtyFact.latestBatchSequence,
             requiresReviewRefresh: dirtyFact.requiresReviewRefresh,
@@ -562,7 +567,7 @@ final class BridgePaneRefreshAdmissionCoordinator {
         guard let current = dirtyFactByLane[lane] else {
             dirtyFactByLane[lane] = BridgePaneRefreshDirtyFact(
                 generation: restored.generation,
-                fileChangeset: restored.fileChangeset,
+                fileChangesets: restored.fileChangesets,
                 latestFileStatus: restored.latestFileStatus,
                 latestBatchSequence: restored.latestBatchSequence,
                 requiresReviewRefresh: restored.requiresReviewRefresh,
@@ -575,9 +580,9 @@ final class BridgePaneRefreshAdmissionCoordinator {
         }
         dirtyFactByLane[lane] = BridgePaneRefreshDirtyFact(
             generation: min(current.generation, restored.generation),
-            fileChangeset: mergedFileChangeset(
-                current: current.fileChangeset,
-                incoming: restored.fileChangeset
+            fileChangesets: mergedFileChangesets(
+                current: current.fileChangesets,
+                incoming: restored.fileChangesets
             ),
             latestFileStatus: current.latestFileStatus ?? restored.latestFileStatus,
             latestBatchSequence: max(current.latestBatchSequence, restored.latestBatchSequence),
@@ -613,7 +618,7 @@ final class BridgePaneRefreshAdmissionCoordinator {
         case (.some(let file), .some(let review)):
             BridgePaneRefreshDirtyFact(
                 generation: min(file.generation, review.generation),
-                fileChangeset: file.fileChangeset,
+                fileChangesets: file.fileChangesets,
                 latestFileStatus: file.latestFileStatus,
                 latestBatchSequence: file.latestBatchSequence,
                 requiresReviewRefresh: true,
@@ -622,6 +627,23 @@ final class BridgePaneRefreshAdmissionCoordinator {
                 operationStageAttempt: 0
             )
         }
+    }
+
+    /// Merge changesets per member worktree, keeping first-arrival order so one
+    /// member's paths never land under another member's authority.
+    private func mergedFileChangesets(
+        current: [FileChangeset],
+        incoming: [FileChangeset]
+    ) -> [FileChangeset] {
+        var merged = current
+        for changeset in incoming {
+            if let index = merged.firstIndex(where: { sameChangesetAuthority($0, changeset) }) {
+                merged[index] = mergedFileChangeset(current: merged[index], incoming: changeset) ?? merged[index]
+            } else if let normalized = mergedFileChangeset(current: nil, incoming: changeset) {
+                merged.append(normalized)
+            }
+        }
+        return merged
     }
 
     private func mergedFileChangeset(
@@ -660,7 +682,7 @@ final class BridgePaneRefreshAdmissionCoordinator {
 
     private func mergedReviewRefreshScope(
         current: BridgePaneRefreshDirtyFact,
-        incomingChangeset: FileChangeset?,
+        incomingChangesets: [FileChangeset],
         incomingScope: ReviewGitRefreshScope?
     ) -> ReviewGitRefreshScope? {
         guard let incomingScope else { return current.reviewRefreshScope }
@@ -668,8 +690,8 @@ final class BridgePaneRefreshAdmissionCoordinator {
         return currentScope.union(
             incomingScope,
             hasCommonAuthority: sameChangesetAuthority(
-                current.fileChangeset,
-                incomingChangeset
+                current.fileChangesets,
+                incomingChangesets
             )
         )
     }
@@ -683,18 +705,28 @@ final class BridgePaneRefreshAdmissionCoordinator {
         return currentScope.union(
             restoredScope,
             hasCommonAuthority: sameChangesetAuthority(
-                current.fileChangeset,
-                restored.fileChangeset
+                current.fileChangesets,
+                restored.fileChangesets
             )
         )
     }
 
+    /// Both sides are empty, or every changeset shares one worktree authority.
     private func sameChangesetAuthority(
-        _ current: FileChangeset?,
-        _ incoming: FileChangeset?
+        _ current: [FileChangeset],
+        _ incoming: [FileChangeset]
     ) -> Bool {
-        guard let current, let incoming else { return current == nil && incoming == nil }
-        return current.worktreeId == incoming.worktreeId
+        guard current.isEmpty == incoming.isEmpty else { return false }
+        let all = current + incoming
+        guard let first = all.first else { return true }
+        return all.allSatisfy { sameChangesetAuthority(first, $0) }
+    }
+
+    private func sameChangesetAuthority(
+        _ current: FileChangeset,
+        _ incoming: FileChangeset
+    ) -> Bool {
+        current.worktreeId == incoming.worktreeId
             && current.repoId == incoming.repoId
             && current.rootPath.standardizedFileURL == incoming.rootPath.standardizedFileURL
     }

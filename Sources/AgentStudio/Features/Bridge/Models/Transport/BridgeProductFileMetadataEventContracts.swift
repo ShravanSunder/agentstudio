@@ -357,6 +357,7 @@ struct BridgeProductFileInvalidatedEvent: Codable, Equatable, Sendable {
 
 enum BridgeProductFileMetadataEvent: Codable, Equatable, Sendable {
     case sourceAccepted(BridgeProductFileSourceAcceptedEvent)
+    case memberGroups(BridgeProductFileMemberGroupsEvent)
     case treeWindow(BridgeProductFileTreeWindowEvent)
     case treeDelta(BridgeProductFileTreeDeltaEvent)
     case statusPatch(BridgeProductFileStatusPatchEvent)
@@ -370,6 +371,7 @@ enum BridgeProductFileMetadataEvent: Codable, Equatable, Sendable {
     var sourceGeneration: Int {
         switch self {
         case .sourceAccepted(let event): event.source.subscriptionGeneration
+        case .memberGroups(let event): event.source.subscriptionGeneration
         case .treeWindow(let event): event.source.subscriptionGeneration
         case .treeDelta(let event): event.source.subscriptionGeneration
         case .statusPatch(let event): event.source.subscriptionGeneration
@@ -383,6 +385,8 @@ enum BridgeProductFileMetadataEvent: Codable, Equatable, Sendable {
         switch try container.decode(String.self, forKey: .eventKind) {
         case "file.sourceAccepted":
             self = .sourceAccepted(try BridgeProductFileSourceAcceptedEvent(from: decoder))
+        case "file.memberGroups":
+            self = .memberGroups(try BridgeProductFileMemberGroupsEvent(from: decoder))
         case "file.treeWindow":
             self = .treeWindow(try BridgeProductFileTreeWindowEvent(from: decoder))
         case "file.treeDelta":
@@ -404,6 +408,7 @@ enum BridgeProductFileMetadataEvent: Codable, Equatable, Sendable {
     func encode(to encoder: Encoder) throws {
         switch self {
         case .sourceAccepted(let event): try event.encode(to: encoder)
+        case .memberGroups(let event): try event.encode(to: encoder)
         case .treeWindow(let event): try event.encode(to: encoder)
         case .treeDelta(let event): try event.encode(to: encoder)
         case .statusPatch(let event): try event.encode(to: encoder)

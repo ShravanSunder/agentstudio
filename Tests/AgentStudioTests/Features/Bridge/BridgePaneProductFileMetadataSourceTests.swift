@@ -728,6 +728,7 @@ extension BridgeProductFileMetadataEvent {
     var sourceForTest: BridgeProductFileSourceIdentity {
         switch self {
         case .sourceAccepted(let event): event.source
+        case .memberGroups(let event): event.source
         case .treeWindow(let event): event.source
         case .treeDelta(let event): event.source
         case .statusPatch(let event): event.source

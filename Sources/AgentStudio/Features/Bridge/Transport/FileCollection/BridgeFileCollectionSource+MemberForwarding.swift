@@ -19,12 +19,6 @@ extension BridgeFileCollectionSource {
         let expectedSource = context.productSource
         context.openedMemberIds.insert(worktreeId)
         contextBySubscriptionId[subscriptionId] = context
-        try await emitCollectionRows(
-            [BridgeFileCollectionRows.groupRow(path: group.groupPath, identityPrefix: group.identityPrefix)],
-            from: .member(worktreeId),
-            subscriptionId: subscriptionId,
-            expectedSource: expectedSource
-        )
         let memberSnapshot = try memberSubscription(
             for: memberSource,
             from: context.subscription
@@ -49,6 +43,7 @@ extension BridgeFileCollectionSource {
                 subscriptionId: subscriptionId,
                 expectedSource: expectedSource
             )
+            try await emitGroupRowIfNeeded(group, subscriptionId: subscriptionId, expectedSource: expectedSource)
         } catch {
             guard !Task.isCancelled, !(error is CancellationError),
                 context.foregroundWorkAdmission.withValidAdmission({ true }) == true,
@@ -62,7 +57,42 @@ extension BridgeFileCollectionSource {
                 subscriptionId: subscriptionId,
                 expectedSource: expectedSource
             )
+            try await emitGroupRowIfNeeded(group, subscriptionId: subscriptionId, expectedSource: expectedSource)
         }
+    }
+
+    /// Announce the collection source once per subscription: its acceptance,
+    /// then its member groups.
+    func acceptCollectionSourceIfNeeded(subscriptionId: String) async throws {
+        guard var context = contextBySubscriptionId[subscriptionId], !context.collectionSourceAccepted
+        else { return }
+        context.collectionSourceAccepted = true
+        contextBySubscriptionId[subscriptionId] = context
+        try await context.emit(.sourceAccepted(.init(source: context.productSource)))
+        await sourceAcceptedObserver(context.productSource)
+        try await context.emit(
+            try layout.memberGroupsEvent(source: context.productSource, membershipRevision: membershipRevision)
+        )
+    }
+
+    /// A member's group row precedes its rows, after the collection source is
+    /// announced; a member that failed or gave up keeps its group listed.
+    private func emitGroupRowIfNeeded(
+        _ group: BridgeFileCollectionLayout.MemberGroup,
+        subscriptionId: String,
+        expectedSource: BridgeProductFileSourceIdentity
+    ) async throws {
+        guard let context = contextBySubscriptionId[subscriptionId],
+            context.productSource == expectedSource,
+            context.emittedPathsBySource[.member(group.worktreeId)]?.contains(group.groupPath) != true
+        else { return }
+        try await acceptCollectionSourceIfNeeded(subscriptionId: subscriptionId)
+        try await emitCollectionRows(
+            [BridgeFileCollectionRows.groupRow(path: group.groupPath, identityPrefix: group.identityPrefix)],
+            from: .member(group.worktreeId),
+            subscriptionId: subscriptionId,
+            expectedSource: expectedSource
+        )
     }
 
     func updateMember(_ worktreeId: UUID, subscriptionId: String) async throws {
@@ -112,7 +142,7 @@ extension BridgeFileCollectionSource {
         for memberSource: BridgeFileCollectionMemberSource,
         from subscription: BridgeProductSubscriptionSnapshot
     ) throws -> BridgeProductSubscriptionSnapshot {
-        let worktreeId = memberSource.member.worktreeId
+        let worktreeId = memberSource.worktreeId
         let state = subscription.interestState.fileMetadataState
         let memberRelativePath = { (displayPath: String) -> String? in
             guard case .memberPath(worktreeId, let relativePath) = self.layout.resolve(displayPath: displayPath)
@@ -154,6 +184,11 @@ extension BridgeFileCollectionSource {
         guard let context = contextBySubscriptionId[subscriptionId],
             context.productSource == expectedSource
         else { return }
+        if case .sourceAccepted = event, let group = layout.memberGroup(for: worktreeId) {
+            // The member installed its context before accepting its source.
+            try await emitGroupRowIfNeeded(group, subscriptionId: subscriptionId, expectedSource: expectedSource)
+            return
+        }
         for translated in try translate(event, fromMember: worktreeId, subscriptionId: subscriptionId) {
             try await context.emit(translated)
         }
@@ -185,7 +220,7 @@ extension BridgeFileCollectionSource {
         )
         defer { contextBySubscriptionId[subscriptionId] = context }
         switch event {
-        case .sourceAccepted:
+        case .sourceAccepted, .memberGroups:
             return []
         case .treeWindow(let window):
             return try collectionRowEvents(
@@ -230,7 +265,9 @@ extension BridgeFileCollectionSource {
             guard let displayPath = translation.displayPath(path) else { return [] }
             return [.statusPatch(.init(patch: .path(path: displayPath, status: status), source: source))]
         case .summary, .invalidated:
-            // The collection shows one branch summary: its first member's.
+            // B3: the viewer has one branch-summary slot, so B1 fills it from the
+            // first member (the receiver's seeded or earliest-added worktree).
+            // A per-member summary belongs to B3's multi-member summary.
             guard layout.memberGroups.first?.worktreeId == worktreeId else { return [] }
             return [.statusPatch(.init(patch: patch, source: source))]
         }

@@ -30,7 +30,10 @@ struct BridgeProductSessionDependencyInput {
     let paneSessionId: String
     let runtime: BridgeRuntime
     let reviewBinding: BridgeReviewSourceBinding?
+    let filesBinding: BridgeFilesSourceBinding?
     let gitReadContext: BridgeGitReadContext?
+    /// Schedules each Files member's Git reads under its own worktree key.
+    let fileGitReadScheduler: BridgeGitReadScheduler?
     let worktreeProductConstructionCoordinator: BridgeWorktreeProductConstructionCoordinator?
     let worktreeAnnotationStore: WorktreeAnnotationServiceActor?
     let worktreeAnnotationOutputCoordinator: WorktreeAnnotationOutputCoordinatorActor?
@@ -498,6 +501,7 @@ extension BridgePaneController {
             ),
             committedCallTarget: committedCallTarget,
             fileSourceAcceptanceRelay: fileSourceComposition.acceptanceRelay,
+            fileCollectionSource: fileSourceComposition.source as? BridgeFileCollectionSource,
             productProvider: provider
         )
     }
@@ -607,23 +611,22 @@ extension BridgePaneController {
         _ input: BridgeProductSessionDependencyInput,
         sourceAcceptedObserver: @escaping BridgePaneProductFileSourceAcceptedObserver
     ) -> any BridgePaneProductFileMetadataProducing {
-        guard
-            let authority = makeProductFileSourceAuthority(
-                paneId: UUID(uuidString: input.paneSessionId),
-                runtime: input.runtime,
-                reviewBinding: input.reviewBinding
-            ), let gitReadContext = input.gitReadContext,
-            let constructionCoordinator = input.worktreeProductConstructionCoordinator,
-            let gitWorkingTreeStatusProvider = input.gitWorkingTreeStatusProvider
+        guard let files = input.filesBinding,
+            let paneId = UUID(uuidString: input.paneSessionId)
         else {
             return BridgeUnavailablePaneProductFileMetadataSource()
         }
-        return BridgePaneProductFileMetadataSource(
-            authority: authority,
-            gitReadContext: gitReadContext,
-            constructionCoordinator: constructionCoordinator,
-            sourceAcceptedObserver: sourceAcceptedObserver,
-            statusProvider: gitWorkingTreeStatusProvider
+        let members = fileCollectionMembers(files.members, paneId: paneId, input: input)
+        // Members need their own Git read, construction and status authority;
+        // without it the collection cannot serve them.
+        guard members.count == files.members.count else {
+            return BridgeUnavailablePaneProductFileMetadataSource()
+        }
+        return BridgeFileCollectionSource(
+            collectionToken: files.collectionToken,
+            members: members,
+            openedDocuments: files.openedDocuments,
+            sourceAcceptedObserver: sourceAcceptedObserver
         )
     }
 
@@ -752,30 +755,6 @@ extension BridgePaneController {
         _ productAdmissionGate: BridgeProductAdmissionGate
     ) -> BridgePaneProductCommittedCallTarget {
         BridgePaneProductCommittedCallTarget(productAdmissionGate: productAdmissionGate)
-    }
-
-    private static func makeProductFileSourceAuthority(
-        paneId: UUID?,
-        runtime: BridgeRuntime,
-        reviewBinding: BridgeReviewSourceBinding?
-    ) -> BridgePaneProductFileSourceAuthority? {
-        guard let paneId,
-            let repoId = runtime.metadata.repoId,
-            let worktreeId = runtime.metadata.worktreeId,
-            let rootURL = worktreeFileBootstrapRootURL(
-                metadata: runtime.metadata,
-                reviewRootPath: reviewBinding?.worktreeRootPath
-            )
-        else { return nil }
-        return BridgePaneProductFileSourceAuthority(
-            paneId: paneId,
-            worktree: Worktree(
-                id: worktreeId,
-                repoId: repoId,
-                name: runtime.metadata.worktreeName ?? rootURL.lastPathComponent,
-                path: rootURL
-            )
-        )
     }
 
     nonisolated static func makeInitialProductSessionInstallation(
@@ -951,15 +930,5 @@ extension BridgePaneController {
             userContentController.addUserScript(Self.makePageDiagnosticsProbeScript())
         #endif
         userContentController.addUserScript(managementScript)
-    }
-
-    static func worktreeFileBootstrapRootURL(
-        metadata: PaneMetadata,
-        reviewRootPath: String?
-    ) -> URL? {
-        if let reviewRootPath {
-            return URL(fileURLWithPath: reviewRootPath).standardizedFileURL.resolvingSymlinksInPath()
-        }
-        return metadata.cwd?.standardizedFileURL.resolvingSymlinksInPath()
     }
 }

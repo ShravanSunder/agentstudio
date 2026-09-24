@@ -18,16 +18,42 @@ package struct BridgeReviewSourceBinding: Hashable, Sendable {
     }
 }
 
-/// The source inputs a Bridge controller is constructed from. Review and Files
-/// are independent inputs; neither is derived from the pane payload.
-package struct BridgePaneSourceConfiguration: Hashable, Sendable {
-    package var review: BridgeReviewSourceBinding?
+/// The Files input of one Bridge controller: the receiver's known member
+/// worktrees in collection order plus its opened documents, published under
+/// one collection token that stays stable for the receiver. App derives it from
+/// the receiver's navigation record; membership changes update the mounted
+/// collection in place.
+package struct BridgeFilesSourceBinding: Hashable, Sendable {
+    package let collectionToken: String
+    package var members: [Worktree]
+    package var openedDocuments: [BridgeDocumentLocation]
 
-    package init(review: BridgeReviewSourceBinding?) {
-        self.review = review
+    package init(collectionToken: String, members: [Worktree], openedDocuments: [BridgeDocumentLocation]) {
+        self.collectionToken = collectionToken
+        self.members = members
+        self.openedDocuments = openedDocuments
     }
 
-    package static let reviewUnavailable = Self(review: nil)
+    /// The collection token of a receiver: stable across companion
+    /// replacement, restart and membership changes.
+    package static func collectionToken(forReceiverPaneId paneId: UUID) -> String {
+        "receiver-\(paneId.uuidString.lowercased())"
+    }
+}
+
+/// The source inputs a Bridge controller is constructed from. Review and Files
+/// are independent inputs; neither is derived from the pane payload or its
+/// runtime metadata.
+package struct BridgePaneSourceConfiguration: Hashable, Sendable {
+    package var review: BridgeReviewSourceBinding?
+    package var files: BridgeFilesSourceBinding?
+
+    package init(review: BridgeReviewSourceBinding?, files: BridgeFilesSourceBinding?) {
+        self.review = review
+        self.files = files
+    }
+
+    package static let unavailable = Self(review: nil, files: nil)
 }
 
 /// Outcome of committing a comparison choice to the receiver's navigation

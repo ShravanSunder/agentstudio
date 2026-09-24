@@ -320,7 +320,7 @@ final class BridgePaneWorktreeRefreshDriver {
 
         var fileRefreshFailure: BridgePaneProductFileRefreshFailure?
         var filePrepareStageAttempt = reservation.operationStageAttempt * 2
-        if let changeset = reservation.fileChangeset {
+        for changeset in reservation.fileChangesets {
             let disposition = await publishFileChangeset(
                 changeset,
                 productAdmission,

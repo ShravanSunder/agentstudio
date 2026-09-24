@@ -35,6 +35,14 @@ struct BridgeFileCollectionSourceTests {
         let collectionSource = try #require(accepted.first)
         #expect(accepted.count == 1)
         #expect(collectionSource.collectionToken == "receiver-collection")
+        #expect(
+            memberGroupLists(in: openEvents) == [
+                [
+                    memberGroup("alpha", fixture.alpha.worktreeId),
+                    memberGroup("beta", fixture.beta.worktreeId),
+                ]
+            ]
+        )
         let windows = treeWindows(in: openEvents)
         #expect(windows.allSatisfy { $0.source == collectionSource })
         #expect(windows.map(\.startIndex) == contiguousStartIndexes(of: windows))
@@ -91,10 +99,8 @@ struct BridgeFileCollectionSourceTests {
         let fixture = try await FileCollectionFixture()
         defer { fixture.remove() }
         let failingMember = BridgeFileCollectionMemberSource(
-            member: BridgeFileCollectionMember(
-                worktreeId: fixture.beta.member.worktreeId,
-                canonicalRootPath: fixture.beta.member.canonicalRootPath
-            ),
+            worktreeId: fixture.beta.worktreeId,
+            rootURL: fixture.beta.rootURL,
             memberCollectionToken: fixture.beta.memberCollectionToken,
             producer: BridgeUnavailablePaneProductFileMetadataSource()
         )
@@ -116,8 +122,8 @@ struct BridgeFileCollectionSourceTests {
         #expect(windows.last?.finalWindow == true)
         #expect(
             await collection.memberAvailability(subscriptionId: "file-subscription-1") == [
-                fixture.alpha.member.worktreeId: .available,
-                fixture.beta.member.worktreeId: .failed,
+                fixture.alpha.worktreeId: .available,
+                fixture.beta.worktreeId: .failed,
             ]
         )
     }
@@ -146,6 +152,12 @@ struct BridgeFileCollectionSourceTests {
         #expect(paths.contains("feature/nested.ts"))
         #expect(!paths.contains("alpha/.worktrees/feature/nested.ts"))
         #expect(paths.contains("alpha/src/app.ts"))
+        #expect(
+            memberGroupLists(in: await collector.events).last == [
+                memberGroup("alpha", fixture.alpha.worktreeId, nestedRoots: [".worktrees/feature"]),
+                memberGroup("feature", nested.worktreeId),
+            ]
+        )
     }
 
     @Test("adding and removing sources later arrives as deltas and revokes only the removed source")
@@ -185,6 +197,17 @@ struct BridgeFileCollectionSourceTests {
         #expect(addedPaths.isSuperset(of: ["beta", "beta/src/app.ts", "Open Files", "Open Files/notes.md"]))
         #expect(addedPaths.allSatisfy { !$0.hasPrefix("alpha") })
         #expect(removedPaths(in: additionEvents).isEmpty)
+        #expect(
+            memberGroupLists(in: additionEvents) == [
+                [memberGroup("alpha", fixture.alpha.worktreeId), memberGroup("beta", fixture.beta.worktreeId)]
+            ]
+        )
+        #expect(memberGroupLists(in: removalEvents) == [[memberGroup("beta", fixture.beta.worktreeId)]])
+        let addedPrefixes = memberGroupsEvents(in: additionEvents).flatMap(\.groups).map(\.identityPrefix)
+        #expect(Set(addedPrefixes).count == 2)
+        #expect(addedPrefixes.allSatisfy { $0.hasPrefix("m") && $0.hasSuffix(".") })
+        #expect(memberGroupRevisions(in: additionEvents) == [1])
+        #expect(memberGroupRevisions(in: removalEvents) == [2])
 
         let removed = Set(removedPaths(in: removalEvents))
         #expect(removed.isSuperset(of: ["alpha", "alpha/src/app.ts", "Open Files", "Open Files/notes.md"]))
@@ -205,6 +228,38 @@ struct BridgeFileCollectionSourceTests {
 }
 
 // MARK: - Helpers
+
+/// Group lists as `path|worktree|nested roots`; identity prefixes are digests
+/// of canonical roots, so they are checked separately for distinctness.
+private func memberGroupLists(in events: [BridgeProductFileMemberGroupsEvent]) -> [[String]] {
+    events.map { event in
+        event.groups.map { group in
+            "\(group.groupPath)|\(group.worktreeId)|\(group.nestedMemberRelativeRoots.joined(separator: ","))"
+        }
+    }
+}
+
+private func memberGroupLists(in events: [BridgeProductFileMetadataEvent]) -> [[String]] {
+    memberGroupLists(in: memberGroupsEvents(in: events))
+}
+
+private func memberGroupsEvents(in events: [BridgeProductFileMetadataEvent]) -> [BridgeProductFileMemberGroupsEvent] {
+    events.compactMap { event in
+        guard case .memberGroups(let memberGroups) = event else { return nil }
+        return memberGroups
+    }
+}
+
+private func memberGroupRevisions(in events: [BridgeProductFileMetadataEvent]) -> [Int] {
+    events.compactMap { event in
+        guard case .memberGroups(let memberGroups) = event else { return nil }
+        return memberGroups.membershipRevision
+    }
+}
+
+private func memberGroup(_ groupPath: String, _ worktreeId: UUID, nestedRoots: [String] = []) -> String {
+    "\(groupPath)|\(worktreeId.uuidString.lowercased())|\(nestedRoots.joined(separator: ","))"
+}
 
 private func treeWindows(in events: [BridgeProductFileMetadataEvent]) -> [BridgeProductFileTreeWindowEvent] {
     events.compactMap { event in
@@ -363,10 +418,8 @@ private struct FileCollectionFixture {
             path: root
         )
         return BridgeFileCollectionMemberSource(
-            member: BridgeFileCollectionMember(
-                worktreeId: worktree.id,
-                canonicalRootPath: canonicalPath(root)
-            ),
+            worktreeId: worktree.id,
+            rootURL: root,
             memberCollectionToken: worktree.stableKey,
             producer: BridgePaneProductFileMetadataSource(
                 authority: .init(paneId: UUIDv7.generate(), worktree: worktree),

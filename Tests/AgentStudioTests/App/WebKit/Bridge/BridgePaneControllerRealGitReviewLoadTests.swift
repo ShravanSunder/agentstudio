@@ -368,7 +368,8 @@ private struct RealGitReviewLoadHarness {
             sourceConfiguration: BridgePaneSourceConfiguration(
                 review: BridgeReviewSourceBinding(
                     worktreeId: UUIDv7.generate(), worktreeRootPath: repositoryURL.path,
-                    comparison: .localDefaultBranch(branchName: "main"))),
+                    comparison: .localDefaultBranch(branchName: "main")),
+                files: nil),
             appRootURL: testBridgeAppRootURL(),
             metadata: PaneMetadata(
                 contentType: .diff,

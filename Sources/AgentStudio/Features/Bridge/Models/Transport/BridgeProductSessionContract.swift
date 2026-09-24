@@ -25,6 +25,7 @@ package enum BridgeProductWireContract {
     static let maximumFileMetadataTreeWindowRowCount = 256
     static let maximumFileMetadataOperationCount = 256
     static let maximumFileMetadataDeltaMemberCount = 256
+    static let maximumFileCollectionMemberGroupCount = 256
 
     package static let maximumRequestBodyBytes = 256 * 1024
     static let maximumMetadataFrameBytes = 128 * 1024

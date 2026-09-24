@@ -66,7 +66,12 @@ export interface BridgeFileViewerRenderSnapshotController {
 	readonly retryUnavailableFileRefresh: () => void;
 	readonly fileDisplaySnapshot: Pick<
 		BridgeMainRenderSnapshot,
-		'fileDisplayFreshness' | 'fileItemById' | 'fileQuerySlice' | 'fileStatusSlice' | 'fileTreeSlice'
+		| 'fileDisplayFreshness'
+		| 'fileItemById'
+		| 'fileMemberGroupsSlice'
+		| 'fileQuerySlice'
+		| 'fileStatusSlice'
+		| 'fileTreeSlice'
 	>;
 	readonly panelChromeSlice: BridgeMainRenderSnapshot['panelChromeSlice'];
 	readonly selectedContentAvailability: BridgeWorkerContentAvailabilityPatchPayload | null;
@@ -258,6 +263,7 @@ export function useBridgeFileViewerRenderSnapshotController(props: {
 			fileDisplaySnapshot: {
 				fileDisplayFreshness: renderSnapshot.fileDisplayFreshness,
 				fileItemById: renderSnapshot.fileItemById,
+				fileMemberGroupsSlice: renderSnapshot.fileMemberGroupsSlice,
 				fileQuerySlice: renderSnapshot.fileQuerySlice,
 				fileStatusSlice,
 				fileTreeSlice: renderSnapshot.fileTreeSlice,
@@ -279,6 +285,7 @@ export function useBridgeFileViewerRenderSnapshotController(props: {
 			fileViewClient.renderFulfillmentCoordinator,
 			renderSnapshot.fileDisplayFreshness,
 			renderSnapshot.fileItemById,
+			renderSnapshot.fileMemberGroupsSlice,
 			renderSnapshot.panelChromeSlice,
 			renderSnapshot.fileQuerySlice,
 			renderSnapshot.fileTreeSlice,

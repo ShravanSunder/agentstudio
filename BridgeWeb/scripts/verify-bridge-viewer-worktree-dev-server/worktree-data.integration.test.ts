@@ -14,6 +14,7 @@ import {
 	startOwnedBridgeDevelopmentServer,
 	type OwnedBridgeDevelopmentServer,
 } from '../dev-server/bridge-development-server-process.js';
+import { worktreeFileCollectionPath } from './file-collection-path.js';
 
 const viteConfigFile = fileURLToPath(new URL('../../vite.config.ts', import.meta.url));
 const repoRootPath = fileURLToPath(new URL('../../..', import.meta.url));
@@ -185,7 +186,7 @@ describe('Bridge viewer typed product File worktree data', () => {
 			const surface = await worktreeData.fetchWorktreeSurface();
 			const secondSurface = await worktreeData.fetchWorktreeSurface();
 			const descriptor = await worktreeData.fetchFetchableWorktreeFileDescriptorForPath({
-				path: 'README.md',
+				path: worktreeFileCollectionPath(bridgeDevelopmentServerWorktreeRootPath, 'README.md'),
 				surface: secondSurface,
 			});
 			const content = await worktreeData.fetchWorktreeFileContent(descriptor);

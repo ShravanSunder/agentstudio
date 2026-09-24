@@ -4,6 +4,7 @@ import type {
 	BridgeMainFileTreeDisplayRow,
 	BridgeMainRenderSnapshot,
 } from '../core/comm-worker/bridge-main-render-snapshot-store.js';
+import type { BridgeProductFileMemberGroup } from '../core/comm-worker/bridge-product-file-member-group-contracts.js';
 import type { BridgeWorkerContentAvailabilityPatchPayload } from '../core/comm-worker/bridge-worker-contracts.js';
 import { bridgeWorkerFileQueryKey } from '../core/comm-worker/bridge-worker-file-query-contracts.js';
 
@@ -22,6 +23,8 @@ export interface BridgeFileViewerDisplaySource {
 export interface BridgeFileViewerDisplayModel {
 	readonly acceptedQueryKey: string | null;
 	readonly fileItemById: BridgeFileViewerDisplayItemIndex;
+	/** Map a worktree-relative location to its key with `fileCollectionDisplayPath`. */
+	readonly memberGroups: readonly BridgeProductFileMemberGroup[];
 	readonly projectedRowCount: number;
 	readonly searchError: string | null;
 	readonly source: BridgeFileViewerDisplaySource | null;
@@ -54,7 +57,12 @@ export type BridgeFileViewerOpenState =
 
 type BridgeFileDisplaySnapshot = Pick<
 	BridgeMainRenderSnapshot,
-	'fileDisplayFreshness' | 'fileItemById' | 'fileQuerySlice' | 'fileStatusSlice' | 'fileTreeSlice'
+	| 'fileDisplayFreshness'
+	| 'fileItemById'
+	| 'fileMemberGroupsSlice'
+	| 'fileQuerySlice'
+	| 'fileStatusSlice'
+	| 'fileTreeSlice'
 >;
 
 export function bridgeFileViewerDisplayModelForSnapshot(
@@ -64,6 +72,7 @@ export function bridgeFileViewerDisplayModelForSnapshot(
 		acceptedQueryKey:
 			snapshot.fileQuerySlice === null ? null : bridgeWorkerFileQueryKey(snapshot.fileQuerySlice),
 		fileItemById: bridgeFileViewerDisplayItemIndex(snapshot.fileItemById),
+		memberGroups: snapshot.fileMemberGroupsSlice,
 		projectedRowCount:
 			snapshot.fileQuerySlice?.projectedRowCount ?? snapshot.fileTreeSlice.index.size,
 		searchError: snapshot.fileQuerySlice?.searchError ?? null,

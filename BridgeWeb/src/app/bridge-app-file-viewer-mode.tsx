@@ -1,8 +1,17 @@
-import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react';
+import {
+	useCallback,
+	useEffect,
+	useRef,
+	useState,
+	useSyncExternalStore,
+	type ReactElement,
+} from 'react';
 
 import type { BridgePaneSurfaceClient } from '../core/comm-worker/bridge-pane-runtime.js';
 import type { BridgeActiveViewerSource } from '../core/comm-worker/bridge-product-control-contracts.js';
+import type { BridgeProductFileMemberGroup } from '../core/comm-worker/bridge-product-file-member-group-contracts.js';
 import type { BridgeProductNavigationCommand } from '../core/comm-worker/bridge-product-session-contracts.js';
+import { fileCollectionSourceLocation } from '../file-viewer/bridge-file-collection-display-path.js';
 import {
 	BridgeFileViewerApp,
 	type BridgeFileViewerAppProps,
@@ -21,6 +30,10 @@ import { startBridgeFrameLivenessProbe } from '../foundation/diagnostics/bridge-
 import type { BridgeTelemetryRecorder } from '../foundation/telemetry/bridge-telemetry-recorder.js';
 import { recordBridgeFrameJankTelemetrySample } from '../foundation/telemetry/bridge-viewer-telemetry-adapter.js';
 import { WorktreeAnnotationSurfaceProvider } from '../worktree-annotations/worktree-annotation-surface-provider.js';
+import type {
+	WorktreeAnnotationThreadSource,
+	WorktreeAnnotationThreadSourcePresenter,
+} from '../worktree-annotations/worktree-annotation-thread-source-presentation.js';
 import type { BridgeAppNavigationSource } from './bridge-app-navigation-admission.js';
 import type { BridgeMermaidRenderer } from './markdown/bridge-mermaid-renderer.js';
 import type { BridgeMarkdownRenderWorkerClient } from './markdown/worker/bridge-markdown-render-worker-client.js';
@@ -109,12 +122,17 @@ export function BridgeFileViewerMode(props: BridgeFileViewerModeProps): ReactEle
 		[onActiveSourceChange, reportNavigationDisplaySource],
 	);
 
+	const annotationThreadSourcePresenter = useFileCollectionAnnotationThreadSourcePresenter(
+		props.fileViewClient,
+	);
+
 	return (
 		<BridgeFileViewerSurfaceClientProvider surfaceClient={props.fileViewClient}>
 			<WorktreeAnnotationSurfaceProvider
 				markdownWorkerClient={props.markdownWorkerClient}
 				surfaceClient={props.fileViewClient}
 				telemetryRecorder={props.telemetryRecorder}
+				threadSourcePresenter={annotationThreadSourcePresenter}
 			>
 				{!props.isActive && !hasActivatedFileViewerShell ? (
 					!props.requiresNavigationSourceDiscovery ? null : (
@@ -147,6 +165,36 @@ export function BridgeFileViewerMode(props: BridgeFileViewerModeProps): ReactEle
 				)}
 			</WorktreeAnnotationSurfaceProvider>
 		</BridgeFileViewerSurfaceClientProvider>
+	);
+}
+
+/**
+ * File-surface annotations are stored worktree-scoped (relative path and the
+ * member's descriptor identity); Files lists each member under its group with
+ * prefixed descriptor identities, so threads are presented under the
+ * collection's keys. The member groups come from the render store
+ * because the projected tree can omit a group row while a query is active.
+ */
+function useFileCollectionAnnotationThreadSourcePresenter(
+	fileViewClient: BridgePaneSurfaceClient,
+): WorktreeAnnotationThreadSourcePresenter {
+	const renderStore = fileViewClient.renderStore;
+	const readMemberGroups = useCallback(
+		(): readonly BridgeProductFileMemberGroup[] => renderStore.getSnapshot().fileMemberGroupsSlice,
+		[renderStore],
+	);
+	const memberGroups = useSyncExternalStore(
+		renderStore.subscribe,
+		readMemberGroups,
+		readMemberGroups,
+	);
+	return useCallback(
+		(
+			worktreeId: string,
+			storedSource: WorktreeAnnotationThreadSource,
+		): WorktreeAnnotationThreadSource | null =>
+			fileCollectionSourceLocation(memberGroups, worktreeId, storedSource),
+		[memberGroups],
 	);
 }
 

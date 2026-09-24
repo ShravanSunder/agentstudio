@@ -19,7 +19,7 @@ struct BridgeDevelopmentProductProviderPreparationInput {
 struct BridgeDevelopmentProductProviderPreparation {
     let committedCallTarget: BridgeDevelopmentProductCommittedCallTarget
     let constructionCoordinator: BridgeWorktreeProductConstructionCoordinator
-    let fileMetadataSource: BridgePaneProductFileMetadataSource
+    let fileMetadataSource: BridgeFileCollectionSource
     let productAdmission: BridgeProductAdmissionContext
     let productAdmissionGate: BridgeProductAdmissionGate
     let productProvider: BridgePaneProductSchemeProvider
@@ -53,7 +53,7 @@ private struct BridgeDevelopmentProductProviderDependencies {
             BridgeProductControlCorrelation,
             BridgeProductAdmissionContext
         ) async -> Void
-    let fileMetadataSource: BridgePaneProductFileMetadataSource
+    let fileMetadataSource: BridgeFileCollectionSource
     let initialPresentation: BridgePaneProductPresentationSnapshot
     let refreshWorkAdmissionSource: BridgePaneRefreshWorkAdmissionSource
     let reviewContentLoaderCache: BridgeReviewContentLoaderCache
@@ -191,7 +191,7 @@ extension BridgeDevelopmentProductHost {
 
     private static func makeWorktreeAnnotationHandlerDependencies(
         input: BridgeDevelopmentProductProviderPreparationInput,
-        fileMetadataSource: BridgePaneProductFileMetadataSource,
+        fileMetadataSource: BridgeFileCollectionSource,
         reviewPublicationCoordinator: BridgeReviewPublicationCoordinator,
         reviewContentLoaderCache: BridgeReviewContentLoaderCache,
         reviewSourceProvider: any BridgeReviewSourceProvider
@@ -311,22 +311,33 @@ extension BridgeDevelopmentProductHost {
         gitReadContext: BridgeGitReadContext,
         constructionCoordinator: BridgeWorktreeProductConstructionCoordinator,
         statusPhysicalGate: AgentStudioGitStatusPhysicalGate
-    ) -> BridgePaneProductFileMetadataSource {
-        BridgePaneProductFileMetadataSource(
-            authority: BridgePaneProductFileSourceAuthority(
-                paneId: source.paneID,
-                worktree: Worktree(
-                    id: source.worktreeID,
-                    repoId: source.repoID,
-                    name: source.worktreeRoot.lastPathComponent,
-                    path: source.worktreeRoot
+    ) -> BridgeFileCollectionSource {
+        // The dev host serves the same receiver collection as the app, so the
+        // dev server lists files under their worktree group exactly as shipped.
+        let worktree = Worktree(
+            id: source.worktreeID,
+            repoId: source.repoID,
+            name: source.worktreeRoot.lastPathComponent,
+            path: source.worktreeRoot
+        )
+        return BridgeFileCollectionSource(
+            collectionToken: BridgeFilesSourceBinding.collectionToken(forReceiverPaneId: source.paneID),
+            members: [
+                BridgeFileCollectionMemberSource(
+                    worktreeId: worktree.id,
+                    rootURL: worktree.path,
+                    memberCollectionToken: worktree.stableKey,
+                    producer: BridgePaneProductFileMetadataSource(
+                        authority: BridgePaneProductFileSourceAuthority(paneId: source.paneID, worktree: worktree),
+                        gitReadContext: gitReadContext,
+                        constructionCoordinator: constructionCoordinator,
+                        statusProvider: AgentStudioGitWorkingTreeStatusProvider(
+                            physicalGate: statusPhysicalGate
+                        )
+                    )
                 )
-            ),
-            gitReadContext: gitReadContext,
-            constructionCoordinator: constructionCoordinator,
-            statusProvider: AgentStudioGitWorkingTreeStatusProvider(
-                physicalGate: statusPhysicalGate
-            )
+            ],
+            openedDocuments: []
         )
     }
 

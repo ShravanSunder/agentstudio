@@ -156,7 +156,8 @@ private struct ActivityOrderingTestSetup {
                             comparison: .ref(name: "HEAD~1")
                         )
                     }
-                }
+                },
+                files: nil
             ),
             appRootURL: testBridgeAppRootURL(),
             metadata: pane.metadata,

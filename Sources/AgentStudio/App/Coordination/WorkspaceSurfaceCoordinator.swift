@@ -866,12 +866,14 @@ extension WorkspaceSurfaceCoordinator: TopologyEffectHandler {
     func topologyDidChange(_ delta: WorktreeTopologyDelta) {
         applyTopologyRemovals(from: [delta])
         applyTopologyAdoptions(from: [delta])
+        refreshMountedBridgeFilesSources()
         syncFilesystemRootsAndActivity()
     }
 
     func topologyDidChange(_ deltas: [WorktreeTopologyDelta]) {
         applyTopologyRemovals(from: deltas)
         applyTopologyAdoptions(from: deltas)
+        refreshMountedBridgeFilesSources()
         syncFilesystemRootsAndActivity()
     }
 
@@ -887,9 +889,13 @@ extension WorkspaceSurfaceCoordinator: TopologyEffectHandler {
         }
         guard !removedWorktreeIDs.isEmpty else { return }
         // Scoped topology may already have cleared the source pane's optional facets.
-        // The retained companion still carries the checkout whose authority must retire.
+        // A retained companion that reads a removed checkout must drop its authority.
         for (sourcePaneID, companion) in store.panePresentationAtom.zoomCompanionsBySourcePaneId
-        where removedWorktreeIDs.contains(companion.resolvedWorktreeId) {
+        where removedWorktreeIDs.contains(where: { removedWorktreeID in
+            companion.reviewWorktreeId == removedWorktreeID
+                || viewRegistry.allBridgeViews[companion.companionPaneId]?.controller
+                    .readsWorktree(removedWorktreeID) == true
+        }) {
             _ = reconcileZoomCompanion(sourcePaneId: sourcePaneID, owningTabId: companion.owningTabId)
         }
     }

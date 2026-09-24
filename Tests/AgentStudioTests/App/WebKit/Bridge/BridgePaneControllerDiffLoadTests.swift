@@ -439,7 +439,8 @@ extension WebKitSerializedTests.BridgePaneControllerTests {
             state: BridgePaneState(panelKind: .diffViewer),
             sourceConfiguration: BridgePaneSourceConfiguration(
                 review: BridgeReviewSourceBinding(
-                    worktreeId: UUIDv7.generate(), worktreeRootPath: "/tmp/worktree", comparison: .unstaged)),
+                    worktreeId: UUIDv7.generate(), worktreeRootPath: "/tmp/worktree", comparison: .unstaged),
+                files: nil),
             appRootURL: testBridgeAppRootURL(),
             reviewSourceProvider: reviewSourceProvider,
             initialPaneActivity: .foreground,
@@ -542,7 +543,8 @@ extension WebKitSerializedTests.BridgePaneControllerTests {
             sourceConfiguration: BridgePaneSourceConfiguration(
                 review: BridgeReviewSourceBinding(
                     worktreeId: UUIDv7.generate(), worktreeRootPath: "/tmp/contribution-generation-fence",
-                    comparison: .ref(name: "target"))),
+                    comparison: .ref(name: "target")),
+                files: nil),
             appRootURL: testBridgeAppRootURL(),
             reviewSourceProvider: reviewSourceProvider,
             initialPaneActivity: .foreground,
@@ -633,7 +635,8 @@ extension WebKitSerializedTests.BridgePaneControllerTests {
             state: BridgePaneState(panelKind: .diffViewer),
             sourceConfiguration: BridgePaneSourceConfiguration(
                 review: BridgeReviewSourceBinding(
-                    worktreeId: UUIDv7.generate(), worktreeRootPath: "/tmp/worktree", comparison: .ref(name: "HEAD~1"))),
+                    worktreeId: UUIDv7.generate(), worktreeRootPath: "/tmp/worktree", comparison: .ref(name: "HEAD~1")),
+                files: nil),
             appRootURL: testBridgeAppRootURL(),
             initialPaneActivity: .foreground
         )

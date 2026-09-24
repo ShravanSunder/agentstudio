@@ -5,12 +5,14 @@ import type { BridgeMarkdownRenderWorkerClient } from '../app/markdown/worker/br
 import type { BridgeProductNavigationCommand } from '../core/comm-worker/bridge-product-session-contracts.js';
 import type { BridgeTelemetryRecorder } from '../foundation/telemetry/bridge-telemetry-recorder.js';
 import type { BridgeTraceContext } from '../foundation/telemetry/bridge-trace-context.js';
+import type { BridgeWorktreeFileLocation } from './bridge-file-collection-display-path.js';
 import type { BridgeFileViewerDisplaySource } from './bridge-file-viewer-display-model.js';
 
 export interface BridgeFileViewerOpenPathCommand {
 	readonly activationStartedAtPerfNow: number;
 	readonly commandId: number;
-	readonly path: string;
+	/** Mapped to its Files display key through the collection's member groups. */
+	readonly location: BridgeWorktreeFileLocation;
 	readonly traceContext: BridgeTraceContext | null;
 }
 

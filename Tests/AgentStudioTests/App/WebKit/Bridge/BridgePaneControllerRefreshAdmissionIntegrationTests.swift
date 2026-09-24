@@ -25,7 +25,8 @@ extension WebKitSerializedTests.BridgePaneControllerTests {
             state: BridgePaneState(panelKind: .fileViewer),
             sourceConfiguration: BridgePaneSourceConfiguration(
                 review: BridgeReviewSourceBinding(
-                    worktreeId: UUIDv7.generate(), worktreeRootPath: "/tmp/worktree", comparison: .unstaged)),
+                    worktreeId: worktreeId, worktreeRootPath: "/tmp/worktree", comparison: .unstaged),
+                files: .testSingleWorktree(rootURL: URL(fileURLWithPath: "/tmp/worktree"), worktreeId: worktreeId)),
             appRootURL: testBridgeAppRootURL(),
             metadata: PaneMetadata(
                 contentType: .diff,
@@ -44,7 +45,8 @@ extension WebKitSerializedTests.BridgePaneControllerTests {
                     summary: GitWorkingTreeSummary(changed: 1, staged: 0, untracked: 0),
                     branch: nil,
                     origin: nil
-                )
+                ),
+                worktreeId: worktreeId
             )
         )
         await waitForActiveReviewRefreshTaskToFinish(controller)
@@ -454,7 +456,8 @@ extension WebKitSerializedTests.BridgePaneControllerTests {
                 )
             )
         )
-        await fixture.controller.handleWorktreeProductInvalidation(.statusChanged(firstStatus))
+        await fixture.controller.handleWorktreeProductInvalidation(
+            .statusChanged(firstStatus, worktreeId: fixture.headEndpoint.worktreeId))
         await fixture.controller.handleWorktreeProductInvalidation(
             .filesChanged(
                 fixture.makeChangeset(
@@ -463,7 +466,8 @@ extension WebKitSerializedTests.BridgePaneControllerTests {
                 )
             )
         )
-        await fixture.controller.handleWorktreeProductInvalidation(.statusChanged(latestStatus))
+        await fixture.controller.handleWorktreeProductInvalidation(
+            .statusChanged(latestStatus, worktreeId: fixture.headEndpoint.worktreeId))
 
         // Assert — loaded-hidden retains one pane-wide fact and starts no product work.
         let hiddenSnapshot = fixture.controller.refreshAdmissionCoordinator.diagnosticSnapshot

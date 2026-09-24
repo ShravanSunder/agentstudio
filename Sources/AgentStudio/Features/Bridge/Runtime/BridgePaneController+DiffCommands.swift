@@ -580,7 +580,7 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
                     )
                 )
             )
-        case .gitWorkingTreeInCwd(_, let staged, let unstaged, let untracked):
+        case .gitWorkingTreeInCwd(let context, let staged, let unstaged, let untracked):
             await handleWorktreeProductInvalidation(
                 .statusChanged(
                     GitWorkingTreeStatus(
@@ -591,7 +591,8 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
                         ),
                         branch: nil,
                         origin: nil
-                    )
+                    ),
+                    worktreeId: context.worktreeId
                 )
             )
         }

@@ -141,7 +141,8 @@ func makeRefreshAdmissionIntegrationFixture(
     fileMetadataProducerGate: RefreshAdmissionCancellationIgnoringProducerGate? = nil,
     reviewMetadataReservationGate: RefreshAdmissionReviewReservationGate? = nil,
     initialContributionTarget: WorkspaceReviewContributionTarget? = nil,
-    contributionTargetCommit: BridgeReviewComparisonCommit? = nil
+    contributionTargetCommit: BridgeReviewComparisonCommit? = nil,
+    additionalFilesMember: Worktree? = nil
 ) async throws -> RefreshAdmissionIntegrationFixture {
     let baseEndpoint = makeBridgeEndpoint(endpointId: "baseline-headMinusOne", kind: .gitRef)
     let headEndpoint = makeBridgeEndpoint(endpointId: "working-tree", kind: .workingTree)
@@ -193,7 +194,8 @@ func makeRefreshAdmissionIntegrationFixture(
         state: BridgePaneState(panelKind: .diffViewer),
         sourceConfiguration: makeRefreshAdmissionSourceConfiguration(
             worktreeId: headEndpoint.worktreeId,
-            initialContributionTarget: initialContributionTarget
+            initialContributionTarget: initialContributionTarget,
+            additionalFilesMember: additionalFilesMember
         ),
         appRootURL: testBridgeAppRootURL(),
         metadata: PaneMetadata(
@@ -248,14 +250,21 @@ func makeRefreshAdmissionIntegrationFixture(
 
 private func makeRefreshAdmissionSourceConfiguration(
     worktreeId: UUID,
-    initialContributionTarget: WorkspaceReviewContributionTarget?
+    initialContributionTarget: WorkspaceReviewContributionTarget?,
+    additionalFilesMember: Worktree?
 ) -> BridgePaneSourceConfiguration {
-    BridgePaneSourceConfiguration(
+    var files = BridgeFilesSourceBinding.testSingleWorktree(
+        rootURL: URL(fileURLWithPath: "/tmp/bridge-refresh-admission"),
+        worktreeId: worktreeId
+    )
+    if let additionalFilesMember { files.members.append(additionalFilesMember) }
+    return BridgePaneSourceConfiguration(
         review: BridgeReviewSourceBinding(
             worktreeId: worktreeId,
             worktreeRootPath: "/tmp/bridge-refresh-admission",
             comparison: initialContributionTarget.map(WorkspaceBaseline.init(contributionTarget:)) ?? .staged
-        )
+        ),
+        files: files
     )
 }
 

@@ -20,6 +20,7 @@ import type {
 	WorktreeAnnotationThreadContext,
 } from './worktree-annotation-surface-client.js';
 import { WorktreeAnnotationSurfaceProvider } from './worktree-annotation-surface-provider.js';
+import type { WorktreeAnnotationThreadSourcePresenter } from './worktree-annotation-thread-source-presentation.js';
 
 export const annotationSessionId = '00000000-0000-7000-8000-000000000011';
 export const annotationSecondSessionId = '00000000-0000-7000-8000-000000000014';
@@ -34,6 +35,7 @@ export interface WorktreeAnnotationBrowserProviderHarness {
 
 export function createWorktreeAnnotationBrowserProviderHarness(
 	surfaceKind: 'fileView' | 'review',
+	options: { readonly threadSourcePresenter?: WorktreeAnnotationThreadSourcePresenter } = {},
 ): WorktreeAnnotationBrowserProviderHarness {
 	const surface = new RecordingAnnotationBrowserSurface(surfaceKind);
 	return {
@@ -43,6 +45,7 @@ export function createWorktreeAnnotationBrowserProviderHarness(
 				// oxlint-disable-next-line react/no-children-prop -- This shared test helper is a .ts module without JSX.
 				children,
 				surfaceClient: surface.client,
+				threadSourcePresenter: options.threadSourcePresenter,
 			}),
 	};
 }

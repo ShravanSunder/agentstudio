@@ -103,8 +103,8 @@ extension WebKitSerializedTests {
             await harness.coordinator.shutdown()
         }
 
-        @Test("source worktree change retires the stale companion while installing its replacement")
-        func sourceWorktreeChangeRetiresBeforeReplacement() async throws {
+        @Test("source worktree change keeps the companion and joins the new worktree to Files")
+        func sourceWorktreeChangeKeepsCompanionAndJoinsFiles() async throws {
             // Arrange
             let owningWindowId = UUID()
             let harness = makeHarness(workspaceWindowId: owningWindowId)
@@ -123,8 +123,7 @@ extension WebKitSerializedTests {
             )
             let sourceTab = Tab(paneId: sourcePane.id)
             harness.store.appendTab(sourceTab)
-            let baseline = ZoomRecoveryResourceBaseline(harness: harness)
-            let staleCompanionPaneId = try await installZoomRecoveryCompanion(
+            let companionPaneId = try await installZoomRecoveryCompanion(
                 sourcePane: sourcePane,
                 sourceTab: sourceTab,
                 owningWindowId: owningWindowId,
@@ -160,30 +159,24 @@ extension WebKitSerializedTests {
             await harness.coordinator.drainBridgePaneRetirements()
             await harness.coordinator.drainBridgeGitReadActivityPropagation()
 
-            // Assert
-            let replacementCompanionPaneId = try #require(
-                recoveryPresentation.companionPaneId
+            // Assert — CWD injects a Files member; only a Review change replaces the companion.
+            #expect(recoveryPresentation.companionPaneId == companionPaneId)
+            #expect(requestedReplacementPaneIds.isEmpty)
+            #expect(
+                harness.store.panePresentationAtom.zoomCompanion(forSourcePane: sourcePane.id)?
+                    .reviewWorktreeId == originalWorktree.id
             )
-            #expect(replacementCompanionPaneId != staleCompanionPaneId)
-            #expect(requestedReplacementPaneIds == [replacementCompanionPaneId])
-            expectZoomRecoveryResourceIsAbsent(
-                staleCompanionPaneId,
-                in: harness
+            #expect(
+                harness.coordinator.bridgeNavigationCommandHandler.record(for: .terminal(sourcePane.id))?
+                    .memberWorktreeIds == [originalWorktree.id, replacementWorktree.id]
             )
-            expectZoomRecoveryReplacementInstalled(
-                companionPaneId: replacementCompanionPaneId,
-                sourcePaneId: sourcePane.id,
-                sourceTabId: sourceTab.id,
-                worktreeId: replacementWorktree.id,
-                baseline: baseline,
-                in: harness
-            )
+            #expect(harness.viewRegistry.allBridgeViews[companionPaneId] != nil)
 
             await harness.coordinator.shutdown()
         }
 
-        @Test("worktree removal makes Viewer unavailable and retires the stale companion")
-        func worktreeRemovalMakesViewerUnavailable() async throws {
+        @Test("Review worktree removal replaces the companion with a Files-only receiver")
+        func reviewWorktreeRemovalReplacesCompanionWithFilesOnlyReceiver() async throws {
             // Arrange
             let owningWindowId = UUID()
             let eventProbe = BridgeGitReadSchedulerEventProbe()
@@ -210,7 +203,6 @@ extension WebKitSerializedTests {
             )
             let sourceTab = Tab(paneId: sourcePane.id)
             harness.store.appendTab(sourceTab)
-            let baseline = ZoomRecoveryResourceBaseline(harness: harness)
             let companionPaneId = try await installZoomRecoveryCompanion(
                 sourcePane: sourcePane,
                 sourceTab: sourceTab,
@@ -249,31 +241,23 @@ extension WebKitSerializedTests {
             await harness.coordinator.drainBridgePaneRetirements()
             await harness.coordinator.drainBridgeGitReadActivityPropagation()
 
-            // Assert
-            #expect(
-                harness.store.panePresentationAtom.zoomPresentation(forTab: sourceTab.id)
-                    == ZoomPresentation(
-                        sourcePaneId: sourcePane.id,
-                        viewerPresentation: .unavailableVisible,
-                        transientSplitRatio: nil
-                    )
+            // Assert — the stale companion is retired and the receiver keeps a
+            // companion that reads no removed worktree.
+            let replacement = try #require(
+                harness.store.panePresentationAtom.zoomCompanion(forSourcePane: sourcePane.id)
             )
+            #expect(replacement.companionPaneId != companionPaneId)
+            #expect(replacement.reviewWorktreeId == nil)
             #expect(
-                harness.store.panePresentationAtom.zoomCompanion(
-                    forSourcePane: sourcePane.id
-                ) == nil
+                harness.viewRegistry.allBridgeViews[replacement.companionPaneId]?.controller
+                    .readsWorktree(worktree.id) == false
             )
             #expect(harness.store.pane(sourcePane.id)?.residency == .active)
             #expect(
                 harness.store.tab(sourceTab.id)?.allPaneIds.contains(sourcePane.id)
                     == true
             )
-            expectZoomRecoveryResourcesRetired(
-                companionPaneId,
-                sourcePaneId: sourcePane.id,
-                baseline: baseline,
-                in: harness
-            )
+            expectZoomRecoveryResourceIsAbsent(companionPaneId, in: harness)
             try await expectZoomRecoveryGitReadIsUnranked(
                 scheduler: scheduler,
                 eventProbe: eventProbe,
@@ -397,39 +381,6 @@ private func expectZoomRecoveryResourceIsAbsent(
         harness.coordinator.bridgePaneActivityAuthorityIdentity(
             for: companionPaneId
         ) == nil
-    )
-}
-
-@MainActor
-private func expectZoomRecoveryReplacementInstalled(
-    companionPaneId: UUID,
-    sourcePaneId: UUID,
-    sourceTabId: UUID,
-    worktreeId: UUID,
-    baseline: ZoomRecoveryResourceBaseline,
-    in harness: PaneTabViewControllerCommandHarness
-) {
-    #expect(
-        harness.store.panePresentationAtom.zoomCompanion(
-            forSourcePane: sourcePaneId
-        )
-            == ZoomCompanionMetadata(
-                owningTabId: sourceTabId,
-                resolvedWorktreeId: worktreeId,
-                companionPaneId: companionPaneId,
-                lastZoomVisibility: .visible
-            )
-    )
-    #expect(harness.viewRegistry.allBridgeViews[companionPaneId] != nil)
-    #expect(
-        harness.runtimeRegistry.runtime(
-            for: PaneId(existingUUID: companionPaneId)
-        ) != nil
-    )
-    #expect(harness.runtimeRegistry.count == baseline.runtimeCount + 1)
-    #expect(
-        harness.viewRegistry.slotPaneIdsForTesting
-            == baseline.slotPaneIds.union([sourcePaneId, companionPaneId])
     )
 }
 

@@ -449,7 +449,7 @@ private actor BridgeDevelopmentObservationProbe {
         switch invalidation {
         case .filesChanged(let changeset):
             fileChangesets.append(changeset)
-        case .statusChanged(let status):
+        case .statusChanged(let status, _):
             statuses.append(status)
         }
     }

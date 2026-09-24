@@ -25,6 +25,7 @@ import {
 } from '../core/telemetry-worker/bridge-pane-telemetry-worker-session.js';
 import { bridgeTelemetryWorkerBootstrapSchema } from '../core/telemetry-worker/bridge-telemetry-worker-contracts.js';
 import { bridgeTelemetryCompactSampleForEvent } from '../core/telemetry-worker/bridge-telemetry-worker-event-adapter.js';
+import type { BridgeWorktreeFileLocation } from '../file-viewer/bridge-file-collection-display-path.js';
 import type {
 	BridgeFileViewerAppProps,
 	BridgeFileViewerOpenPathCommand,
@@ -269,14 +270,14 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 		[activateViewerMode, requestContextSwitcherFocusHandoff],
 	);
 	const openReviewFileInFileViewer = useCallback(
-		(path: string): void => {
+		(location: BridgeWorktreeFileLocation): void => {
 			openFileFromReviewCommandSequenceRef.current += 1;
 			const activation = activateViewerMode('file', 'review_file_corner');
 			if (activation === null) return;
 			setOpenFileFromReviewCommand({
 				activationStartedAtPerfNow: activation.startedAtPerfNow,
 				commandId: openFileFromReviewCommandSequenceRef.current,
-				path,
+				location,
 				traceContext: null,
 			});
 		},

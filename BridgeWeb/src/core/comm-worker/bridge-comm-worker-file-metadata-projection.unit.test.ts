@@ -156,6 +156,7 @@ describe('Bridge comm worker File metadata projection', () => {
 				},
 				{ operation: 'reset', slice: 'fileItem' },
 				{ operation: 'reset', slice: 'fileStatus' },
+				{ operation: 'reset', slice: 'fileMemberGroups' },
 			],
 			projectionRevision: 1,
 		});
@@ -482,7 +483,7 @@ describe('Bridge comm worker File metadata projection', () => {
 		expect([first.projectionRevision, second.projectionRevision, third.projectionRevision]).toEqual(
 			[1, 2, 3],
 		);
-		expect(second.patches).toEqual([
+		const sourceSliceResets = [
 			{
 				operation: 'reset',
 				payload: { sourceGeneration: 4, sourceId: 'file-source-2' },
@@ -490,8 +491,77 @@ describe('Bridge comm worker File metadata projection', () => {
 			},
 			{ operation: 'reset', slice: 'fileItem' },
 			{ operation: 'reset', slice: 'fileStatus' },
+		];
+		// A new source also drops the previous source's member groups; a
+		// source reset keeps the current membership.
+		expect(second.patches).toEqual([
+			...sourceSliceResets,
+			{ operation: 'reset', slice: 'fileMemberGroups' },
 		]);
-		expect(third.patches).toEqual(second.patches);
+		expect(third.patches).toEqual(sourceSliceResets);
+	});
+
+	test('keeps the newest member groups when a superseded list arrives late', () => {
+		// Arrange — membership A then B on one source, then a replacement source.
+		const projection = new BridgeCommWorkerFileMetadataProjection();
+		const nextSource = {
+			...source,
+			sourceCursor: 'source-cursor-2',
+			sourceId: 'file-source-2',
+			subscriptionGeneration: 4,
+		};
+		const groupsA = [
+			{
+				groupPath: 'app',
+				identityPrefix: 'mapp.',
+				nestedMemberRelativeRoots: [],
+				worktreeId: 'worktree-a',
+			},
+		];
+		const groupsB = [
+			...groupsA,
+			{
+				groupPath: 'api',
+				identityPrefix: 'mapi.',
+				nestedMemberRelativeRoots: [],
+				worktreeId: 'worktree-b',
+			},
+		];
+		projection.apply({ eventKind: 'file.sourceAccepted', source });
+		projection.apply({
+			eventKind: 'file.memberGroups',
+			groups: groupsB,
+			membershipRevision: 2,
+			source,
+		});
+
+		// Act
+		const lateMembershipA = projection.apply({
+			eventKind: 'file.memberGroups',
+			groups: groupsA,
+			membershipRevision: 1,
+			source,
+		});
+		projection.apply({ eventKind: 'file.sourceAccepted', source: nextSource });
+		const replacementGroups = projection.apply({
+			eventKind: 'file.memberGroups',
+			groups: groupsB,
+			membershipRevision: 0,
+			source: nextSource,
+		});
+		const lateReplacedSource = projection.apply({
+			eventKind: 'file.memberGroups',
+			groups: groupsA,
+			membershipRevision: 3,
+			source,
+		});
+
+		// Assert
+		expect(lateMembershipA.patches).toEqual([]);
+		expect(replacementGroups.patches).toEqual([
+			{ operation: 'upsert', payload: { groups: groupsB }, slice: 'fileMemberGroups' },
+		]);
+		expect(lateReplacedSource.patches).toEqual([]);
 	});
 
 	test('projects streamed tree and descriptor facts into worker-owned File runtime state', () => {

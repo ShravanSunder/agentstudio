@@ -321,9 +321,9 @@ describe('worktree dev-server verifier Review interaction contract', () => {
 	test('uses a stable Worktree/File first-load canary instead of the alphabetically first repo file', async () => {
 		const verifierSource = await readWorktreeDevServerVerifierSource();
 
-		expect(verifierSource).toContain('initialContentFixtureRelativePath');
+		expect(verifierSource).toContain('initialContentFixtureFileCollectionPath');
 		expect(verifierSource).toContain('fetchFetchableWorktreeFileDescriptorForPath({');
-		expect(verifierSource).toContain('path: initialContentFixtureRelativePath');
+		expect(verifierSource).toContain('path: initialContentFixtureFileCollectionPath');
 		expect(verifierSource).toContain(
 			'await clickWorktreeFilePathViaSearch({ page, path: initialDescriptor.path })',
 		);
@@ -343,7 +343,7 @@ describe('worktree dev-server verifier Review interaction contract', () => {
 		expect(handoffSource).toContain("state === 'stale'");
 		expect(handoffSource).toContain('worktree-file-refresh');
 		expect(handoffSource).toContain("state: 'ready'");
-		expect(handoffSource).toContain('path: expectedDisplayPath');
+		expect(handoffSource).toContain('path: expectedFileDisplayPath');
 		expect(handoffSource).not.toContain(
 			"document\\n\\t\\t\\t\\t\\t.querySelector('[data-worktree-open-file-state]')",
 		);

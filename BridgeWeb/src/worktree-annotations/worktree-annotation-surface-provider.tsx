@@ -26,10 +26,16 @@ import {
 	type WorktreeAnnotationProjectionSnapshot,
 	type WorktreeAnnotationSurfaceClient,
 } from './worktree-annotation-surface-client.js';
+import {
+	presentWorktreeAnnotationThreadSources,
+	type WorktreeAnnotationThreadSourcePresenter,
+} from './worktree-annotation-thread-source-presentation.js';
 import { WorktreeAnnotationViewedController } from './worktree-annotation-viewed-controller.js';
 
 const worktreeAnnotationSurfaceClientContext =
 	createContext<WorktreeAnnotationSurfaceClient | null>(null);
+const worktreeAnnotationPresentedProjectionContext =
+	createContext<WorktreeAnnotationProjectionSnapshot | null>(null);
 const worktreeAnnotationMarkdownClientContext =
 	createContext<BridgeMarkdownRenderWorkerClient | null>(null);
 const worktreeAnnotationSessionSelectionContext =
@@ -90,6 +96,8 @@ export interface WorktreeAnnotationSurfaceProviderProps {
 	readonly markdownWorkerClient?: BridgeMarkdownRenderWorkerClient | null | undefined;
 	readonly surfaceClient: BridgePaneSurfaceClient;
 	readonly telemetryRecorder?: BridgeTelemetryRecorder | undefined;
+	/** Maps stored thread sources to this surface's keys; omitted when they already match. */
+	readonly threadSourcePresenter?: WorktreeAnnotationThreadSourcePresenter | undefined;
 }
 
 export function WorktreeAnnotationSurfaceProvider(
@@ -120,6 +128,14 @@ export function WorktreeAnnotationSurfaceProvider(
 		annotationClient.subscribe,
 		annotationClient.getSnapshot,
 		annotationClient.getServerSnapshot,
+	);
+	const threadSourcePresenter = props.threadSourcePresenter;
+	const presentedProjection = useMemo(
+		(): WorktreeAnnotationProjectionSnapshot =>
+			threadSourcePresenter === undefined
+				? projection
+				: presentWorktreeAnnotationThreadSources(projection, threadSourcePresenter),
+		[projection, threadSourcePresenter],
 	);
 	const viewedController = useMemo(
 		() =>
@@ -396,18 +412,20 @@ export function WorktreeAnnotationSurfaceProvider(
 				value={props.surfaceClient.surface === 'fileView' ? 'file' : 'review'}
 			>
 				<worktreeAnnotationSurfaceClientContext.Provider value={annotationClient}>
-					<worktreeAnnotationViewedControllerContext.Provider value={viewedController}>
-						<WorktreeAnnotationInteractionProvider>
-							<worktreeAnnotationEditSurfaceRegistryContext.Provider value={editSurfaceRegistry}>
-								<WorktreeAnnotationPendingRootComposerEditLeaseReconciler />
-								<worktreeAnnotationSessionSelectionContext.Provider value={sessionSelection}>
-									{props.children}
-									<WorktreeAnnotationThreadExpansionReconciler />
-									<WorktreeAnnotationViewedProjectionReconciler />
-								</worktreeAnnotationSessionSelectionContext.Provider>
-							</worktreeAnnotationEditSurfaceRegistryContext.Provider>
-						</WorktreeAnnotationInteractionProvider>
-					</worktreeAnnotationViewedControllerContext.Provider>
+					<worktreeAnnotationPresentedProjectionContext.Provider value={presentedProjection}>
+						<worktreeAnnotationViewedControllerContext.Provider value={viewedController}>
+							<WorktreeAnnotationInteractionProvider>
+								<worktreeAnnotationEditSurfaceRegistryContext.Provider value={editSurfaceRegistry}>
+									<WorktreeAnnotationPendingRootComposerEditLeaseReconciler />
+									<worktreeAnnotationSessionSelectionContext.Provider value={sessionSelection}>
+										{props.children}
+										<WorktreeAnnotationThreadExpansionReconciler />
+										<WorktreeAnnotationViewedProjectionReconciler />
+									</worktreeAnnotationSessionSelectionContext.Provider>
+								</worktreeAnnotationEditSurfaceRegistryContext.Provider>
+							</WorktreeAnnotationInteractionProvider>
+						</worktreeAnnotationViewedControllerContext.Provider>
+					</worktreeAnnotationPresentedProjectionContext.Provider>
 				</worktreeAnnotationSurfaceClientContext.Provider>
 			</worktreeAnnotationSurfaceContext.Provider>
 		</worktreeAnnotationMarkdownClientContext.Provider>
@@ -562,11 +580,9 @@ export function useWorktreeAnnotationDeferredEditRelease(): WorktreeAnnotationEd
 }
 
 export function useWorktreeAnnotationProjection(): WorktreeAnnotationProjectionSnapshot {
-	const annotationClient = useContext(worktreeAnnotationSurfaceClientContext);
-	return useSyncExternalStore(
-		annotationClient?.subscribe ?? noAnnotationProjectionSubscription,
-		annotationClient?.getSnapshot ?? emptyAnnotationProjectionSnapshot,
-		annotationClient?.getServerSnapshot ?? emptyAnnotationProjectionSnapshot,
+	return (
+		useContext(worktreeAnnotationPresentedProjectionContext) ??
+		emptyWorktreeAnnotationProjectionSnapshot
 	);
 }
 
@@ -580,10 +596,6 @@ export function useWorktreeAnnotationSessionDemand(sessionId: string | null): vo
 
 function noAnnotationProjectionSubscription(): () => void {
 	return (): void => {};
-}
-
-function emptyAnnotationProjectionSnapshot(): WorktreeAnnotationProjectionSnapshot {
-	return emptyWorktreeAnnotationProjectionSnapshot;
 }
 
 function zeroViewedRevision(): number {

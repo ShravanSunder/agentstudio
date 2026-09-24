@@ -3,6 +3,7 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactEle
 import type { BridgePaneSurfaceClient } from '../core/comm-worker/bridge-pane-runtime.js';
 import type { BridgeActiveViewerSource } from '../core/comm-worker/bridge-product-control-contracts.js';
 import type { BridgeProductNavigationCommand } from '../core/comm-worker/bridge-product-session-contracts.js';
+import type { BridgeWorktreeFileLocation } from '../file-viewer/bridge-file-collection-display-path.js';
 import { startBridgeFrameJankProbe } from '../foundation/diagnostics/bridge-frame-jank-probe.js';
 import { startBridgeFrameLivenessProbe } from '../foundation/diagnostics/bridge-frame-liveness-probe.js';
 import type { BridgeFileChangeKind } from '../foundation/review-package/bridge-review-package.js';
@@ -94,7 +95,7 @@ export interface BridgeReviewViewerModeProps {
 	readonly onNavigationSourceChange: (
 		source: Extract<BridgeAppNavigationSource, { readonly sourceKind: 'review' }> | null,
 	) => void;
-	readonly onOpenFile?: (path: string) => void;
+	readonly onOpenFile?: (location: BridgeWorktreeFileLocation) => void;
 	readonly reviewClient: BridgePaneSurfaceClient;
 	readonly target?: EventTarget;
 	readonly telemetryRecorderRef: { readonly current: BridgeTelemetryRecorder };
@@ -775,7 +776,7 @@ function reviewPresentationState(props: {
 	readonly onFacetMenuOpenChange: (isOpen: boolean) => void;
 	readonly onFilterChange: (filter: BridgeReviewFilterCandidate) => void;
 	readonly onHoveredItemIdChange: (itemId: string | null) => void;
-	readonly onOpenFile?: (path: string) => void;
+	readonly onOpenFile?: (location: BridgeWorktreeFileLocation) => void;
 }): BridgeReviewViewerPresentationState {
 	if (props.reviewSourceSlice === null) return { status: 'empty' };
 	if (props.reviewSourceSlice.status === 'failed') {

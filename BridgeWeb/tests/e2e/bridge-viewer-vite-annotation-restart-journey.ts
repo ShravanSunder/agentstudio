@@ -11,6 +11,7 @@ import {
 	waitForSelectedFileReady,
 	waitForSelectedReviewReady,
 } from './bridge-viewer-vite-annotation-save-journey.ts';
+import { bridgeViewerViteFileCollectionPath } from './bridge-viewer-vite-file-collection-path.ts';
 import {
 	createBridgeViewerViteProductFixture,
 	startBridgeViewerOwnedViteProductServer,
@@ -101,7 +102,13 @@ export function registerBridgeViewerViteAnnotationSystemJourneyTests(): void {
 				timeout: annotationRestartJourneyTimeoutMilliseconds,
 				waitUntil: 'domcontentloaded',
 			});
-			await waitForFilePathReady({ page, path: reviewOriginFile.path });
+			await waitForFilePathReady({
+				page,
+				path: bridgeViewerViteFileCollectionPath(
+					fixture.oracle.worktreeRoot,
+					reviewOriginFile.path,
+				),
+			});
 			await page
 				.getByText('Review Save must settle from its exact command receipt.', { exact: true })
 				.waitFor({ state: 'visible', timeout: annotationComposedConvergenceTimeoutMilliseconds });

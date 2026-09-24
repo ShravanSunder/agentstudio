@@ -25,7 +25,8 @@ extension WebKitSerializedTests {
                 sourceConfiguration: BridgePaneSourceConfiguration(
                     review: BridgeReviewSourceBinding(
                         worktreeId: UUIDv7.generate(), worktreeRootPath: "/tmp/worktree",
-                        comparison: .branch(name: "main"))),
+                        comparison: .branch(name: "main")),
+                    files: nil),
                 appRootURL: testBridgeAppRootURL(),
                 initialPaneActivity: .dormant,
                 contributionTargetCommit: { _ in .applied(canonicalComparison) }
@@ -51,7 +52,8 @@ extension WebKitSerializedTests {
                 sourceConfiguration: BridgePaneSourceConfiguration(
                     review: BridgeReviewSourceBinding(
                         worktreeId: UUIDv7.generate(), worktreeRootPath: "/tmp/worktree",
-                        comparison: .branch(name: "main"))),
+                        comparison: .branch(name: "main")),
+                    files: nil),
                 appRootURL: testBridgeAppRootURL(),
                 initialPaneActivity: .dormant,
                 contributionTargetCommit: { _ in
@@ -358,8 +360,10 @@ extension WebKitSerializedTests {
                 state: BridgePaneState(panelKind: .diffViewer),
                 sourceConfiguration: BridgePaneSourceConfiguration(
                     review: BridgeReviewSourceBinding(
-                        worktreeId: UUIDv7.generate(), worktreeRootPath: "/tmp/worktree",
-                        comparison: WorkspaceBaseline(contributionTarget: target))),
+                        worktreeId: comparison.headEndpoint.worktreeId, worktreeRootPath: "/tmp/worktree",
+                        comparison: WorkspaceBaseline(contributionTarget: target)),
+                    files: .testSingleWorktree(
+                        rootURL: URL(fileURLWithPath: "/tmp/worktree"), worktreeId: comparison.headEndpoint.worktreeId)),
                 appRootURL: testBridgeAppRootURL(),
                 metadata: PaneMetadata(
                     contentType: .diff,

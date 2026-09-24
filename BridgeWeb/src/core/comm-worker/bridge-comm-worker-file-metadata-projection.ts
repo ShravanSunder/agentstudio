@@ -87,6 +87,8 @@ export class BridgeCommWorkerFileMetadataProjection {
 	readonly #descriptorsByFileId = new Map<string, FileDescriptorReadyEvent>();
 	readonly #recordVisitedMember: () => void;
 	#projectionRevision = 0;
+	/** Revision of the member-group list applied for the current source. */
+	#memberGroupsRevision: number | null = null;
 	#readyStatus: FileReadyStatusDisplayPayload | null = null;
 	#source: BridgeProductFileSourceIdentity | null = null;
 	#status: FileStatusDisplayPayload | null = null;
@@ -108,11 +110,18 @@ export class BridgeCommWorkerFileMetadataProjection {
 			this.#treeIndexByPath.clear();
 			this.#treeIndexByRowId.clear();
 			this.#descriptorsByFileId.clear();
+			this.#memberGroupsRevision = null;
 			this.#readyStatus = null;
 			this.#status = null;
-			patches = fileSourceResetDisplayPatches(event.source);
+			patches = [
+				...fileSourceResetDisplayPatches(event.source),
+				{ operation: 'reset', slice: 'fileMemberGroups' },
+			];
 			runtimeMutation = emptyFileRuntimeResetMutation();
 			return this.#applyResult(patches, runtimeMutation);
+		}
+		if (event.eventKind === 'file.memberGroups' && this.#supersedesMemberGroups(event)) {
+			return this.#applyResult([], null);
 		}
 		this.#assertCurrentSource(event.source);
 		switch (event.eventKind) {
@@ -129,6 +138,14 @@ export class BridgeCommWorkerFileMetadataProjection {
 				const change = this.#applyTreeDelta(event);
 				patches = fileTreeDisplayOperationBatches(change.displayOperations);
 				runtimeMutation = finalizeFileRuntimeDeltaMutation(change.runtimeMutation);
+				break;
+			}
+			case 'file.memberGroups': {
+				this.#memberGroupsRevision = event.membershipRevision;
+				patches = [
+					{ operation: 'upsert', payload: { groups: event.groups }, slice: 'fileMemberGroups' },
+				];
+				runtimeMutation = null;
 				break;
 			}
 			case 'file.statusPatch': {
@@ -422,6 +439,22 @@ export class BridgeCommWorkerFileMetadataProjection {
 			index,
 			parentId: parentRow === null ? null : fileRuntimeRowId(parentRow),
 		};
+	}
+
+	/**
+	 * A member-group list from a replaced source, or from an older membership
+	 * of the current source, never overwrites the newer list.
+	 */
+	#supersedesMemberGroups(
+		event: Extract<FileMetadataEvent, { readonly eventKind: 'file.memberGroups' }>,
+	): boolean {
+		if (this.#source === null) return false;
+		if (event.source.subscriptionGeneration < this.#source.subscriptionGeneration) return true;
+		return (
+			fileSourceIdentitiesEqual(this.#source, event.source) &&
+			this.#memberGroupsRevision !== null &&
+			event.membershipRevision <= this.#memberGroupsRevision
+		);
 	}
 
 	#assertCurrentSource(source: BridgeProductFileSourceIdentity): void {

@@ -31,6 +31,7 @@ package struct BridgePaneProductSessionDependencies {
     let owner: BridgePaneProductSessionOwner
     let committedCallTarget: BridgePaneProductCommittedCallTarget?
     let fileSourceAcceptanceRelay: BridgePaneFileSourceAcceptanceRelay?
+    let fileCollectionSource: BridgeFileCollectionSource?
     let productProvider: BridgePaneProductSchemeProvider?
 
     init(
@@ -38,12 +39,14 @@ package struct BridgePaneProductSessionDependencies {
         owner: BridgePaneProductSessionOwner,
         committedCallTarget: BridgePaneProductCommittedCallTarget? = nil,
         fileSourceAcceptanceRelay: BridgePaneFileSourceAcceptanceRelay? = nil,
+        fileCollectionSource: BridgeFileCollectionSource? = nil,
         productProvider: BridgePaneProductSchemeProvider? = nil
     ) {
         self.installation = installation
         self.owner = owner
         self.committedCallTarget = committedCallTarget
         self.fileSourceAcceptanceRelay = fileSourceAcceptanceRelay
+        self.fileCollectionSource = fileCollectionSource
         self.productProvider = productProvider
     }
 }

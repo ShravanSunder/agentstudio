@@ -462,7 +462,8 @@ extension WebKitSerializedTests {
                         worktreeId: UUIDv7.generate(),
                         worktreeRootPath: "Sources",
                         comparison: .unstaged
-                    )
+                    ),
+                    files: nil
                 ),
                 appRootURL: testBridgeAppRootURL(),
                 reviewSourceProvider: reviewSourceProvider,

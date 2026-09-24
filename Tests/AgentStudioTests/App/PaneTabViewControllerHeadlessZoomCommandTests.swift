@@ -74,9 +74,12 @@ struct PaneTabViewControllerHeadlessZoomCommandTests {
 
         #expect(outcome == .applied)
         #expect(harness.store.activeTabId == targetTab.id)
+        let companion = try #require(
+            harness.store.panePresentationAtom.zoomCompanion(forSourcePane: targetPane.id)
+        )
         #expect(
             harness.store.panePresentationAtom.zoomPresentation(forTab: targetTab.id)?
-                .viewerPresentation == .unavailableVisible
+                .viewerPresentation == .retainedVisible(companionPaneId: companion.companionPaneId)
         )
         #expect(window.firstResponder === targetHost)
     }

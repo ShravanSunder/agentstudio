@@ -8,6 +8,7 @@ struct BridgeProductFileMetadataContractTests {
     func acceptsEveryClosedEventAndRoundTripsExactly() throws {
         let events: [[String: Any]] = [
             ["eventKind": "file.sourceAccepted", "source": source],
+            memberGroupsEvent,
             [
                 "eventKind": "file.treeWindow",
                 "finalWindow": true,
@@ -155,6 +156,33 @@ struct BridgeProductFileMetadataContractTests {
             crossWiredStatusPatch,
         ] {
             #expect(throws: (any Error).self) { _ = try decode(event) }
+        }
+    }
+
+    @Test("File member groups name each worktree and group path once and reject unknown keys")
+    func memberGroupsRejectDuplicatesAndUnknownKeys() throws {
+        // Arrange
+        var duplicateWorktree = memberGroupsEvent
+        duplicateWorktree["groups"] = [memberGroup("app", "worktree-a"), memberGroup("app (2)", "worktree-a")]
+        var duplicateGroupPath = memberGroupsEvent
+        duplicateGroupPath["groups"] = [memberGroup("app", "worktree-a"), memberGroup("app", "worktree-b")]
+        var unknownGroupKey = memberGroupsEvent
+        unknownGroupKey["groups"] = [memberGroup("app", "worktree-a").merging(["rootPath": "/tmp/app"]) { $1 }]
+        var missingNestedRoots = memberGroupsEvent
+        missingNestedRoots["groups"] = [
+            ["groupPath": "app", "identityPrefix": "mapp.", "worktreeId": "worktree-a"]
+        ]
+        var negativeRevision = memberGroupsEvent
+        negativeRevision["membershipRevision"] = -1
+        var missingRevision = memberGroupsEvent
+        missingRevision.removeValue(forKey: "membershipRevision")
+
+        // Act / Assert
+        for invalid in [
+            duplicateWorktree, duplicateGroupPath, unknownGroupKey, missingNestedRoots, negativeRevision,
+            missingRevision,
+        ] {
+            #expect(throws: (any Error).self) { try decode(invalid) }
         }
     }
 
@@ -442,6 +470,31 @@ struct BridgeProductFileMetadataContractTests {
                 "maximumLines": 10_000,
                 "startByte": 0,
             ],
+        ]
+    }
+
+    /// Mirrored in BridgeWeb's `bridge-product-file-member-group-contracts.unit.test.ts`.
+    private var memberGroupsEvent: [String: Any] {
+        [
+            "eventKind": "file.memberGroups",
+            "groups": [
+                [
+                    "groupPath": "app",
+                    "identityPrefix": "m0123456789ab.",
+                    "nestedMemberRelativeRoots": [".worktrees/feature"],
+                    "worktreeId": "0198f3a2-0000-7000-8000-00000000000a",
+                ],
+                memberGroup("feature", "0198f3a2-0000-7000-8000-00000000000b"),
+            ],
+            "membershipRevision": 2,
+            "source": source,
+        ]
+    }
+
+    private func memberGroup(_ groupPath: String, _ worktreeId: String) -> [String: Any] {
+        [
+            "groupPath": groupPath, "identityPrefix": "m\(groupPath).", "nestedMemberRelativeRoots": [],
+            "worktreeId": worktreeId,
         ]
     }
 

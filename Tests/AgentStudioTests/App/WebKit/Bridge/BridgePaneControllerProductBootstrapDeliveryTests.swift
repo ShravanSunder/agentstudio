@@ -26,7 +26,8 @@ extension WebKitSerializedTests {
                 state: BridgePaneState(panelKind: .diffViewer),
                 sourceConfiguration: BridgePaneSourceConfiguration(
                     review: BridgeReviewSourceBinding(
-                        worktreeId: UUIDv7.generate(), worktreeRootPath: "Sources", comparison: .unstaged)),
+                        worktreeId: UUIDv7.generate(), worktreeRootPath: "Sources", comparison: .unstaged),
+                    files: nil),
                 appRootURL: testBridgeAppRootURL(),
                 reviewSourceProvider: reviewFixture.sourceProvider,
                 initialPaneActivity: .foreground,
@@ -135,7 +136,7 @@ extension WebKitSerializedTests {
             let controller = BridgePaneController(
                 paneId: paneId,
                 state: BridgePaneState(panelKind: .diffViewer),
-                sourceConfiguration: .reviewUnavailable,
+                sourceConfiguration: .unavailable,
                 appRootURL: testBridgeAppRootURL(),
                 initialPaneActivity: .foreground,
                 productSessionDependencies: BridgePaneProductSessionDependencies(
@@ -180,7 +181,8 @@ extension WebKitSerializedTests {
                 state: BridgePaneState(panelKind: .fileViewer),
                 sourceConfiguration: BridgePaneSourceConfiguration(
                     review: BridgeReviewSourceBinding(
-                        worktreeId: UUIDv7.generate(), worktreeRootPath: "Sources", comparison: .unstaged)),
+                        worktreeId: UUIDv7.generate(), worktreeRootPath: "Sources", comparison: .unstaged),
+                    files: nil),
                 appRootURL: testBridgeAppRootURL(),
                 initialPaneActivity: .foreground,
                 productSessionBootstrapSink: { _, _, installation, _, _ in
@@ -245,7 +247,8 @@ extension WebKitSerializedTests {
                 state: BridgePaneState(panelKind: .diffViewer),
                 sourceConfiguration: BridgePaneSourceConfiguration(
                     review: BridgeReviewSourceBinding(
-                        worktreeId: UUIDv7.generate(), worktreeRootPath: "Sources", comparison: .unstaged)),
+                        worktreeId: UUIDv7.generate(), worktreeRootPath: "Sources", comparison: .unstaged),
+                    files: nil),
                 appRootURL: testBridgeAppRootURL(),
                 initialPaneActivity: .foreground,
                 productSessionBootstrapSink: { _, _, installation, _, _ in
@@ -314,7 +317,8 @@ extension WebKitSerializedTests {
                 state: BridgePaneState(panelKind: .diffViewer),
                 sourceConfiguration: BridgePaneSourceConfiguration(
                     review: BridgeReviewSourceBinding(
-                        worktreeId: UUIDv7.generate(), worktreeRootPath: "Sources", comparison: .unstaged)),
+                        worktreeId: UUIDv7.generate(), worktreeRootPath: "Sources", comparison: .unstaged),
+                    files: nil),
                 appRootURL: testBridgeAppRootURL(),
                 initialPaneActivity: .foreground,
                 productSessionBootstrapSink: { _, _, installation, _, productAdmission in
@@ -415,7 +419,8 @@ extension WebKitSerializedTests {
                 state: BridgePaneState(panelKind: .diffViewer),
                 sourceConfiguration: BridgePaneSourceConfiguration(
                     review: BridgeReviewSourceBinding(
-                        worktreeId: UUIDv7.generate(), worktreeRootPath: "Sources", comparison: .unstaged)),
+                        worktreeId: UUIDv7.generate(), worktreeRootPath: "Sources", comparison: .unstaged),
+                    files: nil),
                 appRootURL: testBridgeAppRootURL(),
                 initialPaneActivity: .foreground,
                 productSessionBootstrapSink: { _, _, installation, _, _ in
@@ -583,7 +588,10 @@ extension WebKitSerializedTests {
                 state: BridgePaneState(panelKind: .diffViewer),
                 sourceConfiguration: BridgePaneSourceConfiguration(
                     review: BridgeReviewSourceBinding(
-                        worktreeId: UUIDv7.generate(), worktreeRootPath: "Sources", comparison: .unstaged)),
+                        worktreeId: reviewFixture.headEndpoint.worktreeId, worktreeRootPath: "Sources",
+                        comparison: .unstaged),
+                    files: .testSingleWorktree(
+                        rootURL: URL(fileURLWithPath: "Sources"), worktreeId: reviewFixture.headEndpoint.worktreeId)),
                 appRootURL: testBridgeAppRootURL(),
                 metadata: PaneMetadata(
                     paneId: PaneId(existingUUID: paneId),

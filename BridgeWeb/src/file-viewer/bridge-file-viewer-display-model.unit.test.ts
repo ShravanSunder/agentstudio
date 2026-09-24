@@ -9,7 +9,12 @@ import {
 
 const fileDisplaySnapshot: Pick<
 	BridgeMainRenderSnapshot,
-	'fileDisplayFreshness' | 'fileItemById' | 'fileQuerySlice' | 'fileStatusSlice' | 'fileTreeSlice'
+	| 'fileDisplayFreshness'
+	| 'fileItemById'
+	| 'fileMemberGroupsSlice'
+	| 'fileQuerySlice'
+	| 'fileStatusSlice'
+	| 'fileTreeSlice'
 > = {
 	fileDisplayFreshness: { epoch: 4, projectionRevision: 8, sequence: 12 },
 	fileItemById: new Map(
@@ -46,6 +51,20 @@ const fileDisplaySnapshot: Pick<
 			},
 		}),
 	),
+	fileMemberGroupsSlice: [
+		{
+			groupPath: 'frontend',
+			identityPrefix: 'mfrontend.',
+			nestedMemberRelativeRoots: [],
+			worktreeId: 'worktree-frontend',
+		},
+		{
+			groupPath: 'backend',
+			identityPrefix: 'mbackend.',
+			nestedMemberRelativeRoots: [],
+			worktreeId: 'worktree-backend',
+		},
+	],
 	fileQuerySlice: {
 		filterMode: 'all',
 		projectedRowCount: 3,
@@ -195,6 +214,12 @@ describe('Bridge File viewer worker display model', () => {
 			fileId: 'file-opened-notes',
 		});
 		expect(model.firstFileRow).toMatchObject({ path: 'frontend/app.ts' });
+	});
+
+	test('exposes the collection member groups independently of the projected tree', () => {
+		const model = bridgeFileViewerDisplayModelForSnapshot(fileDisplaySnapshot);
+
+		expect(model.memberGroups.map((group) => group.groupPath)).toEqual(['frontend', 'backend']);
 	});
 
 	test('derives selected loading, ready, binary, and stale presentation from worker facts', () => {

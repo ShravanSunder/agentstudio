@@ -50,7 +50,9 @@ func makeRefreshRevisionFixture() -> RefreshRevisionFixture {
         state: BridgePaneState(panelKind: .diffViewer),
         sourceConfiguration: BridgePaneSourceConfiguration(
             review: BridgeReviewSourceBinding(
-                worktreeId: UUIDv7.generate(), worktreeRootPath: "/tmp/worktree", comparison: .unstaged)),
+                worktreeId: headEndpoint.worktreeId, worktreeRootPath: "/tmp/worktree", comparison: .unstaged),
+            files: .testSingleWorktree(
+                rootURL: URL(fileURLWithPath: "/tmp/worktree"), worktreeId: headEndpoint.worktreeId)),
         appRootURL: testBridgeAppRootURL(),
         metadata: PaneMetadata(
             contentType: .diff,

@@ -113,7 +113,7 @@ extension WebKitSerializedTests {
             BridgePaneController(
                 paneId: UUIDv7.generate(),
                 state: state,
-                sourceConfiguration: BridgePaneSourceConfiguration(review: review),
+                sourceConfiguration: BridgePaneSourceConfiguration(review: review, files: nil),
                 appRootURL: testBridgeAppRootURL(),
                 reviewSourceProvider: reviewSourceProvider,
                 telemetryScopeGate: telemetryScopeGate,

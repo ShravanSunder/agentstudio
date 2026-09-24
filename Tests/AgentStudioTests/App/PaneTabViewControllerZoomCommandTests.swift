@@ -98,7 +98,10 @@ struct PaneTabViewControllerZoomCommandTests {
             harness.store.panePresentationAtom.zoomPresentation(forTab: tab.id)
         )
         #expect(enteredPresentation.sourcePaneId == pane.id)
-        #expect(enteredPresentation.viewerPresentation == .unavailable)
+        // A terminal outside every known worktree still has a Files-only receiver.
+        let companion = try #require(harness.store.panePresentationAtom.zoomCompanion(forSourcePane: pane.id))
+        #expect(companion.reviewWorktreeId == nil)
+        #expect(enteredPresentation.viewerPresentation == .retainedVisible(companionPaneId: companion.companionPaneId))
         #expect(harness.store.tab(tab.id)?.activeArrangementId == durableArrangementId)
         #expect(harness.store.tab(tab.id)?.activePaneId == durableActivePaneId)
 
@@ -109,7 +112,7 @@ struct PaneTabViewControllerZoomCommandTests {
         #expect(harness.store.tab(tab.id)?.activePaneId == durableActivePaneId)
     }
 
-    @Test("Worktree Viewer outside watched worktrees enters Zoom and toggles its unavailable surface")
+    @Test("Viewer outside watched worktrees enters Zoom with a Files-only receiver and toggles it")
     func worktreeViewerShowsUnavailableSurfaceOutsideWatchedWorktrees() async throws {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
@@ -124,16 +127,20 @@ struct PaneTabViewControllerZoomCommandTests {
         #expect(harness.controller.canExecute(.showViewer))
         await harness.executeCommand(.showViewer)
 
+        let companion = try #require(
+            harness.store.panePresentationAtom.zoomCompanion(forSourcePane: sourcePane.id)
+        )
+        #expect(companion.reviewWorktreeId == nil)
         #expect(
             harness.store.panePresentationAtom.zoomPresentation(forTab: tab.id)?
-                .viewerPresentation == .unavailableVisible
+                .viewerPresentation == .retainedVisible(companionPaneId: companion.companionPaneId)
         )
 
         await harness.executeCommand(.showViewer)
 
         #expect(
             harness.store.panePresentationAtom.zoomPresentation(forTab: tab.id)?
-                .viewerPresentation == .unavailable
+                .viewerPresentation == .retainedHidden(companionPaneId: companion.companionPaneId)
         )
     }
 
@@ -208,13 +215,13 @@ struct PaneTabViewControllerZoomCommandTests {
 
         #expect(harness.store.repositoryTopologyAtom.worktree(sourceWorktree.id) == nil)
         #expect(harness.store.repositoryTopologyAtom.worktree(unrelatedWorktree.id) != nil)
-        #expect(
-            harness.store.panePresentationAtom.zoomPresentation(forTab: sourceTab.id)?
-                .viewerPresentation == .unavailable
-        )
+        // The receiver reads no worktree rather than borrowing the unrelated one.
+        let companion = harness.store.panePresentationAtom.zoomCompanion(forSourcePane: sourcePane.id)
+        #expect(companion != nil)
+        #expect(companion?.reviewWorktreeId == nil)
     }
 
-    @Test("Zoom Viewer renders unavailable for a dangling association without CWD recovery")
+    @Test("Zoom Viewer reads no worktree for a dangling association without CWD recovery")
     func zoomViewerDoesNotRecoverDanglingAssociationFromCWD() async throws {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
@@ -255,10 +262,10 @@ struct PaneTabViewControllerZoomCommandTests {
         #expect(harness.store.repositoryTopologyAtom.worktree(staleWorktree.id) == nil)
         await harness.executeCommand(.zoomPane, target: sourcePane.id, targetType: .pane)
 
-        #expect(
-            harness.store.panePresentationAtom.zoomPresentation(forTab: sourceTab.id)?
-                .viewerPresentation == .unavailable
-        )
+        let companion = harness.store.panePresentationAtom.zoomCompanion(forSourcePane: sourcePane.id)
+        #expect(companion != nil)
+        #expect(companion?.reviewWorktreeId == nil)
+        #expect(companion?.reviewWorktreeId != replacementWorktree.id)
     }
 
     @Test("same-tab explicit Zoom retargets, then an equal target cancels")
@@ -489,7 +496,7 @@ struct PaneTabViewControllerZoomCommandTests {
         harness.store.setActivePane(sourcePane.id, inTab: tab.id)
         let companion = ZoomCompanionMetadata(
             owningTabId: tab.id,
-            resolvedWorktreeId: UUID(),
+            reviewWorktreeId: UUID(),
             companionPaneId: UUID(),
             lastZoomVisibility: .visible
         )
@@ -570,7 +577,7 @@ struct PaneTabViewControllerZoomCommandTests {
         harness.store.appendTab(sourceTab)
         let companion = ZoomCompanionMetadata(
             owningTabId: sourceTab.id,
-            resolvedWorktreeId: worktree.id,
+            reviewWorktreeId: worktree.id,
             companionPaneId: UUID(),
             lastZoomVisibility: .visible
         )
@@ -639,7 +646,7 @@ struct PaneTabViewControllerZoomCommandTests {
         harness.store.setActivePane(sourcePane.id, inTab: sourceTab.id)
         let companion = ZoomCompanionMetadata(
             owningTabId: sourceTab.id,
-            resolvedWorktreeId: worktree.id,
+            reviewWorktreeId: worktree.id,
             companionPaneId: UUID(),
             lastZoomVisibility: .visible
         )

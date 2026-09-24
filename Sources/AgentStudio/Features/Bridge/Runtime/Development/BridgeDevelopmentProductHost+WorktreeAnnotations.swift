@@ -5,7 +5,7 @@ extension BridgeDevelopmentProductHost {
         let store: WorktreeAnnotationServiceActor?
         let outputCoordinator: WorktreeAnnotationOutputCoordinatorActor?
         let source: BridgeDevelopmentProductSource
-        let fileMetadataSource: BridgePaneProductFileMetadataSource
+        let fileMetadataSource: BridgeFileCollectionSource
         let reviewPublicationCoordinator: BridgeReviewPublicationCoordinator
         let reviewContentLoaderCache: BridgeReviewContentLoaderCache
         let reviewSourceProvider: any BridgeReviewSourceProvider

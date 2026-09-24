@@ -83,6 +83,17 @@ package final class BridgePaneController {
     /// The controller's Review input. Only its comparison changes in place;
     /// a different member replaces the controller.
     package var reviewBinding: BridgeReviewSourceBinding?
+    /// The controller's Files input. Membership and opened documents change in
+    /// place through the mounted collection; the WebView is never recreated.
+    package internal(set) var filesBinding: BridgeFilesSourceBinding?
+    let fileCollectionSource: BridgeFileCollectionSource?
+    /// Serializes Files membership updates so a later binding always lands last.
+    var filesSourceUpdateTail: Task<Void, Never>?
+    /// The newest Files binding requested, applied or still queued.
+    var latestRequestedFilesBinding: BridgeFilesSourceBinding?
+    let fileGitReadScheduler: BridgeGitReadScheduler?
+    let worktreeProductConstructionCoordinator: BridgeWorktreeProductConstructionCoordinator?
+    let gitWorkingTreeStatusProvider: (any GitWorkingTreeStatusProvider)?
     let initialContributionTargetCommit: BridgeReviewComparisonCommit?
     let contributionTargetCommit: BridgeReviewComparisonCommit?
     var nextReviewGeneration: BridgeReviewGeneration = 0
@@ -126,7 +137,7 @@ package final class BridgePaneController {
     /// - Parameters:
     ///   - paneId: Unique identifier for this pane instance.
     ///   - state: Bridge pane payload (panel kind).
-    ///   - sourceConfiguration: Review input derived from the receiver's navigation record.
+    ///   - sourceConfiguration: Review and Files inputs derived from the receiver's navigation record.
     ///   - metadata: Optional runtime metadata override used by runtime registration paths.
     package init(
         paneId: UUID,
@@ -136,6 +147,7 @@ package final class BridgePaneController {
         metadata: PaneMetadata? = nil,
         reviewSourceProvider: (any BridgeReviewSourceProvider)? = nil,
         gitReadContext: BridgeGitReadContext? = nil,
+        fileGitReadScheduler: BridgeGitReadScheduler? = nil,
         worktreeProductConstructionCoordinator: BridgeWorktreeProductConstructionCoordinator? = nil,
         worktreeAnnotationStore: WorktreeAnnotationServiceActor? = nil,
         worktreeAnnotationOutputCoordinator: WorktreeAnnotationOutputCoordinatorActor? = nil,
@@ -156,14 +168,14 @@ package final class BridgePaneController {
         initialContributionTargetCommit: BridgeReviewComparisonCommit? = nil,
         contributionTargetCommit: BridgeReviewComparisonCommit? = nil
     ) {
-        (self.paneId, self.bridgePaneState) = (paneId, state)
+        (self.paneId, self.bridgePaneState, self.reviewBinding) = (paneId, state, sourceConfiguration.review)
         let reviewBinding = sourceConfiguration.review
-        self.reviewBinding = reviewBinding
-        let reviewComparisonTargetProjection = BridgeReviewComparisonTargetProjection(
-            reviewBinding: reviewBinding
-        )
+        (self.filesBinding, self.latestRequestedFilesBinding) = (sourceConfiguration.files, sourceConfiguration.files)
+        self.fileGitReadScheduler = fileGitReadScheduler ?? gitReadContext?.scheduler
+        (self.worktreeProductConstructionCoordinator, self.gitWorkingTreeStatusProvider) =
+            (worktreeProductConstructionCoordinator, gitWorkingTreeStatusProvider)
+        let reviewComparisonTargetProjection = BridgeReviewComparisonTargetProjection(reviewBinding: reviewBinding)
         self.reviewComparisonTargetProjection = reviewComparisonTargetProjection
-        self.worktreeAnnotationStore = worktreeAnnotationStore
         let telemetryDependencies = Self.resolveTelemetryDependencies(
             traceRuntime: traceRuntime,
             telemetryRuntimePolicy: telemetryRuntimePolicy,
@@ -174,11 +186,11 @@ package final class BridgePaneController {
         self.telemetryScopeGate = telemetryDependencies.scopeGate
         self.telemetryRecorder = telemetryDependencies.recorder
         self.telemetrySessionOwner = telemetryDependencies.sessionDependencies?.owner
-        self.traceContextFactory = traceContextFactory
+        (self.traceContextFactory, self.worktreeAnnotationStore) = (traceContextFactory, worktreeAnnotationStore)
         let resolvedReviewSourceProvider = reviewSourceProvider ?? BridgeUnavailableReviewSourceProvider()
         self.reviewSourceProvider = resolvedReviewSourceProvider
-        self.initialContributionTargetCommit = initialContributionTargetCommit
-        self.contributionTargetCommit = contributionTargetCommit
+        (self.initialContributionTargetCommit, self.contributionTargetCommit) =
+            (initialContributionTargetCommit, contributionTargetCommit)
         let resolvedReviewContentLoaderCache = Self.makeReviewContentLoaderCache(resolvedReviewSourceProvider)
         self.reviewContentLoaderCache = resolvedReviewContentLoaderCache
         let resolvedRefreshAdmissionCoordinator = Self.makeRefreshAdmissionCoordinator(
@@ -193,8 +205,9 @@ package final class BridgePaneController {
             coordinator: worktreeProductConstructionCoordinator,
             reviewBinding: reviewBinding
         )
-        self.reviewPipeline = reviewDependencies.pipeline
-        self.reviewSharedConstructionBinder = reviewDependencies.binder
+        (self.reviewPipeline, self.reviewSharedConstructionBinder) = (
+            reviewDependencies.pipeline, reviewDependencies.binder
+        )
         let resolvedRuntime = Self.makeRuntime(paneId, for: state, overriding: metadata)
         self.runtime = resolvedRuntime
         let resolvedProductSessionDependencies =
@@ -204,7 +217,9 @@ package final class BridgePaneController {
                     paneSessionId: paneId.uuidString,
                     runtime: resolvedRuntime,
                     reviewBinding: reviewBinding,
+                    filesBinding: sourceConfiguration.files,
                     gitReadContext: gitReadContext,
+                    fileGitReadScheduler: fileGitReadScheduler ?? gitReadContext?.scheduler,
                     worktreeProductConstructionCoordinator: worktreeProductConstructionCoordinator,
                     worktreeAnnotationStore: worktreeAnnotationStore,
                     worktreeAnnotationOutputCoordinator: worktreeAnnotationOutputCoordinator,
@@ -220,6 +235,7 @@ package final class BridgePaneController {
             )
         self.productSessionOwner = resolvedProductSessionDependencies.owner
         self.productSchemeProvider = resolvedProductSessionDependencies.productProvider
+        self.fileCollectionSource = resolvedProductSessionDependencies.fileCollectionSource
         let refreshDriver = Self.makeWorktreeRefreshDriver(
             coordinator: resolvedRefreshAdmissionCoordinator,
             productSessionDependencies: resolvedProductSessionDependencies
@@ -247,8 +263,7 @@ package final class BridgePaneController {
         self.userContentController = pageComposition.userContentController
         self.productSessionBootstrapSink = productSessionBootstrapSink
         self.telemetrySessionBootstrapSink = telemetrySessionBootstrapSink
-        self.bootstrapScript = pageComposition.bootstrapScript
-        self.page = pageComposition.page
+        (self.bootstrapScript, self.page) = (pageComposition.bootstrapScript, pageComposition.page)
 
         finishRuntimeSetup(
             pageComposition.readyMessageHandler,

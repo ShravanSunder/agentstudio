@@ -14,6 +14,7 @@ import {
 	selectReviewFile,
 	waitForSelectedReviewReady,
 } from './bridge-viewer-vite-annotation-save-journey.ts';
+import { bridgeViewerViteFileCollectionPath } from './bridge-viewer-vite-file-collection-path.ts';
 import { observeInteractionProfileFailures } from './bridge-viewer-vite-interaction-profile-diagnostics.ts';
 import {
 	createBridgeViewerViteProductFixture,
@@ -119,7 +120,7 @@ test('profiles repeated mode switches, Open in Files, Markdown and Mermaid throu
 					{
 						kind: 'file',
 						name: 'review-open-in-files',
-						path: reviewFile.path,
+						path: bridgeViewerViteFileCollectionPath(fixture.oracle.worktreeRoot, reviewFile.path),
 					},
 					async (): Promise<void> => {
 						await reviewHost
@@ -137,7 +138,11 @@ test('profiles repeated mode switches, Open in Files, Markdown and Mermaid throu
 						path: markdownPath,
 					},
 					async (): Promise<void> => {
-						await fileHost.locator(`[data-item-path="${markdownPath}"]`).click();
+						await fileHost
+							.locator(
+								`[data-item-path="${bridgeViewerViteFileCollectionPath(fixture.oracle.worktreeRoot, markdownPath)}"]`,
+							)
+							.click();
 					},
 				),
 			);

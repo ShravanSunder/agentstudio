@@ -3494,28 +3494,15 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         sourcePaneId: UUID,
         tabId: UUID
     ) -> ZoomViewerPresentation {
-        guard let resolvedWorktreeId = resolvedViewerWorktreeId(forPane: sourcePaneId) else {
-            return .unavailable
-        }
+        // Every terminal has a receiver, with or without a known worktree; the
+        // companion is reconciled from the receiver's navigation record.
         guard
             let companion = store.panePresentationAtom.zoomCompanion(forSourcePane: sourcePaneId),
-            companion.owningTabId == tabId,
-            companion.resolvedWorktreeId == resolvedWorktreeId
+            companion.owningTabId == tabId
         else {
             return .retryable
         }
         return .retainedVisible(companionPaneId: companion.companionPaneId)
-    }
-
-    private func resolvedViewerWorktreeId(forPane paneId: UUID) -> UUID? {
-        guard let paneState = store.paneAtom.graphAtom.paneState(paneId) else {
-            return nil
-        }
-        let facets = paneState.durableContextFacets
-        return store.repositoryTopologyAtom.validatedAssociation(
-            repoId: facets.repoId,
-            worktreeId: facets.worktreeId
-        )?.worktree.id
     }
 
     private func submitBridgeSurfaceCommand(_ command: AppCommand, worktreeId: UUID?) -> Bool {

@@ -12,13 +12,20 @@ extension BridgeFileCollectionSource {
         members: [BridgeFileCollectionMemberSource],
         openedDocuments: [BridgeDocumentLocation]
     ) async throws {
+        ensureInitialLayout()
         let previousIds = Set(layout.memberGroups.map(\.worktreeId))
-        let nextIds = Set(members.map(\.member.worktreeId))
+        let nextIds = Set(members.map(\.worktreeId))
         let removedSources = previousIds.subtracting(nextIds).compactMap { memberSourcesById[$0] }
         let previousDocuments = Set(layout.openedDocuments.map(\.location))
-        for member in members { memberSourcesById[member.member.worktreeId] = member }
+        let previousMemberGroups = layout.memberGroups
+        // A surviving member keeps its running source; only new members start one.
+        for member in members where memberSourcesById[member.worktreeId] == nil {
+            memberSourcesById[member.worktreeId] = member
+        }
         openedDocumentLocations = openedDocuments
-        layout = layout.updating(members: members.map(\.member), openedDocuments: openedDocuments)
+        layout = layout.updating(members: members.map(Self.canonicalMember), openedDocuments: openedDocuments)
+        let regrouped = layout.memberGroups != previousMemberGroups
+        if regrouped { membershipRevision += 1 }
         let addedIds = layout.memberGroups.map(\.worktreeId).filter { !previousIds.contains($0) }
         let addedDocuments = layout.openedDocuments.filter { !previousDocuments.contains($0.location) }
         let retainedDocuments = Set(layout.openedDocuments.map(\.location))
@@ -37,9 +44,20 @@ extension BridgeFileCollectionSource {
                 try await updateMember(worktreeId, subscriptionId: subscriptionId)
             }
             try await emitOpenedDocumentRows(addedDocuments, subscriptionId: subscriptionId)
+            // Sends the layout and revision current at send time, so a later
+            // membership change applied while this one was suspended is never
+            // followed by an older list.
+            if regrouped, let context = contextBySubscriptionId[subscriptionId] {
+                try await context.emit(
+                    try layout.memberGroupsEvent(
+                        source: context.productSource,
+                        membershipRevision: membershipRevision
+                    )
+                )
+            }
         }
         for removedSource in removedSources {
-            memberSourcesById.removeValue(forKey: removedSource.member.worktreeId)
+            memberSourcesById.removeValue(forKey: removedSource.worktreeId)
         }
     }
 
@@ -47,7 +65,7 @@ extension BridgeFileCollectionSource {
         _ memberSource: BridgeFileCollectionMemberSource,
         subscriptionId: String
     ) async throws {
-        let worktreeId = memberSource.member.worktreeId
+        let worktreeId = memberSource.worktreeId
         guard var context = contextBySubscriptionId[subscriptionId],
             context.openedMemberIds.contains(worktreeId)
         else { return }

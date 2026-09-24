@@ -285,6 +285,23 @@ export function makeSourceAcceptedMetadataEvent(
 	return parseFileMetadataEvent({ eventKind: 'file.sourceAccepted', source: sourceIdentity });
 }
 
+/** Lists each member worktree's files under its collection group path. */
+export function makeFileMemberGroupsMetadataEvent(props: {
+	readonly groups: readonly { readonly groupPath: string; readonly worktreeId: string }[];
+	readonly source: BridgeProductFileSourceIdentity;
+}): FileMetadataEvent {
+	return parseFileMetadataEvent({
+		eventKind: 'file.memberGroups',
+		groups: props.groups.map((group, groupIndex) => ({
+			...group,
+			identityPrefix: `m${groupIndex}.`,
+			nestedMemberRelativeRoots: [],
+		})),
+		membershipRevision: 0,
+		source: props.source,
+	});
+}
+
 export function makeSourceSnapshotMetadataEvents(props: {
 	readonly sequence?: number;
 	readonly sourceIdentity: BridgeProductFileSourceIdentity;

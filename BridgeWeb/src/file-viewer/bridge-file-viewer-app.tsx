@@ -24,6 +24,7 @@ import { recordBridgeViewerFileOpenReadyTelemetrySample } from '../foundation/te
 import { useWorktreeAnnotationNavigationTarget } from '../worktree-annotations/use-worktree-annotation-navigation-target.js';
 import { useWorktreeAnnotationNavigation } from '../worktree-annotations/worktree-annotation-navigation.js';
 import { WorktreeAnnotationShareHeaderControl } from '../worktree-annotations/worktree-annotation-output-controls.js';
+import { fileCollectionDisplayPath } from './bridge-file-collection-display-path.js';
 import type { BridgeFileViewerAppProps } from './bridge-file-viewer-app-props.js';
 import {
 	bridgeFileViewerCodeViewOptions,
@@ -384,7 +385,12 @@ export function BridgeFileViewerAppImplementation(
 			openPathCommand !== undefined &&
 			appliedOpenPathCommandIdRef.current !== openPathCommand.commandId
 		) {
-			const row = displayModel.treeRowByPath.get(openPathCommand.path);
+			const displayPath = fileCollectionDisplayPath(
+				displayModel.memberGroups,
+				openPathCommand.location.worktreeId,
+				openPathCommand.location.relativePath,
+			);
+			const row = displayPath === null ? undefined : displayModel.treeRowByPath.get(displayPath);
 			if (row?.fileId !== null && row?.fileId !== undefined && !row.isDirectory) {
 				appliedOpenPathCommandIdRef.current = openPathCommand.commandId;
 				selectFile({ fileId: row.fileId, path: row.path }, 'programmatic');
@@ -421,6 +427,7 @@ export function BridgeFileViewerAppImplementation(
 	}, [
 		annotationNavigation,
 		autoOpenInitialFile,
+		displayModel.memberGroups,
 		displayModel.treeRowByPath,
 		displayModel.firstFileRow,
 		isActive,

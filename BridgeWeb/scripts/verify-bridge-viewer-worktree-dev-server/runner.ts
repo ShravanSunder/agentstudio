@@ -21,12 +21,15 @@ import { collectBridgeDevelopmentCompleteJourneyLaunch } from './complete-journe
 import { performanceOnlyMode } from './config.ts';
 import {
 	fileToReviewHandoffFixtureRelativePath,
-	initialContentFixtureRelativePath,
+	initialContentFixtureFileCollectionPath,
+	recentlyUpdatedFixtureFileCollectionPath,
 	recentlyUpdatedFixtureRelativePath,
 	repoRootPath,
 	reviewSelectionFixtureRelativePath,
 	scenarioNameFromDevServerUrl,
+	splitResetFixtureFileCollectionPath,
 	splitResetFixtureRelativePath,
+	staleRefreshFixtureFileCollectionPath,
 	staleRefreshFixtureRelativePath,
 	worktreeDevServerUrl,
 } from './config.ts';
@@ -302,22 +305,22 @@ export async function verifyWorktreeDevServer(): Promise<WorktreeDevServerVerifi
 		}
 		const descriptors = await fetchPerformanceWorktreeFileDescriptors(surface);
 		const initialDescriptor = await fetchFetchableWorktreeFileDescriptorForPath({
-			path: initialContentFixtureRelativePath,
+			path: initialContentFixtureFileCollectionPath,
 			surface,
 		});
 		const targetDescriptor = await resolveTargetDescriptor(surface);
 		const initialContent = await fetchWorktreeFileContent(initialDescriptor);
 		const content = await fetchWorktreeFileContent(targetDescriptor);
 		const staleRefreshDescriptor = await fetchFetchableWorktreeFileDescriptorForPath({
-			path: staleRefreshFixtureRelativePath,
+			path: staleRefreshFixtureFileCollectionPath,
 			surface,
 		});
 		const splitResetDescriptor = await fetchFetchableWorktreeFileDescriptorForPath({
-			path: splitResetFixtureRelativePath,
+			path: splitResetFixtureFileCollectionPath,
 			surface,
 		});
 		const recentlyUpdatedDescriptor = await fetchFetchableWorktreeFileDescriptorForPath({
-			path: recentlyUpdatedFixtureRelativePath,
+			path: recentlyUpdatedFixtureFileCollectionPath,
 			surface,
 		});
 		const staleRefreshInitialContent = await fetchWorktreeFileContent(staleRefreshDescriptor);
@@ -325,10 +328,12 @@ export async function verifyWorktreeDevServer(): Promise<WorktreeDevServerVerifi
 		staleRefreshFixture = await worktreeFileStaleRefreshFixture({
 			descriptor: staleRefreshDescriptor,
 			initialContent: staleRefreshInitialContent,
+			relativePath: staleRefreshFixtureRelativePath,
 		});
 		splitResetFixture = await worktreeFileStaleRefreshFixture({
 			descriptor: splitResetDescriptor,
 			initialContent: splitResetInitialContent,
+			relativePath: splitResetFixtureRelativePath,
 		});
 		const surfaceText = JSON.stringify(surface);
 		if (

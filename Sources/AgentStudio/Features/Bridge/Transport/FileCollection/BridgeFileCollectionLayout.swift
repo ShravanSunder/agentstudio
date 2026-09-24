@@ -220,3 +220,27 @@ extension BridgeFileCollectionLayout.MemberGroup {
         }
     }
 }
+
+extension BridgeFileCollectionLayout {
+    /// The wire member-group list. Opened documents are not members; their
+    /// display keys come from their own rows.
+    func memberGroupsEvent(
+        source: BridgeProductFileSourceIdentity,
+        membershipRevision: Int
+    ) throws -> BridgeProductFileMetadataEvent {
+        .memberGroups(
+            try BridgeProductFileMemberGroupsEvent(
+                groups: memberGroups.map { group in
+                    try BridgeProductFileMemberGroup(
+                        groupPath: group.groupPath,
+                        identityPrefix: group.identityPrefix,
+                        nestedMemberRelativeRoots: group.nestedMemberRelativeRoots,
+                        worktreeId: group.worktreeId.uuidString.lowercased()
+                    )
+                },
+                membershipRevision: membershipRevision,
+                source: source
+            )
+        )
+    }
+}

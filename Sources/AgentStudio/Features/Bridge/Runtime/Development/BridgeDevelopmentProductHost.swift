@@ -43,6 +43,7 @@ package actor BridgeDevelopmentProductHost {
     private var publishedFileNavigation: FileNavigationPublication?
     let worktreeId: UUID
     let worktreeRoot: URL
+    let fileCollectionSource: BridgeFileCollectionSource
 
     package init(
         source: BridgeDevelopmentProductSource,
@@ -153,6 +154,7 @@ package actor BridgeDevelopmentProductHost {
         )
         self.worktreeId = source.worktreeID
         self.worktreeRoot = source.worktreeRoot
+        self.fileCollectionSource = productPreparation.fileMetadataSource
         await connectProductCallbacks(
             committedCallTarget: productPreparation.committedCallTarget,
             fileMetadataSource: productPreparation.fileMetadataSource
@@ -263,7 +265,7 @@ package actor BridgeDevelopmentProductHost {
                 fileChangeset: changeset,
                 requiresReviewRefresh: true
             )
-        case .statusChanged(let status):
+        case .statusChanged(let status, _):
             _ = await constructionCoordinator.invalidate(
                 worktree: worktreeConstructionIdentity
             )
@@ -390,7 +392,7 @@ package actor BridgeDevelopmentProductHost {
             )
         else { return }
         guard !isShutdown,
-            let navigationIntent,
+            let navigationIntent = await collectionNavigationIntent(),
             let navigationCommand = Self.bindFileNavigationCommand(
                 intent: navigationIntent,
                 source: source,
@@ -744,6 +746,26 @@ package actor BridgeDevelopmentProductHost {
         )
     }
 
+    /// A dev URL names a file by its worktree-relative path; the Files
+    /// collection lists it under the worktree's group key, as the app does.
+    private func collectionNavigationIntent() async
+        -> BridgeDevelopmentProductBootstrapRequest.NavigationIntent?
+    {
+        guard case .activateFileTarget(let commandId, let target) = navigationIntent else {
+            return navigationIntent
+        }
+        guard
+            let displayPath = await fileCollectionSource.displayPath(
+                worktreeId: worktreeId,
+                relativePath: target.path
+            )
+        else { return nil }
+        return .activateFileTarget(
+            commandId: commandId,
+            target: BridgeProductNavigationFileTarget(path: displayPath, version: target.version)
+        )
+    }
+
     static func bindFileNavigationCommand(
         intent: BridgeDevelopmentProductBootstrapRequest.NavigationIntent,
         source: BridgeProductFileSourceIdentity,
@@ -765,7 +787,7 @@ package actor BridgeDevelopmentProductHost {
 
     private func connectProductCallbacks(
         committedCallTarget: BridgeDevelopmentProductCommittedCallTarget,
-        fileMetadataSource: BridgePaneProductFileMetadataSource
+        fileMetadataSource: BridgeFileCollectionSource
     ) async {
         await MainActor.run {
             committedCallTarget.host = self

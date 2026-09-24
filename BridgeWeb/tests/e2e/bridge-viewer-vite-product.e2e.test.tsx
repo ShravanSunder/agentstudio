@@ -9,6 +9,7 @@ import {
 	reviewTreeReachablePathScrollTopMap,
 	waitForVisibleReviewTreeFilePath,
 } from '../../scripts/verify-bridge-viewer-worktree-dev-server/review-tree-click.ts';
+import { bridgeViewerViteFileCollectionPath } from './bridge-viewer-vite-file-collection-path.ts';
 import {
 	decodePaintedSourceCorrelations,
 	type PaintedSourceCorrelation,
@@ -244,8 +245,12 @@ describe('Bridge Viewer dedicated Vite product E2E', () => {
 				workerUrls,
 			});
 
-			expect(deepScrollObservation.selectedPath).toBe(oracle.largeFilePath);
-			expect(deepScrollObservation.renderedPath).toBe(oracle.largeFilePath);
+			const largeFileCollectionPath = bridgeViewerViteFileCollectionPath(
+				oracle.worktreeRoot,
+				oracle.largeFilePath,
+			);
+			expect(deepScrollObservation.selectedPath).toBe(largeFileCollectionPath);
+			expect(deepScrollObservation.renderedPath).toBe(largeFileCollectionPath);
 			expect(deepScrollObservation.lineCount).toBe(oracle.largeFileLineCount);
 			expect(deepScrollObservation.scrollHeight).toBeGreaterThan(980);
 			expect(deepScrollObservation.scrollTop).toBeGreaterThan(0);
@@ -552,7 +557,10 @@ async function waitForSelectedFileContentReady(props: {
 		{
 			expectedLineCount: props.content.lineCount,
 			expectedSha256: props.content.sha256,
-			path: props.oracle.largeFilePath,
+			path: bridgeViewerViteFileCollectionPath(
+				props.oracle.worktreeRoot,
+				props.oracle.largeFilePath,
+			),
 		},
 		{ timeout: productJourneyTimeoutMilliseconds },
 	);
@@ -577,7 +585,7 @@ async function clearFileSearchAndScrollTreeDeep(props: {
 			scrollOwner.dispatchEvent(new Event('scroll', { bubbles: true }));
 			return scrollOwner.scrollTop > 0 && targetPath.length > 0;
 		},
-		props.oracle.fileTreeDeepPath,
+		bridgeViewerViteFileCollectionPath(props.oracle.worktreeRoot, props.oracle.fileTreeDeepPath),
 		{ timeout: productJourneyTimeoutMilliseconds },
 	);
 	await props.page.waitForFunction(
@@ -589,7 +597,7 @@ async function clearFileSearchAndScrollTreeDeep(props: {
 				treeHost?.shadowRoot?.querySelector(`[data-item-path="${CSS.escape(targetPath)}"]`) !== null
 			);
 		},
-		props.oracle.fileTreeDeepPath,
+		bridgeViewerViteFileCollectionPath(props.oracle.worktreeRoot, props.oracle.fileTreeDeepPath),
 		{ timeout: productJourneyTimeoutMilliseconds },
 	);
 }
@@ -709,7 +717,10 @@ async function readFileDeepScrollObservation(props: {
 			};
 		},
 		{
-			deepTreePath: props.oracle.fileTreeDeepPath,
+			deepTreePath: bridgeViewerViteFileCollectionPath(
+				props.oracle.worktreeRoot,
+				props.oracle.fileTreeDeepPath,
+			),
 			finalMarker: content.finalMarker,
 			workerUrls: props.workerUrls,
 		},

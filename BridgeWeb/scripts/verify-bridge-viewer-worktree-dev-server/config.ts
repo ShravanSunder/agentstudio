@@ -3,6 +3,8 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 
+import { worktreeFileCollectionPath } from './file-collection-path.ts';
+
 export const defaultWorktreeDevServerUrl =
 	'http://127.0.0.1:5173/?fixture=worktree&viewer=file&workers=on&scenario=current-worktree';
 
@@ -69,6 +71,33 @@ export const splitResetFixtureRelativePath =
 
 export const recentlyUpdatedFixtureRelativePath =
 	'BridgeWeb/src/test-fixtures/worktree-recently-updated-canary.txt';
+
+export const fileToReviewHandoffFixtureFileCollectionPath = worktreeFileCollectionPath(
+	repoRootPath,
+	fileToReviewHandoffFixtureRelativePath,
+);
+
+export const initialContentFixtureFileCollectionPath = fileToReviewHandoffFixtureFileCollectionPath;
+
+export const selectedContentFixtureFileCollectionPath = worktreeFileCollectionPath(
+	repoRootPath,
+	selectedContentFixtureRelativePath,
+);
+
+export const staleRefreshFixtureFileCollectionPath = worktreeFileCollectionPath(
+	repoRootPath,
+	staleRefreshFixtureRelativePath,
+);
+
+export const splitResetFixtureFileCollectionPath = worktreeFileCollectionPath(
+	repoRootPath,
+	splitResetFixtureRelativePath,
+);
+
+export const recentlyUpdatedFixtureFileCollectionPath = worktreeFileCollectionPath(
+	repoRootPath,
+	recentlyUpdatedFixtureRelativePath,
+);
 
 export const reviewSelectionFixtureMarker = `bridge_worktree_devserver_review_selection_${proofRunCreatedAtUnixMilliseconds}`;
 

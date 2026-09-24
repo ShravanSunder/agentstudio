@@ -262,8 +262,19 @@ import WebKit
             }
 
             paneTabViewController()?.execute(.focusPane, target: pane.id, targetType: .pane)
+            // Files lists each member worktree under its own group key.
+            guard
+                let fileDisplayPath = await bridgeView.controller.fileCollectionDisplayPath(
+                    worktreeId: worktree.id,
+                    relativePath: Self.bridgeProductPaintFixtureRelativePath
+                )
+            else {
+                recordUnavailableBridgeProductPaintCorrelationResult(action: action)
+                return
+            }
             let javaScript = Self.bridgeProductPaintCorrelationJavaScript(
                 relativePath: Self.bridgeProductPaintFixtureRelativePath,
+                fileDisplayPath: fileDisplayPath,
                 sha256: oracle.sha256,
                 canary: Self.bridgeProductPaintFixtureCanary
             )
@@ -503,15 +514,18 @@ import WebKit
         // swiftlint:disable:next function_body_length
         nonisolated static func bridgeProductPaintCorrelationJavaScript(
             relativePath: String,
+            fileDisplayPath: String,
             sha256: String,
             canary: String
         ) -> String {
             let relativePathLiteral = bridgeProductPaintJavaScriptLiteral(relativePath)
+            let fileDisplayPathLiteral = bridgeProductPaintJavaScriptLiteral(fileDisplayPath)
             let sha256Literal = bridgeProductPaintJavaScriptLiteral(sha256)
             let canaryLiteral = bridgeProductPaintJavaScriptLiteral(canary)
             return """
                 return JSON.stringify((() => {
                   const relativePath = \(relativePathLiteral);
+                  const fileDisplayPath = \(fileDisplayPathLiteral);
                   const expectedSha256 = \(sha256Literal);
                   const expectedCanary = \(canaryLiteral);
                   const prior = globalThis.__bridgeProductPaintCorrelationProbe ?? {};
@@ -797,8 +811,8 @@ import WebKit
                     !fileSelectionActivationAttempted
                   ) {
                     const selector =
-                      `button[data-item-type="file"][data-item-path="${CSS.escape(relativePath)}"],` +
-                      `[data-type="item"][data-item-type="file"][data-item-path="${CSS.escape(relativePath)}"]`;
+                      `button[data-item-type="file"][data-item-path="${CSS.escape(fileDisplayPath)}"],` +
+                      `[data-type="item"][data-item-type="file"][data-item-path="${CSS.escape(fileDisplayPath)}"]`;
                     const row = queryOpenRoots(fileShell, selector);
                     if (row instanceof HTMLElement) {
                       row.click();
@@ -813,7 +827,7 @@ import WebKit
                     fileMatches.length
                   );
                   const fileSelectedPathMatched =
-                    prior.fileSelectedPathMatched === true || fileSelectedPath === relativePath;
+                    prior.fileSelectedPathMatched === true || fileSelectedPath === fileDisplayPath;
                   const next = {
                     activeViewerModeIsReview,
                     paintedElementCount,

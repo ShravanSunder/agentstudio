@@ -165,7 +165,7 @@ extension WebKitSerializedTests {
             let controller = BridgePaneController(
                 paneId: pane.id,
                 state: BridgePaneState(panelKind: .diffViewer),
-                sourceConfiguration: .reviewUnavailable,
+                sourceConfiguration: .unavailable,
                 appRootURL: testBridgeAppRootURL(),
                 metadata: pane.metadata,
                 initialPaneActivity: .foreground,
@@ -307,7 +307,7 @@ extension WebKitSerializedTests {
             let controller = BridgePaneController(
                 paneId: paneId,
                 state: BridgePaneState(panelKind: .diffViewer),
-                sourceConfiguration: .reviewUnavailable,
+                sourceConfiguration: .unavailable,
                 appRootURL: testBridgeAppRootURL(),
                 initialPaneActivity: .foreground,
                 productSessionDependencies: BridgePaneProductSessionDependencies(
@@ -399,6 +399,12 @@ extension WebKitSerializedTests {
                 )
             )
 
+            // The receiver record names the Review member, as the legacy source import
+            // leaves it; the controller identity is derived from that member's root.
+            _ = coordinator.bridgeNavigationCommandHandler.ensureRecord(
+                for: .standalone(pane.id),
+                seedingKnownWorktreeId: worktree.id
+            )
             let maybeView = coordinator.createViewForContent(pane: pane)
             guard let bridgeView = maybeView as? BridgePaneMountView else {
                 Issue.record("Expected a BridgePaneMountView")

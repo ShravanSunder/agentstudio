@@ -7,6 +7,7 @@ import { expect, onTestFailed, test } from 'vitest';
 
 import { runAllOwnedCleanupOperations } from '../../scripts/dev-server/bridge-development-server-process.ts';
 import { waitForSelectedFileReady } from './bridge-viewer-vite-annotation-save-journey.ts';
+import { bridgeViewerViteFileCollectionPath } from './bridge-viewer-vite-file-collection-path.ts';
 import { observeSelectedFileRetention } from './bridge-viewer-vite-file-retention-probe.ts';
 import {
 	createBridgeViewerViteProductFixture,
@@ -82,7 +83,10 @@ test('retains the scrolled selected File through sixteen distinct worktree edits
 		phase = 'scroll-observation-starting';
 		scrollProbe = await observeFileScrollRetention(page);
 		phase = 'file-retention-observation-starting';
-		retention = await observeSelectedFileRetention(page, fixture.oracle.largeFilePath);
+		retention = await observeSelectedFileRetention(
+			page,
+			bridgeViewerViteFileCollectionPath(fixture.oracle.worktreeRoot, fixture.oracle.largeFilePath),
+		);
 		const filePath = join(fixture.oracle.worktreeRoot, fixture.oracle.largeFilePath);
 		phase = 'source-file-reading';
 		const originalBody = await readFile(filePath, 'utf8');

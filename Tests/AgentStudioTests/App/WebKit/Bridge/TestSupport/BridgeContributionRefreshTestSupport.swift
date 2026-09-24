@@ -79,8 +79,11 @@ func makeContributionRefreshFixture() -> ContributionRefreshFixture {
         state: BridgePaneState(panelKind: .diffViewer),
         sourceConfiguration: BridgePaneSourceConfiguration(
             review: BridgeReviewSourceBinding(
-                worktreeId: UUIDv7.generate(), worktreeRootPath: "/tmp/contribution-refresh",
-                comparison: .ref(name: "target"))),
+                worktreeId: symbolicBaseEndpoint.worktreeId, worktreeRootPath: "/tmp/contribution-refresh",
+                comparison: .ref(name: "target")),
+            files: .testSingleWorktree(
+                rootURL: URL(fileURLWithPath: "/tmp/contribution-refresh"), worktreeId: symbolicBaseEndpoint.worktreeId)
+        ),
         appRootURL: testBridgeAppRootURL(),
         metadata: PaneMetadata(
             contentType: .diff,

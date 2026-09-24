@@ -81,6 +81,18 @@ final class BridgeNavigationCommandHandler {
         )
     }
 
+    /// The controller's Files input: the record's known members in collection
+    /// order plus its opened documents. A member that is temporarily unknown is
+    /// left out without being removed from the record.
+    func filesBinding(for receiver: BridgeReceiver) -> BridgeFilesSourceBinding? {
+        guard let record = navigationAtom.record(for: receiver) else { return nil }
+        return BridgeFilesSourceBinding(
+            collectionToken: BridgeFilesSourceBinding.collectionToken(forReceiverPaneId: receiver.paneId),
+            members: record.memberWorktreeIds.compactMap(knownWorktree),
+            openedDocuments: record.openedDocuments.map(\.location)
+        )
+    }
+
     /// Commit a comparison choice for one member of one receiver. The initial
     /// designation only applies when the member has no retained comparison.
     func commitReviewComparison(

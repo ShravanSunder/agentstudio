@@ -42,6 +42,7 @@ struct BridgeDevelopmentAnnotationHTTPRoutingTests {
                 client: client,
                 connection: connection,
                 operation: twoPaneRootCreateOperation(
+                    path: preparation.annotatedFilePath,
                     sourceIdentity: preparation.descriptor.descriptorId
                 ),
                 requestID: "annotation-output-result-create",
@@ -160,6 +161,7 @@ struct BridgeDevelopmentAnnotationHTTPRoutingTests {
                     client: clientA,
                     connection: connectionA,
                     operation: twoPaneRootCreateOperation(
+                        path: preparationA.annotatedFilePath,
                         sourceIdentity: preparationA.descriptor.descriptorId
                     ),
                     requestID: "annotation-create-two-pane",
@@ -284,7 +286,7 @@ struct BridgeDevelopmentAnnotationHTTPRoutingTests {
     }
 }
 
-private func twoPaneRootCreateOperation(sourceIdentity: String) -> [String: Any] {
+private func twoPaneRootCreateOperation(path: String, sourceIdentity: String) -> [String: Any] {
     [
         "admission": ["kind": "implicitOrSingle"],
         "body": "Visible from both panes",
@@ -294,7 +296,7 @@ private func twoPaneRootCreateOperation(sourceIdentity: String) -> [String: Any]
             "diffSide": NSNull(),
             "endLine": 2,
             "kind": "located",
-            "path": "tracked.txt",
+            "path": path,
             "sourceIdentity": sourceIdentity,
             "sourceRole": "file",
             "startLine": 2,
@@ -355,7 +357,7 @@ private func createHTTPAnnotationDraftBeforeRestart(
                 "diffSide": NSNull(),
                 "endLine": 2,
                 "kind": "located",
-                "path": "tracked.txt",
+                "path": preparation.annotatedFilePath,
                 "sourceIdentity": preparation.descriptor.descriptorId,
                 "sourceRole": "file",
                 "startLine": 2,

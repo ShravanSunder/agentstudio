@@ -411,6 +411,7 @@ describe('Bridge comm worker File product runtime', () => {
 				},
 				{ operation: 'reset', slice: 'fileItem' },
 				{ operation: 'reset', slice: 'fileStatus' },
+				{ operation: 'reset', slice: 'fileMemberGroups' },
 				{ operation: 'upsert', slice: 'fileQuery' },
 			],
 			surface: 'fileView',

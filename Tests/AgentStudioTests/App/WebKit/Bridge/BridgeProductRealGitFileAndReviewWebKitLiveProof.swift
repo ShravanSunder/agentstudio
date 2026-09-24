@@ -1,4 +1,5 @@
 import Foundation
+import Testing
 
 @testable import AgentStudio
 @testable import AgentStudioBridge
@@ -150,17 +151,35 @@ extension WebKitSerializedTests.BridgeProductRealGitFileAndReviewWebKitTests {
             controller.page
         )
         let pathSelected: Bool
-        if activated {
+        // Files lists the worktree's rows under its collection group key.
+        let fileDisplayPath: String? =
+            if let worktreeId = controller.filesBinding?.members.first?.id {
+                await controller.fileCollectionDisplayPath(
+                    worktreeId: worktreeId,
+                    relativePath: sourceOracle.path
+                )
+            } else {
+                nil
+            }
+        if activated, let fileDisplayPath {
             pathSelected = await BridgeProductWebKitCarrierTestSupport.waitUntil(
                 timeout: .seconds(15)
             ) {
                 await BridgeProductWebKitCarrierTestSupport.selectFilePath(
                     controller.page,
-                    path: sourceOracle.path
+                    path: fileDisplayPath
                 )
             }
         } else {
             pathSelected = false
+        }
+        if activated, !pathSelected {
+            let mountedPaths = await BridgeProductWebKitCarrierTestSupport.mountedFileTreeItemPaths(
+                controller.page
+            )
+            Issue.record(
+                "File row \(fileDisplayPath ?? "unresolved") was not selectable; mounted File tree: \(mountedPaths.prefix(20))"
+            )
         }
         _ = await BridgeProductWebKitCarrierTestSupport.waitUntil(timeout: .seconds(15)) {
             let dom = await BridgeProductWebKitCarrierTestSupport.domSnapshot(controller.page)

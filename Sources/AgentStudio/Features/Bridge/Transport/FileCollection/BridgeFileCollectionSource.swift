@@ -3,7 +3,8 @@ import Foundation
 
 /// One member worktree's File source inside a receiver's collection.
 struct BridgeFileCollectionMemberSource: Sendable {
-    let member: BridgeFileCollectionMember
+    let worktreeId: UUID
+    let rootURL: URL
     /// The member source's own collection token (its worktree stable key).
     let memberCollectionToken: String
     let producer: any BridgePaneProductFileMetadataProducing
@@ -47,6 +48,10 @@ actor BridgeFileCollectionSource: BridgePaneProductFileMetadataProducing {
         /// Next positional index while the initial tree is still being
         /// enumerated; nil once the collection's final window was sent.
         var enumerationIndex: Int?
+        /// Whether the collection source was announced. The first member's own
+        /// acceptance announces it, so annotation facts read through that
+        /// member are available as soon as the page sees the source.
+        var collectionSourceAccepted = false
         var openedMemberIds: Set<UUID> = []
         var memberAvailability: [UUID: BridgeFileCollectionMemberAvailability] = [:]
         var emittedPathsBySource: [CollectionRowSource: Set<String>] = [:]
@@ -63,6 +68,10 @@ actor BridgeFileCollectionSource: BridgePaneProductFileMetadataProducing {
     var openedDocumentLocations: [BridgeDocumentLocation] = []
     var contextBySubscriptionId: [String: SubscriptionContext] = [:]
     var nextSourceGeneration = 0
+    /// Counts membership changes that regrouped the collection; it orders the
+    /// member-group lists within one source.
+    var membershipRevision = 0
+    var pendingInitialMembers: [BridgeFileCollectionMemberSource]?
 
     init(
         collectionToken: String,
@@ -79,13 +88,28 @@ actor BridgeFileCollectionSource: BridgePaneProductFileMetadataProducing {
         self.openedDocumentRowReader = openedDocumentRowReader
         self.sourceAcceptedObserver = sourceAcceptedObserver
         self.memberSourcesById = Dictionary(
-            members.map { ($0.member.worktreeId, $0) },
+            members.map { ($0.worktreeId, $0) },
             uniquingKeysWith: { first, _ in first }
         )
         self.openedDocumentLocations = openedDocuments
-        self.layout = BridgeFileCollectionLayout.empty.updating(
-            members: members.map(\.member),
-            openedDocuments: openedDocuments
+        self.pendingInitialMembers = members
+    }
+
+    /// Lay out the initial membership on the actor, where resolving member
+    /// roots to canonical paths may touch the filesystem.
+    func ensureInitialLayout() {
+        guard let members = pendingInitialMembers else { return }
+        pendingInitialMembers = nil
+        layout = layout.updating(
+            members: members.map(Self.canonicalMember),
+            openedDocuments: openedDocumentLocations
+        )
+    }
+
+    static func canonicalMember(_ source: BridgeFileCollectionMemberSource) -> BridgeFileCollectionMember {
+        BridgeFileCollectionMember(
+            worktreeId: source.worktreeId,
+            canonicalRootPath: DarwinFSEventPathCanonicalizer.canonicalURL(source.rootURL).path
         )
     }
 
@@ -93,6 +117,12 @@ actor BridgeFileCollectionSource: BridgePaneProductFileMetadataProducing {
         _ observer: @escaping BridgePaneProductFileSourceAcceptedObserver
     ) {
         sourceAcceptedObserver = observer
+    }
+
+    /// The collection key a member's relative path is listed under.
+    func displayPath(worktreeId: UUID, relativePath: String) -> String? {
+        ensureInitialLayout()
+        return layout.displayPath(worktreeId: worktreeId, relativePath: relativePath)
     }
 
     func memberAvailability(subscriptionId: String) -> [UUID: BridgeFileCollectionMemberAvailability] {
@@ -115,6 +145,7 @@ actor BridgeFileCollectionSource: BridgePaneProductFileMetadataProducing {
         else { return }
         await cancel(subscriptionId: subscription.subscriptionId)
         try Task.checkCancellation()
+        ensureInitialLayout()
         nextSourceGeneration += 1
         let generation = nextSourceGeneration
         let productSource = try BridgeProductFileSourceIdentity(
@@ -136,11 +167,10 @@ actor BridgeFileCollectionSource: BridgePaneProductFileMetadataProducing {
             enumerationIndex: 0
         )
         do {
-            try await emit(.sourceAccepted(.init(source: productSource)))
-            await sourceAcceptedObserver(productSource)
             for group in layout.memberGroups {
                 try await openMember(group.worktreeId, subscriptionId: subscription.subscriptionId)
             }
+            try await acceptCollectionSourceIfNeeded(subscriptionId: subscription.subscriptionId)
             try await emitOpenedDocumentRows(
                 layout.openedDocuments,
                 subscriptionId: subscription.subscriptionId
@@ -183,6 +213,7 @@ actor BridgeFileCollectionSource: BridgePaneProductFileMetadataProducing {
         productAdmission: BridgeProductAdmissionContext,
         foregroundWorkAdmission: BridgePaneRefreshWorkAdmission
     ) async -> [BridgePaneProductFileMetadataEmission] {
+        ensureInitialLayout()
         guard let statusMemberId = layout.memberGroups.first?.worktreeId else { return [] }
         return await publish(
             status: status,
@@ -214,6 +245,7 @@ actor BridgeFileCollectionSource: BridgePaneProductFileMetadataProducing {
         productAdmission: BridgeProductAdmissionContext,
         foregroundWorkAdmission: BridgePaneRefreshWorkAdmission
     ) async throws -> [BridgePaneProductFileMetadataEmission] {
+        ensureInitialLayout()
         guard let memberSource = memberSourcesById[changeset.worktreeId] else { return [] }
         let emissions = try await memberSource.producer.publish(
             changeset: changeset,

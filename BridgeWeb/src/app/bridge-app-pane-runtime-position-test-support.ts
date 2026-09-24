@@ -28,11 +28,17 @@ export interface SurfacePositionSnapshot {
 	readonly treeScrollTop: number;
 }
 
+/** Files lists the Review worktree's files under this collection group. */
+export const bridgePanePositionFileGroupPath = 'position-worktree';
 export const bridgePanePositionFileItemId = 'position-file-001';
-export const bridgePanePositionFilePath = 'Sources/PositionFile001.swift';
+export const bridgePanePositionFilePath = `${bridgePanePositionFileGroupPath}/Sources/PositionFile001.swift`;
 export const bridgePanePositionReviewItemId = 'position-review-001';
 export const bridgePaneReplacementFileItemId = 'replacement-file-001';
-export const bridgePaneReplacementFilePath = 'Sources/ReplacementOnly.swift';
+export const bridgePaneReplacementFilePath = `${bridgePanePositionFileGroupPath}/Sources/ReplacementOnly.swift`;
+const positionReviewPackageId = 'position-review-package';
+const positionFileSourcesPath = `${bridgePanePositionFileGroupPath}/Sources`;
+/** The Review package's worktree; Files lists it under the position group. */
+const positionReviewWorktreeId = `${positionReviewPackageId}-worktree`;
 
 const fileTreeRowCount = 180;
 const fileLineCount = 800;
@@ -148,7 +154,7 @@ function replacementFileTargetPatches(
 							isDirectory: false,
 							lineCount: 1,
 							name: 'ReplacementOnly.swift',
-							parentPath: 'Sources',
+							parentPath: positionFileSourcesPath,
 							path: bridgePaneReplacementFilePath,
 							projectionIndex,
 							rowId: 'replacement-file-row-001',
@@ -352,6 +358,20 @@ function makeFileDisplayEvent(fileContents: string): BridgeWorkerFileDisplayPatc
 				slice: 'fileTree',
 			},
 			{
+				operation: 'upsert',
+				payload: {
+					groups: [
+						{
+							groupPath: bridgePanePositionFileGroupPath,
+							identityPrefix: 'mposition.',
+							nestedMemberRelativeRoots: [],
+							worktreeId: positionReviewWorktreeId,
+						},
+					],
+				},
+				slice: 'fileMemberGroups',
+			},
+			{
 				operation: 'batch',
 				payload: {
 					operations: Array.from({ length: fileTreeRowCount }, (_, rowIndex) => {
@@ -367,8 +387,8 @@ function makeFileDisplayEvent(fileContents: string): BridgeWorkerFileDisplayPatc
 								isDirectory: false,
 								lineCount: rowIndex === 0 ? fileLineCount : 12,
 								name: `PositionFile${ordinal}.swift`,
-								parentPath: 'Sources',
-								path: `Sources/PositionFile${ordinal}.swift`,
+								parentPath: positionFileSourcesPath,
+								path: `${positionFileSourcesPath}/PositionFile${ordinal}.swift`,
 								projectionIndex: rowIndex,
 								rowId: `position-row-${ordinal}`,
 								sizeBytes: rowIndex === 0 ? payloadByteCount : 256,
@@ -474,7 +494,7 @@ function makeReviewDisplayEvent(
 			{
 				operation: 'upsert',
 				payload: {
-					...bridgeWorkerReviewSourceContext('position-review-package'),
+					...bridgeWorkerReviewSourceContext(positionReviewPackageId),
 					metadataSourceId: 'position-review-source',
 					metadataWindowIdentity: reviewMetadataWindowIdentity,
 					packageId: 'position-review-package',

@@ -3,6 +3,7 @@ import { expect, test } from 'vitest';
 
 import { runAllOwnedCleanupOperations } from '../../scripts/dev-server/bridge-development-server-process.ts';
 import { waitForSelectedFileReady } from './bridge-viewer-vite-annotation-save-journey.ts';
+import { bridgeViewerViteFileCollectionPath } from './bridge-viewer-vite-file-collection-path.ts';
 import { observeSelectedFileRetention } from './bridge-viewer-vite-file-retention-probe.ts';
 import { observeInteractionProfileFailures } from './bridge-viewer-vite-interaction-profile-diagnostics.ts';
 import {
@@ -50,7 +51,13 @@ test.each(['direct', 'healthy', 'disconnected'] as const)(
 				},
 			);
 			await waitForSelectedFileReady({ oracle: fixture.oracle, page });
-			retention = await observeSelectedFileRetention(page, fixture.oracle.largeFilePath);
+			retention = await observeSelectedFileRetention(
+				page,
+				bridgeViewerViteFileCollectionPath(
+					fixture.oracle.worktreeRoot,
+					fixture.oracle.largeFilePath,
+				),
+			);
 			const before = proxy?.snapshot();
 			if (before !== undefined) {
 				expect(before.activeMetadataResponses).toBe(1);

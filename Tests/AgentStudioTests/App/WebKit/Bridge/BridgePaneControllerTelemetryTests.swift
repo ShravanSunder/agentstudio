@@ -47,7 +47,8 @@ extension WebKitSerializedTests {
                 sourceConfiguration: BridgePaneSourceConfiguration(
                     review: BridgeReviewSourceBinding(
                         worktreeId: UUIDv7.generate(), worktreeRootPath: "/tmp/worktree",
-                        comparison: .ref(name: "HEAD~1"))),
+                        comparison: .ref(name: "HEAD~1")),
+                    files: nil),
                 appRootURL: testBridgeAppRootURL(),
                 reviewSourceProvider: provider,
                 telemetryScopeGate: BridgeTelemetryScopeGate(enabledScopes: [.swift, .webKit]),
@@ -107,7 +108,8 @@ extension WebKitSerializedTests {
                 sourceConfiguration: BridgePaneSourceConfiguration(
                     review: BridgeReviewSourceBinding(
                         worktreeId: UUIDv7.generate(), worktreeRootPath: "/tmp/worktree",
-                        comparison: .ref(name: "HEAD~1"))),
+                        comparison: .ref(name: "HEAD~1")),
+                    files: nil),
                 appRootURL: testBridgeAppRootURL(),
                 telemetryRuntimePolicy: BridgeTelemetryRuntimePolicy(isDebugBuild: false),
                 telemetryScopeGate: BridgeTelemetryScopeGate(enabledScopes: [.swift, .web, .webKit]),
@@ -138,7 +140,7 @@ extension WebKitSerializedTests {
             let controller = BridgePaneController(
                 paneId: UUIDv7.generate(),
                 state: BridgePaneState(panelKind: .diffViewer),
-                sourceConfiguration: BridgePaneSourceConfiguration(review: nil),
+                sourceConfiguration: BridgePaneSourceConfiguration(review: nil, files: nil),
                 appRootURL: testBridgeAppRootURL(),
                 telemetryRecorder: recorder,
                 initialPaneActivity: .foreground

@@ -10,10 +10,11 @@ import {
 	proofRunCreatedAtUnixMilliseconds,
 	repoRootPath,
 	scenarioNameFromDevServerUrl,
-	selectedContentFixtureRelativePath,
+	selectedContentFixtureFileCollectionPath,
 	targetPathOverride,
 	worktreeDevServerUrl,
 } from './config.ts';
+import { worktreeFileCollectionPath } from './file-collection-path.ts';
 import { BridgeVerifierProductFileSession } from './product-file-session.ts';
 import { worktreeFilePathEligibleForPerformanceClick } from './scroll-performance.ts';
 import {
@@ -144,12 +145,12 @@ export async function resolveTargetDescriptor(
 ): Promise<WorktreeFileDescriptor> {
 	if (targetPathOverride !== null) {
 		return await fetchFetchableWorktreeFileDescriptorForPath({
-			path: targetPathOverride,
+			path: worktreeFileCollectionPath(repoRootPath, targetPathOverride),
 			surface,
 		});
 	}
 	return await fetchFetchableWorktreeFileDescriptorForPath({
-		path: selectedContentFixtureRelativePath,
+		path: selectedContentFixtureFileCollectionPath,
 		surface,
 	});
 }
@@ -239,6 +240,8 @@ export function isNormalWorktreeFilePerformanceDescriptor(
 
 export interface WorktreeFileModifiedFixture {
 	readonly absolutePath: string;
+	/** The File-surface key (`<group>/<relativePath>`); `relativePath` stays the on-disk path. */
+	readonly fileCollectionPath: string;
 	readonly initialContent: string;
 	readonly initialContentHash: string;
 	readonly relativePath: string;
@@ -268,6 +271,7 @@ export async function worktreeFileModifiedFixture(props: {
 				: `${initialContent}\n${marker}\n`;
 	const fixture = {
 		absolutePath,
+		fileCollectionPath: worktreeFileCollectionPath(repoRootPath, props.relativePath),
 		initialContent,
 		initialContentHash: hashText(initialContent),
 		relativePath: props.relativePath,
@@ -281,20 +285,28 @@ export async function worktreeFileModifiedFixture(props: {
 export async function worktreeFileStaleRefreshFixture(props: {
 	readonly descriptor: WorktreeFileDescriptor;
 	readonly initialContent: string;
+	readonly relativePath: string;
 }): Promise<WorktreeFileStaleRefreshFixture> {
+	const fileCollectionPath = worktreeFileCollectionPath(repoRootPath, props.relativePath);
+	if (props.descriptor.path !== fileCollectionPath) {
+		throw new Error(
+			`Expected stale-refresh fixture ${props.relativePath} to be the File descriptor ${fileCollectionPath}, got ${props.descriptor.path}`,
+		);
+	}
 	const marker = `bridge_worktree_devserver_proof_${proofRunCreatedAtUnixMilliseconds}`;
 	const absolutePath = await resolveBridgeWorktreeVerifierWritePath({
-		descriptorPath: props.descriptor.path,
+		descriptorPath: props.relativePath,
 		rootPath: repoRootPath,
 	});
-	await assertGitTrackedWorktreeVerifierPath(props.descriptor.path);
+	await assertGitTrackedWorktreeVerifierPath(props.relativePath);
 	const initialContent = await readFile(absolutePath, 'utf8');
 	const updatedContent = `${initialContent}\n// ${marker}: updated content\n`;
 	return {
 		absolutePath,
+		fileCollectionPath,
 		initialContent,
 		initialContentHash: hashText(initialContent),
-		relativePath: props.descriptor.path,
+		relativePath: props.relativePath,
 		updatedContent,
 		updatedContentHash: hashText(updatedContent),
 	};

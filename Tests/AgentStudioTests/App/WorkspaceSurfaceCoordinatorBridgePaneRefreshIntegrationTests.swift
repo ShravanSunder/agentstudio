@@ -155,7 +155,7 @@ extension WebKitSerializedTests {
             await projectionIndex.waitForPausedProjection()
             let pausedSnapshot = controller.refreshAdmissionCoordinator.diagnosticSnapshot
             #expect((pausedSnapshot.dirtyFact != nil) == hasPendingReviewWork)
-            #expect(pausedSnapshot.dirtyFact?.fileChangeset == nil)
+            #expect(pausedSnapshot.dirtyFact?.fileChangesets.isEmpty != false)
             #expect(pausedSnapshot.dirtyFact?.generation == baselineDirtyFact?.generation)
             harness.coordinator.upsertPaneFilesystemProjectionContext(for: setup.bridgePane)
             await projectionIndex.resumePausedProjection()
@@ -164,7 +164,7 @@ extension WebKitSerializedTests {
             // Assert — pane projection staleness cannot discard the independent product invalidation fact.
             let snapshot = controller.refreshAdmissionCoordinator.diagnosticSnapshot
             let dirtyFact = try #require(snapshot.dirtyFact)
-            let retainedChangeset = try #require(dirtyFact.fileChangeset)
+            let retainedChangeset = try #require(dirtyFact.fileChangesets.first)
             if let baselineDirtyFact {
                 #expect(dirtyFact.generation == baselineDirtyFact.generation)
             } else {
@@ -181,11 +181,13 @@ extension WebKitSerializedTests {
             await harness.finish()
         }
 
+        // Files lists every member worktree whole, so the boundary is the
+        // receiver's bindings: a worktree it neither lists nor reviews.
         @Test(
-            "filesystem changes outside the pane CWD do not invalidate Bridge product state",
+            "filesystem changes in a worktree the receiver does not read do not invalidate Bridge product state",
             arguments: [false, true]
         )
-        func filesystemChangesOutsidePaneCWDDoNotInvalidateBridgeProductState(
+        func filesystemChangesInUnreadWorktreeDoNotInvalidateBridgeProductState(
             hasPendingReviewWork: Bool
         ) async throws {
             // Arrange
@@ -207,10 +209,12 @@ extension WebKitSerializedTests {
             #expect((baselineSnapshot.dirtyFact != nil) == hasPendingReviewWork)
 
             // Act
+            let unreadWorktreeId = UUIDv7.generate()
+            #expect(!controller.readsWorktree(unreadWorktreeId))
             let unrelatedChangeset = FileChangeset(
-                worktreeId: setup.worktree.id,
+                worktreeId: unreadWorktreeId,
                 repoId: setup.repoId,
-                rootPath: setup.worktree.path,
+                rootPath: setup.worktree.path.deletingLastPathComponent().appending(path: "unread-worktree"),
                 paths: ["Sources/FeatureB/Unrelated.swift"],
                 timestamp: .now,
                 batchSeq: 91
@@ -220,7 +224,7 @@ extension WebKitSerializedTests {
                     RuntimeEnvelopeHarness.filesystemEnvelope(
                         event: .filesChanged(changeset: unrelatedChangeset),
                         repoId: setup.repoId,
-                        worktreeId: setup.worktree.id
+                        worktreeId: unreadWorktreeId
                     )
                 )
             )
@@ -229,7 +233,7 @@ extension WebKitSerializedTests {
             let snapshot = controller.refreshAdmissionCoordinator.diagnosticSnapshot
             #expect((snapshot.dirtyFact != nil) == hasPendingReviewWork)
             #expect(snapshot.dirtyFact?.generation == baselineSnapshot.dirtyFact?.generation)
-            #expect(snapshot.dirtyFact?.fileChangeset == nil)
+            #expect(snapshot.dirtyFact?.fileChangesets.isEmpty != false)
             #expect(snapshot.dirtyFact?.latestFileStatus == nil)
             #expect(snapshot.dirtyFact?.latestBatchSequence == baselineSnapshot.dirtyFact?.latestBatchSequence)
             #expect(snapshot.dirtyFact?.requiresReviewRefresh == baselineSnapshot.dirtyFact?.requiresReviewRefresh)
@@ -284,7 +288,7 @@ extension WebKitSerializedTests {
             let dirtyFact = try #require(
                 setup.controller.refreshAdmissionCoordinator.diagnosticSnapshot.dirtyFact
             )
-            #expect(dirtyFact.fileChangeset == nil)
+            #expect(dirtyFact.fileChangesets.isEmpty)
             #expect(dirtyFact.filePaths.isEmpty)
             #expect(dirtyFact.latestBatchSequence == 0)
             #expect(dirtyFact.requiresReviewRefresh)
@@ -317,7 +321,7 @@ extension WebKitSerializedTests {
             #expect(setup.controller.nextReviewGeneration == generationBeforeInvalidation)
             #expect(
                 setup.controller.refreshAdmissionCoordinator.diagnosticSnapshot.dirtyFact?
-                    .fileChangeset == nil
+                    .fileChangesets.isEmpty != false
             )
 
             await setup.harness.finish()
@@ -428,7 +432,7 @@ func makeWorkspaceRefreshTestSetup(
     }
     let paneState = BridgePaneState(panelKind: .diffViewer)
     let paneStateReview: BridgeReviewSourceBinding? = BridgeReviewSourceBinding(
-        worktreeId: UUIDv7.generate(), worktreeRootPath: worktree.path.path, comparison: baseline)
+        worktreeId: worktree.id, worktreeRootPath: worktree.path.path, comparison: baseline)
     let bridgePane = harness.store.createPane(
         content: .bridgePanel(paneState),
         metadata: PaneMetadata(
@@ -449,7 +453,11 @@ func makeWorkspaceRefreshTestSetup(
     harness.viewRegistry.ensureSlot(for: bridgePane.id)
     let controller = BridgePaneController(
         paneId: bridgePane.id,
-        state: paneState, sourceConfiguration: BridgePaneSourceConfiguration(review: paneStateReview),
+        state: paneState,
+        sourceConfiguration: BridgePaneSourceConfiguration(
+            review: paneStateReview,
+            files: .testSingleWorktree(rootURL: worktree.path, worktreeId: worktree.id)
+        ),
         appRootURL: testBridgeAppRootURL(),
         metadata: bridgePane.metadata,
         initialPaneActivity: .dormant

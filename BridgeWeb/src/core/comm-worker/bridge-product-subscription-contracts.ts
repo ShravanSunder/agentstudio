@@ -18,6 +18,7 @@ import {
 	bridgeProductFileSourceIdentitySchema,
 	type BridgeProductFileSourceIdentity,
 } from './bridge-product-file-contracts.js';
+import { bridgeProductFileMemberGroupsEventSchema } from './bridge-product-file-member-group-contracts.js';
 import {
 	bridgeProductFileChangeStatusSchema,
 	bridgeProductFileTreeRowSchema,
@@ -707,6 +708,7 @@ const bridgeProductFileInvalidatedEventSchema = z
 
 export const bridgeProductFileMetadataEventSchema = z.discriminatedUnion('eventKind', [
 	bridgeProductFileSourceAcceptedEventSchema,
+	bridgeProductFileMemberGroupsEventSchema,
 	bridgeProductFileTreeWindowEventSchema,
 	bridgeProductFileTreeDeltaEventSchema,
 	bridgeProductFileStatusPatchEventSchema,

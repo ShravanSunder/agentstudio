@@ -41,11 +41,15 @@ extension WebKitSerializedTests {
             )
             try await expectAvailableFileSource(
                 from: firstView.controller,
-                collectionToken: setup.worktree.stableKey
+                collectionToken: BridgeFilesSourceBinding.collectionToken(
+                    forReceiverPaneId: setup.firstPane.id
+                )
             )
             try await expectAvailableFileSource(
                 from: secondView.controller,
-                collectionToken: setup.worktree.stableKey
+                collectionToken: BridgeFilesSourceBinding.collectionToken(
+                    forReceiverPaneId: setup.secondPane.id
+                )
             )
 
             await harness.finish()

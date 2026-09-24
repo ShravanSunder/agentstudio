@@ -81,7 +81,8 @@ extension WebKitSerializedTests {
                 state: BridgePaneState(panelKind: .diffViewer),
                 sourceConfiguration: BridgePaneSourceConfiguration(
                     review: BridgeReviewSourceBinding(
-                        worktreeId: UUIDv7.generate(), worktreeRootPath: "/tmp/worktree", comparison: nil)),
+                        worktreeId: worktreeId, worktreeRootPath: "/tmp/worktree", comparison: nil),
+                    files: .testSingleWorktree(rootURL: URL(fileURLWithPath: "/tmp/worktree"), worktreeId: worktreeId)),
                 appRootURL: testBridgeAppRootURL(),
                 metadata: PaneMetadata(
                     contentType: .diff,
@@ -530,8 +531,9 @@ extension WebKitSerializedTests {
                 state: BridgePaneState(panelKind: .diffViewer),
                 sourceConfiguration: BridgePaneSourceConfiguration(
                     review: BridgeReviewSourceBinding(
-                        worktreeId: UUIDv7.generate(), worktreeRootPath: repoURL.path,
-                        comparison: .localDefaultBranch(branchName: "main"))),
+                        worktreeId: worktreeId, worktreeRootPath: repoURL.path,
+                        comparison: .localDefaultBranch(branchName: "main")),
+                    files: .testSingleWorktree(rootURL: URL(fileURLWithPath: repoURL.path), worktreeId: worktreeId)),
                 appRootURL: testBridgeAppRootURL(),
                 metadata: PaneMetadata(
                     paneId: PaneId(existingUUID: paneId),
@@ -741,7 +743,8 @@ extension WebKitSerializedTests {
                                 comparison: baseline
                             )
                         }
-                    }
+                    },
+                    files: nil
                 ),
                 appRootURL: testBridgeAppRootURL(),
                 metadata: PaneMetadata(

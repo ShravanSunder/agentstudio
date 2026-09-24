@@ -176,7 +176,7 @@ extension WorkspaceSurfaceCoordinator {
                     companion.owningTabId == activeTabId,
                     companion.companionPaneId == companionPaneId
                 else { return nil }
-                return companion.resolvedWorktreeId
+                return companion.reviewWorktreeId
             }()
             return PullRequestDemandProjection.Zoom(
                 sourcePaneId: presentation.sourcePaneId,

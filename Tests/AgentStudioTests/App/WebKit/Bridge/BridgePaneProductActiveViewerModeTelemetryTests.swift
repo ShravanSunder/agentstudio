@@ -24,7 +24,8 @@ extension WebKitSerializedTests {
                 sourceConfiguration: BridgePaneSourceConfiguration(
                     review: BridgeReviewSourceBinding(
                         worktreeId: UUIDv7.generate(), worktreeRootPath: "/tmp/product-file-viewer",
-                        comparison: .unstaged)),
+                        comparison: .unstaged),
+                    files: nil),
                 appRootURL: testBridgeAppRootURL(),
                 telemetryRecorder: recorder,
                 initialPaneActivity: .foreground

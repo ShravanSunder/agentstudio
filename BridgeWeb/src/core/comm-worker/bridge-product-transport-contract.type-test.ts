@@ -411,6 +411,9 @@ switch (fileMetadataFrame.data.eventKind) {
 	case 'file.sourceAccepted':
 		void fileMetadataFrame.data.source.sourceId;
 		break;
+	case 'file.memberGroups':
+		void fileMetadataFrame.data.groups;
+		break;
 	case 'file.treeWindow':
 		void fileMetadataFrame.data.rows;
 		break;

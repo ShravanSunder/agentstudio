@@ -216,7 +216,7 @@ struct BridgePaneProductMetadataProducerTaskLifecycle {
                 rowCount: window.rows.count,
                 isFinalWindow: window.finalWindow
             )
-        case .treeDelta, .statusPatch, .descriptorReady, .invalidated:
+        case .memberGroups, .treeDelta, .statusPatch, .descriptorReady, .invalidated:
             return
         }
         await lifecycleTraceRecorder?.record(traceEvent)

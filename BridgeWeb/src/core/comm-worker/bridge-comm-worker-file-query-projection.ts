@@ -21,6 +21,10 @@ type FileTreeRow = Extract<FileTreeOperation, { readonly operation: 'upsert' }>[
 type FileItemPatch = Extract<BridgeWorkerFileDisplayPatch, { readonly slice: 'fileItem' }>;
 type FileItemPayload = Extract<FileItemPatch, { readonly operation: 'upsert' }>['payload'];
 type FileStatusPatch = Extract<BridgeWorkerFileDisplayPatch, { readonly slice: 'fileStatus' }>;
+type FileMemberGroupsPatch = Extract<
+	BridgeWorkerFileDisplayPatch,
+	{ readonly slice: 'fileMemberGroups' }
+>;
 
 const defaultBridgeWorkerFileQuery: BridgeWorkerFileQuery = {
 	filterMode: 'all',
@@ -48,6 +52,8 @@ interface BridgeCommWorkerFileQueryOutcome {
 
 export class BridgeCommWorkerFileQueryProjection {
 	readonly #fileItemsById = new Map<string, FileItemPayload>();
+	#fileMemberGroupsPatch: Extract<FileMemberGroupsPatch, { readonly operation: 'upsert' }> | null =
+		null;
 	#fileStatusPatch: Extract<FileStatusPatch, { readonly operation: 'upsert' }> | null = null;
 	#fileTreeReplacementCommitted = false;
 	#fileTreeResetPatch: FileTreeResetPatch = { operation: 'clear', slice: 'fileTree' };
@@ -117,6 +123,12 @@ export class BridgeCommWorkerFileQueryProjection {
 					this.#fileStatusPatch = patch.operation === 'upsert' ? patch : null;
 					projectedPatches.push(patch);
 					break;
+				case 'fileMemberGroups':
+					// Member groups map worktree-relative locations to display keys;
+					// no query filters them, so they pass through unprojected.
+					this.#fileMemberGroupsPatch = patch.operation === 'upsert' ? patch : null;
+					projectedPatches.push(patch);
+					break;
 				case 'fileQuery':
 					throw new Error('File query projection cannot consume its own display patch.');
 				default:
@@ -143,8 +155,10 @@ export class BridgeCommWorkerFileQueryProjection {
 			this.#fileTreeResetPatch,
 			{ operation: 'reset', slice: 'fileItem' },
 			{ operation: 'reset', slice: 'fileStatus' },
+			{ operation: 'reset', slice: 'fileMemberGroups' },
 			...fileItemPatches,
 			...(this.#fileStatusPatch === null ? [] : [this.#fileStatusPatch]),
+			...(this.#fileMemberGroupsPatch === null ? [] : [this.#fileMemberGroupsPatch]),
 			...fileTreeOperationBatches(projectedTreeOperations),
 			...(this.#fileTreeReplacementCommitted && this.#fileTreeResetPatch.operation === 'reset'
 				? [

@@ -242,9 +242,10 @@ extension BridgePaneController {
     }
 
     package func applyPageControlForIPC(
-        _ command: IPCBridgePageControlCommand,
+        _ requestedCommand: IPCBridgePageControlCommand,
         correlationId: UUID?
     ) async throws -> IPCBridgePageControlResult {
+        let command = try await fileCollectionAddressedPageControl(requestedCommand)
         let commandLiteral = try javaScriptLiteral(command)
         let methodLiteral = try javaScriptStringLiteral(command.method)
         let result = try await page.callJavaScript(

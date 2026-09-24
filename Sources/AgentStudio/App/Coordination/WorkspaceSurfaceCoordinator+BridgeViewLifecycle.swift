@@ -21,7 +21,8 @@ extension WorkspaceSurfaceCoordinator {
             )
         }
         let sourceConfiguration = BridgePaneSourceConfiguration(
-            review: bridgeNavigationCommandHandler.reviewBinding(for: receiver)
+            review: bridgeNavigationCommandHandler.reviewBinding(for: receiver),
+            files: bridgeNavigationCommandHandler.filesBinding(for: receiver)
         )
         ensureBridgePaneActivityAuthority(for: pane.id)
         let controller = BridgePaneController(
@@ -42,6 +43,7 @@ extension WorkspaceSurfaceCoordinator {
                 for: pane,
                 reviewRootPath: sourceConfiguration.review?.worktreeRootPath
             ),
+            fileGitReadScheduler: bridgeGitReadScheduler,
             worktreeProductConstructionCoordinator: worktreeProductConstructionCoordinator,
             worktreeAnnotationStore: worktreeAnnotationStore,
             worktreeAnnotationOutputCoordinator: worktreeAnnotationOutputCoordinator,

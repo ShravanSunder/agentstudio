@@ -13,6 +13,7 @@ import {
 	makeFileContent,
 	makeFileDescriptor,
 	makeFileDescriptorForContent,
+	makeFileMemberGroupsMetadataEvent,
 	makeFileMetadataEvents,
 	type PublishFileMetadataEvents,
 } from './bridge-file-viewer-browser-test-fixtures.js';
@@ -95,11 +96,17 @@ describe('Bridge File activation telemetry', () => {
 				activationSequence={17}
 				activationStartedAtPerfNow={performance.now()}
 				isActive={true}
-				initialMetadataEvents={makeFileMetadataEvents(descriptor)}
+				initialMetadataEvents={[
+					...makeFileMetadataEvents(descriptor),
+					makeFileMemberGroupsMetadataEvent({
+						groups: [{ groupPath: 'src', worktreeId: 'activation-worktree' }],
+						source: descriptor.source,
+					}),
+				]}
 				openPathCommand={{
 					activationStartedAtPerfNow: performance.now(),
 					commandId: 17,
-					path: 'src/activation-ready.ts',
+					location: { relativePath: 'activation-ready.ts', worktreeId: 'activation-worktree' },
 					traceContext: null,
 				}}
 				telemetryRecorder={makeTestTelemetryRecorder(telemetrySamples)}

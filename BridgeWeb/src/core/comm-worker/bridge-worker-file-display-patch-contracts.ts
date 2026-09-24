@@ -8,6 +8,7 @@ import {
 	bridgeProductNonnegativeSequenceSchema,
 	bridgeProductSafeMessageSchema,
 } from './bridge-product-contract-primitives.js';
+import { bridgeProductFileMemberGroupListSchema } from './bridge-product-file-member-group-contracts.js';
 import {
 	bridgeProductFileChangeStatusSchema,
 	bridgeProductFileTreeFileClassSchema,
@@ -194,6 +195,17 @@ const bridgeWorkerFileStatusDisplayPatchSchema = z.discriminatedUnion('operation
 	z.object({ operation: z.literal('reset'), slice: z.literal('fileStatus') }).strict(),
 ]);
 
+const bridgeWorkerFileMemberGroupsDisplayPatchSchema = z.discriminatedUnion('operation', [
+	z
+		.object({
+			operation: z.literal('upsert'),
+			payload: z.object({ groups: bridgeProductFileMemberGroupListSchema }).strict(),
+			slice: z.literal('fileMemberGroups'),
+		})
+		.strict(),
+	z.object({ operation: z.literal('reset'), slice: z.literal('fileMemberGroups') }).strict(),
+]);
+
 const bridgeWorkerFileQueryDisplayPatchSchema = z
 	.object({
 		operation: z.literal('upsert'),
@@ -206,6 +218,7 @@ export const bridgeWorkerFileDisplayPatchSchema = z.discriminatedUnion('slice', 
 	bridgeWorkerFileTreeDisplayPatchSchema,
 	bridgeWorkerFileItemDisplayPatchSchema,
 	bridgeWorkerFileStatusDisplayPatchSchema,
+	bridgeWorkerFileMemberGroupsDisplayPatchSchema,
 	bridgeWorkerFileQueryDisplayPatchSchema,
 ]);
 

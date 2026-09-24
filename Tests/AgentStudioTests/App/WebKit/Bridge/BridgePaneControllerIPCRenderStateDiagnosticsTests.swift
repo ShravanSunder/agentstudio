@@ -143,7 +143,7 @@ extension WebKitSerializedTests.BridgePaneControllerIPCProjectionTests {
         let controller = BridgePaneController(
             paneId: UUIDv7.generate(),
             state: BridgePaneState(panelKind: .diffViewer),
-            sourceConfiguration: BridgePaneSourceConfiguration(review: nil),
+            sourceConfiguration: BridgePaneSourceConfiguration(review: nil, files: nil),
             appRootURL: testBridgeAppRootURL(),
             initialPaneActivity: .loadedHidden
         )
@@ -186,7 +186,7 @@ extension WebKitSerializedTests.BridgePaneControllerIPCProjectionTests {
         let controller = BridgePaneController(
             paneId: UUIDv7.generate(),
             state: BridgePaneState(panelKind: .diffViewer),
-            sourceConfiguration: BridgePaneSourceConfiguration(review: nil),
+            sourceConfiguration: BridgePaneSourceConfiguration(review: nil, files: nil),
             appRootURL: testBridgeAppRootURL(),
             initialPaneActivity: .foreground
         )
@@ -218,7 +218,7 @@ extension WebKitSerializedTests.BridgePaneControllerIPCProjectionTests {
         let controller = BridgePaneController(
             paneId: UUIDv7.generate(),
             state: BridgePaneState(panelKind: .diffViewer),
-            sourceConfiguration: BridgePaneSourceConfiguration(review: nil),
+            sourceConfiguration: BridgePaneSourceConfiguration(review: nil, files: nil),
             appRootURL: testBridgeAppRootURL(),
             initialPaneActivity: .foreground
         )
@@ -351,7 +351,7 @@ extension WebKitSerializedTests.BridgePaneControllerIPCProjectionTests {
         let controller = BridgePaneController(
             paneId: UUIDv7.generate(),
             state: BridgePaneState(panelKind: .diffViewer),
-            sourceConfiguration: BridgePaneSourceConfiguration(review: nil),
+            sourceConfiguration: BridgePaneSourceConfiguration(review: nil, files: nil),
             appRootURL: testBridgeAppRootURL(),
             initialPaneActivity: .foreground
         )
@@ -389,7 +389,7 @@ extension WebKitSerializedTests.BridgePaneControllerIPCProjectionTests {
         let controller = BridgePaneController(
             paneId: UUIDv7.generate(),
             state: BridgePaneState(panelKind: .diffViewer),
-            sourceConfiguration: BridgePaneSourceConfiguration(review: nil),
+            sourceConfiguration: BridgePaneSourceConfiguration(review: nil, files: nil),
             appRootURL: testBridgeAppRootURL(),
             initialPaneActivity: .foreground
         )
@@ -414,7 +414,7 @@ extension WebKitSerializedTests.BridgePaneControllerIPCProjectionTests {
         let controller = BridgePaneController(
             paneId: UUIDv7.generate(),
             state: BridgePaneState(panelKind: .diffViewer),
-            sourceConfiguration: BridgePaneSourceConfiguration(review: nil),
+            sourceConfiguration: BridgePaneSourceConfiguration(review: nil, files: nil),
             appRootURL: testBridgeAppRootURL(),
             initialPaneActivity: .foreground
         )
@@ -438,7 +438,8 @@ extension WebKitSerializedTests.BridgePaneControllerIPCProjectionTests {
 private func makeIPCRenderStateForegroundController() -> BridgePaneController {
     BridgePaneController(
         paneId: UUIDv7.generate(),
-        state: BridgePaneState(panelKind: .diffViewer), sourceConfiguration: BridgePaneSourceConfiguration(review: nil),
+        state: BridgePaneState(panelKind: .diffViewer),
+        sourceConfiguration: BridgePaneSourceConfiguration(review: nil, files: nil),
         appRootURL: testBridgeAppRootURL(),
         initialPaneActivity: .foreground
     )

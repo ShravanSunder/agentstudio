@@ -30,6 +30,7 @@ import {
 	reviewRangeSelectionDiagnostic,
 	type AnnotationRangeBounds,
 } from './bridge-viewer-vite-annotation-selection-diagnostic.ts';
+import { bridgeViewerViteFileCollectionPath } from './bridge-viewer-vite-file-collection-path.ts';
 import { observeInteractionProfileFailures } from './bridge-viewer-vite-interaction-profile-diagnostics.ts';
 import type {
 	BridgeViewerOwnedViteProductServer,
@@ -796,7 +797,10 @@ export async function waitForSelectedFileReady(props: {
 		{
 			expectedLineCount: props.oracle.fileContent.lineCount,
 			expectedSha256: props.oracle.fileContent.sha256,
-			path: props.oracle.largeFilePath,
+			path: bridgeViewerViteFileCollectionPath(
+				props.oracle.worktreeRoot,
+				props.oracle.largeFilePath,
+			),
 		},
 	);
 }
@@ -834,7 +838,10 @@ async function selectedFileReadinessDiagnostic(props: {
 		{
 			expectedLineCount: props.oracle.fileContent.lineCount,
 			expectedSha256: props.oracle.fileContent.sha256,
-			path: props.oracle.largeFilePath,
+			path: bridgeViewerViteFileCollectionPath(
+				props.oracle.worktreeRoot,
+				props.oracle.largeFilePath,
+			),
 		},
 	);
 }

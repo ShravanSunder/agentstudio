@@ -490,7 +490,7 @@ private func pullResumedFileTree(
                     rows: rows
                 )
             }
-        case .descriptorReady, .invalidated, .statusPatch, .treeDelta:
+        case .descriptorReady, .invalidated, .memberGroups, .statusPatch, .treeDelta:
             continue
         }
     }
