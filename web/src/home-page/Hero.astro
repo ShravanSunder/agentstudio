@@ -92,7 +92,7 @@ const eyebrowPhrases = marketingCopy.hero.eyebrow.split(/(?<=\.)\s+/u);
       <div class="hero__actions flex w-full flex-wrap items-center gap-3 max-phone:flex-col max-phone:flex-nowrap max-phone:items-stretch lg:w-auto lg:flex-none">
         <InstallCommand />
       </div>
-      <p class="m-0 max-w-copy text-marketing-body text-ink-muted lg:max-w-[34rem]" {...{ [heroIntroDescriptionAttribute]: "" }}>
+      <p class="m-0 max-w-[34rem] text-marketing-body text-ink-muted" {...{ [heroIntroDescriptionAttribute]: "" }}>
         {marketingCopy.hero.description}
       </p>
     </div>
@@ -139,7 +139,7 @@ const eyebrowPhrases = marketingCopy.hero.eyebrow.split(/(?<=\.)\s+/u);
 <style>
   .hero { isolation: isolate; }
   .hero-intro-column { width: 100%; }
-  .hero-glow { position: absolute; z-index: 0; top: -12%; bottom: 0; left: 0; right: 0; pointer-events: none; background: radial-gradient(ellipse 64% 65% at 54% 38%, #282c34 0%, rgb(40 44 52 / 55%) 34%, transparent 73%); }
+  .hero-glow { position: absolute; z-index: 0; top: -12%; bottom: 0; left: 0; right: 0; pointer-events: none; background: radial-gradient(ellipse 64% 65% at 54% 38%, #282c34 0%, rgb(40 44 52 / 75%) 34%, transparent 73%); }
   /* The rail marks the hero frame while the hero is current; its hairline lights blue. */
   :global(.hero-app-frame.scroll-material-surface[data-rail-current]) {
     border-color: rgb(137 180 250 / 88%);

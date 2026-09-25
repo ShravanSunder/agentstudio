@@ -20,11 +20,11 @@ import HeroIconStack from "./HeroIconStack.astro";
 
 <style>
   .hero-intro-root { position: relative; min-width: 0; isolation: isolate; }
-  :global(.hero-icon-stack) { position: absolute; z-index: 1; top: -34px; left: -34px; width: 72px; height: 48px; transform: rotate(-2deg); transform-origin: bottom left; pointer-events: none; }
-  :global(.hero-icon-plane) { position: absolute; width: 68px; height: 44px; border-radius: 5px; }
-  :global(.hero-icon-plane--rear-one) { left: -5px; top: -4px; transform: rotate(-12deg); border: 1px solid #ef9f76; background: #11111b; }
-  :global(.hero-icon-plane--rear-two) { left: -2px; top: -2px; transform: rotate(7deg); border: 1px solid #ef9f76; background: #151520; }
-  :global(.hero-icon-plane--front) { left: 0; top: 0; border: 2px solid #89b4fa; background: #1e1e2e; }
+  :global(.hero-icon-stack) { position: absolute; z-index: 1; top: 0; left: 0; width: 260px; height: 165px; transform: rotate(-2deg); transform-origin: 0 100%; pointer-events: none; }
+  :global(.hero-icon-plane) { position: absolute; width: 260px; height: 165px; border-radius: 22px; }
+  :global(.hero-icon-plane--rear-one) { left: -26px; top: -12px; transform: rotate(-12deg); border: 3px solid #ef9f76; background: #191b1f; box-shadow: 0 10px 26px #0005; }
+  :global(.hero-icon-plane--rear-two) { left: -12px; top: -14px; transform: rotate(7deg); border: 3px solid #ef9f76; background: #191b1f; box-shadow: 0 10px 26px #0005; }
+  :global(.hero-icon-plane--front) { left: 0; top: 0; border: 3px solid #89b4fa; background: #1e1e2e; }
   :global(.hero-icon-plane svg) { display: block; width: 100%; height: 100%; }
   .hero-terminal-window { position: relative; z-index: 2; overflow: hidden; border: 1px solid rgb(137 180 250 / 38%); border-radius: var(--scroll-material-radius, 16px); background: #282c34; box-shadow: 0 16px 34px #0004; color: #cdd6f4; font: 13px/1.5 var(--font-mono-product); }
   .hero-terminal-content { display: flex; align-items: stretch; }
@@ -43,12 +43,15 @@ import HeroIconStack from "./HeroIconStack.astro";
   :global(.hero-transcript-row) { min-height: 19.5px; white-space: pre-wrap; overflow-wrap: anywhere; }
   :global(.hero-transcript-row--blank) { min-height: 8px; height: 8px; }
   :global(.hero-transcript-row--user-band) { padding: 1px 6px; margin: 1px 0; background: #44474e; }
-  :global(.hero-transcript-row--tool-call) { color: #a6e3a1; }
+  :global(.hero-terminal-green) { color: #a6e3a1; }
+  :global(.hero-terminal-white) { color: #f3f3f4; }
+  :global(.hero-terminal-dim) { color: #9ba1ad; }
+  :global(.hero-tool-name--bash) { font-weight: 700; }
   :global(.hero-transcript-row--tool-result), :global(.hero-transcript-row--codex-detail), :global(.hero-transcript-row--codex-prose) { color: #9ba1ad; }
   :global(.hero-transcript-row--diff-removed), :global(.hero-transcript-row--diff-added) { margin-left: 16px; padding: 0 7px; }
   :global(.hero-transcript-row--diff-removed) { background: rgb(243 139 168 / 14%); color: #f3b3bf; }
   :global(.hero-transcript-row--diff-added) { background: rgb(166 227 161 / 14%); color: #aceac6; }
-  :global(.hero-transcript-row--codex-action) { color: #cba6f7; font-weight: 700; }
+  :global(.hero-transcript-row--codex-action .hero-terminal-lavender) { font-weight: 700; }
   :global(.hero-brewing) { display: none; color: #f0b990; }
   :global(.hero-claude-footer) { flex: none; padding: 0 16px 9px; }
   :global(.hero-terminal-rule) { height: 1px; background: rgb(137 137 137 / 70%); }
@@ -62,11 +65,16 @@ import HeroIconStack from "./HeroIconStack.astro";
   :global(.hero-codex-input) { display: flex; align-items: center; min-height: 45px; gap: 10px; padding: 8px 16px; background: #44474e; color: #a9aab0; }
   :global(.hero-codex-status) { padding: 3px 16px 8px; color: #9ba1ad; font-size: 11px; white-space: nowrap; }
   @media (width < 64rem) { :global(.hero-terminal-pane--codex) { display: none; } }
-  @media (width >= 64rem) and (height < 56.25rem) { :global(.hero-transcript-row:not([data-transcript-tier~="compact"])) { display: none; } }
-  @media (width >= 38.75rem) and (width < 64rem) and (height < 75rem) { :global(.hero-transcript-row:not([data-transcript-tier~="compact"])) { display: none; } }
+  :global(.hero-transcript-row:not([data-transcript-tier~="full"])) { display: none; }
+  @media (width >= 64rem) and (height < 56.25rem) {
+    :global(.hero-transcript-row:not([data-transcript-tier~="compact"])) { display: none; }
+    :global(.hero-transcript-row[data-transcript-tier~="compact"]) { display: block; }
+  }
   @media (width < 38.75rem) {
-    :global(.hero-icon-stack) { top: -14px; left: -14px; width: 44px; height: 30px; }
-    :global(.hero-icon-plane) { width: 42px; height: 27px; border-radius: 3px; }
+    :global(.hero-icon-stack) { top: 3px; left: -8px; width: 170px; height: 108px; }
+    :global(.hero-icon-plane) { width: 170px; height: 108px; border-radius: 14px; }
+    :global(.hero-icon-plane--rear-one) { left: -5px; top: 0; border-width: 2px; }
+    :global(.hero-icon-plane--rear-two) { left: -4px; top: -4px; border-width: 2px; }
     .hero-terminal-window { font-size: 12px; }
     :global(.hero-terminal-transcript) { padding: 10px 12px 8px; }
     :global(.hero-claude-startup) { min-height: 42px; gap: 8px; }
@@ -75,5 +83,6 @@ import HeroIconStack from "./HeroIconStack.astro";
     :global(.hero-claude-auto), :global(.hero-desktop-only) { display: none; }
     :global(.hero-phone-only) { display: block; }
     :global(.hero-transcript-row:not([data-transcript-tier~="phone"])) { display: none; }
+    :global(.hero-transcript-row[data-transcript-tier~="phone"]) { display: block; }
   }
 </style>

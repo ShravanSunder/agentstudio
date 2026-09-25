@@ -12,14 +12,23 @@ import { heroTranscriptTierAttribute } from "./hero-intro-dom-contract";
       <div><span class="hero-terminal-muted">directory: </span>~/tool-portal</div>
     </div>
     {
-      codexTranscript.map((row) => (
-        <div
-          class={`hero-transcript-row hero-transcript-row--${row.kind}`}
-          {...{ [heroTranscriptTierAttribute]: row.tiers.join(" ") }}
-        >
-          {row.text}
-        </div>
-      ))
+      codexTranscript.map((row) => {
+        const resultIndex = row.kind === "codex-detail" ? row.text.indexOf("14 passed") : -1;
+        return (
+          <div
+            class={`hero-transcript-row hero-transcript-row--${row.kind}`}
+            {...{ [heroTranscriptTierAttribute]: row.tiers.join(" ") }}
+          >
+            {row.kind === "codex-action" ? (
+              <><span class="hero-terminal-dim">•</span>{" "}<span class="hero-terminal-lavender">{row.text.slice(2)}</span></>
+            ) : resultIndex >= 0 ? (
+              <><span class="hero-terminal-muted">{row.text.slice(0, resultIndex)}</span><span class="hero-terminal-green">14 passed</span><span class="hero-terminal-muted">{row.text.slice(resultIndex + "14 passed".length)}</span></>
+            ) : row.kind === "codex-prose" ? (
+              <><span class="hero-terminal-dim">•</span><span class="hero-terminal-muted">{row.text.slice(1)}</span></>
+            ) : row.text}
+          </div>
+        );
+      })
     }
   </div>
   <div class="hero-codex-footer">

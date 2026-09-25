@@ -55,6 +55,10 @@ describe("hero intro", () => {
         Number(observation.viewport.split("x")[0]) >= 1024,
       );
       expect(observation.canvasColor, observation.viewport).toBe("rgb(25, 27, 31)");
+      expect(observation.visibleBashRows, observation.viewport).toBe(1);
+      if (observation.viewport === "820x1180") {
+        expect(observation.earlierExchangeVisible).toBe(true);
+      }
     }
   });
 });

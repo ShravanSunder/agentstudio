@@ -18,6 +18,15 @@ describe("hero terminal transcripts", () => {
     );
   });
 
+  it("gives every tier exactly one Bash tool call", () => {
+    for (const tier of ["full", "compact", "phone"] as const) {
+      const bashRows = claudeTranscript.filter(
+        (row) => row.tiers.includes(tier) && row.kind === "tool-call" && row.text.includes("Bash("),
+      );
+      expect(bashRows, tier).toHaveLength(1);
+    }
+  });
+
   it("drops the earlier exchange in compact mode", () => {
     const compact = claudeTranscript.filter((row) => row.tiers.includes("compact"));
     expect(compact.some((row) => row.text.includes("sidebar filter ordering"))).toBe(false);

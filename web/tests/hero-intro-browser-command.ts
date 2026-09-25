@@ -18,6 +18,8 @@ export interface HeroLayoutObservation {
   readonly viewportWidth: number;
   readonly codexVisible: boolean;
   readonly canvasColor: string;
+  readonly visibleBashRows: number;
+  readonly earlierExchangeVisible: boolean;
   readonly overflowElements: readonly string[];
 }
 
@@ -80,6 +82,11 @@ export const verifyHeroIntroLayout = defineBrowserCommand(
                 viewportWidth: document.documentElement.clientWidth,
                 codexVisible: getComputedStyle(codex).display !== "none",
                 canvasColor: getComputedStyle(document.body).backgroundColor,
+                visibleBashRows: visibleRows.filter((row) => row.textContent?.includes("Bash("))
+                  .length,
+                earlierExchangeVisible: visibleRows.some((row) =>
+                  row.textContent?.includes("sidebar filter ordering"),
+                ),
                 overflowElements: [...document.querySelectorAll<HTMLElement>("body *")]
                   .filter((element) => element.getBoundingClientRect().right > width + 1)
                   .slice(0, 10)
