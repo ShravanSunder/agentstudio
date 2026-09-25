@@ -667,62 +667,12 @@ final class WorkspaceSurfaceCoordinator {
 
     private func handleTerminalRuntimeEvent(_ event: GhosttyEvent, sourcePaneId: PaneId) {
         let sourcePaneUUID = sourcePaneId.uuid
-        let tabs = store.tabLayoutAtom.tabs
-        guard let sourceTabId = tabs.first(where: { $0.activePaneIds.contains(sourcePaneUUID) })?.id else {
-            Self.logger.warning(
-                "Terminal runtime event dropped: source pane \(sourcePaneUUID.uuidString, privacy: .public) is not present in any tab. event=\(String(describing: event), privacy: .public)"
-            )
-            return
-        }
-
         switch event {
-        case .newTab:
-            openNewTabFromSourcePane(sourcePaneUUID)
-        case .newSplit(let direction):
-            submitWorkspaceAction(
-                .insertPane(
-                    source: .newTerminal,
-                    targetTabId: sourceTabId,
-                    targetPaneId: sourcePaneUUID,
-                    direction: mapSplitDirection(direction),
-                    sizingMode: .halveTarget
-                )
+        case .newTab, .newSplit, .gotoSplit, .resizeSplit, .equalizeSplits, .toggleSplitZoom,
+            .closeTab, .gotoTab, .moveTab:
+            Self.logger.debug(
+                "Ghostty structural runtime event dropped by coordinator for pane \(sourcePaneUUID.uuidString, privacy: .public) event=\(String(describing: event), privacy: .public)"
             )
-        case .gotoSplit(let direction):
-            guard
-                let command = mapGotoSplitDirection(direction),
-                let action = WorkspaceCommandResolver.resolve(
-                    command: command, tabs: tabs, activeTabId: sourceTabId)
-            else {
-                Self.logger.debug(
-                    "Unable to resolve gotoSplit runtime event for pane \(sourcePaneUUID.uuidString, privacy: .public) direction=\(String(describing: direction), privacy: .public)"
-                )
-                return
-            }
-            submitWorkspaceAction(action)
-        case .resizeSplit(let amount, let direction):
-            submitWorkspaceAction(
-                .resizePaneByDelta(
-                    tabId: sourceTabId,
-                    paneId: sourcePaneUUID,
-                    direction: mapResizeSplitDirection(direction),
-                    amount: amount
-                )
-            )
-        case .equalizeSplits:
-            submitWorkspaceAction(.equalizePanes(tabId: sourceTabId))
-        case .toggleSplitZoom:
-            AppCommandDispatcher.shared.dispatch(
-                .zoomPane,
-                target: sourcePaneUUID,
-                targetType: .pane
-            )
-        case .closeTab(let mode):
-            executeCloseTabMode(mode, sourceTabId: sourceTabId)
-        case .gotoTab(let target):
-            executeGotoTabTarget(target, sourceTabId: sourceTabId)
-        case .moveTab(let amount):
-            submitWorkspaceAction(.moveTab(tabId: sourceTabId, delta: amount))
         case .titleChanged(let title):
             store.paneAtom.updatePaneTitle(sourcePaneUUID, title: title)
         case .tabTitleChanged(let title):
@@ -751,110 +701,6 @@ final class WorkspaceSurfaceCoordinator {
             Self.logger.debug(
                 "Terminal runtime event ignored by coordinator for pane \(sourcePaneUUID.uuidString, privacy: .public): \(String(describing: event), privacy: .public)"
             )
-        }
-    }
-
-    private func openNewTabFromSourcePane(_ sourcePaneId: UUID) {
-        let workspaceRepositoryTopology = store.repositoryTopologyAtom
-        if let sourcePane = store.paneAtom.pane(sourcePaneId),
-            let worktreeId = sourcePane.worktreeId,
-            let repoId = sourcePane.repoId,
-            let worktree = workspaceRepositoryTopology.worktree(worktreeId),
-            workspaceRepositoryTopology.repo(repoId) != nil
-        {
-            submitWorkspaceAction(.openNewTerminalInTab(worktreeId: worktree.id, launchDirectory: nil, title: nil))
-            return
-        }
-
-        if let repo = workspaceRepositoryTopology.repos.first, let worktree = repo.worktrees.first {
-            submitWorkspaceAction(.openNewTerminalInTab(worktreeId: worktree.id, launchDirectory: nil, title: nil))
-            return
-        }
-
-        Self.logger.warning(
-            "Unable to open new tab from source pane \(sourcePaneId.uuidString, privacy: .public): no repo/worktree available"
-        )
-    }
-
-    private func executeCloseTabMode(_ mode: GhosttyCloseTabMode, sourceTabId: UUID) {
-        let tabs = store.tabLayoutAtom.tabs
-        switch mode {
-        case .thisTab:
-            submitWorkspaceAction(.closeTab(tabId: sourceTabId))
-        case .otherTabs:
-            for tab in tabs where tab.id != sourceTabId {
-                submitWorkspaceAction(.closeTab(tabId: tab.id))
-            }
-        case .rightTabs:
-            guard let sourceTabIndex = tabs.firstIndex(where: { $0.id == sourceTabId }) else { return }
-            let rightTabs = tabs.dropFirst(sourceTabIndex + 1)
-            for tab in rightTabs {
-                submitWorkspaceAction(.closeTab(tabId: tab.id))
-            }
-        }
-    }
-
-    private func executeGotoTabTarget(_ target: GhosttyGotoTabTarget, sourceTabId: UUID) {
-        let tabs = store.tabLayoutAtom.tabs
-        guard !tabs.isEmpty else { return }
-
-        let action: WorkspaceActionCommand?
-        switch target {
-        case .previous:
-            action = WorkspaceCommandResolver.resolve(command: .prevTab, tabs: tabs, activeTabId: sourceTabId)
-        case .next:
-            action = WorkspaceCommandResolver.resolve(command: .nextTab, tabs: tabs, activeTabId: sourceTabId)
-        case .last:
-            action = tabs.last.map { .selectTab(tabId: $0.id) }
-        case .index(let oneBasedIndex):
-            let zeroBasedIndex = min(max(oneBasedIndex - 1, 0), tabs.count - 1)
-            action = .selectTab(tabId: tabs[zeroBasedIndex].id)
-        }
-
-        if let action {
-            submitWorkspaceAction(action)
-        } else {
-            Self.logger.debug(
-                "Unable to resolve gotoTab runtime event for sourceTabId \(sourceTabId.uuidString, privacy: .public) target=\(String(describing: target), privacy: .public)"
-            )
-        }
-    }
-
-    /// Map Ghostty split direction to layout direction.
-    /// The flat pane strip only supports horizontal layout, so vertical
-    /// directions are mapped to their horizontal equivalents.
-    private func mapSplitDirection(_ direction: GhosttySplitDirection) -> SplitNewDirection {
-        switch direction {
-        case .left, .up:
-            return .left
-        case .right, .down:
-            return .right
-        }
-    }
-
-    /// Map Ghostty resize direction to layout resize direction.
-    /// Vertical resize is mapped to horizontal (flat strip only).
-    private func mapResizeSplitDirection(_ direction: GhosttyResizeSplitDirection) -> SplitResizeDirection {
-        switch direction {
-        case .left, .up:
-            return .left
-        case .right, .down:
-            return .right
-        }
-    }
-
-    /// Map Ghostty goto-split direction to an app command.
-    /// Vertical focus is mapped to horizontal (flat strip only).
-    private func mapGotoSplitDirection(_ direction: GhosttyGotoSplitDirection) -> AppCommand? {
-        switch direction {
-        case .previous:
-            return .focusPrevPane
-        case .next:
-            return .focusNextPane
-        case .left, .up:
-            return .focusPaneLeft
-        case .right, .down:
-            return .focusPaneRight
         }
     }
 }
