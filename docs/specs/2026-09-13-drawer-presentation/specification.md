@@ -87,6 +87,15 @@ Temporary display clamping MUST NOT rewrite a saved normal height.
 
 Basis: U-BN-10, U-BN-11. Proof: V-DP-3, V-DP-4.
 
+## R-DP-7 — Zoom split bounds (owner, 2026-09-25)
+
+In Pane Zoom the terminal/Bridge split defaults to 40% terminal / 60% Bridge.
+The terminal region MUST stay within 30–60% of the split width and the Bridge
+region within 40–70%. Dragging stops at those bounds, resetting the divider
+returns to the default, and a stored ratio outside the bounds is clamped when
+restored. With these bounds the tiny-region case of R-DP-6 no longer arises
+from dragging.
+
 ## R-DP-4 — Side commands
 
 Two commands MUST place the full-screen drawer over the terminal or Bridge
