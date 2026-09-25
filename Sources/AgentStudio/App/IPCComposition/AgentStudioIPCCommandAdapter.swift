@@ -39,18 +39,8 @@ struct AgentStudioIPCCommandAdapter: AppIPCCommandPort, @unchecked Sendable {
         )
     }
 
-    func listCommands() throws -> IPCCommandCatalogResult {
-        let commands =
-            try AgentStudioIPCCommandCatalogProjection
-            .admittedCommands(on: channel)
-            .map(AgentStudioIPCCommandCatalogProjection.makeDescriptor)
-            .sorted { $0.id.rawValue < $1.id.rawValue }
-        return IPCCommandCatalogResult(
-            compatibility: .current,
-            commands: commands,
-            recognizedUnexposedCommands: AgentStudioIPCCommandCatalogProjection.recognizedUnexposedCommands(
-                on: channel)
-        )
+    func commandCatalogProjectionInputs() -> AppIPCCommandCatalogProjectionInputs {
+        AgentStudioIPCCommandCatalogProjection.captureBuildInputs(on: channel)
     }
 
     func prepareCommand(

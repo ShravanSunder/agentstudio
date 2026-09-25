@@ -13,9 +13,9 @@ import Testing
 @Suite("AgentStudio IPC command adapter", .serialized)
 struct AgentStudioIPCCommandAdapterTests {
     @Test("stable catalog exposes the all-channel headless commands and the agent own-pane set")
-    func catalogContainsCurrentHeadlessCommandsOnly() throws {
+    func catalogContainsCurrentHeadlessCommandsOnly() async throws {
         let harness = CommandAdapterHarness()
-        let catalog = try harness.adapter.listCommands()
+        let catalog = try await makeIPCCommandCatalogOffMain(from: harness.adapter)
         let ids = Set(catalog.commands.map(\.id.rawValue))
 
         #expect(catalog.compatibility == .current)
@@ -37,6 +37,14 @@ struct AgentStudioIPCCommandAdapterTests {
         #expect(reload.argumentVariants == [.pane])
         #expect(reload.resultVariants == [.accepted])
         #expect(reload.requiredPrivileges == [.appCommandExecute, .workspaceRead])
+    }
+
+    @Test("command descriptor composition has a sendable nonisolated builder type")
+    func commandDescriptorCompositionBuilderIsNonisolated() {
+        let buildCommandComposition:
+            @Sendable (AppIPCCommandCatalogProjectionInputs) async throws -> IPCCommandMethodComposition =
+                AppIPCDescriptorCatalogBuilder.buildCommandCompositionOffMain
+        _ = buildCommandComposition
     }
 
     @Test("retired Panes organization commands remain unavailable without reaching an owner")
@@ -269,13 +277,10 @@ struct AgentStudioIPCCommandAdapterTests {
     }
 
     @Test("complete actual capabilities catalog fits the existing one MiB NDJSON frame")
-    func completeActualCapabilitiesCatalogFitsExistingFrame() throws {
+    func completeActualCapabilitiesCatalogFitsExistingFrame() async throws {
         let adapter = CommandAdapterHarness().adapter
-        let commandCatalog = try adapter.listCommands()
-        let commandComposition = try IPCCommandMethodComposition(
-            compatibility: .current,
-            commands: commandCatalog.commands
-        )
+        let commandComposition = try await makeIPCCommandCompositionOffMain(from: adapter)
+        let commandCatalog = commandComposition.catalogResult
         let builtIns = try IPCBuiltInMethodCatalog(
             inputs: IPCBuiltInMethodCatalogInputs(
                 terminalWaitMaximumSeconds: AppPolicies.IPC.maximumTerminalWaitSeconds,

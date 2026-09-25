@@ -378,6 +378,13 @@ extension AppDelegate {
         guard mainWindowController?.acceptsIPCCommands == true else {
             throw AppIPCLayoutError(reason: .noActiveWindow)
         }
+        let commandPort = AgentStudioIPCCommandAdapter(
+            workspaceId: store.identityAtom.workspaceId,
+            channel: appIPCServerChannel,
+            targetAuthorizer: WorkspaceDurableTargetAuthorizationPort(workspaceStore: store),
+            shellCommandHandler: self
+        )
+        let commandCatalogProjectionInputs = commandPort.commandCatalogProjectionInputs()
         let ports = AgentStudioAppIPCPorts(
             queryPort: AgentStudioIPCQueryAdapter(
                 runtimeId: runtimeId,
@@ -402,12 +409,7 @@ extension AppDelegate {
                 viewRegistry: viewRegistry,
                 actionExecutor: executor
             ),
-            commandPort: AgentStudioIPCCommandAdapter(
-                workspaceId: store.identityAtom.workspaceId,
-                channel: appIPCServerChannel,
-                targetAuthorizer: WorkspaceDurableTargetAuthorizationPort(workspaceStore: store),
-                shellCommandHandler: self
-            ),
+            commandPort: commandPort,
             uiPresentationPort: AgentStudioIPCUIPresentationAdapter(
                 presenter: self,
                 targetAuthorizer: WorkspaceDurableTargetAuthorizationPort(workspaceStore: store)
@@ -432,7 +434,8 @@ extension AppDelegate {
             let registry = try await makeAppIPCMethodRegistry(
                 runtimeId: runtimeId,
                 ports: ports,
-                eventBroker: eventBroker
+                eventBroker: eventBroker,
+                commandCatalogProjectionInputs: commandCatalogProjectionInputs
             )
         else { return nil }
         let service = AgentStudioAppIPCService(
@@ -456,15 +459,14 @@ extension AppDelegate {
     private func makeAppIPCMethodRegistry(
         runtimeId: UUID,
         ports: AgentStudioAppIPCPorts,
-        eventBroker: IPCEventBroker
+        eventBroker: IPCEventBroker,
+        commandCatalogProjectionInputs: AppIPCCommandCatalogProjectionInputs
     ) async throws -> AppIPCMethodRegistry? {
         let channel = appIPCServerChannel
-        let commandListing = try ports.commandPort.listCommands()
-        let recognizedCommands = AgentStudioIPCCommandCatalogProjection.recognizedCommands
+        let recognizedCommands = commandCatalogProjectionInputs.recognizedCommands
         let builderInputs = AppIPCDescriptorCatalogBuildInputs(
             builtInCatalogInputs: Self.appIPCBuiltInMethodCatalogInputs(),
-            commandCatalog: commandListing,
-            channel: channel
+            commandCatalogProjectionInputs: commandCatalogProjectionInputs
         )
         let descriptorComposition = try await AppIPCDescriptorCatalogBuilder.buildOffMain(inputs: builderInputs)
         // The deferred initializer reports cancellation after this closure returns.

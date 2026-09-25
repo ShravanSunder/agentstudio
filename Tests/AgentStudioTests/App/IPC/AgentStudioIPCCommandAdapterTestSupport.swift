@@ -114,6 +114,23 @@ final class RecordingWorkspaceIPCCommandHandler: WorkspaceCommandHandling {
     }
 }
 
+@MainActor
+func makeIPCCommandCatalogOffMain(
+    from adapter: AgentStudioIPCCommandAdapter
+) async throws -> IPCCommandCatalogResult {
+    try await makeIPCCommandCompositionOffMain(from: adapter).catalogResult
+}
+
+@MainActor
+func makeIPCCommandCompositionOffMain(
+    from adapter: AgentStudioIPCCommandAdapter
+) async throws -> IPCCommandMethodComposition {
+    let buildCommandComposition:
+        @Sendable (AppIPCCommandCatalogProjectionInputs) async throws -> IPCCommandMethodComposition =
+            AppIPCDescriptorCatalogBuilder.buildCommandCompositionOffMain
+    return try await buildCommandComposition(adapter.commandCatalogProjectionInputs())
+}
+
 func commandAdapterTestPrincipal() -> IPCPrincipal {
     IPCPrincipal(
         principalId: UUIDv7.generate(),

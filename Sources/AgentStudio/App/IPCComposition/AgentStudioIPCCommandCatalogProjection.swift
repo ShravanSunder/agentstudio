@@ -23,6 +23,21 @@ enum AgentStudioIPCCommandCatalogProjection {
         AppCommand.allCases.filter { admitsCommand($0, on: channel) }
     }
 
+    /// Captures only the admitted commands' immutable IPC spec values on
+    /// MainActor. Example generation and descriptor/schema work happen in
+    /// `AppIPCDescriptorCatalogBuilder.buildOffMain`.
+    static func captureBuildInputs(on channel: AgentStudioIPCChannel) -> AppIPCCommandCatalogProjectionInputs {
+        let commandDescriptorInputs = admittedCommands(on: channel).map { command in
+            command.ipcSpec.descriptorInput(definition: command.definition, examples: [])
+        }
+        return AppIPCCommandCatalogProjectionInputs(
+            channel: channel,
+            commandDescriptorInputs: commandDescriptorInputs,
+            recognizedCommands: recognizedCommands,
+            recognizedUnexposedCommands: recognizedUnexposedCommands(on: channel)
+        )
+    }
+
     /// Every command on every channel, with its exposure and agent
     /// eligibility, so the registry can refuse a pane agent by command name.
     static var recognizedCommands: [AppIPCRecognizedEntry] {
@@ -42,17 +57,30 @@ enum AgentStudioIPCCommandCatalogProjection {
         }
     }
 
-    static func makeDescriptor(for command: AppCommand) throws -> IPCCommandDescriptor {
-        let examples = try command.ipcSpec.argumentVariants.map { variant in
-            let request = try exampleRequest(for: command, variant: variant)
+    static func makeDescriptor(from capturedInput: IPCCommandDescriptorInput) throws -> IPCCommandDescriptor {
+        let examples = try capturedInput.argumentVariants.map { variant in
+            let request = try exampleRequest(commandIdentifier: capturedInput.id, variant: variant)
             return IPCCommandExample(
                 description: "Execute with explicit typed \(variant.rawValue) context.",
                 request: request,
-                result: exampleResult(for: command, request: request)
+                result: exampleResult(for: capturedInput.resultVariants, request: request)
             )
         }
         return try IPCCommandDescriptorFactory.make(
-            command.ipcSpec.descriptorInput(definition: command.definition, examples: examples)
+            IPCCommandDescriptorInput(
+                id: capturedInput.id,
+                title: capturedInput.title,
+                description: capturedInput.description,
+                exposure: capturedInput.exposure,
+                executionMode: capturedInput.executionMode,
+                argumentVariants: capturedInput.argumentVariants,
+                requiredPrivileges: capturedInput.requiredPrivileges,
+                dataScope: capturedInput.dataScope,
+                allowedTargetKinds: capturedInput.allowedTargetKinds,
+                resultVariants: capturedInput.resultVariants,
+                examples: examples,
+                agentEligibility: capturedInput.agentEligibility
+            )
         )
     }
 
@@ -63,9 +91,16 @@ enum AgentStudioIPCCommandCatalogProjection {
         for command: AppCommand,
         request: IPCCommandExecutionRequest
     ) -> IPCCommandExecutionResult {
+        exampleResult(for: command.ipcSpec.resultVariants, request: request)
+    }
+
+    static func exampleResult(
+        for resultVariants: [IPCCommandResultVariant],
+        request: IPCCommandExecutionRequest
+    ) -> IPCCommandExecutionResult {
         let commandId = request.commandId
         let correlationId = request.correlationId
-        switch command.ipcSpec.resultVariants.first {
+        switch resultVariants.first {
         case .accepted:
             return .accepted(.init(commandId: commandId, correlationId: correlationId, operationId: nil))
         case .presented:
@@ -82,8 +117,15 @@ enum AgentStudioIPCCommandCatalogProjection {
         for command: AppCommand,
         variant: IPCCommandArgumentVariant
     ) throws -> IPCCommandExecutionRequest {
+        try exampleRequest(commandIdentifier: IPCCommandIdentifier(rawValue: command.rawValue), variant: variant)
+    }
+
+    private static func exampleRequest(
+        commandIdentifier: IPCCommandIdentifier,
+        variant: IPCCommandArgumentVariant
+    ) throws -> IPCCommandExecutionRequest {
         IPCCommandExecutionRequest(
-            commandId: .init(rawValue: command.rawValue),
+            commandId: commandIdentifier,
             correlationId: ExampleIdentities.correlation,
             arguments: try exampleArguments(for: variant)
         )

@@ -712,10 +712,6 @@ private final class PreparedCommandRecordingPort: AppIPCCommandPort, @unchecked 
         lock.withLock { preparedRequestsStorage }
     }
 
-    func listCommands() throws -> IPCCommandCatalogResult {
-        try underlying.listCommands()
-    }
-
     func prepareCommand(
         _ params: IPCCommandExecutionRequest,
         principal: IPCPrincipal,

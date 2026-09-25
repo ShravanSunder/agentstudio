@@ -183,7 +183,6 @@ package struct AppIPCPreparedCommand: Sendable {
 
 @MainActor
 package protocol AppIPCCommandPort: Sendable {
-    func listCommands() throws -> IPCCommandCatalogResult
     func prepareCommand(
         _ params: IPCCommandExecutionRequest, principal: IPCPrincipal, tools: AppIPCTargetResolutionTools
     ) async throws -> AppIPCPreparedCommand

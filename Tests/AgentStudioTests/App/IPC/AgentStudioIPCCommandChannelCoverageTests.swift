@@ -26,8 +26,9 @@ struct AgentStudioIPCCommandChannelCoverageTests {
     }
 
     @Test("debug discovery exposes every AppCommand and labels the debug-only ones")
-    func debugCatalogExposesEveryAppCommand() throws {
-        let catalog = try CommandAdapterHarness(channel: .debug).adapter.listCommands()
+    func debugCatalogExposesEveryAppCommand() async throws {
+        let catalog = try await makeIPCCommandCatalogOffMain(
+            from: CommandAdapterHarness(channel: .debug).adapter)
         let ids = Set(catalog.commands.map(\.id.rawValue))
 
         #expect(catalog.commands.count == AppCommand.allCases.count)
@@ -50,8 +51,9 @@ struct AgentStudioIPCCommandChannelCoverageTests {
         "stable and beta discovery admits the all-channel headless commands and the agent own-pane set",
         arguments: [AgentStudioIPCChannel.stable, .beta]
     )
-    func admittedChannelCatalogStaysFrozen(channel: AgentStudioIPCChannel) throws {
-        let catalog = try CommandAdapterHarness(channel: channel).adapter.listCommands()
+    func admittedChannelCatalogStaysFrozen(channel: AgentStudioIPCChannel) async throws {
+        let catalog = try await makeIPCCommandCatalogOffMain(
+            from: CommandAdapterHarness(channel: channel).adapter)
         let ids = Set(catalog.commands.map(\.id.rawValue))
 
         #expect(catalog.commands.count == 24)
@@ -195,12 +197,10 @@ struct AgentStudioIPCCommandChannelCoverageTests {
     }
 
     @Test("the complete debug command catalog still fits the existing one MiB NDJSON frame")
-    func debugCatalogFitsExistingFrame() throws {
-        let catalog = try CommandAdapterHarness(channel: .debug).adapter.listCommands()
-        let composition = try IPCCommandMethodComposition(
-            compatibility: .current,
-            commands: catalog.commands
-        )
+    func debugCatalogFitsExistingFrame() async throws {
+        let composition = try await makeIPCCommandCompositionOffMain(
+            from: CommandAdapterHarness(channel: .debug).adapter)
+        let catalog = composition.catalogResult
         let response = JSONRPCResponse.success(
             id: .number(1),
             result: try JSONRPCCodec.encodeJSONValue(composition.catalogResult)
@@ -237,7 +237,7 @@ struct AgentStudioIPCCommandChannelCoverageTests {
     ]
 
     @Test("only the own-pane commands are agent eligible, and discovery reports each command's eligibility")
-    func agentEligibilityMatchesTheOwnPaneSet() throws {
+    func agentEligibilityMatchesTheOwnPaneSet() async throws {
         let ownPane = AppCommand.allCases.filter { $0.ipcSpec.agentEligibility == .ownPane }
         let anyTarget = AppCommand.allCases.filter { $0.ipcSpec.agentEligibility == .anyTarget }
 
@@ -245,7 +245,8 @@ struct AgentStudioIPCCommandChannelCoverageTests {
         #expect(anyTarget.isEmpty)
         #expect(ownPane.allSatisfy { $0.ipcSpec.exposure == .allChannels })
 
-        let catalog = try CommandAdapterHarness(channel: .stable).adapter.listCommands()
+        let catalog = try await makeIPCCommandCatalogOffMain(
+            from: CommandAdapterHarness(channel: .stable).adapter)
         for descriptor in catalog.commands {
             let command = try #require(AppCommand(rawValue: descriptor.id.rawValue))
             #expect(descriptor.agentEligibility == command.ipcSpec.agentEligibility)

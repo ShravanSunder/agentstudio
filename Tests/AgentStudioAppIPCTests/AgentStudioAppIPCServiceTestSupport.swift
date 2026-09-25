@@ -542,10 +542,6 @@ final class FakeCommandPort: AppIPCCommandPort, @unchecked Sendable {
         }
     }
 
-    func listCommands() throws -> IPCCommandCatalogResult {
-        IPCCommandCatalogResult(compatibility: .current, commands: commands)
-    }
-
     func prepareCommand(
         _ request: IPCCommandExecutionRequest,
         principal _: IPCPrincipal,
