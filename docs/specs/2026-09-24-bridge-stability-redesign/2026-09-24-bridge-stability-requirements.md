@@ -50,7 +50,7 @@ Every row's authority state is **authorized**. Priority was assigned by the owne
 | **U9** | Delivery acknowledgements are windowed and cumulative, with a bounded window and a deadline, instead of one acknowledgement per frame. | Per-frame acknowledgement round trips were one of the wedge chains. | C1, C3 | Required |
 | **U10** | Tests catch real failures: real-path tests with fault injection, no timer-based waits, a test that fails first for every known wedge, and one contract suite every data type must pass. Harmful tests are replaced. | The owner's primary goal. Today, 29 of 60 sampled Bridge tests are harmful as written. | C3 | Primary |
 | **U11** | A Save panel (a native dialog waiting on the user) blocks no other Bridge operation. Closing or reloading the pane cancels it, and the save does not happen. | A human-paced wait must not freeze the pane (S13). | C1 | Required |
-| **U12** | The File view can filter its tree to changed files, with the same Git status kinds as Review. The two change filters are **"Uncommitted"** (vs HEAD) and **"All Changes"** (vs the merge-base with the origin default branch, e.g. `origin/main`: the same default Review compares against), narrowed by kind. The File view shows no target control; choosing a target is Review-only. With neither selected, all files show. Deleted files appear greyed and can't be opened. Review's picker names **"Uncommitted changes (HEAD)"** explicitly, and its Git status filter's first option reads **"All Changes"**. | File and Review should answer "what changed?" the same way, against either baseline. | C1 | Required |
+| **U12** | The File view can filter its tree to changed files, with the same Git status kinds as Review. The two change filters are **"Uncommitted"** (vs HEAD) and **"All Changes"** (vs the merge-base with the origin default branch, e.g. `origin/main`: the same default Review compares against), narrowed by kind. The File view shows no target control; choosing a target is Review-only. With neither selected, all files show. Deleted files appear greyed and can't be opened. Review's picker names **"Uncommitted changes (HEAD)"** explicitly, and its Git status filter's first option reads **"All Changes"**. In a multi-root collection, filters apply per member worktree. Loose documents under "Open Files" are never filtered, and show "not in git". | File and Review should answer "what changed?" the same way, against either baseline. | C1 | Required |
 
 ## Goal boundary (confirmed 2026-09-24)
 
@@ -73,7 +73,7 @@ Every row's authority state is **authorized**. Priority was assigned by the owne
   - the comment SQLite schema, by migration;
   - tests and test support.
 - **Protected:** Ghostty/zmx vendors; non-Bridge features; the IPC command catalog; files owned by the CI-guardrails work (PR #358); the release pipeline.
-- **Non-goals:** Markdown images and links; multi-root Bridge; performance tuning beyond freedom from wedges; storing original file bytes; background Review prewarm; compatibility shims or dual code paths.
+- **Non-goals:** Markdown images and links; *building* multi-root Bridge (#367 delivers it; this design accommodates its Files collection and comment subject model, merged 2026-09-25); performance tuning beyond freedom from wedges; storing original file bytes; background Review prewarm; compatibility shims or dual code paths.
 - **Limits:**
   - at most 3 stacked PRs (`gh stack`);
   - a hard cutover;
