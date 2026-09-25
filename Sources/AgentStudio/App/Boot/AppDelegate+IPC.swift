@@ -188,7 +188,9 @@ extension AppDelegate {
         } catch {
             appLogger.warning(
                 "App IPC server failed to start: \(error.localizedDescription, privacy: .private)")
-            recordAppIPCStart(unavailable: AppIPCStartUnavailability(serverStartError: error))
+            if !Task.isCancelled {
+                recordAppIPCStart(unavailable: AppIPCStartUnavailability(serverStartError: error))
+            }
         }
     }
 
