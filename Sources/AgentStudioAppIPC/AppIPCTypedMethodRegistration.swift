@@ -112,31 +112,6 @@ package struct AppIPCTypedMethodRegistration<
         @Sendable (Parameters, AppIPCConnectionContext, IPCTargetScope) async throws -> Result
 
     package init(
-        descriptor: IPCMethodDescriptor<Parameters, Result>,
-        correlation: AppIPCCorrelation<Parameters>,
-        resolveTarget:
-            @escaping @Sendable (
-                Parameters,
-                AppIPCConnectionContext,
-                AppIPCTargetResolutionTools
-            ) async throws -> AppIPCTargetResolution<Parameters>,
-        connectionHandler:
-            @escaping @Sendable (
-                Parameters,
-                AppIPCConnectionContext,
-                IPCTargetScope
-            ) async throws -> Result,
-        cachedTransportResult: AppIPCCachedTransportResult? = nil
-    ) {
-        self.descriptor = descriptor
-        validatedErasedDescriptor = nil
-        self.correlation = correlation
-        self.resolveTarget = resolveTarget
-        self.connectionHandler = connectionHandler
-        self.cachedTransportResult = cachedTransportResult
-    }
-
-    package init(
         descriptorRepresentations: IPCMethodDescriptorRepresentations<Parameters, Result>,
         correlation: AppIPCCorrelation<Parameters>,
         resolveTarget:
