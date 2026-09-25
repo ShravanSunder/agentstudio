@@ -176,14 +176,19 @@ struct ZoomPresentationContainer: View {
                             companionContent
                         },
                         onEqualize: {
-                            splitRatio = 0.5
-                            persistSplitRatio(0.5)
+                            let defaultRatio = CGFloat(AppPolicies.PaneZoomSplit.defaultTerminalRatio)
+                            splitRatio = defaultRatio
+                            persistSplitRatio(defaultRatio)
                         },
                         showsDivider: isCompanionVisible,
                         reservesDividerSpace: companionContent != nil,
                         onResizeEnd: {
                             persistSplitRatio(splitRatio)
-                        }
+                        },
+                        splitRatioBounds: CGFloat(
+                            AppPolicies.PaneZoomSplit.minimumTerminalRatio)...CGFloat(
+                                AppPolicies.PaneZoomSplit.maximumTerminalRatio
+                            )
                     )
                     .onGeometryChange(for: CGRect.self) { geometry in
                         geometry.frame(in: .named("tabContainer"))
@@ -564,7 +569,8 @@ struct ZoomPresentationContainer: View {
                         toolbarPresentation: .hidden
                     )
                 )
-                let sourceRatio = presentation.transientSplitRatio ?? 0.5
+                let sourceRatio =
+                    presentation.transientSplitRatio ?? AppPolicies.PaneZoomSplit.defaultTerminalRatio
                 layout = AgentStudioCore.Layout(
                     panes: [
                         AgentStudioCore.Layout.PaneEntry(

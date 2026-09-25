@@ -666,6 +666,21 @@ package enum AppPolicies {
         }
     }
 
+    package enum PaneZoomSplit {
+        package static let defaultTerminalRatio: Double = 0.40
+        package static let minimumTerminalRatio: Double = 0.30
+        package static let maximumTerminalRatio: Double = 0.60
+
+        package static func containsTerminalRatio(_ ratio: Double) -> Bool {
+            ratio.isFinite && ratio >= minimumTerminalRatio && ratio <= maximumTerminalRatio
+        }
+
+        package static func clampTerminalRatio(_ ratio: Double) -> Double {
+            guard ratio.isFinite else { return defaultTerminalRatio }
+            return min(max(ratio, minimumTerminalRatio), maximumTerminalRatio)
+        }
+    }
+
     package enum InboxNotification {
         /// Maximum number of notifications retained in the inbox per workspace.
         /// When `append` would exceed this cap, the oldest entry is evicted.

@@ -57,6 +57,25 @@ struct DrawerPresentationActionValidationTests {
         }
     }
 
+    @Test("Zoom split ratio validation enforces the terminal 30-60 percent bounds")
+    func zoomSplitRatioRequiresBoundedTerminalShare() {
+        let validAction = WorkspaceActionCommand.setZoomSplitRatio(tabId: tabId, ratio: 0.4)
+        let validResult = WorkspaceCommandValidator.validate(
+            validAction,
+            state: snapshot(zoomSource: ownerPaneId)
+        )
+        #expect((try? validResult.get().action) == validAction)
+
+        for ratio in [0.29, 0.61] {
+            let action = WorkspaceActionCommand.setZoomSplitRatio(tabId: tabId, ratio: ratio)
+            let result = WorkspaceCommandValidator.validate(
+                action,
+                state: snapshot(zoomSource: ownerPaneId)
+            )
+            #expect(result == .failure(.invalidRatio(ratio: ratio)))
+        }
+    }
+
     @Test("Zoom side commits only for the current Zoom source", arguments: DrawerZoomSide.allCases)
     func zoomSideRequiresZoomSource(side: DrawerZoomSide) {
         let action = WorkspaceActionCommand.setDrawerZoomSide(parentPaneId: ownerPaneId, side: side)

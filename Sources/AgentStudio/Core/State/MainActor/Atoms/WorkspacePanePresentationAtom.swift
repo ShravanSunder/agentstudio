@@ -72,11 +72,11 @@ package final class WorkspacePanePresentationAtom {
 
     package var zoomPresentationsByTabId: [UUID: ZoomPresentation] {
         _ = acceptedCommitRevision.value
-        return zoomPresentationFamily.snapshot()
+        return zoomPresentationFamily.snapshot().mapValues(normalizedZoomPresentation)
     }
 
     package func zoomPresentation(forTab tabId: UUID) -> ZoomPresentation? {
-        zoomPresentationFamily.value(for: tabId)
+        zoomPresentationFamily.value(for: tabId).map(normalizedZoomPresentation)
     }
 
     package func zoomCompanion(forSourcePane sourcePaneId: UUID) -> ZoomCompanionMetadata? {
@@ -89,6 +89,11 @@ package final class WorkspacePanePresentationAtom {
         viewerPresentation: ZoomViewerPresentation,
         transientSplitRatio: Double? = nil
     ) {
+        let storedSplitRatio = transientSplitRatio ?? zoomSplitRatiosBySourcePaneId[sourcePaneId]
+        let splitRatio =
+            storedSplitRatio.map(AppPolicies.PaneZoomSplit.clampTerminalRatio)
+            ?? AppPolicies.PaneZoomSplit.defaultTerminalRatio
+        zoomSplitRatiosBySourcePaneId[sourcePaneId] = splitRatio
         setZoomPresentation(
             ZoomPresentation(
                 sourcePaneId: sourcePaneId,
@@ -97,7 +102,7 @@ package final class WorkspacePanePresentationAtom {
                     forSourcePane: sourcePaneId,
                     inTab: tabId
                 ),
-                transientSplitRatio: transientSplitRatio ?? zoomSplitRatiosBySourcePaneId[sourcePaneId]
+                transientSplitRatio: splitRatio
             ),
             forTab: tabId
         )
@@ -112,9 +117,7 @@ package final class WorkspacePanePresentationAtom {
         _ splitRatio: Double,
         inTab tabId: UUID
     ) -> Bool {
-        guard splitRatio.isFinite,
-            splitRatio > 0,
-            splitRatio < 1,
+        guard AppPolicies.PaneZoomSplit.containsTerminalRatio(splitRatio),
             var presentation = zoomPresentationFamily.snapshotValue(for: tabId)
         else {
             return false
@@ -131,16 +134,22 @@ package final class WorkspacePanePresentationAtom {
         to sourcePaneId: UUID,
         viewerPresentation: ZoomViewerPresentation
     ) -> Bool {
-        guard var presentation = zoomPresentationFamily.snapshotValue(for: tabId) else {
+        guard let storedPresentation = zoomPresentationFamily.snapshotValue(for: tabId) else {
             return false
         }
+        var presentation = normalizedZoomPresentation(storedPresentation)
         presentation.sourcePaneId = sourcePaneId
         presentation.viewerPresentation = normalizedViewerPresentation(
             viewerPresentation,
             forSourcePane: sourcePaneId,
             inTab: tabId
         )
-        presentation.transientSplitRatio = zoomSplitRatiosBySourcePaneId[sourcePaneId] ?? 0.5
+        let splitRatio =
+            zoomSplitRatiosBySourcePaneId[sourcePaneId].map(
+                AppPolicies.PaneZoomSplit.clampTerminalRatio
+            ) ?? AppPolicies.PaneZoomSplit.defaultTerminalRatio
+        zoomSplitRatiosBySourcePaneId[sourcePaneId] = splitRatio
+        presentation.transientSplitRatio = splitRatio
         setZoomPresentation(presentation, forTab: tabId)
         return true
     }
@@ -293,8 +302,16 @@ package final class WorkspacePanePresentationAtom {
         forTab tabId: UUID
     ) {
         let mutation = AtomMutationContext(aggregateRevision: acceptedCommitRevision)
-        zoomPresentationFamily.setValue(presentation, for: tabId, mutation: mutation)
+        zoomPresentationFamily.setValue(normalizedZoomPresentation(presentation), for: tabId, mutation: mutation)
         mutation.commit()
+    }
+
+    private func normalizedZoomPresentation(_ presentation: ZoomPresentation) -> ZoomPresentation {
+        var normalized = presentation
+        normalized.transientSplitRatio = AppPolicies.PaneZoomSplit.clampTerminalRatio(
+            presentation.transientSplitRatio ?? AppPolicies.PaneZoomSplit.defaultTerminalRatio
+        )
+        return normalized
     }
 
     private func removeZoomPresentation(forTab tabId: UUID) {

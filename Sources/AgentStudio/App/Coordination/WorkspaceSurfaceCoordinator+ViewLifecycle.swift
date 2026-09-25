@@ -923,7 +923,9 @@ extension WorkspaceSurfaceCoordinator {
                     width: containerBounds.width,
                     height: containerBounds.height - DrawerLayout.iconBarFrameHeight
                 ),
-                sourceSplitRatio: CGFloat(zoomPresentation.transientSplitRatio ?? 0.5),
+                sourceSplitRatio: CGFloat(
+                    zoomPresentation.transientSplitRatio ?? AppPolicies.PaneZoomSplit.defaultTerminalRatio
+                ),
                 reservesCompanionSpace: companionLayout.reservesCompanionSpace,
                 isCompanionVisible: companionLayout.isCompanionVisible
             )

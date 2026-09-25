@@ -1,4 +1,5 @@
 // swiftlint:disable cyclomatic_complexity function_body_length
+import AgentStudioInfrastructure
 import Foundation
 
 /// Wrapper that proves an action has passed validation.
@@ -442,7 +443,10 @@ package enum WorkspaceCommandValidator {
             guard state.tab(tabId) != nil else {
                 return .failure(.tabNotFound(tabId: tabId))
             }
-            guard state.zoomSourcePaneIdByTabId[tabId] != nil, ratio.isFinite, ratio > 0, ratio < 1 else {
+            guard
+                state.zoomSourcePaneIdByTabId[tabId] != nil,
+                AppPolicies.PaneZoomSplit.containsTerminalRatio(ratio)
+            else {
                 return .failure(.invalidRatio(ratio: ratio))
             }
             return .success(ValidatedAction(action))
