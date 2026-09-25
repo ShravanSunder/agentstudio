@@ -405,8 +405,8 @@ package final class TerminalPaneMountView: NSView, PaneMountedContent, SurfaceHe
             }
         }
         if displayPlan.installsCloseCallback {
-            surfaceView.onCloseRequested = { [weak self] processAlive in
-                self?.handleSurfaceClose(processAlive: processAlive)
+            surfaceView.onCloseRequested = { [weak self] processExited in
+                self?.handleSurfaceClose(processExited: processExited)
             }
         }
         scheduleGeometryCoherenceVerification(reason: geometryVerificationReason)
@@ -604,16 +604,21 @@ package final class TerminalPaneMountView: NSView, PaneMountedContent, SurfaceHe
 
     // MARK: - Surface Close Handling
 
-    @discardableResult
-    func handleSurfaceClose(processAlive: Bool) -> Task<Void, Never>? {
-        guard isProcessRunning else { return nil }
+    func handleSurfaceClose(processExited: Bool) {
+        guard processExited else {
+            RestoreTrace.log(
+                "TerminalPaneMountView.handleSurfaceClose ignored Ghostty request for running process pane=\(paneId) surface=\(surfaceId?.uuidString ?? "nil")"
+            )
+            return
+        }
+
         isProcessRunning = false
-        shouldSuppressProcessExitedOverlayAfterTermination = true
+        shouldSuppressProcessExitedOverlayAfterTermination = false
         hasObservedEffectiveTerminationDelivery = false
         RestoreTrace.log(
-            "TerminalPaneMountView.handleSurfaceClose pane=\(paneId) surface=\(surfaceId?.uuidString ?? "nil") processAlive=\(processAlive)"
+            "TerminalPaneMountView.handleSurfaceClose showing Process Exited pane=\(paneId) surface=\(surfaceId?.uuidString ?? "nil")"
         )
-        return postProcessTerminationEvent(processAlive: processAlive)
+        showProcessExitedFallback(processAlive: false)
     }
 
     func beginRestorePresentationIfNeeded() {

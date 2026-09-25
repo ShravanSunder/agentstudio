@@ -160,6 +160,27 @@ struct TerminalPaneMountViewExitBehaviorTests {
         )
     }
 
+    private func events(
+        through sentinelPaneId: UUID,
+        from stream: EventBusSubscription<AppEvent>
+    ) async -> [AppEvent] {
+        var receivedEvents: [AppEvent] = []
+        for await event in stream {
+            receivedEvents.append(event)
+            if case .worktreeBellRang(let paneId) = event, paneId == sentinelPaneId {
+                return receivedEvents
+            }
+        }
+        return receivedEvents
+    }
+
+    private func simulateGhosttyCloseCallback(
+        processExited: Bool,
+        on mountView: TerminalPaneMountView
+    ) {
+        mountView.simulateSurfaceCloseForTesting(processExited: processExited)
+    }
+
     private func makeSubscribedPaneId(in store: WorkspaceStore) -> UUID {
         let pane = store.createPane(
             content: .webview(WebviewState(url: URL(string: "https://example.com/\(UUID().uuidString)")!)),
@@ -169,66 +190,117 @@ struct TerminalPaneMountViewExitBehaviorTests {
         return pane.id
     }
 
-    @Test("process termination without subscribers keeps a visible fallback")
-    func processTermination_withoutSubscribers_showsFallbackOverlay() async {
-        let clock = TestPushClock()
-        let mountView = makeProcessExitMountView(terminationAcknowledgementClock: clock)
+    @Test("Ghostty close callback while running does not dispatch pane close")
+    func ghosttyCloseCallbackWhileRunning_doesNotClosePane() async {
+        let store = WorkspaceStore()
+        let paneId = makeSubscribedPaneId(in: store)
+        let tabId = store.tabs[0].id
+        let appEventBus = EventBus<AppEvent>()
+        let eventRecorder = await appEventBus.subscribe(
+            policy: .criticalUnbounded,
+            subscriberName: "TerminalPaneMountViewExitBehaviorTests.liveCloseRecorder"
+        )
+        let mountView = makeProcessExitMountView(
+            paneId: paneId,
+            appEventBus: appEventBus
+        )
 
-        let terminationTask = mountView.simulateSurfaceCloseForTesting(processAlive: false)
-        #expect(mountView.isProcessRunning == false)
+        simulateGhosttyCloseCallback(processExited: false, on: mountView)
 
-        await terminationTask?.value
-        mountView.applyHealthUpdateForTesting(.processExited(exitCode: nil))
+        let sentinelPaneId = UUIDv7.generate()
+        await appEventBus.post(.worktreeBellRang(paneId: sentinelPaneId))
+        let receivedEvents = await events(through: sentinelPaneId, from: eventRecorder)
 
-        #expect(mountView.isShowingErrorOverlayForTesting)
-        #expect(clock.pendingSleepCount == 0)
+        #expect(
+            !receivedEvents.contains { event in
+                if case .terminalProcessTerminated = event { return true }
+                return false
+            })
+        #expect(store.tabLayoutAtom.tab(tabId) != nil)
+        #expect(store.paneAtom.pane(paneId) != nil)
+        #expect(mountView.isProcessRunning)
+        #expect(!mountView.isShowingErrorOverlayForTesting)
+
     }
 
-    @Test("process termination with subscribers suppresses a competing process-exited health update immediately")
-    func processTermination_withSubscribers_immediatelySuppressesCompetingProcessExitedOverlay() async {
+    @Test("Ghostty close callback after exit keeps pane and shows Process Exited")
+    func ghosttyCloseCallbackAfterExit_keepsPaneAndShowsOverlay() async {
+        let store = WorkspaceStore()
+        let paneId = makeSubscribedPaneId(in: store)
+        let tabId = store.tabs[0].id
+        let appEventBus = EventBus<AppEvent>()
+        let eventRecorder = await appEventBus.subscribe(
+            policy: .criticalUnbounded,
+            subscriberName: "TerminalPaneMountViewExitBehaviorTests.exitedCloseRecorder"
+        )
+        let mountView = makeProcessExitMountView(
+            paneId: paneId,
+            appEventBus: appEventBus
+        )
+
+        simulateGhosttyCloseCallback(processExited: true, on: mountView)
+
+        let sentinelPaneId = UUIDv7.generate()
+        await appEventBus.post(.worktreeBellRang(paneId: sentinelPaneId))
+        let receivedEvents = await events(through: sentinelPaneId, from: eventRecorder)
+
+        #expect(
+            !receivedEvents.contains { event in
+                if case .terminalProcessTerminated = event { return true }
+                return false
+            })
+        #expect(store.tabLayoutAtom.tab(tabId) != nil)
+        #expect(store.paneAtom.pane(paneId) != nil)
+        #expect(!mountView.isProcessRunning)
+        #expect(mountView.isShowingErrorOverlayForTesting)
+
+    }
+
+    @Test("Ghostty process exit callback keeps the Process Exited fallback without subscribers")
+    func ghosttyProcessExit_withoutSubscribers_showsFallbackOverlay() {
+        let mountView = makeProcessExitMountView()
+
+        mountView.simulateSurfaceCloseForTesting(processExited: true)
+        #expect(mountView.isProcessRunning == false)
+        #expect(mountView.isShowingErrorOverlayForTesting)
+    }
+
+    @Test("Ghostty process exit callback with subscribers keeps the pane and Process Exited overlay")
+    func ghosttyProcessExit_withSubscribersKeepsPaneAndOverlay() async {
         let harness = await makeSubscribedPaneTabControllerHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
         let paneId = makeSubscribedPaneId(in: harness.store)
 
         let mountView = makeProcessExitMountView(paneId: paneId, appEventBus: harness.appEventBus)
 
-        let terminationTask = mountView.simulateSurfaceCloseForTesting(processAlive: false)
+        mountView.simulateSurfaceCloseForTesting(processExited: true)
         mountView.applyHealthUpdateForTesting(.processExited(exitCode: nil))
 
-        #expect(!mountView.isShowingErrorOverlayForTesting)
-        #expect(mountView.isProcessExitedOverlaySuppressedAfterTerminationForTesting)
+        #expect(mountView.isShowingErrorOverlayForTesting)
+        #expect(!mountView.isProcessExitedOverlaySuppressedAfterTerminationForTesting)
+        #expect(harness.store.paneAtom.pane(paneId) != nil)
 
-        await terminationTask?.value
         #expect(mountView.isProcessRunning == false)
-        #expect(!mountView.isShowingErrorOverlayForTesting)
         await harness.shutdown()
     }
 
-    @Test("process termination ignored by a subscribed controller restores visible fallback UI")
-    func processTermination_ignoredBySubscribedController_restoresFallbackOverlay() async {
-        let clock = TestPushClock()
+    @Test("Ghostty close request for a running process is ignored with a subscribed controller")
+    func ghosttyCloseRequest_whileRunningIsIgnoredWithSubscribedController() async {
         let harness = await makeSubscribedPaneTabControllerHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
-        let mountView = makeProcessExitMountView(
-            paneId: UUIDv7.generate(),
-            appEventBus: harness.appEventBus,
-            terminationAcknowledgementClock: clock
-        )
+        let paneId = makeSubscribedPaneId(in: harness.store)
+        let mountView = makeProcessExitMountView(paneId: paneId, appEventBus: harness.appEventBus)
 
-        let terminationTask = mountView.simulateSurfaceCloseForTesting(processAlive: false)
-        mountView.applyHealthUpdateForTesting(.processExited(exitCode: nil))
+        mountView.simulateSurfaceCloseForTesting(processExited: false)
 
+        #expect(mountView.isProcessRunning)
         #expect(!mountView.isShowingErrorOverlayForTesting)
-        await clock.waitForPendingSleepCount(atLeast: 1)
-        clock.advance(by: AppPolicies.TerminalProcessTermination.acknowledgementTimeout)
-        await terminationTask?.value
-        #expect(mountView.isShowingErrorOverlayForTesting)
-        #expect(!mountView.hasObservedEffectiveTerminationDeliveryForTesting)
+        #expect(harness.store.paneAtom.pane(paneId) != nil)
         await harness.shutdown()
     }
 
-    @Test("process termination with dropped delivery restores visible fallback UI")
-    func processTermination_withDroppedDelivery_restoresFallbackOverlay() async {
+    @Test("app-owned close with dropped delivery restores visible fallback UI")
+    func appOwnedClose_withDroppedDeliveryRestoresFallbackOverlay() async {
         let clock = TestPushClock()
         let subscriberName = "TerminalPaneMountViewExitBehaviorTests.droppedDelivery"
         let appEventBus = EventBus<AppEvent>()
@@ -240,7 +312,7 @@ struct TerminalPaneMountViewExitBehaviorTests {
         await waitForAppEventBusSubscriber(named: subscriberName, on: appEventBus, isPresent: true)
         let mountView = makeProcessExitMountView(appEventBus: appEventBus, terminationAcknowledgementClock: clock)
 
-        let terminationTask = mountView.simulateSurfaceCloseForTesting(processAlive: false)
+        let terminationTask = mountView.requestClose()
         mountView.applyHealthUpdateForTesting(.processExited(exitCode: nil))
 
         #expect(!mountView.isShowingErrorOverlayForTesting)
@@ -256,8 +328,8 @@ struct TerminalPaneMountViewExitBehaviorTests {
         await waitForAppEventBusSubscriber(named: subscriberName, on: appEventBus, isPresent: false)
     }
 
-    @Test("startup restore close with subscribers auto-closes without showing process-exit UI")
-    func startupRestoreClose_withSubscribersAutoClosesWithoutProcessExitedUI() async {
+    @Test("startup restore process exit keeps its pane and shows Process Exited")
+    func startupRestoreGhosttyExit_keepsPaneAndShowsProcessExitedUI() async {
         let harness = await makeSubscribedPaneTabControllerHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
         let paneId = makeSubscribedPaneId(in: harness.store)
@@ -271,15 +343,13 @@ struct TerminalPaneMountViewExitBehaviorTests {
         mountView.beginRestorePresentationForTesting()
         #expect(mountView.isShowingStartupOverlayForTesting)
 
-        let terminationTask = mountView.simulateSurfaceCloseForTesting(processAlive: false)
+        mountView.simulateSurfaceCloseForTesting(processExited: true)
         mountView.applyHealthUpdateForTesting(.processExited(exitCode: nil))
 
-        #expect(!mountView.isShowingErrorOverlayForTesting)
-
-        await terminationTask?.value
+        #expect(mountView.isShowingErrorOverlayForTesting)
         #expect(mountView.isProcessRunning == false)
         #expect(!mountView.isShowingStartupOverlayForTesting)
-        #expect(!mountView.isShowingErrorOverlayForTesting)
+        #expect(harness.store.paneAtom.pane(paneId) != nil)
         await harness.shutdown()
     }
 

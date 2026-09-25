@@ -523,11 +523,6 @@ extension Ghostty.SurfaceView {
         }
     }
 
-    func requestClose() {
-        guard let surface else { return }
-        ghostty_surface_request_close(surface)
-    }
-
     var processExited: Bool {
         guard let surface else { return true }
         return ghostty_surface_process_exited(surface)

@@ -547,16 +547,6 @@ extension Ghostty {
             )
         }
 
-        func handleCloseRequested(processAlive: Bool) {
-            RestoreTrace.log(
-                "Ghostty.SurfaceView.scheduleCloseRequested processAlive=\(processAlive) mainThread=\(Thread.isMainThread)"
-            )
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                self.onCloseRequested?(processAlive)
-            }
-        }
-
         func updateHostConfigSnapshot(_ snapshot: GhosttyHostConfigSnapshot) {
             hostConfigSnapshot = snapshot
         }
