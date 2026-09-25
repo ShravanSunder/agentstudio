@@ -914,12 +914,13 @@ private final class SharedActivityBarrierCapture: @unchecked Sendable {
     }
 }
 
-private final class RecordingSharedExactItemStreamFactory: @unchecked Sendable {
+final class RecordingSharedExactItemStreamFactory: @unchecked Sendable {
     private let lock = NSLock()
     private let startsSuccessfully: Bool
     private var startedStreamCount = 0
     private var flushedStreamCount = 0
     private var retiredStreamCount = 0
+    private var callbackHandler: (@Sendable ([DarwinSharedExactItemRawEvent]) -> Void)?
 
     init(startsSuccessfully: Bool = true) {
         self.startsSuccessfully = startsSuccessfully
@@ -937,13 +938,26 @@ private final class RecordingSharedExactItemStreamFactory: @unchecked Sendable {
         lock.withLock { flushedStreamCount }
     }
 
+    func emit(
+        path: String,
+        eventId: FSEventStreamEventId,
+        flags: FSEventStreamEventFlags = 0
+    ) -> Bool {
+        guard let callbackHandler = lock.withLock({ callbackHandler }) else { return false }
+        callbackHandler([
+            DarwinSharedExactItemRawEvent(path: path, eventId: eventId, flags: flags)
+        ])
+        return true
+    }
+
     func makeStream(
         parentKey _: DarwinSharedExactItemParentKey,
         streamGeneration _: UInt64,
-        eventHandler _: @escaping @Sendable ([DarwinSharedExactItemRawEvent]) -> Void
+        eventHandler: @escaping @Sendable ([DarwinSharedExactItemRawEvent]) -> Void
     ) -> (any DarwinSharedExactItemStreamLifetime)? {
         lock.withLock {
             startedStreamCount += 1
+            callbackHandler = eventHandler
         }
         guard startsSuccessfully else { return nil }
         return RecordingSharedExactItemStreamLifetime(
@@ -956,13 +970,14 @@ private final class RecordingSharedExactItemStreamFactory: @unchecked Sendable {
             onRetire: { [weak self] in
                 self?.lock.withLock {
                     self?.retiredStreamCount += 1
+                    self?.callbackHandler = nil
                 }
             }
         )
     }
 }
 
-private final class NoopLocalFSEventStreamLifetime: DarwinLocalFSEventStreamLifetime, @unchecked Sendable {
+final class NoopLocalFSEventStreamLifetime: DarwinLocalFSEventStreamLifetime, @unchecked Sendable {
     func flush() -> Bool { true }
 
     func retire() {}

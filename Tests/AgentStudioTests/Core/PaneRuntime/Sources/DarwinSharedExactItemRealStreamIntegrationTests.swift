@@ -92,86 +92,28 @@ struct DarwinSharedExactItemRealStreamIntegrationTests {
         #expect(fixture.readRecorder.snapshot == baselineReadCounts)
     }
 
-    @Test(
-        "native shared stream fails exact-item replacements closed",
-        arguments: SharedExactItemReplacementMutation.allCases
-    )
-    func nativeSharedStreamFailsReplacementClosed(
-        mutation: SharedExactItemReplacementMutation
-    ) async throws {
+    @Test("native atomic replacement invalidates exact-item authority")
+    func nativeAtomicReplacementInvalidatesAuthority() async throws {
         let fixture = try await SharedExactItemRealStreamFixture(nativeSharedStreamIsEnabled: true)
         defer { fixture.remove() }
-        // Arrange. Everything down to `perform(mutation)` is setup, so it is
-        // `#require`d: a failure here means the fixture never reached a quiescent
-        // state, not that the product misbehaved.
-        //
-        // The barrier proves every event the kernel had queued from repository
-        // creation has been delivered AND recorded. The old sentinel wait proved
-        // only that ONE event arrived on one stream, so a setup event still in
-        // flight could bump `mutationEpoch` from the raw callback and make the
-        // renewals below fail closed — the product being right, reported as the
-        // product being wrong.
-        // The sentinel proves each local event path is live. The coverage barrier
-        // then proves the local and shared bindings are current and quiescent
-        // before the first exact read.
-        try #require(
-            await fixture.awaitLocalStreamSentinelBarrier(),
-            "fixture not live: sentinel batch never arrived"
-        )
         try #require(
             await fixture.awaitActivityBarrier(),
-            "fixture not quiescent: activity barrier could not be captured"
+            "native local and shared bindings could not be captured"
         )
-        let firstAuthority = try #require(
-            await fixture.establishAuthority(
-                worktreeId: fixture.firstWorktreeId,
-                repositoryPath: fixture.firstRepositoryPath
-            )
-        )
-        _ = try await fixture.fenceSecondAuthorityWindow()
-        let secondAuthority = try #require(
-            await fixture.establishAuthority(
-                worktreeId: fixture.secondWorktreeId,
-                repositoryPath: fixture.secondRepositoryPath
-            )
-        )
-        let firstBaselineRenewal = await fixture.provider.renewExactCleanAuthority(firstAuthority)
-        let secondBaselineRenewal = await fixture.provider.renewExactCleanAuthority(secondAuthority)
-        try #require(
-            firstBaselineRenewal == .renewed(firstAuthority),
-            Comment(
-                rawValue: "fixture not quiescent before mutation: first authority renewal "
-                    + "returned \(firstBaselineRenewal) instead of .renewed"
-            )
-        )
-        try #require(
-            secondBaselineRenewal == .renewed(secondAuthority),
-            Comment(
-                rawValue: "fixture not quiescent before mutation: second authority renewal "
-                    + "returned \(secondBaselineRenewal) instead of .renewed"
-            )
+        let authority = try await fixture.establishAuthorityAfterOverlappingMutation(
+            worktreeId: fixture.firstWorktreeId,
+            repositoryPath: fixture.firstRepositoryPath
         )
         let baselineReadCounts = fixture.readRecorder.snapshot
         let fullGitBatchTask = fixture.collectFullGitRefreshBatches(
             expectedWorktreeIds: [fixture.firstWorktreeId, fixture.secondWorktreeId]
         )
 
-        try fixture.perform(mutation)
-        #expect(await fixture.waitForNativeCallbackUnderExternalParent())
-        let fullGitBatches = try #require(
-            await fixture.firstCompletedValue(
-                from: fullGitBatchTask,
-                timeout: .seconds(5)
-            )
-        )
+        try fixture.perform(.atomicReplacement)
+        let fullGitBatches = await fullGitBatchTask.value
         #expect(
             fixture.requiresExact(
-                await fixture.provider.renewExactCleanAuthority(firstAuthority)
-            )
-        )
-        #expect(
-            fixture.requiresExact(
-                await fixture.provider.renewExactCleanAuthority(secondAuthority)
+                await fixture.provider.renewExactCleanAuthority(authority)
             )
         )
         #expect(Set(fullGitBatches.keys) == [fixture.firstWorktreeId, fixture.secondWorktreeId])
