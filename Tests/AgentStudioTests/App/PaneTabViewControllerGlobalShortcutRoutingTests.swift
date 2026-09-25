@@ -424,15 +424,15 @@ struct PaneTabViewControllerGlobalShortcutRoutingTests {
         }
     }
 
-    @Test("destructive global shortcuts are blocked while transient surfaces own keyboard")
-    func destructiveGlobalShortcutsAreBlockedWhileTransientSurfacesOwnKeyboard() {
+    @Test("global shortcuts are blocked while transient surfaces own keyboard")
+    func globalShortcutsAreBlockedWhileTransientSurfacesOwnKeyboard() {
         let context = KeyboardRoutingContext(
             stableOwner: .mainWindowChain,
             activeSurface: .transient(.editorChooser(paneId: UUID())),
             workspaceWindowId: UUID()
         )
 
-        #expect(!AppShortcutDispatchPolicy.shouldDispatchGlobalShortcut(.closeWindow, context: context))
+        #expect(!AppShortcutDispatchPolicy.shouldDispatchGlobalShortcut(.showArrangementPanel, context: context))
     }
 
     @Test("production global key path consults transient surface policy")

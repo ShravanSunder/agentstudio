@@ -8,7 +8,7 @@ extension AppCommand {
         case .closeTab:
             return AppCommandSpec(
                 command: self,
-                shortcut: .closeTab,
+                shortcut: nil,
                 label: "Close Tab",
                 icon: .system(.xmark),
                 helpText: "Close the active tab",
@@ -69,9 +69,9 @@ extension AppCommand {
             return AppCommandSpec(
                 command: self,
                 shortcut: .undoCloseTab,
-                label: "Undo Close Tab",
+                label: "Undo Close",
                 icon: .system(.arrowUturnBackward),
-                helpText: "Restore the most recently closed tab",
+                helpText: "Reopen the most recently closed pane or tab",
                 surfacePolicy: .exposed([.commandBar, .mainMenu]),
                 targeting: .contextual,
                 commandBarGroupName: "Window",
@@ -839,7 +839,7 @@ extension AppCommand {
             )
         case .closeWindow:
             return windowDefinition(
-                shortcut: .closeWindow,
+                shortcut: nil,
                 label: "Close Window",
                 icon: .system(.xmarkRectangle),
                 helpText: "Close the current application window",

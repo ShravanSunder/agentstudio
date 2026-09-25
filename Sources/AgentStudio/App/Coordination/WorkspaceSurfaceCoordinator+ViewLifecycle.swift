@@ -46,6 +46,9 @@ extension WorkspaceSurfaceCoordinator {
         mountedView: NSView & PaneMountedContent,
         for paneId: UUID
     ) -> PaneHostView {
+        if let terminalView = mountedView as? TerminalPaneMountView {
+            installClosePaneRequest(on: terminalView)
+        }
         let priorHost = viewRegistry.view(for: paneId)
         let host = PaneHostView(paneId: paneId)
         host.onAttachedToWindow = { [weak self] attachedPaneId in

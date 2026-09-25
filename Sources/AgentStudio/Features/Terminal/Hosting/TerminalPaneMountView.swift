@@ -65,6 +65,7 @@ package final class TerminalPaneMountView: NSView, PaneMountedContent, SurfaceHe
     private weak var observedRuntime: TerminalRuntime?
     private weak var runtimeBoundToDisplayedSurface: TerminalRuntime?
     package var onRepairRequested: ((UUID) -> Void)?
+    package var onClosePaneRequested: (() -> Void)?
 
     /// The current terminal title
     var title: String {
@@ -406,7 +407,7 @@ package final class TerminalPaneMountView: NSView, PaneMountedContent, SurfaceHe
         }
         if displayPlan.installsCloseCallback {
             surfaceView.onCloseRequested = { [weak self] processExited in
-                self?.handleSurfaceClose(processExited: processExited)
+                _ = self?.handleSurfaceClose(processExited: processExited)
             }
         }
         scheduleGeometryCoherenceVerification(reason: geometryVerificationReason)
@@ -569,7 +570,7 @@ package final class TerminalPaneMountView: NSView, PaneMountedContent, SurfaceHe
                 self?.restartSurface()
             }
             overlay.onDismiss = { [weak self] in
-                self?.requestClose()
+                self?.onClosePaneRequested?()
             }
             addSubview(overlay)
 
@@ -604,21 +605,24 @@ package final class TerminalPaneMountView: NSView, PaneMountedContent, SurfaceHe
 
     // MARK: - Surface Close Handling
 
-    func handleSurfaceClose(processExited: Bool) {
+    @discardableResult
+    func handleSurfaceClose(processExited: Bool) -> Task<Void, Never>? {
         guard processExited else {
             RestoreTrace.log(
                 "TerminalPaneMountView.handleSurfaceClose ignored Ghostty request for running process pane=\(paneId) surface=\(surfaceId?.uuidString ?? "nil")"
             )
-            return
+            return nil
         }
 
         isProcessRunning = false
-        shouldSuppressProcessExitedOverlayAfterTermination = false
+        shouldSuppressProcessExitedOverlayAfterTermination = true
         hasObservedEffectiveTerminationDelivery = false
+        finishRestorePresentation()
+        hideErrorOverlay()
         RestoreTrace.log(
-            "TerminalPaneMountView.handleSurfaceClose showing Process Exited pane=\(paneId) surface=\(surfaceId?.uuidString ?? "nil")"
+            "TerminalPaneMountView.handleSurfaceClose closing exited process pane=\(paneId)"
         )
-        showProcessExitedFallback(processAlive: false)
+        return postProcessTerminationEvent()
     }
 
     func beginRestorePresentationIfNeeded() {
@@ -684,16 +688,6 @@ package final class TerminalPaneMountView: NSView, PaneMountedContent, SurfaceHe
 
     // MARK: - Process Management
 
-    @discardableResult
-    func requestClose() -> Task<Void, Never>? {
-        guard let surfaceId else { return nil }
-        SurfaceManager.shared.detach(surfaceId, reason: .close)
-        isProcessRunning = false
-        shouldSuppressProcessExitedOverlayAfterTermination = true
-        hasObservedEffectiveTerminationDelivery = false
-        return postProcessTerminationEvent(processAlive: true)
-    }
-
     func terminateProcess() {
         guard isProcessRunning, let surfaceId else { return }
         isProcessRunning = false
@@ -704,7 +698,7 @@ package final class TerminalPaneMountView: NSView, PaneMountedContent, SurfaceHe
     }
 
     @discardableResult
-    private func postProcessTerminationEvent(processAlive: Bool) -> Task<Void, Never> {
+    private func postProcessTerminationEvent() -> Task<Void, Never> {
         Task { @MainActor [weak self] in
             guard let self else { return }
             let paneId = self.paneId
@@ -725,13 +719,8 @@ package final class TerminalPaneMountView: NSView, PaneMountedContent, SurfaceHe
                     false
                 }
             self.hasObservedEffectiveTerminationDelivery = hadEffectiveDelivery
-            if hadEffectiveDelivery {
-                self.finishRestorePresentation()
-                self.hideErrorOverlay()
-                return
-            }
-            self.shouldSuppressProcessExitedOverlayAfterTermination = false
-            self.showProcessExitedFallback(processAlive: processAlive)
+            self.finishRestorePresentation()
+            self.hideErrorOverlay()
         }
     }
 
@@ -761,18 +750,6 @@ package final class TerminalPaneMountView: NSView, PaneMountedContent, SurfaceHe
             while await group.next() != nil {}
             return handled
         }
-    }
-
-    private func showProcessExitedFallback(processAlive: Bool) {
-        let fallbackHealth: SurfaceHealth = .processExited(exitCode: nil)
-        if startupPresentationActive {
-            failRestorePresentation(health: fallbackHealth)
-        } else {
-            showErrorOverlay(health: fallbackHealth)
-        }
-        RestoreTrace.log(
-            "TerminalPaneMountView.showProcessExitedFallback pane=\(paneId) surface=\(surfaceId?.uuidString ?? "nil") processAlive=\(processAlive)"
-        )
     }
 
     var processExited: Bool {

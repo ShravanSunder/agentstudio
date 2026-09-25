@@ -201,21 +201,21 @@ final class AppCommandTests {
     func test_commandDefinition_init_full() {
         // Act
         let def = AppCommandSpec(
-            command: .closeWindow,
-            shortcut: .closeWindow,
-            label: "Close Window",
+            command: .newWindow,
+            shortcut: .newWindow,
+            label: "New Window",
             icon: .system(.xmark),
-            helpText: "Close the active window",
+            helpText: "Open a new window",
             surfacePolicy: .exposed([.mainMenu]),
             targeting: .contextual,
             requiresManagementLayer: false
         )
 
         // Assert
-        #expect(def.command == AppCommand.closeWindow)
+        #expect(def.command == AppCommand.newWindow)
         #expect(def.globalKeyBinding != nil)
         #expect(def.icon == .system(.xmark))
-        #expect(def.helpText == "Close the active window")
+        #expect(def.helpText == "Open a new window")
         #expect(def.surfacePolicy == .exposed([.mainMenu]))
         #expect(def.targeting == .contextual)
         #expect(!def.requiresManagementLayer)
@@ -335,13 +335,12 @@ final class AppCommandTests {
     @MainActor
 
     @Test
-    func test_dispatcher_closeTab_hasCorrectKeyBinding() {
+    func test_dispatcher_closeTab_hasNoKeyBinding() {
         // Act
         let def = AppCommandDispatcher.shared.definition(for: .closeTab)
 
         // Assert
-        #expect(def.globalKeyBinding?.key == "w")
-        #expect(def.globalKeyBinding?.modifiers == [.command])
+        #expect(def.globalKeyBinding == nil)
     }
 
     @MainActor
