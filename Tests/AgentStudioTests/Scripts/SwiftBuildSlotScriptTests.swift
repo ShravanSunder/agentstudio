@@ -1,11 +1,55 @@
 import AgentStudioInfrastructure
+import AgentStudioTestHarness
 import AgentStudioTestSupport
 import Darwin
 import Foundation
 import Testing
 
+private enum SwiftBuildSlotScriptTestFailure: Error {
+    case expectedOperationFailure
+}
+
 @Suite("Swift build slot script")
 struct SwiftBuildSlotScriptTests {
+    @Test("a failed operation closes and reaps its blocked helper")
+    func failedOperationClosesAndReapsBlockedHelper() async throws {
+        let fixture = try SwiftBuildSlotFixture()
+
+        await #expect(throws: SwiftBuildSlotScriptTestFailure.self) {
+            try await fixture.withOwnedProcesses { fixture in
+                let helper = fixture.makeProcess("printf 'HELPER_READY\\n'; IFS= read -r _")
+                helper.start()
+                _ = try await helper.readOutput(until: "HELPER_READY")
+                throw SwiftBuildSlotScriptTestFailure.expectedOperationFailure
+            }
+        }
+
+        let helperPID = try #require(fixture.ownedProcessIdentifiers.first)
+        #expect(kill(helperPID, 0) == -1 && errno == ESRCH)
+        #expect(!fixture.hasRunningHelpers)
+    }
+
+    @Test("cancellation closes and reaps its blocked helper")
+    func cancellationClosesAndReapsBlockedHelper() async throws {
+        let fixture = try SwiftBuildSlotFixture()
+        let helperArrived = HeldStep<Void>("swift-build-slot-helper-blocked-on-stdin")
+        let helperTask = Task {
+            try await fixture.withOwnedProcesses { fixture in
+                let helper = fixture.makeProcess("printf 'HELPER_READY\\n'; IFS= read -r _")
+                helper.start()
+                _ = try await helper.readOutput(until: "HELPER_READY")
+                try await helperArrived.arrive(())
+            }
+        }
+
+        _ = try await helperArrived.firstArrival()
+        helperTask.cancel()
+        await #expect(throws: CancellationError.self) {
+            try await helperTask.value
+        }
+        #expect(!fixture.hasRunningHelpers)
+    }
+
     @Test("only named local slots and task labels are accepted")
     func onlyNamedSlotsAndTaskLabelsAreAccepted() async throws {
         let fixture = try SwiftBuildSlotFixture()
@@ -39,23 +83,16 @@ struct SwiftBuildSlotScriptTests {
         try Data("existing-build".utf8).write(to: buildMarker)
         try Data("existing-test".utf8).write(to: testMarker)
 
-        let releaseFIFO = fixture.rootURL.appending(path: "release-build.fifo")
-        try fixture.createFIFO(at: releaseFIFO)
-        let result = try await withoutBlockingCooperativePool {
+        let result = try await fixture.withOwnedProcesses { fixture in
             let buildOwner = fixture.makeProcess(
                 "source scripts/swift-build-slot.sh\n"
                     + "trap swift_build_slot_release EXIT\n"
                     + "swift_build_slot_acquire build \"build-owner\"\n"
                     + "printf 'BUILD_READY\\n'\n"
-                    + "IFS= read -r _ < \"$BUILD_RELEASE_FIFO\"\n",
-                environment: ["BUILD_RELEASE_FIFO": releaseFIFO.path]
+                    + "IFS= read -r _ || exit 0\n"
             )
-            let buildOutput = Pipe()
-            buildOwner.standardOutput = buildOutput
-            buildOwner.standardError = buildOutput
-            try buildOwner.run()
-            var buildLog = ""
-            try readOutput(buildOutput.fileHandleForReading, into: &buildLog, until: "BUILD_READY")
+            buildOwner.start()
+            var output = try await buildOwner.readOutput(until: "BUILD_READY")
 
             let testOwner = fixture.makeProcess(
                 "source scripts/swift-build-slot.sh\n"
@@ -63,16 +100,12 @@ struct SwiftBuildSlotScriptTests {
                     + "swift_build_slot_acquire test \"test-owner\"\n"
                     + "printf 'TEST_READY\\n'\n"
             )
-            let testOutput = Pipe()
-            testOwner.standardOutput = testOutput
-            testOwner.standardError = testOutput
-            try testOwner.run()
-            let testLog = try readOutputToEnd(testOutput.fileHandleForReading)
-            testOwner.waitUntilExit()
+            testOwner.start()
+            output += try await testOwner.readOutputToEnd()
+            try writeLine("release\n", to: buildOwner.standardInput)
+            output += try await buildOwner.readOutputToEnd()
 
-            try writeLine("release\n", to: releaseFIFO)
-            buildOwner.waitUntilExit()
-            return (buildOwner.terminationStatus, buildLog + testLog)
+            return (try await buildOwner.waitForExit(), output)
         }
 
         #expect(result.0 == 0)
@@ -85,54 +118,39 @@ struct SwiftBuildSlotScriptTests {
     @Test("a same-slot claimant reports its holder once and runs after release")
     func secondBuildClaimWaitsWithOneHolderLineAndThenRuns() async throws {
         let fixture = try SwiftBuildSlotFixture()
-        let ownerReleaseFIFO = fixture.rootURL.appending(path: "owner-release.fifo")
-        let sleepGateFIFO = fixture.rootURL.appending(path: "sleep-gate.fifo")
-        try fixture.createFIFO(at: ownerReleaseFIFO)
-        try fixture.createFIFO(at: sleepGateFIFO)
-
-        let result = try await withoutBlockingCooperativePool {
+        let result = try await fixture.withOwnedProcesses { fixture in
             let owner = fixture.makeProcess(
                 "source scripts/swift-build-slot.sh\n"
                     + "trap swift_build_slot_release EXIT\n"
                     + "swift_build_slot_acquire build \"build-owner\"\n"
                     + "printf 'OWNER_READY\\n'\n"
-                    + "IFS= read -r _ < \"$OWNER_RELEASE_FIFO\"\n",
-                environment: ["OWNER_RELEASE_FIFO": ownerReleaseFIFO.path]
+                    + "IFS= read -r _ || exit 0\n"
             )
-            let ownerOutput = Pipe()
-            owner.standardOutput = ownerOutput
-            owner.standardError = ownerOutput
-            try owner.run()
-            var ownerLog = ""
-            try readOutput(ownerOutput.fileHandleForReading, into: &ownerLog, until: "OWNER_READY")
+            owner.start()
+            _ = try await owner.readOutput(until: "OWNER_READY")
 
             let waiter = fixture.makeProcess(
                 "source scripts/swift-build-slot.sh\n"
                     + "trap swift_build_slot_release EXIT\n"
                     + "swift_build_slot_acquire build \"build-waiter\"\n"
                     + "printf 'WAITER_DONE\\n'\n",
-                environment: ["SWIFT_BUILD_SLOT_SLEEP_GATE": sleepGateFIFO.path]
+                environment: ["SWIFT_BUILD_SLOT_SLEEP_GATE": "stdin"]
             )
-            let waiterOutput = Pipe()
-            waiter.standardOutput = waiterOutput
-            waiter.standardError = waiterOutput
-            try waiter.run()
-            var waiterLog = ""
-            try readOutput(
-                waiterOutput.fileHandleForReading,
-                into: &waiterLog,
+            waiter.start()
+            var waiterLog = try await waiter.readOutput(
                 until: "waiting slot=build holder_task=build-owner"
             )
 
-            try writeLine("release-owner\n", to: ownerReleaseFIFO)
-            owner.waitUntilExit()
-            try writeLine("continue-waiter\n", to: sleepGateFIFO)
-            try readOutput(waiterOutput.fileHandleForReading, into: &waiterLog, until: "WAITER_DONE")
-            waiter.waitUntilExit()
-            return (owner.terminationStatus, waiter.terminationStatus, ownerLog, waiterLog)
+            try writeLine("release-owner\n", to: owner.standardInput)
+            let ownerStatus = try await owner.waitForExit()
+            try writeLine("continue-waiter\n", to: waiter.standardInput)
+            waiterLog += try await waiter.readOutput(until: "WAITER_DONE")
+            waiterLog += try await waiter.readOutputToEnd()
+
+            return (ownerStatus, try await waiter.waitForExit(), waiterLog)
         }
 
-        let waitingLines = result.3.components(separatedBy: .newlines).filter {
+        let waitingLines = result.2.components(separatedBy: .newlines).filter {
             $0.contains("[swift-build-slot] waiting slot=build")
         }
         #expect(result.0 == 0)
@@ -141,7 +159,7 @@ struct SwiftBuildSlotScriptTests {
         #expect(waitingLines.first?.contains("holder_task=build-owner") == true)
         #expect(waitingLines.first?.range(of: #"holder_pid=[0-9]+"#, options: .regularExpression) != nil)
         #expect(waitingLines.first?.contains("holder_start=Mon Sep 1 00:00:00 2025") == true)
-        #expect(!result.3.contains("reaped stale"))
+        #expect(!result.2.contains("reaped stale"))
     }
 
     @Test("dead and reused PID claims are reaped before a new owner is admitted")
@@ -213,41 +231,27 @@ struct SwiftBuildSlotScriptTests {
     @Test("a live descendant with an open build file prevents stale claim cleanup")
     func liveDescendantOpenFilePreventsStaleClaimCleanup() async throws {
         let fixture = try SwiftBuildSlotFixture()
-        let ownerReleaseFIFO = fixture.rootURL.appending(path: "owner-release.fifo")
-        let descendantReleaseFIFO = fixture.rootURL.appending(path: "descendant-release.fifo")
-        let sleepGateFIFO = fixture.rootURL.appending(path: "sleep-gate.fifo")
         let buildFile = fixture.rootURL.appending(path: ".build-agent-1/descendant.open")
         try FileManager.default.createDirectory(
             at: buildFile.deletingLastPathComponent(),
             withIntermediateDirectories: true
         )
         try Data("open".utf8).write(to: buildFile)
-        try fixture.createFIFO(at: ownerReleaseFIFO)
-        try fixture.createFIFO(at: descendantReleaseFIFO)
-        try fixture.createFIFO(at: sleepGateFIFO)
         try FileManager.default.createDirectory(at: fixture.openFilesMarkerURL, withIntermediateDirectories: true)
         try Data("open".utf8).write(to: fixture.openFilesMarkerURL.appending(path: ".build-agent-1"))
 
-        let result = try await withoutBlockingCooperativePool {
+        let result = try await fixture.withOwnedProcesses { fixture in
             let owner = fixture.makeProcess(
                 "source scripts/swift-build-slot.sh\n"
                     + "trap swift_build_slot_release EXIT\n"
                     + "swift_build_slot_acquire build \"abandoned-owner\"\n"
-                    + "/bin/bash -c 'exec 3< \"$SWIFT_BUILD_DIR/descendant.open\"; printf \"DESCENDANT_READY\\n\"; IFS= read -r _ < \"$DESCENDANT_RELEASE_FIFO\"; exec 3<&-; printf \"DESCENDANT_DONE\\n\"' &\n"
+                    + "/bin/bash -c 'exec 3< \"$SWIFT_BUILD_DIR/descendant.open\"; printf \"DESCENDANT_READY\\n\"; IFS= read -r _; exec 3<&-; printf \"DESCENDANT_DONE\\n\"' <&0 &\n"
                     + "printf 'DESCENDANT_PID=%s\\n' \"$!\"\n"
                     + "printf 'OWNER_READY\\n'\n"
-                    + "IFS= read -r _ < \"$OWNER_RELEASE_FIFO\"\n",
-                environment: [
-                    "OWNER_RELEASE_FIFO": ownerReleaseFIFO.path,
-                    "DESCENDANT_RELEASE_FIFO": descendantReleaseFIFO.path,
-                ]
+                    + "IFS= read -r _ || exit 0\n"
             )
-            let ownerOutput = Pipe()
-            owner.standardOutput = ownerOutput
-            owner.standardError = ownerOutput
-            try owner.run()
-            var ownerLog = ""
-            try readOutput(ownerOutput.fileHandleForReading, into: &ownerLog, until: "DESCENDANT_READY")
+            owner.start()
+            var ownerLog = try await owner.readOutput(until: "DESCENDANT_READY")
             guard
                 let descendantPID =
                     ownerLog
@@ -260,37 +264,36 @@ struct SwiftBuildSlotScriptTests {
             }
 
             _ = kill(Int32(owner.processIdentifier), SIGKILL)
-            owner.waitUntilExit()
 
             let waiter = fixture.makeProcess(
                 "source scripts/swift-build-slot.sh\n"
                     + "trap swift_build_slot_release EXIT\n"
                     + "swift_build_slot_acquire build \"replacement-owner\"\n"
                     + "printf 'CLAIM_DONE\\n'\n",
-                environment: ["SWIFT_BUILD_SLOT_SLEEP_GATE": sleepGateFIFO.path]
+                environment: ["SWIFT_BUILD_SLOT_SLEEP_GATE": "stdin"]
             )
-            let waiterOutput = Pipe()
-            waiter.standardOutput = waiterOutput
-            waiter.standardError = waiterOutput
-            try waiter.run()
-            var waiterLog = ""
-            try readOutput(
-                waiterOutput.fileHandleForReading,
-                into: &waiterLog,
-                until: "stale_pid_open_files=true"
-            )
+            waiter.start()
+            var waiterLog = try await waiter.readOutput(until: "stale_pid_open_files=true")
             let claimStillExists = FileManager.default.fileExists(
                 atPath: fixture.rootURL.appending(path: ".build-agent-1/.slot-claim").path
             )
             let descendantIsAlive = kill(descendantPID, 0) == 0
 
-            try writeLine("release-descendant\n", to: descendantReleaseFIFO)
-            try readOutput(ownerOutput.fileHandleForReading, into: &ownerLog, until: "DESCENDANT_DONE")
+            try writeLine("release-descendant\n", to: owner.standardInput)
+            ownerLog += try await owner.readOutput(until: "DESCENDANT_DONE")
+            _ = try await owner.readOutputToEnd()
             try FileManager.default.removeItem(at: fixture.openFilesMarkerURL.appending(path: ".build-agent-1"))
-            try writeLine("continue-reaper\n", to: sleepGateFIFO)
-            try readOutput(waiterOutput.fileHandleForReading, into: &waiterLog, until: "CLAIM_DONE")
-            waiter.waitUntilExit()
-            return (waiter.terminationStatus, claimStillExists, descendantIsAlive, waiterLog)
+            try writeLine("continue-reaper\n", to: waiter.standardInput)
+            waiterLog += try await waiter.readOutput(until: "CLAIM_DONE")
+            waiterLog += try await waiter.readOutputToEnd()
+
+            _ = try await owner.waitForExit()
+            return (
+                try await waiter.waitForExit(),
+                claimStillExists,
+                descendantIsAlive,
+                waiterLog
+            )
         }
 
         #expect(result.0 == 0)
@@ -324,30 +327,24 @@ struct SwiftBuildSlotScriptTests {
     @Test("a handled termination signal releases its named slot")
     func handledSignalReleasesClaim() async throws {
         let fixture = try SwiftBuildSlotFixture()
-        let sleepGateFIFO = fixture.rootURL.appending(path: "signal-sleep-gate.fifo")
-        try fixture.createFIFO(at: sleepGateFIFO)
-        let result = try await withoutBlockingCooperativePool {
+        let result = try await fixture.withOwnedProcesses { fixture in
             let process = fixture.makeProcess(
                 "source scripts/swift-build-slot.sh\n"
                     + "trap swift_build_slot_release EXIT\n"
                     + "trap 'exit 143' TERM\n"
                     + "swift_build_slot_acquire test \"signal-owner\"\n"
-                    + "/bin/bash -c 'sleep 1' &\n"
+                    + "/bin/bash -c 'sleep 1' <&0 &\n"
                     + "sleep_child_pid=$!\n"
                     + "printf 'SIGNAL_READY\\n'\n"
                     + "wait \"$sleep_child_pid\"\n",
-                environment: ["SWIFT_BUILD_SLOT_SLEEP_GATE": sleepGateFIFO.path]
+                environment: ["SWIFT_BUILD_SLOT_SLEEP_GATE": "stdin"]
             )
-            let output = Pipe()
-            process.standardOutput = output
-            process.standardError = output
-            try process.run()
-            var log = ""
-            try readOutput(output.fileHandleForReading, into: &log, until: "SIGNAL_READY")
+            process.start()
+            let log = try await process.readOutput(until: "SIGNAL_READY")
             _ = kill(Int32(process.processIdentifier), SIGTERM)
-            try writeLine("finish-sleep-child\n", to: sleepGateFIFO)
-            process.waitUntilExit()
-            return (process.terminationStatus, log + (try readOutputToEnd(output.fileHandleForReading)))
+            try writeLine("finish-sleep-child\n", to: process.standardInput)
+            let outputTail = try await process.readOutputToEnd()
+            return (try await process.waitForExit(), log + outputTail)
         }
 
         #expect(result.0 == 143)

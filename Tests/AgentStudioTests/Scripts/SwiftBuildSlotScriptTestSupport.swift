@@ -1,12 +1,15 @@
 import AgentStudioInfrastructure
+import AgentStudioTestHarness
 import AgentStudioTestSupport
 import Darwin
 import Foundation
+import Testing
 
 struct SwiftBuildSlotFixture: Sendable {
     let rootURL: URL
     let fakeExecutableDirectory: URL
     let openFilesMarkerURL: URL
+    private let processRegistry = SwiftBuildSlotProcessRegistry()
 
     init() throws {
         rootURL = FileManager.default.temporaryDirectory
@@ -28,20 +31,41 @@ struct SwiftBuildSlotFixture: Sendable {
     }
 
     func run(_ script: String, environment: [String: String] = [:]) async throws -> SwiftBuildSlotResult {
-        let fixture = self
-        return try await withoutBlockingCooperativePool {
+        try await withOwnedProcesses { fixture in
             let process = fixture.makeProcess(script, environment: environment)
-            let output = Pipe()
-            process.standardOutput = output
-            process.standardError = output
-            try process.run()
-            let text = try readOutputToEnd(output.fileHandleForReading)
-            process.waitUntilExit()
-            return SwiftBuildSlotResult(exitCode: process.terminationStatus, output: text)
+            process.start()
+            let output = try await process.readOutputToEnd()
+            return SwiftBuildSlotResult(exitCode: try await process.waitForExit(), output: output)
         }
     }
 
-    func makeProcess(_ script: String, environment overrides: [String: String] = [:]) -> Process {
+    func withOwnedProcesses<T: Sendable>(
+        _ operation: @escaping @Sendable (Self) async throws -> T
+    ) async throws -> T {
+        try await withTaskCancellationHandler {
+            do {
+                let result = try await operation(self)
+                try Task.checkCancellation()
+                await finishOwnedProcesses()
+                return result
+            } catch {
+                await finishOwnedProcesses()
+                throw error
+            }
+        } onCancel: {
+            self.terminateOwnedProcesses()
+        }
+    }
+
+    var hasRunningHelpers: Bool {
+        processRegistry.processes.contains(where: \.isRunning)
+    }
+
+    var ownedProcessIdentifiers: [Int32] {
+        processRegistry.processes.map(\.processIdentifier)
+    }
+
+    func makeProcess(_ script: String, environment overrides: [String: String] = [:]) -> SwiftBuildSlotChildProcess {
         var environment = ProcessInfo.processInfo.environment
         environment.removeValue(forKey: "SWIFT_BUILD_DIR")
         let existingPath = environment["PATH"] ?? "/usr/bin:/bin"
@@ -57,7 +81,40 @@ struct SwiftBuildSlotFixture: Sendable {
         process.arguments = ["-c", script]
         process.currentDirectoryURL = rootURL
         process.environment = environment
-        return process
+        let child = SwiftBuildSlotChildProcess(process: process)
+        processRegistry.append(child)
+        return child
+    }
+
+    private func terminateOwnedProcesses() {
+        for process in processRegistry.processes {
+            process.closeStandardInput()
+            process.terminate()
+        }
+    }
+
+    private func finishOwnedProcesses() async {
+        let processes = processRegistry.processes
+        for process in processes {
+            process.closeStandardInput()
+            process.terminate()
+        }
+        for process in processes {
+            _ = try? await process.waitForExit()
+        }
+        for process in processes {
+            _ = await process.drainOutputAfterExit()
+        }
+        #expect(
+            processes.allSatisfy {
+                $0.currentDirectoryURL?.standardizedFileURL == rootURL.standardizedFileURL
+            },
+            "every registered Swift build-slot helper must run from its fixture root"
+        )
+        #expect(
+            processes.allSatisfy { !$0.isRunning },
+            "no registered Swift build-slot helper rooted at \(rootURL.path) may remain after fixture cleanup"
+        )
     }
 
     func createFIFO(at url: URL) throws {
@@ -126,11 +183,115 @@ struct SwiftBuildSlotFixture: Sendable {
     private static let fakeSleep = """
         #!/bin/sh
         if [ -n "${SWIFT_BUILD_SLOT_SLEEP_GATE:-}" ]; then
-          IFS= read -r _ < "$SWIFT_BUILD_SLOT_SLEEP_GATE"
+          if ! IFS= read -r _; then
+            kill -TERM "$PPID" 2>/dev/null || true
+            exit 0
+          fi
         else
           /bin/sleep "$@"
         fi
         """
+}
+
+final class SwiftBuildSlotChildProcess: @unchecked Sendable {
+    let process: Process
+    let standardInput: FileHandle
+    let standardOutput: Pipe
+
+    private let standardInputPipe: Pipe
+    private let processLock = NSLock()
+    private var exitTask: Task<Int32, any Error>?
+    private var standardInputClosed = false
+
+    init(process: Process) {
+        self.process = process
+        standardInputPipe = Pipe()
+        standardInput = standardInputPipe.fileHandleForWriting
+        standardOutput = Pipe()
+        process.standardInput = standardInputPipe.fileHandleForReading
+        process.standardOutput = standardOutput
+        process.standardError = standardOutput
+    }
+
+    var processIdentifier: Int32 { process.processIdentifier }
+    var isRunning: Bool { process.isRunning }
+    var currentDirectoryURL: URL? { process.currentDirectoryURL }
+
+    func start() {
+        processLock.lock()
+        defer { processLock.unlock() }
+        precondition(exitTask == nil, "a Swift build-slot helper may start only once")
+        let process = self.process
+        exitTask = Task { try await awaitProcessExit(process) }
+    }
+
+    func writeStandardInput(_ data: Data) throws {
+        try standardInput.write(contentsOf: data)
+    }
+
+    func closeStandardInput() {
+        let shouldClose = processLock.withLock {
+            guard !standardInputClosed else { return false }
+            standardInputClosed = true
+            return true
+        }
+        if shouldClose {
+            try? standardInput.close()
+        }
+    }
+
+    func terminate() {
+        if process.isRunning {
+            process.terminate()
+        }
+        let exitTask = processLock.withLock { self.exitTask }
+        exitTask?.cancel()
+    }
+
+    func waitForExit() async throws -> Int32 {
+        guard let exitTask = processLock.withLock({ self.exitTask }) else {
+            return process.terminationStatus
+        }
+        return try await exitTask.value
+    }
+
+    func readOutput(until marker: String) async throws -> String {
+        try await valueFromDedicatedThread {
+            var output = ""
+            try AgentStudioTests.readOutput(self.standardOutput.fileHandleForReading, into: &output, until: marker)
+            return output
+        }
+    }
+
+    func readOutputToEnd() async throws -> String {
+        try await valueFromDedicatedThread {
+            try AgentStudioTests.readOutputToEnd(self.standardOutput.fileHandleForReading)
+        }
+    }
+
+    func drainOutputAfterExit() async -> String {
+        guard processLock.withLock({ exitTask != nil }) else { return "" }
+        try? standardOutput.fileHandleForWriting.close()
+        return
+            (try? await withoutBlockingCooperativePool {
+                try AgentStudioTests.readOutputToEnd(self.standardOutput.fileHandleForReading)
+            }) ?? ""
+    }
+}
+
+private final class SwiftBuildSlotProcessRegistry: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storedProcesses: [SwiftBuildSlotChildProcess] = []
+
+    var processes: [SwiftBuildSlotChildProcess] {
+        lock.withLock { storedProcesses }
+    }
+
+    func append(_ process: SwiftBuildSlotChildProcess) {
+        lock.withLock {
+            storedProcesses.append(process)
+        }
+    }
 }
 
 struct SwiftBuildSlotResult: Sendable {
@@ -138,13 +299,30 @@ struct SwiftBuildSlotResult: Sendable {
     let output: String
 }
 
-enum SwiftBuildSlotScriptError: Error {
+enum SwiftBuildSlotScriptError: LocalizedError {
     case missingProcessOutput(String)
     case missingDescendantPID(String)
     case fifoCreationFailed(String, Int32)
     case invalidUTF8Output
     case missingFunction(String)
     case missingTask(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .missingProcessOutput(let marker):
+            "standard output closed before awaited marker '\(marker)'"
+        case .missingDescendantPID(let output):
+            "descendant PID was missing from process output: \(output)"
+        case .fifoCreationFailed(let path, let errorCode):
+            "could not create FIFO at \(path): errno \(errorCode)"
+        case .invalidUTF8Output:
+            "process output was not valid UTF-8"
+        case .missingFunction(let functionName):
+            "shell function '\(functionName)' was missing"
+        case .missingTask(let taskName):
+            "mise task '\(taskName)' was missing"
+        }
+    }
 }
 
 func readOutput(_ fileHandle: FileHandle, into output: inout String, until marker: String) throws {
@@ -172,6 +350,10 @@ func writeLine(_ line: String, to fifoURL: URL) throws {
     let fileHandle = try FileHandle(forWritingTo: fifoURL)
     fileHandle.write(Data(line.utf8))
     try fileHandle.close()
+}
+
+func writeLine(_ line: String, to fileHandle: FileHandle) throws {
+    try fileHandle.write(contentsOf: Data(line.utf8))
 }
 
 func swiftBuildSlotShellFunction(named functionName: String, in source: String) throws -> String {
