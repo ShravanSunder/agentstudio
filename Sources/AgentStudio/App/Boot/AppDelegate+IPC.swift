@@ -471,10 +471,7 @@ extension AppDelegate {
         let descriptorComposition = try await AppIPCDescriptorCatalogBuilder.buildOffMain(inputs: builderInputs)
         // The deferred initializer reports cancellation after this closure returns.
         guard !Task.isCancelled else { return nil }
-        guard appIPCServer == nil else {
-            recordAppIPCStart()
-            return nil
-        }
+        guard appIPCServer == nil else { return nil }
 
         var registrations = try AppIPCBuiltInMethodRegistrations.make(
             inputs: .init(
