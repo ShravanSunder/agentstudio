@@ -442,6 +442,14 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		recordFileFilterActDiagnostic(fileFilterActDiagnostic, 'test-before-menu-open');
 		await actClickAndSettleFileViewerMenu(filterMenuTrigger);
 		recordFileFilterActDiagnostic(fileFilterActDiagnostic, 'test-after-menu-open');
+		const filterMenuPopup = requireBridgeViewerHTMLElement(
+			document.querySelector('[data-testid="worktree-file-filter-menu-popover"]'),
+		);
+		expect(
+			filterMenuPopup
+				.getAnimations({ subtree: true })
+				.every((animation): boolean => animation.playState === 'finished'),
+		).toBe(true);
 		const sourceFilterOption = await waitForFileViewerMenuOptionContaining({ text: 'Source' });
 		fileFilterActDiagnostic.selectedOption = sourceFilterOption;
 		fileFilterActDiagnostic.oldCheckedIndicator = document.querySelector(
@@ -462,6 +470,11 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 			option: sourceFilterOption,
 		});
 		recordFileFilterActDiagnostic(fileFilterActDiagnostic, 'test-after-checked-helper');
+		expect(
+			sourceFilterOption
+				.getAnimations({ subtree: true })
+				.every((animation): boolean => animation.playState === 'finished'),
+		).toBe(true);
 		await waitForFileFilterCount('1/6');
 		await waitForFileViewerTreeItemButtonInAct({
 			path: 'Sources/AgentStudio/App/AppDelegate.swift',

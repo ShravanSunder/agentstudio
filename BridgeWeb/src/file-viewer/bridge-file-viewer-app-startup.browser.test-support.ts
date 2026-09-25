@@ -176,24 +176,14 @@ export async function waitForFileViewerTreeItemButtonInAct(props: {
 
 export async function waitForFileViewerMenuOptionContaining(props: {
 	readonly text: string;
-	readonly remainingAttempts?: number;
 }): Promise<HTMLElement> {
-	const matchingOption = [
-		...document.querySelectorAll('[data-testid="worktree-file-filter-menu-option"]'),
-	]
-		.filter((option): option is HTMLElement => option instanceof HTMLElement)
-		.find((option): boolean => option.textContent?.includes(props.text) ?? false);
-	if (matchingOption !== undefined) {
+	return waitForFileViewerDomState(() => {
+		const matchingOption = [
+			...document.querySelectorAll('[data-testid="worktree-file-filter-menu-option"]'),
+		]
+			.filter((option): option is HTMLElement => option instanceof HTMLElement)
+			.find((option): boolean => option.textContent?.includes(props.text) ?? false);
 		return matchingOption;
-	}
-	const remainingAttempts = props.remainingAttempts ?? 180;
-	if (remainingAttempts <= 0) {
-		throw new Error(`Expected Worktree/File filter option containing ${props.text}.`);
-	}
-	await actFrame();
-	return waitForFileViewerMenuOptionContaining({
-		...props,
-		remainingAttempts: remainingAttempts - 1,
 	});
 }
 
@@ -202,10 +192,14 @@ export async function actInteractAndSettleFileViewerCheckedMenuOption(props: {
 	readonly onDiagnosticPhase?: (phase: FileViewerCheckedMenuDiagnosticPhase) => void;
 	readonly option: HTMLElement;
 }): Promise<void> {
-	props.onDiagnosticPhase?.('before-interaction-act');
-	await act(props.interaction);
-	props.onDiagnosticPhase?.('after-interaction-act');
-	await settleBaseUiTransitionMachine(props.onDiagnosticPhase);
+	await act(async (): Promise<void> => {
+		props.onDiagnosticPhase?.('before-interaction-act');
+		await props.interaction();
+		props.onDiagnosticPhase?.('after-interaction-act');
+		props.onDiagnosticPhase?.('before-animation-finish-wait');
+		await waitForFileViewerAnimationsToFinish(props.option);
+		props.onDiagnosticPhase?.('after-animation-finish-wait');
+	});
 
 	const checkedIndicator = props.option.querySelector(
 		'[data-slot="dropdown-menu-checkbox-item-indicator"] [data-checked]',
@@ -229,60 +223,89 @@ export async function actInteractAndSettleFileViewerCheckedMenuOption(props: {
 export type FileViewerCheckedMenuDiagnosticPhase =
 	| 'before-interaction-act'
 	| 'after-interaction-act'
-	| 'before-transition-frame-1'
-	| 'after-transition-frame-1'
-	| 'after-transition-frame-2';
+	| 'before-animation-finish-wait'
+	| 'after-animation-finish-wait';
 
 export async function actClickAndSettleFileViewerMenu(element: HTMLElement): Promise<void> {
 	const expectedExpandedState = element.getAttribute('aria-expanded') === 'true' ? 'false' : 'true';
 	await act(async (): Promise<void> => {
 		element.click();
 	});
-	await waitForFileViewerMenuState({ element, expectedExpandedState });
-	await settleBaseUiTransitionMachine();
-}
+	const popup = await waitForFileViewerMenuState({ element, expectedExpandedState });
+	if (popup === null) {
+		return;
+	}
 
-async function settleBaseUiTransitionMachine(
-	onDiagnosticPhase?: (phase: FileViewerCheckedMenuDiagnosticPhase) => void,
-): Promise<void> {
-	// Base UI schedules transitionStatus='starting' cleanup on an animation frame. Its
-	// animation-complete hook starts on another frame and can synchronously unmount an
-	// ending indicator. Each frame gets its own act boundary so React commits the first
-	// transition before Base UI schedules work from the next state.
-	onDiagnosticPhase?.('before-transition-frame-1');
-	await actFrame();
-	onDiagnosticPhase?.('after-transition-frame-1');
-	await actFrame();
-	onDiagnosticPhase?.('after-transition-frame-2');
+	await act(async (): Promise<void> => {
+		await waitForFileViewerAnimationsToFinish(popup);
+		if (expectedExpandedState === 'false') {
+			await waitForFileViewerDomState(() => (popup.isConnected ? undefined : true));
+		}
+	});
 }
 
 async function waitForFileViewerMenuState(props: {
 	readonly element: HTMLElement;
 	readonly expectedExpandedState: 'false' | 'true';
-	readonly remainingAttempts?: number;
-}): Promise<void> {
-	const menuContent = document.querySelector('[data-slot="dropdown-menu-content"]');
-	const contentMatches =
-		props.expectedExpandedState === 'true'
-			? menuContent instanceof HTMLElement && menuContent.hasAttribute('data-open')
-			: menuContent === null;
-	if (
-		props.element.getAttribute('aria-expanded') === props.expectedExpandedState &&
-		contentMatches
-	) {
+}): Promise<HTMLElement | null> {
+	return waitForFileViewerDomState(() => {
+		if (props.element.getAttribute('aria-expanded') !== props.expectedExpandedState) {
+			return undefined;
+		}
+
+		const popup = document.querySelector('[data-testid="worktree-file-filter-menu-popover"]');
+		if (props.expectedExpandedState === 'true') {
+			return popup instanceof HTMLElement && popup.hasAttribute('data-open') ? popup : undefined;
+		}
+
+		if (popup === null) {
+			return null;
+		}
+		return popup instanceof HTMLElement && popup.hasAttribute('data-closed') ? popup : undefined;
+	});
+}
+
+async function waitForFileViewerAnimationsToFinish(element: HTMLElement): Promise<void> {
+	const animations = element.getAnimations({ subtree: true });
+	if (animations.length === 0) {
 		return;
 	}
+	await Promise.allSettled(animations.map((animation): Promise<Animation> => animation.finished));
 
-	const remainingAttempts = props.remainingAttempts ?? 180;
-	if (remainingAttempts <= 0) {
-		throw new Error(
-			`Expected FileView menu state aria-expanded=${props.expectedExpandedState}; ` +
-				`actual=${props.element.getAttribute('aria-expanded') ?? 'missing'}.`,
+	const activeAnimations = element.getAnimations({ subtree: true }).filter((animation): boolean => {
+		return (
+			animation.pending ||
+			animation.playState === 'running' ||
+			animation.playState === 'paused' ||
+			(!animations.includes(animation) && animation.playState !== 'finished')
 		);
+	});
+	if (activeAnimations.length > 0) {
+		await waitForFileViewerAnimationsToFinish(element);
 	}
-	await actFrame();
-	await waitForFileViewerMenuState({
-		...props,
-		remainingAttempts: remainingAttempts - 1,
+}
+function waitForFileViewerDomState<TStateValue>(
+	readState: () => TStateValue | undefined,
+): Promise<TStateValue> {
+	const initialState = readState();
+	if (initialState !== undefined) {
+		return Promise.resolve(initialState);
+	}
+
+	return new Promise<TStateValue>((resolve): void => {
+		const observer = new MutationObserver((): void => {
+			const observedState = readState();
+			if (observedState !== undefined) {
+				observer.disconnect();
+				resolve(observedState);
+			}
+		});
+		observer.observe(document.body, { attributes: true, childList: true, subtree: true });
+
+		const stateAfterObservationStarted = readState();
+		if (stateAfterObservationStarted !== undefined) {
+			observer.disconnect();
+			resolve(stateAfterObservationStarted);
+		}
 	});
 }
