@@ -277,13 +277,12 @@ final class WorkspaceActionExecutor {
         _ action: WorkspaceActionCommand,
         ownPaneAssertion: WorkspaceOwnPaneAssertion
     ) async -> WorkspaceScopedActionOutcome {
-        await submit(action, ownPaneAssertion: ownPaneAssertion).value
+        await submitScopedAction(action, ownPaneAssertion: ownPaneAssertion).value
     }
 
     /// Enqueues synchronously, like `submit(_:)`: the assertion travels with
     /// the action and is evaluated only when the gesture runs.
-    @discardableResult
-    func submit(
+    func submitScopedAction(
         _ action: WorkspaceActionCommand,
         ownPaneAssertion: WorkspaceOwnPaneAssertion
     ) -> Task<WorkspaceScopedActionOutcome, Never> {

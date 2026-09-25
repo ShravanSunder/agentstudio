@@ -54,7 +54,7 @@ struct AppIPCStartOutcomeTraceTests {
                 initialization.increment()
             }
         }
-        await delay.waitUntilEntered()
+        #expect(await delay.waitUntilEntered())
 
         task.cancel()
 
@@ -75,7 +75,7 @@ struct AppIPCStartOutcomeTraceTests {
                 await suspension.suspendInitialization()
             }
         }
-        await suspension.waitUntilInitializationStarts()
+        #expect(await suspension.waitUntilInitializationStarts())
         task.cancel()
         await suspension.resumeInitialization()
 
@@ -280,10 +280,11 @@ private actor InitializationSuspension {
         }
     }
 
-    func waitUntilInitializationStarts() async {
+    func waitUntilInitializationStarts() async -> Bool {
         for await _ in enteredStream {
-            break
+            return true
         }
+        return false
     }
 
     func resumeInitialization() {
@@ -323,8 +324,10 @@ private final class NeverElapsingDelay: @unchecked Sendable {
         }
     }
 
-    func waitUntilEntered() async {
-        var iterator = entered.makeAsyncIterator()
-        _ = await iterator.next()
+    func waitUntilEntered() async -> Bool {
+        for await _ in entered {
+            return true
+        }
+        return false
     }
 }
