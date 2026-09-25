@@ -78,3 +78,14 @@ Parent owns integration, native proof and the final verdict. All writers are fro
 Main advanced to `b52a75a92` (PR #344) while this patch was developed. It introduces repository observation lifetimes, scoped topology and reload-retirement safeguards. Read-only preflight found no design contradiction: keep main's current structure, port only missing initial-worktree registration into `WorkspaceCacheCoordinator+TopologyIngress.swift`, remove the redundant `+Discovery.swift`, and retain the annotation subscription factory alongside main's worker-test-support import. Preserve the patch in a local checkpoint before merging. Candidate6 failed native Review metadata readiness; do not repair obsolete fixtures blindly before this integration. All web lanes and the rebuilt native floating-control proof passed on the pre-integration candidate.
 
 The port now uses main's topology ingress owner. Strengthened integration tests record exact effect batches while forwarding into the real surface coordinator: two tests failed with four expected issues before the port, then both passed. All 50 nearby coordinator tests passed, exit 0; scoped formatting and diff checks passed. Receipts: `tmp/main-topology-port-proof.md`. The tests cover immediate unscanned-main registration, the complete newly discovered linked-worktree family, and duplicate-free replay.
+
+## Follow-up (owner, 2026-09-25): turn- and time-based diffs, Cursor-style
+- Want: show only the changes from the last agent turn, or from the last N hours.
+- Decision: a **separate later project**, with its own requirements, spec and review. It is outside the Bridge stability boundary.
+- Groundwork done now: the File filter's wire contract uses a general `changes(baseline, kinds)`, where baseline is `uncommitted | originDefaultMergeBase`. It can be extended with `commit(oid)` without a wire break.
+- Likely shape:
+  - capture worktree checkpoints as git commit objects (write-tree + commit-tree) under a private ref such as `refs/agentstudio/checkpoints/*`;
+  - Review can then compare against them through the existing `WorkspaceReviewContributionTarget.commit(oid:)`;
+  - the File filter uses the same files-only diff;
+  - comment version records store the checkpoint oid.
+- New work: checkpoint capture and retention/GC, turn-boundary hooks from agent sessions (unverified whether they exist), and a "last N hours" lookup.
