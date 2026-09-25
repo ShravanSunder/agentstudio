@@ -171,6 +171,15 @@ flowchart TB
 
 A content read is an E4 with a finite body, addressed by descriptor, so a repeat returns the same bytes and it can be retried safely. Its chunks use the same credits and cumulative ack, scoped to that read. Today it uses a per-frame ack await (`bridge-product-transport.ts:907-918`). Its rest-of-body stall is bounded by the finite-progress deadline. A read for a descriptor that has moved on answers a typed `superseded`. A stalled or cancelled content read ends only itself, never the metadata stream.
 
+**File tree change filter (U12, R33–R38).**
+- **Scope values.** The File view's scope gains a change filter: `none` (all files), `uncommitted(kinds)` or `allChanges(kinds)`. A filter change is an ordinary scope change: a coverage batch with evictions (R9b). A lazily loaded tree can't be filtered page-side, because changed files deep in unexpanded folders aren't loaded.
+- **Changed-set sources, owned by the N10 File publisher.**
+  - `uncommitted` comes from the git status index the File source already reads (`file.statusPatch` carries per-path status today).
+  - `allChanges` comes from a **files-only** diff against the pane's Review comparison target (`WorkspaceReviewContributionTarget`, with the same basis), through the existing `agentstudio-git` diff that the Review data client uses (`AgentStudioGitBridgeReviewDataClient+Contribution.swift:165`). It is scheduled through the git scheduler, only while that filter is on, and recomputed per input generation. It never starts a Review package build (R36, U8).
+- **Rows.** Matching paths plus their ancestor folders. Deleted paths become **ghost rows**, `kind = deleted`, with no descriptor, so they can't be opened; ghost parent folders appear where a folder is gone. Renames carry their old path. An empty result is an empty snapshot (R34).
+- **Continuity (R38).** The open file stays in scope, pinned, until the page leaves it. Comment threads don't depend on File scope.
+- **UI.** The File facet reuses the shared `BridgeViewerFacetMenu`: a "Changes" group (Uncommitted, All Changes) and a "Git status" kinds group. Review's picker and facet labels change (R37). The active baseline is shown as a chip in both views.
+
 **Surface reconciler (N5).** Inputs:
 - `setVisibility(visible)`;
 - `setTarget(target)` (Review);
@@ -502,8 +511,8 @@ Each head must pass `mise run test` and leave a working app.
 
 | PR | Delivers | Proves | Oracle rewrites that move with it |
 |---|---|---|---|
-| 1 Transport that always settles | N1–N4, N9, **N10 (keyed state for all four kinds, File rows with parent and sort key, comment revision minted in the transaction)**, W1, W2 (generic lifecycle, with every consumer cut over), W3, W4 (sealed batches), W5; clocks and quiescence probes; test seams; contract suite, transport part | R1–R10, R9a–R9c; wedges a, b, e, i, j | S13 held-provider tests, the retirement-transport poll helpers |
-| 2 Surfaces that converge | N5, N6, N7, the INST receipt; File/Review status and Retry UI | R11–R20; contract suite adds R11–R14; wedges c, d, f, h | The "gates stay closed" comparison test; refresh-admission tests |
+| 1 Transport that always settles | N1–N4, N9, **N10 (keyed state for all four kinds, File rows with parent and sort key, comment revision minted in the transaction)**, W1, W2 (generic lifecycle, with every consumer cut over), W3, W4 (sealed batches), W5; clocks and quiescence probes; test seams; contract suite, transport part | R1–R10, R9a–R9c; wedges a, b, e, i, j. **The File scope values for U12 are in PR1's wire contract** | S13 held-provider tests, the retirement-transport poll helpers |
+| 2 Surfaces that converge | N5, N6, N7, the INST receipt; File/Review status and Retry UI; **the File change filter** (changed-set sources, ghost rows, facet UI, Review label changes) | R11–R20; contract suite adds R11–R14; wedges c, d, f, h | The "gates stay closed" comparison test; refresh-admission tests |
 | 3 Comments stand on their own | N8 (version records, creation on the displayed version, placement tags, receipts, evaluator), comment kinds on the Comments surface, placement UI, migration | R21–R27; wedges g, k | Annotation epoch-cutover tests, the recovery/history browser waits |
 
 PR1 keeps comment subscriptions on their current epochs, but through W2. PR3 moves them to the Comments surface. That is a contained cutover of one binding, with no dual path at any head.
@@ -523,4 +532,5 @@ In PR1 and PR2, a comment mutation that settles `outcomeUnknown` is handled exac
 | R19 | N5 status, UI | visual evidence plus page state |
 | R21–R27 | N8, W2, INST, UI | File/Review parity, SQLite receipts, visual |
 | R29, R30, R32 | test support, lint | lint, rewritten tests |
+| R33–R38 | N10 File publisher, Review data client (files-only diff), UI | scope/filter tests per baseline, a no-Review-build assertion, visual |
 | R31 | all | failing-then-passing runs per wedge |

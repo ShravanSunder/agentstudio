@@ -50,6 +50,7 @@ Every row's authority state is **authorized**. Priority was assigned by the owne
 | **U9** | Delivery acknowledgements are windowed and cumulative, with a bounded window and a deadline, instead of one acknowledgement per frame. | Per-frame acknowledgement round trips were one of the wedge chains. | C1, C3 | Required |
 | **U10** | Tests catch real failures: real-path tests with fault injection, no timer-based waits, a test that fails first for every known wedge, and one contract suite every data type must pass. Harmful tests are replaced. | The owner's primary goal. Today, 29 of 60 sampled Bridge tests are harmful as written. | C3 | Primary |
 | **U11** | A Save panel (a native dialog waiting on the user) blocks no other Bridge operation. Closing or reloading the pane cancels it, and the save does not happen. | A human-paced wait must not freeze the pane (S13). | C1 | Required |
+| **U12** | The File view can filter its tree to changed files, with the same Git status kinds as Review. The two change filters are **"Uncommitted"** (vs HEAD) and **"All Changes"** (vs the pane's Review comparison target), narrowed by kind. With neither selected, all files show. Deleted files appear greyed and can't be opened. Review's picker names **"Uncommitted changes (HEAD)"** explicitly, and its Git status filter's first option reads **"All Changes"**. | File and Review should answer "what changed?" the same way, against either baseline. | C1 | Required |
 
 ## Goal boundary (confirmed 2026-09-24)
 
@@ -63,7 +64,7 @@ Every row's authority state is **authorized**. Priority was assigned by the owne
   - existing UI components;
   - the SQLite comment store and its anchor evaluator;
   - existing draft and source protections.
-- **Missing (this work builds it):** every wait ends; windowed cumulative acks; one owner of "is this current?" per surface; typed recoverable failures with a working Retry (Review included); comments independent of reloads, with a version record and outdated/moved states; the degraded state; Review on demand; a four-kind contract suite plus fault seams; replacement of harmful tests.
+- **Missing (this work builds it):** every wait ends; windowed cumulative acks; one owner of "is this current?" per surface; typed recoverable failures with a working Retry (Review included); comments independent of reloads, with a version record and outdated/moved states; the degraded state; Review on demand; a four-kind contract suite plus fault seams; replacement of harmful tests; the File tree change filter (U12, added 2026-09-25).
 - **May change:**
   - the Bridge feature (native);
   - Bridge-related App coordination;

@@ -125,6 +125,15 @@ The entity table is normative. Every E6 Wait belongs to an E1, E3, E4 or E7, and
 - **R26.** A comment save whose outcome is unknown MUST be shown as pending and then reconciled. A Retry of it MUST NOT create a duplicate message.
 - **R27.** Comment output to agents (C2) MUST include each thread's E12 and placement state.
 
+### File tree change filter (U12)
+
+- **R33.** The File view's filter MUST offer **Uncommitted** (paths whose working-tree status differs from HEAD, as `git status` reports) and **All Changes** (paths that differ from the pane's Review comparison target, using the same comparison basis as Review). With neither selected, the tree shows all files.
+- **R34.** Git status kinds (Added, Modified, Renamed, Deleted, Copied) MUST narrow the selected change filter. With a change filter active, the tree shows matching files plus their ancestor folders, and nothing else. An empty result shows an empty state; it is not a failure.
+- **R35.** Deleted paths MUST appear as greyed rows that can't be opened, including a greyed parent folder when the folder no longer exists. Renamed paths appear at their new path, noting the old one.
+- **R36.** "All Changes" in the File view MUST use the pane's single Review comparison target, and MUST NOT start a Review build (U8). Changing the target in Review changes File's "All Changes" too.
+- **R37.** Review's comparison picker MUST name the HEAD baseline **"Uncommitted changes (HEAD)"**, and both views' Git status filters MUST label their all-kinds option **"All Changes"**. The active baseline MUST be visible in both views.
+- **R38.** The file that is open when a filter is applied stays visible in the tree until the user navigates away. Comment threads on filtered-out files stay listed in the drawer, and selecting one reveals its file.
+
 ### Tests prove it (U10)
 
 - **R28.** A single contract suite MUST run every property of R1–R14 (including R9a–R9c) against every E16 data kind, at three layers. It covers missing, duplicated and reordered parts; delete then recreate; a snapshot overlapping live changes; scope expansion; a slow consumer touching many keys; and worker replacement. The three layers:
@@ -243,3 +252,4 @@ It inherits, and may not override, opening, cancelling, retiring, batching, per-
 | U9 | E15 | R10 | failure behavior | controlled clock, fault injection |
 | U10 | all | R28–R32 | S3 | lint, failing-then-passing runs |
 | U11 | E4 E6 | R4 | failure behavior | automated (held human wait plus pane close) |
+| U12 | E2 E7 E9 E17 | R33–R38 | C-UI (filters) | automated scope/filter tests, no-Review-build assertion, visual |
