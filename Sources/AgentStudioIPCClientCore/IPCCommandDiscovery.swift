@@ -97,7 +97,7 @@ package struct IPCCommandDiscovery: Sendable {
                 expected: "the typed command.list contract"
             )
         }
-        let normalizedParameters: Data
+        let normalizedParameters: IPCValidatedJSON
         do {
             normalizedParameters = try erasedList.normalizeParameters(Data("{}".utf8))
         } catch {
@@ -117,10 +117,9 @@ package struct IPCCommandDiscovery: Sendable {
     package func decodeCommandCatalog(
         from originalResult: Data
     ) throws -> IPCDiscoveredCommandCatalog {
-        let catalog: IPCCommandCatalogResult
+        let normalizedResult: IPCValidatedJSON
         do {
-            let normalized = try advertisedList.resultSchema.normalize(originalResult)
-            catalog = try JSONDecoder().decode(IPCCommandCatalogResult.self, from: normalized)
+            normalizedResult = try commandListInvocation.descriptor.normalizeResult(originalResult)
         } catch {
             throw Self.failure(
                 .invalidCommandCatalog,
@@ -128,6 +127,32 @@ package struct IPCCommandDiscovery: Sendable {
                 expected: "the advertised typed command catalog"
             )
         }
+        return try decodeCommandCatalog(from: normalizedResult)
+    }
+
+    package func decodeCommandCatalog(
+        from normalizedResult: IPCValidatedJSON
+    ) throws -> IPCDiscoveredCommandCatalog {
+        let catalog: IPCCommandCatalogResult
+        do {
+            catalog = try advertisedList.resultSchema.decode(
+                IPCCommandCatalogResult.self,
+                from: normalizedResult.normalizedJSON
+            )
+        } catch {
+            throw Self.failure(
+                .invalidCommandCatalog,
+                fieldPath: "$.commands",
+                expected: "the advertised typed command catalog"
+            )
+        }
+
+        return try decodeCommandCatalog(catalog)
+    }
+
+    private func decodeCommandCatalog(
+        _ catalog: IPCCommandCatalogResult
+    ) throws -> IPCDiscoveredCommandCatalog {
 
         guard catalog.compatibility == .current else {
             throw Self.failure(
@@ -387,7 +412,7 @@ package struct IPCDiscoveredCommandCatalog: Sendable {
     private static func normalize(
         _ request: IPCCommandExecutionRequest,
         through descriptor: IPCAnyMethodDescriptor
-    ) throws -> Data {
+    ) throws -> IPCValidatedJSON {
         do {
             return try descriptor.normalizeParameters(JSONEncoder().encode(request))
         } catch {
@@ -403,6 +428,23 @@ package struct IPCDiscoveredCommandCatalog: Sendable {
         _ originalResult: Data,
         for invocation: IPCDescriptorInvocation
     ) throws -> IPCCommandExecutionResult {
+        let normalizedResult: IPCValidatedJSON
+        do {
+            normalizedResult = try executeDescriptor.normalizeResult(originalResult)
+        } catch {
+            throw IPCCommandDiscovery.failure(
+                .invalidCommandResult,
+                fieldPath: "$",
+                expected: "the typed command.execute result"
+            )
+        }
+        return try decodeResult(normalizedResult, for: invocation)
+    }
+
+    package func decodeResult(
+        _ normalizedResult: IPCValidatedJSON,
+        for invocation: IPCDescriptorInvocation
+    ) throws -> IPCCommandExecutionResult {
         guard invocation.descriptor.metadata == executeDescriptor.metadata else {
             throw IPCCommandDiscovery.failure(
                 .invalidCommandResult,
@@ -413,17 +455,17 @@ package struct IPCDiscoveredCommandCatalog: Sendable {
         let request: IPCCommandExecutionRequest
         let result: IPCCommandExecutionResult
         do {
-            let normalizedRequest = try executeDescriptor.normalizeParameters(
-                invocation.normalizedParameters
-            )
             request = try JSONDecoder().decode(
                 IPCCommandExecutionRequest.self,
-                from: normalizedRequest
+                from: invocation.normalizedParameters.data(
+                    validatedFor: executeDescriptor.metadata.parameterSchema
+                )
             )
-            let normalizedResult = try executeDescriptor.normalizeResult(originalResult)
             result = try JSONDecoder().decode(
                 IPCCommandExecutionResult.self,
-                from: normalizedResult
+                from: normalizedResult.data(
+                    validatedFor: executeDescriptor.metadata.resultSchema
+                )
             )
         } catch {
             throw IPCCommandDiscovery.failure(

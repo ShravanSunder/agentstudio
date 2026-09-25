@@ -4,7 +4,7 @@ import Foundation
 package struct IPCDescriptorClientResponse: Sendable {
     package let descriptor: IPCAnyMethodDescriptor
     package let requestID: Int
-    package let normalizedResult: Data
+    package let normalizedResult: IPCValidatedJSON
 }
 
 package enum IPCDescriptorClientCallResult: Sendable {

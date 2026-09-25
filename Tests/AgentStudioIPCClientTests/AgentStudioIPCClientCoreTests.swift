@@ -45,8 +45,11 @@ struct AgentStudioIPCClientCoreTests {
                 let request = try JSONRPCCodec.decodeRequest(client.requestFrame(invocation, requestID: 14))
                 #expect(request.id == .number(14))
                 #expect(request.method == descriptor.metadata.name)
-                #expect(
-                    try request.params == JSONDecoder().decode(JSONValue.self, from: invocation.normalizedParameters))
+                let normalizedParameters = try JSONDecoder().decode(
+                    JSONValue.self,
+                    from: invocation.normalizedParameters.data
+                )
+                #expect(request.params == normalizedParameters)
             }
         }
     }
@@ -61,7 +64,7 @@ struct AgentStudioIPCClientCoreTests {
                 correlation.uuidString,
             ], descriptors: catalog
         ).descriptorInvocation
-        let sendParams = try JSONDecoder().decode(IPCTerminalSendParams.self, from: send.normalizedParameters)
+        let sendParams = try JSONDecoder().decode(IPCTerminalSendParams.self, from: send.normalizedParameters.data)
         #expect(sendParams.input == "echo 雪\n")
         #expect(sendParams.correlationId == correlation)
         let wait = try parse(
@@ -70,7 +73,7 @@ struct AgentStudioIPCClientCoreTests {
                 "--after-sequence", "41",
             ], descriptors: catalog
         ).descriptorInvocation
-        let waitParams = try JSONDecoder().decode(IPCTerminalWaitParams.self, from: wait.normalizedParameters)
+        let waitParams = try JSONDecoder().decode(IPCTerminalWaitParams.self, from: wait.normalizedParameters.data)
         #expect(waitParams.afterSequence == 41)
         #expect(waitParams.timeoutSeconds == 5)
     }
@@ -89,7 +92,8 @@ struct AgentStudioIPCClientCoreTests {
                 ["bridge.fileTree.setFilter", "--stdin"], descriptors: descriptors, input: JSONEncoder().encode(params)
             ).descriptorInvocation
             #expect(
-                try JSONDecoder().decode(IPCBridgeFileTreeSetFilterParams.self, from: invocation.normalizedParameters)
+                try JSONDecoder().decode(
+                    IPCBridgeFileTreeSetFilterParams.self, from: invocation.normalizedParameters.data)
                     == params)
         }
         let invalidCandidates: [[String: Any]] = [
@@ -121,7 +125,7 @@ struct AgentStudioIPCClientCoreTests {
         #expect(invocation.configuration.authToken == "fixture-token")
         #expect(
             try JSONDecoder().decode(
-                IPCAuthLoginParams.self, from: invocation.descriptorInvocation.normalizedParameters
+                IPCAuthLoginParams.self, from: invocation.descriptorInvocation.normalizedParameters.data
             ).token == "fixture-token")
         for args in [
             ["--token", "secret", "auth.login"],

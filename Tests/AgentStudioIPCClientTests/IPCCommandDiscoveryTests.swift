@@ -30,7 +30,7 @@ struct IPCCommandDiscoveryTests {
         #expect(
             try JSONDecoder().decode(
                 IPCCommandExecutionRequest.self,
-                from: invocation.normalizedParameters
+                from: invocation.normalizedParameters.data
             )
                 == IPCCommandExecutionRequest(
                     commandId: fixture.noArgumentsCommandId,
@@ -93,14 +93,17 @@ struct IPCCommandDiscoveryTests {
         #expect(throws: (any Error).self) {
             _ = try catalog.executeDescriptor.normalizeParameters(Data(payload.utf8))
         }
-        let parsedRequest = try JSONDecoder().decode(IPCCommandExecutionRequest.self, from: parsed.normalizedParameters)
+        let parsedRequest = try JSONDecoder().decode(
+            IPCCommandExecutionRequest.self,
+            from: parsed.normalizedParameters.data
+        )
         let invocation = try catalog.makeInvocation(
             commandId: parsedRequest.commandId,
             correlationId: parsedRequest.correlationId,
             arguments: parsedRequest.arguments
         )
-        // Gate 2: framing normalizes again, through the invocation's own
-        // descriptor.
+        // Gate 2: framing accepts only the invocation's schema-bound
+        // normalized value.
         let frame = try AgentStudioIPCClient(
             configuration: .init(socketPath: "/tmp/unused.sock"), descriptors: []
         ).requestFrame(invocation, requestID: 7)
@@ -201,6 +204,108 @@ struct IPCCommandDiscoveryTests {
         #expect(error.fieldPath == "$.commands")
         #expect(!String(describing: error).contains(privateValue))
         #expect(!String(describing: error).contains("private"))
+    }
+
+    @Test("raw command.list payloads reject unknown fields and wrong types")
+    func rawCommandListPayloadsKeepFullSchemaValidation() throws {
+        let fixture = try IPCCommandDiscoveryFixture.make()
+        let discovery = try IPCCommandDiscovery(methodCatalog: fixture.methodCatalog)
+        let validPayload = try JSONEncoder().encode(fixture.commandComposition.catalogResult)
+
+        var unknownFieldObject = try #require(
+            JSONSerialization.jsonObject(with: validPayload) as? [String: Any]
+        )
+        unknownFieldObject["privateExtension"] = true
+        let unknownFieldPayload = try JSONSerialization.data(withJSONObject: unknownFieldObject)
+
+        var wrongTypeObject = try #require(
+            JSONSerialization.jsonObject(with: validPayload) as? [String: Any]
+        )
+        wrongTypeObject["commands"] = "not-an-array"
+        let wrongTypePayload = try JSONSerialization.data(withJSONObject: wrongTypeObject)
+
+        for malformedPayload in [unknownFieldPayload, wrongTypePayload] {
+            let error = try captureIPCCommandDiscoveryError {
+                _ = try discovery.decodeCommandCatalog(from: malformedPayload)
+            }
+            #expect(error.reason == .invalidCommandCatalog)
+        }
+    }
+
+    @Test("raw command.list payloads reject an ambiguous oneOf")
+    func rawCommandListRejectsAmbiguousOneOf() throws {
+        let fixture = try IPCCommandDiscoveryFixture.make()
+        let ambiguousListSchema = IPCJSONSchema.oneOf([
+            fixture.commandComposition.list.contract.resultSchema,
+            fixture.commandComposition.list.contract.resultSchema,
+        ])
+        var catalogObject = try #require(
+            JSONSerialization.jsonObject(with: JSONEncoder().encode(fixture.methodCatalog)) as? [String: Any]
+        )
+        var methods = try #require(catalogObject["methods"] as? [[String: Any]])
+        let commandListIndex = try #require(methods.firstIndex { $0["name"] as? String == "command.list" })
+        methods[commandListIndex]["resultSchema"] = try JSONSerialization.jsonObject(
+            with: JSONEncoder().encode(ambiguousListSchema)
+        )
+        methods[commandListIndex]["examples"] = []
+        catalogObject["methods"] = methods
+
+        let methodCatalog = try JSONDecoder().decode(
+            IPCMethodCatalogResult.self,
+            from: JSONSerialization.data(withJSONObject: catalogObject)
+        )
+        let discovery = try IPCCommandDiscovery(methodCatalog: methodCatalog)
+        let payload = try JSONEncoder().encode(fixture.commandComposition.catalogResult)
+
+        let error = try captureIPCCommandDiscoveryError {
+            _ = try discovery.decodeCommandCatalog(from: payload)
+        }
+
+        #expect(error.reason == .invalidCommandCatalog)
+    }
+
+    @Test("schema-normalized command.list data takes the typed skip path")
+    func normalizedCommandListUsesTheTypedSkipPath() throws {
+        let fixture = try IPCCommandDiscoveryFixture.make()
+        let discovery = try IPCCommandDiscovery(methodCatalog: fixture.methodCatalog)
+        let payload = try JSONEncoder().encode(fixture.commandComposition.catalogResult)
+        let normalizedResult: IPCValidatedJSON = try discovery.commandListInvocation.descriptor.normalizeResult(payload)
+
+        let discoveredCatalog = try discovery.decodeCommandCatalog(from: normalizedResult)
+        let invocation = try discoveredCatalog.makeInvocation(
+            commandId: fixture.noArgumentsCommandId,
+            correlationId: fixture.correlationId,
+            arguments: .noArguments
+        )
+
+        #expect(invocation.descriptor.metadata.name == "command.execute")
+    }
+
+    @Test("command.list and system.ping preserve typed normalized round trips")
+    func typedCommandListAndPingRoundTrips() throws {
+        let fixture = try IPCCommandDiscoveryFixture.make()
+        let commandListResult = fixture.commandComposition.catalogResult
+        let commandListContract = fixture.commandComposition.list.contract
+        let validatedCommandList = try commandListContract.validatedResult(
+            from: JSONEncoder().encode(commandListResult)
+        )
+
+        #expect(validatedCommandList.value == commandListResult)
+        #expect(try commandListContract.decodeResult(from: validatedCommandList.json) == commandListResult)
+
+        let pingResult = IPCSystemPingResult(runtimeId: UUIDv7.generate())
+        let pingContract = try IPCMethodContract<IPCEmptyParams, IPCSystemPingResult>(
+            parameterSchema: IPCEmptyParams.ipcSchema(),
+            resultSchema: IPCSystemPingResult.ipcSchema()
+        )
+        let lowercasePingPayload = Data(
+            "{\"ok\":true,\"runtimeId\":\"\(pingResult.runtimeId.uuidString.lowercased())\"}".utf8
+        )
+        let validatedPing = try pingContract.validatedResult(from: lowercasePingPayload)
+
+        #expect(validatedPing.value == pingResult)
+        #expect(try pingContract.decodeResult(from: validatedPing.json) == pingResult)
+        #expect(validatedPing.json.data == (try pingContract.encodeResult(pingResult)))
     }
 }
 

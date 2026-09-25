@@ -1,5 +1,21 @@
 import Foundation
 
+/// Method-contract JSON that passed schema normalization and typed-encoding
+/// equality. It can cross an internal boundary without repeating either walk.
+package struct IPCValidatedJSON: Equatable, Sendable {
+    package let normalizedJSON: IPCNormalizedJSON
+    package var data: Data { normalizedJSON.data }
+
+    package func data(validatedFor schema: IPCJSONSchema) throws -> Data {
+        try normalizedJSON.data(validatedFor: schema)
+    }
+}
+
+package struct IPCValidatedTypedValue<Value: Sendable>: Sendable {
+    package let value: Value
+    package let json: IPCValidatedJSON
+}
+
 /// The method registry attaches its handler to this typed request/result pair.
 /// Validation and discovery consume the same schemas; Codable cannot silently
 /// discard a schema-declared non-null field before the handler sees it.
@@ -15,28 +31,102 @@ package struct IPCMethodContract<Parameters: Codable & Sendable, Result: Codable
     }
 
     package func decodeParameters(from data: Data) throws -> Parameters {
-        let normalized = try parameterSchema.normalize(data)
+        try decodeParameters(from: parameterSchema.normalizeJSON(data))
+    }
+
+    package func decodeParameters(from normalized: IPCNormalizedJSON) throws -> Parameters {
         let parameters = try parameterSchema.decode(Parameters.self, from: normalized)
-        try parameterSchema.validateTypedEncoding(
-            normalized: normalized, encoded: encodedValue(parameters)
+        _ = try parameterSchema.validateTypedEncodingAndCompare(
+            normalized: normalized,
+            encoded: encodedValue(parameters)
         )
         return parameters
     }
 
+    package func decodeParameters(from validated: IPCValidatedJSON) throws -> Parameters {
+        try parameterSchema.decode(Parameters.self, from: validated.normalizedJSON)
+    }
+
+    package func validatedParameters(from data: Data) throws -> IPCValidatedTypedValue<Parameters> {
+        try validatedParameters(from: parameterSchema.normalizeJSON(data))
+    }
+
+    package func normalizedParameters(from data: Data) throws -> IPCValidatedJSON {
+        try validatedParameters(from: data).json
+    }
+
+    package func validatedParameters(
+        from normalized: IPCNormalizedJSON
+    ) throws -> IPCValidatedTypedValue<Parameters> {
+        let parameters = try parameterSchema.decode(Parameters.self, from: normalized)
+        let encoded = try encodedValue(parameters)
+        let sameRepresentation = try parameterSchema.validateTypedEncodingAndCompare(
+            normalized: normalized,
+            encoded: encoded
+        )
+        let wireJSON = try normalizedTypedEncoding(
+            encoded,
+            matching: normalized,
+            sameRepresentation: sameRepresentation,
+            schema: parameterSchema
+        )
+        return IPCValidatedTypedValue(
+            value: parameters,
+            json: IPCValidatedJSON(normalizedJSON: wireJSON)
+        )
+    }
+
     package func decodeResult(from data: Data) throws -> Result {
-        let normalized = try resultSchema.normalize(data)
+        try decodeResult(from: resultSchema.normalizeJSON(data))
+    }
+
+    package func decodeResult(from normalized: IPCNormalizedJSON) throws -> Result {
         let result = try resultSchema.decode(Result.self, from: normalized)
-        try resultSchema.validateTypedEncoding(
-            normalized: normalized, encoded: encodedValue(result)
+        _ = try resultSchema.validateTypedEncodingAndCompare(
+            normalized: normalized,
+            encoded: encodedValue(result)
         )
         return result
     }
 
+    package func decodeResult(from validated: IPCValidatedJSON) throws -> Result {
+        try resultSchema.decode(Result.self, from: validated.normalizedJSON)
+    }
+
+    package func validatedResult(from data: Data) throws -> IPCValidatedTypedValue<Result> {
+        try validatedResult(from: resultSchema.normalizeJSON(data))
+    }
+
+    package func normalizedResult(from data: Data) throws -> IPCValidatedJSON {
+        try validatedResult(from: data).json
+    }
+
+    package func validatedResult(
+        from normalized: IPCNormalizedJSON
+    ) throws -> IPCValidatedTypedValue<Result> {
+        let result = try resultSchema.decode(Result.self, from: normalized)
+        let encoded = try encodedValue(result)
+        let sameRepresentation = try resultSchema.validateTypedEncodingAndCompare(
+            normalized: normalized,
+            encoded: encoded
+        )
+        let wireJSON = try normalizedTypedEncoding(
+            encoded,
+            matching: normalized,
+            sameRepresentation: sameRepresentation,
+            schema: resultSchema
+        )
+        return IPCValidatedTypedValue(
+            value: result,
+            json: IPCValidatedJSON(normalizedJSON: wireJSON)
+        )
+    }
+
     package func encodeResult(_ result: Result) throws -> Data {
         let encoded = try encodedValue(result)
-        let normalized = try resultSchema.normalize(encoded)
-        try resultSchema.validateTypedEncoding(normalized: normalized, encoded: encoded)
-        return normalized
+        let normalized = try resultSchema.normalizeJSON(encoded)
+        _ = try resultSchema.validateTypedEncodingAndCompare(normalized: normalized, encoded: encoded)
+        return normalized.data
     }
 
     package func validateExample(parameters: Parameters, result: Result) throws {
@@ -52,5 +142,20 @@ package struct IPCMethodContract<Parameters: Codable & Sendable, Result: Codable
                 fieldPath: "$", reason: .decodingMismatch, expected: "an encodable typed contract value"
             )
         }
+    }
+
+    private func normalizedTypedEncoding(
+        _ encoded: Data,
+        matching normalized: IPCNormalizedJSON,
+        sameRepresentation: Bool,
+        schema: IPCJSONSchema
+    ) throws -> IPCNormalizedJSON {
+        // The normal case returns the already-normalized message. If Codable
+        // canonicalized a value, normalize that changed representation to keep
+        // the previous wire output and exactly-one checks.
+        guard !sameRepresentation else { return normalized }
+        let typedJSON = try schema.normalizeJSON(encoded)
+        _ = try schema.validateTypedEncodingAndCompare(normalized: typedJSON, encoded: encoded)
+        return typedJSON
     }
 }

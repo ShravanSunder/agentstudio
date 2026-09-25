@@ -155,8 +155,9 @@ package struct AppIPCTypedMethodRegistration<
                     throw AppIPCTypedMethodRegistrationError.parameterTransportEncodingFailed
                 }
 
-                let normalizedParameterData = try descriptor.contract.parameterSchema.normalize(parameterData)
-                let typedParameters = try descriptor.decodeParameters(from: normalizedParameterData)
+                let validatedParameters = try descriptor.contract.validatedParameters(from: parameterData)
+                let normalizedParameterData = validatedParameters.json.data
+                let typedParameters = validatedParameters.value
                 let normalizedWireCorrelation = try normalizedWireCorrelationId(
                     from: normalizedParameterData
                 )

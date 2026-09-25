@@ -62,6 +62,25 @@ package struct IPCObjectField: Equatable, Sendable {
     }
 }
 
+/// JSON that has passed one complete walk through its owning schema.
+/// Construction stays inside schema normalization so raw bytes cannot enter
+/// APIs that intentionally skip that walk.
+package struct IPCNormalizedJSON: Equatable, Sendable {
+    package let data: Data
+    fileprivate let schema: IPCJSONSchema
+
+    package func data(validatedFor schema: IPCJSONSchema) throws -> Data {
+        guard self.schema == schema else {
+            throw IPCSchemaValidationError(
+                fieldPath: "$",
+                reason: .invalidDefinition,
+                expected: "JSON normalized for the matching schema"
+            )
+        }
+        return data
+    }
+}
+
 /// One algebra drives input validation, default application and discovery.
 /// Unknown object fields are rejected instead of silently changing meaning.
 package indirect enum IPCJSONSchema: Equatable, Sendable, Codable {
@@ -83,6 +102,10 @@ package indirect enum IPCJSONSchema: Equatable, Sendable, Codable {
     static let metaSchemaURI = "https://json-schema.org/draft/2020-12/schema"
 
     package func normalize(_ data: Data) throws -> Data {
+        try normalizeJSON(data).data
+    }
+
+    package func normalizeJSON(_ data: Data) throws -> IPCNormalizedJSON {
         try validateDefinition()
         let value: IPCSchemaValue
         do {
@@ -90,13 +113,17 @@ package indirect enum IPCJSONSchema: Equatable, Sendable, Codable {
         } catch {
             throw failure(.invalidJSON, path: "$", expected: "valid JSON")
         }
-        return try normalize(value, path: "$").encoded()
+        return IPCNormalizedJSON(data: try normalize(value, path: "$").encoded(), schema: self)
     }
 
     package func decode<Value: Decodable>(_ type: Value.Type, from data: Data) throws -> Value {
-        let normalized = try normalize(data)
+        try decode(type, from: normalizeJSON(data))
+    }
+
+    package func decode<Value: Decodable>(_ type: Value.Type, from normalized: IPCNormalizedJSON) throws -> Value {
+        let normalizedData = try normalized.data(validatedFor: self)
         do {
-            return try JSONDecoder().decode(type, from: normalized)
+            return try JSONDecoder().decode(type, from: normalizedData)
         } catch {
             // Decoder diagnostics may contain private values; only catalog-owned
             // correction information crosses the protocol boundary.

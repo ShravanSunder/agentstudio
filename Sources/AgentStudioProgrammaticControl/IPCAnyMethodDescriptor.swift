@@ -8,8 +8,8 @@ package protocol IPCMethodDescriptorRepresentation: Sendable {
 package struct IPCAnyMethodDescriptor: Sendable {
     package let metadata: IPCMethodCatalogEntry
     package let catalogEntrySchema: IPCJSONSchema
-    private let parameterNormalizer: @Sendable (Data) throws -> Data
-    private let resultNormalizer: @Sendable (Data) throws -> Data
+    private let parameterNormalizer: @Sendable (Data) throws -> IPCValidatedJSON
+    private let resultNormalizer: @Sendable (Data) throws -> IPCValidatedJSON
 
     package init<Parameters, Result>(
         erasing descriptor: IPCMethodDescriptor<Parameters, Result>
@@ -54,25 +54,19 @@ package struct IPCAnyMethodDescriptor: Sendable {
             methodName: descriptor.name,
             examples: descriptor.examples
         )
-        parameterNormalizer = { data in
-            let parameters = try descriptor.decodeParameters(from: data)
-            return try parameterSchema.normalize(JSONEncoder().encode(parameters))
-        }
-        resultNormalizer = { data in
-            let result = try descriptor.contract.decodeResult(from: data)
-            return try descriptor.encodeResult(result)
-        }
+        parameterNormalizer = { data in try descriptor.contract.normalizedParameters(from: data) }
+        resultNormalizer = { data in try descriptor.contract.normalizedResult(from: data) }
         _ = try catalogEntrySchema.decode(
             IPCMethodCatalogEntry.self,
             from: JSONEncoder().encode(metadata)
         )
     }
 
-    package func normalizeResult(_ data: Data) throws -> Data {
+    package func normalizeResult(_ data: Data) throws -> IPCValidatedJSON {
         try resultNormalizer(data)
     }
 
-    package func normalizeParameters(_ data: Data) throws -> Data {
+    package func normalizeParameters(_ data: Data) throws -> IPCValidatedJSON {
         try parameterNormalizer(data)
     }
 }

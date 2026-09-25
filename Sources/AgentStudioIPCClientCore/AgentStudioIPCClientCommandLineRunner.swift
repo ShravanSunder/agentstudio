@@ -112,7 +112,7 @@ package struct AgentStudioIPCClientCommandLineRunner {
             ).descriptorInvocation
             if let commandCatalog {
                 let request = try JSONDecoder().decode(
-                    IPCCommandExecutionRequest.self, from: invocation.normalizedParameters)
+                    IPCCommandExecutionRequest.self, from: invocation.normalizedParameters.data)
                 invocation = try commandCatalog.makeInvocation(
                     commandId: request.commandId, correlationId: request.correlationId, arguments: request.arguments)
             }
@@ -141,7 +141,7 @@ package struct AgentStudioIPCClientCommandLineRunner {
         guard invocation.descriptor.metadata.responseDelivery != .subscription else {
             try client.stream(invocation) { frame in
                 switch frame {
-                case .initialResponse(let response): try write(response.normalizedResult)
+                case .initialResponse(let response): try write(response.normalizedResult.data)
                 case .notification(let notification): props.standardOutputSink(notification)
                 case .remoteFailure(let failure):
                     throw CLIExit.structured(CLIErrorPresentation(remoteFailure: failure))
@@ -167,7 +167,7 @@ package struct AgentStudioIPCClientCommandLineRunner {
             if case .model(let presentation) = invocation.presentation, !presentation.showsDetail {
                 props.standardOutputSink(presentation.successReply)
             } else {
-                try write(response.normalizedResult)
+                try write(response.normalizedResult.data)
             }
         case .remoteFailure(let failure):
             throw modelFailureExit(failure, invocation: invocation)
@@ -217,7 +217,7 @@ package struct AgentStudioIPCClientCommandLineRunner {
                 global, descriptors: [discovery.commandListInvocation.descriptor],
                 correlationIDGenerator: props.identifierGenerator,
                 standardInputProvider: standardInputProvider)
-            try write(response.normalizedResult)
+            try write(response.normalizedResult.data)
             return .completed
         }
         // The payload is read with the compiled envelope so a recognized hidden

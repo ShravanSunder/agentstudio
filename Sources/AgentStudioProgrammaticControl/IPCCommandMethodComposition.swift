@@ -124,7 +124,6 @@ package struct IPCCommandMethodComposition: Sendable {
             allowedTargetKinds: Set(commands.flatMap(\.allowedTargetKinds))
         )
 
-        _ = try list.encodeResult(catalogResult)
         for example in methodExamples {
             _ = try execute.decodeParameters(from: JSONEncoder().encode(example.parameters))
             _ = try execute.encodeResult(example.result)
