@@ -144,8 +144,7 @@ extension AppDelegate {
                 )
                 let fallbackBounds = self.windowLifecycleStore.terminalContainerBounds
                 guard !fallbackBounds.isEmpty else {
-                    // Restore cannot run, so IPC is never scheduled.
-                    self.recordAppIPCStart(unavailable: .restoreBoundsUnavailable)
+                    // Readiness remains observable; a later bounds publication can still restore.
                     return
                 }
                 launchRestoreLogger.error(
@@ -176,6 +175,9 @@ extension AppDelegate {
             if !self.launchRestoreObservationState.didComplete {
                 launchRestoreLogger.error("Launch restore stream ended without completing restore")
                 self.launchRestoreObservationState.cancelDiagnostics()
+                if !Task.isCancelled {
+                    self.recordAppIPCStart(unavailable: .restoreBoundsUnavailable)
+                }
             }
         }
     }

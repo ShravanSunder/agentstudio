@@ -115,6 +115,21 @@ struct AppIPCStartOutcomeTraceTests {
         #expect(try await trace.ipcStartRecords() == [.init(outcome: "unavailable", reason: "local_store_unavailable")])
     }
 
+    @Test("cancelling an incomplete restore observation does not record terminal unavailability")
+    func cancelledIncompleteRestoreObservationDoesNotRecordTerminalUnavailability() async throws {
+        let trace = StartupTraceCapture()
+        let appDelegate = AppDelegate()
+        appDelegate.startupTraceRecorder = trace.recorder
+        appDelegate.windowLifecycleStore = WindowLifecycleAtom()
+
+        appDelegate.observeLaunchRestoreReadiness()
+        let observationTask = try #require(appDelegate.launchRestoreObservationTask)
+        observationTask.cancel()
+        await observationTask.value
+
+        #expect(try await trace.ipcStartRecords().isEmpty)
+    }
+
     @Test("starting with an unavailable optional local schema records optional_schema_unavailable")
     func unavailableOptionalSchemaIsRecorded() async throws {
         let trace = StartupTraceCapture()
