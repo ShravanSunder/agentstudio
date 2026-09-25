@@ -15,7 +15,7 @@ struct GhosttyStructureRuntimeEventTests {
         installTestCoreAtomsIfNeeded()
     }
 
-    @Test("Ghostty structural runtime events do not submit workspace mutations")
+    @Test("structural events always drop while out-of-layout terminal facts remain filtered")
     func structuralRuntimeEventsDoNotMutateWorkspace() async throws {
         var submittedWorkspaceActions: [WorkspaceActionCommand] = []
         let commandHandler = StructuralRuntimeCommandHandler()
@@ -38,8 +38,38 @@ struct GhosttyStructureRuntimeEventTests {
                 },
                 body: {
                     for (index, event) in structuralEvents().enumerated() {
-                        await emit(event, index: index, through: context.runtime, sourcePaneId: context.sourcePaneId)
+                        _ = await emit(
+                            event,
+                            index: index,
+                            through: context.runtime,
+                            sourcePaneId: context.sourcePaneId
+                        )
                     }
+                    let outsideLayoutEvents = await emit(
+                        .bellRang,
+                        index: 10,
+                        through: context.runtime,
+                        sourcePaneId: context.sourcePaneId,
+                        eventSourcePaneId: context.drawerChildId,
+                        eventSequence: 1,
+                        barrierSequence: 19
+                    )
+                    #expect(
+                        !outsideLayoutEvents.contains { event in
+                            if case .worktreeBellRang(let paneId) = event {
+                                return paneId == context.drawerChildId
+                            }
+                            return false
+                        })
+                    _ = await emit(
+                        .newSplit(direction: .left),
+                        index: 11,
+                        through: context.runtime,
+                        sourcePaneId: context.sourcePaneId,
+                        eventSourcePaneId: context.drawerChildId,
+                        eventSequence: 2,
+                        barrierSequence: 20
+                    )
 
                     #expect(submittedWorkspaceActions.isEmpty)
                     #expect(commandHandler.targetedCommands.isEmpty)
@@ -119,6 +149,17 @@ struct GhosttyStructureRuntimeEventTests {
                 sizingMode: .halveTarget
             )
         )
+        let drawerChild = try #require(store.addDrawerPane(to: sourcePane.id))
+        let drawerId = try #require(store.pane(sourcePane.id)?.drawer?.drawerId)
+        store.tabArrangementAtom.addDrawerPaneView(
+            drawerId: drawerId,
+            parentPaneId: sourcePane.id,
+            drawerPaneId: drawerChild.id,
+            inTab: sourceTab.id
+        )
+        let updatedSourceTab = try #require(store.tabLayoutAtom.tab(sourceTab.id))
+        #expect(!updatedSourceTab.activePaneIds.contains(drawerChild.id))
+        #expect(updatedSourceTab.activeArrangement.drawerViews[drawerId]?.layout.paneIds == [drawerChild.id])
         store.appendTab(Tab(paneId: otherTabPane.id))
         store.appendTab(Tab(paneId: lastTabPane.id))
         store.setActiveTab(sourceTab.id)
@@ -138,7 +179,8 @@ struct GhosttyStructureRuntimeEventTests {
             coordinator: coordinator,
             runtime: runtime,
             sourcePaneId: sourcePane.id,
-            sourceTabId: sourceTab.id
+            sourceTabId: sourceTab.id,
+            drawerChildId: drawerChild.id
         )
     }
 
@@ -160,10 +202,15 @@ struct GhosttyStructureRuntimeEventTests {
         _ event: GhosttyEvent,
         index: Int,
         through runtime: FakePaneRuntime,
-        sourcePaneId: UUID
-    ) async {
-        let structuralSequence = UInt64(index * 2 + 1)
-        let source = EventSource.pane(PaneId(existingUUID: sourcePaneId))
+        sourcePaneId: UUID,
+        eventSourcePaneId: UUID? = nil,
+        eventSequence: UInt64? = nil,
+        barrierSequence: UInt64? = nil
+    ) async -> [AppEvent] {
+        let structuralSequence = eventSequence ?? UInt64(index * 2 + 1)
+        let resolvedBarrierSequence = barrierSequence ?? structuralSequence + 1
+        let eventSource = EventSource.pane(PaneId(existingUUID: eventSourcePaneId ?? sourcePaneId))
+        let barrierSource = EventSource.pane(PaneId(existingUUID: sourcePaneId))
         let appEventStream = await AppEventBus.shared.subscribe(
             policy: .criticalUnbounded,
             subscriberName: "GhosttyStructureRuntimeEventTests.barrier.\(index)"
@@ -171,18 +218,20 @@ struct GhosttyStructureRuntimeEventTests {
 
         // Consume the event stream independently while the MainActor coordinator publishes the barrier.
         // swiftlint:disable:next no_task_detached
-        let bellWaiter = Task.detached { () -> Bool in
+        let bellWaiter = Task.detached { () -> [AppEvent] in
+            var receivedEvents: [AppEvent] = []
             for await appEvent in appEventStream {
+                receivedEvents.append(appEvent)
                 if case .worktreeBellRang(let paneId) = appEvent, paneId == sourcePaneId {
-                    return true
+                    return receivedEvents
                 }
             }
-            return false
+            return receivedEvents
         }
 
         runtime.emit(
             makeRuntimeEnvelope(
-                source: source,
+                source: eventSource,
                 paneKind: .terminal,
                 seq: structuralSequence,
                 commandId: nil,
@@ -194,9 +243,9 @@ struct GhosttyStructureRuntimeEventTests {
         )
         runtime.emit(
             makeRuntimeEnvelope(
-                source: source,
+                source: barrierSource,
                 paneKind: .terminal,
-                seq: structuralSequence + 1,
+                seq: resolvedBarrierSequence,
                 commandId: nil,
                 correlationId: nil,
                 timestamp: ContinuousClock().now,
@@ -205,7 +254,17 @@ struct GhosttyStructureRuntimeEventTests {
             )
         )
 
-        #expect(await bellWaiter.value, "Coordinator did not finish the event preceding the bell barrier")
+        let receivedEvents = await bellWaiter.value
+        #expect(
+            receivedEvents.contains { event in
+                if case .worktreeBellRang(let paneId) = event {
+                    return paneId == sourcePaneId
+                }
+                return false
+            },
+            "Coordinator did not finish the event preceding the bell barrier"
+        )
+        return receivedEvents
     }
 }
 
@@ -217,6 +276,7 @@ private struct GhosttyStructureRuntimeContext {
     let runtime: FakePaneRuntime
     let sourcePaneId: UUID
     let sourceTabId: UUID
+    let drawerChildId: UUID
 }
 
 @MainActor

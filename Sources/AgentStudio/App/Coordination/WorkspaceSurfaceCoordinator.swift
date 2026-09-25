@@ -673,6 +673,24 @@ final class WorkspaceSurfaceCoordinator {
             Self.logger.debug(
                 "Ghostty structural runtime event dropped by coordinator for pane \(sourcePaneUUID.uuidString, privacy: .public) event=\(String(describing: event), privacy: .public)"
             )
+            return
+        default:
+            break
+        }
+
+        let tabs = store.tabLayoutAtom.tabs
+        guard tabs.contains(where: { $0.activePaneIds.contains(sourcePaneUUID) }) else {
+            Self.logger.warning(
+                "Terminal runtime event dropped: source pane \(sourcePaneUUID.uuidString, privacy: .public) is not present in any tab. event=\(String(describing: event), privacy: .public)"
+            )
+            return
+        }
+
+        switch event {
+        case .newTab, .newSplit, .gotoSplit, .resizeSplit, .equalizeSplits, .toggleSplitZoom,
+            .closeTab, .gotoTab, .moveTab:
+            // Structural events return through the explicit drop above.
+            return
         case .titleChanged(let title):
             store.paneAtom.updatePaneTitle(sourcePaneUUID, title: title)
         case .tabTitleChanged(let title):
