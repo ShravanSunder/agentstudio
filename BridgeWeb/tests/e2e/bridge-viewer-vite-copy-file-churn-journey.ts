@@ -198,10 +198,7 @@ export async function runCopyFileChurnReproduction(props: {
 								);
 								await ongoingCopyBurst.writesCommitted;
 								await interceptedRequest;
-								const body = await waitForBoundedEvent(
-									exactFileContentIntercepted.promise,
-									'Exact burst-3 File content route interception',
-								);
+								const body = await exactFileContentIntercepted.promise;
 								if (evidenceObserverRef.current !== null) {
 									evidenceObserverRef.current.evidence.copyRefreshOverlap = {
 										expectedSha256: ongoingCopyBurst.expectedReadiness.sha256,
@@ -542,23 +539,6 @@ async function isPaintedFileHash(page: Page, expectedSha256: string): Promise<bo
 			)
 		);
 	}, expectedSha256);
-}
-
-async function waitForBoundedEvent<TResult>(
-	event: Promise<TResult>,
-	description: string,
-): Promise<TResult> {
-	let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
-	const timeout = new Promise<never>((_, reject): void => {
-		timeoutHandle = setTimeout((): void => {
-			reject(new Error(`${description} did not arrive within ${churnTimeoutMilliseconds} ms.`));
-		}, churnTimeoutMilliseconds);
-	});
-	try {
-		return await Promise.race([event, timeout]);
-	} finally {
-		if (timeoutHandle !== null) clearTimeout(timeoutHandle);
-	}
 }
 
 function deferred<TResult>(): {

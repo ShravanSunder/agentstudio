@@ -43,7 +43,7 @@ extension WebKitSerializedTests {
                 failureReplies == [.init(requestId: "failed-delivery-bootstrap", reason: .deliveryFailed)]
             )
             #expect(await controller.productSessionOwner.activeBootstrap() == nil)
-            #expect(await controller.teardown().value)
+            #expect(await controller.beginTeardown().value)
         }
 
         @Test("a bootstrap request with no active product session answers with a typed failure")
@@ -76,7 +76,7 @@ extension WebKitSerializedTests {
             #expect(
                 failureReplies == [.init(requestId: "initial-without-session", reason: .noActiveSession)]
             )
-            #expect(await controller.teardown().value)
+            #expect(await controller.beginTeardown().value)
         }
     }
 }

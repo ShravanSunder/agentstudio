@@ -1,4 +1,5 @@
 import AgentStudioInfrastructure
+import AgentStudioTestHarness
 import Foundation
 import Testing
 
@@ -336,7 +337,7 @@ private func installFloorRetirementMetadataStream(
     in session: BridgeProductSession,
     productAdmission: BridgeProductAdmissionContext
 ) async throws -> BridgeProductProducerLease {
-    let operation = BridgeProductSessionProducerOperationGate()
+    let operation = HeldStep<BridgeProductProducerLease>("floorRetirementMetadataProducer")
     let request = try bridgeProductMetadataStreamRequest(
         metadataStreamId: "metadata-floor-retirement-\(UUIDv7.generate().uuidString)",
         resumeFromStreamSequence: nil
@@ -345,12 +346,13 @@ private func installFloorRetirementMetadataStream(
         request: request,
         productAdmission: productAdmission
     ) { lease in
-        await operation.run(lease)
+        try? await operation.arrive(lease)
     }
     guard case .accepted(let lease) = registration else {
         throw BridgeProductSessionError.lifecycleFrameAdmissionFailed
     }
-    _ = await operation.waitUntilStarted()
+    let startedLease = try await operation.firstArrival()
+    #expect(startedLease == lease)
     _ = try await session.enqueueRequiredProducerOpeningFrame(
         for: lease,
         productAdmission: productAdmission,

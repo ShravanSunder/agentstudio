@@ -283,7 +283,7 @@ test('re-establishes annotation demand after an in-place worker replacement so C
 	let browser: Browser | null = null;
 	let phase = 'fixture-ready';
 	try {
-		browser = await chromium.launch({ channel: 'chrome', headless: true });
+		browser = await launchBridgeViewerE2EChromium();
 		server = await startBridgeViewerOwnedViteProductServer(fixture.oracle);
 		const page = await browser.newPage({ viewport: { height: 980, width: 1728 } });
 		const reviewFile = fixture.oracle.reviewFiles[0];
