@@ -1,0 +1,151 @@
+---
+import { Image } from "astro:assets";
+
+import MotionPlaybackToggle from "@/home-page/MotionPlaybackToggle.astro";
+import ScrollAutoplayVideo from "@/home-page/ScrollAutoplayVideo.astro";
+import { marketingCopy } from "@/marketing-copy";
+import type { SceneId } from "@/motion-scenes/scene-contract";
+import ChapterContextWithTaskScene from "@/motion-scenes/scenes/chapter-context-with-task/ChapterContextWithTaskScene.astro";
+import ChapterFindAndFocusScene from "@/motion-scenes/scenes/chapter-find-and-focus/ChapterFindAndFocusScene.astro";
+import ChapterManyAgentsScene from "@/motion-scenes/scenes/chapter-many-agents/ChapterManyAgentsScene.astro";
+
+import type { Chapter } from "./chapter-catalog";
+import {
+  sceneProofAttribute,
+  sceneProofStateAttribute,
+  sceneProofTransitionAttribute,
+} from "./chapter-dom-contract";
+
+interface Props {
+  readonly chapter: Chapter;
+}
+
+// Every scene id has exactly one settled-frame markup component; the scene
+// module animates toward that markup once ScenePlayback mounts it.
+const sceneMarkupById = {
+  "chapter-many-agents": ChapterManyAgentsScene,
+  "chapter-context-with-task": ChapterContextWithTaskScene,
+  "chapter-find-and-focus": ChapterFindAndFocusScene,
+} satisfies Record<SceneId, unknown>;
+
+const { chapter } = Astro.props;
+const { stage } = chapter;
+const SceneMarkup = stage.kind === "scene" ? sceneMarkupById[stage.sceneId] : undefined;
+const proofLayerAttributes =
+  stage.kind === "scene"
+    ? {
+        [sceneProofAttribute]: stage.sceneId,
+        [sceneProofStateAttribute]: "hidden",
+        [sceneProofTransitionAttribute]: "instant",
+      }
+    : {};
+// Scene stage box: an invisible sizer keeps it at least 16:10 tall (portrait 4:5
+// below the phone breakpoint, matching the phone crops), and it stretches to the
+// stage pane's full height when the copy pane is taller. The recreation, the
+// real-capture layer, and the pause/play control fill the box.
+
+// The session-restore player keeps the marker the build's player-contract check reads.
+const sessionRestoreVideoAttributes =
+  chapter.id === "come-back" ? { "data-session-restore-video": "" } : {};
+---
+
+{
+  SceneMarkup !== undefined && stage.kind === "scene" ? (
+    <div class="chapter-scene-stage relative w-full self-stretch overflow-clip rounded-control">
+      <div class="invisible aspect-[4/5] w-full phone:aspect-[16/10]" aria-hidden="true" />
+      <div class="absolute inset-0">
+        <SceneMarkup />
+      </div>
+      <div
+        {...proofLayerAttributes}
+        class="chapter-scene-proof absolute inset-0 bg-product-ground"
+        aria-hidden="true"
+      >
+        <picture class="block h-full w-full">
+          <source
+            media="(width < 38.75rem)"
+            srcset={stage.proofPhoneImage.src}
+            width={stage.proofPhoneImage.width}
+            height={stage.proofPhoneImage.height}
+          />
+          <Image
+            src={stage.proofImage}
+            alt={stage.proofAlt}
+            widths={[720, 1080, 1440, 2160]}
+            sizes="(width < 64rem) 100vw, 62vw"
+            format="png"
+            loading="lazy"
+            decoding="async"
+            class="block h-full w-full object-contain phone:object-cover phone:object-left-top"
+          />
+        </picture>
+        <span class="absolute top-3 right-3 rounded-[6px] border border-line-strong bg-[rgb(17_17_27/78%)] px-2 py-1 font-mono-product text-[11px] tracking-wider text-ink-secondary backdrop-blur-md">
+          {marketingCopy.chapters.realCaptureLabel}
+        </span>
+      </div>
+      <MotionPlaybackToggle
+        controlAttribute="data-scene-playback-toggle"
+        pauseLabel={marketingCopy.motionControls.pauseAnimation}
+        playLabel={marketingCopy.motionControls.playAnimation}
+        class="absolute right-3 bottom-3 z-[3]"
+      />
+    </div>
+  ) : stage.kind === "still" ? (
+    <picture class="block aspect-[4/5] w-full overflow-clip rounded-control phone:aspect-auto">
+      <source
+        media="(width < 38.75rem)"
+        srcset={stage.phoneImage.src}
+        width={stage.phoneImage.width}
+        height={stage.phoneImage.height}
+      />
+      <Image
+        src={stage.image}
+        alt={stage.alt}
+        widths={[720, 1080, 1440, 2160]}
+        sizes="(width < 64rem) 100vw, 62vw"
+        format="png"
+        loading="lazy"
+        decoding="async"
+        class="block h-full w-full object-contain phone:h-auto"
+      />
+    </picture>
+  ) : stage.kind === "video" ? (
+    <ScrollAutoplayVideo
+      {...sessionRestoreVideoAttributes}
+      accessibilityLabel={stage.label}
+      fallbackText={marketingCopy.chapters.comeBack.sessionRestoreVideoFallback}
+      poster={stage.poster}
+      source={stage.source}
+      class="block aspect-video h-auto w-full rounded-control bg-black object-contain"
+    />
+  ) : null
+}
+
+<style>
+  /* Hidden until ScenePlayback reaches the proof beat; the no-script state is the recreation. */
+  .chapter-scene-proof {
+    visibility: hidden;
+    opacity: 0;
+    transition:
+      opacity 200ms ease,
+      visibility 0s linear 200ms;
+  }
+
+  .chapter-scene-proof[data-scene-proof-state="shown"] {
+    visibility: visible;
+    opacity: 1;
+    transition:
+      opacity 200ms ease,
+      visibility 0s linear 0s;
+  }
+
+  .chapter-scene-proof[data-scene-proof-transition="instant"] {
+    transition: none;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .chapter-scene-proof {
+      transition: none;
+    }
+  }
+</style>

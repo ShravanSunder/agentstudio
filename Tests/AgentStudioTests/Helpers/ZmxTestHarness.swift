@@ -41,8 +41,9 @@ final class ZmxTestHarness: @unchecked Sendable {
         // the Darwin 103-byte usable Unix domain socket payload limit. Main
         // /tmp/zt-<12chars>/ leaves ample room for the app's generated session IDs.
         self.zmxDir = "/tmp/zt-\(shortId)"
-        // Keep zmx subprocess calls short in tests; backend-level retry handles transient failures.
-        self.executor = DefaultProcessExecutor(timeout: 0.5)
+        // zmx kill and list run to exit with no per-call time limit: a slow runner must not turn a
+        // correct call into a timeout and a retry. A wedged zmx is caught by the lane's hang bound.
+        self.executor = RunToExitProcessExecutor()
 
         // Resolve zmx binary: check vendored build first, then system PATH
         // 1. Vendored binary (built by scripts/build-zmx.sh or zig build)

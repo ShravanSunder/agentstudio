@@ -31,6 +31,7 @@ struct CIFastLaneWorkflowTests {
             ".github/workflows/ci.yml",
             ".github/workflows/benchmarks.yml",
             ".github/workflows/release.yml",
+            ".github/workflows/swift-width-comparison.yml",
         ]
 
         var selectedXcodeVersions: [String] = []
@@ -55,6 +56,31 @@ struct CIFastLaneWorkflowTests {
             Set(selectedXcodeVersions).count == 1,
             "macOS workflows must select one identical Xcode version: \(selectedXcodeVersions)"
         )
+    }
+
+    @Test("width comparison is a dispatched experiment that keeps both receipts, never a pull-request gate")
+    func widthComparisonIsDispatchedExperimentNeverPullRequestGate() throws {
+        let comparisonWorkflow = try String(
+            contentsOfFile: ".github/workflows/swift-width-comparison.yml",
+            encoding: .utf8
+        )
+        let ciWorkflow = try String(contentsOfFile: ".github/workflows/ci.yml", encoding: .utf8)
+        let comparisonJob = try workflowJob(named: "swift-width-comparison", in: comparisonWorkflow)
+        let runStep = try workflowStep(named: "Run width comparison", in: comparisonJob)
+        let uploadStep = try workflowStep(named: "Upload width comparison receipts and ledgers", in: comparisonJob)
+        let triggers = try namedBlock(startingWith: "on:\n", endingBefore: "\npermissions:", in: comparisonWorkflow)
+
+        #expect(triggers == "on:\n  workflow_dispatch:\n")
+        // It runs on the same 3-core runner and build directory as the gated lanes,
+        // through the same mise task a developer runs locally.
+        #expect(comparisonJob.contains("runs-on: macos-26"))
+        #expect(comparisonJob.contains("SWIFT_BUILD_DIR: .build-ci"))
+        #expect(runStep.contains("run: mise run --skip-deps --raw test:swift:width-comparison"))
+        #expect(!runStep.contains("SWIFT_TEST_PARALLELIZATION_WIDTH"))
+        // Both halves' receipts and ledgers are kept whether each passes or fails.
+        #expect(uploadStep.contains("if: always()"))
+        #expect(uploadStep.contains("path: tmp/plan-workflows/ci-runs/width-comparison/"))
+        #expect(!ciWorkflow.contains("width-comparison"))
     }
 
     @Test("CI jobs use descriptive check names")
@@ -347,8 +373,8 @@ struct CIFastLaneWorkflowTests {
         #expect(largeLaneStep.contains("SWIFT_TEST_TIMEOUT_SECONDS: \"600\""))
         #expect(largeLaneStep.contains("_XCB_BYPASS: \"1\""))
         #expect(largeLaneStep.contains("run: mise run test:swift:large"))
-        #expect(swiftTestTaskScript.contains("test|test-fast|test-large|test-prebuild|test-webkit)"))
-        #expect(swiftTestTaskScript.contains("if [ \"$mode\" = \"test-prebuild\" ]; then\n  prebuild_swift_tests"))
+        // The runner's modes and prebuild structure are pinned by
+        // SwiftLaneReceiptTests.receiptIsPrintedOnEveryExitAndOnlyFinishedPrebuildIsFresh.
         #expect(swiftTestTaskScript.contains("AGENTSTUDIO_TRACE_BACKEND=\"${SWIFT_TEST_TRACE_BACKEND:-jsonl}\""))
         #expect(testHelperScript.contains("AGENTSTUDIO_TRACE_BACKEND=\"${SWIFT_TEST_TRACE_BACKEND:-jsonl}\""))
         #expect(testHelperScript.contains("print_timeout_process_diagnostics \"$label\" \"$command_pid\""))

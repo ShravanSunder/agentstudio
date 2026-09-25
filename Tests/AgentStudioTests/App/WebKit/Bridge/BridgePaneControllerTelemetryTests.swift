@@ -59,7 +59,7 @@ extension WebKitSerializedTests {
                 ),
                 initialPaneActivity: .foreground
             )
-            defer { controller.teardown() }
+            defer { _ = controller.beginTeardown() }  // fire-and-forget: defer cannot await; cleanup only
             let commandId = UUID()
 
             let result = await controller.handleDiffCommand(
@@ -116,7 +116,7 @@ extension WebKitSerializedTests {
                 telemetryRecorder: recorder,
                 initialPaneActivity: .foreground
             )
-            defer { controller.teardown() }
+            defer { _ = controller.beginTeardown() }  // fire-and-forget: defer cannot await; cleanup only
 
             await controller.recordSwiftTelemetry(
                 name: "performance.bridge.swift.package_build",
@@ -144,7 +144,7 @@ extension WebKitSerializedTests {
                 telemetryRecorder: recorder,
                 initialPaneActivity: .foreground
             )
-            defer { controller.teardown() }
+            defer { _ = controller.beginTeardown() }  // fire-and-forget: defer cannot await; cleanup only
 
             let result = try await controller.flushTelemetryForIPC()
 

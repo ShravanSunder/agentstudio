@@ -1,3 +1,4 @@
+import AgentStudioTestHarness
 import CryptoKit
 import Foundation
 import Testing
@@ -144,7 +145,7 @@ struct BridgeReviewContentLoaderCacheRangeTests {
         let admission = try BridgeProductAdmissionTestContext.make()
         let content = "coalesced-range"
         let handle = makeRangeHandle(content: content)
-        let gate = BridgeContentLoadGate()
+        let gate = HeldStep<Void>("gate", cancellation: .holdThroughCancellation)
         let provider = makeRangeProvider(
             handle: handle,
             content: content,
@@ -161,7 +162,7 @@ struct BridgeReviewContentLoaderCacheRangeTests {
                 productAdmission: admission.context
             )
         }
-        await gate.waitForStartedLoadCount(1)
+        try await gate.firstArrival()
         let cancelledWaiter = Task {
             try await cache.loadRangeObserved(
                 handle: handle,
@@ -174,7 +175,7 @@ struct BridgeReviewContentLoaderCacheRangeTests {
 
         cancelledWaiter.cancel()
         await Task.yield()
-        await gate.releaseAll()
+        gate.release()
 
         let survivingRange = try await survivingWaiter.value
         #expect(survivingRange.bytes == Data("coal".utf8))
@@ -189,7 +190,7 @@ struct BridgeReviewContentLoaderCacheRangeTests {
         let admission = try BridgeProductAdmissionTestContext.make()
         let content = "cancel-final-range"
         let handle = makeRangeHandle(content: content)
-        let gate = BridgeContentLoadGate()
+        let gate = HeldStep<Void>("gate", cancellation: .holdThroughCancellation)
         let provider = makeRangeProvider(
             handle: handle,
             content: content,
@@ -205,13 +206,13 @@ struct BridgeReviewContentLoaderCacheRangeTests {
                 productAdmission: admission.context
             )
         }
-        await gate.waitForStartedLoadCount(1)
+        try await gate.firstArrival()
 
         waiter.cancel()
         await Task.yield()
         await expectRangeLoadCancellation(waiter)
 
-        await gate.releaseAll()
+        gate.release()
         await provider.waitForFinishedContentLoadCount(1)
         #expect(await provider.recordedContentRequestsCount() == 1)
         #expect(await provider.recordedObservedCancellationCount() == 1)
@@ -223,7 +224,7 @@ struct BridgeReviewContentLoaderCacheRangeTests {
         let admission = try BridgeProductAdmissionTestContext.make()
         let content = "late-range"
         let handle = makeRangeHandle(content: content)
-        let gate = BridgeContentLoadGate()
+        let gate = HeldStep<Void>("gate", cancellation: .holdThroughCancellation)
         let cache = BridgeReviewContentLoaderCache(
             provider: makeRangeProvider(handle: handle, content: content, gate: gate)
         )
@@ -235,10 +236,10 @@ struct BridgeReviewContentLoaderCacheRangeTests {
                 productAdmission: admission.context
             )
         }
-        await gate.waitForStartedLoadCount(1)
+        try await gate.firstArrival()
 
         admission.close()
-        await gate.releaseAll()
+        gate.release()
 
         await #expect(throws: BridgeContentLoadObservedFailure.self) {
             _ = try await load.value
@@ -260,7 +261,7 @@ private func makeRangeHandle(content: String) -> BridgeContentHandle {
 private func makeRangeProvider(
     handle: BridgeContentHandle,
     content: String,
-    gate: BridgeContentLoadGate? = nil,
+    gate: HeldStep<Void>? = nil,
     checksCancellationAfterGate: Bool = false
 ) -> BridgeReviewSourceProviderFake {
     BridgeReviewSourceProviderFake(

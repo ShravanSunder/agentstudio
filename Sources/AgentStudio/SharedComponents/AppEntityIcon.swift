@@ -72,6 +72,7 @@ package enum AppEntityIcon: Equatable {
     /// `foregroundOverride` wins over the icon's own baked style. SwiftUI resolves the innermost
     /// `foregroundStyle`, so callers that need a selection color (e.g. the grouping segmented
     /// control) cannot override from outside this view; the override must be applied here.
+    @MainActor
     @ViewBuilder
     package func swiftUIImage(
         loader: OcticonLoader,
@@ -92,6 +93,7 @@ package enum AppEntityIcon: Equatable {
 
     /// Font-sized SF Symbols have different intrinsic bounds. Group headers use
     /// the same bounded glyph box for both symbol and Octicon sources.
+    @MainActor
     @ViewBuilder
     func groupHeaderImage(loader: OcticonLoader) -> some View {
         let size = AppStyles.Shell.Sidebar.groupIconSize

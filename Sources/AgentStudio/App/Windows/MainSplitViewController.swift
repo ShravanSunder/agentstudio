@@ -115,7 +115,7 @@ class MainSplitViewController: NSSplitViewController {
             return nil
         }
         return PaneTabViewControllerPaneFocusAppControl(
-            paneTabViewController: paneTabViewController,
+            targetedPaneFocusSubmitter: paneTabViewController,
             workspaceStore: store
         )
     }

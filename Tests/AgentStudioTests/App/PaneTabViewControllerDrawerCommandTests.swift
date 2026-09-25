@@ -17,7 +17,7 @@ struct PaneTabViewControllerDrawerCommandTests {
     func executeToggleDrawer_openEmptyDrawer_setsEmptyDrawerFocus() async throws {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
-        try await withWorkspaceCommandHarness(harness) {
+        await withWorkspaceCommandHarness(harness) {
             let parent = harness.store.createPane()
             let tab = Tab(paneId: parent.id)
             harness.store.appendTab(tab)
@@ -132,7 +132,7 @@ struct PaneTabViewControllerDrawerCommandTests {
     func executeEnterDrawer_emptyDrawer_projectsEmptyDrawerFocus() async throws {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
-        try await withWorkspaceCommandHarness(harness) {
+        await withWorkspaceCommandHarness(harness) {
             let parent = harness.store.createPane()
             let tab = Tab(paneId: parent.id)
             harness.store.appendTab(tab)
@@ -593,7 +593,7 @@ struct PaneTabViewControllerDrawerCommandTests {
                     )
                 )
             )
-            let observedFocus = await secondDrawerFocusEvents.next(isolation: #isolation)
+            let observedFocus: Void? = await secondDrawerFocusEvents.next(isolation: #isolation)
             #expect(observedFocus != nil)
             #expect(
                 atom(\.workspaceFocusOwner).owner
@@ -613,7 +613,7 @@ struct PaneTabViewControllerDrawerCommandTests {
             )
             var firstDrawerFocusEvents = firstDrawerContent.makeFocusEventIterator()
             harness.store.setActiveDrawerPane(firstDrawerPane.id, in: parent.id)
-            let observedRefocus = await firstDrawerFocusEvents.next(isolation: #isolation)
+            let observedRefocus: Void? = await firstDrawerFocusEvents.next(isolation: #isolation)
             #expect(observedRefocus != nil)
             #expect(
                 harness.store.tabArrangementAtom.cursorAtom.drawerCursorRevision(

@@ -17,8 +17,7 @@ extension WorkspaceSurfaceCoordinator {
         restartRendererVisibilityObservation()
     }
 
-    @discardableResult
-    func prepareHeldPanePreview() -> Task<Void, Never>? {
+    func beginHeldPanePreviewPreparation() -> Task<Void, Never>? {
         guard let state = heldPanePreviewState,
             state.isHeld,
             let generation = state.generation,

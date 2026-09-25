@@ -35,3 +35,9 @@ let package = Package(
         ),
     ]
 )
+
+// A discarded completion handle or any other compiler warning in a repository-owned
+// target fails the build. Remote dependencies are unaffected: the setting is per target.
+for target in package.targets where target.type != .binary {
+    target.swiftSettings = (target.swiftSettings ?? []) + [.treatAllWarnings(as: .error)]
+}

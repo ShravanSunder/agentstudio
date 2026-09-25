@@ -661,7 +661,282 @@ describe('BridgeWeb architecture checker', () => {
 			},
 		);
 	});
+
+	test('reports timed waits in configured test files and every non-production module they reach', async () => {
+		await withFixtureTree(
+			{
+				...timedWaitFixturePackage,
+				'index.html': '<script type="module" src="/src/app/main.tsx"></script>',
+				'src/app/main.tsx': `
+					import { productDeadline } from './product-deadline.ts';
+					void productDeadline;
+				`,
+				'src/app/journey.unit.test.ts': `
+					import { settleJourney } from './journey.test-support.ts';
+					import { readyFixture } from '../../scripts/verify-fixture/ready-fixture.js';
+					import { productDeadline } from './product-deadline.ts';
+					import { mountHarness } from '../file-viewer/bridge-file-viewer-browser-test-harness.ts';
+					export async function run(page: { waitForTimeout(ms: number): Promise<void> }): Promise<void> {
+						await page.waitForTimeout(25);
+						await settleJourney();
+						await readyFixture();
+						await productDeadline();
+						await mountHarness();
+					}
+				`,
+				'src/file-viewer/bridge-file-viewer-browser-test-harness.ts': `
+					export async function mountHarness(): Promise<void> {
+						await new Promise<void>((resolve) => setTimeout(resolve, 0));
+					}
+				`,
+				'src/app/journey.test-support.ts': `
+					import { sleepMilliseconds } from '@/app/test-support/sleep-helper.ts';
+					export async function settleJourney(): Promise<void> {
+						await sleepMilliseconds(10);
+					}
+				`,
+				'src/app/test-support/sleep-helper.ts': `
+					import { setTimeout } from 'node:timers/promises';
+					export async function sleepMilliseconds(milliseconds: number): Promise<void> {
+						await setTimeout(milliseconds);
+					}
+				`,
+				'scripts/verify-fixture/ready-fixture.ts': `
+					export async function readyFixture(): Promise<void> {
+						await new Promise<void>((resolve): void => {
+							setTimeout(resolve, 0);
+						});
+						await new Promise<void>((resolve) => window.setTimeout(() => resolve(), 50));
+					}
+				`,
+				'src/app/product-deadline.ts': `
+					export async function productDeadline(): Promise<void> {
+						await new Promise<void>((resolve) => setTimeout(resolve, 10));
+					}
+				`,
+				'scripts/unreachable-poller.ts': `
+					export async function poll(): Promise<void> {
+						await new Promise<void>((resolve) => setTimeout(resolve, 10));
+					}
+				`,
+				'src/app/not-a-configured-test.spec.ts': `
+					export async function poll(): Promise<void> {
+						await new Promise<void>((resolve) => setTimeout(resolve, 10));
+					}
+				`,
+			},
+			async (packageRootPath: string): Promise<void> => {
+				const report = await checkBridgeWebArchitecture({ packageRootPath });
+
+				// A module the product's index.html reaches is production: its timer is
+				// product behavior and is not reported even though a test imports it. Every
+				// other module a test reaches is test support, whatever its name, and is.
+				expect(report.ok).toBe(false);
+				expect(
+					report.violations.map(
+						(violation: ArchitectureViolation): string =>
+							`${violation.ruleId} ${violation.relativePath}:${violation.line}`,
+					),
+				).toEqual([
+					'no-timed-wait-in-tests scripts/verify-fixture/ready-fixture.ts:3',
+					'no-timed-wait-in-tests scripts/verify-fixture/ready-fixture.ts:6',
+					'no-timed-wait-in-tests src/app/journey.test-support.ts:4',
+					'no-timed-wait-in-tests src/app/journey.unit.test.ts:7',
+					'no-timed-wait-in-tests src/app/test-support/sleep-helper.ts:4',
+					'no-timed-wait-in-tests src/file-viewer/bridge-file-viewer-browser-test-harness.ts:3',
+				]);
+				expect(report.violations[0]?.message).toContain(
+					'imported by test file src/app/journey.unit.test.ts',
+				);
+			},
+		);
+	});
+
+	test('reconciles timed waits against the BridgeWeb debt ledger by rule, file and count', async () => {
+		const twoTimedWaits = `
+			export async function run(page: { waitForTimeout(ms: number): Promise<void> }): Promise<void> {
+				await page.waitForTimeout(1);
+				await page.waitForTimeout(2);
+			}
+		`;
+		const ledger = (rows: readonly string[]): string =>
+			['rule_id\tpath\tcount', ...rows].map((row: string): string => `${row}\n`).join('');
+		const reconcile = async (files: Record<string, string>): Promise<readonly string[]> => {
+			let messages: readonly string[] = [];
+			await withFixtureTree(
+				{ ...timedWaitFixturePackage, ...files },
+				async (packageRootPath: string): Promise<void> => {
+					const report = await checkBridgeWebArchitecture({ packageRootPath });
+					messages = report.violations.map(
+						(violation: ArchitectureViolation): string =>
+							`${violation.relativePath}:${violation.line} ${violation.message}`,
+					);
+				},
+			);
+			return messages;
+		};
+
+		// Exact count: passes.
+		expect(
+			await reconcile({
+				'src/app/waits.unit.test.ts': twoTimedWaits,
+				'architecture-debt-ledger.tsv': ledger([
+					'no-timed-wait-in-tests\tBridgeWeb/src/app/waits.unit.test.ts\t2',
+				]),
+			}),
+		).toEqual([]);
+		// Over the count: every site fails, naming the count.
+		expect(
+			await reconcile({
+				'src/app/waits.unit.test.ts': twoTimedWaits,
+				'architecture-debt-ledger.tsv': ledger([
+					'no-timed-wait-in-tests\tBridgeWeb/src/app/waits.unit.test.ts\t1',
+				]),
+			}),
+		).toEqual([
+			expect.stringMatching(/^src\/app\/waits\.unit\.test\.ts:3 .*count 2 exceeds 1 permitted/u),
+			expect.stringMatching(/^src\/app\/waits\.unit\.test\.ts:4 .*count 2 exceeds 1 permitted/u),
+		]);
+		// Under the count: fails until the row is lowered.
+		expect(
+			await reconcile({
+				'src/app/waits.unit.test.ts': twoTimedWaits,
+				'architecture-debt-ledger.tsv': ledger([
+					'no-timed-wait-in-tests\tBridgeWeb/src/app/waits.unit.test.ts\t3',
+				]),
+			}),
+		).toEqual([
+			expect.stringMatching(/^src\/app\/waits\.unit\.test\.ts:1 .*lower the row to 2 in/u),
+		]);
+		// Paid off: fails until the row is removed.
+		expect(
+			await reconcile({
+				'src/app/waits.unit.test.ts': 'export {};',
+				'architecture-debt-ledger.tsv': ledger([
+					'no-timed-wait-in-tests\tBridgeWeb/src/app/waits.unit.test.ts\t2',
+				]),
+			}),
+		).toEqual([
+			expect.stringMatching(/^src\/app\/waits\.unit\.test\.ts:1 .*none remain; remove the row/u),
+		]);
+		// A row for a file that no longer exists fails at the ledger row.
+		expect(
+			await reconcile({
+				'architecture-debt-ledger.tsv': ledger([
+					'no-timed-wait-in-tests\tBridgeWeb/src/app/deleted.unit.test.ts\t1',
+				]),
+			}),
+		).toEqual([
+			expect.stringMatching(
+				/^architecture-debt-ledger\.tsv:2 .*deleted\.unit\.test\.ts, which no longer exists/u,
+			),
+		]);
+		// A new site in a file without a row fails immediately.
+		expect(
+			await reconcile({
+				'src/app/waits.unit.test.ts': twoTimedWaits,
+				'src/app/new-waits.unit.test.ts': twoTimedWaits,
+				'architecture-debt-ledger.tsv': ledger([
+					'no-timed-wait-in-tests\tBridgeWeb/src/app/waits.unit.test.ts\t2',
+				]),
+			}),
+		).toEqual([
+			expect.stringMatching(/^src\/app\/new-waits\.unit\.test\.ts:3 waitForTimeout\(\)/u),
+			expect.stringMatching(/^src\/app\/new-waits\.unit\.test\.ts:4 waitForTimeout\(\)/u),
+		]);
+		// A malformed ledger fails closed, naming the file and line.
+		await expect(
+			reconcile({
+				'architecture-debt-ledger.tsv':
+					'rule_id\tpath\tcount\nno-timed-wait-in-tests\tBridgeWeb/x.ts\t0\n',
+			}),
+		).rejects.toThrow(/architecture-debt-ledger\.tsv:2: malformed debt ledger: count must be/u);
+	});
+
+	test('permits a timer only as a direct Promise.race element whose delay is a bare hang bound', async () => {
+		await withFixtureTree(
+			{
+				...timedWaitFixturePackage,
+				'tests/e2e/bounded-journey.e2e.test.ts': `
+					import { endToEndTestTimeoutMilliseconds as hangBound } from '../vitest-hang-bounds.ts';
+					import type { SleepOptions } from './type-only-sleep.ts';
+					const stepDeadlineMilliseconds = 2_000;
+					export async function run(condition: Promise<void>, options: SleepOptions): Promise<void> {
+						await Promise.race([
+							condition,
+							new Promise<never>((_resolve, reject) => setTimeout(() => reject(new Error('hang')), hangBound)),
+						]);
+						await Promise.race([
+							condition,
+							new Promise<void>((resolve) => setTimeout(resolve, stepDeadlineMilliseconds)),
+						]);
+						await new Promise<void>((resolve, reject) => {
+							const timer = setTimeout(() => reject(new Error('hang bound')), hangBound * 2);
+							condition.then(() => {
+								clearTimeout(timer);
+								resolve();
+							});
+						});
+						const delayed = new Promise<void>((resolve) => setTimeout(resolve, hangBound));
+						await delayed;
+						void options;
+					}
+				`,
+				'tests/vitest-hang-bounds.ts': `
+					export const endToEndTestTimeoutMilliseconds = 600_000;
+				`,
+				'tests/e2e/type-only-sleep.ts': `
+					import type { Sleeper } from '../../scripts/sleeper.ts';
+					export interface SleepOptions { readonly sleeper?: Sleeper }
+				`,
+				'scripts/sleeper.ts': `
+					export type Sleeper = () => Promise<void>;
+					export async function sleep(): Promise<void> {
+						await new Promise<void>((resolve) => setTimeout(resolve, 10));
+					}
+				`,
+			},
+			async (packageRootPath: string): Promise<void> => {
+				const report = await checkBridgeWebArchitecture({ packageRootPath });
+
+				// Only the direct race with the bare hang bound (line 8) passes: a step
+				// deadline, arithmetic on the bound, and a timer promise awaited later fail.
+				expect(
+					report.violations.map(
+						(violation: ArchitectureViolation): string =>
+							`${violation.relativePath}:${violation.line} ${violation.message.split(' in a ')[0]}`,
+					),
+				).toEqual([
+					'tests/e2e/bounded-journey.e2e.test.ts:12 timer promise that is not a Promise.race hang bound',
+					'tests/e2e/bounded-journey.e2e.test.ts:14 timer promise that is not a Promise.race hang bound',
+					'tests/e2e/bounded-journey.e2e.test.ts:21 timer promise that is not a Promise.race hang bound',
+				]);
+			},
+		);
+	});
 });
+
+// A package shape with the Vitest configs and tsconfig the timed-wait rule reads.
+const timedWaitFixturePackage: Record<string, string> = {
+	'tsconfig.json': JSON.stringify({
+		compilerOptions: {
+			allowImportingTsExtensions: true,
+			module: 'NodeNext',
+			moduleResolution: 'NodeNext',
+			noEmit: true,
+			paths: { '@/*': ['./src/*'] },
+		},
+	}),
+	'vitest.config.ts': `
+		export default { test: { include: ['src/**/*.unit.test.ts'], setupFiles: ['./tests/setup.ts'] } };
+	`,
+	'vitest.e2e.config.ts': `
+		export default { test: { include: ['tests/e2e/**/*.e2e.test.ts'] } };
+	`,
+	'tests/setup.ts': `
+		export {};
+	`,
+};
 
 async function withFixtureTree(
 	files: Record<string, string>,

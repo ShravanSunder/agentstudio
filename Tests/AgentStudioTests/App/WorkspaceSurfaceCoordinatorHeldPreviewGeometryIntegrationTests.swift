@@ -57,7 +57,7 @@ extension WorkspaceGeometryReevaluationIntegrationTests {
             #expect(heldState.beginSpaceHold(requestedTarget: target))
 
             let deferredReevaluation = try #require(
-                harness.coordinator.prepareHeldPanePreview()
+                harness.coordinator.beginHeldPanePreviewPreparation()
             )
             await deferredReevaluation.value
 
@@ -110,7 +110,7 @@ extension WorkspaceGeometryReevaluationIntegrationTests {
             )
             #expect(heldState.beginSpaceHold(requestedTarget: target))
             let deferredReevaluation = try #require(
-                harness.coordinator.prepareHeldPanePreview()
+                harness.coordinator.beginHeldPanePreviewPreparation()
             )
 
             let successorGeneration = WorkspaceContentMountGeneration()
@@ -182,7 +182,7 @@ extension WorkspaceGeometryReevaluationIntegrationTests {
             )
             #expect(heldState.beginSpaceHold(requestedTarget: target))
             let deferredReevaluation = try #require(
-                harness.coordinator.prepareHeldPanePreview()
+                harness.coordinator.beginHeldPanePreviewPreparation()
             )
 
             mutate(harness, heldState, target)

@@ -71,7 +71,6 @@ extension SessionsEvidenceReducer {
         binding: SessionsBindingRecord,
         context: SessionsRepositoryContext
     ) -> SessionsRepositoryReduction {
-        let source = context.source(sourceGenerationId: binding.sourceGenerationId)
         let turnId = currentReportingTurnId(binding: binding, context: context)
         let existingResult = context.results.first {
             $0.bindingGenerationId == binding.bindingGenerationId

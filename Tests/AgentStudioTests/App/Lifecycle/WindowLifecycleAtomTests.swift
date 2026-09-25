@@ -235,12 +235,10 @@ struct WindowLifecycleAtomTests {
     func occludedFallbackReleasesEveryPendingActivationWaiter() async {
         let atom = WindowLifecycleAtom()
         let firstWaiter = Task { @MainActor in
-            await atom.waitUntilFirstInteractiveFramePublished()
-            return true
+            await atom.waitUntilFirstInteractiveFramePublished() == .completed
         }
         let secondWaiter = Task { @MainActor in
-            await atom.waitUntilFirstInteractiveFramePublished()
-            return true
+            await atom.waitUntilFirstInteractiveFramePublished() == .completed
         }
         await Task.yield()
 
@@ -249,7 +247,7 @@ struct WindowLifecycleAtomTests {
         #expect(accepted)
         #expect(await firstWaiter.value)
         #expect(await secondWaiter.value)
-        await atom.waitUntilFirstInteractiveFramePublished()
+        #expect(await atom.waitUntilFirstInteractiveFramePublished() == .completed)
     }
 
     @Test("first-frame deferral returns timeout when its injected deadline fires")

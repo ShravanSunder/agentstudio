@@ -11,7 +11,7 @@ import Testing
 struct CommandBarRepositoryAvailabilityTests {
     @Test("a captured repository level cannot retain launch actions after collection")
     func staleRepositoryLevelHasNoActions() throws {
-        try withTestCoreAtoms { _ in
+        withTestCoreAtoms { _ in
             let store = WorkspaceStore()
             let repo = store.addRepo(at: URL(fileURLWithPath: "/tmp/commandbar-collected"))
             store.mutationCoordinator.removeRepo(repo.id)
@@ -28,7 +28,7 @@ struct CommandBarRepositoryAvailabilityTests {
 
     @Test("cached and uncached repository rows hide unavailable families")
     func repositoryRowsFollowAvailability() throws {
-        try withTestCoreAtoms { _ in
+        withTestCoreAtoms { _ in
             let store = WorkspaceStore()
             let dispatcher = FakeAppCommandDispatcher()
             let cache = CommandBarRepoScopeItemCache()
