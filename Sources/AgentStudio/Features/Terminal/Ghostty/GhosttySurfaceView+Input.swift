@@ -37,10 +37,8 @@ extension Ghostty.SurfaceView {
     // MARK: - Input Handling
 
     nonisolated static func shouldAcceptKeyEquivalent(
-        cachedFocusState _: Bool,
         isWindowFirstResponder: Bool
     ) -> Bool {
-        // The window's live responder is authoritative; the cached focus bit can lag a view move.
         isWindowFirstResponder
     }
 
@@ -196,10 +194,9 @@ extension Ghostty.SurfaceView {
 
     package override func performKeyEquivalent(with event: NSEvent) -> Bool {
         guard event.type == .keyDown else { return false }
-        // App-owned focus-hygiene exception from #285: reject stale terminal key-equivalent focus.
+        // App-owned focus-hygiene exception from #285: reject any view that is not the live first responder.
         guard
             Self.shouldAcceptKeyEquivalent(
-                cachedFocusState: focused,
                 isWindowFirstResponder: window?.firstResponder === self
             )
         else { return false }
