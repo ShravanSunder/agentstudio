@@ -31,7 +31,6 @@ enum AgentStudioIPCCommandCatalogProjection {
             command.ipcSpec.descriptorInput(definition: command.definition, examples: [])
         }
         return AppIPCCommandCatalogProjectionInputs(
-            channel: channel,
             commandDescriptorInputs: commandDescriptorInputs,
             recognizedCommands: recognizedCommands,
             recognizedUnexposedCommands: recognizedUnexposedCommands(on: channel)

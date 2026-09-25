@@ -6,18 +6,15 @@ import Foundation
 /// boundary: request examples, schemas, and descriptor validation are built by
 /// the nonisolated catalog builder.
 package struct AppIPCCommandCatalogProjectionInputs: Sendable {
-    package let channel: AgentStudioIPCChannel
     package let commandDescriptorInputs: [IPCCommandDescriptorInput]
     package let recognizedCommands: [AppIPCRecognizedEntry]
     package let recognizedUnexposedCommands: [IPCRecognizedUnexposedName]
 
     package init(
-        channel: AgentStudioIPCChannel,
         commandDescriptorInputs: [IPCCommandDescriptorInput],
         recognizedCommands: [AppIPCRecognizedEntry],
         recognizedUnexposedCommands: [IPCRecognizedUnexposedName]
     ) {
-        self.channel = channel
         self.commandDescriptorInputs = commandDescriptorInputs
         self.recognizedCommands = recognizedCommands
         self.recognizedUnexposedCommands = recognizedUnexposedCommands
@@ -26,13 +23,16 @@ package struct AppIPCCommandCatalogProjectionInputs: Sendable {
 
 package struct AppIPCDescriptorCatalogBuildInputs: Sendable {
     package let builtInCatalogInputs: IPCBuiltInMethodCatalogInputs
+    package let channel: AgentStudioIPCChannel
     package let commandCatalogProjectionInputs: AppIPCCommandCatalogProjectionInputs
 
     package init(
         builtInCatalogInputs: IPCBuiltInMethodCatalogInputs,
+        channel: AgentStudioIPCChannel,
         commandCatalogProjectionInputs: AppIPCCommandCatalogProjectionInputs
     ) {
         self.builtInCatalogInputs = builtInCatalogInputs
+        self.channel = channel
         self.commandCatalogProjectionInputs = commandCatalogProjectionInputs
     }
 }
@@ -83,7 +83,7 @@ package enum AppIPCDescriptorCatalogBuilder {
                 commandComposition.executeRepresentations.erasedDescriptor,
             ]
         let availableDescriptors = allDescriptors.filter {
-            $0.metadata.exposure == .allChannels || inputs.commandCatalogProjectionInputs.channel == .debug
+            $0.metadata.exposure == .allChannels || inputs.channel == .debug
         }
         let availableNames = Set(availableDescriptors.map(\.metadata.name))
         let recognizedUnexposedMethods =

@@ -476,6 +476,7 @@ extension AppDelegate {
         let recognizedCommands = commandCatalogProjectionInputs.recognizedCommands
         let builderInputs = AppIPCDescriptorCatalogBuildInputs(
             builtInCatalogInputs: Self.appIPCBuiltInMethodCatalogInputs(),
+            channel: channel,
             commandCatalogProjectionInputs: commandCatalogProjectionInputs
         )
         let descriptorComposition = try await AppIPCDescriptorCatalogBuilder.buildOffMain(inputs: builderInputs)
