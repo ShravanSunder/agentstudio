@@ -56,6 +56,8 @@ extension Ghostty {
             keybind = cmd+7=unbind
             keybind = cmd+8=unbind
             keybind = cmd+9=unbind
+            keybind = ctrl+tab=unbind
+            keybind = ctrl+shift+tab=unbind
             """
 
         var app: ghostty_app_t {

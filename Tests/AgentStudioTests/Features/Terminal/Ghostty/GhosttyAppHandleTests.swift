@@ -49,6 +49,8 @@ struct GhosttyAppHandleTests {
             "keybind = cmd+enter=unbind",
             "keybind = cmd+ctrl+f=unbind",
             "keybind = cmd+9=unbind",
+            "keybind = ctrl+tab=unbind",
+            "keybind = ctrl+shift+tab=unbind",
         ]
         let tabNumberUnbinds = (1...8).flatMap { number in
             [
