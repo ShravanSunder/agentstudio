@@ -110,7 +110,6 @@ enum ArchitectureAllowlists {
         "/Tests/AgentStudioTests/App/WorkspaceSurfaceCoordinatorGeometryReevaluationIntegrationTests.swift",
         "/Tests/AgentStudioTests/App/WorkspaceSurfaceCoordinatorPullRequestDemandTests.swift",
         "/Tests/AgentStudioTests/App/WorkspaceSurfaceCoordinatorTests+Filesystem.swift",
-        "/Tests/AgentStudioTests/App/WorkspaceSurfaceCoordinatorZoomRuntimeDispatchTests.swift",
         "/Tests/AgentStudioTests/Core/PaneRuntime/Sources/DarwinCompositeFSEventContinuityTests.swift",
         "/Tests/AgentStudioTests/Core/PaneRuntime/Sources/DarwinSharedLocalFSEventObserverFailureTests.swift",
         "/Tests/AgentStudioTests/Core/PaneRuntime/Sources/DarwinSharedLocalFSEventObserverTests.swift",
