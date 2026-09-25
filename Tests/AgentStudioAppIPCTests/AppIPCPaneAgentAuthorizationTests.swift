@@ -204,7 +204,7 @@ struct AppIPCPaneAgentAuthorizationTests {
         let registrations =
             try fixture.registrations()
             + AppIPCCommandMethodRegistrations.make(composition: composition, port: FakeCommandPort())
-        let registry = try AppIPCMethodRegistry(
+        let registry = try makeTestAppIPCMethodRegistry(
             registrations: registrations,
             recognizedCommands: composition.commands.map {
                 AppIPCRecognizedEntry(

@@ -18,6 +18,47 @@ extension JSONDecoder {
     }
 }
 
+func makeTestAppIPCMethodRegistry(
+    registrations: [AnyAppIPCMethodRegistration],
+    recognizedCommands: [AppIPCRecognizedEntry],
+    channel: AgentStudioIPCChannel
+) throws -> AppIPCMethodRegistry {
+    try AppIPCMethodRegistry(
+        registrations: registrations,
+        recognizedCommands: recognizedCommands,
+        channel: channel,
+        capabilitiesComposition: makeTestIPCSystemCapabilitiesComposition(
+            registrations: registrations,
+            channel: channel
+        )
+    )
+}
+
+func makeTestIPCSystemCapabilitiesComposition(
+    registrations: [AnyAppIPCMethodRegistration],
+    channel: AgentStudioIPCChannel
+) throws -> IPCSystemCapabilitiesComposition {
+    let available = registrations.filter {
+        $0.descriptor.metadata.exposure == .allChannels || channel == .debug
+    }
+    let availableNames = Set(available.map(\.descriptor.metadata.name))
+    let recognizedUnexposedMethods = registrations.map(\.descriptor.metadata)
+        .filter { !availableNames.contains($0.name) }
+        .map {
+            IPCRecognizedUnexposedName(name: $0.name, agentEligibility: $0.agentEligibility ?? .notYetAllowed)
+        }
+        .sorted { $0.name < $1.name }
+    guard let ping = available.first(where: { $0.descriptor.metadata.name == "system.ping" }) else {
+        throw IPCSystemCapabilitiesCompositionError.illustrativeDescriptorMissing
+    }
+    return try IPCSystemCapabilitiesDescriptorFactory.compose(
+        compatibility: .current,
+        availableDescriptors: available.map(\.descriptor),
+        illustrativeDescriptor: ping.descriptor,
+        recognizedUnexposedMethods: recognizedUnexposedMethods
+    )
+}
+
 struct LiveServerFixture {
     let runtimeId = UUID()
     let boundPaneId = UUID()
@@ -89,7 +130,7 @@ struct LiveServerFixture {
                 port: commandPort
             )
         }
-        let methodRegistry = try AppIPCMethodRegistry(
+        let methodRegistry = try makeTestAppIPCMethodRegistry(
             registrations: registrations,
             recognizedCommands: (commandComposition?.commands ?? []).map {
                 AppIPCRecognizedEntry(

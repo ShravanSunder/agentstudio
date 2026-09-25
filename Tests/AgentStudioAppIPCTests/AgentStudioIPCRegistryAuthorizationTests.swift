@@ -20,7 +20,7 @@ struct AgentStudioIPCRegistryAuthorizationTests {
     @Test("debug registry exposes the 47 typed bindings and computed capabilities only")
     func debugRegistryHasTypedCatalogAndComputedCapabilities() throws {
         let fixture = BuiltInMethodRegistrationsFixture()
-        let registry = try AppIPCMethodRegistry(
+        let registry = try makeTestAppIPCMethodRegistry(
             registrations: fixture.registrations(), recognizedCommands: [], channel: .debug)
         let names = registry.capabilities.methods.map(\.name)
 
@@ -36,7 +36,7 @@ struct AgentStudioIPCRegistryAuthorizationTests {
     @Test("stable registry omits debug-testing methods and keeps agent-eligible methods")
     func stableRegistryOmitsDebugTestingMethods() throws {
         let fixture = BuiltInMethodRegistrationsFixture()
-        let registry = try AppIPCMethodRegistry(
+        let registry = try makeTestAppIPCMethodRegistry(
             registrations: fixture.registrations(), recognizedCommands: [], channel: .stable)
         let names = Set(registry.capabilities.methods.map(\.name))
 
@@ -57,21 +57,22 @@ struct AgentStudioIPCRegistryAuthorizationTests {
         #expect(registry.registration(named: "bridge.diff.load") == nil)
     }
 
-    @Test("registry rejects duplicate names and a catalog without system ping")
-    func registryRejectsCollisionsAndMissingPing() throws {
+    @Test("registry rejects duplicate names")
+    func registryRejectsDuplicateNames() throws {
         let fixture = BuiltInMethodRegistrationsFixture()
         let registrations = try fixture.registrations()
         let duplicate = try #require(registrations.first)
+        let capabilitiesComposition = try makeTestIPCSystemCapabilitiesComposition(
+            registrations: registrations,
+            channel: .debug
+        )
 
         #expect(throws: AppIPCMethodRegistryError.duplicateMethodName(duplicate.descriptor.metadata.name)) {
             _ = try AppIPCMethodRegistry(
-                registrations: registrations + [duplicate], recognizedCommands: [], channel: .debug)
-        }
-        #expect(throws: AppIPCMethodRegistryError.missingSystemPing) {
-            _ = try AppIPCMethodRegistry(
-                registrations: registrations.filter { $0.descriptor.metadata.name != "system.ping" },
+                registrations: registrations + [duplicate],
                 recognizedCommands: [],
-                channel: .debug
+                channel: .debug,
+                capabilitiesComposition: capabilitiesComposition
             )
         }
     }
@@ -81,7 +82,7 @@ struct AgentStudioIPCRegistryAuthorizationTests {
         let fixture = BuiltInMethodRegistrationsFixture()
         let grantLedger = GrantLedger()
         let service = AuthorizationService(
-            methodRegistry: try AppIPCMethodRegistry(
+            methodRegistry: try makeTestAppIPCMethodRegistry(
                 registrations: fixture.registrations(), recognizedCommands: [], channel: .debug),
             grantLedger: grantLedger,
             canonicalizer: PermissionScopeCanonicalizer(),
@@ -127,7 +128,7 @@ struct AgentStudioIPCRegistryAuthorizationTests {
     @Test("pane baseline authorizes self terminal input and denies cross-pane input")
     func paneBaselineIsBoundToItsExactPane() throws {
         let fixture = BuiltInMethodRegistrationsFixture()
-        let registry = try AppIPCMethodRegistry(
+        let registry = try makeTestAppIPCMethodRegistry(
             registrations: fixture.registrations(), recognizedCommands: [], channel: .debug)
         let service = AuthorizationService(
             methodRegistry: registry,
@@ -154,7 +155,7 @@ struct AgentStudioIPCRegistryAuthorizationTests {
     @Test("cross-pane terminal input requires the exact canonical grant")
     func crossPaneTerminalInputRequiresExactGrant() throws {
         let fixture = BuiltInMethodRegistrationsFixture()
-        let registry = try AppIPCMethodRegistry(
+        let registry = try makeTestAppIPCMethodRegistry(
             registrations: fixture.registrations(), recognizedCommands: [], channel: .debug)
         let ledger = GrantLedger()
         let service = AuthorizationService(
@@ -176,7 +177,7 @@ struct AgentStudioIPCRegistryAuthorizationTests {
     @Test("authorization rejects privilege or data scope that differs from descriptor metadata")
     func authorizationRejectsMetadataMismatch() async throws {
         let fixture = BuiltInMethodRegistrationsFixture()
-        let registry = try AppIPCMethodRegistry(
+        let registry = try makeTestAppIPCMethodRegistry(
             registrations: fixture.registrations(), recognizedCommands: [], channel: .debug)
         let service = AuthorizationService(
             methodRegistry: registry,
@@ -205,7 +206,7 @@ struct AgentStudioIPCRegistryAuthorizationTests {
         let fixture = BuiltInMethodRegistrationsFixture()
         let ledger = GrantLedger()
         let service = AuthorizationService(
-            methodRegistry: try AppIPCMethodRegistry(
+            methodRegistry: try makeTestAppIPCMethodRegistry(
                 registrations: fixture.registrations(), recognizedCommands: [], channel: .debug),
             grantLedger: ledger,
             canonicalizer: PermissionScopeCanonicalizer(),
@@ -248,7 +249,7 @@ struct AgentStudioIPCRegistryAuthorizationTests {
     func diagnosticAuthorizationRequiresExactProvenancePair() async throws {
         let fixture = BuiltInMethodRegistrationsFixture()
         let service = AuthorizationService(
-            methodRegistry: try AppIPCMethodRegistry(
+            methodRegistry: try makeTestAppIPCMethodRegistry(
                 registrations: fixture.registrations(), recognizedCommands: [], channel: .debug),
             grantLedger: GrantLedger(),
             canonicalizer: PermissionScopeCanonicalizer(),
@@ -306,7 +307,7 @@ struct AgentStudioIPCRegistryAuthorizationTests {
     func diagnosticAuthorizationRejectsMetadataMismatch() async throws {
         let fixture = BuiltInMethodRegistrationsFixture()
         let service = AuthorizationService(
-            methodRegistry: try AppIPCMethodRegistry(
+            methodRegistry: try makeTestAppIPCMethodRegistry(
                 registrations: fixture.registrations(), recognizedCommands: [], channel: .debug),
             grantLedger: GrantLedger(),
             canonicalizer: PermissionScopeCanonicalizer(),
@@ -339,7 +340,7 @@ struct AgentStudioIPCRegistryAuthorizationTests {
     func productionRegistryRefusesDiagnosticAuthorization(channel: AgentStudioIPCChannel) async throws {
         let fixture = BuiltInMethodRegistrationsFixture()
         let service = AuthorizationService(
-            methodRegistry: try AppIPCMethodRegistry(
+            methodRegistry: try makeTestAppIPCMethodRegistry(
                 registrations: fixture.registrations(), recognizedCommands: [], channel: channel),
             grantLedger: GrantLedger(),
             canonicalizer: PermissionScopeCanonicalizer(),
@@ -368,7 +369,7 @@ struct AgentStudioIPCRegistryAuthorizationTests {
     @Test("debug channel does not upgrade a pane principal to diagnostic methods")
     func debugChannelDoesNotUpgradePanePrincipal() async throws {
         let fixture = BuiltInMethodRegistrationsFixture()
-        let registry = try AppIPCMethodRegistry(
+        let registry = try makeTestAppIPCMethodRegistry(
             registrations: fixture.registrations(), recognizedCommands: [], channel: .debug)
         let service = AuthorizationService(
             methodRegistry: registry,

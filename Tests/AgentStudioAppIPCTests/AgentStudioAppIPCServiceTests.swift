@@ -19,7 +19,7 @@ struct AgentStudioAppIPCServiceTests {
         )
 
         let eventBroker = IPCEventBroker()
-        let registry = try AppIPCMethodRegistry(
+        let registry = try makeTestAppIPCMethodRegistry(
             registrations: fixture.registrations(), recognizedCommands: [], channel: .debug)
         let service = AgentStudioAppIPCService(
             configuration: configuration,

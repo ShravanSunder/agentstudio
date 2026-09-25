@@ -20,7 +20,7 @@ package struct AppIPCMethodRegistry: Sendable {
         registrations: [AnyAppIPCMethodRegistration],
         recognizedCommands: [AppIPCRecognizedEntry],
         channel: AgentStudioIPCChannel,
-        capabilitiesComposition: IPCSystemCapabilitiesComposition? = nil
+        capabilitiesComposition: IPCSystemCapabilitiesComposition
     ) throws {
         var seenNames: Set<String> = []
         for registration in registrations {
@@ -39,28 +39,15 @@ package struct AppIPCMethodRegistry: Sendable {
                 IPCRecognizedUnexposedName(name: $0.name, agentEligibility: $0.agentEligibility ?? .notYetAllowed)
             }
             .sorted { $0.name < $1.name }
-        let composition: IPCSystemCapabilitiesComposition
-        if let capabilitiesComposition {
-            composition = capabilitiesComposition
-            let expectedMethodMetadata =
-                (available.map(\.descriptor.metadata) + [composition.erasedDescriptor.metadata]).sorted {
-                    $0.name < $1.name
-                }
-            guard composition.result.methods == expectedMethodMetadata,
-                composition.result.recognizedUnexposedMethods == recognizedUnexposedMethods
-            else {
-                throw AppIPCMethodRegistryError.capabilitiesCompositionMismatch
+        let composition = capabilitiesComposition
+        let expectedMethodMetadata =
+            (available.map(\.descriptor.metadata) + [composition.erasedDescriptor.metadata]).sorted {
+                $0.name < $1.name
             }
-        } else {
-            guard let ping = available.first(where: { $0.descriptor.metadata.name == "system.ping" }) else {
-                throw AppIPCMethodRegistryError.missingSystemPing
-            }
-            composition = try IPCSystemCapabilitiesDescriptorFactory.compose(
-                compatibility: .current,
-                availableDescriptors: available.map(\.descriptor),
-                illustrativeDescriptor: ping.descriptor,
-                recognizedUnexposedMethods: recognizedUnexposedMethods
-            )
+        guard composition.result.methods == expectedMethodMetadata,
+            composition.result.recognizedUnexposedMethods == recognizedUnexposedMethods
+        else {
+            throw AppIPCMethodRegistryError.capabilitiesCompositionMismatch
         }
         let capabilityResult = composition.result
         let encodedCapabilityResult = composition.encodedResult
@@ -166,7 +153,6 @@ package enum AppIPCMethodNames {
 package enum AppIPCMethodRegistryError: Error, Equatable, Sendable {
     case duplicateMethodName(String)
     case duplicateCommandIdentifier(String)
-    case missingSystemPing
     case capabilitiesCompositionMismatch
 }
 

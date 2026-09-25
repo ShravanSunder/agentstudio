@@ -148,7 +148,7 @@ struct AppIPCSessionMethodRegistrationTests {
         registrations: [AnyAppIPCMethodRegistration]
     ) throws -> AuthorizationService {
         AuthorizationService(
-            methodRegistry: try AppIPCMethodRegistry(
+            methodRegistry: try makeTestAppIPCMethodRegistry(
                 registrations: registrations, recognizedCommands: [], channel: .stable),
             grantLedger: GrantLedger(),
             canonicalizer: PermissionScopeCanonicalizer(),
