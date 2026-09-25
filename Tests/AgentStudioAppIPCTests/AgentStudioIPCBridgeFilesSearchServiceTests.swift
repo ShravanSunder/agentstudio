@@ -7,7 +7,7 @@ import Testing
 @Suite("AgentStudio IPC Bridge Files search", .serialized)
 struct AgentStudioIPCBridgeFilesSearchServiceTests {
     @Test("bridge.files.search reads a Bridge pane's collection with defaulted scope and limit")
-    func searchReadsBridgeCollection() throws {
+    func searchReadsBridgeCollection() async throws {
         // Arrange
         let paneId = UUID()
         let fixture = try LiveServerFixture(
@@ -19,7 +19,7 @@ struct AgentStudioIPCBridgeFilesSearchServiceTests {
         try fixture.server.start()
 
         // Act
-        let response = try sendRequest(
+        let response = try await sendRequestWithoutBlockingCooperativePool(
             socketPath: fixture.paths.socketURL.path,
             request: JSONRPCClientRequest(
                 id: .number(94),
@@ -39,7 +39,7 @@ struct AgentStudioIPCBridgeFilesSearchServiceTests {
     }
 
     @Test("bridge.files.search rejects a member scope without its worktree as invalid params")
-    func memberScopeWithoutWorktreeIsInvalid() throws {
+    func memberScopeWithoutWorktreeIsInvalid() async throws {
         // Arrange
         let fixture = try LiveServerFixture(
             accessMode: .unsafeDebug,
@@ -50,7 +50,7 @@ struct AgentStudioIPCBridgeFilesSearchServiceTests {
         try fixture.server.start()
 
         // Act
-        let response = try sendRequest(
+        let response = try await sendRequestWithoutBlockingCooperativePool(
             socketPath: fixture.paths.socketURL.path,
             request: JSONRPCClientRequest(
                 id: .number(95),
