@@ -1,5 +1,242 @@
 {
   "wireVersion": 2,
+  "transportV2": {
+    "admittedResponses": [
+      {
+        "kind": "operation.admitted",
+        "wireVersion": 2,
+        "paneSessionId": "pane-session-1",
+        "workerInstanceId": "worker-instance-1",
+        "requestId": "request-ordinary-1",
+        "requestSequence": 8,
+        "operationId": "operation-ordinary-1",
+        "waitKind": "ordinary"
+      },
+      {
+        "kind": "operation.admitted",
+        "wireVersion": 2,
+        "paneSessionId": "pane-session-1",
+        "workerInstanceId": "worker-instance-1",
+        "requestId": "request-save-1",
+        "requestSequence": 9,
+        "operationId": "operation-save-1",
+        "waitKind": "human"
+      }
+    ],
+    "resultRequests": [
+      {
+        "kind": "operation.result",
+        "wireVersion": 2,
+        "paneSessionId": "pane-session-1",
+        "workerInstanceId": "worker-instance-1",
+        "operationId": "operation-ordinary-1"
+      }
+    ],
+    "resultResponses": [
+      {
+        "kind": "operation.result",
+        "operationId": "operation-ordinary-1",
+        "outcome": "succeeded",
+        "result": null,
+        "failureCode": null
+      },
+      {
+        "kind": "operation.result",
+        "operationId": "operation-unknown-1",
+        "outcome": "outcomeUnknown",
+        "result": null,
+        "failureCode": null
+      },
+      {
+        "kind": "operation.result",
+        "operationId": "operation-refused-1",
+        "outcome": "refused",
+        "result": null,
+        "failureCode": "result_capacity_exhausted"
+      }
+    ],
+    "resultAcknowledgements": [
+      {
+        "kind": "operation.resultAcknowledgement",
+        "wireVersion": 2,
+        "paneSessionId": "pane-session-1",
+        "workerInstanceId": "worker-instance-1",
+        "requestId": "ack-result-1",
+        "requestSequence": 10,
+        "operationId": "operation-ordinary-1"
+      }
+    ],
+    "resultAcknowledgedResponses": [
+      {
+        "kind": "operation.resultAcknowledged",
+        "wireVersion": 2,
+        "paneSessionId": "pane-session-1",
+        "workerInstanceId": "worker-instance-1",
+        "requestId": "ack-result-1",
+        "requestSequence": 10,
+        "operationId": "operation-ordinary-1"
+      }
+    ],
+    "viewScopeRequests": [
+      {
+        "kind": "subscription.setScope",
+        "wireVersion": 2,
+        "paneSessionId": "pane-session-1",
+        "workerInstanceId": "worker-instance-1",
+        "requestId": "scope-request-1",
+        "requestSequence": 11,
+        "subscriptionId": "review-subscription-1",
+        "subscriptionKind": "review.metadata",
+        "handle": "review-handle-1",
+        "scopeRevision": 2,
+        "scope": { "kind": "review" }
+      }
+    ],
+    "viewResnapshotRequests": [
+      {
+        "kind": "subscription.resnapshot",
+        "wireVersion": 2,
+        "paneSessionId": "pane-session-1",
+        "workerInstanceId": "worker-instance-1",
+        "requestId": "resnapshot-request-1",
+        "requestSequence": 12,
+        "subscriptionId": "file-subscription-1",
+        "subscriptionKind": "file.metadata",
+        "handle": "file-handle-1",
+        "scopeRevision": 2
+      }
+    ],
+    "viewAcknowledgements": [
+      {
+        "kind": "subscription.acknowledge",
+        "wireVersion": 2,
+        "paneSessionId": "pane-session-1",
+        "workerInstanceId": "worker-instance-1",
+        "subscriptionId": "file-subscription-1",
+        "handle": "file-handle-1",
+        "receivedThroughDeliverySequence": 3
+      }
+    ],
+    "batchFrames": [
+      {
+        "kind": "subscription.batchBegin",
+        "wireVersion": 2,
+        "paneSessionId": "pane-session-1",
+        "workerInstanceId": "worker-instance-1",
+        "metadataStreamId": "metadata-stream-1",
+        "streamSequence": 21,
+        "subscriptionId": "review-subscription-1",
+        "subscriptionKind": "review.metadata",
+        "handle": "review-handle-1",
+        "scopeRevision": 2,
+        "batchId": "review-batch-1",
+        "mode": "snapshot",
+        "scope": { "kind": "review" },
+        "baseRevision": 0,
+        "targetRevision": 4,
+        "partCount": 3
+      },
+      {
+        "kind": "subscription.batchPart",
+        "wireVersion": 2,
+        "paneSessionId": "pane-session-1",
+        "workerInstanceId": "worker-instance-1",
+        "metadataStreamId": "metadata-stream-1",
+        "streamSequence": 22,
+        "subscriptionId": "review-subscription-1",
+        "subscriptionKind": "review.metadata",
+        "handle": "review-handle-1",
+        "scopeRevision": 2,
+        "batchId": "review-batch-1",
+        "deliverySequence": 1,
+        "partIndex": 0,
+        "part": {
+          "operation": "put",
+          "key": "item/a.ts",
+          "revision": 4,
+          "value": { "itemId": "item-a" }
+        }
+      },
+      {
+        "kind": "subscription.batchPart",
+        "wireVersion": 2,
+        "paneSessionId": "pane-session-1",
+        "workerInstanceId": "worker-instance-1",
+        "metadataStreamId": "metadata-stream-1",
+        "streamSequence": 23,
+        "subscriptionId": "review-subscription-1",
+        "subscriptionKind": "review.metadata",
+        "handle": "review-handle-1",
+        "scopeRevision": 2,
+        "batchId": "review-batch-1",
+        "deliverySequence": 2,
+        "partIndex": 1,
+        "part": { "operation": "delete", "key": "item/old.ts", "revision": 4 }
+      },
+      {
+        "kind": "subscription.batchPart",
+        "wireVersion": 2,
+        "paneSessionId": "pane-session-1",
+        "workerInstanceId": "worker-instance-1",
+        "metadataStreamId": "metadata-stream-1",
+        "streamSequence": 24,
+        "subscriptionId": "review-subscription-1",
+        "subscriptionKind": "review.metadata",
+        "handle": "review-handle-1",
+        "scopeRevision": 2,
+        "batchId": "review-batch-1",
+        "deliverySequence": 3,
+        "partIndex": 2,
+        "part": { "operation": "evict", "key": "item/outside.ts" }
+      },
+      {
+        "kind": "subscription.batchComplete",
+        "wireVersion": 2,
+        "paneSessionId": "pane-session-1",
+        "workerInstanceId": "worker-instance-1",
+        "metadataStreamId": "metadata-stream-1",
+        "streamSequence": 25,
+        "subscriptionId": "review-subscription-1",
+        "subscriptionKind": "review.metadata",
+        "handle": "review-handle-1",
+        "scopeRevision": 2,
+        "batchId": "review-batch-1",
+        "coveredScope": { "kind": "review" }
+      },
+      {
+        "kind": "subscription.batchBegin",
+        "wireVersion": 2,
+        "paneSessionId": "pane-session-1",
+        "workerInstanceId": "worker-instance-1",
+        "metadataStreamId": "metadata-stream-1",
+        "streamSequence": 26,
+        "subscriptionId": "review-subscription-1",
+        "subscriptionKind": "review.metadata",
+        "handle": "review-handle-1",
+        "scopeRevision": 3,
+        "batchId": "review-batch-coverage-empty",
+        "mode": "coverage",
+        "scope": { "kind": "review" },
+        "baseRevision": 4,
+        "targetRevision": 4,
+        "partCount": 0
+      },
+      {
+        "kind": "subscription.batchComplete",
+        "wireVersion": 2,
+        "paneSessionId": "pane-session-1",
+        "workerInstanceId": "worker-instance-1",
+        "metadataStreamId": "metadata-stream-1",
+        "streamSequence": 27,
+        "subscriptionId": "review-subscription-1",
+        "subscriptionKind": "review.metadata",
+        "handle": "review-handle-1",
+        "scopeRevision": 3,
+        "batchId": "review-batch-coverage-empty",
+        "coveredScope": { "kind": "review" }
+      }
+    ]
+  },
   "bootstrap": {
     "kind": "productSession.bootstrap",
     "wireVersion": 2,
@@ -1179,6 +1416,14 @@
       "contentSequence": 2,
       "code": "internal",
       "retryable": false,
+      "safeMessage": null,
+      "operationCorrelationId": null
+    },
+    {
+      "kind": "content.error",
+      "contentSequence": 2,
+      "code": "superseded",
+      "retryable": true,
       "safeMessage": null,
       "operationCorrelationId": null
     },

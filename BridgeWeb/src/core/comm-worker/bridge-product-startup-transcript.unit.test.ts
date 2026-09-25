@@ -99,6 +99,20 @@ const validStartupTranscriptSchema = z
 				})
 				.strict(),
 		),
+		envelopeTranscript: z.array(
+			z
+				.object({
+					codec: z.enum([
+						'operationAdmittedResponse',
+						'operationResultRequest',
+						'operationResultResponse',
+						'operationResultAcknowledgement',
+					]),
+					name: z.string().min(1),
+					value: z.unknown(),
+				})
+				.strict(),
+		),
 		schemaVersion: z.literal(1),
 		transcript: z.array(
 			z
@@ -130,7 +144,7 @@ const invalidStartupTranscriptSchema = z
 
 const frozenFixtureHashes = {
 	invalid: '78da34fabc8fdfeb2316df0b21e819691ea2bb4e861a74cbee3270231d6494c8',
-	valid: 'a5556acd203621f3be1d48881b96a198385744cf85cb729832d3929a6688f4c3',
+	valid: 'ceff569ba2d4c78540fad3a6ec9d60d478c7e026763e941c363424a549f4998c',
 } as const;
 
 describe('Bridge product startup transcript', () => {

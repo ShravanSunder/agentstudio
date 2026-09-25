@@ -1,0 +1,336 @@
+import Foundation
+
+enum BridgeProductBatchMode: String, Codable, Equatable, Sendable {
+    case snapshot
+    case change
+    case coverage
+}
+
+struct BridgeProductBatchFrameIdentity: Codable, Equatable, Sendable {
+    private enum CodingKeys: String, CodingKey, CaseIterable {
+        case batchId
+        case handle
+        case scopeRevision
+        case subscriptionId
+        case subscriptionKind
+    }
+
+    static let codingKeyNames = BridgeProductMetadataFrameIdentity.codingKeyNames.union(
+        CodingKeys.allCases.map(\.rawValue)
+    )
+
+    let frame: BridgeProductMetadataFrameIdentity
+    let batchId: String
+    let handle: String
+    let scopeRevision: Int
+    let subscriptionId: String
+    let subscriptionKind: BridgeProductSubscriptionKind
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        frame = try BridgeProductMetadataFrameIdentity(from: decoder)
+        try frame.validateProgressSequence(codingPath: decoder.codingPath)
+        batchId = try container.decode(String.self, forKey: .batchId)
+        handle = try container.decode(String.self, forKey: .handle)
+        scopeRevision = try container.decode(Int.self, forKey: .scopeRevision)
+        subscriptionId = try container.decode(String.self, forKey: .subscriptionId)
+        subscriptionKind = try container.decode(BridgeProductSubscriptionKind.self, forKey: .subscriptionKind)
+        try BridgeProductContractDecoding.validateIdentifier(batchId, codingPath: decoder.codingPath)
+        try BridgeProductContractDecoding.validateIdentifier(handle, codingPath: decoder.codingPath)
+        try BridgeProductContractDecoding.validateNonnegative(
+            scopeRevision,
+            name: "scopeRevision",
+            codingPath: decoder.codingPath
+        )
+        try BridgeProductContractDecoding.validateIdentifier(subscriptionId, codingPath: decoder.codingPath)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        try frame.encode(to: encoder)
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(batchId, forKey: .batchId)
+        try container.encode(handle, forKey: .handle)
+        try container.encode(scopeRevision, forKey: .scopeRevision)
+        try container.encode(subscriptionId, forKey: .subscriptionId)
+        try container.encode(subscriptionKind, forKey: .subscriptionKind)
+    }
+}
+
+enum BridgeProductBatchPart: Codable, Equatable, Sendable {
+    case put(key: String, revision: Int, value: BridgeProductJSONValue)
+    case delete(key: String, revision: Int)
+    case evict(key: String)
+
+    private enum CodingKeys: String, CodingKey, CaseIterable {
+        case key
+        case operation
+        case revision
+        case value
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let operation = try container.decode(String.self, forKey: .operation)
+        let key = try container.decode(String.self, forKey: .key)
+        try BridgeProductContractDecoding.validateDisplayPath(key, codingPath: decoder.codingPath)
+        switch operation {
+        case "put":
+            try BridgeProductContractDecoding.rejectUnknownKeys(
+                from: decoder,
+                allowedKeys: Set(CodingKeys.allCases.map(\.rawValue)),
+                contract: "batch put part"
+            )
+            let revision = try container.decode(Int.self, forKey: .revision)
+            try BridgeProductContractDecoding.validatePositive(
+                revision,
+                name: "revision",
+                codingPath: decoder.codingPath
+            )
+            self = .put(
+                key: key,
+                revision: revision,
+                value: try container.decode(BridgeProductJSONValue.self, forKey: .value)
+            )
+        case "delete":
+            try BridgeProductContractDecoding.rejectUnknownKeys(
+                from: decoder,
+                allowedKeys: [CodingKeys.key.rawValue, CodingKeys.operation.rawValue, CodingKeys.revision.rawValue],
+                contract: "batch delete part"
+            )
+            let revision = try container.decode(Int.self, forKey: .revision)
+            try BridgeProductContractDecoding.validatePositive(
+                revision,
+                name: "revision",
+                codingPath: decoder.codingPath
+            )
+            self = .delete(key: key, revision: revision)
+        case "evict":
+            try BridgeProductContractDecoding.rejectUnknownKeys(
+                from: decoder,
+                allowedKeys: [CodingKeys.key.rawValue, CodingKeys.operation.rawValue],
+                contract: "batch evict part"
+            )
+            self = .evict(key: key)
+        default:
+            throw BridgeProductContractDecoding.invalidValue(
+                "Invalid batch part operation",
+                codingPath: decoder.codingPath
+            )
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        switch self {
+        case .put(let key, let revision, let value):
+            try container.encode(key, forKey: .key)
+            try container.encode("put", forKey: .operation)
+            try container.encode(revision, forKey: .revision)
+            try container.encode(value, forKey: .value)
+        case .delete(let key, let revision):
+            try container.encode(key, forKey: .key)
+            try container.encode("delete", forKey: .operation)
+            try container.encode(revision, forKey: .revision)
+        case .evict(let key):
+            try container.encode(key, forKey: .key)
+            try container.encode("evict", forKey: .operation)
+        }
+    }
+}
+
+struct BridgeProductBatchBeginFrame: Codable, Equatable, Sendable {
+    private enum CodingKeys: String, CodingKey, CaseIterable {
+        case baseRevision
+        case kind
+        case mode
+        case partCount
+        case scope
+        case targetRevision
+    }
+
+    let identity: BridgeProductBatchFrameIdentity
+    let baseRevision: Int
+    let mode: BridgeProductBatchMode
+    let partCount: Int
+    let scope: BridgeProductJSONValue
+    let targetRevision: Int
+
+    init(from decoder: Decoder) throws {
+        try BridgeProductContractDecoding.rejectUnknownKeys(
+            from: decoder,
+            allowedKeys: BridgeProductBatchFrameIdentity.codingKeyNames.union(
+                CodingKeys.allCases.map(\.rawValue)
+            ),
+            contract: "subscription.batchBegin frame"
+        )
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        guard try container.decode(String.self, forKey: .kind) == "subscription.batchBegin" else {
+            throw BridgeProductContractDecoding.invalidValue(
+                "Invalid subscription.batchBegin frame kind",
+                codingPath: decoder.codingPath
+            )
+        }
+        identity = try BridgeProductBatchFrameIdentity(from: decoder)
+        baseRevision = try container.decode(Int.self, forKey: .baseRevision)
+        mode = try container.decode(BridgeProductBatchMode.self, forKey: .mode)
+        partCount = try container.decode(Int.self, forKey: .partCount)
+        scope = try container.decode(BridgeProductJSONValue.self, forKey: .scope)
+        try BridgeProductViewScopeContract.validate(scope, codingPath: decoder.codingPath)
+        targetRevision = try container.decode(Int.self, forKey: .targetRevision)
+        try BridgeProductContractDecoding.validateNonnegative(
+            baseRevision,
+            name: "baseRevision",
+            codingPath: decoder.codingPath
+        )
+        try BridgeProductContractDecoding.validateNonnegative(
+            partCount,
+            name: "partCount",
+            codingPath: decoder.codingPath
+        )
+        try BridgeProductContractDecoding.validateNonnegative(
+            targetRevision,
+            name: "targetRevision",
+            codingPath: decoder.codingPath
+        )
+        guard targetRevision >= baseRevision else {
+            throw BridgeProductContractDecoding.invalidValue(
+                "Batch target revision precedes its base",
+                codingPath: decoder.codingPath
+            )
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        try identity.encode(to: encoder)
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(baseRevision, forKey: .baseRevision)
+        try container.encode("subscription.batchBegin", forKey: .kind)
+        try container.encode(mode, forKey: .mode)
+        try container.encode(partCount, forKey: .partCount)
+        try container.encode(scope, forKey: .scope)
+        try container.encode(targetRevision, forKey: .targetRevision)
+    }
+}
+
+struct BridgeProductBatchPartFrame: Codable, Equatable, Sendable {
+    private enum CodingKeys: String, CodingKey, CaseIterable {
+        case deliverySequence
+        case kind
+        case part
+        case partIndex
+    }
+
+    let identity: BridgeProductBatchFrameIdentity
+    let deliverySequence: Int
+    let part: BridgeProductBatchPart
+    let partIndex: Int
+
+    init(from decoder: Decoder) throws {
+        try BridgeProductContractDecoding.rejectUnknownKeys(
+            from: decoder,
+            allowedKeys: BridgeProductBatchFrameIdentity.codingKeyNames.union(
+                CodingKeys.allCases.map(\.rawValue)
+            ),
+            contract: "subscription.batchPart frame"
+        )
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        guard try container.decode(String.self, forKey: .kind) == "subscription.batchPart" else {
+            throw BridgeProductContractDecoding.invalidValue(
+                "Invalid subscription.batchPart frame kind",
+                codingPath: decoder.codingPath
+            )
+        }
+        identity = try BridgeProductBatchFrameIdentity(from: decoder)
+        deliverySequence = try container.decode(Int.self, forKey: .deliverySequence)
+        part = try container.decode(BridgeProductBatchPart.self, forKey: .part)
+        partIndex = try container.decode(Int.self, forKey: .partIndex)
+        try BridgeProductContractDecoding.validatePositive(
+            deliverySequence,
+            name: "deliverySequence",
+            codingPath: decoder.codingPath
+        )
+        try BridgeProductContractDecoding.validateNonnegative(
+            partIndex,
+            name: "partIndex",
+            codingPath: decoder.codingPath
+        )
+    }
+
+    func encode(to encoder: Encoder) throws {
+        try identity.encode(to: encoder)
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(deliverySequence, forKey: .deliverySequence)
+        try container.encode("subscription.batchPart", forKey: .kind)
+        try container.encode(part, forKey: .part)
+        try container.encode(partIndex, forKey: .partIndex)
+    }
+}
+
+struct BridgeProductBatchCompleteFrame: Codable, Equatable, Sendable {
+    private enum CodingKeys: String, CodingKey, CaseIterable {
+        case coveredScope
+        case kind
+    }
+
+    let identity: BridgeProductBatchFrameIdentity
+    let coveredScope: BridgeProductJSONValue
+
+    init(from decoder: Decoder) throws {
+        try BridgeProductContractDecoding.rejectUnknownKeys(
+            from: decoder,
+            allowedKeys: BridgeProductBatchFrameIdentity.codingKeyNames.union(
+                CodingKeys.allCases.map(\.rawValue)
+            ),
+            contract: "subscription.batchComplete frame"
+        )
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        guard try container.decode(String.self, forKey: .kind) == "subscription.batchComplete" else {
+            throw BridgeProductContractDecoding.invalidValue(
+                "Invalid subscription.batchComplete frame kind",
+                codingPath: decoder.codingPath
+            )
+        }
+        identity = try BridgeProductBatchFrameIdentity(from: decoder)
+        coveredScope = try container.decode(BridgeProductJSONValue.self, forKey: .coveredScope)
+        try BridgeProductViewScopeContract.validate(coveredScope, codingPath: decoder.codingPath)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        try identity.encode(to: encoder)
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(coveredScope, forKey: .coveredScope)
+        try container.encode("subscription.batchComplete", forKey: .kind)
+    }
+}
+
+enum BridgeProductBatchFrame: Codable, Equatable, Sendable {
+    case begin(BridgeProductBatchBeginFrame)
+    case part(BridgeProductBatchPartFrame)
+    case complete(BridgeProductBatchCompleteFrame)
+
+    private enum CodingKeys: String, CodingKey {
+        case kind
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        switch try container.decode(String.self, forKey: .kind) {
+        case "subscription.batchBegin": self = .begin(try .init(from: decoder))
+        case "subscription.batchPart": self = .part(try .init(from: decoder))
+        case "subscription.batchComplete": self = .complete(try .init(from: decoder))
+        default:
+            throw BridgeProductContractDecoding.invalidValue(
+                "Unknown subscription batch frame kind",
+                codingPath: decoder.codingPath
+            )
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        switch self {
+        case .begin(let frame): try frame.encode(to: encoder)
+        case .part(let frame): try frame.encode(to: encoder)
+        case .complete(let frame): try frame.encode(to: encoder)
+        }
+    }
+}

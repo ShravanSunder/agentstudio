@@ -1,6 +1,57 @@
 {
   "schemaVersion": 1,
   "wireVersion": 2,
+  "envelopeTranscript": [
+    {
+      "name": "review-open-admitted",
+      "codec": "operationAdmittedResponse",
+      "value": {
+        "kind": "operation.admitted",
+        "wireVersion": 2,
+        "paneSessionId": "pane-session-startup-1",
+        "workerInstanceId": "worker-instance-startup-1",
+        "requestId": "request-review-subscription-open-1",
+        "requestSequence": 2,
+        "operationId": "operation-review-open-1",
+        "waitKind": "ordinary"
+      }
+    },
+    {
+      "name": "review-open-result-request",
+      "codec": "operationResultRequest",
+      "value": {
+        "kind": "operation.result",
+        "wireVersion": 2,
+        "paneSessionId": "pane-session-startup-1",
+        "workerInstanceId": "worker-instance-startup-1",
+        "operationId": "operation-review-open-1"
+      }
+    },
+    {
+      "name": "review-open-settled",
+      "codec": "operationResultResponse",
+      "value": {
+        "kind": "operation.result",
+        "operationId": "operation-review-open-1",
+        "outcome": "succeeded",
+        "result": null,
+        "failureCode": null
+      }
+    },
+    {
+      "name": "review-open-result-acknowledgement",
+      "codec": "operationResultAcknowledgement",
+      "value": {
+        "kind": "operation.resultAcknowledgement",
+        "wireVersion": 2,
+        "paneSessionId": "pane-session-startup-1",
+        "workerInstanceId": "worker-instance-startup-1",
+        "requestId": "request-review-open-ack-1",
+        "requestSequence": 3,
+        "operationId": "operation-review-open-1"
+      }
+    }
+  ],
   "transcript": [
     {
       "name": "worker-session-open",

@@ -1,0 +1,115 @@
+import { describe, expect, test } from 'vitest';
+
+import invalidTransportV2Corpus from '../../test-fixtures/bridge-contract-fixtures/invalid/bridge-product-transport-v2-corpus.json' with { type: 'json' };
+import validProductSessionCorpus from '../../test-fixtures/bridge-contract-fixtures/valid/bridge-product-session-corpus.json' with { type: 'json' };
+import validStartupTranscript from '../../test-fixtures/bridge-contract-fixtures/valid/bridge-product-startup-transcript.json' with { type: 'json' };
+import { bridgeProductBatchFrameSchema } from './bridge-product-batch-wire-contracts.js';
+import {
+	bridgeProductOperationAdmittedResponseSchema,
+	bridgeProductOperationResultAcknowledgementSchema,
+	bridgeProductOperationResultAcknowledgedResponseSchema,
+	bridgeProductOperationResultRequestSchema,
+	bridgeProductOperationResultResponseSchema,
+} from './bridge-product-operation-wire-contracts.js';
+import {
+	bridgeProductViewAcknowledgementRequestSchema,
+	bridgeProductViewResnapshotRequestSchema,
+	bridgeProductViewScopeRequestSchema,
+} from './bridge-product-view-control-wire-contracts.js';
+
+describe('Bridge product v2 kind-agnostic wire envelopes', () => {
+	test('round-trips the shared startup admission and settlement transcript', () => {
+		expect(validStartupTranscript.envelopeTranscript).toHaveLength(4);
+		for (const entry of validStartupTranscript.envelopeTranscript) {
+			switch (entry.codec) {
+				case 'operationAdmittedResponse':
+					expect(bridgeProductOperationAdmittedResponseSchema.parse(entry.value)).toEqual(
+						entry.value,
+					);
+					break;
+				case 'operationResultRequest':
+					expect(bridgeProductOperationResultRequestSchema.parse(entry.value)).toEqual(entry.value);
+					break;
+				case 'operationResultResponse':
+					expect(bridgeProductOperationResultResponseSchema.parse(entry.value)).toEqual(
+						entry.value,
+					);
+					break;
+				case 'operationResultAcknowledgement':
+					expect(bridgeProductOperationResultAcknowledgementSchema.parse(entry.value)).toEqual(
+						entry.value,
+					);
+					break;
+				default:
+					throw new Error(`Unsupported v2 startup envelope codec: ${entry.codec}`);
+			}
+		}
+	});
+
+	test('decodes and re-encodes the shared operation and batch corpus', () => {
+		const transport = validProductSessionCorpus.transportV2;
+		const cases = [
+			[bridgeProductOperationAdmittedResponseSchema, transport.admittedResponses],
+			[bridgeProductOperationResultRequestSchema, transport.resultRequests],
+			[bridgeProductOperationResultResponseSchema, transport.resultResponses],
+			[bridgeProductOperationResultAcknowledgementSchema, transport.resultAcknowledgements],
+			[
+				bridgeProductOperationResultAcknowledgedResponseSchema,
+				transport.resultAcknowledgedResponses,
+			],
+			[bridgeProductViewScopeRequestSchema, transport.viewScopeRequests],
+			[bridgeProductViewResnapshotRequestSchema, transport.viewResnapshotRequests],
+			[bridgeProductViewAcknowledgementRequestSchema, transport.viewAcknowledgements],
+			[bridgeProductBatchFrameSchema, transport.batchFrames],
+		] as const;
+
+		for (const [schema, values] of cases) {
+			for (const value of values) {
+				expect(schema.parse(value)).toEqual(value);
+			}
+		}
+		expect(transport.batchFrames).toHaveLength(7);
+	});
+
+	test('requires the complete sealed-batch envelope and typed settlement', () => {
+		const transport = validProductSessionCorpus.transportV2;
+		const batchBegin = transport.batchFrames[0];
+		const batchPart = transport.batchFrames[1];
+		const settled = transport.resultResponses[0];
+		expect(batchBegin).toBeDefined();
+		expect(batchPart).toBeDefined();
+		expect(settled).toBeDefined();
+		if (batchBegin === undefined || batchPart === undefined || settled === undefined) return;
+
+		expect(
+			bridgeProductBatchFrameSchema.safeParse({ ...batchBegin, partCount: undefined }).success,
+		).toBe(false);
+		expect(bridgeProductBatchFrameSchema.safeParse({ ...batchBegin, scope: null }).success).toBe(
+			false,
+		);
+		expect(
+			bridgeProductBatchFrameSchema.safeParse({ ...batchPart, deliverySequence: 0 }).success,
+		).toBe(false);
+		expect(
+			bridgeProductOperationResultResponseSchema.safeParse({
+				...settled,
+				outcome: 'cancelled',
+				result: { published: true },
+			}).success,
+		).toBe(false);
+	});
+
+	test('rejects the shared invalid operation, batch, and receipt envelopes', () => {
+		for (const response of invalidTransportV2Corpus.resultResponses) {
+			expect(bridgeProductOperationResultResponseSchema.safeParse(response).success).toBe(false);
+		}
+		for (const frame of invalidTransportV2Corpus.batchFrames) {
+			expect(bridgeProductBatchFrameSchema.safeParse(frame).success).toBe(false);
+		}
+		for (const acknowledgement of invalidTransportV2Corpus.viewAcknowledgements) {
+			expect(bridgeProductViewAcknowledgementRequestSchema.safeParse(acknowledgement).success).toBe(
+				false,
+			);
+		}
+	});
+});

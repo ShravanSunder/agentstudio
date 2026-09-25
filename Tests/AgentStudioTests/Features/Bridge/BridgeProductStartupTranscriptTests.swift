@@ -16,7 +16,7 @@ struct BridgeProductStartupTranscriptTests {
     private static let invalidMirrorPath =
         "BridgeWeb/src/test-fixtures/bridge-contract-fixtures/invalid/bridge-product-startup-transcript.json"
     private static let validFixtureSHA256 =
-        "a5556acd203621f3be1d48881b96a198385744cf85cb729832d3929a6688f4c3"
+        "ceff569ba2d4c78540fad3a6ec9d60d478c7e026763e941c363424a549f4998c"
     private static let invalidFixtureSHA256 =
         "78da34fabc8fdfeb2316df0b21e819691ea2bb4e861a74cbee3270231d6494c8"
 
