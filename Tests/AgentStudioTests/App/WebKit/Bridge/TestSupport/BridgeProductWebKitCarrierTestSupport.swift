@@ -681,7 +681,7 @@ enum BridgeProductWebKitCarrierTestSupport {
         _ controller: BridgePaneController,
         frame: NSRect = NSRect(x: 0, y: 0, width: 960, height: 720),
         requireVisibleHost: Bool = false,
-        operation: @MainActor (BridgePaneController) async throws -> Value
+        operation: @MainActor (BridgePaneController, NSWindow) async throws -> Value
     ) async throws -> BridgeProductWebKitCarrierRunResult<Value> {
         let window = NSWindow(
             contentRect: frame,
@@ -710,7 +710,7 @@ enum BridgeProductWebKitCarrierTestSupport {
                     )
                 }
             }
-            let value = try await operation(controller)
+            let value = try await operation(controller, window)
             let hostSnapshot = hostSnapshot(window: window, mountView: mountView)
             let teardownSnapshot = await teardown(controller: controller, window: window)
             return BridgeProductWebKitCarrierRunResult(
@@ -994,6 +994,6 @@ private struct BridgeProductWebKitCarrierHostReadinessError: Error, CustomString
     let snapshot: BridgeProductWebKitCarrierHostSnapshot
 
     var description: String {
-        "RealGit WebKit rows require a visible, unoccluded host; observed=\(snapshot)"
+        "WebKit bootstrap requires a visible, unoccluded host; observed=\(snapshot)"
     }
 }
