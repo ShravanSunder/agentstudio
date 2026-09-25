@@ -183,7 +183,7 @@ struct DrawerZoomFrameCurrencyIntegrationTests {
         }
         var recoveryPassIterator = recoveryPasses.makeAsyncIterator()
 
-        // Act: normal → Zoom, then move to the Viewer side, then commit a 70/30 split.
+        // Act: normal → Zoom, move to the Bridge side, then commit the maximum 60/40 split.
         store.panePresentationAtom.enterZoom(
             inTab: tab.id,
             sourcePaneId: sourcePane.id,
@@ -193,7 +193,7 @@ struct DrawerZoomFrameCurrencyIntegrationTests {
         let zoomPass = await recoveryPassIterator.next()
         #expect(await executor.execute(.setDrawerZoomSide(parentPaneId: sourcePane.id, side: .bridge)))
         let sidePass = await recoveryPassIterator.next()
-        #expect(await executor.execute(.setZoomSplitRatio(tabId: tab.id, ratio: 0.7)))
+        #expect(await executor.execute(.setZoomSplitRatio(tabId: tab.id, ratio: 0.6)))
         let splitPass = await recoveryPassIterator.next()
 
         let claimOutcome = port.claimPreparedTerminal(
@@ -210,16 +210,16 @@ struct DrawerZoomFrameCurrencyIntegrationTests {
         }
         _ = await port.activateClaimedTerminal(claim)
 
-        // Assert: hand-derived Viewer-side content rect for a 70/30 split of
-        // 1000 × (600 − toolbar): Viewer region x=700 w=300; outline 97% wide
+        // Assert: hand-derived Bridge-side content rect for a 60/40 split of
+        // 1000 × (600 − toolbar): Bridge region x=600 w=400; outline 97% wide
         // centered, 85% tall on the region bottom; 8pt border inside the panel.
         let splitHeight = containerBounds.height - DrawerLayout.iconBarFrameHeight
         let outlineHeight = splitHeight * 0.85
         let connectorHeight = min(40, outlineHeight - 100)
         let expectedContentRect = CGRect(
-            x: 704.5 + 8,
+            x: 606 + 8,
             y: splitHeight - outlineHeight + 8,
-            width: 291 - 16,
+            width: 388 - 16,
             height: outlineHeight - connectorHeight - 16
         )
         let expectedChildFrame = try #require(
