@@ -21,7 +21,8 @@ struct SurfaceManagerRendererStateDeliveryTests {
             maxCreationRetries: 0,
             healthCheckInterval: 3600,
             rendererStateDelivery: delivery,
-            performanceTraceRecorder: performanceTraceRecorder
+            performanceTraceRecorder: performanceTraceRecorder,
+            processExitedCheck: { _ in false }
         )
     }
 

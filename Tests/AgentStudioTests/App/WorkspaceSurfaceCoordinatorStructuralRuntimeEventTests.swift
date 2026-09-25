@@ -29,6 +29,7 @@ struct GhosttyStructureRuntimeEventTests {
         let initialPaneIds = Set(context.store.paneAtom.paneSnapshot().keys)
         let initialActiveTabId = context.store.activeTabId
         let initialZoomPresentation = context.store.panePresentationAtom.zoomPresentation(forTab: context.sourceTabId)
+        let events = structuralEvents()
 
         do {
             try await withIsolatedCommandDispatcher(
@@ -37,7 +38,7 @@ struct GhosttyStructureRuntimeEventTests {
                     AppCommandDispatcher.shared.appCommandRouter = nil
                 },
                 body: {
-                    for (index, event) in structuralEvents().enumerated() {
+                    for (index, event) in events.enumerated() {
                         _ = await emit(
                             event,
                             index: index,
@@ -47,12 +48,12 @@ struct GhosttyStructureRuntimeEventTests {
                     }
                     let outsideLayoutEvents = await emit(
                         .bellRang,
-                        index: 10,
+                        index: events.count,
                         through: context.runtime,
                         sourcePaneId: context.sourcePaneId,
                         eventSourcePaneId: context.drawerChildId,
                         eventSequence: 1,
-                        barrierSequence: 19
+                        barrierSequence: UInt64(events.count * 2 + 1)
                     )
                     #expect(
                         !outsideLayoutEvents.contains { event in
@@ -63,12 +64,12 @@ struct GhosttyStructureRuntimeEventTests {
                         })
                     _ = await emit(
                         .newSplit(direction: .left),
-                        index: 11,
+                        index: events.count + 1,
                         through: context.runtime,
                         sourcePaneId: context.sourcePaneId,
                         eventSourcePaneId: context.drawerChildId,
                         eventSequence: 2,
-                        barrierSequence: 20
+                        barrierSequence: UInt64(events.count * 2 + 2)
                     )
 
                     #expect(submittedWorkspaceActions.isEmpty)
@@ -193,7 +194,9 @@ struct GhosttyStructureRuntimeEventTests {
             .equalizeSplits,
             .toggleSplitZoom,
             .closeTab(mode: .otherTabs),
+            .closeTab(mode: .rightTabs),
             .gotoTab(target: .next),
+            .gotoTab(target: .index(4)),
             .moveTab(amount: 1),
         ]
     }
