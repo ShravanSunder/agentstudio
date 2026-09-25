@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { chapterCatalog } from "../src/chapters/chapter-catalog";
 import { marketingCopy } from "../src/marketing-copy";
 
 describe("marketing copy", () => {
@@ -23,12 +24,10 @@ describe("marketing copy", () => {
     expect("headlinePayoffAccent" in marketingCopy.hero).toBe(false);
   });
 
-  it("uses headline-style punctuation for supporting-feature titles", () => {
-    const supportingTitles = marketingCopy.featureDetails.items.map(
-      (item) => `${item.title.beforeAccent}${item.title.accent}${item.title.afterAccent}`,
-    );
+  it("uses label-style punctuation for chapter step labels", () => {
+    const stepLabels = chapterCatalog.flatMap((chapter) => chapter.steps.map((step) => step.label));
 
-    expect(supportingTitles.every((title) => !title.endsWith("."))).toBe(true);
+    expect(stepLabels.filter((label) => label.endsWith("."))).toEqual([]);
   });
 
   it("opens the product slideshow with the concise repository-watching promise", () => {

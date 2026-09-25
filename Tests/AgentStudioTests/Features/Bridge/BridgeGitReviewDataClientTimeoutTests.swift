@@ -1,4 +1,5 @@
 import AgentStudioGit
+import AgentStudioTestHarness
 import Foundation
 import Testing
 
@@ -8,7 +9,7 @@ struct BridgeGitReviewDataClientTimeoutTests {
     @Test("AgentStudioGit adapter times out while scheduler retains physical diff custody")
     func agentStudioGitAdapterTimeoutRetainsPhysicalDiffCustody() async throws {
         let repositoryPath = URL(fileURLWithPath: "/tmp/agentstudio-git-adapter-timeout-test")
-        let readGate = BridgeGitDataPlaneReadGate()
+        let readGate = HeldStep<Void>("readGate", cancellation: .holdThroughCancellation)
         let deadlineScheduler = BridgeGitReadManualDeadlineScheduler()
         let eventProbe = BridgeGitReadSchedulerEventProbe()
         let scheduler = BridgeGitReadScheduler(
@@ -44,7 +45,7 @@ struct BridgeGitReviewDataClientTimeoutTests {
                 )
             )
         }
-        await readGate.waitUntilStarted()
+        try await readGate.firstArrival()
         #expect(deadlineScheduler.fireNextActiveDeadline())
         _ = await eventProbe.waitFor(.draining)
 
@@ -60,7 +61,7 @@ struct BridgeGitReviewDataClientTimeoutTests {
         let drainingSnapshot = await scheduler.snapshot()
         #expect(drainingSnapshot.drainingCountByOperationClass[.reviewMetadata] == 1)
         #expect(drainingSnapshot.occupiedSlotIds.count == 1)
-        await readGate.release()
+        readGate.release()
         _ = await eventProbe.waitFor(.slotReleased)
         let releasedSnapshot = await scheduler.snapshot()
         #expect(releasedSnapshot.activeOperationIds.isEmpty)
@@ -74,8 +75,8 @@ struct BridgeGitReviewDataClientTimeoutTests {
     @Test("selected content progresses through the client while metadata is draining")
     func selectedContentProgressesWhileMetadataDrains() async throws {
         let repositoryPath = URL(fileURLWithPath: "/tmp/agentstudio-git-adapter-class-isolation-test")
-        let metadataGate = BridgeGitDataPlaneReadGate()
-        let selectedContentGate = BridgeGitDataPlaneReadGate()
+        let metadataGate = HeldStep<Void>("metadataGate", cancellation: .holdThroughCancellation)
+        let selectedContentGate = HeldStep<Void>("selectedContentGate", cancellation: .holdThroughCancellation)
         let deadlineScheduler = BridgeGitReadManualDeadlineScheduler()
         let eventProbe = BridgeGitReadSchedulerEventProbe()
         let scheduler = BridgeGitReadScheduler(
@@ -115,7 +116,7 @@ struct BridgeGitReviewDataClientTimeoutTests {
                 freshnessKey: .unversioned
             )
         }
-        await metadataGate.waitUntilStarted()
+        try await metadataGate.firstArrival()
         #expect(deadlineScheduler.fireNextActiveDeadline())
         _ = await eventProbe.waitFor(.draining)
 
@@ -126,9 +127,9 @@ struct BridgeGitReviewDataClientTimeoutTests {
                 freshnessKey: .unversioned
             )
         }
-        await selectedContentGate.waitUntilStarted()
+        try await selectedContentGate.firstArrival()
         let concurrentSnapshot = await scheduler.snapshot()
-        await selectedContentGate.release()
+        selectedContentGate.release()
         let selectedPayload = try await selectedRead.value
 
         #expect(String(bytes: selectedPayload.data, encoding: .utf8) == "selected.swift")
@@ -136,12 +137,12 @@ struct BridgeGitReviewDataClientTimeoutTests {
         #expect(concurrentSnapshot.runningCountByOperationClass[.selectedVisibleContent] == 1)
         guard case .failure(let metadataError) = await metadataRead.result else {
             Issue.record("Expected metadata timeout")
-            await metadataGate.release()
+            metadataGate.release()
             await scheduler.shutdown()
             return
         }
         #expect(metadataError as? BridgeGitReadSchedulerError == .timedOut)
-        await metadataGate.release()
+        metadataGate.release()
         _ = await eventProbe.waitFor(.slotReleased, occurrence: 2)
         let finalSnapshot = await scheduler.snapshot()
         let releasedOperationIds = eventProbe.events
@@ -160,8 +161,8 @@ struct BridgeGitReviewDataClientTimeoutTests {
     func reviewGenerationsDoNotCoalesceAcrossDrainingDiffRead() async throws {
         // Arrange
         let repositoryPath = URL(fileURLWithPath: "/tmp/agentstudio-git-adapter-freshness-test")
-        let firstGenerationGate = BridgeGitDataPlaneReadGate()
-        let secondGenerationGate = BridgeGitDataPlaneReadGate()
+        let firstGenerationGate = HeldStep<Void>("firstGenerationGate", cancellation: .holdThroughCancellation)
+        let secondGenerationGate = HeldStep<Void>("secondGenerationGate", cancellation: .holdThroughCancellation)
         let deadlineScheduler = BridgeGitReadManualDeadlineScheduler()
         let eventProbe = BridgeGitReadSchedulerEventProbe()
         let scheduler = BridgeGitReadScheduler(
@@ -198,7 +199,7 @@ struct BridgeGitReviewDataClientTimeoutTests {
                 )
             )
         }
-        await firstGenerationGate.waitUntilStarted()
+        try await firstGenerationGate.firstArrival()
         let firstStart = await eventProbe.waitFor(.started)
         #expect(deadlineScheduler.fireNextActiveDeadline())
         _ = await eventProbe.waitFor(.draining)
@@ -220,10 +221,10 @@ struct BridgeGitReviewDataClientTimeoutTests {
         }
         _ = await eventProbe.waitFor(.queued, occurrence: 2)
         let whileFirstDrainsSnapshot = await scheduler.snapshot()
-        await firstGenerationGate.release()
-        await secondGenerationGate.waitUntilStarted()
+        firstGenerationGate.release()
+        try await secondGenerationGate.firstArrival()
         let secondStart = await eventProbe.waitFor(.started, occurrence: 2)
-        await secondGenerationGate.release()
+        secondGenerationGate.release()
         let comparison = try await secondComparison.value
         _ = await eventProbe.waitFor(.slotReleased, occurrence: 2)
 
@@ -249,21 +250,21 @@ struct BridgeGitReviewDataClientTimeoutTests {
 }
 
 private actor NonCooperativeDiffAgentStudioGitClient: AgentStudioGitLocalClient {
-    private var diffReadGates: [BridgeGitDataPlaneReadGate]
+    private var diffReadGates: [HeldStep<Void>]
     private var diffInvocationCount = 0
-    private let contentReadGatesByPath: [String: BridgeGitDataPlaneReadGate]
+    private let contentReadGatesByPath: [String: HeldStep<Void>]
 
     init(
-        diffReadGate: BridgeGitDataPlaneReadGate? = nil,
-        contentReadGatesByPath: [String: BridgeGitDataPlaneReadGate] = [:]
+        diffReadGate: HeldStep<Void>? = nil,
+        contentReadGatesByPath: [String: HeldStep<Void>] = [:]
     ) {
         diffReadGates = diffReadGate.map { [$0] } ?? []
         self.contentReadGatesByPath = contentReadGatesByPath
     }
 
     init(
-        diffReadGates: [BridgeGitDataPlaneReadGate],
-        contentReadGatesByPath: [String: BridgeGitDataPlaneReadGate] = [:]
+        diffReadGates: [HeldStep<Void>],
+        contentReadGatesByPath: [String: HeldStep<Void>] = [:]
     ) {
         self.diffReadGates = diffReadGates
         self.contentReadGatesByPath = contentReadGatesByPath
@@ -378,8 +379,7 @@ private actor NonCooperativeDiffAgentStudioGitClient: AgentStudioGitLocalClient 
         }
         let diffReadGate = diffReadGates.removeFirst()
         diffInvocationCount += 1
-        await diffReadGate.recordStarted()
-        await diffReadGate.waitUntilReleased()
+        try? await diffReadGate.arrive(())
         return GitDiffSnapshot(files: [])
     }
 
@@ -403,8 +403,7 @@ private actor NonCooperativeDiffAgentStudioGitClient: AgentStudioGitLocalClient 
         guard let readGate = contentReadGatesByPath[request.path] else {
             throw GitDataPlaneError.unsupported(message: "content path not configured")
         }
-        await readGate.recordStarted()
-        await readGate.waitUntilReleased()
+        try? await readGate.arrive(())
         return GitContentPayload(
             data: Data(request.path.utf8),
             contentHash: "hash-\(request.path)",
@@ -427,43 +426,4 @@ private func assertBridgeProviderTimeout<ReturnValue>(
             == .providerFailed(message: BridgeGitReadFailure.timeoutMessage),
         sourceLocation: sourceLocation
     )
-}
-
-private actor BridgeGitDataPlaneReadGate {
-    private var didStart = false
-    private var didRelease = false
-    private var startWaiters: [CheckedContinuation<Void, Never>] = []
-    private var releaseWaiters: [CheckedContinuation<Void, Never>] = []
-
-    func recordStarted() {
-        didStart = true
-        let waiters = startWaiters
-        startWaiters.removeAll(keepingCapacity: false)
-        for waiter in waiters {
-            waiter.resume()
-        }
-    }
-
-    func waitUntilStarted() async {
-        guard !didStart else { return }
-        await withCheckedContinuation { continuation in
-            startWaiters.append(continuation)
-        }
-    }
-
-    func waitUntilReleased() async {
-        guard !didRelease else { return }
-        await withCheckedContinuation { continuation in
-            releaseWaiters.append(continuation)
-        }
-    }
-
-    func release() {
-        didRelease = true
-        let waiters = releaseWaiters
-        releaseWaiters.removeAll(keepingCapacity: false)
-        for waiter in waiters {
-            waiter.resume()
-        }
-    }
 }

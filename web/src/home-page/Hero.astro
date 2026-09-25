@@ -1,89 +1,132 @@
 ---
+import { Image } from "astro:assets";
+
+import parallelAgentsImage from "@/assets/captures/parallel-agents.png";
+import parallelWorkPhoneImage from "@/assets/captures/parallel-work-phone.png";
+import {
+  railAnchorAttribute,
+  railMediaTargetAttribute,
+  railSurfaceTargetAttribute,
+} from "@/chapters/chapter-dom-contract";
 import { marketingCopy } from "@/marketing-copy";
 
+import { heroLoopMedia } from "./hero-loop-media";
+import HeroLoopVideo from "./HeroLoopVideo.astro";
 import InstallCommand from "./InstallCommand.astro";
+import ScrollMaterialSurface from "./ScrollMaterialSurface.astro";
+
+// The rail treats the hero like a chapter: its dot aligns with the eyebrow and
+// its branch joins the app frame (left edge on wide/laptop, top edge on phone).
+const heroRailId = "hero";
+const railAnchorAttributes = { [railAnchorAttribute]: heroRailId };
+const appFrameRailAttributes = {
+  [railSurfaceTargetAttribute]: heroRailId,
+  [railMediaTargetAttribute]: heroRailId,
+};
+// Lines may break between the eyebrow's sentences, never inside "Repo-aware."
+// or "Terminal-first.".
+const eyebrowPhrases = marketingCopy.hero.eyebrow.split(/(?<=\.)\s+/u);
 ---
 
+<!--
+  The owner prefers air to peek: the hero keeps fluid gaps between the
+  payoff and the description and between the install row and the app frame,
+  and trims the headline size rather than those gaps when the frame sinks.
+  On wide screens the description sits beside the install command. The bottom
+  padding tops up the first chapter's own block so the hero-to-chapter gap is
+  one section block.
+-->
 <section
-  class="hero relative overflow-hidden px-page-inline pt-[clamp(72px,8vw,120px)] max-phone:pt-18"
+  class="hero relative pt-[clamp(32px,1.5vw+3vh,80px)] pr-page-inline pb-[calc(var(--spacing-section-block)-var(--spacing-chapter-block))] pl-[calc(var(--spacing-page-inline)+var(--spacing-rail-gutter))]"
   aria-labelledby="hero-title"
 >
-  <div class="relative z-[2] max-w-hero">
-    <p class="eyebrow m-0 font-mono-product text-eyebrow tracking-eyebrow text-ink-faint uppercase">
-      {marketingCopy.hero.eyebrow}
+  <div class="relative z-[2] max-w-hero lg:pl-[clamp(24px,2.6vw,56px)]">
+    <p
+      {...railAnchorAttributes}
+      class="eyebrow m-0 font-mono-product text-eyebrow tracking-eyebrow text-ink-faint uppercase"
+    >
+      {
+        eyebrowPhrases.map((phrase, phraseIndex) => (
+          <>
+            {phraseIndex > 0 && " "}
+            <span class="whitespace-nowrap">{phrase}</span>
+          </>
+        ))
+      }
     </p>
     <h1
       id="hero-title"
-      class="mt-6 mb-7.5 max-w-hero font-display text-hero font-extrabold"
+      class="mt-4 mb-0 max-w-hero font-display text-[clamp(34px,4.6vw,80px)] leading-[0.9] font-extrabold tracking-[-0.05em]"
       aria-label={marketingCopy.hero.headline}
     >
-      <span class="block whitespace-nowrap max-phone:text-balance max-phone:whitespace-normal">{marketingCopy.hero.headlineSetupFirst}</span>
+      <span class="block whitespace-nowrap max-phone:text-balance max-phone:whitespace-normal"
+        >{marketingCopy.hero.headlineSetupFirst}</span
+      >
       <span class="block whitespace-nowrap max-phone:text-balance max-phone:whitespace-normal">
         {marketingCopy.hero.headlineSetupSecondBeforeAccent}<span
           >{marketingCopy.hero.headlineSetupSecondAccent}</span
         >
       </span>
-      <span class="mt-[0.5em] block whitespace-nowrap text-hero-payoff text-primary max-phone:text-balance max-phone:whitespace-normal"
+      <span
+        class="mt-[0.25em] block text-[clamp(24px,3.2vw,54px)] leading-[0.96] tracking-[-0.035em] whitespace-nowrap text-primary max-phone:text-balance max-phone:whitespace-normal"
         >{marketingCopy.hero.headlinePayoff}</span
       >
     </h1>
-    <p class="m-0 max-w-copy text-marketing-body text-ink-muted">
-      {marketingCopy.hero.description}
-    </p>
     <div
-      class="hero__actions mt-action flex w-full flex-wrap items-center justify-center gap-3 max-phone:flex-col max-phone:items-stretch"
+      class="mt-hero-copy flex flex-col gap-6 lg:flex-row lg:flex-wrap lg:items-center lg:gap-x-10"
     >
-      <InstallCommand />
+      <p class="m-0 max-w-copy text-marketing-body text-ink-muted lg:max-w-[34rem] lg:flex-[1_1_24rem]">
+        {marketingCopy.hero.description}
+      </p>
+      <div
+        class="hero__actions flex w-full flex-wrap items-center gap-3 max-phone:flex-col max-phone:flex-nowrap max-phone:items-stretch lg:w-auto lg:flex-none"
+      >
+        <InstallCommand />
+      </div>
     </div>
   </div>
 
-  <div
-    class="hero__planes absolute top-14 right-20 h-55 w-75 origin-top-right scale-[0.78] opacity-90 max-xl:top-13 max-xl:right-16 max-xl:scale-[0.7] max-lg:right-12 max-lg:scale-[0.6] max-md:top-12 max-md:right-6 max-md:scale-[0.46] max-sm:hidden"
-    data-topology-mainline-anchor
-    aria-hidden="true"
+  <ScrollMaterialSurface
+    {...appFrameRailAttributes}
+    staticMaterial
+    class="hero-app-frame relative mt-hero-frame border p-[clamp(6px,0.7vw,12px)]"
+    data-hero-app-frame
   >
-    <span class="hero__plane hero__plane--rear-one"></span>
-    <span class="hero__plane hero__plane--rear-two"></span>
-    <span class="hero__plane hero__plane--front"><span class="hero__glyph">&gt;_</span></span>
-  </div>
+    <div
+      class="aspect-[16/10] overflow-clip rounded-control bg-product-ground max-phone:aspect-auto"
+    >
+      {
+        heroLoopMedia === undefined ? (
+          <picture class="block h-full w-full">
+            <source
+              media="(width < 38.75rem)"
+              srcset={parallelWorkPhoneImage.src}
+              width={parallelWorkPhoneImage.width}
+              height={parallelWorkPhoneImage.height}
+            />
+            <Image
+              src={parallelAgentsImage}
+              alt={marketingCopy.stories.parallelWork.imageDescription}
+              widths={[720, 1080, 1440, 2160, 2560]}
+              sizes="(width < 38.75rem) 100vw, (width <= 90rem) 90vw, 1296px"
+              format="png"
+              loading="eager"
+              fetchpriority="high"
+              decoding="async"
+              class="block h-full w-full object-cover object-top"
+            />
+          </picture>
+        ) : (
+          <HeroLoopVideo media={heroLoopMedia} />
+        )
+      }
+    </div>
+  </ScrollMaterialSurface>
 </section>
 
 <style>
-  .hero__plane {
-    position: absolute;
-    top: 48px;
-    right: 28px;
-    width: 190px;
-    height: 132px;
-    border-radius: 24px;
-    transform-origin: center;
-  }
-
-  .hero__plane--rear-one {
-    border: 2px solid rgb(239 159 118 / 72%);
-    background: rgb(17 17 27 / 56%);
-    transform: translate(-42px, -18px) rotate(-12deg);
-  }
-
-  .hero__plane--rear-two {
-    border: 2px solid rgb(239 159 118 / 82%);
-    background: rgb(21 21 32 / 68%);
-    transform: translate(-20px, 4px) rotate(7deg);
-  }
-
-  .hero__plane--front {
-    display: grid;
-    place-items: center;
-    border: 2px solid var(--color-primary);
-    background: var(--color-ground);
-  }
-
-  .hero__glyph {
-    color: var(--color-glyph);
-    font-family: ui-monospace, "SF Mono", monospace;
-    font-size: 42px;
-    font-weight: 700;
-    letter-spacing: -0.16em;
-    transform: translateX(-0.08em);
+  /* The rail marks the hero frame while the hero is current; its hairline lights blue. */
+  :global(.hero-app-frame.scroll-material-surface[data-rail-current]) {
+    border-color: rgb(137 180 250 / 88%);
   }
 </style>

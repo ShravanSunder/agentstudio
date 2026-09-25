@@ -50,7 +50,7 @@ struct TopologyEventPipelineIntegrationTests {
 
     @Test("first scan restores a retained unavailable repository at its original path")
     func firstScanRestoresRetainedRepository() async throws {
-        try await withTopologyHarness { harness in
+        await withTopologyHarness { harness in
             let watchedFolder = harness.tempDir.appending(path: "restored-return")
             let repositoryPath = watchedFolder.appending(path: "repository")
             let watchedPath = WatchedPath(path: watchedFolder)

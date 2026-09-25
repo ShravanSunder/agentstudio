@@ -2,15 +2,15 @@ import { spawn } from 'node:child_process';
 import { access } from 'node:fs/promises';
 import { join } from 'node:path';
 
-import { BRIDGE_PRODUCT_DEV_HEALTH_ROUTE } from '../../src/core/comm-worker/bridge-product-dev-bootstrap.js';
 import { reserveLoopbackPort as reserveBridgeDevelopmentServerPort } from './reserve-loopback-port.js';
 
 export { reserveBridgeDevelopmentServerPort };
 
-const startupTimeoutMilliseconds = 120_000;
 const shutdownTimeoutMilliseconds = 10_000;
-const readinessProbeIntervalMilliseconds = 50;
 const maximumLogTailCharacters = 8_192;
+// Printed once by the Swift development server after its listener is bound
+// (BridgeDevelopmentServerReadinessAnnouncement.swift).
+const readinessAnnouncementPattern = /^bridge-development-server ready port=(\d+) pid=(\d+)$/u;
 
 export interface OwnedBridgeDevelopmentServer {
 	readonly origin: string;
@@ -47,13 +47,51 @@ export interface OwnedBridgeDevelopmentServerProcessControl {
 	readonly kill: (signal: NodeJS.Signals) => boolean;
 }
 
-type BridgeDevelopmentServerReadinessProbeOutcome =
-	| {
-			readonly kind: 'lifecycle';
-			readonly outcome: BridgeDevelopmentServerLifecycleOutcome;
-	  }
-	| { readonly kind: 'probe-failed' }
-	| { readonly kind: 'response'; readonly response: Response };
+export interface BridgeDevelopmentServerReadinessAnnouncement {
+	readonly pid: number;
+	readonly port: number;
+}
+
+type BridgeDevelopmentServerReadinessOutcome =
+	| { readonly announcement: BridgeDevelopmentServerReadinessAnnouncement; readonly kind: 'ready' }
+	| { readonly kind: 'lifecycle'; readonly outcome: BridgeDevelopmentServerLifecycleOutcome };
+
+// Assembles stdout chunks into lines, so a readiness line split across chunks is
+// still recognized, and settles `announcement` on the first readiness line.
+export class BridgeDevelopmentServerReadinessLineReader {
+	readonly announcement: Promise<BridgeDevelopmentServerReadinessAnnouncement>;
+	#partialLine = '';
+	#resolveAnnouncement: ((value: BridgeDevelopmentServerReadinessAnnouncement) => void) | null =
+		null;
+
+	constructor() {
+		this.announcement = new Promise((resolve): void => {
+			this.#resolveAnnouncement = resolve;
+		});
+	}
+
+	observeStdoutChunk(chunk: string): void {
+		if (this.#resolveAnnouncement === null) return;
+		const lines = `${this.#partialLine}${chunk}`.split('\n');
+		this.#partialLine = (lines.pop() ?? '').slice(-maximumLogTailCharacters);
+		for (const line of lines) {
+			const announcement = parseBridgeDevelopmentServerReadinessLine(line);
+			if (announcement === null) continue;
+			this.#resolveAnnouncement(announcement);
+			this.#resolveAnnouncement = null;
+			this.#partialLine = '';
+			return;
+		}
+	}
+}
+
+export function parseBridgeDevelopmentServerReadinessLine(
+	line: string,
+): BridgeDevelopmentServerReadinessAnnouncement | null {
+	const match = readinessAnnouncementPattern.exec(line.trimEnd());
+	if (match?.[1] === undefined || match[2] === undefined) return null;
+	return { pid: Number(match[2]), port: Number(match[1]) };
+}
 
 export async function startOwnedBridgeDevelopmentServer(props: {
 	readonly dataRootPath: string;
@@ -91,24 +129,21 @@ export async function startOwnedBridgeDevelopmentServer(props: {
 	});
 	let stdoutTail = '';
 	let stderrTail = '';
+	const readinessLineReader = new BridgeDevelopmentServerReadinessLineReader();
 	child.stdout.setEncoding('utf8');
 	child.stderr.setEncoding('utf8');
 	child.stdout.on('data', (chunk: string): void => {
 		stdoutTail = appendBoundedTail(stdoutTail, chunk);
+		readinessLineReader.observeStdoutChunk(chunk);
 	});
 	child.stderr.on('data', (chunk: string): void => {
 		stderrTail = appendBoundedTail(stderrTail, chunk);
 	});
 	try {
 		await waitForBridgeDevelopmentServerReadiness({
-			currentTimeMilliseconds: Date.now,
-			fetchHealth: async (healthUrl): Promise<Response> =>
-				await fetch(healthUrl, {
-					method: 'GET',
-					signal: AbortSignal.timeout(1_000),
-				}),
+			expectedProcess: { pid: child.pid ?? 0, port },
 			lifecycleOutcome,
-			origin,
+			readinessAnnouncement: readinessLineReader.announcement,
 			readinessOwnershipProbe: async (): Promise<boolean> =>
 				await bridgeDevelopmentServerProcessOwnsListeningPort({
 					pid: child.pid ?? 0,
@@ -116,11 +151,6 @@ export async function startOwnedBridgeDevelopmentServer(props: {
 				}),
 			stderrTail: (): string => stderrTail,
 			stdoutTail: (): string => stdoutTail,
-			waitForNextProbe: async (): Promise<void> => {
-				await new Promise<void>((resolve): void => {
-					setTimeout(resolve, readinessProbeIntervalMilliseconds);
-				});
-			},
 		});
 	} catch (error: unknown) {
 		await stopOwnedBridgeDevelopmentServerProcess(child, lifecycleOutcome);
@@ -169,67 +199,54 @@ export function bridgeDevelopmentServerExecutablePath(repoRootPath: string): str
 	return join(repoRootPath, '.build-bridge-development-server', 'agentstudio-bridge-dev-server');
 }
 
+// Readiness is an event: the owned child announces its bound listener on stdout,
+// or its lifecycle ends first. Ownership is then checked once, so a process that
+// merely collides on the port cannot satisfy readiness. No clock is involved;
+// the calling suite's declared hang bound is the only time limit.
 export async function waitForBridgeDevelopmentServerReadiness(props: {
-	readonly currentTimeMilliseconds: () => number;
-	readonly fetchHealth: (healthUrl: string) => Promise<Response>;
+	readonly expectedProcess: BridgeDevelopmentServerReadinessAnnouncement;
 	readonly lifecycleOutcome: Promise<BridgeDevelopmentServerLifecycleOutcome>;
-	readonly origin: string;
+	readonly readinessAnnouncement: Promise<BridgeDevelopmentServerReadinessAnnouncement>;
 	readonly readinessOwnershipProbe: () => Promise<boolean>;
 	readonly stderrTail: () => string;
 	readonly stdoutTail: () => string;
-	readonly waitForNextProbe: () => Promise<void>;
 }): Promise<void> {
-	const deadline = props.currentTimeMilliseconds() + startupTimeoutMilliseconds;
-	// oxlint-disable no-await-in-loop -- Readiness probes are intentionally ordered and rate-limited.
-	while (props.currentTimeMilliseconds() < deadline) {
-		const probeOutcome = await Promise.race<BridgeDevelopmentServerReadinessProbeOutcome>([
-			props.lifecycleOutcome.then(
-				(outcome): BridgeDevelopmentServerReadinessProbeOutcome => ({
-					kind: 'lifecycle',
-					outcome,
-				}),
-			),
-			props.fetchHealth(`${props.origin}${BRIDGE_PRODUCT_DEV_HEALTH_ROUTE}`).then(
-				(response): BridgeDevelopmentServerReadinessProbeOutcome => ({
-					kind: 'response',
-					response,
-				}),
-				(): BridgeDevelopmentServerReadinessProbeOutcome => ({ kind: 'probe-failed' }),
-			),
-		]);
-		if (probeOutcome.kind === 'lifecycle' && probeOutcome.outcome.kind === 'spawn-error') {
+	const logTails = (): string =>
+		JSON.stringify({ stderrTail: props.stderrTail(), stdoutTail: props.stdoutTail() });
+	const readinessOutcome = await Promise.race<BridgeDevelopmentServerReadinessOutcome>([
+		props.lifecycleOutcome.then(
+			(outcome): BridgeDevelopmentServerReadinessOutcome => ({ kind: 'lifecycle', outcome }),
+		),
+		props.readinessAnnouncement.then(
+			(announcement): BridgeDevelopmentServerReadinessOutcome => ({ announcement, kind: 'ready' }),
+		),
+	]);
+	if (readinessOutcome.kind === 'lifecycle') {
+		const outcome = readinessOutcome.outcome;
+		if (outcome.kind === 'spawn-error') {
 			throw new Error(
-				`Owned Swift development backend failed to spawn before readiness: ${JSON.stringify({ error: probeOutcome.outcome.error.message, stderrTail: props.stderrTail(), stdoutTail: props.stdoutTail() })}`,
-				{ cause: probeOutcome.outcome.error },
+				`Owned Swift development backend failed to spawn before readiness: ${JSON.stringify({ error: outcome.error.message, stderrTail: props.stderrTail(), stdoutTail: props.stdoutTail() })}`,
+				{ cause: outcome.error },
 			);
 		}
-		if (probeOutcome.kind === 'lifecycle' && probeOutcome.outcome.kind === 'exit') {
-			throw new Error(
-				`Owned Swift development backend exited before readiness: ${JSON.stringify({ exit: probeOutcome.outcome, stderrTail: props.stderrTail(), stdoutTail: props.stdoutTail() })}`,
-			);
-		}
-		if (probeOutcome.kind === 'response') {
-			try {
-				await probeOutcome.response.body?.cancel();
-			} catch {}
-			if (
-				bridgeDevelopmentServerHealthResponseIsReady(probeOutcome.response) &&
-				// oxlint-disable-next-line no-await-in-loop -- Ownership is checked only after a ready response and before accepting it.
-				(await props.readinessOwnershipProbe())
-			) {
-				return;
-			}
-		}
-		await props.waitForNextProbe();
+		throw new Error(
+			`Owned Swift development backend exited before readiness: ${JSON.stringify({ exit: outcome, stderrTail: props.stderrTail(), stdoutTail: props.stdoutTail() })}`,
+		);
 	}
-	// oxlint-enable no-await-in-loop
-	throw new Error(
-		`Timed out waiting for owned Swift development backend: ${JSON.stringify({ stderrTail: props.stderrTail(), stdoutTail: props.stdoutTail() })}`,
-	);
-}
-
-export function bridgeDevelopmentServerHealthResponseIsReady(response: Response): boolean {
-	return response.status === 204;
+	const { announcement } = readinessOutcome;
+	if (
+		announcement.pid !== props.expectedProcess.pid ||
+		announcement.port !== props.expectedProcess.port
+	) {
+		throw new Error(
+			`Owned Swift development backend announced an unexpected listener ${JSON.stringify({ announcement, expected: props.expectedProcess })}: ${logTails()}`,
+		);
+	}
+	if (!(await props.readinessOwnershipProbe())) {
+		throw new Error(
+			`Owned Swift development backend announced readiness but does not own its listening port: ${logTails()}`,
+		);
+	}
 }
 
 export async function bridgeDevelopmentServerProcessOwnsListeningPort(props: {

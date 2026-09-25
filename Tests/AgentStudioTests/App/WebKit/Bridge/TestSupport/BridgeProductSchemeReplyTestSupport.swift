@@ -1,4 +1,5 @@
 import AgentStudioInfrastructure
+import AgentStudioTestHarness
 import Foundation
 import WebKit
 
@@ -52,7 +53,7 @@ struct BridgeProductSchemeReplyWithRoutingTask {
 func bridgeProductSchemeReplyWithRoutingTask(
     adapter: BridgeProductSchemeAdapter,
     request: URLRequest,
-    routingStartGate: BridgeProductSchemeRoutingStartGate? = nil
+    routingStartGate: HeldStep<Void>? = nil
 ) -> BridgeProductSchemeReplyWithRoutingTask {
     let (stream, replyContinuation) =
         AsyncThrowingStream<URLSchemeTaskResult, any Error>.makeStream()
@@ -64,7 +65,7 @@ func bridgeProductSchemeReplyWithRoutingTask(
             return
         }
         if let routingStartGate {
-            await routingStartGate.pauseRoutingUntilReleased()
+            try? await routingStartGate.arrive(())
         }
         await adapter.route(
             request,
@@ -76,60 +77,6 @@ func bridgeProductSchemeReplyWithRoutingTask(
         routingTask.cancel()
     }
     return .init(routingTask: routingTask, stream: stream)
-}
-
-final class BridgeProductSchemeRoutingStartGate: @unchecked Sendable {
-    private let cancellationContinuation: AsyncStream<Void>.Continuation
-    private let cancellationEvents: AsyncStream<Void>
-    private let lock = NSLock()
-    private let routingPauseContinuation: AsyncStream<Void>.Continuation
-    private let routingPauseEvents: AsyncStream<Void>
-    private var isRoutingReleased = false
-    private var routingRelease: CheckedContinuation<Void, Never>?
-
-    init() {
-        let cancellationEvents = AsyncStream<Void>.makeStream()
-        self.cancellationEvents = cancellationEvents.stream
-        self.cancellationContinuation = cancellationEvents.continuation
-        let routingPauseEvents = AsyncStream<Void>.makeStream()
-        self.routingPauseEvents = routingPauseEvents.stream
-        self.routingPauseContinuation = routingPauseEvents.continuation
-    }
-
-    func pauseRoutingUntilReleased() async {
-        routingPauseContinuation.yield()
-        await withTaskCancellationHandler {
-            await withCheckedContinuation { continuation in
-                let shouldResume = lock.withLock {
-                    if isRoutingReleased { return true }
-                    routingRelease = continuation
-                    return false
-                }
-                if shouldResume { continuation.resume() }
-            }
-        } onCancel: {
-            cancellationContinuation.yield()
-        }
-    }
-
-    func waitUntilRoutingPaused() async {
-        var iterator = routingPauseEvents.makeAsyncIterator()
-        _ = await iterator.next()
-    }
-
-    func waitUntilRoutingCancelled() async {
-        var iterator = cancellationEvents.makeAsyncIterator()
-        _ = await iterator.next()
-    }
-
-    func releaseRouting() {
-        let release = lock.withLock {
-            isRoutingReleased = true
-            defer { routingRelease = nil }
-            return routingRelease
-        }
-        release?.resume()
-    }
 }
 
 private enum BridgeProductSchemeAdapterTestSupportError: Error {

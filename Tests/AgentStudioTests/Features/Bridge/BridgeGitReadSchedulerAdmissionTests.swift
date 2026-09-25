@@ -1,3 +1,4 @@
+import AgentStudioTestHarness
 import Testing
 
 @testable import AgentStudioBridge
@@ -17,20 +18,26 @@ struct BridgeGitReadSchedulerAdmissionTests {
             deadlineScheduler: deadlineScheduler,
             eventSink: eventProbe.eventSink
         )
-        let runningGate = BridgeGitReadOperationGate(returnValue: "running")
-        let firstQueuedGate = BridgeGitReadOperationGate(returnValue: "queued-1")
-        let secondQueuedGate = BridgeGitReadOperationGate(returnValue: "queued-2")
-        let rejectedGate = BridgeGitReadOperationGate(returnValue: "must-not-start")
+        let runningGate = HeldStep<Void>("runningGate", cancellation: .holdThroughCancellation)
+        let firstQueuedGate = HeldStep<Void>("firstQueuedGate", cancellation: .holdThroughCancellation)
+        let secondQueuedGate = HeldStep<Void>("secondQueuedGate", cancellation: .holdThroughCancellation)
+        let rejectedGate = HeldStep<Void>("rejectedGate", cancellation: .holdThroughCancellation)
         let runningRead = Task {
             try await scheduler.read(
                 request: makeBridgeGitReadRequest(worktree: "worktree-running", key: "running")
-            ) { await runningGate.run() }
+            ) {
+                try? await runningGate.arrive(())
+                return "running"
+            }
         }
-        await runningGate.waitUntilStarted()
+        try await runningGate.firstArrival()
         let coalescedRead = Task {
             try await scheduler.read(
                 request: makeBridgeGitReadRequest(worktree: "worktree-running", key: "running")
-            ) { await runningGate.run() }
+            ) {
+                try? await runningGate.arrive(())
+                return "running"
+            }
         }
         _ = await eventProbe.waitFor(.coalesced)
 
@@ -38,23 +45,35 @@ struct BridgeGitReadSchedulerAdmissionTests {
         let excessWaiterResult = await Task {
             try await scheduler.read(
                 request: makeBridgeGitReadRequest(worktree: "worktree-running", key: "running")
-            ) { await rejectedGate.run() }
+            ) {
+                try? await rejectedGate.arrive(())
+                return "must-not-start"
+            }
         }.result
         let firstQueuedRead = Task {
             try await scheduler.read(
                 request: makeBridgeGitReadRequest(worktree: "worktree-queued-1", key: "queued-1")
-            ) { await firstQueuedGate.run() }
+            ) {
+                try? await firstQueuedGate.arrive(())
+                return "queued-1"
+            }
         }
         let secondQueuedRead = Task {
             try await scheduler.read(
                 request: makeBridgeGitReadRequest(worktree: "worktree-queued-2", key: "queued-2")
-            ) { await secondQueuedGate.run() }
+            ) {
+                try? await secondQueuedGate.arrive(())
+                return "queued-2"
+            }
         }
         _ = await eventProbe.waitFor(.queued, occurrence: 3)
         let excessOperationResult = await Task {
             try await scheduler.read(
                 request: makeBridgeGitReadRequest(worktree: "worktree-rejected", key: "rejected")
-            ) { await rejectedGate.run() }
+            ) {
+                try? await rejectedGate.arrive(())
+                return "must-not-start"
+            }
         }.result
         let boundedSnapshot = await scheduler.snapshot()
 
@@ -68,10 +87,10 @@ struct BridgeGitReadSchedulerAdmissionTests {
         #expect(boundedSnapshot.activeOperationIds.count == 3)
         #expect(boundedSnapshot.occupiedSlotIds.count == 1)
         #expect(deadlineScheduler.activeDeadlineCount == 4)
-        #expect(await runningGate.recordedInvocationCount() == 1)
-        #expect(await firstQueuedGate.recordedInvocationCount() == 0)
-        #expect(await secondQueuedGate.recordedInvocationCount() == 0)
-        #expect(await rejectedGate.recordedInvocationCount() == 0)
+        #expect(runningGate.recordedArrivals.count == 1)
+        #expect(firstQueuedGate.recordedArrivals.isEmpty)
+        #expect(secondQueuedGate.recordedArrivals.isEmpty)
+        #expect(rejectedGate.recordedArrivals.isEmpty)
 
         firstQueuedRead.cancel()
         secondQueuedRead.cancel()
@@ -83,7 +102,7 @@ struct BridgeGitReadSchedulerAdmissionTests {
         #expect(afterQueuedCancellationSnapshot.scheduledDeadlineCount == 2)
         #expect(deadlineScheduler.activeDeadlineCount == 2)
 
-        await runningGate.release()
+        runningGate.release()
         #expect(try await runningRead.value == "running")
         #expect(try await coalescedRead.value == "running")
         _ = await eventProbe.waitFor(.slotReleased)
@@ -106,8 +125,8 @@ struct BridgeGitReadSchedulerAdmissionTests {
             deadlineScheduler: deadlineScheduler,
             eventSink: eventProbe.eventSink
         )
-        let firstGate = BridgeGitReadOperationGate(returnValue: "freshness-a")
-        let secondGate = BridgeGitReadOperationGate(returnValue: "freshness-b")
+        let firstGate = HeldStep<Void>("firstGate", cancellation: .holdThroughCancellation)
+        let secondGate = HeldStep<Void>("secondGate", cancellation: .holdThroughCancellation)
         let firstRead = Task {
             try await scheduler.read(
                 request: makeBridgeGitReadRequest(
@@ -117,9 +136,12 @@ struct BridgeGitReadSchedulerAdmissionTests {
                         token: "review-generation-7-attempt-10"
                     )
                 )
-            ) { await firstGate.run() }
+            ) {
+                try? await firstGate.arrive(())
+                return "freshness-a"
+            }
         }
-        await firstGate.waitUntilStarted()
+        try await firstGate.firstArrival()
         let firstStart = await eventProbe.waitFor(.started)
         #expect(deadlineScheduler.fireNextActiveDeadline())
         _ = await eventProbe.waitFor(.draining)
@@ -135,14 +157,17 @@ struct BridgeGitReadSchedulerAdmissionTests {
                         token: "review-generation-7-attempt-11"
                     )
                 )
-            ) { await secondGate.run() }
+            ) {
+                try? await secondGate.arrive(())
+                return "freshness-b"
+            }
         }
         _ = await eventProbe.waitFor(.queued, occurrence: 2)
         let whileFirstDrainsSnapshot = await scheduler.snapshot()
-        await firstGate.release()
-        await secondGate.waitUntilStarted()
+        firstGate.release()
+        try await secondGate.firstArrival()
         let secondStart = await eventProbe.waitFor(.started, occurrence: 2)
-        await secondGate.release()
+        secondGate.release()
         let secondResult = try await secondRead.value
         _ = await eventProbe.waitFor(.slotReleased, occurrence: 2)
 
@@ -151,8 +176,8 @@ struct BridgeGitReadSchedulerAdmissionTests {
         #expect(firstStart.operationId != secondStart.operationId)
         #expect(whileFirstDrainsSnapshot.drainingCountByOperationClass[.reviewMetadata] == 1)
         #expect(whileFirstDrainsSnapshot.queuedCountByOperationClass[.reviewMetadata] == 1)
-        #expect(await firstGate.recordedInvocationCount() == 1)
-        #expect(await secondGate.recordedInvocationCount() == 1)
+        #expect(firstGate.recordedArrivals.count == 1)
+        #expect(secondGate.recordedArrivals.count == 1)
         #expect(eventProbe.events.count { $0.kind == .coalesced } == 0)
         await assertBridgeGitReadAdmissionDrained(
             scheduler,
@@ -172,7 +197,7 @@ struct BridgeGitReadSchedulerAdmissionTests {
             deadlineScheduler: deadlineScheduler,
             eventSink: eventProbe.eventSink
         )
-        let operationGate = BridgeGitReadOperationGate(returnValue: "must-not-start")
+        let operationGate = HeldStep<Void>("operationGate", cancellation: .holdThroughCancellation)
 
         // Act
         let cancelledResult = await Task { () throws -> String in
@@ -181,14 +206,17 @@ struct BridgeGitReadSchedulerAdmissionTests {
             }
             return try await scheduler.read(
                 request: makeBridgeGitReadRequest(worktree: "worktree-a", key: "pre-cancelled")
-            ) { await operationGate.run() }
+            ) {
+                try? await operationGate.arrive(())
+                return "must-not-start"
+            }
         }.result
         let snapshot = await scheduler.snapshot()
 
         // Assert
         assertBridgeGitReadCancelled(cancelledResult)
         #expect(eventProbe.events.isEmpty)
-        #expect(await operationGate.recordedInvocationCount() == 0)
+        #expect(operationGate.recordedArrivals.isEmpty)
         #expect(snapshot.activeOperationIds.isEmpty)
         #expect(snapshot.occupiedSlotIds.isEmpty)
         #expect(snapshot.logicalWaiterCount == 0)

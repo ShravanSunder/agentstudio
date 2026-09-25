@@ -1,65 +1,115 @@
-const minimumGlassBandRowSpan = 20;
-const columnUnit = 96;
-export const maximumGutterColumnCount = 4;
-export const maximumRenderedTopologyRowCount = 128;
-const minimumUsableColumnCount = 2;
 export const topologyRowUnit = 96;
 
-export type FullPageTopologyVariant = "compact" | "expanded" | "standard";
 export type WorktreeEndKind = "merge" | "open";
 
-export interface FullPageTopologyGrid {
-  readonly columnCapacity: number;
-  readonly finalRow: number;
-  readonly leftColumnCapacity: number;
-  readonly rowCount: number;
-  readonly rightColumnCapacity: number;
-  readonly topPadding: number;
-  readonly variant: FullPageTopologyVariant;
+/**
+ * The column unit is fluid with the viewport so the grid scales as one piece:
+ * `clamp(40px, 5vw, 96px)`. 96px is the retired fixed column unit; 40px is the
+ * narrowest step that still keeps a phone's single mainline clear of its text.
+ */
+export const topologyColumnUnitMinimum = 40;
+export const topologyColumnUnitViewportRatio = 0.05;
+export const topologyColumnUnitMaximum = 96;
+
+/**
+ * At most this many worktree lanes. The columns are anchored from the content
+ * edge, so a wider gutter leaves empty whitespace left of the mainline.
+ */
+export const topologyMaximumLaneCount = 4;
+
+/** The mainline never sits closer than this to the page's left edge. */
+export const topologyGutterEdgeMargin = 16;
+
+export function topologyColumnUnitFor(viewportWidth: number): number {
+  return Math.min(
+    topologyColumnUnitMaximum,
+    Math.max(topologyColumnUnitMinimum, viewportWidth * topologyColumnUnitViewportRatio),
+  );
 }
 
-interface CenteredTopologyColumnXsProps {
-  readonly columnCount: number;
-  readonly gutterEnd: number;
-  readonly gutterStart: number;
+/**
+ * Worktree lanes that fit between the mainline and the content: every lane
+ * needs its own column, plus one for the mainline, and the outermost lane is
+ * always the column adjacent to the content (`attachX - unit`). Zero lanes
+ * means a cramped gutter: only the mainline is drawn. Capped at
+ * `topologyMaximumLaneCount`.
+ */
+export function topologyLaneCountFor(attachX: number, columnUnit: number): number {
+  return Math.min(
+    topologyMaximumLaneCount,
+    Math.max(0, Math.floor((attachX - topologyGutterEdgeMargin) / columnUnit) - 1),
+  );
 }
 
-interface MeasureFullPageTopologyGridProps {
-  readonly frameLeft: number;
-  readonly frameRight: number;
-  readonly height: number;
-  readonly requestedTopPadding?: number;
-  readonly width: number;
+export interface TopologyGutterColumns {
+  readonly columnUnit: number;
+  readonly mainlineX: number;
+  /** Worktree lane x positions, from the lane next to the mainline to the lane next to the content. */
+  readonly laneXs: readonly number[];
 }
 
-export interface TopologyGlassSurfaceBounds {
-  readonly bottom: number;
-  readonly top: number;
+/**
+ * Columns laid out leftward from the content edge, one unit apart. A lower
+ * `maximumLaneCount` (fewer rows than lanes need) moves the mainline right so
+ * every column stays one unit from the next.
+ */
+export function measureTopologyGutterColumns(props: {
+  readonly attachX: number;
+  readonly viewportWidth: number;
+  readonly maximumLaneCount?: number;
+}): TopologyGutterColumns {
+  const columnUnit = topologyColumnUnitFor(props.viewportWidth);
+  const laneCount = Math.min(
+    props.maximumLaneCount ?? topologyMaximumLaneCount,
+    topologyLaneCountFor(props.attachX, columnUnit),
+  );
+  return {
+    columnUnit,
+    mainlineX: props.attachX - (laneCount + 1) * columnUnit,
+    laneXs: Array.from(
+      { length: laneCount },
+      (_, laneIndex) => props.attachX - (laneCount - laneIndex) * columnUnit,
+    ),
+  };
 }
 
-interface ResolveTopologyGlassBandProps {
-  readonly glassSurfaces: readonly TopologyGlassSurfaceBounds[];
-  readonly grid: FullPageTopologyGrid;
+export interface TopologyRows {
+  readonly rowYs: readonly number[];
+  /** The row index of each anchor, in anchor order. */
+  readonly anchorRows: readonly number[];
 }
 
-export interface TopologyGlassBand {
-  readonly firstCrossRow: number;
-  readonly lastCrossRow: number;
+/**
+ * Rows on the retired 96px pitch, made piecewise so every chapter anchor is a
+ * row: each gap between anchors (and from the last anchor to `endY`, the
+ * topology's last row) is split into `round(gap / 96)` equal rows.
+ */
+export function measureTopologyRows(props: {
+  readonly anchorYs: readonly number[];
+  readonly endY: number;
+}): TopologyRows {
+  const rowYs: number[] = [];
+  const anchorRows: number[] = [];
+  const pageEndY = props.endY;
+  for (const [index, anchorY] of props.anchorYs.entries()) {
+    anchorRows.push(rowYs.length);
+    rowYs.push(anchorY);
+    const nextAnchorY = props.anchorYs[index + 1];
+    const gapEnd = nextAnchorY ?? pageEndY;
+    const gap = gapEnd - anchorY;
+    const rowCount =
+      nextAnchorY === undefined
+        ? Math.round(gap / topologyRowUnit)
+        : Math.max(1, Math.round(gap / topologyRowUnit));
+    for (let step = 1; step < rowCount; step += 1) {
+      rowYs.push(anchorY + (gap * step) / rowCount);
+    }
+    if (nextAnchorY === undefined && rowCount >= 1) {
+      rowYs.push(gapEnd);
+    }
+  }
+  return { rowYs, anchorRows };
 }
-
-export interface WorktreeLifecycle {
-  readonly endRow: number;
-  readonly endKind: WorktreeEndKind;
-  readonly forkRow: number;
-  readonly id: string;
-}
-
-export interface AssignedWorktreeColumn {
-  readonly id: string;
-  readonly lane: number;
-}
-
-interface AssignedWorktreeLifecycle extends AssignedWorktreeColumn, WorktreeLifecycle {}
 
 export interface TopologyRowWorktree {
   readonly endRow: number;
@@ -106,176 +156,4 @@ export function assignTopologyRowOwners(
     assignedCounts.set(owner.id, (assignedCounts.get(owner.id) ?? 0) + 1);
     return [{ ownerId: owner.id, row }];
   });
-}
-
-function variantForColumnCount(usableColumnCount: number): FullPageTopologyVariant {
-  if (usableColumnCount >= topologyVariantColumnCapacities.expanded) {
-    return "expanded";
-  }
-  if (usableColumnCount >= topologyVariantColumnCapacities.standard) {
-    return "standard";
-  }
-  return "compact";
-}
-
-export const topologyVariantColumnCapacities = {
-  compact: 2,
-  expanded: 4,
-  standard: 3,
-} as const satisfies Record<FullPageTopologyVariant, number>;
-
-export function assignWorktreeLanes(
-  lifecycles: readonly WorktreeLifecycle[],
-  laneCount: number,
-): readonly AssignedWorktreeColumn[] | undefined {
-  if (!Number.isInteger(laneCount) || laneCount < 1) {
-    return undefined;
-  }
-
-  const assigned: AssignedWorktreeLifecycle[] = [];
-  const ids = new Set<string>();
-  const forkRows = new Set<number>();
-  for (const lifecycle of lifecycles) {
-    if (
-      ids.has(lifecycle.id) ||
-      forkRows.has(lifecycle.forkRow) ||
-      lifecycle.forkRow < 0 ||
-      lifecycle.endRow <= lifecycle.forkRow
-    ) {
-      return undefined;
-    }
-    ids.add(lifecycle.id);
-    forkRows.add(lifecycle.forkRow);
-  }
-
-  for (const lifecycle of lifecycles.toSorted((left, right) => left.forkRow - right.forkRow)) {
-    const occupiedLanes = new Set(
-      assigned
-        .filter((prior) => prior.endKind === "open" || prior.endRow >= lifecycle.forkRow)
-        .map((prior) => prior.lane),
-    );
-    const lane = Array.from({ length: laneCount }, (_, laneIndex) => laneIndex).find(
-      (candidateLane) => !occupiedLanes.has(candidateLane),
-    );
-    if (lane === undefined) {
-      return undefined;
-    }
-    assigned.push({ ...lifecycle, lane });
-  }
-  return assigned.map(({ id, lane }) => ({ id, lane }));
-}
-
-export function centeredTopologyColumnXs(
-  props: CenteredTopologyColumnXsProps,
-): readonly number[] | undefined {
-  const { columnCount, gutterEnd, gutterStart } = props;
-  const gutterWidth = gutterEnd - gutterStart;
-  if (
-    !Number.isInteger(columnCount) ||
-    columnCount < 0 ||
-    columnCount > maximumGutterColumnCount ||
-    gutterStart < 0 ||
-    gutterWidth < columnCount * columnUnit
-  ) {
-    return undefined;
-  }
-  if (columnCount === 0) {
-    return [];
-  }
-  const occupiedSpan = (columnCount - 1) * columnUnit;
-  const firstCenter = gutterStart + (gutterWidth - occupiedSpan) / 2;
-  return Array.from({ length: columnCount }, (_, columnIndex) => {
-    return firstCenter + columnIndex * columnUnit;
-  });
-}
-
-function columnCapacityForGutterWidth(gutterWidth: number): number {
-  return Math.min(maximumGutterColumnCount, Math.floor(gutterWidth / columnUnit));
-}
-
-export function measureFullPageTopologyGrid(
-  props: MeasureFullPageTopologyGridProps,
-): FullPageTopologyGrid | undefined {
-  const { frameLeft, frameRight, height, requestedTopPadding = topologyRowUnit, width } = props;
-  if (width <= 0 || height <= 0 || frameLeft < 0 || frameRight <= frameLeft || frameRight > width) {
-    return undefined;
-  }
-
-  const leftColumnCapacity = columnCapacityForGutterWidth(frameLeft);
-  const rightColumnCapacity = columnCapacityForGutterWidth(width - frameRight);
-  const columnCapacity = Math.min(leftColumnCapacity, rightColumnCapacity);
-  if (columnCapacity < minimumUsableColumnCount) {
-    return undefined;
-  }
-
-  const topPadding = Math.max(topologyRowUnit, requestedTopPadding);
-  const availableHeight = height - topPadding - topologyRowUnit;
-  if (availableHeight < topologyRowUnit) {
-    return undefined;
-  }
-
-  const rowCount = Math.floor(availableHeight / topologyRowUnit) + 1;
-  return {
-    columnCapacity,
-    finalRow: rowCount - 1,
-    leftColumnCapacity,
-    rowCount,
-    rightColumnCapacity,
-    topPadding,
-    variant: variantForColumnCount(columnCapacity),
-  };
-}
-
-function rowsInsideSurface(
-  surface: TopologyGlassSurfaceBounds,
-  grid: FullPageTopologyGrid,
-): readonly number[] {
-  return Array.from({ length: grid.rowCount }, (_, row) => row).filter((row) => {
-    const y = grid.topPadding + row * topologyRowUnit;
-    return y >= surface.top && y <= surface.bottom;
-  });
-}
-
-export function topologySurfaceRowsByDistance(
-  surface: TopologyGlassSurfaceBounds,
-  grid: FullPageTopologyGrid,
-  verticalRatio: number,
-): readonly number[] {
-  const targetY = surface.top + (surface.bottom - surface.top) * verticalRatio;
-  return rowsInsideSurface(surface, grid).toSorted((leftRow, rightRow) => {
-    const leftDistance = Math.abs(grid.topPadding + leftRow * topologyRowUnit - targetY);
-    const rightDistance = Math.abs(grid.topPadding + rightRow * topologyRowUnit - targetY);
-    return leftDistance === rightDistance ? leftRow - rightRow : leftDistance - rightDistance;
-  });
-}
-
-export function closestTopologySurfaceRow(
-  surface: TopologyGlassSurfaceBounds,
-  grid: FullPageTopologyGrid,
-  verticalRatio: number,
-): number | undefined {
-  return topologySurfaceRowsByDistance(surface, grid, verticalRatio)[0];
-}
-
-export function resolveTopologyGlassBand(
-  props: ResolveTopologyGlassBandProps,
-): TopologyGlassBand | undefined {
-  const { glassSurfaces, grid } = props;
-  const firstSurface = glassSurfaces[0];
-  const lastSurface = glassSurfaces.at(-1);
-  if (firstSurface === undefined || lastSurface === undefined || firstSurface === lastSurface) {
-    return undefined;
-  }
-
-  const firstCrossRow = closestTopologySurfaceRow(firstSurface, grid, 0.7);
-  const lastCrossRow = closestTopologySurfaceRow(lastSurface, grid, 0.3);
-  if (
-    firstCrossRow === undefined ||
-    lastCrossRow === undefined ||
-    lastCrossRow - firstCrossRow < minimumGlassBandRowSpan ||
-    lastCrossRow >= grid.finalRow
-  ) {
-    return undefined;
-  }
-  return { firstCrossRow, lastCrossRow };
 }

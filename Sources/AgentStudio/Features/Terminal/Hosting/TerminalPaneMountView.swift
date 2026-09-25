@@ -406,7 +406,8 @@ package final class TerminalPaneMountView: NSView, PaneMountedContent, SurfaceHe
         }
         if displayPlan.installsCloseCallback {
             surfaceView.onCloseRequested = { [weak self] processAlive in
-                self?.handleSurfaceClose(processAlive: processAlive)
+                // fire-and-forget: surface callback; the termination event is delivered on the app event bus
+                _ = self?.handleSurfaceClose(processAlive: processAlive)
             }
         }
         scheduleGeometryCoherenceVerification(reason: geometryVerificationReason)
@@ -569,7 +570,8 @@ package final class TerminalPaneMountView: NSView, PaneMountedContent, SurfaceHe
                 self?.restartSurface()
             }
             overlay.onDismiss = { [weak self] in
-                self?.requestClose()
+                // fire-and-forget: surface callback; the termination event is delivered on the app event bus
+                _ = self?.beginClose()
             }
             addSubview(overlay)
 
@@ -604,7 +606,6 @@ package final class TerminalPaneMountView: NSView, PaneMountedContent, SurfaceHe
 
     // MARK: - Surface Close Handling
 
-    @discardableResult
     func handleSurfaceClose(processAlive: Bool) -> Task<Void, Never>? {
         guard isProcessRunning else { return nil }
         isProcessRunning = false
@@ -679,8 +680,7 @@ package final class TerminalPaneMountView: NSView, PaneMountedContent, SurfaceHe
 
     // MARK: - Process Management
 
-    @discardableResult
-    func requestClose() -> Task<Void, Never>? {
+    func beginClose() -> Task<Void, Never>? {
         guard let surfaceId else { return nil }
         SurfaceManager.shared.detach(surfaceId, reason: .close)
         isProcessRunning = false
@@ -698,7 +698,6 @@ package final class TerminalPaneMountView: NSView, PaneMountedContent, SurfaceHe
         hasObservedEffectiveTerminationDelivery = false
     }
 
-    @discardableResult
     private func postProcessTerminationEvent(processAlive: Bool) -> Task<Void, Never> {
         Task { @MainActor [weak self] in
             guard let self else { return }

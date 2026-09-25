@@ -109,7 +109,7 @@ private final class RetiredWorktrunkCLIVisitor: SyntaxVisitor {
                     message: "Remove the retired Worktrunk startup dependency phase"
                 )
             )
-        } else if name.localizedCaseInsensitiveContains("worktrunk") {
+        } else if name.containsIgnoringASCIICase("worktrunk") {
             violations.append(
                 ArchitectureViolation(
                     position: position,

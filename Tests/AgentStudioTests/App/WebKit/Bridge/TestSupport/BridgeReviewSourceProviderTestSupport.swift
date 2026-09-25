@@ -1,3 +1,4 @@
+import AgentStudioTestHarness
 import Foundation
 
 @testable import AgentStudioBridge
@@ -57,7 +58,7 @@ actor BridgeReviewSourceProviderFake: BridgeReviewSourceProvider {
     var treeDescriptors: [BridgeReviewItemDescriptor]
     var itemDescriptorByPath: [String: BridgeReviewItemDescriptor]
     private let comparisonFailureByBaseProviderIdentity: [String: BridgeProviderFailure]
-    private let contentLoadGate: BridgeContentLoadGate?
+    private let contentLoadGate: HeldStep<Void>?
     private var comparisonGate: BridgeComparisonGate?
     private let checksCancellationAfterGate: Bool
     private var contentRequests: [BridgeContentLoadRequest] = []
@@ -84,7 +85,7 @@ actor BridgeReviewSourceProviderFake: BridgeReviewSourceProvider {
         treeDescriptors: [BridgeReviewItemDescriptor] = [],
         itemDescriptorByPath: [String: BridgeReviewItemDescriptor] = [:],
         comparisonFailureByBaseProviderIdentity: [String: BridgeProviderFailure] = [:],
-        contentLoadGate: BridgeContentLoadGate? = nil,
+        contentLoadGate: HeldStep<Void>? = nil,
         comparisonGate: BridgeComparisonGate? = nil,
         checksCancellationAfterGate: Bool = false
     ) {
@@ -148,7 +149,7 @@ actor BridgeReviewSourceProviderFake: BridgeReviewSourceProvider {
         defer {
             recordFinishedContentLoad()
         }
-        await contentLoadGate?.waitUntilReleased()
+        try? await contentLoadGate?.arrive(())
         if checksCancellationAfterGate {
             do {
                 try Task.checkCancellation()
@@ -393,56 +394,5 @@ actor BridgeComparisonGate {
             }
         }
         startedComparisonWaiters = pendingWaiters
-    }
-}
-
-actor BridgeContentLoadGate {
-    private struct StartedLoadWaiter {
-        let requestedCount: Int
-        let continuation: CheckedContinuation<Void, Never>
-    }
-
-    private var startedLoadCount = 0
-    private var startedLoadWaiters: [StartedLoadWaiter] = []
-    private var releaseContinuations: [CheckedContinuation<Void, Never>] = []
-    private var isReleased = false
-
-    func waitUntilReleased() async {
-        startedLoadCount += 1
-        resumeSatisfiedStartedLoadWaiters()
-        guard !isReleased else { return }
-        await withCheckedContinuation { continuation in
-            releaseContinuations.append(continuation)
-        }
-    }
-
-    func waitForStartedLoadCount(_ requestedCount: Int) async {
-        guard startedLoadCount < requestedCount else { return }
-        await withCheckedContinuation { continuation in
-            startedLoadWaiters.append(
-                StartedLoadWaiter(requestedCount: requestedCount, continuation: continuation)
-            )
-        }
-    }
-
-    func releaseAll() {
-        isReleased = true
-        let continuations = releaseContinuations
-        releaseContinuations.removeAll()
-        for continuation in continuations {
-            continuation.resume()
-        }
-    }
-
-    private func resumeSatisfiedStartedLoadWaiters() {
-        var pendingWaiters: [StartedLoadWaiter] = []
-        for waiter in startedLoadWaiters {
-            if startedLoadCount >= waiter.requestedCount {
-                waiter.continuation.resume()
-            } else {
-                pendingWaiters.append(waiter)
-            }
-        }
-        startedLoadWaiters = pendingWaiters
     }
 }

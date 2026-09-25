@@ -15,6 +15,7 @@ extension WebKitSerializedTests {
             installTestCoreAtomsIfNeeded()
         }
 
+        @MainActor
         private struct CoordinatorFixture {
             let store: WorkspaceStore
             let coordinator: WorkspaceSurfaceCoordinator
@@ -166,7 +167,8 @@ extension WebKitSerializedTests {
                 #expect(await admissionFixture.reviewProvider.recordedComparisonRequestsCount() == 0)
                 #expect(admissionFixture.controller.paneState.diff.packageMetadata == nil)
                 #expect(workspace.heldState.beginSpaceHold(requestedTarget: target))
-                workspace.coordinator.prepareHeldPanePreview()
+                // fire-and-forget: the test asserts preview state; the deferred reevaluation handle is not its claim
+                _ = workspace.coordinator.beginHeldPanePreviewPreparation()
                 #expect(workspace.heldState.presentedTarget == target)
                 #expect(
                     workspace.viewRegistry.allBridgeViews[workspace.targetPane.id]
@@ -233,7 +235,8 @@ extension WebKitSerializedTests {
             )
 
             #expect(workspace.heldState.beginSpaceHold(requestedTarget: target))
-            workspace.coordinator.prepareHeldPanePreview()
+            // fire-and-forget: the test asserts preview state; the deferred reevaluation handle is not its claim
+            _ = workspace.coordinator.beginHeldPanePreviewPreparation()
             #expect(
                 workspace.viewRegistry.allBridgeViews[workspace.targetPane.id]
                     === workspace.targetMountView
@@ -275,68 +278,62 @@ extension WebKitSerializedTests {
                 peerController: peerAdmission.controller,
                 peerEndpoint: peerAdmission.headEndpoint
             )
-            do {
-                await expectBridgePaneActivity(
-                    .foreground,
-                    for: workspace.peerPane.id,
-                    in: workspace.coordinator,
-                    because: "the canonical peer owns the active tab before preview"
-                )
-                await waitForActiveReviewRefreshTaskToFinish(peerAdmission.controller)
-                let peerComparisonCountBeforePreview =
-                    await peerAdmission.reviewProvider.recordedComparisonRequestsCount()
-                await peerAdmission.reviewProvider.setComparison(peerAdmission.refreshedComparison)
-                let target = ValidatedPanePreviewTarget(
-                    paneID: workspace.targetPane.id,
-                    owningTabID: workspace.targetTab.id,
-                    provider: workspace.targetPane.provider,
-                    sessionID: workspace.targetPane.terminalState?.zmxSessionID
-                )
+            await expectBridgePaneActivity(
+                .foreground,
+                for: workspace.peerPane.id,
+                in: workspace.coordinator,
+                because: "the canonical peer owns the active tab before preview"
+            )
+            await waitForActiveReviewRefreshTaskToFinish(peerAdmission.controller)
+            let peerComparisonCountBeforePreview =
+                await peerAdmission.reviewProvider.recordedComparisonRequestsCount()
+            await peerAdmission.reviewProvider.setComparison(peerAdmission.refreshedComparison)
+            let target = ValidatedPanePreviewTarget(
+                paneID: workspace.targetPane.id,
+                owningTabID: workspace.targetTab.id,
+                provider: workspace.targetPane.provider,
+                sessionID: workspace.targetPane.terminalState?.zmxSessionID
+            )
 
-                #expect(workspace.heldState.beginSpaceHold(requestedTarget: target))
-                workspace.coordinator.prepareHeldPanePreview()
-                await expectBridgePaneActivity(
-                    .loadedHidden,
-                    for: workspace.peerPane.id,
-                    in: workspace.coordinator,
-                    because: "the canonical peer is covered by the held target"
-                )
-                await peerAdmission.controller.handleWorktreeProductInvalidation(
-                    .filesChanged(
-                        peerAdmission.makeChangeset(
-                            paths: ["Sources/App/CoveredPeer.swift"],
-                            batchSequence: 902
-                        )
+            #expect(workspace.heldState.beginSpaceHold(requestedTarget: target))
+            // fire-and-forget: the test asserts preview state; the deferred reevaluation handle is not its claim
+            _ = workspace.coordinator.beginHeldPanePreviewPreparation()
+            await expectBridgePaneActivity(
+                .loadedHidden,
+                for: workspace.peerPane.id,
+                in: workspace.coordinator,
+                because: "the canonical peer is covered by the held target"
+            )
+            await peerAdmission.controller.handleWorktreeProductInvalidation(
+                .filesChanged(
+                    peerAdmission.makeChangeset(
+                        paths: ["Sources/App/CoveredPeer.swift"],
+                        batchSequence: 902
                     )
                 )
-                #expect(
-                    await peerAdmission.reviewProvider.recordedComparisonRequestsCount()
-                        == peerComparisonCountBeforePreview
-                )
-                #expect(
-                    peerAdmission.controller.refreshAdmissionCoordinator.diagnosticSnapshot.dirtyFact != nil
-                )
+            )
+            #expect(
+                await peerAdmission.reviewProvider.recordedComparisonRequestsCount()
+                    == peerComparisonCountBeforePreview
+            )
+            #expect(
+                peerAdmission.controller.refreshAdmissionCoordinator.diagnosticSnapshot.dirtyFact != nil
+            )
 
-                workspace.heldState.endSpaceHold()
-                workspace.coordinator.refreshBridgePaneActivities()
-                await expectBridgePaneActivity(
-                    .foreground,
-                    for: workspace.peerPane.id,
-                    in: workspace.coordinator,
-                    because: "release restores the canonical peer admission"
-                )
-                await waitForActiveReviewRefreshTaskToFinish(peerAdmission.controller)
-                #expect(
-                    await peerAdmission.reviewProvider.recordedComparisonRequestsCount()
-                        == peerComparisonCountBeforePreview + 1
-                )
-                #expect(peerAdmission.controller.paneState.diff.packageMetadata?.orderedItemIds == ["item-refreshed"])
-            } catch {
-                await workspace.finish()
-                await targetAdmission.finish()
-                await peerAdmission.finish()
-                throw error
-            }
+            workspace.heldState.endSpaceHold()
+            workspace.coordinator.refreshBridgePaneActivities()
+            await expectBridgePaneActivity(
+                .foreground,
+                for: workspace.peerPane.id,
+                in: workspace.coordinator,
+                because: "release restores the canonical peer admission"
+            )
+            await waitForActiveReviewRefreshTaskToFinish(peerAdmission.controller)
+            #expect(
+                await peerAdmission.reviewProvider.recordedComparisonRequestsCount()
+                    == peerComparisonCountBeforePreview + 1
+            )
+            #expect(peerAdmission.controller.paneState.diff.packageMetadata?.orderedItemIds == ["item-refreshed"])
             await workspace.finish()
             await targetAdmission.finish()
             await peerAdmission.finish()

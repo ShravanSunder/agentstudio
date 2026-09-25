@@ -15,6 +15,7 @@
   "ignorePatterns": [
     ".agents",
     "dist",
+    "dist-scene-bundles",
     "node_modules",
     "playwright-report",
     "test-results",

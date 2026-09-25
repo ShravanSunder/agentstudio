@@ -1,4 +1,4 @@
-import { chromium, type Browser } from 'playwright';
+import type { Browser } from 'playwright';
 import { expect, test } from 'vitest';
 
 import { runAllOwnedCleanupOperations } from '../../scripts/dev-server/bridge-development-server-process.ts';
@@ -7,6 +7,7 @@ import {
 	selectReviewFile,
 	waitForSelectedReviewReady,
 } from './bridge-viewer-vite-annotation-save-journey.ts';
+import { launchBridgeViewerE2EChromium } from './bridge-viewer-vite-e2e-browser.ts';
 import { createBridgeViewerExplorationFixture } from './bridge-viewer-vite-exploration-fixture.ts';
 import { observeInteractionProfileFailures } from './bridge-viewer-vite-interaction-profile-diagnostics.ts';
 import {
@@ -31,7 +32,7 @@ test('activates Review after a File-only bootstrap and returns to the selected M
 	let primaryFailure: { readonly error: unknown } | null = null;
 	try {
 		server = await startBridgeViewerOwnedViteProductServer(fixture.oracle);
-		browser = await chromium.launch({ channel: 'chrome', headless: true });
+		browser = await launchBridgeViewerE2EChromium();
 		const page = await browser.newPage({ viewport: { width: 1728, height: 980 } });
 		diagnostics = observeBrowserRuntimeDiagnostics(page);
 		failures = await observeInteractionProfileFailures(page);

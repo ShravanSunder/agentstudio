@@ -2,11 +2,12 @@ import { createHash } from 'node:crypto';
 import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
-import { chromium, type Browser, type JSHandle, type Page } from 'playwright';
+import type { Browser, JSHandle, Page } from 'playwright';
 import { expect, onTestFailed, test } from 'vitest';
 
 import { runAllOwnedCleanupOperations } from '../../scripts/dev-server/bridge-development-server-process.ts';
 import { waitForSelectedFileReady } from './bridge-viewer-vite-annotation-save-journey.ts';
+import { launchBridgeViewerE2EChromium } from './bridge-viewer-vite-e2e-browser.ts';
 import { observeSelectedFileRetention } from './bridge-viewer-vite-file-retention-probe.ts';
 import {
 	createBridgeViewerViteProductFixture,
@@ -56,7 +57,7 @@ test('retains the scrolled selected File through sixteen distinct worktree edits
 		phase = 'server-starting';
 		server = await startBridgeViewerOwnedViteProductServer(fixture.oracle);
 		phase = 'browser-starting';
-		browser = await chromium.launch({ channel: 'chrome', headless: true });
+		browser = await launchBridgeViewerE2EChromium();
 		phase = 'page-creating';
 		page = await browser.newPage({ viewport: { width: 1728, height: 980 } });
 		// The vitest hang bound is the only clock this journey is allowed.
@@ -161,7 +162,7 @@ test('retains the scrolled selected File through sixteen distinct worktree edits
 			...(primaryFailure === null ? {} : { primaryError: primaryFailure.error }),
 		});
 	}
-}, 120_000);
+});
 
 async function observeFileScrollRetention(page: Page): Promise<JSHandle<FileScrollRetentionProbe>> {
 	return await page.evaluateHandle((): FileScrollRetentionProbe => {

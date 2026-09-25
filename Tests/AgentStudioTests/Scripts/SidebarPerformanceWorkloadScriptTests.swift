@@ -991,7 +991,7 @@ func runSidebarScript(
     for (key, value) in environment {
         mergedEnvironment[key] = value
     }
-    return try await DefaultProcessExecutor(timeout: 10).execute(
+    return try await RunToExitProcessExecutor().execute(
         command: "/bin/bash",
         args: arguments,
         cwd: URL(fileURLWithPath: FileManager.default.currentDirectoryPath),

@@ -60,7 +60,7 @@ struct WorkspaceSurfaceCoordinatorEntityRecencyTests {
 
     @Test("rejected unknown worktree action records no application recency")
     func rejectedUnknownWorktreeAction_recordsNothing() async throws {
-        try await withAsyncTestCoreAtoms { coreAtoms in
+        await withAsyncTestCoreAtoms { coreAtoms in
             let store = makeStore(coreAtoms: coreAtoms)
             let coordinator = WorkspaceSurfaceCoordinator(
                 store: store,

@@ -1,3 +1,4 @@
+import AgentStudioTestHarness
 import Foundation
 import Testing
 
@@ -13,15 +14,15 @@ struct BridgeProductSessionProducerLifecycleBoundaryTests {
             metadataStreamId: "metadata-terminal-reserve",
             resumeFromStreamSequence: nil
         )
-        let operation = BridgeProductSessionProducerOperationGate()
+        let operation = HeldStep<BridgeProductProducerLease>("operation")
         let registration = await harness.session.registerMetadataProducer(
             request: request,
             productAdmission: harness.productAdmission
         ) { lease in
-            await operation.run(lease)
+            try? await operation.arrive(lease)
         }
         let lease = try bridgeProductAcceptedLease(registration)
-        _ = await operation.waitUntilStarted()
+        _ = try await operation.firstArrival()
         _ = try await harness.session.enqueueRequiredProducerOpeningFrame(
             for: lease,
             productAdmission: harness.productAdmission,
@@ -91,7 +92,7 @@ struct BridgeProductSessionProducerLifecycleBoundaryTests {
             productAdmission: harness.productAdmission
         )
         try await closeBridgeProductSessionProducer(lease, in: harness.session)
-        await operation.waitUntilCancelled()
+        try await operation.cancellationObserved()
         let finalSnapshot = await harness.session.producerSnapshot()
 
         // Assert
@@ -117,17 +118,17 @@ struct BridgeProductSessionProducerLifecycleBoundaryTests {
             metadataStreamId: "metadata-revoke-unregister-arbitration",
             resumeFromStreamSequence: nil
         )
-        let operation = BridgeProductSessionProducerOperationGate()
+        let operation = HeldStep<BridgeProductProducerLease>("operation")
         let registration = await harness.session.registerMetadataProducer(
             request: request,
             productAdmission: harness.productAdmission
         ) { lease in
-            await operation.run(lease)
+            try? await operation.arrive(lease)
         }
         let lease = try bridgeProductAcceptedLease(registration)
-        _ = await operation.waitUntilStarted()
+        _ = try await operation.firstArrival()
         #expect(await harness.session.stopProducer(lease))
-        await operation.waitUntilCancelled()
+        try await operation.cancellationObserved()
         let acknowledgementGate = BridgeProductSessionLifecycleAcknowledgementGate()
 
         // Act
@@ -157,7 +158,7 @@ struct BridgeProductSessionProducerLifecycleBoundaryTests {
     func revokeClaimsLifecycleBeforeItsFirstSuspension() async throws {
         // Arrange
         let harness = try await BridgeProductSessionProducerHarness.opened()
-        let stoppedOperation = BridgeProductSessionProducerOperationGate()
+        let stoppedOperation = HeldStep<BridgeProductProducerLease>("stoppedOperation")
         let stoppedRegistration = await harness.session.registerMetadataProducer(
             request: try bridgeProductMetadataStreamRequest(
                 metadataStreamId: "metadata-revoke-stopped",
@@ -165,12 +166,12 @@ struct BridgeProductSessionProducerLifecycleBoundaryTests {
             ),
             productAdmission: harness.productAdmission
         ) { lease in
-            await stoppedOperation.run(lease)
+            try? await stoppedOperation.arrive(lease)
         }
         let stoppedLease = try bridgeProductAcceptedLease(stoppedRegistration)
-        _ = await stoppedOperation.waitUntilStarted()
+        _ = try await stoppedOperation.firstArrival()
         #expect(await harness.session.stopProducer(stoppedLease))
-        await stoppedOperation.waitUntilCancelled()
+        try await stoppedOperation.cancellationObserved()
 
         let heldOperation = BridgeProductSessionProducerCancellationHoldGate()
         let heldRegistration = await harness.session.registerContentProducer(
@@ -201,7 +202,7 @@ struct BridgeProductSessionProducerLifecycleBoundaryTests {
     func revokeClaimsPreexistingLifecycleAcknowledgement() async throws {
         // Arrange
         let harness = try await BridgeProductSessionProducerHarness.opened()
-        let operation = BridgeProductSessionProducerOperationGate()
+        let operation = HeldStep<BridgeProductProducerLease>("operation")
         let registration = await harness.session.registerMetadataProducer(
             request: try bridgeProductMetadataStreamRequest(
                 metadataStreamId: "metadata-revoke-pending-ack",
@@ -209,12 +210,12 @@ struct BridgeProductSessionProducerLifecycleBoundaryTests {
             ),
             productAdmission: harness.productAdmission
         ) { lease in
-            await operation.run(lease)
+            try? await operation.arrive(lease)
         }
         let lease = try bridgeProductAcceptedLease(registration)
-        _ = await operation.waitUntilStarted()
+        _ = try await operation.firstArrival()
         #expect(await harness.session.stopProducer(lease))
-        await operation.waitUntilCancelled()
+        try await operation.cancellationObserved()
         let pendingAcknowledgement = try #require(
             await harness.session.unregisterProducer(lease)
         )
@@ -238,7 +239,7 @@ struct BridgeProductSessionProducerLifecycleBoundaryTests {
     func concurrentRevokeCallersJoinOneLifecycleFlight() async throws {
         // Arrange
         let harness = try await BridgeProductSessionProducerHarness.opened()
-        let operation = BridgeProductSessionProducerOperationGate()
+        let operation = HeldStep<BridgeProductProducerLease>("operation")
         let registration = await harness.session.registerMetadataProducer(
             request: try bridgeProductMetadataStreamRequest(
                 metadataStreamId: "metadata-concurrent-revoke",
@@ -246,12 +247,12 @@ struct BridgeProductSessionProducerLifecycleBoundaryTests {
             ),
             productAdmission: harness.productAdmission
         ) { lease in
-            await operation.run(lease)
+            try? await operation.arrive(lease)
         }
         let lease = try bridgeProductAcceptedLease(registration)
-        _ = await operation.waitUntilStarted()
+        _ = try await operation.firstArrival()
         #expect(await harness.session.stopProducer(lease))
-        await operation.waitUntilCancelled()
+        try await operation.cancellationObserved()
         let pendingAcknowledgement = try #require(
             await harness.session.unregisterProducer(lease)
         )
@@ -289,7 +290,7 @@ struct BridgeProductSessionProducerLifecycleBoundaryTests {
     func failedRevokeFlightRetriesPendingResidueAndCachesSuccess() async throws {
         // Arrange
         let harness = try await BridgeProductSessionProducerHarness.opened()
-        let operation = BridgeProductSessionProducerOperationGate()
+        let operation = HeldStep<BridgeProductProducerLease>("operation")
         let registration = await harness.session.registerMetadataProducer(
             request: try bridgeProductMetadataStreamRequest(
                 metadataStreamId: "metadata-revoke-retry",
@@ -297,12 +298,12 @@ struct BridgeProductSessionProducerLifecycleBoundaryTests {
             ),
             productAdmission: harness.productAdmission
         ) { lease in
-            await operation.run(lease)
+            try? await operation.arrive(lease)
         }
         let lease = try bridgeProductAcceptedLease(registration)
-        _ = await operation.waitUntilStarted()
+        _ = try await operation.firstArrival()
         #expect(await harness.session.stopProducer(lease))
-        await operation.waitUntilCancelled()
+        try await operation.cancellationObserved()
         let pendingAcknowledgement = try #require(
             await harness.session.unregisterProducer(lease)
         )

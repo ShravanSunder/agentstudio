@@ -11,18 +11,30 @@ protocol PaneFocusAppControlling: Sendable {
     func focusPane(_ paneId: UUID) async throws
 }
 
+/// The part of the pane tab controller the IPC focus owner needs: whether it
+/// still takes commands, whether a pane has a native host, and the submitted
+/// focus operation whose task yields the committed outcome.
+@MainActor
+protocol TargetedPaneFocusSubmitting: AnyObject {
+    var acceptsIPCCommands: Bool { get }
+    func hasNativePaneHost(_ paneId: UUID) -> Bool
+    func submitTargetedPaneFocus(_ paneId: UUID) -> Task<Bool, Never>
+}
+
+extension PaneTabViewController: TargetedPaneFocusSubmitting {}
+
 @MainActor
 final class PaneTabViewControllerPaneFocusAppControl: PaneFocusAppControlling, @unchecked Sendable {
-    private let paneTabViewController: PaneTabViewController
+    private let targetedPaneFocusSubmitter: any TargetedPaneFocusSubmitting
     private let workspaceStore: WorkspaceStore
 
-    init(paneTabViewController: PaneTabViewController, workspaceStore: WorkspaceStore) {
-        self.paneTabViewController = paneTabViewController
+    init(targetedPaneFocusSubmitter: any TargetedPaneFocusSubmitting, workspaceStore: WorkspaceStore) {
+        self.targetedPaneFocusSubmitter = targetedPaneFocusSubmitter
         self.workspaceStore = workspaceStore
     }
 
     func focusPane(_ paneId: UUID) async throws {
-        guard paneTabViewController.acceptsIPCCommands else {
+        guard targetedPaneFocusSubmitter.acceptsIPCCommands else {
             throw PaneFocusAppControlError.validationRejected
         }
         let snapshot = workspaceStore.programmaticControlSnapshot()
@@ -32,11 +44,11 @@ final class PaneTabViewControllerPaneFocusAppControl: PaneFocusAppControlling, @
         guard pane.tabId != nil else {
             throw PaneFocusAppControlError.validationRejected
         }
-        guard paneTabViewController.hasNativePaneHost(paneId) else {
+        guard targetedPaneFocusSubmitter.hasNativePaneHost(paneId) else {
             throw PaneFocusAppControlError.validationRejected
         }
 
-        guard await paneTabViewController.submitTargetedPaneFocus(paneId).value else {
+        guard await targetedPaneFocusSubmitter.submitTargetedPaneFocus(paneId).value else {
             throw PaneFocusAppControlError.validationRejected
         }
     }

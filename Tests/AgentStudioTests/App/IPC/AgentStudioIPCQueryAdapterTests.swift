@@ -173,9 +173,7 @@ extension WorkspaceWindowLifecycleSnapshot {
 
 @MainActor
 private func makeWorkspaceStore() -> WorkspaceStore {
-    let tempDir = FileManager.default.temporaryDirectory
-        .appending(path: "agentstudio-ipc-query-adapter-\(UUID().uuidString)")
-    return WorkspaceStore()
+    WorkspaceStore()
 }
 
 private func encodedJSONString<T: Encodable>(_ value: T) throws -> String {

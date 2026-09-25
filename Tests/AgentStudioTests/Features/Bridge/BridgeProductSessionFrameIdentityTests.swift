@@ -1,3 +1,4 @@
+import AgentStudioTestHarness
 import Foundation
 import Testing
 
@@ -9,17 +10,17 @@ struct BridgeProductSessionFrameIdentityTests {
     func metadataProducerRejectsWrongTypedFrameKind() async throws {
         // Arrange
         let harness = try await FrameIdentitySessionHarness.opened()
-        let operation = FrameIdentityProducerOperationGate()
+        let operation = HeldStep<BridgeProductProducerLease>("operation")
         let request = try metadataStreamRequest(metadataStreamId: "metadata-arbitrary")
         let foreignContentRequest = try fileContentRequest(identitySuffix: "wrong-frame-kind")
         let registration = await harness.session.registerMetadataProducer(
             request: request,
             productAdmission: harness.productAdmission
         ) { lease in
-            await operation.run(lease)
+            try? await operation.arrive(lease)
         }
         let lease = try #require(registration.acceptedLease)
-        _ = await operation.waitUntilStarted()
+        _ = try await operation.firstArrival()
         let beforeEnqueue = await harness.session.producerSnapshot()
 
         // Act
@@ -51,7 +52,7 @@ struct BridgeProductSessionFrameIdentityTests {
     func metadataProducerRejectsCrossWiredIdentityAndSequence() async throws {
         // Arrange
         let harness = try await FrameIdentitySessionHarness.opened()
-        let operation = FrameIdentityProducerOperationGate()
+        let operation = HeldStep<BridgeProductProducerLease>("operation")
         let registeredRequest = try metadataStreamRequest(
             metadataStreamId: "metadata-registered"
         )
@@ -62,10 +63,10 @@ struct BridgeProductSessionFrameIdentityTests {
             request: registeredRequest,
             productAdmission: harness.productAdmission
         ) { lease in
-            await operation.run(lease)
+            try? await operation.arrive(lease)
         }
         let lease = try #require(registration.acceptedLease)
-        _ = await operation.waitUntilStarted()
+        _ = try await operation.firstArrival()
 
         // Act
         let result = try await harness.session.enqueueRequiredProducerOpeningFrame(
@@ -95,17 +96,17 @@ struct BridgeProductSessionFrameIdentityTests {
     func contentProducerRejectsCrossWiredAcceptedIdentity() async throws {
         // Arrange
         let harness = try await FrameIdentitySessionHarness.opened()
-        let operation = FrameIdentityProducerOperationGate()
+        let operation = HeldStep<BridgeProductProducerLease>("operation")
         let registeredRequest = try fileContentRequest(identitySuffix: "registered")
         let foreignRequest = try fileContentRequest(identitySuffix: "foreign")
         let registration = await harness.session.registerContentProducer(
             request: registeredRequest,
             productAdmission: harness.productAdmission
         ) { lease in
-            await operation.run(lease)
+            try? await operation.arrive(lease)
         }
         let lease = try #require(registration.acceptedLease)
-        _ = await operation.waitUntilStarted()
+        _ = try await operation.firstArrival()
 
         // Act
         let result = try await harness.session.enqueueRequiredProducerOpeningFrame(
@@ -132,16 +133,16 @@ struct BridgeProductSessionFrameIdentityTests {
     func contentProducerRejectsMismatchedProgressSequence() async throws {
         // Arrange
         let harness = try await FrameIdentitySessionHarness.opened()
-        let operation = FrameIdentityProducerOperationGate()
+        let operation = HeldStep<BridgeProductProducerLease>("operation")
         let request = try fileContentRequest(identitySuffix: "sequence")
         let registration = await harness.session.registerContentProducer(
             request: request,
             productAdmission: harness.productAdmission
         ) { lease in
-            await operation.run(lease)
+            try? await operation.arrive(lease)
         }
         let lease = try #require(registration.acceptedLease)
-        _ = await operation.waitUntilStarted()
+        _ = try await operation.firstArrival()
         let openingResult = try await harness.session.enqueueRequiredProducerOpeningFrame(
             for: lease,
             productAdmission: harness.productAdmission,
@@ -202,16 +203,16 @@ struct BridgeProductSessionFrameIdentityTests {
     func contentObservationRequiresExactActiveIdentityAndSequence() async throws {
         // Arrange
         let harness = try await FrameIdentitySessionHarness.opened()
-        let operation = FrameIdentityProducerOperationGate()
+        let operation = HeldStep<BridgeProductProducerLease>("operation")
         let request = try fileContentRequest(identitySuffix: "observation")
         let registration = await harness.session.registerContentProducer(
             request: request,
             productAdmission: harness.productAdmission
         ) { lease in
-            await operation.run(lease)
+            try? await operation.arrive(lease)
         }
         let lease = try #require(registration.acceptedLease)
-        _ = await operation.waitUntilStarted()
+        _ = try await operation.firstArrival()
         _ = try await harness.session.enqueueRequiredProducerOpeningFrame(
             for: lease,
             productAdmission: harness.productAdmission,
@@ -306,26 +307,26 @@ struct BridgeProductSessionFrameIdentityTests {
     func contentObservationReleasesOnlyMatchingConcurrentProducer() async throws {
         // Arrange
         let harness = try await FrameIdentitySessionHarness.opened()
-        let firstOperation = FrameIdentityProducerOperationGate()
-        let secondOperation = FrameIdentityProducerOperationGate()
+        let firstOperation = HeldStep<BridgeProductProducerLease>("firstOperation")
+        let secondOperation = HeldStep<BridgeProductProducerLease>("secondOperation")
         let firstRequest = try fileContentRequest(identitySuffix: "observation-first")
         let secondRequest = try fileContentRequest(identitySuffix: "observation-second")
         let firstRegistration = await harness.session.registerContentProducer(
             request: firstRequest,
             productAdmission: harness.productAdmission
         ) { lease in
-            await firstOperation.run(lease)
+            try? await firstOperation.arrive(lease)
         }
         let secondRegistration = await harness.session.registerContentProducer(
             request: secondRequest,
             productAdmission: harness.productAdmission
         ) { lease in
-            await secondOperation.run(lease)
+            try? await secondOperation.arrive(lease)
         }
         let firstLease = try #require(firstRegistration.acceptedLease)
         let secondLease = try #require(secondRegistration.acceptedLease)
-        _ = await firstOperation.waitUntilStarted()
-        _ = await secondOperation.waitUntilStarted()
+        _ = try await firstOperation.firstArrival()
+        _ = try await secondOperation.firstArrival()
         _ = try await harness.session.enqueueRequiredProducerOpeningFrame(
             for: firstLease,
             productAdmission: harness.productAdmission,
@@ -470,44 +471,6 @@ private struct FrameIdentitySessionHarness {
             productAdmission: productAdmission.context,
             session: session
         )
-    }
-}
-
-private actor FrameIdentityProducerOperationGate {
-    private var cancellationContinuation: CheckedContinuation<Void, Never>?
-    private var startedLease: BridgeProductProducerLease?
-    private var startWaiters: [CheckedContinuation<BridgeProductProducerLease, Never>] = []
-
-    func run(_ lease: BridgeProductProducerLease) async {
-        startedLease = lease
-        let waiters = startWaiters
-        startWaiters.removeAll()
-        for waiter in waiters {
-            waiter.resume(returning: lease)
-        }
-        await withTaskCancellationHandler {
-            await withCheckedContinuation { continuation in
-                if Task.isCancelled {
-                    continuation.resume()
-                } else {
-                    cancellationContinuation = continuation
-                }
-            }
-        } onCancel: {
-            Task { await self.releaseForCancellation() }
-        }
-    }
-
-    func waitUntilStarted() async -> BridgeProductProducerLease {
-        if let startedLease { return startedLease }
-        return await withCheckedContinuation { continuation in
-            startWaiters.append(continuation)
-        }
-    }
-
-    private func releaseForCancellation() {
-        cancellationContinuation?.resume()
-        cancellationContinuation = nil
     }
 }
 

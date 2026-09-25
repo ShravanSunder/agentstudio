@@ -597,7 +597,7 @@ struct DerivedActivityNotificationIntegrationTests {
         let tabId = addTerminalPane(parentPaneId, to: fixture)
         addVisiblePaneToActiveTab(hiddenSiblingPaneId, to: fixture)
         makeWindowKey(fixture.windowLifecycle)
-        guard let tab = fixture.tabLayout.tab(tabId) else {
+        guard fixture.tabLayout.tab(tabId) != nil else {
             Issue.record("Expected terminal activity fixture tab")
             await fixture.shutdown()
             return

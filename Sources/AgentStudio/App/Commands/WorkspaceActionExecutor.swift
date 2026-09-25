@@ -21,7 +21,8 @@ final class WorkspaceActionExecutor {
         self.coordinator = coordinator
         self.store = store
         coordinator.workspaceActionSubmission = { [weak self] action in
-            _ = self?.submit(action)
+            // fire-and-forget: coordinator-originated action; stopAcceptingCommandsAndDrain awaits the tail
+            _ = self?.submitAction(action)
         }
     }
 
@@ -187,7 +188,6 @@ final class WorkspaceActionExecutor {
         await submitUndoClose().value
     }
 
-    @discardableResult
     func submitUndoClose() -> Task<Bool, Never> {
         submitGesture { [self] _ in
             do { return try await coordinator.undoCloseTab() } catch {
@@ -220,7 +220,8 @@ final class WorkspaceActionExecutor {
     }
 
     func prepareHeldPanePreview() {
-        _ = coordinator.prepareHeldPanePreview()
+        // fire-and-forget: preparation is synchronous; the deferred geometry reevaluation reports nothing
+        _ = coordinator.beginHeldPanePreviewPreparation()
     }
 
     private func drawerParentByPaneId() -> [UUID: UUID] {
@@ -246,16 +247,14 @@ final class WorkspaceActionExecutor {
     /// Validate/canonicalize a WorkspaceActionCommand against current state, then execute it.
     @discardableResult
     func execute(_ action: WorkspaceActionCommand) async -> Bool {
-        await submit(action).value
+        await submitAction(action).value
     }
 
-    @discardableResult
-    func submit(_ action: WorkspaceActionCommand) -> Task<Bool, Never> {
+    func submitAction(_ action: WorkspaceActionCommand) -> Task<Bool, Never> {
         submitGesture { execute in await execute(action) }
     }
 
     /// One admitted user operation includes resolution and dependent effects, not just its first mutation.
-    @discardableResult
     func submitGesture(
         _ operation: @escaping @MainActor (@MainActor (WorkspaceActionCommand) async -> Bool) async -> Bool
     ) -> Task<Bool, Never> {

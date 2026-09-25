@@ -1,5 +1,6 @@
 import AgentStudioGit
 import AgentStudioInfrastructure
+import AgentStudioTestHarness
 import AgentStudioTestSupport
 import Foundation
 import Testing
@@ -43,14 +44,14 @@ struct GitWorkingDirectoryProjectorAdmissionTests {
         let clock = TestPushClock()
         let physicalGate = AgentStudioGitStatusPhysicalGate(maxActiveReadCount: 1)
         let blockingReadStarted = AdmissionAsyncReceipt()
-        let blockingReadGate = AdmissionAsyncGate()
+        let blockingReadGate = HeldStep<Void>("blockingReadGate", cancellation: .holdThroughCancellation)
         let statusSnapshot = admissionCompleteStatusSnapshot()
         let blockingProvider = AgentStudioGitWorkingTreeStatusProvider(
             slowObservationScheduler: PassiveAdmissionGitStatusSlowObservationScheduler(),
             physicalGate: physicalGate
         ) { _, _ in
             await blockingReadStarted.signal()
-            await blockingReadGate.waitUntilOpen()
+            try? await blockingReadGate.arrive(())
             return statusSnapshot
         }
         let projectorProvider = AgentStudioGitWorkingTreeStatusProvider(
@@ -98,7 +99,7 @@ struct GitWorkingDirectoryProjectorAdmissionTests {
         #expect(await actor.refreshAttribution.admittedCadenceTierByWorktreeId[worktreeId] == "background")
         #expect(await actor.admittedDemandTierByWorktreeId[worktreeId] == .background)
 
-        await blockingReadGate.open()
+        blockingReadGate.release()
         _ = await blockingRead.value
         let completedWithoutGovernorAdvance = await admissionWaitUntil {
             await actor.lastAcceptedStatusAtByWorktreeId[worktreeId] != nil
@@ -137,8 +138,8 @@ struct GitWorkingDirectoryProjectorAdmissionTests {
     func sameRootContentionDoesNotPauseDistinctActiveRoot() async {
         let physicalGate = AgentStudioGitStatusPhysicalGate(maxActiveReadCount: 4)
         let blockingReadStarted = AdmissionAsyncReceipt()
-        let blockingReadGate = AdmissionAsyncGate()
-        let activeReadGate = AdmissionAsyncGate()
+        let blockingReadGate = HeldStep<Void>("blockingReadGate", cancellation: .holdThroughCancellation)
+        let activeReadGate = HeldStep<Void>("activeReadGate", cancellation: .holdThroughCancellation)
         let statusSnapshot = admissionCompleteStatusSnapshot()
         let contendedWorktreeId = UUIDv7.generate()
         let activeWorktreeId = UUIDv7.generate()
@@ -149,7 +150,7 @@ struct GitWorkingDirectoryProjectorAdmissionTests {
             physicalGate: physicalGate
         ) { _, _ in
             await blockingReadStarted.signal()
-            await blockingReadGate.waitUntilOpen()
+            try? await blockingReadGate.arrive(())
             return statusSnapshot
         }
         let projectorStatusCalls = StatusCallRecorder()
@@ -159,7 +160,7 @@ struct GitWorkingDirectoryProjectorAdmissionTests {
         ) { rootPath, _ in
             await projectorStatusCalls.record(rootPath)
             if rootPath == activeRootPath {
-                await activeReadGate.waitUntilOpen()
+                try? await activeReadGate.arrive(())
             }
             return statusSnapshot
         }
@@ -216,8 +217,8 @@ struct GitWorkingDirectoryProjectorAdmissionTests {
         #expect(await actor.capacityRetryWorktreeIds == Set([contendedWorktreeId]))
         #expect(pathProbe.recordedRootPaths.filter { $0 == contendedRootPath }.count == 1)
 
-        await activeReadGate.open()
-        await blockingReadGate.open()
+        activeReadGate.release()
+        blockingReadGate.release()
         _ = await blockingRead.value
         #expect(
             await admissionWaitUntil {
@@ -237,7 +238,7 @@ struct GitWorkingDirectoryProjectorAdmissionTests {
     func removingFinalCapacityPauseOwnerReadmitsPendingWork() async {
         let physicalGate = AgentStudioGitStatusPhysicalGate(maxActiveReadCount: 1)
         let blockingReadStarted = AdmissionAsyncReceipt()
-        let blockingReadGate = AdmissionAsyncGate()
+        let blockingReadGate = HeldStep<Void>("blockingReadGate", cancellation: .holdThroughCancellation)
         let statusSnapshot = admissionCompleteStatusSnapshot()
         let capacityWorktreeId = UUIDv7.generate()
         let pendingWorktreeId = UUIDv7.generate()
@@ -249,7 +250,7 @@ struct GitWorkingDirectoryProjectorAdmissionTests {
             physicalGate: physicalGate
         ) { _, _ in
             await blockingReadStarted.signal()
-            await blockingReadGate.waitUntilOpen()
+            try? await blockingReadGate.arrive(())
             return statusSnapshot
         }
         let projectorStatusCalls = StatusCallRecorder()
@@ -329,7 +330,7 @@ struct GitWorkingDirectoryProjectorAdmissionTests {
         #expect(pathProbe.recordedRootPaths.count == 2)
         #expect(Set(pathProbe.recordedRootPaths) == Set([capacityRootPath, pendingRootPath]))
 
-        await blockingReadGate.open()
+        blockingReadGate.release()
         _ = await blockingRead.value
         let pendingStatusRootPaths = await projectorStatusCalls.waitForCallCount(1)
         #expect(pendingStatusRootPaths == [pendingRootPath])
@@ -345,14 +346,14 @@ struct GitWorkingDirectoryProjectorAdmissionTests {
     func sharedPhysicalCapacityRejectionRetainsValidationAndPausesLaterAdmission() async {
         let physicalGate = AgentStudioGitStatusPhysicalGate(maxActiveReadCount: 1)
         let blockingReadStarted = AdmissionAsyncReceipt()
-        let blockingReadGate = AdmissionAsyncGate()
+        let blockingReadGate = HeldStep<Void>("blockingReadGate", cancellation: .holdThroughCancellation)
         let statusSnapshot = admissionCompleteStatusSnapshot()
         let blockingProvider = AgentStudioGitWorkingTreeStatusProvider(
             slowObservationScheduler: PassiveAdmissionGitStatusSlowObservationScheduler(),
             physicalGate: physicalGate
         ) { _, _ in
             await blockingReadStarted.signal()
-            await blockingReadGate.waitUntilOpen()
+            try? await blockingReadGate.arrive(())
             return statusSnapshot
         }
         let projectorProvider = AgentStudioGitWorkingTreeStatusProvider(
@@ -416,7 +417,7 @@ struct GitWorkingDirectoryProjectorAdmissionTests {
         #expect(await actor.capacityRetryWorktreeIds.count == 1)
         #expect(await actor.validatedRootPathByWorktreeId.count == 1)
 
-        await blockingReadGate.open()
+        blockingReadGate.release()
         _ = await blockingRead.value
         #expect(
             await admissionWaitUntil {
@@ -818,27 +819,6 @@ private actor FirstStatusCallGate {
         isFirstCallReleased = true
         firstCallWaiter?.resume()
         firstCallWaiter = nil
-    }
-}
-
-private actor AdmissionAsyncGate {
-    private var isOpen = false
-    private var waiters: [CheckedContinuation<Void, Never>] = []
-
-    func waitUntilOpen() async {
-        guard !isOpen else { return }
-        await withCheckedContinuation { continuation in
-            waiters.append(continuation)
-        }
-    }
-
-    func open() {
-        isOpen = true
-        let pendingWaiters = waiters
-        waiters.removeAll(keepingCapacity: false)
-        for waiter in pendingWaiters {
-            waiter.resume()
-        }
     }
 }
 

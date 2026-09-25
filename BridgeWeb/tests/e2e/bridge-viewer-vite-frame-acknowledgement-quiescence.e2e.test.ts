@@ -1,9 +1,10 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 
-import { chromium, type Browser, type Page, type Request } from 'playwright';
+import type { Browser, Page, Request } from 'playwright';
 import { expect, test } from 'vitest';
 
+import { launchBridgeViewerE2EChromium } from './bridge-viewer-vite-e2e-browser.ts';
 import { observeFrameAcknowledgementQuiescence } from './bridge-viewer-vite-frame-acknowledgement-quiescence.ts';
 
 const acknowledgementCommandPath = '/__bridge-product/command';
@@ -118,7 +119,7 @@ async function issueHeldAcknowledgement(props: {
 test('frame acknowledgement quiescence forgets a destroyed document’s acknowledgement', async (): Promise<void> => {
 	// Arrange: one held worker acknowledgement owed by the current document.
 	const origin = await startHeldAcknowledgementOrigin();
-	const browser: Browser = await chromium.launch({ channel: 'chrome', headless: true });
+	const browser: Browser = await launchBridgeViewerE2EChromium();
 	try {
 		const page = await browser.newPage();
 		const observer = observeFrameAcknowledgementQuiescence(page);
@@ -141,7 +142,7 @@ test('frame acknowledgement quiescence forgets a destroyed document’s acknowle
 test('frame acknowledgement quiescence still observes the document created by the reload', async (): Promise<void> => {
 	// Arrange: an acknowledgement owed by the pre-reload document, then a fresh document.
 	const origin = await startHeldAcknowledgementOrigin();
-	const browser: Browser = await chromium.launch({ channel: 'chrome', headless: true });
+	const browser: Browser = await launchBridgeViewerE2EChromium();
 	try {
 		const page = await browser.newPage();
 		const observer = observeFrameAcknowledgementQuiescence(page);

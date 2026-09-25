@@ -20,7 +20,7 @@ struct WorkspaceCorePaneTopologyFacetMigrationTests {
         let migratedSnapshot = try fixture.snapshot()
         #expect(migratedSnapshot == predecessorSnapshot)
 
-        let schemaProof = try await fixture.databaseQueue.read { database in
+        let schemaProof = try fixture.databaseQueue.read { database in
             let paneColumns = try Row.fetchAll(database, sql: "PRAGMA table_info(pane)")
                 .map { row in row["name"] as String }
             let quickCheck = try String.fetchOne(database, sql: "PRAGMA quick_check")

@@ -1,3 +1,4 @@
+import AgentStudioTestHarness
 import Foundation
 import Testing
 
@@ -11,17 +12,18 @@ struct UnixSocketTransportTests {
         defer { fixture.cleanup() }
 
         let listener = UnixSocketListener(endpoint: fixture.endpoint)
-        let receivedFrame = LockedValue<String?>(nil)
-        let accepted = DispatchSemaphore(value: 0)
+        let handledRequest = HeldStep<String?>("listener handled the request")
+        handledRequest.release()
 
         try listener.start { connection in
+            var receivedFrame: String?
             defer {
                 connection.close()
-                accepted.signal()
+                try? handledRequest.arriveBlocking(receivedFrame)
             }
 
             let request = try connection.receive(maxBytes: 64)
-            receivedFrame.set(String(data: request, encoding: .utf8))
+            receivedFrame = String(data: request, encoding: .utf8)
             try connection.send(Data("pong\n".utf8))
         }
         defer { listener.stop() }
@@ -30,11 +32,10 @@ struct UnixSocketTransportTests {
         defer { client.close() }
 
         try client.send(Data("ping\n".utf8))
-        let response = try await awaitBlocking { try client.receive(maxBytes: 64) }
+        let response = try await valueFromDedicatedThread { try client.receive(maxBytes: 64) }
 
         #expect(String(data: response, encoding: .utf8) == "pong\n")
-        #expect(await awaitSignal(accepted) == .success)
-        #expect(receivedFrame.value() == "ping\n")
+        #expect(try await handledRequest.firstArrival() == "ping\n")
     }
 
     @Test("reads Darwin same-user peer credentials from accepted sockets")
@@ -43,25 +44,24 @@ struct UnixSocketTransportTests {
         defer { fixture.cleanup() }
 
         let listener = UnixSocketListener(endpoint: fixture.endpoint)
-        let credentials = LockedValue<PeerCredentials?>(nil)
-        let accepted = DispatchSemaphore(value: 0)
+        let handledConnection = HeldStep<PeerCredentials?>("listener read peer credentials")
+        handledConnection.release()
 
         try listener.start { connection in
+            var credentials: PeerCredentials?
             defer {
                 connection.close()
-                accepted.signal()
+                try? handledConnection.arriveBlocking(credentials)
             }
 
-            credentials.set(
-                try connection.peerCredentials(using: DarwinPeerCredentialProvider()))
+            credentials = try connection.peerCredentials(using: DarwinPeerCredentialProvider())
         }
         defer { listener.stop() }
 
         let client = try UnixSocketClient.connect(endpoint: fixture.endpoint)
         defer { client.close() }
 
-        #expect(await awaitSignal(accepted) == .success)
-        #expect(credentials.value()?.userIdentifier == getuid())
+        #expect(try await handledConnection.firstArrival()?.userIdentifier == getuid())
     }
 
     /// The normal wake-and-join branch must retain the listening descriptor
@@ -73,18 +73,13 @@ struct UnixSocketTransportTests {
             let fixture = try UnixSocketFixture()
             defer { fixture.cleanup() }
 
-            let handlerEntered = DispatchSemaphore(value: 0)
-            let releaseHandler = DispatchSemaphore(value: 0)
-            let stopDidReturn = LockedValue(false)
-            let stopReturned = DispatchSemaphore(value: 0)
-            let acceptedCount = LockedValue(0)
-            let listeningDescriptor = LockedValue<Int32>(-1)
+            let handler = HeldStep<Void>("accept-loop handler")
+            let stopReturned = HeldStep<Void>("listener stop returned")
+            stopReturned.release()
+            let descriptorProbe = UnixSocketListeningDescriptorProbe(endpointPath: fixture.endpoint.path)
             let joinWait = UnixSocketShutdownWaitController(
                 mode: .waitForFirstBarrier,
-                firstEntryOwnsEndpoint: {
-                    unixSocketPath(ofDescriptor: listeningDescriptor.value())
-                        == fixture.endpoint.path
-                }
+                descriptorProbe: descriptorProbe
             )
             let listener = UnixSocketListener(
                 endpoint: fixture.endpoint,
@@ -92,41 +87,39 @@ struct UnixSocketTransportTests {
             )
 
             try listener.start { connection in
-                acceptedCount.set(acceptedCount.value() + 1)
-                handlerEntered.signal()
-                releaseHandler.wait()
+                try? handler.arriveBlocking(())
                 connection.close()
             }
             defer { listener.stop() }
 
             do {
-                listeningDescriptor.set(
-                    try #require(findUnixSocketDescriptor(boundTo: fixture.endpoint.path)))
+                try descriptorProbe.recordListeningDescriptor()
 
                 // Arrange: occupy the loop inside the handler.
                 let served = try UnixSocketClient.connect(endpoint: fixture.endpoint)
                 defer { served.close() }
-                #expect(await awaitSignal(handlerEntered) == .success)
+                try await handler.firstArrival()
 
                 // Act
-                Thread.detachNewThread {
-                    listener.stop()
-                    stopDidReturn.set(true)
-                    stopReturned.signal()
+                let stopping = Task {
+                    await valueFromDedicatedThread {
+                        listener.stop()
+                        try? stopReturned.arriveBlocking(())
+                    }
                 }
-                let joinEntry = await joinWait.waitUntilFirstEntry()
-                let stopReturnedBeforeRelease = stopDidReturn.value()
-                let pathWhileJoinWaits = unixSocketPath(ofDescriptor: listeningDescriptor.value())
-                releaseHandler.signal()
-                let stopCompletion = await awaitSignal(stopReturned)
+                let joinEntry = try await joinWait.firstJoin.firstArrival()
+                let stopReturnedBeforeRelease = !stopReturned.recordedArrivals.isEmpty
+                let descriptorOwnedEndpointWhileJoinWaits = descriptorProbe.descriptorOwnsEndpoint
+                handler.release()
+                try await stopReturned.firstArrival()
+                await stopping.value
 
                 // Assert: afterwards the loop is gone, the descriptor is released,
                 // and a descriptor opened now is nobody else's to close.
-                #expect(joinEntry == .success)
-                #expect(joinWait.firstEntryOwnedEndpoint == true)
+                #expect(joinEntry.ownedEndpoint)
                 #expect(!stopReturnedBeforeRelease)
-                #expect(pathWhileJoinWaits == fixture.endpoint.path)
-                #expect(stopCompletion == .success)
+                #expect(descriptorOwnedEndpointWhileJoinWaits)
+                #expect(stopReturned.recordedArrivals.count == 1)
                 let probe = try TemporaryFileDescriptor()
                 defer { probe.cleanup() }
                 #expect(probe.isOpen)
@@ -134,17 +127,12 @@ struct UnixSocketTransportTests {
                 #expect(throws: (any Error).self) {
                     _ = try UnixSocketClient.connect(endpoint: fixture.endpoint)
                 }
-                #expect(acceptedCount.value() == 1)
-                #expect(
-                    unixSocketPath(ofDescriptor: listeningDescriptor.value()) != fixture.endpoint.path)
+                #expect(handler.recordedArrivals.count == 1)
+                #expect(!descriptorProbe.descriptorOwnsEndpoint)
             } catch {
                 let fixtureError = error
-                releaseHandler.signal()
-                do {
-                    try await awaitBlocking { listener.stop() }
-                } catch {
-                    Issue.record("listener cleanup unexpectedly failed: \(error)")
-                }
+                handler.release()
+                await valueFromDedicatedThread { listener.stop() }
                 throw fixtureError
             }
         #endif
@@ -159,17 +147,13 @@ struct UnixSocketTransportTests {
             let fixture = try UnixSocketFixture()
             defer { fixture.cleanup() }
 
-            let handlerEntered = DispatchSemaphore(value: 0)
-            let releaseHandler = DispatchSemaphore(value: 0)
-            let stopDidReturn = LockedValue(false)
-            let stopReturned = DispatchSemaphore(value: 0)
-            let listeningDescriptor = LockedValue<Int32>(-1)
+            let handler = HeldStep<Void>("accept-loop handler")
+            let stopReturned = HeldStep<Void>("listener stop returned")
+            stopReturned.release()
+            let descriptorProbe = UnixSocketListeningDescriptorProbe(endpointPath: fixture.endpoint.path)
             let joinWait = UnixSocketShutdownWaitController(
                 mode: .timeOutFirstAndWaitForSecondBarrier,
-                firstEntryOwnsEndpoint: {
-                    unixSocketPath(ofDescriptor: listeningDescriptor.value())
-                        == fixture.endpoint.path
-                }
+                descriptorProbe: descriptorProbe
             )
             let listener = UnixSocketListener(
                 endpoint: fixture.endpoint,
@@ -177,53 +161,45 @@ struct UnixSocketTransportTests {
             )
 
             try listener.start { connection in
-                handlerEntered.signal()
-                releaseHandler.wait()
+                try? handler.arriveBlocking(())
                 connection.close()
             }
             defer { listener.stop() }
 
             do {
-                listeningDescriptor.set(
-                    try #require(findUnixSocketDescriptor(boundTo: fixture.endpoint.path)))
+                try descriptorProbe.recordListeningDescriptor()
                 let served = try UnixSocketClient.connect(endpoint: fixture.endpoint)
                 defer { served.close() }
-                #expect(await awaitSignal(handlerEntered) == .success)
+                try await handler.firstArrival()
 
                 // Act
-                Thread.detachNewThread {
-                    listener.stop()
-                    stopDidReturn.set(true)
-                    stopReturned.signal()
+                let stopping = Task {
+                    await valueFromDedicatedThread {
+                        listener.stop()
+                        try? stopReturned.arriveBlocking(())
+                    }
                 }
-                let firstJoinEntry = await joinWait.waitUntilFirstEntry()
-                let secondJoinEntry = await joinWait.waitUntilSecondEntry()
-                let pathAtSecondJoin = unixSocketPath(ofDescriptor: listeningDescriptor.value())
-                let stopReturnedAtSecondJoin = stopDidReturn.value()
-                releaseHandler.signal()
-                let stopCompletion = await awaitSignal(stopReturned)
-                let firstBarrierDrain = await joinWait.drainBarrier(at: 0)
+                let firstJoinEntry = try await joinWait.firstJoin.firstArrival()
+                let secondJoinEntry = try await joinWait.secondJoin.firstArrival()
+                let stopReturnedAtSecondJoin = !stopReturned.recordedArrivals.isEmpty
+                handler.release()
+                try await stopReturned.firstArrival()
+                await stopping.value
+                await valueFromDedicatedThread { firstJoinEntry.barrier.wait() }
 
                 // Assert
-                #expect(firstJoinEntry == .success)
-                #expect(secondJoinEntry == .success)
-                #expect(joinWait.firstEntryOwnedEndpoint == true)
-                #expect(pathAtSecondJoin != fixture.endpoint.path)
+                #expect(firstJoinEntry.ownedEndpoint)
+                #expect(!secondJoinEntry.ownedEndpoint)
                 #expect(!stopReturnedAtSecondJoin)
-                #expect(stopCompletion == .success)
-                #expect(firstBarrierDrain == .success)
+                #expect(stopReturned.recordedArrivals.count == 1)
                 #expect(joinWait.invocationCount == 2)
                 #expect(throws: (any Error).self) {
                     _ = try UnixSocketClient.connect(endpoint: fixture.endpoint)
                 }
             } catch {
                 let fixtureError = error
-                releaseHandler.signal()
-                do {
-                    try await awaitBlocking { listener.stop() }
-                } catch {
-                    Issue.record("listener cleanup unexpectedly failed: \(error)")
-                }
+                handler.release()
+                await valueFromDedicatedThread { listener.stop() }
                 throw fixtureError
             }
         #endif
@@ -238,16 +214,13 @@ struct UnixSocketTransportTests {
             let fixture = try UnixSocketFixture()
             defer { fixture.cleanup() }
 
-            let handlerEntered = DispatchSemaphore(value: 0)
-            let releaseHandler = DispatchSemaphore(value: 0)
-            let stopReturned = DispatchSemaphore(value: 0)
-            let listeningDescriptor = LockedValue<Int32>(-1)
+            let handler = HeldStep<Void>("accept-loop handler")
+            let stopReturned = HeldStep<Void>("listener stop returned")
+            stopReturned.release()
+            let descriptorProbe = UnixSocketListeningDescriptorProbe(endpointPath: fixture.endpoint.path)
             let joinWait = UnixSocketShutdownWaitController(
                 mode: .timeOutBothBarriers,
-                firstEntryOwnsEndpoint: {
-                    unixSocketPath(ofDescriptor: listeningDescriptor.value())
-                        == fixture.endpoint.path
-                }
+                descriptorProbe: descriptorProbe
             )
             let listener = UnixSocketListener(
                 endpoint: fixture.endpoint,
@@ -255,43 +228,40 @@ struct UnixSocketTransportTests {
             )
 
             try listener.start { connection in
-                handlerEntered.signal()
-                releaseHandler.wait()
+                try? handler.arriveBlocking(())
                 connection.close()
             }
             defer { listener.stop() }
 
             do {
-                listeningDescriptor.set(
-                    try #require(findUnixSocketDescriptor(boundTo: fixture.endpoint.path)))
+                try descriptorProbe.recordListeningDescriptor()
                 let served = try UnixSocketClient.connect(endpoint: fixture.endpoint)
                 defer { served.close() }
-                #expect(await awaitSignal(handlerEntered) == .success)
+                try await handler.firstArrival()
 
                 // Act
-                Thread.detachNewThread {
-                    listener.stop()
-                    stopReturned.signal()
+                let stopping = Task {
+                    await valueFromDedicatedThread {
+                        listener.stop()
+                        try? stopReturned.arriveBlocking(())
+                    }
                 }
-                let firstJoinEntry = await joinWait.waitUntilFirstEntry()
-                let secondJoinEntry = await joinWait.waitUntilSecondEntry()
-                let pathAtSecondJoin = unixSocketPath(ofDescriptor: listeningDescriptor.value())
-                let stopCompletionWhileHandlerHeld = await awaitSignal(stopReturned)
-                releaseHandler.signal()
-                let firstBarrierDrain = await joinWait.drainBarrier(at: 0)
-                let secondBarrierDrain = await joinWait.drainBarrier(at: 1)
+                let firstJoinEntry = try await joinWait.firstJoin.firstArrival()
+                let secondJoinEntry = try await joinWait.secondJoin.firstArrival()
+                // Stop returns while the handler is still held.
+                try await stopReturned.firstArrival()
+                await stopping.value
+                handler.release()
+                await valueFromDedicatedThread { firstJoinEntry.barrier.wait() }
+                await valueFromDedicatedThread { secondJoinEntry.barrier.wait() }
                 let selectedJoinCount = joinWait.invocationCount
-                listener.stop()
+                await valueFromDedicatedThread { listener.stop() }
                 let joinCountAfterRepeatedStop = joinWait.invocationCount
 
                 // Assert
-                #expect(firstJoinEntry == .success)
-                #expect(secondJoinEntry == .success)
-                #expect(joinWait.firstEntryOwnedEndpoint == true)
-                #expect(pathAtSecondJoin != fixture.endpoint.path)
-                #expect(stopCompletionWhileHandlerHeld == .success)
-                #expect(firstBarrierDrain == .success)
-                #expect(secondBarrierDrain == .success)
+                #expect(firstJoinEntry.ownedEndpoint)
+                #expect(!secondJoinEntry.ownedEndpoint)
+                #expect(stopReturned.recordedArrivals.count == 1)
                 #expect(selectedJoinCount == 2)
                 #expect(joinCountAfterRepeatedStop == 3)
                 #expect(throws: (any Error).self) {
@@ -299,12 +269,8 @@ struct UnixSocketTransportTests {
                 }
             } catch {
                 let fixtureError = error
-                releaseHandler.signal()
-                do {
-                    try await awaitBlocking { listener.stop() }
-                } catch {
-                    Issue.record("listener cleanup unexpectedly failed: \(error)")
-                }
+                handler.release()
+                await valueFromDedicatedThread { listener.stop() }
                 throw fixtureError
             }
         #endif
@@ -414,28 +380,7 @@ private final class RecordingPeerCredentialProvider: PeerCredentialProviding, @u
     }
 }
 
-private final class LockedValue<Value>: @unchecked Sendable {
-    private let lock = NSLock()
-    private var storage: Value
-
-    init(_ value: Value) {
-        storage = value
-    }
-
-    func set(_ value: Value) {
-        lock.withLock {
-            storage = value
-        }
-    }
-
-    func value() -> Value {
-        lock.withLock {
-            storage
-        }
-    }
-}
-
-private struct UnixSocketFixture {
+private struct UnixSocketFixture: Sendable {
     let directory: URL
     let endpoint: UnixSocketEndpoint
 
@@ -489,81 +434,5 @@ private struct TemporaryFileDescriptor {
             _ = close(descriptor)
         }
         try? FileManager.default.removeItem(at: url)
-    }
-}
-
-/// Reports the path a descriptor is bound to, or nil when the descriptor is
-/// closed or is not a named Unix socket. `SO_ACCEPTCONN` is not available for
-/// AF_UNIX on Darwin (it fails with `ENOPROTOOPT`), so the bound path is the
-/// identifying fact available to a test.
-private func unixSocketPath(ofDescriptor descriptor: Int32) -> String? {
-    #if canImport(Darwin)
-        var address = sockaddr_un()
-        var addressLength = socklen_t(MemoryLayout<sockaddr_un>.size)
-        let named = withUnsafeMutablePointer(to: &address) { storage in
-            storage.withMemoryRebound(to: sockaddr.self, capacity: 1) { generic in
-                getsockname(descriptor, generic, &addressLength)
-            }
-        }
-        guard named == 0, address.sun_family == sa_family_t(AF_UNIX) else { return nil }
-
-        let pathStorage = address.sun_path
-        let boundPath = withUnsafePointer(to: pathStorage) { storage in
-            storage.withMemoryRebound(
-                to: CChar.self, capacity: MemoryLayout.size(ofValue: pathStorage)
-            ) { characters in
-                String(cString: characters)
-            }
-        }
-        return boundPath.isEmpty ? nil : boundPath
-    #else
-        return nil
-    #endif
-}
-
-/// Locates the listener's own descriptor. Called while the listening socket is
-/// the only thing bound to `path`, so the first match is unambiguous.
-private func findUnixSocketDescriptor(boundTo path: String) -> Int32? {
-    #if canImport(Darwin)
-        for candidate in Int32(0)..<Int32(512) where unixSocketPath(ofDescriptor: candidate) == path {
-            return candidate
-        }
-    #endif
-    return nil
-}
-
-/// Waits for a semaphore on a thread of its own and suspends the caller.
-///
-/// Swift Testing runs a test body on the cooperative executor, whose width is
-/// the machine's core count, so a `DispatchSemaphore.wait` there removes one of
-/// three threads on a CI runner for as long as it blocks. The concurrent lane
-/// can crowd `DispatchQueue.global()` as well, so this takes a thread of its
-/// own, which is always schedulable. The deadline is a liveness backstop rather
-/// than a verdict about speed: every caller asserts success, and a machine
-/// being slow cannot turn a passing run into a failing one.
-private func awaitSignal(
-    _ semaphore: DispatchSemaphore,
-    deadline: DispatchTimeInterval = .seconds(120)
-) async -> DispatchTimeoutResult {
-    await withCheckedContinuation { continuation in
-        Thread.detachNewThread {
-            continuation.resume(returning: semaphore.wait(timeout: .now() + deadline))
-        }
-    }
-}
-
-/// The same hop for a blocking socket call, which parks a cooperative thread
-/// for as long as the peer takes to answer.
-private func awaitBlocking<Value: Sendable>(
-    _ blockingWork: @escaping @Sendable () throws -> Value
-) async throws -> Value {
-    try await withCheckedThrowingContinuation { continuation in
-        Thread.detachNewThread {
-            do {
-                continuation.resume(returning: try blockingWork())
-            } catch {
-                continuation.resume(throwing: error)
-            }
-        }
     }
 }

@@ -70,7 +70,8 @@ swift_test_isolated_process_concurrency() {
 }
 
 # Largest number of tests whose START EVENT had been posted but whose result had
-# not, as an ordinal count over one captured console stream.
+# not, as an ordinal count over one captured console stream. These tests were
+# ANNOUNCED, not started or running, and the lane report labels them that way.
 #
 # This does NOT reflect the parallelization cap. Swift Testing posts .testStarted
 # in _runStep BEFORE the test acquires the parallelization serializer, so a test
@@ -78,7 +79,7 @@ swift_test_isolated_process_concurrency() {
 # number stays near the total test count even when the cap is working. It is kept
 # because it is cheap and shows admission backlog; peak_running_parameterized_cases is the
 # number that reflects the cap.
-swift_test_peak_started_from_output() {
+swift_test_peak_announced_from_output() {
   local output_file="$1"
 
   /usr/bin/iconv -f UTF-8 -t UTF-8 -c <"$output_file" | /usr/bin/awk '
@@ -99,7 +100,7 @@ swift_test_peak_started_from_output() {
 
 # Largest number of test cases RUNNING at once, from Swift Testing's JSON event
 # stream. The parallelization serializer gates _runTestCase and testCaseStarted /
-# testCaseEnded fire inside it, so unlike peak_started_tests this observes the cap.
+# testCaseEnded fire inside it, so unlike peak_announced_tests this observes the cap.
 #
 # Coverage caveat for this toolchain (Swift 6.3.3): the event stream serializes
 # testCase events only for PARAMETERIZED cases — measured 54 testCaseStarted
@@ -196,6 +197,8 @@ swift_test_running_case_ids_from_events() {
 # instead.
 LANE_EVENT_STREAM_DIR="${LANE_EVENT_STREAM_DIR:-tmp/plan-workflows/ci-runs}"
 LANE_EVENT_STREAM_KEEP_PER_LABEL="${LANE_EVENT_STREAM_KEEP_PER_LABEL:-5}"
+# The thread-stack sampler a hang report uses; the task dump does not depend on it.
+LANE_STACK_SAMPLE_TOOL="${LANE_STACK_SAMPLE_TOOL:-/usr/bin/sample}"
 
 # Lane labels are prose ("native-concurrent fast non-WebKit suites"), so they are
 # slugged before reaching a filename.
@@ -218,6 +221,7 @@ lane_event_stream_label_slug() {
 preserve_lane_event_stream() {
   local label="$1"
   local event_stream_file="${2:-}"
+  local evidence_stem="${3:-$(lane_evidence_stem "$label")}"
 
   if [ -z "$event_stream_file" ] || [ ! -r "$event_stream_file" ]; then
     echo "[$LOG_PREFIX] lane-report event_stream=unavailable"
@@ -228,7 +232,7 @@ preserve_lane_event_stream() {
   label_slug="$(lane_event_stream_label_slug "$label")"
   mkdir -p "$LANE_EVENT_STREAM_DIR"
   local preserved_path
-  preserved_path="$LANE_EVENT_STREAM_DIR/lane-$label_slug-$(date +%Y%m%dT%H%M%S)-$$.events.jsonl"
+  preserved_path="$evidence_stem.events.jsonl"
   if cp "$event_stream_file" "$preserved_path" 2>/dev/null; then
     echo "[$LOG_PREFIX] lane-report event_stream=$preserved_path"
     prune_lane_event_streams "$label_slug"
@@ -237,17 +241,137 @@ preserve_lane_event_stream() {
   fi
 }
 
-# Keeps the newest `LANE_EVENT_STREAM_KEEP_PER_LABEL` ledgers for one label.
+# Where one test invocation's hang evidence goes: the event ledger, one task dump
+# per stuck process, and the held-step log all share this stem, so the files that
+# explain one wedge sit side by side as
+# `lane-<label>-<timestamp>-<runner pid>.{events.jsonl,held-steps.log}` and
+# `...-pid<pid>.task-dump.txt`.
+lane_evidence_stem() {
+  echo "$LANE_EVENT_STREAM_DIR/lane-$(lane_event_stream_label_slug "$1")-$(date +%Y%m%dT%H%M%S)-$$"
+}
+
+# The held steps a hung lane was still waiting on. The causal-test harness
+# appends one TAB-separated line per event, with a single O_APPEND write:
+#   waiting<TAB><instance id><TAB><name><TAB><fileID function>
+#   arrived<TAB><instance id><TAB><name>
+# Names contain spaces, so only tabs separate fields. An arrival settles only
+# the wait with the same instance id: two steps can share a name, and one
+# instance arriving (even before any wait was logged) must not hide another
+# instance's missing arrival. Every wait left unmatched is printed, in the
+# order it was logged. A missing or empty log prints nothing.
+print_held_steps_unarrived_at_timeout() {
+  local held_step_log="${1:-}"
+  local held_step_name
+  local held_step_id
+  local held_step_test
+
+  [ -n "$held_step_log" ] && [ -s "$held_step_log" ] || return 0
+  /usr/bin/awk -F '\t' '
+    $1 == "waiting" && NF >= 3 && $2 != "" {
+      if (!($2 in waiting_name)) { order_id[++order_count] = $2 }
+      waiting_name[$2] = $3
+      waiting_test[$2] = $4
+      next
+    }
+    $1 == "arrived" && NF >= 2 && $2 != "" { arrived[$2] = 1 }
+    END {
+      for (position = 1; position <= order_count; position++) {
+        instance_id = order_id[position]
+        if (!(instance_id in arrived)) {
+          printf "%s\t%s\t%s\n", waiting_name[instance_id], instance_id, waiting_test[instance_id]
+        }
+      }
+    }
+  ' "$held_step_log" 2>/dev/null | while IFS=$'\t' read -r held_step_name held_step_id held_step_test; do
+    echo "[$LOG_PREFIX] lane-report held_step_unarrived name=$held_step_name id=$held_step_id test=$held_step_test"
+  done || true
+}
+
+# A held-step log is evidence only when a test wrote to it.
+discard_empty_held_step_log() {
+  local held_step_log="${1:-}"
+
+  if [ -n "$held_step_log" ] && [ ! -s "$held_step_log" ]; then
+    rm -f "$held_step_log"
+  fi
+}
+
+# Keeps the evidence of the newest `LANE_EVENT_STREAM_KEEP_PER_LABEL` runs of one
+# label, one run at a time. A run's evidence is every file sharing its stem,
+# `lane-<label>-<YYYYmmddTHHMMSS>-<runner pid>`: the ledger (`.events.jsonl`),
+# the held-step log (`.held-steps.log`) and one task dump per stuck process
+# (`-pid<pid>.task-dump.txt`). Retention is by stem, never per kind, so one
+# hang's several dumps cannot evict the dump of a run whose ledger is kept.
+#
+# Stems are ordered newest first by name: the fixed-width timestamp sorts
+# chronologically, and file modification times are not the run's time (a
+# copied ledger is stamped when it is copied). An empty held-step log is not
+# evidence, so it never makes a stem count; a stem it is the only member of is
+# deleted. Files whose stem does not have this label's exact shape belong to
+# another label (`lane-foo-bar-…` is not `lane-foo`'s) and are left alone.
 prune_lane_event_streams() {
   local label_slug="$1"
-  local surplus_file
+  local stem_inventory
+  local kept_stems
+  local evidence_stem
+  local stem_counts
+  local evidence_name
 
-  # shellcheck disable=SC2012
-  ls -1t "$LANE_EVENT_STREAM_DIR"/lane-"$label_slug"-*.events.jsonl 2>/dev/null \
-    | tail -n +$((LANE_EVENT_STREAM_KEEP_PER_LABEL + 1)) \
-    | while IFS= read -r surplus_file; do
-      rm -f "$surplus_file"
-    done
+  [ -d "$LANE_EVENT_STREAM_DIR" ] || return 0
+  stem_inventory="$(lane_evidence_stem_inventory "lane-$label_slug-")"
+  [ -n "$stem_inventory" ] || return 0
+
+  kept_stems="$(
+    printf '%s\n' "$stem_inventory" | /usr/bin/awk '$2 == 1 { print $1 }' | sort -ru |
+      head -n "$LANE_EVENT_STREAM_KEEP_PER_LABEL"
+  )" || true
+  printf '%s\n' "$stem_inventory" | while read -r evidence_stem stem_counts evidence_name; do
+    if ! printf '%s\n' "$kept_stems" | grep -Fxq -- "$evidence_stem"; then
+      rm -f "$LANE_EVENT_STREAM_DIR/$evidence_name"
+    fi
+  done || true
+}
+
+# One `<stem> <counts> <file name>` line per evidence file of one label, where
+# counts is 0 for an empty held-step log and 1 otherwise. A function of its own,
+# not inline in the caller's `$(…)`: bash 3.2 (macOS /bin/bash) mis-parses
+# `case` patterns inside a command substitution.
+lane_evidence_stem_inventory() {
+  local label_prefix="$1"
+  local evidence_path
+  local evidence_name
+  local evidence_stem
+  local stem_tail
+  local stem_counts
+
+  for evidence_path in "$LANE_EVENT_STREAM_DIR/$label_prefix"*; do
+    [ -f "$evidence_path" ] || continue
+    evidence_name="${evidence_path##*/}"
+    stem_counts=1
+    case "$evidence_name" in
+      *.events.jsonl) evidence_stem="${evidence_name%.events.jsonl}" ;;
+      *.held-steps.log)
+        evidence_stem="${evidence_name%.held-steps.log}"
+        [ -s "$evidence_path" ] || stem_counts=0
+        ;;
+      *-pid*.task-dump.txt)
+        evidence_stem="${evidence_name%-pid*.task-dump.txt}"
+        case "${evidence_name#"$evidence_stem"-pid}" in
+          *[!0-9]*.task-dump.txt | .task-dump.txt) continue ;;
+        esac
+        ;;
+      *) continue ;;
+    esac
+    stem_tail="${evidence_stem#"$label_prefix"}"
+    case "$stem_tail" in
+      [0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]T[0-9][0-9][0-9][0-9][0-9][0-9]-*) ;;
+      *) continue ;;
+    esac
+    case "${stem_tail#*T??????-}" in
+      '' | *[!0-9]*) continue ;;
+    esac
+    printf '%s %s %s\n' "$evidence_stem" "$stem_counts" "$evidence_name"
+  done
 }
 
 print_running_parameterized_cases_at_timeout() {
@@ -277,9 +401,9 @@ swift_test_record_lane_peaks() {
   local output_file="$1"
   local event_stream_file="${2:-}"
 
-  if [ -n "${SWIFT_TEST_PEAK_STARTED_FILE:-}" ]; then
-    swift_test_peak_started_from_output "$output_file" \
-      >>"$SWIFT_TEST_PEAK_STARTED_FILE" 2>/dev/null || true
+  if [ -n "${SWIFT_TEST_PEAK_ANNOUNCED_FILE:-}" ]; then
+    swift_test_peak_announced_from_output "$output_file" \
+      >>"$SWIFT_TEST_PEAK_ANNOUNCED_FILE" 2>/dev/null || true
   fi
   if [ -n "${SWIFT_TEST_PEAK_RUNNING_FILE:-}" ] && [ -n "$event_stream_file" ]; then
     swift_test_peak_running_cases_from_events "$event_stream_file" \
@@ -295,6 +419,206 @@ swift_test_peak_total_from_file() {
     return 0
   fi
   /usr/bin/awk 'BEGIN { peak = 0 } $1 + 0 > peak { peak = $1 + 0 } END { print peak }' "$peak_file"
+}
+
+# Lane receipt identity: which tree and which test bundle a lane tested.
+#
+# A green lane is evidence only about the tree its bundle was built from. A bundle
+# built from uncommitted changes, from another commit, or by nobody this receipt
+# can name can pass while the commit under review would not, so such a receipt
+# marks itself invalid and never prints a pass verdict. The exit status stays the
+# lane's own: the local edit-test loop keeps working, it just cannot claim a pass.
+#
+# A lane that reuses a bundle (SWIFT_TEST_SKIP_PREBUILD=1, as every CI lane does
+# after its prebuild step) is linked to the build receipt the prebuild published
+# beside the bundle, and is valid only when that receipt names this commit, a
+# clean build tree, and the exact executable the lane runs.
+
+# The tested tree's commit, or `unknown` outside a git checkout.
+lane_receipt_head_sha() {
+  git rev-parse HEAD 2>/dev/null || echo unknown
+}
+
+# `true` when the tree has uncommitted or untracked changes, `false` when it has
+# none, and `unknown` when git cannot say.
+lane_receipt_tree_dirty() {
+  local porcelain
+
+  if ! porcelain="$(git status --porcelain 2>/dev/null)"; then
+    echo unknown
+    return 0
+  fi
+  if [ -n "$porcelain" ]; then
+    echo true
+  else
+    echo false
+  fi
+}
+
+# The tree state a closing receipt reports. A tree that was dirty at the opening,
+# or that changed commit or picked up edits while the lane ran, is not the tree
+# the opening receipt named.
+lane_receipt_tree_dirty_since() {
+  local opening_head_sha="$1"
+  local opening_tree_dirty="$2"
+
+  if [ "$opening_tree_dirty" != "false" ]; then
+    echo "$opening_tree_dirty"
+    return 0
+  fi
+  if [ "$(lane_receipt_head_sha)" != "$opening_head_sha" ]; then
+    echo true
+    return 0
+  fi
+  lane_receipt_tree_dirty
+}
+
+# The exact test executable the lanes run, as `<path>@<size bytes>@<modification
+# epoch seconds>`, or `missing`. Two receipts that print the same identity tested
+# the same built executable.
+lane_receipt_bundle_identity() {
+  local test_bundle
+  local size_and_modification
+
+  test_bundle="$(swift_testing_bundle_path 2>/dev/null)" || { echo missing; return 0; }
+  size_and_modification="$(stat -f '%z@%m' "$test_bundle" 2>/dev/null)" || { echo missing; return 0; }
+  echo "$test_bundle@$size_and_modification"
+}
+
+# Where the prebuild publishes its build receipt: beside the bundle, in the
+# build path the lanes read, so a lane can only ever find its own slot's.
+lane_build_receipt_path() {
+  echo "$BUILD_PATH/agentstudio-test-build-receipt"
+}
+
+# Builds the test bundles and publishes the build receipt that links later lanes
+# to this build. In this order, so no receipt can outlive or misdescribe a build:
+#   1. delete the slot's receipt, so a failed or interrupted build leaves none;
+#   2. sample the commit and tree state before compiling;
+#   3. publish only after the build succeeded, by atomic rename.
+prebuild_swift_tests_with_build_receipt() {
+  local build_receipt
+  local build_head_sha
+  local build_tree_dirty
+  local staged_receipt
+
+  build_receipt="$(lane_build_receipt_path)"
+  rm -f "$build_receipt"
+  build_head_sha="$(lane_receipt_head_sha)"
+  build_tree_dirty="$(lane_receipt_tree_dirty)"
+
+  prebuild_swift_tests || return $?
+
+  staged_receipt="$(mktemp "$build_receipt.XXXXXX")"
+  printf 'bundle_identity=%s\nhead_sha=%s\ntree_dirty=%s\n' \
+    "$(lane_receipt_bundle_identity)" "$build_head_sha" "$build_tree_dirty" >"$staged_receipt"
+  mv -f "$staged_receipt" "$build_receipt"
+}
+
+# One field of a build receipt, or a non-zero status when the receipt or the
+# field is absent or empty.
+lane_build_receipt_field() {
+  local build_receipt="$1"
+  local field_name="$2"
+
+  [ -r "$build_receipt" ] || return 1
+  /usr/bin/awk -v field_name="$field_name" '
+    index($0, field_name "=") == 1 && length($0) > length(field_name) + 1 {
+      print substr($0, length(field_name) + 2)
+      found = 1
+      exit
+    }
+    END { exit !found }
+  ' "$build_receipt"
+}
+
+# Why a reused bundle is NOT linked to a clean build of this commit, or nothing
+# when it is:
+#   reused_bundle_unlinked  no receipt, a malformed one, or one naming another executable
+#   built_from_dirty_tree   the receipt says the build tree had uncommitted changes
+#   bundle_head_mismatch    the receipt names another commit
+lane_build_receipt_link_reason() {
+  local build_receipt="$1"
+  local current_head_sha="$2"
+  local current_bundle_identity="$3"
+  local recorded_bundle_identity
+  local recorded_head_sha
+  local recorded_tree_dirty
+
+  if ! recorded_bundle_identity="$(lane_build_receipt_field "$build_receipt" bundle_identity)" ||
+    ! recorded_head_sha="$(lane_build_receipt_field "$build_receipt" head_sha)" ||
+    ! recorded_tree_dirty="$(lane_build_receipt_field "$build_receipt" tree_dirty)"
+  then
+    echo reused_bundle_unlinked
+    return 0
+  fi
+  case "$recorded_tree_dirty" in
+    false) ;;
+    true | unknown)
+      echo built_from_dirty_tree
+      return 0
+      ;;
+    *)
+      echo reused_bundle_unlinked
+      return 0
+      ;;
+  esac
+  if [ "$recorded_head_sha" != "$current_head_sha" ]; then
+    echo bundle_head_mismatch
+    return 0
+  fi
+  if [ "$current_bundle_identity" = "missing" ] || [ "$recorded_bundle_identity" != "$current_bundle_identity" ]; then
+    echo reused_bundle_unlinked
+  fi
+}
+
+# Why a receipt is invalid, comma-separated, or nothing when it is valid.
+#   bundle_state: fresh (this invocation's prebuild ran and succeeded),
+#                 reused (the prebuild was skipped; valid only when linked),
+#                 not_built (it failed or never ran)
+#   bundle_link_reason: lane_build_receipt_link_reason's verdict for a reused bundle
+lane_receipt_invalid_reasons() {
+  local bundle_state="$1"
+  local tree_dirty="$2"
+  local bundle_link_reason="${3:-}"
+  local reasons=()
+
+  case "$bundle_state" in
+    fresh) ;;
+    reused) [ -z "$bundle_link_reason" ] || reasons+=("$bundle_link_reason") ;;
+    *) reasons+=(unbuilt_bundle) ;;
+  esac
+  case "$tree_dirty" in
+    false) ;;
+    true) reasons+=(dirty_tree) ;;
+    *) reasons+=(unknown_tree) ;;
+  esac
+
+  local IFS=','
+  printf '%s' "${reasons[*]:-}"
+}
+
+# The closing receipt's validity and verdict lines. Only a valid receipt carries
+# a pass or fail verdict; an invalid one is `unverified` whatever the exit status.
+print_lane_receipt_verdict() {
+  local exit_status="$1"
+  local bundle_state="$2"
+  local tree_dirty="$3"
+  local bundle_link_reason="${4:-}"
+  local invalid_reasons
+
+  invalid_reasons="$(lane_receipt_invalid_reasons "$bundle_state" "$tree_dirty" "$bundle_link_reason")"
+  if [ -n "$invalid_reasons" ]; then
+    echo "[$LOG_PREFIX] lane-report receipt_valid=false reason=$invalid_reasons"
+    echo "[$LOG_PREFIX] lane-report verdict=unverified"
+    return 0
+  fi
+  echo "[$LOG_PREFIX] lane-report receipt_valid=true"
+  if [ "$exit_status" -eq 0 ]; then
+    echo "[$LOG_PREFIX] lane-report verdict=pass"
+  else
+    echo "[$LOG_PREFIX] lane-report verdict=fail"
+  fi
 }
 
 # swift build (the prebuild) rejects the Swift Testing event-stream flags; every
@@ -681,10 +1005,11 @@ swift_testing_framework_path() {
 swift_test_record_failed_isolated_suite() {
   local suite_filter="$1"
   local status="$2"
+  local signal_name="${3:-$(swift_test_signal_name "$status")}"
 
   [ -n "${SWIFT_TEST_FAILED_ISOLATED_SUITES_FILE:-}" ] || return 0
   printf '%s\t%s\t%s\n' \
-    "$suite_filter" "$status" "$(swift_test_signal_name "$status")" \
+    "$suite_filter" "$status" "$signal_name" \
     >>"$SWIFT_TEST_FAILED_ISOLATED_SUITES_FILE" 2>/dev/null || true
 }
 
@@ -866,7 +1191,7 @@ run_webkit_suites() {
   echo "--- WebKit serialized tests (serial) ---"
   while IFS= read -r filter; do
     [ -n "$filter" ] || continue
-    run_webkit_suite_with_retry "$filter" || return $?
+    run_webkit_suite "$filter" || return $?
   done < <(webkit_suite_filters)
 }
 
@@ -917,16 +1242,34 @@ run_swift_with_timeout() {
   # Both `swift test` and swiftpm-testing-helper accept these trailing flags on
   # Swift 6.3.3 (neither advertises them in --help).
   local event_stream_file=""
+  local evidence_stem
+  evidence_stem="$(lane_evidence_stem "$label")"
+  # The test process appends to this log through AGENTSTUDIO_HELD_STEP_LOG; it is
+  # handed over as an absolute path because the test process's working directory
+  # is not this script's to promise.
+  local held_step_log=""
   if swift_test_command_accepts_event_stream "$@"; then
     event_stream_file="$(mktemp "${TMPDIR:-/tmp}/agentstudio-swift-test-events.XXXXXX")"
     set -- "$@" --event-stream-version 0 --event-stream-output-path "$event_stream_file"
+    mkdir -p "$LANE_EVENT_STREAM_DIR"
+    held_step_log="$evidence_stem.held-steps.log"
+    case "$held_step_log" in
+      /*) ;;
+      *) held_step_log="$PWD/$held_step_log" ;;
+    esac
+    : >"$held_step_log"
   fi
 
   # Run command piped through xcbeautify in a subshell so we track one PID.
   # Subshell inherits pipefail from parent — swift exit code propagates.
   #
   # shellcheck disable=SC2086
-  ( "$@" 2>&1 | tee "$output_file" | $xcb_pipe ) &
+  (
+    if [ -n "$held_step_log" ]; then
+      export AGENTSTUDIO_HELD_STEP_LOG="$held_step_log"
+    fi
+    "$@" 2>&1 | tee "$output_file" | $xcb_pipe
+  ) &
   local command_pid=$!
 
   while kill -0 "$command_pid" 2>/dev/null; do
@@ -967,7 +1310,8 @@ run_swift_with_timeout() {
     # Read the stream before terminating anything: this names what was still
     # executing at the timeout, not what survived the kill.
     print_running_parameterized_cases_at_timeout "$event_stream_file"
-    print_timeout_process_diagnostics "$label" "$command_pid"
+    print_held_steps_unarrived_at_timeout "$held_step_log"
+    print_timeout_process_diagnostics "$label" "$command_pid" "$evidence_stem"
     echo "[$LOG_PREFIX] raw output tail for '$label':"
     tail -n 120 "$output_file" || true
     # Copy the ledger BEFORE anything is signalled, while the writer is still
@@ -976,7 +1320,7 @@ run_swift_with_timeout() {
     # the writer's fd pointing at a file that still exists, which a
     # cross-filesystem move would not — it would leave the child appending to an
     # unlinked inode.
-    preserve_lane_event_stream "$label" "$event_stream_file"
+    preserve_lane_event_stream "$label" "$event_stream_file" "$evidence_stem"
     terminate_lane_child_tree TERM "$command_pid"
     # Writing the report IS the grace period. It is work the lane must do anyway,
     # so a child that honours TERM exits while it happens and no `sleep` has to
@@ -998,6 +1342,7 @@ run_swift_with_timeout() {
       echo "[$LOG_PREFIX] lane-report timeout_reap=terminated"
       wait "$command_pid" 2>/dev/null || true
     fi
+    discard_empty_held_step_log "$held_step_log"
     rm -f "$output_file" ${event_stream_file:+"$event_stream_file"}
     return 124
   fi
@@ -1024,8 +1369,14 @@ run_swift_with_timeout() {
   fi
 
   swift_test_record_lane_peaks "$output_file" "$event_stream_file"
-  if [ "$should_preserve_event_stream" -eq 1 ]; then
-    preserve_lane_event_stream "$label" "$event_stream_file"
+  # A width comparison compares what ran, so it keeps every ledger, passing or not.
+  if [ "$should_preserve_event_stream" -eq 1 ] || [ "${LANE_EVENT_STREAM_RETAIN_ALWAYS:-0}" = "1" ]; then
+    # Discarded first, so retention never sees this run's empty held-step log.
+    discard_empty_held_step_log "$held_step_log"
+    preserve_lane_event_stream "$label" "$event_stream_file" "$evidence_stem"
+  elif [ -n "$held_step_log" ]; then
+    # A run that ended cleanly has nothing to explain, so it keeps nothing.
+    rm -f "$held_step_log"
   fi
   rm -f "$output_file" ${event_stream_file:+"$event_stream_file"}
   return "$command_status"
@@ -1041,6 +1392,28 @@ swift_test_signal_name() {
   else
     echo none
   fi
+}
+
+# The signal that ended a test run: from the status when the child itself was
+# signalled, else from `swift test`'s own report of a helper it lost to a signal
+# ("unexpected signal code N"), which `swift test` exits 1 for. `none` otherwise.
+swift_test_crash_signal_name() {
+  local status="${1:-0}"
+  local output="${2:-}"
+  local reported_signal_code
+
+  if [ "$status" -gt 128 ]; then
+    swift_test_signal_name "$status"
+    return 0
+  fi
+  if ! grep -Eq "unexpected signal code [0-9]+" <<<"$output"; then
+    echo none
+    return 0
+  fi
+  reported_signal_code="$(
+    grep -Eo "unexpected signal code [0-9]+" <<<"$output" | grep -Eo "[0-9]+" | tail -n 1
+  )"
+  kill -l "$reported_signal_code" 2>/dev/null || echo unknown
 }
 
 # Mirrors the timeout branch's diagnostics for a child that exited non-zero
@@ -1072,11 +1445,12 @@ swift_test_output_has_failures() {
 print_timeout_process_diagnostics() {
   local label="$1"
   local root_pid="$2"
+  local evidence_stem="${3:-$(lane_evidence_stem "$label")}"
 
   echo "[$LOG_PREFIX] process tree for timed out '$label' (root pid=$root_pid):"
   print_timeout_process_tree "$root_pid" 0
   print_timeout_process_snapshot "$label" "$root_pid"
-  sample_stuck_swift_test_processes "$label" "$root_pid"
+  sample_stuck_swift_test_processes "$label" "$root_pid" "$evidence_stem"
 }
 
 print_timeout_process_tree() {
@@ -1121,13 +1495,12 @@ descendant_process_pids() {
 sample_stuck_swift_test_processes() {
   local label="$1"
   local root_pid="$2"
+  local evidence_stem="${3:-$(lane_evidence_stem "$label")}"
   local sampled_count=0
 
-  if [ ! -x /usr/bin/sample ]; then
-    echo "[$LOG_PREFIX] sample unavailable; skipping stuck Swift test stack capture"
-    return 0
-  fi
-
+  # Each process gets a stack sample and a task dump, attempted independently:
+  # the two tools are separately available, and a missing one must not cost the
+  # evidence the other can still give.
   local process_pid
   for process_pid in $(descendant_process_pids "$root_pid"); do
     local process_command
@@ -1135,6 +1508,7 @@ sample_stuck_swift_test_processes() {
     case "$process_command" in
       *AgentStudioPackageTests* | *.xctest* | *"swift test"*)
         sample_stuck_swift_test_process "$label" "$process_pid"
+        dump_stuck_swift_test_process_tasks "$label" "$process_pid" "$evidence_stem"
         sampled_count=$((sampled_count + 1))
         if [ "$sampled_count" -ge 3 ]; then
           break
@@ -1152,16 +1526,59 @@ sample_stuck_swift_test_process() {
   local label="$1"
   local process_pid="$2"
   local sample_file
+  local sample_status=0
 
+  if [ ! -x "$LANE_STACK_SAMPLE_TOOL" ]; then
+    echo "[$LOG_PREFIX] lane-report stack_sample=unavailable pid=$process_pid" \
+      "reason=$LANE_STACK_SAMPLE_TOOL is not executable"
+    return 0
+  fi
   sample_file="$(mktemp "${TMPDIR:-/tmp}/agentstudio-swift-test-sample.XXXXXX")"
   echo "[$LOG_PREFIX] sampling stuck Swift test process pid=$process_pid for '$label'"
-  if /usr/bin/sample "$process_pid" 3 1 -file "$sample_file" >/dev/null 2>&1; then
+  "$LANE_STACK_SAMPLE_TOOL" "$process_pid" 3 1 -file "$sample_file" >/dev/null 2>&1 || sample_status=$?
+  if [ "$sample_status" -eq 0 ]; then
     echo "[$LOG_PREFIX] sampled stuck Swift test process pid=$process_pid:"
     sed -n '1,220p' "$sample_file" | sed "s/^/[$LOG_PREFIX] /" || true
   else
-    echo "[$LOG_PREFIX] sample failed for Swift test process pid=$process_pid"
+    echo "[$LOG_PREFIX] lane-report stack_sample=unavailable pid=$process_pid" \
+      "reason=$LANE_STACK_SAMPLE_TOOL exited $sample_status"
   fi
   rm -f "$sample_file"
+}
+
+# The concurrency task dump of one stuck test process, kept beside the event-stream
+# ledger. `sample` shows threads, and a wedged Swift Testing run usually has none
+# busy: the stuck work is suspended tasks, which only swift-inspect can list, each
+# with the function it would resume in.
+#
+# swift-inspect exits 0 even when it cannot attach (it prints "Failed to create
+# inspector" and nothing on stdout), so success is judged by the dump having
+# content, and any refusal is recorded instead of failing the lane.
+dump_stuck_swift_test_process_tasks() {
+  local label="$1"
+  local process_pid="$2"
+  local evidence_stem="${3:-$(lane_evidence_stem "$label")}"
+  local label_slug
+  local dump_path
+  local dump_error_file
+  local refusal_reason
+
+  label_slug="$(lane_event_stream_label_slug "$label")"
+  mkdir -p "$LANE_EVENT_STREAM_DIR"
+  dump_path="$evidence_stem-pid$process_pid.task-dump.txt"
+  dump_error_file="$(mktemp "${TMPDIR:-/tmp}/agentstudio-swift-inspect-error.XXXXXX")"
+
+  if xcrun swift-inspect dump-concurrency "$process_pid" >"$dump_path" 2>"$dump_error_file" &&
+    [ -s "$dump_path" ]
+  then
+    echo "[$LOG_PREFIX] lane-report task_dump=$dump_path"
+    prune_lane_event_streams "$label_slug"
+  else
+    refusal_reason="$(tr '\n' ' ' <"$dump_error_file" | sed -E 's/[[:space:]]+/ /g; s/ $//')"
+    echo "[$LOG_PREFIX] lane-report task_dump=unavailable pid=$process_pid reason=${refusal_reason:-empty dump}"
+    rm -f "$dump_path"
+  fi
+  rm -f "$dump_error_file"
 }
 
 # Signals one process tree: children first, then the root.
@@ -1225,50 +1642,32 @@ lane_run_has_survivors() {
   pgrep -f -- "$run_token" >/dev/null 2>&1
 }
 
-run_webkit_suite_with_retry() {
+# One WebKit suite, run once. A crash fails the lane and is recorded, with its
+# signal, in the same failed-isolated-suite tally the closing receipt prints.
+# There is no in-lane retry: a retry turned a teardown crash into a green lane
+# whose receipt said nothing, which is a rerun the CI gate could not see.
+run_webkit_suite() {
   local filter="$1"
-  local attempt=1
-  local max_attempts=3
-  local backoff_seconds=1
+  local output
+  local command_status=0
 
-  while [ "$attempt" -le "$max_attempts" ]; do
-    echo "[webkit] running $filter (attempt $attempt/$max_attempts)"
-    set +e
-    local output
-    # Bypass xcbeautify — we need raw output to detect "unexpected signal code" for retries.
-    # Set _XCB_BYPASS on its own line: bash evaluates $() before assignments on the same line.
-    _XCB_BYPASS=1
-    # shellcheck disable=SC2086
-    output=$(run_swift_with_timeout "$filter" "$TIMEOUT_SECONDS" \
-      env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" $(swift_test_parallelization_env_word) swift test ${EXTRA_SWIFT_TEST_ARGS:-} \
-      --skip-build --filter "$filter" --build-path "$BUILD_PATH" 2>&1)
-    local command_status=$?
-    unset _XCB_BYPASS
-    set -e
-    echo "$output"
+  echo "[webkit] running $filter"
+  # Bypass xcbeautify: `swift test` reports a crashed helper only as
+  # "unexpected signal code N" in its raw output, and the signal is read from it.
+  # Set _XCB_BYPASS on its own line: bash evaluates $() before assignments on the same line.
+  _XCB_BYPASS=1
+  # shellcheck disable=SC2086
+  output=$(run_swift_with_timeout "$filter" "$TIMEOUT_SECONDS" \
+    env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" $(swift_test_parallelization_env_word) swift test ${EXTRA_SWIFT_TEST_ARGS:-} \
+    --skip-build --filter "$filter" --build-path "$BUILD_PATH" 2>&1) || command_status=$?
+  unset _XCB_BYPASS
+  echo "$output"
 
-    if [ "$command_status" -eq 0 ]; then
-      return 0
-    fi
-    if [ "$command_status" -eq 124 ]; then
-      return 124
-    fi
-
-    if [ "$command_status" -ne 124 ] && grep -Eq "unexpected signal code [0-9]+" <<<"$output"; then
-      local signal_code
-      signal_code=$(grep -Eo "unexpected signal code [0-9]+" <<<"$output" | grep -Eo "[0-9]+" | tail -n 1)
-      if [ -z "$signal_code" ]; then
-        signal_code="unknown"
-      fi
-      if [ "$attempt" -lt "$max_attempts" ]; then
-        echo "[webkit] signal $signal_code in $filter; retrying after ${backoff_seconds}s"
-        sleep "$backoff_seconds"
-        backoff_seconds=$((backoff_seconds * 2))
-        attempt=$((attempt + 1))
-        continue
-      fi
-    fi
-
-    return "$command_status"
-  done
+  if [ "$command_status" -ne 0 ]; then
+    local signal_name
+    signal_name="$(swift_test_crash_signal_name "$command_status" "$output")"
+    echo "[$LOG_PREFIX] WebKit suite failed: $filter status=$command_status signal=$signal_name" >&2
+    swift_test_record_failed_isolated_suite "$filter" "$command_status" "$signal_name"
+  fi
+  return "$command_status"
 }

@@ -1,8 +1,7 @@
-import Dispatch
-import Foundation
+import AgentStudioTestHarness
 
-/// Runs blocking work on a libdispatch thread and suspends the caller until it
-/// finishes.
+/// Runs blocking work off the cooperative pool and suspends the caller until
+/// it finishes.
 ///
 /// Swift Testing runs each test body as a task on the cooperative executor,
 /// whose width is the machine's core count. A synchronous socket read, a
@@ -13,10 +12,10 @@ import Foundation
 /// tests at once deadlocked the entire fast lane, and the sample showed all
 /// three cooperative threads parked in `recv` and `semaphore_wait_trap`.
 ///
-/// `DispatchQueue.global()` is a different pool from
-/// `com.apple.root.default-qos.cooperative` and grows threads on demand, so the
-/// block lands somewhere that can afford it. `@concurrent` is not a substitute:
-/// it still draws from the cooperative pool.
+/// The block lands on a thread of its own through the harness's
+/// `valueFromDedicatedThread`, the single implementation of this hop, which
+/// the targets that cannot see this module use directly. `@concurrent` is not
+/// a substitute: it still draws from the cooperative pool.
 ///
 /// Every synchronous `UnixSocketConnection.receive`, `DispatchSemaphore.wait`
 /// and `Process` wait in a test body goes through here or through one of the
@@ -25,15 +24,7 @@ import Foundation
 package func withoutBlockingCooperativePool<Value: Sendable>(
     _ blockingWork: @escaping @Sendable () throws -> Value
 ) async throws -> Value {
-    try await withCheckedThrowingContinuation { continuation in
-        DispatchQueue.global(qos: .userInitiated).async {
-            do {
-                continuation.resume(returning: try blockingWork())
-            } catch {
-                continuation.resume(throwing: error)
-            }
-        }
-    }
+    try await valueFromDedicatedThread(blockingWork)
 }
 
 /// The non-throwing form, for a wait that reports through its own return value
@@ -41,9 +32,5 @@ package func withoutBlockingCooperativePool<Value: Sendable>(
 package func withoutBlockingCooperativePool<Value: Sendable>(
     _ blockingWork: @escaping @Sendable () -> Value
 ) async -> Value {
-    await withCheckedContinuation { continuation in
-        DispatchQueue.global(qos: .userInitiated).async {
-            continuation.resume(returning: blockingWork())
-        }
-    }
+    await valueFromDedicatedThread(blockingWork)
 }

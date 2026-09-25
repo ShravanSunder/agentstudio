@@ -1,3 +1,4 @@
+import AgentStudioTestHarness
 import AgentStudioTestSupport
 import Foundation
 import Testing
@@ -45,7 +46,7 @@ struct BridgeCapacityIntegrationTests {
                 rank: .foreground
             )
 
-            let heldMetadataGate = BridgeGitReadOperationGate(returnValue: "held-metadata")
+            let heldMetadataGate = HeldStep<Void>("heldMetadataGate", cancellation: .holdThroughCancellation)
             let heldMetadataRead = Task {
                 try await scheduler.read(
                     request: makeCapacityIntegrationReadRequest(
@@ -53,10 +54,11 @@ struct BridgeCapacityIntegrationTests {
                         key: "held-metadata"
                     )
                 ) {
-                    await heldMetadataGate.run()
+                    try? await heldMetadataGate.arrive(())
+                    return "held-metadata"
                 }
             }
-            await heldMetadataGate.waitUntilStarted()
+            try await heldMetadataGate.firstArrival()
             _ = await schedulerEventProbe.waitFor(.started)
             #expect(deadlineScheduler.fireNextActiveDeadline())
             _ = await schedulerEventProbe.waitFor(.draining)
@@ -70,10 +72,10 @@ struct BridgeCapacityIntegrationTests {
 
             // Act
             let blockedMetadataSnapshot = await scheduler.snapshot()
-            let blockedMetadataInvocationCounts = await queuedMetadata.allGates.asyncMap { gate in
-                await gate.recordedInvocationCount()
+            let blockedMetadataInvocationCounts = queuedMetadata.allGates.map { gate in
+                gate.recordedArrivals.count
             }
-            let selectedContentGate = BridgeGitReadOperationGate(returnValue: "selected-content")
+            let selectedContentGate = HeldStep<Void>("selectedContentGate", cancellation: .holdThroughCancellation)
             let selectedContentRead = Task {
                 try await scheduler.read(
                     request: makeCapacityIntegrationReadRequest(
@@ -82,10 +84,11 @@ struct BridgeCapacityIntegrationTests {
                         key: "selected-content"
                     )
                 ) {
-                    await selectedContentGate.run()
+                    try? await selectedContentGate.arrive(())
+                    return "selected-content"
                 }
             }
-            await selectedContentGate.waitUntilStarted()
+            try await selectedContentGate.firstArrival()
             let peakSchedulerSnapshot = await scheduler.snapshot()
             let mainActorHeartbeat = await Task { @MainActor in
                 for _ in 0..<32 {
@@ -93,17 +96,17 @@ struct BridgeCapacityIntegrationTests {
                 }
                 return 32
             }.value
-            await selectedContentGate.release()
+            selectedContentGate.release()
             let selectedContent = try await selectedContentRead.value
 
-            await heldMetadataGate.release()
+            heldMetadataGate.release()
             let selectedMetadataStart = await schedulerEventProbe.waitFor(.started, occurrence: 3)
-            await queuedMetadata.selectedForegroundGate.release()
+            queuedMetadata.selectedForegroundGate.release()
             let firstHiddenStart = await schedulerEventProbe.waitFor(.started, occurrence: 4)
-            await queuedMetadata.firstHiddenWorktreeGate.release()
+            queuedMetadata.firstHiddenWorktreeGate.release()
             let fairPeerStart = await schedulerEventProbe.waitFor(.started, occurrence: 5)
             for gate in queuedMetadata.allGates {
-                await gate.release()
+                gate.release()
             }
             let queuedResults = try await queuedMetadata.tasks.asyncMap { task in
                 try await task.value
@@ -253,9 +256,9 @@ struct BridgeCapacityIntegrationTests {
 
 private struct BridgeCapacityIntegrationQueuedMetadata {
     let tasks: [Task<String, any Error>]
-    let selectedForegroundGate: BridgeGitReadOperationGate<String>
-    let firstHiddenWorktreeGate: BridgeGitReadOperationGate<String>
-    let allGates: [BridgeGitReadOperationGate<String>]
+    let selectedForegroundGate: HeldStep<Void>
+    let firstHiddenWorktreeGate: HeldStep<Void>
+    let allGates: [HeldStep<Void>]
 }
 
 private struct BridgeCapacityIntegrationGitFixture {
@@ -356,7 +359,7 @@ private func makeQueuedMetadataReads(
         (0, "selected-foreground"),
     ]
     let gates = specifications.map {
-        BridgeGitReadOperationGate(returnValue: $0.key)
+        HeldStep<Void>("\($0.key) git read", cancellation: .holdThroughCancellation)
     }
     var tasks: [Task<String, any Error>] = []
     for (index, pair) in zip(specifications, gates).enumerated() {
@@ -367,7 +370,8 @@ private func makeQueuedMetadataReads(
                     key: pair.0.key
                 )
             ) {
-                await pair.1.run()
+                try? await pair.1.arrive(())
+                return pair.0.key
             }
         }
         tasks.append(task)

@@ -1,4 +1,5 @@
 import AgentStudioCore
+import AgentStudioTestHarness
 import AgentStudioTestSupport
 import Foundation
 import Testing
@@ -8,9 +9,9 @@ import Testing
 @Suite("Bridge worktree file ignore policy")
 struct BridgeWorktreeFileIgnorePolicyTests {
     @Test("tracked path timeout falls back to filesystem enumeration")
-    func trackedPathTimeoutFallsBackToFilesystemEnumeration() async {
+    func trackedPathTimeoutFallsBackToFilesystemEnumeration() async throws {
         // Arrange
-        let trackedPathReadGate = BridgeTrackedPathReadGate()
+        let trackedPathReadGate = HeldStep<Void>("trackedPathReadGate", cancellation: .holdThroughCancellation)
         let deadlineScheduler = BridgeGitReadManualDeadlineScheduler()
         let eventProbe = BridgeGitReadSchedulerEventProbe()
         let scheduler = BridgeGitReadScheduler(
@@ -35,13 +36,12 @@ struct BridgeWorktreeFileIgnorePolicyTests {
                 statusProvider: statusProvider,
                 trackedFilePathsTimeout: .seconds(999),
                 trackedFilePathsLoader: { _ in
-                    await trackedPathReadGate.recordStarted()
-                    await trackedPathReadGate.waitUntilReleased()
+                    try? await trackedPathReadGate.arrive(())
                     return ["Sources/App.swift"]
                 }
             )
         }
-        await trackedPathReadGate.waitUntilStarted()
+        try await trackedPathReadGate.firstArrival()
 
         // Act
         #expect(deadlineScheduler.fireNextActiveDeadline())
@@ -50,47 +50,8 @@ struct BridgeWorktreeFileIgnorePolicyTests {
 
         // Assert
         #expect(policy.publishableFilePaths == nil)
-        await trackedPathReadGate.release()
+        trackedPathReadGate.release()
         _ = await eventProbe.waitFor(.slotReleased)
         await scheduler.shutdown()
-    }
-}
-
-private actor BridgeTrackedPathReadGate {
-    private var didStart = false
-    private var didRelease = false
-    private var startWaiters: [CheckedContinuation<Void, Never>] = []
-    private var releaseWaiters: [CheckedContinuation<Void, Never>] = []
-
-    func recordStarted() {
-        didStart = true
-        let waiters = startWaiters
-        startWaiters.removeAll(keepingCapacity: false)
-        for waiter in waiters {
-            waiter.resume()
-        }
-    }
-
-    func waitUntilStarted() async {
-        guard !didStart else { return }
-        await withCheckedContinuation { continuation in
-            startWaiters.append(continuation)
-        }
-    }
-
-    func waitUntilReleased() async {
-        guard !didRelease else { return }
-        await withCheckedContinuation { continuation in
-            releaseWaiters.append(continuation)
-        }
-    }
-
-    func release() {
-        didRelease = true
-        let waiters = releaseWaiters
-        releaseWaiters.removeAll(keepingCapacity: false)
-        for waiter in waiters {
-            waiter.resume()
-        }
     }
 }

@@ -350,6 +350,12 @@ describe('worktree annotation Pierre Review integration', () => {
 			const headComposer = rendered.getByRole('textbox', {
 				name: 'Write an annotation in Markdown',
 			});
+			// Wait inside act(): Pierre paints annotation slots from its own frame loop, and a
+			// poll outside act() lets that SlotPortals update raise an act() warning.
+			await settleBrowserCondition(
+				(): boolean => headComposer.query()?.checkVisibility() === true,
+				'Expected the head-side root composer to become visible.',
+			);
 			await expect.element(headComposer).toBeVisible();
 			expect(annotationAttentionSnapshots.at(-1)).toEqual(['item-source']);
 			expect(annotationEditorAttentionSnapshots.at(-1)).toEqual(['item-source']);
@@ -485,7 +491,12 @@ describe('worktree annotation Pierre Review integration', () => {
 				surface.settleMostRecentCommittedWithoutProjection(annotationSessionId, 'root.create');
 				await Promise.resolve();
 			});
-			await expect.element(rendered.getByText('Draft', { exact: true })).toBeVisible();
+			const draftStatus = rendered.getByText('Draft', { exact: true });
+			await settleBrowserCondition(
+				(): boolean => draftStatus.query()?.checkVisibility() === true,
+				'Expected the committed root draft status to become visible.',
+			);
+			await expect.element(draftStatus).toBeVisible();
 			await act(async (): Promise<void> => {
 				await userEvent.keyboard('{Escape}');
 				await Promise.resolve();

@@ -2,13 +2,17 @@
 import { installCommandText, marketingCopy } from "@/marketing-copy";
 ---
 
+<!--
+  One command box: the commands, then a quiet trailing Copy control behind a
+  hairline divider, at every width. The status line sits below the box.
+-->
 <div
-  class="install-command relative grid min-w-[min(100%,470px)] grid-cols-[minmax(0,1fr)_auto] items-stretch gap-1 max-phone:min-w-full max-phone:grid-cols-[minmax(0,1fr)]"
+  class="install-command relative flex min-w-[min(100%,470px)] items-stretch rounded-xl border border-line bg-active-surface max-phone:min-w-full"
   data-install-command-root
   data-install-command={installCommandText}
 >
   <code
-    class="grid gap-1 overflow-x-auto rounded-xl border border-line bg-active-surface px-4.25 py-3.75 font-mono-product text-[14px] leading-normal text-ink whitespace-nowrap max-phone:overflow-x-visible max-phone:text-[12px]"
+    class="grid min-w-0 flex-1 gap-1 overflow-x-auto px-4.25 py-3.75 font-mono-product text-[14px] leading-normal whitespace-nowrap text-ink max-phone:px-3 max-phone:py-3 max-phone:text-[11px]"
   >
     {
       marketingCopy.installation.commands.map((command) => (
@@ -18,7 +22,7 @@ import { installCommandText, marketingCopy } from "@/marketing-copy";
   </code>
   <button
     type="button"
-    class="inline-grid min-h-12 cursor-pointer place-items-center rounded-xl border border-[rgb(14_26_42/35%)] bg-primary px-4.5 text-sm font-bold text-[#0e1a2a] transition-[filter] duration-150 ease-out hover:brightness-105 active:brightness-90 motion-reduce:duration-0 max-phone:min-h-11"
+    class="flex-none cursor-pointer rounded-r-xl border-l border-line px-4.5 font-mono-product text-[12px] font-semibold tracking-[0.14em] text-ink-faint uppercase transition-colors duration-150 ease-out hover:bg-[rgb(255_255_255/4%)] hover:text-ink motion-reduce:transition-none max-phone:px-3 max-phone:text-[11px]"
     data-install-copy
     aria-label={marketingCopy.installation.copyButton}
   >

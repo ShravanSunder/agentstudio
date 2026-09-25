@@ -84,7 +84,7 @@ extension RemoteReferenceRefreshActorTests {
 
         await actor.unregister(worktreeId: fixture.worktreeId, repoId: fixture.repoId)
         await invalidationGate.releaseInvalidation()
-        await originMutation.value
+        _ = await originMutation.value
 
         let admission = await actor.startExplicitRepositoryUpdate(
             repoId: fixture.repoId,

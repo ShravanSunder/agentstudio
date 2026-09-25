@@ -8,7 +8,6 @@ import Testing
 struct WorkspaceTabCursorAtomTests {
     @Test
     func replacement_selectsProvidedTab() {
-        let firstTabId = UUID()
         let secondTabId = UUID()
         let atom = WorkspaceTabCursorAtom()
 

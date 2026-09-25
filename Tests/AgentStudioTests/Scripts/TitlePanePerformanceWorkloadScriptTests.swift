@@ -9,7 +9,7 @@ struct TitlePanePerformanceWorkloadScriptTests {
     @Test("uses the system Python-compatible Victoria timestamp parser")
     func systemPythonCompatibleVictoriaTimestampParser() async throws {
         let source = try String(contentsOfFile: scriptPath, encoding: .utf8)
-        let result = try await DefaultProcessExecutor(timeout: 10).execute(
+        let result = try await RunToExitProcessExecutor().execute(
             command: "/usr/bin/python3",
             args: [
                 "-c",
@@ -27,7 +27,7 @@ struct TitlePanePerformanceWorkloadScriptTests {
 
     @Test("combined verifier keeps one authenticated marker-scoped runtime path")
     func combinedRuntimeContractAndSyntax() async throws {
-        let syntax = try await DefaultProcessExecutor(timeout: 10).execute(
+        let syntax = try await RunToExitProcessExecutor().execute(
             command: "/bin/bash",
             args: ["-n", scriptPath],
             cwd: URL(fileURLWithPath: FileManager.default.currentDirectoryPath),
@@ -312,7 +312,7 @@ struct TitlePanePerformanceWorkloadScriptTests {
         environment["AGENTSTUDIO_TERMINAL_TITLE_CADENCE_PROOF_ROOT"] = fixtureDirectory.path
         environment["AGENTSTUDIO_TRACE_NAME"] = "terminal-title-cadence-fixture"
 
-        return try await DefaultProcessExecutor(timeout: 10).execute(
+        return try await RunToExitProcessExecutor().execute(
             command: "/bin/bash",
             args: [scriptPath, "--validate-fixture", fixtureURL.path],
             cwd: URL(fileURLWithPath: FileManager.default.currentDirectoryPath),

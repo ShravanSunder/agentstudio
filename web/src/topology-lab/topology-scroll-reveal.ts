@@ -1,4 +1,18 @@
+import { railCurrentAttribute, railSurfaceTargetAttribute } from "../chapters/chapter-dom-contract";
+import {
+  topologyChapterNodeAttribute,
+  topologyChapterTargetEdgeAttribute,
+  topologyPortDrawnAttribute,
+} from "./full-page-topology-layout";
+
 type LayoutTopologyArtwork = (artwork: SVGSVGElement) => boolean;
+
+/** The fraction of the viewport height whose line decides the current chapter and the fog edge. */
+export const topologyReadingLineRatio = 0.4;
+/** Set on nodes the reveal has passed; CSS fills them with their lane color. */
+export const topologyNodeRevealedAttribute = "data-topology-node-revealed";
+/** `"passed" | "current" | "upcoming"` on every chapter node. */
+export const topologyChapterStateAttribute = "data-chapter-state";
 
 function clamp(value: number, minimum: number, maximum: number): number {
   return Math.min(Math.max(value, minimum), maximum);
@@ -8,11 +22,16 @@ export function initializeTopologyScrollReveal(
   artwork: SVGSVGElement,
   layoutArtwork: LayoutTopologyArtwork,
 ): () => void {
-  const revealPaths = [...artwork.querySelectorAll<SVGPathElement>("[data-topology-path-start]")];
-  const revealNodes = [
-    ...artwork.querySelectorAll<SVGGraphicsElement>("[data-topology-node-progress]"),
-  ];
-  const routeGroups = [...artwork.querySelectorAll<SVGGElement>("[data-topology-route-group]")];
+  let revealPaths: SVGPathElement[] = [];
+  let revealNodes: SVGGraphicsElement[] = [];
+  let routeGroups: SVGGElement[] = [];
+  const queryRevealElements = (): void => {
+    revealPaths = [...artwork.querySelectorAll<SVGPathElement>("[data-topology-path-start]")];
+    revealNodes = [
+      ...artwork.querySelectorAll<SVGGraphicsElement>("[data-topology-node-progress]"),
+    ];
+    routeGroups = [...artwork.querySelectorAll<SVGGElement>("[data-topology-route-group]")];
+  };
   const verticalRevealSolid = artwork.querySelector<SVGRectElement>("[data-topology-reveal-solid]");
   const verticalRevealFade = artwork.querySelector<SVGRectElement>("[data-topology-reveal-fade]");
   if (verticalRevealSolid === null || verticalRevealFade === null) {
@@ -20,11 +39,12 @@ export function initializeTopologyScrollReveal(
   }
   const lifecycle = new AbortController();
   const reducedMotionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
-  let lastLayoutHeight = 0;
-  let lastLayoutWidth = 0;
   let layoutNeedsUpdate = true;
   let pendingAnimationFrame: number | undefined;
   let currentNodes = new Set<SVGGraphicsElement>();
+  let litTarget: HTMLElement | undefined;
+  /** The lowest fog edge reached so far, in artwork coordinates; it never retreats. */
+  let furthestRevealY: number | undefined;
 
   const updateCurrentNodes = (revealProgress: number, enabled: boolean): void => {
     const nextCurrentNodes = new Set<SVGGraphicsElement>();
@@ -93,24 +113,93 @@ export function initializeTopologyScrollReveal(
     currentNodes = nextCurrentNodes;
   };
 
+  // A port draws in once its target glass enters the viewport, and stays
+  // drawn. Reduced motion shows every port at once.
+  const updatePortDraws = (): void => {
+    for (const group of routeGroups) {
+      if (
+        group.dataset["routeKind"] !== "attach" ||
+        group.hasAttribute(topologyPortDrawnAttribute)
+      ) {
+        continue;
+      }
+      const target = artwork.ownerDocument.querySelector(
+        `[${railSurfaceTargetAttribute}="${group.dataset["routeAnchor"] ?? ""}"]`,
+      );
+      const bounds = target?.getBoundingClientRect();
+      const inView = bounds !== undefined && bounds.top < window.innerHeight && bounds.bottom > 0;
+      if (reducedMotionQuery.matches || inView) {
+        group.setAttribute(topologyPortDrawnAttribute, "");
+      }
+    }
+  };
+
+  const lightTarget = (nextTarget: HTMLElement | undefined): void => {
+    if (litTarget === nextTarget) {
+      return;
+    }
+    litTarget?.removeAttribute(railCurrentAttribute);
+    nextTarget?.setAttribute(railCurrentAttribute, "");
+    litTarget = nextTarget;
+  };
+
+  // The current chapter is the last chapter node at or above the reading line.
+  // Its node becomes a terminal node, and the glass its branch enters lights.
+  const updateCurrentChapter = (readingLineY: number): void => {
+    const chapterNodes = [
+      ...artwork.querySelectorAll<SVGGElement>(`[${topologyChapterNodeAttribute}]`),
+    ];
+    let currentIndex: number | undefined;
+    for (const [index, node] of chapterNodes.entries()) {
+      const nodeY = Number(node.querySelector("circle")?.getAttribute("cy"));
+      if (!Number.isFinite(nodeY) || nodeY > readingLineY) {
+        break;
+      }
+      currentIndex = index;
+    }
+    for (const [index, node] of chapterNodes.entries()) {
+      const state =
+        currentIndex === undefined || index > currentIndex
+          ? "upcoming"
+          : index === currentIndex
+            ? "current"
+            : "passed";
+      if (node.getAttribute(topologyChapterStateAttribute) !== state) {
+        node.setAttribute(topologyChapterStateAttribute, state);
+      }
+    }
+    const currentNode = currentIndex === undefined ? undefined : chapterNodes[currentIndex];
+    const anchorId = currentNode?.getAttribute(topologyChapterNodeAttribute) ?? undefined;
+    const hasBranch = currentNode?.hasAttribute(topologyChapterTargetEdgeAttribute) ?? false;
+    lightTarget(
+      anchorId === undefined || !hasBranch
+        ? undefined
+        : ([
+            ...artwork.ownerDocument.querySelectorAll<HTMLElement>(
+              `[${railSurfaceTargetAttribute}="${anchorId}"]`,
+            ),
+          ].find((element) => element.getClientRects().length > 0) ?? undefined),
+    );
+  };
+
   const renderReveal = (): void => {
     pendingAnimationFrame = undefined;
     if (layoutNeedsUpdate) {
       if (!layoutArtwork(artwork)) {
         return;
       }
-      lastLayoutWidth = artwork.clientWidth;
-      lastLayoutHeight = artwork.clientHeight;
       layoutNeedsUpdate = false;
+      queryRevealElements();
     }
+
+    const artworkTop = artwork.getBoundingClientRect().top;
+    const readingLineY = window.innerHeight * topologyReadingLineRatio - artworkTop;
+    updateCurrentChapter(readingLineY);
+    updatePortDraws();
 
     const maximumScroll = Math.max(document.documentElement.scrollHeight - window.innerHeight, 1);
     const scrollProgress = clamp(window.scrollY / maximumScroll, 0, 1);
-    const revealProgress = reducedMotionQuery.matches ? 1 : scrollProgress;
-    const atStart = !reducedMotionQuery.matches && window.scrollY <= 0;
     artwork.dataset["topologyScrollProgress"] = String(scrollProgress);
-
-    artwork.toggleAttribute("data-topology-at-start", atStart);
     artwork.toggleAttribute(
       "data-topology-at-end",
       !reducedMotionQuery.matches && scrollProgress >= 0.9999,
@@ -121,23 +210,18 @@ export function initializeTopologyScrollReveal(
     if (!Number.isFinite(topologyStartY) || !Number.isFinite(topologyEndY)) {
       return;
     }
-    if (atStart) {
-      verticalRevealSolid.setAttribute("height", String(artwork.clientHeight));
-      verticalRevealFade.setAttribute("y", String(topologyStartY));
-      verticalRevealFade.setAttribute("height", "0");
-      artwork.dataset["topologyRevealEdgeY"] = String(topologyStartY);
-      for (const path of revealPaths) {
-        path.style.visibility = "hidden";
-      }
-      for (const node of revealNodes) {
-        node.style.opacity = node.dataset["topologyNodeProgress"] === "0" ? "1" : "0";
-      }
-      updateCurrentNodes(revealProgress, false);
-      return;
-    }
-    const revealY = topologyStartY + (topologyEndY - topologyStartY) * revealProgress;
-    const fadeHeight =
-      revealProgress >= 1 ? 0 : Math.min(288, Math.max(96, (topologyEndY - topologyStartY) * 0.06));
+    // The fog edge follows scroll progress through the topology and never sits
+    // above the reading line. The first render reveals the whole first
+    // viewport, and the edge only ever moves down, so what was seen stays lit.
+    const span = Math.max(topologyEndY - topologyStartY, 1);
+    const progressY = topologyStartY + span * scrollProgress;
+    furthestRevealY ??= window.innerHeight - artworkTop;
+    furthestRevealY = Math.max(furthestRevealY, progressY, readingLineY);
+    const revealY = reducedMotionQuery.matches
+      ? topologyEndY
+      : Math.min(furthestRevealY, topologyEndY);
+    const revealProgress = clamp((revealY - topologyStartY) / span, 0, 1);
+    const fadeHeight = revealProgress >= 1 ? 0 : Math.min(288, Math.max(96, span * 0.06));
     verticalRevealSolid.setAttribute(
       "height",
       String(revealProgress >= 1 ? artwork.clientHeight : revealY),
@@ -149,46 +233,42 @@ export function initializeTopologyScrollReveal(
       path.style.visibility = "visible";
     }
     for (const node of revealNodes) {
-      node.style.opacity = "1";
+      node.toggleAttribute(
+        topologyNodeRevealedAttribute,
+        Number(node.dataset["topologyNodeProgress"]) <= revealProgress + 1e-6,
+      );
     }
     updateCurrentNodes(revealProgress, !reducedMotionQuery.matches);
   };
 
   const scheduleRender = (): void => {
-    if (pendingAnimationFrame !== undefined) {
+    if (pendingAnimationFrame !== undefined || lifecycle.signal.aborted) {
       return;
     }
     pendingAnimationFrame = window.requestAnimationFrame(renderReveal);
   };
 
+  // Glass surfaces lift with a scroll-driven transform and carry chapter
+  // anchors with them, so every frame lays out again before revealing.
   const forceLayoutUpdate = (): void => {
     layoutNeedsUpdate = true;
     scheduleRender();
   };
 
-  const scheduleMeaningfulLayoutUpdate = (entries: readonly ResizeObserverEntry[]): void => {
-    const entry = entries[0];
-    if (entry === undefined) {
-      return;
-    }
-    const widthChanged = Math.abs(entry.contentRect.width - lastLayoutWidth) > 0.5;
-    const heightChanged = Math.abs(entry.contentRect.height - lastLayoutHeight) > 8;
-    if (widthChanged || heightChanged) {
-      forceLayoutUpdate();
-    }
-  };
-
-  const artworkResizeObserver = new ResizeObserver(scheduleMeaningfulLayoutUpdate);
+  const artworkResizeObserver = new ResizeObserver(forceLayoutUpdate);
   artworkResizeObserver.observe(artwork);
-  window.addEventListener("scroll", scheduleRender, { passive: true, signal: lifecycle.signal });
+  window.addEventListener("scroll", forceLayoutUpdate, { passive: true, signal: lifecycle.signal });
   window.addEventListener("resize", forceLayoutUpdate, { signal: lifecycle.signal });
+  window.addEventListener("load", forceLayoutUpdate, { signal: lifecycle.signal });
   reducedMotionQuery.addEventListener("change", scheduleRender, { signal: lifecycle.signal });
+  void document.fonts.ready.then(forceLayoutUpdate);
   scheduleRender();
 
   return (): void => {
     lifecycle.abort();
     artworkResizeObserver.disconnect();
     updateCurrentNodes(0, false);
+    lightTarget(undefined);
     if (pendingAnimationFrame !== undefined) {
       window.cancelAnimationFrame(pendingAnimationFrame);
     }

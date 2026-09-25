@@ -1,0 +1,53 @@
+@MainActor
+final class GoodCompletionHandleExecutor {
+    private var pendingGesture: Task<Bool, Never>?
+
+    func submit(_ value: Int) -> Task<Bool, Never> {
+        Task { value > 0 }
+    }
+
+    func submitCompletionHandleGesture(_ operation: @escaping @MainActor () async -> Bool) -> Task<Bool, Never> {
+        Task { await operation() }
+    }
+
+    func awaitOutcome() async -> Bool {
+        _ = await submitCompletionHandleGesture { true }.value
+        return await submitCompletionHandleGesture { false }.value
+    }
+
+    func storeHandle() {
+        pendingGesture = submit(1)
+    }
+
+    func discardWithReason(owner: GoodCompletionHandleExecutor?) {
+        _ = submit(1)  // fire-and-forget: gesture handler, no caller
+        _ = owner?.submit(2)  // fire-and-forget: owner drains its tail
+        // fire-and-forget: menu action; the executor serializes and logs the outcome
+        _ = self.submitCompletionHandleGesture { true }
+    }
+
+    func discardInsideWrappers(ready: Bool) {
+        // fire-and-forget: defer cannot await; cleanup only
+        defer { _ = submit(5) }
+        // fire-and-forget: the caller reports admission, not the outcome
+        if ready { _ = submit(6) }
+        let handler: () -> Void = { [self] in
+            // fire-and-forget: AppKit callback with no caller to report to
+            _ = submit(7)
+        }
+        handler()
+    }
+}
+
+final class GoodCompletionHandleValidationExecutor {
+    func admitValidationRequest(_ value: Int) -> Bool {
+        value > 0
+    }
+}
+
+actor GoodCompletionHandleCaller {
+    func dispatchAcrossActor(executor: GoodCompletionHandleExecutor) async -> Bool {
+        _ = await executor.submit(3).value
+        return await executor.submit(4).value
+    }
+}

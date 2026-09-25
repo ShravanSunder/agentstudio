@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import os
 
 @testable import AgentStudio
 @testable import AgentStudioCore
@@ -359,7 +360,7 @@ struct PrimarySidebarPipelineIntegrationTests {
             gitStatusByRootPath: pathStatusByRootPath
         )
 
-        await withStartedPipelineActors(
+        try await withStartedPipelineActors(
             bus: bus,
             coordinator: coordinator,
             projector: projector,
@@ -377,32 +378,34 @@ struct PrimarySidebarPipelineIntegrationTests {
                 )
             )
 
-            let identityConverged = await eventually("all finance repos should share one remote group key") {
-                guard !fixture.financeRepositoryIDs.isEmpty else { return false }
+            // Both waits complete on the RepoCacheAtom change that makes them true; the
+            // forge and cache pipeline announces nothing else, and a turn budget here expired
+            // on a three-core runner while the pipeline was still correct.
+            try #require(!fixture.financeRepositoryIDs.isEmpty)
+            let financeGroupKeys = await awaitObservedValue { () -> Set<String>? in
+                var groupKeys: Set<String> = []
                 for repoId in fixture.financeRepositoryIDs {
                     guard case .some(.resolvedRemote(_, _, let identity, _)) = repoCache.repoEnrichmentByRepoId[repoId]
                     else {
-                        return false
+                        return nil
                     }
-                    guard identity.groupKey == "remote:askluna/askluna-finance" else { return false }
+                    groupKeys.insert(identity.groupKey)
                 }
-                return true
+                return groupKeys == ["remote:askluna/askluna-finance"] ? groupKeys : nil
             }
-            #expect(identityConverged)
+            #expect(financeGroupKeys == ["remote:askluna/askluna-finance"])
 
-            let pullRequestCountsConverged = await eventually("finance branches should receive forge PR counts") {
-                guard let primaryBranchId = fixture.financeWorktreeIDByBranch["master"],
-                    let transactionTableId = fixture.financeWorktreeIDByBranch["transaction-table-3"],
-                    let rlvrForkingId = fixture.financeWorktreeIDByBranch["rlvr-forking"]
-                else {
-                    return false
+            let primaryBranchId = try #require(fixture.financeWorktreeIDByBranch["master"])
+            let transactionTableId = try #require(fixture.financeWorktreeIDByBranch["transaction-table-3"])
+            let rlvrForkingId = try #require(fixture.financeWorktreeIDByBranch["rlvr-forking"])
+            let expectedOpenCounts = [1, 2, 3]
+            let financeOpenCounts = await awaitObservedValue { () -> [Int]? in
+                let openCounts = [primaryBranchId, transactionTableId, rlvrForkingId].compactMap {
+                    repoCache.pullRequestFactsForTest(worktreeId: $0)?.openCount
                 }
-                return
-                    repoCache.pullRequestFactsForTest(worktreeId: primaryBranchId)?.openCount == 1
-                    && repoCache.pullRequestFactsForTest(worktreeId: transactionTableId)?.openCount == 2
-                    && repoCache.pullRequestFactsForTest(worktreeId: rlvrForkingId)?.openCount == 3
+                return openCounts == expectedOpenCounts ? openCounts : nil
             }
-            #expect(pullRequestCountsConverged)
+            #expect(financeOpenCounts == expectedOpenCounts)
 
             let sidebarRepos = makeRepoPresentationItems(repositories: workspaceStore.repos)
             let metadata = RepoExplorerView.buildRepoMetadata(
@@ -726,6 +729,34 @@ struct PrimarySidebarPipelineIntegrationTests {
                 )
             )
         )
+    }
+
+    /// Suspends until `read` returns a value and returns it, re-reading after each observed
+    /// change to the state `read` touches. There is no turn or time budget: the wait ends on
+    /// the atom change that satisfies it, and the lane's hang bound is the only elapsed-time
+    /// bound. Each round arms observation and reads in one step, so a change that lands
+    /// between two reads still wakes it.
+    private func awaitObservedValue<Value: Sendable>(
+        _ read: @escaping @MainActor () -> Value?
+    ) async -> Value {
+        while true {
+            let observed: Value? = await withCheckedContinuation { continuation in
+                let pendingContinuation = OSAllocatedUnfairLock<CheckedContinuation<Value?, Never>?>(
+                    initialState: continuation
+                )
+                let current = withObservationTracking {
+                    read()
+                } onChange: {
+                    pendingContinuation.withLock { $0.take() }?.resume(returning: nil)
+                }
+                if let current {
+                    pendingContinuation.withLock { $0.take() }?.resume(returning: current)
+                }
+            }
+            if let observed {
+                return observed
+            }
+        }
     }
 
     private func eventually(

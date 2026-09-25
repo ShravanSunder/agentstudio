@@ -1,3 +1,4 @@
+import AgentStudioTestHarness
 import Foundation
 import Testing
 
@@ -17,15 +18,15 @@ extension BridgePaneProductContentActivityAdmissionTests {
         let request = try bridgeProductFileContentRequest(
             identitySuffix: "activity-queue-\(boundaryCase.testDescription)"
         )
-        let operation = BridgeProductSessionProducerOperationGate()
+        let operation = HeldStep<BridgeProductProducerLease>("operation")
         let registration = await harness.session.registerContentProducer(
             request: request,
             productAdmission: harness.productAdmission
         ) { lease in
-            await operation.run(lease)
+            try? await operation.arrive(lease)
         }
         let lease = try bridgeProductAcceptedLease(registration)
-        #expect(await operation.waitUntilStarted() == lease)
+        #expect(try await operation.firstArrival() == lease)
         if boundaryCase.phase != .opening {
             _ = try await harness.session.enqueueRequiredProducerOpeningFrame(
                 for: lease,
@@ -77,7 +78,7 @@ extension BridgePaneProductContentActivityAdmissionTests {
         #expect(invalidatedSnapshot.queuedFrameCount == 0)
         #expect(invalidatedSnapshot.inFlightFrameReceiptCount == 0)
         try await closeBridgeProductSessionProducer(lease, in: harness.session)
-        await operation.waitUntilCancelled()
+        try await operation.cancellationObserved()
         #expect((await harness.session.producerSnapshot()).hasZeroResidue)
     }
 }

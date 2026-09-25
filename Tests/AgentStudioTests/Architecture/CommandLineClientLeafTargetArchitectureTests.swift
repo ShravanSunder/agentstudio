@@ -39,9 +39,14 @@ struct CommandLineClientLeafTargetArchitectureTests {
     ]
 
     /// The suites covering the CLI side keep the same leaf-only graph, plus the
-    /// test framework. A test target that drags Infrastructure back in rebuilds
-    /// GRDB, OTel and libgit2 for every `mise run test:swift`.
-    private static let allowedTestImportedModules = allowedImportedModules.union(["Testing"])
+    /// test framework and the causal-test harness, itself a leaf over the
+    /// standard library, Foundation and Synchronization. A test target that
+    /// drags Infrastructure back in rebuilds GRDB, OTel and libgit2 for every
+    /// `mise run test:swift`.
+    private static let allowedTestImportedModules = allowedImportedModules.union([
+        "Testing",
+        "AgentStudioTestHarness",
+    ])
 
     private static let commandLineClientTestTargetPaths = [
         "Tests/AgentStudioIPCClientTests",

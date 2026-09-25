@@ -1,0 +1,212 @@
+---
+import ScrollMaterialSurface from "@/home-page/ScrollMaterialSurface.astro";
+
+import type { Chapter } from "./chapter-catalog";
+import {
+  playbackStageAttribute,
+  railAnchorAttribute,
+  railMediaTargetAttribute,
+  railSurfaceTargetAttribute,
+} from "./chapter-dom-contract";
+
+interface Props {
+  readonly chapter: Chapter;
+}
+
+const { chapter } = Astro.props;
+const titleId = `chapter-${chapter.id}-title`;
+const hasStepSelector = chapter.steps.length > 1;
+const railAnchorAttributes = { [railAnchorAttribute]: chapter.id };
+const surfaceAttributes = { [railSurfaceTargetAttribute]: chapter.id };
+const stageAttributes = { [railMediaTargetAttribute]: chapter.id, [playbackStageAttribute]: "" };
+---
+
+<!--
+  The id is the chapter's public URL anchor (/#<chapterId>), promised to media
+  for post links. The scroll margin keeps an anchor jump clear of the floating
+  sticky header (72px anchor plus its 12px floating offset).
+-->
+<article
+  id={chapter.id}
+  class="chapter-section scroll-mt-24 py-chapter-block pr-page-inline pl-[calc(var(--spacing-page-inline)+var(--spacing-rail-gutter))]"
+  aria-labelledby={titleId}
+  data-chapter={chapter.id}
+>
+  <ScrollMaterialSurface
+    {...surfaceAttributes}
+    class="chapter-surface grid grid-cols-[minmax(0,35fr)_minmax(0,65fr)] gap-1 border p-1 max-lg:grid-cols-1"
+    data-chapter-steps-root={chapter.id}
+  >
+    <div
+      class="scroll-material-pane chapter-surface__copy flex min-w-0 flex-col rounded-material-pane border border-line p-[clamp(28px,3vw,48px)] max-lg:contents"
+    >
+      <header class="max-lg:order-1 max-lg:px-7 max-lg:pt-7 max-lg:pb-3">
+        <h2
+          {...railAnchorAttributes}
+          id={titleId}
+          class="m-0 font-display text-[clamp(30px,3.4vw,60px)] leading-[0.98] font-extrabold tracking-[-0.045em] text-balance text-ink"
+        >
+          {chapter.title.beforeAccent}<span class="text-primary">{chapter.title.accent}</span
+          >{chapter.title.afterAccent}
+        </h2>
+      </header>
+
+      <div class="mt-12 max-lg:order-3 max-lg:mt-0 max-lg:px-7 max-lg:pt-4 max-lg:pb-7">
+        {
+          hasStepSelector ? (
+            <>
+              <div class="chapter-step-list relative grid gap-1" data-chapter-step-list>
+                {chapter.steps.map((step, stepIndex) => (
+                  <button
+                    type="button"
+                    class="chapter-step relative z-[1] flex w-full cursor-pointer items-center gap-4 rounded-control py-2.5 pr-2 text-left text-[17px] leading-snug text-ink-faint transition-colors duration-150 hover:text-ink-secondary disabled:cursor-default motion-reduce:transition-none max-phone:text-base"
+                    data-chapter-step={step.id}
+                    data-step-state={stepIndex === 0 ? "current" : "upcoming"}
+                    disabled
+                    tabindex="-1"
+                  >
+                    <span class="chapter-step__dot" aria-hidden="true" />
+                    <span class="max-lg:sr-only" data-chapter-step-label>
+                      {step.label}
+                    </span>
+                  </button>
+                ))}
+              </div>
+              {chapter.steps.map((step, stepIndex) => (
+                <div
+                  class="chapter-step-panel mt-5 max-w-[440px] rounded-control text-[16px] leading-[1.55] text-ink-muted max-lg:mt-4 max-lg:max-w-none max-phone:text-sm"
+                  data-chapter-step-panel={step.id}
+                  hidden={stepIndex !== 0}
+                >
+                  <p class="m-0 hidden text-[17px] leading-snug text-ink max-lg:mb-1.5 max-lg:block max-phone:text-base">
+                    {step.label}
+                  </p>
+                  <p class="m-0 max-phone:hidden">{step.description}</p>
+                  <p class="m-0 hidden max-phone:block">{step.phoneDescription}</p>
+                </div>
+              ))}
+            </>
+          ) : (
+            chapter.steps.map((step) => (
+              <div class="max-w-[440px] text-[16px] leading-[1.55] text-ink-muted max-lg:max-w-none max-phone:text-sm">
+                <p class="m-0 text-[17px] text-ink-secondary max-phone:text-base">{step.label}</p>
+                <p class="mt-3 mb-0 max-phone:hidden">{step.description}</p>
+                <p class="mt-3 mb-0 hidden max-phone:block">{step.phoneDescription}</p>
+              </div>
+            ))
+          )
+        }
+      </div>
+    </div>
+
+    <div
+      {...stageAttributes}
+      class="scroll-material-pane chapter-surface__stage relative flex min-w-0 items-center overflow-clip rounded-material-pane border border-line p-1 max-lg:order-2"
+    >
+      <slot name="stage" />
+    </div>
+  </ScrollMaterialSurface>
+</article>
+
+<script>
+  import { initializeChapterSteps } from "./chapter-step-controller";
+
+  for (const root of document.querySelectorAll<HTMLElement>("[data-chapter-steps-root]")) {
+    if (root.querySelector("[data-chapter-step-list]") !== null) {
+      initializeChapterSteps(root);
+    }
+  }
+</script>
+
+<style>
+  @reference "../styles/global.css";
+
+  /* The step lane: one vertical line behind the dots, like the page rail. */
+  .chapter-step-list::before {
+    content: "";
+    position: absolute;
+    top: 22px;
+    bottom: 22px;
+    left: 6px;
+    width: 2px;
+    border-radius: 1px;
+    background: var(--color-line-strong);
+  }
+
+  .chapter-step__dot {
+    flex: none;
+    width: 14px;
+    height: 14px;
+    border: 2px solid rgb(155 161 173 / 70%);
+    border-radius: 999px;
+    background: var(--color-ground);
+  }
+
+  .chapter-step[data-step-state="passed"] .chapter-step__dot {
+    border-color: var(--color-ink-faint);
+    background: var(--color-ink-faint);
+  }
+
+  .chapter-step[data-step-state="current"] {
+    @apply text-ink;
+  }
+
+  .chapter-step[data-step-state="current"] .chapter-step__dot {
+    border-color: var(--color-primary);
+    background: var(--color-primary);
+    box-shadow:
+      0 0 0 3px var(--color-ground),
+      0 0 0 5px rgb(137 180 250 / 55%);
+  }
+
+  /* Stacked glass: the incoming step's copy fades in as the previous one leaves. */
+  @media (width < 64rem) and (prefers-reduced-motion: no-preference) {
+    .chapter-step-panel {
+      transition: opacity 150ms ease-out;
+
+      @starting-style {
+        opacity: 0;
+      }
+    }
+  }
+
+  /* The rail marks the current chapter's target; its hairline lights blue. */
+  :global(.chapter-surface.scroll-material-surface[data-rail-current]) {
+    border-color: rgb(137 180 250 / 88%);
+  }
+
+  /*
+    Stacked glass (title, stage, then steps in one glass): the steps become a
+    mini lane of dots under the stage. Each dot is a tab whose label stays its
+    accessible name; only the current step's label and description show below
+    the row. The same query drives the tablist orientation in
+    chapter-step-controller.ts (chapterStackedLayoutMediaQuery).
+  */
+  @media (width < 64rem) {
+    .chapter-step-list {
+      display: flex;
+      width: fit-content;
+      gap: 36px;
+      align-items: center;
+      /* The first dot's left edge lines up with the copy below. */
+      margin-inline-start: -9px;
+    }
+
+    .chapter-step-list::before {
+      top: calc(50% - 0.75px);
+      right: 16px;
+      bottom: auto;
+      left: 16px;
+      width: auto;
+      height: 1.5px;
+    }
+
+    .chapter-step {
+      width: 32px;
+      height: 32px;
+      justify-content: center;
+      gap: 0;
+      padding: 0;
+    }
+  }
+</style>

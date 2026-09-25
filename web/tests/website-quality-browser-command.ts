@@ -2,9 +2,8 @@ import { defineBrowserCommand } from "@vitest/browser-playwright";
 
 interface WebsiteLayoutObservation {
   readonly width: number;
-  readonly story: string;
-  readonly clippedHeadline: boolean;
-  readonly imageCenterOffset: number;
+  readonly chapterCount: number;
+  readonly clippedHeadings: readonly string[];
   readonly horizontalOverflow: number;
 }
 
@@ -14,64 +13,36 @@ export const verifyWebsiteQualityLayout = defineBrowserCommand(
     const observations: WebsiteLayoutObservation[] = [];
     try {
       await applicationPage.emulateMedia({ reducedMotion: "reduce" });
-      /* eslint-disable no-await-in-loop -- One page owns viewport and selection; each state must settle before the next action. */
-      for (const width of [320, 390, 900, 1144, 1280, 1440, 1600]) {
+      /* eslint-disable no-await-in-loop -- One page owns the viewport; each width must settle before it is read. */
+      for (const width of [320, 390, 900, 1144, 1280, 1440, 1600, 1920]) {
         await applicationPage.setViewportSize({ width, height: 1000 });
         await applicationPage.goto(pageUrl, { waitUntil: "networkidle" });
-        await applicationPage.waitForSelector('[data-product-plate][data-enhanced="true"]');
-        const selectors = applicationPage.locator("[data-product-plate-selector]");
-        for (let index = 0; index < (await selectors.count()); index += 1) {
-          if (width < 1024 && index > 0) {
-            await applicationPage.locator("[data-product-plate-next]").click();
-          } else if (width >= 1024) {
-            await selectors.nth(index).click();
-          }
-          await applicationPage.waitForFunction((): boolean => {
-            const image = document.querySelector<HTMLImageElement>(
-              "[data-product-plate-panel]:not([hidden]) img",
-            );
-            return image !== null && image.complete && image.naturalWidth > 0;
-          });
-          observations.push(
-            await applicationPage.evaluate((): WebsiteLayoutObservation => {
-              const headline = document.querySelector<HTMLElement>("#hero-title");
-              const column = document.querySelector<HTMLElement>(".product-plate__image-column");
-              const panel = document.querySelector<HTMLElement>(
-                "[data-product-plate-panel]:not([hidden])",
-              );
-              const image = panel?.querySelector<HTMLImageElement>("img");
-              if (
-                headline === null ||
-                column === null ||
-                panel === null ||
-                image === undefined ||
-                image === null
-              ) {
-                throw new Error("Website quality inspection is missing headline or selected media");
-              }
-              const headlineBounds = headline.getBoundingClientRect();
-              const range = document.createRange();
-              range.selectNodeContents(headline);
-              const clippedHeadline = Array.from(range.getClientRects()).some(
-                (bounds): boolean =>
-                  bounds.left < headlineBounds.left - 1 || bounds.right > headlineBounds.right + 1,
-              );
-              const columnBounds = column.getBoundingClientRect();
-              const imageBounds = image.getBoundingClientRect();
-              return {
-                width: window.innerWidth,
-                story: panel.dataset["productPlatePanel"] ?? "unknown",
-                clippedHeadline,
-                imageCenterOffset: Math.abs(
-                  (imageBounds.top + imageBounds.bottom - columnBounds.top - columnBounds.bottom) /
-                    2,
-                ),
-                horizontalOverflow:
-                  document.documentElement.scrollWidth - document.documentElement.clientWidth,
-              };
-            }),
-          );
-        }
+        observations.push(
+          await applicationPage.evaluate((): WebsiteLayoutObservation => {
+            const headings = [
+              ...document.querySelectorAll<HTMLElement>("#hero-title, [data-chapter] h2"),
+            ];
+            // A heading is clipped when any line box of its text leaves the heading's box.
+            const clippedHeadings = headings
+              .filter((heading): boolean => {
+                const headingBounds = heading.getBoundingClientRect();
+                const range = document.createRange();
+                range.selectNodeContents(heading);
+                return Array.from(range.getClientRects()).some(
+                  (bounds): boolean =>
+                    bounds.left < headingBounds.left - 1 || bounds.right > headingBounds.right + 1,
+                );
+              })
+              .map((heading): string => heading.id);
+            return {
+              width: window.innerWidth,
+              chapterCount: document.querySelectorAll("[data-chapter]").length,
+              clippedHeadings,
+              horizontalOverflow:
+                document.documentElement.scrollWidth - document.documentElement.clientWidth,
+            };
+          }),
+        );
       }
       /* eslint-enable no-await-in-loop */
       return observations;

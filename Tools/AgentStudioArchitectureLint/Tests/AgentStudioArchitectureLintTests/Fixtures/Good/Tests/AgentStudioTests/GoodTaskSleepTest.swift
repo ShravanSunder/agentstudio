@@ -19,8 +19,8 @@ struct GoodTaskSleepTest {
 }
 
 struct EventHarness {
-    func waitForEventCount(atLeast count: Int) async {
-        _ = count
+    func waitForEventCount(atLeast count: Int) async -> Int {
+        count
     }
 }
 
@@ -29,5 +29,5 @@ struct TestPushClock {
         _ = duration
     }
 
-    func waitForPendingSleepCount() async {}
+    func waitForPendingSleepCount() async -> Int { 0 }
 }

@@ -84,13 +84,14 @@ It does not render the whole change at once: metadata streams separately, visibl
 - **Named arrangements and Pane Zoom** let you switch between saved layouts or focus one pane without stopping the others.
 - **Full workspace restoration and persistent terminal sessions by default** let you close the app and resume without rebuilding tabs, panes, drawers, layouts, or terminal process context.
 - **Built-in Files and Review viewers** keep source and performant read-only diffs beside the agent doing the work.
+- **Review comments and annotations** let you leave durable, Markdown-rendered comments on the changes you review and move between them from an annotation drawer.
 - **Multiple pane types** let terminal, browser, and native code-viewer content share the same workspace.
 
 ## Next
 
 These capabilities are planned, not shipped:
 
-- Review comments, annotations, and context-return workflows.
+- Context-return workflows that send review comments back to the agent that made the change.
 - Whole-workspace dynamic regrouping beyond the current repository and pane navigation.
 - Sandboxed runtimes with explicit network, credential, and filesystem boundaries.
 

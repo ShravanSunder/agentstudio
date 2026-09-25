@@ -333,9 +333,27 @@ let package = Package(
         .target(
             name: "AgentStudioTestSupport",
             dependencies: [
-                "AgentStudioCore"
+                "AgentStudioCore",
+                "AgentStudioTestHarness",
             ],
             path: "Tests/AgentStudioTests/TestSupport",
+            swiftSettings: [
+                .swiftLanguageMode(.v6)
+            ]
+        ),
+        .target(
+            name: "AgentStudioTestHarness",
+            path: "Tests/AgentStudioTestHarness",
+            swiftSettings: [
+                .swiftLanguageMode(.v6)
+            ]
+        ),
+        .testTarget(
+            name: "AgentStudioTestHarnessTests",
+            dependencies: [
+                "AgentStudioTestHarness"
+            ],
+            path: "Tests/AgentStudioTestHarnessTests",
             swiftSettings: [
                 .swiftLanguageMode(.v6)
             ]
@@ -357,6 +375,7 @@ let package = Package(
             name: "AgentStudioInfrastructureTests",
             dependencies: [
                 "AgentStudioInfrastructure",
+                "AgentStudioTestHarness",
                 .product(name: "GRDB", package: "GRDB.swift"),
                 .product(name: "Metrics", package: "swift-metrics"),
                 .product(name: "Tracing", package: "swift-distributed-tracing"),
@@ -384,6 +403,7 @@ let package = Package(
                 "AgentStudioCore",
                 "AgentStudioInfrastructure",
                 "AgentStudioSharedComponents",
+                "AgentStudioTestHarness",
                 "AgentStudioTestSupport",
                 .product(name: "GRDB", package: "GRDB.swift"),
                 .product(name: "AgentStudioGit", package: "agentstudio-git"),
@@ -401,6 +421,7 @@ let package = Package(
                 "AgentStudioInfrastructure",
                 "AgentStudioProgrammaticControl",
                 "AgentStudioSharedComponents",
+                "AgentStudioTestHarness",
                 "AgentStudioTestSupport",
                 .product(name: "AsyncAlgorithms", package: "swift-async-algorithms"),
                 .product(name: "AgentStudioGit", package: "agentstudio-git"),
@@ -513,7 +534,8 @@ let package = Package(
         .testTarget(
             name: "AgentStudioIPCTransportTests",
             dependencies: [
-                "AgentStudioIPCTransport"
+                "AgentStudioIPCTransport",
+                "AgentStudioTestHarness",
             ],
             path: "Tests/AgentStudioIPCTransportTests",
             swiftSettings: [
@@ -540,6 +562,7 @@ let package = Package(
                 "AgentStudioIPCTransport",
                 "AgentStudioProgrammaticControl",
                 "AgentStudioInfrastructure",
+                "AgentStudioTestHarness",
                 "AgentStudioTestSupport",
             ],
             path: "Tests/AgentStudioAppIPCTests",
@@ -565,6 +588,7 @@ let package = Package(
                 "AgentStudioIPCTransport",
                 "AgentStudioPrimitives",
                 "AgentStudioProgrammaticControl",
+                "AgentStudioTestHarness",
             ],
             path: "Tests/AgentStudioIPCClientTests",
             resources: [
@@ -593,6 +617,7 @@ let package = Package(
                 "AgentStudioSessions",
                 "AgentStudioSharedComponents",
                 "AgentStudioTerminal",
+                "AgentStudioTestHarness",
                 "AgentStudioTestSupport",
                 "AgentStudioWebview",
                 "GhosttyKit",
@@ -626,3 +651,9 @@ let package = Package(
         ),
     ]
 )
+
+// A discarded completion handle or any other compiler warning in a repository-owned
+// target fails the build. Remote dependencies are unaffected: the setting is per target.
+for target in package.targets where target.type != .binary {
+    target.swiftSettings = (target.swiftSettings ?? []) + [.treatAllWarnings(as: .error)]
+}

@@ -6,6 +6,7 @@
   "scripts": {
     "audit:captures": "node --experimental-strip-types scripts/audit-capture-pixels.ts",
     "build": "ASTRO_TELEMETRY_DISABLED=1 astro build && node --experimental-strip-types scripts/verify-session-restore-player.ts && node --experimental-strip-types scripts/stage-cloudflare-build-config.ts",
+    "build:scene-bundles": "ASTRO_TELEMETRY_DISABLED=1 node --experimental-strip-types scripts/build-scene-bundles.ts",
     "campaign:links": "node --experimental-strip-types scripts/list-campaign-links.ts",
     "campaign:requests": "node --experimental-strip-types scripts/query-campaign-request-analytics.ts",
     "check": "pnpm run lint && pnpm run fmt:check && pnpm run typecheck && pnpm run verify:captures && pnpm run audit:captures && pnpm run test:unit && pnpm run test:browser",
@@ -24,6 +25,9 @@
     "typecheck": "ASTRO_TELEMETRY_DISABLED=1 astro check",
     "verify:cloudflare-discovery": "node --experimental-strip-types scripts/verify-cloudflare-discovery-assets.ts",
     "verify:captures": "node --experimental-strip-types scripts/verify-capture-assets.ts"
+  },
+  "dependencies": {
+    "gsap": "3.15.0"
   },
   "devDependencies": {
     "@astrojs/check": "0.9.10",

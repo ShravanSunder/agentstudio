@@ -152,7 +152,7 @@ struct AgentStudioIPCPhaseASmokeScriptTests {
     }
 
     private func runPhaseASmokeScript(scriptURL: URL, stateFile: URL) async throws -> ProcessResult {
-        try await DefaultProcessExecutor(timeout: 10).execute(
+        try await RunToExitProcessExecutor().execute(
             command: "/bin/bash",
             args: [scriptURL.path],
             cwd: nil,

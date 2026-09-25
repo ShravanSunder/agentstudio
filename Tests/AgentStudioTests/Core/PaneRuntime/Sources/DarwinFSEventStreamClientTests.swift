@@ -21,7 +21,7 @@ struct DarwinFSEventStreamClientTests {
         let client = DarwinFSEventStreamClient()
         defer { client.shutdown() }
         let worktreeId = UUIDv7.generate()
-        client.register(worktreeId: worktreeId, repoId: UUIDv7.generate(), rootPath: fixtureRoot)
+        _ = client.register(worktreeId: worktreeId, repoId: UUIDv7.generate(), rootPath: fixtureRoot)
         let changedPath = DarwinFSEventPathCanonicalizer.canonicalURL(fixtureRoot)
             .appending(path: "Changed.swift").path
         let expectedFlags = FSEventStreamEventFlags(
@@ -92,7 +92,7 @@ struct DarwinFSEventStreamClientTests {
         defer { client.shutdown() }
         let worktreeId = UUIDv7.generate()
         let createdFile = fixtureRoot.appending(path: "created.txt")
-        client.register(worktreeId: worktreeId, repoId: UUIDv7.generate(), rootPath: fixtureRoot)
+        _ = client.register(worktreeId: worktreeId, repoId: UUIDv7.generate(), rootPath: fixtureRoot)
 
         let batchTask = Task<FSEventBatch?, Never> {
             for await ingressItem in client.events() {
@@ -782,7 +782,7 @@ extension DarwinFSEventStreamClientTests {
         defer { client.shutdown() }
         let worktreeId = UUIDv7.generate()
         let repositoryId = UUIDv7.generate()
-        client.register(worktreeId: worktreeId, repoId: repositoryId, rootPath: fixtureRoot)
+        _ = client.register(worktreeId: worktreeId, repoId: repositoryId, rootPath: fixtureRoot)
         let readinessSentinelPath = fixtureRoot.appending(path: "native-stream-ready.sentinel")
         let canonicalReadinessSentinelPath = DarwinFSEventPathCanonicalizer.canonicalURL(
             readinessSentinelPath
@@ -863,7 +863,7 @@ extension DarwinFSEventStreamClientTests {
             ) == nil
         )
 
-        client.register(worktreeId: worktreeId, repoId: repositoryId, rootPath: fixtureRoot)
+        _ = client.register(worktreeId: worktreeId, repoId: repositoryId, rootPath: fixtureRoot)
         let replacementBarrier = await client.prepare(
             worktreeId: worktreeId,
             rootPath: fixtureRoot,

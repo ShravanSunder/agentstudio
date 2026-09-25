@@ -60,7 +60,7 @@ struct SidebarPerformanceContinuityControlScriptTests {
             encoding: .utf8
         )
         #expect(configuredOrigin.contains("url = \(originRoot.path)"))
-        let controlStatus = try await DefaultProcessExecutor(timeout: 10).execute(
+        let controlStatus = try await RunToExitProcessExecutor().execute(
             command: "/usr/bin/git",
             args: ["-C", controlRoot.path, "status", "--porcelain=v1", "--untracked-files=all"],
             cwd: nil,

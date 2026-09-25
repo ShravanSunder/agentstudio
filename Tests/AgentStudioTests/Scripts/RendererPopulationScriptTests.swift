@@ -20,7 +20,7 @@ struct RendererPopulationScriptTests {
             """
         let file = try writeFixture(fixture, named: "heap-classes.txt")
         defer { try? FileManager.default.removeItem(at: file) }
-        let result = try await DefaultProcessExecutor(timeout: 10).execute(
+        let result = try await RunToExitProcessExecutor().execute(
             command: "/bin/bash",
             args: [Self.scriptPath, "--count-heap-class", file.path, "PaneHostView"],
             cwd: URL(fileURLWithPath: FileManager.default.currentDirectoryPath),
@@ -33,7 +33,7 @@ struct RendererPopulationScriptTests {
     @Test("script has valid syntax and declares the production sampling restriction")
     func scriptHasValidSyntaxAndDeclaresProductionSamplingRestriction() async throws {
         // Arrange: the script must exist and parse as valid bash.
-        let syntax = try await DefaultProcessExecutor(timeout: 10).execute(
+        let syntax = try await RunToExitProcessExecutor().execute(
             command: "/bin/bash",
             args: ["-n", Self.scriptPath],
             cwd: URL(fileURLWithPath: FileManager.default.currentDirectoryPath),
@@ -91,13 +91,13 @@ struct RendererPopulationScriptTests {
         defer { try? FileManager.default.removeItem(at: vmmapFile) }
 
         // Act: invoke the script's read-only parser modes against the fixture files.
-        let footprintResult = try await DefaultProcessExecutor(timeout: 10).execute(
+        let footprintResult = try await RunToExitProcessExecutor().execute(
             command: "/bin/bash",
             args: [Self.scriptPath, "--parse-footprint", footprintFile.path],
             cwd: URL(fileURLWithPath: FileManager.default.currentDirectoryPath),
             environment: nil
         )
-        let vmmapResult = try await DefaultProcessExecutor(timeout: 10).execute(
+        let vmmapResult = try await RunToExitProcessExecutor().execute(
             command: "/bin/bash",
             args: [Self.scriptPath, "--parse-vmmap", vmmapFile.path],
             cwd: URL(fileURLWithPath: FileManager.default.currentDirectoryPath),
@@ -129,13 +129,13 @@ struct RendererPopulationScriptTests {
         defer { try? FileManager.default.removeItem(at: footprintFailureFile) }
 
         // Act
-        let vmmapResult = try await DefaultProcessExecutor(timeout: 10).execute(
+        let vmmapResult = try await RunToExitProcessExecutor().execute(
             command: "/bin/bash",
             args: [Self.scriptPath, "--parse-vmmap", vmmapFailureFile.path],
             cwd: URL(fileURLWithPath: FileManager.default.currentDirectoryPath),
             environment: nil
         )
-        let footprintResult = try await DefaultProcessExecutor(timeout: 10).execute(
+        let footprintResult = try await RunToExitProcessExecutor().execute(
             command: "/bin/bash",
             args: [Self.scriptPath, "--parse-footprint", footprintFailureFile.path],
             cwd: URL(fileURLWithPath: FileManager.default.currentDirectoryPath),
@@ -186,7 +186,7 @@ struct RendererPopulationScriptTests {
         // Act
         var results: [String: [String: Any]] = [:]
         for (name, file) in [("valid", validFile), ("errored", erroredFile), ("truncated", truncatedFile)] {
-            let result = try await DefaultProcessExecutor(timeout: 10).execute(
+            let result = try await RunToExitProcessExecutor().execute(
                 command: "/bin/bash",
                 args: [Self.scriptPath, "--parse-system-memory", file.path, swapFile.path],
                 cwd: URL(fileURLWithPath: FileManager.default.currentDirectoryPath),

@@ -85,6 +85,8 @@ struct SwiftLaneRunnerReportTests {
             "lane-report isolated_process_concurrency=",
             "lane-report xcode=",
             "lane-report swift=",
+            "lane-report head_sha=",
+            "lane-report tree_dirty=",
         ] {
             #expect(laneRunnerScript.contains(preflightLabel))
         }
@@ -93,16 +95,29 @@ struct SwiftLaneRunnerReportTests {
             "lane-report wall_seconds=",
             "lane-report cpu_seconds=",
             "lane-report cpu_utilization=",
-            "lane-report peak_started_tests=",
+            "lane-report peak_announced_tests=",
             "lane-report peak_running_parameterized_cases=",
             "lane-report failed_isolated_suites=",
+            "lane-report head_sha=",
+            "lane-report tree_dirty=",
+            "lane-report bundle_state=",
+            "lane-report bundle_identity=",
+            "lane-report build_receipt_head_sha=",
         ] {
             #expect(closingReport.contains(closingLabel))
         }
+        // Validity and verdict are decided by one helper, so the receipt cannot
+        // print a verdict that skipped the validity check.
+        #expect(closingReport.contains("print_lane_receipt_verdict \"$exit_status\""))
         // The whole point of a stable prefix is that a CI reader can grep it, so
         // the emitted label set is pinned rather than only spot-checked.
         #expect(
             laneReportLabels(in: helperScript + "\n" + laneRunnerScript) == [
+                // Which tree and bundle the lane tested, and whether that makes
+                // its verdict evidence at all.
+                "build_receipt_head_sha",
+                "bundle_identity",
+                "bundle_state",
                 "cpu_count",
                 "cpu_seconds",
                 "cpu_utilization",
@@ -112,21 +127,32 @@ struct SwiftLaneRunnerReportTests {
                 "exit_status",
                 "failed_isolated_suite",
                 "failed_isolated_suites",
+                "head_sha",
+                // The harness steps a hung lane was still waiting on.
+                "held_step_unarrived",
                 "isolated_process_concurrency",
                 "memory_bytes",
                 "parallelization_width",
+                // Tests whose start was posted: announced, never "started".
+                "peak_announced_tests",
                 "peak_running_parameterized_cases",
-                "peak_started_tests",
+                "receipt_valid",
                 "running_parameterized_cases_at_timeout",
+                "stack_sample",
                 "swift",
+                "task_dump",
                 "timeout_reap",
+                "tree_dirty",
+                "verdict",
                 "wall_seconds",
                 "xcode",
             ]
         )
         // A failing lane is the one whose load numbers matter most, so the
         // closing block hangs off EXIT rather than the end of the happy path.
-        #expect(laneRunnerScript.contains("trap print_closing_lane_report EXIT"))
+        let invocationExit = try shellFunction(named: "finish_lane_invocation", in: laneRunnerScript)
+        #expect(laneRunnerScript.contains("trap finish_lane_invocation EXIT"))
+        #expect(invocationExit.hasPrefix("finish_lane_invocation() {\n  print_closing_lane_report\n"))
     }
 
     @Test("a child that dies by signal is named instead of swallowed")
@@ -477,12 +503,12 @@ struct SwiftLaneRunnerReportTests {
         #expect(concurrency >= 1)
     }
 
-    @Test("started-test counter tracks posted start events, not the cap")
-    func startedTestCounterTracksPostedStartEvents() async throws {
+    @Test("announced-test counter tracks posted start events, not the cap")
+    func announcedTestCounterTracksPostedStartEvents() async throws {
         // a and b overlap (peak 2), a closes, then c opens (2 again). The
         // run-level and suite-level events are not tests.
         let observedPeak = try await runBash(
-            "source scripts/swift-test-helpers.sh; swift_test_peak_started_from_output "
+            "source scripts/swift-test-helpers.sh; swift_test_peak_announced_from_output "
                 + "<(printf '◇ Test run started.\\n"
                 + "◇ Suite \"S\" started.\\n"
                 + "◇ Test \"a\" started.\\n"
@@ -543,7 +569,9 @@ struct SwiftLaneRunnerReportTests {
     }
 }
 
-/// Every `lane-report <label>=` key the shell scripts can emit, sorted.
+/// Every `lane-report <label>=` key the shell scripts can emit, sorted. A label
+/// followed by fields (`held_step_unarrived name=… test=…`) counts too; prose
+/// such as "lane-report prefix as" does not.
 private func laneReportLabels(in script: String) -> [String] {
     let marker = "lane-report "
     var labels: Set<String> = []
@@ -551,7 +579,12 @@ private func laneReportLabels(in script: String) -> [String] {
     for line in script.split(separator: "\n") {
         guard let markerRange = line.range(of: marker) else { continue }
         let label = line[markerRange.upperBound...].prefix { $0.isLowercase || $0 == "_" }
-        guard !label.isEmpty, line[markerRange.upperBound...].dropFirst(label.count).first == "=" else { continue }
+        let afterLabel = line[markerRange.upperBound...].dropFirst(label.count)
+        let firstFieldName = afterLabel.dropFirst().prefix { $0.isLowercase || $0 == "_" }
+        let startsFields =
+            afterLabel.first == " " && !firstFieldName.isEmpty
+            && afterLabel.dropFirst(1 + firstFieldName.count).first == "="
+        guard !label.isEmpty, afterLabel.first == "=" || startsFields else { continue }
         labels.insert(String(label))
     }
     return labels.sorted()
@@ -588,7 +621,7 @@ private func namedBlock(startingWith marker: String, endingBefore terminator: St
 }
 
 private func runBash(_ command: String) async throws -> String {
-    let result = try await runBashCommand(command)
+    let result = try await runLaneScriptBash(command)
     #expect(result.exitCode == 0, Comment(rawValue: result.output))
     return result.output
 }
@@ -596,42 +629,11 @@ private func runBash(_ command: String) async throws -> String {
 /// Like `runBash`, but for scripts that deliberately fail: these tests drive
 /// crashing children, so a non-zero status is the expected outcome.
 private func runBashAllowingFailure(_ command: String) async throws -> String {
-    (try await runBashCommand(command)).output
+    (try await runLaneScriptBash(command)).output
 }
 
 private func runBashStatus(_ command: String) async throws -> Int32 {
-    (try await runBashCommand(command)).exitCode
-}
-
-private func runBashCommand(_ command: String) async throws -> BashCommandResult {
-    try await withoutBlockingCooperativePool {
-        let outputURL = FileManager.default.temporaryDirectory
-            .appending(path: "swift-lane-runner-output-\(UUIDv7.generate().uuidString).log")
-        FileManager.default.createFile(atPath: outputURL.path, contents: nil)
-        let outputHandle = try FileHandle(forWritingTo: outputURL)
-        defer {
-            try? outputHandle.close()
-            try? FileManager.default.removeItem(at: outputURL)
-        }
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/bin/bash")
-        process.arguments = ["-c", command]
-        process.currentDirectoryURL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-        process.standardOutput = outputHandle
-        process.standardError = outputHandle
-        try process.run()
-        process.waitUntilExit()
-        try outputHandle.close()
-        return BashCommandResult(
-            exitCode: process.terminationStatus,
-            output: try String(contentsOf: outputURL, encoding: .utf8)
-        )
-    }
-}
-
-private struct BashCommandResult: Sendable {
-    let exitCode: Int32
-    let output: String
+    (try await runLaneScriptBash(command)).exitCode
 }
 
 private enum SwiftLaneRunnerReportError: Error {

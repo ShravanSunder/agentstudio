@@ -26,9 +26,14 @@ import {
 	type BridgeViewerReviewProductStateSnapshot,
 } from './product-only-real-router-contract.ts';
 import {
+	type BridgeViewerDocumentGenerations,
+	installBridgeViewerDocumentGenerations,
+} from './product-only-real-router-document-generations.ts';
+import {
 	bridgeViewerJourneyFailureCode,
 	BridgeViewerProductOnlyJourneyFailure,
 } from './product-only-real-router-failure.ts';
+import { BridgeViewerLegacyMetadataCompletion } from './product-only-real-router-legacy-completion.ts';
 import { installBridgeViewerBrowserErrorCapture } from './product-only-real-router-page-error.ts';
 import {
 	BridgeViewerReloadJoinDiagnosticRecorder,
@@ -106,16 +111,14 @@ export async function runBridgeViewerProductOnlyJourney(props: {
 	});
 	const ownedJourneyDeadline = createOwnedProductJourneyDeadline({ browser, page });
 	let journeyCompleted = false;
-	let mainFrameDocumentGeneration = 0;
-	page.on('framenavigated', (frame): void => {
-		if (frame === page.mainFrame()) mainFrameDocumentGeneration += 1;
-	});
-	const routeObserver = new BridgeViewerRealRouterObserver(
-		page,
-		(): number => mainFrameDocumentGeneration,
-	);
+	const documentGenerations = await installBridgeViewerDocumentGenerations(page);
+	const routeObserver = new BridgeViewerRealRouterObserver(page, documentGenerations);
 	page.on('worker', (worker): void => {
-		const observedWorker = classifyObservedWorker(worker.url(), mainFrameDocumentGeneration);
+		const workerOrigin = documentGenerations.observedWorker(worker.url());
+		const observedWorker = classifyObservedWorker(
+			workerOrigin.scriptUrl,
+			workerOrigin.documentGeneration,
+		);
 		observedWorkers.push(observedWorker);
 		observedWorkerClosePromises.push(
 			new Promise((resolve): void => {
@@ -139,7 +142,7 @@ export async function runBridgeViewerProductOnlyJourney(props: {
 		if (response.status() < 400) return;
 		const request = response.request();
 		failedResponses.push({
-			documentGeneration: mainFrameDocumentGeneration,
+			documentGeneration: documentGenerations.currentGeneration(),
 			method: request.method(),
 			path: new URL(response.url()).pathname,
 			resourceType: request.resourceType(),
@@ -202,7 +205,7 @@ export async function runBridgeViewerProductOnlyJourney(props: {
 			await waitForFileProductTerminalState(page);
 		}
 		const fileAfterFirstAcknowledgement = await readFileProductState(page);
-		const journeyDocumentGenerationAtStart = mainFrameDocumentGeneration;
+		const journeyDocumentGenerationAtStart = documentGenerations.currentGeneration();
 
 		await page.locator(bridgeViewerProductOnlySelectors.activeReviewContextButton).click({
 			timeout: productJourneyTimeoutMilliseconds,
@@ -230,7 +233,7 @@ export async function runBridgeViewerProductOnlyJourney(props: {
 			consoleDiagnostics,
 			consoleErrors,
 			documentGeneration: {
-				atJourneyCompletion: mainFrameDocumentGeneration,
+				atJourneyCompletion: documentGenerations.currentGeneration(),
 				atJourneyStart: journeyDocumentGenerationAtStart,
 			},
 			failedResponses,
@@ -265,7 +268,7 @@ export async function runBridgeViewerProductOnlyJourney(props: {
 		journeyFailureCause = error;
 		journeyFailure = await captureBridgeViewerProductOnlyJourneyFailure({
 			browserDiagnostics: consoleDiagnostics,
-			documentGeneration: mainFrameDocumentGeneration,
+			documentGeneration: documentGenerations.currentGeneration(),
 			error,
 			failedResponses,
 			page,
@@ -407,11 +410,10 @@ async function readMainWindowProductRouteTranscript(
 }
 
 export class BridgeViewerRealRouterObserver {
-	readonly #documentGeneration: () => number;
+	readonly #documentGenerations: BridgeViewerDocumentGenerations;
 	readonly #page: Page;
-	readonly #legacyCompletion: Promise<void>;
+	readonly #legacyCompletion = new BridgeViewerLegacyMetadataCompletion();
 	readonly #legacyEntries: MutableLegacyRouteTranscriptEntry[] = [];
-	#legacyMetadataObserved = false;
 	readonly #productEntries: MutableProductRouteTranscriptEntry[] = [];
 	readonly #productEntryByRequest = new WeakMap<
 		PlaywrightRequest,
@@ -427,14 +429,10 @@ export class BridgeViewerRealRouterObserver {
 	readonly #reloadJoinDiagnostics = new BridgeViewerReloadJoinDiagnosticRecorder();
 	#productActivityRevision = 0;
 	#nextOrdinal = 1;
-	#resolveLegacyCompletion: (() => void) | null = null;
 
-	constructor(page: Page, documentGeneration: () => number) {
-		this.#documentGeneration = documentGeneration;
+	constructor(page: Page, documentGenerations: BridgeViewerDocumentGenerations) {
+		this.#documentGenerations = documentGenerations;
 		this.#page = page;
-		this.#legacyCompletion = new Promise((resolve): void => {
-			this.#resolveLegacyCompletion = resolve;
-		});
 		page.on('request', (request): void => this.#observeRequest(request));
 		page.on('requestfailed', (request): void => this.#observeRequestSettled(request));
 		page.on('requestfinished', (request): void => this.#observeRequestSettled(request));
@@ -445,12 +443,17 @@ export class BridgeViewerRealRouterObserver {
 		return this.#productEntries.map((entry) => ({ ...entry }));
 	}
 
+	// Armed before the reload navigation: the waiters belong to the next page
+	// generation, which begins when the main frame commits the new document.
 	armReloadJoinWaiters(): BridgeViewerReloadJoinResponses {
-		return this.#reloadJoinDiagnostics.arm(
-			this.#page,
-			this.#nextOrdinal,
-			productJourneyTimeoutMilliseconds,
-		);
+		return this.#reloadJoinDiagnostics.arm({
+			armOrdinal: this.#nextOrdinal,
+			page: this.#page,
+			requestDocumentGeneration: (request: PlaywrightRequest): number | null =>
+				this.#productEntryByRequest.get(request)?.documentGeneration ?? null,
+			targetDocumentGeneration: this.#documentGenerations.currentGeneration() + 1,
+			timeoutMilliseconds: productJourneyTimeoutMilliseconds,
+		});
 	}
 
 	emitReloadJoinFailureDiagnostics(workers: readonly MutableObservedWorker[]): void {
@@ -468,6 +471,18 @@ export class BridgeViewerRealRouterObserver {
 					return ordinal === undefined ? [] : [ordinal];
 				})
 				.toSorted((left, right): number => left - right),
+			unresolvedWaiters: [
+				...this.#reloadJoinDiagnostics.unresolvedWaiters(),
+				...this.#legacyCompletion.unresolvedWaiters(),
+				...(this.#productResponseClosureWaiters.size > 0
+					? [
+							{
+								documentGeneration: this.#documentGenerations.currentGeneration(),
+								name: 'product-response-quiescence' as const,
+							},
+						]
+					: []),
+			],
 		};
 	}
 
@@ -478,18 +493,21 @@ export class BridgeViewerRealRouterObserver {
 	}
 
 	async flushResponseParsers(): Promise<void> {
-		await this.#responseParsers.flush(this.#documentGeneration());
+		await this.#responseParsers.flush(this.#documentGenerations.currentGeneration());
 	}
 
 	async waitForObservedLegacyMetadataCompletion(): Promise<void> {
-		await this.flushResponseParsers();
-		if (!this.#legacyMetadataObserved || this.#legacyEntries.some((entry) => entry.finalWindow)) {
-			return;
-		}
-		await withBoundedTimeout(
-			this.#legacyCompletion,
-			productJourneyTimeoutMilliseconds,
-			'legacy Review metadata completion',
+		await this.#legacyCompletion.waitForGeneration(
+			this.#documentGenerations.currentGeneration(),
+			async (completion: Promise<void>): Promise<void> => {
+				// A final window already received may still be parsing.
+				await this.flushResponseParsers();
+				await withBoundedTimeout(
+					completion,
+					productJourneyTimeoutMilliseconds,
+					'legacy Review metadata completion',
+				);
+			},
 		);
 	}
 
@@ -508,7 +526,7 @@ export class BridgeViewerRealRouterObserver {
 			const requestSummary = summarizeBridgeProductRequestBody(requestBody);
 			const entry: MutableProductRouteTranscriptEntry = {
 				...requestSummary,
-				documentGeneration: this.#documentGeneration(),
+				documentGeneration: this.#documentGenerations.requestGeneration(request),
 				httpStatus: null,
 				method: request.method(),
 				ordinal: this.#nextOrdinal++,
@@ -527,7 +545,7 @@ export class BridgeViewerRealRouterObserver {
 		}
 		if (!requestUrl.pathname.startsWith('/__bridge-worktree/review-')) return;
 		const entry: MutableLegacyRouteTranscriptEntry = {
-			documentGeneration: this.#documentGeneration(),
+			documentGeneration: this.#documentGenerations.requestGeneration(request),
 			finalWindow: null,
 			frameKind: null,
 			httpStatus: null,
@@ -540,7 +558,7 @@ export class BridgeViewerRealRouterObserver {
 	}
 
 	#observeResponse(response: PlaywrightResponse): void {
-		const responseDocumentGeneration = this.#documentGeneration();
+		const responseDocumentGeneration = this.#documentGenerations.currentGeneration();
 		const productEntry = this.#productEntryByRequest.get(response.request());
 		if (productEntry !== undefined) {
 			productEntry.httpStatus = response.status();
@@ -563,7 +581,7 @@ export class BridgeViewerRealRouterObserver {
 		if (legacyEntry === undefined) return;
 		legacyEntry.httpStatus = response.status();
 		if (legacyEntry.path === '/__bridge-worktree/review-metadata') {
-			this.#legacyMetadataObserved = true;
+			this.#legacyCompletion.observeMetadataResponse(legacyEntry.documentGeneration);
 			this.#responseParsers.track(
 				this.#parseLegacyMetadataResponse(response, legacyEntry),
 				legacyEntry.documentGeneration,
@@ -614,7 +632,7 @@ export class BridgeViewerRealRouterObserver {
 	}
 
 	#productRequestsAreQuiescent(): boolean {
-		const activeDocumentGeneration = this.#documentGeneration();
+		const activeDocumentGeneration = this.#documentGenerations.currentGeneration();
 		return (
 			![...this.#unfinishedProductRequests].some(
 				(request): boolean =>
@@ -654,10 +672,7 @@ export class BridgeViewerRealRouterObserver {
 		entry.frameKind = stringValue(protocolFrame?.['frameKind']);
 		entry.sequence = integerValue(protocolFrame?.['sequence']);
 		entry.finalWindow = responseBody?.['nextWindowCursor'] === null;
-		if (entry.finalWindow) {
-			this.#resolveLegacyCompletion?.();
-			this.#resolveLegacyCompletion = null;
-		}
+		if (entry.finalWindow) this.#legacyCompletion.observeFinalWindow(entry.documentGeneration);
 	}
 }
 
