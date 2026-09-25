@@ -7,11 +7,6 @@ import Testing
 @testable import AgentStudioCore
 @testable import AgentStudioInfrastructure
 
-struct SecondAuthorityWindowFenceEventIDs: Equatable, Sendable {
-    let secondLocalEventID: UInt64
-    let sharedEventID: UInt64
-}
-
 final class SharedExactItemRealStreamFixture: @unchecked Sendable {
     let firstWorktreeId = UUIDv7.generate()
     let secondWorktreeId = UUIDv7.generate()
@@ -278,106 +273,6 @@ final class SharedExactItemRealStreamFixture: @unchecked Sendable {
         return barrier
     }
 
-    /// FSEventStreamFlushSync flushes pending events, but Apple does not guarantee
-    /// earlier setup events have reached their callbacks before it returns; a
-    /// delivered event ID fences each stream. See
-    /// https://developer.apple.com/library/archive/documentation/Darwin/Conceptual/FSEvents_ProgGuide/UsingtheFSEventsFramework/UsingtheFSEventsFramework.html.
-    func fenceSecondAuthorityWindow() async throws -> SecondAuthorityWindowFenceEventIDs {
-        let fenceToken = UUIDv7.generate().uuidString
-        let secondLocalSentinelPath =
-            secondRepositoryPath
-            .appending(path: ".git", directoryHint: .isDirectory)
-            .appending(path: "agentstudio-second-authority-fence-\(fenceToken)")
-        let sharedSentinelPath = exactItemParent.currentURL.appending(
-            path: "agentstudio-shared-authority-fence-\(fenceToken)"
-        )
-        let canonicalSecondLocalSentinelPath =
-            DarwinFSEventPathCanonicalizer
-            .canonicalURL(secondLocalSentinelPath).path
-        let canonicalSharedSentinelPath =
-            DarwinFSEventPathCanonicalizer
-            .canonicalURL(sharedSentinelPath).path
-
-        let localEventTask = Task {
-            await waitForLocalSentinelEvent(
-                worktreeId: secondWorktreeId,
-                canonicalPath: canonicalSecondLocalSentinelPath
-            )
-        }
-        defer { localEventTask.cancel() }
-        let sharedCallback = nativeStreamRecorder.armCallbackEvent(at: canonicalSharedSentinelPath)
-
-        try "second-local fence \(fenceToken)\n".write(
-            to: secondLocalSentinelPath,
-            atomically: false,
-            encoding: .utf8
-        )
-        try "shared fence \(fenceToken)\n".write(
-            to: sharedSentinelPath,
-            atomically: false,
-            encoding: .utf8
-        )
-
-        let secondLocalEventID = try #require(
-            await localEventTask.value,
-            "second worktree local sentinel event never arrived"
-        )
-        let sharedEventID = try #require(
-            await nativeStreamRecorder.awaitCallbackEvent(sharedCallback),
-            "shared parent sentinel event never arrived"
-        )
-        let barrier = try #require(
-            await captureActivityBarrier(),
-            "fixture activity barrier could not be captured after second-authority sentinels"
-        )
-
-        let secondLocalScopeKey = "local:\(secondWorktreeId.uuidString)"
-        let secondLocalBinding = try #require(
-            barrier.bindings.first {
-                $0.worktreeId == secondWorktreeId
-                    && $0.participant.scopeKey == secondLocalScopeKey
-            },
-            "second worktree local activity binding missing from fence barrier"
-        )
-        let secondLocalWatermark = try #require(
-            barrier.deliveredEventIDByParticipant[secondLocalBinding.participant],
-            "second worktree local event watermark missing from fence barrier"
-        )
-        try #require(
-            secondLocalWatermark >= secondLocalEventID,
-            "second worktree local activity barrier precedes its sentinel event"
-        )
-
-        let sharedParentPath = DarwinFSEventPathCanonicalizer.canonicalURL(
-            exactItemParent.currentURL
-        ).path
-        let volumeSystemNumber = try #require(
-            DarwinFSEventBindingPlanner.volumeSystemNumber(for: sharedParentPath),
-            "shared parent volume number missing from fence barrier"
-        )
-        let sharedScopeKey = "shared:\(volumeSystemNumber):\(sharedParentPath)"
-        let secondSharedBinding = try #require(
-            barrier.bindings.first {
-                $0.worktreeId == secondWorktreeId
-                    && $0.participant.scopeKey == sharedScopeKey
-            },
-            "second worktree shared activity binding missing from fence barrier"
-        )
-        let sharedWatermark = try #require(
-            barrier.deliveredEventIDByParticipant[secondSharedBinding.participant],
-            "shared event watermark missing from fence barrier"
-        )
-        try #require(
-            sharedWatermark >= sharedEventID,
-            "shared activity barrier precedes its sentinel event"
-        )
-
-        return SecondAuthorityWindowFenceEventIDs(
-            secondLocalEventID: secondLocalEventID,
-            sharedEventID: sharedEventID
-        )
-    }
-
     /// Drives real activity through each freshly bound stream and waits for it to
     /// come back.
     ///
@@ -437,31 +332,6 @@ final class SharedExactItemRealStreamFixture: @unchecked Sendable {
             }
             return observedWorktreeIds
         }
-    }
-
-    private func waitForLocalSentinelEvent(
-        worktreeId: UUID,
-        canonicalPath: String
-    ) async -> UInt64? {
-        let expectedScopeKey = "local:\(worktreeId.uuidString)"
-        for await ingressItem in forwardedIngress {
-            guard case .batch(let batch) = ingressItem,
-                batch.worktreeId == worktreeId,
-                batch.participant?.scopeKey == expectedScopeKey
-            else {
-                continue
-            }
-            guard
-                let observation = batch.observations.first(where: {
-                    DarwinFSEventPathNormalizer.lexicallyNormalizedAbsolutePath($0.path)
-                        == canonicalPath
-                })
-            else {
-                continue
-            }
-            return observation.eventID
-        }
-        return nil
     }
 
     private static func sentinelPath(in repositoryPath: URL) -> URL {

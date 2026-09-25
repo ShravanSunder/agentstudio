@@ -4,13 +4,28 @@ import Foundation
 @testable import AgentStudioCore
 @testable import AgentStudioInfrastructure
 
+private enum NativeCallbackMatch {
+    case exactPath(String)
+    case rootChanged
+
+    func matches(_ event: DarwinSharedExactItemRawEvent) -> Bool {
+        switch self {
+        case .exactPath(let expectedPath):
+            DarwinFSEventPathNormalizer.lexicallyNormalizedAbsolutePath(event.path) == expectedPath
+        case .rootChanged:
+            event.flags & FSEventStreamEventFlags(kFSEventStreamEventFlagRootChanged) != 0
+        }
+    }
+}
+
 final class NativeSharedExactItemStreamRecorder: @unchecked Sendable {
     private let lock = NSLock()
     private let nativeSharedStreamIsEnabled: Bool
     let callbackEvents: AsyncStream<DarwinSharedExactItemRawEvent>
     private let callbackEventsContinuation: AsyncStream<DarwinSharedExactItemRawEvent>.Continuation
     private var startCountByParentPath: [String: Int] = [:]
-    private var callbackWaiters: [UUID: (path: String, continuation: AsyncStream<UInt64>.Continuation)] = [:]
+    private var callbackWaiters: [UUID: (match: NativeCallbackMatch, continuation: AsyncStream<UInt64>.Continuation)] =
+        [:]
 
     init(nativeSharedStreamIsEnabled: Bool) {
         self.nativeSharedStreamIsEnabled = nativeSharedStreamIsEnabled
@@ -44,6 +59,14 @@ final class NativeSharedExactItemStreamRecorder: @unchecked Sendable {
     }
 
     func armCallbackEvent(at expectedPath: String) -> AsyncStream<UInt64> {
+        armCallback(matching: .exactPath(expectedPath))
+    }
+
+    func armRootChangedCallback() -> AsyncStream<UInt64> {
+        armCallback(matching: .rootChanged)
+    }
+
+    private func armCallback(matching match: NativeCallbackMatch) -> AsyncStream<UInt64> {
         let waiterID = UUIDv7.generate()
         let (events, continuation) = AsyncStream.makeStream(
             of: UInt64.self,
@@ -53,7 +76,7 @@ final class NativeSharedExactItemStreamRecorder: @unchecked Sendable {
             _ = self?.lock.withLock { self?.callbackWaiters.removeValue(forKey: waiterID) }
         }
         lock.withLock {
-            callbackWaiters[waiterID] = (expectedPath, continuation)
+            callbackWaiters[waiterID] = (match, continuation)
         }
         return events
     }
@@ -67,11 +90,8 @@ final class NativeSharedExactItemStreamRecorder: @unchecked Sendable {
         let completedWaiters = lock.withLock {
             var completed: [(AsyncStream<UInt64>.Continuation, UInt64)] = []
             for rawEvent in rawEvents {
-                let callbackPath = DarwinFSEventPathNormalizer.lexicallyNormalizedAbsolutePath(
-                    rawEvent.path
-                )
                 let matchingWaiterIDs = callbackWaiters.compactMap { waiterID, waiter in
-                    waiter.path == callbackPath ? waiterID : nil
+                    waiter.match.matches(rawEvent) ? waiterID : nil
                 }
                 for waiterID in matchingWaiterIDs {
                     guard let waiter = callbackWaiters.removeValue(forKey: waiterID) else {
