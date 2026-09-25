@@ -62,25 +62,6 @@ package struct IPCObjectField: Equatable, Sendable {
     }
 }
 
-/// JSON that has passed one complete walk through its owning schema.
-/// Construction stays inside schema normalization so raw bytes cannot enter
-/// APIs that intentionally skip that walk.
-package struct IPCNormalizedJSON: Equatable, Sendable {
-    package let data: Data
-    fileprivate let schema: IPCJSONSchema
-
-    package func data(validatedFor schema: IPCJSONSchema) throws -> Data {
-        guard self.schema == schema else {
-            throw IPCSchemaValidationError(
-                fieldPath: "$",
-                reason: .invalidDefinition,
-                expected: "JSON normalized for the matching schema"
-            )
-        }
-        return data
-    }
-}
-
 /// One algebra drives input validation, default application and discovery.
 /// Unknown object fields are rejected instead of silently changing meaning.
 package indirect enum IPCJSONSchema: Equatable, Sendable, Codable {
@@ -103,17 +84,6 @@ package indirect enum IPCJSONSchema: Equatable, Sendable, Codable {
 
     package func normalize(_ data: Data) throws -> Data {
         try normalizeJSON(data).data
-    }
-
-    package func normalizeJSON(_ data: Data) throws -> IPCNormalizedJSON {
-        try validateDefinition()
-        let value: IPCSchemaValue
-        do {
-            value = try JSONDecoder().decode(IPCSchemaValue.self, from: data)
-        } catch {
-            throw failure(.invalidJSON, path: "$", expected: "valid JSON")
-        }
-        return IPCNormalizedJSON(data: try normalize(value, path: "$").encoded(), schema: self)
     }
 
     package func decode<Value: Decodable>(_ type: Value.Type, from data: Data) throws -> Value {
@@ -153,7 +123,7 @@ package indirect enum IPCJSONSchema: Equatable, Sendable, Codable {
         try normalize(value, path: path, prepared: nil, schemaDocumentValuesByPath: [:])
     }
 
-    fileprivate func normalize(
+    func normalize(
         _ value: IPCSchemaValue,
         path: String,
         prepared: IPCJSONSchemaPreparedRepresentation?,
@@ -240,7 +210,7 @@ package indirect enum IPCJSONSchema: Equatable, Sendable, Codable {
                 value,
                 alternatives: alternatives,
                 path: path,
-                preparedAlternatives: prepared?.alternatives,
+                preparedOneOf: prepared?.oneOf,
                 schemaDocumentValuesByPath: schemaDocumentValuesByPath
             )
         case .schemaDocument:
@@ -260,9 +230,31 @@ package indirect enum IPCJSONSchema: Equatable, Sendable, Codable {
         _ value: IPCSchemaValue,
         alternatives: [Self],
         path: String,
-        preparedAlternatives: [IPCJSONSchemaPreparedRepresentation]?,
+        preparedOneOf: IPCJSONSchemaPreparedOneOf?,
         schemaDocumentValuesByPath: [String: IPCSchemaValue]
     ) throws -> IPCSchemaValue {
+        if let discriminator = preparedOneOf?.discriminator {
+            guard let index = discriminator.alternativeIndex(for: value),
+                let preparedAlternative = preparedOneOf?.alternatives[index]
+            else {
+                throw failure(.noMatchingAlternative, path: path, expected: "exactly one declared alternative")
+            }
+            do {
+                return try alternatives[index].normalize(
+                    value,
+                    path: path,
+                    prepared: preparedAlternative,
+                    schemaDocumentValuesByPath: schemaDocumentValuesByPath
+                )
+            } catch {
+                // Try-all turns every failed alternative into a no-match at the
+                // oneOf path. Keep that observable error while skipping the
+                // alternatives the literal discriminator has ruled out.
+                throw failure(.noMatchingAlternative, path: path, expected: "exactly one declared alternative")
+            }
+        }
+
+        let preparedAlternatives = preparedOneOf?.alternatives
         let matches = alternatives.enumerated().compactMap { index, alternative in
             try? alternative.normalize(
                 value,
@@ -374,7 +366,7 @@ package indirect enum IPCJSONSchema: Equatable, Sendable, Codable {
         return .object(normalized)
     }
 
-    fileprivate func validateDefinition() throws {
+    func validateDefinition() throws {
         let invalid = failure(.invalidDefinition, path: "$", expected: "a complete consistent schema")
         switch self {
         case .object(let fields):
@@ -411,105 +403,4 @@ package indirect enum IPCJSONSchema: Equatable, Sendable, Codable {
         }
     }
 
-}
-
-private indirect enum IPCJSONSchemaPreparedRepresentation {
-    case object([IPCJSONSchemaPreparedField])
-    case dictionary(Self)
-    case array(Self)
-    case string(NSRegularExpression?)
-    case oneOf([Self])
-    case leaf
-
-    var objectFields: [IPCJSONSchemaPreparedField]? {
-        guard case .object(let fields) = self else { return nil }
-        return fields
-    }
-
-    var dictionaryValue: Self? {
-        guard case .dictionary(let value) = self else { return nil }
-        return value
-    }
-
-    var arrayItem: Self? {
-        guard case .array(let item) = self else { return nil }
-        return item
-    }
-
-    var compiledPattern: NSRegularExpression? {
-        guard case .string(let pattern) = self else { return nil }
-        return pattern
-    }
-
-    var alternatives: [Self]? {
-        guard case .oneOf(let alternatives) = self else { return nil }
-        return alternatives
-    }
-}
-
-private struct IPCJSONSchemaPreparedField {
-    let schema: IPCJSONSchemaPreparedRepresentation
-    let defaultValue: IPCSchemaValue?
-}
-
-/// A validated schema paired with reusable normalization state. Instances are
-/// scoped to one catalog decode; compiled regexes and parsed defaults never
-/// escape into a process-wide cache.
-struct IPCValidatedJSONSchema {
-    let schema: IPCJSONSchema
-    let documentValue: IPCSchemaValue
-    private let prepared: IPCJSONSchemaPreparedRepresentation
-
-    init(schema: IPCJSONSchema) throws {
-        try schema.validateDefinition()
-        self.schema = schema
-        prepared = try Self.prepare(schema)
-        documentValue = try schema.documentValue()
-    }
-
-    func normalize(
-        _ data: Data,
-        schemaDocumentValuesByPath: [String: IPCSchemaValue] = [:]
-    ) throws -> Data {
-        let value: IPCSchemaValue
-        do {
-            value = try JSONDecoder().decode(IPCSchemaValue.self, from: data)
-        } catch {
-            throw schema.failure(.invalidJSON, path: "$", expected: "valid JSON")
-        }
-        return try schema.normalize(
-            value,
-            path: "$",
-            prepared: prepared,
-            schemaDocumentValuesByPath: schemaDocumentValuesByPath
-        ).encoded()
-    }
-
-    private static func prepare(_ schema: IPCJSONSchema) throws -> IPCJSONSchemaPreparedRepresentation {
-        switch schema {
-        case .object(let fields):
-            return .object(
-                try fields.map { field in
-                    let preparedSchema = try prepare(field.schema)
-                    let defaultValue: IPCSchemaValue?
-                    if case .defaultValue(let data) = field.presence {
-                        defaultValue = try JSONDecoder().decode(IPCSchemaValue.self, from: data)
-                    } else {
-                        defaultValue = nil
-                    }
-                    return IPCJSONSchemaPreparedField(schema: preparedSchema, defaultValue: defaultValue)
-                }
-            )
-        case .dictionary(let values):
-            return .dictionary(try prepare(values))
-        case .array(let item, _, _):
-            return .array(try prepare(item))
-        case .string(let constraints):
-            return .string(try constraints.pattern.map { try NSRegularExpression(pattern: $0) })
-        case .oneOf(let alternatives):
-            return .oneOf(try alternatives.map(prepare))
-        case .integer, .number, .boolean, .booleanConstant, .literalValue, .null, .schemaDocument:
-            return .leaf
-        }
-    }
 }

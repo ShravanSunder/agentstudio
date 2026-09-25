@@ -264,6 +264,28 @@ struct IPCCommandDiscoveryTests {
         #expect(error.reason == .invalidCommandCatalog)
     }
 
+    @Test("command.list rejects a command body that violates its selected literal-id alternative")
+    func commandListRejectsInvalidSelectedCommandBody() throws {
+        let fixture = try IPCCommandDiscoveryFixture.make()
+        let discovery = try IPCCommandDiscovery(methodCatalog: fixture.methodCatalog)
+        var catalogObject = try #require(
+            JSONSerialization.jsonObject(
+                with: JSONEncoder().encode(fixture.commandComposition.catalogResult)
+            ) as? [String: Any]
+        )
+        var commands = try #require(catalogObject["commands"] as? [[String: Any]])
+        commands[0]["title"] = 42
+        catalogObject["commands"] = commands
+        let malformedPayload = try JSONSerialization.data(withJSONObject: catalogObject, options: [.sortedKeys])
+
+        let error = try captureIPCCommandDiscoveryError {
+            _ = try discovery.decodeCommandCatalog(from: malformedPayload)
+        }
+
+        #expect(error.reason == .invalidCommandCatalog)
+        #expect(error.fieldPath == "$.commands")
+    }
+
     @Test("schema-normalized command.list data takes the typed skip path")
     func normalizedCommandListUsesTheTypedSkipPath() throws {
         let fixture = try IPCCommandDiscoveryFixture.make()

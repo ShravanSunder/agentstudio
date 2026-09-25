@@ -6,6 +6,10 @@ package struct IPCValidatedJSON: Equatable, Sendable {
     package let normalizedJSON: IPCNormalizedJSON
     package var data: Data { normalizedJSON.data }
 
+    fileprivate init(normalizedJSON: IPCNormalizedJSON) {
+        self.normalizedJSON = normalizedJSON
+    }
+
     package func data(validatedFor schema: IPCJSONSchema) throws -> Data {
         try normalizedJSON.data(validatedFor: schema)
     }
@@ -22,16 +26,20 @@ package struct IPCValidatedTypedValue<Value: Sendable>: Sendable {
 package struct IPCMethodContract<Parameters: Codable & Sendable, Result: Codable & Sendable>: Sendable {
     package let parameterSchema: IPCJSONSchema
     package let resultSchema: IPCJSONSchema
+    private let validatedParameterSchema: IPCValidatedJSONSchema
+    private let validatedResultSchema: IPCValidatedJSONSchema
 
     package init(parameterSchema: IPCJSONSchema, resultSchema: IPCJSONSchema) throws {
-        _ = try parameterSchema.jsonSchemaData()
-        _ = try resultSchema.jsonSchemaData()
+        let validatedParameterSchema = try IPCValidatedJSONSchema(schema: parameterSchema)
+        let validatedResultSchema = try IPCValidatedJSONSchema(schema: resultSchema)
         self.parameterSchema = parameterSchema
         self.resultSchema = resultSchema
+        self.validatedParameterSchema = validatedParameterSchema
+        self.validatedResultSchema = validatedResultSchema
     }
 
     package func decodeParameters(from data: Data) throws -> Parameters {
-        try decodeParameters(from: parameterSchema.normalizeJSON(data))
+        try decodeParameters(from: validatedParameterSchema.normalizeJSON(data))
     }
 
     package func decodeParameters(from normalized: IPCNormalizedJSON) throws -> Parameters {
@@ -48,7 +56,7 @@ package struct IPCMethodContract<Parameters: Codable & Sendable, Result: Codable
     }
 
     package func validatedParameters(from data: Data) throws -> IPCValidatedTypedValue<Parameters> {
-        try validatedParameters(from: parameterSchema.normalizeJSON(data))
+        try validatedParameters(from: validatedParameterSchema.normalizeJSON(data))
     }
 
     package func normalizedParameters(from data: Data) throws -> IPCValidatedJSON {
@@ -68,7 +76,7 @@ package struct IPCMethodContract<Parameters: Codable & Sendable, Result: Codable
             encoded,
             matching: normalized,
             sameRepresentation: sameRepresentation,
-            schema: parameterSchema
+            validatedSchema: validatedParameterSchema
         )
         return IPCValidatedTypedValue(
             value: parameters,
@@ -77,7 +85,7 @@ package struct IPCMethodContract<Parameters: Codable & Sendable, Result: Codable
     }
 
     package func decodeResult(from data: Data) throws -> Result {
-        try decodeResult(from: resultSchema.normalizeJSON(data))
+        try decodeResult(from: validatedResultSchema.normalizeJSON(data))
     }
 
     package func decodeResult(from normalized: IPCNormalizedJSON) throws -> Result {
@@ -94,7 +102,7 @@ package struct IPCMethodContract<Parameters: Codable & Sendable, Result: Codable
     }
 
     package func validatedResult(from data: Data) throws -> IPCValidatedTypedValue<Result> {
-        try validatedResult(from: resultSchema.normalizeJSON(data))
+        try validatedResult(from: validatedResultSchema.normalizeJSON(data))
     }
 
     package func normalizedResult(from data: Data) throws -> IPCValidatedJSON {
@@ -114,7 +122,7 @@ package struct IPCMethodContract<Parameters: Codable & Sendable, Result: Codable
             encoded,
             matching: normalized,
             sameRepresentation: sameRepresentation,
-            schema: resultSchema
+            validatedSchema: validatedResultSchema
         )
         return IPCValidatedTypedValue(
             value: result,
@@ -124,7 +132,7 @@ package struct IPCMethodContract<Parameters: Codable & Sendable, Result: Codable
 
     package func encodeResult(_ result: Result) throws -> Data {
         let encoded = try encodedValue(result)
-        let normalized = try resultSchema.normalizeJSON(encoded)
+        let normalized = try validatedResultSchema.normalizeJSON(encoded)
         _ = try resultSchema.validateTypedEncodingAndCompare(normalized: normalized, encoded: encoded)
         return normalized.data
     }
@@ -148,14 +156,14 @@ package struct IPCMethodContract<Parameters: Codable & Sendable, Result: Codable
         _ encoded: Data,
         matching normalized: IPCNormalizedJSON,
         sameRepresentation: Bool,
-        schema: IPCJSONSchema
+        validatedSchema: IPCValidatedJSONSchema
     ) throws -> IPCNormalizedJSON {
         // The normal case returns the already-normalized message. If Codable
         // canonicalized a value, normalize that changed representation to keep
         // the previous wire output and exactly-one checks.
         guard !sameRepresentation else { return normalized }
-        let typedJSON = try schema.normalizeJSON(encoded)
-        _ = try schema.validateTypedEncodingAndCompare(normalized: typedJSON, encoded: encoded)
+        let typedJSON = try validatedSchema.normalizeJSON(encoded)
+        _ = try validatedSchema.schema.validateTypedEncodingAndCompare(normalized: typedJSON, encoded: encoded)
         return typedJSON
     }
 }
