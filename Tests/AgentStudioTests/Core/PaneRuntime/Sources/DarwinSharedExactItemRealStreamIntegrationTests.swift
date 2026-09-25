@@ -52,31 +52,43 @@ struct DarwinSharedExactItemRealStreamIntegrationTests {
         #expect(fixture.readRecorder.snapshot == baselineReadCounts)
     }
 
-    @Test("native atomic replacement invalidates exact-item authority")
-    func nativeAtomicReplacementInvalidatesAuthority() async throws {
+    @Test("native atomic replacement callback classifies as relevant exact-item activity")
+    func nativeAtomicReplacementCallbackClassifiesAsRelevantExactItemActivity() async throws {
         let fixture = try await SharedExactItemRealStreamFixture(nativeSharedStreamIsEnabled: true)
         defer { fixture.remove() }
         try #require(
             await fixture.awaitActivityBarrier(),
             "native local and shared bindings could not be captured"
         )
-        let authority = try await fixture.establishAuthorityAfterOverlappingMutation(
-            worktreeId: fixture.firstWorktreeId,
-            repositoryPath: fixture.firstRepositoryPath
-        )
         let baselineReadCounts = fixture.readRecorder.snapshot
         let fullGitBatchTask = fixture.collectFullGitRefreshBatches(
-            expectedWorktreeIds: [fixture.firstWorktreeId, fixture.secondWorktreeId]
+            expectedWorktreeIds: [fixture.firstWorktreeId]
         )
+        let exactPath = DarwinFSEventPathCanonicalizer.canonicalURL(fixture.excludesFilePath).path
+        let exactCallback = fixture.nativeStreamRecorder.armCallbackEvent(at: exactPath)
 
         try fixture.perform(.atomicReplacement)
-        let fullGitBatches = await fullGitBatchTask.value
-        #expect(
-            fixture.requiresExact(
-                await fixture.provider.renewExactCleanAuthority(authority)
-            )
+        let callbackEventID = try #require(
+            await fixture.nativeStreamRecorder.awaitCallbackEvent(exactCallback),
+            "native exact-item replacement callback never arrived"
         )
-        #expect(Set(fullGitBatches.keys) == [fixture.firstWorktreeId, fixture.secondWorktreeId])
+        let classification = DarwinFSEventPathClassifier.classify(
+            rawEvents: [(path: exactPath, eventId: callbackEventID, flags: 0)],
+            ordinaryPaths: [],
+            rootPath: DarwinFSEventPathCanonicalizer.canonicalURL(
+                fixture.firstRepositoryPath
+            ).path,
+            observationScopes: [
+                AgentStudioGit.GitStatusObservationScope(
+                    kind: .item,
+                    path: URL(fileURLWithPath: exactPath)
+                )
+            ]
+        )
+        #expect(classification.rawEvents.map(\.hasRelevantMutation) == [true])
+
+        let fullGitBatches = await fullGitBatchTask.value
+        #expect(Set(fullGitBatches.keys) == [fixture.firstWorktreeId])
         #expect(fullGitBatches.values.allSatisfy { $0.requiresFullGitRefresh })
         #expect(fullGitBatches.values.allSatisfy { $0.paths.isEmpty })
         #expect(fixture.readRecorder.snapshot == baselineReadCounts)
@@ -99,6 +111,31 @@ struct DarwinSharedExactItemRealStreamIntegrationTests {
         #expect(Set(fullGitBatches.keys) == [fixture.firstWorktreeId, fixture.secondWorktreeId])
         #expect(fullGitBatches.values.allSatisfy { $0.requiresFullGitRefresh })
         #expect(fullGitBatches.values.allSatisfy { $0.paths.isEmpty })
+
+        let sentinelPath = fixture.firstRepositoryPath
+            .appending(path: ".git", directoryHint: .isDirectory)
+            .appending(path: "agentstudio-real-stream-sentinel")
+        let sentinelBatchTask = fixture.armLocalSentinelCallback(
+            at: sentinelPath,
+            for: fixture.firstWorktreeId
+        )
+        try "after RootChanged\n".write(
+            to: sentinelPath,
+            atomically: false,
+            encoding: .utf8
+        )
+        let sentinelBatch = try #require(
+            await sentinelBatchTask.value,
+            "rebound local stream did not deliver the armed sentinel callback"
+        )
+        let canonicalSentinelPath = DarwinFSEventPathCanonicalizer.canonicalURL(sentinelPath).path
+        #expect(sentinelBatch.worktreeId == fixture.firstWorktreeId)
+        #expect(
+            sentinelBatch.paths.contains {
+                DarwinFSEventPathNormalizer.lexicallyNormalizedAbsolutePath($0)
+                    == canonicalSentinelPath
+            }
+        )
     }
 }
 
