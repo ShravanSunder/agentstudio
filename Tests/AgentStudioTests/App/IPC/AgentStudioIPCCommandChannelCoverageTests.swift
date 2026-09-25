@@ -27,8 +27,11 @@ struct AgentStudioIPCCommandChannelCoverageTests {
 
     @Test("debug discovery exposes every AppCommand and labels the debug-only ones")
     func debugCatalogExposesEveryAppCommand() async throws {
+        let harness = CommandAdapterHarness(channel: .debug)
         let catalog = try await makeIPCCommandCatalogOffMain(
-            from: CommandAdapterHarness(channel: .debug).adapter)
+            from: harness.adapter,
+            channel: harness.channel
+        )
         let ids = Set(catalog.commands.map(\.id.rawValue))
 
         #expect(catalog.commands.count == AppCommand.allCases.count)
@@ -52,8 +55,11 @@ struct AgentStudioIPCCommandChannelCoverageTests {
         arguments: [AgentStudioIPCChannel.stable, .beta]
     )
     func admittedChannelCatalogStaysFrozen(channel: AgentStudioIPCChannel) async throws {
+        let harness = CommandAdapterHarness(channel: channel)
         let catalog = try await makeIPCCommandCatalogOffMain(
-            from: CommandAdapterHarness(channel: channel).adapter)
+            from: harness.adapter,
+            channel: harness.channel
+        )
         let ids = Set(catalog.commands.map(\.id.rawValue))
 
         #expect(catalog.commands.count == 24)
@@ -198,8 +204,11 @@ struct AgentStudioIPCCommandChannelCoverageTests {
 
     @Test("the complete debug command catalog still fits the existing one MiB NDJSON frame")
     func debugCatalogFitsExistingFrame() async throws {
+        let harness = CommandAdapterHarness(channel: .debug)
         let composition = try await makeIPCCommandCompositionOffMain(
-            from: CommandAdapterHarness(channel: .debug).adapter)
+            from: harness.adapter,
+            channel: harness.channel
+        )
         let catalog = composition.catalogResult
         let response = JSONRPCResponse.success(
             id: .number(1),
@@ -245,8 +254,11 @@ struct AgentStudioIPCCommandChannelCoverageTests {
         #expect(anyTarget.isEmpty)
         #expect(ownPane.allSatisfy { $0.ipcSpec.exposure == .allChannels })
 
+        let harness = CommandAdapterHarness(channel: .stable)
         let catalog = try await makeIPCCommandCatalogOffMain(
-            from: CommandAdapterHarness(channel: .stable).adapter)
+            from: harness.adapter,
+            channel: harness.channel
+        )
         for descriptor in catalog.commands {
             let command = try #require(AppCommand(rawValue: descriptor.id.rawValue))
             #expect(descriptor.agentEligibility == command.ipcSpec.agentEligibility)

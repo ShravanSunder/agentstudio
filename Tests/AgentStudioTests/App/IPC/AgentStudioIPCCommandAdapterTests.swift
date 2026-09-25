@@ -39,12 +39,12 @@ struct AgentStudioIPCCommandAdapterTests {
         #expect(reload.requiredPrivileges == [.appCommandExecute, .workspaceRead])
     }
 
-    @Test("command descriptor composition has a sendable nonisolated builder type")
+    @Test("descriptor catalog composition has a sendable nonisolated builder type")
     func commandDescriptorCompositionBuilderIsNonisolated() {
-        let buildCommandComposition:
-            @Sendable (AppIPCCommandCatalogProjectionInputs) async throws -> IPCCommandMethodComposition =
-                AppIPCDescriptorCatalogBuilder.buildCommandCompositionOffMain
-        _ = buildCommandComposition
+        let buildDescriptorCatalog:
+            @Sendable (AppIPCDescriptorCatalogBuildInputs) async throws -> AppIPCDescriptorCatalogBuildResult =
+                AppIPCDescriptorCatalogBuilder.buildOffMain
+        _ = buildDescriptorCatalog
     }
 
     @Test("retired Panes organization commands remain unavailable without reaching an owner")

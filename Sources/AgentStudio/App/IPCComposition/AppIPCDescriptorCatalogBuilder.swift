@@ -58,17 +58,6 @@ package enum AppIPCDescriptorCatalogBuilder {
         case systemPingMissing
     }
 
-    /// Projects captured command metadata into validated descriptors and their
-    /// composed command methods. The complete operation runs off MainActor.
-    @concurrent
-    nonisolated
-        package static func buildCommandCompositionOffMain(
-            inputs: AppIPCCommandCatalogProjectionInputs
-        ) async throws -> IPCCommandMethodComposition
-    {
-        try makeCommandComposition(inputs: inputs)
-    }
-
     /// Builds immutable descriptor and schema values away from MainActor.
     /// Every input is captured before the hop; this function reads no app state.
     @concurrent
