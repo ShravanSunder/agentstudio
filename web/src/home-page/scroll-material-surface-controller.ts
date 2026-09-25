@@ -1,7 +1,11 @@
+import { playbackStageAttribute } from "../chapters/chapter-dom-contract";
+import { createSurfaceScenePlayback } from "./scene-playback";
 import { createScrollAutoplayVideoController } from "./scroll-autoplay-video-controller";
+import { combineSurfacePlaybacks } from "./surface-playback";
 
 const viewportEdgeInsetRatio = 0.2;
-const phoneMediaQuery = "(max-width: 620px)";
+// The site's phone boundary, spelled like Tailwind's max-phone: variant.
+const phoneMediaQuery = "(width < 38.75rem)";
 
 let disposeActiveController: (() => void) | undefined;
 
@@ -44,22 +48,32 @@ function applySurfaceProgress(surface: HTMLElement, progress: number, shouldLift
     progress >= 0.98 ? "floating" : progress <= 0.02 ? "resting" : "transitioning";
 }
 
-function readSurfaceProgress(surface: HTMLElement): number {
-  const surfaceBounds = surface.getBoundingClientRect();
+function readSurfaceLift(surface: HTMLElement): number {
   const currentLift = Number.parseFloat(
     getComputedStyle(surface).getPropertyValue("--scroll-material-lift"),
   );
-  const surfaceTop = surfaceBounds.top - (Number.isFinite(currentLift) ? currentLift : 0);
-  const surfaceBottom = surfaceTop + surfaceBounds.height;
+  return Number.isFinite(currentLift) ? currentLift : 0;
+}
+
+/**
+ * Eased 0..1 progress of an element through the viewport's 20%/80% bookends.
+ * The lift is removed so the surface's own float animation cannot feed back
+ * into its progress. An element taller than the space between the bookends
+ * never reaches 1, which is why playback can measure a smaller media stage.
+ */
+function readBookendProgress(element: HTMLElement, surfaceLift: number): number {
+  const elementBounds = element.getBoundingClientRect();
+  const elementTop = elementBounds.top - surfaceLift;
+  const elementBottom = elementTop + elementBounds.height;
   const topBookend = window.innerHeight * viewportEdgeInsetRatio;
   const bottomBookend = window.innerHeight * (1 - viewportEdgeInsetRatio);
-  const fullyEnteredTop = bottomBookend - surfaceBounds.height;
+  const fullyEnteredTop = bottomBookend - elementBounds.height;
   const rawProgress = clampProgress(
-    surfaceTop >= fullyEnteredTop
-      ? (bottomBookend - surfaceTop) / surfaceBounds.height
-      : surfaceTop >= topBookend
+    elementTop >= fullyEnteredTop
+      ? (bottomBookend - elementTop) / elementBounds.height
+      : elementTop >= topBookend
         ? 1
-        : (surfaceBottom - topBookend) / surfaceBounds.height,
+        : (elementBottom - topBookend) / elementBounds.height,
   );
   return easeProgress(rawProgress);
 }
@@ -76,22 +90,29 @@ export function initializeScrollMaterialSurfaces(): void {
 
   const surfaceControllers = surfaces.map((surface) => ({
     materialSurface: surface,
-    videoController: createScrollAutoplayVideoController(surface),
+    playbackStage: surface.querySelector<HTMLElement>(`[${playbackStageAttribute}]`),
+    surfacePlayback: combineSurfacePlaybacks([
+      createScrollAutoplayVideoController(surface),
+      createSurfaceScenePlayback(surface),
+    ]),
   }));
   const reducedMotionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
   let pendingAnimationFrame: number | undefined;
   let isDisposed = false;
 
   const synchronizeSurfaces = (): void => {
-    for (const { materialSurface, videoController } of surfaceControllers) {
+    for (const { materialSurface, playbackStage, surfacePlayback } of surfaceControllers) {
       if (reducedMotionQuery.matches || document.visibilityState === "hidden") {
         applySurfaceProgress(materialSurface, 1, false);
-        videoController.synchronize(1, false);
+        surfacePlayback.synchronize(1, false);
         continue;
       }
-      const progress = readSurfaceProgress(materialSurface);
-      applySurfaceProgress(materialSurface, progress, true);
-      videoController.synchronize(progress, true);
+      const surfaceLift = readSurfaceLift(materialSurface);
+      const materialProgress = readBookendProgress(materialSurface, surfaceLift);
+      const playbackProgress =
+        playbackStage === null ? materialProgress : readBookendProgress(playbackStage, surfaceLift);
+      applySurfaceProgress(materialSurface, materialProgress, true);
+      surfacePlayback.synchronize(playbackProgress, true);
     }
   };
 
@@ -119,8 +140,8 @@ export function initializeScrollMaterialSurfaces(): void {
     window.removeEventListener("pagehide", handlePageHide);
     document.removeEventListener("visibilitychange", scheduleSurfaceUpdate);
     reducedMotionQuery.removeEventListener("change", scheduleSurfaceUpdate);
-    for (const { videoController } of surfaceControllers) {
-      videoController.dispose();
+    for (const { surfacePlayback } of surfaceControllers) {
+      surfacePlayback.dispose();
     }
     if (disposeActiveController === disposeSurfaceUpdates) {
       disposeActiveController = undefined;

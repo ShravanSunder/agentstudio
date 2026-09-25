@@ -26,171 +26,82 @@ enum ArchitectureAllowlists {
     static let performanceConstantAllowedPathSuffixes: [String] = []
     static let concurrentIOAllowedPathSuffixes: [String] = []
 
+    /// MainActor stream consumers the architecture prescribes as thin
+    /// adapters: the stream is already contracted off MainActor, so each
+    /// element is an admitted outcome, not a raw sample.
+    static let mainActorPerElementAdapters = [
+        NamedOwnerAllowance(
+            pathSuffix: "/Sources/AgentStudio/App/Coordination/WorkspaceSurfaceCoordinator.swift",
+            functionName: "startRuntimeReducerConsumers",
+            owner: "WorkspaceSurfaceCoordinator runtime reducer consumers",
+            reason:
+                "Consume NotificationReducer's critical and batched outputs after off-main contraction; the "
+                + "post-contraction MainActor adapter in pane_runtime_eventbus_design.md#admission-and-hop-shape"
+        )
+    ]
+
     /// Test files that own a blocking wait on purpose and document where the
     /// block lands: off the cooperative pool, or on a dispatch queue of their
-    /// own such as the socket listener's handler queue.
+    /// own such as the socket listener's handler queue. A full lint run fails
+    /// when an owner's file is gone or no longer blocks at all.
+    ///
+    /// Blocking waits outside these owners are frozen per file by count in
+    /// the debt ledger (`architecture-debt-ledger.tsv`), not listed here:
+    /// this list is ownership, not debt.
     static let blockingTestWaitOwners = [
-        "/Tests/AgentStudioTests/TestSupport/BlockingWorkOffCooperativePool.swift",
-        "/Tests/AgentStudioAppIPCTests/AgentStudioAppIPCSocketTestSupport.swift",
-        "/Tests/AgentStudioAppIPCTests/CLISubprocessTestRunner.swift",
+        BlockingWaitOwner(
+            path: "Tests/AgentStudioTestHarness/HeldStep.swift",
+            owner: "HeldStep.arriveBlocking",
+            reason:
+                "The harness-owned blocking arrival: parks only a dedicated thread, and refuses a blocking "
+                + "arrival made from inside a task"
+        ),
+        BlockingWaitOwner(
+            path: "Tests/AgentStudioAppIPCTests/AgentStudioAppIPCSocketTestSupport.swift",
+            owner: "AppIPC synchronous client shims",
+            reason:
+                "AgentStudioIPCClient blocks in UnixSocketConnection.receive; the shims move that wait to a "
+                + "libdispatch thread so the server's connection handler keeps its cooperative thread"
+        ),
     ]
 
-    /// Blocking waits that predate this rule, recorded so a new one fails the
-    /// build instead of hanging a lane. Not an endorsement and not audited: some
-    /// of these park a cooperative thread the way the three converted AppIPC
-    /// suites did, and some are fine because nothing they wait on needs that
-    /// pool. Each wants a look, and the list should only ever get shorter.
-    ///
-    /// The ratchet is per file, so a new blocking wait added to a file already
-    /// listed here still slips through. Prefer removing a file from the list to
-    /// adding a wait to it.
-    static let blockingTestWaitKnownDebt = [
-        "/Tests/AgentStudioAppIPCTests/AgentStudioAppIPCServiceTests.swift",
-        "/Tests/AgentStudioIPCClientTests/IPCDescriptorClientTestFixtures.swift",
-        "/Tests/AgentStudioIPCClientTests/IPCDescriptorClientTests.swift",
-        "/Tests/AgentStudioIPCTransportTests/JSONRPCCodecTests.swift",
-        "/Tests/AgentStudioIPCTransportTests/UnixSocketTransportTests.swift",
-        "/Tests/AgentStudioTests/App/Panes/TabBarAdapterMaterializationTestSupport.swift",
-        "/Tests/AgentStudioTests/App/Windows/MainWindowControllerPresentationFactsTests.swift",
-        "/Tests/AgentStudioTests/App/WorkspaceStrictStartupSubprocessTests.swift",
-        "/Tests/AgentStudioTests/Core/PaneRuntime/Sources/DarwinFSEventStreamClientActivationTests.swift",
-        "/Tests/AgentStudioTests/Core/PaneRuntime/Sources/DarwinSharedLocalFSEventObserverFailureTests.swift",
-        "/Tests/AgentStudioTests/Core/Stores/WorkspaceSQLiteCommitProtocolTests.swift",
-        "/Tests/AgentStudioTests/Features/RepoExplorer/RepoExplorerNativeTablePilotTests.swift",
-        "/Tests/AgentStudioTests/Features/RepoExplorer/RepoExplorerProjectionAdapterDrainTests.swift",
-        "/Tests/AgentStudioTests/Features/RepoExplorer/RepoExplorerProjectionBrokerTests.swift",
-        "/Tests/AgentStudioTests/Infrastructure/AtomLib/EagerDerivedAtomTestSupport.swift",
-        "/Tests/AgentStudioTests/Infrastructure/ProcessExecutorTests.swift",
-        "/Tests/AgentStudioTests/Integration/RepositoryRetentionCommitBoundaryRecoveryTests.swift",
-        "/Tests/AgentStudioTests/Scripts/ObservabilityLaunchScriptTestSupport.swift",
+    /// Test files that own an elapsed-time budget on purpose, with who owns it
+    /// and why. A full lint run fails when an owner's file is gone or no longer
+    /// carries a budget. Budgets outside these owners are frozen per file by
+    /// count in the debt ledger.
+    static let elapsedTimeBudgetOwners = [
+        ElapsedTimeBudgetOwner(
+            path: "Tests/AgentStudioTests/Infrastructure/ProcessExecutorTests.swift",
+            owner: "DefaultProcessExecutor",
+            reason:
+                "The executor's timeout is the behavior under test: these tests construct it with short "
+                + "timeouts and assert the terminate-then-kill path"
+        ),
+        ElapsedTimeBudgetOwner(
+            path: "Tests/AgentStudioTests/App/Panes/TabBarAdapterMaterializationTestSupport.swift",
+            owner: "TabBar projection gate",
+            reason: projectionGateOnPoolReason
+        ),
+        ElapsedTimeBudgetOwner(
+            path: "Tests/AgentStudioTests/App/Windows/MainWindowControllerPresentationFactsTests.swift",
+            owner: "presentation-facts TabBar projection gate",
+            reason: projectionGateOnPoolReason
+        ),
+        ElapsedTimeBudgetOwner(
+            path: "Tests/AgentStudioTests/Infrastructure/AtomLib/EagerDerivedAtomTestSupport.swift",
+            owner: "EagerDerivedAtom projection gate",
+            reason: projectionGateOnPoolReason
+        ),
     ]
 
-    static let blockingTestWaitAllowedPathSuffixes = blockingTestWaitOwners + blockingTestWaitKnownDebt
-
-    /// Files that still contain a polling wait, recorded so a new one fails the
-    /// build instead of deciding a test by machine speed.
-    ///
-    /// Not an endorsement. Each file is converted under PR 2; the list only
-    /// shrinks. A file listed here that no longer polls fails the gate until its
-    /// entry is removed. A listed path that no longer exists also fails, so a
-    /// deleted or renamed test cannot leave a dead baseline entry. A new polling
-    /// wait in a listed file still slips through — prefer removing the file to
-    /// adding a wait to it.
-    static let pollingWaitKnownDebt: [String] = [
-        "/Tests/AgentStudioBridgeDevelopmentServerTests/BridgeDevelopmentSeededWorktreeObservationTests.swift",
-        "/Tests/AgentStudioIPCClientTests/PaneNotificationSpoolWriterTests.swift",
-        "/Tests/AgentStudioTests/App/AppDelegateRepositoryFactUpdateTests.swift",
-        "/Tests/AgentStudioTests/App/IPC/PaneReportSpoolDrainTests.swift",
-        "/Tests/AgentStudioTests/App/Lifecycle/ApplicationLifecycleMonitorTests.swift",
-        "/Tests/AgentStudioTests/App/ObservableStoreTests.swift",
-        "/Tests/AgentStudioTests/App/Panes/TabBarAdapterMaterializationTests.swift",
-        "/Tests/AgentStudioTests/App/PaneTabViewControllerBridgeCommandTests.swift",
-        "/Tests/AgentStudioTests/App/PaneTabViewControllerLaunchRestoreTests.swift",
-        "/Tests/AgentStudioTests/App/PrimarySidebarPipelineIntegrationTests.swift",
-        "/Tests/AgentStudioTests/App/RecordingCommandPaneRuntime.swift",
-        "/Tests/AgentStudioTests/App/RepositoryBootBaselineTests.swift",
-        "/Tests/AgentStudioTests/App/Terminal/TerminalPaneMountViewExitBehaviorTests.swift",
-        "/Tests/AgentStudioTests/App/WebKit/Bridge/BridgePaneControllerProductBootstrapDeliveryTests.swift",
-        "/Tests/AgentStudioTests/App/WebKit/Bridge/BridgePaneControllerRealGitReviewLoadTests.swift",
-        "/Tests/AgentStudioTests/App/WebKit/Bridge/BridgePaneProductActiveViewerModeTests.swift",
-        "/Tests/AgentStudioTests/App/WebKit/Bridge/TestSupport/BridgePaneRefreshAdmissionAssertionTestSupport.swift",
-        "/Tests/AgentStudioTests/App/WebKit/Bridge/TestSupport/BridgePaneRefreshAdmissionRequestTestSupport.swift",
-        "/Tests/AgentStudioTests/App/WebKit/Bridge/TestSupport/BridgeProductWebKitCarrierTestSupport.swift",
-        "/Tests/AgentStudioTests/App/WebKit/Bridge/TestSupport/BridgeProductWebKitTwoPaneJourneyTestSupport.swift",
-        "/Tests/AgentStudioTests/App/WebKit/Bridge/TestSupport/WebPageTestHarness.swift",
-        "/Tests/AgentStudioTests/App/WebKit/Webview/WebviewPaneControllerTests.swift",
-        "/Tests/AgentStudioTests/App/Windows/RepoExplorerCommandPresentationBatchCoalescingTests.swift",
-        "/Tests/AgentStudioTests/App/Windows/RepoExplorerCommandPresentationBatchTests.swift",
-        "/Tests/AgentStudioTests/App/Windows/SidebarSurfaceHostSwitchGuardTests.swift",
-        "/Tests/AgentStudioTests/App/WorkspaceCacheCoordinatorTests.swift",
-        "/Tests/AgentStudioTests/App/WorkspacePaneRecencyObserverTests.swift",
-        "/Tests/AgentStudioTests/App/WorkspaceSurfaceCoordinatorBridgePaneActivityIntegrationTests.swift",
-        "/Tests/AgentStudioTests/App/WorkspaceSurfaceCoordinatorBridgePaneActivityTestSupport.swift",
-        "/Tests/AgentStudioTests/App/WorkspaceSurfaceCoordinatorBridgePaneRefreshIntegrationTests.swift",
-        "/Tests/AgentStudioTests/App/WorkspaceSurfaceCoordinatorGeometryReevaluationIntegrationTests.swift",
-        "/Tests/AgentStudioTests/App/WorkspaceSurfaceCoordinatorPullRequestDemandTests.swift",
-        "/Tests/AgentStudioTests/App/WorkspaceSurfaceCoordinatorTests+Filesystem.swift",
-        "/Tests/AgentStudioTests/Core/PaneRuntime/Sources/DarwinCompositeFSEventContinuityTests.swift",
-        "/Tests/AgentStudioTests/Core/PaneRuntime/Sources/DarwinSharedLocalFSEventObserverFailureTests.swift",
-        "/Tests/AgentStudioTests/Core/PaneRuntime/Sources/DarwinSharedLocalFSEventObserverTests.swift",
-        "/Tests/AgentStudioTests/Core/PaneRuntime/Sources/FilesystemActorActivityTests.swift",
-        "/Tests/AgentStudioTests/Core/PaneRuntime/Sources/FilesystemActorFilteringTests.swift",
-        "/Tests/AgentStudioTests/Core/PaneRuntime/Sources/FilesystemActorTests.swift",
-        "/Tests/AgentStudioTests/Core/PaneRuntime/Sources/FilesystemActorWatchedFolderTests.swift",
-        "/Tests/AgentStudioTests/Core/PaneRuntime/Sources/ForgeActorAdmissionEdgeTests.swift",
-        "/Tests/AgentStudioTests/Core/PaneRuntime/Sources/ForgeActorCapacityReservationTests.swift",
-        "/Tests/AgentStudioTests/Core/PaneRuntime/Sources/ForgeActorExplicitUpdateTests.swift",
-        "/Tests/AgentStudioTests/Core/PaneRuntime/Sources/ForgeActorProviderTestSupport.swift",
-        "/Tests/AgentStudioTests/Core/PaneRuntime/Sources/ForgeActorTests.swift",
-        "/Tests/AgentStudioTests/Core/PaneRuntime/Sources/GitWorkingDirectoryProjectorAdmissionTests.swift",
-        "/Tests/AgentStudioTests/Core/PaneRuntime/Sources/GitWorkingDirectoryProjectorAutomaticPacingTests.swift",
-        "/Tests/AgentStudioTests/Core/PaneRuntime/Sources/GitWorkingDirectoryProjectorContinuityTests.swift",
-        "/Tests/AgentStudioTests/Core/PaneRuntime/Sources/GitWorkingDirectoryProjectorExplicitUpdateTests.swift",
-        "/Tests/AgentStudioTests/Core/PaneRuntime/Sources/GitWorkingDirectoryProjectorTests.swift",
-        "/Tests/AgentStudioTests/Core/PaneRuntime/Sources/RemoteReferenceRefreshActorTests.swift",
-        "/Tests/AgentStudioTests/Core/PaneRuntime/Sources/RemoteReferenceRefreshRecomputationTests.swift",
-        "/Tests/AgentStudioTests/Core/PaneRuntime/Sources/WatchedFolderScanSchedulerTests.swift",
-        "/Tests/AgentStudioTests/Core/PaneRuntime/Sources/WatchedFolderScanSchedulerValidationTests.swift",
-        "/Tests/AgentStudioTests/Core/State/PaneActivityStatusAtomTests.swift",
-        "/Tests/AgentStudioTests/Core/Stores/RepositoryTopologyStoreTests.swift",
-        "/Tests/AgentStudioTests/Core/Stores/WorkspaceStoreTests.swift",
-        "/Tests/AgentStudioTests/Features/Bridge/BridgeContentDemandAdmissionTests.swift",
-        "/Tests/AgentStudioTests/Features/Bridge/BridgeDevelopmentProductHostSharedConstructionTests.swift",
-        "/Tests/AgentStudioTests/Features/Bridge/BridgeFileContentStreamPacingTests.swift",
-        "/Tests/AgentStudioTests/Features/Bridge/BridgeGitReadSchedulerConstructionCapacityIntegrationTests.swift",
-        "/Tests/AgentStudioTests/Features/Bridge/BridgePaneControllerRefreshTestSupport.swift",
-        "/Tests/AgentStudioTests/Features/Bridge/BridgePaneProductComparisonTargetContentLifecycleTests.swift",
-        "/Tests/AgentStudioTests/Features/Bridge/BridgePaneProductContentActivityAdmissionTests.swift",
-        "/Tests/AgentStudioTests/Features/Bridge/BridgePaneProductFileMetadataSourceTests.swift",
-        "/Tests/AgentStudioTests/Features/Bridge/BridgePaneProductMetadataActivityAdmissionTests.swift",
-        "/Tests/AgentStudioTests/Features/Bridge/BridgePaneProductMetadataCoordinatorAvailabilityTests.swift",
-        "/Tests/AgentStudioTests/Features/Bridge/BridgePaneProductMetadataCoordinatorProducerTaskTests.swift",
-        "/Tests/AgentStudioTests/Features/Bridge/BridgePaneProductMetadataCoordinatorTests.swift",
-        "/Tests/AgentStudioTests/Features/Bridge/BridgePaneProductSessionOwnerTests.swift",
-        "/Tests/AgentStudioTests/Features/Bridge/BridgePaneReviewSharedConstructionTests.swift",
-        "/Tests/AgentStudioTests/Features/Bridge/BridgePaneWorktreeRefreshDriverSessionIntegrationTests.swift",
-        "/Tests/AgentStudioTests/Features/Bridge/BridgePaneWorktreeRefreshDriverTests.swift",
-        "/Tests/AgentStudioTests/Features/Bridge/BridgeProductProducerObservationPacingTests.swift",
-        "/Tests/AgentStudioTests/Features/Bridge/BridgeProductSessionProducerOwnershipTests.swift",
-        "/Tests/AgentStudioTests/Features/Bridge/BridgeProductSessionReentrancyTests.swift",
-        "/Tests/AgentStudioTests/Features/Bridge/ObservationSpikeTests.swift",
-        "/Tests/AgentStudioTests/Features/Bridge/WorktreeAnnotations/WorktreeAnnotationNotificationSourceTests.swift",
-        "/Tests/AgentStudioTests/Features/CommandBar/CommandBarProductionProbeWiringTests.swift",
-        "/Tests/AgentStudioTests/Features/CommandBar/CommandBarWorktreeRowBuilderTests.swift",
-        "/Tests/AgentStudioTests/Features/CommandBar/TestSupport/CommandBarTestHelpers.swift",
-        "/Tests/AgentStudioTests/Features/EditorChooser/Stores/UIStateStoreTests.swift",
-        "/Tests/AgentStudioTests/Features/InboxNotification/Routing/InboxNotificationRouterObservedPaneObservationTests.swift",
-        "/Tests/AgentStudioTests/Features/InboxNotification/Routing/InboxNotificationRouterObservedPaneTests.swift",
-        "/Tests/AgentStudioTests/Features/InboxNotification/Routing/InboxNotificationRouterPayloadTests.swift",
-        "/Tests/AgentStudioTests/Features/RepoExplorer/RepoExplorerPresentationHostViewTests.swift",
-        "/Tests/AgentStudioTests/Features/RepoExplorer/RepoExplorerProjectionActivityDemandTests.swift",
-        "/Tests/AgentStudioTests/Features/RepoExplorer/RepoExplorerProjectionBrokerTests.swift",
-        "/Tests/AgentStudioTests/Features/RepoExplorer/RepoExplorerProjectionDemandTests.swift",
-        "/Tests/AgentStudioTests/Features/RepoExplorer/RepoExplorerProjectionLifetimeTests.swift",
-        "/Tests/AgentStudioTests/Features/RepoExplorer/RepoExplorerProjectionObservationDemandTests.swift",
-        "/Tests/AgentStudioTests/Features/RepoExplorer/RepoExplorerProjectionResidencyDemandTests.swift",
-        "/Tests/AgentStudioTests/Features/RepoExplorer/RepoExplorerProjectionWorkerTests.swift",
-        "/Tests/AgentStudioTests/Features/RepoExplorer/RepoExplorerRenderedEqualityTests.swift",
-        "/Tests/AgentStudioTests/Features/Terminal/Restore/TerminalActivationSchedulerSettlementRaceTests.swift",
-        "/Tests/AgentStudioTests/Helpers/TestPushClockTests.swift",
-        "/Tests/AgentStudioTests/Helpers/WorkspaceSurfaceCoordinatorTestHelpers.swift",
-        "/Tests/AgentStudioTests/Helpers/ZmxTestHarness.swift",
-        "/Tests/AgentStudioTests/Infrastructure/AtomLib/EagerDerivedAtomFamilyTests.swift",
-        "/Tests/AgentStudioTests/Infrastructure/Diagnostics/AgentStudioTraceEventQueueTests.swift",
-        "/Tests/AgentStudioTests/Infrastructure/Diagnostics/AgentStudioTraceRuntimeTests.swift",
-        "/Tests/AgentStudioTests/Infrastructure/PopoverToggleGateTests.swift",
-        "/Tests/AgentStudioTests/Infrastructure/ProcessExecutorTests.swift",
-        "/Tests/AgentStudioTests/Integration/FilesystemFetchHeadGitPipelineIntegrationTests.swift",
-        "/Tests/AgentStudioTests/Integration/FilesystemGitPipelineDemandIntegrationTests.swift",
-        "/Tests/AgentStudioTests/Integration/FilesystemGitPipelineIntegrationTests.swift",
-        "/Tests/AgentStudioTests/Integration/FilesystemGitPipelineRegistrationTests.swift",
-        "/Tests/AgentStudioTests/Integration/FilesystemSourceE2ETests.swift",
-        "/Tests/AgentStudioTests/Integration/FilesystemToPrimarySidebarIntegrationTests.swift",
-        "/Tests/AgentStudioTests/Integration/ZmxE2ETests.swift",
-        "/Tests/AgentStudioTests/Scripts/ObservabilityLaunchScriptTestSupport.swift",
-        "/Tests/AgentStudioTests/SharedComponents/SidebarGroupingPopoverTests.swift",
-        "/Tests/AgentStudioTests/TestSupport/EventBusHarness.swift",
-    ]
+    /// Why the projection gates keep their deadlines for now. The fix is a
+    /// production seam, not a test change, so it is recorded here rather than
+    /// frozen as debt the tests could pay down.
+    private static let projectionGateOnPoolReason =
+        "The gate's hold runs on a cooperative-pool thread inside EagerDerivedAtom's detached projection task, "
+        + "so removing the deadline turns latent pool starvation into deadlock on a three-core runner. The fix "
+        + "is a production derivation-executor seam for EagerDerivedAtom; HeldStep does not fix it because "
+        + "arriveBlocking must not run on the pool either"
 
     static let rawRepoCacheMembers = Set([
         "repoEnrichmentByRepoId",
@@ -238,4 +149,29 @@ enum ArchitectureAllowlists {
         "CoreAtoms",
         "CoreAtomScope",
     ])
+}
+
+/// A test file allowed to block, with who owns the blocking wait and why.
+struct BlockingWaitOwner: Sendable {
+    /// Repository-relative path.
+    let path: String
+    let owner: String
+    let reason: String
+}
+
+/// A test file allowed to carry an elapsed-time budget, with who owns it and why.
+struct ElapsedTimeBudgetOwner: Sendable {
+    /// Repository-relative path.
+    let path: String
+    let owner: String
+    let reason: String
+}
+
+/// One code site a rule allows on purpose, with who owns it and why. This is
+/// ownership, reviewed with the lint tool's source; debt lives in the ledger.
+struct NamedOwnerAllowance: Sendable {
+    let pathSuffix: String
+    let functionName: String
+    let owner: String
+    let reason: String
 }

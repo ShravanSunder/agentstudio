@@ -25,12 +25,27 @@ struct WorkspaceDrawerPresentationSaveBoundaryTests {
         let datastore: WorkspaceSQLiteDatastoreActor
         let store: WorkspaceStore
 
-        func storedRatios() throws -> [UUID: Double] {
-            try WorkspaceLocalRepository(workspaceId: workspaceId, databaseWriter: localQueue)
-                .fetchDrawerPresentationRecords()
-                .reduce(into: [UUID: Double]()) { result, record in
-                    result[record.ownerPaneId] = record.normalHeightRatio
-                }
+        func storedRatio(forOwnerPaneId ownerPaneId: UUID) throws -> Double? {
+            try localQueue.read { database in
+                try Double.fetchOne(
+                    database,
+                    sql: """
+                        SELECT normal_height_ratio FROM local_drawer_presentation
+                        WHERE workspace_id = ? AND owner_pane_id = ?
+                        """,
+                    arguments: [workspaceId.uuidString, ownerPaneId.uuidString]
+                )
+            }
+        }
+
+        func drawerPresentationRowCount() throws -> Int {
+            try localQueue.read { database in
+                try Int.fetchOne(
+                    database,
+                    sql: "SELECT COUNT(*) FROM local_drawer_presentation WHERE workspace_id = ?",
+                    arguments: [workspaceId.uuidString]
+                ) ?? 0
+            }
         }
     }
 
@@ -101,7 +116,8 @@ struct WorkspaceDrawerPresentationSaveBoundaryTests {
 
         // Assert: the newer live preference stays persisted.
         #expect(olderSaveError == .staleWorkspaceCapture)
-        #expect(try fixture.storedRatios() == [pane.id: 0.6])
+        #expect(try fixture.drawerPresentationRowCount() == 1)
+        #expect(try fixture.storedRatio(forOwnerPaneId: pane.id) == 0.6)
         #expect(
             fixture.store.paneAtom.drawerPresentationPreference(forOwner: pane.id).normalHeightRatio == 0.6
         )
@@ -131,7 +147,8 @@ struct WorkspaceDrawerPresentationSaveBoundaryTests {
         // Assert
         #expect(!outcome.succeeded)
         #expect(fixture.store.isDirty)
-        #expect(try fixture.storedRatios() == [paneA.id: 0.4])
+        #expect(try fixture.drawerPresentationRowCount() == 1)
+        #expect(try fixture.storedRatio(forOwnerPaneId: paneA.id) == 0.4)
         let persistedPaneIds = try WorkspaceCoreRepository(databaseWriter: fixture.coreQueue)
             .fetchPaneGraph(workspaceId: fixture.workspaceId).panes.map(\.id)
         #expect(Set(persistedPaneIds) == [paneA.id, paneB.id])

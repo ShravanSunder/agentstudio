@@ -26,7 +26,7 @@ struct FakeSocketConnection: Sendable {
 }
 
 struct FakeEventHarness {
-    func waitForNextEvent() async {}
+    func waitForNextEvent() async -> Int { 0 }
 }
 
 func withoutBlockingCooperativePool<Value: Sendable>(

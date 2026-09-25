@@ -3,9 +3,12 @@ import { createServer } from 'node:http';
 import { describe, expect, expectTypeOf, test } from 'vitest';
 
 import {
+	type BridgeDevelopmentServerLifecycleOutcome,
+	BridgeDevelopmentServerReadinessLineReader,
 	bridgeDevelopmentServerArguments,
 	bridgeDevelopmentServerExecutablePath,
 	bridgeDevelopmentServerProcessOwnsListeningPort,
+	parseBridgeDevelopmentServerReadinessLine,
 	resolveBridgeDevelopmentServerPort,
 	runAllOwnedCleanupOperations,
 	startOwnedBridgeDevelopmentServer,
@@ -104,8 +107,83 @@ describe('owned Bridge development server executable', () => {
 });
 
 describe('owned Bridge development server lifecycle', () => {
-	test('rejects a healthy response served by a process other than the owned child', async () => {
-		// A process already listening on the selected origin must not satisfy owned-child readiness.
+	test('resolves when the owned child announces its listener and owns the port', async () => {
+		// Arrange
+		const readinessLineReader = new BridgeDevelopmentServerReadinessLineReader();
+		const ownershipProbes: string[] = [];
+
+		// Act
+		const readiness = waitForBridgeDevelopmentServerReadiness({
+			expectedProcess: { pid: 4242, port: 43871 },
+			lifecycleOutcome: new Promise((): void => {}),
+			readinessAnnouncement: readinessLineReader.announcement,
+			readinessOwnershipProbe: async (): Promise<boolean> => {
+				ownershipProbes.push('probe');
+				return true;
+			},
+			stderrTail: (): string => '',
+			stdoutTail: (): string => '',
+		});
+		readinessLineReader.observeStdoutChunk(
+			'starting\nbridge-development-server ready port=43871 pid=4242\n',
+		);
+
+		// Assert
+		await expect(readiness).resolves.toBeUndefined();
+		expect(ownershipProbes).toEqual(['probe']);
+	});
+
+	test('fails with the child log tails when the child exits before announcing readiness', async () => {
+		// Arrange
+		const readinessLineReader = new BridgeDevelopmentServerReadinessLineReader();
+		const lifecycleOutcome = makeDeferred<BridgeDevelopmentServerLifecycleOutcome>();
+		const readiness = waitForBridgeDevelopmentServerReadiness({
+			expectedProcess: { pid: 4242, port: 43871 },
+			lifecycleOutcome: lifecycleOutcome.promise,
+			readinessAnnouncement: readinessLineReader.announcement,
+			readinessOwnershipProbe: async (): Promise<boolean> => true,
+			stderrTail: (): string => 'fatal: seed worktree missing',
+			stdoutTail: (): string => 'starting',
+		});
+
+		// Act
+		lifecycleOutcome.resolve({ code: 1, kind: 'exit', signal: null });
+
+		// Assert
+		await expect(readiness).rejects.toThrow(
+			/exited before readiness.*"code":1.*fatal: seed worktree missing.*starting/u,
+		);
+	});
+
+	test('recognizes a readiness line split across two stdout chunks', async () => {
+		// Arrange
+		const readinessLineReader = new BridgeDevelopmentServerReadinessLineReader();
+
+		// Act
+		readinessLineReader.observeStdoutChunk('bridge-development-server rea');
+		readinessLineReader.observeStdoutChunk('dy port=43871 pid=4242\n');
+
+		// Assert
+		await expect(readinessLineReader.announcement).resolves.toEqual({ pid: 4242, port: 43871 });
+	});
+
+	test('ignores lines that only resemble the readiness announcement', () => {
+		// Arrange / Act / Assert
+		expect(
+			parseBridgeDevelopmentServerReadinessLine('bridge-development-server ready port=1'),
+		).toBeNull();
+		expect(
+			parseBridgeDevelopmentServerReadinessLine(
+				'note: bridge-development-server ready port=1 pid=2',
+			),
+		).toBeNull();
+		expect(
+			parseBridgeDevelopmentServerReadinessLine('bridge-development-server ready port=1 pid=2\r'),
+		).toEqual({ pid: 2, port: 1 });
+	});
+
+	test('rejects a readiness announcement whose listener the owned child does not own', async () => {
+		// A process already listening on the selected port must not satisfy owned-child readiness.
 		const collider = createServer((_request, response): void => {
 			response.writeHead(204).end();
 		});
@@ -117,7 +195,7 @@ describe('owned Bridge development server lifecycle', () => {
 		if (address === null || typeof address === 'string') {
 			throw new Error('Collider did not bind a loopback TCP port.');
 		}
-		const observedTimes = [0, 0, 120_001];
+		const ownedChildPid = process.pid + 1_000_000;
 
 		try {
 			expect(
@@ -129,22 +207,20 @@ describe('owned Bridge development server lifecycle', () => {
 
 			// Act
 			const readiness = waitForBridgeDevelopmentServerReadiness({
-				currentTimeMilliseconds: (): number => observedTimes.shift() ?? 120_001,
-				fetchHealth: async (healthUrl): Promise<Response> => await fetch(healthUrl),
+				expectedProcess: { pid: ownedChildPid, port: address.port },
 				lifecycleOutcome: new Promise((): void => {}),
-				origin: `http://127.0.0.1:${address.port}`,
+				readinessAnnouncement: Promise.resolve({ pid: ownedChildPid, port: address.port }),
 				readinessOwnershipProbe: async (): Promise<boolean> =>
 					await bridgeDevelopmentServerProcessOwnsListeningPort({
-						pid: process.pid + 1_000_000,
+						pid: ownedChildPid,
 						port: address.port,
 					}),
 				stderrTail: (): string => '',
 				stdoutTail: (): string => '',
-				waitForNextProbe: async (): Promise<void> => {},
 			});
 
 			// Assert
-			await expect(readiness).rejects.toThrow(/Timed out waiting/u);
+			await expect(readiness).rejects.toThrow(/does not own its listening port/u);
 		} finally {
 			await new Promise<void>((resolve, reject): void => {
 				collider.close((error): void => (error === undefined ? resolve() : reject(error)));
@@ -154,44 +230,18 @@ describe('owned Bridge development server lifecycle', () => {
 
 	test('treats a child spawn error as a terminal readiness outcome', async () => {
 		// Arrange
-		const spawnError = new Error('spawn ENOENT');
-		const lifecycleOutcome = makeDeferred<{
-			readonly error: Error;
-			readonly kind: 'spawn-error';
-		}>();
-		const healthResponse = makeDeferred<Response>();
-		let healthProbeCount = 0;
-
-		// Act
+		const readinessLineReader = new BridgeDevelopmentServerReadinessLineReader();
 		const readiness = waitForBridgeDevelopmentServerReadiness({
-			currentTimeMilliseconds: (): number => 0,
-			fetchHealth: async (): Promise<Response> => {
-				healthProbeCount += 1;
-				return await healthResponse.promise;
-			},
-			lifecycleOutcome: lifecycleOutcome.promise,
-			origin: 'http://127.0.0.1:1',
+			expectedProcess: { pid: 0, port: 1 },
+			lifecycleOutcome: Promise.resolve({ error: new Error('spawn ENOENT'), kind: 'spawn-error' }),
+			readinessAnnouncement: readinessLineReader.announcement,
 			readinessOwnershipProbe: async (): Promise<boolean> => true,
 			stderrTail: (): string => '',
 			stdoutTail: (): string => '',
-			waitForNextProbe: async (): Promise<void> => {},
 		});
-		await flushMicrotasks();
-		let rejectionObserved = false;
-		void readiness.catch((): void => {
-			rejectionObserved = true;
-		});
-		lifecycleOutcome.resolve({ error: spawnError, kind: 'spawn-error' });
-		await new Promise<void>((resolve): void => {
-			setImmediate(resolve);
-		});
-		const rejectedBeforeHealthResponse = rejectionObserved;
-		healthResponse.resolve(new Response(null, { status: 503 }));
 
-		// Assert
-		expect(healthProbeCount).toBe(1);
-		expect(rejectedBeforeHealthResponse).toBe(true);
-		await expect(readiness).rejects.toThrow(/spawn ENOENT/u);
+		// Act / Assert
+		await expect(readiness).rejects.toThrow(/failed to spawn before readiness.*spawn ENOENT/u);
 	});
 
 	test('does not signal or wait for exit after a child spawn error', async () => {
@@ -218,33 +268,6 @@ describe('owned Bridge development server lifecycle', () => {
 		});
 		expect(observedSignals).toEqual([]);
 	});
-
-	test('waits before retrying after a non-ready health response', async () => {
-		// Arrange
-		const events: string[] = [];
-		let healthProbeCount = 0;
-
-		// Act
-		await waitForBridgeDevelopmentServerReadiness({
-			currentTimeMilliseconds: (): number => 0,
-			fetchHealth: async (): Promise<Response> => {
-				healthProbeCount += 1;
-				events.push(`probe-${healthProbeCount}`);
-				return new Response(null, { status: healthProbeCount === 1 ? 503 : 204 });
-			},
-			lifecycleOutcome: new Promise((): void => {}),
-			origin: 'http://127.0.0.1:1',
-			readinessOwnershipProbe: async (): Promise<boolean> => true,
-			stderrTail: (): string => '',
-			stdoutTail: (): string => '',
-			waitForNextProbe: async (): Promise<void> => {
-				events.push('wait');
-			},
-		});
-
-		// Assert
-		expect(events).toEqual(['probe-1', 'wait', 'probe-2']);
-	});
 });
 
 function makeDeferred<TValue>(): {
@@ -262,11 +285,6 @@ function makeDeferred<TValue>(): {
 			resolvePromise(value);
 		},
 	};
-}
-
-async function flushMicrotasks(): Promise<void> {
-	await Promise.resolve();
-	await Promise.resolve();
 }
 
 describe('owned Bridge development cleanup', () => {

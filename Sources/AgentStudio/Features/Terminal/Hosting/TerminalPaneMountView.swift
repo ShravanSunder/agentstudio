@@ -407,6 +407,7 @@ package final class TerminalPaneMountView: NSView, PaneMountedContent, SurfaceHe
         }
         if displayPlan.installsCloseCallback {
             surfaceView.onCloseRequested = { [weak self] processExited in
+                // fire-and-forget: surface callback; the termination event is delivered on the app event bus
                 _ = self?.handleSurfaceClose(processExited: processExited)
             }
         }
@@ -605,7 +606,6 @@ package final class TerminalPaneMountView: NSView, PaneMountedContent, SurfaceHe
 
     // MARK: - Surface Close Handling
 
-    @discardableResult
     func handleSurfaceClose(processExited: Bool) -> Task<Void, Never>? {
         guard processExited else {
             RestoreTrace.log(
@@ -697,7 +697,6 @@ package final class TerminalPaneMountView: NSView, PaneMountedContent, SurfaceHe
         hasObservedEffectiveTerminationDelivery = false
     }
 
-    @discardableResult
     private func postProcessTerminationEvent() -> Task<Void, Never> {
         Task { @MainActor [weak self] in
             guard let self else { return }

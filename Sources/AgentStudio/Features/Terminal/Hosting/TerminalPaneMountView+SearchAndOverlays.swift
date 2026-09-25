@@ -231,7 +231,6 @@ extension TerminalPaneMountView {
             beginRestorePresentationIfNeeded()
         }
 
-        @discardableResult
         func simulateSurfaceCloseForTesting(processExited: Bool) -> Task<Void, Never>? {
             handleSurfaceClose(processExited: processExited)
         }

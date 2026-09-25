@@ -235,7 +235,6 @@ struct TerminalPaneMountViewExitBehaviorTests {
         return receivedEvents
     }
 
-    @discardableResult
     private func simulateGhosttyCloseCallback(
         processExited: Bool,
         on mountView: TerminalPaneMountView
@@ -267,7 +266,8 @@ struct TerminalPaneMountViewExitBehaviorTests {
             appEventBus: appEventBus
         )
 
-        simulateGhosttyCloseCallback(processExited: false, on: mountView)
+        // fire-and-forget: a running-process close callback starts no termination task.
+        _ = simulateGhosttyCloseCallback(processExited: false, on: mountView)
 
         let sentinelPaneId = UUIDv7.generate()
         await appEventBus.post(.worktreeBellRang(paneId: sentinelPaneId))

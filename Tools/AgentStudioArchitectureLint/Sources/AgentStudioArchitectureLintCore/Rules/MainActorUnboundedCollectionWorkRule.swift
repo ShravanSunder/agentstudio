@@ -2,7 +2,7 @@ import SwiftSyntax
 
 struct MainActorUnboundedCollectionWorkRule: ArchitectureRule {
     let id = "agentstudio_mainactor_unbounded_collection_work"
-    let severity = ArchitectureSeverity.report
+    let severity = ArchitectureSeverity.error
     let message = "MainActor collection-wide work requires an explicit bounded owner or allowlist"
 
     func validate(context: ArchitectureLintContext) -> [ArchitectureDiagnostic] {

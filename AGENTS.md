@@ -82,9 +82,7 @@ not isolate that suite from other suites in the same process. Do not use SwiftPM
 `--parallel` or `--num-workers` as a substitute for process isolation: Xcode
 26.3 still runs Swift Testing through one helper process.
 
-Testing: Swift 6 `Testing` only — `@Suite`, `@Test`, `#expect`. No XCTest. A
-PostToolUse hook (`.claude/hooks/check.sh`) runs swift-format and SwiftLint
-automatically after every Edit/Write on `.swift` files.
+Testing: Swift 6 `Testing` only — `@Suite`, `@Test`, `#expect`. No XCTest.
 
 Identifiers: use the repo's UUIDv7 APIs for newly generated application and test
 identifiers (`UUIDv7.generate()` or the owning type's `generateUUIDv7()` helper).

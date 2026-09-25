@@ -1,7 +1,4 @@
-interface ScrollAutoplayVideoController {
-  readonly dispose: () => void;
-  readonly synchronize: (progress: number, autoplayEnabled: boolean) => void;
-}
+import { combineSurfacePlaybacks, type SurfacePlayback } from "./surface-playback";
 
 type PlaybackIntent = "auto" | "manual-pause" | "manual-play";
 
@@ -24,7 +21,7 @@ function readNumberAttribute(video: HTMLVideoElement, name: string, fallback: nu
   return Number.isFinite(value) ? value : fallback;
 }
 
-function createVideoPlaybackController(video: HTMLVideoElement): ScrollAutoplayVideoController {
+function createVideoPlaybackController(video: HTMLVideoElement): SurfacePlayback {
   const startProgress = readNumberAttribute(
     video,
     "data-scroll-autoplay-start-progress",
@@ -179,24 +176,11 @@ function createVideoPlaybackController(video: HTMLVideoElement): ScrollAutoplayV
   };
 }
 
-export function createScrollAutoplayVideoController(
-  surface: HTMLElement,
-): ScrollAutoplayVideoController {
-  const videoControllers = Array.from(
-    surface.querySelectorAll<HTMLVideoElement>("[data-scroll-autoplay-video]"),
-    createVideoPlaybackController,
+export function createScrollAutoplayVideoController(surface: HTMLElement): SurfacePlayback {
+  return combineSurfacePlaybacks(
+    Array.from(
+      surface.querySelectorAll<HTMLVideoElement>("[data-scroll-autoplay-video]"),
+      createVideoPlaybackController,
+    ),
   );
-
-  return {
-    dispose: (): void => {
-      for (const controller of videoControllers) {
-        controller.dispose();
-      }
-    },
-    synchronize: (progress: number, autoplayEnabled: boolean): void => {
-      for (const controller of videoControllers) {
-        controller.synchronize(progress, autoplayEnabled);
-      }
-    },
-  };
 }

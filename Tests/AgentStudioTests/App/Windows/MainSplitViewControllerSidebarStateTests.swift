@@ -568,7 +568,8 @@ struct MainSplitViewControllerSidebarStateTests {
                     .arrowNavigation
                 )
                 #expect(state.requestedTarget == target)
-                harness.coordinator.prepareHeldPanePreview()
+                // fire-and-forget: the test asserts preview state; the deferred reevaluation handle is not its claim
+                _ = harness.coordinator.beginHeldPanePreviewPreparation()
                 #expect(state.acceptPresentedTarget(target, generation: 1))
                 await Task.yield()
 

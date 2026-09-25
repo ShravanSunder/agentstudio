@@ -145,6 +145,18 @@ struct DrawerPanelOverlay: View {
     static let outlineAccessibilityIdentifier = "drawerPanel.outline"
     static let moveControlAccessibilityIdentifier = "drawerPanel.moveZoomSide"
 
+    private struct MoveControlResolutionKey: Equatable {
+        let command: AppCommand?
+        let ownerPaneId: UUID
+        let tabId: UUID
+        let workspaceWindowId: UUID?
+    }
+
+    private struct ResolvedMoveControlAction {
+        let key: MoveControlResolutionKey
+        let action: TargetedCommandControlAction
+    }
+
     private struct ExpandedPaneInfo {
         let paneId: UUID
         /// Measured owner frame; absent in Pane Zoom, which anchors to regions.
@@ -183,6 +195,7 @@ struct DrawerPanelOverlay: View {
     /// Local normal-mode resize session; per-sample state never leaves the overlay.
     @State private var resizeSession: DrawerNormalResizeSession?
     @State private var isMoveControlHovered = false
+    @State private var resolvedMoveControlAction: ResolvedMoveControlAction?
 
     /// Find the pane whose drawer is currently expanded.
     /// Invariant: only one drawer can be expanded at a time (toggle behavior).
@@ -269,6 +282,15 @@ struct DrawerPanelOverlay: View {
             let panelFraction = outlineFrame.height > 0 ? panelHeight / outlineFrame.height : 1
 
             let paneId = info.paneId
+            let moveControlResolutionKey = MoveControlResolutionKey(
+                command: Self.moveControlCommand(
+                    mode: geometry.mode,
+                    isManagementLayerActive: atom(\.managementLayer).isActive
+                ),
+                ownerPaneId: paneId,
+                tabId: tabId,
+                workspaceWindowId: workspaceWindowId
+            )
             VStack(spacing: 0) {
                 DrawerPanel(
                     layout: info.drawerView.layout,
@@ -304,7 +326,7 @@ struct DrawerPanelOverlay: View {
                 .id(paneId)
                 .frame(width: outlineFrame.width)
                 .overlay(alignment: .bottomTrailing) {
-                    moveControl(mode: geometry.mode, ownerPaneId: paneId)
+                    moveControl(resolutionKey: moveControlResolutionKey)
                         .padding(.trailing, Self.moveControlTrailingInset)
                         .padding(.bottom, Self.moveControlBottomInset)
                 }
@@ -326,6 +348,9 @@ struct DrawerPanelOverlay: View {
                 .allowsHitTesting(false)
             }
             .position(x: outlineFrame.midX, y: outlineFrame.midY)
+            .task(id: moveControlResolutionKey) {
+                resolveMoveControlAction(for: moveControlResolutionKey)
+            }
             .onAppear {
                 dismissMonitor.onDismiss = {
                     actionDispatcher.dispatch(.toggleDrawer(paneId: paneId))
@@ -432,29 +457,37 @@ struct DrawerPanelOverlay: View {
 
     /// Same edge tab as the child's detach control. Icon, label, and tooltip
     /// project from the side command's catalog spec.
-    @ViewBuilder
-    private func moveControl(mode: DrawerPresentationGeometry.Mode, ownerPaneId: UUID) -> some View {
-        if let command = Self.moveControlCommand(
-            mode: mode,
-            isManagementLayerActive: atom(\.managementLayer).isActive
-        ),
-            let moveAction = TargetedCommandControlAction.resolve(
+    @MainActor
+    private func resolveMoveControlAction(for key: MoveControlResolutionKey) {
+        guard let command = key.command,
+            let action = TargetedCommandControlAction.resolve(
                 command: command,
                 surface: .inlineControl,
-                target: ownerPaneId,
+                target: key.ownerPaneId,
                 targetType: .pane,
                 dispatcher: AppCommandDispatcher.shared
-            ),
-            case .system(let symbol) = moveAction.commandSpec.icon
+            )
+        else {
+            resolvedMoveControlAction = nil
+            return
+        }
+        resolvedMoveControlAction = ResolvedMoveControlAction(key: key, action: action)
+    }
+
+    @ViewBuilder
+    private func moveControl(resolutionKey: MoveControlResolutionKey) -> some View {
+        if let resolvedMoveControlAction,
+            resolvedMoveControlAction.key == resolutionKey,
+            case .system(let symbol) = resolvedMoveControlAction.action.commandSpec.icon
         {
             ManagementTrailingEdgeTabButton(
                 systemName: symbol.rawValue,
                 isHovered: isMoveControlHovered,
-                isEnabled: moveAction.isEnabled,
-                tooltip: moveAction.commandSpec.controlTooltipRenderValue(),
+                isEnabled: resolvedMoveControlAction.action.isEnabled,
+                tooltip: resolvedMoveControlAction.action.commandSpec.controlTooltipRenderValue(),
                 accessibilityIdentifier: Self.moveControlAccessibilityIdentifier,
                 onAnchorViewChanged: nil,
-                action: moveAction.perform
+                action: resolvedMoveControlAction.action.perform
             )
             .onHover { isMoveControlHovered = $0 }
         }

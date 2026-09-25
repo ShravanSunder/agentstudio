@@ -219,6 +219,7 @@ struct WorkspaceSQLiteCommitProtocolTests {
                 concurrentOutcome.captureRead {
                     try fixture.coreRepository.fetchAuthoritativeSnapshot()
                 }
+                fixture.readBarrier.readerFinished()
             } else {
                 concurrentOutcome.captureWrite {
                     guard fixture.readBarrier.waitUntilReaderIsPaused() else {
@@ -237,7 +238,6 @@ struct WorkspaceSQLiteCommitProtocolTests {
         let newGeneration = try requireLoadedAuthoritativeSnapshot(fixture.coreRepository)
 
         // Assert
-        #expect(!fixture.readBarrier.didTimeOutWaitingForResume)
         #expect(generationObservedDuringCommit == oldGeneration)
         #expect(newGeneration.workspace.name == "New Workspace")
         #expect(newGeneration.topology.repos.single?.name == "New Repo")
@@ -443,19 +443,17 @@ private enum AuthoritativeSnapshotTestError: Error {
     case readerDidNotReachTopologyBarrier
 }
 
+/// Holds the reader at its first topology read until the writer has committed.
+///
+/// Both waits are untimed: the writer wakes when the reader either pauses at the
+/// barrier or finishes without ever reaching it, and the reader wakes only when the
+/// writer resumes it. The lane's hang bound is the only elapsed-time bound here.
 private final class AuthoritativeReadBarrier: @unchecked Sendable {
-    private static let coordinationTimeout: DispatchTimeInterval = .seconds(5)
-
     private let lock = NSLock()
-    private let readerPaused = DispatchSemaphore(value: 0)
+    private let readerPausedOrFinished = DispatchSemaphore(value: 0)
     private let readerResume = DispatchSemaphore(value: 0)
     private var isArmed = false
     private var hasPaused = false
-    private var resumeTimedOut = false
-
-    var didTimeOutWaitingForResume: Bool {
-        lock.withLock { resumeTimedOut }
-    }
 
     func arm() {
         lock.withLock {
@@ -476,16 +474,21 @@ private final class AuthoritativeReadBarrier: @unchecked Sendable {
         }
         guard shouldPause else { return }
 
-        readerPaused.signal()
-        if readerResume.wait(timeout: .now() + Self.coordinationTimeout) == .timedOut {
-            lock.withLock {
-                resumeTimedOut = true
-            }
-        }
+        readerPausedOrFinished.signal()
+        readerResume.wait()
     }
 
+    /// The read returned. If it never paused, this is what tells the writer the
+    /// barrier was never reached.
+    func readerFinished() {
+        readerPausedOrFinished.signal()
+    }
+
+    /// Returns `true` once the reader is paused at the barrier, `false` if the read
+    /// finished without reaching it.
     func waitUntilReaderIsPaused() -> Bool {
-        waitForSemaphore(readerPaused, timeout: Self.coordinationTimeout)
+        waitForSemaphore(readerPausedOrFinished)
+        return lock.withLock { hasPaused }
     }
 
     func resumeReader() {
@@ -493,9 +496,6 @@ private final class AuthoritativeReadBarrier: @unchecked Sendable {
     }
 }
 
-private func waitForSemaphore(
-    _ semaphore: DispatchSemaphore,
-    timeout: DispatchTimeInterval
-) -> Bool {
-    semaphore.wait(timeout: .now() + timeout) == .success
+private func waitForSemaphore(_ semaphore: DispatchSemaphore) {
+    semaphore.wait()
 }

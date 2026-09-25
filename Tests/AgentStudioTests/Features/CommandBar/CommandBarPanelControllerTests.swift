@@ -403,7 +403,7 @@ struct CommandBarPanelControllerTests {
 
     @Test("recent repository activation resolves and opens the live repository menu")
     func recentRepositoryActivationOpensLiveRepositoryMenu() async throws {
-        try await withAsyncTestCoreAtoms { _ in
+        await withAsyncTestCoreAtoms { _ in
             let store = WorkspaceStore()
             let repository = store.addRepo(at: URL(filePath: "/tmp/command-bar-recent-main"))
             let dispatcher = FakeAppCommandDispatcher()
@@ -730,7 +730,7 @@ struct CommandBarPanelControllerTests {
 
     @Test("eligible recent pane activation dispatches the validated focus command")
     func recentPaneActivationDispatchesValidatedFocus() async throws {
-        try await withAsyncTestCoreAtoms { atoms in
+        await withAsyncTestCoreAtoms { atoms in
             let store = WorkspaceStore(identityAtom: atoms.workspaceIdentity)
             let pane = store.createPane(title: "Target")
             let tab = Tab(paneId: pane.id, name: "Target")
@@ -833,7 +833,7 @@ struct CommandBarPanelControllerTests {
 
     @Test("Commands-root direct dispatch records typed command history after acceptance")
     func commandsRootDirectDispatchRecordsCommand() async throws {
-        try await withAsyncTestCoreAtoms { _ in
+        await withAsyncTestCoreAtoms { _ in
             let dispatcher = FakeAppCommandDispatcher()
             let controller = makeController(dispatcher: dispatcher)
             controller.state.show(prefix: ">")
@@ -853,7 +853,7 @@ struct CommandBarPanelControllerTests {
 
     @Test("Commands-root targeted dispatch records only after a valid target begins dispatch")
     func commandsRootTargetedDispatchRecordsOnlyAcceptedCommand() async throws {
-        try await withAsyncTestCoreAtoms { _ in
+        await withAsyncTestCoreAtoms { _ in
             let dispatcher = FakeAppCommandDispatcher()
             let target = UUID()
             let controller = makeController(dispatcher: dispatcher)
@@ -889,7 +889,7 @@ struct CommandBarPanelControllerTests {
 
     @Test("Commands-root drill-in records no command history")
     func commandsRootDrillInDoesNotRecordCommand() async throws {
-        try await withAsyncTestCoreAtoms { _ in
+        await withAsyncTestCoreAtoms { _ in
             let dispatcher = FakeAppCommandDispatcher()
             let controller = makeController(dispatcher: dispatcher)
             controller.state.show(prefix: ">")
