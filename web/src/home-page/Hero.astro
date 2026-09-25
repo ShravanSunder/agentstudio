@@ -9,6 +9,15 @@ import {
   railSurfaceTargetAttribute,
 } from "@/chapters/chapter-dom-contract";
 import { marketingCopy } from "@/marketing-copy";
+import {
+  heroIntroCopyAttribute,
+  heroIntroDescriptionAttribute,
+  heroIntroGlowAttribute,
+  heroIntroInstallAttribute,
+  heroIntroRootAttribute,
+  heroIntroStateAttribute,
+} from "@/hero-intro/hero-intro-dom-contract";
+import HeroTerminalWindow from "@/hero-intro/HeroTerminalWindow.astro";
 
 import { heroLoopMedia } from "./hero-loop-media";
 import HeroLoopVideo from "./HeroLoopVideo.astro";
@@ -39,7 +48,9 @@ const eyebrowPhrases = marketingCopy.hero.eyebrow.split(/(?<=\.)\s+/u);
 <section
   class="hero relative pt-[clamp(32px,1.5vw+3vh,80px)] pr-page-inline pb-[calc(var(--spacing-section-block)-var(--spacing-chapter-block))] pl-[calc(var(--spacing-page-inline)+var(--spacing-rail-gutter))]"
   aria-labelledby="hero-title"
+  {...{ [heroIntroRootAttribute]: "", [heroIntroStateAttribute]: "settled" }}
 >
+  <div class="hero-glow" {...{ [heroIntroGlowAttribute]: "" }} aria-hidden="true"></div>
   <div class="relative z-[2] max-w-hero lg:pl-[clamp(24px,2.6vw,56px)]">
     <p
       {...railAnchorAttributes}
@@ -58,6 +69,7 @@ const eyebrowPhrases = marketingCopy.hero.eyebrow.split(/(?<=\.)\s+/u);
       id="hero-title"
       class="mt-4 mb-0 max-w-hero font-display text-[clamp(34px,4.6vw,80px)] leading-[0.9] font-extrabold tracking-[-0.05em]"
       aria-label={marketingCopy.hero.headline}
+      {...{ [heroIntroCopyAttribute]: "" }}
     >
       <span class="block whitespace-nowrap max-phone:text-balance max-phone:whitespace-normal"
         >{marketingCopy.hero.headlineSetupFirst}</span
@@ -72,17 +84,17 @@ const eyebrowPhrases = marketingCopy.hero.eyebrow.split(/(?<=\.)\s+/u);
         >{marketingCopy.hero.headlinePayoff}</span
       >
     </h1>
-    <div
-      class="mt-hero-copy flex flex-col gap-6 lg:flex-row lg:flex-wrap lg:items-center lg:gap-x-10"
-    >
-      <p class="m-0 max-w-copy text-marketing-body text-ink-muted lg:max-w-[34rem] lg:flex-[1_1_24rem]">
-        {marketingCopy.hero.description}
-      </p>
-      <div
-        class="hero__actions flex w-full flex-wrap items-center gap-3 max-phone:flex-col max-phone:flex-nowrap max-phone:items-stretch lg:w-auto lg:flex-none"
-      >
+  </div>
+
+  <div class="hero-intro-column relative z-[2] mt-hero-copy">
+    <HeroTerminalWindow />
+    <div class="hero-install-row mt-5 flex flex-col gap-4 lg:flex-row lg:items-center lg:gap-10" {...{ [heroIntroInstallAttribute]: "" }}>
+      <div class="hero__actions flex w-full flex-wrap items-center gap-3 max-phone:flex-col max-phone:flex-nowrap max-phone:items-stretch lg:w-auto lg:flex-none">
         <InstallCommand />
       </div>
+      <p class="m-0 max-w-copy text-marketing-body text-ink-muted lg:max-w-[34rem]" {...{ [heroIntroDescriptionAttribute]: "" }}>
+        {marketingCopy.hero.description}
+      </p>
     </div>
   </div>
 
@@ -125,6 +137,9 @@ const eyebrowPhrases = marketingCopy.hero.eyebrow.split(/(?<=\.)\s+/u);
 </section>
 
 <style>
+  .hero { isolation: isolate; }
+  .hero-intro-column { width: 100%; }
+  .hero-glow { position: absolute; z-index: 0; top: -12%; bottom: 0; left: 0; right: 0; pointer-events: none; background: radial-gradient(ellipse 64% 65% at 54% 38%, #282c34 0%, rgb(40 44 52 / 55%) 34%, transparent 73%); }
   /* The rail marks the hero frame while the hero is current; its hairline lights blue. */
   :global(.hero-app-frame.scroll-material-surface[data-rail-current]) {
     border-color: rgb(137 180 250 / 88%);

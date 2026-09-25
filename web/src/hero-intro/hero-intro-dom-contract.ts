@@ -1,0 +1,16 @@
+export const heroIntroRootAttribute = "data-hero-intro-root";
+export const heroIntroStateAttribute = "data-hero-intro-state";
+export const heroTerminalWindowAttribute = "data-hero-terminal-window";
+export const heroIconStackAttribute = "data-hero-icon-stack";
+export const heroIconFrontAttribute = "data-hero-icon-front";
+export const heroIconRearAttribute = "data-hero-icon-rear";
+export const heroIconCursorAttribute = "data-hero-icon-cursor";
+export const heroIntroCopyAttribute = "data-hero-intro-copy";
+export const heroIntroInstallAttribute = "data-hero-intro-install";
+export const heroIntroDescriptionAttribute = "data-hero-intro-description";
+export const heroIntroGlowAttribute = "data-hero-intro-glow";
+export const heroIntroContentAttribute = "data-hero-intro-content";
+export const heroIntroTypedInputAttribute = "data-hero-intro-typed-input";
+export const heroIntroSpinnerAttribute = "data-hero-intro-spinner";
+export const heroIntroFourthPlaneAttribute = "data-hero-intro-fourth-plane";
+export const heroTranscriptTierAttribute = "data-transcript-tier";

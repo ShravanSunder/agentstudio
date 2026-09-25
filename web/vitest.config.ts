@@ -6,6 +6,7 @@ import {
   verifyChapterStepRow,
   verifyChapterTitleAnchors,
 } from "./tests/chapter-surface-browser-command.ts";
+import { verifyHeroIntroLayout } from "./tests/hero-intro-browser-command.ts";
 import { buildSceneBundlesForBrowserTest } from "./tests/scene-bundle-browser-command.ts";
 import { verifySiteFooterResponsiveLayout } from "./tests/site-footer-browser-command.ts";
 import { verifySiteHeaderScrollStability } from "./tests/site-header-browser-command.ts";
@@ -34,6 +35,7 @@ export default defineConfig({
             commands: {
               buildSceneBundlesForBrowserTest,
               verifyChapterAnchorLanding,
+              verifyHeroIntroLayout,
               verifyChapterStepRow,
               verifyChapterTitleAnchors,
               verifySiteFooterResponsiveLayout,

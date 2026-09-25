@@ -1,0 +1,79 @@
+---
+import {
+  heroIntroContentAttribute,
+  heroTerminalWindowAttribute,
+} from "./hero-intro-dom-contract";
+import ClaudeCodePane from "./ClaudeCodePane.astro";
+import CodexPane from "./CodexPane.astro";
+import HeroIconStack from "./HeroIconStack.astro";
+---
+
+<div class="hero-intro-root">
+  <HeroIconStack />
+  <div class="hero-terminal-window" {...{ [heroTerminalWindowAttribute]: "" }} role="img" aria-label="One Agent Studio window with Claude Code and Codex working in side-by-side terminals">
+    <div class="hero-terminal-content" {...{ [heroIntroContentAttribute]: "" }}>
+      <ClaudeCodePane />
+      <CodexPane />
+    </div>
+  </div>
+</div>
+
+<style>
+  .hero-intro-root { position: relative; min-width: 0; isolation: isolate; }
+  :global(.hero-icon-stack) { position: absolute; z-index: 1; top: -34px; left: -34px; width: 72px; height: 48px; transform: rotate(-2deg); transform-origin: bottom left; pointer-events: none; }
+  :global(.hero-icon-plane) { position: absolute; width: 68px; height: 44px; border-radius: 5px; }
+  :global(.hero-icon-plane--rear-one) { left: -5px; top: -4px; transform: rotate(-12deg); border: 1px solid #ef9f76; background: #11111b; }
+  :global(.hero-icon-plane--rear-two) { left: -2px; top: -2px; transform: rotate(7deg); border: 1px solid #ef9f76; background: #151520; }
+  :global(.hero-icon-plane--front) { left: 0; top: 0; border: 2px solid #89b4fa; background: #1e1e2e; }
+  :global(.hero-icon-plane svg) { display: block; width: 100%; height: 100%; }
+  .hero-terminal-window { position: relative; z-index: 2; overflow: hidden; border: 1px solid rgb(137 180 250 / 38%); border-radius: var(--scroll-material-radius, 16px); background: #282c34; box-shadow: 0 16px 34px #0004; color: #cdd6f4; font: 13px/1.5 var(--font-mono-product); }
+  .hero-terminal-content { display: flex; align-items: stretch; }
+  :global(.hero-terminal-pane) { display: flex; flex: 1 1 50%; flex-direction: column; min-width: 0; }
+  :global(.hero-terminal-pane--codex) { border-left: 1px solid rgb(255 255 255 / 10%); }
+  :global(.hero-terminal-transcript) { flex: 1 1 auto; min-width: 0; padding: 12px 16px 8px; }
+  :global(.hero-claude-startup) { display: flex; align-items: flex-start; gap: 13px; min-height: 59px; }
+  :global(.hero-claude-mascot) { flex: none; width: 47px; height: 43px; margin-top: 2px; fill: #e6714e; }
+  :global(.hero-claude-eye) { fill: #1c1d21; }
+  :global(.hero-terminal-muted) { color: #9ba1ad; }
+  :global(.hero-terminal-blue) { color: #77abff; }
+  :global(.hero-terminal-amber) { color: #fbe9ba; }
+  :global(.hero-terminal-peach) { color: #f0b990; }
+  :global(.hero-terminal-lavender) { color: #cba6f7; }
+  :global(.hero-phone-only) { display: none; }
+  :global(.hero-transcript-row) { min-height: 19.5px; white-space: pre-wrap; overflow-wrap: anywhere; }
+  :global(.hero-transcript-row--blank) { min-height: 8px; height: 8px; }
+  :global(.hero-transcript-row--user-band) { padding: 1px 6px; margin: 1px 0; background: #44474e; }
+  :global(.hero-transcript-row--tool-call) { color: #a6e3a1; }
+  :global(.hero-transcript-row--tool-result), :global(.hero-transcript-row--codex-detail), :global(.hero-transcript-row--codex-prose) { color: #9ba1ad; }
+  :global(.hero-transcript-row--diff-removed), :global(.hero-transcript-row--diff-added) { margin-left: 16px; padding: 0 7px; }
+  :global(.hero-transcript-row--diff-removed) { background: rgb(243 139 168 / 14%); color: #f3b3bf; }
+  :global(.hero-transcript-row--diff-added) { background: rgb(166 227 161 / 14%); color: #aceac6; }
+  :global(.hero-transcript-row--codex-action) { color: #cba6f7; font-weight: 700; }
+  :global(.hero-brewing) { display: none; color: #f0b990; }
+  :global(.hero-claude-footer) { flex: none; padding: 0 16px 9px; }
+  :global(.hero-terminal-rule) { height: 1px; background: rgb(137 137 137 / 70%); }
+  :global(.hero-claude-input) { display: flex; align-items: center; height: 30px; gap: 7px; color: #eee; font-weight: 700; }
+  :global(.hero-block-cursor) { display: inline-block; width: 8px; height: 15px; overflow: hidden; background: #e8e9ee; color: transparent; }
+  :global(.hero-claude-auto) { margin-top: 4px; color: #ffc700; white-space: nowrap; }
+  :global(.hero-codex-startup) { display: inline-block; max-width: 100%; padding: 6px 10px; border: 1px solid #898b90; border-radius: 4px; color: #f7f7f7; white-space: nowrap; }
+  :global(.hero-codex-startup-blank) { height: 8px; }
+  :global(.hero-terminal-pane--codex .hero-terminal-transcript) { padding-top: 14px; }
+  :global(.hero-codex-footer) { flex: none; }
+  :global(.hero-codex-input) { display: flex; align-items: center; min-height: 45px; gap: 10px; padding: 8px 16px; background: #44474e; color: #a9aab0; }
+  :global(.hero-codex-status) { padding: 3px 16px 8px; color: #9ba1ad; font-size: 11px; white-space: nowrap; }
+  @media (width < 64rem) { :global(.hero-terminal-pane--codex) { display: none; } }
+  @media (width >= 64rem) and (height < 56.25rem) { :global(.hero-transcript-row:not([data-transcript-tier~="compact"])) { display: none; } }
+  @media (width >= 38.75rem) and (width < 64rem) and (height < 75rem) { :global(.hero-transcript-row:not([data-transcript-tier~="compact"])) { display: none; } }
+  @media (width < 38.75rem) {
+    :global(.hero-icon-stack) { top: -14px; left: -14px; width: 44px; height: 30px; }
+    :global(.hero-icon-plane) { width: 42px; height: 27px; border-radius: 3px; }
+    .hero-terminal-window { font-size: 12px; }
+    :global(.hero-terminal-transcript) { padding: 10px 12px 8px; }
+    :global(.hero-claude-startup) { min-height: 42px; gap: 8px; }
+    :global(.hero-claude-mascot) { width: 31px; height: 29px; }
+    :global(.hero-claude-footer) { padding: 0 12px 7px; }
+    :global(.hero-claude-auto), :global(.hero-desktop-only) { display: none; }
+    :global(.hero-phone-only) { display: block; }
+    :global(.hero-transcript-row:not([data-transcript-tier~="phone"])) { display: none; }
+  }
+</style>

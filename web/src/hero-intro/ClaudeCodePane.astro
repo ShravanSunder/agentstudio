@@ -1,0 +1,65 @@
+---
+import { claudeTranscript } from "./hero-terminal-transcripts";
+import {
+  heroIntroSpinnerAttribute,
+  heroIntroTypedInputAttribute,
+  heroTranscriptTierAttribute,
+} from "./hero-intro-dom-contract";
+
+const transcriptRows = claudeTranscript.filter((row) => row.kind !== "cursor");
+---
+
+<section class="hero-terminal-pane hero-terminal-pane--claude" aria-hidden="true">
+  <div class="hero-terminal-transcript">
+    <div class="hero-claude-startup">
+      <svg class="hero-claude-mascot" viewBox="0 0 47 43" aria-hidden="true">
+        <rect x="5" y="0" width="37" height="29"></rect><rect
+          x="0"
+          y="16"
+          width="7"
+          height="8"></rect><rect x="40" y="16" width="7" height="8"></rect><rect
+          x="9"
+          y="28"
+          width="6"
+          height="14"></rect><rect x="19" y="28" width="6" height="14"></rect><rect
+          x="30"
+          y="28"
+          width="6"
+          height="14"></rect><rect x="39" y="28" width="6" height="14"></rect><rect
+          class="hero-claude-eye"
+          x="13"
+          y="8"
+          width="3"
+          height="9"></rect><rect
+          class="hero-claude-eye"
+          x="31"
+          y="8"
+          width="3"
+          height="9"></rect>
+      </svg>
+      <div>
+        <div><strong>Claude Code</strong><span class="hero-terminal-muted"> v2.1.281</span></div>
+        <div class="hero-terminal-muted hero-desktop-only">Opus 5.5 · Claude Max</div>
+        <div class="hero-terminal-muted hero-phone-only">Opus 5.5 · ~/agent-studio</div>
+        <div class="hero-terminal-muted hero-desktop-only">~/agent-studio</div>
+      </div>
+    </div>
+    {
+      transcriptRows.map((row) => (
+        <div
+          class={`hero-transcript-row hero-transcript-row--${row.kind}`}
+          {...{ [heroTranscriptTierAttribute]: row.tiers.join(" ") }}
+        >
+          {row.text}
+        </div>
+      ))
+    }
+    <div class="hero-brewing" {...{ [heroIntroSpinnerAttribute]: "" }}>✶ Brewing… (esc to interrupt)</div>
+  </div>
+  <div class="hero-claude-footer">
+    <div class="hero-terminal-rule"></div>
+    <div class="hero-claude-input"><span>❯</span><span {...{ [heroIntroTypedInputAttribute]: "" }}></span><span class="hero-block-cursor" data-hero-cursor>▌</span></div>
+    <div class="hero-terminal-rule"></div>
+    <div class="hero-claude-auto">⏵⏵ auto mode on <span class="hero-terminal-muted">(shift+tab to cycle)</span></div>
+  </div>
+</section>
