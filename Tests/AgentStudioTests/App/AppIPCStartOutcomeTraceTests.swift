@@ -115,6 +115,33 @@ struct AppIPCStartOutcomeTraceTests {
         #expect(try await trace.ipcStartRecords() == [.init(outcome: "unavailable", reason: "local_store_unavailable")])
     }
 
+    @Test("app IPC startup trace keeps its first outcome")
+    func appIPCStartOutcomeKeepsFirstRecord() async throws {
+        let trace = StartupTraceCapture()
+        let appDelegate = AppDelegate()
+        appDelegate.startupTraceRecorder = trace.recorder
+
+        appDelegate.recordAppIPCStart()
+        appDelegate.recordAppIPCStart(unavailable: .restoreBoundsUnavailable)
+
+        #expect(try await trace.ipcStartRecords() == [.init(outcome: "started", reason: nil)])
+    }
+
+    @Test("termination ingress stop records unavailable while launch restore is incomplete")
+    func terminationIngressStopRecordsRestoreBoundsUnavailable() async throws {
+        let trace = StartupTraceCapture()
+        let appDelegate = AppDelegate()
+        appDelegate.startupTraceRecorder = trace.recorder
+        appDelegate.launchRestoreObservationState.prepareForObservation()
+
+        await appDelegate.stopAcceptingAppIPCConnections()
+
+        #expect(
+            try await trace.ipcStartRecords()
+                == [.init(outcome: "unavailable", reason: "restore_bounds_unavailable")]
+        )
+    }
+
     @Test("cancelling an incomplete restore observation does not record terminal unavailability")
     func cancelledIncompleteRestoreObservationDoesNotRecordTerminalUnavailability() async throws {
         let trace = StartupTraceCapture()
@@ -189,7 +216,10 @@ struct AppIPCStartOutcomeTraceTests {
             await harness.shutdown()
             throw error
         }
+        await harness.appDelegate.stopAcceptingAppIPCConnections()
+        #expect(try await trace.ipcStartRecords() == [.init(outcome: "started", reason: nil)])
         await harness.shutdown()
+        #expect(try await trace.ipcStartRecords() == [.init(outcome: "started", reason: nil)])
     }
 }
 

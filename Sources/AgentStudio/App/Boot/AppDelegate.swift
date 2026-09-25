@@ -85,6 +85,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     var runtime: SessionRuntime!
     var appIPCServer: AgentStudioAppIPCServer?
     var appIPCInitializationTask: Task<Void, Never>?
+    var didRecordAppIPCStartOutcome = false
     var appIPCRuntimeID: UUID!
     var appIPCPaths: AgentStudioIPCPaths!
     var appIPCContinuityRepository: IPCContinuityRepository!

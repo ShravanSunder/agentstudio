@@ -150,6 +150,11 @@ extension AppDelegate {
 
     /// Records `app.ipc.start`: started, or unavailable with its reason.
     func recordAppIPCStart(unavailable reason: AppIPCStartUnavailability? = nil) {
+        guard !didRecordAppIPCStartOutcome else {
+            appLogger.warning("Ignoring duplicate app.ipc.start outcome")
+            return
+        }
+        didRecordAppIPCStartOutcome = true
         startupTraceRecorder?.recordAppStartup(
             "app.ipc.start",
             phase: "app_ipc",
@@ -339,6 +344,9 @@ extension AppDelegate {
     /// mutate state the flush has already written. The escrow file only names
     /// the socket, so it is retired here too.
     func stopAcceptingAppIPCConnections() async {
+        if !launchRestoreObservationState.didComplete {
+            recordAppIPCStart(unavailable: .restoreBoundsUnavailable)
+        }
         let initializationTask = appIPCInitializationTask
         initializationTask?.cancel()
         await initializationTask?.value

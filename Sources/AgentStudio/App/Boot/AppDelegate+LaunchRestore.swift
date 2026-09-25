@@ -175,9 +175,6 @@ extension AppDelegate {
             if !self.launchRestoreObservationState.didComplete {
                 launchRestoreLogger.error("Launch restore stream ended without completing restore")
                 self.launchRestoreObservationState.cancelDiagnostics()
-                if !Task.isCancelled {
-                    self.recordAppIPCStart(unavailable: .restoreBoundsUnavailable)
-                }
             }
         }
     }
