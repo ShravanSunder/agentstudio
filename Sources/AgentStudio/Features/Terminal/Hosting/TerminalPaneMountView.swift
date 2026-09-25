@@ -720,6 +720,14 @@ package final class TerminalPaneMountView: NSView, PaneMountedContent, SurfaceHe
                 }
             self.hasObservedEffectiveTerminationDelivery = hadEffectiveDelivery
             self.finishRestorePresentation()
+            guard hadEffectiveDelivery else {
+                self.shouldSuppressProcessExitedOverlayAfterTermination = false
+                RestoreTrace.log(
+                    "TerminalPaneMountView.postProcessTerminationEvent showing Process Exited fallback because no pane close handler acknowledged termination pane=\(paneId)"
+                )
+                self.showErrorOverlay(health: .processExited(exitCode: nil))
+                return
+            }
             self.hideErrorOverlay()
         }
     }

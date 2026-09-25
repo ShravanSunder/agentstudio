@@ -395,8 +395,8 @@ struct TerminalPaneMountViewExitBehaviorTests {
         await harness.shutdown()
     }
 
-    @Test("Ghostty process exit callback keeps the Process Exited overlay suppressed without subscribers")
-    func ghosttyProcessExit_withoutSubscribers_keepsOverlaySuppressed() async {
+    @Test("undelivered process termination shows the Process Exited fallback")
+    func ghosttyProcessExit_withoutHandler_showsProcessExitedFallback() async {
         let mountView = makeProcessExitMountView()
 
         let terminationTask = mountView.simulateSurfaceCloseForTesting(processExited: true)
@@ -406,8 +406,9 @@ struct TerminalPaneMountViewExitBehaviorTests {
         }
         await terminationTask.value
         #expect(mountView.isProcessRunning == false)
-        #expect(mountView.isProcessExitedOverlaySuppressedAfterTerminationForTesting)
-        #expect(!mountView.isShowingErrorOverlayForTesting)
+        #expect(!mountView.hasObservedEffectiveTerminationDeliveryForTesting)
+        #expect(!mountView.isProcessExitedOverlaySuppressedAfterTerminationForTesting)
+        #expect(mountView.isShowingErrorOverlayForTesting)
     }
 
     @Test("unhealthy overlay close dispatches closePane directly for its pane")
