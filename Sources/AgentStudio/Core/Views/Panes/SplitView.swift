@@ -251,7 +251,14 @@ package struct SplitView<L: View, R: View>: View {
             minimumPosition,
             min(extent - minimumPaneExtent, extent * (splitRatioBounds?.upperBound ?? 1))
         )
-        return min(max(location, minimumPosition), maximumPosition) / extent
+        let clampedPosition = min(max(location, minimumPosition), maximumPosition)
+        guard let splitRatioBounds else { return clampedPosition / extent }
+        // `(extent * bound) / extent` can misround (1714 * 0.3 / 1714 == 0.29999999999999993)
+        // and owners validate bounds exactly, so a drag held at a bound emits the bound itself
+        // and any other ratio is clamped after the division.
+        if clampedPosition <= extent * splitRatioBounds.lowerBound { return splitRatioBounds.lowerBound }
+        if clampedPosition >= extent * splitRatioBounds.upperBound { return splitRatioBounds.upperBound }
+        return min(max(clampedPosition / extent, splitRatioBounds.lowerBound), splitRatioBounds.upperBound)
     }
 
     /// Calculates the bounding rects for the left and right views.
