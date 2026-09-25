@@ -13,7 +13,7 @@ import Testing
 @Suite("AgentStudio IPC Bridge agent reach", .serialized)
 struct AgentStudioIPCBridgeAgentReachServiceTests {
     @Test("a terminal agent searches its own Bridge through self")
-    func terminalAgentReachesOwnBridgeThroughSelf() throws {
+    func terminalAgentReachesOwnBridgeThroughSelf() async throws {
         // Arrange
         let terminalId = UUID()
         let recorder = BridgeFilesSearchInvocationRecorder()
@@ -25,7 +25,7 @@ struct AgentStudioIPCBridgeAgentReachServiceTests {
         defer { fixture.cleanup() }
 
         // Act
-        let response = try searchAsAgent(fixture: fixture, agentPaneId: terminalId, handle: "self")
+        let response = try await searchAsAgent(fixture: fixture, agentPaneId: terminalId, handle: "self")
 
         // Assert
         #expect(response.error == nil)
@@ -38,7 +38,7 @@ struct AgentStudioIPCBridgeAgentReachServiceTests {
     }
 
     @Test("a drawer terminal agent searches its own receiving Bridge through self")
-    func drawerTerminalAgentReachesThroughSelf() throws {
+    func drawerTerminalAgentReachesThroughSelf() async throws {
         // Arrange
         let ownerTerminalId = UUID()
         let drawerTerminalId = UUID()
@@ -57,7 +57,7 @@ struct AgentStudioIPCBridgeAgentReachServiceTests {
         defer { fixture.cleanup() }
 
         // Act
-        let response = try searchAsAgent(fixture: fixture, agentPaneId: drawerTerminalId, handle: "self")
+        let response = try await searchAsAgent(fixture: fixture, agentPaneId: drawerTerminalId, handle: "self")
 
         // Assert
         #expect(response.error == nil)
@@ -65,7 +65,7 @@ struct AgentStudioIPCBridgeAgentReachServiceTests {
     }
 
     @Test("another terminal's handle is refused by name before the Bridge is asked")
-    func anotherTerminalIsRefused() throws {
+    func anotherTerminalIsRefused() async throws {
         // Arrange
         let terminalId = UUID()
         let otherTerminalId = UUID()
@@ -81,7 +81,7 @@ struct AgentStudioIPCBridgeAgentReachServiceTests {
         defer { fixture.cleanup() }
 
         // Act
-        let response = try searchAsAgent(
+        let response = try await searchAsAgent(
             fixture: fixture, agentPaneId: terminalId, handle: otherTerminalId.uuidString)
 
         // Assert
@@ -93,7 +93,7 @@ struct AgentStudioIPCBridgeAgentReachServiceTests {
     }
 
     @Test("an unmounted receiver answers notMounted to its own agent")
-    func unmountedReceiverAnswersNotMounted() throws {
+    func unmountedReceiverAnswersNotMounted() async throws {
         // Arrange
         let terminalId = UUID()
         let fixture = try LiveServerFixture(
@@ -105,7 +105,7 @@ struct AgentStudioIPCBridgeAgentReachServiceTests {
         defer { fixture.cleanup() }
 
         // Act
-        let response = try searchAsAgent(fixture: fixture, agentPaneId: terminalId, handle: "self")
+        let response = try await searchAsAgent(fixture: fixture, agentPaneId: terminalId, handle: "self")
 
         // Assert
         #expect(response.error?.code == -32_005)
@@ -117,7 +117,7 @@ struct AgentStudioIPCBridgeAgentReachServiceTests {
         fixture: LiveServerFixture,
         agentPaneId: UUID,
         handle: String
-    ) throws -> JSONRPCResponseMessage {
+    ) async throws -> JSONRPCResponseMessage {
         try fixture.server.start()
         let token = try fixture.issueTestCredential(
             for: .pane(paneId: agentPaneId, credentialRecordId: UUIDv7.generate(), status: .registered)
@@ -127,7 +127,12 @@ struct AgentStudioIPCBridgeAgentReachServiceTests {
         )
         defer { connection.close() }
         var frameReader = TestFrameReader()
-        try login(connection: connection, token: token, requestId: 1, reader: &frameReader)
+        try await loginWithoutBlockingMainActor(
+            connection: connection,
+            token: token,
+            requestId: 1,
+            reader: &frameReader
+        )
         try sendRequest(
             connection: connection,
             request: JSONRPCClientRequest(
@@ -136,6 +141,6 @@ struct AgentStudioIPCBridgeAgentReachServiceTests {
                 params: .object(["handle": .string(handle), "searchText": .string("plan")])
             )
         )
-        return try frameReader.receiveResponse(connection: connection)
+        return try await frameReader.receiveResponseWithoutBlockingMainActor(connection: connection)
     }
 }

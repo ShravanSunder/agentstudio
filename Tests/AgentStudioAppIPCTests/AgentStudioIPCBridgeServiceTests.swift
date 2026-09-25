@@ -514,7 +514,7 @@ struct AgentStudioIPCBridgeServiceTests {
     }
 
     @Test("Bridge methods reject panes that neither are a Bridge nor reach one as unsupported")
-    func bridgeMethodsRejectValidNonBridgePaneTargetsAsUnsupported() throws {
+    func bridgeMethodsRejectValidNonBridgePaneTargetsAsUnsupported() async throws {
         let paneId = UUID()
         let fixture = try LiveServerFixture(
             accessMode: .unsafeDebug,
@@ -527,14 +527,20 @@ struct AgentStudioIPCBridgeServiceTests {
         try fixture.server.start()
 
         for bridgeRequest in nonBridgeTargetRequests() {
-            let response = try sendRequest(
-                socketPath: fixture.paths.socketURL.path,
-                request: JSONRPCClientRequest(
-                    id: .number(bridgeRequest.id),
-                    method: bridgeRequest.method,
-                    params: bridgeRequest.params
-                )
+            let request = try JSONRPCClientRequest(
+                id: .number(bridgeRequest.id),
+                method: bridgeRequest.method,
+                params: bridgeRequest.params
             )
+            let response: JSONRPCResponseMessage
+            if bridgeRequest.method == "bridge.files.search" {
+                response = try await sendRequestWithoutBlockingCooperativePool(
+                    socketPath: fixture.paths.socketURL.path,
+                    request: request
+                )
+            } else {
+                response = try sendRequest(socketPath: fixture.paths.socketURL.path, request: request)
+            }
 
             #expect(response.id == .number(bridgeRequest.id))
             #expect(response.error?.code == -32_003)
