@@ -5,6 +5,9 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import ts from 'typescript';
 
+import { loadDebtLedger, reconcileDebtLedger } from './check-bridgeweb-architecture-debt-ledger.ts';
+import { findTimedWaitsInTestImportClosure } from './check-bridgeweb-architecture-timed-waits.ts';
+
 type RuleId =
 	| 'max-file-lines'
 	| 'no-private-pierre-imports'
@@ -20,7 +23,8 @@ type RuleId =
 	| 'no-raw-file-bodies-in-state'
 	| 'no-typescript-live-product-authority'
 	| 'core-imports-app-protocol'
-	| 'product-endpoint-boundary';
+	| 'product-endpoint-boundary'
+	| 'no-timed-wait-in-tests';
 
 export interface ArchitectureViolation {
 	readonly ruleId: RuleId;
@@ -37,6 +41,8 @@ export interface ArchitectureReport {
 
 export interface CheckBridgeWebArchitectureProps {
 	readonly packageRootPath?: string;
+	// The package's path from the repository root, used for debt ledger paths.
+	readonly repositoryPathPrefix?: string;
 }
 
 interface SourceContext {
@@ -46,9 +52,15 @@ interface SourceContext {
 	readonly violations: ArchitectureViolation[];
 }
 
-interface CheckSourceFileProps {
+interface ParseSourceFileProps {
 	readonly filePath: string;
 	readonly packageRootPath: string;
+}
+
+interface ParsedSourceFile {
+	readonly relativePath: string;
+	readonly sourceFile: ts.SourceFile;
+	readonly sourceText: string;
 }
 
 interface AddViolationProps {
@@ -60,6 +72,8 @@ interface AddViolationProps {
 
 const defaultPackageRootPath = fileURLToPath(new URL('../', import.meta.url));
 const checkedExtensions = new Set(['.ts', '.tsx']);
+const debtLedgerRelativePath = 'architecture-debt-ledger.tsv';
+const debtLedgerRuleIds: ReadonlySet<string> = new Set<RuleId>(['no-timed-wait-in-tests']);
 const ignoredDirectoryNames = new Set(['node_modules', 'dist', 'coverage', '.vite']);
 const maxSourceFileLineCount = 1000;
 const bridgeProductEndpointAdapterPaths = new Set([
@@ -102,13 +116,42 @@ export async function checkBridgeWebArchitecture(
 ): Promise<ArchitectureReport> {
 	const packageRootPath = props.packageRootPath ?? defaultPackageRootPath;
 	const sourceFilePaths = await collectSourceFiles(packageRootPath);
-	const violationGroups = await Promise.all(
+	const parsedSourceFiles = await Promise.all(
 		sourceFilePaths.map(
-			(filePath: string): Promise<readonly ArchitectureViolation[]> =>
-				checkSourceFile({ filePath, packageRootPath }),
+			(filePath: string): Promise<ParsedSourceFile> =>
+				parseSourceFile({ filePath, packageRootPath }),
 		),
 	);
-	const violations = violationGroups.flat().toSorted(compareViolations);
+	const repositoryPathPrefix = props.repositoryPathPrefix ?? 'BridgeWeb/';
+	const ledger = await loadDebtLedger({
+		filePath: join(packageRootPath, debtLedgerRelativePath),
+		isLedgerRuleId,
+		sourcePath: `${repositoryPathPrefix}${debtLedgerRelativePath}`,
+	});
+	const violations = reconcileDebtLedger(
+		{
+			ledger,
+			lintedPaths: new Set(parsedSourceFiles.map((parsed): string => parsed.relativePath)),
+			repositoryPathPrefix,
+			sites: [
+				...parsedSourceFiles.flatMap(checkSourceFile),
+				// Judged across files: a test answers for the harness modules it imports.
+				...findTimedWaitsInTestImportClosure({
+					packageRootPath,
+					sourceFiles: parsedSourceFiles,
+				}).map(
+					(finding): ArchitectureViolation => ({ ...finding, ruleId: 'no-timed-wait-in-tests' }),
+				),
+			],
+		},
+		(entry, message): ArchitectureViolation => ({
+			column: 1,
+			line: entry.line,
+			message,
+			relativePath: debtLedgerRelativePath,
+			ruleId: entry.ruleId,
+		}),
+	).toSorted(compareViolations);
 
 	return {
 		ok: violations.length === 0,
@@ -151,22 +194,25 @@ async function collectSourceFiles(directoryPath: string): Promise<readonly strin
 	return entryGroups.flat();
 }
 
-async function checkSourceFile(
-	props: CheckSourceFileProps,
-): Promise<readonly ArchitectureViolation[]> {
+async function parseSourceFile(props: ParseSourceFileProps): Promise<ParsedSourceFile> {
 	const sourceText = await readFile(props.filePath, 'utf8');
-	const relativePath = normalizePath(relative(props.packageRootPath, props.filePath));
-	const sourceFile = ts.createSourceFile(
-		props.filePath,
+	return {
+		relativePath: normalizePath(relative(props.packageRootPath, props.filePath)),
+		sourceFile: ts.createSourceFile(
+			props.filePath,
+			sourceText,
+			ts.ScriptTarget.Latest,
+			true,
+			scriptKindForPath(props.filePath),
+		),
 		sourceText,
-		ts.ScriptTarget.Latest,
-		true,
-		scriptKindForPath(props.filePath),
-	);
+	};
+}
+
+function checkSourceFile(parsedSourceFile: ParsedSourceFile): readonly ArchitectureViolation[] {
+	const { sourceFile } = parsedSourceFile;
 	const context: SourceContext = {
-		relativePath,
-		sourceFile,
-		sourceText,
+		...parsedSourceFile,
 		violations: [],
 	};
 
@@ -918,6 +964,10 @@ function compareViolations(left: ArchitectureViolation, right: ArchitectureViola
 		left.column - right.column ||
 		left.ruleId.localeCompare(right.ruleId)
 	);
+}
+
+function isLedgerRuleId(value: string): value is RuleId {
+	return debtLedgerRuleIds.has(value);
 }
 
 function isNodeErrorWithCode(error: unknown, code: string): error is NodeJS.ErrnoException {

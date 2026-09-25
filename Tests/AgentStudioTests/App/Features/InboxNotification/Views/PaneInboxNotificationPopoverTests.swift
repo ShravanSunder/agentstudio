@@ -504,7 +504,7 @@ struct PaneInboxNotificationPopoverTests {
         let prefsAtom = InboxNotificationPrefsAtom()
         let presentationAtom = PaneInboxPresentationAtom()
 
-        try withTestCoreAtoms { coreAtoms in
+        withTestCoreAtoms { coreAtoms in
             let store = WorkspaceStore(
                 catalogAtom: coreAtoms.workspaceRepositoryTopology,
                 graphAtom: coreAtoms.workspacePane,

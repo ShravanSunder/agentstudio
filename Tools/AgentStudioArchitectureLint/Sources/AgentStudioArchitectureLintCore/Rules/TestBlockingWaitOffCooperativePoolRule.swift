@@ -1,3 +1,4 @@
+import Foundation
 import SwiftSyntax
 
 /// Swift Testing runs each test body as a task on the cooperative executor,
@@ -17,20 +18,96 @@ struct TestBlockingWaitOffCooperativePoolRule: ArchitectureRule {
     let severity = ArchitectureSeverity.error
     let message = "Blocking waits in tests must run off the cooperative pool"
 
+    private let owners: [BlockingWaitOwner]
+    private let ownerProblems: [ArchitectureDiagnostic]
+
+    init(owners: [BlockingWaitOwner] = ArchitectureAllowlists.blockingTestWaitOwners) {
+        self.owners = owners
+        self.ownerProblems = []
+    }
+
+    private init(owners: [BlockingWaitOwner], ownerProblems: [ArchitectureDiagnostic]) {
+        self.owners = owners
+        self.ownerProblems = ownerProblems
+    }
+
+    /// Owner paths are repository paths, so they are checked when the corpus
+    /// is the repository (its root holds this lint tool), not a fixture tree.
+    func prepared(for contexts: [ArchitectureLintContext]) -> any ArchitectureRule {
+        guard let rootPath = contexts.first?.workspaceRootPath,
+            FileManager.default.fileExists(atPath: "\(rootPath)/Tools/AgentStudioArchitectureLint/Package.swift")
+        else {
+            return self
+        }
+        return Self(owners: owners, ownerProblems: ownerProblems(for: contexts))
+    }
+
+    func configurationDiagnostics() -> [ArchitectureDiagnostic] {
+        ownerProblems
+    }
+
+    /// An owner whose file is not in the corpus is gone; an owner whose file
+    /// no longer blocks anywhere, even off the pool, no longer needs to be one.
+    func ownerProblems(for contexts: [ArchitectureLintContext]) -> [ArchitectureDiagnostic] {
+        var contextsByRelativePath: [String: ArchitectureLintContext] = [:]
+        for context in contexts {
+            if let relativePath = context.workspaceRelativePath {
+                contextsByRelativePath[relativePath] = context
+            }
+        }
+        return owners.compactMap { owner in
+            guard let context = contextsByRelativePath[owner.path] else {
+                return ArchitectureDiagnostic(
+                    path: owner.path,
+                    line: 1,
+                    column: 1,
+                    severity: severity,
+                    ruleID: id,
+                    message:
+                        "Blocking-wait owner \(owner.path) (\(owner.owner)) no longer exists; remove it from "
+                        + "ArchitectureAllowlists.blockingTestWaitOwners"
+                )
+            }
+            guard Self.blockingWaits(in: context, includingOffloadedWork: true).isEmpty else {
+                return nil
+            }
+            return ArchitectureDiagnostic(
+                path: context.path,
+                line: 1,
+                column: 1,
+                severity: severity,
+                ruleID: id,
+                message:
+                    "Blocking-wait owner (\(owner.owner)) no longer contains a blocking wait; remove it from "
+                    + "ArchitectureAllowlists.blockingTestWaitOwners"
+            )
+        }
+    }
+
     func validate(context: ArchitectureLintContext) -> [ArchitectureDiagnostic] {
         guard let targetPath = Self.targetPath(for: context),
             targetPath.contains("/Tests/"), targetPath.hasSuffix(".swift"),
-            !ArchitectureAllowlists.blockingTestWaitAllowedPathSuffixes.contains(where: targetPath.hasSuffix)
+            !owners.contains(where: { targetPath.hasSuffix("/\($0.path)") })
         else {
             return []
         }
 
-        let semaphoreNames = DispatchSemaphoreBindingCollector.names(in: context.sourceFile)
-        let visitor = TestBlockingWaitVisitor(semaphoreNames: semaphoreNames)
-        visitor.walk(context.sourceFile)
-        return visitor.violations.map {
+        return Self.blockingWaits(in: context, includingOffloadedWork: false).map {
             diagnostic(context: context, position: $0.position, message: $0.message)
         }
+    }
+
+    private static func blockingWaits(
+        in context: ArchitectureLintContext,
+        includingOffloadedWork: Bool
+    ) -> [ArchitectureViolation] {
+        let semaphoreNames = DispatchSemaphoreBindingCollector.names(in: context.sourceFile)
+        let visitor = TestBlockingWaitVisitor(
+            semaphoreNames: semaphoreNames,
+            includesOffloadedWork: includingOffloadedWork
+        )
+        visitor.walk(context.sourceFile)
+        return visitor.violations
     }
 
     private static func targetPath(for context: ArchitectureLintContext) -> String? {
@@ -81,10 +158,14 @@ private final class DispatchSemaphoreBindingVisitor: SyntaxVisitor {
 private final class TestBlockingWaitVisitor: SyntaxVisitor {
     private(set) var violations: [ArchitectureViolation] = []
     private let semaphoreNames: Set<String>
+    /// Also report waits already moved off the pool: an owner file's
+    /// sanctioned blocking lives inside its own dispatch blocks.
+    private let includesOffloadedWork: Bool
     private var processBindingScopes: [[String: Bool]] = [[:]]
 
-    init(semaphoreNames: Set<String>) {
+    init(semaphoreNames: Set<String>, includesOffloadedWork: Bool) {
         self.semaphoreNames = semaphoreNames
+        self.includesOffloadedWork = includesOffloadedWork
         super.init(viewMode: .sourceAccurate)
     }
 
@@ -143,11 +224,11 @@ private final class TestBlockingWaitVisitor: SyntaxVisitor {
     /// wrapper, or already inside a `DispatchQueue` block or a thread of its
     /// own, the block lands on libdispatch and the body is not searched.
     override func visit(_ node: FunctionCallExprSyntax) -> SyntaxVisitorContinueKind {
-        node.isCooperativePoolOffloadCall ? .skipChildren : .visitChildren
+        node.isCooperativePoolOffloadCall && !includesOffloadedWork ? .skipChildren : .visitChildren
     }
 
     override func visitPost(_ node: FunctionCallExprSyntax) {
-        guard !node.isCooperativePoolOffloadCall,
+        guard includesOffloadedWork || !node.isCooperativePoolOffloadCall,
             let memberAccess = node.calledExpression.as(MemberAccessExprSyntax.self)
         else {
             return
@@ -251,14 +332,14 @@ extension ExprSyntax {
     fileprivate var namesADispatchTarget: Bool {
         if let reference = self.as(DeclReferenceExprSyntax.self) {
             let name = reference.baseName.text
-            return name == "Thread" || name.localizedCaseInsensitiveContains("queue")
+            return name == "Thread" || name.containsIgnoringASCIICase("queue")
         }
         if let call = self.as(FunctionCallExprSyntax.self) {
             return call.calledExpression.namesADispatchTarget
         }
         if let memberAccess = self.as(MemberAccessExprSyntax.self) {
             return memberAccess.base?.namesADispatchTarget == true
-                || memberAccess.declName.baseName.text.localizedCaseInsensitiveContains("queue")
+                || memberAccess.declName.baseName.text.containsIgnoringASCIICase("queue")
         }
         return false
     }

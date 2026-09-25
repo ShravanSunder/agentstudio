@@ -73,7 +73,6 @@ struct TerminalPaneMountViewExitBehaviorTests {
             preferenceAtom: editorPreference,
             runtimeAtom: editorChooserRuntime
         )
-        let inboxAtom = InboxNotificationAtom()
         let appEventBus = EventBus<AppEvent>()
         let controller = PaneTabViewController(
             store: store,
@@ -399,7 +398,7 @@ struct TerminalPaneMountViewExitBehaviorTests {
 
         let mountView = makeProcessExitMountView(paneId: paneId, appEventBus: harness.appEventBus)
 
-        let terminationTask = mountView.requestClose()
+        let terminationTask = mountView.beginClose()
         mountView.applyHealthUpdateForTesting(.processExited(exitCode: nil))
 
         #expect(mountView.isProcessRunning == false)
@@ -424,7 +423,7 @@ struct TerminalPaneMountViewExitBehaviorTests {
             appEventBus: appEventBus,
             terminationAcknowledgementClock: clock
         )
-        let terminationTask = mountView.requestClose()
+        let terminationTask = mountView.beginClose()
         _ = await terminationEvents.next()
         await clock.waitForPendingSleepCount(atLeast: 1)
         #expect(mountView.isProcessExitedOverlaySuppressedAfterTerminationForTesting)

@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
-import { chromium, type Browser, type Page } from 'playwright';
+import type { Browser, Page } from 'playwright';
 import { expect, test } from 'vitest';
 
 import { drainAnnotationLifecycleTelemetry } from './bridge-viewer-vite-annotation-lifecycle-telemetry.ts';
@@ -14,6 +14,7 @@ import {
 	selectReviewFile,
 	waitForSelectedReviewReady,
 } from './bridge-viewer-vite-annotation-save-journey.ts';
+import { launchBridgeViewerE2EChromium } from './bridge-viewer-vite-e2e-browser.ts';
 import { observeInteractionProfileFailures } from './bridge-viewer-vite-interaction-profile-diagnostics.ts';
 import {
 	createBridgeViewerViteProductFixture,
@@ -88,7 +89,7 @@ test('profiles repeated mode switches, Open in Files, Markdown and Mermaid throu
 				'',
 			].join('\n'),
 		);
-		browser = await chromium.launch({ channel: 'chrome', headless: true });
+		browser = await launchBridgeViewerE2EChromium();
 		server = await startBridgeViewerOwnedViteProductServer(fixture.oracle);
 		const page = await browser.newPage({ viewport: { width: 1728, height: 980 } });
 		profilePage = page;

@@ -904,7 +904,7 @@ extension BridgeDevelopmentProductHost {
                     // the app's own reload path retires and drains rather than
                     // refusing, and so must this one.
                     guard
-                        await productSessionOwner.schemeRouter.schemeTaskCensus
+                        productSessionOwner.schemeRouter.schemeTaskCensus
                             .everyStartedStreamTaskTerminated
                     else {
                         throw BridgeDevelopmentProductHostError.sessionAlreadyOpen

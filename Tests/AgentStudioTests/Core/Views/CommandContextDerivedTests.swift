@@ -79,7 +79,7 @@ struct CommandContextDerivedTests {
 
     @Test
     func activePaneAndTabCountsProduceCountRequirements() throws {
-        try withTestCoreAtoms { atoms in
+        withTestCoreAtoms { atoms in
             let store = WorkspaceStore(
                 catalogAtom: atoms.workspaceRepositoryTopology,
                 graphAtom: atoms.workspacePane,
@@ -129,7 +129,7 @@ struct CommandContextDerivedTests {
 
     @Test
     func backgroundedCanonicalActivePaneUsesActiveFallbackForCommandContext() throws {
-        try withTestCoreAtoms { atoms in
+        withTestCoreAtoms { atoms in
             let store = WorkspaceStore(
                 catalogAtom: atoms.workspaceRepositoryTopology,
                 graphAtom: atoms.workspacePane,
@@ -174,7 +174,7 @@ struct CommandContextDerivedTests {
 
     @Test
     func emptyDrawerFocusProducesEmptyDrawerRequirements() throws {
-        try withTestCoreAtoms { atoms in
+        withTestCoreAtoms { atoms in
             let store = WorkspaceStore(
                 catalogAtom: atoms.workspaceRepositoryTopology,
                 graphAtom: atoms.workspacePane,

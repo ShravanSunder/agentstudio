@@ -15,7 +15,7 @@ struct ShellGitWorkingTreeStatusProvider: GitWorkingTreeStatusProvider {
 
     private let processExecutor: any ProcessExecutor
 
-    init(processExecutor: any ProcessExecutor = DefaultProcessExecutor(timeout: 2)) {
+    init(processExecutor: any ProcessExecutor = RunToExitProcessExecutor()) {
         self.processExecutor = processExecutor
     }
 

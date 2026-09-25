@@ -17,7 +17,7 @@ struct AtomLibCompileFailureScriptTests {
     }
 
     private func runAtomLibCompileFailureDriver() async throws -> ProcessResult {
-        try await DefaultProcessExecutor(timeout: 30).execute(
+        try await RunToExitProcessExecutor().execute(
             command: "/bin/bash",
             args: ["scripts/verify-atomlib-compile-failures.sh"],
             cwd: URL(
