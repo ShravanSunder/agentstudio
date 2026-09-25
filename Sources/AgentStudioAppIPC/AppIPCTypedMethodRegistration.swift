@@ -100,7 +100,7 @@ package struct AppIPCTypedMethodRegistration<
     Result: Codable & Sendable
 >: Sendable {
     private let descriptor: IPCMethodDescriptor<Parameters, Result>
-    private let validatedErasedDescriptor: IPCAnyMethodDescriptor?
+    private let validatedErasedDescriptor: IPCAnyMethodDescriptor
     private let correlation: AppIPCCorrelation<Parameters>
     private let resolveTarget:
         @Sendable (
@@ -141,12 +141,7 @@ package struct AppIPCTypedMethodRegistration<
 
     package func erase() throws -> AnyAppIPCMethodRegistration {
         try validateCorrelationPolicy()
-        let erasedDescriptor: IPCAnyMethodDescriptor
-        if let validatedErasedDescriptor {
-            erasedDescriptor = validatedErasedDescriptor
-        } else {
-            erasedDescriptor = try IPCAnyMethodDescriptor(erasing: descriptor)
-        }
+        let erasedDescriptor = validatedErasedDescriptor
 
         return AnyAppIPCMethodRegistration(
             descriptor: erasedDescriptor,
