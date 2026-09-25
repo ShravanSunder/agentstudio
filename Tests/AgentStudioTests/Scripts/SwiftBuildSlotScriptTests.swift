@@ -178,6 +178,38 @@ struct SwiftBuildSlotScriptTests {
         #expect(reusedResult.output.contains("using slot=build path=.build-agent-1 task=replacement-owner"))
     }
 
+    @Test("a later claimant reaps an orphaned stale reaper lock")
+    func laterClaimantReapsOrphanedStaleReaperLock() async throws {
+        let fixture = try SwiftBuildSlotFixture()
+        try fixture.createClaim(
+            slotDirectory: ".build-agent-1",
+            processID: "987654321",
+            startTime: "Mon Sep 1 00:00:00 2025",
+            task: "abandoned-holder"
+        )
+        let reaperDirectory = fixture.rootURL.appending(path: ".build-agent-1/.slot-claim/.reaper-lock")
+        try FileManager.default.createDirectory(at: reaperDirectory, withIntermediateDirectories: true)
+        try Data("987654321\tMon Sep 1 00:00:00 2025\n".utf8)
+            .write(to: reaperDirectory.appending(path: "holder"))
+
+        let result = try await fixture.run(
+            "source scripts/swift-build-slot.sh\n"
+                + "trap swift_build_slot_release EXIT\n"
+                + "swift_build_slot_acquire build \"replacement-owner\""
+        )
+
+        #expect(result.exitCode == 0)
+        #expect(result.output.contains("reaped stale reaper lock pid=987654321"))
+        #expect(result.output.contains("reaped stale slot=build task=abandoned-holder"))
+        #expect(result.output.contains("using slot=build path=.build-agent-1 task=replacement-owner"))
+        #expect(!FileManager.default.fileExists(atPath: reaperDirectory.path))
+        #expect(
+            !FileManager.default.fileExists(
+                atPath: fixture.rootURL.appending(path: ".build-agent-1/.slot-claim").path
+            )
+        )
+    }
+
     @Test("a live descendant with an open build file prevents stale claim cleanup")
     func liveDescendantOpenFilePreventsStaleClaimCleanup() async throws {
         let fixture = try SwiftBuildSlotFixture()

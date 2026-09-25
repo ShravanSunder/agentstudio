@@ -29,12 +29,59 @@ swift_build_slot_resolve_directory() {
   esac
 }
 
+swift_build_slot_reap_stale_reaper_lock() {
+  local reaper_directory="$1"
+  local reaper_process_id reaper_start_time
+  local confirmed_process_id confirmed_start_time
+  local stale_reaper_directory
+
+  if ! IFS=$'\t' read -r reaper_process_id reaper_start_time < "$reaper_directory/holder" 2>/dev/null ||
+    swift_build_slot_holder_is_same_process "$reaper_process_id" "$reaper_start_time"
+  then
+    return 1
+  fi
+
+  if ! IFS=$'\t' read -r confirmed_process_id confirmed_start_time < "$reaper_directory/holder" 2>/dev/null ||
+    [ "$confirmed_process_id" != "$reaper_process_id" ] ||
+    [ "$confirmed_start_time" != "$reaper_start_time" ] ||
+    swift_build_slot_holder_is_same_process "$confirmed_process_id" "$confirmed_start_time"
+  then
+    return 1
+  fi
+
+  stale_reaper_directory="${reaper_directory}.stale.${reaper_process_id}.$$.${RANDOM}"
+  if ! mv "$reaper_directory" "$stale_reaper_directory" 2>/dev/null; then
+    return 1
+  fi
+
+  /bin/rm -f "$stale_reaper_directory/holder"
+  if ! rmdir "$stale_reaper_directory" 2>/dev/null; then
+    return 1
+  fi
+  echo "[swift-build-slot] reaped stale reaper lock pid=$reaper_process_id start=$reaper_start_time"
+}
+
+swift_build_slot_release_reaper_lock() {
+  local reaper_directory="$1"
+  local expected_process_id="$2"
+  local expected_start_time="$3"
+  local current_process_id current_start_time
+
+  if IFS=$'\t' read -r current_process_id current_start_time < "$reaper_directory/holder" 2>/dev/null &&
+    [ "$current_process_id" = "$expected_process_id" ] &&
+    [ "$current_start_time" = "$expected_start_time" ]
+  then
+    /bin/rm -f "$reaper_directory/holder"
+    rmdir "$reaper_directory" 2>/dev/null || true
+  fi
+}
+
 swift_build_slot_release_dead_claim() {
   local slot_name="$1"
   local claim_directory="$2"
   local expected_process_id="$3"
   local expected_start_time="$4"
-  local current_process_id current_start_time current_task
+  local current_process_id current_start_time current_task reaper_start_time
   local reaper_directory="$claim_directory/.reaper-lock"
   local build_directory="${claim_directory%/.slot-claim}"
   local stale_directory
@@ -43,7 +90,18 @@ swift_build_slot_release_dead_claim() {
 
   # Only one waiter may retire a dead holder. Re-read under this lock so a
   # waiter cannot remove a claim another process has already replaced.
-  mkdir "$reaper_directory" 2>/dev/null || return 1
+  if ! mkdir "$reaper_directory" 2>/dev/null; then
+    swift_build_slot_reap_stale_reaper_lock "$reaper_directory" || return 1
+    mkdir "$reaper_directory" 2>/dev/null || return 1
+  fi
+  reaper_start_time="$(swift_build_slot_process_start_time "$$")"
+  if [ -z "$reaper_start_time" ] ||
+    ! printf '%s\t%s\n' "$$" "$reaper_start_time" > "$reaper_directory/holder"
+  then
+    /bin/rm -f "$reaper_directory/holder"
+    rmdir "$reaper_directory" 2>/dev/null || true
+    return 1
+  fi
   if IFS=$'\t' read -r current_process_id current_start_time current_task \
     < "$claim_directory/holder" 2>/dev/null &&
     [ "$current_process_id" = "$expected_process_id" ] &&
@@ -53,15 +111,16 @@ swift_build_slot_release_dead_claim() {
   then
     stale_directory="$build_directory/.slot-claim.stale.$current_process_id.$$"
     if mv "$claim_directory" "$stale_directory" 2>/dev/null; then
+      swift_build_slot_release_reaper_lock \
+        "$stale_directory/.reaper-lock" "$$" "$reaper_start_time"
       /bin/rm -f "$stale_directory/holder"
-      rmdir "$stale_directory/.reaper-lock" 2>/dev/null || true
       rmdir "$stale_directory" 2>/dev/null || true
       echo "[swift-build-slot] reaped stale slot=$slot_name task=$current_task pid=$current_process_id start=$current_start_time"
       return 0
     fi
   fi
 
-  rmdir "$reaper_directory" 2>/dev/null || true
+  swift_build_slot_release_reaper_lock "$reaper_directory" "$$" "$reaper_start_time"
   return 1
 }
 

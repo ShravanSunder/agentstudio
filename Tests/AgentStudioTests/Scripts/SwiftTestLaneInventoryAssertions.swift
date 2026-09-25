@@ -41,12 +41,17 @@ enum SwiftTestLaneInventoryAssertions {
         #expect(rows.allSatisfy { allowedModes.contains($0.mode) })
 
         let sourceFiles = try swiftTestSourceFiles()
-        let declaredTypes = Set(try sourceFiles.flatMap(swiftTypeDeclarations(in:)))
+        let declaredTypes = try sourceFiles.flatMap(swiftSuiteTypeDeclarations(in:))
+        let declaredSuiteTypePaths = Set(declaredTypes.map(\.path))
+        let inventorySuiteTypePaths = Set(rows.map(\.suiteTypePath))
+        #expect(
+            inventorySuiteTypePaths.isSubset(of: declaredSuiteTypePaths),
+            "every full inventory suite path must name a suite at its declared nesting path"
+        )
         let inventoryTypeNames = Set(rows.map(\.suiteTypeName))
-        #expect(inventoryTypeNames.isSubset(of: declaredTypes), "every inventory type must exist in Swift test source")
 
         let realProcessSuffixes = ["IntegrationTests", "ScriptTests", "SmokeTests"]
-        let sourceSuiteTypes = Set(try sourceFiles.flatMap(swiftSuiteTypeDeclarations(in:)))
+        let sourceSuiteTypes = Set(declaredTypes.filter(\.hasSuiteAnnotation).map(\.name))
         let requiredTypes = Set(
             sourceSuiteTypes.filter { suiteType in
                 realProcessSuffixes.contains(where: suiteType.hasSuffix)
@@ -55,6 +60,16 @@ enum SwiftTestLaneInventoryAssertions {
             requiredTypes.isSubset(of: inventoryTypeNames),
             "every IntegrationTests, ScriptTests, and SmokeTests suite needs an explicit inventory row"
         )
+
+        let nestedSuiteProbe = """
+            extension WebKitSerializedTests {
+                @Suite(.serialized)
+                struct BridgeTransportIntegrationTests {}
+            }
+            """
+        let nestedSuitePaths = Set(try swiftSuiteTypeDeclarations(in: nestedSuiteProbe).map(\.path))
+        #expect(nestedSuitePaths == ["WebKitSerializedTests/BridgeTransportIntegrationTests"])
+        #expect(!nestedSuitePaths.contains("WrongParent/BridgeTransportIntegrationTests"))
     }
 
     private static func readLaneFilterPatterns() async throws -> LaneFilterPatterns {
@@ -215,43 +230,88 @@ private func swiftTestSourceFiles() throws -> [String] {
     return sourceFiles
 }
 
-private func swiftTypeDeclarations(in source: String) throws -> [String] {
-    let declarationPattern = try NSRegularExpression(
-        pattern:
-            #"(?m)^\s*(?:(?:public|package|internal|private|fileprivate|final|open|indirect)\s+)*(?:struct|class)\s+([A-Za-z0-9_]+)\b"#
-    )
-    let fullRange = NSRange(source.startIndex..<source.endIndex, in: source)
-
-    return declarationPattern.matches(in: source, range: fullRange).compactMap { match in
-        guard let nameRange = Range(match.range(at: 1), in: source) else { return nil }
-        return String(source[nameRange])
-    }
+private struct DeclaredSuiteType {
+    let name: String
+    let path: String
+    let hasSuiteAnnotation: Bool
 }
 
-private func swiftSuiteTypeDeclarations(in source: String) throws -> [String] {
-    let declarationPattern = try NSRegularExpression(
+private func swiftSuiteTypeDeclarations(in source: String) throws -> [DeclaredSuiteType] {
+    let typeDeclarationPattern = try NSRegularExpression(
         pattern:
             #"^\s*(?:(?:public|package|internal|private|fileprivate|final|open|indirect)\s+)*(?:struct|class)\s+([A-Za-z0-9_]+)\b"#
     )
+    let extensionDeclarationPattern = try NSRegularExpression(
+        pattern: #"^\s*extension\s+([A-Za-z0-9_]+)\b"#
+    )
     let sourceLines = source.components(separatedBy: .newlines)
-    var suiteTypeNames: [String] = []
+    var suiteTypes: [DeclaredSuiteType] = []
+    var pendingAttributes = ""
+    var openParenthesisDepth = 0
+    var enclosingTypes: [(name: String, braceDepth: Int)] = []
+    var braceDepth = 0
 
-    for lineIndex in sourceLines.indices {
-        let line = sourceLines[lineIndex]
-        let lineRange = NSRange(line.startIndex..<line.endIndex, in: line)
-        guard let declaration = declarationPattern.firstMatch(in: line, range: lineRange),
-            let nameRange = Range(declaration.range(at: 1), in: line)
-        else {
+    for line in sourceLines {
+        let trimmedLine = line.trimmingCharacters(in: .whitespaces)
+
+        if openParenthesisDepth > 0 {
+            pendingAttributes += "\n" + trimmedLine
+            openParenthesisDepth += parenthesisDelta(in: trimmedLine)
+            braceDepth += braceDelta(in: trimmedLine)
+            popClosedEnclosingTypes(enclosingTypes: &enclosingTypes, braceDepth: braceDepth)
+            continue
+        }
+        if trimmedLine.hasPrefix("@") {
+            pendingAttributes += "\n" + trimmedLine
+            openParenthesisDepth = max(0, parenthesisDelta(in: trimmedLine))
+            continue
+        }
+        if trimmedLine.isEmpty || trimmedLine.hasPrefix("//") {
+            braceDepth += braceDelta(in: trimmedLine)
+            popClosedEnclosingTypes(enclosingTypes: &enclosingTypes, braceDepth: braceDepth)
             continue
         }
 
-        let attributeStartIndex = max(sourceLines.startIndex, lineIndex - 12)
-        let precedingLines = sourceLines[attributeStartIndex..<lineIndex].joined(separator: "\n")
-        guard precedingLines.contains("@Suite") else { continue }
-        suiteTypeNames.append(String(line[nameRange]))
+        let attributes = pendingAttributes
+        pendingAttributes = ""
+        let lineRange = NSRange(trimmedLine.startIndex..<trimmedLine.endIndex, in: trimmedLine)
+        if let declaration = typeDeclarationPattern.firstMatch(in: trimmedLine, range: lineRange),
+            let nameRange = Range(declaration.range(at: 1), in: trimmedLine)
+        {
+            let typeName = String(trimmedLine[nameRange])
+            let typePath = (enclosingTypes.map(\.name) + [typeName]).joined(separator: "/")
+            suiteTypes.append(
+                DeclaredSuiteType(name: typeName, path: typePath, hasSuiteAnnotation: attributes.contains("@Suite"))
+            )
+            enclosingTypes.append((typeName, braceDepth))
+        } else if let declaration = extensionDeclarationPattern.firstMatch(in: trimmedLine, range: lineRange),
+            let nameRange = Range(declaration.range(at: 1), in: trimmedLine)
+        {
+            enclosingTypes.append((String(trimmedLine[nameRange]), braceDepth))
+        }
+
+        braceDepth += braceDelta(in: trimmedLine)
+        popClosedEnclosingTypes(enclosingTypes: &enclosingTypes, braceDepth: braceDepth)
     }
 
-    return suiteTypeNames
+    return suiteTypes
+}
+
+private func parenthesisDelta(in line: String) -> Int {
+    line.filter { $0 == "(" }.count - line.filter { $0 == ")" }.count
+}
+
+private func braceDelta(in line: String) -> Int {
+    line.filter { $0 == "{" }.count - line.filter { $0 == "}" }.count
+}
+
+private func popClosedEnclosingTypes(
+    enclosingTypes: inout [(name: String, braceDepth: Int)],
+    braceDepth: Int
+) {
+    while let last = enclosingTypes.last, braceDepth <= last.braceDepth {
+        enclosingTypes.removeLast()
+    }
 }
 
 private func matchesSuiteFilter(_ pattern: String, _ suiteIdentifier: String) -> Bool {
