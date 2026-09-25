@@ -140,6 +140,14 @@ struct SwiftBuildSlotScriptTests {
             var waiterLog = try await waiter.readOutput(
                 until: "waiting slot=build holder_task=build-owner"
             )
+            let activeClaimDirectory = fixture.rootURL.appending(path: ".build-agent-1/.slot-claim")
+            let activeHolderExists = FileManager.default.fileExists(
+                atPath: activeClaimDirectory.appending(path: "holder").path
+            )
+            let activeHolderContents = try String(
+                contentsOf: activeClaimDirectory.appending(path: "holder"),
+                encoding: .utf8
+            )
 
             try writeLine("release-owner\n", to: owner.standardInput)
             let ownerStatus = try await owner.waitForExit()
@@ -147,7 +155,7 @@ struct SwiftBuildSlotScriptTests {
             waiterLog += try await waiter.readOutput(until: "WAITER_DONE")
             waiterLog += try await waiter.readOutputToEnd()
 
-            return (ownerStatus, try await waiter.waitForExit(), waiterLog)
+            return (ownerStatus, try await waiter.waitForExit(), waiterLog, activeHolderExists, activeHolderContents)
         }
 
         let waitingLines = result.2.components(separatedBy: .newlines).filter {
@@ -159,7 +167,99 @@ struct SwiftBuildSlotScriptTests {
         #expect(waitingLines.first?.contains("holder_task=build-owner") == true)
         #expect(waitingLines.first?.range(of: #"holder_pid=[0-9]+"#, options: .regularExpression) != nil)
         #expect(waitingLines.first?.contains("holder_start=Mon Sep 1 00:00:00 2025") == true)
+        #expect(result.3)
+        #expect(result.4.contains("\tbuild-owner\n"))
         #expect(!result.2.contains("reaped stale"))
+        #expect(!result.2.contains("reaped holder-less claim"))
+    }
+
+    @Test("an idle claim with an empty holder is reaped before a new owner is admitted")
+    func idleEmptyHolderClaimIsReaped() async throws {
+        let fixture = try SwiftBuildSlotFixture()
+        let claimDirectory = fixture.rootURL.appending(path: ".build-agent-1/.slot-claim")
+        try FileManager.default.createDirectory(at: claimDirectory, withIntermediateDirectories: true)
+        try Data().write(to: claimDirectory.appending(path: "holder"))
+
+        let result = try await fixture.withOwnedProcesses { fixture in
+            let process = fixture.makeProcess(
+                "source scripts/swift-build-slot.sh\n"
+                    + "trap swift_build_slot_release EXIT\n"
+                    + "swift_build_slot_acquire build \"replacement-owner\"\n",
+                environment: ["SWIFT_BUILD_SLOT_SLEEP_GATE": "stdin"]
+            )
+            process.start()
+            process.closeStandardInput()
+            let output = try await process.readOutputToEnd()
+            return SwiftBuildSlotResult(exitCode: try await process.waitForExit(), output: output)
+        }
+
+        let remainingSlotEntries = try FileManager.default.contentsOfDirectory(
+            atPath: fixture.rootURL.appending(path: ".build-agent-1").path
+        )
+        #expect(result.exitCode == 0)
+        #expect(result.output.contains("reaped holder-less claim slot=build"))
+        #expect(result.output.contains("using slot=build path=.build-agent-1 task=replacement-owner"))
+        #expect(!FileManager.default.fileExists(atPath: claimDirectory.path))
+        #expect(remainingSlotEntries.isEmpty)
+    }
+
+    @Test("an open holder-less claim is preserved until its open files close")
+    func openHolderlessClaimIsPreservedUntilFilesClose() async throws {
+        let fixture = try SwiftBuildSlotFixture()
+        let claimDirectory = fixture.rootURL.appending(path: ".build-agent-1/.slot-claim")
+        let openClaimMarker = fixture.openFilesMarkerURL.appending(path: ".slot-claim")
+        try FileManager.default.createDirectory(at: claimDirectory, withIntermediateDirectories: true)
+        try Data().write(to: claimDirectory.appending(path: "holder"))
+        try FileManager.default.createDirectory(at: fixture.openFilesMarkerURL, withIntermediateDirectories: true)
+        try Data("open".utf8).write(to: openClaimMarker)
+
+        let result = try await fixture.withOwnedProcesses { fixture in
+            let waiter = fixture.makeProcess(
+                "source scripts/swift-build-slot.sh\n"
+                    + "trap swift_build_slot_release EXIT\n"
+                    + "swift_build_slot_acquire build \"replacement-owner\"\n"
+                    + "printf 'CLAIM_DONE\\n'\n",
+                environment: ["SWIFT_BUILD_SLOT_SLEEP_GATE": "stdin"]
+            )
+            waiter.start()
+            var output = try await waiter.readOutput(until: "holder_task=initializing")
+            let claimRemainsWhileFilesAreOpen = FileManager.default.fileExists(atPath: claimDirectory.path)
+
+            try FileManager.default.removeItem(at: openClaimMarker)
+            try writeLine("continue-after-close\n", to: waiter.standardInput)
+            output += try await waiter.readOutput(until: "CLAIM_DONE")
+            output += try await waiter.readOutputToEnd()
+
+            return (
+                try await waiter.waitForExit(),
+                claimRemainsWhileFilesAreOpen,
+                output
+            )
+        }
+
+        #expect(result.0 == 0)
+        #expect(result.1)
+        #expect(result.2.contains("reaped holder-less claim slot=build"))
+        #expect(result.2.contains("using slot=build path=.build-agent-1 task=replacement-owner"))
+        #expect(!FileManager.default.fileExists(atPath: claimDirectory.path))
+    }
+
+    @Test("a failed claim publication removes its temporary directory")
+    func failedClaimPublicationRemovesTemporaryDirectory() async throws {
+        let fixture = try SwiftBuildSlotFixture()
+        try fixture.installFailingMove()
+
+        let result = try await fixture.run(
+            "source scripts/swift-build-slot.sh\n"
+                + "swift_build_slot_acquire build \"interrupted-owner\""
+        )
+        let slotDirectory = fixture.rootURL.appending(path: ".build-agent-1")
+        let remainingSlotEntries = try FileManager.default.contentsOfDirectory(atPath: slotDirectory.path)
+
+        #expect(result.exitCode != 0)
+        #expect(result.output.contains("cannot publish claim for slot build"))
+        #expect(!FileManager.default.fileExists(atPath: slotDirectory.appending(path: ".slot-claim").path))
+        #expect(remainingSlotEntries.isEmpty)
     }
 
     @Test("dead and reused PID claims are reaped before a new owner is admitted")

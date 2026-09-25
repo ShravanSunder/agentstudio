@@ -79,17 +79,17 @@ swift_build_slot_release_reaper_lock() {
 swift_build_slot_release_dead_claim() {
   local slot_name="$1"
   local claim_directory="$2"
-  local expected_process_id="$3"
-  local expected_start_time="$4"
+  local expected_process_id="${3:-}"
+  local expected_start_time="${4:-}"
   local current_process_id current_start_time current_task reaper_start_time
   local reaper_directory="$claim_directory/.reaper-lock"
   local build_directory="${claim_directory%/.slot-claim}"
-  local stale_directory
+  local stale_directory holder_metadata_valid=0 lsof_status=0
 
   command -v lsof >/dev/null 2>&1 || return 1
 
-  # Only one waiter may retire a dead holder. Re-read under this lock so a
-  # waiter cannot remove a claim another process has already replaced.
+  # Only one waiter may retire a claim. Re-read under this lock so a waiter
+  # cannot remove a claim another process has already replaced.
   if ! mkdir "$reaper_directory" 2>/dev/null; then
     swift_build_slot_reap_stale_reaper_lock "$reaper_directory" || return 1
     mkdir "$reaper_directory" 2>/dev/null || return 1
@@ -104,24 +104,150 @@ swift_build_slot_release_dead_claim() {
   fi
   if IFS=$'\t' read -r current_process_id current_start_time current_task \
     < "$claim_directory/holder" 2>/dev/null &&
-    [ "$current_process_id" = "$expected_process_id" ] &&
-    [ "$current_start_time" = "$expected_start_time" ] &&
-    ! swift_build_slot_holder_is_same_process "$current_process_id" "$current_start_time" &&
-    ! lsof +D "$build_directory" >/dev/null 2>&1
+    [[ "$current_process_id" =~ ^[0-9]+$ ]] &&
+    [ -n "$current_start_time" ] &&
+    [ -n "$current_task" ]
   then
-    stale_directory="$build_directory/.slot-claim.stale.$current_process_id.$$"
-    if mv "$claim_directory" "$stale_directory" 2>/dev/null; then
-      swift_build_slot_release_reaper_lock \
-        "$stale_directory/.reaper-lock" "$$" "$reaper_start_time"
-      /bin/rm -f "$stale_directory/holder"
-      rmdir "$stale_directory" 2>/dev/null || true
-      echo "[swift-build-slot] reaped stale slot=$slot_name task=$current_task pid=$current_process_id start=$current_start_time"
-      return 0
+    holder_metadata_valid=1
+  fi
+
+  if [ -n "$expected_process_id" ]; then
+    if [ "$holder_metadata_valid" -ne 1 ] ||
+      [ "$current_process_id" != "$expected_process_id" ] ||
+      [ "$current_start_time" != "$expected_start_time" ] ||
+      swift_build_slot_holder_is_same_process "$current_process_id" "$current_start_time"
+    then
+      swift_build_slot_release_reaper_lock "$reaper_directory" "$$" "$reaper_start_time"
+      return 1
     fi
+    lsof +D "$build_directory" >/dev/null 2>&1 || lsof_status=$?
+    if [ "$lsof_status" -ne 1 ]; then
+      swift_build_slot_release_reaper_lock "$reaper_directory" "$$" "$reaper_start_time"
+      return 1
+    fi
+    stale_directory="$build_directory/.slot-claim.stale.$current_process_id.$$"
+  else
+    # An empty or malformed holder can be a legacy claim or an interrupted
+    # foreign writer. Re-read it under the reaper lock and only retire it when
+    # lsof confirms that nothing has the claim directory open.
+    if [ "$holder_metadata_valid" -eq 1 ]; then
+      swift_build_slot_release_reaper_lock "$reaper_directory" "$$" "$reaper_start_time"
+      return 1
+    fi
+    lsof +D "$claim_directory" >/dev/null 2>&1 || lsof_status=$?
+    if [ "$lsof_status" -ne 1 ]; then
+      swift_build_slot_release_reaper_lock "$reaper_directory" "$$" "$reaper_start_time"
+      return 1
+    fi
+    stale_directory="$build_directory/.slot-claim.stale.holderless.$$.$RANDOM"
+  fi
+
+  if mv "$claim_directory" "$stale_directory" 2>/dev/null; then
+    swift_build_slot_release_reaper_lock \
+      "$stale_directory/.reaper-lock" "$$" "$reaper_start_time"
+    /bin/rm -f "$stale_directory/holder"
+    if ! rmdir "$stale_directory" 2>/dev/null; then
+      return 1
+    fi
+    if [ -n "$expected_process_id" ]; then
+      echo "[swift-build-slot] reaped stale slot=$slot_name task=$current_task pid=$current_process_id start=$current_start_time"
+    else
+      echo "[swift-build-slot] reaped holder-less claim slot=$slot_name"
+    fi
+    return 0
   fi
 
   swift_build_slot_release_reaper_lock "$reaper_directory" "$$" "$reaper_start_time"
   return 1
+}
+
+swift_build_slot_discard_unpublished_claim() {
+  local temporary_directory="$1"
+  [ -d "$temporary_directory" ] || return 0
+  /bin/rm -f "$temporary_directory/holder"
+  rmdir "$temporary_directory" 2>/dev/null
+}
+
+swift_build_slot_create_atomic_claim() {
+  local requested_slot="$1"
+  local task_label="$2"
+  local build_directory="$3"
+  local claim_directory="$4"
+  local temporary_directory temporary_basename nested_temporary_directory
+  local holder_file process_start_time move_status=0
+  local published_process_id published_start_time published_task
+
+  if [ -e "$claim_directory" ] || [ -L "$claim_directory" ]; then
+    return 1
+  fi
+
+  temporary_directory="$(mktemp -d "$build_directory/.slot-claim.XXXXXXXXXX")" || {
+    echo "swift-build-slot: cannot create temporary claim in $build_directory" >&2
+    return 2
+  }
+  holder_file="$temporary_directory/holder"
+  temporary_basename="${temporary_directory##*/}"
+  nested_temporary_directory="$claim_directory/$temporary_basename"
+
+  if ! exec 99>"$holder_file"; then
+    swift_build_slot_discard_unpublished_claim "$temporary_directory" || true
+    echo "swift-build-slot: cannot create holder metadata for slot $requested_slot" >&2
+    return 2
+  fi
+  process_start_time="$(swift_build_slot_process_start_time "$$")"
+  if [ -z "$process_start_time" ]; then
+    exec 99>&-
+    swift_build_slot_discard_unpublished_claim "$temporary_directory" || true
+    echo "swift-build-slot: cannot read current process start time" >&2
+    return 2
+  fi
+  if ! printf '%s\t%s\t%s\n' "$$" "$process_start_time" "$task_label" >&99; then
+    exec 99>&-
+    swift_build_slot_discard_unpublished_claim "$temporary_directory" || true
+    echo "swift-build-slot: cannot write holder metadata for slot $requested_slot" >&2
+    return 2
+  fi
+
+  # -n prevents replacement if another claimant publishes first. Verify the
+  # holder at the destination because BSD mv treats an existing directory as a
+  # container and may otherwise move the temporary claim inside it.
+  if mv -n "$temporary_directory" "$claim_directory" 2>/dev/null; then
+    move_status=0
+  else
+    move_status=$?
+  fi
+  if IFS=$'\t' read -r published_process_id published_start_time published_task \
+    < "$claim_directory/holder" 2>/dev/null &&
+    [ "$published_process_id" = "$$" ] &&
+    [ "$published_start_time" = "$process_start_time" ] &&
+    [ "$published_task" = "$task_label" ] &&
+    [ ! -e "$temporary_directory" ] &&
+    [ ! -e "$nested_temporary_directory" ]
+  then
+    SWIFT_BUILD_SLOT_NAME="$requested_slot"
+    SWIFT_BUILD_SLOT_CLAIM_DIRECTORY="$claim_directory"
+    SWIFT_BUILD_SLOT_OWNER_PROCESS_ID="$$"
+    SWIFT_BUILD_SLOT_OWNER_START_TIME="$process_start_time"
+    SWIFT_BUILD_SLOT_HOLDER_FD=99
+    SWIFT_BUILD_SLOT_TASK="$task_label"
+    SWIFT_BUILD_DIR="$build_directory"
+    export SWIFT_BUILD_DIR
+    echo "[swift-build-slot] using slot=$SWIFT_BUILD_SLOT_NAME path=$SWIFT_BUILD_DIR task=$SWIFT_BUILD_SLOT_TASK"
+    return 0
+  fi
+
+  exec 99>&-
+  swift_build_slot_discard_unpublished_claim "$temporary_directory" || true
+  swift_build_slot_discard_unpublished_claim "$nested_temporary_directory" || true
+  if [ -e "$claim_directory" ] || [ -L "$claim_directory" ]; then
+    return 1
+  fi
+  if [ "$move_status" -ne 0 ]; then
+    echo "swift-build-slot: cannot publish claim for slot $requested_slot" >&2
+  else
+    echo "swift-build-slot: claim publication did not preserve holder metadata for slot $requested_slot" >&2
+  fi
+  return 2
 }
 
 swift_build_slot_legacy_holder_description() {
@@ -145,6 +271,7 @@ swift_build_slot_acquire() {
   local task_label="${2:-}"
   local build_directory claim_directory holder_file
   local process_start_time holder_process_id holder_start_time holder_task
+  local holder_metadata_valid claim_attempt_status
   local wait_message_printed=0
 
   if [ -n "${SWIFT_BUILD_DIR:-}" ]; then
@@ -166,38 +293,39 @@ swift_build_slot_acquire() {
   build_directory="$(swift_build_slot_resolve_directory "$requested_slot")" || return $?
   claim_directory="$build_directory/.slot-claim"
   holder_file="$claim_directory/holder"
-  mkdir -p "$build_directory"
+  if ! mkdir -p "$build_directory"; then
+    echo "swift-build-slot: cannot create build directory $build_directory" >&2
+    return 1
+  fi
 
   while true; do
-    if mkdir "$claim_directory" 2>/dev/null; then
-      holder_file="$claim_directory/holder"
-      exec 99>"$holder_file"
-      process_start_time="$(swift_build_slot_process_start_time "$$")"
-      if [ -z "$process_start_time" ]; then
-        exec 99>&-
-        /bin/rm -f "$holder_file"
-        rmdir "$claim_directory"
-        echo "swift-build-slot: cannot read current process start time" >&2
-        return 1
-      fi
-      # Keep the file open for the whole lease. The cleanup task can then
-      # distinguish a dead shell with active descendants from a stale slot.
-      printf '%s\t%s\t%s\n' "$$" "$process_start_time" "$task_label" >&99
-      SWIFT_BUILD_SLOT_NAME="$requested_slot"
-      SWIFT_BUILD_SLOT_CLAIM_DIRECTORY="$claim_directory"
-      SWIFT_BUILD_SLOT_OWNER_PROCESS_ID="$$"
-      SWIFT_BUILD_SLOT_OWNER_START_TIME="$process_start_time"
-      SWIFT_BUILD_SLOT_HOLDER_FD=99
-      SWIFT_BUILD_SLOT_TASK="$task_label"
-      SWIFT_BUILD_DIR="$build_directory"
-      export SWIFT_BUILD_DIR
-      echo "[swift-build-slot] using slot=$SWIFT_BUILD_SLOT_NAME path=$SWIFT_BUILD_DIR task=$SWIFT_BUILD_SLOT_TASK"
+    if swift_build_slot_create_atomic_claim \
+      "$requested_slot" "$task_label" "$build_directory" "$claim_directory"
+    then
       return 0
+    else
+      claim_attempt_status=$?
+    fi
+    if [ "$claim_attempt_status" -ne 1 ]; then
+      return "$claim_attempt_status"
     fi
 
+    holder_metadata_valid=0
+    holder_process_id=""
+    holder_start_time=""
+    holder_task=""
     if [ -r "$holder_file" ] &&
       IFS=$'\t' read -r holder_process_id holder_start_time holder_task <"$holder_file"
     then
+      if [[ "$holder_process_id" =~ ^[0-9]+$ ]] &&
+        [ -n "$holder_start_time" ] &&
+        [ -n "$holder_task" ]
+      then
+        holder_metadata_valid=1
+      fi
+    fi
+
+    if [ "$holder_metadata_valid" -eq 1 ]; then
       if ! swift_build_slot_holder_is_same_process "$holder_process_id" "$holder_start_time"; then
         if swift_build_slot_release_dead_claim "$requested_slot" "$claim_directory" "$holder_process_id" "$holder_start_time"; then
           wait_message_printed=0
@@ -210,17 +338,23 @@ swift_build_slot_acquire() {
         echo "[swift-build-slot] waiting slot=$requested_slot holder_task=$holder_task holder_pid=$holder_process_id holder_start=$holder_start_time"
         wait_message_printed=1
       fi
-    elif [ "$wait_message_printed" -eq 0 ]; then
-      # The pre-upgrade claim has no task metadata. Show an lsof PID and ps
-      # command/start time until clean-agent-builds can confirm it is idle.
-      local legacy_holder
-      legacy_holder="$(swift_build_slot_legacy_holder_description "$build_directory" || true)"
-      if [ -n "$legacy_holder" ]; then
-        echo "[swift-build-slot] waiting slot=$requested_slot legacy $legacy_holder"
-      else
-        echo "[swift-build-slot] waiting slot=$requested_slot holder_task=initializing holder_pid=unknown holder_start=unknown"
+    else
+      if swift_build_slot_release_dead_claim "$requested_slot" "$claim_directory" "" ""; then
+        wait_message_printed=0
+        continue
       fi
-      wait_message_printed=1
+      if [ "$wait_message_printed" -eq 0 ]; then
+        # A holder-less legacy or interrupted claim remains busy only while
+        # lsof can still see an open file under the claim directory.
+        local legacy_holder
+        legacy_holder="$(swift_build_slot_legacy_holder_description "$build_directory" || true)"
+        if [ -n "$legacy_holder" ]; then
+          echo "[swift-build-slot] waiting slot=$requested_slot legacy $legacy_holder"
+        else
+          echo "[swift-build-slot] waiting slot=$requested_slot holder_task=initializing holder_pid=unknown holder_start=unknown"
+        fi
+        wait_message_printed=1
+      fi
     fi
 
     # This is a contention scheduling interval, never a correctness timeout.

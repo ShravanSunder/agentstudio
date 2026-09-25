@@ -131,6 +131,10 @@ struct SwiftBuildSlotFixture: Sendable {
         try Data(holder.utf8).write(to: claimDirectory.appending(path: "holder"))
     }
 
+    func installFailingMove() throws {
+        try writeExecutable("mv", contents: "#!/bin/sh\nexit 73\n")
+    }
+
     private func writeExecutable(_ name: String, contents: String) throws {
         let executableURL = fakeExecutableDirectory.appending(path: name)
         try Data(contents.utf8).write(to: executableURL)
