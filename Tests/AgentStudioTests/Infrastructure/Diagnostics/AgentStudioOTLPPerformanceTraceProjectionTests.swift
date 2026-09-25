@@ -167,10 +167,14 @@ struct AgentStudioOTLPPerformanceTraceProjectionTests {
         }
 
         let sessions = project(reason: "sessions_ingestion_failed")
+        let initializationCancelled = project(reason: "initialization_cancelled")
         let unexpected = project(reason: "/Users/example/.agentstudio/ipc")
 
         #expect(sessions.attributes["agentstudio.app.ipc.start.reason"] == .string("sessions_ingestion_failed"))
         #expect(sessions.attributes["agentstudio.app.startup.outcome"] == .string("unavailable"))
+        #expect(
+            initializationCancelled.attributes["agentstudio.app.ipc.start.reason"]
+                == .string("initialization_cancelled"))
         #expect(unexpected.attributes["agentstudio.app.ipc.start.reason"] == nil)
     }
 

@@ -13,6 +13,7 @@ import Security
 enum AppIPCStartUnavailability: String, Equatable, Sendable {
     case firstFrameCancelled = "first_frame_cancelled"
     case firstFrameTimeout = "first_frame_timeout"
+    case initializationCancelled = "initialization_cancelled"
     case localStoreUnavailable = "local_store_unavailable"
     case optionalSchemaUnavailable = "optional_schema_unavailable"
     case sessionsIngestionFailed = "sessions_ingestion_failed"
@@ -41,7 +42,7 @@ enum AppIPCStartUnavailability: String, Equatable, Sendable {
 @MainActor
 enum AppIPCDeferredInitialization {
     /// Runs `initialization` after the first interactive frame. Returns why it
-    /// did not run, or `nil` when it ran.
+    /// did not start or complete, or `nil` after normal completion.
     @discardableResult
     static func run(
         windowLifecycleStore: WindowLifecycleAtom,
@@ -57,7 +58,8 @@ enum AppIPCDeferredInitialization {
         }
         guard !Task.isCancelled else { return .firstFrameCancelled }
         await initialization()
-        return nil
+        // Preserve cancellation that arrives during optional IPC initialization for the caller to record.
+        return Task.isCancelled ? .initializationCancelled : nil
     }
 
     static func prepareOptionalSchema(
@@ -465,7 +467,12 @@ extension AppDelegate {
             channel: channel
         )
         let descriptorComposition = try await AppIPCDescriptorCatalogBuilder.buildOffMain(inputs: builderInputs)
-        guard !Task.isCancelled, appIPCServer == nil else { return nil }
+        // The deferred initializer reports cancellation after this closure returns.
+        guard !Task.isCancelled else { return nil }
+        guard appIPCServer == nil else {
+            recordAppIPCStart()
+            return nil
+        }
 
         var registrations = try AppIPCBuiltInMethodRegistrations.make(
             inputs: .init(

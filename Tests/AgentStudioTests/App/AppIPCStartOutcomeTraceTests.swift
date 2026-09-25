@@ -62,6 +62,32 @@ struct AppIPCStartOutcomeTraceTests {
         #expect(initialization.isEmpty)
     }
 
+    @Test("cancellation during initialization is classified and recorded")
+    func cancelledInitializationIsRecorded() async throws {
+        let trace = StartupTraceCapture()
+        let appDelegate = AppDelegate()
+        appDelegate.startupTraceRecorder = trace.recorder
+        let windowLifecycleStore = WindowLifecycleAtom()
+        windowLifecycleStore.recordFirstInteractiveFramePublished(source: .presented)
+        let suspension = InitializationSuspension()
+        let task = Task { @MainActor in
+            await AppIPCDeferredInitialization.run(windowLifecycleStore: windowLifecycleStore) {
+                await suspension.suspendInitialization()
+            }
+        }
+        await suspension.waitUntilInitializationStarts()
+        task.cancel()
+        await suspension.resumeInitialization()
+
+        let unavailability = await task.value
+        #expect(unavailability == .initializationCancelled)
+        if let unavailability {
+            appDelegate.recordAppIPCStart(unavailable: unavailability)
+        }
+        #expect(
+            try await trace.ipcStartRecords() == [.init(outcome: "unavailable", reason: "initialization_cancelled")])
+    }
+
     @Test("scheduled initialization records a first-frame timeout as app.ipc.start unavailable")
     func scheduledTimeoutIsRecorded() async throws {
         let trace = StartupTraceCapture()
@@ -195,6 +221,30 @@ private final class StartupTraceCapture {
                 reason: attributes?["agentstudio.app.ipc.start.reason"] as? String
             )
         }
+    }
+}
+
+private actor InitializationSuspension {
+    private let (enteredStream, enteredContinuation) = AsyncStream.makeStream(of: Void.self)
+    private let (resumeStream, resumeContinuation) = AsyncStream.makeStream(of: Void.self)
+
+    func suspendInitialization() async {
+        enteredContinuation.yield(())
+        for await _ in resumeStream {
+            break
+        }
+    }
+
+    func waitUntilInitializationStarts() async {
+        for await _ in enteredStream {
+            break
+        }
+    }
+
+    func resumeInitialization() {
+        resumeContinuation.yield(())
+        resumeContinuation.finish()
+        enteredContinuation.finish()
     }
 }
 

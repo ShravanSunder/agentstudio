@@ -45,7 +45,8 @@ extension AgentStudioOTLPTraceProjection {
                 .contains(value)
         case "agentstudio.app.ipc.start.reason":
             return [
-                "first_frame_cancelled", "first_frame_timeout", "local_store_unavailable",
+                "first_frame_cancelled", "first_frame_timeout", "initialization_cancelled",
+                "local_store_unavailable",
                 "optional_schema_unavailable", "sessions_ingestion_failed", "no_active_window",
                 "ipc_path_untrusted", "socket_in_use", "server_start_failed",
                 "restore_bounds_unavailable",
