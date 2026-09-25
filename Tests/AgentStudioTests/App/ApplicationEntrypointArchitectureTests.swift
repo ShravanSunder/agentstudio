@@ -425,7 +425,7 @@ struct ApplicationEntrypointArchitectureTests {
         #expect(ipcBootSource.contains("AppIPCMethodRegistry("))
         #expect(
             ipcBootSource.contains(
-                "let recognizedCommands = AgentStudioIPCCommandCatalogProjection.recognizedCommands"))
+                "let recognizedCommands = commandCatalogProjectionInputs.recognizedCommands"))
         #expect(ipcBootSource.contains("recognizedCommands: recognizedCommands"))
         #expect(ipcBootSource.contains("ownPaneScopePort: WorkspaceOwnPaneScopePort(workspaceStore: store)"))
         #expect(ipcBootSource.contains("agentAuthorizationTelemetry: AgentStudioIPCAgentAuthorizationTelemetry("))
