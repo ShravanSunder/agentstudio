@@ -68,7 +68,15 @@ extension IPCMethodCatalogEntry {
     package static func schemaForReceivedEntry(
         _ entry: IPCMethodCatalogEntry
     ) throws -> IPCJSONSchema {
-        try entry.validateReceivedMetadataAndExamples()
+        let validatedSchemas = try IPCValidatedMethodCatalogSchemas(validating: entry)
+        return try schemaForReceivedEntry(entry, validatedSchemas: validatedSchemas)
+    }
+
+    static func schemaForReceivedEntry(
+        _ entry: IPCMethodCatalogEntry,
+        validatedSchemas: IPCValidatedMethodCatalogSchemas
+    ) throws -> IPCJSONSchema {
+        try entry.validateReceivedMetadataAndExamples(using: validatedSchemas)
         let examplesSchema: IPCJSONSchema
         if entry.examples.isEmpty {
             examplesSchema = .array(items: .null, maximumCount: 0)
@@ -83,9 +91,9 @@ extension IPCMethodCatalogEntry {
         )
     }
 
-    private func validateReceivedMetadataAndExamples() throws {
-        _ = try parameterSchema.jsonSchemaData()
-        _ = try resultSchema.jsonSchemaData()
+    private func validateReceivedMetadataAndExamples(
+        using validatedSchemas: IPCValidatedMethodCatalogSchemas
+    ) throws {
         do {
             try IPCMethodMetadataValidator.validate(
                 IPCMethodMetadataValidationInput(
@@ -117,8 +125,8 @@ extension IPCMethodCatalogEntry {
                     expected: "a described typed method example"
                 )
             }
-            _ = try parameterSchema.normalize(example.parameters.encoded())
-            _ = try resultSchema.normalize(example.result.encoded())
+            _ = try validatedSchemas.parameterSchema.normalize(example.parameters.encoded())
+            _ = try validatedSchemas.resultSchema.normalize(example.result.encoded())
         }
     }
 
@@ -179,6 +187,21 @@ extension IPCMethodCatalogEntry {
                 "agentEligibility", description: "What a pane-bound agent may do with this method",
                 schema: try IPCAgentEligibility.ipcSchema()),
         ])
+    }
+}
+
+struct IPCValidatedMethodCatalogSchemas {
+    let parameterSchema: IPCValidatedJSONSchema
+    let resultSchema: IPCValidatedJSONSchema
+
+    init(validating entry: IPCMethodCatalogEntry) throws {
+        parameterSchema = try IPCValidatedJSONSchema(schema: entry.parameterSchema)
+        resultSchema = try IPCValidatedJSONSchema(schema: entry.resultSchema)
+    }
+
+    init(parameterSchema: IPCValidatedJSONSchema, resultSchema: IPCValidatedJSONSchema) {
+        self.parameterSchema = parameterSchema
+        self.resultSchema = resultSchema
     }
 }
 

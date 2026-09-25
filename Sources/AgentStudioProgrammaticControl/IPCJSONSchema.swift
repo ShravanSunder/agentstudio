@@ -123,14 +123,32 @@ package indirect enum IPCJSONSchema: Equatable, Sendable, Codable {
     }
 
     func normalize(_ value: IPCSchemaValue, path: String) throws -> IPCSchemaValue {
+        try normalize(value, path: path, prepared: nil, schemaDocumentValuesByPath: [:])
+    }
+
+    fileprivate func normalize(
+        _ value: IPCSchemaValue,
+        path: String,
+        prepared: IPCJSONSchemaPreparedRepresentation?,
+        schemaDocumentValuesByPath: [String: IPCSchemaValue]
+    ) throws -> IPCSchemaValue {
         switch self {
         case .object(let fields):
-            return try normalizeObject(value, fields: fields, path: path)
+            return try normalizeObject(
+                value,
+                fields: fields,
+                path: path,
+                preparedFields: prepared?.objectFields,
+                schemaDocumentValuesByPath: schemaDocumentValuesByPath
+            )
         case .dictionary(let schema):
-            guard case .object(let values) = value else {
-                throw failure(.wrongType, path: path, expected: "object with declared value types")
-            }
-            return .object(try values.mapValues { try schema.normalize($0, path: "\(path).*") })
+            return try normalizeDictionary(
+                value,
+                schema: schema,
+                path: path,
+                preparedValueSchema: prepared?.dictionaryValue,
+                schemaDocumentValuesByPath: schemaDocumentValuesByPath
+            )
         case .array(let itemSchema, let minimumCount, let maximumCount):
             guard case .array(let values) = value else {
                 throw failure(.wrongType, path: path, expected: "array")
@@ -140,11 +158,21 @@ package indirect enum IPCJSONSchema: Equatable, Sendable, Codable {
             }
             return .array(
                 try values.enumerated().map { index, item in
-                    try itemSchema.normalize(item, path: "\(path)[\(index)]")
+                    try itemSchema.normalize(
+                        item,
+                        path: "\(path)[\(index)]",
+                        prepared: prepared?.arrayItem,
+                        schemaDocumentValuesByPath: schemaDocumentValuesByPath
+                    )
                 }
             )
         case .string(let constraints):
-            return try normalizeString(value, constraints: constraints, path: path)
+            return try normalizeString(
+                value,
+                constraints: constraints,
+                path: path,
+                compiledPattern: prepared?.compiledPattern
+            )
         case .integer(let minimum, let maximum):
             return try normalizeInteger(value, minimum: minimum, maximum: maximum, path: path)
         case .number(let minimum, let maximum):
@@ -181,15 +209,17 @@ package indirect enum IPCJSONSchema: Equatable, Sendable, Codable {
             }
             return value
         case .oneOf(let alternatives):
-            let matches = alternatives.compactMap { try? $0.normalize(value, path: path) }
-            guard matches.count == 1, let match = matches.first else {
-                throw failure(
-                    matches.isEmpty ? .noMatchingAlternative : .ambiguousAlternative,
-                    path: path, expected: "exactly one declared alternative"
-                )
-            }
-            return match
+            return try normalizeOneOf(
+                value,
+                alternatives: alternatives,
+                path: path,
+                preparedAlternatives: prepared?.alternatives,
+                schemaDocumentValuesByPath: schemaDocumentValuesByPath
+            )
         case .schemaDocument:
+            if let document = schemaDocumentValuesByPath[path] {
+                return document
+            }
             do {
                 let schema = try JSONDecoder().decode(Self.self, from: value.encoded())
                 return try schema.documentValue()
@@ -197,6 +227,53 @@ package indirect enum IPCJSONSchema: Equatable, Sendable, Codable {
                 throw failure(.invalidDefinition, path: path, expected: "a supported typed catalog schema document")
             }
         }
+    }
+
+    private func normalizeOneOf(
+        _ value: IPCSchemaValue,
+        alternatives: [Self],
+        path: String,
+        preparedAlternatives: [IPCJSONSchemaPreparedRepresentation]?,
+        schemaDocumentValuesByPath: [String: IPCSchemaValue]
+    ) throws -> IPCSchemaValue {
+        let matches = alternatives.enumerated().compactMap { index, alternative in
+            try? alternative.normalize(
+                value,
+                path: path,
+                prepared: preparedAlternatives?[index],
+                schemaDocumentValuesByPath: schemaDocumentValuesByPath
+            )
+        }
+        guard matches.count == 1, let match = matches.first else {
+            throw failure(
+                matches.isEmpty ? .noMatchingAlternative : .ambiguousAlternative,
+                path: path,
+                expected: "exactly one declared alternative"
+            )
+        }
+        return match
+    }
+
+    private func normalizeDictionary(
+        _ value: IPCSchemaValue,
+        schema: Self,
+        path: String,
+        preparedValueSchema: IPCJSONSchemaPreparedRepresentation?,
+        schemaDocumentValuesByPath: [String: IPCSchemaValue]
+    ) throws -> IPCSchemaValue {
+        guard case .object(let values) = value else {
+            throw failure(.wrongType, path: path, expected: "object with declared value types")
+        }
+        return .object(
+            try values.mapValues {
+                try schema.normalize(
+                    $0,
+                    path: "\(path).*",
+                    prepared: preparedValueSchema,
+                    schemaDocumentValuesByPath: schemaDocumentValuesByPath
+                )
+            }
+        )
     }
 
     private func normalizeInteger(
@@ -222,7 +299,9 @@ package indirect enum IPCJSONSchema: Equatable, Sendable, Codable {
     private func normalizeObject(
         _ value: IPCSchemaValue,
         fields: [IPCObjectField],
-        path: String
+        path: String,
+        preparedFields: [IPCJSONSchemaPreparedField]?,
+        schemaDocumentValuesByPath: [String: IPCSchemaValue]
     ) throws -> IPCSchemaValue {
         guard case .object(let values) = value else {
             throw failure(.wrongType, path: path, expected: "object")
@@ -233,10 +312,16 @@ package indirect enum IPCJSONSchema: Equatable, Sendable, Codable {
             throw failure(.unknownField, path: path, expected: "only declared fields")
         }
         var normalized: [String: IPCSchemaValue] = [:]
-        for field in fields {
+        for (index, field) in fields.enumerated() {
+            let preparedField = preparedFields?[index]
             let fieldPath = "\(path).\(field.name)"
             if let suppliedValue = values[field.name] {
-                normalized[field.name] = try field.schema.normalize(suppliedValue, path: fieldPath)
+                normalized[field.name] = try field.schema.normalize(
+                    suppliedValue,
+                    path: fieldPath,
+                    prepared: preparedField?.schema,
+                    schemaDocumentValuesByPath: schemaDocumentValuesByPath
+                )
             } else {
                 switch field.presence {
                 case .required:
@@ -244,15 +329,25 @@ package indirect enum IPCJSONSchema: Equatable, Sendable, Codable {
                 case .optional:
                     break
                 case .defaultValue(let data):
-                    let defaultValue = try JSONDecoder().decode(IPCSchemaValue.self, from: data)
-                    normalized[field.name] = try field.schema.normalize(defaultValue, path: fieldPath)
+                    let defaultValue: IPCSchemaValue
+                    if let cachedDefault = preparedField?.defaultValue {
+                        defaultValue = cachedDefault
+                    } else {
+                        defaultValue = try JSONDecoder().decode(IPCSchemaValue.self, from: data)
+                    }
+                    normalized[field.name] = try field.schema.normalize(
+                        defaultValue,
+                        path: fieldPath,
+                        prepared: preparedField?.schema,
+                        schemaDocumentValuesByPath: schemaDocumentValuesByPath
+                    )
                 }
             }
         }
         return .object(normalized)
     }
 
-    private func validateDefinition() throws {
+    fileprivate func validateDefinition() throws {
         let invalid = failure(.invalidDefinition, path: "$", expected: "a complete consistent schema")
         switch self {
         case .object(let fields):
@@ -289,4 +384,105 @@ package indirect enum IPCJSONSchema: Equatable, Sendable, Codable {
         }
     }
 
+}
+
+private indirect enum IPCJSONSchemaPreparedRepresentation {
+    case object([IPCJSONSchemaPreparedField])
+    case dictionary(Self)
+    case array(Self)
+    case string(NSRegularExpression?)
+    case oneOf([Self])
+    case leaf
+
+    var objectFields: [IPCJSONSchemaPreparedField]? {
+        guard case .object(let fields) = self else { return nil }
+        return fields
+    }
+
+    var dictionaryValue: Self? {
+        guard case .dictionary(let value) = self else { return nil }
+        return value
+    }
+
+    var arrayItem: Self? {
+        guard case .array(let item) = self else { return nil }
+        return item
+    }
+
+    var compiledPattern: NSRegularExpression? {
+        guard case .string(let pattern) = self else { return nil }
+        return pattern
+    }
+
+    var alternatives: [Self]? {
+        guard case .oneOf(let alternatives) = self else { return nil }
+        return alternatives
+    }
+}
+
+private struct IPCJSONSchemaPreparedField {
+    let schema: IPCJSONSchemaPreparedRepresentation
+    let defaultValue: IPCSchemaValue?
+}
+
+/// A validated schema paired with reusable normalization state. Instances are
+/// scoped to one catalog decode; compiled regexes and parsed defaults never
+/// escape into a process-wide cache.
+struct IPCValidatedJSONSchema {
+    let schema: IPCJSONSchema
+    let documentValue: IPCSchemaValue
+    private let prepared: IPCJSONSchemaPreparedRepresentation
+
+    init(schema: IPCJSONSchema) throws {
+        try schema.validateDefinition()
+        self.schema = schema
+        prepared = try Self.prepare(schema)
+        documentValue = try schema.documentValue()
+    }
+
+    func normalize(
+        _ data: Data,
+        schemaDocumentValuesByPath: [String: IPCSchemaValue] = [:]
+    ) throws -> Data {
+        let value: IPCSchemaValue
+        do {
+            value = try JSONDecoder().decode(IPCSchemaValue.self, from: data)
+        } catch {
+            throw schema.failure(.invalidJSON, path: "$", expected: "valid JSON")
+        }
+        return try schema.normalize(
+            value,
+            path: "$",
+            prepared: prepared,
+            schemaDocumentValuesByPath: schemaDocumentValuesByPath
+        ).encoded()
+    }
+
+    private static func prepare(_ schema: IPCJSONSchema) throws -> IPCJSONSchemaPreparedRepresentation {
+        switch schema {
+        case .object(let fields):
+            return .object(
+                try fields.map { field in
+                    let preparedSchema = try prepare(field.schema)
+                    let defaultValue: IPCSchemaValue?
+                    if case .defaultValue(let data) = field.presence {
+                        defaultValue = try JSONDecoder().decode(IPCSchemaValue.self, from: data)
+                    } else {
+                        defaultValue = nil
+                    }
+                    return IPCJSONSchemaPreparedField(schema: preparedSchema, defaultValue: defaultValue)
+                }
+            )
+        case .dictionary(let values):
+            return .dictionary(try prepare(values))
+        case .array(let item, _, _):
+            return .array(try prepare(item))
+        case .string(let constraints):
+            return .string(try constraints.pattern.map { try NSRegularExpression(pattern: $0) })
+        case .oneOf(let alternatives):
+            return .oneOf(try alternatives.map(prepare))
+        case .integer, .number, .boolean, .booleanConstant, .literalValue, .null, .schemaDocument:
+            return .leaf
+        }
+    }
 }
