@@ -30,6 +30,10 @@ import {
 	type BridgeProductSurface,
 } from './bridge-product-contract-primitives.js';
 import {
+	defaultBridgeProductDeadlineClock,
+	type BridgeProductDeadlineClock,
+} from './bridge-product-deadline-clock.js';
+import {
 	bridgeProductFrameAcknowledgementRequestSchema,
 	type BridgeProductFrameAcknowledgementRequest,
 } from './bridge-product-frame-acknowledgement-contracts.js';
@@ -98,6 +102,7 @@ export interface CreateBridgeProductTransportProps {
 	>;
 	readonly createIdentifier?: (purpose: BridgeProductIdentifierPurpose) => string;
 	readonly executeProductRequest: BridgeProductRequestExecutor;
+	readonly deadlineClock?: BridgeProductDeadlineClock;
 	readonly initialWorkerDerivationEpochs?: Readonly<Partial<Record<BridgeProductSurface, number>>>;
 	readonly maximumConcurrentContentResponses?: number;
 	readonly metadataApplicationRegistry: BridgeProductMetadataApplicationRegistry;
@@ -203,6 +208,7 @@ class BridgeProductTransportSessionImpl implements BridgeProductTransportSession
 	 */
 	readonly #drainingSubscriptionIds = new Set<string>();
 	readonly #executeProductRequest: BridgeProductRequestExecutor;
+	readonly #deadlineClock: BridgeProductDeadlineClock;
 	readonly #metadataApplicationRegistry: BridgeProductMetadataApplicationRegistry;
 	readonly #frameAcknowledgementTimeoutMilliseconds: number;
 	#metadataReady: BridgeProductDeferred<void> | null = null;
@@ -250,6 +256,7 @@ class BridgeProductTransportSessionImpl implements BridgeProductTransportSession
 			props.createIdentifier ??
 			((purpose): string => `${purpose}-${globalThis.crypto.randomUUID()}`);
 		this.#executeProductRequest = props.executeProductRequest;
+		this.#deadlineClock = props.deadlineClock ?? defaultBridgeProductDeadlineClock;
 		this.#metadataApplicationRegistry = props.metadataApplicationRegistry;
 		this.#frameAcknowledgementTimeoutMilliseconds =
 			props.frameAcknowledgementTimeoutMilliseconds ?? 5000;
@@ -734,6 +741,7 @@ class BridgeProductTransportSessionImpl implements BridgeProductTransportSession
 		request: BridgeProductFrameAcknowledgementRequest,
 	): Promise<void> {
 		await sendBridgeProductFrameAcknowledgement({
+			deadlineClock: this.#deadlineClock,
 			capabilityHeader: this.#authority.capabilityHeader,
 			executeProductRequest: this.#executeProductRequest,
 			request,

@@ -143,3 +143,12 @@ struct BridgeProductSessionSnapshot: Equatable, Sendable {
     let pendingRequestKind: String?
     let workerDerivationEpochBySurface: [BridgeProductSurface: Int]
 }
+
+struct BridgeProductSessionDiagnosticSnapshot: Equatable, Sendable {
+    let pendingControlCount: Int
+    let activeSubscriptionCount: Int
+    let producerFrameWaiterCount: Int
+    let producerPacingWaiterCount: Int
+    let producerRetirementCount: Int
+    let producer: BridgeProductProducerRegistrySnapshot
+}

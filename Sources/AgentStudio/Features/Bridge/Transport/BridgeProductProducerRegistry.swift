@@ -16,14 +16,19 @@ struct BridgeProductProducerRegistry {
     }
 
     private let limits: BridgeProductProducerQueueLimits
+    let deadlineClock: any Clock<Duration> & Sendable
     var producersByLeaseId: [UUID: BridgeProductProducerState] = [:]
     private var pendingAcknowledgementsByLeaseId: [UUID: PendingLifecycleAcknowledgement] = [:]
     private var nextMetadataStreamSequence = 0
     private var isClosing = false
     private var isRevoked = false
 
-    init(limits: BridgeProductProducerQueueLimits = .productContract) {
+    init(
+        limits: BridgeProductProducerQueueLimits = .productContract,
+        deadlineClock: any Clock<Duration> & Sendable = ContinuousClock()
+    ) {
         self.limits = limits
+        self.deadlineClock = deadlineClock
     }
 
     var metadataProducerLeases: [BridgeProductProducerLease] {

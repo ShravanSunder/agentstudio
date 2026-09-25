@@ -10,6 +10,10 @@ import {
 	BRIDGE_PRODUCT_MAXIMUM_REQUEST_BODY_BYTES,
 	type BridgeProductRequestErrorCode,
 } from './bridge-product-contract-primitives.js';
+import {
+	defaultBridgeProductDeadlineClock,
+	type BridgeProductDeadlineClock,
+} from './bridge-product-deadline-clock.js';
 import type { BridgeProductRequestExecutor } from './bridge-product-request-executor.js';
 import {
 	assertBridgeProductResyncReconciliationMatchesRequest,
@@ -36,6 +40,7 @@ export interface BridgeProductSessionAuthority {
 export interface BridgeProductControlMuxProps {
 	readonly authority: BridgeProductSessionAuthority;
 	readonly createRequestId?: () => string;
+	readonly deadlineClock?: BridgeProductDeadlineClock;
 	readonly executeProductRequest: BridgeProductRequestExecutor;
 }
 
@@ -104,16 +109,23 @@ export class BridgeProductControlRequestError extends Error {
 }
 
 export class BridgeProductControlMux {
+	readonly deadlineClock: BridgeProductDeadlineClock;
 	readonly #authority: BridgeProductSessionAuthority;
 	readonly #createRequestId: () => string;
 	readonly #executeProductRequest: BridgeProductRequestExecutor;
 	#nextRequestSequence = 2;
 	#pendingAdmission: Promise<void> = Promise.resolve();
+	#pendingAdmissionCount = 0;
 
 	constructor(props: BridgeProductControlMuxProps) {
+		this.deadlineClock = props.deadlineClock ?? defaultBridgeProductDeadlineClock;
 		this.#authority = props.authority;
 		this.#createRequestId = props.createRequestId ?? ((): string => crypto.randomUUID());
 		this.#executeProductRequest = props.executeProductRequest;
+	}
+
+	get diagnosticSnapshot(): { readonly pendingAdmissionCount: number } {
+		return { pendingAdmissionCount: this.#pendingAdmissionCount };
 	}
 
 	call<TCallKind extends BridgeProductCallKind>(props: {
@@ -357,10 +369,15 @@ export class BridgeProductControlMux {
 	}
 
 	#enqueue<TResult>(operation: () => Promise<TResult>): Promise<TResult> {
+		this.#pendingAdmissionCount += 1;
 		const result = this.#pendingAdmission.then(operation, operation);
 		this.#pendingAdmission = result.then(
-			(): void => {},
-			(): void => {},
+			(): void => {
+				this.#pendingAdmissionCount -= 1;
+			},
+			(): void => {
+				this.#pendingAdmissionCount -= 1;
+			},
 		);
 		return result;
 	}

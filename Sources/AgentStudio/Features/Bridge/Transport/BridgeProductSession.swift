@@ -13,6 +13,7 @@ actor BridgeProductSession {
 
     nonisolated let capabilityAuthenticator: BridgeProductCapabilityAuthenticator
     private let maximumRequestOrResponseBytes: Int
+    let deadlineClock: any Clock<Duration> & Sendable
     private let paneSessionId: String
     let producerObservationPacingRegistrationObserver: ProducerObservationPacingRegistrationObserver?
     var producerRegistry: BridgeProductProducerRegistry
@@ -44,6 +45,7 @@ actor BridgeProductSession {
         workerInstanceId: String,
         capabilityBytes: [UInt8],
         maximumRequestOrResponseBytes: Int = BridgeProductWireContract.maximumRequestBodyBytes,
+        deadlineClock: any Clock<Duration> & Sendable = ContinuousClock(),
         producerQueueLimits: BridgeProductProducerQueueLimits = .productContract,
         producerObservationPacingRegistrationObserver:
             ProducerObservationPacingRegistrationObserver? = nil
@@ -62,10 +64,14 @@ actor BridgeProductSession {
             encodedCapability: capabilityHeader
         )
         self.maximumRequestOrResponseBytes = maximumRequestOrResponseBytes
+        self.deadlineClock = deadlineClock
         self.producerObservationPacingRegistrationObserver =
             producerObservationPacingRegistrationObserver
         self.lastAcceptedMetadataFrameAcknowledgement = nil
-        self.producerRegistry = BridgeProductProducerRegistry(limits: producerQueueLimits)
+        self.producerRegistry = BridgeProductProducerRegistry(
+            limits: producerQueueLimits,
+            deadlineClock: deadlineClock
+        )
         self.controlReplay = .init(
             maximumRequestOrResponseBytes: maximumRequestOrResponseBytes
         )
@@ -80,12 +86,6 @@ actor BridgeProductSession {
             pendingRequestKind: pendingControl?.request.kind,
             workerDerivationEpochBySurface: workerDerivationEpochBySurface
         )
-    }
-
-    func subscriptionSnapshot(
-        subscriptionId: String
-    ) -> BridgeProductSubscriptionSnapshot? {
-        subscriptionState.snapshot(subscriptionId: subscriptionId)
     }
 
     /// Returns, once, the subscriptions a surface floor advance has ended since the

@@ -1,5 +1,9 @@
 import { BRIDGE_PRODUCT_MAXIMUM_REQUEST_BODY_BYTES } from './bridge-product-contract-primitives.js';
 import {
+	defaultBridgeProductDeadlineClock,
+	type BridgeProductDeadlineClock,
+} from './bridge-product-deadline-clock.js';
+import {
 	bridgeProductFrameAcknowledgementRejectedStatusSchema,
 	type BridgeProductFrameAcknowledgementRequest,
 } from './bridge-product-frame-acknowledgement-contracts.js';
@@ -8,11 +12,12 @@ import type { BridgeProductRequestExecutor } from './bridge-product-request-exec
 export async function sendBridgeProductFrameAcknowledgement(props: {
 	readonly capabilityHeader: string;
 	readonly executeProductRequest: BridgeProductRequestExecutor;
+	readonly deadlineClock?: BridgeProductDeadlineClock;
 	readonly request: BridgeProductFrameAcknowledgementRequest;
 	readonly timeoutMilliseconds: number;
 }): Promise<void> {
 	const abortController = new AbortController();
-	let timeout: ReturnType<typeof globalThis.setTimeout> | undefined;
+	let cancelDeadline: (() => void) | undefined;
 	try {
 		const response = await Promise.race([
 			props.executeProductRequest('command', {
@@ -25,16 +30,19 @@ export async function sendBridgeProductFrameAcknowledgement(props: {
 				signal: abortController.signal,
 			}),
 			new Promise<Response>((_, reject): void => {
-				timeout = globalThis.setTimeout((): void => {
-					abortController.abort();
-					reject(
-						new BridgeProductFrameAcknowledgementFailure(
-							'request_timeout',
-							null,
-							'Bridge product frame acknowledgement request timed out.',
-						),
-					);
-				}, props.timeoutMilliseconds);
+				cancelDeadline = (props.deadlineClock ?? defaultBridgeProductDeadlineClock).schedule(
+					props.timeoutMilliseconds,
+					(): void => {
+						abortController.abort();
+						reject(
+							new BridgeProductFrameAcknowledgementFailure(
+								'request_timeout',
+								null,
+								'Bridge product frame acknowledgement request timed out.',
+							),
+						);
+					},
+				);
 			}),
 		]);
 		assertAccepted(response.status);
@@ -46,7 +54,7 @@ export async function sendBridgeProductFrameAcknowledgement(props: {
 			'Bridge product frame acknowledgement request failed.',
 		);
 	} finally {
-		if (timeout !== undefined) globalThis.clearTimeout(timeout);
+		cancelDeadline?.();
 	}
 }
 
