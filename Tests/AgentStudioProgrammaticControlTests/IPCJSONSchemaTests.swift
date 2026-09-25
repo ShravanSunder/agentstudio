@@ -4,6 +4,39 @@ import Testing
 
 @Suite("IPC typed JSON schema")
 struct IPCJSONSchemaTests {
+    @Test("every typed schema kind round-trips through its document representation")
+    func everySchemaKindRoundTripsThroughItsDocument() throws {
+        let defaultedObject = IPCJSONSchema.object(fields: [
+            .init(
+                name: "priority",
+                description: "Default priority",
+                schema: .integer(minimum: 1, maximum: 3),
+                presence: try .defaulted(2)
+            )
+        ])
+        let schemas: [IPCJSONSchema] = [
+            .object(fields: [.init(name: "name", description: "Name", schema: .string())]),
+            defaultedObject,
+            .dictionary(values: .integer(minimum: 0, maximum: 10)),
+            .array(items: .string(pattern: "^[a-z]+$"), minimumCount: 1, maximumCount: 3),
+            .string(allowedValues: ["small", "large"], pattern: "^(small|large)$"),
+            .integer(minimum: -1, maximum: 1),
+            .number(minimum: 0.5, maximum: 1.5),
+            .boolean,
+            .booleanConstant(true),
+            try IPCJSONSchema.literal("fixed"),
+            .null,
+            .oneOf([.array(items: .integer()), .null]),
+            .schemaDocument,
+        ]
+
+        for schema in schemas {
+            let document = try schema.jsonSchemaData()
+            let decoded = try JSONDecoder().decode(IPCJSONSchema.self, from: document)
+            #expect(decoded == schema)
+        }
+    }
+
     @Test("object field order survives discovery without hiding contract differences")
     func objectFieldOrderIsNotContractMeaning() throws {
         let title = IPCObjectField(name: "title", description: "Title", schema: .string())
