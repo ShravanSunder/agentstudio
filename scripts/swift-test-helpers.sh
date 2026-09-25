@@ -634,95 +634,271 @@ swift_test_command_accepts_event_stream() {
   return 0
 }
 
+swift_test_suite_lane_inventory() {
+  cat <<'EOF'
+fast|AgentStudioFileViewStartupDiagnosticTests|concurrent
+large|AgentStudioGitDependencyTests|concurrent
+large|AgentStudioIPCPhaseASmokeScriptTests|concurrent
+large|AgentStudioOTLPBootstrapSmokeTests|process-global
+fast|AgentStudioStartupDiagnosticActionParsingTests|concurrent
+fast|AgentStudioStartupDiagnosticActionTests|concurrent
+fast|AgentStudioTraceConfigurationTests|concurrent
+large|AppIPCDeferredInitializationIntegrationTests|process-global
+large|AppIPCProductionLifecycleIntegrationTests|process-global
+large|ArchitectureSwiftLintRulesTests|concurrent
+large|AtomLibCompileFailureScriptTests|concurrent
+large|BridgeBrowserNativeRPCCutoverSourceScanTests|concurrent
+large|BridgeCapacityIntegrationTests|concurrent
+large|BridgeFullPyramidSmokeVerifierScriptTests|concurrent
+large|BridgeHeadlessManifestVerifierScriptTests|concurrent
+large|BridgeObservabilitySmokeReviewSourceProviderTests|concurrent
+large|BridgeObservabilityVerifierScriptTests|concurrent
+large|BridgePackagedCompleteJourneyScriptTests|concurrent
+large|BridgePackagedProductJourneyScriptTests|serial
+fast|BridgePaneSurfaceSelectionContractTests|concurrent
+large|BridgeProductAdmissionIntegrationTests|concurrent
+large|BridgeProductMetadataCatalogNativeIntegrationTests|concurrent
+large|BridgeProductPaintCorrelationVerifierScriptTests|concurrent
+fast|BridgeProductSessionContractTests|concurrent
+large|BridgeProductStreamFeasibilityScriptTests|concurrent
+fast|BridgeReviewFileClassifierTests|concurrent
+large|BridgeReviewSmokeFrameLivenessTests|concurrent
+large|BridgeWorktreeRefreshSessionTests|concurrent
+large|CIFastLaneWorkflowTests|concurrent
+large|CIFirstAttemptGateWorkflowTests|concurrent
+large|CursorPackageInstallerTests|concurrent
+large|DarwinCompositeFSEventContinuityTests|process-global
+large|DarwinFSEventStreamClientTests|process-global
+large|DarwinSharedExactItemObserverTests|process-global
+large|DarwinSharedExactItemRealStreamIntegrationTests|process-global
+large|DarwinSharedLocalFSEventObserverFailureTests|process-global
+large|DarwinSharedLocalFSEventObserverTests|process-global
+large|DerivedActivityNotificationIntegrationTests|process-global
+large|DerivedTerminalActivityNotificationRegressionTests|concurrent
+large|DrawerCommandIntegrationTests|process-global
+e2e|E2ESerializedTests|serial
+e2e|E2ESerializedTests/FilesystemSourceE2ETests|serial
+e2e|E2ESerializedTests/ZmxBackendIntegrationTests|serial
+zmx|E2ESerializedTests/ZmxE2ETests|serial
+large|FilesystemActorActivityTests|process-global
+large|FilesystemActorShellGitIntegrationTests|concurrent
+large|FilesystemFetchHeadGitPipelineIntegrationTests|process-global
+large|FilesystemGitPipelineDemandIntegrationTests|process-global
+large|FilesystemGitPipelineIntegrationTests|process-global
+large|FilesystemGitPipelineObservationLifetimeTests|concurrent
+large|FilesystemGitPipelineRegistrationTests|concurrent
+fast|FilesystemGitRemoteReferenceTests|process-global
+large|FilesystemPipelineScopeOrderingTests|concurrent
+large|FilesystemToPrimarySidebarIntegrationTests|process-global
+large|GitEnrichmentEventPipelineIntegrationTests|process-global
+large|GitRefreshPerformanceComparatorScriptTests|concurrent
+large|GitRefreshPerformanceWorkloadScriptTests|serial
+large|GitRefreshPerformanceWorkloadSettlementScriptTests|concurrent
+benchmark|GlobalPreferencesBootstrapBenchmarkTests|serial
+large|HomebrewBetaReleaseScriptsTests|concurrent
+large|MainWindowControllerInboxToolbarButtonTests|process-global
+large|MinimizeLayoutIntegrationTests|process-global
+large|NotificationOSCSmokeVerifierTests|concurrent
+large|ObservabilityBetaLauncherDuplicateRuntimeTests|concurrent
+large|ObservabilityBetaLauncherScriptsTests|concurrent
+large|ObservabilityDebugBridgeLaunchScriptsTests|concurrent
+large|ObservabilityDebugCandidateLifecycleScriptTests|concurrent
+large|ObservabilityDebugIPCLaunchScriptTests|concurrent
+large|ObservabilityDebugLaunchMetadataScriptTests|concurrent
+large|ObservabilityDebugLaunchScriptVerifierTests|concurrent
+large|ObservabilityDebugLaunchScriptsTests|concurrent
+large|ObservabilityDebugLaunchServicesSmokeTaskTests|concurrent
+large|ObservabilityDebugLaunchZmxIsolationTests|concurrent
+large|ObservabilityDebugPaneAssociationProofTests|concurrent
+large|ObservabilityDebugVerifierBridgeDiagnosticTests|concurrent
+large|ObservabilityDebugVerifierScriptsTests|concurrent
+large|ObservabilityLaunchScriptsTests|concurrent
+large|ObservabilityPreferencesLaunchScriptsTests|concurrent
+large|ObservabilityTCCProbeLauncherScriptsTests|concurrent
+large|ObservabilityTCCProbeReportScriptTests|concurrent
+large|ObservabilityTCCProtectedDataVerifierScriptTests|concurrent
+large|ObservabilityTCCReplacementExperimentScriptTests|concurrent
+large|PerformanceReportScriptTests|concurrent
+large|PrimarySidebarPipelineIntegrationTests|concurrent
+large|ProcessExecutorTests|concurrent
+large|RendererPopulationScriptTests|concurrent
+large|RepoExplorerFilterFocusIntegrationTests|process-global
+large|RepoExplorerListKeyboardIntegrationTests|process-global
+benchmark|RepoExplorerNativeTablePilotBenchmarkTests|serial
+large|RepoScannerGitDiscoveryReadOnlyIntegrationTests|concurrent
+large|RepositoryCacheSaveLifetimeTests|concurrent
+large|RepositoryCrossScopeFamilyClaimTests|concurrent
+large|RepositoryDiscoveryLifecyclePersistenceTests|concurrent
+large|RepositoryNestedDiscoveryContinuityTests|concurrent
+large|RepositoryRetentionCommitBoundaryRecoveryTests|concurrent
+large|RepositoryRetentionPipelineTests|concurrent
+large|RepositoryRetentionPublicationAdmissionTests|concurrent
+large|RepositoryRetentionReparentedFamilyTests|concurrent
+large|RepositoryRetentionSourceAdmissionTests|concurrent
+fast|SQLiteDatabaseFactoryProcessTests|process-global
+large|SidebarPerformanceContinuityControlScriptTests|concurrent
+large|SidebarPerformanceFixtureParserScriptTests|concurrent
+large|SidebarPerformancePolicyParserScriptTests|concurrent
+large|SidebarPerformanceWorkloadScriptTests|serial
+large|SidebarPerformanceWorkloadSettlementScriptTests|serial
+large|StartupPerformanceWorkloadScriptTests|concurrent
+large|SurfaceRendererVisibilityIntegrationTests|process-global
+fast|SwiftBuildSlotScriptTests|concurrent
+large|SwiftLaneHangEvidenceTests|concurrent
+large|SwiftLaneIsolationListGateTests|concurrent
+large|SwiftLaneReceiptTests|concurrent
+large|SwiftLaneRunnerReportTests|concurrent
+large|TerminalActivityAgentSettledHeuristicTests|process-global
+large|TitlePanePerformanceWorkloadScriptTests|concurrent
+large|TopologyEventPipelineIntegrationTests|process-global
+large|TopologyRuntimeScopeFeedbackTests|concurrent
+large|VendorConsumerWiringScriptTests|concurrent
+large|VendorWorktreeScriptTests|concurrent
+large|WatchedFolderObservationCurrentnessTests|concurrent
+fast|WebInteractionManagementScriptTests|concurrent
+webkit|WebKitSerializedTests|serial
+webkit|WebKitSerializedTests/BridgeContentWorldIsolationTests|serial
+webkit|WebKitSerializedTests/BridgeTransportIntegrationTests|serial
+webkit|WebKitSerializedTests/BridgeWebKitSpikeTests|serial
+webkit|WebKitSerializedTests/WorkspaceBridgeConstructionIntegrationTests|serial
+webkit|WebKitSerializedTests/WorkspaceBridgePaneActivityIntegrationTests|serial
+webkit|WebKitSerializedTests/WorkspaceBridgePaneRefreshIntegrationTests|serial
+large|WorkspaceCacheCoordinatorIntegrationTests|process-global
+large|WorkspaceDrawerRestoreIntegrationTests|process-global
+large|WorkspaceGeometryReevaluationIntegrationTests|process-global
+large|WorkspaceProjectedDividerResizeIntegrationTests|process-global
+large|WorkspaceStrictStartupSubprocessTests|process-global
+large|WorkspaceSurfaceCoordinatorFilesystemSourceTests|process-global
+large|WorkspaceSurfaceTerminalRestoreIntegrationTests|process-global
+large|WorkspaceTopologyBootRepairIntegrationTests|process-global
+large|WorkspaceUndoDeadlineIntegrationTests|process-global
+large|ZmxStartupTraceAnalyzerTests|concurrent
+EOF
+}
+
+swift_test_lane_suite_types() {
+  local requested_lane="${1:-}"
+  local requested_mode="${2:-}"
+  local lane suite_type mode
+
+  while IFS='|' read -r lane suite_type mode; do
+    [ "$lane" = "$requested_lane" ] || continue
+    [ -z "$requested_mode" ] || [ "$mode" = "$requested_mode" ] || continue
+    printf '%s\n' "$suite_type"
+  done < <(swift_test_suite_lane_inventory)
+}
+
+swift_test_lane_filter_pattern() {
+  local requested_lane="${1:-}"
+  local requested_mode="${2:-}"
+  local suite_type
+  local -a suite_type_filters=()
+
+  while IFS= read -r suite_type; do
+    [ -n "$suite_type" ] || continue
+    suite_type_filters+=("$(swift_test_isolated_suite_filter_pattern "$suite_type")")
+  done < <(swift_test_lane_suite_types "$requested_lane" "$requested_mode")
+
+  local IFS='|'
+  printf '%s' "${suite_type_filters[*]}"
+}
+
+swift_test_lane_filter_exclusion_pattern() {
+  local requested_lane="${1:-}"
+  local lane suite_type mode requested_suite_type
+  local is_ancestor
+  local -a requested_suite_types=()
+  local -a excluded_suite_filters=()
+
+  while IFS= read -r requested_suite_type; do
+    [ -n "$requested_suite_type" ] || continue
+    requested_suite_types+=("$requested_suite_type")
+  done < <(swift_test_lane_suite_types "$requested_lane")
+
+  while IFS='|' read -r lane suite_type mode; do
+    [ "$lane" = "$requested_lane" ] && continue
+    is_ancestor=0
+    for requested_suite_type in "${requested_suite_types[@]}"; do
+      case "$requested_suite_type" in
+        "$suite_type"/*)
+          is_ancestor=1
+          break
+          ;;
+      esac
+    done
+    [ "$is_ancestor" -eq 1 ] && continue
+    excluded_suite_filters+=("$(swift_test_isolated_suite_filter_pattern "$suite_type")")
+  done < <(swift_test_suite_lane_inventory)
+
+  local IFS='|'
+  printf '%s' "${excluded_suite_filters[*]}"
+}
+
+swift_test_lane_for_suite_type() {
+  local requested_suite_type="${1:-}"
+  local lane suite_type mode
+
+  while IFS='|' read -r lane suite_type mode; do
+    if [ "$suite_type" = "$requested_suite_type" ]; then
+      printf '%s\n' "$lane"
+      return 0
+    fi
+  done < <(swift_test_suite_lane_inventory)
+
+  printf '%s\n' fast
+}
+
+swift_test_lane_mode_for_suite_type() {
+  local requested_suite_type="${1:-}"
+  local lane suite_type mode
+
+  while IFS='|' read -r lane suite_type mode; do
+    if [ "$suite_type" = "$requested_suite_type" ]; then
+      printf '%s\n' "$mode"
+      return 0
+    fi
+  done < <(swift_test_suite_lane_inventory)
+
+  return 1
+}
+
+swift_test_lane_is_fast_serial_or_unlisted() {
+  local suite_type="${1:-}"
+  local lane mode
+
+  lane="$(swift_test_lane_for_suite_type "$suite_type")"
+  mode="$(swift_test_lane_mode_for_suite_type "$suite_type" || true)"
+  [ "$lane" = fast ] && { [ -z "$mode" ] || [ "$mode" = serial ]; }
+}
+
+swift_test_lane_fast_concurrent_skip_pattern() {
+  local lane suite_type mode
+  local -a suite_type_filters=()
+
+  while IFS='|' read -r lane suite_type mode; do
+    if [ "$lane" != fast ] || [ "$mode" != concurrent ]; then
+      suite_type_filters+=("$(swift_test_isolated_suite_filter_pattern "$suite_type")")
+    fi
+  done < <(swift_test_suite_lane_inventory)
+
+  local IFS='|'
+  printf '%s' "${suite_type_filters[*]}"
+}
+
 large_non_webkit_filter_pattern() {
-  local patterns=(
-    Script
-    SourceScan
-    Smoke
-    Integration
-    ZmxStartupTraceAnalyzerTests
-    WorkspaceSurfaceCoordinatorFilesystemSourceTests
-    TerminalActivityAgentSettledHeuristicTests
-    MainWindowControllerInboxToolbarButtonTests
-    ProcessExecutorTests
-    DarwinCompositeFSEventContinuityTests
-    DarwinFSEventStreamClientTests
-    DarwinSharedLocalFSEventObserverFailureTests
-    DarwinSharedLocalFSEventObserverTests
-    DarwinSharedExactItemObserverTests
-    FilesystemActorActivityTests
-    WorkspaceStrictStartupSubprocessTests
-  )
-  local IFS="|"
-  echo "${patterns[*]}"
+  swift_test_lane_filter_pattern large concurrent
 }
 
 large_serial_non_webkit_filter_pattern() {
-  local patterns=(
-    BridgePackagedProductJourneyScriptTests
-    GitRefreshPerformanceWorkloadScriptTests
-    SidebarPerformanceWorkloadScriptTests
-    SidebarPerformanceWorkloadSettlementScriptTests
-  )
-  local IFS="|"
-  echo "${patterns[*]}"
+  swift_test_lane_filter_pattern large serial
 }
 
 large_process_global_suite_filters() {
-  local large_suite_pattern
-  large_suite_pattern="$(large_non_webkit_filter_pattern)"
-  local webkit_leaf_suite_pattern
-  webkit_leaf_suite_pattern="$(webkit_leaf_suite_filters | /usr/bin/paste -sd'|' -)"
-  local excluded_suite_pattern="$webkit_leaf_suite_pattern"
-
-  {
-    serialized_main_actor_suite_matches main-actor-first
-    serialized_main_actor_suite_matches suite-first
-    printf '%s:%s\n' \
-      'Tests/AgentStudioTests/Infrastructure/Diagnostics/AgentStudioOTLPBootstrapSmokeTests.swift' \
-      'AgentStudioOTLPBootstrapSmokeTests'
-    printf '%s:%s\n' \
-      'Tests/AgentStudioTests/Core/PaneRuntime/Sources/DarwinSharedExactItemRealStreamIntegrationTests.swift' \
-      'DarwinSharedExactItemRealStreamIntegrationTests'
-    printf '%s:%s\n' \
-      'Tests/AgentStudioTests/Core/PaneRuntime/Sources/DarwinCompositeFSEventContinuityTests.swift' \
-      'DarwinCompositeFSEventContinuityTests'
-    printf '%s:%s\n' \
-      'Tests/AgentStudioTests/Core/PaneRuntime/Sources/DarwinFSEventStreamClientTests.swift' \
-      'DarwinFSEventStreamClientTests'
-    printf '%s:%s\n' \
-      'Tests/AgentStudioTests/Core/PaneRuntime/Sources/DarwinSharedLocalFSEventObserverFailureTests.swift' \
-      'DarwinSharedLocalFSEventObserverFailureTests'
-    printf '%s:%s\n' \
-      'Tests/AgentStudioTests/Core/PaneRuntime/Sources/DarwinSharedLocalFSEventObserverTests.swift' \
-      'DarwinSharedLocalFSEventObserverTests'
-    printf '%s:%s\n' \
-      'Tests/AgentStudioTests/Core/PaneRuntime/Sources/DarwinSharedExactItemObserverTests.swift' \
-      'DarwinSharedExactItemObserverTests'
-    printf '%s:%s\n' \
-      'Tests/AgentStudioTests/Core/PaneRuntime/Sources/FilesystemActorActivityTests.swift' \
-      'FilesystemActorActivityTests'
-    printf '%s:%s\n' \
-      'Tests/AgentStudioTests/App/WorkspaceStrictStartupSubprocessTests.swift' \
-      'WorkspaceStrictStartupSubprocessTests'
-  } | while IFS=: read -r source_file suite_name; do
-    case "$source_file" in
-      *"/App/WebKit/"*) continue ;;
-    esac
-    if is_dedicated_e2e_or_zmx_lane_suite "$source_file" "$suite_name"; then
-      continue
-    fi
-    if printf '%s\n' "$suite_name" | grep -Eq "$excluded_suite_pattern"; then
-      continue
-    fi
-    if printf '%s\n' "$suite_name" | grep -Eq "$large_suite_pattern"; then
-      printf '%s\n' "$suite_name"
-    fi
-  done | sort -u
+  swift_test_lane_suite_types large process-global
 }
 
 large_process_global_filter_pattern() {
-  large_process_global_suite_filters | /usr/bin/paste -sd'|' -
+  swift_test_lane_filter_pattern large process-global
 }
 
 serialized_main_actor_suite_pattern() {
@@ -788,7 +964,6 @@ aggregate_serial_non_webkit_suite_filters() {
   # attribute or type declaration while searching for the serialized trait.
   local webkit_leaf_suite_pattern
   webkit_leaf_suite_pattern="$(webkit_leaf_suite_filters | /usr/bin/paste -sd'|' -)"
-  local excluded_suite_pattern="GlobalPreferencesBootstrapBenchmarkTests|RepoExplorerNativeTablePilotBenchmarkTests|$webkit_leaf_suite_pattern|$(large_non_webkit_filter_pattern)|$(large_serial_non_webkit_filter_pattern)"
 
   {
     serialized_main_actor_suite_matches main-actor-first
@@ -833,7 +1008,10 @@ aggregate_serial_non_webkit_suite_filters() {
     if is_dedicated_e2e_or_zmx_lane_suite "$source_file" "$suite_name"; then
       continue
     fi
-    if printf '%s\n' "$suite_name" | grep -Eq "$excluded_suite_pattern"; then
+    if printf '%s\n' "$suite_name" | grep -Eq "^(${webkit_leaf_suite_pattern})$"; then
+      continue
+    fi
+    if ! swift_test_lane_is_fast_serial_or_unlisted "$suite_name"; then
       continue
     fi
     printf '%s\n' "$suite_name"
@@ -845,11 +1023,11 @@ aggregate_serial_non_webkit_filter_pattern() {
 }
 
 fast_serial_process_filter_pattern() {
-  echo "SQLiteDatabaseFactoryProcessTests"
+  swift_test_lane_filter_pattern fast process-global
 }
 
-# Anchors a suite TYPE name so `--filter`/`--skip` selects that type and nothing
-# that merely lives in a file named after it.
+# Anchors a suite type path so `--filter`/`--skip` selects that type and nothing
+# that merely lives in a file named after it. Nested suite paths use `/`.
 #
 # Swift Testing matches these as regexes with `contains` over the test's id, and a
 # FUNCTION's id ends with its source location. Captured from a real event stream
@@ -868,22 +1046,17 @@ fast_serial_process_filter_pattern() {
 # component is always preceded by `/`, never `.`, so it can never match — and the
 # leading `.` also stops a name matching a longer type it is a prefix of.
 swift_test_isolated_suite_filter_pattern() {
-  local suite_type_name="$1"
-  local escaped_type_name
+  local suite_type_path="$1"
+  local escaped_type_path
 
   # Escape every non-identifier character. Suite names are Swift identifiers
   # today; the anchor must not silently depend on that staying true.
-  escaped_type_name="$(printf '%s' "$suite_type_name" | /usr/bin/sed 's/[^A-Za-z0-9_]/\\&/g')"
-  printf '\\.%s(/|$)' "$escaped_type_name"
+  escaped_type_path="$(printf '%s' "$suite_type_path" | /usr/bin/sed 's/[^A-Za-z0-9_]/\\&/g')"
+  printf '\\.%s(/|$)' "$escaped_type_path"
 }
 
-# The same anchor across a `|`-joined list of EXACT suite type names.
-#
-# Only for lists of exact names. `large_non_webkit_filter_pattern` deliberately
-# carries substring families (`Script`, `Smoke`, `Integration`, `SourceScan`) that
-# are meant to match many suites by prefix, and anchoring those would silently
-# drop whole suites out of their lane — the same class of bug in the opposite
-# direction.
+# The same anchor across a `|`-joined list of exact inventory paths or
+# source-discovered suite type names.
 swift_test_isolated_suite_skip_pattern() {
   local joined_type_names="${1:-}"
   local anchored_patterns=()
@@ -899,12 +1072,25 @@ swift_test_isolated_suite_skip_pattern() {
 }
 
 run_fast_serial_process_swift_tests() {
-  run_swift_with_timeout \
-    "serial fast process suites" \
-    "$TIMEOUT_SECONDS" \
-    env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" $(swift_test_parallelization_env_word) swift test ${EXTRA_SWIFT_TEST_ARGS:-} --skip-build \
-    --filter "$(swift_test_isolated_suite_filter_pattern "$(fast_serial_process_filter_pattern)")" \
-    --skip WebKitSerializedTests --skip E2ESerializedTests --skip ZmxE2ETests --build-path "$BUILD_PATH"
+  local swift_test_bundle
+  swift_test_bundle="$(swift_testing_bundle_path)"
+  local swift_testing_helper
+  swift_testing_helper="$(swift_testing_helper_path)"
+  local testing_framework_path
+  testing_framework_path="$(swift_testing_framework_path)"
+  local fast_process_global_suite_filter
+
+  while IFS= read -r fast_process_global_suite_filter; do
+    [ -n "$fast_process_global_suite_filter" ] || continue
+    run_swift_with_timeout \
+      "isolated fast process-global suite: $fast_process_global_suite_filter" \
+      "$TIMEOUT_SECONDS" \
+      env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" $(swift_test_parallelization_env_word) \
+      DYLD_FRAMEWORK_PATH="$testing_framework_path" \
+      "$swift_testing_helper" --test-bundle-path "$swift_test_bundle" \
+      --filter "$(swift_test_isolated_suite_filter_pattern "$fast_process_global_suite_filter")" \
+      "$swift_test_bundle" --testing-library swift-testing
+  done < <(swift_test_lane_suite_types fast process-global)
 }
 
 prebuild_swift_tests() {
@@ -1049,47 +1235,12 @@ wait_for_process_global_suite_batch() {
   return "$batch_status"
 }
 
-run_non_serialized_swift_tests() {
-  local label="$1"
-
-  if [ "${SWIFT_TEST_PARALLEL:-1}" = "1" ]; then
-    run_swift_with_timeout \
-      "parallel $label" \
-      "$TIMEOUT_SECONDS" \
-      env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" $(swift_test_parallelization_env_word) swift test ${EXTRA_SWIFT_TEST_ARGS:-} --skip-build \
-      --parallel \
-      --skip WebKitSerializedTests --skip E2ESerializedTests --skip ZmxE2ETests \
-      --skip "$(aggregate_serial_non_webkit_filter_pattern)" --build-path "$BUILD_PATH"
-
-    run_aggregate_serial_non_webkit_swift_tests
-  else
-    run_swift_with_timeout \
-      "serial $label" \
-      "$TIMEOUT_SECONDS" \
-      env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" $(swift_test_parallelization_env_word) swift test ${EXTRA_SWIFT_TEST_ARGS:-} --skip-build \
-      --skip WebKitSerializedTests --skip E2ESerializedTests --skip ZmxE2ETests --build-path "$BUILD_PATH"
-  fi
-}
-
-# What the fast inventory skips because another phase owns it.
-#
-# The exact suite names are ANCHORED for the same reason the isolated `--filter`
-# is: an unanchored name also skips anything living in a file named after it, so
-# a fast-lane suite sharing a file with an isolated suite was silently dropped
-# from the lane and run nowhere. `large_non_webkit_filter_pattern` stays
-# unanchored on purpose — it carries substring families (`Script`, `Smoke`,
-# `Integration`, `SourceScan`) meant to match many suites by prefix, and
-# anchoring those would drop whole suites instead.
+# The fast concurrent phase is the default lane minus the exact inventory rows
+# that belong to another lane or to one of fast's isolated execution modes.
 fast_non_webkit_skip_pattern() {
-  local exact_suite_names
-  exact_suite_names="GlobalPreferencesBootstrapBenchmarkTests|RepoExplorerNativeTablePilotBenchmarkTests"
-  exact_suite_names="$exact_suite_names|$(large_serial_non_webkit_filter_pattern)"
-  exact_suite_names="$exact_suite_names|$(aggregate_serial_non_webkit_filter_pattern)"
-  exact_suite_names="$exact_suite_names|$(fast_serial_process_filter_pattern)"
-
   printf '%s|%s' \
-    "$(swift_test_isolated_suite_skip_pattern "$exact_suite_names")" \
-    "$(large_non_webkit_filter_pattern)"
+    "$(swift_test_lane_fast_concurrent_skip_pattern)" \
+    "$(swift_test_isolated_suite_skip_pattern "$(aggregate_serial_non_webkit_filter_pattern)")"
 }
 
 run_fast_non_webkit_swift_tests() {
@@ -1101,7 +1252,6 @@ run_fast_non_webkit_swift_tests() {
     "native-concurrent fast non-WebKit suites" \
     "$TIMEOUT_SECONDS" \
     env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" $(swift_test_parallelization_env_word) swift test ${EXTRA_SWIFT_TEST_ARGS:-} --skip-build \
-    --skip WebKitSerializedTests --skip E2ESerializedTests --skip ZmxE2ETests \
     --skip "$(fast_non_webkit_skip_pattern)" --build-path "$BUILD_PATH"
 
   run_aggregate_serial_non_webkit_swift_tests
@@ -1118,14 +1268,14 @@ run_large_non_webkit_swift_tests() {
       "${parallel_args[@]}" \
       --filter "$(large_non_webkit_filter_pattern)" \
       --skip "$(large_serial_non_webkit_filter_pattern)|$(large_process_global_filter_pattern)" \
-      --skip WebKitSerializedTests --skip E2ESerializedTests --skip ZmxE2ETests --build-path "$BUILD_PATH"
+      --build-path "$BUILD_PATH"
 
     run_swift_with_timeout \
       "serial large process suites" \
       "$TIMEOUT_SECONDS" \
       env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" $(swift_test_parallelization_env_word) swift test ${EXTRA_SWIFT_TEST_ARGS:-} --skip-build \
       --filter "$(large_serial_non_webkit_filter_pattern)" \
-      --skip WebKitSerializedTests --skip E2ESerializedTests --skip ZmxE2ETests --build-path "$BUILD_PATH"
+      --build-path "$BUILD_PATH"
   else
     run_swift_with_timeout \
       "serial large non-WebKit suites" \
@@ -1133,7 +1283,7 @@ run_large_non_webkit_swift_tests() {
       env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" $(swift_test_parallelization_env_word) swift test ${EXTRA_SWIFT_TEST_ARGS:-} --skip-build \
       --filter "$(large_non_webkit_filter_pattern)|$(large_serial_non_webkit_filter_pattern)" \
       --skip "$(large_process_global_filter_pattern)" \
-      --skip WebKitSerializedTests --skip E2ESerializedTests --skip ZmxE2ETests --build-path "$BUILD_PATH"
+      --build-path "$BUILD_PATH"
   fi
 
   run_large_process_global_swift_tests
