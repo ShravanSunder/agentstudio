@@ -95,13 +95,8 @@ package enum AppIPCDescriptorCatalogBuilder {
                     agentEligibility: $0.metadata.agentEligibility ?? .notYetAllowed
                 )
             }
-        guard let illustrativePing = availableDescriptors.first(where: { $0.metadata.name == "system.ping" }) else {
-            throw BuildError.systemPingMissing
-        }
-        let systemCapabilities = try IPCSystemCapabilitiesDescriptorFactory.compose(
-            compatibility: .current,
+        let systemCapabilities = try composeSystemCapabilities(
             availableDescriptors: availableDescriptors,
-            illustrativeDescriptor: illustrativePing,
             recognizedUnexposedMethods: recognizedUnexposedMethods
         )
 
@@ -109,6 +104,21 @@ package enum AppIPCDescriptorCatalogBuilder {
             builtInCatalog: builtInCatalog,
             commandComposition: commandComposition,
             systemCapabilities: systemCapabilities
+        )
+    }
+
+    nonisolated package static func composeSystemCapabilities(
+        availableDescriptors: [IPCAnyMethodDescriptor],
+        recognizedUnexposedMethods: [IPCRecognizedUnexposedName]
+    ) throws -> IPCSystemCapabilitiesComposition {
+        guard let illustrativePing = availableDescriptors.first(where: { $0.metadata.name == "system.ping" }) else {
+            throw BuildError.systemPingMissing
+        }
+        return try IPCSystemCapabilitiesDescriptorFactory.compose(
+            compatibility: .current,
+            availableDescriptors: availableDescriptors,
+            illustrativeDescriptor: illustrativePing,
+            recognizedUnexposedMethods: recognizedUnexposedMethods
         )
     }
 

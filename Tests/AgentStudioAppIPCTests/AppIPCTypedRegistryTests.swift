@@ -5,6 +5,8 @@ import AgentStudioProgrammaticControl
 import Foundation
 import Testing
 
+@testable import AgentStudio
+
 @Suite("App IPC registered typed catalog")
 struct AppIPCTypedRegistryTests {
     @Test("debug registry derives its full capabilities from the callable registrations")
@@ -63,6 +65,91 @@ struct AppIPCTypedRegistryTests {
                 recognizedCommands: [],
                 channel: .debug,
                 capabilitiesComposition: capabilitiesComposition
+            )
+        }
+    }
+
+    @Test("registry rejects a capabilities composition missing a registered method")
+    func registryRejectsCapabilitiesCompositionMissingMethod() throws {
+        let fixture = BuiltInMethodRegistrationsFixture()
+        let registrations = try fixture.registrations()
+        let omittedRegistration = try #require(
+            registrations.first { $0.descriptor.metadata.name != "system.ping" })
+        let incompleteRegistrations = registrations.filter {
+            $0.descriptor.metadata.name != omittedRegistration.descriptor.metadata.name
+        }
+        let incompleteComposition = try makeTestIPCSystemCapabilitiesComposition(
+            registrations: incompleteRegistrations,
+            channel: .debug
+        )
+
+        #expect(throws: AppIPCMethodRegistryError.capabilitiesCompositionMismatch) {
+            try AppIPCMethodRegistry(
+                registrations: registrations,
+                recognizedCommands: [],
+                channel: .debug,
+                capabilitiesComposition: incompleteComposition
+            )
+        }
+    }
+
+    @Test("registry rejects a capabilities composition with an extra method")
+    func registryRejectsCapabilitiesCompositionWithExtraMethod() throws {
+        let fixture = BuiltInMethodRegistrationsFixture()
+        let registrations = try fixture.registrations()
+        let extraRegistration = try #require(
+            registrations.first { $0.descriptor.metadata.name != "system.ping" })
+        let incompleteRegistrations = registrations.filter {
+            $0.descriptor.metadata.name != extraRegistration.descriptor.metadata.name
+        }
+        let completeComposition = try makeTestIPCSystemCapabilitiesComposition(
+            registrations: registrations,
+            channel: .debug
+        )
+
+        #expect(throws: AppIPCMethodRegistryError.capabilitiesCompositionMismatch) {
+            try AppIPCMethodRegistry(
+                registrations: incompleteRegistrations,
+                recognizedCommands: [],
+                channel: .debug,
+                capabilitiesComposition: completeComposition
+            )
+        }
+    }
+
+    @Test("registry rejects a capabilities composition with mismatched recognized-unexposed methods")
+    func registryRejectsCapabilitiesCompositionWithRecognizedUnexposedMismatch() throws {
+        let fixture = BuiltInMethodRegistrationsFixture()
+        let registrations = try fixture.registrations()
+        let allChannelRegistrations = registrations.filter {
+            $0.descriptor.metadata.exposure == .allChannels
+        }
+        let incompleteRecognizedUnexposedComposition = try makeTestIPCSystemCapabilitiesComposition(
+            registrations: allChannelRegistrations,
+            channel: .stable
+        )
+
+        #expect(throws: AppIPCMethodRegistryError.capabilitiesCompositionMismatch) {
+            try AppIPCMethodRegistry(
+                registrations: registrations,
+                recognizedCommands: [],
+                channel: .stable,
+                capabilitiesComposition: incompleteRecognizedUnexposedComposition
+            )
+        }
+    }
+
+    @Test("descriptor catalog builder reports a missing system ping")
+    func descriptorCatalogBuilderReportsMissingSystemPing() throws {
+        let catalog = try BuiltInMethodRegistrationsFixture().catalog
+        let availableDescriptors = catalog.erasedDescriptors.filter {
+            $0.metadata.name != "system.ping"
+        }
+
+        #expect(throws: AppIPCDescriptorCatalogBuilder.BuildError.systemPingMissing) {
+            try AppIPCDescriptorCatalogBuilder.composeSystemCapabilities(
+                availableDescriptors: availableDescriptors,
+                recognizedUnexposedMethods: []
             )
         }
     }
