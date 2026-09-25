@@ -78,6 +78,36 @@ enum WebPageEventWaits {
         )
     }
 
+    /// Suspends until WebKit announces the requested document visibility state.
+    @MainActor
+    static func waitForDocumentVisibility(
+        _ page: WebPage,
+        equals expectedVisibility: String
+    ) async throws -> String {
+        let value = try await page.callJavaScript(
+            """
+            const expectedVisibility = expected;
+            return await new Promise((resolve) => {
+              const handleVisibilityChange = () => {
+                if (document.visibilityState !== expectedVisibility) { return; }
+                document.removeEventListener('visibilitychange', handleVisibilityChange);
+                resolve(document.visibilityState);
+              };
+              if (document.visibilityState === expectedVisibility) {
+                resolve(document.visibilityState);
+                return;
+              }
+              document.addEventListener('visibilitychange', handleVisibilityChange);
+            });
+            """,
+            arguments: ["expected": expectedVisibility]
+        )
+        guard let value = value as? String else {
+            throw WebPageEventWaitError.documentVisibilityUnavailable
+        }
+        return value
+    }
+
     /// Suspends until `document.querySelector(selector)` is non-null.
     @MainActor
     static func waitForDocumentSelector(_ page: WebPage, _ selector: String) async throws {
@@ -123,6 +153,10 @@ enum WebPageEventWaits {
             }
         }
     }
+}
+
+private enum WebPageEventWaitError: Error {
+    case documentVisibilityUnavailable
 }
 
 /// The element `hasReviewShell` is computed from

@@ -26,9 +26,14 @@ extension WebKitSerializedTests.BridgeProductRealGitFileAndReviewWebKitTests {
         traceRecorder: BridgeProductWebKitCarrierTraceRecorder
     ) async throws -> BridgeProductWebKitCarrierRunResult<LiveProof> {
         try await BridgeProductWebKitCarrierTestSupport
-            .withHostedController(controller) { hostedController in
+            .withHostedController(controller, requireVisibleHost: true) { hostedController in
                 hostedController.loadApp()
                 await waitForLiveShell(hostedController, traceRecorder: traceRecorder)
+                let documentVisibility = try await WebPageEventWaits.waitForDocumentVisibility(
+                    hostedController.page,
+                    equals: "visible"
+                )
+                #expect(documentVisibility == "visible")
                 let reviewState = try await collectLiveReviewState(
                     hostedController,
                     sourceOracle: sourceOracle,

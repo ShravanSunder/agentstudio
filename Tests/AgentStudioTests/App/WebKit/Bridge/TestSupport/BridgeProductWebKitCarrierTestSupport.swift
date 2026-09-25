@@ -680,6 +680,7 @@ enum BridgeProductWebKitCarrierTestSupport {
     static func withHostedController<Value>(
         _ controller: BridgePaneController,
         frame: NSRect = NSRect(x: 0, y: 0, width: 960, height: 720),
+        requireVisibleHost: Bool = false,
         operation: @MainActor (BridgePaneController) async throws -> Value
     ) async throws -> BridgeProductWebKitCarrierRunResult<Value> {
         let window = NSWindow(
@@ -693,11 +694,22 @@ enum BridgeProductWebKitCarrierTestSupport {
         window.contentView = mountView
         window.alphaValue = 0.01
         window.ignoresMouseEvents = true
-        window.makeKeyAndOrderFront(nil)
         retainedWindow?.orderOut(nil)
         retainedWindow = nil
+        window.orderFrontRegardless()
 
         do {
+            if requireVisibleHost {
+                let readinessSnapshot = hostSnapshot(window: window, mountView: mountView)
+                guard
+                    readinessSnapshot.windowIsVisible,
+                    readinessSnapshot.windowOcclusionIsVisible
+                else {
+                    throw BridgeProductWebKitCarrierHostReadinessError(
+                        snapshot: readinessSnapshot
+                    )
+                }
+            }
             let value = try await operation(controller)
             let hostSnapshot = hostSnapshot(window: window, mountView: mountView)
             let teardownSnapshot = await teardown(controller: controller, window: window)
@@ -975,5 +987,13 @@ enum BridgeProductWebKitCarrierTestSupport {
         for _ in 0..<turns {
             await Task.yield()
         }
+    }
+}
+
+private struct BridgeProductWebKitCarrierHostReadinessError: Error, CustomStringConvertible {
+    let snapshot: BridgeProductWebKitCarrierHostSnapshot
+
+    var description: String {
+        "RealGit WebKit rows require a visible, unoccluded host; observed=\(snapshot)"
     }
 }
