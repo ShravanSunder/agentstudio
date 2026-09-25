@@ -437,7 +437,7 @@ struct WorkspacePaneBoundaryTests {
         let fallbackPane = graphAtom.createPane(
             launchDirectory: URL(filePath: "/tmp/terminal-valid-launch", directoryHint: .isDirectory),
             zmxSessionID: .generateUUIDv7(),
-            facets: PaneContextFacets(cwd: try #require(URL(string: "https://example.com/not-a-cwd")))
+            facets: PaneContextFacets(cwd: URL(string: "https://example.com/not-a-cwd"))
         )
 
         let expectedNormalizedCWD = URL(filePath: "/tmp/accepted", directoryHint: .isDirectory)

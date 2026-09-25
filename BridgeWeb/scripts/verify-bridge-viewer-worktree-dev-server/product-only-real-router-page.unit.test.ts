@@ -5,6 +5,7 @@ import type {
 } from 'playwright';
 import { describe, expect, test } from 'vitest';
 
+import type { BridgeViewerDocumentGenerations } from './product-only-real-router-document-generations.ts';
 import {
 	BridgeViewerRealRouterObserver,
 	freshReviewInitialWindowRequiresTraversal,
@@ -20,7 +21,10 @@ describe('BridgeViewerRealRouterObserver', () => {
 	test('records the scrub-safe product call method in failure transport evidence', () => {
 		// Arrange
 		const harness = makeObserverHarness();
-		const observer = new BridgeViewerRealRouterObserver(harness.page, (): number => 1);
+		const observer = new BridgeViewerRealRouterObserver(
+			harness.page,
+			documentGenerationsAt((): number => 1),
+		);
 		const request = makeProductCallRequest('review.activeViewerMode.update');
 		harness.emit('request', request);
 
@@ -36,7 +40,10 @@ describe('BridgeViewerRealRouterObserver', () => {
 	test('retains scrubbed content lifecycle and unfinished request ordinals for a failed journey', () => {
 		// Arrange
 		const harness = makeObserverHarness();
-		const observer = new BridgeViewerRealRouterObserver(harness.page, (): number => 1);
+		const observer = new BridgeViewerRealRouterObserver(
+			harness.page,
+			documentGenerationsAt((): number => 1),
+		);
 		const completedRequest = makeProductContentRequest('completed-request');
 		const unfinishedRequest = makeProductContentRequest('unfinished-request');
 		harness.emit('request', completedRequest);
@@ -72,7 +79,10 @@ describe('BridgeViewerRealRouterObserver', () => {
 	test('waits for streaming request completion and one activity-stable browser frame', async () => {
 		// Arrange
 		const harness = makeObserverHarness();
-		const observer = new BridgeViewerRealRouterObserver(harness.page, (): number => 1);
+		const observer = new BridgeViewerRealRouterObserver(
+			harness.page,
+			documentGenerationsAt((): number => 1),
+		);
 		const firstRequest = makeProductContentRequest('first-request');
 		const secondRequest = makeProductContentRequest('second-request');
 		let barrierResolved = false;
@@ -119,7 +129,7 @@ describe('BridgeViewerRealRouterObserver', () => {
 		let documentGeneration = 1;
 		const observer = new BridgeViewerRealRouterObserver(
 			harness.page,
-			(): number => documentGeneration,
+			documentGenerationsAt((): number => documentGeneration),
 		);
 		const priorDocumentRequest = makeProductContentRequest('prior-document-request');
 		harness.emit('request', priorDocumentRequest);
@@ -144,7 +154,7 @@ describe('BridgeViewerRealRouterObserver', () => {
 		let documentGeneration = 1;
 		const observer = new BridgeViewerRealRouterObserver(
 			harness.page,
-			(): number => documentGeneration,
+			documentGenerationsAt((): number => documentGeneration),
 		);
 		const retiredDocumentRequest = makeProductCallRequest('review.activeViewerMode.update');
 		const retiredDocumentBody = makePendingStringPromise();
@@ -173,7 +183,10 @@ describe('BridgeViewerRealRouterObserver', () => {
 	test('still reports a response parser failure from the active document', async () => {
 		// Arrange
 		const harness = makeObserverHarness();
-		const observer = new BridgeViewerRealRouterObserver(harness.page, (): number => 1);
+		const observer = new BridgeViewerRealRouterObserver(
+			harness.page,
+			documentGenerationsAt((): number => 1),
+		);
 		const activeDocumentRequest = makeProductCallRequest('review.activeViewerMode.update');
 		const activeDocumentFailure = new Error('active document response body failed');
 		harness.emit('request', activeDocumentRequest);
@@ -190,7 +203,10 @@ describe('BridgeViewerRealRouterObserver', () => {
 	test('treats a failed non-stream request without an HTTP response as terminal', async () => {
 		// Arrange
 		const harness = makeObserverHarness();
-		const observer = new BridgeViewerRealRouterObserver(harness.page, (): number => 1);
+		const observer = new BridgeViewerRealRouterObserver(
+			harness.page,
+			documentGenerationsAt((): number => 1),
+		);
 		const cancelledContentRequest = makeProductContentRequest('cancelled-request');
 		harness.emit('request', cancelledContentRequest);
 		harness.emit('requestfailed', cancelledContentRequest);
@@ -212,7 +228,125 @@ describe('BridgeViewerRealRouterObserver', () => {
 				}),
 			],
 			unfinishedRequestOrdinals: [],
+			unresolvedWaiters: [],
 		});
+	});
+
+	test('completes legacy metadata only with the awaited generation’s own final window', async () => {
+		// Arrange: generation 1 received a partial window and still has a final window in flight.
+		const harness = makeObserverHarness();
+		let documentGeneration = 1;
+		const observer = new BridgeViewerRealRouterObserver(
+			harness.page,
+			documentGenerationsAt((): number => documentGeneration),
+		);
+		const oldPartialRequest = makeLegacyMetadataRequest();
+		const oldFinalRequest = makeLegacyMetadataRequest();
+		harness.emit('request', oldPartialRequest);
+		harness.emit('response', makeLegacyMetadataResponse(oldPartialRequest, 'next-window'));
+		harness.emit('request', oldFinalRequest);
+
+		// Act: after the reload, generation 2 receives only a partial window, then the
+		// old document's final window arrives.
+		documentGeneration = 2;
+		const newPartialRequest = makeLegacyMetadataRequest();
+		harness.emit('request', newPartialRequest);
+		harness.emit('response', makeLegacyMetadataResponse(newPartialRequest, 'next-window'));
+		let completed = false;
+		const completion = observer.waitForObservedLegacyMetadataCompletion().then((): void => {
+			completed = true;
+		});
+		harness.emit('response', makeLegacyMetadataResponse(oldFinalRequest, null));
+		await flushMicrotasks();
+
+		// Assert: the old final window was parsed but settles nothing for generation 2
+		// (settling removes the waiter synchronously), and the failure diagnostic
+		// names the pending generation-2 waiter.
+		expect(observer.legacyRouteTranscript().map((entry) => entry.finalWindow)).toEqual([
+			false,
+			true,
+			false,
+		]);
+		expect(observer.failureTransportSnapshot().unresolvedWaiters).toContainEqual({
+			documentGeneration: 2,
+			name: 'legacy-metadata-completion',
+		});
+
+		// Act: generation 2's own final window arrives.
+		const newFinalRequest = makeLegacyMetadataRequest();
+		harness.emit('request', newFinalRequest);
+		harness.emit('response', makeLegacyMetadataResponse(newFinalRequest, null));
+		await completion;
+
+		// Assert
+		expect(completed).toBe(true);
+		expect(observer.failureTransportSnapshot().unresolvedWaiters).toEqual([]);
+	});
+
+	test('does not wait on legacy metadata a previous generation received', async () => {
+		// Arrange: only the old document received a (partial) legacy metadata window.
+		const harness = makeObserverHarness();
+		let documentGeneration = 1;
+		const observer = new BridgeViewerRealRouterObserver(
+			harness.page,
+			documentGenerationsAt((): number => documentGeneration),
+		);
+		const oldPartialRequest = makeLegacyMetadataRequest();
+		harness.emit('request', oldPartialRequest);
+		harness.emit('response', makeLegacyMetadataResponse(oldPartialRequest, 'next-window'));
+		await flushMicrotasks();
+		documentGeneration = 2;
+
+		// Act / Assert: the new document issued no legacy request, so nothing is awaited.
+		await expect(observer.waitForObservedLegacyMetadataCompletion()).resolves.toBeUndefined();
+		expect(observer.failureTransportSnapshot().unresolvedWaiters).toEqual([]);
+	});
+
+	test('settles a reload waiter only with a response to a request from the next page generation', async () => {
+		// Arrange: the previous document sent a frame acknowledgement before the reload.
+		const harness = makeObserverHarness();
+		let documentGeneration = 1;
+		const observer = new BridgeViewerRealRouterObserver(
+			harness.page,
+			documentGenerationsAt((): number => documentGeneration),
+		);
+		const staleAcknowledgementRequest = makeFrameObservationRequest();
+		harness.emit('request', staleAcknowledgementRequest);
+		const reloadJoin = observer.armReloadJoinWaiters();
+		let settledAcknowledgement: PlaywrightResponse | null = null;
+		const acknowledgement = reloadJoin.frameAcknowledgement.then(
+			(response: PlaywrightResponse): PlaywrightResponse => {
+				settledAcknowledgement = response;
+				return response;
+			},
+		);
+
+		// Act: the new document commits, then the previous document's response arrives first.
+		documentGeneration = 2;
+		harness.emit('response', makeBodylessCommandResponse(staleAcknowledgementRequest));
+		await flushMicrotasks();
+
+		// Assert
+		expect(settledAcknowledgement).toBeNull();
+		expect(observer.failureTransportSnapshot().unresolvedWaiters).toContainEqual({
+			documentGeneration: 2,
+			name: 'frame-acknowledgement',
+		});
+
+		// Act: the new document's own acknowledgement arrives.
+		const currentAcknowledgementRequest = makeFrameObservationRequest();
+		const currentAcknowledgementResponse = makeBodylessCommandResponse(
+			currentAcknowledgementRequest,
+		);
+		harness.emit('request', currentAcknowledgementRequest);
+		harness.emit('response', currentAcknowledgementResponse);
+
+		// Assert
+		await expect(acknowledgement).resolves.toBe(currentAcknowledgementResponse);
+		expect(observer.failureTransportSnapshot().unresolvedWaiters).toEqual([
+			{ documentGeneration: 2, name: 'file-metadata-open' },
+			{ documentGeneration: 2, name: 'review-metadata-open' },
+		]);
 	});
 });
 
@@ -388,6 +522,19 @@ describe('previousFreshReviewTraversalScrollTop', () => {
 	});
 });
 
+// A page whose every request and worker belongs to the current generation, as
+// the tests set it; the observer reads generations only through this seam.
+function documentGenerationsAt(currentGeneration: () => number): BridgeViewerDocumentGenerations {
+	return {
+		currentGeneration,
+		observedWorker: (workerUrl: string) => ({
+			documentGeneration: currentGeneration(),
+			scriptUrl: workerUrl,
+		}),
+		requestGeneration: (): number => currentGeneration(),
+	};
+}
+
 function makeObserverHarness(): {
 	readonly emit: (eventName: PageEventName, event: unknown) => void;
 	readonly page: Page;
@@ -395,6 +542,12 @@ function makeObserverHarness(): {
 	readonly resolveNextAnimationFrame: () => void;
 } {
 	const eventHandlers = new Map<PageEventName, PageEventHandler[]>();
+	// Playwright evaluates each waitForResponse predicate against every later
+	// `response` event and settles the waiter with the first match.
+	const responseWaiters: Array<{
+		readonly predicate: (response: PlaywrightResponse) => boolean;
+		readonly resolve: (response: PlaywrightResponse) => void;
+	}> = [];
 	const animationFrameResolvers: Array<() => void> = [];
 	let activeFrameSettlement:
 		| {
@@ -417,6 +570,12 @@ function makeObserverHarness(): {
 			handlers.push(eventHandler);
 			eventHandlers.set(eventName, handlers);
 		},
+		waitForResponse: async (
+			predicate: (response: PlaywrightResponse) => boolean,
+		): Promise<PlaywrightResponse> =>
+			await new Promise<PlaywrightResponse>((resolve): void => {
+				responseWaiters.push({ predicate, resolve });
+			}),
 		waitForFunction: async (): Promise<void> => {
 			const frameSettlement = activeFrameSettlement;
 			if (frameSettlement === undefined) {
@@ -432,6 +591,13 @@ function makeObserverHarness(): {
 	return {
 		emit: (eventName, event): void => {
 			for (const eventHandler of eventHandlers.get(eventName) ?? []) eventHandler(event);
+			if (eventName !== 'response') return;
+			const response = event as PlaywrightResponse;
+			for (const [waiterIndex, waiter] of [...responseWaiters.entries()].toReversed()) {
+				if (!waiter.predicate(response)) continue;
+				responseWaiters.splice(waiterIndex, 1);
+				waiter.resolve(response);
+			}
 		},
 		page: pageShape as unknown as Page,
 		pendingAnimationFrameCount: (): number => animationFrameResolvers.length,
@@ -472,6 +638,48 @@ function makeProductContentRequest(contentRequestId: string): PlaywrightRequest 
 			}),
 		url: (): string => 'http://127.0.0.1:5173/__bridge-product/content',
 	} as unknown as PlaywrightRequest;
+}
+
+function makeLegacyMetadataRequest(): PlaywrightRequest {
+	return {
+		method: (): string => 'GET',
+		postData: (): null => null,
+		url: (): string => 'http://127.0.0.1:5173/__bridge-worktree/review-metadata',
+	} as unknown as PlaywrightRequest;
+}
+
+function makeLegacyMetadataResponse(
+	request: PlaywrightRequest,
+	nextWindowCursor: string | null,
+): PlaywrightResponse {
+	return {
+		request: (): PlaywrightRequest => request,
+		status: (): number => 200,
+		text: async (): Promise<string> =>
+			JSON.stringify({ nextWindowCursor, protocolFrame: { frameKind: 'window', sequence: 1 } }),
+		url: (): string => request.url(),
+	} as unknown as PlaywrightResponse;
+}
+
+function makeFrameObservationRequest(): PlaywrightRequest {
+	return {
+		method: (): string => 'POST',
+		postData: (): string =>
+			JSON.stringify({
+				kind: 'stream.frameObserved',
+				paneSessionId: 'pane-session-secret',
+				workerInstanceId: 'worker-instance-secret',
+			}),
+		url: (): string => 'http://127.0.0.1:5173/__bridge-product/command',
+	} as unknown as PlaywrightRequest;
+}
+
+function makeBodylessCommandResponse(request: PlaywrightRequest): PlaywrightResponse {
+	return {
+		request: (): PlaywrightRequest => request,
+		status: (): number => 204,
+		url: (): string => request.url(),
+	} as unknown as PlaywrightResponse;
 }
 
 function makeSuccessfulResponse(request: PlaywrightRequest): PlaywrightResponse {

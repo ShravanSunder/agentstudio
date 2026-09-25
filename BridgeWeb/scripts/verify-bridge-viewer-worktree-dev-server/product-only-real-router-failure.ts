@@ -8,7 +8,10 @@ export class BridgeViewerProductOnlyJourneyFailure extends Error {
 		readonly checkpoint: BridgeViewerProductOnlyJourneyFailureCheckpoint;
 	}) {
 		const causeMessage = props.cause instanceof Error ? props.cause.message : String(props.cause);
-		const unresolvedEntries = props.checkpoint.transport.entries
+		const unresolvedWaiters = props.checkpoint.transport.unresolvedWaiters.map(
+			(waiter) => `${waiter.name}:g${waiter.documentGeneration}`,
+		);
+		const unsettledEntries = props.checkpoint.transport.entries
 			.filter((entry) => !entry.requestSettled)
 			.slice(-5)
 			.map(
@@ -19,7 +22,7 @@ export class BridgeViewerProductOnlyJourneyFailure extends Error {
 			.slice(0, 3)
 			.map((diagnostic) => `${diagnostic.type}:${diagnostic.path ?? 'page'}:${diagnostic.text}`);
 		super(
-			`${causeMessage} [failureCode=${props.checkpoint.failureCode} unfinished=${props.checkpoint.transport.unfinishedRequestOrdinals.join(',') || 'none'} unresolved=${unresolvedEntries.join(',') || 'none'} browserDiagnostics=${browserDiagnostics.join(' | ') || 'none'} failedResponses=${props.checkpoint.failedResponses.length}]`,
+			`${causeMessage} [failureCode=${props.checkpoint.failureCode} unfinished=${props.checkpoint.transport.unfinishedRequestOrdinals.join(',') || 'none'} unresolved=${unresolvedWaiters.join(',') || 'none'} unsettled=${unsettledEntries.join(',') || 'none'} browserDiagnostics=${browserDiagnostics.join(' | ') || 'none'} failedResponses=${props.checkpoint.failedResponses.length}]`,
 		);
 		this.name = 'BridgeViewerProductOnlyJourneyFailure';
 		this.checkpoint = props.checkpoint;

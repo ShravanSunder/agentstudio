@@ -1,11 +1,13 @@
 import Foundation
 import SwiftSyntax
+import Synchronization
 
 struct ArchitectureLintContext {
     let path: String
     let source: String
     let sourceFile: SourceFileSyntax
-    private let workspaceRootPath: String
+    let workspaceRootPath: String
+    private let lineTable: LazySourceLineTable
 
     init(
         path: String,
@@ -17,6 +19,7 @@ struct ArchitectureLintContext {
         self.source = source
         self.sourceFile = sourceFile
         self.workspaceRootPath = workspaceRootPath
+        self.lineTable = LazySourceLineTable(fileName: path, tree: sourceFile)
     }
 
     var normalizedPath: String {
@@ -38,6 +41,12 @@ struct ArchitectureLintContext {
         return String(path.dropFirst(workingDirectoryPrefix.count))
     }
 
+    /// Under a `Sources/` directory, whether the path is absolute or
+    /// workspace-relative.
+    var isUnderSourcesDirectory: Bool {
+        "/\(normalizedPath)".contains("/Sources/")
+    }
+
     var syntaxScopeSourceIdentity: String {
         workspaceRelativePath ?? normalizedAbsolutePath
     }
@@ -53,8 +62,28 @@ struct ArchitectureLintContext {
     }
 
     func location(for position: AbsolutePosition) -> (line: Int, column: Int) {
-        let converter = SourceLocationConverter(fileName: path, tree: sourceFile)
-        let location = converter.location(for: position)
+        let location = lineTable.location(for: position)
         return (location.line, location.column)
+    }
+}
+
+/// One file's line table, built on the first diagnostic and reused for the
+/// rest, so the cost is per file rather than per diagnostic.
+private final class LazySourceLineTable: Sendable {
+    private let fileName: String
+    private let tree: SourceFileSyntax
+    private let converter = Mutex<SourceLocationConverter?>(nil)
+
+    init(fileName: String, tree: SourceFileSyntax) {
+        self.fileName = fileName
+        self.tree = tree
+    }
+
+    func location(for position: AbsolutePosition) -> SourceLocation {
+        converter.withLock { cachedConverter in
+            let converter = cachedConverter ?? SourceLocationConverter(fileName: fileName, tree: tree)
+            cachedConverter = converter
+            return converter.location(for: position)
+        }
     }
 }

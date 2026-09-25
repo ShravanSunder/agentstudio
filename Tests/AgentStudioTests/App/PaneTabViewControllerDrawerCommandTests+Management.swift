@@ -106,7 +106,7 @@ extension PaneTabViewControllerDrawerCommandTests {
     func executeManagementLayerCreateTerminal_openEmptyDrawer_createsFirstDrawerPane() async throws {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
-        try await withWorkspaceCommandHarness(harness) {
+        await withWorkspaceCommandHarness(harness) {
             let parent = harness.store.createPane()
             let tab = Tab(paneId: parent.id)
             harness.store.appendTab(tab)

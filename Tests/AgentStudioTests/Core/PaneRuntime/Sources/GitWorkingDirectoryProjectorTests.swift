@@ -1,4 +1,5 @@
 import AgentStudioGit
+import AgentStudioTestHarness
 import AgentStudioTestSupport
 import Foundation
 import Testing
@@ -518,11 +519,11 @@ struct GitWorkingDirectoryProjectorTests {
     @Test("same worktree rejects stale completion and emits the latest snapshot")
     func sameWorktreeRejectsStaleCompletionAndEmitsLatestSnapshot() async throws {
         let bus = EventBus<RuntimeEnvelope>()
-        let gate = AsyncGate()
+        let gate = HeldStep<Void>("gate", cancellation: .holdThroughCancellation)
         let calls = CallCounter()
         let provider = StubGitWorkingTreeStatusProvider { _ in
             let callNumber = await calls.increment()
-            await gate.waitUntilOpen()
+            try? await gate.arrive(())
             return GitWorkingTreeStatus(
                 summary: GitWorkingTreeSummary(changed: 1, staged: 0, untracked: 0),
                 branch: "main-\(callNumber)",
@@ -555,7 +556,7 @@ struct GitWorkingDirectoryProjectorTests {
             }
         )
 
-        await gate.open()
+        gate.release()
 
         let reachedLatestSnapshot = await waitUntil {
             await observed.latestSnapshot(for: worktreeId)?.branch == "main-2"
@@ -801,7 +802,7 @@ struct GitWorkingDirectoryProjectorTests {
         let factCalls = CallCounter()
         let detailCalls = CallCounter()
         let detailStarted = AsyncReceipt()
-        let detailGate = AsyncGate()
+        let detailGate = HeldStep<Void>("detailGate", cancellation: .holdThroughCancellation)
         let initialFacts = Self.a2Facts(changed: 1, branch: "initial", paths: ["initial.txt"])
         let changedFacts = Self.a2Facts(changed: 2, branch: "changed", paths: ["initial.txt", "changed.txt"])
         let provider = A2FactDetailStatusProvider(
@@ -815,7 +816,7 @@ struct GitWorkingDirectoryProjectorTests {
                     return .available(GitWorkingTreeLineDetail(linesAdded: 3, linesDeleted: 1))
                 }
                 await detailStarted.signal()
-                await detailGate.waitUntilOpen()
+                try? await detailGate.arrive(())
                 return .available(GitWorkingTreeLineDetail(linesAdded: 13, linesDeleted: 8))
             }
         )
@@ -855,7 +856,7 @@ struct GitWorkingDirectoryProjectorTests {
         #expect(await observed.snapshotCount(for: worktreeId) == 1)
         #expect(await observed.latestSnapshot(for: worktreeId)?.branch == "initial")
 
-        await detailGate.open()
+        detailGate.release()
         #expect(await waitUntil { await observed.latestSnapshot(for: worktreeId)?.branch == "changed" })
         #expect(await detailCalls.value() == 2)
         #expect(await observed.snapshotCount(for: worktreeId) == 2)
@@ -940,7 +941,7 @@ struct GitWorkingDirectoryProjectorTests {
             }
         )
 
-        await providerFixture.staleDetailGate.open()
+        providerFixture.staleDetailGate.release()
         await providerFixture.currentDetailStarted.wait()
 
         #expect(await observed.snapshotCount(for: worktreeId) == 1)
@@ -956,7 +957,7 @@ struct GitWorkingDirectoryProjectorTests {
         )
         #expect(await actor.lastAcceptedLineDetailAtByWorktreeId[worktreeId] == initialDetailAcceptedAt)
 
-        await providerFixture.currentDetailGate.open()
+        providerFixture.currentDetailGate.release()
         #expect(await waitUntil { await observed.latestSnapshot(for: worktreeId)?.branch == "current" })
         #expect(await observed.snapshotCount(for: worktreeId) == 2)
         #expect(await observed.latestSnapshot(for: worktreeId)?.summary.linesAdded == 30)
@@ -1172,11 +1173,11 @@ struct GitWorkingDirectoryProjectorTests {
     @Test("independent worktrees run independently")
     func independentWorktreesRunIndependently() async throws {
         let bus = EventBus<RuntimeEnvelope>()
-        let gate = AsyncGate()
+        let gate = HeldStep<Void>("gate", cancellation: .holdThroughCancellation)
         let calls = CallCounter()
         let provider = StubGitWorkingTreeStatusProvider { _ in
             _ = await calls.increment()
-            await gate.waitUntilOpen()
+            try? await gate.arrive(())
             return GitWorkingTreeStatus(
                 summary: GitWorkingTreeSummary(changed: 2, staged: 1, untracked: 0),
                 branch: "main",
@@ -1217,7 +1218,7 @@ struct GitWorkingDirectoryProjectorTests {
         let bothStarted = await waitUntil { await calls.value() >= 2 }
         #expect(bothStarted)
 
-        await gate.open()
+        gate.release()
         let bothProducedSnapshots = await waitUntil {
             let firstCount = await observed.snapshotCount(for: firstWorktreeId)
             let secondCount = await observed.snapshotCount(for: secondWorktreeId)
@@ -1232,7 +1233,7 @@ struct GitWorkingDirectoryProjectorTests {
     @Test("automatic admission preserves one foreground slot inside the global budget")
     func automaticAdmissionPreservesForegroundSlot() async throws {
         let bus = EventBus<RuntimeEnvelope>()
-        let gate = AsyncGate()
+        let gate = HeldStep<Void>("gate", cancellation: .holdThroughCancellation)
         let calls = CallCounter()
         let policy = AppPolicies.GitRefresh.Policy(
             backgroundStripeCount: 1,
@@ -1241,7 +1242,7 @@ struct GitWorkingDirectoryProjectorTests {
         )
         let provider = StubGitWorkingTreeStatusProvider { _ in
             _ = await calls.increment()
-            await gate.waitUntilOpen()
+            try? await gate.arrive(())
             return GitWorkingTreeStatus(
                 summary: GitWorkingTreeSummary(changed: 1, staged: 0, untracked: 0),
                 branch: "main",
@@ -1287,7 +1288,7 @@ struct GitWorkingDirectoryProjectorTests {
         #expect(boundedDebtSnapshot.readyPendingCount == 5)
         #expect(boundedDebtSnapshot.activeFollowUpCount == 0)
 
-        await gate.open()
+        gate.release()
         let drainedAllQueuedWork = await waitUntil {
             await calls.value() == worktreeIds.count
         }
@@ -1391,7 +1392,7 @@ struct GitWorkingDirectoryProjectorTests {
     @Test("reserved oldest stale slot admits background work ahead of younger UUID")
     func reservedOldestStaleSlotAdmitsBackgroundWorkAheadOfYoungerUUID() async throws {
         let bus = EventBus<RuntimeEnvelope>()
-        let gate = AsyncGate()
+        let gate = HeldStep<Void>("gate", cancellation: .holdThroughCancellation)
         let callOrder = CallOrderRecorder()
         let policy = AppPolicies.GitRefresh.Policy(
             backgroundStripeCount: 1,
@@ -1401,7 +1402,7 @@ struct GitWorkingDirectoryProjectorTests {
         let provider = StubGitWorkingTreeStatusProvider { rootPath in
             let label = rootPath.lastPathComponent
             await callOrder.record(label)
-            await gate.waitUntilOpen()
+            try? await gate.arrive(())
             return GitWorkingTreeStatus(
                 summary: GitWorkingTreeSummary(changed: 1, staged: 0, untracked: 0),
                 branch: label,
@@ -1453,7 +1454,7 @@ struct GitWorkingDirectoryProjectorTests {
             )
         )
 
-        await gate.open()
+        gate.release()
         let secondCallArrived = await waitUntil {
             await callOrder.labels.count >= 2
         }
@@ -1955,12 +1956,12 @@ struct GitWorkingDirectoryProjectorTests {
     @Test("context change cancels in-flight compute before stale snapshot emit")
     func contextChangeCancelsInFlightComputeBeforeStaleSnapshotEmit() async throws {
         let bus = EventBus<RuntimeEnvelope>()
-        let gate = AsyncGate()
+        let gate = HeldStep<Void>("gate", cancellation: .holdThroughCancellation)
         let callOrder = CallOrderRecorder()
         let provider = StubGitWorkingTreeStatusProvider { rootPath in
             let label = rootPath.lastPathComponent
             await callOrder.record(label)
-            await gate.waitUntilOpen()
+            try? await gate.arrive(())
             return GitWorkingTreeStatus(
                 summary: GitWorkingTreeSummary(changed: 1, staged: 0, untracked: 0),
                 branch: label,
@@ -2009,7 +2010,7 @@ struct GitWorkingDirectoryProjectorTests {
         }
         #expect(newComputeStarted)
 
-        await gate.open()
+        gate.release()
         let newSnapshotArrived = await waitUntil {
             await observed.latestSnapshot(for: worktreeId)?.rootPath == newRootPath
         }
@@ -2133,14 +2134,14 @@ struct GitWorkingDirectoryProjectorTests {
     @Test("worktree unregistration cancels and clears state")
     func worktreeUnregistrationCancelsAndClearsState() async throws {
         let bus = EventBus<RuntimeEnvelope>()
-        let gate = AsyncGate()
+        let gate = HeldStep<Void>("gate", cancellation: .holdThroughCancellation)
         let cancellationReceipt = AsyncReceipt()
         let providerReleaseReceipt = AsyncReceipt()
         let calls = CallCounter()
         let provider = StubGitWorkingTreeStatusProvider { _ in
             _ = await calls.increment()
             await withTaskCancellationHandler {
-                await gate.waitUntilOpen()
+                try? await gate.arrive(())
             } onCancel: {
                 Task { await cancellationReceipt.signal() }
             }
@@ -2177,7 +2178,7 @@ struct GitWorkingDirectoryProjectorTests {
         await bus.post(makeFilesChangedEnvelope(seq: 3, worktreeId: worktreeId, rootPath: rootPath, batchSeq: 2))
 
         await cancellationReceipt.wait()
-        await gate.open()
+        gate.release()
         await providerReleaseReceipt.wait()
 
         #expect(await calls.value() == 1)
@@ -2191,11 +2192,11 @@ struct GitWorkingDirectoryProjectorTests {
     @Test("shutdown while provider is in-flight does not emit stale snapshot")
     func shutdownWhileProviderIsInFlightDoesNotEmitStaleSnapshot() async throws {
         let bus = EventBus<RuntimeEnvelope>()
-        let gate = AsyncGate()
+        let gate = HeldStep<Void>("gate", cancellation: .holdThroughCancellation)
         let calls = CallCounter()
         let provider = StubGitWorkingTreeStatusProvider { _ in
             _ = await calls.increment()
-            await gate.waitUntilOpen()
+            try? await gate.arrive(())
             return GitWorkingTreeStatus(
                 summary: GitWorkingTreeSummary(changed: 1, staged: 0, untracked: 0),
                 branch: "main",
@@ -2221,7 +2222,9 @@ struct GitWorkingDirectoryProjectorTests {
         let shutdownTask = Task {
             await actor.shutdown()
         }
-        await gate.open()
+        // Release the stale provider result only after shutdown has cancelled the in-flight call.
+        try await gate.cancellationObserved()
+        gate.release()
         await shutdownTask.value
 
         for _ in 0..<300 {
@@ -2764,14 +2767,14 @@ struct GitWorkingDirectoryProjectorTests {
         let bus = EventBus<RuntimeEnvelope>()
         let physicalGate = AgentStudioGitStatusPhysicalGate(maxActiveReadCount: 1)
         let blockingReadStarted = AsyncReceipt()
-        let blockingReadGate = AsyncGate()
+        let blockingReadGate = HeldStep<Void>("blockingReadGate", cancellation: .holdThroughCancellation)
         let snapshot = Self.a3CompleteStatusSnapshot()
         let blockingProvider = AgentStudioGitWorkingTreeStatusProvider(
             slowObservationScheduler: PassiveGitStatusSlowObservationScheduler(),
             physicalGate: physicalGate
         ) { _, _ in
             await blockingReadStarted.signal()
-            await blockingReadGate.waitUntilOpen()
+            try? await blockingReadGate.arrive(())
             return snapshot
         }
         let projectorProvider = AgentStudioGitWorkingTreeStatusProvider(
@@ -2798,7 +2801,7 @@ struct GitWorkingDirectoryProjectorTests {
         #expect(await waitUntil { await actor.capacityRetryWorktreeIds.contains(worktreeId) })
         #expect(await actor.statusBackoffFailureCountByWorktreeId[worktreeId] == nil)
 
-        await blockingReadGate.open()
+        blockingReadGate.release()
         _ = await blockedRead.value
         #expect(await waitUntil { await observed.snapshotCount(for: worktreeId) == 1 })
         #expect(await actor.capacityRetryWorktreeIds.contains(worktreeId) == false)
@@ -2812,14 +2815,14 @@ struct GitWorkingDirectoryProjectorTests {
         let bus = EventBus<RuntimeEnvelope>()
         let physicalGate = AgentStudioGitStatusPhysicalGate(maxActiveReadCount: 1)
         let blockingReadStarted = AsyncReceipt()
-        let blockingReadGate = AsyncGate()
+        let blockingReadGate = HeldStep<Void>("blockingReadGate", cancellation: .holdThroughCancellation)
         let snapshot = Self.a3CompleteStatusSnapshot()
         let blockingProvider = AgentStudioGitWorkingTreeStatusProvider(
             slowObservationScheduler: PassiveGitStatusSlowObservationScheduler(),
             physicalGate: physicalGate
         ) { _, _ in
             await blockingReadStarted.signal()
-            await blockingReadGate.waitUntilOpen()
+            try? await blockingReadGate.arrive(())
             return snapshot
         }
         let projectorProvider = AgentStudioGitWorkingTreeStatusProvider(
@@ -2850,7 +2853,7 @@ struct GitWorkingDirectoryProjectorTests {
         #expect(await actor.capacityCompletionTask == nil)
         #expect(await actor.capacityRetryWorktreeIds.isEmpty)
 
-        await blockingReadGate.open()
+        blockingReadGate.release()
         _ = await blockedRead.value
         for _ in 0..<300 {
             await Task.yield()
@@ -4370,9 +4373,9 @@ private struct A2FactDetailStatusProvider: GitWorkingTreeStatusProvider {
 private struct A2StaleDetailProviderFixture {
     let pathspecRecorder: PathspecRecorder
     let staleDetailStarted: AsyncReceipt
-    let staleDetailGate: AsyncGate
+    let staleDetailGate: HeldStep<Void>
     let currentDetailStarted: AsyncReceipt
-    let currentDetailGate: AsyncGate
+    let currentDetailGate: HeldStep<Void>
     let provider: A2FactDetailStatusProvider
 
     init(
@@ -4384,9 +4387,9 @@ private struct A2StaleDetailProviderFixture {
         let detailCalls = CallCounter()
         let pathspecRecorder = PathspecRecorder()
         let staleDetailStarted = AsyncReceipt()
-        let staleDetailGate = AsyncGate()
+        let staleDetailGate = HeldStep<Void>("staleDetailGate", cancellation: .holdThroughCancellation)
         let currentDetailStarted = AsyncReceipt()
-        let currentDetailGate = AsyncGate()
+        let currentDetailGate = HeldStep<Void>("currentDetailGate", cancellation: .holdThroughCancellation)
         self.pathspecRecorder = pathspecRecorder
         self.staleDetailStarted = staleDetailStarted
         self.staleDetailGate = staleDetailGate
@@ -4407,11 +4410,11 @@ private struct A2StaleDetailProviderFixture {
                     return .available(GitWorkingTreeLineDetail(linesAdded: 1, linesDeleted: 0))
                 case 2:
                     await staleDetailStarted.signal()
-                    await staleDetailGate.waitUntilOpen()
+                    try? await staleDetailGate.arrive(())
                     return .available(GitWorkingTreeLineDetail(linesAdded: 20, linesDeleted: 10))
                 default:
                     await currentDetailStarted.signal()
-                    await currentDetailGate.waitUntilOpen()
+                    try? await currentDetailGate.arrive(())
                     return .available(GitWorkingTreeLineDetail(linesAdded: 30, linesDeleted: 15))
                 }
             }
@@ -4474,28 +4477,6 @@ private actor ObservedGitEvents {
 
     func latestOriginEvent(for repoId: UUID) -> (String, String)? {
         originEventsByRepoId[repoId]?.last
-    }
-}
-
-private actor AsyncGate {
-    private var isOpen = false
-    private var waiters: [CheckedContinuation<Void, Never>] = []
-
-    func waitUntilOpen() async {
-        guard !isOpen else { return }
-        await withCheckedContinuation { continuation in
-            waiters.append(continuation)
-        }
-    }
-
-    func open() {
-        guard !isOpen else { return }
-        isOpen = true
-        let continuations = waiters
-        waiters.removeAll(keepingCapacity: false)
-        for continuation in continuations {
-            continuation.resume()
-        }
     }
 }
 

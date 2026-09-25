@@ -448,7 +448,7 @@ struct RemoteReferenceRefreshActorTests {
             await actor.setOrigin(repoId: fixture.repoId, expectedOrigin: fixture.originB)
         }
         await fixture.provider.releaseStage()
-        await originChangeTask.value
+        _ = await originChangeTask.value
         await actor.waitUntilIdle()
 
         #expect(await fixture.provider.promoteCount == 0)
@@ -730,7 +730,7 @@ struct RemoteReferenceRefreshActorTests {
         }
         await fixture.provider.waitForCleanupCount(1)
         await fixture.provider.releasePromotion()
-        await originChangeTask.value
+        _ = await originChangeTask.value
         await actor.waitUntilIdle()
 
         #expect(await fixture.provider.promotionMutationCount == 0)

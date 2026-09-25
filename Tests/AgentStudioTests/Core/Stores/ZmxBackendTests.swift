@@ -3,6 +3,7 @@ import Testing
 
 @testable import AgentStudioCore
 @testable import AgentStudioInfrastructure
+@testable import AgentStudioTestSupport
 
 @Suite(.serialized)
 final class ZmxBackendTests {
@@ -217,15 +218,11 @@ final class ZmxBackendTests {
         ]
         let command = "printf '%s\\n' \(opaqueArguments.map(ZmxBackend.shellEscape).joined(separator: " "))"
 
-        // Act — the shared executor drains stdout concurrently with the child and joins on
-        // exit plus EOF. Waiting for exit before reading deadlocks once the child outgrows
-        // the pipe buffer, and it parks a cooperative-pool thread the lane needs.
-        let result = try await Self.zshExecutor.execute(
-            command: "/bin/zsh",
-            args: ["-c", command],
-            cwd: nil,
-            environment: nil
-        )
+        // Act — `runCommandToExit` writes stdout to a file and suspends until the child exits,
+        // with no time limit: the verdict is a function of zsh's quoting. Reading a pipe after
+        // exit deadlocks once the child outgrows the pipe buffer, and blocking parks a pool
+        // thread the lane needs.
+        let result = try await runCommandToExit(command: "/bin/zsh", arguments: ["-c", command])
         let decodedArguments = result.stdout
             .split(separator: "\n", omittingEmptySubsequences: false)
             .map(String.init)
@@ -234,10 +231,6 @@ final class ZmxBackendTests {
         #expect(result.exitCode == 0)
         #expect(decodedArguments == opaqueArguments)
     }
-
-    /// A hang bound, not a wait: far above any healthy `printf`, so the verdict stays a
-    /// function of zsh's quoting rather than of machine speed.
-    private static let zshExecutor = DefaultProcessExecutor(timeout: 120)
 
     // MARK: - healthCheck
 
@@ -595,15 +588,13 @@ final class ZmxBackendTests {
     }
 }
 
-/// Shares the drain-before-wait shape of the round-trip test above: the executor reads
-/// stdout concurrently with the child and joins on exit plus EOF, so no pool thread is
-/// parked and no pipe-capacity deadlock is possible.
+/// Shares the run-to-exit wait of the round-trip test above: stdout goes to a file and the
+/// caller suspends until exit, so no pool thread is parked and no pipe-capacity deadlock is
+/// possible.
 private func shellParsedArguments(from command: String) async throws -> [String] {
-    let result = try await shellParserExecutor.execute(
+    let result = try await runCommandToExit(
         command: "/bin/zsh",
-        args: ["-c", "set -- \(command); printf '%s\\n' \"$@\""],
-        cwd: nil,
-        environment: nil
+        arguments: ["-c", "set -- \(command); printf '%s\\n' \"$@\""]
     )
 
     #expect(result.exitCode == 0)
@@ -612,6 +603,3 @@ private func shellParsedArguments(from command: String) async throws -> [String]
         .split(separator: "\n", omittingEmptySubsequences: false)
         .map(String.init)
 }
-
-/// A hang bound, not a wait; see `ZmxBackendTests.zshExecutor`.
-private let shellParserExecutor = DefaultProcessExecutor(timeout: 120)

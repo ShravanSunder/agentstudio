@@ -887,7 +887,7 @@ extension AppDelegate {
         store: WorkspaceStore,
         coordinator: WorkspaceCacheCoordinator,
         postTopologyEnvelope: @escaping @Sendable (RuntimeEnvelope) async -> Void = { envelope in
-            _ = await PaneRuntimeEventBus.shared.post(envelope)
+            _ = PaneRuntimeEventBus.shared.post(envelope)
         }
     ) async {
         let tabLayout = store.tabLayoutAtom

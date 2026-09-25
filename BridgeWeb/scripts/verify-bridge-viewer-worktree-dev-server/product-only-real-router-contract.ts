@@ -72,6 +72,19 @@ export interface BridgeViewerProductFailureTransportSnapshot {
 		'paneSessionId' | 'workerInstanceId'
 	>[];
 	readonly unfinishedRequestOrdinals: readonly number[];
+	readonly unresolvedWaiters: readonly BridgeViewerUnresolvedWaiter[];
+}
+
+// A journey waiter still pending (or rejected) when the journey failed, with the
+// page generation whose requests alone may settle it.
+export interface BridgeViewerUnresolvedWaiter {
+	readonly documentGeneration: number;
+	readonly name:
+		| 'file-metadata-open'
+		| 'frame-acknowledgement'
+		| 'legacy-metadata-completion'
+		| 'product-response-quiescence'
+		| 'review-metadata-open';
 }
 
 export interface BridgeViewerReviewFailureDemandSnapshot {

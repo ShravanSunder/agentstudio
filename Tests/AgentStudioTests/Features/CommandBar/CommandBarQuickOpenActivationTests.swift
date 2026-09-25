@@ -84,7 +84,7 @@ struct CommandBarQuickOpenActivationTests {
 
     @Test("Quick Open plain Return opens the live worktree in a new tab")
     func quickOpenPlainReturnUsesNewTabAndLiveIdentity() async throws {
-        try await withAsyncTestCoreAtoms { _ in
+        await withAsyncTestCoreAtoms { _ in
             let store = WorkspaceStore()
             let repositoryPath = URL(filePath: "/tmp/command-bar-quick-open-live")
             let originalRepository = store.addRepo(at: repositoryPath)
@@ -214,7 +214,7 @@ struct CommandBarQuickOpenActivationTests {
 
     @Test("Quick Open directory Return uses the current tab while Command-Return uses a new tab")
     func quickOpenDirectoryReturnVariants() async throws {
-        try await withAsyncTestCoreAtoms { _ in
+        await withAsyncTestCoreAtoms { _ in
             let store = WorkspaceStore()
             let pane = store.createPane(title: "Current")
             let tab = Tab(paneId: pane.id, name: "Current")
@@ -254,7 +254,7 @@ struct CommandBarQuickOpenActivationTests {
 
     @Test("Quick Open dispatches directory activation without synchronous filesystem validation")
     func quickOpenDispatchesDirectoryWithoutFilesystemValidation() async throws {
-        try await withAsyncTestCoreAtoms { _ in
+        await withAsyncTestCoreAtoms { _ in
             let missingDirectory = FileManager.default.temporaryDirectory
                 .appending(path: "missing-quick-open-\(UUID().uuidString)")
             let dispatcher = FakeAppCommandDispatcher()
@@ -279,7 +279,7 @@ struct CommandBarQuickOpenActivationTests {
 
     @Test("Quick Open actions enter the existing repository menu without dispatching")
     func quickOpenActionsEnterExistingMenu() async throws {
-        try await withAsyncTestCoreAtoms { _ in
+        await withAsyncTestCoreAtoms { _ in
             let store = WorkspaceStore()
             let repository = store.addRepo(at: URL(filePath: "/tmp/command-bar-quick-open-actions"))
             let dispatcher = FakeAppCommandDispatcher()

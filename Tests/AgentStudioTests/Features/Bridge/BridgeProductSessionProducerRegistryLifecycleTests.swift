@@ -1,3 +1,4 @@
+import AgentStudioTestHarness
 import Foundation
 import Testing
 
@@ -9,7 +10,7 @@ struct BridgeProductSessionProducerRegistryLifecycleTests {
     func liveMetadataPreventsReloadAdmission() async throws {
         // Arrange
         let harness = try await BridgeProductSessionProducerHarness.opened()
-        let operation = BridgeProductSessionProducerOperationGate()
+        let operation = HeldStep<BridgeProductProducerLease>("operation")
         let registration = await harness.session.registerMetadataProducer(
             request: try bridgeProductMetadataStreamRequest(
                 metadataStreamId: "metadata-live-reload-admission",
@@ -17,10 +18,10 @@ struct BridgeProductSessionProducerRegistryLifecycleTests {
             ),
             productAdmission: harness.productAdmission
         ) { lease in
-            await operation.run(lease)
+            try? await operation.arrive(lease)
         }
         let lease = try #require(registration.lease)
-        _ = await operation.waitUntilStarted()
+        _ = try await operation.firstArrival()
 
         // Act
         let retirementBarriers = await harness.session.metadataRetirementBarriersForReload()
@@ -40,7 +41,7 @@ struct BridgeProductSessionProducerRegistryLifecycleTests {
     func reloadAdmissionJoinsMetadataRetirementAlreadyInFlight() async throws {
         // Arrange
         let harness = try await BridgeProductSessionProducerHarness.opened()
-        let operation = BridgeProductSessionProducerOperationGate()
+        let operation = HeldStep<BridgeProductProducerLease>("operation")
         let acknowledgementGate = BridgeProductProducerLifecycleAcknowledgementGate()
         let registration = await harness.session.registerMetadataProducer(
             request: try bridgeProductMetadataStreamRequest(
@@ -49,10 +50,10 @@ struct BridgeProductSessionProducerRegistryLifecycleTests {
             ),
             productAdmission: harness.productAdmission
         ) { lease in
-            await operation.run(lease)
+            try? await operation.arrive(lease)
         }
         let lease = try #require(registration.lease)
-        _ = await operation.waitUntilStarted()
+        _ = try await operation.firstArrival()
         let retirement = await harness.session.beginProducerRetirement(
             lease,
             acknowledgeLifecycle: { acknowledgement in
@@ -82,7 +83,7 @@ struct BridgeProductSessionProducerRegistryLifecycleTests {
     func failedMetadataRetirementPreventsReloadAdmission() async throws {
         // Arrange
         let harness = try await BridgeProductSessionProducerHarness.opened()
-        let operation = BridgeProductSessionProducerOperationGate()
+        let operation = HeldStep<BridgeProductProducerLease>("operation")
         let acknowledgementGate = BridgeProductProducerLifecycleAcknowledgementGate()
         let registration = await harness.session.registerMetadataProducer(
             request: try bridgeProductMetadataStreamRequest(
@@ -91,10 +92,10 @@ struct BridgeProductSessionProducerRegistryLifecycleTests {
             ),
             productAdmission: harness.productAdmission
         ) { lease in
-            await operation.run(lease)
+            try? await operation.arrive(lease)
         }
         let lease = try #require(registration.lease)
-        _ = await operation.waitUntilStarted()
+        _ = try await operation.firstArrival()
         let retirement = await harness.session.beginProducerRetirement(
             lease,
             acknowledgeLifecycle: { acknowledgement in
@@ -132,22 +133,22 @@ struct BridgeProductSessionProducerRegistryLifecycleTests {
         let registry = BridgeProductProducerRegistryTestHarness()
         let metadataRequest = try producerRegistryMetadataStreamRequest()
         let producerRegistryContentRequest = try producerRegistryContentRequest(workerDerivationEpoch: 2)
-        let metadataOperation = BridgeProductProducerOperationGate()
-        let contentOperation = BridgeProductProducerOperationGate()
+        let metadataOperation = HeldStep<BridgeProductProducerLease>("metadataOperation")
+        let contentOperation = HeldStep<BridgeProductProducerLease>("contentOperation")
         let metadataRegistration = await registry.registerMetadataProducer(
             request: metadataRequest
         ) { lease in
-            await metadataOperation.run(lease)
+            try? await metadataOperation.arrive(lease)
         }
         let contentRegistration = await registry.registerContentProducer(
             request: producerRegistryContentRequest
         ) { lease in
-            await contentOperation.run(lease)
+            try? await contentOperation.arrive(lease)
         }
         _ = try #require(metadataRegistration.lease)
         let contentLease = try #require(contentRegistration.lease)
-        _ = await metadataOperation.waitUntilStarted()
-        _ = await contentOperation.waitUntilStarted()
+        _ = try await metadataOperation.firstArrival()
+        _ = try await contentOperation.firstArrival()
         _ = try await registry.enqueueRequiredOpeningFrame(
             for: contentLease,
             build: { _ in producerRegistryContentOpeningFrame(for: producerRegistryContentRequest) }
@@ -179,12 +180,12 @@ struct BridgeProductSessionProducerRegistryLifecycleTests {
         // Arrange
         let registry = BridgeProductProducerRegistryTestHarness()
         let request = try producerRegistryMetadataStreamRequest()
-        let operation = BridgeProductProducerOperationGate()
+        let operation = HeldStep<BridgeProductProducerLease>("operation")
         let registration = await registry.registerMetadataProducer(request: request) { lease in
-            await operation.run(lease)
+            try? await operation.arrive(lease)
         }
         let lease = try #require(registration.lease)
-        _ = await operation.waitUntilStarted()
+        _ = try await operation.firstArrival()
 
         // Act and assert
         #expect(await registry.unregister(lease) == nil)
@@ -201,20 +202,20 @@ struct BridgeProductSessionProducerRegistryLifecycleTests {
         let registry = BridgeProductProducerRegistryTestHarness()
         let metadataRequest = try producerRegistryMetadataStreamRequest()
         let producerRegistryContentRequest = try producerRegistryContentRequest(workerDerivationEpoch: 2)
-        let metadataOperation = BridgeProductProducerOperationGate()
-        let contentOperation = BridgeProductProducerOperationGate()
+        let metadataOperation = HeldStep<BridgeProductProducerLease>("metadataOperation")
+        let contentOperation = HeldStep<BridgeProductProducerLease>("contentOperation")
         let metadataRegistration = await registry.registerMetadataProducer(
             request: metadataRequest
         ) { lease in
-            await metadataOperation.run(lease)
+            try? await metadataOperation.arrive(lease)
         }
         let contentRegistration = await registry.registerContentProducer(
             request: producerRegistryContentRequest
         ) { lease in
-            await contentOperation.run(lease)
+            try? await contentOperation.arrive(lease)
         }
-        _ = await metadataOperation.waitUntilStarted()
-        _ = await contentOperation.waitUntilStarted()
+        _ = try await metadataOperation.firstArrival()
+        _ = try await contentOperation.firstArrival()
         let metadataLease = try #require(metadataRegistration.lease)
         let contentLease = try #require(contentRegistration.lease)
         let zeroResidueWaiter = Task { await registry.waitUntilZeroProducerResidue() }

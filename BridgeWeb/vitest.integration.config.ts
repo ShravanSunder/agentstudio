@@ -4,6 +4,9 @@ import { fileURLToPath } from 'node:url';
 import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vitest/config';
 
+import { reactActWarningGuardScope } from './tests/console-error-guard-scope.ts';
+import { nodeIntegrationTestTimeoutMilliseconds } from './tests/vitest-hang-bounds.ts';
+
 const bridgeWebPackageRoot = dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
@@ -23,7 +26,11 @@ export default defineConfig({
 			'scripts/**/*.integration.test.ts',
 			'src/**/*.integration.test.ts',
 			'src/**/*.integration.test.tsx',
+			'tests/**/*.integration.test.ts',
 		],
+		provide: reactActWarningGuardScope,
+		setupFiles: ['./tests/console-error-guard.ts'],
+		testTimeout: nodeIntegrationTestTimeoutMilliseconds,
 		exclude: ['**/node_modules/**', '**/dist/**'],
 	},
 });

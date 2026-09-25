@@ -133,7 +133,7 @@ extension WebKitSerializedTests.WorkspaceHeldPreviewBridgeAdmissionTests {
                 coreAtoms: coreAtoms
             )
         } catch {
-            _ = await controller.teardown().value
+            _ = await controller.beginTeardown().value
             throw error
         }
         let viewRegistry = ViewRegistry()
@@ -270,7 +270,8 @@ extension WebKitSerializedTests.WorkspaceHeldPreviewBridgeAdmissionTests {
             sessionID: fixture.workspace.bridgePane.terminalState?.zmxSessionID
         )
         try #require(fixture.heldState.beginSpaceHold(requestedTarget: target))
-        fixture.coordinator.prepareHeldPanePreview()
+        // fire-and-forget: the test asserts the synchronous preparation this starts
+        _ = fixture.coordinator.beginHeldPanePreviewPreparation()
         try #require(fixture.heldState.presentedTarget == target)
         fixture.paneTabController.viewWillLayout()
         fixture.paneTabController.view.layoutSubtreeIfNeeded()
@@ -311,7 +312,8 @@ extension WebKitSerializedTests.WorkspaceHeldPreviewBridgeAdmissionTests {
         try #require((pageResponse as? NSNumber)?.intValue == 2)
 
         try #require(fixture.heldState.beginSpaceHold(requestedTarget: target))
-        fixture.coordinator.prepareHeldPanePreview()
+        // fire-and-forget: the test asserts the synchronous preparation this starts
+        _ = fixture.coordinator.beginHeldPanePreviewPreparation()
         fixture.paneTabController.viewWillLayout()
         fixture.paneTabController.view.layoutSubtreeIfNeeded()
         try #require(fixture.heldState.presentedTarget == target)

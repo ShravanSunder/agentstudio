@@ -2,6 +2,7 @@ import AgentStudioBridge
 import Foundation
 import HTTPTypes
 import Hummingbird
+import NIOCore
 import WebKit
 
 enum BridgeDevelopmentHTTPApplication {
@@ -11,7 +12,8 @@ enum BridgeDevelopmentHTTPApplication {
         host: BridgeDevelopmentProductHost,
         configuration: ApplicationConfiguration = .init(),
         eventLoopGroupProvider: EventLoopGroupProvider = .singleton,
-        healthIsReady: @escaping @Sendable () async -> Bool = { true }
+        healthIsReady: @escaping @Sendable () async -> Bool = { true },
+        onServerRunning: @escaping @Sendable (any Channel) async -> Void = { _ in }
     ) -> some ApplicationProtocol {
         let router = Router(context: BridgeDevelopmentHTTPRequestContext.self)
         router.get("/__bridge-product/health") { _, _ -> Response in
@@ -41,6 +43,7 @@ enum BridgeDevelopmentHTTPApplication {
         return Application(
             responder: router.buildResponder(),
             configuration: configuration,
+            onServerRunning: onServerRunning,
             eventLoopGroupProvider: eventLoopGroupProvider
         )
     }

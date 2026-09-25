@@ -2,7 +2,7 @@ import SwiftSyntax
 
 struct ObservationCaptureKeyedReadsRule: ArchitectureRule {
     let id = "agentstudio_observation_capture_keyed_reads"
-    let severity = ArchitectureSeverity.report
+    let severity = ArchitectureSeverity.error
     let message = "Observation capture closures must use keyed reads instead of broad snapshots"
 
     func validate(context: ArchitectureLintContext) -> [ArchitectureDiagnostic] {

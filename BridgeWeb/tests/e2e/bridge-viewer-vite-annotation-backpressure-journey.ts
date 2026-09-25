@@ -1,4 +1,4 @@
-import { chromium, type Page, type Request } from 'playwright';
+import type { Page, Request } from 'playwright';
 import { expect, test } from 'vitest';
 
 import {
@@ -35,6 +35,7 @@ import {
 	compactTelemetryDiagnostic,
 	waitForBackpressureTelemetry,
 } from './bridge-viewer-vite-backpressure-telemetry.ts';
+import { launchBridgeViewerE2EChromium } from './bridge-viewer-vite-e2e-browser.ts';
 import { observeFrameAcknowledgementQuiescence } from './bridge-viewer-vite-frame-acknowledgement-quiescence.ts';
 import {
 	createBridgeViewerViteProductFixture,
@@ -427,7 +428,7 @@ async function runAnnotationBackpressureJourney(props: {
 		after: 'browser.ready',
 		before: 'browser.launching',
 		milestones: props.milestones,
-		operation: async () => chromium.launch({ channel: 'chrome', headless: true }),
+		operation: async () => launchBridgeViewerE2EChromium(),
 	});
 	let page: Page | null = null;
 	const exactSavedBodies: string[] = [];

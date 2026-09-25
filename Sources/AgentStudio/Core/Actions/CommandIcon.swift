@@ -122,6 +122,7 @@ package enum CommandIcon: Equatable, Sendable {
 }
 
 extension CommandIcon {
+    @MainActor
     @ViewBuilder
     package func swiftUIImage(loader: OcticonLoader, size: CGFloat? = nil) -> some View {
         switch self {

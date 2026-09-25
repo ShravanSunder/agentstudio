@@ -1,3 +1,4 @@
+import AgentStudioTestHarness
 import AgentStudioTestSupport
 import Foundation
 import Testing
@@ -54,7 +55,7 @@ struct BridgeReviewContentLoaderCacheTests {
     func concurrentCallersCoalesceOneLoad() async throws {
         let admission = try BridgeProductAdmissionTestContext.make()
         let handle = makeLoaderCacheHandle(content: "coalesced")
-        let gate = BridgeContentLoadGate()
+        let gate = HeldStep<Void>("gate", cancellation: .holdThroughCancellation)
         let provider = makeLoaderCacheProvider(
             results: [makeContentResult(handle: handle, data: "coalesced")],
             gate: gate
@@ -62,11 +63,11 @@ struct BridgeReviewContentLoaderCacheTests {
         let cache = BridgeReviewContentLoaderCache(provider: provider)
 
         async let first = cache.loadObserved(handle: handle, productAdmission: admission.context)
-        await gate.waitForStartedLoadCount(1)
+        try await gate.firstArrival()
         async let second = cache.loadObserved(handle: handle, productAdmission: admission.context)
         async let third = cache.loadObserved(handle: handle, productAdmission: admission.context)
         await Task.yield()
-        await gate.releaseAll()
+        gate.release()
         let results = try await [first, second, third]
 
         #expect(results.map(\.result.data) == Array(repeating: Data("coalesced".utf8), count: 3))
@@ -156,7 +157,7 @@ struct BridgeReviewContentLoaderCacheTests {
     func admissionClosePreventsLateCachePublication() async throws {
         let admission = try BridgeProductAdmissionTestContext.make()
         let handle = makeLoaderCacheHandle(content: "late")
-        let gate = BridgeContentLoadGate()
+        let gate = HeldStep<Void>("gate", cancellation: .holdThroughCancellation)
         let provider = makeLoaderCacheProvider(
             results: [makeContentResult(handle: handle, data: "late")],
             gate: gate
@@ -165,10 +166,10 @@ struct BridgeReviewContentLoaderCacheTests {
         let load = Task {
             try await cache.load(handle: handle, productAdmission: admission.context)
         }
-        await gate.waitForStartedLoadCount(1)
+        try await gate.firstArrival()
 
         admission.close()
-        await gate.releaseAll()
+        gate.release()
 
         await #expect(throws: BridgeReviewContentLoaderCacheError.self) {
             _ = try await load.value
@@ -180,7 +181,7 @@ struct BridgeReviewContentLoaderCacheTests {
     func closeAndDrainRejectsFutureWorkAndReportsZeroResidue() async throws {
         let admission = try BridgeProductAdmissionTestContext.make()
         let handle = makeLoaderCacheHandle(content: "draining")
-        let gate = BridgeContentLoadGate()
+        let gate = HeldStep<Void>("gate", cancellation: .holdThroughCancellation)
         let provider = makeLoaderCacheProvider(
             results: [makeContentResult(handle: handle, data: "draining")],
             gate: gate
@@ -189,9 +190,9 @@ struct BridgeReviewContentLoaderCacheTests {
         let load = Task {
             try await cache.load(handle: handle, productAdmission: admission.context)
         }
-        await gate.waitForStartedLoadCount(1)
+        try await gate.firstArrival()
         let close = Task { await cache.closeAndDrain() }
-        await gate.releaseAll()
+        gate.release()
 
         _ = try? await load.value
         await close.value
@@ -248,7 +249,7 @@ private func makeLoaderCacheHandle(
 
 private func makeLoaderCacheProvider(
     results: [BridgeContentLoadResult],
-    gate: BridgeContentLoadGate? = nil
+    gate: HeldStep<Void>? = nil
 ) -> BridgeReviewSourceProviderFake {
     BridgeReviewSourceProviderFake(
         comparison: BridgeEndpointComparison(

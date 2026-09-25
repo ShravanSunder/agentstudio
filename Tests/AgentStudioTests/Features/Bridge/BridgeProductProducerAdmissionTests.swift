@@ -1,3 +1,4 @@
+import AgentStudioTestHarness
 import Foundation
 import Testing
 
@@ -12,15 +13,15 @@ struct BridgeProductProducerAdmissionTests {
         let request = try bridgeProductFileContentRequest(
             identitySuffix: "producer-admission-close"
         )
-        let operation = BridgeProductSessionProducerOperationGate()
+        let operation = HeldStep<BridgeProductProducerLease>("operation")
         let registration = await harness.session.registerContentProducer(
             request: request,
             productAdmission: harness.productAdmission
         ) { lease in
-            await operation.run(lease)
+            try? await operation.arrive(lease)
         }
         let lease = try bridgeProductAcceptedLease(registration)
-        #expect(await operation.waitUntilStarted() == lease)
+        #expect(try await operation.firstArrival() == lease)
         _ = try await harness.session.enqueueRequiredProducerOpeningFrame(
             for: lease,
             productAdmission: harness.productAdmission,
@@ -54,7 +55,7 @@ struct BridgeProductProducerAdmissionTests {
         #expect(afterRejectedEnqueue == beforeClose)
 
         try await closeBridgeProductSessionProducer(lease, in: harness.session)
-        await operation.waitUntilCancelled()
+        try await operation.cancellationObserved()
         let afterCleanup = await harness.session.producerSnapshot()
         #expect(afterCleanup.sessionContentAdmissionCount == 0)
         #expect(afterCleanup.sessionProductAdmissionCount == 0)
