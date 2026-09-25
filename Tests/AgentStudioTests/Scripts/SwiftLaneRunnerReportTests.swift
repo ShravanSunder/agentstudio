@@ -149,10 +149,13 @@ struct SwiftLaneRunnerReportTests {
             ]
         )
         // A failing lane is the one whose load numbers matter most, so the
-        // closing block hangs off EXIT rather than the end of the happy path.
+        // closing block hangs off EXIT, and it also releases the caller's slot.
         let invocationExit = try shellFunction(named: "finish_lane_invocation", in: laneRunnerScript)
         #expect(laneRunnerScript.contains("trap finish_lane_invocation EXIT"))
-        #expect(invocationExit.hasPrefix("finish_lane_invocation() {\n  print_closing_lane_report\n"))
+        #expect(invocationExit.contains("local exit_status=$?"))
+        #expect(invocationExit.contains("print_closing_lane_report \"$exit_status\" || true"))
+        #expect(invocationExit.contains("swift_build_slot_release || true"))
+        #expect(invocationExit.contains("return \"$exit_status\""))
     }
 
     @Test("a child that dies by signal is named instead of swallowed")
@@ -387,17 +390,24 @@ struct SwiftLaneRunnerReportTests {
             helperScript.contains(
                 "--filter \"$(swift_test_isolated_suite_filter_pattern \"$large_process_global_suite_filter\")\""
             ))
+        let fastProcessInvocation = try shellFunction(
+            named: "run_fast_serial_process_swift_tests",
+            in: helperScript
+        )
         #expect(
-            helperScript.contains(
-                "--filter \"$(swift_test_isolated_suite_filter_pattern \"$(fast_serial_process_filter_pattern)\")\""
+            fastProcessInvocation.contains(
+                "--filter \"$(swift_test_isolated_suite_filter_pattern \"$fast_process_global_suite_filter\")\""
             ))
-        // The fast lane's skip is the mirror of the same defect.
+        // Fast skips are generated from exact lane ownership, with the
+        // aggregate isolated suites anchored by their own suite-type filters.
         #expect(helperScript.contains("--skip \"$(fast_non_webkit_skip_pattern)\""))
-        // Substring families must NOT be anchored: they match many suites by
-        // prefix, and anchoring them would drop whole suites out of their lane.
         let skipBuilder = try shellFunction(named: "fast_non_webkit_skip_pattern", in: helperScript)
-        #expect(skipBuilder.contains("\"$(large_non_webkit_filter_pattern)\""))
-        #expect(!skipBuilder.contains("swift_test_isolated_suite_skip_pattern \"$(large_non_webkit_filter_pattern)\""))
+        #expect(skipBuilder.contains("$(swift_test_lane_fast_concurrent_skip_pattern)"))
+        #expect(
+            skipBuilder.contains(
+                "swift_test_isolated_suite_skip_pattern \"$(aggregate_serial_non_webkit_filter_pattern)\""
+            ))
+        #expect(!skipBuilder.contains("large_non_webkit_filter_pattern"))
     }
 
     @Test("a clean lane reports zero failed isolated suites")

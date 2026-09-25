@@ -206,55 +206,29 @@ struct SwiftLaneReceiptTests {
 
     @Test("a lane's build-slot claim is released when the lane exits")
     func laneBuildSlotClaimIsReleasedWhenTheLaneExits() async throws {
-        // The real allocator claims a slot and arms its release on EXIT; the
-        // runner then installs its own EXIT trap, which used to replace that
-        // release and leak the claim. The lane below is the runner's own takeover
-        // line and its own finish_lane_invocation, with the receipt stubbed. The
-        // control replaces the trap without the takeover: that is the old leak.
         let laneRunnerScript = try String(contentsOfFile: "scripts/run-swift-test-task.sh", encoding: .utf8)
         let invocationExit = try laneScriptShellFunction(named: "finish_lane_invocation", in: laneRunnerScript)
-        let takeoverLine = try #require(
-            laneRunnerScript.split(separator: "\n").first { $0.hasPrefix("LANE_SLOT_RELEASE_COMMAND=") }
-        )
         let repositoryRoot = FileManager.default.currentDirectoryPath
-        let laneDirectory = NSTemporaryDirectory() + "agentstudio-receipt-slot-\(UUIDv7.generate())"
-        defer { try? FileManager.default.removeItem(atPath: laneDirectory) }
-        func lane(takingOver: Bool) -> String {
-            [
-                "set -euo pipefail",
-                // The test process itself runs inside a lane that exported its own
-                // slot; this lane must allocate locally, as a developer's would.
-                "unset SWIFT_BUILD_DIR CI GITHUB_ACTIONS",
-                "source '\(repositoryRoot)/scripts/swift-build-slot.sh' >/dev/null",
-                takingOver ? String(takeoverLine) : "LANE_SLOT_RELEASE_COMMAND=''",
-                "print_closing_lane_report() { echo CLOSING_RECEIPT; }",
-                invocationExit + "\n}",
-                "trap finish_lane_invocation EXIT",
-                "[ -d \"$SWIFT_BUILD_DIR/.slot-claim\" ] && echo \"CLAIM_HELD=$SWIFT_BUILD_DIR\"",
-            ].joined(separator: "\n") + "\n"
-        }
-        for variant in ["taken-over", "replaced"] {
-            try FileManager.default.createDirectory(
-                atPath: laneDirectory + "/" + variant,
-                withIntermediateDirectories: true
-            )
-            try lane(takingOver: variant == "taken-over")
-                .write(toFile: laneDirectory + "/\(variant).sh", atomically: true, encoding: .utf8)
-        }
-
-        let claims = try await laneBash(
-            "for variant in taken-over replaced; do "
-                + "(cd '\(laneDirectory)'/$variant && bash ../$variant.sh); "
-                + "[ -d '\(laneDirectory)'/$variant/.build-agent-1/.slot-claim ] "
-                + "&& echo \"$variant=leaked\" || echo \"$variant=released\"; done"
+        let output = try await laneBash(
+            "set -euo pipefail\n"
+                + "unset SWIFT_BUILD_DIR CI GITHUB_ACTIONS\n"
+                + "source '\(repositoryRoot)/scripts/swift-build-slot.sh'\n"
+                // The test runner owns the test slot. Exercise the nested EXIT
+                // handler with the free build slot so the proof cannot wait on
+                // its own parent lane.
+                + "swift_build_slot_acquire build \"receipt-test\"\n"
+                + "print_closing_lane_report() { echo CLOSING_RECEIPT; }\n"
+                + invocationExit + "\n}\n"
+                + "trap finish_lane_invocation EXIT\n"
+                + "[ -d \"$SWIFT_BUILD_SLOT_CLAIM_DIRECTORY\" ] && echo CLAIM_HELD\n"
         )
 
-        #expect(invocationExit.contains("eval \"$LANE_SLOT_RELEASE_COMMAND\""))
-        // The lane really held the claim, and really printed its receipt on exit.
-        #expect(claims.components(separatedBy: "CLAIM_HELD=.build-agent-1").count - 1 == 2)
-        #expect(claims.components(separatedBy: "CLOSING_RECEIPT").count - 1 == 2)
-        #expect(claims.contains("taken-over=released"))
-        #expect(claims.contains("replaced=leaked"))
+        #expect(invocationExit.contains("print_closing_lane_report \"$exit_status\""))
+        #expect(invocationExit.contains("swift_build_slot_release || true"))
+        #expect(output.contains("CLAIM_HELD"))
+        #expect(output.contains("CLOSING_RECEIPT"))
+        #expect(output.contains("released slot=build task=receipt-test"))
+        #expect(!output.contains("LANE_SLOT_RELEASE_COMMAND"))
     }
 
     @Test("a reused bundle is linked only to a clean, successful build of this commit and this executable")
