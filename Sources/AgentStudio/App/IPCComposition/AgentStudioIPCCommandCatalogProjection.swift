@@ -83,16 +83,6 @@ enum AgentStudioIPCCommandCatalogProjection {
         )
     }
 
-    /// The receipt an example advertises. It is the first result variant the
-    /// projection declares for the command, so discovery never promises a
-    /// stronger boundary than the owner can prove.
-    static func exampleResult(
-        for command: AppCommand,
-        request: IPCCommandExecutionRequest
-    ) -> IPCCommandExecutionResult {
-        exampleResult(for: command.ipcSpec.resultVariants, request: request)
-    }
-
     static func exampleResult(
         for resultVariants: [IPCCommandResultVariant],
         request: IPCCommandExecutionRequest
