@@ -272,6 +272,20 @@ struct BridgeProductSchemeAdapter: Sendable {
                 productAdmission: productAdmission,
                 continuation: continuation
             )
+        case .typedRefusal(let rejection, let responseBytes):
+            try await sendResponse(
+                statusCode: Self.statusCode(for: rejection),
+                url: responseURL,
+                contentType: "application/json",
+                contentLength: responseBytes.count,
+                productAdmission: productAdmission,
+                continuation: continuation
+            )
+            try emit(
+                .data(responseBytes),
+                productAdmission: productAdmission,
+                continuation: continuation
+            )
         case .response(let exactResponseBytes):
             try await sendResponse(
                 statusCode: 200,

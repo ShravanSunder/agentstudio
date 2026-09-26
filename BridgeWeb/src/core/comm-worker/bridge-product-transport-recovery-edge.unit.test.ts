@@ -518,9 +518,9 @@ describe('Bridge product transport recovery edges', () => {
 		});
 		// Release failure only after the fresh subscriber has joined recovery.
 		heldResponse.reject(new Error('resync transport failed twice'));
-		await expect(terminal).rejects.toThrow(/resync transport failed/iu);
+		await expect(terminal).rejects.toMatchObject({ name: 'BridgeProductSessionSuspectError' });
 		await waitForCondition(() => freshSettled);
-		await expect(freshTerminal).rejects.toThrow(/resync transport failed/iu);
+		await expect(freshTerminal).rejects.toMatchObject({ name: 'BridgeProductSessionSuspectError' });
 		expect(harness.transport.metadataStreamDiagnostics?.().activeSubscriptionCount).toBe(0);
 		harness.server.shutdown();
 	});

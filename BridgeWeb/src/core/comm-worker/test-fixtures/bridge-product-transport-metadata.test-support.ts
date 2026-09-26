@@ -12,6 +12,10 @@ import {
 import { bridgeProductMetadataApplicationRegistry } from '../bridge-product-metadata-application-registry.js';
 import { encodeBridgeProductMetadataFrame } from '../bridge-product-metadata-frame-codec.js';
 import {
+	bridgeProductOperationResultAcknowledgementSchema,
+	bridgeProductOperationResultRequestSchema,
+} from '../bridge-product-operation-wire-contracts.js';
+import {
 	BridgeProductControlMux,
 	type BridgeProductSessionAuthority,
 } from '../bridge-product-session-authority.js';
@@ -118,6 +122,9 @@ export class TestProductServer {
 		void this.#shutdownSignal.promise.catch((): void => {});
 	}
 	readonly controlRequests: BridgeProductControlRequest[] = [];
+	readonly #operationResults = new Map<string, unknown>();
+	readonly #operationIdByRequestId = new Map<string, string>();
+	#nextOperationOrdinal = 1;
 	readonly frameAcknowledgements: BridgeProductFrameAcknowledgementRequest[] = [];
 	metadataFetchCount = 0;
 	metadataReaderCancelCount = 0;
@@ -273,6 +280,26 @@ export class TestProductServer {
 	}
 
 	async #handleControl(body: unknown): Promise<Response> {
+		if (typeof body === 'object' && body !== null && 'kind' in body) {
+			if (body.kind === 'operation.result') {
+				const request = bridgeProductOperationResultRequestSchema.parse(body);
+				if (!this.#operationResults.has(request.operationId)) {
+					throw new Error('Result requested for an unknown test operation.');
+				}
+				return jsonResponse({
+					failureCode: null,
+					kind: 'operation.result',
+					operationId: request.operationId,
+					outcome: 'succeeded',
+					result: this.#operationResults.get(request.operationId),
+				});
+			}
+			if (body.kind === 'operation.resultAcknowledgement') {
+				const request = bridgeProductOperationResultAcknowledgementSchema.parse(body);
+				this.#operationResults.delete(request.operationId);
+				return jsonResponse({ ...request, kind: 'operation.resultAcknowledged' });
+			}
+		}
 		const request = bridgeProductControlRequestSchema.parse(body);
 		this.controlRequests.push(request);
 		if (request.kind === 'subscription.open' && this.#holdOpen) {
@@ -281,6 +308,42 @@ export class TestProductServer {
 				this.#heldOpen = resolve;
 			});
 		}
+		const existingOperationId = this.#operationIdByRequestId.get(request.requestId);
+		if (existingOperationId !== undefined)
+			return this.#admittedResponse(request, existingOperationId);
+		const finalResponse = await this.#finalControlResponse(request);
+		if (request.kind === 'subscription.cancel' || finalResponse.status >= 400) {
+			return finalResponse;
+		}
+		const result: unknown = await finalResponse.clone().json();
+		if (
+			typeof result === 'object' &&
+			result !== null &&
+			'kind' in result &&
+			result.kind === 'request.error'
+		) {
+			return finalResponse;
+		}
+		const operationId = `test-operation-${this.#nextOperationOrdinal++}`;
+		this.#operationIdByRequestId.set(request.requestId, operationId);
+		this.#operationResults.set(operationId, result);
+		return this.#admittedResponse(request, operationId);
+	}
+
+	#admittedResponse(request: BridgeProductControlRequest, operationId: string): Response {
+		return jsonResponse({
+			kind: 'operation.admitted',
+			operationId,
+			paneSessionId: request.paneSessionId,
+			requestId: request.requestId,
+			requestSequence: request.requestSequence,
+			waitKind: 'ordinary',
+			wireVersion: request.wireVersion,
+			workerInstanceId: request.workerInstanceId,
+		});
+	}
+
+	async #finalControlResponse(request: BridgeProductControlRequest): Promise<Response> {
 		const identity = {
 			paneSessionId: request.paneSessionId,
 			requestId: request.requestId,
@@ -497,20 +560,24 @@ export function subscriptionCancelled(props: {
 export function requestErrorResponse(
 	request: BridgeProductControlRequest,
 	code: 'internal' | 'invalid_request' | 'resync_required',
+	status = 200,
 ): Response {
-	return jsonResponse({
-		code,
-		kind: 'request.error',
-		nextExpectedRequestSequence: request.requestSequence + 1,
-		paneSessionId: request.paneSessionId,
-		requestId: request.requestId,
-		requestSequence: request.requestSequence,
-		retryAfterMilliseconds: null,
-		retryable: false,
-		safeMessage: null,
-		wireVersion: request.wireVersion,
-		workerInstanceId: request.workerInstanceId,
-	});
+	return new Response(
+		JSON.stringify({
+			code,
+			kind: 'request.error',
+			nextExpectedRequestSequence: request.requestSequence + 1,
+			paneSessionId: request.paneSessionId,
+			requestId: request.requestId,
+			requestSequence: request.requestSequence,
+			retryAfterMilliseconds: null,
+			retryable: false,
+			safeMessage: null,
+			wireVersion: request.wireVersion,
+			workerInstanceId: request.workerInstanceId,
+		}),
+		{ headers: { 'Content-Type': 'application/json' }, status },
+	);
 }
 
 export function subscriptionReset(props: {

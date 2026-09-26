@@ -91,7 +91,7 @@ describe('Bridge product transport metadata reconnection', () => {
 							workerDerivationEpoch: 0,
 						},
 					],
-					lastAcceptedRequestSequence: 2,
+					lastAcceptedRequestSequence: 4,
 					lastAcceptedStreamSequence: 2,
 				});
 				await harness.server.waitForMetadataStream(2);

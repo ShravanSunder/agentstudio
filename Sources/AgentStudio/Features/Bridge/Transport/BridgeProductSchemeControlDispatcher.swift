@@ -9,6 +9,7 @@ private let bridgeProductControlDispatcherLogger = Logger(
 enum BridgeProductSchemeControlDispatchResult: Equatable, Sendable {
     case admissionClosed
     case rejected(BridgeProductSessionControlRejection)
+    case typedRefusal(BridgeProductSessionControlRejection, Data)
     case response(Data)
 }
 
@@ -24,7 +25,10 @@ struct BridgeProductSchemeControlDispatcher: Sendable {
         guard
             (productAdmission.withValidAdmission { true }) == true
         else {
-            return .admissionClosed
+            return try Self.typedRefusal(
+                for: .inactiveSession,
+                exactRequestBytes: exactRequestBytes
+            ) ?? .admissionClosed
         }
         let admission = await session.beginControl(
             exactRequestBytes: exactRequestBytes,
@@ -34,10 +38,16 @@ struct BridgeProductSchemeControlDispatcher: Sendable {
         let floorRetiredSubscriptions = await session.takeFloorRetiredSubscriptions()
         switch admission {
         case .admissionClosed:
-            return .admissionClosed
+            return try Self.typedRefusal(
+                for: .inactiveSession,
+                exactRequestBytes: exactRequestBytes
+            ) ?? .admissionClosed
         case .rejected(let rejection):
             guard let request = rejection.request else {
-                return .rejected(rejection.reason)
+                return try Self.typedRefusal(
+                    for: rejection.reason,
+                    exactRequestBytes: exactRequestBytes
+                ) ?? .rejected(rejection.reason)
             }
             return .response(
                 try Self.encode(
@@ -200,6 +210,22 @@ struct BridgeProductSchemeControlDispatcher: Sendable {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
         return try encoder.encode(response)
+    }
+
+    private static func typedRefusal(
+        for reason: BridgeProductSessionControlRejection,
+        exactRequestBytes: Data
+    ) throws -> BridgeProductSchemeControlDispatchResult? {
+        guard
+            let request = try? BridgeProductStrictJSON.decode(
+                BridgeProductControlRequest.self,
+                from: exactRequestBytes
+            )
+        else { return nil }
+        return try .typedRefusal(
+            reason,
+            encode(requestError(for: reason, request: request))
+        )
     }
 
     private static func requestError(

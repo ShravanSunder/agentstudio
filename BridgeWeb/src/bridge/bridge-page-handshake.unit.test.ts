@@ -13,6 +13,7 @@ import {
 	BRIDGE_PRODUCT_WIRE_VERSION,
 } from '../core/comm-worker/bridge-product-contract-primitives.js';
 import type { BridgeTelemetryWorkerBootstrap } from '../core/telemetry-worker/bridge-telemetry-worker-contracts.js';
+import validProductSessionCorpus from '../test-fixtures/bridge-contract-fixtures/valid/bridge-product-session-corpus.json' with { type: 'json' };
 import {
 	installBridgePageHandshake,
 	installBridgePageHandshakeSession,
@@ -680,12 +681,15 @@ function makeProductBootstrapDetail(
 			kind: 'productSession.bootstrap',
 			paneSessionId: 'pane-session-1',
 			policy: {
+				admissionRetryCount: validProductSessionCorpus.bootstrap.policy.admissionRetryCount,
 				maximumContentBytes: BRIDGE_PRODUCT_MAXIMUM_CONTENT_BYTES,
 				maximumRequestBodyBytes: BRIDGE_PRODUCT_MAXIMUM_REQUEST_BODY_BYTES,
 				maximumMetadataFrameBytes: BRIDGE_PRODUCT_MAXIMUM_METADATA_FRAME_BYTES,
 				maximumQueuedStreamBytes: BRIDGE_PRODUCT_MAXIMUM_QUEUED_STREAM_BYTES,
 				maximumQueuedStreamFrames: BRIDGE_PRODUCT_MAXIMUM_QUEUED_STREAM_FRAMES,
 				terminalFrameReserve: BRIDGE_PRODUCT_TERMINAL_FRAME_RESERVE,
+				workerSettlementDeadlineMilliseconds:
+					validProductSessionCorpus.bootstrap.policy.workerSettlementDeadlineMilliseconds,
 			},
 			wireVersion: BRIDGE_PRODUCT_WIRE_VERSION,
 			workerInstanceId,

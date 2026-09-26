@@ -368,6 +368,12 @@ actor BridgeProductSession {
         return capabilityMatches(presentedCapability)
     }
 
+    /// A retired command still needs authenticated ingress so admission can
+    /// return a correlated refusal; it cannot execute after lifecycle fencing.
+    func authenticatesControlCapability(_ presentedCapability: String) -> Bool {
+        capabilityMatches(presentedCapability)
+    }
+
     func acknowledgeMetadataFrameObservation(
         _ acknowledgement: BridgeProductMetadataFrameAcknowledgement,
         productAdmission: BridgeProductAdmissionContext
