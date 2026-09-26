@@ -676,6 +676,7 @@ large|DarwinSharedLocalFSEventObserverTests|process-global
 large|DerivedActivityNotificationIntegrationTests|process-global
 large|DerivedTerminalActivityNotificationRegressionTests|process-global
 large|DrawerCommandIntegrationTests|process-global
+large|DrawerZoomFrameCurrencyIntegrationTests|process-global
 e2e|E2ESerializedTests|serial
 e2e|E2ESerializedTests/FilesystemSourceE2ETests|serial
 e2e|E2ESerializedTests/ZmxBackendIntegrationTests|serial
