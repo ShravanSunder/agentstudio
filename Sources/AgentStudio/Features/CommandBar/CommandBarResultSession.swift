@@ -281,7 +281,7 @@ final class CommandBarResultSession {
         )
     }
 
-    private func canOpenWorktreeInCurrentTab() -> Bool {
+    func canOpenWorktreeInCurrentTab() -> Bool {
         let workspaceTab = WorkspaceTabLayoutDerived(
             shellAtom: store.tabShellAtom,
             arrangementAtom: store.tabArrangementAtom

@@ -73,9 +73,10 @@ package final class CommandBarPanelController {
     var defaultStartPointQueriesByRepositoryId: [UUID: InFlightDefaultStartPointQuery] = [:]
     private let resultSession: CommandBarResultSession
 
-    /// The same open-in-current-tab capability every worktree level is first built with.
+    /// The open-in-current-tab capability every worktree level is first built with, read
+    /// directly: an async answer must not rebuild the result snapshot or move the selection.
     var canOpenWorktreeInCurrentTab: Bool {
-        resultSession.snapshot(state: state).canOpenWorktreeInCurrentTab
+        resultSession.canOpenWorktreeInCurrentTab()
     }
     private var activationGenerationGate = CommandBarActivationGenerationGate()
     private var pendingOpenAcknowledgement: PendingOpenAcknowledgement?
