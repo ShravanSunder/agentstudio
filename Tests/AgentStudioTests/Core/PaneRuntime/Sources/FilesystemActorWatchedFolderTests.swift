@@ -198,6 +198,38 @@ struct FilesystemActorWatchedFolderTests {
         await fixture.actor.shutdown()
     }
 
+    @Test("a hold released while a scan's acceptance is still in flight withholds that scan")
+    func staleHeldScanCannotPublishAfterRelease() async throws {
+        // Arrange
+        let fixture = try await WatchedFolderActorFixture()
+        defer { fixture.removeTemporaryRoot() }
+        let clone = fixture.watchedFolder.appending(path: "repo")
+        let destination = fixture.watchedFolder.appending(path: "repo.feature")
+        _ = await fixture.performInitialRefresh(result: completeResult(entries: [cloneEntry(clone)]))
+        let holdID = await fixture.actor.holdWatchedFolderPublication(of: destination)
+        await fixture.submissionGate.arm()
+        let heldRefresh = Task { await fixture.actor.refreshWatchedFolders([fixture.watchedPath]) }
+        let heldStart = await fixture.scanner.nextStart()
+
+        // Act: the scan has started but its acceptance has not reached the actor when the
+        // hold is released; acceptance then returns and the scan's stale evidence applies.
+        await fixture.actor.releaseWatchedFolderPublicationHold(holdID)
+        await fixture.submissionGate.open()
+        await fixture.scanner.finish(
+            heldStart,
+            with: completeResult(entries: [cloneEntry(clone), linkedEntry(destination, parentClone: clone)])
+        )
+        let staleSummary = await heldRefresh.value
+        let freshSummary = await fixture.performRefresh(
+            result: completeResult(entries: [cloneEntry(clone), linkedEntry(destination, parentClone: clone)])
+        )
+
+        // Assert
+        #expect(staleSummary.linkedWorktreePaths(in: fixture.watchedFolder).isEmpty)
+        #expect(freshSummary.linkedWorktreePaths(in: fixture.watchedFolder) == [canonicalURL(destination)])
+        await fixture.actor.shutdown()
+    }
+
     @Test("partial and cancelled results merge positives without removing prior inventory")
     func partialAndCancelledResultsAreAdditive() async throws {
         let fixture = try await WatchedFolderActorFixture()
@@ -661,6 +693,7 @@ private actor ControlledActorWatchedFolderScanner {
 
 private struct WatchedFolderActorFixture {
     let scanner = ControlledActorWatchedFolderScanner()
+    let submissionGate = WatchedFolderScanAcceptanceGate()
     let bus = EventBus<RuntimeEnvelope>()
     let fseventClient = ControllableFSEventStreamClient()
     let watchedFolder: URL
@@ -724,6 +757,7 @@ private struct WatchedFolderActorFixture {
             bus: bus,
             fseventStreamClient: fseventClient,
             watchedFolderScanScheduler: scheduler,
+            watchedFolderScanSubmission: self.submissionGate.port,
             debounceWindow: .zero,
             maxFlushLatency: .zero,
             performanceTraceRecorder: performanceTraceRecorder

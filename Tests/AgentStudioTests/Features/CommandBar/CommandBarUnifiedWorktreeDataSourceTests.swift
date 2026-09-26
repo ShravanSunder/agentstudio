@@ -262,7 +262,7 @@ struct CommandBarUnifiedWorktreeDataSourceTests {
         let groupsByName = Dictionary(uniqueKeysWithValues: groups.map { ($0.name, $0.items) })
         #expect(groupsByName["Terminal"]?.map(\.title) == ["New pane in current tab", "Open Terminal in New Tab"])
         #expect(groupsByName["Path"]?.map(\.title) == ["Copy Path", "Reveal in Finder"])
-        #expect(groupsByName["Worktrees"]?.map(\.title) == ["main", "feature"])
+        #expect(groupsByName["Worktrees"]?.map(\.title) == ["New Worktree", "main", "feature"])
         #expect(
             groupsByName["Panes"]?.map(\.title) == [
                 "Open Review",

@@ -3,8 +3,196 @@ import AgentStudioTestSupport
 import Foundation
 import Testing
 
+private let generatedLaneFilterBehaviorProbe = #"""
+    source scripts/swift-test-helpers.sh
+
+    assert_match_pair() {
+      local generator="$1"
+      local pattern="$2"
+      local expected_match="$3"
+      local expected_nonmatch="$4"
+
+      if [[ "$expected_match" =~ $pattern ]]; then
+        printf 'MATCH_OK %s\n' "$generator"
+      else
+        printf 'missing expected match generator=%s test_id=%s\n' \
+          "$generator" "$expected_match" >&2
+        return 1
+      fi
+      if [[ "$expected_nonmatch" =~ $pattern ]]; then
+        printf 'unexpected match generator=%s test_id=%s\n' \
+          "$generator" "$expected_nonmatch" >&2
+        return 1
+      fi
+      return 0
+    }
+
+    assert_single_escaped_entries() {
+      local generator="$1"
+      local pattern_list="$2"
+      local remainder anchor_count=0 closing_count=0
+      remainder="$pattern_list"
+      while [[ "$remainder" == *'\.'* ]]; do
+        anchor_count=$((anchor_count + 1))
+        remainder="${remainder#*'\.'}"
+      done
+      remainder="$pattern_list"
+      while [[ "$remainder" == *'(/|$)'* ]]; do
+        closing_count=$((closing_count + 1))
+        remainder="${remainder#*'(/|$)'}"
+      done
+      if [ "$anchor_count" -eq 0 ] || [ "$anchor_count" -ne "$closing_count" ]; then
+        printf 'invalid anchor count generator=%s anchors=%s closings=%s\n' \
+          "$generator" "$anchor_count" "$closing_count" >&2
+        return 1
+      fi
+      if [[ "$pattern_list" == *'\\.'* || "$pattern_list" == *'\\/'* \
+        || "$pattern_list" == *'\\('* || "$pattern_list" == *'\\$'* ]]; then
+        printf 'double-escaped entry generator=%s pattern=%s\n' \
+          "$generator" "$pattern_list" >&2
+        return 1
+      fi
+      printf 'SINGLE_ESCAPE_OK %s entries=%s\n' "$generator" "$anchor_count"
+    }
+
+    fast_concurrent_id='AgentStudioTests.AgentStudioFileViewStartupDiagnosticTests/smokeRenderProofRequiresStreamedTreeAndSelectedContent()'
+    fast_isolated_id='AgentStudioSharedComponentsTests.AccessibilityPressBridgeTests/disabledAccessibilityPressBridgeRejectsPress()'
+    large_concurrent_id='AgentStudioTests.AgentStudioGitDependencyTests/agentStudioGitUsesRemotePackageAndHostedArtifact()'
+    large_serial_id='AgentStudioTests.BridgePackagedProductJourneyScriptTests/runnerDryRunDeclaresStrictLaunchAndFixtureContract()'
+    large_process_global_id='AgentStudioInfrastructureTests.AgentStudioOTLPBootstrapSmokeTests/otelConfigurationAppliesExplicitLogBatchBackpressurePolicy()'
+    fast_process_global_id='AgentStudioInfrastructureTests.SQLiteDatabaseFactoryProcessTests/bytePreservingStartupReaderSeesCommittedWALWithoutChangingDatabaseFiles()'
+    webkit_id='AgentStudioTests.WebKitSerializedTests/BridgePaneControllerTests/handleBridgeReady_setsReadyAndTeardownResets()'
+
+    fast_skip_pattern="$(fast_non_webkit_skip_pattern)" || exit 2
+    fast_concurrent_pattern="$(swift_test_lane_filter_pattern fast concurrent)" || exit 2
+    fast_concurrent_skip_pattern="$(swift_test_lane_fast_concurrent_skip_pattern)" || exit 2
+    fast_process_global_pattern="$(fast_serial_process_filter_pattern)" || exit 2
+    large_concurrent_pattern="$(large_non_webkit_filter_pattern)" || exit 2
+    large_serial_pattern="$(large_serial_non_webkit_filter_pattern)" || exit 2
+    large_process_global_pattern="$(large_process_global_filter_pattern)" || exit 2
+    aggregate_serial_pattern="$(aggregate_serial_non_webkit_filter_pattern)" || exit 2
+    webkit_filters="$(webkit_suite_filters)" || exit 2
+    webkit_pattern='WebKitSerializedTests/BridgePaneControllerTests'
+
+    assert_match_pair fast-skip "$fast_skip_pattern" "$fast_isolated_id" "$fast_concurrent_id" || exit 1
+    assert_match_pair fast-concurrent-filter "$fast_concurrent_pattern" "$fast_concurrent_id" "$fast_isolated_id" || exit 1
+    assert_match_pair fast-concurrent-skip "$fast_concurrent_skip_pattern" "$large_concurrent_id" "$fast_concurrent_id" || exit 1
+    assert_match_pair fast-process-global "$fast_process_global_pattern" "$fast_process_global_id" "$fast_concurrent_id" || exit 1
+    assert_match_pair large-concurrent "$large_concurrent_pattern" "$large_concurrent_id" "$fast_concurrent_id" || exit 1
+    assert_match_pair large-serial "$large_serial_pattern" "$large_serial_id" "$large_concurrent_id" || exit 1
+    assert_match_pair large-process-global "$large_process_global_pattern" "$large_process_global_id" "$large_concurrent_id" || exit 1
+    assert_match_pair aggregate-serial "$aggregate_serial_pattern" "$fast_isolated_id" "$fast_concurrent_id" || exit 1
+    if ! printf '%s\n' "$webkit_filters" | /usr/bin/grep -Fxq "$webkit_pattern"; then
+      printf 'missing WebKit selector from generated list: %s\n' "$webkit_pattern" >&2
+      exit 1
+    fi
+    assert_match_pair webkit-list "$webkit_pattern" "$webkit_id" "$fast_concurrent_id" || exit 1
+
+    assert_single_escaped_entries fast-skip "$fast_skip_pattern" || exit 1
+    assert_single_escaped_entries fast-concurrent-filter "$fast_concurrent_pattern" || exit 1
+    assert_single_escaped_entries fast-concurrent-skip "$fast_concurrent_skip_pattern" || exit 1
+    assert_single_escaped_entries fast-process-global "$fast_process_global_pattern" || exit 1
+    assert_single_escaped_entries large-concurrent "$large_concurrent_pattern" || exit 1
+    assert_single_escaped_entries large-serial "$large_serial_pattern" || exit 1
+    assert_single_escaped_entries large-process-global "$large_process_global_pattern" || exit 1
+    assert_single_escaped_entries aggregate-serial "$aggregate_serial_pattern" || exit 1
+    printf 'LANE_FILTER_BEHAVIOR_OK generators=9\n'
+    """#
+
 @Suite("Swift lane runner load reporting")
 struct SwiftLaneRunnerReportTests {
+    @Test("timing sidecars preserve the command verdict and ordered boundaries")
+    func timingSidecarPreservesVerdictAndBoundaries() async throws {
+        let evidenceDirectory = NSTemporaryDirectory() + "agentstudio-timing-sidecar-\(UUIDv7.generate())"
+        defer { try? FileManager.default.removeItem(atPath: evidenceDirectory) }
+        let output = try await runBash(
+            "LOG_PREFIX=timing; export LANE_EVENT_STREAM_DIR='\(evidenceDirectory)' "
+                + "LANE_TIMING_FILTER=FixtureSuite LANE_TIMING_BATCH=2 LANE_TIMING_SLOT=3; "
+                + "source scripts/swift-test-helpers.sh; set +e; "
+                + "run_swift_with_timeout 'fixture' 60 /bin/bash -c 'exit 7' || status=$?; "
+                + "echo STATUS=${status:-0}"
+        )
+        let files = try FileManager.default.contentsOfDirectory(atPath: evidenceDirectory)
+        let sidecar = try #require(files.first { $0.hasSuffix(".timing.json") })
+        let data = try Data(contentsOf: URL(fileURLWithPath: evidenceDirectory + "/" + sidecar))
+        let record = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let dispatch = try #require(record["dispatch_ms"] as? Int)
+        let start = try #require(record["command_start_ms"] as? Int)
+        let exit = try #require(record["command_exit_ms"] as? Int)
+        let complete = try #require(record["wrapper_complete_ms"] as? Int)
+        #expect(output.contains("STATUS=7"))
+        #expect(dispatch <= start && start <= exit && exit <= complete)
+        #expect(record["command_status"] as? Int == 7)
+        #expect(record["filter"] as? String == "FixtureSuite")
+        #expect(record["batch_id"] as? Int == 2)
+        #expect(record["slot"] as? Int == 3)
+        #expect(record["timed_out"] as? Bool == false)
+        #expect(record["event_stream_file"] is String)
+    }
+
+    @Test("prebuild flags are absent by default and appended when compiler statistics are enabled")
+    func prebuildCompilerStatisticsFlagsAreOptIn() async throws {
+        let statisticsDirectory = NSTemporaryDirectory() + "agentstudio-compiler-stats-\(UUIDv7.generate())"
+        defer { try? FileManager.default.removeItem(atPath: statisticsDirectory) }
+        let output = try await runBash(
+            "LOG_PREFIX=timing; PREBUILD_TIMEOUT_SECONDS=60; BUILD_PATH=.build-probe; "
+                + "source scripts/swift-test-helpers.sh; "
+                + "run_swift_with_timeout() { printf 'ARG:%s\\n' \"\u{0024}@\"; }; "
+                + "unset SWIFT_BUILD_STATS_DIR; prebuild_swift_tests; echo ENABLED; "
+                + "export SWIFT_BUILD_STATS_DIR='\(statisticsDirectory)'; prebuild_swift_tests"
+        )
+        let halves = output.components(separatedBy: "ENABLED\n")
+        #expect(halves.count == 2)
+        #expect(
+            halves.first == "ARG:prebuild test bundles\nARG:60\nARG:swift\nARG:build\n"
+                + "ARG:--build-tests\nARG:--build-path\nARG:.build-probe\n")
+        #expect(
+            halves.last?.contains(
+                "ARG:-Xswiftc\nARG:-stats-output-dir\nARG:-Xswiftc\n"
+                    + "ARG:\(statisticsDirectory)\n") == true)
+    }
+
+    @Test("timing summary computes fixed scheduler replay and keeps missing spans unknown")
+    func timingSummaryComputesReplayAndUnknowns() async throws {
+        let evidenceDirectory = NSTemporaryDirectory() + "agentstudio-timing-summary-\(UUIDv7.generate())"
+        defer { try? FileManager.default.removeItem(atPath: evidenceDirectory) }
+        try FileManager.default.createDirectory(atPath: evidenceDirectory, withIntermediateDirectories: true)
+        let eventFile = evidenceDirectory + "/fixture.events.jsonl"
+        try "{\"kind\":\"event\",\"payload\":{\"kind\":\"runStarted\",\"instant\":{\"since1970\":1790000001.1}}}\n"
+            .appending(
+                "{\"kind\":\"event\",\"payload\":{\"kind\":\"runEnded\",\"instant\":{\"since1970\":1790000001.3}}}\n"
+            )
+            .write(toFile: eventFile, atomically: true, encoding: .utf8)
+        let fixture: [String: Any] = [
+            "lane": "fixture", "label": "prebuild test bundles", "dispatch_ms": 1_790_000_000_900,
+            "command_start_ms": 1_790_000_001_000, "command_exit_ms": 1_790_000_001_350,
+            "wrapper_complete_ms": 1_790_000_001_400,
+            "event_stream_file": eventFile,
+        ]
+        let fixtureData = try JSONSerialization.data(withJSONObject: fixture)
+        try fixtureData.write(to: URL(fileURLWithPath: evidenceDirectory + "/lane-fixture.timing.json"))
+        for (index, duration) in [100, 400, 100, 400, 100, 100].enumerated() {
+            let dispatch = index < 3 ? 1000 : 1500
+            let item: [String: Any] = [
+                "lane": "isolated", "label": "isolated process-global non-WebKit suite: \(index)",
+                "filter": "Suite\(index)", "batch_id": index < 3 ? 1 : 2,
+                "slot": index % 3 + 1, "dispatch_ms": dispatch,
+                "wrapper_complete_ms": dispatch + duration,
+            ]
+            let data = try JSONSerialization.data(withJSONObject: item)
+            try data.write(to: URL(fileURLWithPath: evidenceDirectory + "/lane-\(index).timing.json"))
+        }
+        _ = try await runBash("LANE_EVENT_STREAM_DIR='\(evidenceDirectory)' /bin/bash scripts/summarize-ci-timing.sh")
+        let summary = try String(contentsOfFile: evidenceDirectory + "/timing-summary.md", encoding: .utf8)
+        #expect(summary.contains("| fixture | 1 | 0.500 | 0.100 | 0.200 | 0.050 | 0.050 |"))
+        #expect(summary.contains("Total slot idle: 1.200 s; B: 0.800 s; R: 0.500 s."))
+        #expect(summary.contains("unknown"))
+        let emptyDirectory = evidenceDirectory + "/empty"
+        _ = try await runBash("LANE_EVENT_STREAM_DIR='\(emptyDirectory)' /bin/bash scripts/summarize-ci-timing.sh")
+        let emptySummary = try String(contentsOfFile: emptyDirectory + "/timing-summary.md", encoding: .utf8)
+        #expect(emptySummary.contains("Unknown/null spans: unknown (no sidecars)."))
+    }
+
     @Test("every Swift test invocation takes its parallelization width from the one helper")
     func everySwiftTestInvocationTakesItsWidthFromTheOneHelper() throws {
         let helperScript = try String(contentsOfFile: "scripts/swift-test-helpers.sh", encoding: .utf8)
@@ -149,10 +337,13 @@ struct SwiftLaneRunnerReportTests {
             ]
         )
         // A failing lane is the one whose load numbers matter most, so the
-        // closing block hangs off EXIT rather than the end of the happy path.
+        // closing block hangs off EXIT, and it also releases the caller's slot.
         let invocationExit = try shellFunction(named: "finish_lane_invocation", in: laneRunnerScript)
         #expect(laneRunnerScript.contains("trap finish_lane_invocation EXIT"))
-        #expect(invocationExit.hasPrefix("finish_lane_invocation() {\n  print_closing_lane_report\n"))
+        #expect(invocationExit.contains("local exit_status=$?"))
+        #expect(invocationExit.contains("print_closing_lane_report \"$exit_status\" || true"))
+        #expect(invocationExit.contains("swift_build_slot_release || true"))
+        #expect(invocationExit.contains("return \"$exit_status\""))
     }
 
     @Test("a child that dies by signal is named instead of swallowed")
@@ -329,15 +520,17 @@ struct SwiftLaneRunnerReportTests {
         let cleanDirectory = workDirectory + "/clean-runs"
         let cleanOutput = try await runBash(
             "LOG_PREFIX=lane; TIMEOUT_SECONDS=60; BUILD_PATH=.build-agent-1; "
-                + "export LANE_EVENT_STREAM_DIR='\(cleanDirectory)'; "
+                + "export LANE_EVENT_STREAM_DIR='\(cleanDirectory)' LANE_EVENT_STREAM_RETAIN_ALWAYS=0; "
                 + "source scripts/swift-test-helpers.sh; "
                 + "run_swift_with_timeout 'clean probe' 60 /bin/bash -c 'echo CLEAN_RUN_OK'; "
-                + "echo \"LEDGERS=$(ls -1 '\(cleanDirectory)' 2>/dev/null | wc -l | tr -d '[:space:]')\""
+                + "echo \"LEDGERS=$(find '\(cleanDirectory)' -name '*.events.jsonl' | wc -l | tr -d '[:space:]')\"; "
+                + "echo \"TIMINGS=$(find '\(cleanDirectory)' -name '*.timing.json' | wc -l | tr -d '[:space:]')\""
         )
 
         // A run that ended cleanly has nothing to explain, so it keeps nothing.
         #expect(cleanOutput.contains("CLEAN_RUN_OK"))
         #expect(cleanOutput.contains("LEDGERS=0"))
+        #expect(cleanOutput.contains("TIMINGS=1"))
     }
 
     @Test("an isolated suite filter matches its type, never a file named after it")
@@ -387,17 +580,45 @@ struct SwiftLaneRunnerReportTests {
             helperScript.contains(
                 "--filter \"$(swift_test_isolated_suite_filter_pattern \"$large_process_global_suite_filter\")\""
             ))
+        let fastProcessInvocation = try shellFunction(
+            named: "run_fast_serial_process_swift_tests",
+            in: helperScript
+        )
         #expect(
-            helperScript.contains(
-                "--filter \"$(swift_test_isolated_suite_filter_pattern \"$(fast_serial_process_filter_pattern)\")\""
+            fastProcessInvocation.contains(
+                "--filter \"$(swift_test_isolated_suite_filter_pattern \"$fast_process_global_suite_filter\")\""
             ))
-        // The fast lane's skip is the mirror of the same defect.
-        #expect(helperScript.contains("--skip \"$(fast_non_webkit_skip_pattern)\""))
-        // Substring families must NOT be anchored: they match many suites by
-        // prefix, and anchoring them would drop whole suites out of their lane.
+        // Fast skips are generated from exact lane ownership, with the
+        // aggregate isolated suites anchored by their own suite-type filters.
+        #expect(helperScript.contains("--skip \"$fast_lane_skip_pattern\""))
+        let fastRunner = try shellFunction(named: "run_fast_non_webkit_swift_tests", in: helperScript)
+        #expect(fastRunner.contains("if ! fast_lane_skip_pattern=\"$(fast_non_webkit_skip_pattern)\"; then"))
         let skipBuilder = try shellFunction(named: "fast_non_webkit_skip_pattern", in: helperScript)
-        #expect(skipBuilder.contains("\"$(large_non_webkit_filter_pattern)\""))
-        #expect(!skipBuilder.contains("swift_test_isolated_suite_skip_pattern \"$(large_non_webkit_filter_pattern)\""))
+        #expect(skipBuilder.contains("$(swift_test_lane_fast_concurrent_skip_pattern)"))
+        #expect(
+            skipBuilder.contains(
+                "if ! aggregate_serial_skip_filters=\"$(aggregate_serial_non_webkit_filter_pattern)\"; then"))
+        #expect(
+            skipBuilder.contains(
+                "printf '%s|%s' \"$fast_lane_skip_filters\" \"$aggregate_serial_skip_filters\""
+            ))
+        #expect(!skipBuilder.contains("swift_test_isolated_suite_skip_pattern"))
+        #expect(!skipBuilder.contains("large_non_webkit_filter_pattern"))
+    }
+
+    @Test("generated lane filters match only real test IDs in their lane")
+    func generatedLaneFiltersMatchOnlyRealTestIds() async throws {
+        let output = try await runBash(generatedLaneFilterBehaviorProbe)
+
+        // The probe uses Swift Testing-shaped IDs from the real targets and Bash
+        // ERE matching, the same regex dialect the lane filters are consumed as.
+        guard output.contains("LANE_FILTER_BEHAVIOR_OK generators=9") else { return }
+        #expect(output.contains("MATCH_OK fast-skip"))
+        #expect(output.contains("MATCH_OK fast-concurrent-filter"))
+        #expect(output.contains("MATCH_OK large-process-global"))
+        #expect(output.contains("MATCH_OK aggregate-serial"))
+        #expect(output.contains("MATCH_OK webkit-list"))
+        #expect(output.contains("LANE_FILTER_BEHAVIOR_OK generators=9"))
     }
 
     @Test("a clean lane reports zero failed isolated suites")

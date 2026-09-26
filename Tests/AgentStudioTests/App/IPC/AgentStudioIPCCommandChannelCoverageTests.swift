@@ -35,7 +35,7 @@ struct AgentStudioIPCCommandChannelCoverageTests {
         let ids = Set(catalog.commands.map(\.id.rawValue))
 
         #expect(catalog.commands.count == AppCommand.allCases.count)
-        #expect(AppCommand.allCases.count == 152)
+        #expect(AppCommand.allCases.count == 155)
         for command in AppCommand.allCases {
             #expect(ids.contains(command.rawValue), "\(command.rawValue) missing from the debug catalog")
         }
@@ -218,7 +218,7 @@ struct AgentStudioIPCCommandChannelCoverageTests {
         let frameByteLimit = 1_048_576
         let frameByteCount = payload.utf8.count + 1
 
-        #expect(catalog.commands.count == 152)
+        #expect(catalog.commands.count == 155)
         #expect(
             frameByteCount <= frameByteLimit,
             "Complete 146-command debug catalog frame is \(frameByteCount) bytes"

@@ -64,7 +64,9 @@ struct CommandBarBreadcrumbRow: View {
                 .accessibilityHidden(true)
             }
 
-            if isCurrent {
+            if item.label.isEmpty {
+                EmptyView()
+            } else if isCurrent {
                 Text(item.label)
                     .font(.system(size: AppStyles.General.Typography.textSm, weight: .semibold))
                     .foregroundStyle(.tertiary)

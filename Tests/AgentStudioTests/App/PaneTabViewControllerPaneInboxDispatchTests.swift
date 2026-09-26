@@ -13,34 +13,6 @@ struct PaneTabViewControllerPaneInboxDispatchTests {
         installTestCoreAtomsIfNeeded()
     }
 
-    @Test("dispatcher PaneInbox command reaches the active parent pane scope")
-    func dispatcherShowPaneInboxNotificationsOpensActiveParentScope() async throws {
-        let harness = makeHarness()
-        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
-
-        try await withIsolatedCommandDispatcher(
-            configure: {
-                AppCommandDispatcher.shared.handler = harness.controller
-                AppCommandDispatcher.shared.appCommandRouter = nil
-            },
-            body: {
-                let parentPane = harness.store.createPane()
-                let tab = Tab(paneId: parentPane.id)
-                harness.store.appendTab(tab)
-                harness.store.setActiveTab(tab.id)
-                let drawerPane = try #require(harness.store.addDrawerPane(to: parentPane.id))
-
-                #expect(AppCommandDispatcher.shared.canDispatch(.showPaneInboxNotifications))
-
-                AppCommandDispatcher.shared.dispatch(.showPaneInboxNotifications)
-
-                #expect(harness.paneInboxPresenter.request?.parentPaneId == parentPane.id)
-                #expect(harness.paneInboxPresenter.request?.paneIds == [parentPane.id, drawerPane.id])
-                #expect(harness.paneInboxPresenter.request?.intent == .open)
-            }
-        )
-    }
-
     @Test("retired Cmd-Shift-U shortcut does not dispatch PaneInbox")
     func retiredCmdShiftUKeyEventDoesNotOpenPaneInbox() async throws {
         try await withAsyncTestCoreAtoms { atoms in
@@ -60,11 +32,39 @@ struct PaneTabViewControllerPaneInboxDispatchTests {
                     harness.store.setActiveTab(tab.id)
                     _ = try #require(harness.store.addDrawerPane(to: parentPane.id))
                     let event = try #require(cmdShiftUEvent())
+                    let paneIDsBeforeDispatch = Set(harness.store.panes.keys)
 
                     #expect(!harness.controller.handleAppOwnedKeyEvent(event))
-                    #expect(harness.paneInboxPresenter.request == nil)
+                    #expect(Set(harness.store.panes.keys) == paneIDsBeforeDispatch)
                 }
             )
+        }
+    }
+
+    @Test("pane inbox commands are unavailable without a production presentation")
+    func paneInboxCommandsAreUnavailableWithoutPresentation() async {
+        await withAsyncTestCoreAtoms { atoms in
+            let harness = makeHarness(windowLifecycleStore: atoms.windowLifecycle)
+            defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+            let parentPane = harness.store.createPane()
+            let tab = Tab(paneId: parentPane.id)
+            harness.store.appendTab(tab)
+            harness.store.setActiveTab(tab.id)
+            let paneIDsBeforeCheck = Set(harness.store.panes.keys)
+
+            for command in [AppCommand.showPaneInboxNotifications, .clearPaneInboxNotifications] {
+                #expect(!harness.controller.canExecute(command))
+                #expect(
+                    !harness.controller.canExecute(
+                        command,
+                        target: parentPane.id,
+                        targetType: .pane
+                    )
+                )
+            }
+
+            #expect(Set(harness.store.panes.keys) == paneIDsBeforeCheck)
         }
     }
 

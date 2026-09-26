@@ -74,7 +74,8 @@ extension AppCommand {
             .showPaneInboxNotifications, .clearPaneInboxNotifications,
             .setInboxGroupingTab, .setInboxGroupingRepo, .setInboxGroupingPane,
             .setInboxGroupingNone, .setInboxRowStateFilter, .setInboxContentMode,
-            .focusSidebar:
+            .focusSidebar, .newWorktree, .newWorktreeFromDefault, .forkWorktree:
+            // Worktree creation has no parameterized IPC contract yet (v1 is interactive only).
             [.noArguments]
 
         case .undoCloseTab,
@@ -236,7 +237,7 @@ extension AppCommand {
             .showBridgeReview, .showBridgeFiles,
             .openBridgeReviewInNewTab, .openBridgeFilesInNewTab,
             .signInGitHub, .signInGoogle, .filterSidebar,
-            .openNewTerminalInTab:
+            .openNewTerminalInTab, .newWorktree, .newWorktreeFromDefault, .forkWorktree:
             .debugTesting
         }
     }
@@ -300,7 +301,7 @@ extension AppCommand {
             .openWebview, .reloadBridgeWebView, .showViewer,
             .showBridgeReview, .showBridgeFiles,
             .openBridgeReviewInNewTab, .openBridgeFilesInNewTab,
-            .openNewTerminalInTab:
+            .openNewTerminalInTab, .newWorktree, .newWorktreeFromDefault, .forkWorktree:
             .headless
         }
     }
@@ -373,7 +374,7 @@ extension AppCommand {
             .openWebview, .showViewer,
             .showBridgeReview, .showBridgeFiles,
             .openBridgeReviewInNewTab, .openBridgeFilesInNewTab,
-            .openNewTerminalInTab:
+            .openNewTerminalInTab, .newWorktree, .newWorktreeFromDefault, .forkWorktree:
             .layoutMutate
         }
     }
@@ -386,7 +387,8 @@ extension AppCommand {
             .clearReadInboxNotifications, .clearAllInboxNotifications,
             .showPaneInboxNotifications, .clearPaneInboxNotifications,
             .setInboxGroupingTab, .setInboxGroupingRepo, .setInboxGroupingPane,
-            .setInboxGroupingNone, .setInboxRowStateFilter, .setInboxContentMode:
+            .setInboxGroupingNone, .setInboxRowStateFilter, .setInboxContentMode,
+            .newWorktree, .newWorktreeFromDefault, .forkWorktree:
             []
 
         case .undoCloseTab, .newTab,
@@ -464,7 +466,7 @@ extension AppCommand {
             .setPanesGroupingRepo, .setPanesGroupingTab, .setPanesGroupingActivity,
             .setPanesSubgroupNone, .setPanesSubgroupActivity,
             .setPanesSortFieldName, .setPanesSortFieldActivity,
-            .togglePanesSortDirection:
+            .togglePanesSortDirection, .newWorktree, .newWorktreeFromDefault, .forkWorktree:
             [.unavailable]
 
         case .openPaneLocationInEditorMenu, .editPaneNote,

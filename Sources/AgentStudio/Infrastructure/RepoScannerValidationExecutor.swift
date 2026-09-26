@@ -208,6 +208,8 @@ package struct RepoDiscoveryScheduledDeadline: Sendable {
 }
 
 package struct DispatchRepoDiscoveryDeadlineScheduler: RepoDiscoveryDeadlineScheduler {
+    package init() {}
+
     private static let queue = DispatchQueue(
         label: "com.agentstudio.repo-discovery-deadline",
         qos: .utility
