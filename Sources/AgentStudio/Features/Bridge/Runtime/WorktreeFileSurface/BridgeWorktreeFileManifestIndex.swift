@@ -1,3 +1,4 @@
+import AgentStudioInfrastructure
 import Foundation
 
 enum BridgeWorktreeFileManifestRemovalResult: Sendable {
@@ -9,6 +10,26 @@ struct BridgeWorktreeFileKeyedRecord: Equatable, Sendable {
     let key: String
     let revision: Int
     let row: BridgeWorktreeTreeRowMetadata
+    let descriptorOutcome: BridgeProductFileDescriptorReadyPayload?
+}
+
+struct BridgeWorktreeFileDescriptorAttempt: Sendable {
+    let canonicalKey: String
+    let contentGeneration: Int
+    let foregroundWorkAdmission: BridgePaneRefreshWorkAdmission
+    let indexGeneration: Int
+    let interestRevision: Int
+    let invalidationGeneration: Int
+    let memberIncarnation: String
+    let path: String
+    let productAdmission: BridgeProductAdmissionContext
+    let source: BridgeProductFileSourceIdentity
+    let token: UUID
+}
+
+struct BridgeWorktreeFileRetainedDescriptorLease: Sendable {
+    let id: UUID
+    let descriptor: BridgeProductFileContentDescriptor
 }
 
 struct BridgeWorktreeFileKeyedSnapshot: Equatable, Sendable {
@@ -31,6 +52,13 @@ actor BridgeWorktreeFileManifestIndex {
     private var rowsByPath: [String: BridgeWorktreeTreeRowMetadata] = [:]
     private var canonicalLocationByPath: [String: String] = [:]
     private var revisionByPath: [String: Int] = [:]
+    private var newestDescriptorOutcomeByKey: [String: BridgeProductFileDescriptorReadyPayload] = [:]
+    private var contentGenerationByKey: [String: Int] = [:]
+    private var invalidationGenerationByKey: [String: Int] = [:]
+    private var descriptorAttemptTokenByKey: [String: UUID] = [:]
+    private var descriptorInterestRevisionByKey: [String: Int] = [:]
+    private var retainedDescriptorByLeaseId: [UUID: BridgeProductFileDescriptorReadyPayload] = [:]
+    private let memberIncarnation: String
     private var tombstoneRevisionByKey: [String: Int] = [:]
     private var nextRevision = 0
     private var absenceFloorRevisionByRange: [String: Int] = [:]
@@ -40,11 +68,13 @@ actor BridgeWorktreeFileManifestIndex {
     init(
         generation: Int,
         rootURL: URL,
-        productAdmission: BridgeProductAdmissionContext
+        productAdmission: BridgeProductAdmissionContext,
+        memberIncarnation: String = "default"
     ) {
         self.generation = generation
         self.canonicalRootURL = rootURL.standardizedFileURL.resolvingSymlinksInPath()
         self.owningProductAdmission = productAdmission
+        self.memberIncarnation = memberIncarnation
     }
 
     /// A snapshot freezes records and its target in the same actor turn.
@@ -54,7 +84,12 @@ actor BridgeWorktreeFileManifestIndex {
                 let key = canonicalLocationByPath[path],
                 let revision = revisionByPath[path]
             else { return nil }
-            return .init(key: key, revision: revision, row: row)
+            return .init(
+                key: key,
+                revision: revision,
+                row: row,
+                descriptorOutcome: newestDescriptorOutcomeByKey[key]
+            )
         }
         return .init(
             records: records,
@@ -63,6 +98,136 @@ actor BridgeWorktreeFileManifestIndex {
             absenceFloorRevisionByRange: absenceFloorRevisionByRange
         )
     }
+
+    /// Reserves one attempt against the current row, interest and pane admission.
+    /// A newer reservation for the same key fences its predecessor before either
+    /// materialization returns.
+    func reserveDescriptorAttempt(
+        for path: String,
+        source: BridgeProductFileSourceIdentity,
+        memberIncarnation requestedMemberIncarnation: String,
+        interestRevision: Int,
+        productAdmission: BridgeProductAdmissionContext,
+        foregroundWorkAdmission: BridgePaneRefreshWorkAdmission
+    ) -> BridgeWorktreeFileDescriptorAttempt? {
+        guard owningProductAdmission.matches(productAdmission),
+            requestedMemberIncarnation == memberIncarnation,
+            foregroundWorkAdmission.withValidAdmission({ true }) == true,
+            productAdmission.withValidAdmission({ true }) == true,
+            rowsByPath[path] != nil,
+            let canonicalKey = canonicalLocationByPath[path],
+            let contentGeneration = contentGenerationByKey[canonicalKey],
+            let invalidationGeneration = invalidationGenerationByKey[canonicalKey],
+            interestRevision >= (descriptorInterestRevisionByKey[canonicalKey] ?? 0)
+        else { return nil }
+        let token = UUIDv7.generate()
+        descriptorAttemptTokenByKey[canonicalKey] = token
+        descriptorInterestRevisionByKey[canonicalKey] = interestRevision
+        return .init(
+            canonicalKey: canonicalKey,
+            contentGeneration: contentGeneration,
+            foregroundWorkAdmission: foregroundWorkAdmission,
+            indexGeneration: generation,
+            interestRevision: interestRevision,
+            invalidationGeneration: invalidationGeneration,
+            memberIncarnation: memberIncarnation,
+            path: path,
+            productAdmission: productAdmission,
+            source: source,
+            token: token
+        )
+    }
+
+    /// Accepts success and unavailable through the same guard. Descriptor and
+    /// wire revision change in this actor turn; no delivery acknowledgement can
+    /// roll the accepted outcome back.
+    @discardableResult
+    func acceptDescriptorOutcome(
+        _ outcome: BridgeProductFileDescriptorReadyPayload,
+        for attempt: BridgeWorktreeFileDescriptorAttempt
+    ) -> Bool {
+        guard owningProductAdmission.matches(attempt.productAdmission),
+            attempt.indexGeneration == generation,
+            attempt.memberIncarnation == memberIncarnation,
+            attempt.foregroundWorkAdmission.withValidAdmission({ true }) == true,
+            attempt.productAdmission.withValidAdmission({ true }) == true,
+            outcome.path == attempt.path,
+            outcome.source == attempt.source,
+            canonicalLocationByPath[attempt.path] == attempt.canonicalKey,
+            rowsByPath[attempt.path] != nil,
+            contentGenerationByKey[attempt.canonicalKey] == attempt.contentGeneration,
+            invalidationGenerationByKey[attempt.canonicalKey] == attempt.invalidationGeneration,
+            descriptorInterestRevisionByKey[attempt.canonicalKey] == attempt.interestRevision,
+            descriptorAttemptTokenByKey[attempt.canonicalKey] == attempt.token
+        else { return false }
+        descriptorAttemptTokenByKey.removeValue(forKey: attempt.canonicalKey)
+        guard newestDescriptorOutcomeByKey[attempt.canonicalKey] != outcome else { return true }
+        newestDescriptorOutcomeByKey[attempt.canonicalKey] = outcome
+        revisionByPath[attempt.path] = mintRevision()
+        return true
+    }
+
+    @discardableResult
+    func invalidateDescriptor(
+        for path: String,
+        productAdmission: BridgeProductAdmissionContext
+    ) -> Bool {
+        guard owningProductAdmission.matches(productAdmission) else { return false }
+        return productAdmission.withValidAdmission { () -> Bool in
+            guard let canonicalKey = canonicalLocationByPath[path], rowsByPath[path] != nil else {
+                return false
+            }
+            invalidationGenerationByKey[canonicalKey, default: 0] += 1
+            descriptorAttemptTokenByKey.removeValue(forKey: canonicalKey)
+            newestDescriptorOutcomeByKey.removeValue(forKey: canonicalKey)
+            revisionByPath[path] = mintRevision()
+            return true
+        } ?? false
+    }
+
+    func retainCurrentDescriptor(
+        for canonicalKey: String,
+        productAdmission: BridgeProductAdmissionContext
+    ) -> BridgeWorktreeFileRetainedDescriptorLease? {
+        guard owningProductAdmission.matches(productAdmission),
+            productAdmission.withValidAdmission({ true }) == true,
+            let outcome = newestDescriptorOutcomeByKey[canonicalKey],
+            case .available(let descriptor) = outcome.availability
+        else { return nil }
+        let lease = BridgeWorktreeFileRetainedDescriptorLease(id: UUIDv7.generate(), descriptor: descriptor)
+        retainedDescriptorByLeaseId[lease.id] = outcome
+        return lease
+    }
+
+    func issuedDescriptorOutcome(
+        matching descriptor: BridgeProductFileContentDescriptor,
+        productAdmission: BridgeProductAdmissionContext
+    ) -> BridgeProductFileDescriptorReadyPayload? {
+        guard owningProductAdmission.matches(productAdmission),
+            productAdmission.withValidAdmission({ true }) == true
+        else { return nil }
+        for outcome in newestDescriptorOutcomeByKey.values {
+            if case .available(let current) = outcome.availability, current == descriptor {
+                return outcome
+            }
+        }
+        for outcome in retainedDescriptorByLeaseId.values {
+            if case .available(let retained) = outcome.availability, retained == descriptor {
+                return outcome
+            }
+        }
+        return nil
+    }
+
+    func releaseRetainedDescriptor(_ lease: BridgeWorktreeFileRetainedDescriptorLease) {
+        retainedDescriptorByLeaseId.removeValue(forKey: lease.id)
+    }
+
+    func revokeRetainedDescriptors() {
+        retainedDescriptorByLeaseId.removeAll(keepingCapacity: false)
+    }
+
+    var retainedDescriptorLeaseCount: Int { retainedDescriptorByLeaseId.count }
 
     var count: Int {
         orderedPaths.count
@@ -284,12 +449,18 @@ actor BridgeWorktreeFileManifestIndex {
             previousLocation != canonicalLocation
         {
             tombstoneRevisionByKey[previousLocation] = mintRevision()
+            newestDescriptorOutcomeByKey.removeValue(forKey: previousLocation)
+            descriptorAttemptTokenByKey.removeValue(forKey: previousLocation)
         }
         if rowsByPath[row.path] == nil {
             orderedPaths.append(row.path)
         }
         rowsByPath[row.path] = row
         canonicalLocationByPath[row.path] = canonicalLocation
+        contentGenerationByKey[canonicalLocation, default: 0] += 1
+        invalidationGenerationByKey[canonicalLocation, default: 0] += 1
+        descriptorAttemptTokenByKey.removeValue(forKey: canonicalLocation)
+        newestDescriptorOutcomeByKey.removeValue(forKey: canonicalLocation)
         revisionByPath[row.path] = mintRevision()
         tombstoneRevisionByKey.removeValue(forKey: canonicalLocation)
     }
@@ -299,6 +470,10 @@ actor BridgeWorktreeFileManifestIndex {
         revisionByPath.removeValue(forKey: path)
         if let canonicalLocation = canonicalLocationByPath.removeValue(forKey: path) {
             tombstoneRevisionByKey[canonicalLocation] = mintRevision()
+            contentGenerationByKey[canonicalLocation, default: 0] += 1
+            invalidationGenerationByKey[canonicalLocation, default: 0] += 1
+            descriptorAttemptTokenByKey.removeValue(forKey: canonicalLocation)
+            newestDescriptorOutcomeByKey.removeValue(forKey: canonicalLocation)
         }
         return row
     }
