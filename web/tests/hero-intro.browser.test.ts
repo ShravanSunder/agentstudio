@@ -1,7 +1,7 @@
 import { describe, expect, inject, it } from "vitest";
 import { commands } from "vitest/browser";
 
-import type { HeroLayoutObservation } from "./hero-intro-browser-command";
+import type { HeroLayoutObservation, HeroPlaybackObservation } from "./hero-intro-browser-command";
 
 declare module "vitest/browser" {
   interface BrowserCommands {
@@ -9,6 +9,7 @@ declare module "vitest/browser" {
       pageUrl: string,
       viewports: readonly { readonly width: number; readonly height: number }[],
     ): Promise<HeroLayoutObservation[]>;
+    verifyHeroIntroPlayback(pageUrl: string): Promise<HeroPlaybackObservation>;
   }
 }
 
@@ -59,6 +60,30 @@ describe("hero intro", () => {
       if (observation.viewport === "820x1180") {
         expect(observation.earlierExchangeVisible).toBe(true);
       }
+    }
+  });
+
+  it("settles once on resize or keydown and leaves CSS in charge of the final layout", async () => {
+    const observation = await commands.verifyHeroIntroPlayback(inject("siteHeaderBrowserTestUrl"));
+    expect(observation.midIntroWasPlaying).toBe(true);
+    expect(observation.midIntroHorizontalOverflow).toBeLessThanOrEqual(0);
+    expect(observation.resizeSettledEvents).toBe(1);
+    expect(observation.resizeProgress).toBe(1);
+    expect(observation.resizeInlineStyles, observation.resizeInlineStyleElements.join("\n")).toBe(
+      0,
+    );
+    expect(observation.resizeFourthPlanes).toBe(0);
+    expect(observation.reducedMotionCreatedTimeline).toBe(false);
+    expect(observation.keydownSettledEvents).toBe(1);
+    expect(observation.afterSecondResizeInlineStyles).toBe(0);
+    for (const [actual, expected] of [
+      [observation.resizedWindow, observation.freshNarrowWindow],
+      [observation.afterSecondResizeWindow, observation.freshWideWindow],
+    ] as const) {
+      expect(Math.abs(actual.left - expected.left)).toBeLessThanOrEqual(1);
+      expect(Math.abs(actual.top - expected.top)).toBeLessThanOrEqual(1);
+      expect(Math.abs(actual.width - expected.width)).toBeLessThanOrEqual(1);
+      expect(Math.abs(actual.height - expected.height)).toBeLessThanOrEqual(1);
     }
   });
 });

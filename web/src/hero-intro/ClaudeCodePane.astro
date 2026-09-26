@@ -2,6 +2,7 @@
 import { claudeTranscript } from "./hero-terminal-transcripts";
 import {
   heroIntroSpinnerAttribute,
+  heroIntroReadyAttribute,
   heroIntroTypedInputAttribute,
   heroTranscriptTierAttribute,
 } from "./hero-intro-dom-contract";
@@ -52,6 +53,7 @@ const transcriptRows = claudeTranscript.filter((row) => row.kind !== "cursor");
           <div
             class={`hero-transcript-row hero-transcript-row--${row.kind}`}
             {...{ [heroTranscriptTierAttribute]: row.tiers.join(" ") }}
+            {...(row.text.includes("Ready. Copy it below") ? { [heroIntroReadyAttribute]: "" } : {})}
           >
             {toolCall === null ? (
               resultCheckIndex < 0 ? (

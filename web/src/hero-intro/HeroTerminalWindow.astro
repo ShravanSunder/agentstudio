@@ -30,7 +30,7 @@ import HeroIconStack from "./HeroIconStack.astro";
   .hero-terminal-content { display: flex; align-items: stretch; }
   :global(.hero-terminal-pane) { display: flex; flex: 1 1 50%; flex-direction: column; min-width: 0; }
   :global(.hero-terminal-pane--codex) { border-left: 1px solid rgb(255 255 255 / 10%); }
-  :global(.hero-terminal-transcript) { flex: 1 1 auto; min-width: 0; padding: 12px 16px 8px; }
+  :global(.hero-terminal-transcript) { position: relative; flex: 1 1 auto; min-width: 0; padding: 12px 16px 8px; }
   :global(.hero-claude-startup) { display: flex; align-items: flex-start; gap: 13px; min-height: 59px; }
   :global(.hero-claude-mascot) { flex: none; width: 47px; height: 43px; margin-top: 2px; fill: #e6714e; }
   :global(.hero-claude-eye) { fill: #1c1d21; }
@@ -52,7 +52,7 @@ import HeroIconStack from "./HeroIconStack.astro";
   :global(.hero-transcript-row--diff-removed) { background: rgb(243 139 168 / 14%); color: #f3b3bf; }
   :global(.hero-transcript-row--diff-added) { background: rgb(166 227 161 / 14%); color: #aceac6; }
   :global(.hero-transcript-row--codex-action .hero-terminal-lavender) { font-weight: 700; }
-  :global(.hero-brewing) { display: none; color: #f0b990; }
+  :global(.hero-brewing) { display: none; position: absolute; bottom: 8px; left: 16px; color: #f0b990; background: #282c34; }
   :global(.hero-claude-footer) { flex: none; padding: 0 16px 9px; }
   :global(.hero-terminal-rule) { height: 1px; background: rgb(137 137 137 / 70%); }
   :global(.hero-claude-input) { display: flex; align-items: center; height: 30px; gap: 7px; color: #eee; font-weight: 700; }
@@ -77,6 +77,7 @@ import HeroIconStack from "./HeroIconStack.astro";
     :global(.hero-icon-plane--rear-two) { left: -4px; top: -4px; border-width: 2px; }
     .hero-terminal-window { font-size: 12px; }
     :global(.hero-terminal-transcript) { padding: 10px 12px 8px; }
+    :global(.hero-brewing) { left: 12px; }
     :global(.hero-claude-startup) { min-height: 42px; gap: 8px; }
     :global(.hero-claude-mascot) { width: 31px; height: 29px; }
     :global(.hero-claude-footer) { padding: 0 12px 7px; }
@@ -86,3 +87,11 @@ import HeroIconStack from "./HeroIconStack.astro";
     :global(.hero-transcript-row[data-transcript-tier~="phone"]) { display: block; }
   }
 </style>
+
+<script>
+  import { initializeHeroIntroPlayback } from "./hero-intro-playback";
+
+  for (const root of document.querySelectorAll<HTMLElement>("[data-hero-intro-root]")) {
+    initializeHeroIntroPlayback(root);
+  }
+</script>
