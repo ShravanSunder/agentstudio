@@ -9,6 +9,8 @@ import Testing
 @MainActor
 @Suite("Command Bar command targeting", .serialized)
 struct CommandBarCommandTargetingTests {
+    private let recentsDefaultsFixture = CommandBarRecentsDefaultsFixture()
+
     init() {
         installTestCoreAtomsIfNeeded()
     }
@@ -127,7 +129,8 @@ struct CommandBarCommandTargetingTests {
             repoCache: RepoCacheAtom(),
             dispatcher: targetingAwareDispatcher,
             quickOpenDirectoryHandler: { _, _ in },
-            commandBarSurface: CommandBarSurfaceAtom()
+            commandBarSurface: CommandBarSurfaceAtom(),
+            recentsDefaults: recentsDefaultsFixture.makeDefaults()
         )
         controller.state.show(prefix: ">")
 

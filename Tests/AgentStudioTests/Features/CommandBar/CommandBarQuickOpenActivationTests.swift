@@ -9,6 +9,8 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct CommandBarQuickOpenActivationTests {
+    private let recentsDefaultsFixture = CommandBarRecentsDefaultsFixture()
+
     init() {
         installTestCoreAtomsIfNeeded()
     }
@@ -22,9 +24,7 @@ struct CommandBarQuickOpenActivationTests {
         quickOpenDirectoryHandler:
             @escaping @MainActor @Sendable (URL, QuickOpenDirectoryPlacement) -> Void = { _, _ in }
     ) -> CommandBarPanelController {
-        UserDefaults.standard.removeObject(forKey: "CommandBarRecentItemIds")
-        UserDefaults.standard.removeObject(forKey: "CommandBarRecentCommands")
-        return CommandBarPanelController(
+        CommandBarPanelController(
             store: store,
             octiconLoader: OcticonLoader(
                 resourceRootURL: testAgentStudioResourceRootURL()
@@ -33,7 +33,8 @@ struct CommandBarQuickOpenActivationTests {
             dispatcher: dispatcher,
             targetedSpecResolver: targetedSpecResolver,
             quickOpenDirectoryHandler: quickOpenDirectoryHandler,
-            commandBarSurface: CommandBarSurfaceAtom()
+            commandBarSurface: CommandBarSurfaceAtom(),
+            recentsDefaults: recentsDefaultsFixture.makeDefaults()
         )
     }
 
