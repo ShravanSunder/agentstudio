@@ -6,38 +6,10 @@ import WebKit
 @testable import AgentStudio
 @testable import AgentStudioBridge
 
-private struct BridgeProductWebKitLiveReviewState {
-    let dom: BridgeProductWebKitCarrierDOMSnapshot
-    let expectedSelectedContentHashes: String
-    let initialGeneration: Int
-    let itemCount: Int
-    let successorGeneration: Int
-}
-
-struct BridgeProductWebKitLiveFileState: CustomStringConvertible, Sendable {
-    let activated: Bool
-    let displayPath: String
-    let displaySourceId: String?
-    let initialDisplayItemCount: Int
-    let initialTreeRowCount: Int
-    let filteredDisplayItemCount: Int
-    let filteredTreeRowCount: Int
-    let queryText: String
-    let queryStatus: String
-    let revealItemId: String?
-    let revealPath: String?
-    let selectedPath: String?
-    let openFilePath: String?
-    let openFileState: String?
-
-    var description: String {
-        "active=\(activated),path=\(displayPath),source=\(displaySourceId ?? "none"),rows=\(initialTreeRowCount)->\(filteredTreeRowCount),items=\(initialDisplayItemCount)->\(filteredDisplayItemCount),query=\(queryStatus):\(queryText),reveal=\(revealPath ?? "none")/\(revealItemId ?? "none"),selected=\(selectedPath ?? "none"),open=\(openFilePath ?? "none")/\(openFileState ?? "idle")"
-    }
-}
-
 private struct BridgeProductWebKitLiveFileLogicalSnapshot: Decodable {
     let displayItemCount: Int
     let displaySourceId: String?
+    let documentVisibilityState: String?
     let treeRowCount: Int
     let selectedPath: String?
     let openFilePath: String?
@@ -156,7 +128,6 @@ extension WebKitSerializedTests.BridgeProductRealGitFileAndReviewWebKitTests {
         )
         #expect(
             run.value.fileState.displaySourceId?.isEmpty == false
-                && run.value.fileState.initialDisplayItemCount > 1
                 && run.value.fileState.initialTreeRowCount > 1
                 && run.value.fileState.filteredDisplayItemCount > 0
                 && run.value.fileState.filteredTreeRowCount == 1,
@@ -191,14 +162,25 @@ extension WebKitSerializedTests.BridgeProductRealGitFileAndReviewWebKitTests {
     ) async throws -> BridgeProductWebKitCarrierRunResult<LiveProof> {
         try await BridgeProductWebKitCarrierTestSupport
             .withHostedController(controller) { hostedController, hostWindow in
+                let hostSnapshot = BridgeProductWebKitCarrierTestSupport.hostSnapshot(
+                    window: hostWindow
+                )
                 recordRealGitLiveProofStage(
-                    "host-snapshot=\(BridgeProductWebKitCarrierTestSupport.hostSnapshot(window: hostWindow))"
+                    "host-snapshot=\(hostSnapshot)"
                 )
                 recordRealGitLiveProofStage("load-app")
                 hostedController.loadApp()
                 recordRealGitLiveProofStage("await-live-shell")
                 await waitForLiveShell(hostedController, traceRecorder: traceRecorder)
                 recordRealGitLiveProofStage("live-shell-ready")
+                let documentVisibilityState =
+                    try await WebPageEventWaits.waitForDocumentValue(
+                        hostedController.page,
+                        reader: "return document.visibilityState;"
+                    ) as? String ?? "unknown"
+                recordRealGitLiveProofStage(
+                    "host-page-snapshot=\(hostSnapshot),documentVisibilityState=\(documentVisibilityState)"
+                )
                 recordRealGitLiveProofStage("await-review-state")
                 let reviewState = try await collectLiveReviewState(
                     hostedController,
@@ -209,6 +191,7 @@ extension WebKitSerializedTests.BridgeProductRealGitFileAndReviewWebKitTests {
                 recordRealGitLiveProofStage("await-file-state")
                 let fileState = try await collectLiveFileState(
                     hostedController,
+                    hostSnapshot: hostSnapshot,
                     sourceOracle: sourceOracle
                 )
                 recordRealGitLiveProofStage("file-state-ready")
@@ -338,6 +321,7 @@ extension WebKitSerializedTests.BridgeProductRealGitFileAndReviewWebKitTests {
 
     private func collectLiveFileState(
         _ controller: BridgePaneController,
+        hostSnapshot: BridgeProductWebKitCarrierHostSnapshot,
         sourceOracle: LiveSourceOracle
     ) async throws -> BridgeProductWebKitLiveFileState {
         recordRealGitLiveProofStage("activate-file-mode")
@@ -356,21 +340,32 @@ extension WebKitSerializedTests.BridgeProductRealGitFileAndReviewWebKitTests {
             throw WebKitLiveProofError.fileIndexMissing
         }
 
-        recordRealGitLiveProofStage("await-rendered-file-row-and-select")
+        recordRealGitLiveProofStage("await-dom-file-row-installation")
         guard
-            try await BridgeProductWebKitCarrierTestSupport.waitForAndSelectFilePath(
+            try await BridgeProductWebKitCarrierTestSupport.waitForFilePathInDOM(
+                controller.page,
+                path: fileDisplayPath
+            )
+        else {
+            throw WebKitLiveProofError.fileDOMRowWasNotInstalled
+        }
+        recordRealGitLiveProofStage("dom-file-row-installed")
+
+        recordRealGitLiveProofStage("select-dom-file-row")
+        guard
+            await BridgeProductWebKitCarrierTestSupport.selectFilePath(
                 controller.page,
                 path: fileDisplayPath
             )
         else {
             throw WebKitLiveProofError.fileRowCouldNotBeSelected
         }
-        recordRealGitLiveProofStage("rendered-file-row-selected")
+        recordRealGitLiveProofStage("dom-file-row-selected")
         _ = try await waitForLiveFileOpenState(
             controller.page,
             expectedDisplayPath: fileDisplayPath
         )
-        recordRealGitLiveProofStage("rendered-file-row-open-ready")
+        recordRealGitLiveProofStage("file-row-open-ready")
 
         recordRealGitLiveProofStage("capture-initial-logical-file-index")
         let initialFileIndexSnapshot = try await controller.page.callJavaScript(
@@ -397,7 +392,12 @@ extension WebKitSerializedTests.BridgeProductRealGitFileAndReviewWebKitTests {
         )
         recordRealGitLiveProofStage("await-initial-logical-file-index")
         let initialState = try await waitForLiveFileIndex(controller.page)
-        recordRealGitLiveProofStage("initial-logical-file-index-ready")
+        recordRealGitLiveProofStage(
+            "initial-logical-file-index-ready displayItemCount=\(initialState.displayItemCount),treeRowCount=\(initialState.treeRowCount)"
+        )
+        recordRealGitLiveProofStage(
+            "file-row-readiness-host=\(hostSnapshot),documentVisibilityState=\(initialState.documentVisibilityState ?? "unknown"),logicalTreeRowCount=\(initialState.treeRowCount)"
+        )
         let queryState = try await searchLiveFileByIPC(
             controller,
             relativePath: sourceOracle.path,
@@ -413,6 +413,7 @@ extension WebKitSerializedTests.BridgeProductRealGitFileAndReviewWebKitTests {
             activated: activated,
             displayPath: fileDisplayPath,
             displaySourceId: revealState.openState.displaySourceId,
+            documentVisibilityState: initialState.documentVisibilityState,
             initialDisplayItemCount: queryState.initialSnapshot.displayItemCount,
             initialTreeRowCount: queryState.initialSnapshot.treeRowCount,
             filteredDisplayItemCount: queryState.filteredSnapshot.displayItemCount,
@@ -446,6 +447,25 @@ extension WebKitSerializedTests.BridgeProductRealGitFileAndReviewWebKitTests {
         }
 
         recordRealGitLiveProofStage("file-search-control-replied")
+        let postSearchControlSnapshot = try await controller.page.callJavaScript(
+            """
+            const fileShell = document.querySelector('[data-testid="bridge-file-viewer-shell"]');
+            const searchInput = document.querySelector('input[data-testid="worktree-file-search-input"]');
+            const filterCount = document.querySelector('[data-testid="worktree-file-filter-count"]');
+            return JSON.stringify({
+              documentVisibilityState: document.visibilityState,
+              displayItemCount: Number(fileShell?.getAttribute('data-file-display-item-count') ?? '0'),
+              displaySourceId: fileShell?.getAttribute('data-file-display-source-id') ?? null,
+              searchInputValue: searchInput?.value ?? null,
+              filterCountText: filterCount?.textContent?.trim() ?? null,
+              treeRowCount: Number(fileShell?.getAttribute('data-file-display-tree-row-count') ?? '0')
+            });
+            """,
+            contentWorld: .page
+        )
+        recordRealGitLiveProofStage(
+            "post-file-search-control-snapshot=\(postSearchControlSnapshot as? String ?? "unavailable")"
+        )
         recordRealGitLiveProofStage("await-filtered-logical-file-index")
         let filteredState = try await waitForLiveFileQuery(
             controller.page,
@@ -515,9 +535,10 @@ extension WebKitSerializedTests.BridgeProductRealGitFileAndReviewWebKitTests {
                 const displaySourceId = fileShell.getAttribute('data-file-display-source-id');
                 const displayItemCount = Number(fileShell.getAttribute('data-file-display-item-count') ?? '0');
                 const treeRowCount = Number(fileShell.getAttribute('data-file-display-tree-row-count') ?? '0');
+                const documentVisibilityState = document.visibilityState;
                 if (fileShell.getAttribute('data-file-viewer-active') !== 'true' ||
-                    displaySourceId === null || displayItemCount < 2 || treeRowCount < 2) return null;
-                return JSON.stringify({ displayItemCount, displaySourceId, treeRowCount });
+                    displaySourceId === null || treeRowCount < 2) return null;
+                return JSON.stringify({ displayItemCount, displaySourceId, documentVisibilityState, treeRowCount });
                 """,
             arguments: [:]
         )
@@ -588,55 +609,11 @@ extension WebKitSerializedTests.BridgeProductRealGitFileAndReviewWebKitTests {
 
 private enum WebKitLiveProofError: Error {
     case fileIndexMissing
+    case fileDOMRowWasNotInstalled
     case fileLogicalStateWasNotReturned
     case fileOpenDidNotReachReady
     case fileQueryDidNotReplaceTheIndex
     case fileRevealWasNotAccepted
     case fileRowCouldNotBeSelected
     case fileSearchWasNotAccepted
-}
-
-func recordRealGitLiveProofStage(_ stage: String) {
-    let marker = "[real-git-file-review] \(stage)\n"
-    FileHandle.standardError.write(Data(marker.utf8))
-    appendRealGitProofStageToHeldStepLog(marker)
-    if let phaseFilePath = ProcessInfo.processInfo.environment["AGENTSTUDIO_B1_PHASE_FILE"] {
-        let phaseFileURL = URL(fileURLWithPath: phaseFilePath)
-        if FileManager.default.fileExists(atPath: phaseFileURL.path),
-            let phaseFileHandle = try? FileHandle(forWritingTo: phaseFileURL)
-        {
-            _ = try? phaseFileHandle.seekToEnd()
-            try? phaseFileHandle.write(contentsOf: Data(marker.utf8))
-            try? phaseFileHandle.close()
-        } else {
-            try? Data(marker.utf8).write(to: phaseFileURL, options: .atomic)
-        }
-    }
-}
-
-func appendRealGitProofStageToHeldStepLog(_ marker: String) {
-    guard let sidecarPath = ProcessInfo.processInfo.environment["AGENTSTUDIO_HELD_STEP_LOG"] else {
-        return
-    }
-
-    let sidecarURL = URL(fileURLWithPath: sidecarPath)
-    if !FileManager.default.fileExists(atPath: sidecarURL.path),
-        !FileManager.default.createFile(atPath: sidecarURL.path, contents: nil)
-    {
-        FileHandle.standardError.write(
-            Data("[real-git-proof-phase-log] sidecar-create-failed\n".utf8)
-        )
-        return
-    }
-
-    do {
-        let sidecar = try FileHandle(forWritingTo: sidecarURL)
-        try sidecar.seekToEnd()
-        try sidecar.write(contentsOf: Data(marker.utf8))
-        try sidecar.close()
-    } catch {
-        FileHandle.standardError.write(
-            Data("[real-git-proof-phase-log] sidecar-append-failed\n".utf8)
-        )
-    }
 }

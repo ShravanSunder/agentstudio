@@ -35,7 +35,7 @@ extension BridgeProductWebKitCarrierTestSupport {
         }
     }
 
-    static func waitForAndSelectFilePath(_ page: WebPage, path: String) async throws -> Bool {
+    static func waitForFilePathInDOM(_ page: WebPage, path: String) async throws -> Bool {
         guard let encodedPathData = try? JSONEncoder().encode(path),
             let encodedPath = String(data: encodedPathData, encoding: .utf8)
         else { return false }
@@ -58,7 +58,6 @@ extension BridgeProductWebKitCarrierTestSupport {
                 };
                 const button = queryInOpenShadowRoots(document, selector);
                 if (!(button instanceof HTMLElement)) return null;
-                button.click();
                 return true;
                 """,
             arguments: [:]

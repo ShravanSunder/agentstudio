@@ -166,8 +166,12 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 			treeScrollOwner.scrollTop = 24 * 30;
 			treeScrollOwner.dispatchEvent(new Event('scroll', { bubbles: true }));
 		});
-		const viewportMessage = (await viewportCommands.waitForNewerThan(initialViewportCommand))
-			.message;
+		const viewportMessage = (
+			await viewportCommands.waitForNewerThan(
+				initialViewportCommand,
+				(message): boolean => message.firstVisibleIndex > 0,
+			)
+		).message;
 		expect(viewportMessage.firstVisibleIndex).toBeGreaterThan(0);
 		expect(viewportMessage.lastVisibleIndex).toBeGreaterThanOrEqual(
 			viewportMessage.firstVisibleIndex,
@@ -290,6 +294,7 @@ interface BridgeFileViewerViewportCommandObserver {
 	waitForFirst: () => Promise<BridgeFileViewerObservedViewportCommand>;
 	waitForNewerThan: (
 		previous: BridgeFileViewerObservedViewportCommand,
+		matches?: (message: BridgeWorkerViewportCommand) => boolean,
 	) => Promise<BridgeFileViewerObservedViewportCommand>;
 }
 
@@ -297,17 +302,21 @@ function createBridgeFileViewerViewportCommandObserver(): BridgeFileViewerViewpo
 	const commands: BridgeFileViewerObservedViewportCommand[] = [];
 	const waiters: Array<{
 		readonly afterSequence: number;
+		readonly matches: (message: BridgeWorkerViewportCommand) => boolean;
 		readonly resolve: (command: BridgeFileViewerObservedViewportCommand) => void;
 	}> = [];
 	const waitForCommandAfter = (
 		afterSequence: number,
+		matches: (message: BridgeWorkerViewportCommand) => boolean = (): boolean => true,
 	): Promise<BridgeFileViewerObservedViewportCommand> => {
-		const recordedCommand = commands.find((command): boolean => command.sequence > afterSequence);
+		const recordedCommand = commands.find(
+			(command): boolean => command.sequence > afterSequence && matches(command.message),
+		);
 		if (recordedCommand !== undefined) {
 			return Promise.resolve(recordedCommand);
 		}
 		return new Promise<BridgeFileViewerObservedViewportCommand>((resolve): void => {
-			waiters.push({ afterSequence, resolve });
+			waiters.push({ afterSequence, matches, resolve });
 		});
 	};
 	return {
@@ -319,7 +328,11 @@ function createBridgeFileViewerViewportCommandObserver(): BridgeFileViewerViewpo
 			commands.push(command);
 			for (let waiterIndex = waiters.length - 1; waiterIndex >= 0; waiterIndex -= 1) {
 				const waiter = waiters[waiterIndex];
-				if (waiter === undefined || command.sequence <= waiter.afterSequence) {
+				if (
+					waiter === undefined ||
+					command.sequence <= waiter.afterSequence ||
+					!waiter.matches(command.message)
+				) {
 					continue;
 				}
 				waiters.splice(waiterIndex, 1);
@@ -329,6 +342,8 @@ function createBridgeFileViewerViewportCommandObserver(): BridgeFileViewerViewpo
 		waitForFirst: (): Promise<BridgeFileViewerObservedViewportCommand> => waitForCommandAfter(0),
 		waitForNewerThan: (
 			previous: BridgeFileViewerObservedViewportCommand,
-		): Promise<BridgeFileViewerObservedViewportCommand> => waitForCommandAfter(previous.sequence),
+			matches?: (message: BridgeWorkerViewportCommand) => boolean,
+		): Promise<BridgeFileViewerObservedViewportCommand> =>
+			waitForCommandAfter(previous.sequence, matches),
 	};
 }

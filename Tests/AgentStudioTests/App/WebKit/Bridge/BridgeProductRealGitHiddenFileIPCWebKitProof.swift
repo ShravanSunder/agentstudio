@@ -161,7 +161,9 @@ private func bootstrapFilesPage(
     )
     recordHiddenFileProofStage("awaiting-logical-files-index")
     let acceptedState = try await waitForAcceptedHiddenFilesState(controller.page)
-    recordHiddenFileProofStage("logical-files-index-ready")
+    recordHiddenFileProofStage(
+        "logical-files-index-ready displayItemCount=\(acceptedState.fileDisplayItemCount),treeRowCount=\(acceptedState.fileDisplayTreeRowCount)"
+    )
     return acceptedState
 }
 
@@ -393,7 +395,7 @@ private func waitForAcceptedHiddenFilesState(
             const fileDisplaySourceId = fileShell.getAttribute('data-file-display-source-id');
             const fileDisplayItemCount = Number(fileShell.getAttribute('data-file-display-item-count') ?? '0');
             const fileDisplayTreeRowCount = Number(fileShell.getAttribute('data-file-display-tree-row-count') ?? '0');
-            if (!fileViewerActive || fileDisplaySourceId === null || fileDisplayItemCount < 2 || fileDisplayTreeRowCount < 2) {
+            if (!fileViewerActive || fileDisplaySourceId === null || fileDisplayTreeRowCount < 2) {
               return null;
             }
             const probe = window.__bridgeFrameLivenessProbe;

@@ -233,6 +233,32 @@ export async function waitForSelectedDisplayPath(expectedPath: string): Promise<
 	await waitForSelectedDisplayPathAttempt({ attempt: 0, expectedPath });
 }
 
+export function waitForSelectedDisplayPathMutation(expectedPath: string): Promise<void> {
+	const readSelectedPath = (): string | null =>
+		document
+			.querySelector('[data-testid="bridge-file-viewer-shell"]')
+			?.getAttribute('data-selected-display-path') ?? null;
+	if (readSelectedPath() === expectedPath) return Promise.resolve();
+
+	return new Promise<void>((resolve): void => {
+		const observer = new MutationObserver((): void => {
+			if (readSelectedPath() !== expectedPath) return;
+			observer.disconnect();
+			resolve();
+		});
+		observer.observe(document.documentElement, {
+			attributeFilter: ['data-selected-display-path'],
+			attributes: true,
+			childList: true,
+			subtree: true,
+		});
+		if (readSelectedPath() === expectedPath) {
+			observer.disconnect();
+			resolve();
+		}
+	});
+}
+
 export async function waitForMetadataSubscriptionOpenCount(props: {
 	readonly expectedCount: number;
 	readonly getLoadCount: () => number;

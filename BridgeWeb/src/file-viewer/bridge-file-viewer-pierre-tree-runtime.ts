@@ -35,11 +35,13 @@ import {
 	createBridgeFileViewerTreePatchCoordinator,
 	type BridgeFileViewerTreePatchCoordinator,
 } from './bridge-file-viewer-tree-patch-coordinator.js';
+import { bridgeFileViewerTreePatchTaskSchedulerForDocument } from './bridge-file-viewer-tree-patch-task-scheduler.js';
 
 export interface UseBridgeFileViewerPierreTreeRuntimeProps {
 	readonly fileActivationSequence: number | null;
 	readonly fileActivationStartedAtPerfNow: number | null;
 	readonly fileTreePatchStream: BridgeMainFileTreePatchStream;
+	readonly isActive: boolean;
 	readonly onSelectFile: (selection: BridgeFileViewerSelection) => void;
 	readonly onVisibleFileDemandChange?: (change: BridgeFileViewerVisibleFileDemandChange) => void;
 	readonly selectedPath: string | null;
@@ -107,10 +109,12 @@ export function useBridgeFileViewerPierreTreeRuntime(
 	const handleTreePatchStreamDrainRef = useRef<() => void>(() => {});
 	useBridgeFileTreePatchStream({
 		coordinator: patchCoordinatorRef.current,
+		isActive: props.isActive,
 		onDrain: (): void => {
 			handleTreePatchStreamDrainRef.current();
 		},
 		stream: props.fileTreePatchStream,
+		treeRowByPath: props.treeRowByPath,
 	});
 
 	const onVisibleFileDemandChange = props.onVisibleFileDemandChange;
@@ -263,58 +267,72 @@ export function useBridgeFileViewerPierreTreeRuntime(
 
 function useBridgeFileTreePatchStream(props: {
 	readonly coordinator: BridgeFileViewerTreePatchCoordinator;
+	readonly isActive: boolean;
 	readonly onDrain: () => void;
 	readonly stream: BridgeMainFileTreePatchStream;
+	readonly treeRowByPath: UseBridgeFileViewerPierreTreeRuntimeProps['treeRowByPath'];
 }): void {
 	const streamCursor = useSyncExternalStore(
 		props.stream.subscribe,
 		props.stream.getCursor,
 		props.stream.getServerCursor,
 	);
-	const appliedCursorRef = useRef(0);
 	const queuedCursorRef = useRef(0);
-	const queuedEntriesRef = useRef<ReturnType<BridgeMainFileTreePatchStream['readAfter']>[number][]>(
-		[],
-	);
-	const animationFrameIdRef = useRef<number | null>(null);
 	const coordinatorRef = useRef(props.coordinator);
 	coordinatorRef.current = props.coordinator;
 	const onDrainRef = useRef(props.onDrain);
 	onDrainRef.current = props.onDrain;
+	const isActiveRef = useRef(props.isActive);
+	isActiveRef.current = props.isActive;
+	const treeRowByPathRef = useRef(props.treeRowByPath);
+	treeRowByPathRef.current = props.treeRowByPath;
+	const taskKeyRef = useRef<object>({});
+	const scheduleTreePatchTurnRef = useRef<() => void>(() => {});
+
+	useEffect((): (() => void) => {
+		const scheduler = bridgeFileViewerTreePatchTaskSchedulerForDocument(document);
+		const taskKey = taskKeyRef.current;
+		const scheduleTreePatchTurn = (): void => {
+			if (!coordinatorRef.current.hasPendingWork()) return;
+			const priority =
+				document.visibilityState === 'visible' && isActiveRef.current ? 'visible' : 'background';
+			scheduler.schedule(taskKey, priority, (): boolean => {
+				const turn = coordinatorRef.current.advanceNextTurn(undefined, (path): boolean => {
+					const normalizedPath = path.endsWith('/') ? path.slice(0, -1) : path;
+					return (
+						treeRowByPathRef.current.get(path) !== undefined ||
+						treeRowByPathRef.current.get(normalizedPath) !== undefined
+					);
+				});
+				if (turn.blockedOnProjection) return false;
+				if (turn.hasPendingWork) return true;
+				onDrainRef.current();
+				return false;
+			});
+		};
+		scheduleTreePatchTurnRef.current = scheduleTreePatchTurn;
+		const handleDocumentVisibilityChange = (): void => scheduleTreePatchTurn();
+		document.addEventListener('visibilitychange', handleDocumentVisibilityChange);
+		if (coordinatorRef.current.hasPendingWork()) scheduleTreePatchTurn();
+		return (): void => {
+			document.removeEventListener('visibilitychange', handleDocumentVisibilityChange);
+			scheduler.cancel(taskKey);
+			scheduleTreePatchTurnRef.current = (): void => {};
+		};
+	}, []);
 
 	useEffect((): void => {
 		const newEntries = props.stream.readAfter(queuedCursorRef.current);
 		if (newEntries.length > 0) {
-			queuedEntriesRef.current.push(...newEntries);
+			for (const entry of newEntries) coordinatorRef.current.enqueueEntry(entry);
 			queuedCursorRef.current = newEntries.at(-1)?.cursor ?? queuedCursorRef.current;
 		}
-		const drainNextEntry = (): void => {
-			const entry = queuedEntriesRef.current.shift();
-			if (entry === undefined) {
-				animationFrameIdRef.current = null;
-				onDrainRef.current();
-				return;
-			}
-			coordinatorRef.current.applyEntry(entry);
-			appliedCursorRef.current = entry.cursor;
-			animationFrameIdRef.current = requestAnimationFrame(drainNextEntry);
-		};
-		if (animationFrameIdRef.current === null && queuedEntriesRef.current.length > 0) {
-			animationFrameIdRef.current = requestAnimationFrame(drainNextEntry);
-		}
-	}, [props.stream, streamCursor]);
+		if (coordinatorRef.current.hasPendingWork()) scheduleTreePatchTurnRef.current();
+	}, [props.stream, props.treeRowByPath, streamCursor]);
 
-	useEffect(
-		(): (() => void) => (): void => {
-			if (animationFrameIdRef.current !== null) {
-				cancelAnimationFrame(animationFrameIdRef.current);
-				animationFrameIdRef.current = null;
-			}
-			queuedEntriesRef.current = [];
-			queuedCursorRef.current = appliedCursorRef.current;
-		},
-		[],
-	);
+	useEffect((): void => {
+		scheduleTreePatchTurnRef.current();
+	}, [props.isActive]);
 }
 
 export interface BridgeFileViewerTreeSelectionCoordinator {

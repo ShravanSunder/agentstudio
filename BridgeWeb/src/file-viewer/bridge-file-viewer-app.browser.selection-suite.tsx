@@ -1,10 +1,11 @@
 import { useState, type ReactElement } from 'react';
-import { afterEach, describe, expect, test } from 'vitest';
+import { afterEach, describe, expect, test, vi } from 'vitest';
 import { cleanup, render } from 'vitest-browser-react';
 
 // oxlint-disable-next-line import/no-unassigned-import -- Browser Mode must load the app CSS.
 import '../app/bridge-app.css';
 import {
+	findBridgeViewerTreeItemButton,
 	requireBridgeViewerHTMLElement,
 	waitForBridgeViewerAnimationFrame,
 	waitForBridgeViewerTreeItemButton,
@@ -21,12 +22,14 @@ import {
 	makeFileMetadataEvents,
 	makeTreeRowsOnlyMetadataEvents,
 	makeTreeWindowMetadataEvent,
+	makeTreeWindowedMetadataEvents,
 	type PublishFileMetadataEvents,
 } from './bridge-file-viewer-browser-test-fixtures.js';
 import {
 	actClick,
 	actFrame,
 	actUpdate,
+	interactAndWaitForBridgeFileViewerQueryCompletion,
 	fileCanvasRenderedTextOffset,
 	makeDeferredContent,
 	makeGeneratedFileBody,
@@ -47,6 +50,7 @@ import {
 	waitForOpenFileBodyPreview,
 	waitForOpenFileState,
 	waitForOpenedContentCount,
+	waitForSelectedDisplayPathMutation,
 	waitForSelectedDisplayPath,
 	waitForVisibleCodeText,
 } from './bridge-file-viewer-browser-test-harness.js';
@@ -60,6 +64,76 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		await actFrame();
 		document.body.replaceChildren();
 		terminateBridgePierreWorkerPoolSingletonForTest();
+	});
+
+	test('installs File rows and selection while animation frames are withheld', async () => {
+		const withheldAnimationFrames = new Map<number, FrameRequestCallback>();
+		let nextAnimationFrameId = 1;
+		const requestAnimationFrameSpy = vi
+			.spyOn(window, 'requestAnimationFrame')
+			.mockImplementation((callback: FrameRequestCallback): number => {
+				const animationFrameId = nextAnimationFrameId;
+				nextAnimationFrameId += 1;
+				withheldAnimationFrames.set(animationFrameId, callback);
+				return animationFrameId;
+			});
+		const cancelAnimationFrameSpy = vi
+			.spyOn(window, 'cancelAnimationFrame')
+			.mockImplementation((animationFrameId: number): void => {
+				withheldAnimationFrames.delete(animationFrameId);
+			});
+		let contentReadCount = 0;
+		try {
+			await render(
+				<BridgeFileViewerApp
+					initialMetadataEvents={makeTreeWindowedMetadataEvents({
+						rowCount: 130,
+						totalPathCount: 130,
+					})}
+					fileProductSession={{
+						readContent: async (): Promise<string> => {
+							contentReadCount += 1;
+							return '';
+						},
+					}}
+				/>,
+			);
+
+			await interactAndWaitForBridgeFileViewerQueryCompletion((): void => {
+				window.dispatchEvent(
+					new CustomEvent('__bridge_review_control', {
+						detail: {
+							method: 'bridge.fileTree.search',
+							searchMode: { kind: 'text' },
+							searchText: 'File-129.swift',
+						},
+					}),
+				);
+			});
+			expect(
+				document
+					.querySelector('[data-testid="bridge-file-viewer-shell"]')
+					?.getAttribute('data-file-display-tree-row-count'),
+			).toBe('1');
+			const treeButton = await waitForBridgeViewerTreeItemButtonMutation('File-129.swift');
+			expect(contentReadCount).toBe(0);
+
+			await actClick(treeButton);
+			await waitForSelectedDisplayPathMutation('File-129.swift');
+			expect(selectedDisplayPath()).toBe('File-129.swift');
+			expect(contentReadCount).toBe(0);
+			expect(requestAnimationFrameSpy).toHaveBeenCalled();
+			expect(withheldAnimationFrames.size).toBeGreaterThan(0);
+		} finally {
+			requestAnimationFrameSpy.mockRestore();
+			cancelAnimationFrameSpy.mockRestore();
+			const pendingCallbacks = [...withheldAnimationFrames.values()];
+			withheldAnimationFrames.clear();
+			await actUpdate((): void => {
+				const frameTime = performance.now();
+				for (const callback of pendingCallbacks) callback(frameTime);
+			});
+		}
 	});
 
 	test('advances selected path immediately while metadata-only content converges', async () => {
@@ -107,6 +181,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		);
 
 		await waitForOpenFileState('ready');
+		expect(openedDescriptorIds).toContain('initial-content');
 		await waitForVisibleCodeText('initiallyOpen');
 
 		const publishRequiredMetadataEvents = requireMetadataPublisher(publishMetadataEvents);
@@ -803,3 +878,27 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		expect(scrollOwner.scrollTop).toBeLessThanOrEqual(1);
 	});
 });
+
+function waitForBridgeViewerTreeItemButtonMutation(path: string): Promise<HTMLButtonElement> {
+	const existingButton = findBridgeViewerTreeItemButton(path);
+	if (existingButton !== null) return Promise.resolve(existingButton);
+	const treeContainer = document.querySelector('file-tree-container');
+	const treeRoot = treeContainer?.shadowRoot;
+	if (treeRoot === null || treeRoot === undefined) {
+		throw new Error('Expected Pierre FileTree shadow root before awaiting row installation.');
+	}
+	return new Promise<HTMLButtonElement>((resolve): void => {
+		const observer = new MutationObserver((): void => {
+			const button = findBridgeViewerTreeItemButton(path);
+			if (button === null) return;
+			observer.disconnect();
+			resolve(button);
+		});
+		observer.observe(treeRoot, { childList: true, subtree: true });
+		const buttonAfterObservation = findBridgeViewerTreeItemButton(path);
+		if (buttonAfterObservation !== null) {
+			observer.disconnect();
+			resolve(buttonAfterObservation);
+		}
+	});
+}

@@ -69,6 +69,7 @@ export function BridgeFileViewerTreePanel(props: BridgeFileViewerTreePanelProps)
 		fileActivationSequence: props.fileActivationSequence ?? null,
 		fileActivationStartedAtPerfNow: props.fileActivationStartedAtPerfNow ?? null,
 		fileTreePatchStream: props.fileTreePatchStream,
+		isActive: props.isActive,
 		treeRowByPath: props.treeRowByPath,
 		onSelectFile: props.onSelectFile,
 		...(props.onVisibleFileDemandChange === undefined
