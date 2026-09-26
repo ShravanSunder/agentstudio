@@ -785,7 +785,7 @@ describe('Bridge product transport', () => {
 
 	test.each([
 		['a native refusal', 'subscription_control_invalid_request'],
-		['an HTTP failure', 'subscription_control_http_rejection'],
+		['an HTTP refusal', 'subscription_control_invalid_request'],
 	] as const)(
 		'keeps the stream alive when an update fails with %s and native frames for it follow',
 		async (failure, expectedCode) => {
@@ -812,7 +812,7 @@ describe('Bridge product transport', () => {
 			harness.server.updateHandler = (update): Response =>
 				failure === 'a native refusal'
 					? requestErrorResponse(update, 'invalid_request')
-					: new Response(null, { status: 409 });
+					: requestErrorResponse(update, 'invalid_request', 409);
 
 			// Act: the update fails locally while native keeps serving the subscription.
 			await expect(

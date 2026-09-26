@@ -22,6 +22,10 @@ import {
 import { bridgeProductMetadataApplicationRegistry } from '../bridge-product-metadata-application-registry.js';
 import { encodeBridgeProductMetadataFrame } from '../bridge-product-metadata-frame-codec.js';
 import {
+	bridgeProductOperationResultAcknowledgementSchema,
+	bridgeProductOperationResultRequestSchema,
+} from '../bridge-product-operation-wire-contracts.js';
+import {
 	BridgeProductControlMux,
 	type BridgeProductSessionAuthority,
 } from '../bridge-product-session-authority.js';
@@ -104,6 +108,9 @@ export class TestContentProductServer {
 	contentReaderCancelCount = 0;
 	metadataReaderCancelCount = 0;
 	readonly controlRequests: BridgeProductControlRequest[] = [];
+	readonly #operationResults = new Map<string, unknown>();
+	readonly #operationIdByRequestId = new Map<string, string>();
+	#nextOperationOrdinal = 1;
 	readonly frameAcknowledgements: BridgeProductFrameAcknowledgementRequest[] = [];
 	holdContentResponses = false;
 	holdNextContentRequestBeforeResponse = false;
@@ -225,11 +232,34 @@ export class TestContentProductServer {
 	}
 
 	async #handleControl(body: unknown): Promise<Response> {
+		if (typeof body === 'object' && body !== null && 'kind' in body) {
+			if (body.kind === 'operation.result') {
+				const request = bridgeProductOperationResultRequestSchema.parse(body);
+				if (!this.#operationResults.has(request.operationId)) {
+					throw new Error('Result requested for an unknown test operation.');
+				}
+				return jsonResponse({
+					failureCode: null,
+					kind: 'operation.result',
+					operationId: request.operationId,
+					outcome: 'succeeded',
+					result: this.#operationResults.get(request.operationId),
+				});
+			}
+			if (body.kind === 'operation.resultAcknowledgement') {
+				const request = bridgeProductOperationResultAcknowledgementSchema.parse(body);
+				this.#operationResults.delete(request.operationId);
+				return jsonResponse({ ...request, kind: 'operation.resultAcknowledged' });
+			}
+		}
 		const request = bridgeProductControlRequestSchema.parse(body);
 		this.controlRequests.push(request);
 		if (request.kind === 'workerSession.resync' && this.resyncFailure !== null) {
 			throw this.resyncFailure;
 		}
+		const existingOperationId = this.#operationIdByRequestId.get(request.requestId);
+		if (existingOperationId !== undefined)
+			return this.#admittedResponse(request, existingOperationId);
 		const identity = {
 			paneSessionId: request.paneSessionId,
 			requestId: request.requestId,
@@ -237,24 +267,42 @@ export class TestContentProductServer {
 			wireVersion: request.wireVersion,
 			workerInstanceId: request.workerInstanceId,
 		};
+		let result: object;
 		if (request.kind === 'product.call') {
-			return jsonResponse({
+			result = {
 				...identity,
 				call: { method: request.call.method, result: null },
 				kind: 'call.completed',
-			});
-		}
-		if (request.kind === 'subscription.open') {
-			return jsonResponse({
+			};
+		} else if (request.kind === 'subscription.open') {
+			result = {
 				...identity,
 				interestRevision: 0,
 				interestSha256: emptyReviewInterestHash(),
 				kind: 'subscription.openAccepted',
 				subscriptionId: request.subscriptionId,
 				subscriptionKind: request.subscription.subscriptionKind,
-			});
+			};
+		} else {
+			throw new Error(`Unexpected control request ${request.kind}.`);
 		}
-		throw new Error(`Unexpected control request ${request.kind}.`);
+		const operationId = `content-test-operation-${this.#nextOperationOrdinal++}`;
+		this.#operationIdByRequestId.set(request.requestId, operationId);
+		this.#operationResults.set(operationId, result);
+		return this.#admittedResponse(request, operationId);
+	}
+
+	#admittedResponse(request: BridgeProductControlRequest, operationId: string): Response {
+		return jsonResponse({
+			kind: 'operation.admitted',
+			operationId,
+			paneSessionId: request.paneSessionId,
+			requestId: request.requestId,
+			requestSequence: request.requestSequence,
+			waitKind: 'ordinary',
+			wireVersion: request.wireVersion,
+			workerInstanceId: request.workerInstanceId,
+		});
 	}
 
 	#openContent(init?: RequestInit): Response {

@@ -37,7 +37,7 @@ describe('Bridge product content transport', () => {
 			3, 3,
 		]);
 		expect(harness.server.controlRequests).toHaveLength(1);
-		expect(harness.server.controlRequests[0]?.requestSequence).toBe(2);
+		expect(harness.server.controlRequests[0]?.requestSequence).toBe(3);
 	});
 
 	test('acknowledges every committed frame with its exact response identity', async () => {
@@ -113,9 +113,9 @@ describe('Bridge product content transport', () => {
 				terminalObserved = true;
 			},
 		);
-		const firstEventExpectation = expect(firstEvent).rejects.toThrow(
-			'Controlled metadata reconciliation failure.',
-		);
+		const firstEventExpectation = expect(firstEvent).rejects.toMatchObject({
+			name: 'BridgeProductSessionSuspectError',
+		});
 		harness.server.holdMetadataAcknowledgement();
 		await harness.server.waitForMetadataStream();
 		const request = harness.server.requiredMetadataRequest();
@@ -134,7 +134,7 @@ describe('Bridge product content transport', () => {
 				harness.server.controlRequests.filter(
 					(controlRequest) => controlRequest.kind === 'workerSession.resync',
 				),
-			).toHaveLength(2);
+			).toHaveLength(3);
 			expect(harness.transport.metadataStreamDiagnostics?.()).toMatchObject({
 				activeSubscriptionCount: 0,
 				acknowledgedFrameCount: 0,

@@ -21,6 +21,7 @@ import {
 	type BridgeProductDevBootstrapDelivery,
 } from '../core/comm-worker/bridge-product-dev-bootstrap.js';
 import { bridgeProductSessionBootstrapSchema } from '../core/comm-worker/bridge-product-session-contracts.js';
+import validProductSessionCorpus from '../test-fixtures/bridge-contract-fixtures/valid/bridge-product-session-corpus.json' with { type: 'json' };
 import { installBridgeAppDevProductSessionHost } from './bridge-app-dev-product-session-host.js';
 
 const navigationIntent = {
@@ -615,12 +616,15 @@ function productBootstrapDelivery(sequence: number): BridgeProductDevBootstrapDe
 			kind: 'productSession.bootstrap',
 			paneSessionId: 'vite-dev-pane-session',
 			policy: {
+				admissionRetryCount: validProductSessionCorpus.bootstrap.policy.admissionRetryCount,
 				maximumContentBytes: BRIDGE_PRODUCT_MAXIMUM_CONTENT_BYTES,
 				maximumMetadataFrameBytes: BRIDGE_PRODUCT_MAXIMUM_METADATA_FRAME_BYTES,
 				maximumQueuedStreamBytes: BRIDGE_PRODUCT_MAXIMUM_QUEUED_STREAM_BYTES,
 				maximumQueuedStreamFrames: BRIDGE_PRODUCT_MAXIMUM_QUEUED_STREAM_FRAMES,
 				maximumRequestBodyBytes: BRIDGE_PRODUCT_MAXIMUM_REQUEST_BODY_BYTES,
 				terminalFrameReserve: BRIDGE_PRODUCT_TERMINAL_FRAME_RESERVE,
+				workerSettlementDeadlineMilliseconds:
+					validProductSessionCorpus.bootstrap.policy.workerSettlementDeadlineMilliseconds,
 			},
 			wireVersion: BRIDGE_PRODUCT_WIRE_VERSION,
 			workerInstanceId: `vite-dev-worker-${sequence}`,

@@ -320,6 +320,34 @@ struct BridgeProductSchemeAdapterTests {
         #expect((await harness.provider.snapshot).controlRequests.count == 1)
     }
 
+    @Test("retired session returns a typed HTTP refusal for a decoded control")
+    func retiredSessionReturnsTypedHTTPRefusal() async throws {
+        let harness = try BridgeProductSchemeAdapterHarness.make()
+        #expect(try await harness.openSession().response?.statusCode == 200)
+        _ = await harness.session.revoke(acknowledgeLifecycle: { _ in true })
+
+        let reply = try await collectBridgeProductSchemeReply(
+            adapter: harness.adapter,
+            request: bridgeProductSchemeRequest(
+                route: BridgeProductWireContract.commandRoute,
+                capability: harness.capabilityHeader,
+                body: bridgeProductSchemeReviewCallBody(requestSequence: 2)
+            )
+        )
+        let response = try BridgeProductStrictJSON.decode(
+            BridgeProductControlResponse.self,
+            from: reply.body
+        )
+
+        #expect(reply.response?.statusCode == 409)
+        guard case .requestError(let refusal) = response else {
+            Issue.record("Expected a typed request.error body")
+            return
+        }
+        #expect(refusal.code == .staleWorker)
+        #expect(refusal.correlation.requestId == "request-call-adapter")
+    }
+
     @Test("cancellation before provider dispatch abandons admission and permits retry")
     func preDispatchCancellationAbandonsAdmission() async throws {
         // Arrange
@@ -503,6 +531,7 @@ struct BridgeProductSchemeAdapterTests {
         // Arrange
         let harness = try BridgeProductSchemeAdapterHarness.make()
         #expect(try await harness.openSession().response?.statusCode == 200)
+        #expect(await harness.session.waitUntilActive())
         let metadataRequest = try bridgeProductMetadataStreamRequest(
             metadataStreamId: "metadata-stream-worker-observation",
             resumeFromStreamSequence: nil
