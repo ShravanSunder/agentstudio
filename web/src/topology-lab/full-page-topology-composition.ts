@@ -17,7 +17,11 @@ import {
   measureTopologyRows,
   type TopologyRowWorktree,
 } from "./full-page-topology-model";
-import { attachXFor, planAttachRoutes } from "./topology-attach-geometry";
+import {
+  attachXFor,
+  planAttachRoutes,
+  topologyStackedDropCornerInset,
+} from "./topology-attach-geometry";
 import { topologyEndY, topologyRectBottom, topologyRectCenterY } from "./topology-end-geometry";
 import {
   heroLaneOpenRow,
@@ -56,6 +60,8 @@ export interface TopologyAnchorMeasurement {
   readonly surface: TopologyRect | undefined;
   /** `data-rail-media-target`: the stage inside the glass. */
   readonly media: TopologyRect | undefined;
+  /** `data-rail-step-pill-target`: multi-step chapters attach here. */
+  readonly stepPill?: TopologyRect | undefined;
   /** The copy between the anchor and its media target; a hero phone branch turns below it. */
   readonly copyBlock: TopologyRect | undefined;
   /**
@@ -152,15 +158,22 @@ export function composeFullPageTopology(
     return undefined;
   }
   const stacked = page.viewportWidth < topologyStackedLayoutBreakpointWidth;
-  const attachXs = page.anchors.flatMap((anchor) => {
-    const attachX = attachXFor(anchor, stacked);
-    return attachX === undefined ? [] : [attachX];
-  });
+  // The gutter stays aligned to the glass even when a pill projects further
+  // into the chapter. Its attach path can extend past the nearest lane column.
   const contentX = Math.min(
-    ...(attachXs.length > 0 ? attachXs : page.anchors.map((anchor) => anchor.rect.left)),
+    ...page.anchors.map((anchor) =>
+      anchor.stepPill === undefined
+        ? (attachXFor(anchor, stacked) ?? anchor.rect.left)
+        : stacked
+          ? (anchor.surface?.left ?? anchor.rect.left) + topologyStackedDropCornerInset
+          : (anchor.surface?.left ?? anchor.rect.left),
+    ),
   );
   const { rowYs, anchorRows } = measureTopologyRows({
     anchorYs: page.anchors.map((anchor) => anchor.lineY ?? topologyRectCenterY(anchor.rect)),
+    forcedYs: page.anchors.flatMap((anchor) =>
+      anchor.stepPill === undefined ? [] : [topologyRectCenterY(anchor.stepPill)],
+    ),
     endY: topologyEndY(page),
   });
   const finalRow = rowYs.length - 1;

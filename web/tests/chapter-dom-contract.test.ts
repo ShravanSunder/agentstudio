@@ -13,6 +13,7 @@ describe("chapter DOM contract", () => {
         "data-rail-anchor",
         "data-rail-surface-target",
         "data-rail-media-target",
+        "data-rail-step-pill-target",
         "data-rail-end-mark",
         "data-rail-end-section",
         "data-rail-current",

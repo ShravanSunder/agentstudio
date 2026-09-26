@@ -82,7 +82,7 @@ afterEach(() => {
 });
 
 describe("chapter step tabs", () => {
-  it("enhances the static steps into a vertical tablist with synchronized panels", async () => {
+  it("enhances the static steps into a horizontal tablist with synchronized panels", async () => {
     await page.viewport(1280, 800);
     const root = createChapterStepsFixture();
     const list = requiredHtmlElement(root, "[data-chapter-step-list]");
@@ -95,7 +95,7 @@ describe("chapter step tabs", () => {
 
     expect(root.dataset["enhanced"]).toBe("true");
     expect(list.getAttribute("role")).toBe("tablist");
-    expect(list.getAttribute("aria-orientation")).toBe("vertical");
+    expect(list.getAttribute("aria-orientation")).toBe("horizontal");
     expect(firstStep.getAttribute("role")).toBe("tab");
     expect(firstStep.getAttribute("aria-selected")).toBe("true");
     expect(firstStep.tabIndex).toBe(0);
@@ -111,7 +111,7 @@ describe("chapter step tabs", () => {
     expect(firstStep.disabled).toBe(true);
   });
 
-  it("announces a horizontal tablist on phones and follows the viewport across the breakpoint", async () => {
+  it("keeps the pill tablist horizontal across the breakpoint", async () => {
     // Arrange
     await page.viewport(390, 844);
     const root = createChapterStepsFixture();
@@ -124,7 +124,7 @@ describe("chapter step tabs", () => {
     expect(list.getAttribute("aria-orientation")).toBe("horizontal");
     await page.viewport(1280, 800);
     await vi.waitFor(() => {
-      expect(list.getAttribute("aria-orientation")).toBe("vertical");
+      expect(list.getAttribute("aria-orientation")).toBe("horizontal");
     });
 
     controller.destroy();

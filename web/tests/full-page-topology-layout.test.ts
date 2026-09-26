@@ -109,6 +109,31 @@ function composed(fixture: TopologyPageFixture): TopologyComposition {
   return composition;
 }
 
+describe("step pill attachment", () => {
+  for (const width of [390, 820, 1280, 1600]) {
+    it(`forces a row through the pill center and ends its branch there at ${width}px`, () => {
+      const fixture = homePageAt(width);
+      const firstChapter = fixture.page.anchors[1];
+      if (firstChapter?.surface === undefined) throw new Error("First chapter glass is missing");
+      const pill = rect(
+        firstChapter.surface.left + (width < 1024 ? 33 : 54),
+        firstChapter.surface.top - 56,
+        300,
+        40,
+      );
+      const anchors = fixture.page.anchors.map((anchor, index) =>
+        index === 1 ? { ...anchor, stepPill: pill } : anchor,
+      );
+      const composition = composeFullPageTopology({ ...fixture.page, anchors });
+      if (composition === undefined) throw new Error("Pill topology did not compose");
+      const route = composition.routes.find((candidate) => candidate.anchorId === firstChapter.id);
+      expect(route?.targetPoint).toEqual({ x: pill.left, y: pill.top + pill.height / 2 });
+      expect(composition.rowYs).toContain(pill.top + pill.height / 2);
+      expect(composition.mainlineX).toBe(composed(fixture).mainlineX);
+    });
+  }
+});
+
 interface PathPoint {
   readonly x: number;
   readonly y: number;

@@ -1,0 +1,71 @@
+---
+import type { ChapterStep } from "./chapter-catalog";
+import { railStepPillTargetAttribute } from "./chapter-dom-contract";
+
+interface Props {
+  readonly chapterId: string;
+  readonly steps: readonly ChapterStep[];
+}
+
+const { chapterId, steps } = Astro.props;
+---
+
+<div
+  class="chapter-step-pill floating-glass-material relative mb-4 ml-[calc(clamp(28px,3vw,48px)+5px)] inline-flex h-10 max-w-[calc(100%-40px)] items-center rounded-full border p-1"
+  {...{ [railStepPillTargetAttribute]: chapterId }}
+>
+  <div class="chapter-step-list relative flex min-w-0 items-center" data-chapter-step-list>
+    <span class="chapter-step-highlight" aria-hidden="true"></span>
+    {
+      steps.map((step, stepIndex) => (
+        <button
+          type="button"
+          class="chapter-step relative z-[1] inline-flex h-[30px] min-w-[30px] cursor-pointer items-center justify-center gap-1.5 rounded-full px-2.5 text-left text-[14px] leading-none whitespace-nowrap text-ink-faint hover:text-ink-secondary disabled:cursor-default"
+          data-chapter-step={step.id}
+          data-step-state={stepIndex === 0 ? "current" : "upcoming"}
+          aria-label={step.label}
+          disabled
+          tabindex="-1"
+        >
+          <span class="chapter-step__dot" aria-hidden="true" />
+          <span class="chapter-step__label" data-chapter-step-label>{step.label}</span>
+        </button>
+      ))
+    }
+  </div>
+</div>
+
+<style>
+  .chapter-step-highlight {
+    position: absolute;
+    z-index: 0;
+    top: 0;
+    left: 0;
+    width: var(--chapter-step-highlight-width, 0px);
+    height: 30px;
+    border-radius: 999px;
+    background: rgb(137 180 250 / 14%);
+    transform: translateX(var(--chapter-step-highlight-x, 0px));
+    transition:
+      transform 220ms ease-out,
+      width 220ms ease-out;
+  }
+  .chapter-step__dot {
+    flex: none;
+    width: 9px;
+    height: 9px;
+    border: 1.5px solid rgb(155 161 173 / 70%);
+    border-radius: 999px;
+  }
+  .chapter-step[data-step-state="current"] { color: var(--color-ink); }
+  .chapter-step[data-step-state="current"] .chapter-step__dot {
+    border: 2px solid var(--color-primary);
+    box-shadow: 0 0 0 2px rgb(137 180 250 / 42%);
+  }
+  @media (width < 38.75rem) {
+    .chapter-step:not([data-step-state="current"]) .chapter-step__label { display: none; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .chapter-step-highlight { transition: none; }
+  }
+</style>

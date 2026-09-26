@@ -41,8 +41,8 @@ describe("chapter surfaces on the home page", () => {
     }
   });
 
-  for (const width of [390, 800]) {
-    it(`stacks title, stage, and a horizontal dot row of steps in one glass at ${width}px`, async () => {
+  for (const width of [390, 820, 1280, 1600]) {
+    it(`puts the horizontal step pill above the glass at ${width}px`, async () => {
       // Act
       const observation = await commands.verifyChapterStepRow({
         pageUrl: inject("siteHeaderBrowserTestUrl"),
@@ -50,23 +50,27 @@ describe("chapter surfaces on the home page", () => {
         chapterId: chapterWithSteps,
       });
 
-      // Assert: one glass holds the title, then the stage, then the steps.
+      // The pill carries the selector; the glass retains title, stage and panels.
       const layout = observation.glassLayout;
       expect(layout.titleInGlass).toBe(true);
       expect(layout.stageInGlass).toBe(true);
-      expect(layout.stepListInGlass).toBe(true);
+      expect(layout.stepListInPill).toBe(true);
+      expect(layout.stepPanelsInGlass).toBe(true);
+      expect(layout.pillMaterialMatchesHeader).toBe(true);
+      expect(layout.pill.bottom + 16).toBeCloseTo(layout.glass.top, 0);
       expect(layout.title.top).toBeGreaterThan(layout.glass.top);
-      expect(layout.stage.top).toBeGreaterThanOrEqual(layout.title.bottom);
-      expect(layout.stepList.top).toBeGreaterThanOrEqual(layout.stage.bottom);
-      expect(layout.stepList.bottom).toBeLessThanOrEqual(layout.glass.bottom);
-      expect(layout.stepList.left).toBeGreaterThanOrEqual(layout.glass.left);
+      if (width < 1024) expect(layout.stage.top).toBeGreaterThanOrEqual(layout.title.bottom);
+      expect(layout.stepList.top).toBeGreaterThanOrEqual(layout.pill.top);
+      expect(layout.stepList.bottom).toBeLessThanOrEqual(layout.pill.bottom);
       // Autoplay still measures the stage alone.
       expect(layout.playbackStageCount).toBe(1);
       expect(layout.playbackStageIsStage).toBe(true);
-      // The rail's branch ends on the glass's top edge, clear of its corner.
+      // The rail's branch ends at the pill's left-center with no port dot.
       expect(layout.portNodeCount).toBe(0);
-      expect(Math.abs(layout.branchEndpoint.y - layout.glass.top)).toBeLessThanOrEqual(1);
-      expect(layout.branchEndpoint.x - layout.glass.left).toBeGreaterThanOrEqual(16 + 8);
+      expect(
+        Math.abs(layout.branchEndpoint.y - (layout.pill.top + layout.pill.bottom) / 2),
+      ).toBeLessThanOrEqual(1);
+      expect(Math.abs(layout.branchEndpoint.x - layout.pill.left)).toBeLessThanOrEqual(1);
 
       // A horizontal tablist of dots on one line, each a real target.
       expect(observation.role).toBe("tablist");
@@ -80,12 +84,12 @@ describe("chapter surfaces on the home page", () => {
         expect(tab.width).toBeGreaterThanOrEqual(24);
         expect(tab.height).toBeGreaterThanOrEqual(24);
         expect(tab.accessibleName).toBe(observation.labels[tab.stepId]);
-        expect(tab.labelVisible).toBe(false);
+        expect(tab.labelVisible).toBe(width >= 620 || tab.stepId === first.stepId);
       }
       expect(second.centerX).toBeGreaterThan(first.centerX + 24);
       expect(third.centerX).toBeGreaterThan(second.centerX + 24);
 
-      // Only the current step's label and description show below the row.
+      // Only the current panel's description shows in the glass.
       const labelOf = (stepId: string): string => observation.labels[stepId] ?? "";
       expect(observation.initial.visiblePanelIds).toEqual([first.stepId]);
       expect(observation.initial.visibleText).toContain(labelOf(first.stepId));
@@ -102,6 +106,12 @@ describe("chapter surfaces on the home page", () => {
       const last = observation.tabs.at(-1);
       expect(observation.afterEnd.visiblePanelIds).toEqual([last?.stepId]);
       expect(observation.afterEnd.focusedStepId).toBe(last?.stepId);
+      for (const [index, snapshot] of observation.afterClicks.entries()) {
+        const clicked = observation.tabs[index];
+        expect(snapshot.visiblePanelIds).toEqual([clicked?.stepId]);
+        expect(snapshot.selectedStepId).toBe(clicked?.stepId);
+        expect(snapshot.highlightCenterOffset).toBeLessThanOrEqual(1);
+      }
 
       // Without JavaScript the first step shows.
       expect(observation.withoutScript.visiblePanelIds).toEqual([first.stepId]);
@@ -109,7 +119,7 @@ describe("chapter surfaces on the home page", () => {
     });
   }
 
-  it("keeps the vertical in-glass step list on wide screens", async () => {
+  it("keeps the wide pill horizontal and the panel in the glass", async () => {
     // Act
     const observation = await commands.verifyChapterStepRow({
       pageUrl: inject("siteHeaderBrowserTestUrl"),
@@ -118,20 +128,20 @@ describe("chapter surfaces on the home page", () => {
     });
 
     // Assert
-    expect(observation.orientation).toBe("vertical");
+    expect(observation.orientation).toBe("horizontal");
     const [first, second] = observation.tabs;
     if (first === undefined || second === undefined) {
       throw new Error("The chapter has fewer than two steps");
     }
-    expect(Math.abs(second.centerX - first.centerX)).toBeLessThanOrEqual(1);
-    expect(second.centerY).toBeGreaterThan(first.centerY);
+    expect(second.centerX).toBeGreaterThan(first.centerX);
+    expect(Math.abs(second.centerY - first.centerY)).toBeLessThanOrEqual(1);
     for (const tab of observation.tabs) {
       expect(tab.labelVisible).toBe(true);
       expect(tab.accessibleName).toBe(observation.labels[tab.stepId]);
     }
-    // The panel carries only the description; the label lives in the list.
+    // The panel keeps the current step's label and description under the title.
     expect(observation.initial.visiblePanelIds).toEqual([first.stepId]);
-    expect(observation.initial.visibleText).not.toContain(observation.labels[first.stepId] ?? "");
+    expect(observation.initial.visibleText).toContain(observation.labels[first.stepId] ?? "");
     expect(observation.afterArrowRight.focusedStepId).toBe(observation.tabs[2]?.stepId);
   });
 });

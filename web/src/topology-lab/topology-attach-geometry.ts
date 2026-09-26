@@ -31,6 +31,7 @@ export function attachXFor(
   stacked: boolean,
 ): number | undefined {
   const surface = anchor.surface;
+  if (anchor.stepPill !== undefined) return anchor.stepPill.left;
   if (surface === undefined) {
     return undefined;
   }
@@ -82,6 +83,37 @@ export function planAttachRoutes(props: AttachRoutePlanProps): TopologyRoute[] {
             accent: outermostLane.accent,
           }
         : { id: mainlineOwnerId, x: mainlineX, column: 0, accent: "main" };
+
+    if (anchor.stepPill !== undefined) {
+      const centerY = anchor.stepPill.top + anchor.stepPill.height / 2;
+      const attachRow = rowYs.findIndex((rowY) => Math.abs(rowY - centerY) <= 0.5);
+      const forkRow = attachRow - 1;
+      const forkY = rowYs[forkRow];
+      if (forkY === undefined) continue;
+      const source = sourceAt(forkRow);
+      reserved.set(forkRow, {
+        x: source.x,
+        ownerId: source.id,
+        accent: source.accent,
+        kind: "fork",
+        anchorId: undefined,
+      });
+      attachRoutes.push({
+        id: `attach-${anchor.id}`,
+        kind: "attach",
+        accent: "port",
+        pathData: leftEdgePortPath(source.x, attachX, forkY, centerY),
+        parentColumn: source.column,
+        column: source.column + 1,
+        startY: forkY,
+        endY: centerY,
+        anchorId: anchor.id,
+        targetEdge: "left",
+        targetPoint: { x: attachX, y: centerY },
+        sourceAccent: source.accent,
+      });
+      continue;
+    }
 
     if (stacked) {
       const copyAboveGlass = anchor.rect.top < target.top;

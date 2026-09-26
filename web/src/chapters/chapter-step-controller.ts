@@ -12,14 +12,6 @@ import {
 // without moving focus; a visitor's selection asks the scene to seek there.
 
 const stepSelector = "[data-chapter-step]";
-/**
- * Below Tailwind's `lg` boundary (`--breakpoint-lg: 64rem`) the chapter glass
- * stacks (title, stage, steps) and the steps render as a horizontal dot row.
- * ChapterSurface.astro styles the row under the same query.
- */
-export const chapterStackedLayoutMediaQuery = "(width < 64rem)";
-
-type StepListOrientation = "horizontal" | "vertical";
 const panelSelector = "[data-chapter-step-panel]";
 
 export type ChapterStepState = "passed" | "current" | "upcoming";
@@ -96,14 +88,10 @@ function renderStaticContract(contract: ChapterStepsDomContract): void {
   contract.root.dataset["enhanced"] = "false";
 }
 
-function renderSelectedStep(
-  contract: ChapterStepsDomContract,
-  selectedIndex: number,
-  orientation: StepListOrientation,
-): void {
+function renderSelectedStep(contract: ChapterStepsDomContract, selectedIndex: number): void {
   const idPrefix = `chapter-step-${contract.root.dataset["chapterStepsRoot"] ?? "chapter"}`;
   contract.list.setAttribute("role", "tablist");
-  contract.list.setAttribute("aria-orientation", orientation);
+  contract.list.setAttribute("aria-orientation", "horizontal");
   contract.steps.forEach(({ panel, selector, stepId }, stepIndex): void => {
     const isSelected = stepIndex === selectedIndex;
     selector.disabled = false;
@@ -120,6 +108,11 @@ function renderSelectedStep(
     panel.setAttribute("aria-labelledby", selector.id);
   });
   contract.root.dataset["enhanced"] = "true";
+  const selected = contract.steps[selectedIndex]?.selector;
+  if (selected !== undefined && contract.list.querySelector(".chapter-step-highlight") !== null) {
+    contract.list.style.setProperty("--chapter-step-highlight-x", `${selected.offsetLeft}px`);
+    contract.list.style.setProperty("--chapter-step-highlight-width", `${selected.offsetWidth}px`);
+  }
 }
 
 function movementForKey(key: string): StepMovement | null {
@@ -162,24 +155,13 @@ export function initializeChapterSteps(root: HTMLElement): ChapterStepsControlle
     const validatedContract = validateChapterStepsDom(root);
     contract = validatedContract;
     let selectedIndex = 0;
-    const stepRowQuery = window.matchMedia(chapterStackedLayoutMediaQuery);
-    const currentOrientation = (): StepListOrientation =>
-      stepRowQuery.matches ? "horizontal" : "vertical";
-
     const selectStep = (stepIndex: number): void => {
       selectedIndex = stepIndex;
-      renderSelectedStep(validatedContract, selectedIndex, currentOrientation());
+      renderSelectedStep(validatedContract, selectedIndex);
     };
-
-    // The row turns vertical again on wider screens; keep the announced
-    // orientation in step with the layout.
-    stepRowQuery.addEventListener(
-      "change",
-      (): void => {
-        validatedContract.list.setAttribute("aria-orientation", currentOrientation());
-      },
-      { signal: lifecycle.signal },
-    );
+    window.addEventListener("resize", () => selectStep(selectedIndex), {
+      signal: lifecycle.signal,
+    });
 
     // A visitor's choice: select, then ask the scene to seek and play there.
     const chooseStep = (stepIndex: number): void => {

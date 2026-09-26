@@ -8,6 +8,7 @@ import {
   railEndMarkAttribute,
   railEndSectionAttribute,
   railMediaTargetAttribute,
+  railStepPillTargetAttribute,
   railSurfaceTargetAttribute,
 } from "../chapters/chapter-dom-contract";
 import {
@@ -105,15 +106,18 @@ function measureAnchors(artwork: SVGSVGElement): readonly TopologyAnchorMeasurem
   };
   const surfaces = elementsById(ownerDocument, railSurfaceTargetAttribute);
   const medias = elementsById(ownerDocument, railMediaTargetAttribute);
+  const stepPills = elementsById(ownerDocument, railStepPillTargetAttribute);
   return [...elementsById(ownerDocument, railAnchorAttribute)].map(([id, anchor]) => {
     const surface = surfaces.get(id);
     const media = medias.get(id);
+    const stepPill = stepPills.get(id);
     const firstLine = firstLineBox(anchor);
     return {
       id,
       rect: measure(anchor),
       surface: surface === undefined ? undefined : measure(surface),
       media: media === undefined ? undefined : measure(media),
+      stepPill: stepPill === undefined ? undefined : measure(stepPill),
       copyBlock: media === undefined ? undefined : measure(findCopyBlock(anchor, media)),
       lineY:
         firstLine === undefined ? undefined : firstLine.top - origin.top + firstLine.height / 2,

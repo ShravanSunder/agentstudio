@@ -29,6 +29,8 @@ export interface ChapterStepSnapshot {
   /** Visible text of the visible panels. */
   readonly visibleText: string;
   readonly focusedStepId: string | undefined;
+  readonly selectedStepId: string | undefined;
+  readonly highlightCenterOffset: number;
 }
 
 interface ViewportRect {
@@ -41,13 +43,16 @@ interface ViewportRect {
 /** Where the title, stage, steps, and branch endpoint sit relative to the chapter's glass. */
 export interface ChapterGlassLayoutObservation {
   readonly glass: ViewportRect;
+  readonly pill: ViewportRect;
   readonly title: ViewportRect;
   readonly stage: ViewportRect;
   readonly stepList: ViewportRect;
   /** Whether each part is a descendant of the glass surface element. */
   readonly titleInGlass: boolean;
   readonly stageInGlass: boolean;
-  readonly stepListInGlass: boolean;
+  readonly stepListInPill: boolean;
+  readonly stepPanelsInGlass: boolean;
+  readonly pillMaterialMatchesHeader: boolean;
   /** Elements in the chapter measured for autoplay centring, and whether the one is the stage. */
   readonly playbackStageCount: number;
   readonly playbackStageIsStage: boolean;
@@ -67,6 +72,7 @@ export interface ChapterStepRowObservation {
   readonly afterArrowRight: ChapterStepSnapshot;
   readonly afterHome: ChapterStepSnapshot;
   readonly afterEnd: ChapterStepSnapshot;
+  readonly afterClicks: readonly ChapterStepSnapshot[];
   /** The same chapter served with JavaScript off. */
   readonly withoutScript: ChapterStepSnapshot;
 }
@@ -184,6 +190,7 @@ function readGlassLayout(chapterId: string): ChapterGlassLayoutObservation {
   const title = article.querySelector("[data-rail-anchor]");
   const stage = article.querySelector("[data-rail-media-target]");
   const stepList = article.querySelector("[data-chapter-step-list]");
+  const pill = article.querySelector("[data-rail-step-pill-target]");
   const attachGroup = document.querySelector(
     `[data-route-kind="attach"][data-route-anchor="${chapterId}"]`,
   );
@@ -193,6 +200,7 @@ function readGlassLayout(chapterId: string): ChapterGlassLayoutObservation {
     title === null ||
     stage === null ||
     stepList === null ||
+    pill === null ||
     branch === undefined ||
     branch === null
   ) {
@@ -206,14 +214,28 @@ function readGlassLayout(chapterId: string): ChapterGlassLayoutObservation {
   if (matrix === null) throw new Error(`Chapter ${chapterId} branch has no screen transform`);
   const endpoint = branch.getPointAtLength(branch.getTotalLength()).matrixTransform(matrix);
   const playbackStages = [...article.querySelectorAll("[data-scroll-playback-stage]")];
+  const floatingHeader = document.querySelector<HTMLElement>(
+    '.site-header[data-visual-state="floating"]',
+  );
+  if (floatingHeader === null) throw new Error("Floating site header is missing");
+  const headerMaterial = getComputedStyle(floatingHeader);
+  const pillMaterial = getComputedStyle(pill);
   return {
     glass: box(glass),
+    pill: box(pill),
     title: box(title),
     stage: box(stage),
     stepList: box(stepList),
     titleInGlass: glass.contains(title),
     stageInGlass: glass.contains(stage),
-    stepListInGlass: glass.contains(stepList),
+    stepListInPill: pill.contains(stepList),
+    stepPanelsInGlass: [...article.querySelectorAll("[data-chapter-step-panel]")].every((panel) =>
+      glass.contains(panel),
+    ),
+    pillMaterialMatchesHeader:
+      pillMaterial.background === headerMaterial.background &&
+      pillMaterial.borderColor === headerMaterial.borderColor &&
+      pillMaterial.backdropFilter === headerMaterial.backdropFilter,
     playbackStageCount: playbackStages.length,
     playbackStageIsStage: playbackStages[0] === stage,
     branchEndpoint: { x: endpoint.x, y: endpoint.y },
@@ -230,6 +252,10 @@ function readStepSnapshot(chapterId: string): ChapterStepSnapshot {
     (panel) => panel.getClientRects().length > 0,
   );
   const focused = document.activeElement;
+  const selected = root.querySelector<HTMLElement>('[data-chapter-step][aria-selected="true"]');
+  const highlight = root.querySelector<HTMLElement>(".chapter-step-highlight");
+  const selectedBounds = selected?.getBoundingClientRect();
+  const highlightBounds = highlight?.getBoundingClientRect();
   return {
     visiblePanelIds: visiblePanels.map((panel) => panel.dataset["chapterStepPanel"] ?? ""),
     visibleText: visiblePanels.map((panel) => panel.innerText).join("\n"),
@@ -237,6 +263,14 @@ function readStepSnapshot(chapterId: string): ChapterStepSnapshot {
       focused instanceof HTMLElement && root.contains(focused)
         ? focused.dataset["chapterStep"]
         : undefined,
+    selectedStepId: selected?.dataset["chapterStep"],
+    highlightCenterOffset:
+      selectedBounds === undefined || highlightBounds === undefined
+        ? Number.NaN
+        : Math.abs(
+            (selectedBounds.left + selectedBounds.right) / 2 -
+              (highlightBounds.left + highlightBounds.right) / 2,
+          ),
   };
 }
 
@@ -276,6 +310,7 @@ export const verifyChapterStepRow = defineBrowserCommand(
     let afterArrowRight: ChapterStepSnapshot;
     let afterHome: ChapterStepSnapshot;
     let afterEnd: ChapterStepSnapshot;
+    const afterClicks: ChapterStepSnapshot[] = [];
     try {
       await openChapter(applicationPage, request);
       await applicationPage.waitForSelector(
@@ -322,6 +357,12 @@ export const verifyChapterStepRow = defineBrowserCommand(
       afterHome = await applicationPage.evaluate(readStepSnapshot, chapterId);
       await applicationPage.keyboard.press("End");
       afterEnd = await applicationPage.evaluate(readStepSnapshot, chapterId);
+      /* eslint-disable no-await-in-loop -- Each click must settle before the next segment. */
+      for (const tab of semantics.tabs) {
+        await applicationPage.click(`[data-chapter-step="${tab.stepId}"]`);
+        afterClicks.push(await applicationPage.evaluate(readStepSnapshot, chapterId));
+      }
+      /* eslint-enable no-await-in-loop */
     } finally {
       await applicationPage.close();
     }
@@ -352,6 +393,7 @@ export const verifyChapterStepRow = defineBrowserCommand(
       afterArrowRight,
       afterHome,
       afterEnd,
+      afterClicks,
       withoutScript,
     };
   },

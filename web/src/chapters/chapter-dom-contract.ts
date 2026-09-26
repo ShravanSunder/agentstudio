@@ -11,6 +11,9 @@ export const railSurfaceTargetAttribute = "data-rail-surface-target";
 /** `data-rail-media-target="<id>"`: phone branches drop into this element's top edge. */
 export const railMediaTargetAttribute = "data-rail-media-target";
 
+/** `data-rail-step-pill-target="<chapterId>"`: multi-step branches enter its left center. */
+export const railStepPillTargetAttribute = "data-rail-step-pill-target";
+
 /** `data-rail-end-mark`: the final call to action's icon; the rail ends halfway between the last glass and it. */
 export const railEndMarkAttribute = "data-rail-end-mark";
 
