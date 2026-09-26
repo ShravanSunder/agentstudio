@@ -17,10 +17,9 @@ extension Ghostty.ActionRouter {
             )
             return true
         case .showChildExited:
-            // Intentional exception to "a process exit closes its pane": Ghostty emits this only for
-            // an exit inside its abnormal-exit window (~250 ms), and handling it makes Ghostty skip
-            // its close. The pane stays and shows the Process Exited overlay, as upstream does,
-            // because an instant exit is almost always a startup error the user should see.
+            // Abnormal exits return early when this action is handled, leaving the pane open for the
+            // Process Exited overlay. Ghostty also emits it for ordinary exits, which still close
+            // unless `wait_after_command` is enabled.
             scheduleChildExitedStartupTrace(
                 actionTag: rawActionTag,
                 target: target,
