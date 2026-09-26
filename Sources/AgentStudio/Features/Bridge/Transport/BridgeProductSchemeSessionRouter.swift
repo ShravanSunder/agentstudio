@@ -45,6 +45,7 @@ actor BridgeProductSchemeSessionRouter {
     private var cancelledStreamDrainWaiterIds: Set<UInt64> = []
     private var transportClaimMintCount = 0
     private var transportClaimMintCountByInstallation: [String: Int] = [:]
+    private var metadataStreamClaimMintCountByInstallation: [String: Int] = [:]
     private let streamDrainWaiterRegistrationObserver: (@Sendable () -> Void)?
 
     /// Reachable without an actor hop because `onTermination` is synchronous.
@@ -120,6 +121,7 @@ actor BridgeProductSchemeSessionRouter {
         claimInstallationById[claimId] = workerInstanceId
         if route == .metadataStream {
             activeStreamClaimIds.insert(claimId)
+            metadataStreamClaimMintCountByInstallation[workerInstanceId, default: 0] += 1
         }
         transportClaimMintCount += 1
         transportClaimMintCountByInstallation[workerInstanceId, default: 0] += 1
@@ -132,6 +134,19 @@ actor BridgeProductSchemeSessionRouter {
                 router: self
             )
         )
+    }
+
+    /// An unstarted successor is still owned by its tab. Once this installation
+    /// has streamed, synchronous termination evidence can release dev-tab
+    /// ownership before its asynchronous claim cleanup finishes.
+    func metadataStreamHasEnded(for workerInstanceId: String) -> Bool {
+        guard metadataStreamClaimMintCountByInstallation[workerInstanceId, default: 0] > 0 else {
+            return false
+        }
+        return activeStreamClaimIds.allSatisfy { claimID in
+            claimInstallationById[claimID] != workerInstanceId
+                || schemeTaskCensus.isTerminated(claimID)
+        }
     }
 
     func waitForDrain() async {

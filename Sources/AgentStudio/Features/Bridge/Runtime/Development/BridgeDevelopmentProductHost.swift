@@ -30,6 +30,7 @@ package actor BridgeDevelopmentProductHost {
     let gitReadScheduler: BridgeGitReadScheduler
     private var navigationBindingRevision = 0
     private var navigationIntent: BridgeDevelopmentProductBootstrapRequest.NavigationIntent?
+    private var owningTabId: String?
     private let paneSessionId: String
     let retirementDelay: AsyncDelay
     let productAdmission: BridgeProductAdmissionContext
@@ -250,6 +251,7 @@ package actor BridgeDevelopmentProductHost {
             for: request.navigationIntent
         )
         navigationIntent = request.navigationIntent
+        if request.reason == .initial { owningTabId = request.tabId }
         navigationBindingRevision += 1
         await publishNavigation(
             request.navigationIntent,
@@ -844,8 +846,21 @@ extension BridgeDevelopmentProductHost {
     ) async throws {
         switch request.reason {
         case .initial:
-            break
+            if let owningTabId, owningTabId != request.tabId,
+                let activeBootstrap = await productSessionOwner.activeBootstrap()
+            {
+                guard
+                    await productSessionOwner.schemeRouter.metadataStreamHasEnded(
+                        for: activeBootstrap.workerInstanceId
+                    )
+                else {
+                    throw BridgeDevelopmentProductHostError.sessionAlreadyOpen
+                }
+            }
         case .workerReplacement:
+            guard owningTabId == request.tabId else {
+                throw BridgeDevelopmentProductHostError.sessionAlreadyOpen
+            }
             guard request.paneSessionId == paneSessionId else {
                 throw BridgeDevelopmentProductHostError.replacementPaneNotFound
             }

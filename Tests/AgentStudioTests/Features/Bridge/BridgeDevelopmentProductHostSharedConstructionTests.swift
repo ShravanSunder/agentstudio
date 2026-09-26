@@ -871,7 +871,7 @@ func makeDevelopmentBootstrapRequest(
     try JSONDecoder().decode(
         BridgeDevelopmentProductBootstrapRequest.self,
         from: Data(
-            #"{"navigationIntent":{"commandId":"open-\#(surface)-view","commandKind":"activateContext","surface":"\#(surface)"},"reason":"initial"}"#
+            #"{"navigationIntent":{"commandId":"open-\#(surface)-view","commandKind":"activateContext","surface":"\#(surface)"},"reason":"initial","tabId":"owner-tab-1"}"#
                 .utf8
         )
     )

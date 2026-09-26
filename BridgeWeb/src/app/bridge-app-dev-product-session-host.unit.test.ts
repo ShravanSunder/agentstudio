@@ -109,6 +109,7 @@ describe('Bridge app dev product session host', () => {
 		const host = installBridgeAppDevProductSessionHost({
 			fetchBootstrap,
 			navigationIntent,
+			tabId: 'tab-owner-1',
 			target,
 		});
 
@@ -145,7 +146,7 @@ describe('Bridge app dev product session host', () => {
 		const secondFetch = fetchBootstrap.mock.calls[1];
 		expect(firstFetch?.[0]).toBe(BRIDGE_PRODUCT_DEV_BOOTSTRAP_ROUTE);
 		expect(firstFetch?.[1]).toMatchObject({
-			body: JSON.stringify({ navigationIntent, reason: 'initial' }),
+			body: JSON.stringify({ navigationIntent, reason: 'initial', tabId: 'tab-owner-1' }),
 			cache: 'no-store',
 			credentials: 'same-origin',
 			headers: { 'Content-Type': BRIDGE_PRODUCT_DEV_BOOTSTRAP_REQUEST_MEDIA_TYPE },
@@ -156,6 +157,7 @@ describe('Bridge app dev product session host', () => {
 				navigationIntent,
 				paneSessionId: first.bootstrap.paneSessionId,
 				reason: 'workerReplacement',
+				tabId: 'tab-owner-1',
 			}),
 			method: 'POST',
 		});

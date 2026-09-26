@@ -14,7 +14,7 @@ import Testing
     .timeLimit(.minutes(1))
 )
 struct BridgeDevelopmentHostBootstrapAdmissionTests {
-    @Test("a live old metadata stream does not block a fresh initial bootstrap")
+    @Test("a live old metadata stream does not block its owning tab's fresh initial bootstrap")
     func liveMetadataStreamPermitsSuccessorBootstrap() async throws {
         // Arrange
         let repositoryURL = try await FilesystemTestGitRepo.create(
@@ -48,6 +48,45 @@ struct BridgeDevelopmentHostBootstrapAdmissionTests {
         #expect(secondWorker.paneSessionId == firstWorker.paneSessionId)
 
         await firstMetadataStream.stop()
+    }
+
+    @Test("another tab receives a conflict until the owner's stream ends, then takes over")
+    func competingTabCannotTakeOverLiveOwner() async throws {
+        let repositoryURL = try await FilesystemTestGitRepo.create(
+            named: "bridge-development-host-tab-ownership"
+        )
+        defer { FilesystemTestGitRepo.destroy(repositoryURL) }
+        let host = try await BridgeDevelopmentProductHost(
+            source: makeDevelopmentProductSource(worktreeRoot: repositoryURL),
+            contributionTargetCommit: developmentContributionTargetCommit(
+                worktreeRoot: repositoryURL
+            )
+        )
+        let ownerRequest = try developmentDisplayBootstrapRequest(
+            reason: "initial", surface: "file", tabId: "owner-tab-1"
+        )
+        let competingRequest = try developmentDisplayBootstrapRequest(
+            reason: "initial", surface: "file", tabId: "other-tab-2"
+        )
+        let firstWorker = try DevelopmentDisplayWorkerClient(
+            host: host,
+            delivery: await host.issueBootstrap(for: ownerRequest)
+        )
+        await #expect(throws: BridgeDevelopmentProductHostError.sessionAlreadyOpen) {
+            _ = try await host.issueBootstrap(for: competingRequest)
+        }
+        try await firstWorker.openSession()
+        var firstMetadataStream = try firstWorker.startMetadataStream()
+        try await firstMetadataStream.requireOpeningFrameAndAcknowledge(using: firstWorker)
+
+        await #expect(throws: BridgeDevelopmentProductHostError.sessionAlreadyOpen) {
+            _ = try await host.issueBootstrap(for: competingRequest)
+        }
+        await firstMetadataStream.stop()
+        let takeover = try await host.issueBootstrap(for: competingRequest)
+        let nextWorker = try DevelopmentDisplayWorkerClient(host: host, delivery: takeover)
+        try await nextWorker.openSession()
+        #expect(nextWorker.workerInstanceId != firstWorker.workerInstanceId)
     }
 
     @Test("a terminated old stream's pending retirement does not block a successor")

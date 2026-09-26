@@ -443,6 +443,7 @@ export class BridgeVerifierProductFileSession {
 					surface: 'file',
 				},
 				reason: 'initial',
+				tabId: 'verifier-file-session',
 			} satisfies BridgeProductDevBootstrapRequest),
 			headers: { 'Content-Type': BRIDGE_PRODUCT_DEV_BOOTSTRAP_REQUEST_MEDIA_TYPE },
 			method: 'POST',

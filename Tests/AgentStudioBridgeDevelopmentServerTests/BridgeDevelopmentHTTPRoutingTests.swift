@@ -187,7 +187,7 @@ struct BridgeDevelopmentHTTPRoutingTests {
         try await withDevelopmentHost(host) {
             let body = ByteBuffer(
                 string:
-                    #"{"navigationIntent":{"commandId":"open-file-view","commandKind":"activateContext","surface":"file"},"reason":"initial"}"#
+                    #"{"navigationIntent":{"commandId":"open-file-view","commandKind":"activateContext","surface":"file"},"reason":"initial","tabId":"owner-tab-1"}"#
             )
 
             // Act / Assert
@@ -233,7 +233,7 @@ struct BridgeDevelopmentHTTPRoutingTests {
                         headers: [.contentType: "application/json"],
                         body: ByteBuffer(
                             string:
-                                #"{"navigationIntent":{"commandId":"second-page","commandKind":"activateContext","surface":"file"},"reason":"initial"}"#
+                                #"{"navigationIntent":{"commandId":"second-page","commandKind":"activateContext","surface":"file"},"reason":"initial","tabId":"other-tab-2"}"#
                         )
                     )
                     // Assert: no new capability is issued; the original session still serves calls.
@@ -244,6 +244,39 @@ struct BridgeDevelopmentHTTPRoutingTests {
                     throw error
                 }
                 try await shutdownHTTPHostAndDrainMetadataStream(host: host, drain: metadata.drain)
+            }
+        }
+    }
+
+    @Test("a competing tab bootstrap receives HTTP 409 before the owner opens its stream")
+    func competingTabBootstrapReturnsConflict() async throws {
+        let repositoryURL = try await FilesystemTestGitRepo.create(
+            named: "bridge-http-competing-tab-before-stream"
+        )
+        defer { FilesystemTestGitRepo.destroy(repositoryURL) }
+        let host = try await makeHTTPDevelopmentProductHost(worktreeRoot: repositoryURL)
+        try await withDevelopmentHost(host) {
+            try await withBridgeDevelopmentHTTPRouterTestClient(host: host) { client in
+                let first = try await client.execute(
+                    uri: "/__bridge-product/bootstrap",
+                    method: .post,
+                    headers: [.contentType: "application/json"],
+                    body: ByteBuffer(
+                        string:
+                            #"{"navigationIntent":{"commandId":"open-file-view","commandKind":"activateContext","surface":"file"},"reason":"initial","tabId":"owner-tab-1"}"#
+                    )
+                )
+                #expect(first.status == .ok)
+                let competing = try await client.execute(
+                    uri: "/__bridge-product/bootstrap",
+                    method: .post,
+                    headers: [.contentType: "application/json"],
+                    body: ByteBuffer(
+                        string:
+                            #"{"navigationIntent":{"commandId":"open-file-view","commandKind":"activateContext","surface":"file"},"reason":"initial","tabId":"other-tab-2"}"#
+                    )
+                )
+                #expect(competing.status == .conflict)
             }
         }
     }
@@ -276,7 +309,7 @@ struct BridgeDevelopmentHTTPRoutingTests {
                     headers: [.contentType: "application/json"],
                     body: ByteBuffer(
                         string:
-                            #"{"navigationIntent":{"commandId":"dev:worktree:review","commandKind":"activateContext","surface":"review"},"reason":"initial"}"#
+                            #"{"navigationIntent":{"commandId":"dev:worktree:review","commandKind":"activateContext","surface":"review"},"reason":"initial","tabId":"owner-tab-1"}"#
                     )
                 ) { response in
                     #expect(response.status == .ok)
@@ -304,7 +337,7 @@ struct BridgeDevelopmentHTTPRoutingTests {
                     client: client,
                     bootstrapRequestBody: ByteBuffer(
                         string:
-                            #"{"navigationIntent":{"commandId":"open-cold-file-target","commandKind":"activateTarget","surface":"file","target":{"targetKind":"file","path":"startup.txt","version":"current"}},"reason":"initial"}"#
+                            #"{"navigationIntent":{"commandId":"open-cold-file-target","commandKind":"activateTarget","surface":"file","target":{"targetKind":"file","path":"startup.txt","version":"current"}},"reason":"initial","tabId":"owner-tab-1"}"#
                     )
                 )
                 let metadata = try await startHTTPMetadataStream(
@@ -387,7 +420,7 @@ struct BridgeDevelopmentHTTPRoutingTests {
                     headers: [.contentType: "application/json"],
                     body: ByteBuffer(
                         string:
-                            #"{"navigationIntent":{"commandId":"open-file-view","commandKind":"activateContext","surface":"file"},"reason":"initial"}"#
+                            #"{"navigationIntent":{"commandId":"open-file-view","commandKind":"activateContext","surface":"file"},"reason":"initial","tabId":"owner-tab-1"}"#
                     )
                 )
                 let envelope = try decodeHTTPBootstrapEnvelope(

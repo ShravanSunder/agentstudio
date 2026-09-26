@@ -26,20 +26,23 @@ describe('Bridge product dev bootstrap binary envelope', () => {
 			surface: 'file',
 			target: { path: 'README.md', targetKind: 'file', version: 'current' },
 		} as const;
+		const tabId = 'tab-owner-1';
 
 		expect(
-			bridgeProductDevBootstrapRequestSchema.parse({ navigationIntent, reason: 'initial' }),
-		).toEqual({ navigationIntent, reason: 'initial' });
+			bridgeProductDevBootstrapRequestSchema.parse({ navigationIntent, reason: 'initial', tabId }),
+		).toEqual({ navigationIntent, reason: 'initial', tabId });
 		expect(
 			bridgeProductDevBootstrapRequestSchema.parse({
 				navigationIntent,
 				paneSessionId: 'vite-dev-pane-session',
 				reason: 'workerReplacement',
+				tabId,
 			}),
 		).toEqual({
 			navigationIntent,
 			paneSessionId: 'vite-dev-pane-session',
 			reason: 'workerReplacement',
+			tabId,
 		});
 		expect(() =>
 			bridgeProductDevBootstrapRequestSchema.parse({
@@ -48,6 +51,7 @@ describe('Bridge product dev bootstrap binary envelope', () => {
 					source: { sourceId: 'query-fabricated-source' },
 				},
 				reason: 'initial',
+				tabId,
 			}),
 		).toThrow();
 		for (const target of [
@@ -63,6 +67,7 @@ describe('Bridge product dev bootstrap binary envelope', () => {
 						target,
 					},
 					reason: 'initial',
+					tabId,
 				}),
 			).toThrow();
 		}

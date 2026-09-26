@@ -458,7 +458,8 @@ func withMainActorShutdownDevelopmentProductHost<Result>(
 func developmentDisplayBootstrapRequest(
     paneSessionId: String? = nil,
     reason: String,
-    surface: String = "review"
+    surface: String = "review",
+    tabId: String = "owner-tab-1"
 ) throws -> BridgeDevelopmentProductBootstrapRequest {
     var request: [String: Any] = [
         "navigationIntent": [
@@ -467,6 +468,7 @@ func developmentDisplayBootstrapRequest(
             "surface": surface,
         ],
         "reason": reason,
+        "tabId": tabId,
     ]
     if let paneSessionId {
         request["paneSessionId"] = paneSessionId

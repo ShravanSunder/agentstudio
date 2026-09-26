@@ -403,7 +403,7 @@ func openHTTPProductConnection(
     client: some TestClientProtocol,
     bootstrapRequestBody: ByteBuffer = ByteBuffer(
         string:
-            #"{"navigationIntent":{"commandId":"open-file-view","commandKind":"activateContext","surface":"file"},"reason":"initial"}"#
+            #"{"navigationIntent":{"commandId":"open-file-view","commandKind":"activateContext","surface":"file"},"reason":"initial","tabId":"owner-tab-1"}"#
     )
 ) async throws -> HTTPProductConnection {
     let bootstrapResponse = try await client.execute(
