@@ -12,6 +12,8 @@ import {
 	bridgeProductOperationResultResponseSchema,
 } from './bridge-product-operation-wire-contracts.js';
 import {
+	bridgeProductViewAcceptedResponseSchema,
+	bridgeProductViewAcknowledgedResponseSchema,
 	bridgeProductViewAcknowledgementRequestSchema,
 	bridgeProductViewResnapshotRequestSchema,
 	bridgeProductViewScopeRequestSchema,
@@ -60,6 +62,9 @@ describe('Bridge product v2 kind-agnostic wire envelopes', () => {
 			[bridgeProductViewScopeRequestSchema, transport.viewScopeRequests],
 			[bridgeProductViewResnapshotRequestSchema, transport.viewResnapshotRequests],
 			[bridgeProductViewAcknowledgementRequestSchema, transport.viewAcknowledgements],
+			[bridgeProductViewAcceptedResponseSchema, transport.viewScopeAcceptedResponses],
+			[bridgeProductViewAcceptedResponseSchema, transport.viewResnapshotAcceptedResponses],
+			[bridgeProductViewAcknowledgedResponseSchema, transport.viewAcknowledgedResponses],
 			[bridgeProductBatchFrameSchema, transport.batchFrames],
 		] as const;
 
@@ -69,6 +74,25 @@ describe('Bridge product v2 kind-agnostic wire envelopes', () => {
 			}
 		}
 		expect(transport.batchFrames).toHaveLength(9);
+		expect(transport.viewScopeAcceptedResponses[0]).toMatchObject({
+			kind: 'subscription.scopeAccepted',
+			scopeRevision: transport.viewScopeRequests[0]?.scopeRevision,
+		});
+		expect(transport.viewResnapshotAcceptedResponses[0]).toMatchObject({
+			kind: 'subscription.resnapshotAccepted',
+			scopeRevision: transport.viewResnapshotRequests[0]?.scopeRevision,
+		});
+		expect(transport.viewAcknowledgedResponses[0]).toMatchObject({
+			kind: 'subscription.acknowledged',
+			receivedThroughDeliverySequence:
+				transport.viewAcknowledgements[0]?.receivedThroughDeliverySequence,
+		});
+		expect(
+			bridgeProductViewAcceptedResponseSchema.safeParse({
+				...transport.viewScopeAcceptedResponses[0],
+				installed: true,
+			}).success,
+		).toBe(false);
 	});
 
 	test('requires the complete sealed-batch envelope and typed settlement', () => {

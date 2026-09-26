@@ -182,6 +182,65 @@
         "receivedThroughDeliverySequence": 3
       }
     ],
+    "viewScopeAcceptedResponses": [
+      {
+        "kind": "subscription.scopeAccepted",
+        "wireVersion": 2,
+        "paneSessionId": "pane-session-1",
+        "workerInstanceId": "worker-instance-1",
+        "requestId": "scope-request-1",
+        "requestSequence": 11,
+        "subscriptionId": "review-subscription-1",
+        "subscriptionKind": "review.metadata",
+        "domain": "default",
+        "handle": "review-handle-1",
+        "incarnation": "review-incarnation-1",
+        "scopeRevision": 2
+      },
+      {
+        "kind": "subscription.scopeAccepted",
+        "wireVersion": 2,
+        "paneSessionId": "pane-session-1",
+        "workerInstanceId": "worker-instance-1",
+        "requestId": "file-scope-uncommitted",
+        "requestSequence": 21,
+        "subscriptionId": "file-subscription-1",
+        "subscriptionKind": "file.metadata",
+        "domain": "default",
+        "handle": "file-handle-1",
+        "incarnation": "file-incarnation-1",
+        "scopeRevision": 2
+      }
+    ],
+    "viewResnapshotAcceptedResponses": [
+      {
+        "kind": "subscription.resnapshotAccepted",
+        "wireVersion": 2,
+        "paneSessionId": "pane-session-1",
+        "workerInstanceId": "worker-instance-1",
+        "requestId": "resnapshot-request-1",
+        "requestSequence": 12,
+        "subscriptionId": "file-subscription-1",
+        "subscriptionKind": "file.metadata",
+        "domain": "default",
+        "handle": "file-handle-1",
+        "incarnation": "file-incarnation-1",
+        "scopeRevision": 2
+      }
+    ],
+    "viewAcknowledgedResponses": [
+      {
+        "kind": "subscription.acknowledged",
+        "wireVersion": 2,
+        "paneSessionId": "pane-session-1",
+        "workerInstanceId": "worker-instance-1",
+        "subscriptionId": "file-subscription-1",
+        "domain": "default",
+        "handle": "file-handle-1",
+        "incarnation": "file-incarnation-1",
+        "receivedThroughDeliverySequence": 3
+      }
+    ],
     "batchFrames": [
       {
         "kind": "subscription.batchBegin",

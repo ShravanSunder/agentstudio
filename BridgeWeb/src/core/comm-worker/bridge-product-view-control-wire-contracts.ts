@@ -88,10 +88,38 @@ export const bridgeProductViewAcknowledgementRequestSchema = z
 	})
 	.strict();
 
+/** E4 settlement confirms admission of the desired view operation. The batch
+ * completion remains the separate install barrier. */
+export const bridgeProductViewAcceptedResponseSchema = z.discriminatedUnion('kind', [
+	z.object({ ...viewControlShape, kind: z.literal('subscription.scopeAccepted') }).strict(),
+	z.object({ ...viewControlShape, kind: z.literal('subscription.resnapshotAccepted') }).strict(),
+]);
+
+/** The escape reply mirrors the cumulative credit position for exact replay. */
+export const bridgeProductViewAcknowledgedResponseSchema = z
+	.object({
+		domain: bridgeProductIdentifierSchema,
+		handle: bridgeProductIdentifierSchema,
+		incarnation: bridgeProductIdentifierSchema,
+		kind: z.literal('subscription.acknowledged'),
+		paneSessionId: bridgeProductIdentifierSchema,
+		receivedThroughDeliverySequence: bridgeProductPositiveSequenceSchema,
+		subscriptionId: bridgeProductIdentifierSchema,
+		wireVersion: z.literal(BRIDGE_PRODUCT_WIRE_VERSION),
+		workerInstanceId: bridgeProductIdentifierSchema,
+	})
+	.strict();
+
 export type BridgeProductViewScopeRequest = z.infer<typeof bridgeProductViewScopeRequestSchema>;
 export type BridgeProductViewResnapshotRequest = z.infer<
 	typeof bridgeProductViewResnapshotRequestSchema
 >;
 export type BridgeProductViewAcknowledgementRequest = z.infer<
 	typeof bridgeProductViewAcknowledgementRequestSchema
+>;
+export type BridgeProductViewAcceptedResponse = z.infer<
+	typeof bridgeProductViewAcceptedResponseSchema
+>;
+export type BridgeProductViewAcknowledgedResponse = z.infer<
+	typeof bridgeProductViewAcknowledgedResponseSchema
 >;

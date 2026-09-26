@@ -271,3 +271,177 @@ struct BridgeProductViewAcknowledgementRequest: Codable, Equatable, Sendable {
         try container.encode(workerInstanceId, forKey: .workerInstanceId)
     }
 }
+
+/// E4 settlement acknowledges native acceptance of the desired view operation.
+/// The batch completion remains the separate installation barrier.
+struct BridgeProductViewAcceptedResponse: Codable, Equatable, Sendable {
+    enum Kind: String, Codable, Sendable {
+        case scope = "subscription.scopeAccepted"
+        case resnapshot = "subscription.resnapshotAccepted"
+    }
+
+    private enum CodingKeys: String, CodingKey, CaseIterable {
+        case domain
+        case handle
+        case incarnation
+        case kind
+        case scopeRevision
+        case subscriptionId
+        case subscriptionKind
+    }
+
+    let correlation: BridgeProductControlCorrelation
+    let domain: String
+    let handle: String
+    let incarnation: String
+    let kind: Kind
+    let scopeRevision: Int
+    let subscriptionId: String
+    let subscriptionKind: BridgeProductSubscriptionKind
+
+    init(correlating request: BridgeProductViewScopeRequest) {
+        correlation = request.correlation
+        domain = request.domain
+        handle = request.handle
+        incarnation = request.incarnation
+        kind = .scope
+        scopeRevision = request.scopeRevision
+        subscriptionId = request.subscriptionId
+        subscriptionKind = request.subscriptionKind
+    }
+
+    init(correlating request: BridgeProductViewResnapshotRequest) {
+        correlation = request.correlation
+        domain = request.domain
+        handle = request.handle
+        incarnation = request.incarnation
+        kind = .resnapshot
+        scopeRevision = request.scopeRevision
+        subscriptionId = request.subscriptionId
+        subscriptionKind = request.subscriptionKind
+    }
+
+    init(from decoder: Decoder) throws {
+        try BridgeProductContractDecoding.rejectUnknownKeys(
+            from: decoder,
+            allowedKeys: BridgeProductControlCorrelation.codingKeyNames.union(
+                CodingKeys.allCases.map(\.rawValue)
+            ),
+            contract: "subscription view accepted response"
+        )
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        correlation = try BridgeProductControlCorrelation(from: decoder)
+        domain = try container.decode(String.self, forKey: .domain)
+        handle = try container.decode(String.self, forKey: .handle)
+        incarnation = try container.decode(String.self, forKey: .incarnation)
+        kind = try container.decode(Kind.self, forKey: .kind)
+        scopeRevision = try container.decode(Int.self, forKey: .scopeRevision)
+        subscriptionId = try container.decode(String.self, forKey: .subscriptionId)
+        subscriptionKind = try container.decode(BridgeProductSubscriptionKind.self, forKey: .subscriptionKind)
+        try BridgeProductContractDecoding.validateIdentifier(domain, codingPath: decoder.codingPath)
+        try BridgeProductContractDecoding.validateIdentifier(handle, codingPath: decoder.codingPath)
+        try BridgeProductContractDecoding.validateIdentifier(incarnation, codingPath: decoder.codingPath)
+        try BridgeProductContractDecoding.validateNonnegative(
+            scopeRevision,
+            name: "scopeRevision",
+            codingPath: decoder.codingPath
+        )
+        try BridgeProductContractDecoding.validateIdentifier(subscriptionId, codingPath: decoder.codingPath)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        try correlation.encode(to: encoder)
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(domain, forKey: .domain)
+        try container.encode(handle, forKey: .handle)
+        try container.encode(incarnation, forKey: .incarnation)
+        try container.encode(kind, forKey: .kind)
+        try container.encode(scopeRevision, forKey: .scopeRevision)
+        try container.encode(subscriptionId, forKey: .subscriptionId)
+        try container.encode(subscriptionKind, forKey: .subscriptionKind)
+    }
+}
+
+/// The escape reply mirrors the cumulative credit position. Repeating the
+/// identical request returns the identical reply without consuming another slot.
+struct BridgeProductViewAcknowledgedResponse: Codable, Equatable, Sendable {
+    private enum CodingKeys: String, CodingKey, CaseIterable {
+        case domain
+        case handle
+        case incarnation
+        case kind
+        case paneSessionId
+        case receivedThroughDeliverySequence
+        case subscriptionId
+        case wireVersion
+        case workerInstanceId
+    }
+
+    let domain: String
+    let handle: String
+    let incarnation: String
+    let paneSessionId: String
+    let receivedThroughDeliverySequence: Int
+    let subscriptionId: String
+    let wireVersion: Int
+    let workerInstanceId: String
+
+    init(correlating request: BridgeProductViewAcknowledgementRequest) {
+        domain = request.domain
+        handle = request.handle
+        incarnation = request.incarnation
+        paneSessionId = request.paneSessionId
+        receivedThroughDeliverySequence = request.receivedThroughDeliverySequence
+        subscriptionId = request.subscriptionId
+        wireVersion = request.wireVersion
+        workerInstanceId = request.workerInstanceId
+    }
+
+    init(from decoder: Decoder) throws {
+        try BridgeProductContractDecoding.rejectUnknownKeys(
+            from: decoder,
+            allowedKeys: Set(CodingKeys.allCases.map(\.rawValue)),
+            contract: "subscription.acknowledged response"
+        )
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        guard try container.decode(String.self, forKey: .kind) == "subscription.acknowledged" else {
+            throw BridgeProductContractDecoding.invalidValue(
+                "Invalid subscription.acknowledged response kind",
+                codingPath: decoder.codingPath
+            )
+        }
+        domain = try container.decode(String.self, forKey: .domain)
+        handle = try container.decode(String.self, forKey: .handle)
+        incarnation = try container.decode(String.self, forKey: .incarnation)
+        paneSessionId = try container.decode(String.self, forKey: .paneSessionId)
+        receivedThroughDeliverySequence = try container.decode(Int.self, forKey: .receivedThroughDeliverySequence)
+        subscriptionId = try container.decode(String.self, forKey: .subscriptionId)
+        wireVersion = try container.decode(Int.self, forKey: .wireVersion)
+        workerInstanceId = try container.decode(String.self, forKey: .workerInstanceId)
+        try BridgeProductContractDecoding.validateIdentifier(domain, codingPath: decoder.codingPath)
+        try BridgeProductContractDecoding.validateIdentifier(handle, codingPath: decoder.codingPath)
+        try BridgeProductContractDecoding.validateIdentifier(incarnation, codingPath: decoder.codingPath)
+        try BridgeProductContractDecoding.validateIdentifier(paneSessionId, codingPath: decoder.codingPath)
+        try BridgeProductContractDecoding.validatePositive(
+            receivedThroughDeliverySequence,
+            name: "receivedThroughDeliverySequence",
+            codingPath: decoder.codingPath
+        )
+        try BridgeProductContractDecoding.validateIdentifier(subscriptionId, codingPath: decoder.codingPath)
+        try BridgeProductContractDecoding.validateWireVersion(wireVersion, codingPath: decoder.codingPath)
+        try BridgeProductContractDecoding.validateIdentifier(workerInstanceId, codingPath: decoder.codingPath)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(domain, forKey: .domain)
+        try container.encode(handle, forKey: .handle)
+        try container.encode(incarnation, forKey: .incarnation)
+        try container.encode("subscription.acknowledged", forKey: .kind)
+        try container.encode(paneSessionId, forKey: .paneSessionId)
+        try container.encode(receivedThroughDeliverySequence, forKey: .receivedThroughDeliverySequence)
+        try container.encode(subscriptionId, forKey: .subscriptionId)
+        try container.encode(wireVersion, forKey: .wireVersion)
+        try container.encode(workerInstanceId, forKey: .workerInstanceId)
+    }
+}

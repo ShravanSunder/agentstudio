@@ -58,18 +58,37 @@ struct BridgeProductTransportV2ContractTests {
             BridgeProductOperationResultAcknowledgedResponse.self,
             from: try fixtureArray(named: "resultAcknowledgedResponses", in: transport)
         )
-        _ = try decodeAndVerifyRoundTrips(
+        let scopeRequests = try decodeAndVerifyRoundTrips(
             BridgeProductViewScopeRequest.self,
             from: try fixtureArray(named: "viewScopeRequests", in: transport)
         )
-        _ = try decodeAndVerifyRoundTrips(
+        let resnapshotRequests = try decodeAndVerifyRoundTrips(
             BridgeProductViewResnapshotRequest.self,
             from: try fixtureArray(named: "viewResnapshotRequests", in: transport)
         )
-        _ = try decodeAndVerifyRoundTrips(
+        let viewAcknowledgements = try decodeAndVerifyRoundTrips(
             BridgeProductViewAcknowledgementRequest.self,
             from: try fixtureArray(named: "viewAcknowledgements", in: transport)
         )
+        let scopeAccepted = try decodeAndVerifyRoundTrips(
+            BridgeProductViewAcceptedResponse.self,
+            from: try fixtureArray(named: "viewScopeAcceptedResponses", in: transport)
+        )
+        let resnapshotAccepted = try decodeAndVerifyRoundTrips(
+            BridgeProductViewAcceptedResponse.self,
+            from: try fixtureArray(named: "viewResnapshotAcceptedResponses", in: transport)
+        )
+        let acknowledged = try decodeAndVerifyRoundTrips(
+            BridgeProductViewAcknowledgedResponse.self,
+            from: try fixtureArray(named: "viewAcknowledgedResponses", in: transport)
+        )
+        #expect(scopeAccepted.first == scopeRequests.first.map(BridgeProductViewAcceptedResponse.init(correlating:)))
+        #expect(
+            resnapshotAccepted.first
+                == resnapshotRequests.first.map(BridgeProductViewAcceptedResponse.init(correlating:)))
+        #expect(
+            acknowledged.first
+                == viewAcknowledgements.first.map(BridgeProductViewAcknowledgedResponse.init(correlating:)))
         let batches = try decodeAndVerifyRoundTrips(
             BridgeProductBatchFrame.self,
             from: try fixtureArray(named: "batchFrames", in: transport)
