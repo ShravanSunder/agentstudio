@@ -38,6 +38,7 @@ package actor GitWorkingDirectoryProjector {
     var subscriptionLifetime: UInt64 = 0
     var handledEnvelopeCount: UInt64 = 0
     var isStarting = false
+    var startCompletionWaiters: [CheckedContinuation<Void, Never>] = []
     var shutdownInProgress = false
     var idleWaiters: [UUID: GitProjectorIdleWaiter] = [:]
     var outstandingDrainTasks: [UInt64: Task<Void, Never>] = [:]
@@ -188,7 +189,7 @@ package actor GitWorkingDirectoryProjector {
             factInterest: .matching([.systemTopology, .worktreeFilesystem])
         )
         isStarting = false
-        guard !isShuttingDown else { return }
+        let shouldCancelForShutdown = isShuttingDown
         subscriptionLifetime &+= 1
         let lifetime = subscriptionLifetime
         subscriptionHandle = stream
@@ -203,6 +204,12 @@ package actor GitWorkingDirectoryProjector {
             await self?.subscriptionStreamDidEnd(lifetime: lifetime)
         }
 
+        resumeShutdownsWaitingForSubscriptionStart()
+        if shouldCancelForShutdown {
+            subscriptionTask?.cancel()
+            return
+        }
+
         rescheduleDeadlineTask()
     }
 
@@ -211,6 +218,7 @@ package actor GitWorkingDirectoryProjector {
         shutdownInProgress = true
         isShuttingDown = true
         resolveAllIdleWaiters(as: .shutdown)
+        await waitForSubscriptionStartBeforeShutdown()
         let subscription = subscriptionTask
         subscriptionTask?.cancel()
         subscriptionTask = nil

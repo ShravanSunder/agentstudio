@@ -14,6 +14,21 @@ struct GitProjectorIdleWaiter {
 }
 
 extension GitWorkingDirectoryProjector {
+    func resumeShutdownsWaitingForSubscriptionStart() {
+        let waitingShutdowns = startCompletionWaiters
+        startCompletionWaiters.removeAll(keepingCapacity: false)
+        for waiter in waitingShutdowns {
+            waiter.resume()
+        }
+    }
+
+    func waitForSubscriptionStartBeforeShutdown() async {
+        guard isStarting else { return }
+        await withCheckedContinuation { continuation in
+            startCompletionWaiters.append(continuation)
+        }
+    }
+
     /// Waits for intake and all accepted projector work to settle. Work newly
     /// admitted while waiting also extends the wait. A future periodic refresh
     /// with no accepted debt does not. Callers claiming complete delivery must
