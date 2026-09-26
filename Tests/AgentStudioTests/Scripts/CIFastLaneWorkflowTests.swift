@@ -38,18 +38,27 @@ struct CIFastLaneWorkflowTests {
 
         for workflowPath in workflowPaths {
             let workflow = try String(contentsOfFile: workflowPath, encoding: .utf8)
-            let xcodeStep = try workflowStep(named: "Select Xcode", in: workflow)
-            let xcodeStepRange = try #require(workflow.range(of: xcodeStep))
-            let miseStepRange = try #require(workflow.range(of: "      - name: Setup mise"))
+            let macOSJobs =
+                workflowPath == ".github/workflows/ci.yml"
+                ? [
+                    try workflowJob(named: "bridge-web", in: workflow),
+                    try workflowJob(named: "swift-test-suite", in: workflow),
+                ] : [workflow]
 
-            #expect(xcodeStep.contains("uses: maxim-lobanov/setup-xcode@v1"))
-            #expect(xcodeStepRange.lowerBound < miseStepRange.lowerBound)
-            selectedXcodeVersions.append(
-                try #require(
-                    selectedXcodeVersion(in: xcodeStep),
-                    "\(workflowPath) does not pin a quoted xcode-version"
+            for macOSJob in macOSJobs {
+                let xcodeStep = try workflowStep(named: "Select Xcode", in: macOSJob)
+                let xcodeStepRange = try #require(macOSJob.range(of: xcodeStep))
+                let miseStepRange = try #require(macOSJob.range(of: "      - name: Setup mise"))
+
+                #expect(xcodeStep.contains("uses: maxim-lobanov/setup-xcode@v1"))
+                #expect(xcodeStepRange.lowerBound < miseStepRange.lowerBound)
+                selectedXcodeVersions.append(
+                    try #require(
+                        selectedXcodeVersion(in: xcodeStep),
+                        "\(workflowPath) does not pin a quoted xcode-version"
+                    )
                 )
-            )
+            }
         }
 
         #expect(
@@ -88,26 +97,12 @@ struct CIFastLaneWorkflowTests {
         let workflow = try String(contentsOfFile: ".github/workflows/ci.yml", encoding: .utf8)
 
         #expect(workflow.contains("  code-quality:\n    name: Code quality"))
-        #expect(workflow.contains("  bridge-web-validation:\n    name: BridgeWeb validation"))
-        #expect(workflow.contains("  bridge-web-swift-backend:\n    name: BridgeWeb Swift backend"))
+        #expect(workflow.contains("  bridge-web:\n    name: BridgeWeb"))
+        #expect(!workflow.contains("  bridge-web-validation:"))
+        #expect(!workflow.contains("  bridge-web-swift-backend:"))
         #expect(workflow.contains("  swift-test-suite:\n    name: Swift test suite"))
         #expect(!workflow.contains("  static:"))
         #expect(!workflow.contains("  test:"))
-    }
-
-    @Test("CI jobs start independently without cross-job dependencies")
-    func ciJobsStartIndependentlyWithoutCrossJobDependencies() throws {
-        let workflow = try String(contentsOfFile: ".github/workflows/ci.yml", encoding: .utf8)
-
-        for jobName in [
-            "code-quality",
-            "bridge-web-validation",
-            "bridge-web-swift-backend",
-            "swift-test-suite",
-        ] {
-            let job = try workflowJob(named: jobName, in: workflow)
-            #expect(!job.contains("\n    needs:"))
-        }
     }
 
     @Test("CI checkouts do not persist workflow credentials")
@@ -116,8 +111,8 @@ struct CIFastLaneWorkflowTests {
 
         for jobName in [
             "code-quality",
-            "bridge-web-validation",
-            "bridge-web-swift-backend",
+            "marketing-site-validation",
+            "bridge-web",
             "swift-test-suite",
         ] {
             let job = try workflowJob(named: jobName, in: workflow)
@@ -127,27 +122,32 @@ struct CIFastLaneWorkflowTests {
         }
     }
 
-    @Test("BridgeWeb Swift-backend lanes run in their isolated job")
-    func bridgeWebSwiftBackendLanesRunInTheirIsolatedJob() throws {
+    @Test("BridgeWeb lanes and Swift backend run in order in one job")
+    func bridgeWebLanesAndSwiftBackendRunInOrderInOneJob() throws {
         let workflow = try String(contentsOfFile: ".github/workflows/ci.yml", encoding: .utf8)
-        let bridgeWebJob = try workflowJob(named: "bridge-web-validation", in: workflow)
-        let backendJob = try workflowJob(named: "bridge-web-swift-backend", in: workflow)
+        let bridgeWebJob = try workflowJob(named: "bridge-web", in: workflow)
         let swiftJob = try workflowJob(named: "swift-test-suite", in: workflow)
         let bridgeWebLaneStep = try workflowStep(named: "Run BridgeWeb lanes", in: bridgeWebJob)
         let resourceParallelRange = try #require(
-            backendJob.range(of: "      - parallel:\n          - name: Copy XCFramework")
+            bridgeWebJob.range(of: "      - parallel:\n          - name: Copy XCFramework")
         )
         let packagedBuildRange = try #require(
-            backendJob.range(of: "          - name: BridgeWeb packaged build")
+            bridgeWebJob.range(of: "          - name: BridgeWeb packaged build")
+        )
+        let fixtureRange = try #require(
+            bridgeWebJob.range(of: "      - name: Verify BridgeWeb fixtures")
+        )
+        let vendorRestoreRange = try #require(
+            bridgeWebJob.range(of: "          - name: Cache Zig compilation")
         )
         let backendBuildRange = try #require(
-            backendJob.range(of: "      - name: Build BridgeWeb Swift development backend")
+            bridgeWebJob.range(of: "      - name: Build BridgeWeb Swift development backend")
         )
         let integrationRange = try #require(
-            backendJob.range(of: "      - name: Test BridgeWeb Swift integration")
+            bridgeWebJob.range(of: "      - name: Test BridgeWeb Swift integration")
         )
         let e2eRange = try #require(
-            backendJob.range(of: "      - name: Test BridgeWeb Swift E2E")
+            bridgeWebJob.range(of: "      - name: Test BridgeWeb Swift E2E")
         )
 
         #expect(bridgeWebLaneStep.contains("pnpm --dir BridgeWeb run check"))
@@ -155,32 +155,34 @@ struct CIFastLaneWorkflowTests {
         #expect(bridgeWebLaneStep.contains("pnpm --dir BridgeWeb run test:browser:integration"))
         #expect(!bridgeWebLaneStep.contains("pnpm --dir BridgeWeb run test:integration\n"))
         #expect(!bridgeWebLaneStep.contains("pnpm --dir BridgeWeb run test:e2e"))
-        #expect(backendJob.contains("pnpm --dir BridgeWeb run test:integration:node:prepared"))
+        #expect(bridgeWebJob.contains("pnpm --dir BridgeWeb run test:integration:node:prepared"))
         // The pull-request gate runs the ordinary journeys only; the 1,699-item
         // backpressure journey asserts responsiveness and belongs post-merge.
-        #expect(backendJob.contains("pnpm --dir BridgeWeb run test:e2e:prepared:ordinary"))
-        #expect(!backendJob.contains("run test:e2e:prepared\n"))
-        #expect(!backendJob.contains("pnpm --dir BridgeWeb run test:integration:node\n"))
-        #expect(!backendJob.contains("pnpm --dir BridgeWeb run test:e2e\n"))
+        #expect(bridgeWebJob.contains("pnpm --dir BridgeWeb run test:e2e:prepared:ordinary"))
+        #expect(!bridgeWebJob.contains("run test:e2e:prepared\n"))
+        #expect(!bridgeWebJob.contains("pnpm --dir BridgeWeb run test:integration:node\n"))
+        #expect(!bridgeWebJob.contains("pnpm --dir BridgeWeb run test:e2e\n"))
         #expect(!swiftJob.contains("test:integration:node"))
         #expect(!swiftJob.contains("test:e2e"))
+        #expect(fixtureRange.upperBound < packagedBuildRange.lowerBound)
+        #expect(vendorRestoreRange.upperBound < fixtureRange.lowerBound)
         #expect(packagedBuildRange.upperBound < backendBuildRange.lowerBound)
         #expect(resourceParallelRange.upperBound < backendBuildRange.lowerBound)
         #expect(backendBuildRange.upperBound < integrationRange.lowerBound)
         #expect(integrationRange.upperBound < e2eRange.lowerBound)
     }
 
-    @Test("backend job restores vendor caches without owning shared cache saves")
+    @Test("BridgeWeb job restores vendor caches without owning shared cache saves")
     func backendJobRestoresVendorCachesWithoutOwningSharedCacheSaves() throws {
         let workflow = try String(contentsOfFile: ".github/workflows/ci.yml", encoding: .utf8)
-        let backendJob = try workflowJob(named: "bridge-web-swift-backend", in: workflow)
+        let backendJob = try workflowJob(named: "bridge-web", in: workflow)
         let swiftJob = try workflowJob(named: "swift-test-suite", in: workflow)
         let setupMiseStep = try workflowStep(named: "Setup mise", in: backendJob)
         let setupNodeStep = try workflowStep(named: "Setup Node for BridgeWeb", in: backendJob)
 
         #expect(setupMiseStep.contains("cache_save: false"))
-        #expect(!setupNodeStep.contains("cache: pnpm"))
-        #expect(!setupNodeStep.contains("cache-dependency-path:"))
+        #expect(setupNodeStep.contains("cache: pnpm"))
+        #expect(setupNodeStep.contains("cache-dependency-path: BridgeWeb/pnpm-lock.yaml"))
         #expect(backendJob.contains("actions/cache/restore@v4"))
         #expect(backendJob.contains("Cache Ghostty artifacts"))
         #expect(backendJob.contains("Cache zmx artifacts"))
@@ -195,7 +197,7 @@ struct CIFastLaneWorkflowTests {
     @Test("Swift jobs always build cold without caching build outputs")
     func swiftJobsAlwaysBuildColdWithoutCachingBuildOutputs() throws {
         let ciWorkflow = try String(contentsOfFile: ".github/workflows/ci.yml", encoding: .utf8)
-        let backendJob = try workflowJob(named: "bridge-web-swift-backend", in: ciWorkflow)
+        let backendJob = try workflowJob(named: "bridge-web", in: ciWorkflow)
         let swiftJob = try workflowJob(named: "swift-test-suite", in: ciWorkflow)
         let prebuildStep = try workflowStep(named: "Prebuild Swift test bundles", in: swiftJob)
 
@@ -861,7 +863,6 @@ struct CIFastLaneWorkflowTests {
         #expect(zmxE2ETask.contains("--filter \"$(swift_test_lane_filter_pattern zmx)\""))
         #expect(!zmxE2ETask.contains("--skip \"$(swift_test_lane_filter_pattern zmx)\""))
     }
-
 }
 
 private func selectedXcodeVersion(in xcodeStep: String) -> String? {

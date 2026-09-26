@@ -116,6 +116,14 @@ echo "Formatted all Swift sources"
 description = "Lint Swift sources with swift-format, stock SwiftLint, and AgentStudio architecture lint"
 run = "/bin/bash scripts/lint-swift.sh"
 
+[tasks."lint:portable"]
+description = "Run the portable Swift and architecture lint checks"
+run = "/bin/bash scripts/lint-swift.sh --portable"
+
+[tasks."lint:release-scripts"]
+description = "Verify the release-script contract on macOS"
+run = "/bin/bash scripts/verify-release-scripts.sh"
+
 [tasks."test:bridge-web:check"]
 description = "Run BridgeWeb lint, format check, and TypeScript check"
 depends = ["bridge-web-install", "bridge-web-sync-fixtures"]

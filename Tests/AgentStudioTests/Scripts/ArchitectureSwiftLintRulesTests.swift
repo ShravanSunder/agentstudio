@@ -31,7 +31,9 @@ struct ArchitectureSwiftLintRulesTests {
         #expect(!lintScript.contains("run_admission_contract"))
         #expect(lintScript.contains("run_release_contract=0"))
 
-        #expect(ciWorkflow.contains("brew install swift-format swiftlint"))
+        #expect(ciWorkflow.contains("bash scripts/install-ci-lint-tools.sh"))
+        #expect(ciWorkflow.contains("run: mise run lint:portable"))
+        #expect(ciWorkflow.contains("run: mise run lint:release-scripts"))
         #expect(ciWorkflow.contains("mise run test:architecture"))
         #expect(ciWorkflow.contains("Tools/AgentStudioArchitectureLint/check-ledger-ratchet.sh"))
         let ratchetScript = try String(
