@@ -52,10 +52,16 @@
   /* Around the hero and the closing call to action. */
   --spacing-section-block: clamp(80px, 5vw + 6vh, 176px);
   /* Hero: headline payoff to description, and install row to app frame. */
-  --spacing-hero-copy: clamp(32px, 2.5vw + 2vh, 64px);
-  --spacing-hero-frame: clamp(48px, 4vw + 3.5vh, 96px);
+  --spacing-hero-copy: clamp(64px, 2.5vw + 2vh + 8px, 88px);
+  --spacing-hero-frame: clamp(72px, 6vw + 4vh, 144px);
 
   --breakpoint-phone: 38.75rem;
+}
+
+@media (width >= 38.75rem) {
+  :root {
+    --spacing-hero-copy: 112px;
+  }
 }
 
 @layer base {

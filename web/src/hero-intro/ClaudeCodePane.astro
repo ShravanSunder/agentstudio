@@ -49,7 +49,7 @@ const transcriptRows = claudeTranscript.filter((row) => row.kind !== "cursor");
       transcriptRows.map((row) => {
         const toolCall = row.kind === "tool-call" ? /^● (Bash|Update)(.*)$/u.exec(row.text) : null;
         const resultCheckIndex = row.kind === "tool-result" ? row.text.indexOf("✓") : -1;
-        return (
+        const rowContent = (
           <div
             class={`hero-transcript-row hero-transcript-row--${row.kind}`}
             {...{ [heroTranscriptTierAttribute]: row.tiers.join(" ") }}
@@ -66,9 +66,14 @@ const transcriptRows = claudeTranscript.filter((row) => row.kind !== "cursor");
             )}
           </div>
         );
+        return row.text.includes("Ready. Copy it below") ? (
+          <div class="hero-status-slot">
+            {rowContent}
+            <div class="hero-brewing" {...{ [heroIntroSpinnerAttribute]: "" }}>✶ Brewing… (esc to interrupt)</div>
+          </div>
+        ) : rowContent;
       })
     }
-    <div class="hero-brewing" {...{ [heroIntroSpinnerAttribute]: "" }}>✶ Brewing… (esc to interrupt)</div>
   </div>
   <div class="hero-claude-footer">
     <div class="hero-terminal-rule"></div>

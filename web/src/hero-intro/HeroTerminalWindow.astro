@@ -19,8 +19,8 @@ import HeroIconStack from "./HeroIconStack.astro";
 </div>
 
 <style>
-  .hero-intro-root { position: relative; min-width: 0; isolation: isolate; }
-  :global(.hero-icon-stack) { position: absolute; z-index: 1; top: 0; left: 0; width: 260px; height: 165px; transform: rotate(-2deg); transform-origin: 0 100%; pointer-events: none; }
+  .hero-intro-root { --hero-stack-tilt: -7deg; --hero-stack-anchor-x: 17px; --hero-stack-anchor-y: 17px; position: relative; min-width: 0; isolation: isolate; }
+  :global(.hero-icon-stack) { position: absolute; z-index: 1; top: var(--hero-stack-anchor-y); left: var(--hero-stack-anchor-x); width: 260px; height: 165px; transform: rotate(var(--hero-stack-tilt)); transform-origin: 0 100%; pointer-events: none; }
   :global(.hero-icon-plane) { position: absolute; width: 260px; height: 165px; border-radius: 22px; }
   :global(.hero-icon-plane--rear-one) { left: -26px; top: -12px; transform: rotate(-12deg); border: 3px solid #ef9f76; background: #191b1f; box-shadow: 0 10px 26px #0005; }
   :global(.hero-icon-plane--rear-two) { left: -12px; top: -14px; transform: rotate(7deg); border: 3px solid #ef9f76; background: #191b1f; box-shadow: 0 10px 26px #0005; }
@@ -52,7 +52,9 @@ import HeroIconStack from "./HeroIconStack.astro";
   :global(.hero-transcript-row--diff-removed) { background: rgb(243 139 168 / 14%); color: #f3b3bf; }
   :global(.hero-transcript-row--diff-added) { background: rgb(166 227 161 / 14%); color: #aceac6; }
   :global(.hero-transcript-row--codex-action .hero-terminal-lavender) { font-weight: 700; }
-  :global(.hero-brewing) { display: none; position: absolute; bottom: 8px; left: 16px; color: #f0b990; background: #282c34; }
+  :global(.hero-status-slot) { display: grid; }
+  :global(.hero-status-slot > *) { grid-area: 1 / 1; }
+  :global(.hero-brewing) { opacity: 0; color: #f0b990; background: #282c34; }
   :global(.hero-claude-footer) { flex: none; padding: 0 16px 9px; }
   :global(.hero-terminal-rule) { height: 1px; background: rgb(137 137 137 / 70%); }
   :global(.hero-claude-input) { display: flex; align-items: center; height: 30px; gap: 7px; color: #eee; font-weight: 700; }
@@ -71,13 +73,13 @@ import HeroIconStack from "./HeroIconStack.astro";
     :global(.hero-transcript-row[data-transcript-tier~="compact"]) { display: block; }
   }
   @media (width < 38.75rem) {
-    :global(.hero-icon-stack) { top: 3px; left: -8px; width: 170px; height: 108px; }
+    .hero-intro-root { --hero-stack-anchor-x: 10px; --hero-stack-anchor-y: 16px; }
+    :global(.hero-icon-stack) { width: 170px; height: 108px; }
     :global(.hero-icon-plane) { width: 170px; height: 108px; border-radius: 14px; }
     :global(.hero-icon-plane--rear-one) { left: -5px; top: 0; border-width: 2px; }
     :global(.hero-icon-plane--rear-two) { left: -4px; top: -4px; border-width: 2px; }
     .hero-terminal-window { font-size: 12px; }
     :global(.hero-terminal-transcript) { padding: 10px 12px 8px; }
-    :global(.hero-brewing) { left: 12px; }
     :global(.hero-claude-startup) { min-height: 42px; gap: 8px; }
     :global(.hero-claude-mascot) { width: 31px; height: 29px; }
     :global(.hero-claude-footer) { padding: 0 12px 7px; }

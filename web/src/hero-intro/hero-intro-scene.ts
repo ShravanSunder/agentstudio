@@ -6,7 +6,6 @@ import {
   heroIconStackAttribute,
   heroIntroContentAttribute,
   heroIntroCopyAttribute,
-  heroIntroDescriptionAttribute,
   heroIntroFourthPlaneAttribute,
   heroIntroGlowAttribute,
   heroIntroInstallAttribute,
@@ -34,7 +33,6 @@ export function collectHeroIntroTargets(root: HTMLElement): HTMLElement[] {
     requiredTarget(root, heroTerminalWindowAttribute),
     requiredTarget(root, heroIntroContentAttribute),
     requiredTarget(root, heroIntroInstallAttribute),
-    requiredTarget(root, heroIntroDescriptionAttribute),
     requiredTarget(root, heroIntroGlowAttribute),
     requiredTarget(root, heroIntroTypedInputAttribute),
     requiredTarget(root, heroIntroSpinnerAttribute),
@@ -83,7 +81,6 @@ export function buildHeroIntroScene(
   const windowNode = requiredTarget(root, heroTerminalWindowAttribute);
   const windowContent = requiredTarget(root, heroIntroContentAttribute);
   const install = requiredTarget(root, heroIntroInstallAttribute);
-  const description = requiredTarget(root, heroIntroDescriptionAttribute);
   const glow = requiredTarget(root, heroIntroGlowAttribute);
   const typedInput = requiredTarget(root, heroIntroTypedInputAttribute);
   const spinner = requiredTarget(root, heroIntroSpinnerAttribute);
@@ -146,7 +143,15 @@ export function buildHeroIntroScene(
     { x: 0, y: 0, scale: 1, rotation: -6, duration: 0.35, ease: storyboardPower3InOut },
     2.4,
   );
-  timeline.to(iconStack, { rotation: -2, duration: 0.3, ease: "back.out(1.6)" }, 2.75);
+  const settledStackTilt =
+    Number.parseFloat(getComputedStyle(iconStack).getPropertyValue("--hero-stack-tilt")) ||
+    Number.parseFloat(getComputedStyle(root).getPropertyValue("--hero-stack-tilt")) ||
+    -7;
+  timeline.to(
+    iconStack,
+    { rotation: settledStackTilt, duration: 0.3, ease: "back.out(1.6)" },
+    2.75,
+  );
   timeline.set(iconStack, { zIndex: 1 }, 3.05);
 
   timeline.fromTo(
@@ -214,7 +219,7 @@ export function buildHeroIntroScene(
   timeline.set(typedInput, { textContent: "" }, 4.03);
   const spinnerGlyphs = ["✢", "✳", "✶", "✻", "✽"] as const;
   const spinnerState = { fraction: 0 };
-  timeline.set(spinner, { display: "block" }, 4.1);
+  timeline.fromTo(spinner, { opacity: 0 }, { opacity: 1, duration: 0.01 }, 4.1);
   timeline.to(
     spinnerState,
     {
@@ -228,12 +233,11 @@ export function buildHeroIntroScene(
     },
     4.1,
   );
-  timeline.set(spinner, { display: "none" }, 4.5);
+  timeline.to(spinner, { opacity: 0, duration: 0.01 }, 4.5);
   timeline.fromTo(ready, { opacity: 0 }, { opacity: 1, duration: 0.08 }, 4.5);
   if (codexFooter !== null) {
     timeline.fromTo(codexFooter, { opacity: 0 }, { opacity: 1, duration: 0.16 }, 4.0);
   }
   timeline.fromTo(install, { y: 14, opacity: 0 }, { y: 0, opacity: 1, duration: 0.3 }, 4.5);
-  timeline.fromTo(description, { y: 14, opacity: 0 }, { y: 0, opacity: 1, duration: 0.3 }, 4.6);
   timeline.fromTo(glow, { opacity: 0 }, { opacity: 1, duration: 0.8 }, 4.8);
 }

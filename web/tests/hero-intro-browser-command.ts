@@ -13,6 +13,11 @@ export interface HeroLayoutObservation {
   readonly rootTop: number;
   readonly appLeft: number;
   readonly appRight: number;
+  readonly appBottom: number;
+  readonly descriptionTop: number;
+  readonly descriptionWidth: number;
+  readonly installCenterOffset: number;
+  readonly paintedStackTop: number;
   readonly cursorCount: number;
   readonly documentWidth: number;
   readonly viewportWidth: number;
@@ -51,6 +56,16 @@ export const verifyHeroIntroLayout = defineBrowserCommand(
               }
               const windowRect = windowNode.getBoundingClientRect();
               const appRect = appFrame.getBoundingClientRect();
+              const description = document.querySelector<HTMLElement>(
+                "[data-hero-intro-description]",
+              );
+              const frontPlane = document.querySelector<HTMLElement>("[data-hero-icon-front]");
+              const rearPlanes = [
+                ...document.querySelectorAll<HTMLElement>("[data-hero-icon-rear]"),
+              ];
+              if (description === null || frontPlane === null || rearPlanes.length !== 2) {
+                throw new Error("Hero stack or description is missing");
+              }
               const padding = parseFloat(getComputedStyle(windowNode).borderTopWidth);
               const visibleRows = [
                 ...windowNode.querySelectorAll<HTMLElement>("[data-transcript-tier]"),
@@ -77,6 +92,18 @@ export const verifyHeroIntroLayout = defineBrowserCommand(
                   document.querySelector(".hero-intro-root")?.getBoundingClientRect().top ?? NaN,
                 appLeft: appRect.left,
                 appRight: appRect.right,
+                appBottom: appRect.bottom,
+                descriptionTop: description.getBoundingClientRect().top,
+                descriptionWidth: description.getBoundingClientRect().width,
+                installCenterOffset: Math.abs(
+                  (install.getBoundingClientRect().left + install.getBoundingClientRect().right) /
+                    2 -
+                    (windowRect.left + windowRect.right) / 2,
+                ),
+                paintedStackTop: Math.min(
+                  frontPlane.getBoundingClientRect().top,
+                  ...rearPlanes.map((plane) => plane.getBoundingClientRect().top),
+                ),
                 cursorCount: document.querySelectorAll("[data-hero-cursor]").length,
                 documentWidth: document.documentElement.scrollWidth,
                 viewportWidth: document.documentElement.clientWidth,
@@ -270,6 +297,90 @@ export const verifyHeroIntroPlayback = defineBrowserCommand(
         freshWidePage.close(),
         keydownPage.close(),
       ]);
+    }
+  },
+);
+
+export interface HeroShiftObservation {
+  readonly time: number | "settled";
+  readonly appTop: number;
+  readonly windowHeight: number;
+  readonly chapterNodeY: number;
+}
+
+export const verifyHeroIntroShift = defineBrowserCommand(
+  async (
+    { context },
+    pageUrl: string,
+    width: number,
+    height: number,
+  ): Promise<HeroShiftObservation[]> => {
+    const applicationPage = await context.newPage();
+    try {
+      await applicationPage.setViewportSize({ width, height });
+      await applicationPage.bringToFront();
+      await applicationPage.addInitScript(() => {
+        const observations: HeroShiftObservation[] = [];
+        const targetTimes = [0, 3.5, 4.2, 4.6] as const;
+        (window as Window & { heroShiftSamples?: HeroShiftObservation[] }).heroShiftSamples =
+          observations;
+        const capture = (time: number | "settled"): void => {
+          const appFrame = document.querySelector<HTMLElement>("[data-hero-app-frame]");
+          const windowNode = document.querySelector<HTMLElement>("[data-hero-terminal-window]");
+          const chapterNode = document.querySelector<SVGElement>(
+            "[data-topology-chapter-node] circle",
+          );
+          if (appFrame === null || windowNode === null || chapterNode === null) return;
+          const nodeRect = chapterNode.getBoundingClientRect();
+          observations.push({
+            time,
+            appTop: appFrame.getBoundingClientRect().top,
+            windowHeight: windowNode.getBoundingClientRect().height,
+            chapterNodeY: nodeRect.top + nodeRect.height / 2,
+          });
+        };
+        const observer = new MutationObserver(() => {
+          const root = document.querySelector<HTMLElement>("[data-hero-intro-root]");
+          if (root === null) return;
+          const elapsed = Number(root.getAttribute("data-hero-intro-progress")) * 5.6;
+          const nextTime = targetTimes[observations.length];
+          if (
+            nextTime !== undefined &&
+            root.getAttribute("data-hero-intro-state") === "playing" &&
+            elapsed >= nextTime
+          ) {
+            capture(nextTime);
+          }
+          if (
+            root.getAttribute("data-hero-intro-state") === "settled" &&
+            observations.length === targetTimes.length
+          ) {
+            capture("settled");
+            observer.disconnect();
+          }
+        });
+        observer.observe(document, {
+          subtree: true,
+          attributes: true,
+          attributeFilter: ["data-hero-intro-progress", "data-hero-intro-state"],
+        });
+      });
+      await applicationPage.goto(pageUrl, { waitUntil: "commit" });
+      await applicationPage.waitForSelector('[data-hero-intro-state="playing"]');
+      await applicationPage.waitForSelector('[data-hero-intro-state="settled"]');
+      return await applicationPage.evaluate(() => {
+        const samples =
+          (window as Window & { heroShiftSamples?: HeroShiftObservation[] }).heroShiftSamples ?? [];
+        if (samples.length !== 5) {
+          const root = document.querySelector("[data-hero-intro-root]");
+          throw new Error(
+            `Only ${samples.length} shift samples; hidden=${document.hidden}; reduced=${matchMedia("(prefers-reduced-motion: reduce)").matches}; state=${root?.getAttribute("data-hero-intro-state")}; progress=${root?.getAttribute("data-hero-intro-progress")}; timeline=${root?.hasAttribute("data-hero-intro-timeline-created")}`,
+          );
+        }
+        return samples;
+      });
+    } finally {
+      await applicationPage.close();
     }
   },
 );

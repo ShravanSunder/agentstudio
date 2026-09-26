@@ -9,6 +9,7 @@ import {
 import {
   verifyHeroIntroLayout,
   verifyHeroIntroPlayback,
+  verifyHeroIntroShift,
 } from "./tests/hero-intro-browser-command.ts";
 import { buildSceneBundlesForBrowserTest } from "./tests/scene-bundle-browser-command.ts";
 import { verifySiteFooterResponsiveLayout } from "./tests/site-footer-browser-command.ts";
@@ -40,6 +41,7 @@ export default defineConfig({
               verifyChapterAnchorLanding,
               verifyHeroIntroLayout,
               verifyHeroIntroPlayback,
+              verifyHeroIntroShift,
               verifyChapterStepRow,
               verifyChapterTitleAnchors,
               verifySiteFooterResponsiveLayout,

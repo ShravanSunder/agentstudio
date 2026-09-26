@@ -1,7 +1,11 @@
 import { describe, expect, inject, it } from "vitest";
 import { commands } from "vitest/browser";
 
-import type { HeroLayoutObservation, HeroPlaybackObservation } from "./hero-intro-browser-command";
+import type {
+  HeroLayoutObservation,
+  HeroPlaybackObservation,
+  HeroShiftObservation,
+} from "./hero-intro-browser-command";
 
 declare module "vitest/browser" {
   interface BrowserCommands {
@@ -10,6 +14,11 @@ declare module "vitest/browser" {
       viewports: readonly { readonly width: number; readonly height: number }[],
     ): Promise<HeroLayoutObservation[]>;
     verifyHeroIntroPlayback(pageUrl: string): Promise<HeroPlaybackObservation>;
+    verifyHeroIntroShift(
+      pageUrl: string,
+      width: number,
+      height: number,
+    ): Promise<HeroShiftObservation[]>;
   }
 }
 
@@ -56,12 +65,53 @@ describe("hero intro", () => {
         Number(observation.viewport.split("x")[0]) >= 1024,
       );
       expect(observation.canvasColor, observation.viewport).toBe("rgb(25, 27, 31)");
+      expect(observation.installCenterOffset, observation.viewport).toBeLessThanOrEqual(1);
+      expect(observation.descriptionTop - observation.appBottom, observation.viewport).toBeCloseTo(
+        32,
+        0,
+      );
+      expect(observation.descriptionWidth, observation.viewport).toBeLessThanOrEqual(640);
+      expect(
+        observation.paintedStackTop - observation.headlineBottom,
+        observation.viewport,
+      ).toBeGreaterThanOrEqual(observation.viewportWidth < 620 ? 32 : 48);
       expect(observation.visibleBashRows, observation.viewport).toBe(1);
       if (observation.viewport === "820x1180") {
         expect(observation.earlierExchangeVisible).toBe(true);
       }
     }
   });
+
+  it.each([
+    [1600, 1000],
+    [390, 844],
+  ])(
+    "keeps the window, image and rail fixed throughout playback at %ix%i",
+    async (width, height) => {
+      const samples = await commands.verifyHeroIntroShift(
+        inject("siteHeaderBrowserTestUrl"),
+        width,
+        height,
+      );
+      expect(samples.map((sample) => sample.time)).toEqual([0, 3.5, 4.2, 4.6, "settled"]);
+      const baseline = samples[0];
+      if (baseline === undefined) throw new Error("Missing intro baseline");
+      for (const sample of samples) {
+        expect(
+          Math.abs(sample.appTop - baseline.appTop),
+          `${width}: app at ${sample.time}`,
+        ).toBeLessThanOrEqual(0.5);
+        expect(
+          Math.abs(sample.windowHeight - baseline.windowHeight),
+          `${width}: window at ${sample.time}`,
+        ).toBeLessThanOrEqual(0.5);
+        expect(
+          Math.abs(sample.chapterNodeY - baseline.chapterNodeY),
+          `${width}: rail at ${sample.time}`,
+        ).toBeLessThanOrEqual(0.5);
+      }
+    },
+  );
 
   it("settles once on resize or keydown and leaves CSS in charge of the final layout", async () => {
     const observation = await commands.verifyHeroIntroPlayback(inject("siteHeaderBrowserTestUrl"));

@@ -8,11 +8,11 @@ describe("hero intro scene contract", () => {
     const fixtureStyle = document.createElement("style");
     fixtureStyle.textContent = `
       [data-hero-intro-fixture] { position: relative; width: 1000px; height: 700px; }
-      [data-hero-intro-fixture] [data-hero-icon-stack] { position: absolute; left: 24px; top: 120px; width: 260px; height: 165px; transform: rotate(-2deg); }
+      [data-hero-intro-fixture] [data-hero-icon-stack] { position: absolute; left: 24px; top: 120px; width: 260px; height: 165px; transform: rotate(-7deg); }
       [data-hero-intro-fixture] [data-hero-icon-front],
       [data-hero-intro-fixture] [data-hero-icon-rear] { position: absolute; width: 260px; height: 165px; }
       [data-hero-intro-fixture] [data-hero-terminal-window] { position: absolute; left: 60px; top: 160px; width: 900px; height: 365px; border: 1px solid #89b4fa; border-radius: 16px; }
-      [data-hero-intro-fixture] [data-hero-intro-spinner] { display: none; }
+      [data-hero-intro-fixture] [data-hero-intro-spinner] { opacity: 0; }
     `;
     const fixture = document.createElement("section");
     fixture.setAttribute("data-hero-intro-fixture", "");
@@ -42,6 +42,15 @@ describe("hero intro scene contract", () => {
       const timeline = gsap.timeline({ paused: true });
       buildHeroIntroScene(fixture, timeline, { width: 1600, height: 1000, seed: 0 });
       expect(timeline.paused()).toBe(true);
+      for (const second of [0, 3.5, 4.2, 4.6, 5.6]) {
+        timeline.time(second);
+        expect(windowNode.getBoundingClientRect().height, `window height at ${second}s`).toBe(
+          settledWindow.height,
+        );
+      }
+      timeline.time(4.2);
+      const spinner = fixture.querySelector<HTMLElement>("[data-hero-intro-spinner]");
+      expect(spinner === null ? "missing" : getComputedStyle(spinner).display).not.toBe("none");
       timeline.time(5.6);
       const sceneWindow = windowNode.getBoundingClientRect();
       const sceneStack = stack.getBoundingClientRect();
