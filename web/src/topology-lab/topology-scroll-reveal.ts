@@ -33,8 +33,23 @@ export function initializeTopologyScrollReveal(
   };
   const verticalRevealSolid = artwork.querySelector<SVGRectElement>("[data-topology-reveal-solid]");
   const verticalRevealFade = artwork.querySelector<SVGRectElement>("[data-topology-reveal-fade]");
-  if (verticalRevealSolid === null || verticalRevealFade === null) {
-    throw new Error("Topology vertical reveal mask is incomplete");
+  const vibrancyGradient = artwork.querySelector<SVGLinearGradientElement>(
+    "#topology-rail-vibrancy-gradient",
+  );
+  const vibrancyMaskRect = artwork.querySelector<SVGRectElement>(
+    "[data-topology-vibrancy-mask-rect]",
+  );
+  const colourLayer = artwork.querySelector<SVGGElement>("[data-topology-colour-layer]");
+  const greyCopy = artwork.querySelector<SVGUseElement>("[data-topology-grey-copy]");
+  if (
+    verticalRevealSolid === null ||
+    verticalRevealFade === null ||
+    vibrancyGradient === null ||
+    vibrancyMaskRect === null ||
+    colourLayer === null ||
+    greyCopy === null
+  ) {
+    throw new Error("Topology reveal or vibrancy mask is incomplete");
   }
   const lifecycle = new AbortController();
   const reducedMotionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
@@ -42,6 +57,7 @@ export function initializeTopologyScrollReveal(
   let pendingAnimationFrame: number | undefined;
   let currentNodes = new Set<SVGGraphicsElement>();
   let litTarget: HTMLElement | undefined;
+  let currentBranch: SVGGElement | undefined;
   /** The lowest fog edge reached so far, in artwork coordinates; it never retreats. */
   let furthestRevealY: number | undefined;
 
@@ -149,6 +165,18 @@ export function initializeTopologyScrollReveal(
     const currentNode = currentIndex === undefined ? undefined : chapterNodes[currentIndex];
     const anchorId = currentNode?.getAttribute(topologyChapterNodeAttribute) ?? undefined;
     const hasBranch = currentNode?.hasAttribute(topologyChapterTargetEdgeAttribute) ?? false;
+    const nextBranch =
+      anchorId === undefined || !hasBranch
+        ? undefined
+        : routeGroups.find(
+            (group) =>
+              group.dataset["routeKind"] === "attach" && group.dataset["routeAnchor"] === anchorId,
+          );
+    if (currentBranch !== nextBranch) {
+      currentBranch?.removeAttribute("data-topology-current-branch");
+      nextBranch?.setAttribute("data-topology-current-branch", "");
+      currentBranch = nextBranch;
+    }
     lightTarget(
       anchorId === undefined || !hasBranch
         ? undefined
@@ -171,6 +199,16 @@ export function initializeTopologyScrollReveal(
     }
 
     const artworkTop = artwork.getBoundingClientRect().top;
+    vibrancyGradient.setAttribute("y1", String(window.innerHeight * 0.75 - artworkTop));
+    vibrancyGradient.setAttribute("y2", String(window.innerHeight - artworkTop));
+    vibrancyMaskRect.setAttribute("width", String(artwork.clientWidth));
+    vibrancyMaskRect.setAttribute("height", String(artwork.clientHeight));
+    greyCopy.style.display = reducedMotionQuery.matches ? "none" : "";
+    if (reducedMotionQuery.matches) {
+      colourLayer.removeAttribute("mask");
+    } else {
+      colourLayer.setAttribute("mask", "url(#topology-rail-vibrancy-mask)");
+    }
     const readingLineY = window.innerHeight * topologyReadingLineRatio - artworkTop;
     updateCurrentChapter(readingLineY);
 
@@ -245,6 +283,7 @@ export function initializeTopologyScrollReveal(
     lifecycle.abort();
     artworkResizeObserver.disconnect();
     updateCurrentNodes(0, false);
+    currentBranch?.removeAttribute("data-topology-current-branch");
     lightTarget(undefined);
     if (pendingAnimationFrame !== undefined) {
       window.cancelAnimationFrame(pendingAnimationFrame);

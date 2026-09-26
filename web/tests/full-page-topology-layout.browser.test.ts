@@ -81,7 +81,7 @@ describe("full-page topology layout", () => {
     for (const anchor of fixture.host.querySelectorAll<HTMLElement>("[data-rail-anchor]")) {
       const id = anchor.dataset["railAnchor"];
       const node = required(fixture.artwork, `[data-topology-chapter-node="${id}"]`);
-      const nodeBounds = node.getBoundingClientRect();
+      const nodeY = Number(node.querySelector("circle")?.getAttribute("cy"));
       const range = document.createRange();
       range.selectNodeContents(anchor);
       const [firstLine] = range.getClientRects();
@@ -89,7 +89,11 @@ describe("full-page topology layout", () => {
         throw new Error(`Anchor ${id ?? ""} has no line box`);
       }
       expect(
-        Math.abs(nodeBounds.top + nodeBounds.height / 2 - (firstLine.top + firstLine.height / 2)),
+        Math.abs(
+          fixture.artwork.getBoundingClientRect().top +
+            nodeY -
+            (firstLine.top + firstLine.height / 2),
+        ),
       ).toBeLessThanOrEqual(1);
     }
     // Chapter titles wrap, so the first line sits above the title's centre.

@@ -94,7 +94,9 @@ function observeTitleAnchors(width: number): ChapterTitleAnchorObservation[] {
     const range = document.createRange();
     range.selectNodeContents(anchor);
     const firstLine = [...range.getClientRects()].find((box) => box.width > 0 && box.height > 0);
-    const nodeBounds = node.getBoundingClientRect();
+    const artwork = document.querySelector<SVGSVGElement>("[data-full-page-topology]");
+    if (artwork === null) throw new Error("Topology artwork is missing");
+    const nodeY = Number(node.getAttribute("cy"));
     return {
       width,
       chapterId,
@@ -104,7 +106,7 @@ function observeTitleAnchors(width: number): ChapterTitleAnchorObservation[] {
       ).length,
       titleFirstLineCenterY:
         firstLine === undefined ? Number.NaN : firstLine.top + firstLine.height / 2,
-      nodeCenterY: nodeBounds.top + nodeBounds.height / 2,
+      nodeCenterY: artwork.getBoundingClientRect().top + nodeY,
     };
   });
 }

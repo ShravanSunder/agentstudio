@@ -86,6 +86,42 @@ afterEach(() => {
 });
 
 describe("full-page topology scroll reveal", () => {
+  for (const [width, height, layout] of [
+    [1600, 1000, wideRevealLayout],
+    [390, 844, phoneRevealLayout],
+  ] as const) {
+    it(`fades rail colour across the bottom quarter at ${width}px in one source and two copies`, async () => {
+      await page.viewport(width, height);
+      const fixture = mountRevealFixture(layout);
+      await vi.waitFor(() => expect(Number.isFinite(revealEdgeY(fixture.artwork))).toBe(true));
+      const source = fixture.artwork.querySelector("#topology-rail-source");
+      const grey = fixture.artwork.querySelector("[data-topology-grey-copy]");
+      const colour = fixture.artwork.querySelector("[data-topology-colour-copy]");
+      const gradient = fixture.artwork.querySelector("#topology-rail-vibrancy-gradient");
+      expect(source).not.toBeNull();
+      expect(grey?.getAttribute("href")).toBe("#topology-rail-source");
+      expect(colour?.getAttribute("href")).toBe("#topology-rail-source");
+      expect(gradient).not.toBeNull();
+      if (gradient === null) throw new Error("Vibrancy gradient is missing");
+      const artworkTop = fixture.artwork.getBoundingClientRect().top;
+      const colourLine = Number(gradient.getAttribute("y1")) + artworkTop;
+      const viewportBottom = Number(gradient.getAttribute("y2")) + artworkTop;
+      expect(colourLine).toBeCloseTo(height * 0.75, 0);
+      expect(viewportBottom).toBeCloseTo(height, 0);
+      for (const [viewportFraction, expectedColour] of [
+        [0.5, 1],
+        [0.87, 0.52],
+        [0.99, 0.04],
+      ] as const) {
+        const viewportY = height * viewportFraction;
+        const colourFraction = Math.max(
+          0,
+          Math.min(1, (viewportBottom - viewportY) / (viewportBottom - colourLine)),
+        );
+        expect(colourFraction).toBeCloseTo(expectedColour, 1);
+      }
+    });
+  }
   for (const [label, width, height, layout] of [
     ["wide", 1920, 1080, wideRevealLayout],
     ["phone", 390, 844, phoneRevealLayout],
@@ -205,6 +241,16 @@ describe("full-page topology scroll reveal", () => {
         ?.getAttribute(topologyChapterStateAttribute),
     ).toBe("passed");
     expect(
+      fixture.artwork
+        .querySelector('[data-route-anchor="chapter-2"]')
+        ?.hasAttribute("data-topology-current-branch"),
+    ).toBe(true);
+    expect(
+      fixture.artwork
+        .querySelector('[data-route-anchor="chapter-1"]')
+        ?.hasAttribute("data-topology-current-branch"),
+    ).toBe(false);
+    expect(
       [...document.querySelectorAll(`[${railCurrentAttribute}]`)].map((element) =>
         element.getAttribute("data-rail-surface-target"),
       ),
@@ -256,11 +302,31 @@ describe("full-page topology scroll reveal", () => {
     const nodes = [...fixture.artwork.querySelectorAll("[data-node]")];
     expect(nodes.every((node) => node.hasAttribute(topologyNodeRevealedAttribute))).toBe(true);
     expect(fixture.artwork.querySelectorAll("[data-topology-current-node]")).toHaveLength(0);
+    const greyCopy = fixture.artwork.querySelector("[data-topology-grey-copy]");
+    if (greyCopy === null) throw new Error("Grey rail copy is missing");
+    expect(getComputedStyle(greyCopy).display).toBe("none");
+    expect(
+      fixture.artwork.querySelector("[data-topology-colour-layer]")?.hasAttribute("mask"),
+    ).toBe(false);
     expect(
       Number(fixture.artwork.querySelector("[data-topology-reveal-fade]")?.getAttribute("height")),
     ).toBe(0);
     expect(
       fixture.artwork.querySelectorAll("[data-topology-port-node], [data-port-drawn]"),
     ).toHaveLength(0);
+  });
+
+  it("coalesces scroll changes into the existing single animation frame", async () => {
+    await page.viewport(1600, 1000);
+    const scheduled: FrameRequestCallback[] = [];
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+      scheduled.push(callback);
+      return scheduled.length;
+    });
+    const fixture = mountRevealFixture();
+    window.dispatchEvent(new Event("scroll"));
+    window.dispatchEvent(new Event("scroll"));
+    expect(scheduled).toHaveLength(1);
+    fixture.dispose();
   });
 });
