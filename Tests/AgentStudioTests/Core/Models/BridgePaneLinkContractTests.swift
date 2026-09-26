@@ -215,6 +215,33 @@ struct BridgePaneLinkContractTests {
             ) == retained)
     }
 
+    @Test("membership port accepts only typed worktree and PR identities")
+    func membershipPortIdentityTypes() async throws {
+        let port: any PaneLinkMembershipPort = PaneLinkPortTypeWitness()
+        let receiver = PaneId.generateUUIDv7()
+        let worktree: WorktreeId = UUIDv7.generate()
+        let reference = try ForgePullRequestIdentity(
+            host: "github.com", owner: "example", repository: "source", number: 42
+        )
+
+        #expect(
+            try await port.addMember(
+                receiver: receiver, worktree: worktree, contributor: .person
+            ) == .alreadyPresent)
+        #expect(
+            try await port.removeMember(
+                receiver: receiver, worktree: worktree, contributor: .person
+            ) == .alreadyAbsent)
+        #expect(
+            try await port.addPullRequestReference(
+                receiver: receiver, reference: reference, contributor: .person
+            ) == .alreadyPresent)
+        #expect(
+            try await port.removePullRequestReference(
+                receiver: receiver, reference: reference, contributor: .person
+            ) == .alreadyAbsent)
+    }
+
     private func assertFixtures<Outcome: Codable & Equatable>(
         union: String,
         folder: String,
@@ -252,5 +279,36 @@ struct BridgePaneLinkContractTests {
 
     private func fixtureOperationId() throws -> UUID {
         try #require(UUID(uuidString: "019d1f16-ef70-7111-8db1-7681f9f87710"))
+    }
+}
+
+private actor PaneLinkPortTypeWitness: PaneLinkMembershipPort {
+    func addMember(
+        receiver _: PaneId, worktree _: WorktreeId, contributor _: BridgeLinkContributor
+    ) async throws -> BridgeMemberAddResult { .alreadyPresent }
+
+    func removeMember(
+        receiver _: PaneId, worktree _: WorktreeId, contributor _: BridgeLinkContributor
+    ) async throws -> BridgeMemberRemoveResult { .alreadyAbsent }
+
+    func awaitPendingMemberRemoval(
+        receiver _: PaneId, operationId _: UUID
+    ) async throws -> BridgePendingMemberRemovalSettlement { .alreadyAbsent }
+
+    func addPullRequestReference(
+        receiver _: PaneId, reference _: ForgePullRequestIdentity, contributor _: BridgeLinkContributor
+    ) async throws -> BridgePullRequestReferenceAddResult { .alreadyPresent }
+
+    func removePullRequestReference(
+        receiver _: PaneId, reference _: ForgePullRequestIdentity, contributor _: BridgeLinkContributor
+    ) async throws -> BridgePullRequestReferenceRemoveResult { .alreadyAbsent }
+
+    func membershipFacts() async -> AsyncStream<BridgeLinkContributionsRemoved> {
+        let (stream, continuation) = AsyncStream.makeStream(
+            of: BridgeLinkContributionsRemoved.self,
+            bufferingPolicy: BridgeLinkMembershipFactBuffering.policy
+        )
+        continuation.finish()
+        return stream
     }
 }

@@ -5,11 +5,11 @@ import Foundation
 /// Implementations run admission and durable effects off MainActor.
 package protocol PaneLinkMembershipPort: Sendable {
     func addMember(
-        receiver: PaneId, item: BridgeLinkItem, contributor: BridgeLinkContributor
+        receiver: PaneId, worktree: WorktreeId, contributor: BridgeLinkContributor
     ) async throws -> BridgeMemberAddResult
 
     func removeMember(
-        receiver: PaneId, item: BridgeLinkItem, contributor: BridgeLinkContributor
+        receiver: PaneId, worktree: WorktreeId, contributor: BridgeLinkContributor
     ) async throws -> BridgeMemberRemoveResult
 
     func awaitPendingMemberRemoval(
@@ -17,11 +17,11 @@ package protocol PaneLinkMembershipPort: Sendable {
     ) async throws -> BridgePendingMemberRemovalSettlement
 
     func addPullRequestReference(
-        receiver: PaneId, item: BridgeLinkItem, contributor: BridgeLinkContributor
+        receiver: PaneId, reference: ForgePullRequestIdentity, contributor: BridgeLinkContributor
     ) async throws -> BridgePullRequestReferenceAddResult
 
     func removePullRequestReference(
-        receiver: PaneId, item: BridgeLinkItem, contributor: BridgeLinkContributor
+        receiver: PaneId, reference: ForgePullRequestIdentity, contributor: BridgeLinkContributor
     ) async throws -> BridgePullRequestReferenceRemoveResult
 
     /// The producer uses `BridgeLinkMembershipFactBuffering.policy`. Facts are
