@@ -51,6 +51,8 @@ struct BridgeMetadataCoordinatorLeaseTests {
 
         // Assert
         #expect(await coordinator.hasActiveStream)
+        try await firstHarness.closeProducer(firstLease)
+        try await replacementHarness.closeProducer(replacementLease)
     }
 }
 

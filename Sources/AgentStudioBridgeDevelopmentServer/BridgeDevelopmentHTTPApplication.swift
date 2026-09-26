@@ -107,12 +107,7 @@ enum BridgeDevelopmentHTTPApplication {
         } catch {
             throw HTTPError(.badRequest)
         }
-        let delivery: Data
-        do {
-            delivery = try await host.issueBootstrap(for: bootstrapRequest)
-        } catch BridgeDevelopmentProductHostError.sessionAlreadyOpen {
-            return Response(status: .conflict)
-        }
+        let delivery = try await host.issueBootstrap(for: bootstrapRequest)
         return Response(
             status: .ok,
             headers: [.contentType: "application/octet-stream"],

@@ -324,13 +324,56 @@ final class DevelopmentDisplayWorkerClient {
     }
 
     private func sendControl(body: [String: Any]) async throws -> BridgeProductControlResponse {
-        let response = try await collectRouteResponse(
+        let admissionReply = try await collectRouteResponse(
             try routedRequest(route: BridgeProductWireContract.commandRoute, body: body)
         )
-        #expect(response.statusCode == 200)
+        #expect(admissionReply.statusCode == 200)
+        let admission = try BridgeProductStrictJSON.decode(
+            BridgeProductOperationAdmittedResponse.self,
+            from: admissionReply.body
+        )
+        let resultReply = try await collectRouteResponse(
+            try routedRequest(
+                route: BridgeProductWireContract.commandRoute,
+                body: [
+                    "kind": "operation.result",
+                    "operationId": admission.operationId,
+                    "paneSessionId": paneSessionId,
+                    "wireVersion": BridgeProductWireContract.version,
+                    "workerInstanceId": workerInstanceId,
+                ]
+            )
+        )
+        #expect(resultReply.statusCode == 200)
+        let result = try BridgeProductStrictJSON.decode(
+            BridgeProductOperationResultResponse.self,
+            from: resultReply.body
+        )
+        let acknowledgementReply = try await collectRouteResponse(
+            try routedRequest(
+                route: BridgeProductWireContract.commandRoute,
+                body: [
+                    "kind": "operation.resultAcknowledgement",
+                    "operationId": admission.operationId,
+                    "paneSessionId": paneSessionId,
+                    "requestId": requestId("result-ack"),
+                    "requestSequence": takeRequestSequence(),
+                    "wireVersion": BridgeProductWireContract.version,
+                    "workerInstanceId": workerInstanceId,
+                ]
+            )
+        )
+        #expect(acknowledgementReply.statusCode == 200)
+        _ = try BridgeProductStrictJSON.decode(
+            BridgeProductOperationResultAcknowledgedResponse.self,
+            from: acknowledgementReply.body
+        )
+        guard result.outcome == .succeeded, let responseValue = result.result else {
+            throw DevelopmentDisplayWorkerClientError.unexpectedControlResponse
+        }
         return try BridgeProductStrictJSON.decode(
             BridgeProductControlResponse.self,
-            from: response.body
+            from: JSONEncoder().encode(responseValue)
         )
     }
 

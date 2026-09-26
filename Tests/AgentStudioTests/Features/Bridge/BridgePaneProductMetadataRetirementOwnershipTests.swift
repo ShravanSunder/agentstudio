@@ -52,14 +52,14 @@ struct BridgeMetadataRetirementOwnershipTests {
             bridgeProductLifecycleFileSubscriptionOpenObject(requestSequence: 2, epoch: 1)
         )
         let token = try #require(controlExecutionToken(try await harness.begin(openRequest)))
-        #expect(await harness.session.claimControlProviderDispatch(token: token))
+        #expect(await harness.session.admitControlProviderExecution(token: token))
         let lifecycle = try coordinatorFileSubscriptionLifecycle()
         let subscription = lifecycle.opened
         let response = try BridgeProductControlResponse.subscriptionOpenAccepted(
             correlating: openRequest,
             interestSha256: subscription.interestSha256
         )
-        let effect = try await harness.session.completeControl(
+        let effect = try await harness.session.completeAdmittedControl(
             token: token,
             exactResponseBytes: try JSONEncoder().encode(response)
         )

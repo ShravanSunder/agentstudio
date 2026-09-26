@@ -78,6 +78,8 @@ struct BridgePaneProductSessionOwnerSnapshot: Equatable, Sendable {
     let activeProducerCount: Int
     let activeProducerTaskCount: Int
     let activeContentLeaseCount: Int
+    let activeEscapeEffectCount: Int
+    let activeOperationExecutionCount: Int
     let activeTransportLeaseCount: Int
     let queuedFrameCount: Int
     let queuedByteCount: Int
@@ -85,6 +87,9 @@ struct BridgePaneProductSessionOwnerSnapshot: Equatable, Sendable {
     let inFlightFrameReceiptCount: Int
     let pendingLifecycleAcknowledgementCount: Int
     let preparedInstallationCount: Int
+    let pendingControlCount: Int
+    let retainedOperationResultCount: Int
+    let retiringInstallationCount: Int
     let sessionContentAdmissionCount: Int
     let sessionProductAdmissionCount: Int
     let nextMetadataStreamSequence: Int
@@ -94,6 +99,8 @@ struct BridgePaneProductSessionOwnerSnapshot: Equatable, Sendable {
             && activeProducerCount == 0
             && activeProducerTaskCount == 0
             && activeContentLeaseCount == 0
+            && activeEscapeEffectCount == 0
+            && activeOperationExecutionCount == 0
             && activeTransportLeaseCount == 0
             && queuedFrameCount == 0
             && queuedByteCount == 0
@@ -101,6 +108,9 @@ struct BridgePaneProductSessionOwnerSnapshot: Equatable, Sendable {
             && inFlightFrameReceiptCount == 0
             && pendingLifecycleAcknowledgementCount == 0
             && preparedInstallationCount == 0
+            && pendingControlCount == 0
+            && retainedOperationResultCount == 0
+            && retiringInstallationCount == 0
             && sessionContentAdmissionCount == 0
             && sessionProductAdmissionCount == 0
     }
@@ -110,6 +120,8 @@ struct BridgePaneProductSessionOwnerSnapshot: Equatable, Sendable {
         activeProducerCount: 0,
         activeProducerTaskCount: 0,
         activeContentLeaseCount: 0,
+        activeEscapeEffectCount: 0,
+        activeOperationExecutionCount: 0,
         activeTransportLeaseCount: 0,
         queuedFrameCount: 0,
         queuedByteCount: 0,
@@ -117,6 +129,9 @@ struct BridgePaneProductSessionOwnerSnapshot: Equatable, Sendable {
         inFlightFrameReceiptCount: 0,
         pendingLifecycleAcknowledgementCount: 0,
         preparedInstallationCount: 0,
+        pendingControlCount: 0,
+        retainedOperationResultCount: 0,
+        retiringInstallationCount: 0,
         sessionContentAdmissionCount: 0,
         sessionProductAdmissionCount: 0,
         nextMetadataStreamSequence: 0
@@ -136,7 +151,8 @@ package actor BridgePaneProductSessionOwner {
     private let provider: any BridgeProductSchemeProvider
     private let telemetryRecorder: (any BridgePerformanceTraceRecording)?
     private let didRetireWorkerInstance: @Sendable (String) async -> Void
-    private var installationAwaitingRetirementRetry: BridgeProductSessionInstallation?
+    private var retiringInstallationsByWorkerInstanceId: [String: BridgeProductSessionInstallation] = [:]
+    private var retirementTasksByWorkerInstanceId: [String: Task<Bool, Never>] = [:]
 
     package func activeBootstrap() -> BridgeProductSessionBootstrap? {
         activeInstallation?.bootstrap
@@ -244,7 +260,7 @@ package actor BridgePaneProductSessionOwner {
             if let precedingTransition {
                 await precedingTransition.value
             }
-            return await performRetirement()
+            return await performRetirement(reason: reason)
         }
         lifecycleTransitionTail = Task {
             _ = await transition.value
@@ -266,7 +282,7 @@ package actor BridgePaneProductSessionOwner {
             return await rejectPreparedCandidateAfterAdmissionClose(candidate)
         }
 
-        let retiringInstallation = installationAwaitingRetirementRetry ?? activeInstallation
+        let retiringInstallation = activeInstallation
         guard
             (productAdmission.withValidAdmission {
                 activeInstallation = nil
@@ -280,21 +296,13 @@ package actor BridgePaneProductSessionOwner {
         if let retiringInstallation,
             retiringInstallation.bootstrap.workerInstanceId != candidate.bootstrap.workerInstanceId
         {
-            installationAwaitingRetirementRetry = retiringInstallation
-            let barrier = await retiringInstallation.session.revoke(
-                acknowledgeLifecycle: provider.acknowledgeLifecycle
-            )
-            let didRevoke = await barrier.wait()
+            await beginRetiring(retiringInstallation)
             await provider.invalidatePendingComparisonTargetReservation()
-            guard didRevoke else {
-                await schemeRouter.waitForDrain()
-                return .revocationFailed
-            }
-            await didRetireWorkerInstance(retiringInstallation.bootstrap.workerInstanceId)
-            installationAwaitingRetirementRetry = nil
         }
-        await schemeRouter.waitForDrain()
-
+        for installation in Array(retiringInstallationsByWorkerInstanceId.values)
+        where retirementTasksByWorkerInstanceId[installation.bootstrap.workerInstanceId] == nil {
+            await beginRetiring(installation)
+        }
         guard !isPaneDisposalRequested,
             (productAdmission.withValidAdmission { true }) == true
         else {
@@ -303,7 +311,6 @@ package actor BridgePaneProductSessionOwner {
 
         guard
             (productAdmission.withValidAdmission {
-                installationAwaitingRetirementRetry = nil
                 preparedInstallationsByWorkerInstanceId.removeValue(forKey: workerInstanceId)
                 activeInstallation = candidate
                 return true
@@ -336,34 +343,70 @@ package actor BridgePaneProductSessionOwner {
         return .ownerDisposed
     }
 
-    private func performRetirement() async -> BridgePaneProductSessionRetirementResult {
-        let retiringInstallation = installationAwaitingRetirementRetry ?? activeInstallation
+    private func beginRetiring(_ installation: BridgeProductSessionInstallation) async {
+        let workerInstanceId = installation.bootstrap.workerInstanceId
+        guard retirementTasksByWorkerInstanceId[workerInstanceId] == nil else { return }
+        retiringInstallationsByWorkerInstanceId[workerInstanceId] = installation
+        let barrier = await installation.session.revoke(
+            acknowledgeLifecycle: provider.acknowledgeLifecycle
+        )
+        retirementTasksByWorkerInstanceId[workerInstanceId] = Task { [self] in
+            let didRevoke = await barrier.wait()
+            await schemeRouter.waitForDrain(of: workerInstanceId)
+            await installation.session.waitForOutstandingOperationExecutions()
+            await installation.session.waitForOutstandingEscapeEffects()
+            if didRevoke {
+                await didRetireWorkerInstance(workerInstanceId)
+                retiringInstallationsByWorkerInstanceId.removeValue(forKey: workerInstanceId)
+            }
+            retirementTasksByWorkerInstanceId.removeValue(forKey: workerInstanceId)
+            return didRevoke
+        }
+    }
+
+    private func performRetirement(
+        reason: BridgePaneProductSessionRetirementReason
+    ) async -> BridgePaneProductSessionRetirementResult {
+        let retiringInstallation = activeInstallation
         activeInstallation = nil
         await provider.invalidatePendingComparisonTargetReservation()
         await schemeRouter.clear()
-        guard let retiringInstallation else {
-            await schemeRouter.waitForDrain()
-            return await retirePreparedInstallationsForPaneDisposal()
-                ? .retired
-                : .revocationFailed
+        if let retiringInstallation {
+            await beginRetiring(retiringInstallation)
+        }
+        for installation in Array(retiringInstallationsByWorkerInstanceId.values)
+        where retirementTasksByWorkerInstanceId[installation.bootstrap.workerInstanceId] == nil {
+            await beginRetiring(installation)
         }
 
-        installationAwaitingRetirementRetry = retiringInstallation
-        let barrier = await retiringInstallation.session.revoke(
-            acknowledgeLifecycle: provider.acknowledgeLifecycle
-        )
-        let didRevoke = await barrier.wait()
-        await provider.invalidatePendingComparisonTargetReservation()
-        guard didRevoke else {
-            await schemeRouter.waitForDrain()
-            return .revocationFailed
+        // Page reload and worker replacement only fence. Old work may release
+        // after the successor is already serving requests.
+        guard reason == .paneDisposal else { return .retired }
+        let retirementTasks = Array(retirementTasksByWorkerInstanceId.values)
+        var didRevokeEveryInstallation = true
+        for task in retirementTasks {
+            if !(await task.value) { didRevokeEveryInstallation = false }
         }
-        await didRetireWorkerInstance(retiringInstallation.bootstrap.workerInstanceId)
         await schemeRouter.waitForDrain()
-        installationAwaitingRetirementRetry = nil
-        return await retirePreparedInstallationsForPaneDisposal()
-            ? .retired
-            : .revocationFailed
+        let didRetirePrepared = await retirePreparedInstallationsForPaneDisposal()
+        return didRevokeEveryInstallation && didRetirePrepared
+            && retiringInstallationsByWorkerInstanceId.isEmpty
+            ? .retired : .revocationFailed
+    }
+
+    func waitForRetirement(of workerInstanceId: String) async -> Bool {
+        if let task = retirementTasksByWorkerInstanceId[workerInstanceId] {
+            return await task.value
+        }
+        return retiringInstallationsByWorkerInstanceId[workerInstanceId] == nil
+    }
+
+    func retryRetirement(of workerInstanceId: String) async -> Bool {
+        guard let installation = retiringInstallationsByWorkerInstanceId[workerInstanceId] else {
+            return true
+        }
+        await beginRetiring(installation)
+        return await waitForRetirement(of: workerInstanceId)
     }
 
     private func retirePreparedInstallationsForPaneDisposal() async -> Bool {
@@ -380,23 +423,41 @@ package actor BridgePaneProductSessionOwner {
 
     func snapshot() async -> BridgePaneProductSessionOwnerSnapshot {
         let routerSnapshot = await schemeRouter.snapshot
-        let installation = installationAwaitingRetirementRetry ?? activeInstallation
-        let producers = await installation?.session.producerSnapshot()
+        var installations = retiringInstallationsByWorkerInstanceId
+        if let activeInstallation {
+            installations[activeInstallation.bootstrap.workerInstanceId] = activeInstallation
+        }
+        var diagnosticSnapshots: [BridgeProductSessionDiagnosticSnapshot] = []
+        for installation in installations.values {
+            diagnosticSnapshots.append(await installation.session.diagnosticSnapshot)
+        }
+        let producerSnapshots = diagnosticSnapshots.map(\.producer)
+        func total(_ field: KeyPath<BridgeProductProducerRegistrySnapshot, Int>) -> Int {
+            producerSnapshots.reduce(0) { $0 + $1[keyPath: field] }
+        }
+        func diagnosticTotal(_ field: KeyPath<BridgeProductSessionDiagnosticSnapshot, Int>) -> Int {
+            diagnosticSnapshots.reduce(0) { $0 + $1[keyPath: field] }
+        }
         return .init(
             activeSchemeTaskCount: routerSnapshot.activeSchemeTaskCount,
-            activeProducerCount: producers?.activeProducerCount ?? 0,
-            activeProducerTaskCount: producers?.activeProducerTaskCount ?? 0,
-            activeContentLeaseCount: producers?.activeContentLeaseCount ?? 0,
+            activeProducerCount: total(\.activeProducerCount),
+            activeProducerTaskCount: total(\.activeProducerTaskCount),
+            activeContentLeaseCount: total(\.activeContentLeaseCount),
+            activeEscapeEffectCount: diagnosticTotal(\.activeEscapeEffectCount),
+            activeOperationExecutionCount: diagnosticTotal(\.activeOperationExecutionCount),
             activeTransportLeaseCount: routerSnapshot.activeTransportClaimCount,
-            queuedFrameCount: producers?.queuedFrameCount ?? 0,
-            queuedByteCount: producers?.queuedByteCount ?? 0,
-            pendingFrameWaiterCount: producers?.pendingFrameWaiterCount ?? 0,
-            inFlightFrameReceiptCount: producers?.inFlightFrameReceiptCount ?? 0,
-            pendingLifecycleAcknowledgementCount: producers?.pendingLifecycleAcknowledgementCount ?? 0,
+            queuedFrameCount: total(\.queuedFrameCount),
+            queuedByteCount: total(\.queuedByteCount),
+            pendingFrameWaiterCount: total(\.pendingFrameWaiterCount),
+            inFlightFrameReceiptCount: total(\.inFlightFrameReceiptCount),
+            pendingLifecycleAcknowledgementCount: total(\.pendingLifecycleAcknowledgementCount),
             preparedInstallationCount: preparedInstallationsByWorkerInstanceId.count,
-            sessionContentAdmissionCount: producers?.sessionContentAdmissionCount ?? 0,
-            sessionProductAdmissionCount: producers?.sessionProductAdmissionCount ?? 0,
-            nextMetadataStreamSequence: producers?.nextMetadataStreamSequence ?? 0
+            pendingControlCount: diagnosticTotal(\.pendingControlCount),
+            retainedOperationResultCount: diagnosticTotal(\.retainedOperationResultCount),
+            retiringInstallationCount: retiringInstallationsByWorkerInstanceId.count,
+            sessionContentAdmissionCount: total(\.sessionContentAdmissionCount),
+            sessionProductAdmissionCount: total(\.sessionProductAdmissionCount),
+            nextMetadataStreamSequence: producerSnapshots.map(\.nextMetadataStreamSequence).max() ?? 0
         )
     }
 }

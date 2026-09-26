@@ -13,6 +13,7 @@ struct BridgeProductSchemeSessionRouterSnapshot: Equatable, Sendable {
 struct BridgeProductSchemeTransportClaim: Sendable {
     let adapter: BridgeProductSchemeAdapter
     let productAdmission: BridgeProductAdmissionContext
+    let workerInstanceId: String
 
     fileprivate let id: UUID
     fileprivate let router: BridgeProductSchemeSessionRouter
@@ -32,14 +33,19 @@ actor BridgeProductSchemeSessionRouter {
     private(set) var activeInstallation: BridgeProductSessionInstallation?
     private var activeSchemeTaskIds: Set<UUID> = []
     private var activeTransportClaimIds: Set<UUID> = []
+    private var claimInstallationById: [UUID: String] = [:]
     private var activeStreamClaimIds: Set<UUID> = []
+    private var clearWaiters: [CheckedContinuation<Void, Never>] = []
     private var drainWaiters: [CheckedContinuation<Void, Never>] = []
+    private var drainWaitersByInstallation: [String: [CheckedContinuation<Void, Never>]] = [:]
     private var latestCapabilityAuthenticator: BridgeProductCapabilityAuthenticator?
     private let productAdmissionGate: BridgeProductAdmissionGate
     private var streamDrainWaitersById: [UInt64: CheckedContinuation<Void, Never>] = [:]
     private var nextStreamDrainWaiterId: UInt64 = 0
     private var cancelledStreamDrainWaiterIds: Set<UInt64> = []
     private var transportClaimMintCount = 0
+    private var transportClaimMintCountByInstallation: [String: Int] = [:]
+    private let streamDrainWaiterRegistrationObserver: (@Sendable () -> Void)?
 
     /// Reachable without an actor hop because `onTermination` is synchronous.
     nonisolated let schemeTaskCensus: BridgeProductSchemeTaskCensus
@@ -47,9 +53,11 @@ actor BridgeProductSchemeSessionRouter {
     init(
         activeInstallation: BridgeProductSessionInstallation? = nil,
         productAdmissionGate: BridgeProductAdmissionGate,
-        schemeTaskCensus: BridgeProductSchemeTaskCensus = BridgeProductSchemeTaskCensus()
+        schemeTaskCensus: BridgeProductSchemeTaskCensus = BridgeProductSchemeTaskCensus(),
+        streamDrainWaiterRegistrationObserver: (@Sendable () -> Void)? = nil
     ) {
         self.schemeTaskCensus = schemeTaskCensus
+        self.streamDrainWaiterRegistrationObserver = streamDrainWaiterRegistrationObserver
         precondition(
             activeInstallation == nil
                 || activeInstallation?.productAdmissionGate === productAdmissionGate
@@ -65,7 +73,6 @@ actor BridgeProductSchemeSessionRouter {
     ) -> Bool {
         guard productAdmission.wasMinted(by: productAdmissionGate) else { return false }
         return productAdmission.withValidAdmission {
-            precondition(activeSchemeTaskIds.isEmpty && activeTransportClaimIds.isEmpty)
             precondition(installation.productAdmissionGate === productAdmissionGate)
             activeInstallation = installation
             latestCapabilityAuthenticator = installation.session.capabilityAuthenticator
@@ -75,7 +82,17 @@ actor BridgeProductSchemeSessionRouter {
 
     func clear() {
         activeInstallation = nil
+        let waiters = clearWaiters
+        clearWaiters.removeAll()
+        for waiter in waiters { waiter.resume() }
         resumeAllStreamDrainWaiters()
+    }
+
+    func waitUntilCleared() async {
+        guard activeInstallation != nil else { return }
+        await withCheckedContinuation { continuation in
+            clearWaiters.append(continuation)
+        }
     }
 
     /// - Parameters:
@@ -97,16 +114,20 @@ actor BridgeProductSchemeSessionRouter {
             return .conflict
         }
         let claimId = schemeTaskId
+        let workerInstanceId = activeInstallation.bootstrap.workerInstanceId
         activeSchemeTaskIds.insert(claimId)
         activeTransportClaimIds.insert(claimId)
+        claimInstallationById[claimId] = workerInstanceId
         if route == .metadataStream {
             activeStreamClaimIds.insert(claimId)
         }
         transportClaimMintCount += 1
+        transportClaimMintCountByInstallation[workerInstanceId, default: 0] += 1
         return .admitted(
             BridgeProductSchemeTransportClaim(
                 adapter: activeInstallation.productAdapter,
                 productAdmission: productAdmission,
+                workerInstanceId: workerInstanceId,
                 id: claimId,
                 router: self
             )
@@ -117,6 +138,13 @@ actor BridgeProductSchemeSessionRouter {
         guard !snapshot.hasZeroResidue else { return }
         await withCheckedContinuation { continuation in
             drainWaiters.append(continuation)
+        }
+    }
+
+    func waitForDrain(of workerInstanceId: String) async {
+        guard !snapshot(for: workerInstanceId).hasZeroResidue else { return }
+        await withCheckedContinuation { continuation in
+            drainWaitersByInstallation[workerInstanceId, default: []].append(continuation)
         }
     }
 
@@ -156,6 +184,7 @@ actor BridgeProductSchemeSessionRouter {
             return
         }
         streamDrainWaitersById[waiterId] = continuation
+        streamDrainWaiterRegistrationObserver?()
     }
 
     private func resumeStreamDrainWaiter(id waiterId: UInt64) {
@@ -183,11 +212,25 @@ actor BridgeProductSchemeSessionRouter {
         )
     }
 
+    func snapshot(for workerInstanceId: String) -> BridgeProductSchemeSessionRouterSnapshot {
+        let activeClaims = claimInstallationById.values.filter { $0 == workerInstanceId }.count
+        return .init(
+            activeSchemeTaskCount: activeClaims,
+            activeTransportClaimCount: activeClaims,
+            transportClaimMintCount: transportClaimMintCountByInstallation[workerInstanceId, default: 0]
+        )
+    }
+
     fileprivate func finish(_ claim: BridgeProductSchemeTransportClaim) {
         activeSchemeTaskIds.remove(claim.id)
         activeTransportClaimIds.remove(claim.id)
+        claimInstallationById.removeValue(forKey: claim.id)
         if activeStreamClaimIds.remove(claim.id) != nil, activeStreamClaimIds.isEmpty {
             resumeAllStreamDrainWaiters()
+        }
+        if snapshot(for: claim.workerInstanceId).hasZeroResidue {
+            let scopedWaiters = drainWaitersByInstallation.removeValue(forKey: claim.workerInstanceId) ?? []
+            for waiter in scopedWaiters { waiter.resume() }
         }
         guard snapshot.hasZeroResidue else { return }
         let waiters = drainWaiters

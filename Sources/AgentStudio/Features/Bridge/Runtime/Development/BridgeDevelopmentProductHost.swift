@@ -865,68 +865,12 @@ final class BridgeDevelopmentProductCommittedCallTarget {
 }
 
 extension BridgeDevelopmentProductHost {
-    /// Waits out an in-flight metadata retirement and requires it to have finished.
-    ///
-    /// One place, used by both `.initial` arms: the arm that found retirement
-    /// already recorded, and the arm that had to drain a torn-down transport
-    /// first. A retirement that FAILS still refuses — the session is still held.
-    private func awaitRetirementBarriers(
-        _ retirementBarriers: [BridgeProductProducerRetirementBarrier],
-        of installation: BridgeProductSessionInstallation
-    ) async throws {
-        for retirementBarrier in retirementBarriers {
-            guard await retirementBarrier.wait() else {
-                throw BridgeDevelopmentProductHostError.sessionAlreadyOpen
-            }
-            try Task.checkCancellation()
-        }
-        guard
-            await installation.session.metadataRetirementBarriersForReload()?.isEmpty == true
-        else {
-            throw BridgeDevelopmentProductHostError.sessionAlreadyOpen
-        }
-    }
-
     private func validateBootstrapTransition(
         _ request: BridgeDevelopmentProductBootstrapRequest
     ) async throws {
         switch request.reason {
         case .initial:
-            if let installation = await productSessionOwner.activeInstallation {
-                guard
-                    let retirementBarriers = await installation.session
-                        .metadataRetirementBarriersForReload()
-                else {
-                    // A lease exists with no retirement recorded. That is either a
-                    // genuinely live stream, which is refused immediately and
-                    // without waiting, or a stream whose transport has already
-                    // torn down and whose retirement write is still in flight —
-                    // the app's own reload path retires and drains rather than
-                    // refusing, and so must this one.
-                    guard
-                        productSessionOwner.schemeRouter.schemeTaskCensus
-                            .everyStartedStreamTaskTerminated
-                    else {
-                        throw BridgeDevelopmentProductHostError.sessionAlreadyOpen
-                    }
-                    await productSessionOwner.schemeRouter.waitForStreamClaimDrain()
-                    try Task.checkCancellation()
-                    // The drain proves the transport is gone, not that retirement
-                    // has COMPLETED. A non-empty barrier set here means retirement
-                    // is in flight, which is the same legitimate state the outer
-                    // arm waits on — refusing it would reinstate exactly the
-                    // terminal refusal this path exists to remove.
-                    guard
-                        let drainedBarriers = await installation.session
-                            .metadataRetirementBarriersForReload()
-                    else {
-                        throw BridgeDevelopmentProductHostError.sessionAlreadyOpen
-                    }
-                    try await awaitRetirementBarriers(drainedBarriers, of: installation)
-                    return
-                }
-                try await awaitRetirementBarriers(retirementBarriers, of: installation)
-            }
+            break
         case .workerReplacement:
             guard request.paneSessionId == paneSessionId else {
                 throw BridgeDevelopmentProductHostError.replacementPaneNotFound
