@@ -76,18 +76,44 @@ struct IPCJSONSchemaPreparedOneOf: Sendable {
     let discriminator: IPCJSONSchemaPreparedDiscriminator?
 }
 
+enum IPCJSONSchemaDiscriminatorKey: Hashable, Sendable {
+    enum Kind: Equatable, Sendable {
+        case encodedScalar
+        case canonicalString
+    }
+
+    case encodedScalar(Data)
+    case canonicalString(String)
+
+    var kind: Kind {
+        switch self {
+        case .encodedScalar:
+            .encodedScalar
+        case .canonicalString:
+            .canonicalString
+        }
+    }
+}
+
 struct IPCJSONSchemaPreparedDiscriminator: Sendable {
     let fieldName: String
-    let alternativeIndexesByValue: [Data: Int]
+    let keyKind: IPCJSONSchemaDiscriminatorKey.Kind
+    let alternativeIndexesByValue: [IPCJSONSchemaDiscriminatorKey: Int]
 
     func alternativeIndex(for value: IPCSchemaValue) -> Int? {
         guard case .object(let fields) = value,
-            let discriminatorValue = fields[fieldName],
-            let encodedValue = discriminatorValue.scalarEncoding
+            let discriminatorValue = fields[fieldName]
         else {
             return nil
         }
-        return alternativeIndexesByValue[encodedValue]
+        switch keyKind {
+        case .encodedScalar:
+            guard let encodedValue = discriminatorValue.scalarEncoding else { return nil }
+            return alternativeIndexesByValue[.encodedScalar(encodedValue)]
+        case .canonicalString:
+            guard case .string(let stringValue) = discriminatorValue else { return nil }
+            return alternativeIndexesByValue[.canonicalString(stringValue)]
+        }
     }
 }
 
@@ -103,20 +129,21 @@ extension IPCSchemaValue {
 }
 
 extension IPCJSONSchema {
-    fileprivate var scalarLiteralEncoding: Data? {
+    fileprivate var scalarDiscriminatorKey: IPCJSONSchemaDiscriminatorKey? {
         switch self {
         case .literalValue(let literal):
-            guard let value = try? literal.value() else { return nil }
-            return value.scalarEncoding
+            guard let value = try? literal.value(), let encoding = value.scalarEncoding else { return nil }
+            return .encodedScalar(encoding)
         case .booleanConstant(let value):
-            return IPCSchemaValue.boolean(value).scalarEncoding
+            guard let encoding = IPCSchemaValue.boolean(value).scalarEncoding else { return nil }
+            return .encodedScalar(encoding)
         case .string(let constraints):
             guard let allowedValues = constraints.allowedValues, allowedValues.count == 1,
                 let onlyValue = allowedValues.first
             else {
                 return nil
             }
-            return IPCSchemaValue.string(onlyValue).scalarEncoding
+            return .canonicalString(onlyValue)
         case .object, .dictionary, .array, .integer, .number, .boolean, .null, .oneOf, .schemaDocument:
             return nil
         }
@@ -214,21 +241,30 @@ struct IPCValidatedJSONSchema: Sendable {
         guard alternativeFields.count == alternatives.count else { return nil }
 
         for candidate in firstFields where candidate.presence == .required {
-            var indexesByValue: [Data: Int] = [:]
+            var indexesByValue: [IPCJSONSchemaDiscriminatorKey: Int] = [:]
+            var keyKind: IPCJSONSchemaDiscriminatorKey.Kind?
             var isDisjoint = true
             for (index, fields) in alternativeFields.enumerated() {
                 guard let field = fields.first(where: { $0.name == candidate.name }),
                     field.presence == .required,
-                    let literalEncoding = field.schema.scalarLiteralEncoding,
-                    indexesByValue.updateValue(index, forKey: literalEncoding) == nil
+                    let discriminatorKey = field.schema.scalarDiscriminatorKey
                 else {
                     isDisjoint = false
                     break
                 }
+                if let keyKind, keyKind != discriminatorKey.kind {
+                    return nil
+                }
+                keyKind = discriminatorKey.kind
+                guard indexesByValue.updateValue(index, forKey: discriminatorKey) == nil else {
+                    isDisjoint = false
+                    break
+                }
             }
-            if isDisjoint {
+            if isDisjoint, let keyKind {
                 return IPCJSONSchemaPreparedDiscriminator(
                     fieldName: candidate.name,
+                    keyKind: keyKind,
                     alternativeIndexesByValue: indexesByValue
                 )
             }

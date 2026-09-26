@@ -262,6 +262,94 @@ struct IPCJSONSchemaTests {
         }
     }
 
+    @Test("string-enum discriminator matches canonical string equality")
+    func preparedStringEnumDiscriminatorMatchesCanonicalStringEquality() throws {
+        let composed = "\u{00E9}"
+        let decomposed = "e\u{0301}"
+        let firstAlternative = stringEnumDiscriminatorFixtureAlternative(value: composed, payloadFieldName: "text")
+        let schema = IPCJSONSchema.oneOf([
+            firstAlternative,
+            stringEnumDiscriminatorFixtureAlternative(value: "other", payloadFieldName: "enabled"),
+        ])
+        let preparedSchema = try IPCValidatedJSONSchema(schema: schema)
+        let input = Data("{\"kind\":\"\(decomposed)\",\"text\":\"hello\"}".utf8)
+        let preparedOutcome = normalizationOutcome { try preparedSchema.normalize(input) }
+        let tryAllOutcome = normalizationOutcome { try schema.normalize(input) }
+
+        #expect(preparedOutcome == tryAllOutcome)
+        #expect(preparedOutcome == .success(try firstAlternative.normalize(input)))
+    }
+
+    @Test("canonically equivalent string-enum discriminators remain ambiguous")
+    func preparedStringEnumDiscriminatorPreservesCanonicalAmbiguity() throws {
+        let composed = "\u{00E9}"
+        let decomposed = "e\u{0301}"
+        let schema = IPCJSONSchema.oneOf([
+            stringEnumDiscriminatorFixtureAlternative(value: composed, payloadFieldName: "value"),
+            stringEnumDiscriminatorFixtureAlternative(value: decomposed, payloadFieldName: "value"),
+        ])
+        let preparedSchema = try IPCValidatedJSONSchema(schema: schema)
+        let inputs = [composed, decomposed].map { kind in
+            Data("{\"kind\":\"\(kind)\",\"value\":\"same\"}".utf8)
+        }
+        let ambiguous = IPCSchemaNormalizationOutcome.failure(
+            path: "$",
+            reason: IPCSchemaValidationError.Reason.ambiguousAlternative.rawValue
+        )
+
+        for input in inputs {
+            let preparedOutcome = normalizationOutcome { try preparedSchema.normalize(input) }
+            let tryAllOutcome = normalizationOutcome { try schema.normalize(input) }
+
+            #expect(preparedOutcome == tryAllOutcome)
+            #expect(preparedOutcome == ambiguous)
+        }
+    }
+
+    @Test("string-enum discriminator matches Kelvin sign canonical equality")
+    func preparedStringEnumDiscriminatorMatchesKelvinSign() throws {
+        let firstAlternative = stringEnumDiscriminatorFixtureAlternative(value: "K", payloadFieldName: "value")
+        let schema = IPCJSONSchema.oneOf([
+            firstAlternative,
+            stringEnumDiscriminatorFixtureAlternative(value: "other", payloadFieldName: "other"),
+        ])
+        let preparedSchema = try IPCValidatedJSONSchema(schema: schema)
+        let input = Data("{\"kind\":\"\u{212A}\",\"value\":\"hello\"}".utf8)
+        let preparedOutcome = normalizationOutcome { try preparedSchema.normalize(input) }
+        let tryAllOutcome = normalizationOutcome { try schema.normalize(input) }
+
+        #expect(preparedOutcome == tryAllOutcome)
+        #expect(preparedOutcome == .success(try firstAlternative.normalize(input)))
+    }
+
+    @Test("mixed literal and string-enum discriminator preserves try-all outcomes")
+    func preparedOneOfMixedDiscriminatorKindsMatchTryAll() throws {
+        let composed = "\u{00E9}"
+        let decomposed = "e\u{0301}"
+        let literalAlternative = IPCJSONSchema.object(fields: [
+            .init(name: "kind", description: "Operation", schema: try .literal(composed)),
+            .init(name: "value", description: "Payload", schema: .string()),
+        ])
+        let enumAlternative = stringEnumDiscriminatorFixtureAlternative(value: decomposed, payloadFieldName: "value")
+        let schema = IPCJSONSchema.oneOf([literalAlternative, enumAlternative])
+        let preparedSchema = try IPCValidatedJSONSchema(schema: schema)
+        let inputs = [composed, decomposed].map { kind in
+            Data("{\"kind\":\"\(kind)\",\"value\":\"same\"}".utf8)
+        }
+        let ambiguous = IPCSchemaNormalizationOutcome.failure(
+            path: "$",
+            reason: IPCSchemaValidationError.Reason.ambiguousAlternative.rawValue
+        )
+
+        let composedOutcome = normalizationOutcome { try preparedSchema.normalize(inputs[0]) }
+        #expect(composedOutcome == normalizationOutcome { try schema.normalize(inputs[0]) })
+        #expect(composedOutcome == ambiguous)
+
+        let decomposedOutcome = normalizationOutcome { try preparedSchema.normalize(inputs[1]) }
+        #expect(decomposedOutcome == normalizationOutcome { try schema.normalize(inputs[1]) })
+        #expect(decomposedOutcome == .success(try enumAlternative.normalize(inputs[1])))
+    }
+
     @Test("prepared oneOf keeps try-all for schemas without a disjoint literal proof")
     func preparedOneOfFallsBackWhenLiteralProofIsIncomplete() throws {
         let duplicateLiteral = IPCJSONSchema.oneOf([
@@ -345,6 +433,13 @@ private func discriminatorFixtureAlternative(literal: String) -> IPCJSONSchema {
     .object(fields: [
         .init(name: "kind", description: "Operation", schema: .string(allowedValues: [literal])),
         .init(name: "value", description: "Value", schema: .string()),
+    ])
+}
+
+private func stringEnumDiscriminatorFixtureAlternative(value: String, payloadFieldName: String) -> IPCJSONSchema {
+    .object(fields: [
+        .init(name: "kind", description: "Operation", schema: .string(allowedValues: [value])),
+        .init(name: payloadFieldName, description: "Payload", schema: .string()),
     ])
 }
 
