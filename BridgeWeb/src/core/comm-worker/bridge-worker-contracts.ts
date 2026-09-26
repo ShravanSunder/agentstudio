@@ -620,6 +620,7 @@ export const bridgeWorkerHealthEventSchema = bridgeWorkerServerToMainBaseSchema
 		requestId: bridgeWorkerRequestIdSchema.optional(),
 		status: z.enum(['ready', 'degraded']),
 		deliveryStatus: z.enum(['unknownAfterDispatch']).optional(),
+		errorKind: z.enum(['transport', 'requestRefused', 'invalidResult', 'unexpected']).optional(),
 		diagnostic: bridgeWorkerHealthDiagnosticSchema.optional(),
 		message: z.string().min(1).optional(),
 	})

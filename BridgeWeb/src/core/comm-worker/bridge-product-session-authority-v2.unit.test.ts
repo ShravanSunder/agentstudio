@@ -50,6 +50,82 @@ const bootstrap: BridgeProductSessionBootstrap = {
 };
 
 describe('Bridge product v2 control admission', () => {
+	test('a lost acknowledgement cannot replace a known succeeded mutation result', async () => {
+		const replayedAck = createBridgeProductDeferred<void>();
+		const acknowledgementBodies: string[] = [];
+		const executeProductRequest: BridgeProductRequestExecutor = async (_route, requestInit) => {
+			if (!(requestInit.body instanceof Uint8Array)) {
+				throw new Error('Bridge product command did not send encoded bytes.');
+			}
+			const body = new TextDecoder().decode(requestInit.body);
+			const command = commandSchema.parse(JSON.parse(body));
+			if (command.kind === 'operation.result') {
+				const opening = command.operationId === 'operation-open';
+				return jsonResponse({
+					failureCode: null,
+					kind: 'operation.result',
+					operationId: command.operationId,
+					outcome: 'succeeded',
+					result: opening
+						? {
+								...sessionIdentity,
+								kind: 'workerSession.accepted',
+								requestId: 'worker-session-open-1',
+								requestSequence: 1,
+								result: null,
+							}
+						: {
+								...sessionIdentity,
+								call: { method: 'review.markFileViewed', result: null },
+								kind: 'call.completed',
+								requestId: 'request-1',
+								requestSequence: 3,
+							},
+				});
+			}
+			if (command.kind === 'operation.resultAcknowledgement') {
+				if (command.operationId === 'operation-save') {
+					acknowledgementBodies.push(body);
+					if (acknowledgementBodies.length === 1) {
+						return new Response('gateway lost reply', { status: 502 });
+					}
+					replayedAck.resolve();
+				}
+				return jsonResponse({ ...command, kind: 'operation.resultAcknowledged' });
+			}
+			return jsonResponse({
+				...commandCorrelation(command),
+				kind: 'operation.admitted',
+				operationId: command.kind === 'workerSession.open' ? 'operation-open' : 'operation-save',
+				waitKind: 'ordinary',
+			});
+		};
+		const authority = new BridgeProductSessionAuthorityStore(
+			executeProductRequest,
+			noDeadlineClock,
+		).install({
+			bootstrap,
+			productCapability: new ArrayBuffer(BRIDGE_PRODUCT_CAPABILITY_BYTE_LENGTH),
+		});
+		const mux = new BridgeProductControlMux({
+			authority,
+			createRequestId: (): string => 'request-1',
+			deadlineClock: noDeadlineClock,
+			executeProductRequest,
+		});
+		await authority.open;
+		await expect(
+			mux.call({
+				method: 'review.markFileViewed',
+				request: { itemId: 'review-item-1' },
+				workerDerivationEpoch: 1,
+			}),
+		).resolves.toBeNull();
+		await replayedAck.promise;
+		expect(acknowledgementBodies).toHaveLength(2);
+		expect(acknowledgementBodies[1]).toBe(acknowledgementBodies[0]);
+	});
+
 	test('an unanswered operation result does not hold the next admission or result', async () => {
 		const heldResult = createBridgeProductDeferred<Response>();
 		const heldResultRequested = createBridgeProductDeferred<void>();
@@ -137,6 +213,7 @@ describe('Bridge product v2 control admission', () => {
 				workerDerivationEpoch: 1,
 			}),
 		).resolves.toBeNull();
+		await mux.waitForAcknowledgementsQuiescent();
 		expect(admittedSequences).toEqual([1, 3, 4]);
 		expect(acknowledgedOperations).toEqual(['operation-open', 'operation-second']);
 
@@ -156,6 +233,7 @@ describe('Bridge product v2 control admission', () => {
 			}),
 		);
 		await expect(first).resolves.toBeNull();
+		await mux.waitForAcknowledgementsQuiescent();
 		expect(acknowledgedOperations).toEqual([
 			'operation-open',
 			'operation-second',

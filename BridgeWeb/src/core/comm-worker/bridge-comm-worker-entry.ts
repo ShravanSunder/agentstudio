@@ -54,7 +54,9 @@ export interface BridgeCommWorkerGlobalScope {
 
 export interface BridgeCommWorkerEntryDependencies {
 	readonly installProductSession: (
-		input: BridgeProductSessionAuthorityInstallInput,
+		input: BridgeProductSessionAuthorityInstallInput & {
+			readonly publishSessionSuspect?: (reason: 'admissionReplyExhausted') => void;
+		},
 	) => BridgeCommWorkerInstalledProductSession;
 }
 
@@ -171,6 +173,16 @@ export function bootstrapBridgeCommWorkerEntry(
 			const productSession = dependencies.installProductSession({
 				bootstrap: parsedInstall.data.bootstrap,
 				productCapability: parsedInstall.data.productCapability,
+				publishSessionSuspect: (reason): void =>
+					parsedInstall.data.productPort.postMessage({
+						direction: 'serverWorkerToMain',
+						kind: 'sessionSuspect',
+						paneSessionId: parsedInstall.data.bootstrap.paneSessionId,
+						reason,
+						transferDescriptors: [],
+						wireVersion: BRIDGE_WORKER_WIRE_VERSION,
+						workerInstanceId: parsedInstall.data.bootstrap.workerInstanceId,
+					}),
 			});
 			installedProductPort = parsedInstall.data.productPort;
 			bootstrapBridgeCommWorkerRuntimeEntry(
@@ -218,11 +230,17 @@ function bridgeCommWorkerEntryDependencies(
 	);
 	return {
 		installProductSession: (input): BridgeCommWorkerInstalledProductSession => {
-			const authority = productSessionAuthority.install(input);
+			const authority = productSessionAuthority.install({
+				bootstrap: input.bootstrap,
+				productCapability: input.productCapability,
+			});
 			const controlMux = new BridgeProductControlMux({
 				authority,
 				...(props.deadlineClock === undefined ? {} : { deadlineClock: props.deadlineClock }),
 				executeProductRequest: props.executeProductRequest,
+				...(input.publishSessionSuspect === undefined
+					? {}
+					: { onSessionSuspect: input.publishSessionSuspect }),
 			});
 			return {
 				open: authority.open,

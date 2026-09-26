@@ -501,6 +501,7 @@ describe('Bridge comm worker annotation runtime protocol', () => {
 		expect(postedMessages.map(({ message }) => message)).toContainEqual(
 			expect.objectContaining({
 				kind: 'health',
+				errorKind: 'unexpected',
 				message: 'Bridge comm worker failed to forward review.annotations.command.',
 				requestId: 'review-failure-request',
 				status: 'degraded',

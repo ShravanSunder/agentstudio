@@ -457,6 +457,7 @@ describe('Bridge product session authority', () => {
 
 		await expect(call).resolves.toBeNull();
 		const [openResult, updateResult, cancelResult] = await Promise.all([open, update, cancel]);
+		await mux.waitForAcknowledgementsQuiescent();
 		expect([openResult.kind, updateResult.kind, cancelResult.kind]).toEqual([
 			'subscription.openAccepted',
 			'subscription.updateBatchAccepted',
@@ -477,13 +478,13 @@ describe('Bridge product session authority', () => {
 			);
 		expect(controlBodies.map((body) => [body.kind, body.requestSequence])).toEqual([
 			['product.call', 3],
-			['subscription.open', 4],
-			['subscription.updateBatch', 5],
-			['subscription.cancel', 6],
+			['subscription.cancel', 4],
+			['subscription.open', 6],
+			['subscription.updateBatch', 7],
 		]);
 		expect(controlBodies.slice(1).map((body) => body.workerDerivationEpoch)).toEqual([7, 7, 7]);
 		expect(controlBodies[1]).not.toHaveProperty('surface');
-		expect(controlBodies[2]).toMatchObject({
+		expect(controlBodies.find((body) => body.kind === 'subscription.updateBatch')).toMatchObject({
 			delta: { subscriptionKind: 'review.metadata' },
 			subscriptionKind: 'review.metadata',
 		});

@@ -18,6 +18,7 @@ import {
 } from './bridge-comm-worker-runtime-health.js';
 import type { BridgeCommWorkerProductControlSender } from './bridge-comm-worker-runtime-protocol-contracts.js';
 import { sendBridgeCommWorkerActionWithTimeout } from './bridge-comm-worker-runtime-support.js';
+import { BridgeProductRequestTransportError } from './bridge-product-command-post.js';
 import {
 	BridgeProductControlRequestError,
 	BridgeProductSessionSuspectError,
@@ -203,6 +204,7 @@ export function dispatchBridgeCommWorkerRuntimeProductControl(props: {
 				props.publish(
 					buildBridgeWorkerRuntimeCommandFailedHealthEvent({
 						requestId: productControlCommand.requestId,
+						errorKind: classifyProductControlForwardingError(error),
 						message: bridgeCommWorkerProductControlFailureMessage({
 							command: productControlCommand.command,
 						}),
@@ -245,4 +247,15 @@ export function dispatchBridgeCommWorkerRuntimeProductControl(props: {
 				),
 			);
 	}
+}
+
+function classifyProductControlForwardingError(
+	error: unknown,
+): 'transport' | 'requestRefused' | 'invalidResult' | 'unexpected' {
+	if (error instanceof BridgeProductRequestTransportError) return 'transport';
+	if (error instanceof BridgeProductControlRequestError) return 'requestRefused';
+	if (error instanceof SyntaxError || (error instanceof Error && error.name === 'ZodError')) {
+		return 'invalidResult';
+	}
+	return 'unexpected';
 }
