@@ -14,7 +14,6 @@ extension CommandBarPanelController {
     /// Asks the fork-eligibility port about a text-entry level's source once per bar session,
     /// off the main actor, and records the answer as bar-local state. The row shows Fork
     /// while pending.
-    @discardableResult
     func requestForkEligibilityIfNeeded(for level: CommandBarLevel) -> Task<Void, Never>? {
         guard
             let query = level.textEntry?.forkEligibilityQuery,

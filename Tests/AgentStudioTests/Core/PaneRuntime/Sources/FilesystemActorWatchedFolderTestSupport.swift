@@ -1,4 +1,5 @@
 import AgentStudioInfrastructure
+import AgentStudioTestHarness
 import Foundation
 
 @testable import AgentStudioCore
@@ -97,8 +98,7 @@ actor TopologyEventRecorder {
 /// so actor work can be ordered between a scan starting and its acceptance returning.
 actor WatchedFolderScanAcceptanceGate {
     private var isArmed = false
-    private var isOpen = false
-    private var parkedSubmission: CheckedContinuation<Void, Never>?
+    private var heldSubmission: HeldStep<Void>?
 
     nonisolated var port: WatchedFolderScanSubmissionPort {
         WatchedFolderScanSubmissionPort { scheduler, request, intent in
@@ -110,19 +110,16 @@ actor WatchedFolderScanAcceptanceGate {
 
     func arm() {
         isArmed = true
-        isOpen = false
+        heldSubmission = HeldStep<Void>("watchedFolderScanAcceptance", cancellation: .holdThroughCancellation)
     }
 
     func open() {
-        isOpen = true
-        parkedSubmission?.resume()
-        parkedSubmission = nil
+        heldSubmission?.release()
     }
 
     private func holdIfArmed() async {
-        guard isArmed else { return }
+        guard isArmed, let heldSubmission else { return }
         isArmed = false
-        guard !isOpen else { return }
-        await withCheckedContinuation { parkedSubmission = $0 }
+        try? await heldSubmission.arrive(())
     }
 }

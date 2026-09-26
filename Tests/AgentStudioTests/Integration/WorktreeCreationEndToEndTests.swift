@@ -127,8 +127,7 @@ private func createThroughDispatcher(
     await system.cacheCoordinator.startConsuming()
     let watchedPath = try #require(system.store.mutationCoordinator.addWatchedPath(fixture.watchedRoot))
     _ = await system.pipeline.refreshWatchedFolders([watchedPath])
-    await awaitTopology(system.store) { mainWorktree(in: system.store, fixture: fixture) != nil }
-    let source = try #require(mainWorktree(in: system.store, fixture: fixture))
+    let source = await awaitTopology(system.store) { mainWorktree(in: system.store, fixture: fixture) }
     let delegate = AppDelegate()
     delegate.store = system.store
     delegate.installWorktreeCreationCoordinator(publication: system.pipeline)
@@ -146,8 +145,7 @@ private func createThroughDispatcher(
     // A creation the coordinator refused would otherwise leave the topology wait below
     // with nothing to wake it.
     try #require(FileManager.default.fileExists(atPath: fixture.destination.path), "creation produced no worktree")
-    await awaitTopology(system.store) { linkedWorktree(in: system.store, fixture: fixture) != nil }
-    let created = try #require(linkedWorktree(in: system.store, fixture: fixture))
+    let created = await awaitTopology(system.store) { linkedWorktree(in: system.store, fixture: fixture) }
     return CreationThroughDispatcher(accepted: accepted, created: created, sourceRepoId: source.repoId)
 }
 
@@ -180,12 +178,18 @@ private func linkedWorktree(in store: WorkspaceStore, fixture: EndToEndFixture) 
 /// Awaits observed topology changes until the predicate holds. Each wake is a
 /// topology mutation, never a scheduler turn or a clock.
 @MainActor
-private func awaitTopology(_ store: WorkspaceStore, until predicate: @escaping @MainActor () -> Bool) async {
-    while !predicate() {
+private func awaitTopology<TObservation: Sendable>(
+    _ store: WorkspaceStore,
+    until observe: @escaping @MainActor () -> TObservation?
+) async -> TObservation {
+    while true {
+        if let observation = observe() {
+            return observation
+        }
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
             withObservationTracking {
                 _ = store.repositoryTopologyAtom.repos
-                _ = predicate()
+                _ = observe()
             } onChange: {
                 continuation.resume()
             }

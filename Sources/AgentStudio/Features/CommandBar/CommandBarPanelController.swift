@@ -412,7 +412,8 @@ package final class CommandBarPanelController {
             dispatcher.dispatch(command, target: target, targetType: targetType)
         case .navigate(let level):
             state.pushLevel(level)
-            requestForkEligibilityIfNeeded(for: level)
+            // fire-and-forget: the bar retains the query until it completes; session generation rejects stale answers.
+            _ = requestForkEligibilityIfNeeded(for: level)
         case .navigateRepo(let repositoryID):
             guard
                 let repository = store.repositoryTopologyAtom.repo(repositoryID),

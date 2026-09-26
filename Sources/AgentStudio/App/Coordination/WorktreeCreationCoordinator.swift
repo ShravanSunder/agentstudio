@@ -45,8 +45,7 @@ final class WorktreeCreationCoordinator {
 
     /// Accepts a creation; the returned task finishes once the worktree is published or
     /// the failure has been presented.
-    @discardableResult
-    func create(_ request: WorktreeCreationRequest) -> Task<WorktreeCreationOutcome, Never> {
+    func startCreation(_ request: WorktreeCreationRequest) -> Task<WorktreeCreationOutcome, Never> {
         let creationID = UUIDv7.generate()
         let task = Task { @MainActor [weak self] () -> WorktreeCreationOutcome in
             guard let self else { return .failed(.sourceUnavailable) }

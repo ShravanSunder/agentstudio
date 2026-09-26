@@ -23,7 +23,7 @@ struct WorktreeCreationCoordinatorTests {
         let presented = PresentedFailures()
         let coordinator = Self.makeCoordinator(fixture: fixture, ledger: ledger, presented: presented)
 
-        let outcome = await coordinator.create(try fixture.request(branch: "feat/ledger")).value
+        let outcome = await coordinator.startCreation(try fixture.request(branch: "feat/ledger")).value
 
         let destination = fixture.watchedRoot.appending(path: "repo.feat-ledger", directoryHint: .isDirectory)
             .standardizedFileURL
@@ -53,7 +53,7 @@ struct WorktreeCreationCoordinatorTests {
         let coordinator = Self.makeCoordinator(
             fixture: fixture, ledger: ledger, presented: presented, createError: gitError)
 
-        let outcome = await coordinator.create(try fixture.request(branch: "feat/exists")).value
+        let outcome = await coordinator.startCreation(try fixture.request(branch: "feat/exists")).value
 
         #expect(outcome == .failed(.gitFailure(gitError)))
         let events = await ledger.events
@@ -72,7 +72,7 @@ struct WorktreeCreationCoordinatorTests {
         let coordinator = Self.makeCoordinator(
             fixture: fixture, ledger: ledger, presented: presented, existingPaths: [destination])
 
-        let outcome = await coordinator.create(try fixture.request(branch: "taken")).value
+        let outcome = await coordinator.startCreation(try fixture.request(branch: "taken")).value
 
         #expect(outcome == .failed(.destinationRejected(.destinationExists(destination))))
         #expect(await ledger.events.isEmpty)
@@ -86,7 +86,7 @@ struct WorktreeCreationCoordinatorTests {
         let presented = PresentedFailures()
         let coordinator = Self.makeCoordinator(fixture: fixture, ledger: ledger, presented: presented)
 
-        let outcome = await coordinator.create(try fixture.request(branch: "fork/ledger", kind: .fork)).value
+        let outcome = await coordinator.startCreation(try fixture.request(branch: "fork/ledger", kind: .fork)).value
 
         let destination = fixture.watchedRoot.appending(path: "repo.fork-ledger", directoryHint: .isDirectory)
             .standardizedFileURL
@@ -115,7 +115,7 @@ struct WorktreeCreationCoordinatorTests {
         let coordinator = Self.makeCoordinator(
             fixture: fixture, ledger: ledger, presented: presented, forkError: forkError)
 
-        let outcome = await coordinator.create(try fixture.request(branch: "fork/rejected", kind: .fork)).value
+        let outcome = await coordinator.startCreation(try fixture.request(branch: "fork/rejected", kind: .fork)).value
 
         #expect(outcome == .failed(.forkFailure(forkError)))
         let events = await ledger.events
@@ -132,7 +132,7 @@ struct WorktreeCreationCoordinatorTests {
         let coordinator = Self.makeCoordinator(
             fixture: fixture, ledger: ledger, presented: presented, probeThreads: probeThreads)
 
-        _ = await coordinator.create(try fixture.request(branch: "off-main")).value
+        _ = await coordinator.startCreation(try fixture.request(branch: "off-main")).value
 
         let observations = probeThreads.observations
         #expect(!observations.isEmpty)

@@ -210,12 +210,13 @@ struct CommandBarWorktreeCreationTests {
 
         let pendingRow = try #require(
             Self.snapshot(controller: controller, store: fixture.store, dispatcher: dispatcher).displayedItems.first)
-        await awaitForkEligibility(of: fixture.worktree.id, in: controller.state)
+        let observedEligibility = await awaitForkEligibility(of: fixture.worktree.id, in: controller.state)
         let answeredRow = try #require(
             Self.snapshot(controller: controller, store: fixture.store, dispatcher: dispatcher).displayedItems.first)
         controller.executeItem(answeredRow, modifier: .plain)
 
         #expect(pendingRow.secondaryLine?.text == AppCommand.forkWorktree.definition.helpText)
+        #expect(observedEligibility == .unavailable(reason: "the volume cannot clone files"))
         #expect(
             answeredRow.secondaryLine?.text
                 == "Create clean worktree — fork unavailable here: the volume cannot clone files")
@@ -239,11 +240,12 @@ struct CommandBarWorktreeCreationTests {
         try Self.openBranchLevel(controller: controller, store: fixture.store, source: fixture.worktree)
         controller.state.rawInput = "feature/forked"
 
-        await awaitForkEligibility(of: fixture.worktree.id, in: controller.state)
+        let observedEligibility = await awaitForkEligibility(of: fixture.worktree.id, in: controller.state)
         let row = try #require(
             Self.snapshot(controller: controller, store: fixture.store, dispatcher: dispatcher).displayedItems.first)
         controller.executeItem(row, modifier: .plain)
 
+        #expect(observedEligibility == .available)
         #expect(row.secondaryLine?.text == AppCommand.forkWorktree.definition.helpText)
         #expect(dispatcher.worktreeCreationDispatches.map(\.kind) == [.fork])
     }
@@ -302,7 +304,8 @@ struct CommandBarWorktreeCreationTests {
         let controller = Self.makeController(
             store: fixture.store, dispatcher: dispatcher, worktreeForkEligibility: checker)
         try Self.openBranchLevel(controller: controller, store: fixture.store, source: fixture.worktree)
-        await checker.awaitQueries(count: 1)
+        let firstQueryCount = await checker.awaitQueries(count: 1)
+        #expect(firstQueryCount == 1)
         controller.dismiss()
         try Self.openBranchLevel(controller: controller, store: fixture.store, source: fixture.worktree)
         controller.state.rawInput = "feature/reopened"
@@ -454,8 +457,14 @@ private actor RecordingForkEligibilityChecker: WorktreeForkEligibilityChecking {
 /// Awaits observed changes to the bar's eligibility answers until one exists for the
 /// source; each wake is a state mutation, never a scheduler turn.
 @MainActor
-private func awaitForkEligibility(of sourceWorktreeId: UUID, in state: CommandBarState) async {
-    while state.forkEligibilityBySourceWorktreeId[sourceWorktreeId] == nil {
+private func awaitForkEligibility(
+    of sourceWorktreeId: UUID,
+    in state: CommandBarState
+) async -> WorktreeForkEligibility {
+    while true {
+        if let eligibility = state.forkEligibilityBySourceWorktreeId[sourceWorktreeId] {
+            return eligibility
+        }
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
             withObservationTracking {
                 _ = state.forkEligibilityBySourceWorktreeId
@@ -506,9 +515,11 @@ private actor SequencedForkEligibilityChecker: WorktreeForkEligibilityChecking {
         return await withCheckedContinuation { parkedQueriesByIndex[index] = $0 }
     }
 
-    func awaitQueries(count: Int) async {
-        guard arrivedQueryCount < count else { return }
-        await withCheckedContinuation { arrivalWaiters.append((count, $0)) }
+    func awaitQueries(count: Int) async -> Int {
+        if arrivedQueryCount < count {
+            await withCheckedContinuation { arrivalWaiters.append((count, $0)) }
+        }
+        return arrivedQueryCount
     }
 
     func answerQuery(at index: Int, with eligibility: WorktreeForkEligibility) {

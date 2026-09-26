@@ -43,7 +43,8 @@ extension AppDelegate {
         else {
             return .unavailable(.featureUnavailable)
         }
-        worktreeCreationCoordinator.create(request)
+        // fire-and-forget: the coordinator retains the task until publication or failure and exposes waitUntilIdle.
+        _ = worktreeCreationCoordinator.startCreation(request)
         return .accepted(operationId: nil)
     }
 
