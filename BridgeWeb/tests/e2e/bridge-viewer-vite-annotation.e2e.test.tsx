@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 
-import { chromium, type Browser, type Page } from 'playwright';
+import type { Browser, Page } from 'playwright';
 import { expect, onTestFailed, test } from 'vitest';
 
 import {
@@ -8,6 +8,7 @@ import {
 	selectReviewFile,
 	waitForSelectedReviewReady,
 } from './bridge-viewer-vite-annotation-save-journey.ts';
+import { launchBridgeViewerE2EChromium } from './bridge-viewer-vite-e2e-browser.ts';
 import { bridgeViewerViteFileCollectionPath } from './bridge-viewer-vite-file-collection-path.ts';
 import {
 	createBridgeViewerViteProductFixture,
@@ -109,7 +110,7 @@ test.each([
 			if (surface === 'review' && reviewFile === undefined) {
 				throw new Error('Review annotation persistence journey requires a changed review file.');
 			}
-			browser = await chromium.launch({ channel: 'chrome', headless: true });
+			browser = await launchBridgeViewerE2EChromium();
 			page = await browser.newPage({ viewport: { height: 980, width: 1728 } });
 			// The vitest hang bound is the only clock this journey is allowed.
 			page.setDefaultTimeout(0);

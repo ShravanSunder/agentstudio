@@ -50,7 +50,6 @@ struct PaneTabViewControllerEditorChooserCommandTests {
             preferenceAtom: editorPreference,
             runtimeAtom: editorChooserRuntime
         )
-        let inboxAtom = InboxNotificationAtom()
         let coordinator = WorkspaceSurfaceCoordinator(
             store: store,
             viewRegistry: viewRegistry,

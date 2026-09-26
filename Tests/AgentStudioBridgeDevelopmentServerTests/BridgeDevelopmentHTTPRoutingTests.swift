@@ -3,6 +3,7 @@ import Foundation
 import HTTPTypes
 import Hummingbird
 import HummingbirdTesting
+import Synchronization
 import Testing
 import WebKit
 
@@ -102,6 +103,42 @@ struct BridgeDevelopmentHTTPRoutingTests {
                     #expect(response.status == .noContent)
                     #expect(response.body.readableBytes == 0)
                 }
+            }
+        }
+    }
+
+    @Test("a live server announces one readiness line naming its bound port once it is listening")
+    func liveServerAnnouncesReadinessAfterBinding() async throws {
+        // Arrange
+        let repositoryURL = try await FilesystemTestGitRepo.create(
+            named: "bridge-development-http-readiness-announcement"
+        )
+        defer { FilesystemTestGitRepo.destroy(repositoryURL) }
+        try await FilesystemTestGitRepo.seedTrackedAndUntrackedChanges(at: repositoryURL)
+        let host = try await makeHTTPDevelopmentProductHost(worktreeRoot: repositoryURL)
+        let announcedLines = Mutex<[String?]>([])
+        try await withDevelopmentHost(host) {
+            let application = BridgeDevelopmentHTTPApplication.make(
+                host: host,
+                onServerRunning: { channel in
+                    let line = BridgeDevelopmentServerReadinessAnnouncement.line(
+                        boundTo: channel,
+                        processIdentifier: 4242
+                    )
+                    announcedLines.withLock { $0.append(line) }
+                }
+            )
+
+            // Act — the live framework hands the client its port only after onServerRunning.
+            try await application.test(.live) { client in
+                let port = try #require(client.port)
+
+                // Assert
+                #expect(
+                    announcedLines.withLock { $0 } == [
+                        "bridge-development-server ready port=\(port) pid=4242\n"
+                    ]
+                )
             }
         }
     }

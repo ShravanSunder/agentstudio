@@ -1,6 +1,7 @@
 import AgentStudioAppIPC
 import AgentStudioInfrastructure
 import AgentStudioProgrammaticControl
+import AgentStudioTestHarness
 import Foundation
 import Testing
 
@@ -49,20 +50,24 @@ struct AgentStudioIPCOwnPaneEffectRecheckTests {
 
         // Causal barrier: hold the gesture queue so both later gestures are
         // queued before either runs, in submission order.
-        let gate = GestureGate()
+        let gestureQueueHold = HeldStep<Void>(
+            "own-pane action predecessor gesture",
+            cancellation: .holdThroughCancellation
+        )
         let barrier = executor.submitGesture { _ in
-            await gate.wait()
+            try? await gestureQueueHold.arrive(())
             return true
         }
-        let detach = executor.submit(.detachDrawerPane(parentPaneId: parent.id, drawerPaneId: child.id))
-        let agentClose = executor.submit(
+        try await gestureQueueHold.firstArrival()
+        let detach = executor.submitAction(.detachDrawerPane(parentPaneId: parent.id, drawerPaneId: child.id))
+        let agentClose = executor.submitOwnPaneScopedAction(
             .removeDrawerPane(parentPaneId: parent.id, drawerPaneId: child.id),
             ownPaneAssertion: WorkspaceOwnPaneAssertion(boundPaneId: parent.id)
         )
         // Authorization ran while the child was still the agent's own; the
         // assertion is only evaluated when the gesture runs.
         #expect(store.paneAtom.pane(child.id)?.parentPaneId == parent.id)
-        gate.open()
+        gestureQueueHold.release()
 
         #expect(await barrier.value)
         #expect(await detach.value)
@@ -164,23 +169,5 @@ private struct OwnPaneEffectScenario {
         tabId = tab.id
         parentPaneId = parent.id
         childPaneId = child.id
-    }
-}
-
-/// Holds the executor's gesture queue until the test opens it.
-@MainActor
-private final class GestureGate {
-    private var isOpen = false
-    private var waiter: CheckedContinuation<Void, Never>?
-
-    func wait() async {
-        guard !isOpen else { return }
-        await withCheckedContinuation { waiter = $0 }
-    }
-
-    func open() {
-        isOpen = true
-        waiter?.resume()
-        waiter = nil
     }
 }

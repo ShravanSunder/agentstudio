@@ -33,7 +33,7 @@ struct DarwinFSEventStreamClientActivationTests {
         let repositoryId = UUIDv7.generate()
         let firstWorktreeId = UUIDv7.generate()
         let secondWorktreeId = UUIDv7.generate()
-        client.register(worktreeId: firstWorktreeId, repoId: repositoryId, rootPath: firstRoot)
+        _ = client.register(worktreeId: firstWorktreeId, repoId: repositoryId, rootPath: firstRoot)
         let deliveredBatch = Task<FSEventBatch?, Never> {
             for await ingressItem in client.events() {
                 guard case .batch(let batch) = ingressItem,
@@ -48,7 +48,7 @@ struct DarwinFSEventStreamClientActivationTests {
         }
 
         // Act
-        client.register(worktreeId: secondWorktreeId, repoId: repositoryId, rootPath: secondRoot)
+        _ = client.register(worktreeId: secondWorktreeId, repoId: repositoryId, rootPath: secondRoot)
 
         // Assert — `deliveredBatch` is already the waiter: it returns the instant the
         // matching batch arrives, and nil if `client.events()` finishes. Racing a clock
@@ -76,7 +76,7 @@ struct DarwinFSEventStreamClientActivationTests {
         let repositoryId = UUIDv7.generate()
         let firstWorktreeId = UUIDv7.generate()
         let secondWorktreeId = UUIDv7.generate()
-        client.register(worktreeId: firstWorktreeId, repoId: repositoryId, rootPath: firstRoot)
+        _ = client.register(worktreeId: firstWorktreeId, repoId: repositoryId, rootPath: firstRoot)
         let fenceConsumer = Task {
             for await ingressItem in client.events() {
                 guard case .activityProcessingFence(let fenceID) = ingressItem else { continue }
@@ -96,7 +96,7 @@ struct DarwinFSEventStreamClientActivationTests {
         #expect(await client.captureActivityBarrier() == nil)
 
         streamFactory.releaseReplacementFlush()
-        await registrationTask.value
+        _ = await registrationTask.value
         let settledBarrier = try #require(await client.captureActivityBarrier())
         #expect(Set(settledBarrier.bindings.map(\.worktreeId)) == [firstWorktreeId, secondWorktreeId])
     }

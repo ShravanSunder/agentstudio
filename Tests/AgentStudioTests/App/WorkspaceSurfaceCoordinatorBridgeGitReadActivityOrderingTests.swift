@@ -1,3 +1,4 @@
+import AgentStudioTestHarness
 import Foundation
 import Testing
 
@@ -20,22 +21,28 @@ extension WebKitSerializedTests {
             let setup = try makeActivityOrderingTestSetup()
             try await setup.installViewsAndVerifyInitialActivities()
 
-            let blockerGate = BridgeGitReadOperationGate(returnValue: "blocker")
-            let targetGate = BridgeGitReadOperationGate(returnValue: "target")
-            let peerGate = BridgeGitReadOperationGate(returnValue: "peer")
+            let blockerGate = HeldStep<Void>("blockerGate", cancellation: .holdThroughCancellation)
+            let targetGate = HeldStep<Void>("targetGate", cancellation: .holdThroughCancellation)
+            let peerGate = HeldStep<Void>("peerGate", cancellation: .holdThroughCancellation)
             let blockerRead = Task {
                 try await setup.scheduler.read(
                     request: makeBridgeGitReadRequest(worktree: "blocker", key: "blocker")
-                ) { await blockerGate.run() }
+                ) {
+                    try? await blockerGate.arrive(())
+                    return "blocker"
+                }
             }
-            await blockerGate.waitUntilStarted()
+            try await blockerGate.firstArrival()
             let targetRead = Task {
                 try await setup.scheduler.read(
                     request: makeBridgeGitReadRequest(
                         worktree: setup.targetWorktree.stableKey,
                         key: "target"
                     )
-                ) { await targetGate.run() }
+                ) {
+                    try? await targetGate.arrive(())
+                    return "target"
+                }
             }
             let peerRead = Task {
                 try await setup.scheduler.read(
@@ -43,7 +50,10 @@ extension WebKitSerializedTests {
                         worktree: setup.peerWorktree.stableKey,
                         key: "peer"
                     )
-                ) { await peerGate.run() }
+                ) {
+                    try? await peerGate.arrive(())
+                    return "peer"
+                }
             }
             _ = await setup.eventProbe.waitFor(.queued, occurrence: 3)
 
@@ -72,20 +82,20 @@ extension WebKitSerializedTests {
             setup.coordinator.closeBridgePaneActivityAuthority(for: setup.duplicateTargetPane.id)
             setup.coordinator.refreshBridgePaneActivities()
             await setup.coordinator.drainBridgeGitReadActivityPropagation()
-            await blockerGate.release()
+            blockerGate.release()
             let secondStart = await setup.eventProbe.waitFor(.started, occurrence: 2)
 
             // Assert — no older target update may overtake either close and restore stale rank.
             let expectedPeerKey = BridgeGitReadWorktreeKey(token: setup.peerWorktree.stableKey)
             #expect(secondStart.worktreeKey == expectedPeerKey)
             if secondStart.worktreeKey == expectedPeerKey {
-                await peerGate.release()
-                await targetGate.waitUntilStarted()
-                await targetGate.release()
+                peerGate.release()
+                try await targetGate.firstArrival()
+                targetGate.release()
             } else {
-                await targetGate.release()
-                await peerGate.waitUntilStarted()
-                await peerGate.release()
+                targetGate.release()
+                try await peerGate.firstArrival()
+                peerGate.release()
             }
             #expect(try await blockerRead.value == "blocker")
             #expect(try await targetRead.value == "target")

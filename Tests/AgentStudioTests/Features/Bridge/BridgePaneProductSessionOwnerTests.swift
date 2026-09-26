@@ -1,4 +1,5 @@
 import AgentStudioInfrastructure
+import AgentStudioTestHarness
 import AgentStudioTestSupport
 import Foundation
 import Testing
@@ -632,7 +633,7 @@ func startBridgePaneProductMetadataReply(
             )
         )
     }
-    await provider.waitUntilMetadataProducerStarted()
+    try await provider.waitUntilMetadataProducerStarted()
     return replyTask
 }
 
@@ -660,7 +661,7 @@ func startContentReply(
             )
         )
     }
-    await provider.waitUntilContentProducerStarted()
+    try await provider.waitUntilContentProducerStarted()
     return replyTask
 }
 
@@ -799,8 +800,8 @@ actor BridgePaneProductSessionProviderGate: BridgeProductSchemeProvider {
     private var acknowledgementWaiters: [CheckedContinuation<Bool, Never>] = []
     private var invocationWaiters: [(Int, CheckedContinuation<BridgeProductProducerLifecycleAcknowledgement, Never>)] =
         []
-    private let contentOperation = BridgeProductSessionProducerOperationGate()
-    private let metadataOperation = BridgeProductSessionProducerOperationGate()
+    private let contentOperation = HeldStep<BridgeProductProducerLease>("contentOperation")
+    private let metadataOperation = HeldStep<BridgeProductProducerLease>("metadataOperation")
     private var productCallResponseContinuation: CheckedContinuation<Void, Never>?
     private var productCallStartWaiters: [CheckedContinuation<Void, Never>] = []
     private var shouldHoldProductCallResponses = false
@@ -860,7 +861,7 @@ actor BridgePaneProductSessionProviderGate: BridgeProductSchemeProvider {
                     )
                 }
             )
-            await metadataOperation.run(lease)
+            try? await metadataOperation.arrive(lease)
         } catch {
             Issue.record("Metadata producer failed before retirement")
         }
@@ -878,7 +879,7 @@ actor BridgePaneProductSessionProviderGate: BridgeProductSchemeProvider {
                 productAdmission: productAdmission,
                 build: { _ in producerRegistryContentOpeningFrame(for: request) }
             )
-            await contentOperation.run(lease)
+            try? await contentOperation.arrive(lease)
         } catch {
             Issue.record("Content producer failed before retirement")
         }
@@ -904,12 +905,12 @@ actor BridgePaneProductSessionProviderGate: BridgeProductSchemeProvider {
         }
     }
 
-    func waitUntilMetadataProducerStarted() async {
-        _ = await metadataOperation.waitUntilStarted()
+    func waitUntilMetadataProducerStarted() async throws {
+        _ = try await metadataOperation.firstArrival()
     }
 
-    func waitUntilContentProducerStarted() async {
-        _ = await contentOperation.waitUntilStarted()
+    func waitUntilContentProducerStarted() async throws {
+        _ = try await contentOperation.firstArrival()
     }
 
     func holdProductCallResponses() {

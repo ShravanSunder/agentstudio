@@ -132,7 +132,9 @@ private func bootstrapFilesPage(
     }
     recordHiddenFileProofStage("files-activated")
     recordHiddenFileProofStage("awaiting-active-file-viewer-shell")
-    try await BridgeProductWebKitCarrierTestSupport.waitForActiveFileViewerShell(controller.page)
+    guard try await BridgeProductWebKitCarrierTestSupport.waitForActiveFileViewerShell(controller.page) else {
+        throw hiddenPageProofError("The File shell did not report itself active")
+    }
     recordHiddenFileProofStage("active-file-viewer-shell-ready")
 
     recordHiddenFileProofStage("capture-initial-logical-file-index")

@@ -173,7 +173,8 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
                 )
                 return
             }
-            self.dispatchAction(action)
+            // fire-and-forget: UI handler; the executor serializes the gesture, no caller reads it
+            _ = self.dispatchPaneAction(action)
         },
         shouldHandleSplitDragPayload: { [weak self] payload in
             guard let self else {
@@ -503,7 +504,8 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             )
         }
         hostingView.onAutoDismissDrawerForDrag = { [weak self] _, drawerParentPaneId in
-            self?.dispatchAction(.toggleDrawer(paneId: drawerParentPaneId))
+            // fire-and-forget: UI handler; the executor serializes the gesture, no caller reads it
+            _ = self?.dispatchPaneAction(.toggleDrawer(paneId: drawerParentPaneId))
         }
         tabBarHostingView = hostingView
         return hostingView
@@ -530,7 +532,8 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
                             )
                         },
                         onPaneAction: { [weak self] action in
-                            self?.dispatchAction(action)
+                            // fire-and-forget: UI handler; the executor serializes the gesture, no caller reads it
+                            _ = self?.dispatchPaneAction(action)
                         },
                         workspaceWindowId: workspaceWindowId
                     )
@@ -916,7 +919,8 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
                 if let tab = self.store.tabLayoutAtom.tab(tabId),
                     tab.activeMinimizedPaneIds.contains(paneId)
                 {
-                    self.dispatchGesture { execute in
+                    // fire-and-forget: UI handler; the executor serializes the gesture, no caller reads it
+                    _ = self.dispatchGesture { execute in
                         guard await execute(.expandPane(tabId: tabId, paneId: paneId)) else { return false }
                         self.store.tabLayoutAtom.setActivePane(paneId, inTab: tabId)
                         atom(\.workspaceFocusOwner).focusMainPane(paneId)
@@ -1488,7 +1492,8 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
 
     private func executePaneSurfaceViewerCommand(sourcePaneId: UUID) -> Bool {
         guard canExecutePaneSurfaceViewerCommand(sourcePaneId: sourcePaneId) else { return false }
-        dispatchGesture { [self] execute in
+        // fire-and-forget: this function reports command admission; the executor serializes the gesture outcome
+        _ = dispatchGesture { [self] execute in
             switch executeZoomLocalViewerCommand(explicitPaneId: sourcePaneId) {
             case .notZoomLocal:
                 return await enterZoomAndShowViewerAfterAdmission(
@@ -1805,11 +1810,14 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
     private func executeDropCommitPlan(_ plan: DropCommitPlan) {
         switch plan {
         case .paneAction(let action):
-            dispatchAction(action)
+            // fire-and-forget: UI handler; the executor serializes the gesture, no caller reads it
+            _ = dispatchPaneAction(action)
         case .moveTab(let tabId, let insertionIndex):
-            dispatchAction(.reorderTab(tabId: tabId, insertionIndex: insertionIndex))
+            // fire-and-forget: UI handler; the executor serializes the gesture, no caller reads it
+            _ = dispatchPaneAction(.reorderTab(tabId: tabId, insertionIndex: insertionIndex))
         case .extractPaneToTabThenMove(let paneId, let sourceTabId, let insertionIndex):
-            dispatchGesture { [self] execute in
+            // fire-and-forget: UI handler; the executor serializes the gesture, no caller reads it
+            _ = dispatchGesture { [self] execute in
                 let tabCountBefore = store.tabLayoutAtom.tabs.count
                 guard await execute(.extractPaneToTab(tabId: sourceTabId, paneId: paneId)) else { return false }
                 guard
@@ -1947,7 +1955,8 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             return
         }
 
-        dispatchAction(
+        // fire-and-forget: UI handler; the executor serializes the gesture, no caller reads it
+        _ = dispatchPaneAction(
             .openNewTerminalInTab(
                 worktreeId: worktree.id,
                 launchDirectory: worktree.path,
@@ -1972,7 +1981,8 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             executor.openWebview(url: url)
             return
         }
-        dispatchAction(
+        // fire-and-forget: UI handler; the executor serializes the gesture, no caller reads it
+        _ = dispatchPaneAction(
             .insertPane(
                 source: .newWebview(WebviewState(url: url)),
                 targetTabId: targetTabId,
@@ -2330,7 +2340,8 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
 
     private func handleManagementOpenDrawer() {
         guard let parentPaneId = activeMainPaneId() else { return }
-        dispatchGesture { [self] execute in
+        // fire-and-forget: UI handler; the executor serializes the gesture, no caller reads it
+        _ = dispatchGesture { [self] execute in
             guard store.paneAtom.pane(parentPaneId) != nil else { return false }
             if store.paneAtom.pane(parentPaneId)?.drawer?.isExpanded != true {
                 guard await execute(.toggleDrawer(paneId: parentPaneId)) else { return false }
@@ -2346,7 +2357,8 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
 
     private func handleManagementMoveUp() {
         guard case .drawer(let parentPaneId) = normalizedWorkspaceNavigationFocusScope() else { return }
-        dispatchGesture { [self] execute in
+        // fire-and-forget: UI handler; the executor serializes the gesture, no caller reads it
+        _ = dispatchGesture { [self] execute in
             if store.paneAtom.pane(parentPaneId)?.drawer?.isExpanded == true {
                 guard await execute(.toggleDrawer(paneId: parentPaneId)) else { return false }
                 handlePaneFocusTrigger(.drawer(.toggle(parentPaneId: parentPaneId)))
@@ -2360,7 +2372,8 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         guard let activeTabId = store.tabLayoutAtom.activeTabId,
             let parentPaneId = store.tabLayoutAtom.tab(activeTabId)?.activePaneId
         else { return }
-        dispatchGesture { [self] execute in
+        // fire-and-forget: UI handler; the executor serializes the gesture, no caller reads it
+        _ = dispatchGesture { [self] execute in
             guard store.paneAtom.pane(parentPaneId) != nil else { return false }
             if store.paneAtom.pane(parentPaneId)?.drawer?.isExpanded == false {
                 guard await execute(.toggleDrawer(paneId: parentPaneId)) else { return false }
@@ -2415,7 +2428,8 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
 
     private func focusDrawerPaneOrdinal(command: AppCommand) -> Bool {
         guard let target = resolveDrawerPaneOrdinalTarget(for: command) else { return false }
-        dispatchGesture { [self] execute in
+        // fire-and-forget: this function reports command admission; the executor serializes the gesture outcome
+        _ = dispatchGesture { [self] execute in
             await focusDrawerPaneAfterAdmission(
                 parentPaneId: target.parentPaneId, drawerPaneId: target.drawerPaneId, execute: execute)
         }
@@ -2449,7 +2463,8 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             execute(.newTerminalInTab)
         case .drawer(let parentPaneId):
             managementNavigationScope = .drawer(parentPaneId: parentPaneId)
-            dispatchAction(.addDrawerPane(parentPaneId: parentPaneId))
+            // fire-and-forget: UI handler; the executor serializes the gesture, no caller reads it
+            _ = dispatchPaneAction(.addDrawerPane(parentPaneId: parentPaneId))
         }
     }
 
@@ -2469,7 +2484,8 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
                 store: store,
                 repoCache: repoCache
             )
-            dispatchAction(
+            // fire-and-forget: UI handler; the executor serializes the gesture, no caller reads it
+            _ = dispatchPaneAction(
                 .addWebviewDrawerPane(
                     parentPaneId: parentPaneId,
                     state: WebviewState(url: url)
@@ -2564,21 +2580,25 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         let launchDirectory =
             store.repositoryTopologyAtom.watchedPaths.first?.path
             ?? FileManager.default.homeDirectoryForCurrentUser
-        dispatchAction(.openFloatingTerminal(launchDirectory: launchDirectory, title: nil))
+        // fire-and-forget: UI handler; the executor serializes the gesture, no caller reads it
+        _ = dispatchPaneAction(.openFloatingTerminal(launchDirectory: launchDirectory, title: nil))
     }
 
     // MARK: - Terminal Management
 
     func openTerminal(for worktree: Worktree, in _: Repo) {
-        dispatchAction(.openWorktree(worktreeId: worktree.id))
+        // fire-and-forget: UI handler; the executor serializes the gesture, no caller reads it
+        _ = dispatchPaneAction(.openWorktree(worktreeId: worktree.id))
     }
 
     func openNewTerminal(for worktree: Worktree, in _: Repo) {
-        dispatchAction(.openNewTerminalInTab(worktreeId: worktree.id, launchDirectory: nil, title: nil))
+        // fire-and-forget: UI handler; the executor serializes the gesture, no caller reads it
+        _ = dispatchPaneAction(.openNewTerminalInTab(worktreeId: worktree.id, launchDirectory: nil, title: nil))
     }
 
     func openWorktreeInPane(for worktree: Worktree, in _: Repo) {
-        dispatchAction(.openWorktreeInPane(worktreeId: worktree.id))
+        // fire-and-forget: UI handler; the executor serializes the gesture, no caller reads it
+        _ = dispatchPaneAction(.openWorktreeInPane(worktreeId: worktree.id))
     }
 
     func executeQuickOpenDirectory(
@@ -2587,14 +2607,16 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
     ) {
         switch placement {
         case .newTab:
-            dispatchAction(.openFloatingTerminal(launchDirectory: directory, title: nil))
+            // fire-and-forget: UI handler; the executor serializes the gesture, no caller reads it
+            _ = dispatchPaneAction(.openFloatingTerminal(launchDirectory: directory, title: nil))
         case .currentTabPane:
             guard let activeTabId = store.tabLayoutAtom.activeTabId,
                 let activePaneId = store.tabLayoutAtom.tab(activeTabId)?.activePaneId
             else {
                 return
             }
-            dispatchAction(
+            // fire-and-forget: UI handler; the executor serializes the gesture, no caller reads it
+            _ = dispatchPaneAction(
                 .insertPane(
                     source: .newTerminalAtDirectory(directory),
                     targetTabId: activeTabId,
@@ -2621,12 +2643,14 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
                 store.paneAtom.pane(id)?.worktreeId == worktreeId
             })
         else { return }
-        dispatchAction(.closePane(tabId: tab.id, paneId: matchedPaneId))
+        // fire-and-forget: UI handler; the executor serializes the gesture, no caller reads it
+        _ = dispatchPaneAction(.closePane(tabId: tab.id, paneId: matchedPaneId))
     }
 
     func closeActiveTab() {
         guard let activeId = store.tabLayoutAtom.activeTabId else { return }
-        dispatchAction(.closeTab(tabId: activeId))
+        // fire-and-forget: UI handler; the executor serializes the gesture, no caller reads it
+        _ = dispatchPaneAction(.closeTab(tabId: activeId))
     }
 
     func selectTab(at index: Int) {
@@ -2639,12 +2663,10 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
 
     /// Central entry point: validates a WorkspaceActionCommand and executes it if valid.
     /// All input sources (keyboard, menu, drag-drop, commands) converge here.
-    @discardableResult
-    private func dispatchAction(_ action: WorkspaceActionCommand) -> Task<Bool, Never> {
+    private func dispatchPaneAction(_ action: WorkspaceActionCommand) -> Task<Bool, Never> {
         dispatchGesture { execute in await execute(action) }
     }
 
-    @discardableResult
     func dispatchGesture(
         _ operation: @escaping @MainActor (@MainActor (WorkspaceActionCommand) async -> Bool) async -> Bool
     ) -> Task<Bool, Never> {
@@ -2725,7 +2747,8 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
     func showTabContextMenuArrangements(tabId: UUID) {
         guard store.tabLayoutAtom.tab(tabId) != nil else { return }
         if store.tabLayoutAtom.activeTabId != tabId {
-            dispatchAction(.selectTab(tabId: tabId))
+            // fire-and-forget: UI handler; the executor serializes the gesture, no caller reads it
+            _ = dispatchPaneAction(.selectTab(tabId: tabId))
         }
         guard
             let workspaceWindowId =
@@ -2745,7 +2768,8 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             return
         }
         if store.tabLayoutAtom.activeTabId != tabId {
-            dispatchAction(.selectTab(tabId: tabId))
+            // fire-and-forget: UI handler; the executor serializes the gesture, no caller reads it
+            _ = dispatchPaneAction(.selectTab(tabId: tabId))
         }
 
         tabRenamePopoverState.dismiss()
@@ -2781,7 +2805,8 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
                 currentTitle: tabBarAdapter.tabs.first(where: { $0.id == tabId })?.displayTitle ?? tab.name,
                 onCommit: { [weak self] name in
                     guard let self else { return }
-                    self.dispatchAction(.renameTab(tabId: tabId, name: name))
+                    // fire-and-forget: UI handler; the executor serializes the gesture, no caller reads it
+                    _ = self.dispatchPaneAction(.renameTab(tabId: tabId, name: name))
                     self.closeTabRenamePopover()
                 },
                 onCancel: { [weak self] in
@@ -2837,7 +2862,8 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
 
     private func handleTabReorder(fromId: UUID, insertionIndex: Int, correlationId: UUID) {
         interactionProbe?.beginInteraction(.tabMove, correlationId: correlationId)
-        dispatchGesture { [self] execute in
+        // fire-and-forget: UI handler; the executor serializes the gesture, no caller reads it
+        _ = dispatchGesture { [self] execute in
             guard await execute(.reorderTab(tabId: fromId, insertionIndex: insertionIndex)) else { return false }
             pendingTabMovePublication = PendingTabMovePublication(
                 correlationId: correlationId, movedTabId: fromId,
@@ -2876,12 +2902,14 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             if let parentPaneId = pane.parentPaneId,
                 let parentTab = store.tabLayoutAtom.tabContaining(paneId: parentPaneId)
             {
-                dispatchAction(.closePane(tabId: parentTab.id, paneId: paneId))
+                // fire-and-forget: termination is acknowledged at admission; the close runs on the gesture tail
+                _ = dispatchPaneAction(.closePane(tabId: parentTab.id, paneId: paneId))
                 return true
             }
 
             if let tab = store.tabLayoutAtom.tabContaining(paneId: paneId) {
-                dispatchAction(.closePane(tabId: tab.id, paneId: paneId))
+                // fire-and-forget: termination is acknowledged at admission; the close runs on the gesture tail
+                _ = dispatchPaneAction(.closePane(tabId: tab.id, paneId: paneId))
                 return true
             }
 
@@ -2898,7 +2926,8 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
     }
 
     private func handleExtractPaneRequested(tabId: UUID, paneId: UUID, targetTabInsertionIndex: Int?) {
-        dispatchGesture { [self] execute in
+        // fire-and-forget: UI handler; the executor serializes the gesture, no caller reads it
+        _ = dispatchGesture { [self] execute in
             guard let sourceTab = store.tabLayoutAtom.tab(tabId) else { return false }
             if sourceTab.activePaneIds.count == 1 {
                 guard let targetTabInsertionIndex else { return true }
@@ -2927,7 +2956,8 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
                 targetTabId: targetTabId
             )
         else { return }
-        dispatchAction(action)
+        // fire-and-forget: UI handler; the executor serializes the gesture, no caller reads it
+        _ = dispatchPaneAction(action)
     }
 
     func makeMovePaneToTabAction(
@@ -2962,7 +2992,8 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
     // MARK: - Undo Close Tab
 
     private func handleUndoCloseTab() {
-        executor.submitUndoClose()
+        // fire-and-forget: UI handler; the executor serializes the gesture, no caller reads it
+        _ = executor.submitUndoClose()
     }
 
     // MARK: - Refocus Active Pane
@@ -3000,7 +3031,8 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
                 arrangementView.activeVisiblePaneIds(forTab: tab.id)
             }
         ) {
-            dispatchAction(action)
+            // fire-and-forget: UI handler; the executor serializes the gesture, no caller reads it
+            _ = dispatchPaneAction(action)
             return
         }
 
@@ -3221,7 +3253,8 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             return bridgeMountView.controller.reloadWebView()
         case .showViewer:
             guard canExecute(.showViewer) else { return false }
-            dispatchGesture { [self] execute in
+            // fire-and-forget: this function reports command admission; the executor serializes the gesture outcome
+            _ = dispatchGesture { [self] execute in
                 switch executeZoomLocalViewerCommand(explicitPaneId: nil) {
                 case .notZoomLocal:
                     return await enterZoomAndShowViewerAfterAdmission(
@@ -3407,7 +3440,8 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
 
     private func submitZoomCommand(explicitPaneId: UUID?) -> Bool {
         guard zoomCommandCapability(explicitPaneId: explicitPaneId) != nil else { return false }
-        dispatchGesture { [self] execute in
+        // fire-and-forget: this function reports command admission; the executor serializes the gesture outcome
+        _ = dispatchGesture { [self] execute in
             await executeZoomCommandAfterAdmission(explicitPaneId: explicitPaneId, execute: execute)
         }
         return true
@@ -3515,7 +3549,8 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             command == .showBridgeReview || command == .showBridgeFiles
                 || command == .openBridgeReviewInNewTab || command == .openBridgeFilesInNewTab
         else { return false }
-        dispatchGesture { [self] execute in
+        // fire-and-forget: this function reports command admission; the executor serializes the gesture outcome
+        _ = dispatchGesture { [self] execute in
             await executeBridgeSurfaceCommandAfterAdmission(
                 command,
                 worktreeId: worktreeId,
@@ -3596,7 +3631,8 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
     }
 
     private func dispatchDrawerToggle(paneId: UUID) {
-        dispatchGesture { [self] execute in
+        // fire-and-forget: UI handler; the executor serializes the gesture, no caller reads it
+        _ = dispatchGesture { [self] execute in
             guard await execute(.toggleDrawer(paneId: paneId)) else { return false }
             handlePaneFocusTrigger(.drawer(.toggle(parentPaneId: paneId)))
             return true
@@ -3645,7 +3681,8 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
                 let tab = store.tabLayoutAtom.tab(tabId),
                 let paneId = tab.activePaneId
             else { break }
-            dispatchAction(.addDrawerPane(parentPaneId: paneId))
+            // fire-and-forget: UI handler; the executor serializes the gesture, no caller reads it
+            _ = dispatchPaneAction(.addDrawerPane(parentPaneId: paneId))
 
         case .toggleDrawer:
             guard let tabId = store.tabLayoutAtom.activeTabId,
@@ -3661,21 +3698,24 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
                 store.paneAtom.pane(paneId)?.drawer != nil,
                 let activeDrawerPaneId = arrangementView.drawerView(forParent: paneId)?.activeChildId
             else { break }
-            dispatchAction(.closePane(tabId: tabId, paneId: activeDrawerPaneId))
+            // fire-and-forget: UI handler; the executor serializes the gesture, no caller reads it
+            _ = dispatchPaneAction(.closePane(tabId: tabId, paneId: activeDrawerPaneId))
 
         case .saveArrangement:
             guard let tabId = store.tabLayoutAtom.activeTabId,
                 let tab = store.tabLayoutAtom.tab(tabId)
             else { break }
             let name = ArrangementDerived.nextCustomArrangementName(existing: tab.arrangements)
-            dispatchAction(.createArrangement(tabId: tabId, name: name))
+            // fire-and-forget: UI handler; the executor serializes the gesture, no caller reads it
+            _ = dispatchPaneAction(.createArrangement(tabId: tabId, name: name))
 
         case .newTerminalInTab:
             guard let activeTabId = store.tabLayoutAtom.activeTabId,
                 let tab = store.tabLayoutAtom.tab(activeTabId),
                 let targetPaneId = tab.activePaneId
             else { break }
-            dispatchAction(
+            // fire-and-forget: UI handler; the executor serializes the gesture, no caller reads it
+            _ = dispatchPaneAction(
                 .insertPane(
                     source: .newTerminal,
                     targetTabId: activeTabId,
@@ -3687,13 +3727,15 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             let activePaneCwd = store.tabLayoutAtom.activeTabId
                 .flatMap { store.tabLayoutAtom.tab($0)?.activePaneId }
                 .flatMap { store.paneAtom.pane($0)?.metadata.facets.cwd }
-            dispatchAction(.openFloatingTerminal(launchDirectory: activePaneCwd, title: nil))
+            // fire-and-forget: UI handler; the executor serializes the gesture, no caller reads it
+            _ = dispatchPaneAction(.openFloatingTerminal(launchDirectory: activePaneCwd, title: nil))
         case .detachDrawerPane:
             guard case .drawerPane(let parentPaneId, let drawerPaneId) = normalizedWorkspaceNavigationScopeState()
             else {
                 break
             }
-            dispatchAction(.detachDrawerPane(parentPaneId: parentPaneId, drawerPaneId: drawerPaneId))
+            // fire-and-forget: UI handler; the executor serializes the gesture, no caller reads it
+            _ = dispatchPaneAction(.detachDrawerPane(parentPaneId: parentPaneId, drawerPaneId: drawerPaneId))
         case .showCommandBarEverything, .showCommandBarQuickOpen, .showCommandBarCommands,
             .showCommandBarPanes, .showCommandBarRepos,
             .openNewTerminalInTab, .openWorktree, .openWorktreeInPane,
@@ -3716,7 +3758,8 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
 
         if command == .previousArrangement || command == .nextArrangement {
             guard targetType == .tab else { return }
-            dispatchGesture { [self] execute in
+            // fire-and-forget: UI handler; the executor serializes the gesture, no caller reads it
+            _ = dispatchGesture { [self] execute in
                 guard let tab = store.tabLayoutAtom.tab(target), tab.arrangements.count > 1,
                     let activeIndex = tab.arrangements.firstIndex(where: { $0.id == tab.activeArrangementId })
                 else { return false }
@@ -3751,7 +3794,8 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
 
         if command == .editPaneNote, targetType == .pane {
             guard store.paneAtom.pane(target) != nil else { return }
-            dispatchGesture { [self] execute in
+            // fire-and-forget: UI handler; the executor serializes the gesture, no caller reads it
+            _ = dispatchGesture { [self] execute in
                 guard await prepareAndApplyTargetFocus(paneId: target, execute: execute) else {
                     return false
                 }
@@ -3767,7 +3811,8 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         }
 
         if command == .focusPane && (targetType == .pane || targetType == .floatingTerminal) {
-            submitTargetedPaneFocus(target)
+            // fire-and-forget: UI handler; the executor serializes the gesture, no caller reads it
+            _ = submitTargetedPaneFocus(target)
             return
         }
 
@@ -3786,7 +3831,8 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         }
 
         if command == .toggleDrawer, targetType == .pane {
-            dispatchGesture { [self] execute in
+            // fire-and-forget: UI handler; the executor serializes the gesture, no caller reads it
+            _ = dispatchGesture { [self] execute in
                 guard
                     let action = targetedPaneWorkspaceAction(command: command, paneId: target, targetType: targetType),
                     await execute(action)
@@ -3798,7 +3844,8 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         }
 
         if targetedAction(command: command, target: target, targetType: targetType) != nil {
-            dispatchGesture { [self] execute in
+            // fire-and-forget: UI handler; the executor serializes the gesture, no caller reads it
+            _ = dispatchGesture { [self] execute in
                 guard let action = targetedAction(command: command, target: target, targetType: targetType),
                     await prepareTargetedArrangementTabSelection(
                         command: command, target: target, targetType: targetType, execute: execute
@@ -3846,7 +3893,8 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
                 return true
             }
             if store.tabLayoutAtom.activeTabId != tab.id {
-                dispatchAction(.selectTab(tabId: tab.id))
+                // fire-and-forget: UI handler; the executor serializes the gesture, no caller reads it
+                _ = dispatchPaneAction(.selectTab(tabId: tab.id))
             }
             arrangementInlineRenameState.beginEditing(
                 arrangementId: arrangement.id,
@@ -3859,7 +3907,6 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         }
     }
 
-    @discardableResult
     func submitTargetedPaneFocus(_ paneId: UUID) -> Task<Bool, Never> {
         dispatchGesture { [self] execute in
             await prepareAndApplyTargetFocus(paneId: paneId, execute: execute)
@@ -3895,7 +3942,8 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
     }
 
     func focusTargetedDrawerPane(parentPaneId: UUID, drawerPaneId: UUID) {
-        dispatchGesture { [self] execute in
+        // fire-and-forget: UI handler; the executor serializes the gesture, no caller reads it
+        _ = dispatchGesture { [self] execute in
             await focusDrawerPaneAfterAdmission(
                 parentPaneId: parentPaneId, drawerPaneId: drawerPaneId, execute: execute)
         }
@@ -3934,7 +3982,8 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
 
     private func focusMainPaneOrdinal(command: AppCommand) -> Bool {
         guard resolveMainPaneOrdinalTarget(for: command) != nil else { return false }
-        dispatchGesture { [self] execute in
+        // fire-and-forget: this function reports command admission; the executor serializes the gesture outcome
+        _ = dispatchGesture { [self] execute in
             guard let target = resolveMainPaneOrdinalTarget(for: command) else { return false }
             if let zoomPresentation = store.panePresentationAtom.zoomPresentation(forTab: target.tab.id),
                 zoomPresentation.sourcePaneId != target.paneId,
@@ -4061,7 +4110,8 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
     }
 
     private func switchArrangement(inTab tabId: UUID, delta: Int) {
-        dispatchGesture { [self] execute in
+        // fire-and-forget: UI handler; the executor serializes the gesture, no caller reads it
+        _ = dispatchGesture { [self] execute in
             guard
                 let tab = store.tabLayoutAtom.tab(tabId),
                 tab.arrangements.count > 1,
@@ -5219,7 +5269,8 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
 
         switch command {
         case .showPaneInboxNotifications:
-            dispatchGesture { [self] execute in
+            // fire-and-forget: UI handler; the executor serializes the gesture, no caller reads it
+            _ = dispatchGesture { [self] execute in
                 guard await prepareAndApplyTargetFocus(paneId: targetId, execute: execute),
                     let currentTarget = paneInboxTarget(anchorPaneId: targetId)
                 else {

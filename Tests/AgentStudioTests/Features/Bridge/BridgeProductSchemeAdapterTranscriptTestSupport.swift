@@ -1,3 +1,4 @@
+import AgentStudioTestHarness
 import AgentStudioTestSupport
 import CryptoKit
 import Foundation
@@ -174,12 +175,12 @@ actor BridgeProductSchemeTranscriptProvider: BridgeProductSchemeProvider {
     }
 
     private var acknowledgedLifecycleCount = 0
-    private let contentOperationGate = BridgeProductSessionProducerOperationGate()
+    private let contentOperationGate = HeldStep<BridgeProductProducerLease>("contentOperationGate")
     private var contentRequestCount = 0
     private var controlRequestKinds: [String] = []
     private let fileSourceData: BridgeProductSubscriptionData
     private var metadataRequestCount = 0
-    private let metadataOperationGate = BridgeProductSessionProducerOperationGate()
+    private let metadataOperationGate = HeldStep<BridgeProductProducerLease>("metadataOperationGate")
     private var metadataSession: BridgeProductSession?
     private var producerFailures: [String] = []
     private let reviewSourceData: BridgeProductSubscriptionData
@@ -248,7 +249,7 @@ actor BridgeProductSchemeTranscriptProvider: BridgeProductSchemeProvider {
                 producerFailures.append("metadata opening frame rejected")
                 return
             }
-            await metadataOperationGate.run(lease)
+            try? await metadataOperationGate.arrive(lease)
         } catch {
             producerFailures.append("metadata producer failed")
         }
@@ -271,7 +272,7 @@ actor BridgeProductSchemeTranscriptProvider: BridgeProductSchemeProvider {
                 producerFailures.append("content opening frame rejected")
                 return
             }
-            await contentOperationGate.run(lease)
+            try? await contentOperationGate.arrive(lease)
         } catch {
             producerFailures.append("content producer failed")
         }

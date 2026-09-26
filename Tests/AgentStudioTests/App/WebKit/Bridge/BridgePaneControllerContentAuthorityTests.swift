@@ -96,7 +96,7 @@ extension WebKitSerializedTests {
                 state: BridgePaneState(panelKind: .diffViewer),
                 reviewSourceProvider: provider
             )
-            defer { controller.teardown() }
+            defer { _ = controller.beginTeardown() }  // fire-and-forget: defer cannot await; cleanup only
             let firstCommandId = UUID()
             let secondCommandId = UUID()
 
@@ -177,7 +177,7 @@ extension WebKitSerializedTests {
                 state: BridgePaneState(panelKind: .diffViewer),
                 reviewSourceProvider: provider
             )
-            defer { controller.teardown() }
+            defer { _ = controller.beginTeardown() }  // fire-and-forget: defer cannot await; cleanup only
             let firstCommandId = UUID()
             let secondCommandId = UUID()
 
@@ -242,7 +242,7 @@ extension WebKitSerializedTests {
         @Test("refresh preserves previous content authority when new metadata is invalid")
         func refresh_preserves_previous_content_authority_when_new_metadata_is_invalid() async throws {
             let fixture = makeRefreshRevisionFixture()
-            defer { fixture.controller.teardown() }
+            defer { _ = fixture.controller.beginTeardown() }  // fire-and-forget: defer cannot await; cleanup only
             let initialHandle = BridgeReviewPackageBuilder.contentHandle(
                 for: makeBridgeEndpointChangedFile(
                     fileId: "old",
@@ -330,7 +330,7 @@ extension WebKitSerializedTests {
                 reviewGeneration: initialHandle.reviewGeneration.rawValue
             )
 
-            fixture.controller.teardown()
+            let teardownRetirement = fixture.controller.beginTeardown()
 
             await #expect(throws: BridgeIPCProjectionError.self) {
                 _ = try await fixture.controller.loadContentForIPC(
@@ -338,6 +338,7 @@ extension WebKitSerializedTests {
                     reviewGeneration: initialHandle.reviewGeneration.rawValue
                 )
             }
+            _ = await teardownRetirement.value
         }
 
         @Test("teardown prevents in-flight loadDiff from reauthorizing review content")
@@ -385,7 +386,7 @@ extension WebKitSerializedTests {
             }
             await comparisonGate.waitForStartedComparisonCount(1)
 
-            controller.teardown()
+            let teardownRetirement = controller.beginTeardown()
             await comparisonGate.releaseAll()
             let result = await loadTask.value
 
@@ -396,6 +397,7 @@ extension WebKitSerializedTests {
                     reviewGeneration: 1
                 )
             }
+            _ = await teardownRetirement.value
         }
 
         @Test("loadDiff rejects invalid content handles before installing authority")
@@ -419,7 +421,7 @@ extension WebKitSerializedTests {
                 state: BridgePaneState(panelKind: .diffViewer),
                 reviewSourceProvider: provider
             )
-            defer { controller.teardown() }
+            defer { _ = controller.beginTeardown() }  // fire-and-forget: defer cannot await; cleanup only
             let commandId = UUID()
             let invalidHandle = BridgeReviewPackageBuilder.contentHandle(
                 for: invalidFile,

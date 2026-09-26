@@ -32,7 +32,7 @@ extension WebKitSerializedTests {
                     deliveredInstallations.append(installation)
                 }
             )
-            defer { controller.teardown() }
+            defer { _ = controller.beginTeardown() }  // fire-and-forget: defer cannot await; cleanup only
 
             // Act
             await controller.enqueueTelemetrySessionBootstrapRequest(
@@ -74,7 +74,7 @@ extension WebKitSerializedTests {
                     deliveredInstallations.append(installation)
                 }
             )
-            defer { controller.teardown() }
+            defer { _ = controller.beginTeardown() }  // fire-and-forget: defer cannot await; cleanup only
 
             // Act
             await controller.enqueueTelemetrySessionBootstrapRequest(

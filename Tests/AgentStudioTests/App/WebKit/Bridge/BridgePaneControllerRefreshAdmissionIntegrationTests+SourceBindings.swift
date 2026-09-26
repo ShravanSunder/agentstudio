@@ -19,7 +19,8 @@ extension WebKitSerializedTests.BridgePaneControllerTests {
         )
         let fixture = try await makeRefreshAdmissionIntegrationFixture(additionalFilesMember: filesOnlyMember)
         try await fixture.loadInitialReviewPackage()
-        fixture.controller.applyBridgePaneActivity(.loadedHidden)
+        // fire-and-forget: the test asserts admission state; the presentation transition handle is not its claim
+        _ = fixture.controller.applyBridgePaneActivity(.loadedHidden)
         let unrelatedChangeset = FileChangeset(
             worktreeId: UUIDv7.generate(),
             repoId: UUIDv7.generate(),

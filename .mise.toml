@@ -384,9 +384,14 @@ depends = ["verify-vendors", "bridge-web-build"]
 run = "/bin/bash scripts/run-swift-test-task.sh test-prebuild"
 
 [tasks."test:swift:webkit"]
-description = "Run real WebKit runtime tests in isolated serial processes with crash retry"
+description = "Run real WebKit runtime tests in isolated serial processes; a crash fails the lane"
 depends = ["verify-vendors", "bridge-web-build"]
 run = "/bin/bash scripts/run-swift-test-task.sh test-webkit"
+
+[tasks."test:swift:width-comparison"]
+description = "Build once, then run the fast lane at width 3 and unset on that bundle, keeping both receipts and ledgers"
+depends = ["verify-vendors", "bridge-web-build"]
+run = "/bin/bash scripts/run-swift-test-task.sh test-width-comparison"
 
 [tasks."test:swift:coverage"]
 description = "Run test suite with code coverage and print coverage JSON path"

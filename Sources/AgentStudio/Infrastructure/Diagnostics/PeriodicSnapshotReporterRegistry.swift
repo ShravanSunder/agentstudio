@@ -13,7 +13,7 @@ final class PeriodicSnapshotReporterRegistry: Sendable {
     }
 
     func unregister(_ token: UUID) {
-        reporters.withLock { $0.removeValue(forKey: token) }
+        reporters.withLock { _ = $0.removeValue(forKey: token) }
     }
 
     func snapshot() -> [Reporter] {

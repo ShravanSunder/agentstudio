@@ -182,7 +182,9 @@ struct WorkspaceBridgeNavigationPersistenceTests {
             let state = try fixture.corePayloadState(paneID: paneID)
             #expect(state["source"] == nil)
         }
-        #expect(try fixture.localNavigationPaneIDs() == [seeded.reviewPaneID, seeded.commitPaneID].sorted())
+        #expect(try fixture.localNavigationRecordCount() == 2)
+        #expect(try fixture.hasLocalNavigationRecord(forPaneID: seeded.reviewPaneID))
+        #expect(try fixture.hasLocalNavigationRecord(forPaneID: seeded.commitPaneID))
 
         // Act — a later change and restart never re-imports over the local record.
         var edited = reviewRecord
@@ -398,7 +400,7 @@ private struct BridgeNavigationPersistenceFixture {
                 "type":"bridgePanel","version":3}
                 """
         )
-        #expect(try localNavigationPaneIDs().isEmpty, "legacy panes start without local records")
+        #expect(try localNavigationRecordCount() == 0, "legacy panes start without local records")
         return LegacyWorkspace(worktreeID: worktree.id, reviewPaneID: reviewPane.id, commitPaneID: commitPane.id)
     }
 
@@ -420,11 +422,19 @@ private struct BridgeNavigationPersistenceFixture {
         return try #require(object["state"] as? [String: Any])
     }
 
-    func localNavigationPaneIDs() throws -> [UUID] {
+    func localNavigationRecordCount() throws -> Int {
         try withPool(database: "local.sqlite") { database in
-            try String.fetchAll(database, sql: "SELECT receiver_pane_id FROM local_bridge_navigation")
-                .compactMap(UUID.init(uuidString:))
-                .sorted { $0.uuidString < $1.uuidString }
+            try Int.fetchOne(database, sql: "SELECT COUNT(*) FROM local_bridge_navigation") ?? 0
+        }
+    }
+
+    func hasLocalNavigationRecord(forPaneID paneID: UUID) throws -> Bool {
+        try withPool(database: "local.sqlite") { database in
+            try Int.fetchOne(
+                database,
+                sql: "SELECT 1 FROM local_bridge_navigation WHERE receiver_pane_id = ? LIMIT 1",
+                arguments: [paneID.uuidString]
+            ) != nil
         }
     }
 

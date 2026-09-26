@@ -111,7 +111,7 @@ extension WebKitSerializedTests {
                 replaySubscription.lease,
                 in: replacementInstallation.session
             )
-            #expect(await controller.teardown().value)
+            #expect(await controller.beginTeardown().value)
         }
 
         @Test("pane close suppresses a suspended product bootstrap delivery")
@@ -159,7 +159,7 @@ extension WebKitSerializedTests {
                 )
             }
             await deliverySuspension.waitUntilDeliveryIsSuspended()
-            let teardownTask = controller.teardown()
+            let teardownTask = controller.beginTeardown()
             await deliverySuspension.resumeDelivery()
             await bootstrapTask.value
             let teardownSucceeded = await teardownTask.value
@@ -235,7 +235,7 @@ extension WebKitSerializedTests {
                 controller.surfaceSelectionAuthority.diagnosticSnapshot.lastAcceptedRequest
                     == replacementRequest
             )
-            #expect(await controller.teardown().value)
+            #expect(await controller.beginTeardown().value)
         }
 
         @Test("exact Review command rejected without an active worker cannot replay")
@@ -304,7 +304,7 @@ extension WebKitSerializedTests {
                 replacementMetadataProducer,
                 in: replacementInstallation.session
             )
-            #expect(await controller.teardown().value)
+            #expect(await controller.beginTeardown().value)
         }
 
         @Test("queued exact Review command keeps ownership across worker replacement")
@@ -407,7 +407,7 @@ extension WebKitSerializedTests {
                 metadataProducer,
                 in: replacementInstallation.session
             )
-            #expect(await controller.teardown().value)
+            #expect(await controller.beginTeardown().value)
         }
 
         @Test("exact Review target replays after the replacement metadata stream opens")
@@ -510,7 +510,7 @@ extension WebKitSerializedTests {
                 replacementMetadataProducer,
                 in: replacementInstallation.session
             )
-            #expect(await controller.teardown().value)
+            #expect(await controller.beginTeardown().value)
         }
 
         @Test(
@@ -523,9 +523,12 @@ extension WebKitSerializedTests {
             let currentStreamController = makeColdReviewIntakeController()
             let staleStreamController = makeColdReviewIntakeController()
             defer {
-                nilStreamController.teardown()
-                currentStreamController.teardown()
-                staleStreamController.teardown()
+                // fire-and-forget: defer cannot await; cleanup only
+                _ = nilStreamController.beginTeardown()
+                // fire-and-forget: defer cannot await; cleanup only
+                _ = currentStreamController.beginTeardown()
+                // fire-and-forget: defer cannot await; cleanup only
+                _ = staleStreamController.beginTeardown()
             }
             let nilStreamAdmission = try #require(nilStreamController.productAdmissionGate.acquire())
             let currentStreamAdmission = try #require(
@@ -575,9 +578,9 @@ extension WebKitSerializedTests {
             #expect(nilStreamController.paneState.diff.packageMetadata != nil)
             #expect(currentStreamController.paneState.diff.status == .ready)
             #expect(currentStreamController.paneState.diff.packageMetadata != nil)
-            #expect(await nilStreamController.teardown().value)
-            #expect(await currentStreamController.teardown().value)
-            #expect(await staleStreamController.teardown().value)
+            #expect(await nilStreamController.beginTeardown().value)
+            #expect(await currentStreamController.beginTeardown().value)
+            #expect(await staleStreamController.beginTeardown().value)
         }
 
         private func makeColdReviewIntakeController() -> BridgePaneController {

@@ -1,8 +1,9 @@
-import { chromium, type Browser, type Page } from 'playwright';
+import type { Browser, Page } from 'playwright';
 import { expect, test } from 'vitest';
 
 import { runAllOwnedCleanupOperations } from '../../scripts/dev-server/bridge-development-server-process.ts';
 import { waitForSelectedFileReady } from './bridge-viewer-vite-annotation-save-journey.ts';
+import { launchBridgeViewerE2EChromium } from './bridge-viewer-vite-e2e-browser.ts';
 import { bridgeViewerViteFileCollectionPath } from './bridge-viewer-vite-file-collection-path.ts';
 import { observeSelectedFileRetention } from './bridge-viewer-vite-file-retention-probe.ts';
 import { observeInteractionProfileFailures } from './bridge-viewer-vite-interaction-profile-diagnostics.ts';
@@ -34,7 +35,7 @@ test.each(['direct', 'healthy', 'disconnected'] as const)(
 		try {
 			server = await startBridgeViewerOwnedViteProductServer(fixture.oracle);
 			if (streamState !== 'direct') proxy = await startBridgeStreamFaultProxy(server.origin);
-			browser = await chromium.launch({ channel: 'chrome', headless: true });
+			browser = await launchBridgeViewerE2EChromium();
 			page = await browser.newPage({ viewport: { height: 980, width: 1728 } });
 			// The vitest hang bound is the only clock this journey is allowed.
 			page.setDefaultTimeout(0);

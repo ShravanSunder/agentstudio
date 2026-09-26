@@ -269,7 +269,7 @@ extension WebKitSerializedTests {
                 let mountedBridgeController = try #require(
                     harness.viewRegistry.allBridgeViews[mountedBridgePane.id]?.controller
                 )
-                let retirementTask = mountedBridgeController.teardown()
+                let retirementTask = mountedBridgeController.beginTeardown()
                 #expect(!harness.controller.canExecute(.reloadBridgeWebView))
                 _ = await retirementTask.value
             }

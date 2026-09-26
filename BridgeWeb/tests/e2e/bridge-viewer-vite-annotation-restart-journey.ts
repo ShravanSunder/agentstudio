@@ -1,4 +1,4 @@
-import { chromium, type Browser, type Page, type Response } from 'playwright';
+import type { Browser, Page, Response } from 'playwright';
 import { expect, test } from 'vitest';
 
 import { runAllOwnedCleanupOperations } from '../../scripts/dev-server/bridge-development-server-process.ts';
@@ -11,6 +11,7 @@ import {
 	waitForSelectedFileReady,
 	waitForSelectedReviewReady,
 } from './bridge-viewer-vite-annotation-save-journey.ts';
+import { launchBridgeViewerE2EChromium } from './bridge-viewer-vite-e2e-browser.ts';
 import { bridgeViewerViteFileCollectionPath } from './bridge-viewer-vite-file-collection-path.ts';
 import {
 	createBridgeViewerViteProductFixture,
@@ -57,7 +58,7 @@ export function registerBridgeViewerViteAnnotationSystemJourneyTests(): void {
 			serverA = null;
 
 			serverB = await startBridgeViewerOwnedViteProductServer(fixture.oracle);
-			browser = await chromium.launch({ channel: 'chrome', headless: true });
+			browser = await launchBridgeViewerE2EChromium();
 			page = await browser.newPage({ viewport: { height: 980, width: 1728 } });
 			await page.goto(bridgeViewerViteProductFileUrl(serverB.origin), {
 				timeout: annotationRestartJourneyTimeoutMilliseconds,
@@ -160,7 +161,7 @@ export function registerBridgeViewerViteAnnotationSystemJourneyTests(): void {
 		let primaryFailure: { readonly error: unknown } | null = null;
 		try {
 			server = await startBridgeViewerOwnedViteProductServer(fixture.oracle);
-			browser = await chromium.launch({ channel: 'chrome', headless: true });
+			browser = await launchBridgeViewerE2EChromium();
 			page = await browser.newPage({ viewport: { height: 980, width: 1728 } });
 			const runtimeDiagnostics = observeBrowserRuntimeDiagnostics(page);
 			const annotationCommandTrace = observeReviewAnnotationCommandTrace(page);

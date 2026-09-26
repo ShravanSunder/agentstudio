@@ -1,4 +1,5 @@
 import AgentStudioInfrastructure
+import AgentStudioTestHarness
 import Foundation
 import Testing
 
@@ -98,8 +99,10 @@ final class RecordingReceiverPresentation: BridgeReceiverPresentation {
     private(set) var requestedSurfaces: [BridgeProductSurface] = []
     var searchOutcome: BridgeFilesSearchOutcome = .unavailable(.noLivePage)
     private(set) var searchedCriteria: [BridgeFilesSearchCriteria] = []
-    private var heldArrival: CheckedContinuation<BridgeFileActivationArrival, Never>?
-    private var heldActivationWaiter: CheckedContinuation<Void, Never>?
+    private let heldActivationStep = HeldStep<BridgeFileActivationArrival>(
+        "Bridge file activation arrival",
+        cancellation: .holdThroughCancellation
+    )
 
     func prepareActiveEditorsForNavigation() async -> BridgeEditorPreparationOutcome {
         preparationCount += 1
@@ -110,11 +113,8 @@ final class RecordingReceiverPresentation: BridgeReceiverPresentation {
         activatedLocations.append(location)
         guard holdsNextArrival else { return activationArrival }
         holdsNextArrival = false
-        return await withCheckedContinuation { continuation in
-            heldArrival = continuation
-            heldActivationWaiter?.resume()
-            heldActivationWaiter = nil
-        }
+        try? await heldActivationStep.arrive(activationArrival)
+        return activationArrival
     }
 
     func searchFilesCollection(_ criteria: BridgeFilesSearchCriteria) async -> BridgeFilesSearchOutcome {
@@ -129,15 +129,12 @@ final class RecordingReceiverPresentation: BridgeReceiverPresentation {
     }
 
     /// Resumes once an activation is parked on its held arrival.
-    func waitForHeldActivation() async {
-        guard heldArrival == nil else { return }
-        await withCheckedContinuation { continuation in
-            heldActivationWaiter = continuation
-        }
+    func waitForHeldActivation() async throws -> BridgeFileActivationArrival {
+        try await heldActivationStep.firstArrival()
     }
 
     func releaseHeldArrival(_ arrival: BridgeFileActivationArrival) {
-        heldArrival?.resume(returning: arrival)
-        heldArrival = nil
+        activationArrival = arrival
+        heldActivationStep.release()
     }
 }

@@ -73,9 +73,8 @@ struct BridgeNavigationAtomTests {
 
         #expect(atom.removeRecord(for: .terminal(terminalPane)))
         #expect(!atom.removeRecord(for: .terminal(terminalPane)))
-        #expect(
-            atom.recordsSnapshot().keys.sorted { $0.paneId.uuidString < $1.paneId.uuidString }
-                == [.standalone(bridgePane)])
+        #expect(atom.record(for: .terminal(terminalPane)) == nil)
+        #expect(atom.record(for: .standalone(bridgePane)) == .empty)
     }
 }
 

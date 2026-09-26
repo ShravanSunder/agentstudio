@@ -1,4 +1,5 @@
 import AgentStudioCore
+import AgentStudioTestHarness
 import CryptoKit
 import Foundation
 import Testing
@@ -59,14 +60,14 @@ struct BridgePaneProductContentActivityAdmissionTests {
     @MainActor
     func closingBeforeRegisteredContentProducerEntryCancelsWaitingDelivery() async throws {
         // Arrange
-        let producerEntryGate = BridgeContentLoadGate()
+        let producerEntryGate = HeldStep<Void>("producerEntryGate", cancellation: .holdThroughCancellation)
         let context = try await makeActivityContentContext(
             request: bridgeProductFileContentRequest(identitySuffix: "activity-close-before-entry"),
             initialActivity: .foreground,
             fileBytes: Data("delayed-entry".utf8),
             producerEntryGate: producerEntryGate
         )
-        await producerEntryGate.waitForStartedLoadCount(1)
+        try await producerEntryGate.firstArrival()
         let pendingPull = Task {
             await context.harness.session.pullProducerFrame(
                 for: context.lease,
@@ -80,7 +81,7 @@ struct BridgePaneProductContentActivityAdmissionTests {
 
         // Act
         context.activityCoordinator.close()
-        await producerEntryGate.releaseAll()
+        producerEntryGate.release()
         let pullResult = await pendingPull.value
         await waitForActivityContentProducerToFinish(context)
 
@@ -220,7 +221,7 @@ struct BridgePaneProductContentActivityAdmissionTests {
             content: sourceBytes,
             identifier: "activity-hide-at-eof"
         )
-        let endOfSourceGate = BridgeContentLoadGate()
+        let endOfSourceGate = HeldStep<Void>("endOfSourceGate", cancellation: .holdThroughCancellation)
         let context = try await makeActivityContentContext(
             request: request,
             initialActivity: .foreground,
@@ -251,7 +252,7 @@ struct BridgePaneProductContentActivityAdmissionTests {
                 productAdmission: context.harness.productAdmission.context
             )
         )
-        await endOfSourceGate.waitForStartedLoadCount(1)
+        try await endOfSourceGate.firstArrival()
         let terminalPull = Task {
             await context.harness.session.pullProducerFrame(
                 for: context.lease,
@@ -264,7 +265,7 @@ struct BridgePaneProductContentActivityAdmissionTests {
         #expect(waitingSnapshot.pendingFrameWaiterCount == 1)
         // Act: the reader invalidates activity from its first close, after EOF and before
         // the producer can validate activity for terminal admission.
-        await endOfSourceGate.releaseAll()
+        endOfSourceGate.release()
         let terminalPullResult = await terminalPull.value
         let hiddenSnapshot = await waitForActivityContentState(context) { snapshot in
             snapshot.activeProducerTaskCount == 0
@@ -403,18 +404,18 @@ struct BridgePaneProductContentActivityAdmissionTests {
             identifier: "activity-continue-hidden-review-before-producer-entry"
         )
         let request = BridgeProductContentRequest.reviewContent(reviewRequest)
-        let producerEntryGate = BridgeContentLoadGate()
+        let producerEntryGate = HeldStep<Void>("producerEntryGate", cancellation: .holdThroughCancellation)
         let context = try await makeActivityContentContext(
             request: request,
             initialActivity: .foreground,
             fileBytes: Data(),
             producerEntryGate: producerEntryGate
         )
-        await producerEntryGate.waitForStartedLoadCount(1)
+        try await producerEntryGate.firstArrival()
 
         // Act
         context.activityCoordinator.applyActivity(.loadedHidden)
-        await producerEntryGate.releaseAll()
+        producerEntryGate.release()
         let decoder = try BridgeProductContentFrameDecoder()
         let acceptedDelivery = try await requiredActivityContentFrame(context)
         let acceptedFrame = try #require(try decoder.append(acceptedDelivery.frame.data).first)
@@ -553,8 +554,8 @@ private func makeActivityContentContext(
     fileBytes: Data,
     suspendReviewBody: Bool = false,
     invalidateActivityOnFileReaderClose: Bool = false,
-    fileEndOfSourceGate: BridgeContentLoadGate? = nil,
-    producerEntryGate: BridgeContentLoadGate? = nil
+    fileEndOfSourceGate: HeldStep<Void>? = nil,
+    producerEntryGate: HeldStep<Void>? = nil
 ) async throws -> ActivityContentContext {
     let activityCoordinator = BridgePaneRefreshAdmissionCoordinator(
         initialActivity: initialActivity
@@ -590,7 +591,7 @@ private func makeActivityContentContext(
         request: request,
         productAdmission: harness.productAdmission.context
     ) { lease in
-        await producerEntryGate?.waitUntilReleased()
+        try? await producerEntryGate?.arrive(())
         await contentProducerOperation(lease)
     }
     return ActivityContentContext(
@@ -673,7 +674,7 @@ private actor ActivityFileMetadataSource: BridgePaneProductFileMetadataProducing
 
 private actor ActivityFileReaderHarness {
     private let activityCoordinator: BridgePaneRefreshAdmissionCoordinator
-    private let endOfSourceGate: BridgeContentLoadGate?
+    private let endOfSourceGate: HeldStep<Void>?
     private let invalidateActivityOnClose: Bool
     private let sourceData: Data
     private(set) var closeCount = 0
@@ -683,7 +684,7 @@ private actor ActivityFileReaderHarness {
     init(
         activityCoordinator: BridgePaneRefreshAdmissionCoordinator,
         invalidateActivityOnClose: Bool,
-        endOfSourceGate: BridgeContentLoadGate?,
+        endOfSourceGate: HeldStep<Void>?,
         sourceData: Data
     ) {
         self.activityCoordinator = activityCoordinator
@@ -704,7 +705,7 @@ private actor ActivityFileReaderHarness {
     }
 
     func waitAtEOFIfNeeded() async {
-        await endOfSourceGate?.waitUntilReleased()
+        try? await endOfSourceGate?.arrive(())
     }
 
     func recordClose() async {

@@ -1,4 +1,5 @@
 import AgentStudioInfrastructure
+import AgentStudioTestHarness
 import Foundation
 import Testing
 
@@ -21,14 +22,12 @@ struct WorkspaceCommandGestureOrderingTests {
             harness.store.appendTab(tab)
             harness.store.setActiveTab(tab.id)
             atom(\.managementLayer).activate()
-            let release = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
-            var predecessorStarted = false
+            let predecessorHold = HeldStep<Void>("predecessor gesture before drawer requests")
             let predecessor = harness.executor.submitGesture { _ in
-                predecessorStarted = true
-                for await _ in release.stream { break }
+                try? await predecessorHold.arrive(())
                 return true
             }
-            await eventually("the predecessor should be suspended before drawer requests") { predecessorStarted }
+            try await predecessorHold.firstArrival()
 
             let command: AppCommand = explicitToggle ? .toggleDrawer : .managementLayerOpenDrawer
             harness.controller.execute(command)
@@ -37,8 +36,7 @@ struct WorkspaceCommandGestureOrderingTests {
                 #expect(harness.store.paneAtom.isDrawerExpanded(for: pane.id) == !explicitToggle)
                 return true
             }
-            release.continuation.yield(())
-            release.continuation.finish()
+            predecessorHold.release()
             #expect(await predecessor.value)
             #expect(await observation.value)
             await harness.executor.stopAcceptingCommandsAndDrain()
@@ -48,7 +46,7 @@ struct WorkspaceCommandGestureOrderingTests {
 
     @Test("extraction and dependent placement finish before a later queued command")
     func extractionPlacementIsOneOperation() async throws {
-        try await withAsyncTestCoreAtoms { _ in
+        await withAsyncTestCoreAtoms { _ in
             let harness = makePaneTabViewControllerCommandHarness()
             defer { try? FileManager.default.removeItem(at: harness.tempDir) }
             let first = harness.store.createPane()
@@ -74,7 +72,7 @@ struct WorkspaceCommandGestureOrderingTests {
 
     @Test("a rejected command cannot borrow a successful queued command's result")
     func rejectionHasItsOwnResult() async throws {
-        try await withAsyncTestCoreAtoms { _ in
+        await withAsyncTestCoreAtoms { _ in
             let harness = makePaneTabViewControllerCommandHarness()
             defer { try? FileManager.default.removeItem(at: harness.tempDir) }
             let unrelated = harness.executor.submitGesture { _ in true }
@@ -102,22 +100,17 @@ struct WorkspaceCommandGestureOrderingTests {
             window.isReleasedWhenClosed = false
             defer { window.close() }
             try attachPaneHost(paneId: targetPane.id, in: harness, to: window)
-            let release = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
-            var predecessorStarted = false
+            let predecessorHold = HeldStep<Void>("predecessor gesture before targeted Zoom")
             let predecessor = harness.executor.submitGesture { _ in
-                predecessorStarted = true
-                for await _ in release.stream { break }
+                try? await predecessorHold.arrive(())
                 return true
             }
-            await eventually("the predecessor should suspend before targeted Zoom") {
-                predecessorStarted
-            }
+            try await predecessorHold.firstArrival()
 
             harness.controller.execute(.zoomPane, target: targetPane.id, targetType: .pane)
             #expect(harness.store.activeTabId == sourceTab.id)
             #expect(harness.store.panePresentationAtom.zoomPresentation(forTab: targetTab.id) == nil)
-            release.continuation.yield(())
-            release.continuation.finish()
+            predecessorHold.release()
             #expect(await predecessor.value)
             _ = await harness.executor.submitGesture { _ in true }.value
 
@@ -147,8 +140,7 @@ struct WorkspaceCommandGestureOrderingTests {
             )
             harness.store.switchArrangement(to: hiddenCurrentID, inTab: tab.id)
             #expect(harness.store.minimizePane(targetPane.id, inTab: tab.id))
-            let releaseSwitch = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
-            var switchStarted = false
+            let arrangementSwitchHold = HeldStep<WorkspaceActionCommand>("arrangement switch before target removal")
             var appliedFocusTriggers: [PaneFocusTrigger] = []
             let operation = PaneCommittedFocusOperation(
                 store: harness.store,
@@ -162,20 +154,16 @@ struct WorkspaceCommandGestureOrderingTests {
                     paneID: targetPane.id,
                     execute: { action in
                         if case .switchArrangement = action {
-                            switchStarted = true
-                            for await _ in releaseSwitch.stream { break }
+                            try? await arrangementSwitchHold.arrive(action)
                         }
                         return await harness.executor.execute(action)
                     }
                 )
             }
-            await eventually("the arrangement switch should suspend before target removal") {
-                switchStarted
-            }
+            _ = try await arrangementSwitchHold.firstArrival()
 
             harness.store.removePane(targetPane.id)
-            releaseSwitch.continuation.yield(())
-            releaseSwitch.continuation.finish()
+            arrangementSwitchHold.release()
 
             #expect(await focusTask.value == false)
             #expect(appliedFocusTriggers.isEmpty)

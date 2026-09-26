@@ -20,7 +20,7 @@ extension WebKitSerializedTests.BridgePaneControllerIPCProjectionTests {
         let frontend = try makeRevealPathMember(named: "frontend", in: fixtureRoot)
         let backend = try makeRevealPathMember(named: "backend", in: fixtureRoot)
         let controller = makeRevealPathController(members: [frontend, backend])
-        defer { controller.teardown() }
+        defer { _ = controller.beginTeardown() }  // fire-and-forget: defer cannot await; cleanup only
 
         // Act
         let revealed = try await controller.fileCollectionAddressedPageControl(
@@ -39,7 +39,7 @@ extension WebKitSerializedTests.BridgePaneControllerIPCProjectionTests {
     func ipcRevealPath_isNotFoundWithoutFilesCollection() async throws {
         // Arrange
         let controller = makeRevealPathController(members: [])
-        defer { controller.teardown() }
+        defer { _ = controller.beginTeardown() }  // fire-and-forget: defer cannot await; cleanup only
 
         // Act / Assert
         await #expect(throws: BridgeIPCProjectionError(reason: .itemNotFound)) {

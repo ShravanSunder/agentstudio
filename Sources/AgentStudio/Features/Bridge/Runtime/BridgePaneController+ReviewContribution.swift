@@ -50,6 +50,7 @@ extension BridgePaneController {
             activeTarget: request.target,
             reviewGeneration: reviewGeneration.rawValue
         )
+        // fire-and-forget: publication joins the presentation tail; closeAndDrain awaits it
         _ = scheduleProductPresentationPublication()
         pendingReviewPackageBuildReasons.insert(.productResync)
         refreshAdmissionCoordinator.advanceAuthority(for: .review)
@@ -99,6 +100,7 @@ extension BridgePaneController {
                 activeTarget: activeTarget,
                 reviewGeneration: reset.reviewGeneration.rawValue
             )
+            // fire-and-forget: publication joins the presentation tail; closeAndDrain awaits it
             _ = scheduleProductPresentationPublication()
         case .receiverUnavailable:
             break
@@ -133,6 +135,7 @@ extension BridgePaneController {
             )
         else { return nil }
         refreshAdmissionCoordinator.publishReviewComparisonDefaultTarget(resolvedDefaultTarget)
+        // fire-and-forget: publication joins the presentation tail; closeAndDrain awaits it
         _ = scheduleProductPresentationPublication()
         return resolvedDefaultTarget
     }

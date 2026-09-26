@@ -371,7 +371,7 @@ extension WebKitSerializedTests {
             #expect(staleReply.response?.statusCode == 403)
             try await openBridgePaneProductSession(replacementInstallation)
 
-            #expect(await controller.teardown().value)
+            #expect(await controller.beginTeardown().value)
         }
 
         @Test("createViewForContent derives Bridge workspace identity from source root before bootstrap")
@@ -461,8 +461,6 @@ extension WebKitSerializedTests {
 
         @Test("review bootstrap keeps Review route without exposing File source identity")
         func reviewBootstrapKeepsReviewRouteWithoutFileSourceIdentity() {
-            let rootPath = URL(fileURLWithPath: "/tmp/agentstudio-review-root")
-
             let artifacts = BridgePaneController.makeBootstrapArtifacts(
                 paneId: UUIDv7.generate(),
                 state: BridgePaneState(panelKind: .diffViewer),
@@ -481,9 +479,6 @@ extension WebKitSerializedTests {
             let paneId = UUIDv7.generate()
             let rootPath = URL(fileURLWithPath: "/tmp/agentstudio-file-view-root")
             let state = BridgePaneState(panelKind: .fileViewer)
-            let stateReview: BridgeReviewSourceBinding? = BridgeReviewSourceBinding(
-                worktreeId: UUIDv7.generate(), worktreeRootPath: rootPath.path,
-                comparison: .localDefaultBranch(branchName: "main"))
 
             let artifacts = BridgePaneController.makeBootstrapArtifacts(
                 paneId: paneId,

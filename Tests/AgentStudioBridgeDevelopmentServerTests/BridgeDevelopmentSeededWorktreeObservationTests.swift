@@ -260,10 +260,14 @@ struct BridgeDevelopmentSeededWorktreeObservationTests {
         let probe = BridgeDevelopmentObservationProbe()
         let bus = EventBus<RuntimeEnvelope>(name: "BridgeDevelopmentRealDeletionObservation")
         let statusPhysicalGate = AgentStudioGitStatusPhysicalGate()
-        let host = try await BridgeDevelopmentProductHost(
+        // Every Review commit the host makes, so the deletion is awaited as the
+        // commit that publishes it instead of by sampling the diagnostic read.
+        let reviewCommits = AsyncStream<Void>.makeStream(bufferingPolicy: .unbounded)
+        defer { reviewCommits.continuation.finish() }
+        let host = try await makeReviewCommitObservedHost(
             source: source,
             statusPhysicalGate: statusPhysicalGate,
-            contributionTargetCommit: { _ in .unchanged(source.reviewComparison ?? .ref(name: "HEAD")) }
+            reviewCommits: reviewCommits.continuation
         )
         let observation = BridgeDevelopmentSeededWorktreeObservation(
             source: source,
@@ -323,7 +327,7 @@ struct BridgeDevelopmentSeededWorktreeObservationTests {
                 await waitForCommittedReviewDeletion(
                     path: "tracked.txt",
                     host: host,
-                    timeout: .seconds(5)
+                    reviewCommits: reviewCommits.stream
                 )
             )
 
@@ -525,19 +529,44 @@ private func waitForReviewRefreshSettlement(
     return false
 }
 
+/// The development host over the real git provider, reporting each Review
+/// commit it makes on `reviewCommits`.
+private func makeReviewCommitObservedHost(
+    source: BridgeDevelopmentProductSource,
+    statusPhysicalGate: AgentStudioGitStatusPhysicalGate,
+    reviewCommits: AsyncStream<Void>.Continuation
+) async throws -> BridgeDevelopmentProductHost {
+    try await BridgeDevelopmentProductHost(
+        source: source,
+        contributionTargetCommit: { _ in .unchanged(source.reviewComparison ?? .ref(name: "HEAD")) },
+        statusPhysicalGate: statusPhysicalGate,
+        makeReviewProvider: { repositoryPath, gitReadContext in
+            BridgeReviewSourceProviderFactory.gitProvider(
+                repositoryPath: repositoryPath,
+                gitReadContext: gitReadContext,
+                statusPhysicalGate: statusPhysicalGate
+            )
+        },
+        didCommitReviewPublication: { reviewCommits.yield() }
+    )
+}
+
+/// Returns once a committed Review publication shows `path` deleted. Each
+/// check follows a Review commit the host announced, so it waits for the event
+/// that can change the answer and never re-reads on a clock. `false` means the
+/// commit stream ended first.
 private func waitForCommittedReviewDeletion(
     path: String,
     host: BridgeDevelopmentProductHost,
-    timeout: Duration
+    reviewCommits: AsyncStream<Void>
 ) async -> Bool {
-    let deadline = ContinuousClock.now + timeout
-    while ContinuousClock.now < deadline {
+    var commits = reviewCommits.makeAsyncIterator()
+    while true {
         if let publication = await host.diagnosticCommittedReviewPublication(),
             publication.package.itemsById.values.contains(where: { $0.basePath == path && $0.headPath == nil })
         {
             return true
         }
-        await Task.yield()
+        guard await commits.next() != nil else { return false }
     }
-    return false
 }

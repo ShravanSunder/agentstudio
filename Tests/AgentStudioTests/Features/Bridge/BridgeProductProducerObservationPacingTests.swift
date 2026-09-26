@@ -1,3 +1,4 @@
+import AgentStudioTestHarness
 import CryptoKit
 import Foundation
 import Testing
@@ -380,16 +381,16 @@ private struct ProducerObservationPacingFixture {
         } else {
             resolvedHarness = try await BridgeProductSessionLifecycleHarness.opened()
         }
-        let operationGate = BridgeProductSessionProducerOperationGate()
+        let operationGate = HeldStep<BridgeProductProducerLease>("operationGate")
         let lease = try bridgeProductAcceptedLease(
             await resolvedHarness.session.registerContentProducer(
                 request: request,
                 productAdmission: resolvedHarness.productAdmission.context
             ) { lease in
-                await operationGate.run(lease)
+                try? await operationGate.arrive(lease)
             }
         )
-        _ = await operationGate.waitUntilStarted()
+        _ = try await operationGate.firstArrival()
         let opening = try await producerPacingAcceptedFrame(
             request: request,
             lease: lease,

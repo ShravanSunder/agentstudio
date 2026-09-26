@@ -23,8 +23,6 @@ extension WebKitSerializedTests {
             // Arrange
             let generation = try makePreparedBridgeContentMountGeneration()
             let acceptedState = BridgePaneState(panelKind: .diffViewer)
-            let acceptedStateReview: BridgeReviewSourceBinding? = BridgeReviewSourceBinding(
-                worktreeId: UUIDv7.generate(), worktreeRootPath: "/accepted/bridge/source", comparison: .unstaged)
             let acceptedPane = Pane(
                 id: UUIDv7.generate(),
                 content: .bridgePanel(acceptedState),
@@ -205,7 +203,8 @@ extension WebKitSerializedTests {
                 sessionID: pane.terminalState?.zmxSessionID
             )
             #expect(heldState.beginSpaceHold(requestedTarget: target))
-            coordinator.prepareHeldPanePreview()
+            // fire-and-forget: the test asserts preview state; the deferred reevaluation handle is not its claim
+            _ = coordinator.beginHeldPanePreviewPreparation()
             #expect(heldState.presentedTarget == nil)
 
             let mountedView = WebviewPaneMountView(

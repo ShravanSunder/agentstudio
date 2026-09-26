@@ -1,4 +1,4 @@
-import { chromium, type Browser, type Page, type Request } from 'playwright';
+import type { Browser, Page, Request } from 'playwright';
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 
 import { runAllOwnedCleanupOperations } from '../../scripts/dev-server/bridge-development-server-process.ts';
@@ -9,6 +9,7 @@ import {
 	reviewTreeReachablePathScrollTopMap,
 	waitForVisibleReviewTreeFilePath,
 } from '../../scripts/verify-bridge-viewer-worktree-dev-server/review-tree-click.ts';
+import { launchBridgeViewerE2EChromium } from './bridge-viewer-vite-e2e-browser.ts';
 import { bridgeViewerViteFileCollectionPath } from './bridge-viewer-vite-file-collection-path.ts';
 import {
 	decodePaintedSourceCorrelations,
@@ -125,7 +126,7 @@ describe('Bridge Viewer dedicated Vite product E2E', () => {
 	test('observes Review base/head body truth, request leases, painted publication correlation, and directory disclosure interaction', async () => {
 		const oracle = requireFixtureOracle();
 		const server = requireOwnedServer();
-		const browser = await chromium.launch({ channel: 'chrome', headless: true });
+		const browser = await launchBridgeViewerE2EChromium();
 		let page: Page | null = null;
 		try {
 			page = await browser.newPage({ viewport: { height: 980, width: 1728 } });
@@ -222,7 +223,7 @@ describe('Bridge Viewer dedicated Vite product E2E', () => {
 		let primaryFailure: { readonly error: unknown } | null = null;
 		try {
 			server = await startBridgeViewerOwnedViteProductServer(oracle);
-			browser = await chromium.launch({ channel: 'chrome', headless: true });
+			browser = await launchBridgeViewerE2EChromium();
 			page = await browser.newPage({ viewport: { height: 980, width: 1728 } });
 			const contentRequests = observeProductContentRequests(page);
 			const workerUrls: string[] = [];
@@ -383,7 +384,7 @@ describe('Bridge Viewer dedicated Vite product E2E', () => {
 		const fixture = await createBridgeViewerViteProductFixture();
 		let serverA: BridgeViewerOwnedViteProductServer | null = null;
 		let serverB: BridgeViewerOwnedViteProductServer | null = null;
-		const browser = await chromium.launch({ channel: 'chrome', headless: true });
+		const browser = await launchBridgeViewerE2EChromium();
 		try {
 			serverA = await startBridgeViewerOwnedViteProductServer(fixture.oracle);
 			const pageA = await browser.newPage({ viewport: { height: 980, width: 1728 } });

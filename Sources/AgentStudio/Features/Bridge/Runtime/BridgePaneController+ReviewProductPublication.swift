@@ -108,6 +108,7 @@ extension BridgePaneController {
             )
             return .rejected
         }
+        // fire-and-forget: publication joins the presentation tail; closeAndDrain awaits it
         _ = scheduleProductPresentationPublication(traceContext: traceContext)
         await recordReviewCommitTerminal(
             operationCorrelationID: operationCorrelationID,

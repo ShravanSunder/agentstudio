@@ -30,7 +30,7 @@ extension WebKitSerializedTests {
                 telemetryRecorder: recorder,
                 initialPaneActivity: .foreground
             )
-            defer { controller.teardown() }
+            defer { _ = controller.beginTeardown() }  // fire-and-forget: defer cannot await; cleanup only
             let productAdmission = try #require(controller.productAdmissionGate.acquire())
             let activeSource = BridgeActiveViewerSource(
                 protocolId: .worktreeFile,

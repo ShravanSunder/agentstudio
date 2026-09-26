@@ -302,7 +302,7 @@ extension AppDelegate: ShellCommandHandling {
     private func executeRepositoryFactUpdate(repoId: UUID, targetType: SearchItemType) -> Bool {
         guard
             canExecute(.updateRepositoryFacts, target: repoId, targetType: targetType),
-            let repository = store.repositoryTopologyAtom.repo(repoId),
+            store.repositoryTopologyAtom.repo(repoId) != nil,
             let repositoryFactUpdateSource
         else {
             return false

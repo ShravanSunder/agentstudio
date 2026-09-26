@@ -35,8 +35,12 @@ export const verifySiteFooterResponsiveLayout = defineBrowserCommand(
           { state: "visible" },
         );
         return await applicationPage.evaluate((): FooterLayoutState => {
-          const footer = document.querySelector<HTMLElement>("footer");
-          const links = footer?.querySelectorAll<HTMLAnchorElement>("nav a");
+          // Scene recreations render pane footers too; the site footer owns the credits nav.
+          const creditsNav = document.querySelector<HTMLElement>(
+            'footer nav[aria-label="Product credits and links"]',
+          );
+          const footer = creditsNav?.closest<HTMLElement>("footer") ?? null;
+          const links = creditsNav?.querySelectorAll<HTMLAnchorElement>("a");
           if (footer === null || links === undefined || links.length !== 2) {
             throw new Error("Rendered page is missing the two product-credit footer links");
           }

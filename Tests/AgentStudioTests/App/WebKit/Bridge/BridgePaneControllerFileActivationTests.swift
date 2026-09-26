@@ -23,7 +23,7 @@ extension WebKitSerializedTests {
             let fixture = try FileActivationFixture()
             defer { fixture.remove() }
             let controller = fixture.makeController(openedDocuments: [])
-            defer { controller.teardown() }
+            defer { _ = controller.beginTeardown() }  // fire-and-forget: defer cannot await; cleanup only
 
             // Act
             let outcome = await controller.prepareActiveEditorsForNavigation()
@@ -39,7 +39,7 @@ extension WebKitSerializedTests {
             let fixture = try FileActivationFixture()
             defer { fixture.remove() }
             let controller = fixture.makeController(openedDocuments: [])
-            defer { controller.teardown() }
+            defer { _ = controller.beginTeardown() }  // fire-and-forget: defer cannot await; cleanup only
             let unlisted = try #require(BridgeDocumentLocation(canonicalPath: "/tmp/not-opened/plan.md"))
 
             // Act
@@ -55,7 +55,7 @@ extension WebKitSerializedTests {
             let fixture = try FileActivationFixture()
             defer { fixture.remove() }
             let controller = fixture.makeController(openedDocuments: [fixture.looseNotes])
-            defer { controller.teardown() }
+            defer { _ = controller.beginTeardown() }  // fire-and-forget: defer cannot await; cleanup only
 
             // Act
             let arrival = await controller.activateFileDocument(fixture.looseNotes)

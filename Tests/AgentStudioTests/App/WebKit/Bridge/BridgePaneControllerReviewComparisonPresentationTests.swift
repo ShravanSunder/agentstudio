@@ -31,7 +31,7 @@ extension WebKitSerializedTests {
                 initialPaneActivity: .dormant,
                 contributionTargetCommit: { _ in .applied(canonicalComparison) }
             )
-            defer { controller.teardown() }
+            defer { _ = controller.beginTeardown() }  // fire-and-forget: defer cannot await; cleanup only
             let productAdmission = try #require(controller.productAdmissionGate.acquire())
 
             let didAdopt = await controller.handleCommittedProductReviewComparisonUpdate(
@@ -60,7 +60,7 @@ extension WebKitSerializedTests {
                     .unchanged(.branch(name: "different-target"))
                 }
             )
-            defer { controller.teardown() }
+            defer { _ = controller.beginTeardown() }  // fire-and-forget: defer cannot await; cleanup only
             let productAdmission = try #require(controller.productAdmissionGate.acquire())
 
             let didAdopt = await controller.handleCommittedProductReviewComparisonUpdate(
@@ -83,7 +83,7 @@ extension WebKitSerializedTests {
                 comparison: comparison,
                 provider: provider
             )
-            defer { controller.teardown() }
+            defer { _ = controller.beginTeardown() }  // fire-and-forget: defer cannot await; cleanup only
             let initialPresentation = controller.refreshAdmissionCoordinator.productPresentationSnapshot
 
             let result = await controller.loadInitialReviewPackageIfPossible(correlationId: nil)
@@ -126,7 +126,7 @@ extension WebKitSerializedTests {
                 provider: provider,
                 contributionTargetCommit: { _ in .applied(canonicalSuccessorComparison) }
             )
-            defer { controller.teardown() }
+            defer { _ = controller.beginTeardown() }  // fire-and-forget: defer cannot await; cleanup only
             guard case .success = await controller.loadInitialReviewPackageIfPossible(correlationId: nil)
             else {
                 Issue.record("Expected predecessor load to succeed")
@@ -181,7 +181,7 @@ extension WebKitSerializedTests {
                 initialContributionTarget: initialTarget,
                 contributionTargetCommit: { _ in .applied(canonicalSuccessorComparison) }
             )
-            defer { fixture.controller.teardown() }
+            defer { _ = fixture.controller.beginTeardown() }  // fire-and-forget: defer cannot await; cleanup only
             try await fixture.loadInitialReviewPackage()
             _ = try await fixture.consumeQueuedMetadataFrames()
             let contributionCaptureGate = BridgeContributionCaptureGate()
@@ -231,7 +231,7 @@ extension WebKitSerializedTests {
                 comparison: comparison,
                 provider: provider
             )
-            defer { controller.teardown() }
+            defer { _ = controller.beginTeardown() }  // fire-and-forget: defer cannot await; cleanup only
             guard case .success = await controller.loadInitialReviewPackageIfPossible(correlationId: nil)
             else {
                 Issue.record("Expected initial contribution load to succeed")
@@ -282,7 +282,7 @@ extension WebKitSerializedTests {
                 provider: provider,
                 contributionTargetCommit: { _ in .applied(canonicalSuccessorComparison) }
             )
-            defer { controller.teardown() }
+            defer { _ = controller.beginTeardown() }  // fire-and-forget: defer cannot await; cleanup only
             guard case .success = await controller.loadInitialReviewPackageIfPossible(correlationId: nil)
             else {
                 Issue.record("Expected initial contribution load to succeed")

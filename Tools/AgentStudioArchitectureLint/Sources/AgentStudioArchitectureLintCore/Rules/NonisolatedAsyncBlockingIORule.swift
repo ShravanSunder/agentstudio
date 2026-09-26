@@ -2,7 +2,7 @@ import SwiftSyntax
 
 struct NonisolatedAsyncBlockingIORule: ArchitectureRule {
     let id = "agentstudio_nonisolated_async_blocking_io_requires_concurrent"
-    let severity = ArchitectureSeverity.report
+    let severity = ArchitectureSeverity.error
     let message = "Blocking I/O in nonisolated async declarations requires @concurrent"
 
     func validate(context: ArchitectureLintContext) -> [ArchitectureDiagnostic] {

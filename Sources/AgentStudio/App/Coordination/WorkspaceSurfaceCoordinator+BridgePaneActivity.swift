@@ -36,7 +36,8 @@ extension WorkspaceSurfaceCoordinator {
         guard bridgePaneActivityCoordinatorsByPaneId[paneId] != nil else { return }
         bridgePaneActivityCoordinatorsByPaneId[paneId]?.close()
         removeBridgeGitReadActivity(for: paneId)
-        viewRegistry.allBridgeViews[paneId]?.controller.applyBridgePaneActivity(.closed)
+        // fire-and-forget: activity applies synchronously; controller teardown drains the presentation transition
+        _ = viewRegistry.allBridgeViews[paneId]?.controller.applyBridgePaneActivity(.closed)
     }
 
     func retireBridgePaneActivityAuthority(for paneId: UUID) {
@@ -177,7 +178,8 @@ extension WorkspaceSurfaceCoordinator {
                 resolvedWorktree: input.resolvedWorktree,
                 activity: activity
             )
-            viewRegistry.allBridgeViews[input.paneId]?.controller.applyBridgePaneActivity(activity)
+            // fire-and-forget: activity applies synchronously; controller teardown drains the presentation transition
+            _ = viewRegistry.allBridgeViews[input.paneId]?.controller.applyBridgePaneActivity(activity)
         }
     }
 

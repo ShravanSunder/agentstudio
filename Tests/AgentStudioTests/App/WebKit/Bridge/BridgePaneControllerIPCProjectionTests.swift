@@ -1,4 +1,5 @@
 import AgentStudioProgrammaticControl
+import AgentStudioTestHarness
 import Foundation
 import Testing
 
@@ -52,7 +53,7 @@ extension WebKitSerializedTests {
                 reviewSourceProvider: provider,
                 initialPaneActivity: .foreground
             )
-            defer { controller.teardown() }
+            defer { _ = controller.beginTeardown() }  // fire-and-forget: defer cannot await; cleanup only
             let correlationId = UUID()
 
             let result = try await controller.refreshReviewForIPC(correlationId: correlationId)
@@ -101,7 +102,7 @@ extension WebKitSerializedTests {
                 reviewSourceProvider: provider,
                 initialPaneActivity: .foreground
             )
-            defer { controller.teardown() }
+            defer { _ = controller.beginTeardown() }  // fire-and-forget: defer cannot await; cleanup only
             _ = try await controller.refreshReviewForIPC(correlationId: nil)
 
             let result = try controller.ipcReviewPackageSnapshot()
@@ -132,7 +133,7 @@ extension WebKitSerializedTests {
         @Test("IPC package snapshot projects the exact contribution origin and reviewed subject")
         func ipcPackageSnapshot_projectsExactContributionOriginAndReviewedSubject() throws {
             let controller = makeIPCForegroundController()
-            defer { controller.teardown() }
+            defer { _ = controller.beginTeardown() }  // fire-and-forget: defer cannot await; cleanup only
             controller.paneState.diff.setPackageMetadata(
                 makeIPCReviewPackage(
                     descriptors: [],
@@ -177,7 +178,7 @@ extension WebKitSerializedTests {
         @Test("IPC package summaries preserve package order and descriptor fields")
         func ipcPackageSnapshot_preservesPackageOrderAndDescriptorFields() throws {
             let controller = makeIPCForegroundController()
-            defer { controller.teardown() }
+            defer { _ = controller.beginTeardown() }  // fire-and-forget: defer cannot await; cleanup only
             let descriptors = [
                 makeIPCReviewItemDescriptor(
                     itemId: "middle",
@@ -226,7 +227,7 @@ extension WebKitSerializedTests {
         @Test("IPC package summary rejects a descriptor without a display path")
         func ipcPackageSnapshot_rejectsDescriptorWithoutDisplayPath() {
             let controller = makeIPCForegroundController()
-            defer { controller.teardown() }
+            defer { _ = controller.beginTeardown() }  // fire-and-forget: defer cannot await; cleanup only
             let descriptor = makeIPCReviewItemDescriptor(
                 itemId: "pathless",
                 itemKind: .diff,
@@ -274,7 +275,7 @@ extension WebKitSerializedTests {
                 reviewSourceProvider: provider,
                 initialPaneActivity: .foreground
             )
-            defer { controller.teardown() }
+            defer { _ = controller.beginTeardown() }  // fire-and-forget: defer cannot await; cleanup only
             try await installIPCContentDescriptorPackage(handle, in: controller)
 
             let result = try await controller.loadContentForIPC(
@@ -323,7 +324,7 @@ extension WebKitSerializedTests {
             )
             try await installIPCContentDescriptorPackage(handle, in: controller)
 
-            controller.teardown()
+            let teardownRetirement = controller.beginTeardown()
 
             await #expect(throws: BridgeIPCProjectionError.self) {
                 _ = try await controller.loadContentForIPC(
@@ -332,6 +333,7 @@ extension WebKitSerializedTests {
                 )
             }
             #expect(await provider.recordedContentRequestsCount() == 0)
+            _ = await teardownRetirement.value
         }
 
         @Test("IPC content descriptor does not start provider body load")
@@ -343,7 +345,7 @@ extension WebKitSerializedTests {
                 contentHash: bridgeSHA256ContentHash("let value = 1\n"),
                 sizeBytes: 14
             )
-            let gate = BridgeContentLoadGate()
+            let gate = HeldStep<Void>("gate", cancellation: .holdThroughCancellation)
             let provider = BridgeReviewSourceProviderFake(
                 comparison: BridgeEndpointComparison(
                     baseEndpoint: makeBridgeEndpoint(endpointId: "index", kind: .index),
@@ -363,7 +365,7 @@ extension WebKitSerializedTests {
                 reviewSourceProvider: provider,
                 initialPaneActivity: .foreground
             )
-            defer { controller.teardown() }
+            defer { _ = controller.beginTeardown() }  // fire-and-forget: defer cannot await; cleanup only
             try await installIPCContentDescriptorPackage(handle, in: controller)
 
             let result = try await controller.loadContentForIPC(
@@ -373,7 +375,7 @@ extension WebKitSerializedTests {
 
             #expect(result.handle.handleId == handle.handleId)
             #expect(await provider.recordedContentRequestsCount() == 0)
-            await gate.releaseAll()
+            gate.release()
         }
 
         @Test("IPC content descriptor reflects active handle after byte cap tightens")
@@ -417,7 +419,7 @@ extension WebKitSerializedTests {
                 reviewSourceProvider: provider,
                 initialPaneActivity: .foreground
             )
-            defer { controller.teardown() }
+            defer { _ = controller.beginTeardown() }  // fire-and-forget: defer cannot await; cleanup only
             try await installIPCContentDescriptorPackage(handle, in: controller)
             let initialResult = try await controller.loadContentForIPC(
                 contentHandleId: handle.handleId,
@@ -467,7 +469,7 @@ extension WebKitSerializedTests {
                 reviewSourceProvider: provider,
                 initialPaneActivity: .foreground
             )
-            defer { controller.teardown() }
+            defer { _ = controller.beginTeardown() }  // fire-and-forget: defer cannot await; cleanup only
             try await installIPCContentDescriptorPackage(handle, in: controller)
 
             let result = try await controller.loadContentForIPC(
@@ -519,7 +521,7 @@ extension WebKitSerializedTests {
                 reviewSourceProvider: provider,
                 initialPaneActivity: .foreground
             )
-            defer { controller.teardown() }
+            defer { _ = controller.beginTeardown() }  // fire-and-forget: defer cannot await; cleanup only
 
             _ = try await controller.refreshReviewForIPC(correlationId: nil)
 
@@ -531,7 +533,7 @@ extension WebKitSerializedTests {
         @Test("IPC Review selection preserves package-unavailable validation")
         func ipcReviewSelection_preservesPackageUnavailableValidation() async {
             let controller = makeIPCForegroundController()
-            defer { controller.teardown() }
+            defer { _ = controller.beginTeardown() }  // fire-and-forget: defer cannot await; cleanup only
 
             await #expect(throws: BridgeIPCProjectionError(reason: .packageUnavailable)) {
                 _ = try await controller.selectReviewItemForIPC(
@@ -576,7 +578,7 @@ extension WebKitSerializedTests {
                 reviewSourceProvider: provider,
                 initialPaneActivity: .foreground
             )
-            defer { controller.teardown() }
+            defer { _ = controller.beginTeardown() }  // fire-and-forget: defer cannot await; cleanup only
             _ = try await controller.refreshReviewForIPC(correlationId: nil)
 
             await #expect(throws: BridgeIPCProjectionError(reason: .itemNotFound)) {
@@ -590,7 +592,7 @@ extension WebKitSerializedTests {
         @Test("IPC Review selection without a current metadata stream fails and cannot replay")
         func ipcReviewSelection_withoutCurrentMetadataStreamFailsAndCannotReplay() async throws {
             let controller = try await makeIPCReviewSelectionController()
-            defer { controller.teardown() }
+            defer { _ = controller.beginTeardown() }  // fire-and-forget: defer cannot await; cleanup only
 
             await #expect(throws: CancellationError.self) {
                 _ = try await controller.selectReviewItemForIPC(
@@ -610,7 +612,7 @@ extension WebKitSerializedTests {
         @Test("IPC Review selection completes after accepted native publication without active-viewer receipt")
         func ipcReviewSelection_completesAfterNativePublicationWithoutActiveViewerReceipt() async throws {
             let controller = try await makeIPCReviewSelectionController()
-            defer { controller.teardown() }
+            defer { _ = controller.beginTeardown() }  // fire-and-forget: defer cannot await; cleanup only
             let installation = try #require(await controller.productSessionOwner.activeInstallation)
             let productProvider = try #require(controller.productSchemeProvider)
             let productAdmission = try #require(controller.productAdmissionGate.acquire())
@@ -692,7 +694,7 @@ extension WebKitSerializedTests {
                 reviewSourceProvider: provider,
                 initialPaneActivity: .foreground
             )
-            defer { controller.teardown() }
+            defer { _ = controller.beginTeardown() }  // fire-and-forget: defer cannot await; cleanup only
             _ = try await controller.refreshReviewForIPC(correlationId: nil)
 
             let snapshot = try await controller.telemetrySnapshotForIPC()

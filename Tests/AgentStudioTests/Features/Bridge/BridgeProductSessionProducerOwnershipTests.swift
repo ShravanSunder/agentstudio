@@ -1,3 +1,4 @@
+import AgentStudioTestHarness
 import Foundation
 import Testing
 
@@ -38,15 +39,15 @@ struct BridgeProductSessionProducerOwnershipTests {
         ) { _ in
             await rejectedOperation.recordInvocation()
         }
-        let freshOperation = ProducerOperationGate()
+        let freshOperation = HeldStep<BridgeProductProducerLease>("freshOperation")
         let freshRegistration = await freshHarness.session.registerMetadataProducer(
             request: freshRequest,
             productAdmission: freshHarness.productAdmission.context
         ) { lease in
-            await freshOperation.run(lease)
+            try? await freshOperation.arrive(lease)
         }
         let freshLease = try #require(freshRegistration.lease)
-        _ = await freshOperation.waitUntilStarted()
+        _ = try await freshOperation.firstArrival()
         let freshOpening = try await freshHarness.session.enqueueRequiredProducerOpeningFrame(
             for: freshLease,
             productAdmission: freshHarness.productAdmission.context,
@@ -79,7 +80,7 @@ struct BridgeProductSessionProducerOwnershipTests {
     func higherSurfaceEpochStopsOnlyMatchingStaleContent() async throws {
         // Arrange
         let harness = try await ProducerSessionHarness.opened()
-        let metadataOperation = ProducerOperationGate()
+        let metadataOperation = HeldStep<BridgeProductProducerLease>("metadataOperation")
         let metadataRegistration = await harness.session.registerMetadataProducer(
             request: try metadataStreamRequest(
                 metadataStreamId: "metadata-surface-scope",
@@ -87,12 +88,12 @@ struct BridgeProductSessionProducerOwnershipTests {
             ),
             productAdmission: harness.productAdmission.context
         ) { lease in
-            await metadataOperation.run(lease)
+            try? await metadataOperation.arrive(lease)
         }
         let metadataLease = try #require(metadataRegistration.lease)
-        _ = await metadataOperation.waitUntilStarted()
+        _ = try await metadataOperation.firstArrival()
 
-        let oldContentOperation = ProducerOperationGate()
+        let oldContentOperation = HeldStep<BridgeProductProducerLease>("oldContentOperation")
         let oldContentRequest = try fileContentRequest(
             identitySuffix: "old",
             workerDerivationEpoch: 2
@@ -101,10 +102,10 @@ struct BridgeProductSessionProducerOwnershipTests {
             request: oldContentRequest,
             productAdmission: harness.productAdmission.context
         ) { lease in
-            await oldContentOperation.run(lease)
+            try? await oldContentOperation.arrive(lease)
         }
         let oldContentLease = try #require(oldContentRegistration.lease)
-        _ = await oldContentOperation.waitUntilStarted()
+        _ = try await oldContentOperation.firstArrival()
         _ = try await harness.session.enqueueRequiredProducerOpeningFrame(
             for: oldContentLease,
             productAdmission: harness.productAdmission.context,
@@ -131,7 +132,7 @@ struct BridgeProductSessionProducerOwnershipTests {
         #expect(waitingSnapshot.pendingFrameWaiterCount == 1)
 
         // Act
-        let currentContentOperation = ProducerOperationGate()
+        let currentContentOperation = HeldStep<BridgeProductProducerLease>("currentContentOperation")
         let currentContentRequest = try fileContentRequest(
             identitySuffix: "current",
             workerDerivationEpoch: 3
@@ -140,11 +141,11 @@ struct BridgeProductSessionProducerOwnershipTests {
             request: currentContentRequest,
             productAdmission: harness.productAdmission.context
         ) { lease in
-            await currentContentOperation.run(lease)
+            try? await currentContentOperation.arrive(lease)
         }
         let currentContentLease = try #require(currentContentRegistration.lease)
-        _ = await currentContentOperation.waitUntilStarted()
-        await oldContentOperation.waitUntilCancelled()
+        _ = try await currentContentOperation.firstArrival()
+        try await oldContentOperation.cancellationObserved()
         let staleContentPullResult = await staleContentPull.value
         #expect(await harness.session.stopProducer(oldContentLease))
 
@@ -160,8 +161,8 @@ struct BridgeProductSessionProducerOwnershipTests {
             await staleOperation.recordInvocation()
         }
         // Assert
-        #expect(!(await metadataOperation.wasCancelled))
-        #expect(!(await currentContentOperation.wasCancelled))
+        #expect(!metadataOperation.hasObservedCancellation)
+        #expect(!currentContentOperation.hasObservedCancellation)
         #expect(
             staleRegistration == .rejected(.staleSurfaceEpoch(currentFloor: 3))
         )
@@ -186,7 +187,7 @@ struct BridgeProductSessionProducerOwnershipTests {
         let harness = try await ProducerSessionHarness.opened()
         try await harness.openFileSubscription(workerDerivationEpoch: 2)
 
-        let metadataOperation = ProducerOperationGate()
+        let metadataOperation = HeldStep<BridgeProductProducerLease>("metadataOperation")
         let metadataRequest = try metadataStreamRequest(
             metadataStreamId: "metadata-revoke",
             resumeFromStreamSequence: nil
@@ -195,12 +196,12 @@ struct BridgeProductSessionProducerOwnershipTests {
             request: metadataRequest,
             productAdmission: harness.productAdmission.context
         ) { lease in
-            await metadataOperation.run(lease)
+            try? await metadataOperation.arrive(lease)
         }
         let metadataLease = try #require(metadataRegistration.lease)
-        _ = await metadataOperation.waitUntilStarted()
+        _ = try await metadataOperation.firstArrival()
 
-        let contentOperation = ProducerOperationGate()
+        let contentOperation = HeldStep<BridgeProductProducerLease>("contentOperation")
         let contentRequest = try fileContentRequest(
             identitySuffix: "revoke",
             workerDerivationEpoch: 2
@@ -209,10 +210,10 @@ struct BridgeProductSessionProducerOwnershipTests {
             request: contentRequest,
             productAdmission: harness.productAdmission.context
         ) { lease in
-            await contentOperation.run(lease)
+            try? await contentOperation.arrive(lease)
         }
         let contentLease = try #require(contentRegistration.lease)
-        _ = await contentOperation.waitUntilStarted()
+        _ = try await contentOperation.firstArrival()
         _ = try await harness.session.enqueueRequiredProducerOpeningFrame(
             for: metadataLease,
             productAdmission: harness.productAdmission.context,
@@ -253,8 +254,8 @@ struct BridgeProductSessionProducerOwnershipTests {
         await acknowledgementGate.waitForInvocationCount(1)
 
         // Assert
-        await metadataOperation.waitUntilCancelled()
-        await contentOperation.waitUntilCancelled()
+        try await metadataOperation.cancellationObserved()
+        try await contentOperation.cancellationObserved()
         #expect(!(await completionProbe.wasInvoked))
         #expect(!(await harness.session.producerSnapshot()).hasZeroResidue)
 
@@ -372,59 +373,6 @@ private struct ProducerSessionHarness {
             token: token,
             exactResponseBytes: try JSONEncoder().encode(response)
         )
-    }
-}
-
-private actor ProducerOperationGate {
-    private var cancellationContinuation: CheckedContinuation<Void, Never>?
-    private var cancellationWaiters: [CheckedContinuation<Void, Never>] = []
-    private(set) var wasCancelled = false
-    private var startedLease: BridgeProductProducerLease?
-    private var startWaiters: [CheckedContinuation<BridgeProductProducerLease, Never>] = []
-
-    func run(_ lease: BridgeProductProducerLease) async {
-        startedLease = lease
-        let waiters = startWaiters
-        startWaiters.removeAll()
-        for waiter in waiters {
-            waiter.resume(returning: lease)
-        }
-        await withTaskCancellationHandler {
-            await withCheckedContinuation { continuation in
-                if wasCancelled || Task.isCancelled {
-                    continuation.resume()
-                } else {
-                    cancellationContinuation = continuation
-                }
-            }
-        } onCancel: {
-            Task { await self.releaseForCancellation() }
-        }
-    }
-
-    func waitUntilStarted() async -> BridgeProductProducerLease {
-        if let startedLease { return startedLease }
-        return await withCheckedContinuation { continuation in
-            startWaiters.append(continuation)
-        }
-    }
-
-    func waitUntilCancelled() async {
-        if wasCancelled { return }
-        await withCheckedContinuation { continuation in
-            cancellationWaiters.append(continuation)
-        }
-    }
-
-    private func releaseForCancellation() {
-        wasCancelled = true
-        cancellationContinuation?.resume()
-        cancellationContinuation = nil
-        let waiters = cancellationWaiters
-        cancellationWaiters.removeAll()
-        for waiter in waiters {
-            waiter.resume()
-        }
     }
 }
 

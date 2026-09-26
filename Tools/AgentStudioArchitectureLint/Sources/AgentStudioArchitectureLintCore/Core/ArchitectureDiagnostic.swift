@@ -26,14 +26,11 @@ struct ArchitectureDiagnostic: Comparable, Equatable {
     }
 }
 
+/// Both severities fail the run. There is no report-only severity: a rule
+/// that should not fail yet freezes its existing sites in the debt ledger.
 enum ArchitectureSeverity: String, Comparable {
     case error
-    case report
     case warning
-
-    var affectsExitCode: Bool {
-        self != .report
-    }
 
     static func < (left: Self, right: Self) -> Bool {
         left.rawValue < right.rawValue

@@ -62,7 +62,7 @@ struct BridgeNavigationCommandHandlerActivationTests {
         let document = try #require(fixture.loosePlan)
         presentation.holdsNextArrival = true
         let olderActivation = Task { await fixture.handler.activateFile(document, in: fixture.receiver) }
-        await presentation.waitForHeldActivation()
+        #expect(try await presentation.waitForHeldActivation() == .displayed)
 
         // Act
         let newer = await fixture.handler.activateFile(document, in: fixture.receiver)

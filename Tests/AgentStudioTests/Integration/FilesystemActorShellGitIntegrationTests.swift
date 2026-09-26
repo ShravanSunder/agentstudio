@@ -34,7 +34,7 @@ struct FilesystemActorShellGitIntegrationTests {
         defer { FilesystemTestGitRepo.destroy(repoURL) }
         try await FilesystemTestGitRepo.seedTrackedAndUntrackedChanges(at: repoURL)
 
-        let provider = ShellGitWorkingTreeStatusProvider(processExecutor: DefaultProcessExecutor(timeout: 5))
+        let provider = ShellGitWorkingTreeStatusProvider(processExecutor: RunToExitProcessExecutor())
         let snapshot = try #require(await provider.status(for: repoURL))
         let summary = snapshot.summary
 

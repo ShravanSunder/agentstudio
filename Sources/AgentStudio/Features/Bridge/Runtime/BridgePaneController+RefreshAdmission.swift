@@ -53,7 +53,6 @@ extension BridgePaneController {
             }) == true
     }
 
-    @discardableResult
     package func applyBridgePaneActivity(_ activity: BridgePaneActivity) -> Task<Void, Never>? {
         let previousActivity = refreshAdmissionCoordinator.diagnosticSnapshot.activity
         refreshAdmissionCoordinator.applyActivity(activity)
@@ -156,6 +155,7 @@ extension BridgePaneController {
             let firstReservation = refreshAdmissionCoordinator.reserveForegroundRefreshPass(for: .review)
         else { return }
 
+        // fire-and-forget: publication joins the presentation tail; closeAndDrain awaits it
         _ = scheduleProductPresentationPublication()
         let taskId = UUIDv7.generate()
         activeReviewRefreshTaskId = taskId
@@ -202,6 +202,7 @@ extension BridgePaneController {
                     outcome == .succeeded
                     ? self.refreshAdmissionCoordinator.reserveForegroundRefreshPass(for: .review)
                     : nil
+                // fire-and-forget: publication joins the presentation tail; closeAndDrain awaits it
                 _ = self.scheduleProductPresentationPublication()
                 guard outcome == .succeeded else { break }
             }

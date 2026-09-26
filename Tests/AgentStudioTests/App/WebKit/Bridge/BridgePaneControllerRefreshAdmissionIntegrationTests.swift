@@ -36,7 +36,7 @@ extension WebKitSerializedTests.BridgePaneControllerTests {
             reviewSourceProvider: provider,
             initialPaneActivity: .foreground
         )
-        defer { controller.teardown() }
+        defer { _ = controller.beginTeardown() }  // fire-and-forget: defer cannot await; cleanup only
 
         // Act
         await controller.handleWorktreeProductInvalidation(
@@ -130,7 +130,8 @@ extension WebKitSerializedTests.BridgePaneControllerTests {
         let fixture = try await makeRefreshAdmissionIntegrationFixture(
             comparisonGate: comparisonGate
         )
-        fixture.controller.applyBridgePaneActivity(.loadedHidden)
+        // fire-and-forget: the test asserts admission state; the presentation transition handle is not its claim
+        _ = fixture.controller.applyBridgePaneActivity(.loadedHidden)
 
         // Act
         fixture.controller.scheduleInitialReviewPackageLoadIfPossible(reason: .initialIntake)
@@ -141,7 +142,8 @@ extension WebKitSerializedTests.BridgePaneControllerTests {
         #expect(fixture.controller.paneState.diff.packageMetadata == nil)
 
         // Act — native foreground is the only fact that may admit the retained intake.
-        fixture.controller.applyBridgePaneActivity(.foreground)
+        // fire-and-forget: the test asserts admission state; the presentation transition handle is not its claim
+        _ = fixture.controller.applyBridgePaneActivity(.foreground)
         await comparisonGate.waitForStartedComparisonCount(1)
         await comparisonGate.releaseAll()
         await waitForActiveReviewRefreshTaskToFinish(fixture.controller)
@@ -251,7 +253,8 @@ extension WebKitSerializedTests.BridgePaneControllerTests {
                 ]
             )
         )
-        fixture.controller.applyBridgePaneActivity(.foreground)
+        // fire-and-forget: the test asserts admission state; the presentation transition handle is not its claim
+        _ = fixture.controller.applyBridgePaneActivity(.foreground)
         await waitForActiveReviewRefreshTaskToFinish(fixture.controller)
         #expect(fixture.controller.paneState.diff.status == .error)
         #expect(fixture.controller.paneState.diff.packageMetadata == nil)
@@ -409,7 +412,8 @@ extension WebKitSerializedTests.BridgePaneControllerTests {
         await fixture.reviewProvider.setComparison(fixture.refreshedComparison)
         let comparisonGate = BridgeComparisonGate()
         await fixture.reviewProvider.setComparisonGate(comparisonGate)
-        fixture.controller.applyBridgePaneActivity(.loadedHidden)
+        // fire-and-forget: the test asserts admission state; the presentation transition handle is not its claim
+        _ = fixture.controller.applyBridgePaneActivity(.loadedHidden)
 
         // Act
         fixture.controller.scheduleReviewPackageReloadForProductResync(reason: .productResync)
@@ -423,7 +427,8 @@ extension WebKitSerializedTests.BridgePaneControllerTests {
         #expect(fixture.controller.paneState.diff.packageMetadata?.orderedItemIds == ["item-initial"])
 
         // Act
-        fixture.controller.applyBridgePaneActivity(.foreground)
+        // fire-and-forget: the test asserts admission state; the presentation transition handle is not its claim
+        _ = fixture.controller.applyBridgePaneActivity(.foreground)
         await comparisonGate.waitForStartedComparisonCount(1)
         await comparisonGate.releaseAll()
         await waitForActiveReviewRefreshTaskToFinish(fixture.controller)
@@ -445,7 +450,8 @@ extension WebKitSerializedTests.BridgePaneControllerTests {
         let comparisonCountBeforeInvalidation = await fixture.reviewProvider.recordedComparisonRequestsCount()
         let firstStatus = makeRefreshAdmissionStatus(branch: "feature/first", changed: 2)
         let latestStatus = makeRefreshAdmissionStatus(branch: "feature/latest", changed: 4)
-        fixture.controller.applyBridgePaneActivity(.loadedHidden)
+        // fire-and-forget: the test asserts admission state; the presentation transition handle is not its claim
+        _ = fixture.controller.applyBridgePaneActivity(.loadedHidden)
 
         // Act
         await fixture.controller.handleWorktreeProductInvalidation(
@@ -494,8 +500,10 @@ extension WebKitSerializedTests.BridgePaneControllerTests {
         await fixture.reviewProvider.setComparison(fixture.refreshedComparison)
         let comparisonGate = BridgeComparisonGate()
         await fixture.reviewProvider.setComparisonGate(comparisonGate)
-        fixture.controller.applyBridgePaneActivity(.foreground)
-        fixture.controller.applyBridgePaneActivity(.foreground)
+        // fire-and-forget: the test asserts admission state; the presentation transition handle is not its claim
+        _ = fixture.controller.applyBridgePaneActivity(.foreground)
+        // fire-and-forget: the test asserts admission state; the presentation transition handle is not its claim
+        _ = fixture.controller.applyBridgePaneActivity(.foreground)
         await comparisonGate.waitForStartedComparisonCount(1)
         await comparisonGate.releaseAll()
         await fixture.fileMetadataSource.waitForChangesetPublishCount(1)
@@ -692,7 +700,8 @@ extension WebKitSerializedTests.BridgePaneControllerTests {
             )
         )
         await comparisonGate.waitForStartedComparisonCount(1)
-        fixture.controller.applyBridgePaneActivity(.loadedHidden)
+        // fire-and-forget: the test asserts admission state; the presentation transition handle is not its claim
+        _ = fixture.controller.applyBridgePaneActivity(.loadedHidden)
         await comparisonGate.releaseAll()
         await waitForRefreshAdmissionSettledWhileHidden(fixture.controller)
 
@@ -731,8 +740,10 @@ extension WebKitSerializedTests.BridgePaneControllerTests {
         await comparisonGate.waitForStartedComparisonCount(1)
         await waitForActiveFileRefreshTaskToFinish(fixture.controller)
         #expect(!fixture.controller.worktreeRefreshDriver.hasActiveFileOperation)
-        fixture.controller.applyBridgePaneActivity(.loadedHidden)
-        fixture.controller.applyBridgePaneActivity(.foreground)
+        // fire-and-forget: the test asserts admission state; the presentation transition handle is not its claim
+        _ = fixture.controller.applyBridgePaneActivity(.loadedHidden)
+        // fire-and-forget: the test asserts admission state; the presentation transition handle is not its claim
+        _ = fixture.controller.applyBridgePaneActivity(.foreground)
         await comparisonGate.releaseAll()
         await waitForRefreshAdmissionIdle(fixture.controller)
 
@@ -951,7 +962,8 @@ extension WebKitSerializedTests.BridgePaneControllerTests {
         let controller = makeController(
             state: BridgePaneState(panelKind: .diffViewer)
         )
-        controller.applyBridgePaneActivity(.foreground)
+        // fire-and-forget: the test asserts admission state; the presentation transition handle is not its claim
+        _ = controller.applyBridgePaneActivity(.foreground)
         controller.reviewGitRefreshSeedHolder.commit(
             refreshAdmissionContributionSeed(
                 targetOID: "teardown-target",
@@ -965,7 +977,7 @@ extension WebKitSerializedTests.BridgePaneControllerTests {
         var latePublicationCount = 0
 
         // Act
-        let retirementTask = controller.teardown()
+        let retirementTask = controller.beginTeardown()
         let latePublication = admittedWork.withValidAdmission {
             latePublicationCount += 1
             return true

@@ -138,7 +138,8 @@ final class BridgePaneWorktreeRefreshDriver {
             let firstReservation = coordinator.reserveForegroundRefreshPass(for: .file)
         else { return }
 
-        schedulePresentationPublication()
+        // fire-and-forget: publication joins the presentation tail; closeAndDrain awaits it
+        _ = schedulePresentationPublication()
         let taskID = UUIDv7.generate()
         activeFileTaskID = taskID
         activeFileTask = Task { @MainActor [weak self] in
@@ -204,7 +205,8 @@ final class BridgePaneWorktreeRefreshDriver {
                         coordinator.recordFileRefreshFailure(failure)
                     }
                 }
-                schedulePresentationPublication()
+                // fire-and-forget: publication joins the presentation tail; closeAndDrain awaits it
+                _ = schedulePresentationPublication()
                 guard reservation != nil else { break }
             }
             retiringFileTaskByID.removeValue(forKey: taskID)
@@ -244,7 +246,8 @@ final class BridgePaneWorktreeRefreshDriver {
 
     func retryUnavailableFileRefresh() {
         guard !isClosed, coordinator.beginExplicitFileRefreshRetry() else { return }
-        schedulePresentationPublication()
+        // fire-and-forget: publication joins the presentation tail; closeAndDrain awaits it
+        _ = schedulePresentationPublication()
         scheduleFileCatchUpIfPossible()
     }
 
@@ -258,7 +261,6 @@ final class BridgePaneWorktreeRefreshDriver {
         activeFileTaskID = nil
     }
 
-    @discardableResult
     func schedulePresentationPublication(
         traceContext: BridgeTraceContext? = nil
     ) -> Task<Void, Never>? {
@@ -267,7 +269,6 @@ final class BridgePaneWorktreeRefreshDriver {
         }
     }
 
-    @discardableResult
     func schedulePresentationTransition(
         _ operation:
             @escaping @MainActor @Sendable (

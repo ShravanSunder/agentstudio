@@ -890,7 +890,7 @@ enum BridgeProductWebKitCarrierTestSupport {
         controller: BridgePaneController,
         window: NSWindow
     ) async -> BridgePaneProductSessionOwnerSnapshot {
-        let retirementTask = controller.teardown()
+        let retirementTask = controller.beginTeardown()
         _ = await retirementTask.value
         controller.page.stopLoading()
         if let blankURL = URL(string: "about:blank") {

@@ -1,3 +1,4 @@
+import AgentStudioTestHarness
 import Testing
 
 @testable import AgentStudioBridge
@@ -38,24 +39,24 @@ struct BridgeProductProducerCapacityTests {
             productLimits: productLimits
         )
         let registry = BridgeProductProducerRegistryTestHarness(limits: limits)
-        let firstOperation = BridgeProductProducerOperationGate()
-        let secondOperation = BridgeProductProducerOperationGate()
+        let firstOperation = HeldStep<BridgeProductProducerLease>("firstOperation")
+        let secondOperation = HeldStep<BridgeProductProducerLease>("secondOperation")
         let firstRequest = try producerRegistryContentRequest(workerDerivationEpoch: 1)
         let secondRequest = try producerRegistryContentRequest(workerDerivationEpoch: 2)
         let firstRegistration = await registry.registerContentProducer(
             request: firstRequest
         ) { lease in
-            await firstOperation.run(lease)
+            try? await firstOperation.arrive(lease)
         }
         let secondRegistration = await registry.registerContentProducer(
             request: secondRequest
         ) { lease in
-            await secondOperation.run(lease)
+            try? await secondOperation.arrive(lease)
         }
         let firstLease = try bridgeProductAcceptedLease(firstRegistration)
         _ = try bridgeProductAcceptedLease(secondRegistration)
-        _ = await firstOperation.waitUntilStarted()
-        _ = await secondOperation.waitUntilStarted()
+        _ = try await firstOperation.firstArrival()
+        _ = try await secondOperation.firstArrival()
 
         // Act and assert: two active producers consume the complete capacity.
         let thirdInvocation = BridgeProductProducerInvocationCounter()
@@ -101,14 +102,14 @@ struct BridgeProductProducerCapacityTests {
 
         // Act and assert: acknowledgement removes residue and reopens one slot.
         #expect(await registry.acknowledgeLifecycle(firstAcknowledgement))
-        let replacementOperation = BridgeProductProducerOperationGate()
+        let replacementOperation = HeldStep<BridgeProductProducerLease>("replacementOperation")
         let replacementRegistration = await registry.registerContentProducer(
             request: try producerRegistryContentRequest(workerDerivationEpoch: 5)
         ) { lease in
-            await replacementOperation.run(lease)
+            try? await replacementOperation.arrive(lease)
         }
         #expect(replacementRegistration.lease != nil)
-        _ = await replacementOperation.waitUntilStarted()
+        _ = try await replacementOperation.firstArrival()
         #expect((await registry.snapshot()).activeContentLeaseCount == 2)
 
         try await closeAllProducerRegistryProducers(in: registry)

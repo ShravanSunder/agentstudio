@@ -1,22 +1,13 @@
 ---
-import { authoredTopologyRoutes } from "./full-page-topology-contract";
-import { maximumRenderedTopologyRowCount } from "./full-page-topology-model";
-
-interface Props {
-  readonly mainlineAnchorSelector?: string;
-  readonly portalFrameSelector?: string;
-  readonly portalSurfaceSelector?: string;
-}
-
-const { mainlineAnchorSelector, portalFrameSelector, portalSurfaceSelector } = Astro.props;
+// The page's git-graph topology: a mainline on the left with one dot per row,
+// worktree lanes in the gutter, and a one-column branch into each chapter
+// target. full-page-topology-layout.ts fills the route and node layers from
+// the chapter DOM contract; topology-scroll-reveal.ts reveals it on scroll.
 ---
 
 <svg
   class="block h-full w-full opacity-80"
   data-full-page-topology
-  data-mainline-anchor-selector={mainlineAnchorSelector}
-  data-portal-frame-selector={portalFrameSelector}
-  data-portal-surface-selector={portalSurfaceSelector}
   viewBox="0 0 1000 5200"
   preserveAspectRatio="none"
   aria-hidden="true"
@@ -39,97 +30,17 @@ const { mainlineAnchorSelector, portalFrameSelector, portalSurfaceSelector } = A
     </mask>
   </defs>
   <g data-topology-reveal-layer mask="url(#topology-vertical-reveal-mask)">
-  <g class="topology-primary">
-    <path
-      class="topology-mainline topology-line topology-reveal-path"
-      data-mainline
-      data-topology-path-role="core"
-      data-topology-path-start="0"
-      data-topology-path-end="1"
-    />
-  </g>
-
-  {
-    authoredTopologyRoutes.map((worktree) => (
-      <g
-        class={`topology-route accent-${worktree.accent}`}
-        data-topology-route-group
-        data-route-id={worktree.id}
-        data-route-accent={worktree.accent}
-        data-route-placement={worktree.placement}
-        data-topology-variants={worktree.variants.join(" ")}
-        data-fork-glass-index={worktree.forkGlassIndex}
-        data-fork-page-row={worktree.forkPageRow}
-        data-end-glass-index={worktree.endGlassIndex}
-        data-end-page-offset={worktree.endPageOffset}
-        data-end-page-row={worktree.endPageRow}
-        data-end-kind={worktree.endKind}
-      >
-        <path
-          class="topology-clearance topology-reveal-path"
-          data-route
-          data-topology-path-role="clearance"
-          data-topology-path-start="0"
-          data-topology-path-end="1"
-        />
-        <path
-          class="topology-line topology-reveal-path"
-          data-route
-          data-topology-path-role="core"
-          data-topology-path-start="0"
-          data-topology-path-end="1"
-        />
-        <circle
-          class="accent-main"
-          data-node
-          data-node-position="fork"
-          data-topology-route-node
-          data-topology-node-progress="1"
-          r="4"
-        />
-        <circle
-          class={worktree.endKind === "merge" ? "accent-main" : undefined}
-          data-node
-          data-node-position="end"
-          data-topology-route-node
-          data-topology-node-progress="1"
-          r="4"
-        />
-      </g>
-    ))
-  }
-
-  <g
-    class="node-terminal-group accent-main"
-    data-node
-    data-mainline-node="start"
-    data-topology-node-progress="0"
-  >
-    <circle class="node-terminal-halo" r="7" />
-    <circle class="node-terminal" r="7" />
-  </g>
-  <g
-    class="node-terminal-group accent-main"
-    data-node
-    data-mainline-node="end"
-    data-topology-node-progress="1"
-  >
-    <circle class="node-terminal-halo" r="7" />
-    <circle class="node-terminal" r="7" />
-  </g>
-  <g data-mainline-fill-nodes>
-    {
-      Array.from({ length: maximumRenderedTopologyRowCount }, (_, index) => (
-        <circle
-          class="accent-main"
-          data-node
-          data-mainline-fill-index={index}
-          data-topology-node-progress="1"
-          r="4"
-        />
-      ))
-    }
-  </g>
+    <g class="topology-primary">
+      <path
+        class="topology-mainline topology-line topology-reveal-path"
+        data-mainline
+        data-topology-path-role="core"
+        data-topology-path-start="0"
+        data-topology-path-end="1"
+      />
+    </g>
+    <g data-topology-routes></g>
+    <g data-topology-row-nodes></g>
   </g>
 </svg>
 
@@ -144,13 +55,13 @@ const { mainlineAnchorSelector, portalFrameSelector, portalSurfaceSelector } = A
 </script>
 
 <style>
-  path,
-  circle {
+  :global([data-full-page-topology] path),
+  :global([data-full-page-topology] circle) {
     vector-effect: non-scaling-stroke;
   }
 
   .topology-mainline,
-  .topology-route > path {
+  :global(.topology-route > path) {
     fill: none;
     stroke-linecap: round;
     stroke-linejoin: round;
@@ -161,84 +72,208 @@ const { mainlineAnchorSelector, portalFrameSelector, portalSurfaceSelector } = A
     stroke-width: 2px;
   }
 
-  .topology-route > path {
+  :global(.topology-route > path) {
     stroke-width: 1.5px;
   }
 
-  .topology-route > .topology-clearance {
+  :global(.topology-route > .topology-clearance) {
     stroke: var(--color-canvas);
     stroke-width: 5px;
   }
 
-  .topology-reveal-path {
+  .topology-reveal-path,
+  :global(.topology-reveal-path) {
     stroke-dasharray: none;
     stroke-dashoffset: 0;
   }
 
-  [data-topology-node-progress] {
-    opacity: 0;
-  }
-
-  [data-topology-at-start] [data-topology-node-progress="0"] .node-terminal-halo,
-  [data-topology-at-end] [data-topology-node-progress="1"] .node-terminal-halo {
-    animation: topology-terminal-node-halo 3.2s ease-out infinite;
-  }
-
-  [data-topology-current-node]:not(.node-terminal-group) {
+  [data-topology-current-node]:not(.node-terminal-group),
+  :global([data-topology-current-node]:not(.node-terminal-group)) {
     animation: topology-current-node-pulse 2.6s ease-in-out infinite;
     transform-box: fill-box;
     transform-origin: center;
   }
 
-  .accent-peach {
+  :global(.accent-peach) {
     color: var(--color-parallel);
   }
 
-  .accent-cyan {
+  :global(.accent-cyan) {
     color: var(--color-glyph);
   }
 
-  .accent-main {
+  :global(.accent-main) {
     color: var(--color-primary);
   }
 
-  .accent-peach > path {
+  :global(.accent-peach > path) {
     stroke: color-mix(in srgb, var(--color-parallel) 34%, transparent);
   }
 
-  .accent-cyan > path {
+  :global(.accent-cyan > path) {
     stroke: color-mix(in srgb, var(--color-glyph) 36%, transparent);
   }
 
-  [data-node] {
+  :global(.accent-main.topology-route > path:not(.topology-clearance)) {
+    stroke: color-mix(in srgb, var(--color-primary) 46%, transparent);
+  }
+
+  /* Ports: the connector into a target edge. The line has exactly the lanes'
+     weight and muted strength; only its hue turns primary, along a gradient
+     from the lane it leaves (stop colors match each lane's stroke). Emphasis
+     lives in the node: full-strength primary, exactly on the edge. */
+  :global(.accent-port) {
+    color: var(--color-primary);
+  }
+
+  :global(.accent-port > path:not(.topology-clearance)) {
+    stroke: color-mix(in srgb, var(--color-primary) 46%, transparent);
+  }
+
+  :global(.topology-port-stop-main),
+  :global(.topology-port-stop-port) {
+    stop-color: color-mix(in srgb, var(--color-primary) 46%, transparent);
+  }
+
+  :global(.topology-port-stop-peach) {
+    stop-color: color-mix(in srgb, var(--color-parallel) 34%, transparent);
+  }
+
+  :global(.topology-port-stop-cyan) {
+    stop-color: color-mix(in srgb, var(--color-glyph) 36%, transparent);
+  }
+
+  :global(.topology-route > .node-port) {
+    fill: var(--color-primary);
+    stroke: var(--color-primary);
+    stroke-width: 1.5px;
+  }
+
+  /* A port draws in along its length once its target glass is in view
+     (topology-scroll-reveal.ts sets data-port-drawn), and its node appears as
+     the line arrives. */
+  :global([data-route-kind="attach"] > path) {
+    stroke-dasharray: 1;
+    stroke-dashoffset: 1;
+    transition: stroke-dashoffset 520ms ease-out;
+  }
+
+  :global([data-route-kind="attach"][data-port-drawn] > path) {
+    stroke-dashoffset: 0;
+  }
+
+  :global([data-route-kind="attach"] > .node-port) {
+    opacity: 0;
+    transition: opacity 160ms ease-out 440ms;
+  }
+
+  :global([data-route-kind="attach"][data-port-drawn] > .node-port) {
+    opacity: 1;
+  }
+
+  /* Node vocabulary, by data-node-kind:
+     - commit and fork: a small solid dot in its lane's color (the branch line
+       shows the fork);
+     - merge: a medium ring in the incoming lane's color around a small dot in
+       the receiving lane's color, a two-parent commit;
+     - chapter: a medium primary ring, hollow while upcoming, solid once passed;
+       the current chapter is the terminal node below;
+     - port: the primary node on a target edge; end: the terminal node.
+     Until the reveal reaches it, every glyph is a faint thin outline at its
+     own size, so the size hierarchy shows before identity and color do. */
+  :global([data-node] .node-commit),
+  :global([data-node] .node-chapter),
+  :global([data-node] .node-merge-ring) {
+    fill: var(--color-canvas);
+    stroke: color-mix(in srgb, var(--color-ink-faint) 45%, transparent);
+    stroke-width: 1px;
+    transition:
+      fill 240ms ease,
+      stroke 240ms ease,
+      stroke-width 240ms ease;
+  }
+
+  :global([data-node] .node-merge-core) {
+    fill: currentColor;
+    opacity: 0;
+    transition: opacity 240ms ease;
+  }
+
+  :global([data-node][data-topology-node-revealed] .node-commit) {
     fill: currentColor;
     stroke: currentColor;
   }
 
-  .node-terminal {
+  :global([data-node][data-topology-node-revealed] .node-merge-ring) {
+    stroke: currentColor;
+    stroke-width: 2px;
+  }
+
+  :global([data-node][data-topology-node-revealed] .node-merge-core) {
+    opacity: 1;
+  }
+
+  :global([data-node][data-topology-node-revealed] .node-chapter) {
+    stroke: var(--color-primary);
+    stroke-width: 2px;
+  }
+
+  :global([data-node][data-topology-node-revealed][data-chapter-state="passed"] .node-chapter) {
+    fill: var(--color-primary);
+  }
+
+  /* Terminal nodes: the current chapter and the page's last row. The current
+     chapter's halo pulses once as it becomes current, then holds as a ring. */
+  :global(.node-terminal),
+  :global(.node-terminal-halo) {
+    display: none;
+  }
+
+  :global([data-chapter-state="current"] .node-chapter),
+  :global([data-node-kind="end"][data-topology-node-revealed] .node-commit) {
+    display: none;
+  }
+
+  :global([data-chapter-state="current"] .node-terminal),
+  :global([data-node-kind="end"][data-topology-node-revealed] .node-terminal) {
+    display: inline;
     fill: var(--color-primary);
     stroke: var(--color-primary);
   }
 
-  .node-terminal-halo {
+  :global([data-chapter-state="current"] .node-terminal-halo) {
+    display: inline;
     fill: none;
-    stroke: currentColor;
+    stroke: var(--color-primary);
     stroke-width: 2px;
-    opacity: 0;
+    opacity: 0.72;
+    transform: scale(1.6);
     transform-box: fill-box;
     transform-origin: center;
+    animation: topology-terminal-node-halo-once 1.8s ease-out 1 both;
   }
 
-  @keyframes topology-terminal-node-halo {
+  /* The retired terminal halo (scale 1 → 2.35 while fading), played once, then
+     the ring grows back in and holds at its resting size. */
+  @keyframes topology-terminal-node-halo-once {
     0% {
       opacity: 0.72;
       transform: scale(1);
     }
 
-    70%,
-    100% {
+    55% {
       opacity: 0;
       transform: scale(2.35);
+    }
+
+    56% {
+      opacity: 0;
+      transform: scale(1);
+    }
+
+    100% {
+      opacity: 0.72;
+      transform: scale(1.6);
     }
   }
 
@@ -259,13 +294,21 @@ const { mainlineAnchorSelector, portalFrameSelector, portalSurfaceSelector } = A
   }
 
   @media (prefers-reduced-motion: reduce) {
-    [data-topology-current-node] {
+    :global([data-topology-current-node]) {
       animation: none;
     }
 
-    .node-terminal-halo {
+    :global([data-node] .node-commit),
+    :global([data-node] .node-chapter),
+    :global([data-node] .node-merge-ring),
+    :global([data-node] .node-merge-core),
+    :global([data-route-kind="attach"] > path),
+    :global([data-route-kind="attach"] > .node-port) {
+      transition: none;
+    }
+
+    :global([data-chapter-state="current"] .node-terminal-halo) {
       animation: none;
-      opacity: 0;
     }
   }
 </style>

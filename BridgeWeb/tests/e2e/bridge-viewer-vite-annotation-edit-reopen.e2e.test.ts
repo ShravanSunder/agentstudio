@@ -1,4 +1,4 @@
-import { chromium, type Browser, type Locator, type Page, type Response } from 'playwright';
+import type { Browser, Locator, Page, Response } from 'playwright';
 import { expect, test } from 'vitest';
 
 import { bridgeProductWorktreeAnnotationCommandOutcomeSchema } from '../../src/core/comm-worker/bridge-product-worktree-annotation-contracts.js';
@@ -7,6 +7,7 @@ import {
 	waitForSelectedFileReady,
 } from './bridge-viewer-vite-annotation-save-journey.ts';
 import { waitForCommittedAnnotationOutcome } from './bridge-viewer-vite-annotation-wire-response-observation.ts';
+import { launchBridgeViewerE2EChromium } from './bridge-viewer-vite-e2e-browser.ts';
 import {
 	createBridgeViewerViteProductFixture,
 	startBridgeViewerOwnedViteProductServer,
@@ -28,7 +29,7 @@ test(
 		let commandObservation: AnnotationCommandObservation | null = null;
 		try {
 			server = await startBridgeViewerOwnedViteProductServer(fixture.oracle);
-			browser = await chromium.launch({ channel: 'chrome', headless: true });
+			browser = await launchBridgeViewerE2EChromium();
 			page = await browser.newPage({ viewport: { height: 980, width: 1728 } });
 			commandObservation = observeAnnotationCommandOutcomes(page, (): string => phase);
 
