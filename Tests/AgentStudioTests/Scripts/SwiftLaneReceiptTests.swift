@@ -293,33 +293,35 @@ struct SwiftLaneReceiptTests {
 
     @Test("a crashed WebKit suite fails the lane once, named with its signal, and is never retried")
     func crashedWebKitSuiteFailsTheLaneWithoutRetry() async throws {
-        // `swift test` reports a helper lost to a signal only as text and exits 1,
-        // so the fake does exactly that and counts how often it was started.
+        // The helper reports one crash while the other filter still runs.
         let workDirectory = NSTemporaryDirectory() + "agentstudio-receipt-webkit-\(UUIDv7.generate())"
         defer { try? FileManager.default.removeItem(atPath: workDirectory) }
 
         let laneOutput = try await laneBashAllowingFailure(
             "mkdir -p '\(workDirectory)/bin'; "
                 + "printf '#!/bin/bash\\necho started >> \"\(workDirectory)/invocations\"\\n"
-                + "echo \"error: Exited with unexpected signal code 11\"\\nexit 1\\n' > '\(workDirectory)/bin/swift'; "
-                + "chmod +x '\(workDirectory)/bin/swift'; "
-                + "export PATH='\(workDirectory)/bin':$PATH; "
+                + "if [[ \"$*\" == *CrashingSuite* ]]; then "
+                + "echo \"error: Exited with unexpected signal code 11\"; exit 1; fi\\n"
+                + "echo HEALTHY_WEBKIT_RAN\\n' > '\(workDirectory)/bin/fake-helper'; "
+                + "chmod +x '\(workDirectory)/bin/fake-helper'; "
                 + "export SWIFT_TEST_FAILED_ISOLATED_SUITES_FILE='\(workDirectory)/tally'; "
                 + ": > \"$SWIFT_TEST_FAILED_ISOLATED_SUITES_FILE\"; "
                 + "LOG_PREFIX=webkit; TIMEOUT_SECONDS=60; BUILD_PATH=.build-agent-1; "
                 + "export LANE_EVENT_STREAM_DIR='\(workDirectory)/ci-runs'; "
                 + "source scripts/swift-test-helpers.sh; set +e; "
+                + "swift_testing_bundle_path() { echo '\(workDirectory)/fake-bundle'; }; "
+                + "swift_testing_helper_path() { echo '\(workDirectory)/bin/fake-helper'; }; "
+                + "swift_testing_framework_path() { echo '\(workDirectory)'; }; "
                 + "webkit_suite_filters() { printf 'WebKitSerializedTests/CrashingSuite\\n"
-                + "WebKitSerializedTests/NeverReachedSuite\\n'; }; "
+                + "WebKitSerializedTests/HealthySuite\\n'; }; "
                 + "run_webkit_suites; echo \"LANE_STATUS=$?\"; "
                 + "echo \"INVOCATIONS=$(wc -l < '\(workDirectory)/invocations' | tr -d '[:space:]')\"; "
                 + "cat \"$SWIFT_TEST_FAILED_ISOLATED_SUITES_FILE\""
         )
 
         #expect(laneOutput.contains("LANE_STATUS=1"))
-        // Exactly one start: no in-lane retry of the crashed suite, and the lane
-        // stops there rather than reporting green later.
-        #expect(laneOutput.contains("INVOCATIONS=1"))
+        #expect(laneOutput.contains("INVOCATIONS=2"))
+        #expect(laneOutput.contains("HEALTHY_WEBKIT_RAN"))
         #expect(
             laneOutput.contains("WebKit suite failed: WebKitSerializedTests/CrashingSuite status=1 signal=SEGV")
         )

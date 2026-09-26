@@ -1704,21 +1704,18 @@ webkit_leaf_suite_filters() {
 }
 
 run_webkit_suites() {
-  echo "--- WebKit serialized tests (serial) ---"
+  echo "--- WebKit serialized tests (isolated processes) ---"
   local webkit_filters
   if ! webkit_filters="$(webkit_suite_filters)"; then
     echo "[test] failed to generate WebKit suite list" >&2
     return 1
   fi
-  local timing_eligible_ms timing_batch=0
-  timing_eligible_ms="$(lane_timing_now_ms 2>/dev/null || true)"
-
+  local -a selected_filters=()
   while IFS= read -r filter; do
     [ -n "$filter" ] || continue
-    timing_batch=$((timing_batch + 1))
-    LANE_TIMING_FILTER="$filter" LANE_TIMING_BATCH="$timing_batch" LANE_TIMING_SLOT=1 \
-      LANE_TIMING_ELIGIBLE_MS="$timing_eligible_ms" run_webkit_suite "$filter" || return $?
+    selected_filters+=("$filter")
   done <<<"$webkit_filters"
+  dispatch_isolated_suites webkit "${selected_filters[@]}"
 }
 
 swift_test_watchdog_state() {
@@ -2249,16 +2246,24 @@ run_webkit_suite() {
   local filter="$1"
   local output
   local command_status=0
+  local swift_test_bundle swift_testing_helper testing_framework_path
+  swift_test_bundle="$(swift_testing_bundle_path)"
+  swift_testing_helper="$(swift_testing_helper_path)"
+  testing_framework_path="$(swift_testing_framework_path)"
 
   echo "[webkit] running $filter"
-  # Bypass xcbeautify: `swift test` reports a crashed helper only as
-  # "unexpected signal code N" in its raw output, and the signal is read from it.
+  # Use the already-built helper directly, as in the other isolated phases.
+  # Concurrent `swift test --skip-build` calls contend for SwiftPM's build lock.
+  # Preserve raw output so a signalled helper remains visible in the receipt.
   # Set _XCB_BYPASS on its own line: bash evaluates $() before assignments on the same line.
   _XCB_BYPASS=1
   # shellcheck disable=SC2086
   output=$(run_swift_with_timeout "$filter" "$TIMEOUT_SECONDS" \
-    env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" $(swift_test_parallelization_env_word) swift test ${EXTRA_SWIFT_TEST_ARGS:-} \
-    --skip-build --filter "$filter" --build-path "$BUILD_PATH" 2>&1) || command_status=$?
+    env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" $(swift_test_parallelization_env_word) \
+    DYLD_FRAMEWORK_PATH="$testing_framework_path" \
+    "$swift_testing_helper" --test-bundle-path "$swift_test_bundle" \
+    --filter "$filter" "$swift_test_bundle" --testing-library swift-testing \
+    2>&1) || command_status=$?
   unset _XCB_BYPASS
   echo "$output"
 
