@@ -712,7 +712,7 @@ struct CIFastLaneWorkflowTests {
         #expect(
             largeRunner.components(
                 separatedBy: "--skip \"$large_process_global_filter_pattern\""
-            ).count - 1 == 2
+            ).count - 1 == 1
         )
         #expect(largeRunner.contains("fi\n\n  run_large_process_global_swift_tests"))
         #expect(
