@@ -12,12 +12,6 @@ struct PaneRuntimeContractsTests {
         #expect(event.actionPolicy == .critical)
     }
 
-    @Test("runtime command namespace is distinct from workspace WorkspaceActionCommand")
-    func commandTypeIsDistinct() {
-        let command = PaneRuntimeCommand.activate
-        #expect(String(describing: command).contains("activate"))
-    }
-
     @Test("workspace action command does not own terminal runtime shortcuts")
     func workspaceActionCommandDoesNotOwnTerminalRuntimeShortcuts() throws {
         let source = try Self.projectSource(

@@ -387,6 +387,7 @@ extension AppDelegate {
         filesystemSource = pipeline
         watchedFolderCommands = pipeline
         repositoryFactUpdateSource = pipeline
+        installWorktreeCreationCoordinator(publication: pipeline)
         bootInstallWorkspaceRuntimeOwners(
             paneRuntimeBus: paneRuntimeBus,
             pipeline: pipeline,
@@ -525,7 +526,9 @@ extension AppDelegate {
                 )
             },
             commandBarSurface: atomStore.core.commandBarSurface,
-            performanceTraceRecorder: performanceTraceRecorder
+            performanceTraceRecorder: performanceTraceRecorder,
+            worktreeForkEligibility: SDKWorktreeForkEligibilityChecker(),
+            defaultStartPointResolver: SDKWorktreeDefaultStartPointResolver()
         )
     }
 

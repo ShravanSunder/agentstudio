@@ -110,6 +110,7 @@ package enum LocalActionSpec {
     case browserRemoveFavorite
     case emptyTerminal
     case openRepoWorktree
+    case forkThisWorktree
     case renameArrangement
     case deleteArrangement
     case addFavorite
@@ -136,6 +137,11 @@ package enum LocalActionSpec {
         case .quickOpen:
             return ActionSpec(
                 label: "Quick Open", helpText: "Show the quick-open palette", icon: .system(.magnifyingglass))
+        case .forkThisWorktree:
+            return ActionSpec(
+                label: "Fork This Worktree",
+                helpText: "Fork this worktree with its uncommitted, untracked, and ignored files",
+                icon: .octicon(.repoForked))
         case .commandPalette:
             return ActionSpec(
                 label: "Command Palette", helpText: "Show the command palette", icon: .system(.command))

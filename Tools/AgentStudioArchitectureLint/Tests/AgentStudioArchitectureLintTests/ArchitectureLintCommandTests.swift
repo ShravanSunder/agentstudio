@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import Testing
 
@@ -133,6 +134,84 @@ struct ArchitectureLintCommandTests {
         #expect(!fullLinesForScopedFiles.isEmpty)
         #expect(scopedLines == fullLinesForScopedFiles, Comment(rawValue: scopedResult.output))
         #expect(scopedResult.exitCode == 1)
+    }
+
+    @Test("scoped and full runs use one canonical workspace root")
+    func scopedAndFullRunsUseOneCanonicalWorkspaceRoot() throws {
+        let fixture = fixturePath("Bad")
+        let canonicalFixture = canonicalFileSystemPath(fixture)
+        let symlinkRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "agentstudio-architecture-lint-symlink-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        try FileManager.default.createSymbolicLink(atPath: symlinkRoot.path, withDestinationPath: fixture)
+        defer { try? FileManager.default.removeItem(at: symlinkRoot) }
+
+        let scopedRelativePaths = [
+            "Sources/AgentStudio/Core/State/MainActor/Atoms/BadFeatureAtomReference.swift",
+            "Sources/AgentStudio/Features/RepoExplorer/State/MainActor/Atoms/BadSiblingFeatureAtomReference.swift",
+            "Tests/AgentStudioTests/BadPollingWaitTest.swift",
+        ]
+        let scopedAbsolutePaths = scopedRelativePaths.map { "\(canonicalFixture)/\($0)" }
+
+        let fullResult = runCommand(
+            arguments: ["Sources", "Tests"],
+            workspaceRootPath: symlinkRoot.path
+        )
+        let scopedResult = runCommand(
+            arguments: ["Sources", "Tests"] + scopedRelativePaths.flatMap { ["--only", $0] },
+            workspaceRootPath: symlinkRoot.path
+        )
+
+        let fullLinesForScopedFiles = fullResult.output
+            .split(separator: "\n")
+            .filter { line in scopedAbsolutePaths.contains { line.hasPrefix("\($0):") } }
+        let scopedLines = scopedResult.output.split(separator: "\n")
+
+        #expect(fullResult.exitCode == 1)
+        #expect(scopedResult.exitCode == 1)
+        #expect(!fullLinesForScopedFiles.isEmpty)
+        #expect(scopedLines == fullLinesForScopedFiles, Comment(rawValue: scopedResult.output))
+    }
+
+    @Test("absolute scoped paths through a symlink use the canonical workspace root")
+    func scopedAbsolutePathsThroughSymlinkUseTheCanonicalRoot() throws {
+        let fixture = fixturePath("Bad")
+        let canonicalFixture = canonicalFileSystemPath(fixture)
+        let symlinkRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "agentstudio-architecture-lint-absolute-symlink-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        try FileManager.default.createSymbolicLink(atPath: symlinkRoot.path, withDestinationPath: fixture)
+        defer { try? FileManager.default.removeItem(at: symlinkRoot) }
+
+        let scopedRelativePaths = [
+            "Sources/AgentStudio/Core/State/MainActor/Atoms/BadFeatureAtomReference.swift",
+            "Sources/AgentStudio/Features/RepoExplorer/State/MainActor/Atoms/BadSiblingFeatureAtomReference.swift",
+            "Tests/AgentStudioTests/BadPollingWaitTest.swift",
+        ]
+        let scopedAbsolutePaths = scopedRelativePaths.map { "\(canonicalFixture)/\($0)" }
+
+        let fullResult = runCommand(
+            arguments: ["Sources", "Tests"],
+            workspaceRootPath: symlinkRoot.path
+        )
+        let scopedResult = runCommand(
+            arguments: ["Sources", "Tests"] + scopedAbsolutePaths.flatMap { ["--only", $0] },
+            workspaceRootPath: symlinkRoot.path
+        )
+
+        let fullLinesForScopedFiles = fullResult.output
+            .split(separator: "\n")
+            .filter { line in scopedAbsolutePaths.contains { line.hasPrefix("\($0):") } }
+        let scopedLines = scopedResult.output.split(separator: "\n")
+
+        #expect(fullResult.exitCode == 1)
+        #expect(scopedResult.exitCode == 1)
+        #expect(!fullLinesForScopedFiles.isEmpty)
+        #expect(scopedLines == fullLinesForScopedFiles, Comment(rawValue: scopedResult.output))
     }
 
     @Test("timings print per stage and per rule without changing the exit code")
@@ -358,6 +437,15 @@ struct ArchitectureLintCommandTests {
         let error = (try? String(contentsOf: errorURL, encoding: .utf8)) ?? ""
         return CommandRunResult(exitCode: exitCode, output: output + error)
     }
+}
+
+private func canonicalFileSystemPath(_ path: String) -> String {
+    let standardizedPath = URL(fileURLWithPath: path).standardizedFileURL.path
+    guard let resolvedPath = standardizedPath.withCString({ Darwin.realpath($0, nil) }) else {
+        return standardizedPath
+    }
+    defer { Darwin.free(resolvedPath) }
+    return String(cString: resolvedPath)
 }
 
 private struct StaleOwnerRule: ArchitectureRule {

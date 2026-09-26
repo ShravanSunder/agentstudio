@@ -274,25 +274,27 @@ struct CommandBarWorktreeRowBuilderTests {
     @Test
     func test_copyPathItemInvokesCapturedPath() async {
         let path = URL(filePath: "/tmp/command-bar-captured-path")
-        let item = CommandBarDataSource.copyPathItem(id: "test", path: path, group: "Open", groupPriority: 0)
+        let pasteboard = PathActionsPasteboardRecorder()
+        defer { pasteboard.finish() }
+
+        let item = CommandBarDataSource.copyPathItem(
+            id: "test",
+            path: path,
+            group: "Open",
+            groupPriority: 0,
+            pathActions: PasteboardPathActionsExecutor(pasteboard: pasteboard)
+        )
 
         guard case .custom(let action) = item.action else {
             Issue.record("Expected copy path item to use a custom action")
             return
         }
 
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString("before", forType: .string)
         action()
-
-        var copiedPath: String?
-        for _ in 0..<10 {
-            copiedPath = NSPasteboard.general.string(forType: .string)
-            if copiedPath == path.path { break }
-            await Task.yield()
-        }
+        let copiedPath = await pasteboard.nextString()
 
         #expect(copiedPath == path.path)
+        #expect(pasteboard.stringValue == path.path)
     }
 
     @Test
@@ -483,6 +485,58 @@ struct CommandBarWorktreeRowBuilderTests {
         #expect(navigateItems.count == 2)
         #expect(navigateItems[0].subtitle == "Tab 2 · Pane 1")
         #expect(navigateItems[1].subtitle == "Tab 2 · Pane 2 · Active")
+    }
+}
+
+@MainActor
+private final class PathActionsPasteboardRecorder: PathActionsPasteboard {
+    private let copiedPathStream: AsyncStream<String>
+    private let copiedPathContinuation: AsyncStream<String>.Continuation
+    private(set) var stringValue: String?
+
+    init() {
+        let (copiedPathStream, copiedPathContinuation) = AsyncStream.makeStream(of: String.self)
+        self.copiedPathStream = copiedPathStream
+        self.copiedPathContinuation = copiedPathContinuation
+    }
+
+    func clearContents() -> Int {
+        let removedItems = stringValue == nil ? 0 : 1
+        stringValue = nil
+        return removedItems
+    }
+
+    func setString(_ string: String, forType type: NSPasteboard.PasteboardType) -> Bool {
+        guard type == .string else { return false }
+        stringValue = string
+        copiedPathContinuation.yield(string)
+        return true
+    }
+
+    func nextString() async -> String? {
+        var iterator = copiedPathStream.makeAsyncIterator()
+        return await iterator.next()
+    }
+
+    func finish() {
+        copiedPathContinuation.finish()
+    }
+}
+
+@MainActor
+private final class PasteboardPathActionsExecutor: PathActionsExecuting, @unchecked Sendable {
+    private let pasteboard: any PathActionsPasteboard
+
+    init(pasteboard: any PathActionsPasteboard) {
+        self.pasteboard = pasteboard
+    }
+
+    func copyPath(_ path: URL) -> Bool {
+        PathActions.copyPath(path, to: pasteboard)
+    }
+
+    func revealInFinder(_ path: URL) -> Bool {
+        false
     }
 }
 

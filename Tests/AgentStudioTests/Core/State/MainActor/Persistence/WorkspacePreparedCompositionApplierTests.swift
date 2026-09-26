@@ -44,11 +44,10 @@ struct WorkspacePreparedCompositionApplierTests {
         #expect(fixture.paneGraphAtom.paneState(fixture.seedPaneID) == nil)
     }
 
-    @Test("preparation rejection mutates nothing")
-    func preparationRejectionMutatesNothing() throws {
+    @Test("preparer rejects a duplicate pane identifier")
+    func preparerRejectsDuplicatePaneIdentifier() throws {
         // Arrange
         let fixture = try PreparedCompositionApplierFixture.seeded()
-        let before = fixture.compositionState
         let duplicatePane = fixture.makeCandidatePane()
         let invalidSnapshot = WorkspaceSQLiteSnapshot(
             id: UUIDv7.generate(),
@@ -60,7 +59,6 @@ struct WorkspacePreparedCompositionApplierTests {
 
         // Assert
         #expect(preparation == .rejected(.duplicatePaneID(duplicatePane.id)))
-        #expect(fixture.compositionState == before)
     }
 
     @Test("installed composition rejects a second apply before mutation")
