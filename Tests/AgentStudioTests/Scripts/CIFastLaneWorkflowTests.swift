@@ -597,10 +597,11 @@ struct CIFastLaneWorkflowTests {
             named: "run_aggregate_serial_non_webkit_swift_tests",
             in: helperScript
         )
-        let aggregateBatchWaiter = try shellFunction(
-            named: "wait_for_process_global_suite_batch",
+        let isolatedDispatcher = try shellFunction(
+            named: "dispatch_isolated_suites",
             in: helperScript
         )
+        let isolatedSuiteRunner = try shellFunction(named: "run_selected_isolated_suite", in: helperScript)
         let fastRunner = try shellFunction(named: "run_fast_non_webkit_swift_tests", in: helperScript)
         let discoveredSuiteFilters = try await runBash(
             "LOG_PREFIX=test TIMEOUT_SECONDS=60 PREBUILD_TIMEOUT_SECONDS=60 BUILD_PATH=.build-agent-1 "
@@ -662,29 +663,23 @@ struct CIFastLaneWorkflowTests {
         #expect(
             aggregateRunner.contains(
                 "if ! aggregate_serial_suite_filters=\"$(aggregate_serial_non_webkit_suite_filters)\"; then"))
-        #expect(aggregateRunner.contains("swift_test_isolated_process_concurrency"))
-        #expect(!aggregateRunner.contains("local process_global_concurrency=4"))
-        // Pid AND filter, so a crashed child can be named rather than swallowed.
-        #expect(aggregateRunner.contains("process_global_batch_pids+=(\"$!\" \"$aggregate_serial_suite_filter\")"))
-        #expect(aggregateRunner.contains("inventory_status=1"))
-        #expect(aggregateRunner.contains("wait_for_process_global_suite_batch"))
-        #expect(
-            aggregateRunner.contains(
-                "isolated process-global non-WebKit suite: $aggregate_serial_suite_filter"
-            )
-        )
+        #expect(aggregateRunner.contains("dispatch_isolated_suites fast \"${selected_filters[@]}\""))
+        #expect(isolatedDispatcher.contains("swift_test_isolated_process_concurrency"))
+        #expect(isolatedDispatcher.contains("wait \"$wrapper_pid\""))
+        #expect(isolatedDispatcher.contains("swift_test_record_failed_isolated_suite"))
+        #expect(isolatedDispatcher.contains("read -r -u 7 completed_slot completed_pid completed_status"))
+        #expect(isolatedSuiteRunner.contains("isolated process-global non-WebKit suite: $suite_filter"))
         // Anchored: a bare name also admits every test in a file named after the
         // suite, which is how two process-global suites shared one process.
         #expect(
-            aggregateRunner.contains(
-                "--filter \"$(swift_test_isolated_suite_filter_pattern \"$aggregate_serial_suite_filter\")\""
+            isolatedSuiteRunner.contains(
+                "--filter \"$(swift_test_isolated_suite_filter_pattern \"$suite_filter\")\""
             ))
-        #expect(aggregateRunner.contains("\"$swift_testing_helper\" --test-bundle-path \"$swift_test_bundle\""))
-        #expect(aggregateRunner.contains("DYLD_FRAMEWORK_PATH=\"$testing_framework_path\""))
-        #expect(aggregateRunner.contains("--testing-library swift-testing"))
+        #expect(isolatedSuiteRunner.contains("\"$swift_testing_helper\" --test-bundle-path \"$swift_test_bundle\""))
+        #expect(isolatedSuiteRunner.contains("DYLD_FRAMEWORK_PATH=\"$testing_framework_path\""))
+        #expect(isolatedSuiteRunner.contains("--testing-library swift-testing"))
         #expect(!aggregateRunner.contains("< <("))
-        #expect(aggregateBatchWaiter.contains("swift_test_record_failed_isolated_suite"))
-        #expect(aggregateBatchWaiter.contains("return \"$batch_status\""))
+        #expect(isolatedDispatcher.contains("return \"$lane_status\""))
         // The skip moved into one builder so the exact suite names can be
         // anchored without anchoring the substring families beside them.
         #expect(fastRunner.contains("failed to prepare fast-lane skip pattern; no fast suites were started"))
@@ -715,20 +710,7 @@ struct CIFastLaneWorkflowTests {
             ).count - 1 == 1
         )
         #expect(largeRunner.contains("fi\n\n  run_large_process_global_swift_tests"))
-        #expect(
-            largeProcessGlobalRunner.contains(
-                "isolated large process-global suite: $large_process_global_suite_filter"
-            )
-        )
-        #expect(
-            largeProcessGlobalRunner.contains(
-                "\"$swift_testing_helper\" --test-bundle-path \"$swift_test_bundle\""
-            )
-        )
-        #expect(
-            largeProcessGlobalRunner.contains(
-                "--filter \"$(swift_test_isolated_suite_filter_pattern \"$large_process_global_suite_filter\")\""
-            ))
+        #expect(largeProcessGlobalRunner.contains("dispatch_isolated_suites large"))
         for suiteName in [
             "AgentStudioOTLPBootstrapSmokeTests",
             "DarwinCompositeFSEventContinuityTests",

@@ -98,38 +98,34 @@ TIMING_EVIDENCE_DIR="$evidence_dir" /usr/bin/perl -MJSON::PP -MTime::Local -MFil
     }
     print "| unknown | unknown |\n" unless @ranked;
   }
-  print "\n## Isolated scheduler model\n\n";
-  print "B = Σ max(batch); R = three-slot greedy replay of the same ordered service times. Both are models.\n\n";
-  print "| Batch | Slowest member | Slot idle seconds |\n| --- | --- | ---: |\n";
-  my %batches; my @isolated = grep {
-    defined($_->{filter}) && defined($_->{batch_id}) &&
-      ($_->{label}//"") =~ /^isolated process-global non-WebKit suite:/
-  } @records;
-  for my $item (@isolated) { push @{$batches{($item->{lane}//"unknown").":".$item->{batch_id}}}, $item }
-  my ($batch_total,$idle_total) = (0,0); my $model_known = @isolated ? 1 : 0;
-  for my $batch (sort keys %batches) {
-    my @items = @{$batches{$batch}};
-    my @times = map { span($_->{dispatch_ms},$_->{wrapper_complete_ms}) } @items;
-    if (grep { !defined($_) } @times) { print "| $batch | unknown | unknown |\n"; $model_known=0; next }
-    my $max=0; my $sum=0; my $slow;
-    for my $index (0..$#times) { $sum += $times[$index]; if ($times[$index] >= $max) { $max=$times[$index]; $slow=$items[$index]{filter} } }
-    my $slots = @items < 3 ? scalar(@items) : 3;
-    my $idle = $slots*$max-$sum;
-    $batch_total += $max; $idle_total += $idle;
-    print "| $batch | $slow | ",seconds($idle)," |\n";
+  print "\n## Isolated scheduler\n\n";
+  print "Measured dispatch-to-wrapper spans. Idle includes startup and tail gaps across all assigned slots.\n\n";
+  print "| Lane | Dispatches | Slots | Phase wall | Slot idle |\n| --- | ---: | ---: | ---: | ---: |\n";
+  my %scheduler;
+  for my $item (@records) {
+    next unless defined($item->{filter}) && defined($item->{batch_id}) && defined($item->{slot});
+    push @{$scheduler{$item->{lane}//"unknown"}}, $item;
   }
-  print "| unknown | unknown | unknown |\n" unless %batches;
-  my @ordered = sort { ($a->{dispatch_ms}//0) <=> ($b->{dispatch_ms}//0) } @isolated;
-  my @slots = (0,0,0);
-  for my $item (@ordered) {
-    my $duration=span($item->{dispatch_ms},$item->{wrapper_complete_ms});
-    if (!defined($duration)) { $model_known=0; last }
-    my $index=0; for my $candidate (1..2) { $index=$candidate if $slots[$candidate] < $slots[$index] }
-    $slots[$index]+=$duration;
+  for my $lane (sort keys %scheduler) {
+    my @items = @{$scheduler{$lane}};
+    my ($first,$last,$eligible,$slots,$busy) = (undef,undef,undef,0,0);
+    my $known = 1;
+    for my $item (@items) {
+      my $duration = span($item->{dispatch_ms},$item->{wrapper_complete_ms});
+      unless (defined($duration) && numeric($item->{slot}) && $item->{slot} >= 1) { $known=0; next }
+      $busy += $duration;
+      $slots = $item->{slot} if $item->{slot} > $slots;
+      $first = $item->{dispatch_ms} if !defined($first) || $item->{dispatch_ms} < $first;
+      $last = $item->{wrapper_complete_ms} if !defined($last) || $item->{wrapper_complete_ms} > $last;
+      $eligible = $item->{eligible_ms} if numeric($item->{eligible_ms}) &&
+        (!defined($eligible) || $item->{eligible_ms} < $eligible);
+    }
+    $first = $eligible if defined($eligible) && (!defined($first) || $eligible < $first);
+    my $wall = $known ? span($first,$last) : undef;
+    my $idle = defined($wall) ? $slots * $wall - $busy : undef;
+    print "| $lane | ",scalar(@items)," | $slots | ",seconds($wall)," | ",seconds($idle)," |\n";
   }
-  my $replay=0; for my $slot (@slots) { $replay=$slot if $slot>$replay }
-  print "\nTotal slot idle: ",($model_known?seconds($idle_total):"unknown")," s; ";
-  print "B: ",($model_known?seconds($batch_total):"unknown")," s; R: ",($model_known?seconds($replay):"unknown")," s.\n";
+  print "| unknown | unknown | unknown | unknown | unknown |\n" unless %scheduler;
   my @prebuild=grep { ($_->{label}//"") eq "prebuild test bundles" } @records;
   print "\n## Prebuild and compiler work\n\nPrebuild wall: ",
     (@prebuild ? seconds($prebuild[-1]{_wall}) : "unknown")," s.\n\n";

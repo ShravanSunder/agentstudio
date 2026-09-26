@@ -1368,68 +1368,22 @@ prebuild_swift_tests() {
 }
 
 run_aggregate_serial_non_webkit_swift_tests() {
-  local process_global_concurrency
-  process_global_concurrency="$(swift_test_isolated_process_concurrency)"
-  echo "[$LOG_PREFIX] isolated process-global concurrency: $process_global_concurrency"
-  local swift_test_bundle
-  swift_test_bundle="$(swift_testing_bundle_path)"
-  local swift_testing_helper
-  swift_testing_helper="$(swift_testing_helper_path)"
-  local testing_framework_path
-  testing_framework_path="$(swift_testing_framework_path)"
   local aggregate_serial_suite_filter
   local aggregate_serial_suite_filters
-  local -a process_global_batch_pids=()
-  local inventory_status=0
+  local -a selected_filters=()
 
   if ! aggregate_serial_suite_filters="$(aggregate_serial_non_webkit_suite_filters)"; then
     printf '[test] failed to generate aggregate serial non-WebKit suite list\n' >&2
     return 1
   fi
-  local timing_eligible_ms timing_batch=0 timing_slot=0
-  timing_eligible_ms="$(lane_timing_now_ms 2>/dev/null || true)"
-
   while IFS= read -r aggregate_serial_suite_filter; do
     [ -n "$aggregate_serial_suite_filter" ] || continue
-    if [ "$timing_slot" -eq 0 ]; then timing_batch=$((timing_batch + 1)); fi
-    timing_slot=$((timing_slot + 1))
-    (
-      export LANE_TIMING_FILTER="$aggregate_serial_suite_filter"
-      export LANE_TIMING_BATCH="$timing_batch" LANE_TIMING_SLOT="$timing_slot"
-      export LANE_TIMING_ELIGIBLE_MS="$timing_eligible_ms"
-      run_swift_with_timeout \
-        "isolated process-global non-WebKit suite: $aggregate_serial_suite_filter" \
-        "$TIMEOUT_SECONDS" \
-        env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" $(swift_test_parallelization_env_word) \
-        DYLD_FRAMEWORK_PATH="$testing_framework_path" \
-        "$swift_testing_helper" --test-bundle-path "$swift_test_bundle" \
-        --filter "$(swift_test_isolated_suite_filter_pattern "$aggregate_serial_suite_filter")" \
-        "$swift_test_bundle" --testing-library swift-testing
-    ) &
-    process_global_batch_pids+=("$!" "$aggregate_serial_suite_filter")
-
-    if [ "${#process_global_batch_pids[@]}" -eq $((process_global_concurrency * 2)) ]; then
-      # Record the failure and keep going: stopping here is what hid 324 of 336
-      # suites behind one crashed process.
-      wait_for_process_global_suite_batch "${process_global_batch_pids[@]}" || inventory_status=1
-      process_global_batch_pids=()
-      timing_slot=0
-    fi
+    selected_filters+=("$aggregate_serial_suite_filter")
   done <<<"$aggregate_serial_suite_filters"
-
-  if [ "${#process_global_batch_pids[@]}" -gt 0 ]; then
-    wait_for_process_global_suite_batch "${process_global_batch_pids[@]}" || inventory_status=1
-  fi
-  return "$inventory_status"
+  dispatch_isolated_suites fast "${selected_filters[@]}"
 }
 
 run_large_process_global_swift_tests() {
-  local swift_test_bundle
-  swift_test_bundle="$(swift_testing_bundle_path)"
-  local swift_testing_helper
-  swift_testing_helper="$(swift_testing_helper_path)"
-  local testing_framework_path
-  testing_framework_path="$(swift_testing_framework_path)"
   local lane_inventory large_process_global_suite_filter large_process_global_suite_output
   local -a large_process_global_suite_filters=()
 
@@ -1449,23 +1403,7 @@ run_large_process_global_swift_tests() {
     [ -n "$large_process_global_suite_filter" ] || continue
     large_process_global_suite_filters+=("$large_process_global_suite_filter")
   done <<<"$large_process_global_suite_output"
-  local timing_eligible_ms timing_batch=0
-  timing_eligible_ms="$(lane_timing_now_ms 2>/dev/null || true)"
-
-  for large_process_global_suite_filter in "${large_process_global_suite_filters[@]}"; do
-    timing_batch=$((timing_batch + 1))
-    LANE_TIMING_FILTER="$large_process_global_suite_filter" \
-      LANE_TIMING_BATCH="$timing_batch" LANE_TIMING_SLOT=1 \
-      LANE_TIMING_ELIGIBLE_MS="$timing_eligible_ms" \
-      run_swift_with_timeout \
-      "isolated large process-global suite: $large_process_global_suite_filter" \
-      "$TIMEOUT_SECONDS" \
-      env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" $(swift_test_parallelization_env_word) \
-      DYLD_FRAMEWORK_PATH="$testing_framework_path" \
-      "$swift_testing_helper" --test-bundle-path "$swift_test_bundle" \
-      --filter "$(swift_test_isolated_suite_filter_pattern "$large_process_global_suite_filter")" \
-      "$swift_test_bundle" --testing-library swift-testing
-  done
+  dispatch_isolated_suites large "${large_process_global_suite_filters[@]}"
 }
 
 swift_testing_bundle_path() {
@@ -1514,30 +1452,122 @@ swift_test_failed_isolated_suite_count() {
   /usr/bin/awk 'END { print NR + 0 }' "$tally_file"
 }
 
-# Takes interleaved `pid filter` pairs rather than bare pids, so a failing child
-# can be named. Pairs, not a delimiter, because suite filters are regexes.
-wait_for_process_global_suite_batch() {
-  local suite_process_pid
-  local suite_filter
-  local suite_status
-  local batch_status=0
+# The parent owns the one completion channel and reaps by PID. A wrapper writes
+# one short line after its watchdog has reaped the test command; FIFO lines stay
+# atomic because they are shorter than PIPE_BUF. Bash 3.2 has no wait -n.
+dispatch_isolated_suites() {
+  local lane_kind="$1"
+  shift
+  [ "$#" -gt 0 ] || return 0
+  local -a suite_filters=("$@") active_pids=() active_filters=()
+  local concurrency next_filter=0 active_count=0 dispatch_ordinal=0
+  local slot suite_filter wrapper_pid completed_slot completed_pid completed_status waited_status
+  local lane_status=0 timing_eligible_ms fifo_path
+  concurrency="$(swift_test_isolated_process_concurrency)"
+  echo "[$LOG_PREFIX] isolated process-global concurrency: $concurrency"
+  timing_eligible_ms="$(lane_timing_now_ms 2>/dev/null || true)"
+  fifo_path="$(mktemp "${TMPDIR:-/tmp}/agentstudio-isolated-completions.XXXXXX")"
+  rm -f "$fifo_path"
+  mkfifo "$fifo_path"
+  exec 7<>"$fifo_path"
+  SWIFT_TEST_ACTIVE_ISOLATED_PIDS=""
 
-  while [ "$#" -gt 0 ]; do
-    suite_process_pid="$1"
-    suite_filter="$2"
-    shift 2
-    # `|| suite_status=$?` rather than toggling `set -e`: toggling it here would
-    # silently re-enable it for a caller that had turned it off.
-    suite_status=0
-    wait "$suite_process_pid" || suite_status=$?
-    if [ "$suite_status" -ne 0 ]; then
-      batch_status=1
-      echo "[$LOG_PREFIX] isolated suite failed: $suite_filter" \
-        "status=$suite_status signal=$(swift_test_signal_name "$suite_status")" >&2
-      swift_test_record_failed_isolated_suite "$suite_filter" "$suite_status"
+  while [ "$next_filter" -lt "${#suite_filters[@]}" ] || [ "$active_count" -gt 0 ]; do
+    for ((slot=1; slot<=concurrency && next_filter<${#suite_filters[@]}; slot++)); do
+      [ -z "${active_pids[$slot]:-}" ] || continue
+      suite_filter="${suite_filters[$next_filter]}"
+      next_filter=$((next_filter + 1))
+      dispatch_ordinal=$((dispatch_ordinal + 1))
+      (
+        # Bash 3.2 lacks BASHPID and $$ is the parent shell. An immediate
+        # child reports its PPID through a slot-local file, avoiding a second
+        # FIFO handshake that can strand a rapidly completing worker.
+        /bin/sh -c 'printf "%s\n" "$PPID"' >"$fifo_path.pid$slot"
+        read -r child_pid <"$fifo_path.pid$slot"
+        rm -f "$fifo_path.pid$slot"
+        export LANE_TIMING_FILTER="$suite_filter" LANE_TIMING_BATCH="$dispatch_ordinal"
+        export LANE_TIMING_SLOT="$slot" LANE_TIMING_ELIGIBLE_MS="$timing_eligible_ms"
+        local child_status=0
+        run_selected_isolated_suite "$lane_kind" "$suite_filter" || child_status=$?
+        printf '%s %s %s\n' "$slot" "$child_pid" "$child_status" >&7
+        exit "$child_status"
+      ) &
+      wrapper_pid=$!
+      active_pids[$slot]="$wrapper_pid"
+      active_filters[$slot]="$suite_filter"
+      SWIFT_TEST_ACTIVE_ISOLATED_PIDS="$SWIFT_TEST_ACTIVE_ISOLATED_PIDS $wrapper_pid"
+      active_count=$((active_count + 1))
+    done
+
+    if ! read -r -u 7 completed_slot completed_pid completed_status; then
+      lane_status=1
+      break
+    fi
+    wrapper_pid="${active_pids[$completed_slot]:-}"
+    if [ -z "$wrapper_pid" ] || [ "$wrapper_pid" != "$completed_pid" ]; then
+      echo "[$LOG_PREFIX] invalid isolated completion: slot=$completed_slot pid=$completed_pid" >&2
+      lane_status=1
+      break
+    fi
+    waited_status=0
+    wait "$wrapper_pid" || waited_status=$?
+    suite_filter="${active_filters[$completed_slot]}"
+    active_pids[$completed_slot]=""
+    active_filters[$completed_slot]=""
+    active_count=$((active_count - 1))
+    SWIFT_TEST_ACTIVE_ISOLATED_PIDS=" ${active_pids[*]}"
+    if [ "$completed_status" -ne 0 ] || [ "$waited_status" -ne "$completed_status" ]; then
+      lane_status=1
+      if [ "$lane_kind" != webkit ]; then
+        echo "[$LOG_PREFIX] isolated suite failed: $suite_filter" \
+          "status=$completed_status signal=$(swift_test_signal_name "$completed_status")" >&2
+        swift_test_record_failed_isolated_suite "$suite_filter" "$completed_status"
+      fi
     fi
   done
-  return "$batch_status"
+
+  if [ "$active_count" -gt 0 ]; then
+    swift_test_terminate_active_isolated_suites
+  fi
+  SWIFT_TEST_ACTIVE_ISOLATED_PIDS=""
+  exec 7>&-
+  rm -f "$fifo_path"
+  return "$lane_status"
+}
+
+run_selected_isolated_suite() {
+  local lane_kind="$1" suite_filter="$2"
+  if [ "$lane_kind" = webkit ]; then
+    run_webkit_suite "$suite_filter"
+    return $?
+  fi
+  local swift_test_bundle swift_testing_helper testing_framework_path
+  local label="isolated process-global non-WebKit suite: $suite_filter"
+  if [ "$lane_kind" = large ]; then
+    label="isolated large process-global suite: $suite_filter"
+  fi
+  swift_test_bundle="$(swift_testing_bundle_path)"
+  swift_testing_helper="$(swift_testing_helper_path)"
+  testing_framework_path="$(swift_testing_framework_path)"
+  run_swift_with_timeout \
+    "$label" \
+    "$TIMEOUT_SECONDS" \
+    env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" $(swift_test_parallelization_env_word) \
+    DYLD_FRAMEWORK_PATH="$testing_framework_path" \
+    "$swift_testing_helper" --test-bundle-path "$swift_test_bundle" \
+    --filter "$(swift_test_isolated_suite_filter_pattern "$suite_filter")" \
+    "$swift_test_bundle" --testing-library swift-testing
+}
+
+swift_test_terminate_active_isolated_suites() {
+  local suite_pid
+  for suite_pid in ${SWIFT_TEST_ACTIVE_ISOLATED_PIDS:-}; do
+    terminate_lane_child_tree TERM "$suite_pid"
+  done
+  for suite_pid in ${SWIFT_TEST_ACTIVE_ISOLATED_PIDS:-}; do
+    terminate_lane_child_tree KILL "$suite_pid"
+    wait "$suite_pid" 2>/dev/null || true
+  done
 }
 
 # The fast concurrent phase is the default lane minus the exact inventory rows

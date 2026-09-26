@@ -152,8 +152,8 @@ struct SwiftLaneRunnerReportTests {
                     + "ARG:\(statisticsDirectory)\n") == true)
     }
 
-    @Test("timing summary computes fixed scheduler replay and keeps missing spans unknown")
-    func timingSummaryComputesReplayAndUnknowns() async throws {
+    @Test("timing summary measures actual scheduler idle and keeps missing spans unknown")
+    func timingSummaryComputesActualIdleAndUnknowns() async throws {
         let evidenceDirectory = NSTemporaryDirectory() + "agentstudio-timing-summary-\(UUIDv7.generate())"
         defer { try? FileManager.default.removeItem(atPath: evidenceDirectory) }
         try FileManager.default.createDirectory(atPath: evidenceDirectory, withIntermediateDirectories: true)
@@ -172,10 +172,10 @@ struct SwiftLaneRunnerReportTests {
         let fixtureData = try JSONSerialization.data(withJSONObject: fixture)
         try fixtureData.write(to: URL(fileURLWithPath: evidenceDirectory + "/lane-fixture.timing.json"))
         for (index, duration) in [100, 400, 100, 400, 100, 100].enumerated() {
-            let dispatch = index < 3 ? 1000 : 1500
+            let dispatch = [1000, 1000, 1000, 1100, 1400, 1500][index]
             let item: [String: Any] = [
                 "lane": "isolated", "label": "isolated process-global non-WebKit suite: \(index)",
-                "filter": "Suite\(index)", "batch_id": index < 3 ? 1 : 2,
+                "filter": "Suite\(index)", "batch_id": index + 1,
                 "slot": index % 3 + 1, "dispatch_ms": dispatch,
                 "wrapper_complete_ms": dispatch + duration,
             ]
@@ -185,7 +185,7 @@ struct SwiftLaneRunnerReportTests {
         _ = try await runBash("LANE_EVENT_STREAM_DIR='\(evidenceDirectory)' /bin/bash scripts/summarize-ci-timing.sh")
         let summary = try String(contentsOfFile: evidenceDirectory + "/timing-summary.md", encoding: .utf8)
         #expect(summary.contains("| fixture | 1 | 0.500 | 0.100 | 0.200 | 0.050 | 0.050 |"))
-        #expect(summary.contains("Total slot idle: 1.200 s; B: 0.800 s; R: 0.500 s."))
+        #expect(summary.contains("| isolated | 6 | 3 | 0.600 | 0.600 |"))
         #expect(summary.contains("unknown"))
         let emptyDirectory = evidenceDirectory + "/empty"
         _ = try await runBash("LANE_EVENT_STREAM_DIR='\(emptyDirectory)' /bin/bash scripts/summarize-ci-timing.sh")
@@ -205,7 +205,7 @@ struct SwiftLaneRunnerReportTests {
             !$0.contains("$(swift_test_parallelization_env_word)")
         }
 
-        #expect(invocationLines.count >= 10)
+        #expect(invocationLines.count >= 9)
         #expect(
             invocationsBypassingTheHelper.isEmpty,
             "Swift test invocations not routed through the width helper: \(invocationsBypassingTheHelper)"
@@ -381,29 +381,28 @@ struct SwiftLaneRunnerReportTests {
 
     @Test("one crashed isolated suite does not hide the suites after it")
     func oneCrashedIsolatedSuiteDoesNotHideTheSuitesAfterIt() async throws {
-        // Two batched children: the first crashes, the second must still run and
-        // still be observable. Stopping at the first is what hid 324 of 336
-        // suites behind one crash.
+        // The rolling dispatcher must observe every child after one signal.
         let tallyPath = NSTemporaryDirectory() + "agentstudio-s2d-tally-\(UUIDv7.generate())"
         defer { try? FileManager.default.removeItem(atPath: tallyPath) }
         let laneOutput = try await runBashAllowingFailure(
             "LOG_PREFIX=lane; export SWIFT_TEST_FAILED_ISOLATED_SUITES_FILE='\(tallyPath)'; "
                 + ": >\"$SWIFT_TEST_FAILED_ISOLATED_SUITES_FILE\"; "
                 + "source scripts/swift-test-helpers.sh; set +e; "
-                + "/bin/bash -c 'kill -SEGV $$' & first=$!; "
-                + "/bin/bash -c 'echo SECOND_BATCH_RAN; exit 0' & second=$!; "
-                + "batch=0; "
-                + "wait_for_process_global_suite_batch \"$first\" CrashingSuite \"$second\" HealthySuite "
-                + "|| batch=$?; echo \"BATCH=$batch\"; "
+                + "swift_test_isolated_process_concurrency() { echo 2; }; "
+                + "run_selected_isolated_suite() { "
+                + "if [ \"$2\" = CrashingSuite ]; then /bin/bash -c 'kill -SEGV $$'; "
+                + "else echo SECOND_SUITE_RAN; fi; }; "
+                + "lane_status=0; dispatch_isolated_suites fast CrashingSuite HealthySuite "
+                + "|| lane_status=$?; echo \"LANE_STATUS=$lane_status\"; "
                 + "echo \"COUNT=$(swift_test_failed_isolated_suite_count)\"; "
                 + "cat \"$SWIFT_TEST_FAILED_ISOLATED_SUITES_FILE\""
         )
 
         // Both children ran; only the crashing one is recorded.
-        #expect(laneOutput.contains("SECOND_BATCH_RAN"))
+        #expect(laneOutput.contains("SECOND_SUITE_RAN"))
         #expect(laneOutput.contains("isolated suite failed: CrashingSuite"))
         #expect(!laneOutput.contains("isolated suite failed: HealthySuite"))
-        #expect(laneOutput.contains("BATCH=1"))
+        #expect(laneOutput.contains("LANE_STATUS=1"))
         #expect(laneOutput.contains("COUNT=1"))
         #expect(laneOutput.contains("CrashingSuite\t139\tSEGV"))
     }
@@ -570,15 +569,10 @@ struct SwiftLaneRunnerReportTests {
     func everyIsolatedPerProcessInvocationAnchorsItsSuiteFilter() throws {
         let helperScript = try String(contentsOfFile: "scripts/swift-test-helpers.sh", encoding: .utf8)
 
-        // The three places that start one process for one suite must all go
-        // through the helper; a bare name at any of them reopens the crash.
+        // Fast and large isolated suites share one anchored invocation.
         #expect(
             helperScript.contains(
-                "--filter \"$(swift_test_isolated_suite_filter_pattern \"$aggregate_serial_suite_filter\")\""
-            ))
-        #expect(
-            helperScript.contains(
-                "--filter \"$(swift_test_isolated_suite_filter_pattern \"$large_process_global_suite_filter\")\""
+                "--filter \"$(swift_test_isolated_suite_filter_pattern \"$suite_filter\")\""
             ))
         let fastProcessInvocation = try shellFunction(
             named: "run_fast_serial_process_swift_tests",
@@ -588,6 +582,8 @@ struct SwiftLaneRunnerReportTests {
             fastProcessInvocation.contains(
                 "--filter \"$(swift_test_isolated_suite_filter_pattern \"$fast_process_global_suite_filter\")\""
             ))
+        let webKitInvocation = try shellFunction(named: "run_webkit_suite", in: helperScript)
+        #expect(webKitInvocation.contains("--filter \"$filter\""))
         // Fast skips are generated from exact lane ownership, with the
         // aggregate isolated suites anchored by their own suite-type filters.
         #expect(helperScript.contains("--skip \"$fast_lane_skip_pattern\""))

@@ -218,6 +218,7 @@ struct SwiftLaneReceiptTests {
                 // its own parent lane.
                 + "swift_build_slot_acquire build \"receipt-test\"\n"
                 + "print_closing_lane_report() { echo CLOSING_RECEIPT; }\n"
+                + "swift_test_terminate_active_isolated_suites() { :; }\n"
                 + invocationExit + "\n}\n"
                 + "trap finish_lane_invocation EXIT\n"
                 + "[ -d \"$SWIFT_BUILD_SLOT_CLAIM_DIRECTORY\" ] && echo CLAIM_HELD\n"
