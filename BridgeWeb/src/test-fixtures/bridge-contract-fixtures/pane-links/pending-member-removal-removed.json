@@ -1,0 +1,13 @@
+{
+  "union": "BridgePendingMemberRemovalSettlement",
+  "value": {
+    "kind": "removed",
+    "removedContributions": [
+      {
+        "kind": "agent",
+        "provider": "codex",
+        "sessionRef": "session-1"
+      }
+    ]
+  }
+}
