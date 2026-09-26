@@ -42,8 +42,8 @@ struct PaneTabViewControllerPaneInboxDispatchTests {
     }
 
     @Test("pane inbox commands are unavailable without a production presentation")
-    func paneInboxCommandsAreUnavailableWithoutPresentation() async throws {
-        try await withAsyncTestCoreAtoms { atoms in
+    func paneInboxCommandsAreUnavailableWithoutPresentation() async {
+        await withAsyncTestCoreAtoms { atoms in
             let harness = makeHarness(windowLifecycleStore: atoms.windowLifecycle)
             defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
