@@ -79,7 +79,7 @@ export function buildHeroIntroScene(
   }
   const fanPlanes = [iconFront, rearTwo, rearOne] as const;
   const stackStep =
-    Number.parseFloat(getComputedStyle(root).getPropertyValue("--hero-stack-step")) || 7;
+    Number.parseFloat(getComputedStyle(root).getPropertyValue("--hero-stack-step")) || 3;
   const iconCursor = requiredTarget(root, heroIconCursorAttribute);
   const windowNode = requiredTarget(root, heroTerminalWindowAttribute);
   const windowContent = requiredTarget(root, heroIntroContentAttribute);
@@ -151,7 +151,7 @@ export function buildHeroIntroScene(
     const planeStep = index + 1;
     timeline.to(
       plane,
-      { rotation: -6 * planeStep, duration: 0.35, ease: storyboardPower3InOut },
+      { rotation: -((stackStep * 6) / 7) * planeStep, duration: 0.35, ease: storyboardPower3InOut },
       2.4,
     );
     timeline.to(

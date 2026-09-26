@@ -19,12 +19,12 @@ import HeroIconStack from "./HeroIconStack.astro";
 </div>
 
 <style>
-  .hero-intro-root { --hero-stack-step: 7deg; --hero-stack-anchor-x: 22px; --hero-stack-anchor-y: 44px; position: relative; min-width: 0; isolation: isolate; }
+  .hero-intro-root { --hero-stack-step: 3deg; --hero-stack-position-base: 4px; --hero-stack-position-step: var(--hero-stack-position-base); --hero-stack-anchor-x: 5px; --hero-stack-anchor-y: 0px; position: relative; min-width: 0; isolation: isolate; }
   :global(.hero-icon-stack) { position: absolute; z-index: 1; top: var(--hero-stack-anchor-y); left: var(--hero-stack-anchor-x); width: 260px; height: 165px; transform-origin: 0 100%; pointer-events: none; }
   :global(.hero-icon-plane) { position: absolute; inset: 0; width: 260px; height: 165px; border-radius: 22px; transform-origin: 0 100%; }
-  :global(.hero-icon-plane--rear-one) { transform: rotate(calc(var(--hero-stack-step) * -3)); border: 3px solid #ef9f76; background: #191b1f; box-shadow: 0 10px 26px #0005; }
-  :global(.hero-icon-plane--rear-two) { transform: rotate(calc(var(--hero-stack-step) * -2)); border: 3px solid #ef9f76; background: #191b1f; box-shadow: 0 10px 26px #0005; }
-  :global(.hero-icon-plane--front) { transform: rotate(calc(var(--hero-stack-step) * -1)); border: 3px solid #89b4fa; background: #1e1e2e; }
+  :global(.hero-icon-plane--rear-one) { left: calc(var(--hero-stack-position-step) * -3); top: calc(var(--hero-stack-position-step) * -3); transform: rotate(calc(var(--hero-stack-step) * -3)); border: 3px solid #ef9f76; background: #191b1f; box-shadow: 0 10px 26px #0005; }
+  :global(.hero-icon-plane--rear-two) { left: calc(var(--hero-stack-position-step) * -2); top: calc(var(--hero-stack-position-step) * -2); transform: rotate(calc(var(--hero-stack-step) * -2)); border: 3px solid #ef9f76; background: #191b1f; box-shadow: 0 10px 26px #0005; }
+  :global(.hero-icon-plane--front) { left: calc(var(--hero-stack-position-step) * -1); top: calc(var(--hero-stack-position-step) * -1); transform: rotate(calc(var(--hero-stack-step) * -1)); border: 3px solid #89b4fa; background: #1e1e2e; }
   :global(.hero-icon-plane svg) { display: block; width: 100%; height: 100%; }
   .hero-terminal-window { position: relative; z-index: 2; overflow: hidden; border: 1px solid rgb(137 180 250 / 38%); border-radius: var(--scroll-material-radius, 16px); background: #282c34; box-shadow: 0 16px 34px #0004; color: #cdd6f4; font: 13px/1.5 var(--font-mono-product); }
   .hero-terminal-content { display: flex; align-items: stretch; }
@@ -73,7 +73,7 @@ import HeroIconStack from "./HeroIconStack.astro";
     :global(.hero-transcript-row[data-transcript-tier~="compact"]) { display: block; }
   }
   @media (width < 38.75rem) {
-    .hero-intro-root { --hero-stack-anchor-x: 25px; --hero-stack-anchor-y: 39px; }
+    .hero-intro-root { --hero-stack-position-step: calc(var(--hero-stack-position-base) * 170 / 260); --hero-stack-anchor-x: 2px; --hero-stack-anchor-y: 14px; }
     :global(.hero-icon-stack) { width: 170px; height: 108px; }
     :global(.hero-icon-plane) { width: 170px; height: 108px; border-radius: 14px; }
     :global(.hero-icon-plane--rear-one), :global(.hero-icon-plane--rear-two) { border-width: 2px; }

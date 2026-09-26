@@ -23,6 +23,10 @@ export interface HeroLayoutObservation {
   readonly installCenterOffset: number;
   readonly paintedStackTop: number;
   readonly stackAngles: readonly number[];
+  readonly stackPlaneLeftOffsets: readonly number[];
+  readonly stackPlaneTopOffsets: readonly number[];
+  readonly stackPlaneLeftPeeks: readonly number[];
+  readonly stackPlaneTopPeeks: readonly number[];
   readonly stackPeekLeft: number;
   readonly stackPeekTop: number;
   readonly cursorCount: number;
@@ -84,6 +88,7 @@ export const verifyHeroIntroLayout = defineBrowserCommand(
                 const transform = new DOMMatrixReadOnly(getComputedStyle(element).transform);
                 return Math.atan2(transform.b, transform.a) * (180 / Math.PI);
               };
+              const fanPlanes = [frontPlane, ...[...rearPlanes].reverse()];
               const visibleRows = [
                 ...windowNode.querySelectorAll<HTMLElement>("[data-transcript-tier]"),
               ].filter((row) => row.getClientRects().length > 0);
@@ -125,7 +130,19 @@ export const verifyHeroIntroLayout = defineBrowserCommand(
                   frontPlane.getBoundingClientRect().top,
                   ...rearPlanes.map((plane) => plane.getBoundingClientRect().top),
                 ),
-                stackAngles: [frontPlane, ...[...rearPlanes].reverse()].map(angle),
+                stackAngles: fanPlanes.map(angle),
+                stackPlaneLeftOffsets: fanPlanes.map((plane) =>
+                  Number.parseFloat(getComputedStyle(plane).left),
+                ),
+                stackPlaneTopOffsets: fanPlanes.map((plane) =>
+                  Number.parseFloat(getComputedStyle(plane).top),
+                ),
+                stackPlaneLeftPeeks: fanPlanes.map(
+                  (plane) => windowRect.left - plane.getBoundingClientRect().left,
+                ),
+                stackPlaneTopPeeks: fanPlanes.map(
+                  (plane) => windowRect.top - plane.getBoundingClientRect().top,
+                ),
                 stackPeekLeft:
                   windowRect.left -
                   Math.min(
