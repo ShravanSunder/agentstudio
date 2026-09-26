@@ -422,7 +422,13 @@ struct ApplicationEntrypointArchitectureTests {
         #expect(ipcBootSource.contains("import AgentStudioProgrammaticControl"))
         #expect(ipcBootSource.contains("AppIPCBuiltInMethodRegistrations.make("))
         #expect(ipcBootSource.contains("AppIPCCommandMethodRegistrations.make("))
-        #expect(ipcBootSource.contains("AppIPCMethodRegistry(registrations: registrations, channel:"))
+        #expect(ipcBootSource.contains("AppIPCMethodRegistry("))
+        #expect(
+            ipcBootSource.contains(
+                "let recognizedCommands = commandCatalogProjectionInputs.recognizedCommands"))
+        #expect(ipcBootSource.contains("recognizedCommands: recognizedCommands"))
+        #expect(ipcBootSource.contains("ownPaneScopePort: WorkspaceOwnPaneScopePort(workspaceStore: store)"))
+        #expect(ipcBootSource.contains("agentAuthorizationTelemetry: AgentStudioIPCAgentAuthorizationTelemetry("))
         #expect(ipcBootSource.contains("methodRegistry: registry"))
         #expect(ipcBootSource.contains("rootDirectory: AppDataPaths.rootDirectory()"))
         #expect(ipcBootSource.contains("socketDirectory: Self.appIPCSocketDirectory()"))

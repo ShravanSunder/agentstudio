@@ -1,9 +1,43 @@
-import AgentStudioProgrammaticControl
 import Foundation
 import Testing
 
+@testable import AgentStudioProgrammaticControl
+
 @Suite("IPC typed JSON schema")
 struct IPCJSONSchemaTests {
+    @Test("every typed schema kind round-trips through its document representation")
+    func everySchemaKindRoundTripsThroughItsDocument() throws {
+        let defaultedObject = IPCJSONSchema.object(fields: [
+            .init(
+                name: "priority",
+                description: "Default priority",
+                schema: .integer(minimum: 1, maximum: 3),
+                presence: try .defaulted(2)
+            )
+        ])
+        let schemas: [IPCJSONSchema] = [
+            .object(fields: [.init(name: "name", description: "Name", schema: .string())]),
+            defaultedObject,
+            .dictionary(values: .integer(minimum: 0, maximum: 10)),
+            .array(items: .string(pattern: "^[a-z]+$"), minimumCount: 1, maximumCount: 3),
+            .string(allowedValues: ["small", "large"], pattern: "^(small|large)$"),
+            .integer(minimum: -1, maximum: 1),
+            .number(minimum: 0.5, maximum: 1.5),
+            .boolean,
+            .booleanConstant(true),
+            try IPCJSONSchema.literal("fixed"),
+            .null,
+            .oneOf([.array(items: .integer()), .null]),
+            .schemaDocument,
+        ]
+
+        for schema in schemas {
+            let document = try schema.jsonSchemaData()
+            let decoded = try JSONDecoder().decode(IPCJSONSchema.self, from: document)
+            #expect(decoded == schema)
+        }
+    }
+
     @Test("object field order survives discovery without hiding contract differences")
     func objectFieldOrderIsNotContractMeaning() throws {
         let title = IPCObjectField(name: "title", description: "Title", schema: .string())
@@ -185,6 +219,95 @@ struct IPCJSONSchemaTests {
         }
     }
 
+    @Test("prepared literal discriminators match try-all normalization and failures")
+    func preparedLiteralDiscriminatorsMatchTryAllNormalization() throws {
+        let schema = IPCJSONSchema.oneOf([
+            .object(fields: [
+                .init(name: "kind", description: "Operation", schema: .string(allowedValues: ["message"])),
+                .init(name: "text", description: "Message text", schema: .string(minimumLength: 1)),
+                .init(
+                    name: "priority",
+                    description: "Message priority",
+                    schema: .integer(minimum: 1, maximum: 3),
+                    presence: try .defaulted(1)
+                ),
+            ]),
+            .object(fields: [
+                .init(name: "kind", description: "Operation", schema: try IPCJSONSchema.literal("done")),
+                .init(name: "completed", description: "Completion state", schema: .booleanConstant(true)),
+            ]),
+            .object(fields: [
+                .init(name: "kind", description: "Operation", schema: .booleanConstant(true)),
+                .init(name: "enabled", description: "Enabled state", schema: .boolean),
+            ]),
+        ])
+        let preparedSchema = try IPCValidatedJSONSchema(schema: schema)
+        let inputs = [
+            #"{"kind":"message","text":"hello"}"#,
+            #"{"kind":"done","completed":true}"#,
+            #"{"kind":true,"enabled":false}"#,
+            #"{"kind":"future","text":"hello"}"#,
+            #"{"text":"missing operation"}"#,
+            #"{"kind":42,"text":"wrong discriminator type"}"#,
+            "42",
+            #"{"kind":"message","text":42}"#,
+        ]
+
+        for input in inputs {
+            let data = Data(input.utf8)
+            #expect(
+                normalizationOutcome { try preparedSchema.normalize(data) }
+                    == normalizationOutcome { try schema.normalize(data) }
+            )
+        }
+    }
+
+    @Test("prepared oneOf keeps try-all for schemas without a disjoint literal proof")
+    func preparedOneOfFallsBackWhenLiteralProofIsIncomplete() throws {
+        let duplicateLiteral = IPCJSONSchema.oneOf([
+            discriminatorFixtureAlternative(literal: "same"),
+            discriminatorFixtureAlternative(literal: "same"),
+        ])
+        let optionalDiscriminator = IPCJSONSchema.oneOf([
+            .object(fields: [
+                .init(
+                    name: "kind",
+                    description: "Operation",
+                    schema: .string(allowedValues: ["optional"]),
+                    presence: .optional
+                ),
+                .init(name: "value", description: "Value", schema: .string()),
+            ]),
+            discriminatorFixtureAlternative(literal: "required"),
+        ])
+        let nonObjectAlternative = IPCJSONSchema.oneOf([
+            discriminatorFixtureAlternative(literal: "object"),
+            .string(allowedValues: ["legacy"]),
+        ])
+        let alternativeMissingDiscriminator = IPCJSONSchema.oneOf([
+            discriminatorFixtureAlternative(literal: "modern"),
+            .object(fields: [
+                .init(name: "legacy", description: "Legacy shape", schema: .boolean)
+            ]),
+        ])
+
+        let cases: [(schema: IPCJSONSchema, input: String)] = [
+            (duplicateLiteral, #"{"kind":"same","value":"ambiguous"}"#),
+            (optionalDiscriminator, #"{"value":"matches the optional variant"}"#),
+            (nonObjectAlternative, #""legacy"#),
+            (alternativeMissingDiscriminator, #"{"legacy":true}"#),
+        ]
+
+        for testCase in cases {
+            let preparedSchema = try IPCValidatedJSONSchema(schema: testCase.schema)
+            let data = Data(testCase.input.utf8)
+            #expect(
+                normalizationOutcome { try preparedSchema.normalize(data) }
+                    == normalizationOutcome { try testCase.schema.normalize(data) }
+            )
+        }
+    }
+
     @Test("array and nullable schemas retain nested correction paths")
     func nestedCollectionsPreserveFieldPaths() throws {
         let schema = IPCJSONSchema.object(fields: [
@@ -215,6 +338,28 @@ struct IPCJSONSchemaTests {
             ),
             .init(name: "urgent", description: "Fixture switch", schema: .boolean, presence: .defaulted(false)),
         ])
+    }
+}
+
+private func discriminatorFixtureAlternative(literal: String) -> IPCJSONSchema {
+    .object(fields: [
+        .init(name: "kind", description: "Operation", schema: .string(allowedValues: [literal])),
+        .init(name: "value", description: "Value", schema: .string()),
+    ])
+}
+
+private enum IPCSchemaNormalizationOutcome: Equatable {
+    case success(Data)
+    case failure(path: String, reason: String)
+}
+
+private func normalizationOutcome(_ operation: () throws -> Data) -> IPCSchemaNormalizationOutcome {
+    do {
+        return .success(try operation())
+    } catch let error as IPCSchemaValidationError {
+        return .failure(path: error.fieldPath, reason: error.reason.rawValue)
+    } catch {
+        return .failure(path: "<unexpected>", reason: String(reflecting: type(of: error)))
     }
 }
 

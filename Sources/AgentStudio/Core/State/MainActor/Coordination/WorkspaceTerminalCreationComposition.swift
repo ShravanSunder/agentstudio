@@ -31,15 +31,21 @@ package enum WorkspaceTerminalPlacement: Sendable {
         let anchorID: UUID?
         let direction: SplitNewDirection
         let sizingMode: DropSizingMode
+        /// The identity a background creation named up front; `nil` mints one.
+        let childID: UUID?
+        let presentation: DrawerChildPresentation
 
         package init(
-            tabID: UUID, parentID: UUID, anchorID: UUID?, direction: SplitNewDirection, sizingMode: DropSizingMode
+            tabID: UUID, parentID: UUID, anchorID: UUID?, direction: SplitNewDirection, sizingMode: DropSizingMode,
+            childID: UUID? = nil, presentation: DrawerChildPresentation = .interactive
         ) {
             self.tabID = tabID
             self.parentID = parentID
             self.anchorID = anchorID
             self.direction = direction
             self.sizingMode = sizingMode
+            self.childID = childID
+            self.presentation = presentation
         }
     }
 }
@@ -59,7 +65,9 @@ enum WorkspaceTerminalCreationComposition {
     ) async throws -> (pane: Pane, outcome: PaneAssociationOutcome) {
         let metadata: PaneMetadata
         let kind: PaneKind?
+        var paneID = UUIDv7.generate()
         if case .drawer(let insertion) = placement {
+            paneID = insertion.childID ?? paneID
             let parentID = insertion.parentID
             let anchorID = insertion.anchorID
             guard let parent = source.workspace.panes.first(where: { $0.id == parentID }),
@@ -97,6 +105,7 @@ enum WorkspaceTerminalCreationComposition {
             }.first ?? FileManager.default.homeDirectoryForCurrentUser.standardizedFileURL
         facets.cwd = cwd
         let pane = Pane(
+            id: paneID,
             content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent, zmxSessionID: .generateUUIDv7())),
             metadata: PaneMetadata(launchDirectory: cwd, title: metadata.title, facets: facets),
             kind: kind)
@@ -158,16 +167,18 @@ enum WorkspaceTerminalCreationComposition {
                     pane.id, in: state,
                     insertion: .init(
                         parentPaneId: parentID, drawerId: drawerID,
-                        targetDrawerPaneId: anchorID, direction: direction, sizingMode: sizingMode))
+                        targetDrawerPaneId: anchorID, direction: direction, sizingMode: sizingMode,
+                        selectsInsertedChild: insertion.presentation == .interactive))
             else { throw WorkspaceUndoCompositionFailure.invalidComposition }
             tab = Tab(
                 id: original.id, name: original.name, allPaneIds: inserted.allPaneIds,
                 arrangements: inserted.arrangements, activeArrangementId: inserted.activeArrangementId,
                 colorHex: original.colorHex)
             updated.tabs[tabIndex] = tab
+            let expandsDrawer = insertion.presentation == .interactive
             updated.panes[parentIndex].withDrawer {
                 $0.paneIds.append(pane.id)
-                $0.isExpanded = true
+                if expandsDrawer { $0.isExpanded = true }
             }
         }
         updated.panes.append(pane)
