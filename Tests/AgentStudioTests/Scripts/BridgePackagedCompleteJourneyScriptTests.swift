@@ -6,16 +6,16 @@ import Testing
 @Suite("Bridge packaged complete journey scripts")
 struct BridgePackagedCompleteJourneyScriptTests {
     @Test("runner dry-run distinguishes the preserved interactive and complete cohort modes")
-    func runnerDryRunDescribesBothModes() throws {
+    func runnerDryRunDescribesBothModes() async throws {
         let fixture = try LauncherScriptFixture()
         defer { fixture.cleanup() }
 
-        let interactive = try fixture.runScript(
+        let interactive = try await fixture.runScript(
             "scripts/run-bridge-packaged-product-journey.sh",
             arguments: ["--dry-run"],
             environment: [:]
         )
-        let cohort = try fixture.runScript(
+        let cohort = try await fixture.runScript(
             "scripts/run-bridge-packaged-product-journey.sh",
             arguments: ["--dry-run", "--complete-journey"],
             environment: [:]

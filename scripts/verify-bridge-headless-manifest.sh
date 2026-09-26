@@ -309,7 +309,9 @@ if [ "$VALIDATE_ONLY" != "1" ]; then
     echo "Run 'mise run observability:up' before verify-bridge-headless-manifest." >&2
     exit 1
   fi
-  source "$PROJECT_ROOT/scripts/swift-build-slot.sh" debug
+  source "$PROJECT_ROOT/scripts/swift-build-slot.sh"
+  swift_build_slot_acquire test "verify-bridge-headless-manifest"
+  trap swift_build_slot_release EXIT
   bash "$PROJECT_ROOT/scripts/vendor-worktree.sh" verify
   swift build --build-path "$SWIFT_BUILD_DIR" --build-tests
   PROJECT_ROOT="$PROJECT_ROOT" \

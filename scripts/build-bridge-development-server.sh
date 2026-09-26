@@ -6,6 +6,8 @@ cd "$PROJECT_ROOT"
 
 bash "$PROJECT_ROOT/scripts/vendor-worktree.sh" verify
 source "$PROJECT_ROOT/scripts/swift-build-slot.sh"
+swift_build_slot_acquire build "mise run build-bridge-development-server"
+trap swift_build_slot_release EXIT
 
 echo "[build-bridge-development-server] BUILD_PATH=$SWIFT_BUILD_DIR"
 swift build \
