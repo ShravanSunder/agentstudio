@@ -161,9 +161,39 @@ export interface HeroPlaybackObservation {
 export const verifyHeroIntroPlayback = defineBrowserCommand(
   async ({ context }, pageUrl: string): Promise<HeroPlaybackObservation> => {
     const introPage = await context.newPage();
+    introPage.on("response", (response) => {
+      if (response.status() >= 400)
+        process.stdout.write(`intro ${response.status()} ${new URL(response.url()).pathname}\n`);
+    });
     const freshNarrowPage = await context.newPage();
     const freshWidePage = await context.newPage();
     const keydownPage = await context.newPage();
+    for (const applicationPage of [introPage, keydownPage]) {
+      await applicationPage.addInitScript(() => {
+        Object.defineProperty(document, "hidden", { configurable: true, get: () => false });
+        Object.defineProperty(document, "visibilityState", {
+          configurable: true,
+          get: () => "visible",
+        });
+        let resolveReady: (state: "playing" | "settled") => void = () => {};
+        const ready = new Promise<"playing" | "settled">((resolve) => {
+          resolveReady = resolve;
+        });
+        (window as Window & { heroIntroReady?: typeof ready }).heroIntroReady = ready;
+        document.addEventListener("hero-intro-playback-ready", (event) => {
+          if (!(event instanceof CustomEvent)) return;
+          const control = event.detail as { pause(): void; seek(seconds: number): void };
+          control.pause();
+          (
+            window as Window & { heroIntroPlaybackControl?: typeof control }
+          ).heroIntroPlaybackControl = control;
+          resolveReady("playing");
+        });
+        document.addEventListener("hero-intro-settled", () => resolveReady("settled"), {
+          once: true,
+        });
+      });
+    }
     await Promise.all(
       [introPage, freshNarrowPage, freshWidePage, keydownPage].map(async (applicationPage) => {
         await applicationPage.route(/\.(mp4|webm)(\?|$)/u, async (route) => {
@@ -202,7 +232,17 @@ export const verifyHeroIntroPlayback = defineBrowserCommand(
     try {
       await introPage.setViewportSize({ width: 1600, height: 1000 });
       await introPage.goto(pageUrl, { waitUntil: "commit" });
-      await introPage.waitForSelector('[data-hero-intro-state="playing"]');
+      const introReady = await introPage.evaluate(
+        async () => await (window as Window & { heroIntroReady?: Promise<string> }).heroIntroReady,
+      );
+      if (introReady !== "playing") throw new Error(`Intro settled before control: ${introReady}`);
+      await introPage.evaluate(() => {
+        const control = (
+          window as Window & { heroIntroPlaybackControl?: { seek(seconds: number): void } }
+        ).heroIntroPlaybackControl;
+        if (control === undefined) throw new Error("Hero intro playback control is missing");
+        control.seek(3);
+      });
       const midIntroWasPlaying = await introPage.evaluate(
         () =>
           document
@@ -253,7 +293,18 @@ export const verifyHeroIntroPlayback = defineBrowserCommand(
 
       await keydownPage.setViewportSize({ width: 1600, height: 1000 });
       await keydownPage.goto(pageUrl, { waitUntil: "commit" });
-      await keydownPage.waitForSelector('[data-hero-intro-state="playing"]');
+      const keydownReady = await keydownPage.evaluate(
+        async () => await (window as Window & { heroIntroReady?: Promise<string> }).heroIntroReady,
+      );
+      if (keydownReady !== "playing")
+        throw new Error(`Keydown intro settled before control: ${keydownReady}`);
+      await keydownPage.evaluate(() => {
+        const control = (
+          window as Window & { heroIntroPlaybackControl?: { seek(seconds: number): void } }
+        ).heroIntroPlaybackControl;
+        if (control === undefined) throw new Error("Hero intro playback control is missing");
+        control.seek(3);
+      });
       await keydownPage.evaluate(() => {
         const root = document.querySelector("[data-hero-intro-root]");
         root?.setAttribute("data-test-settled-events", "0");
@@ -316,67 +367,89 @@ export const verifyHeroIntroShift = defineBrowserCommand(
     height: number,
   ): Promise<HeroShiftObservation[]> => {
     const applicationPage = await context.newPage();
+    applicationPage.on("response", (response) => {
+      if (response.status() >= 400)
+        process.stdout.write(
+          `shift ${width} ${response.status()} ${new URL(response.url()).pathname}\n`,
+        );
+    });
     try {
       await applicationPage.setViewportSize({ width, height });
-      await applicationPage.bringToFront();
       await applicationPage.addInitScript(() => {
-        const observations: HeroShiftObservation[] = [];
-        const targetTimes = [0, 3.5, 4.2, 4.6] as const;
-        (window as Window & { heroShiftSamples?: HeroShiftObservation[] }).heroShiftSamples =
-          observations;
-        const capture = (time: number | "settled"): void => {
-          const appFrame = document.querySelector<HTMLElement>("[data-hero-app-frame]");
-          const windowNode = document.querySelector<HTMLElement>("[data-hero-terminal-window]");
-          const chapterNode = document.querySelector<SVGElement>(
-            "[data-topology-chapter-node] circle",
-          );
-          if (appFrame === null || windowNode === null || chapterNode === null) return;
-          const nodeRect = chapterNode.getBoundingClientRect();
-          observations.push({
-            time,
-            appTop: appFrame.getBoundingClientRect().top,
-            windowHeight: windowNode.getBoundingClientRect().height,
-            chapterNodeY: nodeRect.top + nodeRect.height / 2,
-          });
-        };
-        const observer = new MutationObserver(() => {
-          const root = document.querySelector<HTMLElement>("[data-hero-intro-root]");
-          if (root === null) return;
-          const elapsed = Number(root.getAttribute("data-hero-intro-progress")) * 5.6;
-          const nextTime = targetTimes[observations.length];
-          if (
-            nextTime !== undefined &&
-            root.getAttribute("data-hero-intro-state") === "playing" &&
-            elapsed >= nextTime
-          ) {
-            capture(nextTime);
-          }
-          if (
-            root.getAttribute("data-hero-intro-state") === "settled" &&
-            observations.length === targetTimes.length
-          ) {
-            capture("settled");
-            observer.disconnect();
-          }
+        Object.defineProperty(document, "hidden", { configurable: true, get: () => false });
+        Object.defineProperty(document, "visibilityState", {
+          configurable: true,
+          get: () => "visible",
         });
-        observer.observe(document, {
-          subtree: true,
-          attributes: true,
-          attributeFilter: ["data-hero-intro-progress", "data-hero-intro-state"],
+        let resolveReady: (state: "playing" | "settled") => void = () => {};
+        const ready = new Promise<"playing" | "settled">((resolve) => {
+          resolveReady = resolve;
+        });
+        (window as Window & { heroIntroReady?: typeof ready }).heroIntroReady = ready;
+        document.addEventListener("hero-intro-playback-ready", (event) => {
+          if (!(event instanceof CustomEvent)) return;
+          const control = event.detail as {
+            pause(): void;
+            seek(seconds: number): void;
+            finish(): void;
+          };
+          control.pause();
+          (
+            window as Window & { heroIntroPlaybackControl?: typeof control }
+          ).heroIntroPlaybackControl = control;
+          resolveReady("playing");
+        });
+        document.addEventListener("hero-intro-settled", () => resolveReady("settled"), {
+          once: true,
         });
       });
       await applicationPage.goto(pageUrl, { waitUntil: "commit" });
-      await applicationPage.waitForSelector('[data-hero-intro-state="playing"]');
-      await applicationPage.waitForSelector('[data-hero-intro-state="settled"]');
-      return await applicationPage.evaluate(() => {
-        const samples =
-          (window as Window & { heroShiftSamples?: HeroShiftObservation[] }).heroShiftSamples ?? [];
-        if (samples.length !== 5) {
-          const root = document.querySelector("[data-hero-intro-root]");
-          throw new Error(
-            `Only ${samples.length} shift samples; hidden=${document.hidden}; reduced=${matchMedia("(prefers-reduced-motion: reduce)").matches}; state=${root?.getAttribute("data-hero-intro-state")}; progress=${root?.getAttribute("data-hero-intro-progress")}; timeline=${root?.hasAttribute("data-hero-intro-timeline-created")}`,
+      const ready = await applicationPage.evaluate(
+        async () => await (window as Window & { heroIntroReady?: Promise<string> }).heroIntroReady,
+      );
+      if (ready !== "playing") throw new Error(`Shift intro settled before control: ${ready}`);
+      await applicationPage.waitForSelector("[data-topology-chapter-node] circle", {
+        state: "attached",
+      });
+      return await applicationPage.evaluate(async () => {
+        await document.fonts.ready;
+        const control = (
+          window as Window & {
+            heroIntroPlaybackControl?: { seek(seconds: number): void; finish(): void };
+          }
+        ).heroIntroPlaybackControl;
+        if (control === undefined) throw new Error("Hero intro playback control is missing");
+        const observe = (time: number | "settled"): HeroShiftObservation => {
+          const appFrame = document.querySelector<HTMLElement>("[data-hero-app-frame]");
+          const windowNode = document.querySelector<HTMLElement>("[data-hero-terminal-window]");
+          const artwork = document.querySelector<SVGSVGElement>("[data-full-page-topology]");
+          const chapterNode = artwork?.querySelector<SVGCircleElement>(
+            "[data-topology-chapter-node] circle",
           );
+          if (
+            appFrame === null ||
+            windowNode === null ||
+            artwork === null ||
+            chapterNode === null ||
+            chapterNode === undefined
+          ) {
+            throw new Error("Hero or rail geometry is missing");
+          }
+          return {
+            time,
+            appTop: appFrame.getBoundingClientRect().top,
+            windowHeight: windowNode.getBoundingClientRect().height,
+            chapterNodeY:
+              artwork.getBoundingClientRect().top + Number(chapterNode.getAttribute("cy")),
+          };
+        };
+        const samples: HeroShiftObservation[] = [];
+        for (const second of [0, 3.5, 4.2, 4.6]) {
+          control.seek(second);
+          samples.push(observe(second));
         }
+        control.finish();
+        samples.push(observe("settled"));
         return samples;
       });
     } finally {

@@ -301,6 +301,8 @@ describe("motion scenes on their real markup", () => {
         const settledMarkupState = snapshotVisibleState(settledTargets);
 
         // Act
+        // A paused GSAP timeline can defer its first render until explicitly sought.
+        timeline.time(0);
         const startState = snapshotVisibleState(targets);
         timeline.progress(1);
         const endState = snapshotVisibleState(targets);

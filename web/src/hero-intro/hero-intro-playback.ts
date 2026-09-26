@@ -9,6 +9,15 @@ export interface HeroIntroPlayback {
   finish(): void;
 }
 
+/** Browser proof can pause and seek the real host timeline before its first frame. */
+export interface HeroIntroPlaybackControl {
+  pause(): void;
+  seek(seconds: number): void;
+  finish(): void;
+}
+
+export const heroIntroPlaybackReadyEventName = "hero-intro-playback-ready";
+
 export function initializeHeroIntroPlayback(root: HTMLElement): HeroIntroPlayback {
   let settled = false;
   let timeline: ReturnType<typeof gsap.timeline> | null = null;
@@ -74,6 +83,20 @@ export function initializeHeroIntroPlayback(root: HTMLElement): HeroIntroPlaybac
     window.addEventListener(eventName, finish, { passive: true });
   }
   timeline.play();
+  root.dispatchEvent(
+    new CustomEvent<HeroIntroPlaybackControl>(heroIntroPlaybackReadyEventName, {
+      bubbles: true,
+      detail: {
+        pause: (): void => {
+          timeline?.pause();
+        },
+        seek: (seconds: number): void => {
+          timeline?.pause().time(seconds);
+        },
+        finish,
+      },
+    }),
+  );
   return {
     timeline,
     get state() {
