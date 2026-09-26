@@ -58,6 +58,7 @@ private actor BridgeProductWebKitGatedReviewSourceProvider: BridgeReviewSourcePr
     private var comparisonCount = 0
     private var isNextComparisonArmed = false
     private var releaseContinuations: [CheckedContinuation<Void, Never>] = []
+    private var blockedCountWaiters: [(count: Int, continuation: CheckedContinuation<Void, Never>)] = []
 
     init(base: any BridgeReviewSourceProvider) {
         self.base = base
@@ -96,6 +97,15 @@ private actor BridgeProductWebKitGatedReviewSourceProvider: BridgeReviewSourcePr
         (comparisonCount, blockedComparisonCount)
     }
 
+    func waitForBlockedComparisonCount(_ count: Int) async -> Int {
+        if blockedComparisonCount < count {
+            await withCheckedContinuation { continuation in
+                blockedCountWaiters.append((count: count, continuation: continuation))
+            }
+        }
+        return blockedComparisonCount
+    }
+
     func resolveEndpoint(_ request: BridgeEndpointResolutionRequest) async throws
         -> BridgeSourceEndpoint
     {
@@ -114,6 +124,9 @@ private actor BridgeProductWebKitGatedReviewSourceProvider: BridgeReviewSourcePr
         if isNextComparisonArmed {
             isNextComparisonArmed = false
             blockedComparisonCount += 1
+            let readyWaiters = blockedCountWaiters.filter { blockedComparisonCount >= $0.count }
+            blockedCountWaiters.removeAll { blockedComparisonCount >= $0.count }
+            for waiter in readyWaiters { waiter.continuation.resume() }
             await withCheckedContinuation { continuation in
                 releaseContinuations.append(continuation)
             }
@@ -639,12 +652,21 @@ enum BridgeProductWebKitTwoPaneJourneyTestSupport {
     }
 
     private static func requireMountedApp(_ controller: BridgePaneController) async throws {
-        let mounted = await BridgeProductWebKitCarrierTestSupport.waitUntil(timeout: .seconds(15)) {
-            let dom = await BridgeProductWebKitCarrierTestSupport.domSnapshot(controller.page)
-            let native = await BridgeProductWebKitCarrierTestSupport.nativeSnapshot(controller)
-            return dom?.hasAppRoot == true && native.lifecycle == "active"
+        await WebPageEventWaits.waitForNavigationToFinish(controller.page)
+        try await WebPageEventWaits.waitForDocumentSelector(
+            controller.page,
+            "[data-testid=\"bridge-app-root\"]"
+        )
+        await WebPageEventWaits.waitForBridgeReady(controller)
+        guard let installation = await controller.productSessionOwner.activeInstallation,
+            await installation.session.waitUntilActive()
+        else {
+            throw JourneyError.conditionFailed("bundled app native session did not activate")
         }
-        guard mounted else { throw JourneyError.conditionFailed("bundled app did not mount") }
+        let native = await BridgeProductWebKitCarrierTestSupport.nativeSnapshot(controller)
+        guard native.lifecycle == "active" else {
+            throw JourneyError.conditionFailed("bundled app native session was not active")
+        }
     }
 
     private static func requireReadyReview(
@@ -653,19 +675,21 @@ enum BridgeProductWebKitTwoPaneJourneyTestSupport {
         reviewProvider: BridgeProductWebKitGatedReviewSourceProvider,
         traceRecorder: BridgeProductWebKitCarrierTraceRecorder
     ) async throws {
-        let ready = await BridgeProductWebKitCarrierTestSupport.waitUntil(timeout: .seconds(20)) {
-            let dom = await BridgeProductWebKitCarrierTestSupport.domSnapshot(controller.page)
-            let trace = await traceRecorder.scrubbedTrace()
-            return trace.hasCanonicalEagerSubscriptions
-                && trace.hasFileMetadataWindow
-                && trace.hasReviewMetadataPublication
-                && dom?.reviewSelectedContentState == "ready"
-        }
-        guard ready else {
+        _ = try await WebPageEventWaits.waitForDocumentValue(
+            controller.page,
+            reader: """
+                const reviewShell = document.querySelector('[data-testid="review-viewer-shell"]');
+                return reviewShell?.getAttribute('data-selected-content-state') === 'ready' ? true : null;
+                """
+        )
+        let trace = await traceRecorder.scrubbedTrace()
+        guard trace.hasCanonicalEagerSubscriptions,
+            trace.hasFileMetadataWindow,
+            trace.hasReviewMetadataPublication
+        else {
             let dom = await BridgeProductWebKitCarrierTestSupport.domSnapshot(controller.page)
             let native = await BridgeProductWebKitCarrierTestSupport.nativeSnapshot(controller)
             let providerSnapshot = await reviewProvider.snapshot()
-            let trace = await traceRecorder.scrubbedTrace()
             throw JourneyError.conditionFailed(
                 "\(paneLabel) real-git Review did not become ready; appRoot=\(dom?.hasAppRoot == true), canonicalSubscriptions=\(trace.hasCanonicalEagerSubscriptions), fileMetadata=\(trace.hasFileMetadataWindow), reviewPublication=\(trace.hasReviewMetadataPublication), reviewState=\(dom?.reviewSelectedContentState ?? "missing"), comparisons=\(providerSnapshot.comparisonCount), blockedComparisons=\(providerSnapshot.blockedComparisonCount), native=\(native)"
             )
@@ -676,41 +700,56 @@ enum BridgeProductWebKitTwoPaneJourneyTestSupport {
         _ provider: BridgeProductWebKitGatedReviewSourceProvider,
         expectedCount: Int
     ) async throws {
-        let blocked = await BridgeProductWebKitCarrierTestSupport.waitUntil(timeout: .seconds(10)) {
-            await provider.snapshot().blockedComparisonCount == expectedCount
+        let blockedComparisonCount = await provider.waitForBlockedComparisonCount(expectedCount)
+        guard blockedComparisonCount == expectedCount else {
+            throw JourneyError.conditionFailed("real-git comparison did not block")
         }
-        guard blocked else { throw JourneyError.conditionFailed("real-git comparison did not block") }
     }
 
     private static func requireNativeControlQuiescence(
         _ controller: BridgePaneController,
         afterRequestSequence: Int
     ) async throws {
-        let settled = await BridgeProductWebKitCarrierTestSupport.waitUntil(timeout: .seconds(10)) {
-            let native = await BridgeProductWebKitCarrierTestSupport.nativeSnapshot(controller)
-            return native.nextControlRequestSequence > afterRequestSequence
-                && native.inFlightControlRequestSequence == nil
-                && native.inFlightFrameReceiptCount == 0
-                && native.queuedFrameCount == 0
-        }
-        guard settled else {
+        await controller.worktreeRefreshDriver.awaitActiveFileOperations()
+        guard let installation = await controller.productSessionOwner.activeInstallation,
+            await installation.session.waitUntilControlReplayIdle(
+                afterRequestSequence: afterRequestSequence
+            )
+        else {
             throw JourneyError.conditionFailed(
-                "native Review activation did not reach a quiescent control boundary"
+                "native Review activation did not settle its control admission"
             )
         }
+        while await installation.session.waitUntilProducerFramesQuiescent() {
+            let native = await BridgeProductWebKitCarrierTestSupport.nativeSnapshot(controller)
+            if native.inFlightFrameReceiptCount == 0, native.queuedFrameCount == 0 { return }
+            let activeProducer = await installation.session.producerSnapshot()
+            let owner = await controller.productSessionOwner.snapshot()
+            if activeProducer.queuedFrameCount == 0,
+                activeProducer.inFlightFrameReceiptCount == 0
+            {
+                throw JourneyError.conditionFailed(
+                    "native Review activation left frame delivery outside the active producer "
+                        + "(ownerQueued=\(owner.queuedFrameCount), "
+                        + "ownerReceipts=\(owner.inFlightFrameReceiptCount), "
+                        + "retiring=\(owner.retiringInstallationCount))"
+                )
+            }
+        }
+        throw JourneyError.conditionFailed("native Review activation lost its producer session")
     }
 
     private static func requireHiddenRefreshSettled(
         _ controller: BridgePaneController
     ) async throws {
-        let settled = await BridgeProductWebKitCarrierTestSupport.waitUntil(timeout: .seconds(10)) {
-            let snapshot = controller.refreshAdmissionCoordinator.diagnosticSnapshot
-            return snapshot.activity == .loadedHidden
-                && snapshot.activeRefreshPass == nil
-                && snapshot.dirtyFact != nil
-                && controller.activeReviewRefreshTask == nil
-        }
-        guard settled else { throw JourneyError.conditionFailed("hidden refresh did not settle") }
+        let retiringTasks = Array(controller.retiringReviewRefreshTaskById.values)
+        for task in retiringTasks { await task.value }
+        let snapshot = controller.refreshAdmissionCoordinator.diagnosticSnapshot
+        guard snapshot.activity == .loadedHidden,
+            snapshot.activeRefreshPass == nil,
+            snapshot.dirtyFact != nil,
+            controller.activeReviewRefreshTask == nil
+        else { throw JourneyError.conditionFailed("hidden refresh did not settle") }
     }
 
     private static func requireHiddenFileRetirementBoundary(
@@ -727,14 +766,16 @@ enum BridgeProductWebKitTwoPaneJourneyTestSupport {
     }
 
     private static func requireRefreshIdle(_ controller: BridgePaneController) async throws {
-        let idle = await BridgeProductWebKitCarrierTestSupport.waitUntil(timeout: .seconds(20)) {
-            let snapshot = controller.refreshAdmissionCoordinator.diagnosticSnapshot
-            return snapshot.activity == .foreground
-                && snapshot.activeRefreshPass == nil
-                && snapshot.dirtyFact == nil
-                && controller.activeReviewRefreshTask == nil
+        while let activeReviewTask = controller.activeReviewRefreshTask {
+            await activeReviewTask.value
         }
-        guard idle else { throw JourneyError.conditionFailed("foreground catch-up did not settle") }
+        await controller.worktreeRefreshDriver.awaitActiveFileOperations()
+        let snapshot = controller.refreshAdmissionCoordinator.diagnosticSnapshot
+        guard snapshot.activity == .foreground,
+            snapshot.activeRefreshPass == nil,
+            snapshot.dirtyFact == nil,
+            controller.activeReviewRefreshTask == nil
+        else { throw JourneyError.conditionFailed("foreground catch-up did not settle") }
     }
 
     /// Suspends until the active surface shows `expectedText` and the inactive one

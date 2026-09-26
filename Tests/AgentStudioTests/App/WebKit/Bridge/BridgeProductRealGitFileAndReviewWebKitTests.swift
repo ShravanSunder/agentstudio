@@ -25,17 +25,13 @@ extension WebKitSerializedTests {
             let trace: BridgeProductWebKitCarrierTrace
         }
 
-        struct LiveReviewMetadataDOMSnapshot: Decodable {
-            let itemCount: Int
-            let reviewGeneration: Int
-        }
-
         struct LiveSourceOracle {
             let canaryText: String
             let path: String
         }
 
         enum LiveProofError: Error {
+            case appDidNotMount
             case initialReviewPublicationMissing
             case successorReviewPublicationMissing
         }
@@ -421,7 +417,9 @@ extension WebKitSerializedTests {
                 harness.controller
             ) { controller in
                 controller.loadApp()
-                try await waitForMetadataSubscriptions(harness)
+                let openedSubscriptions = try await waitForMetadataSubscriptions(harness)
+                #expect(!openedSubscriptions.file.subscriptionId.isEmpty)
+                #expect(!openedSubscriptions.review.subscriptionId.isEmpty)
                 let firstCheckpoint = try await prepareFirstPublicationCheckpoint(
                     controller: controller,
                     harness: harness
@@ -437,32 +435,25 @@ extension WebKitSerializedTests {
 
         private func waitForMetadataSubscriptions(
             _ harness: TransactionalPublicationHarness
-        ) async throws {
-            guard
-                await BridgeProductWebKitCarrierTestSupport.waitUntil(
-                    timeout: .seconds(15),
-                    condition: {
-                        let fileSnapshot = await harness.fileMetadataSource.snapshot()
-                        let reviewSnapshot = await harness.reviewMetadataSource.snapshot()
-                        return !fileSnapshot.openedSubscriptions.isEmpty
-                            && !reviewSnapshot.openedSubscriptions.isEmpty
-                    })
-            else {
+        ) async throws -> (
+            file: BridgeProductWebKitCarrierSubscriptionIdentity,
+            review: BridgeProductWebKitCarrierSubscriptionIdentity
+        ) {
+            async let fileOpen = harness.fileMetadataSource.waitForFirstOpen()
+            async let reviewOpen = harness.reviewMetadataSource.waitForFirstOpen()
+            guard let file = await fileOpen, let review = await reviewOpen else {
                 throw TransactionalPublicationTestError.metadataSubscriptionsDidNotOpen
             }
+            return (file, review)
         }
 
         private func prepareFirstPublicationCheckpoint(
             controller: BridgePaneController,
             harness: TransactionalPublicationHarness
         ) async throws -> FirstPublicationCheckpoint {
-            guard
-                await BridgeProductWebKitCarrierTestSupport.waitUntil(
-                    timeout: .seconds(15),
-                    condition: {
-                        harness.controllerTarget.applicationReceipts.count == 1
-                            && harness.controllerTarget.applicationReceipts[0].accepted
-                    }),
+            guard let firstReceipt = await harness.controllerTarget.waitForFirstApplicationReceipt(),
+                firstReceipt.accepted,
+                harness.controllerTarget.applicationReceipts.count == 1,
                 let publication = harness.controllerTarget.committedPublication(
                     productAdmission: harness.productAdmission
                 ),
@@ -502,7 +493,7 @@ extension WebKitSerializedTests {
                 encoding: .utf8
             )
             controller.scheduleReviewPackageReloadForProductResync(reason: .productResync)
-            guard await harness.reviewMetadataSource.waitForReplayFailureState(timeout: .seconds(15)) else {
+            guard await harness.reviewMetadataSource.waitForReplayFailureState() else {
                 let reviewFailure = await harness.reviewMetadataSource.snapshot()
                 let nativeFailure = await BridgeProductWebKitCarrierTestSupport.nativeSnapshot(controller)
                 Issue.record(
@@ -732,33 +723,6 @@ extension WebKitSerializedTests {
                 telemetryRecorder: traceRecorder,
                 initialPaneActivity: .foreground
             )
-        }
-
-        func reviewMetadataDOMSnapshot(
-            _ controller: BridgePaneController
-        ) async -> LiveReviewMetadataDOMSnapshot? {
-            do {
-                let encodedSnapshot = try await controller.page.callJavaScript(
-                    """
-                    const shell = document.querySelector('[data-testid="review-viewer-shell"]');
-                    return JSON.stringify({
-                      itemCount: Number(shell?.getAttribute('data-review-metadata-item-count') ?? '0'),
-                      reviewGeneration: Number(shell?.getAttribute('data-review-metadata-generation') ?? '0')
-                    });
-                    """
-                )
-                guard let encodedSnapshot = encodedSnapshot as? String,
-                    let snapshotData = encodedSnapshot.data(using: .utf8)
-                else {
-                    return nil
-                }
-                return try JSONDecoder().decode(
-                    LiveReviewMetadataDOMSnapshot.self,
-                    from: snapshotData
-                )
-            } catch {
-                return nil
-            }
         }
 
         private func assertProof(

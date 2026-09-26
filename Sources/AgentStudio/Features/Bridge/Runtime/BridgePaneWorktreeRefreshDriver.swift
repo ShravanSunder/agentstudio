@@ -105,6 +105,12 @@ final class BridgePaneWorktreeRefreshDriver {
         }
     }
 
+    func awaitActiveFileOperations() async {
+        while let activeFileTask {
+            await activeFileTask.value
+        }
+    }
+
     @discardableResult
     func recordInvalidation(
         fileChangeset: FileChangeset?,

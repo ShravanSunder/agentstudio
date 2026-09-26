@@ -29,14 +29,11 @@ extension WebKitSerializedTests.BridgeProductRealGitFileAndReviewWebKitTests {
             controller
         ) { hostedController in
             hostedController.loadApp()
-            let didLoadEmptyPackage = await BridgeProductWebKitCarrierTestSupport.waitUntil(
-                timeout: .seconds(15)
-            ) {
-                guard let package = try? hostedController.ipcReviewPackageSnapshot() else {
-                    return false
-                }
-                return package.status == "ready" && package.items.isEmpty
-            }
+            await WebPageEventWaits.waitForNavigationToFinish(hostedController.page)
+            try await WebPageEventWaits.waitForDocumentSelector(
+                hostedController.page,
+                "[data-testid=\"bridge-viewer-context-review\"]"
+            )
             let didActivateReview =
                 (try? await hostedController.page.callJavaScript(
                     """
@@ -66,6 +63,8 @@ extension WebKitSerializedTests.BridgeProductRealGitFileAndReviewWebKitTests {
                 hostedController.page,
                 "[data-testid=\"bridge-review-empty-canvas\"]"
             )
+            let package = try hostedController.ipcReviewPackageSnapshot()
+            let didLoadEmptyPackage = package.status == "ready" && package.items.isEmpty
             let didRenderEmptyShell =
                 (try? await hostedController.page.callJavaScript(
                     """

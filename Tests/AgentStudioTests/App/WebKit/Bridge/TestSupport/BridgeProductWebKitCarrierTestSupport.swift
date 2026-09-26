@@ -185,6 +185,8 @@ actor BridgeWebKitTrackingFileMetadataSource:
     private let source: BridgePaneProductFileMetadataSource
     private var cancelledSubscriptionIds: [String] = []
     private var openedSubscriptions: [BridgeProductWebKitCarrierSubscriptionIdentity] = []
+    private var firstOpenWaiters: [UUID: CheckedContinuation<BridgeProductWebKitCarrierSubscriptionIdentity?, Never>] =
+        [:]
 
     init(source: BridgePaneProductFileMetadataSource) {
         self.source = source
@@ -200,13 +202,39 @@ actor BridgeWebKitTrackingFileMetadataSource:
         foregroundWorkAdmission: BridgePaneRefreshWorkAdmission,
         emit: @escaping BridgePaneProductFileMetadataEventSink
     ) async throws {
-        openedSubscriptions.append(Self.identity(subscription))
+        let identity = Self.identity(subscription)
+        openedSubscriptions.append(identity)
+        let waiters = Array(firstOpenWaiters.values)
+        firstOpenWaiters.removeAll(keepingCapacity: false)
+        for waiter in waiters { waiter.resume(returning: identity) }
         try await source.open(
             subscription: subscription,
             productAdmission: productAdmission,
             foregroundWorkAdmission: foregroundWorkAdmission,
             emit: emit
         )
+    }
+
+    func waitForFirstOpen() async -> BridgeProductWebKitCarrierSubscriptionIdentity? {
+        if let first = openedSubscriptions.first { return first }
+        let waiterID = UUIDv7.generate()
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                if Task.isCancelled {
+                    continuation.resume(returning: nil)
+                } else if let first = openedSubscriptions.first {
+                    continuation.resume(returning: first)
+                } else {
+                    firstOpenWaiters[waiterID] = continuation
+                }
+            }
+        } onCancel: {
+            Task { await self.cancelFirstOpenWaiter(waiterID) }
+        }
+    }
+
+    private func cancelFirstOpenWaiter(_ waiterID: UUID) {
+        firstOpenWaiters.removeValue(forKey: waiterID)?.resume(returning: nil)
     }
 
     func update(
@@ -308,6 +336,8 @@ actor BridgeWebKitFailingReviewMetadataSource:
     private var didCorruptFinalWindow = false
     private var deliveryAttempts: [BridgeProductWebKitCarrierReviewDeliveryAttempt] = []
     private var openedSubscriptions: [BridgeProductWebKitCarrierSubscriptionIdentity] = []
+    private var firstOpenWaiters: [UUID: CheckedContinuation<BridgeProductWebKitCarrierSubscriptionIdentity?, Never>] =
+        [:]
     private var replayIsBlocked = false
     private var replayIsReleased = false
     private var successorEventKinds: [String] = []
@@ -320,12 +350,14 @@ actor BridgeWebKitFailingReviewMetadataSource:
         productAdmission: BridgeProductAdmissionContext,
         emit: @escaping BridgePaneProductReviewMetadataEventSink
     ) async throws {
-        openedSubscriptions.append(
-            BridgeProductWebKitCarrierSubscriptionIdentity(
-                subscriptionId: subscription.subscriptionId,
-                workerDerivationEpoch: subscription.workerDerivationEpoch
-            )
+        let identity = BridgeProductWebKitCarrierSubscriptionIdentity(
+            subscriptionId: subscription.subscriptionId,
+            workerDerivationEpoch: subscription.workerDerivationEpoch
         )
+        openedSubscriptions.append(identity)
+        let waiters = Array(firstOpenWaiters.values)
+        firstOpenWaiters.removeAll(keepingCapacity: false)
+        for waiter in waiters { waiter.resume(returning: identity) }
         try await source.open(
             subscription: subscription,
             productAdmission: productAdmission
@@ -336,6 +368,28 @@ actor BridgeWebKitFailingReviewMetadataSource:
                 emit: emit
             )
         }
+    }
+
+    func waitForFirstOpen() async -> BridgeProductWebKitCarrierSubscriptionIdentity? {
+        if let first = openedSubscriptions.first { return first }
+        let waiterID = UUIDv7.generate()
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                if Task.isCancelled {
+                    continuation.resume(returning: nil)
+                } else if let first = openedSubscriptions.first {
+                    continuation.resume(returning: first)
+                } else {
+                    firstOpenWaiters[waiterID] = continuation
+                }
+            }
+        } onCancel: {
+            Task { await self.cancelFirstOpenWaiter(waiterID) }
+        }
+    }
+
+    private func cancelFirstOpenWaiter(_ waiterID: UUID) {
+        firstOpenWaiters.removeValue(forKey: waiterID)?.resume(returning: nil)
     }
 
     func update(
@@ -479,30 +533,11 @@ actor BridgeWebKitFailingReviewMetadataSource:
         )
     }
 
-    func waitForReplayFailureState(timeout: Duration) async -> Bool {
+    func waitForReplayFailureState() async -> Bool {
         guard !(replayIsBlocked && didCorruptFinalWindow) else { return true }
         let waiterID = nextReplayFailureStateWaiterID
         nextReplayFailureStateWaiterID += 1
-
-        return await withTaskGroup(of: Bool?.self) { group in
-            group.addTask { [weak self] in
-                guard let self else { return nil }
-                return await self.waitForReplayFailureStateEvent(waiterID: waiterID)
-            }
-            group.addTask {
-                do {
-                    try await ContinuousClock().sleep(for: timeout)
-                    return false
-                } catch {
-                    return nil
-                }
-            }
-
-            let result = await group.next()
-            group.cancelAll()
-            guard let result else { return false }
-            return result ?? false
-        }
+        return await waitForReplayFailureStateEvent(waiterID: waiterID)
     }
 
     private func resumeReplayFailureStateWaitersIfReady() {
@@ -588,67 +623,6 @@ actor BridgeProductWebKitCarrierLegacyEgressRecorder {
     }
 }
 
-actor BridgeProductWebKitCarrierTraceRecorder: BridgePerformanceTraceRecording {
-    private var samples: [BridgeTelemetrySample] = []
-
-    func record(sample: BridgeTelemetrySample, receivedAtUnixNano _: UInt64) {
-        samples.append(sample)
-    }
-
-    func recordDrop(
-        reason _: BridgeTelemetryDropReason,
-        droppedCount _: Int,
-        firstRejectedEventName _: String?,
-        receivedAtUnixNano _: UInt64
-    ) {}
-
-    func drain() {}
-
-    func scrubbedTrace() -> BridgeProductWebKitCarrierTrace {
-        BridgeProductWebKitCarrierTrace(
-            fileMetadataPhases: phases(
-                eventName: "performance.bridge.swift.metadata_bootstrap_lifecycle",
-                protocolName: "worktree-file"
-            ),
-            panePresentationEvents: panePresentationEvents(),
-            reviewMetadataPhases: phases(
-                eventName: "performance.bridge.swift.metadata_bootstrap_lifecycle",
-                protocolName: "review"
-            ),
-            reviewPublicationPhases: phases(
-                eventName: "performance.bridge.swift.review_metadata_publication",
-                protocolName: "review"
-            )
-        )
-    }
-
-    private func panePresentationEvents() -> [BridgeProductWebKitCarrierPanePresentationTrace] {
-        samples.compactMap { sample in
-            guard sample.name == "performance.bridge.swift.pane_presentation",
-                let presentationRevision =
-                    sample.numericAttributes["agentstudio.bridge.presentation.revision"],
-                let resultReason =
-                    sample.stringAttributes["agentstudio.bridge.result_reason"],
-                let stage = sample.stringAttributes["agentstudio.bridge.phase"]
-            else { return nil }
-            return BridgeProductWebKitCarrierPanePresentationTrace(
-                presentationRevision: Int(presentationRevision),
-                resultReason: resultReason,
-                stage: stage
-            )
-        }
-    }
-
-    private func phases(eventName: String, protocolName: String) -> [String] {
-        samples.compactMap { sample in
-            guard sample.name == eventName,
-                sample.stringAttributes["agentstudio.bridge.protocol"] == protocolName
-            else { return nil }
-            return sample.stringAttributes["agentstudio.bridge.phase"]
-        }
-    }
-}
-
 struct BridgeProductWebKitCarrierRunResult<Value> {
     let hostSnapshot: BridgeProductWebKitCarrierHostSnapshot
     let teardownSnapshot: BridgePaneProductSessionOwnerSnapshot
@@ -710,20 +684,6 @@ enum BridgeProductWebKitCarrierTestSupport {
             _ = await teardown(controller: controller, window: window)
             throw error
         }
-    }
-
-    static func waitUntil(
-        timeout: Duration,
-        condition: @MainActor () async -> Bool
-    ) async -> Bool {
-        let deadline = ContinuousClock.now + timeout
-        while ContinuousClock.now < deadline {
-            if await condition() {
-                return true
-            }
-            await Task.yield()
-        }
-        return await condition()
     }
 
     static func domSnapshot(_ page: WebPage) async -> BridgeProductWebKitCarrierDOMSnapshot? {

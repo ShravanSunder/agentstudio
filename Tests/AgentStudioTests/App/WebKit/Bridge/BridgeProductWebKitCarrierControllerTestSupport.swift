@@ -21,6 +21,8 @@ final class BridgeProductWebKitCarrierControllerTarget {
 
     weak var controller: BridgePaneController?
     private(set) var applicationReceipts: [BridgeProductWebKitCarrierApplicationReceipt] = []
+    private var firstApplicationWaiters:
+        [UUID: CheckedContinuation<BridgeProductWebKitCarrierApplicationReceipt?, Never>] = [:]
     private(set) var reviewContentSource: BridgePaneProductReviewContentSource?
     private var nextApplicationReceiptWaiterID: UInt64 = 0
     private var applicationReceiptWaiters: [UInt64: ApplicationReceiptWaiter] = [:]
@@ -73,14 +75,38 @@ final class BridgeProductWebKitCarrierControllerTarget {
                 workerInstanceId: workerInstanceId,
                 productAdmission: productAdmission
             ) ?? .rejected
-        applicationReceipts.append(
-            BridgeProductWebKitCarrierApplicationReceipt(
-                accepted: result != .rejected,
-                publicationId: publicationId
-            )
+        let receipt = BridgeProductWebKitCarrierApplicationReceipt(
+            accepted: result != .rejected,
+            publicationId: publicationId
         )
+        applicationReceipts.append(receipt)
+        let firstWaiters = Array(firstApplicationWaiters.values)
+        firstApplicationWaiters.removeAll(keepingCapacity: false)
+        for waiter in firstWaiters { waiter.resume(returning: receipt) }
         resumeApplicationReceiptWaitersIfReady()
         return result
+    }
+
+    func waitForFirstApplicationReceipt() async -> BridgeProductWebKitCarrierApplicationReceipt? {
+        if let first = applicationReceipts.first { return first }
+        let waiterID = UUIDv7.generate()
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                if Task.isCancelled {
+                    continuation.resume(returning: nil)
+                } else if let first = applicationReceipts.first {
+                    continuation.resume(returning: first)
+                } else {
+                    firstApplicationWaiters[waiterID] = continuation
+                }
+            }
+        } onCancel: {
+            Task { @MainActor in self.cancelFirstApplicationWaiter(waiterID) }
+        }
+    }
+
+    private func cancelFirstApplicationWaiter(_ waiterID: UUID) {
+        firstApplicationWaiters.removeValue(forKey: waiterID)?.resume(returning: nil)
     }
 
     func waitForAcceptedApplication(

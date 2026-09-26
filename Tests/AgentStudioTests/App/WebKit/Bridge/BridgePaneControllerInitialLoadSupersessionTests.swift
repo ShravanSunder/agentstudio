@@ -13,15 +13,7 @@ extension WebKitSerializedTests.BridgePaneControllerTests {
         let fixture = try await makeRefreshAdmissionIntegrationFixture(comparisonGate: comparisonGate)
         // fire-and-forget: the test asserts admission state; the presentation transition handle is not its claim
         _ = fixture.controller.applyBridgePaneActivity(.foreground)
-        let initialLoadStarted = await BridgeProductWebKitCarrierTestSupport.waitUntil(timeout: .seconds(2)) {
-            await comparisonGate.hasStartedComparisonCount(1)
-        }
-        guard initialLoadStarted else {
-            Issue.record("Explicit initial Review intake did not reach the provider")
-            await comparisonGate.releaseAll()
-            await fixture.finish()
-            return
-        }
+        await comparisonGate.waitForStartedComparisonCount(1)
         #expect(fixture.controller.paneState.diff.status == .loading)
         #expect(fixture.controller.paneState.diff.packageMetadata == nil)
 
@@ -35,15 +27,12 @@ extension WebKitSerializedTests.BridgePaneControllerTests {
                 )
             )
         )
-        let successorStarted = await BridgeProductWebKitCarrierTestSupport.waitUntil(timeout: .seconds(2)) {
-            await comparisonGate.hasStartedComparisonCount(2)
-        }
-        #expect(successorStarted, "A cancelled initial load must not consume its successor as a no-op")
+        await comparisonGate.waitForStartedComparisonCount(2)
+        let retirementTasks = Array(fixture.controller.retiringReviewRefreshTaskById.values)
+        #expect(!retirementTasks.isEmpty)
         await comparisonGate.releaseAll()
-        let predecessorDrained = await BridgeProductWebKitCarrierTestSupport.waitUntil(timeout: .seconds(2)) {
-            fixture.controller.retiringReviewRefreshTaskById.isEmpty
-        }
-        #expect(predecessorDrained)
+        for task in retirementTasks { await task.value }
+        #expect(fixture.controller.retiringReviewRefreshTaskById.isEmpty)
         await fixture.controller.activeReviewRefreshTask?.value
         await waitForActiveReviewRefreshTaskToFinish(fixture.controller)
 

@@ -20,7 +20,10 @@ actor BridgeProductSession {
     let paneSessionId: String
     let producerObservationPacingRegistrationObserver: ProducerObservationPacingRegistrationObserver?
     let resultWaiterRegistrationObserver: ResultWaiterRegistrationObserver?
-    var producerRegistry: BridgeProductProducerRegistry
+    var producerRegistry: BridgeProductProducerRegistry {
+        didSet { resumeProducerFrameQuiescenceWaitersIfReady() }
+    }
+    var producerFrameQuiescenceWaiters: [UUID: CheckedContinuation<Bool, Never>] = [:]
     private var lastAcceptedContentFrameAcknowledgementByProducerLease:
         [BridgeProductProducerLease: BridgeProductContentFrameAcknowledgement] = [:]
     private var lastAcceptedMetadataFrameAcknowledgement: BridgeProductMetadataFrameAcknowledgementReplay?
@@ -34,8 +37,12 @@ actor BridgeProductSession {
     var producerObservationPacingWaitersByLease:
         [BridgeProductProducerLease: [UUID: BridgeProductProducerPacingWaiter]] = [:]
     var producerRetirementStateByLease: [BridgeProductProducerLease: BridgeProductSessionProducerRetirementState] = [:]
-    var controlReplay: BridgeProductControlReplayCache
+    var controlReplay: BridgeProductControlReplayCache {
+        didSet { resumeControlReplayIdleWaitersIfReady() }
+    }
+    var controlReplayIdleWaiters: [UUID: BridgeProductSessionControlIdleWaiter] = [:]
     var lifecycle: BridgeProductSessionLifecycle = .awaitingOpen
+    var activeLifecycleWaiters: [UUID: CheckedContinuation<Bool, Never>] = [:]
     var pendingControl: BridgeProductSessionPendingControl?
     var operationTable = BridgeProductOperationTable()
     var observationDeadlineTasksByWaiterId: [UUID: Task<Void, Never>] = [:]
@@ -647,6 +654,15 @@ actor BridgeProductSession {
             return BridgeProductSessionRevocationBarrier(id: id, completedResult: true)
         }
         lifecycle = .revoked
+        let controlIdleWaiters = Array(controlReplayIdleWaiters.values)
+        controlReplayIdleWaiters.removeAll(keepingCapacity: false)
+        for waiter in controlIdleWaiters { waiter.continuation.resume(returning: false) }
+        let frameWaiters = Array(producerFrameQuiescenceWaiters.values)
+        producerFrameQuiescenceWaiters.removeAll(keepingCapacity: false)
+        for waiter in frameWaiters { waiter.resume(returning: false) }
+        let activeWaiters = Array(activeLifecycleWaiters.values)
+        activeLifecycleWaiters.removeAll(keepingCapacity: false)
+        for waiter in activeWaiters { waiter.resume(returning: false) }
         lastAcceptedMetadataFrameAcknowledgement = nil
         lastAcceptedContentFrameAcknowledgementByProducerLease.removeAll(
             keepingCapacity: false
@@ -826,6 +842,9 @@ actor BridgeProductSession {
         switch (request, response) {
         case (.workerSessionOpen, .workerSessionAccepted):
             lifecycle = .active
+            let activeWaiters = Array(activeLifecycleWaiters.values)
+            activeLifecycleWaiters.removeAll(keepingCapacity: false)
+            for waiter in activeWaiters { waiter.resume(returning: true) }
         case (.workerSessionOpen, .requestError):
             lifecycle = .awaitingOpen
         case (.workerSessionResync, .resyncAccepted):

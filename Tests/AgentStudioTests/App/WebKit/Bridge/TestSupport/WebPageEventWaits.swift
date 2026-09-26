@@ -29,6 +29,12 @@ enum WebPageEventWaits {
         await waitForPageChange(on: page) { page.title == expectedTitle }
     }
 
+    @MainActor
+    static func waitForTitle(_ page: WebPage, beginningWith prefix: String) async -> String {
+        await waitForPageChange(on: page) { page.title.hasPrefix(prefix) }
+        return page.title
+    }
+
     /// Suspends until a JavaScript reader returns a value, and answers with it.
     ///
     /// `readerBody` is a JavaScript function body that returns the value once its
@@ -72,6 +78,62 @@ enum WebPageEventWaits {
                 childList: true,
                 subtree: true
               });
+            });
+            """,
+            arguments: arguments
+        )
+    }
+
+    /// Observes the document and every open shadow root. Pierre places File
+    /// rows inside open roots, whose mutations do not reach a document observer.
+    @MainActor
+    static func waitForOpenShadowRootValue(
+        _ page: WebPage,
+        reader readerBody: String,
+        arguments: [String: Any] = [:]
+    ) async throws -> Any? {
+        try await page.callJavaScript(
+            """
+            const findInOpenShadowRoots = (root, selector) => {
+              const direct = root.querySelector(selector);
+              if (direct !== null) return direct;
+              for (const element of root.querySelectorAll('*')) {
+                if (element.shadowRoot === null) continue;
+                const nested = findInOpenShadowRoots(element.shadowRoot, selector);
+                if (nested !== null) return nested;
+              }
+              return null;
+            };
+            const readOpenShadowRootText = root => {
+              let text = root.textContent ?? '';
+              for (const element of root.querySelectorAll('*')) {
+                if (element.shadowRoot !== null) text += readOpenShadowRootText(element.shadowRoot);
+              }
+              return text;
+            };
+            const readValue = () => { \(readerBody) };
+            return await new Promise(resolve => {
+              const observers = new Map();
+              const observeRoot = root => {
+                if (!observers.has(root)) {
+                  const observer = new MutationObserver(attempt);
+                  observer.observe(root, {
+                    attributes: true, characterData: true, childList: true, subtree: true
+                  });
+                  observers.set(root, observer);
+                }
+                for (const element of root.querySelectorAll('*')) {
+                  if (element.shadowRoot !== null) observeRoot(element.shadowRoot);
+                }
+              };
+              const attempt = () => {
+                observeRoot(document.documentElement);
+                const value = readValue();
+                if (value === null || value === undefined) return;
+                for (const observer of observers.values()) observer.disconnect();
+                resolve(value);
+              };
+              attempt();
             });
             """,
             arguments: arguments

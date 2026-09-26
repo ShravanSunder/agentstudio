@@ -30,12 +30,19 @@ func installRefreshAdmissionMetadataProducer(
     guard case .execute(let workerOpenToken, _) = workerOpenAdmission else {
         throw RefreshAdmissionIntegrationError.expectedWorkerSessionExecution
     }
-    _ = try await installation.session.completeControl(
-        token: workerOpenToken,
-        exactResponseBytes: try JSONEncoder().encode(
-            BridgeProductControlResponse.workerSessionAccepted(correlating: workerOpenRequest)
-        )
+    let openResponseBytes = try JSONEncoder().encode(
+        BridgeProductControlResponse.workerSessionAccepted(correlating: workerOpenRequest)
     )
+    let admittedOpen = try await installation.session.admitControlOperation(token: workerOpenToken) { _ in
+        _ = try? await installation.session.completeControl(
+            token: workerOpenToken,
+            exactResponseBytes: openResponseBytes
+        )
+    }
+    await installation.session.waitForOperationExecution(operationId: admittedOpen.operationId)
+    guard (await installation.session.snapshot).lifecycle == .active else {
+        throw RefreshAdmissionIntegrationError.expectedWorkerSessionExecution
+    }
 
     let metadataRequest = try refreshAdmissionMetadataRequest(installation: installation)
     let registration = await installation.session.registerMetadataProducer(
