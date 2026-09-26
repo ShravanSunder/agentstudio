@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import Testing
 
@@ -138,9 +139,10 @@ struct ArchitectureLintCommandTests {
     @Test("scoped and full runs use one canonical workspace root")
     func scopedAndFullRunsUseOneCanonicalWorkspaceRoot() throws {
         let fixture = fixturePath("Bad")
+        let canonicalFixture = canonicalFileSystemPath(fixture)
         let symlinkRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent(
-                "agentstudio-architecture-lint-symlink-\(ProcessInfo.processInfo.processIdentifier)",
+                "agentstudio-architecture-lint-symlink-\(UUID().uuidString)",
                 isDirectory: true
             )
         try FileManager.default.createSymbolicLink(atPath: symlinkRoot.path, withDestinationPath: fixture)
@@ -151,7 +153,7 @@ struct ArchitectureLintCommandTests {
             "Sources/AgentStudio/Features/RepoExplorer/State/MainActor/Atoms/BadSiblingFeatureAtomReference.swift",
             "Tests/AgentStudioTests/BadPollingWaitTest.swift",
         ]
-        let scopedAbsolutePaths = scopedRelativePaths.map { "\(fixture)/\($0)" }
+        let scopedAbsolutePaths = scopedRelativePaths.map { "\(canonicalFixture)/\($0)" }
 
         let fullResult = runCommand(
             arguments: ["Sources", "Tests"],
@@ -176,9 +178,10 @@ struct ArchitectureLintCommandTests {
     @Test("absolute scoped paths through a symlink use the canonical workspace root")
     func scopedAbsolutePathsThroughSymlinkUseTheCanonicalRoot() throws {
         let fixture = fixturePath("Bad")
+        let canonicalFixture = canonicalFileSystemPath(fixture)
         let symlinkRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent(
-                "agentstudio-architecture-lint-absolute-symlink-\(ProcessInfo.processInfo.processIdentifier)",
+                "agentstudio-architecture-lint-absolute-symlink-\(UUID().uuidString)",
                 isDirectory: true
             )
         try FileManager.default.createSymbolicLink(atPath: symlinkRoot.path, withDestinationPath: fixture)
@@ -189,8 +192,7 @@ struct ArchitectureLintCommandTests {
             "Sources/AgentStudio/Features/RepoExplorer/State/MainActor/Atoms/BadSiblingFeatureAtomReference.swift",
             "Tests/AgentStudioTests/BadPollingWaitTest.swift",
         ]
-        let scopedCanonicalPaths = scopedRelativePaths.map { "\(fixture)/\($0)" }
-        let scopedAbsolutePaths = scopedRelativePaths.map { "\(symlinkRoot.path)/\($0)" }
+        let scopedAbsolutePaths = scopedRelativePaths.map { "\(canonicalFixture)/\($0)" }
 
         let fullResult = runCommand(
             arguments: ["Sources", "Tests"],
@@ -203,7 +205,7 @@ struct ArchitectureLintCommandTests {
 
         let fullLinesForScopedFiles = fullResult.output
             .split(separator: "\n")
-            .filter { line in scopedCanonicalPaths.contains { line.hasPrefix("\($0):") } }
+            .filter { line in scopedAbsolutePaths.contains { line.hasPrefix("\($0):") } }
         let scopedLines = scopedResult.output.split(separator: "\n")
 
         #expect(fullResult.exitCode == 1)
@@ -435,6 +437,15 @@ struct ArchitectureLintCommandTests {
         let error = (try? String(contentsOf: errorURL, encoding: .utf8)) ?? ""
         return CommandRunResult(exitCode: exitCode, output: output + error)
     }
+}
+
+private func canonicalFileSystemPath(_ path: String) -> String {
+    let standardizedPath = URL(fileURLWithPath: path).standardizedFileURL.path
+    guard let resolvedPath = standardizedPath.withCString({ Darwin.realpath($0, nil) }) else {
+        return standardizedPath
+    }
+    defer { Darwin.free(resolvedPath) }
+    return String(cString: resolvedPath)
 }
 
 private struct StaleOwnerRule: ArchitectureRule {

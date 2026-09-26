@@ -98,7 +98,7 @@ extension FilesystemActor {
                 cause: newlyRegisteredSourceIDs.contains(registration.registeredRoot.sourceID)
                     ? .initialAdd : .manual
             )
-            switch await watchedFolderScanScheduler.submit(request, intent: .tracked) {
+            switch await watchedFolderScanSubmission.submit(watchedFolderScanScheduler, request, .tracked) {
             case .accepted(.tracked(let receipt, _)):
                 receiptsBySourceID[request.sourceID] = receipt
                 watchedFolderScanState.latestDemandCoverageBySourceID[request.sourceID] = receipt.coverage
@@ -171,7 +171,8 @@ extension FilesystemActor {
         let knownGroups = watchedFolderScanState.inventoryBySourceID[sourceID]?.repoGroups ?? []
         guard
             WatchedFolderTopologyAdmission.shouldScan(
-                batch, root: registration.registeredRoot, knownGroups: knownGroups)
+                batch, root: registration.registeredRoot, knownGroups: knownGroups,
+                heldCheckoutPaths: Array(watchedFolderScanState.publicationHoldPathsByID.values))
         else { return }
         await submitWatchedFolderScan(
             sourceID: sourceID,
@@ -321,7 +322,7 @@ extension FilesystemActor {
             return
         }
         let request = watchedFolderScanRequest(for: registration, cause: cause)
-        switch await watchedFolderScanScheduler.submit(request) {
+        switch await watchedFolderScanSubmission.submit(watchedFolderScanScheduler, request, .untracked) {
         case .accepted(let acceptance):
             watchedFolderScanState.latestDemandCoverageBySourceID[sourceID] = acceptance.coverage
             ensureWatchedFolderResultDrainStarted()
@@ -346,11 +347,15 @@ extension FilesystemActor {
             let components = path.standardizedFileURL.pathComponents
             return rootAliases.contains { components.starts(with: $0.pathComponents) }
         }
+        // Reserved synchronously, before the caller awaits submission, so a hold released
+        // while that submission is in flight still covers the scan it starts.
+        watchedFolderScanState.lastReservedScanSubmissionSequence += 1
         return WatchedFolderScanRequest(
             canonicalRoot: registration.registeredRoot,
             cause: cause,
             baselineMembershipRevision: baseline.membershipRevision,
-            retainedCheckoutPaths: retainedPaths
+            retainedCheckoutPaths: retainedPaths,
+            submissionSequence: watchedFolderScanState.lastReservedScanSubmissionSequence
         )
     }
 

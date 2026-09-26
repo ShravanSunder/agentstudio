@@ -72,6 +72,9 @@ package enum AppCommand: String, CaseIterable {
     case pinPane, unpinPane
     case openWorktree
     case openWorktreeInPane
+    case newWorktree
+    case newWorktreeFromDefault
+    case forkWorktree
     // Management layer
     case toggleManagementLayer
     case managementLayerFocusLeft
@@ -250,4 +253,14 @@ package protocol AppCommandDispatching: AnyObject, Sendable {
     func canDispatch(_ command: AppCommand, target: UUID, targetType: SearchItemType) -> Bool
     func bridgePaneCommandTarget(worktreeId: UUID) -> BridgePaneCommandTarget?
     func dispatchMovePaneToTab(sourcePaneId: UUID, sourceTabId: UUID?, targetTabId: UUID)
+    /// Returns whether the shell creation owner accepted the typed creation request.
+    @discardableResult func dispatchWorktreeCreation(_ request: WorktreeCreationRequest) -> Bool
+}
+
+extension AppCommandDispatching {
+    /// Fail closed: a dispatcher opts into worktree creation explicitly; it never
+    /// inherits a silent acceptance from this protocol.
+    @discardableResult package func dispatchWorktreeCreation(_: WorktreeCreationRequest) -> Bool {
+        false
+    }
 }
