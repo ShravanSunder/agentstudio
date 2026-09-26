@@ -244,6 +244,7 @@ enum BridgeProductMetadataFrame: Codable, Equatable, Sendable {
     case subscriptionAccepted(BridgeProductSubscriptionAcceptedFrame)
     case subscriptionInterestsCommitted(BridgeProductSubscriptionInterestsCommittedFrame)
     case subscriptionData(BridgeProductSubscriptionDataFrame)
+    case batch(BridgeProductBatchFrame)
     case subscriptionReset(BridgeProductSubscriptionResetFrame)
     case subscriptionEnd(BridgeProductSubscriptionEndFrame)
     case subscriptionCancelled(BridgeProductSubscriptionCancelledFrame)
@@ -262,6 +263,12 @@ enum BridgeProductMetadataFrame: Codable, Equatable, Sendable {
         case .subscriptionAccepted: "subscription.accepted"
         case .subscriptionInterestsCommitted: "subscription.interestsCommitted"
         case .subscriptionData: "subscription.data"
+        case .batch(let frame):
+            switch frame {
+            case .begin: "subscription.batchBegin"
+            case .part: "subscription.batchPart"
+            case .complete: "subscription.batchComplete"
+            }
         case .subscriptionReset: "subscription.reset"
         case .subscriptionEnd: "subscription.end"
         case .subscriptionCancelled: "subscription.cancelled"
@@ -289,6 +296,8 @@ enum BridgeProductMetadataFrame: Codable, Equatable, Sendable {
             )
         case "subscription.data":
             self = .subscriptionData(try BridgeProductSubscriptionDataFrame(from: decoder))
+        case "subscription.batchBegin", "subscription.batchPart", "subscription.batchComplete":
+            self = .batch(try BridgeProductBatchFrame(from: decoder))
         case "subscription.reset":
             self = .subscriptionReset(try BridgeProductSubscriptionResetFrame(from: decoder))
         case "subscription.end":
@@ -316,6 +325,7 @@ enum BridgeProductMetadataFrame: Codable, Equatable, Sendable {
         case .subscriptionAccepted(let frame): try frame.encode(to: encoder)
         case .subscriptionInterestsCommitted(let frame): try frame.encode(to: encoder)
         case .subscriptionData(let frame): try frame.encode(to: encoder)
+        case .batch(let frame): try frame.encode(to: encoder)
         case .subscriptionReset(let frame): try frame.encode(to: encoder)
         case .subscriptionEnd(let frame): try frame.encode(to: encoder)
         case .subscriptionCancelled(let frame): try frame.encode(to: encoder)

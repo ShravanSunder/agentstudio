@@ -194,6 +194,7 @@ extension BridgeProductMetadataFrame {
         case .subscriptionAccepted(let frame): frame.frameIdentity
         case .subscriptionInterestsCommitted(let frame): frame.identity.frameIdentity
         case .subscriptionData(let frame): frame.frameIdentity
+        case .batch(let frame): frame.identity.frame
         case .subscriptionReset(let frame): frame.identity.frameIdentity
         case .subscriptionEnd(let frame): frame.identity.frameIdentity
         case .subscriptionCancelled(let frame): frame.identity.frameIdentity

@@ -5,6 +5,19 @@ enum BridgeWorktreeFileManifestRemovalResult: Sendable {
     case rejected
 }
 
+struct BridgeWorktreeFileKeyedRecord: Equatable, Sendable {
+    let key: String
+    let revision: Int
+    let row: BridgeWorktreeTreeRowMetadata
+}
+
+struct BridgeWorktreeFileKeyedSnapshot: Equatable, Sendable {
+    let records: [BridgeWorktreeFileKeyedRecord]
+    let targetRevision: Int
+    let tombstoneRevisionByKey: [String: Int]
+    let absenceFloorRevisionByRange: [String: Int]
+}
+
 /// Single-writer owner of the ordered Worktree/File manifest for one accepted
 /// source generation. Enumeration build, watch-event patches, and interest
 /// reads all go through this actor; the stateless materializer never owns
@@ -13,17 +26,42 @@ enum BridgeWorktreeFileManifestRemovalResult: Sendable {
 actor BridgeWorktreeFileManifestIndex {
     let generation: Int
     private let owningProductAdmission: BridgeProductAdmissionContext
+    private let canonicalRootURL: URL
     private var orderedPaths: [String] = []
     private var rowsByPath: [String: BridgeWorktreeTreeRowMetadata] = [:]
+    private var canonicalLocationByPath: [String: String] = [:]
+    private var revisionByPath: [String: Int] = [:]
+    private var tombstoneRevisionByKey: [String: Int] = [:]
+    private var nextRevision = 0
+    private var absenceFloorRevisionByRange: [String: Int] = [:]
     private(set) var enumerationCount = 0
     private(set) var isEnumerationComplete = false
 
     init(
         generation: Int,
+        rootURL: URL,
         productAdmission: BridgeProductAdmissionContext
     ) {
         self.generation = generation
+        self.canonicalRootURL = rootURL.standardizedFileURL.resolvingSymlinksInPath()
         self.owningProductAdmission = productAdmission
+    }
+
+    /// A snapshot freezes records and its target in the same actor turn.
+    func captureKeyedSnapshot() -> BridgeWorktreeFileKeyedSnapshot {
+        let records = orderedPaths.compactMap { path -> BridgeWorktreeFileKeyedRecord? in
+            guard let row = rowsByPath[path],
+                let key = canonicalLocationByPath[path],
+                let revision = revisionByPath[path]
+            else { return nil }
+            return .init(key: key, revision: revision, row: row)
+        }
+        return .init(
+            records: records,
+            targetRevision: nextRevision,
+            tombstoneRevisionByKey: tombstoneRevisionByKey,
+            absenceFloorRevisionByRange: absenceFloorRevisionByRange
+        )
     }
 
     var count: Int {
@@ -58,8 +96,7 @@ actor BridgeWorktreeFileManifestIndex {
         return foregroundWorkAdmission.withValidAdmission {
             productAdmission.withValidAdmission { () -> Bool in
                 for row in rows where rowsByPath[row.path] == nil {
-                    rowsByPath[row.path] = row
-                    orderedPaths.append(row.path)
+                    upsert(row)
                 }
                 return true
             } ?? false
@@ -110,10 +147,7 @@ actor BridgeWorktreeFileManifestIndex {
         guard owningProductAdmission.matches(productAdmission) else { return false }
         return productAdmission.withValidAdmission { () -> Bool in
             for row in rows {
-                if rowsByPath[row.path] == nil {
-                    orderedPaths.append(row.path)
-                }
-                rowsByPath[row.path] = row
+                upsert(row)
             }
             return true
         } ?? false
@@ -132,10 +166,7 @@ actor BridgeWorktreeFileManifestIndex {
         return foregroundWorkAdmission.withValidAdmission {
             productAdmission.withValidAdmission { () -> Bool in
                 for row in rows {
-                    if rowsByPath[row.path] == nil {
-                        orderedPaths.append(row.path)
-                    }
-                    rowsByPath[row.path] = row
+                    upsert(row)
                 }
                 return true
             } ?? false
@@ -155,7 +186,7 @@ actor BridgeWorktreeFileManifestIndex {
         return foregroundWorkAdmission.withValidAdmission {
             productAdmission.withValidAdmission { () -> Bool in
                 for row in rows where rowsByPath[row.path] != nil {
-                    rowsByPath[row.path] = row
+                    upsert(row)
                 }
                 return true
             } ?? false
@@ -176,7 +207,7 @@ actor BridgeWorktreeFileManifestIndex {
                 () -> BridgeWorktreeFileManifestRemovalResult in
                 var removedRows: [BridgeWorktreeTreeRowMetadata] = []
                 for path in paths {
-                    guard let row = rowsByPath.removeValue(forKey: path) else { continue }
+                    guard let row = remove(path: path) else { continue }
                     removedRows.append(row)
                 }
                 if !removedRows.isEmpty {
@@ -199,7 +230,7 @@ actor BridgeWorktreeFileManifestIndex {
                 () -> BridgeWorktreeFileManifestRemovalResult in
                 var removedRows: [BridgeWorktreeTreeRowMetadata] = []
                 for path in paths {
-                    guard let row = rowsByPath.removeValue(forKey: path) else { continue }
+                    guard let row = remove(path: path) else { continue }
                     removedRows.append(row)
                 }
                 if !removedRows.isEmpty {
@@ -209,6 +240,73 @@ actor BridgeWorktreeFileManifestIndex {
                 return .applied(removedRows)
             } ?? .rejected
         } ?? .rejected
+    }
+
+    /// A complete certified snapshot permits deletion history to compact to
+    /// one range-wide floor. A later snapshot may still contain newer writes.
+    func certifyCompleteAbsence(in canonicalRange: String, upTo targetRevision: Int) -> Bool {
+        guard isEnumerationComplete,
+            isWithinRoot(canonicalRange),
+            targetRevision >= (absenceFloorRevisionByRange[canonicalRange] ?? 0),
+            targetRevision <= nextRevision
+        else { return false }
+        absenceFloorRevisionByRange[canonicalRange] = targetRevision
+        tombstoneRevisionByKey = tombstoneRevisionByKey.filter { key, revision in
+            revision > targetRevision || !Self.isWithin(key, range: canonicalRange)
+        }
+        return true
+    }
+
+    func acceptsExistingRevision(_ revision: Int, for canonicalKey: String) -> Bool {
+        let floor = absenceFloorRevisionByRange.reduce(0) { current, entry in
+            Self.isWithin(canonicalKey, range: entry.key) ? max(current, entry.value) : current
+        }
+        return revision > max(floor, tombstoneRevisionByKey[canonicalKey] ?? 0)
+    }
+
+    private func isWithinRoot(_ canonicalRange: String) -> Bool {
+        Self.isWithin(canonicalRange, range: canonicalRootURL.path)
+    }
+
+    private static func isWithin(_ canonicalKey: String, range: String) -> Bool {
+        canonicalKey == range || canonicalKey.hasPrefix(range == "/" ? "/" : range + "/")
+    }
+
+    private func upsert(_ row: BridgeWorktreeTreeRowMetadata) {
+        let canonicalLocation = canonicalRootURL.appending(path: row.path)
+            .standardizedFileURL.resolvingSymlinksInPath().path
+        if rowsByPath[row.path] == row,
+            canonicalLocationByPath[row.path] == canonicalLocation
+        {
+            return
+        }
+        if let previousLocation = canonicalLocationByPath[row.path],
+            previousLocation != canonicalLocation
+        {
+            tombstoneRevisionByKey[previousLocation] = mintRevision()
+        }
+        if rowsByPath[row.path] == nil {
+            orderedPaths.append(row.path)
+        }
+        rowsByPath[row.path] = row
+        canonicalLocationByPath[row.path] = canonicalLocation
+        revisionByPath[row.path] = mintRevision()
+        tombstoneRevisionByKey.removeValue(forKey: canonicalLocation)
+    }
+
+    private func remove(path: String) -> BridgeWorktreeTreeRowMetadata? {
+        guard let row = rowsByPath.removeValue(forKey: path) else { return nil }
+        revisionByPath.removeValue(forKey: path)
+        if let canonicalLocation = canonicalLocationByPath.removeValue(forKey: path) {
+            tombstoneRevisionByKey[canonicalLocation] = mintRevision()
+        }
+        return row
+    }
+
+    private func mintRevision() -> Int {
+        precondition(nextRevision < BridgeProductWireContract.maximumSafeInteger)
+        nextRevision += 1
+        return nextRevision
     }
 
 }

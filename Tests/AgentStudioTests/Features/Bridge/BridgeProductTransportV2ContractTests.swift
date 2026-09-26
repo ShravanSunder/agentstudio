@@ -191,6 +191,24 @@ struct BridgeProductTransportV2ContractTests {
         )
     }
 
+    @Test("sealed batch frames use the production metadata stream codec")
+    func sealedBatchesUseMetadataStreamCodec() throws {
+        let corpus = try fixtureJSONObject(
+            relativePath: "Tests/BridgeContractFixtures/valid/bridge-product-session-corpus.json"
+        )
+        let transport = try #require(corpus["transportV2"] as? [String: Any])
+        let frames = try decodeAndVerifyRoundTrips(
+            BridgeProductMetadataFrame.self,
+            from: try fixtureArray(named: "batchFrames", in: transport)
+        )
+        let decoder = try BridgeProductMetadataFrameDecoder()
+        for frame in frames {
+            let decoded = try decoder.append(BridgeProductMetadataFrameCodec.encode(frame))
+            #expect(decoded == [frame])
+        }
+        try decoder.finish()
+    }
+
     private func decodeAndVerifyRoundTrips<CodableValue: Codable>(
         _ type: CodableValue.Type,
         from objects: [[String: Any]]

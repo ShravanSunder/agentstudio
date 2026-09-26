@@ -647,6 +647,7 @@ actor BridgePaneProductFileMetadataSource: BridgePaneProductFileMetadataProducin
         let context = SubscriptionContext(
             manifestIndex: .init(
                 generation: sourceGeneration,
+                rootURL: authority.worktree.path,
                 productAdmission: productAdmission
             ),
             openedSource: openedSource,

@@ -30,6 +30,33 @@ struct BridgeProductBatchFrameIdentity: Codable, Equatable, Sendable {
     let subscriptionId: String
     let subscriptionKind: BridgeProductSubscriptionKind
 
+    init(
+        frame: BridgeProductMetadataFrameIdentity,
+        batchId: String,
+        domain: String,
+        handle: String,
+        incarnation: String,
+        scopeRevision: Int,
+        subscriptionId: String,
+        subscriptionKind: BridgeProductSubscriptionKind
+    ) throws {
+        try frame.validateProgressSequence(codingPath: [])
+        try BridgeProductContractDecoding.validateIdentifier(batchId, codingPath: [])
+        try BridgeProductContractDecoding.validateIdentifier(domain, codingPath: [])
+        try BridgeProductContractDecoding.validateIdentifier(handle, codingPath: [])
+        try BridgeProductContractDecoding.validateIdentifier(incarnation, codingPath: [])
+        try BridgeProductContractDecoding.validateNonnegative(scopeRevision, name: "scopeRevision", codingPath: [])
+        try BridgeProductContractDecoding.validateIdentifier(subscriptionId, codingPath: [])
+        self.frame = frame
+        self.batchId = batchId
+        self.domain = domain
+        self.handle = handle
+        self.incarnation = incarnation
+        self.scopeRevision = scopeRevision
+        self.subscriptionId = subscriptionId
+        self.subscriptionKind = subscriptionKind
+    }
+
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         frame = try BridgeProductMetadataFrameIdentity(from: decoder)
@@ -167,6 +194,35 @@ struct BridgeProductBatchBeginFrame: Codable, Equatable, Sendable {
     let scope: BridgeProductJSONValue
     let targetRevision: Int
 
+    init(
+        identity: BridgeProductBatchFrameIdentity,
+        baseRevision: Int,
+        mode: BridgeProductBatchMode,
+        partCount: Int,
+        requiresCollection: Int?,
+        scope: BridgeProductJSONValue,
+        targetRevision: Int
+    ) throws {
+        try BridgeProductContractDecoding.validateNonnegative(baseRevision, name: "baseRevision", codingPath: [])
+        try BridgeProductContractDecoding.validateNonnegative(partCount, name: "partCount", codingPath: [])
+        try BridgeProductContractDecoding.validateNonnegative(targetRevision, name: "targetRevision", codingPath: [])
+        if let requiresCollection {
+            try BridgeProductContractDecoding.validateNonnegative(
+                requiresCollection, name: "requiresCollection", codingPath: [])
+        }
+        guard targetRevision >= baseRevision else {
+            throw BridgeProductContractDecoding.invalidValue("Batch target precedes base", codingPath: [])
+        }
+        try BridgeProductViewScopeContract.validate(scope, codingPath: [])
+        self.identity = identity
+        self.baseRevision = baseRevision
+        self.mode = mode
+        self.partCount = partCount
+        self.requiresCollection = requiresCollection
+        self.scope = scope
+        self.targetRevision = targetRevision
+    }
+
     init(from decoder: Decoder) throws {
         try BridgeProductContractDecoding.rejectUnknownKeys(
             from: decoder,
@@ -246,6 +302,20 @@ struct BridgeProductBatchPartFrame: Codable, Equatable, Sendable {
     let part: BridgeProductBatchPart
     let partIndex: Int
 
+    init(
+        identity: BridgeProductBatchFrameIdentity,
+        deliverySequence: Int,
+        part: BridgeProductBatchPart,
+        partIndex: Int
+    ) throws {
+        try BridgeProductContractDecoding.validatePositive(deliverySequence, name: "deliverySequence", codingPath: [])
+        try BridgeProductContractDecoding.validateNonnegative(partIndex, name: "partIndex", codingPath: [])
+        self.identity = identity
+        self.deliverySequence = deliverySequence
+        self.part = part
+        self.partIndex = partIndex
+    }
+
     init(from decoder: Decoder) throws {
         try BridgeProductContractDecoding.rejectUnknownKeys(
             from: decoder,
@@ -296,6 +366,12 @@ struct BridgeProductBatchCompleteFrame: Codable, Equatable, Sendable {
     let identity: BridgeProductBatchFrameIdentity
     let coveredScope: BridgeProductJSONValue
 
+    init(identity: BridgeProductBatchFrameIdentity, coveredScope: BridgeProductJSONValue) throws {
+        try BridgeProductViewScopeContract.validate(coveredScope, codingPath: [])
+        self.identity = identity
+        self.coveredScope = coveredScope
+    }
+
     init(from decoder: Decoder) throws {
         try BridgeProductContractDecoding.rejectUnknownKeys(
             from: decoder,
@@ -331,6 +407,14 @@ enum BridgeProductBatchFrame: Codable, Equatable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case kind
+    }
+
+    var identity: BridgeProductBatchFrameIdentity {
+        switch self {
+        case .begin(let frame): frame.identity
+        case .part(let frame): frame.identity
+        case .complete(let frame): frame.identity
+        }
     }
 
     init(from decoder: Decoder) throws {
