@@ -1,11 +1,7 @@
 import type { Page, Response, Route } from 'playwright';
 import { expect, test } from 'vitest';
 
-import {
-	revealReviewTreeFilePath,
-	reviewTreeReachablePathScrollTopMap,
-	waitForVisibleReviewTreeFilePath,
-} from '../../scripts/verify-bridge-viewer-worktree-dev-server/review-tree-click.ts';
+import { selectReviewTreeFilePath } from '../../scripts/verify-bridge-viewer-worktree-dev-server/review-tree-click.ts';
 import {
 	drainAnnotationLifecycleTelemetry,
 	requiredAnnotationLifecycleStageCount,
@@ -662,21 +658,7 @@ export async function selectReviewFile(props: {
 	readonly path: string;
 }): Promise<void> {
 	await props.page.locator('[data-testid="review-viewer-shell"]').waitFor({ state: 'attached' });
-	const scrollTopByPath = await reviewTreeReachablePathScrollTopMap(props.page);
-	const scrollTopHint = scrollTopByPath.get(props.path);
-	if (scrollTopHint === undefined) {
-		throw new Error(`Review annotation journey cannot reach tree path ${props.path}.`);
-	}
-	await revealReviewTreeFilePath({ page: props.page, path: props.path, scrollTopHint });
-	await waitForVisibleReviewTreeFilePath({ page: props.page, path: props.path });
-	await props.page.evaluate((path: string): void => {
-		const treeHost = document.querySelector(
-			'[data-testid="bridge-review-trees-panel"] file-tree-container',
-		);
-		const row = treeHost?.shadowRoot?.querySelector(`[data-item-path="${CSS.escape(path)}"]`);
-		if (!(row instanceof HTMLElement)) throw new Error(`Review file row missing: ${path}`);
-		row.click();
-	}, props.path);
+	await selectReviewTreeFilePath({ page: props.page, path: props.path });
 }
 
 export async function selectRangeForAnnotation(props: {
