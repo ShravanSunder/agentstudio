@@ -39,6 +39,66 @@ struct WorkspaceSQLiteDatastoreActorTests {
         #expect(await recorder.events.contains(.saveWorkspaceSnapshot))
     }
 
+    @Test("one datastore saves two workspaces and restores the last selected workspace")
+    func oneDatastoreSavesAndRestoresTwoWorkspaces() async throws {
+        let firstWorkspaceId = UUIDv7.generate()
+        let secondWorkspaceId = UUIDv7.generate()
+        let coreQueue = try SQLiteDatabaseFactory.makeInMemoryQueue(
+            label: "AgentStudio.sqlite.datastore.multiple-workspaces.core")
+        let localQueue = try SQLiteDatabaseFactory.makeInMemoryQueue(
+            label: "AgentStudio.sqlite.datastore.multiple-workspaces.local")
+        try WorkspaceCoreMigrations.migrate(coreQueue)
+        try WorkspaceLocalMigrations.migrate(localQueue)
+        let coreRepository = WorkspaceCoreRepository(databaseWriter: coreQueue)
+        let preparedApplicationLocalRepository = WorkspaceLocalRepository(
+            workspaceId: firstWorkspaceId,
+            databaseWriter: localQueue
+        )
+        let datastore = try await preparedWorkspaceSQLiteDatastore(
+            coreRepository: coreRepository,
+            preparedApplicationLocalRepository: preparedApplicationLocalRepository
+        )
+        _ = await datastore.loadWorkspaceSnapshot()
+
+        try await datastore.saveWorkspaceSnapshotBundle(
+            .emptyTopologyFixture(
+                workspace: .emptyFixture(
+                    id: firstWorkspaceId,
+                    name: "First Workspace",
+                    updatedAt: Date(timeIntervalSince1970: 10)
+                )
+            )
+        )
+        try await datastore.saveWorkspaceSnapshotBundle(
+            .emptyTopologyFixture(
+                workspace: .emptyFixture(
+                    id: secondWorkspaceId,
+                    name: "Second Workspace",
+                    updatedAt: Date(timeIntervalSince1970: 20)
+                )
+            )
+        )
+
+        let restoredWorkspaceResult = await datastore.loadWorkspaceSnapshot()
+        guard case .loaded(let restoredWorkspace) = restoredWorkspaceResult else {
+            Issue.record("Expected the last saved workspace to restore, got \(restoredWorkspaceResult)")
+            return
+        }
+        #expect(restoredWorkspace.id == secondWorkspaceId)
+        #expect(restoredWorkspace.name == "Second Workspace")
+
+        let persistedWorkspaceRecords = try coreRepository.fetchWorkspaces()
+        #expect(persistedWorkspaceRecords.count == 2)
+
+        let persistedFirstWorkspace = try coreRepository.fetchWorkspace(id: firstWorkspaceId)
+        #expect(persistedFirstWorkspace?.id == firstWorkspaceId)
+        #expect(persistedFirstWorkspace?.name == "First Workspace")
+
+        let persistedSecondWorkspace = try coreRepository.fetchWorkspace(id: secondWorkspaceId)
+        #expect(persistedSecondWorkspace?.id == secondWorkspaceId)
+        #expect(persistedSecondWorkspace?.name == "Second Workspace")
+    }
+
     @Test("workspace save emits persistence operation trace records")
     func workspaceSaveEmitsPersistenceOperationTraceRecords() async throws {
         let workspaceId = UUIDv7.generate()
