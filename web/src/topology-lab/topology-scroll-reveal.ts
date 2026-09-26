@@ -69,6 +69,7 @@ export function initializeTopologyScrollReveal(
   let litTarget: HTMLElement | undefined;
   /** The lowest fog edge reached so far, in artwork coordinates; it never retreats. */
   let furthestRevealY: number | undefined;
+  let endReachedDispatched = false;
 
   const updateCurrentNodes = (revealProgress: number, enabled: boolean): void => {
     const nextCurrentNodes = new Set<SVGGraphicsElement>();
@@ -251,10 +252,12 @@ export function initializeTopologyScrollReveal(
       path.style.visibility = "visible";
     }
     for (const node of revealNodes) {
-      node.toggleAttribute(
-        topologyNodeRevealedAttribute,
-        Number(node.dataset["topologyNodeProgress"]) <= revealProgress + 1e-6,
-      );
+      const revealed = Number(node.dataset["topologyNodeProgress"]) <= revealProgress + 1e-6;
+      node.toggleAttribute(topologyNodeRevealedAttribute, revealed);
+      if (revealed && node.hasAttribute("data-topology-terminal") && !endReachedDispatched) {
+        endReachedDispatched = true;
+        artwork.ownerDocument.dispatchEvent(new Event("topology-end-reached"));
+      }
     }
     updateCurrentNodes(revealProgress, !reducedMotionQuery.matches);
   };

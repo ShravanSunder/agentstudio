@@ -15,6 +15,84 @@ export interface TopologyEndObservation {
   readonly ctaEndMarkers: number;
 }
 
+export interface TopologyEndPulseObservation {
+  readonly eventCount: number;
+  readonly pulsed: boolean;
+  readonly href: string;
+  readonly animationName: string;
+  readonly reducedMotionAnimationName: string;
+}
+
+export const verifyTopologyEndPulse = defineBrowserCommand(
+  async ({ context }, pageUrl: string): Promise<TopologyEndPulseObservation> => {
+    const applicationPage = await context.newPage();
+    const reducedMotionPage = await context.newPage();
+    const installEventCounter = (): void => {
+      (window as Window & { topologyEndEventCount?: number }).topologyEndEventCount = 0;
+      document.addEventListener("topology-end-reached", () => {
+        const pageWindow = window as Window & { topologyEndEventCount?: number };
+        pageWindow.topologyEndEventCount = (pageWindow.topologyEndEventCount ?? 0) + 1;
+      });
+    };
+    try {
+      await applicationPage.addInitScript(installEventCounter);
+      await applicationPage.goto(pageUrl, { waitUntil: "domcontentloaded" });
+      await applicationPage.evaluate(() => window.dispatchEvent(new WheelEvent("wheel")));
+      await applicationPage.waitForSelector('[data-hero-intro-state="settled"]');
+      await applicationPage.evaluate(() =>
+        window.scrollTo(0, document.documentElement.scrollHeight),
+      );
+      await applicationPage.waitForSelector(
+        "[data-topology-terminal][data-topology-node-revealed]",
+        { state: "attached" },
+      );
+      const pulseState = await applicationPage.evaluate(() => ({
+        buttonPresent: document.querySelector("[data-final-star-button]") !== null,
+        buttonPulsed: document.querySelector("[data-final-star-button][data-pulsed]") !== null,
+        eventCount:
+          (window as Window & { topologyEndEventCount?: number }).topologyEndEventCount ?? 0,
+      }));
+      if (!pulseState.buttonPulsed) {
+        throw new Error(`Rail end revealed without CTA pulse: ${JSON.stringify(pulseState)}`);
+      }
+      const normal = await applicationPage.evaluate(() => {
+        const button = document.querySelector<HTMLAnchorElement>("[data-final-star-button]");
+        if (button === null) throw new Error("Final star button is missing");
+        return {
+          eventCount:
+            (window as Window & { topologyEndEventCount?: number }).topologyEndEventCount ?? 0,
+          pulsed: button.hasAttribute("data-pulsed"),
+          href: button.href,
+          animationName: getComputedStyle(button, "::after").animationName,
+        };
+      });
+      await applicationPage.evaluate(() => window.scrollTo(0, 0));
+      await applicationPage.evaluate(() =>
+        window.scrollTo(0, document.documentElement.scrollHeight),
+      );
+      const eventCount = await applicationPage.evaluate(
+        () => (window as Window & { topologyEndEventCount?: number }).topologyEndEventCount ?? 0,
+      );
+
+      await reducedMotionPage.emulateMedia({ reducedMotion: "reduce" });
+      await reducedMotionPage.goto(pageUrl, { waitUntil: "domcontentloaded" });
+      await reducedMotionPage.evaluate(() =>
+        window.scrollTo(0, document.documentElement.scrollHeight),
+      );
+      await reducedMotionPage.waitForSelector(
+        "[data-topology-terminal][data-topology-node-revealed]",
+        { state: "attached" },
+      );
+      const reducedMotionAnimationName = await reducedMotionPage
+        .locator("[data-final-star-button]")
+        .evaluate((button) => getComputedStyle(button, "::after").animationName);
+      return { ...normal, eventCount, reducedMotionAnimationName };
+    } finally {
+      await Promise.all([applicationPage.close(), reducedMotionPage.close()]);
+    }
+  },
+);
+
 function observeEnd(width: number): TopologyEndObservation {
   const artwork = document.querySelector<SVGSVGElement>("[data-full-page-topology]");
   const lastGlass = document.querySelector('[data-rail-surface-target="come-back"]');

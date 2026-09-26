@@ -1,7 +1,11 @@
 import { describe, expect, inject, it } from "vitest";
 import { commands } from "vitest/browser";
 
-import type { TopologyEndObservation } from "./topology-end-browser-command.ts";
+import { marketingCopy } from "../src/marketing-copy";
+import type {
+  TopologyEndObservation,
+  TopologyEndPulseObservation,
+} from "./topology-end-browser-command.ts";
 
 declare module "vitest/browser" {
   interface BrowserCommands {
@@ -9,10 +13,19 @@ declare module "vitest/browser" {
       pageUrl: string,
       widths: readonly number[],
     ): Promise<TopologyEndObservation[]>;
+    verifyTopologyEndPulse(pageUrl: string): Promise<TopologyEndPulseObservation>;
   }
 }
 
 describe("where the rail ends on the home page", () => {
+  it("pulses the final star action once when the rail finishes", async () => {
+    const observation = await commands.verifyTopologyEndPulse(inject("siteHeaderBrowserTestUrl"));
+    expect(observation.eventCount).toBe(1);
+    expect(observation.pulsed).toBe(true);
+    expect(observation.href).toBe(marketingCopy.githubUrl);
+    expect(observation.animationName).toBe("final-star-pulse");
+    expect(observation.reducedMotionAnimationName).toBe("none");
+  });
   it("ends at the final glass center with no path below the terminal node", async () => {
     const observations = await commands.verifyTopologyEnd(
       inject("siteHeaderBrowserTestUrl"),
