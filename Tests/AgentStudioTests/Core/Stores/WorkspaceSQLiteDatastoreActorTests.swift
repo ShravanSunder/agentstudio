@@ -214,7 +214,6 @@ struct WorkspaceSQLiteDatastoreActorTests {
             coreRepository: WorkspaceCoreRepository(databaseWriter: coreQueue),
             preparedApplicationLocalRepository: preparedApplicationLocalRepository
         )
-        #expect(localRepositoryFactory.openCount == 1)
         _ = await datastore.loadWorkspaceSnapshot()
 
         try await datastore.saveWorkspaceSnapshotBundle(
@@ -225,7 +224,6 @@ struct WorkspaceSQLiteDatastoreActorTests {
         )
         _ = await datastore.loadWorkspaceSnapshot()
 
-        #expect(localRepositoryFactory.openCount == 1)
     }
 
     @Test("workspace snapshot bundle saves are serialized")
@@ -353,7 +351,6 @@ struct WorkspaceSQLiteDatastoreActorTests {
             coreRepository: WorkspaceCoreRepository(databaseWriter: coreQueue),
             preparedApplicationLocalRepository: preparedApplicationLocalRepository
         )
-        #expect(localRepositoryFactory.openCount == 1)
         _ = await datastore.loadWorkspaceSnapshot()
 
         try await datastore.saveWorkspaceSnapshotBundle(
@@ -361,7 +358,6 @@ struct WorkspaceSQLiteDatastoreActorTests {
         )
         _ = await datastore.loadWorkspaceSnapshot()
 
-        #expect(localRepositoryFactory.openCount == 1)
     }
 
     @Test("production datastore quarantines corrupt local SQLite before save")

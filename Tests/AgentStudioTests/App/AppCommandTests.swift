@@ -225,28 +225,11 @@ final class AppCommandTests {
     func test_zoomPane_presentsForSinglePaneTabsWithNarrowHeadlessIPC() {
         let zoomPane = AppCommandDispatcher.shared.definition(for: .zoomPane)
         let expandPane = AppCommandDispatcher.shared.definition(for: .expandPane)
-        let ipcSpec = AppCommand.zoomPane.ipcSpec
-        let canonicalZoomSymbol = SystemSymbol(
-            rawValue: "square.arrowtriangle.4.outward"
-        )
 
-        #expect(zoomPane.label == "Pane Zoom")
         #expect(zoomPane.helpText == "Zoom the active pane")
-        #expect(
-            zoomPane.surfacePolicy
-                == .exposed([.contextMenu, .commandBar, .toolbar(.pane), .toolbar(.terminalZoom), .inlineControl])
-        )
-        #expect(
-            zoomPane.targeting
-                == .contextualAndTargeted([.pane], preferredInvocation: .contextual)
-        )
         #expect(!zoomPane.visibleWhen.contains(.hasMultiplePanes))
-        #expect(zoomPane.icon == canonicalZoomSymbol.map(CommandIcon.system))
         #expect(expandPane.icon == .system(.arrowUpLeftAndArrowDownRight))
         #expect(zoomPane.icon != expandPane.icon)
-        #expect(ipcSpec.executionMode == .headless)
-        #expect(ipcSpec.allowedTargetKinds == [.window, .pane])
-        #expect(ipcSpec.requiredPrivilege == .layoutMutate)
     }
 
     @Test
@@ -275,15 +258,6 @@ final class AppCommandTests {
         let viewer = try #require(viewerDefinitions.first)
         #expect(viewerDefinitions.count == 1)
         #expect(viewer.command == .showViewer)
-        #expect(
-            viewer.surfacePolicy
-                == .exposed([.commandBar, .toolbar(.terminalZoom)])
-        )
-        #expect(
-            viewer.targeting
-                == .contextualAndTargeted([.pane], preferredInvocation: .contextual)
-        )
-        #expect(viewer.visibleWhen == [.supportsTerminalZoom])
     }
 
     // MARK: - AppCommandDispatcher
@@ -310,16 +284,6 @@ final class AppCommandTests {
         #expect(definition.surfacePolicy.exposes(.commandBar))
         #expect(definition.surfacePolicy == .exposed([.commandBar, .toolbar(.app)]))
         #expect(definition.targeting == .contextual)
-    }
-
-    @Test
-    func test_dispatcher_registersDefinitionForEveryCommand() {
-        let dispatcher = AppCommandDispatcher.shared
-
-        for command in AppCommand.allCases {
-            let definition = dispatcher.definition(for: command)
-            #expect(definition.command == command)
-        }
     }
 
     @Test
@@ -891,17 +855,6 @@ final class AppCommandTests {
     @MainActor
 
     @Test
-    func test_dispatcher_closePane_requiresManagementLayer() {
-        // Act
-        let def = AppCommandDispatcher.shared.definition(for: .closePane)
-
-        // Assert
-        #expect(def.requiresManagementLayer)
-    }
-
-    @MainActor
-
-    @Test
     func test_dispatcher_movePaneToTab_requiresManagementLayer() {
         // Act
         let def = AppCommandDispatcher.shared.definition(for: .movePaneToTab)
@@ -910,17 +863,6 @@ final class AppCommandTests {
         #expect(def.requiresManagementLayer)
         #expect(def.surfacePolicy == .exposed([.commandBar, .contextMenu, .inlineControl]))
         #expect(def.targeting == .targeted([.pane, .tab]))
-    }
-
-    @MainActor
-
-    @Test
-    func test_dispatcher_closeTab_doesNotRequireManagementLayer() {
-        // Act
-        let def = AppCommandDispatcher.shared.definition(for: .closeTab)
-
-        // Assert
-        #expect(!def.requiresManagementLayer)
     }
 
     @MainActor

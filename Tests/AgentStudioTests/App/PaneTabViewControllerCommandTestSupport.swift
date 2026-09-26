@@ -23,7 +23,6 @@ final class PaneTabViewControllerCommandLaunchRecorder {
     var openedExternalURLs: [URL] = []
     var copiedPaths: [URL] = []
     var paneNoteRequests: [UUID] = []
-    var clearedPaneInboxRequests: [(parentPaneId: UUID, paneIds: [UUID])] = []
 
     func openFinder(_ path: URL) -> Bool {
         revealedPaths.append(path)
@@ -55,7 +54,6 @@ struct PaneTabViewControllerCommandHarness {
     let tabRenamePopoverState: TabRenamePopoverState
     let arrangementInlineRenameState: ArrangementInlineRenameState
     let arrangementPanelPresentation: ArrangementPanelPresentationAtom
-    let paneInboxPresenter: PaneInboxNotificationPresenter
     let launchRecorder: PaneTabViewControllerCommandLaunchRecorder
 
     /// Await submitted work before observing UI state; this is not a command success result.
@@ -154,13 +152,8 @@ func makePaneTabViewControllerCommandHarness(
     let windowLifecycleStore = injectedWindowLifecycleStore ?? WindowLifecycleAtom()
     let tabRenamePopoverState = TabRenamePopoverState()
     let arrangementInlineRenameState = ArrangementInlineRenameState()
-    let paneInboxPresenter = PaneInboxNotificationPresenter()
     let launchRecorder = PaneTabViewControllerCommandLaunchRecorder()
     let repoCache = RepoCacheAtom()
-    let paneInboxPresentation = makePaneTabViewControllerCommandPaneInboxPresentation(
-        presenter: paneInboxPresenter,
-        launchRecorder: launchRecorder
-    )
     let coordinator = WorkspaceSurfaceCoordinator(
         store: store,
         viewRegistry: viewRegistry,
@@ -196,7 +189,7 @@ func makePaneTabViewControllerCommandHarness(
         viewRegistry: viewRegistry,
         bridgePaneAttendance: atomRegistry.bridgePaneAttendance,
         editorChooser: atomRegistry.editorChooser,
-        paneInboxPresentation: paneInboxPresentation,
+        paneInboxPresentation: nil,
         pinnedPanePreferences: RepoExplorerSidebarPrefsAtom(sidebarState: CoreAtomScope.store.workspaceSidebarState),
         installedEditorTargetsProvider: { [.cursor, .vscode] },
         openEditorHandler: { editorId, path, _ in
@@ -239,7 +232,6 @@ func makePaneTabViewControllerCommandHarness(
         tabRenamePopoverState: tabRenamePopoverState,
         arrangementInlineRenameState: arrangementInlineRenameState,
         arrangementPanelPresentation: arrangementPanelPresentation,
-        paneInboxPresenter: paneInboxPresenter,
         launchRecorder: launchRecorder
     )
 }
@@ -270,37 +262,6 @@ private func makeCommandHarnessTabBarAdapter(
     TabBarAdapter(
         store: store,
         repoCache: RepoCacheAtom()
-    )
-}
-
-@MainActor
-private func makePaneTabViewControllerCommandPaneInboxPresentation(
-    presenter paneInboxPresenter: PaneInboxNotificationPresenter,
-    launchRecorder: PaneTabViewControllerCommandLaunchRecorder
-) -> PaneInboxPresentation {
-    PaneInboxPresentation(
-        unreadCount: { _ in 0 },
-        clear: { parentPaneId, paneIds in
-            launchRecorder.clearedPaneInboxRequests.append((parentPaneId: parentPaneId, paneIds: paneIds))
-        },
-        open: { parentPaneId, paneIds in
-            paneInboxPresenter.open(parentPaneId: parentPaneId, paneIds: paneIds)
-        },
-        openRollUpAlerts: { parentPaneId, paneIds in
-            paneInboxPresenter.open(parentPaneId: parentPaneId, paneIds: paneIds)
-        },
-        toggle: { parentPaneId, paneIds in
-            paneInboxPresenter.toggle(parentPaneId: parentPaneId, paneIds: paneIds)
-        },
-        setPresented: { parentPaneId, paneIds, isPresented in
-            paneInboxPresenter.setPresented(parentPaneId: parentPaneId, paneIds: paneIds, isPresented: isPresented)
-        },
-        pendingRequest: { paneInboxPresenter.request },
-        clearRequest: { request in
-            paneInboxPresenter.clearRequest(request)
-        },
-        popoverContent: { _, _, _ in AnyView(EmptyView()) },
-        pruneFilterModes: { _ in }
     )
 }
 
