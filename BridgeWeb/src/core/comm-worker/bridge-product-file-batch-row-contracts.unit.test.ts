@@ -9,11 +9,34 @@ describe('Bridge product File batch row', () => {
 		for (const { recordKey, row } of rowCorpus.rows) {
 			expect(recordKey.startsWith('/workspace/')).toBe(true);
 			expect(bridgeProductFileBatchRowSchema.parse(row)).toEqual(row);
+			if (row.kind === 'file') {
+				expect(row.fileClass).toBe('source');
+				expect(row.sizeBytes).toBe(3);
+				expect(row.lineCount).toBe(1);
+			} else {
+				expect(row.fileClass).toBeNull();
+				expect(row.sizeBytes).toBeNull();
+				expect(row.lineCount).toBeNull();
+			}
 			if (row.kind === 'deleted') {
 				expect(row.readDescriptor).toBeNull();
 				expect(row.oldPath).not.toBeNull();
 			}
 		}
+	});
+
+	test('rejects lost classification and extent facts on a file or ghost', () => {
+		const fileRow = rowCorpus.rows[0]?.row;
+		const ghostRow = rowCorpus.rows[2]?.row;
+		expect(fileRow).toBeDefined();
+		expect(ghostRow).toBeDefined();
+		if (fileRow === undefined || ghostRow === undefined) return;
+		expect(bridgeProductFileBatchRowSchema.safeParse({ ...fileRow, fileClass: null }).success).toBe(
+			false,
+		);
+		expect(bridgeProductFileBatchRowSchema.safeParse({ ...ghostRow, sizeBytes: 3 }).success).toBe(
+			false,
+		);
 	});
 
 	test('rejects a read descriptor on a deleted ghost', () => {

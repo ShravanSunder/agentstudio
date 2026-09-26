@@ -31,7 +31,10 @@
             "maximumLines": 10000,
             "startByte": 0
           }
-        }
+        },
+        "fileClass": "source",
+        "sizeBytes": 3,
+        "lineCount": 1
       }
     },
     {
@@ -43,7 +46,10 @@
         "sortKey": "src",
         "changeStatus": null,
         "oldPath": null,
-        "readDescriptor": null
+        "readDescriptor": null,
+        "fileClass": null,
+        "sizeBytes": null,
+        "lineCount": null
       }
     },
     {
@@ -55,7 +61,10 @@
         "sortKey": "old.ts",
         "changeStatus": "renamed",
         "oldPath": "src/before.ts",
-        "readDescriptor": null
+        "readDescriptor": null,
+        "fileClass": null,
+        "sizeBytes": null,
+        "lineCount": null
       }
     }
   ]

@@ -144,6 +144,15 @@ struct BridgeProductTransportV2ContractTests {
             let rowObject = try #require(entry["row"] as? [String: Any])
             let rows = try decodeAndVerifyRoundTrips(BridgeProductFileBatchRow.self, from: [rowObject])
             let row = try #require(rows.first)
+            if row.kind == .file {
+                #expect(row.fileClass == .source)
+                #expect(row.sizeBytes == 3)
+                #expect(row.lineCount == 1)
+            } else {
+                #expect(row.fileClass == nil)
+                #expect(row.sizeBytes == nil)
+                #expect(row.lineCount == nil)
+            }
             if row.kind == .deleted {
                 #expect(row.readDescriptor == nil)
                 #expect(row.oldPath != nil)
