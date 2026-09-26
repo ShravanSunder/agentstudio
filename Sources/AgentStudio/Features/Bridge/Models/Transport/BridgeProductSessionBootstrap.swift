@@ -10,6 +10,8 @@ struct BridgeProductBootstrapPolicy: Codable, Equatable, Sendable {
         case maximumQueuedStreamBytes
         case maximumQueuedStreamFrames
         case terminalFrameReserve
+        case telemetryPreReadyBufferMaxBytes
+        case telemetryPreReadyBufferMaxSamples
         case workerSettlementDeadlineMilliseconds
     }
 
@@ -20,6 +22,8 @@ struct BridgeProductBootstrapPolicy: Codable, Equatable, Sendable {
     let maximumQueuedStreamBytes: Int
     let maximumQueuedStreamFrames: Int
     let terminalFrameReserve: Int
+    let telemetryPreReadyBufferMaxBytes: Int
+    let telemetryPreReadyBufferMaxSamples: Int
     let workerSettlementDeadlineMilliseconds: Int
 
     static let productContract = Self(
@@ -30,6 +34,8 @@ struct BridgeProductBootstrapPolicy: Codable, Equatable, Sendable {
         maximumQueuedStreamBytes: BridgeProductWireContract.maximumQueuedStreamBytes,
         maximumQueuedStreamFrames: BridgeProductWireContract.maximumQueuedStreamFrames,
         terminalFrameReserve: BridgeProductWireContract.terminalFrameReserve,
+        telemetryPreReadyBufferMaxBytes: BridgeTelemetryWorkerPolicy.live.producerPreReadyBufferMaxBytes,
+        telemetryPreReadyBufferMaxSamples: BridgeTelemetryWorkerPolicy.live.producerPreReadyBufferMaxSamples,
         workerSettlementDeadlineMilliseconds: Int(
             AppPolicies.Bridge.productWorkerSettlementDeadline.components.seconds * 1000
         )
@@ -43,6 +49,8 @@ struct BridgeProductBootstrapPolicy: Codable, Equatable, Sendable {
         maximumQueuedStreamBytes: Int,
         maximumQueuedStreamFrames: Int,
         terminalFrameReserve: Int,
+        telemetryPreReadyBufferMaxBytes: Int,
+        telemetryPreReadyBufferMaxSamples: Int,
         workerSettlementDeadlineMilliseconds: Int
     ) {
         self.admissionRetryCount = admissionRetryCount
@@ -52,6 +60,8 @@ struct BridgeProductBootstrapPolicy: Codable, Equatable, Sendable {
         self.maximumQueuedStreamBytes = maximumQueuedStreamBytes
         self.maximumQueuedStreamFrames = maximumQueuedStreamFrames
         self.terminalFrameReserve = terminalFrameReserve
+        self.telemetryPreReadyBufferMaxBytes = telemetryPreReadyBufferMaxBytes
+        self.telemetryPreReadyBufferMaxSamples = telemetryPreReadyBufferMaxSamples
         self.workerSettlementDeadlineMilliseconds = workerSettlementDeadlineMilliseconds
     }
 
@@ -69,6 +79,14 @@ struct BridgeProductBootstrapPolicy: Codable, Equatable, Sendable {
         self.maximumQueuedStreamBytes = try container.decode(Int.self, forKey: .maximumQueuedStreamBytes)
         self.maximumQueuedStreamFrames = try container.decode(Int.self, forKey: .maximumQueuedStreamFrames)
         self.terminalFrameReserve = try container.decode(Int.self, forKey: .terminalFrameReserve)
+        self.telemetryPreReadyBufferMaxBytes = try container.decode(
+            Int.self,
+            forKey: .telemetryPreReadyBufferMaxBytes
+        )
+        self.telemetryPreReadyBufferMaxSamples = try container.decode(
+            Int.self,
+            forKey: .telemetryPreReadyBufferMaxSamples
+        )
         self.workerSettlementDeadlineMilliseconds = try container.decode(
             Int.self,
             forKey: .workerSettlementDeadlineMilliseconds
@@ -82,6 +100,16 @@ struct BridgeProductBootstrapPolicy: Codable, Equatable, Sendable {
         try BridgeProductContractDecoding.validatePositive(
             workerSettlementDeadlineMilliseconds,
             name: "workerSettlementDeadlineMilliseconds",
+            codingPath: decoder.codingPath
+        )
+        try BridgeProductContractDecoding.validatePositive(
+            telemetryPreReadyBufferMaxBytes,
+            name: "telemetryPreReadyBufferMaxBytes",
+            codingPath: decoder.codingPath
+        )
+        try BridgeProductContractDecoding.validatePositive(
+            telemetryPreReadyBufferMaxSamples,
+            name: "telemetryPreReadyBufferMaxSamples",
             codingPath: decoder.codingPath
         )
 

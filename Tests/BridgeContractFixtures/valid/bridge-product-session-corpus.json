@@ -426,6 +426,8 @@
       "maximumQueuedStreamBytes": 4194304,
       "admissionRetryCount": 2,
       "workerSettlementDeadlineMilliseconds": 5000,
+      "telemetryPreReadyBufferMaxBytes": 65536,
+      "telemetryPreReadyBufferMaxSamples": 128,
       "maximumQueuedStreamFrames": 64,
       "terminalFrameReserve": 1
     }

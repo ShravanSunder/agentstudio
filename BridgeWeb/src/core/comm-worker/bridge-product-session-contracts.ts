@@ -590,6 +590,8 @@ export const bridgeProductBootstrapPolicySchema = z
 			.positive()
 			.max(BRIDGE_PRODUCT_MAXIMUM_QUEUED_STREAM_FRAMES),
 		terminalFrameReserve: z.literal(BRIDGE_PRODUCT_TERMINAL_FRAME_RESERVE),
+		telemetryPreReadyBufferMaxBytes: bridgeProductPositiveSequenceSchema,
+		telemetryPreReadyBufferMaxSamples: bridgeProductPositiveSequenceSchema,
 		workerSettlementDeadlineMilliseconds: bridgeProductPositiveSequenceSchema,
 	})
 	.strict();

@@ -688,6 +688,10 @@ function makeProductBootstrapDetail(
 				maximumQueuedStreamBytes: BRIDGE_PRODUCT_MAXIMUM_QUEUED_STREAM_BYTES,
 				maximumQueuedStreamFrames: BRIDGE_PRODUCT_MAXIMUM_QUEUED_STREAM_FRAMES,
 				terminalFrameReserve: BRIDGE_PRODUCT_TERMINAL_FRAME_RESERVE,
+				telemetryPreReadyBufferMaxBytes:
+					validProductSessionCorpus.bootstrap.policy.telemetryPreReadyBufferMaxBytes,
+				telemetryPreReadyBufferMaxSamples:
+					validProductSessionCorpus.bootstrap.policy.telemetryPreReadyBufferMaxSamples,
 				workerSettlementDeadlineMilliseconds:
 					validProductSessionCorpus.bootstrap.policy.workerSettlementDeadlineMilliseconds,
 			},

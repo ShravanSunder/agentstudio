@@ -37,6 +37,8 @@ const bootstrap: BridgeProductSessionBootstrap = {
 		maximumQueuedStreamFrames: 64,
 		maximumRequestBodyBytes: 256 * 1024,
 		terminalFrameReserve: 1,
+		telemetryPreReadyBufferMaxBytes: 64 * 1024,
+		telemetryPreReadyBufferMaxSamples: 128,
 		workerSettlementDeadlineMilliseconds: 5_000,
 	},
 	wireVersion: BRIDGE_PRODUCT_WIRE_VERSION,

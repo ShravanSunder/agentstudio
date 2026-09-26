@@ -36,6 +36,8 @@ export interface BridgeViewerProductRouteTranscriptEntry {
 	readonly requestSequence: number | null;
 	readonly responseCode: string | null;
 	readonly responseKind: string | null;
+	readonly resultAcknowledged: boolean;
+	readonly settledResponseKind: string | null;
 	readonly streamKind: string | null;
 	readonly subscriptionKind: string | null;
 	readonly workerInstanceId: string | null;
@@ -632,16 +634,23 @@ function requireAcceptedSubscription(props: {
 	);
 	if (
 		entries.length === 0 ||
-		entries.some((entry): boolean => entry.responseKind !== 'subscription.openAccepted')
+		entries.some(
+			(entry): boolean =>
+				entry.responseKind !== 'operation.admitted' ||
+				entry.settledResponseKind !== 'subscription.openAccepted' ||
+				!entry.resultAcknowledged,
+		)
 	) {
 		props.violations.push({
 			actual: entries.map((entry) => ({
 				code: entry.responseCode,
 				responseKind: entry.responseKind,
+				resultAcknowledged: entry.resultAcknowledged,
+				settledResponseKind: entry.settledResponseKind,
 				status: entry.httpStatus,
 			})),
 			code: `transport.${props.subscriptionKind}-accepted`,
-			expected: `${props.subscriptionKind} opens only with subscription.openAccepted`,
+			expected: `${props.subscriptionKind} admission has a subscription.openAccepted result and an acknowledged read`,
 		});
 	}
 }

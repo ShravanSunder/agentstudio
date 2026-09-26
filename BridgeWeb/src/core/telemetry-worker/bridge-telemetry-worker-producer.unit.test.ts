@@ -19,6 +19,36 @@ const diagnosticSample = {
 } as const;
 
 describe('BridgeTelemetryWorkerProducer', () => {
+	it('reports worker-entry overflow before the producer existed without inventing sample bodies', () => {
+		const send = vi.fn();
+		const producer = createBridgeTelemetryWorkerProducer({
+			initialSampleCredits: 0,
+			initialControlCredits: 0,
+			preReadyRequiredSampleCapacity: 2,
+			preReadyRequiredSampleMaxEncodedBytes: 16 * 1024,
+			send,
+		});
+		producer.record(lifecycleSample);
+		producer.recordPriorLoss({ requiredCount: 2, optionalCount: 1, reason: 'queue_saturated' });
+		producer.acceptWorkerCommand({
+			type: 'producer.ready',
+			generation: 1,
+			initialSampleCredits: 1,
+			initialControlCredits: 1,
+		});
+		expect(send.mock.calls.map(([message]) => message)).toEqual([
+			{ type: 'sample', sequence: 1, sample: lifecycleSample },
+			{
+				type: 'loss.summary',
+				controlSequence: 1,
+				lostSequenceStart: 2,
+				lostSequenceEnd: 4,
+				requiredCount: 2,
+				optionalCount: 1,
+				reason: 'queue_saturated',
+			},
+		]);
+	});
 	it('retains required startup samples until producer ready and preserves their sequence', () => {
 		const send = vi.fn();
 		const producer = createBridgeTelemetryWorkerProducer({

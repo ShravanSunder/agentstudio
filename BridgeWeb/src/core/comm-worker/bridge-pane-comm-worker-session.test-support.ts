@@ -191,6 +191,8 @@ export function makeNativeBootstrap(
 				maximumMetadataFrameBytes: BRIDGE_PRODUCT_MAXIMUM_METADATA_FRAME_BYTES,
 				maximumQueuedStreamBytes: BRIDGE_PRODUCT_MAXIMUM_QUEUED_STREAM_BYTES,
 				admissionRetryCount: 2,
+				telemetryPreReadyBufferMaxBytes: 64 * 1024,
+				telemetryPreReadyBufferMaxSamples: 128,
 				workerSettlementDeadlineMilliseconds: 5_000,
 				maximumQueuedStreamFrames: BRIDGE_PRODUCT_MAXIMUM_QUEUED_STREAM_FRAMES,
 				terminalFrameReserve: BRIDGE_PRODUCT_TERMINAL_FRAME_RESERVE,

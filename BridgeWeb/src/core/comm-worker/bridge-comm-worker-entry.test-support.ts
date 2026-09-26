@@ -13,6 +13,7 @@ import type { BridgeProductContentStream } from './bridge-product-transport-cont
 import type {
 	BridgeWorkerReviewDisplayPatch,
 	BridgeWorkerReviewPublicationIdentity,
+	BridgeWorkerReviewRenderSemantics,
 	BridgeWorkerServerToMainMessage,
 } from './bridge-worker-contracts.js';
 import type { BridgeWorkerFetchedReviewContentResource } from './bridge-worker-review-content-fetch.js';
@@ -21,6 +22,22 @@ export interface MakeFetchedReviewContentResourceProps {
 	readonly contentHash: string;
 	readonly role: BridgeWorkerFetchedReviewContentResource['role'];
 	readonly text: string;
+}
+
+export function makeRenderSemantics(
+	overrides: Partial<BridgeWorkerReviewRenderSemantics> = {},
+): BridgeWorkerReviewRenderSemantics {
+	return {
+		itemId: 'item-1',
+		itemKind: 'diff',
+		changeKind: 'modified',
+		displayPath: 'Sources/App/item-1.swift',
+		basePath: 'Sources/App/item-1.swift',
+		headPath: 'Sources/App/item-1.swift',
+		language: 'swift',
+		contentLineCountsByRole: { base: 100, head: 80 },
+		...overrides,
+	};
 }
 
 export interface EntryProductRequestRecorder {

@@ -623,6 +623,10 @@ function productBootstrapDelivery(sequence: number): BridgeProductDevBootstrapDe
 				maximumQueuedStreamFrames: BRIDGE_PRODUCT_MAXIMUM_QUEUED_STREAM_FRAMES,
 				maximumRequestBodyBytes: BRIDGE_PRODUCT_MAXIMUM_REQUEST_BODY_BYTES,
 				terminalFrameReserve: BRIDGE_PRODUCT_TERMINAL_FRAME_RESERVE,
+				telemetryPreReadyBufferMaxBytes:
+					validProductSessionCorpus.bootstrap.policy.telemetryPreReadyBufferMaxBytes,
+				telemetryPreReadyBufferMaxSamples:
+					validProductSessionCorpus.bootstrap.policy.telemetryPreReadyBufferMaxSamples,
 				workerSettlementDeadlineMilliseconds:
 					validProductSessionCorpus.bootstrap.policy.workerSettlementDeadlineMilliseconds,
 			},

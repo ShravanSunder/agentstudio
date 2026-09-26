@@ -149,12 +149,16 @@ export function passingTranscript(): readonly BridgeViewerProductRouteTranscript
 		},
 		{
 			...makeProductEntry(4, '/__bridge-product/command', 'subscription.open', 200),
-			responseKind: 'subscription.openAccepted',
+			responseKind: 'operation.admitted',
+			resultAcknowledged: true,
+			settledResponseKind: 'subscription.openAccepted',
 			subscriptionKind: 'review.metadata',
 		},
 		{
 			...makeProductEntry(5, '/__bridge-product/command', 'subscription.open', 200),
-			responseKind: 'subscription.openAccepted',
+			responseKind: 'operation.admitted',
+			resultAcknowledged: true,
+			settledResponseKind: 'subscription.openAccepted',
 			subscriptionKind: 'file.metadata',
 		},
 		{
@@ -187,6 +191,8 @@ export function makeProductEntry(
 		requestSequence: ordinal,
 		responseCode: null,
 		responseKind: null,
+		resultAcknowledged: false,
+		settledResponseKind: null,
 		streamKind: null,
 		subscriptionKind: null,
 		workerInstanceId: 'worker-instance-1',

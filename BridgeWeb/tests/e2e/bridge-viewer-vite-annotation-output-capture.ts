@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import type { Locator, Page, Response } from 'playwright';
 import { expect } from 'vitest';
 
+import { bridgeProductWorktreeAnnotationCommandOutcomeSchema } from '../../src/core/comm-worker/bridge-product-worktree-annotation-contracts.js';
 import {
 	captureSharePreview,
 	normalizedAnnotationEntries,
@@ -101,11 +102,7 @@ export async function verifyAnnotationOutputCaptures(
 	const history = props.page.getByRole('button', { name: /^History \([1-9][0-9]*\)$/u });
 	await history.waitFor({ state: 'visible', timeout: props.timeoutMilliseconds });
 	await history.click();
-	await props.page
-		.getByRole('region', { name: 'Output history' })
-		.getByRole('button', { name: 'Mark as not handled' })
-		.first()
-		.click();
+	await markOutputNotHandled(props.page, 'clipboardMarkdown');
 	await waitForPendingCommentCount(props.page, props.timeoutMilliseconds, (count) => count > 0);
 
 	const jsonNamesBefore = await outputCaptureNames(outputDirectory, '.json');
@@ -154,11 +151,7 @@ export async function verifyAnnotationOutputCaptures(
 	});
 	await completedHistory.waitFor({ state: 'visible', timeout: props.timeoutMilliseconds });
 	await completedHistory.click();
-	await props.page
-		.getByRole('region', { name: 'Output history' })
-		.getByRole('button', { name: 'Mark as not handled' })
-		.first()
-		.click();
+	await markOutputNotHandled(props.page, 'jsonFile');
 	await waitForPendingCommentCount(props.page, props.timeoutMilliseconds, (count) => count > 0);
 	expect(
 		normalizedAnnotationEntries(await captureSharePreview(props.page)).get(
@@ -252,12 +245,12 @@ async function executeAndReadOutputCapture(props: {
 	readonly timeoutMilliseconds: number;
 }): Promise<string> {
 	const namesBefore = await outputCaptureNames(props.outputDirectory, props.extension);
+	const actionButton = props.page.getByRole('button', {
+		name: props.outputKind === 'clipboardMarkdown' ? 'Copy Markdown' : 'Export JSON',
+	});
+	await waitForEnabledOutputButton(actionButton, props.timeoutMilliseconds);
 	const responsePromise = waitForOutputCommandResponse(props.page, props.outputKind);
-	await props.page
-		.getByRole('button', {
-			name: props.outputKind === 'clipboardMarkdown' ? 'Copy Markdown' : 'Export JSON',
-		})
-		.click();
+	await actionButton.click();
 	const response = await responsePromise;
 	const responseBody = await response.text();
 	await props.page
@@ -565,6 +558,51 @@ async function waitForOutputCommandResponse(
 		return operation['kind'] === 'output.scope.commit' && operation['outputKind'] === outputKind;
 	});
 	return settled.response;
+}
+
+async function markOutputNotHandled(
+	page: Page,
+	outputKind: 'clipboardMarkdown' | 'jsonFile',
+): Promise<void> {
+	const settlement = waitForProductCallSettlement(page, (response): boolean => {
+		const request = response.request();
+		if (
+			request.method() !== 'POST' ||
+			new URL(request.url()).pathname !== '/__bridge-product/command'
+		)
+			return false;
+		const body: unknown = request.postDataJSON();
+		return (
+			isRecord(body) &&
+			isRecord(body['call']) &&
+			isRecord(body['call']['request']) &&
+			isRecord(body['call']['request']['operation']) &&
+			body['call']['request']['operation']['kind'] === 'output.handled.clear'
+		);
+	});
+	await page
+		.getByRole('region', { name: 'Output history' })
+		.getByTestId('annotation-output-history-entry')
+		.filter({
+			has: page.getByText(outputKind === 'jsonFile' ? 'JSON file' : 'Clipboard Markdown', {
+				exact: true,
+			}),
+		})
+		.first()
+		.getByRole('button', { name: 'Mark as not handled' })
+		.click();
+	const result: unknown = (await settlement).result;
+	const outcome =
+		isRecord(result) && isRecord(result['call']) && isRecord(result['call']['result'])
+			? bridgeProductWorktreeAnnotationCommandOutcomeSchema.safeParse(
+					result['call']['result']['outcome'],
+				)
+			: null;
+	if (outcome === null || !outcome.success || outcome.data.status.kind !== 'committed') {
+		throw new Error(
+			`Mark as not handled did not commit: ${outcome?.success ? outcome.data.status.kind : 'unparseable'}.`,
+		);
+	}
 }
 
 async function waitForThreadResolutionResponse(

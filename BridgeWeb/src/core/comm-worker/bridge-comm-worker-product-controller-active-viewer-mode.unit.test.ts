@@ -58,6 +58,51 @@ describe('Bridge comm worker product controller active viewer mode', () => {
 		expect(reviewSubscriptionCount).toBe(1);
 		expect(fileDiscoveryCount).toBe(0);
 	});
+
+	test('opens hidden Review metadata after its accepted mode control is superseded by File', async () => {
+		const fileAdmission = createBridgeProductDeferred<unknown>();
+		const reviewAdmission = createBridgeProductDeferred<unknown>();
+		const admittedModes: Array<'file' | 'review'> = [];
+		let reviewSubscriptionCount = 0;
+		const controller = new BridgeCommWorkerProductController({
+			callCurrentFileSource: async () => ({
+				source: currentFileSourceConfiguration,
+				status: 'available',
+			}),
+			onActiveViewerModeAdmitted: (mode): void => {
+				admittedModes.push(mode);
+			},
+			onFileMetadataEvent: (): void => {},
+			productTransport: activeModeTransport(fileAdmission.promise, reviewAdmission.promise),
+			subscribeFile: () => ({
+				cancel: async (): Promise<void> => {},
+				events: new BridgeProductBoundedAsyncQueue(1),
+				subscriptionId: 'current-file-mode-subscription',
+				subscriptionKind: 'file.metadata',
+				update: async (): Promise<void> => {},
+			}),
+			subscribeReview: () => {
+				reviewSubscriptionCount += 1;
+				return {
+					cancel: async (): Promise<void> => {},
+					events: new BridgeProductBoundedAsyncQueue(1),
+					subscriptionId: 'hidden-review-subscription',
+					subscriptionKind: 'review.metadata',
+					update: async (): Promise<void> => {},
+				};
+			},
+		});
+		const reviewControl = controller.sendProductControl(activeModeCommand('review', 1));
+		const fileControl = controller.sendProductControl(activeModeCommand('file', 2));
+
+		fileAdmission.resolve(null);
+		await fileControl;
+		reviewAdmission.resolve(null);
+		await reviewControl;
+
+		expect(admittedModes).toEqual(['file']);
+		expect(reviewSubscriptionCount).toBe(1);
+	});
 });
 
 function activeModeCommand(mode: 'file' | 'review', sequence: number): BridgeProductControlCommand {

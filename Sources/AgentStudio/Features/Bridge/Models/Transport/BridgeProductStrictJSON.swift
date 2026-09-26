@@ -239,6 +239,8 @@ enum BridgeProductStrictJSON {
             "location",
             "activeEditToken",
             "admissionRetryCount",
+            "telemetryPreReadyBufferMaxBytes",
+            "telemetryPreReadyBufferMaxSamples",
             "maximumBytes",
             "maximumContentBytes",
             "maximumLines",

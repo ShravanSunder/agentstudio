@@ -62,6 +62,8 @@ export function createContentTransportHarness(
 				maximumMetadataFrameBytes: 256 * 1024,
 				maximumQueuedStreamBytes: 4 * 1024 * 1024,
 				admissionRetryCount: 2,
+				telemetryPreReadyBufferMaxBytes: 64 * 1024,
+				telemetryPreReadyBufferMaxSamples: 128,
 				workerSettlementDeadlineMilliseconds: 5_000,
 				maximumQueuedStreamFrames: 64,
 				maximumRequestBodyBytes: 128 * 1024,

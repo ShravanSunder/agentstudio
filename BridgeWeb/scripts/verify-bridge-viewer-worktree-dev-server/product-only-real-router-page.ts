@@ -34,6 +34,7 @@ import {
 	BridgeViewerProductOnlyJourneyFailure,
 } from './product-only-real-router-failure.ts';
 import { BridgeViewerLegacyMetadataCompletion } from './product-only-real-router-legacy-completion.ts';
+import { BridgeViewerProductOpenSettlementCorrelator } from './product-only-real-router-operation-settlements.ts';
 import { installBridgeViewerBrowserErrorCapture } from './product-only-real-router-page-error.ts';
 import {
 	BridgeViewerReloadJoinDiagnosticRecorder,
@@ -74,6 +75,8 @@ interface MutableProductRouteTranscriptEntry {
 	requestSequence: number | null;
 	responseCode: string | null;
 	responseKind: string | null;
+	resultAcknowledged: boolean;
+	settledResponseKind: string | null;
 	streamKind: string | null;
 	subscriptionKind: string | null;
 	workerInstanceId: string | null;
@@ -424,6 +427,7 @@ export class BridgeViewerRealRouterObserver {
 		MutableLegacyRouteTranscriptEntry
 	>();
 	readonly #responseParsers = new GenerationScopedResponseParsers();
+	readonly #openSettlements = new BridgeViewerProductOpenSettlementCorrelator();
 	readonly #productResponseClosureWaiters = new Set<() => void>();
 	readonly #unfinishedProductRequests = new Set<PlaywrightRequest>();
 	readonly #reloadJoinDiagnostics = new BridgeViewerReloadJoinDiagnosticRecorder();
@@ -533,6 +537,8 @@ export class BridgeViewerRealRouterObserver {
 				path: requestUrl.pathname,
 				responseCode: null,
 				responseKind: null,
+				resultAcknowledged: false,
+				settledResponseKind: null,
 				requestSettled: false,
 			};
 			this.#productEntries.push(entry);
@@ -658,9 +664,8 @@ export class BridgeViewerRealRouterObserver {
 		entry: MutableProductRouteTranscriptEntry,
 	): Promise<void> {
 		const body = parseJSONOrNull(await response.text());
-		const summary = summarizeBridgeProductResponseBody(body);
-		entry.responseCode = summary.responseCode;
-		entry.responseKind = summary.responseKind;
+		Object.assign(entry, summarizeBridgeProductResponseBody(body));
+		this.#openSettlements.observe(entry, parseJSONOrNull(response.request().postData()), body);
 	}
 
 	async #parseLegacyMetadataResponse(

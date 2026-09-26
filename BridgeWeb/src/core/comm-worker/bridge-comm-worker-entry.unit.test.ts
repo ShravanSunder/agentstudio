@@ -1,6 +1,7 @@
 // oxlint-disable unicorn/require-post-message-target-origin -- MessagePort postMessage does not accept a target origin.
 import { afterEach, describe, expect, test, vi } from 'vitest';
 
+import { bridgeTelemetryWorkerProducerMessageSchema } from '../telemetry-worker/bridge-telemetry-worker-contracts.js';
 import {
 	type BridgeCommWorkerPort,
 	bootstrapBridgeCommWorkerEntry,
@@ -15,6 +16,7 @@ import {
 	makeCompletedReviewContentStream,
 	makeFetchedReviewContentResource,
 	makeReviewPublicationIdentity,
+	makeRenderSemantics,
 } from './bridge-comm-worker-entry.test-support.js';
 import {
 	encodeBridgeWorkerActiveViewerModeUpdateCommand,
@@ -49,7 +51,6 @@ import type { BridgeProductTransportSession } from './bridge-product-transport.j
 import {
 	bridgeWorkerServerToMainMessageSchema,
 	type BridgeCommWorkerBootstrapRequest,
-	type BridgeWorkerReviewRenderSemantics,
 	type BridgeWorkerServerToMainMessage,
 } from './bridge-worker-contracts.js';
 import { makeBridgeWorkerRenderReceiptIdentity } from './bridge-worker-render-fulfillment.test-support.js';
@@ -388,8 +389,75 @@ describe('Bridge comm worker entry', () => {
 		}
 	});
 
+	test('drains required worker samples recorded before telemetry producer install', async () => {
+		const globalPort = createRecordingBridgeCommWorkerPort();
+		const productChannel = new MessageChannel();
+		const productPort = new BridgeWorkerMessagePortRecorder(productChannel.port2);
+		const telemetryChannel = new MessageChannel();
+		const received: unknown[] = [];
+		const barrierReceived = new Promise<void>((resolve): void => {
+			telemetryChannel.port2.addEventListener('message', (event: MessageEvent<unknown>): void => {
+				const message = bridgeTelemetryWorkerProducerMessageSchema.parse(event.data);
+				received.push(message);
+				if (message.type === 'producer.barrier.receipt') resolve();
+			});
+			telemetryChannel.port2.start();
+		});
+		bootstrapBridgeCommWorkerEntry(globalPort.dispatch.port, {
+			installProductSession: (): BridgeCommWorkerInstalledProductSession => ({
+				open: Promise.resolve(),
+				productTransport: makeUnavailableFileProductTransport(),
+			}),
+		});
+		try {
+			globalPort.dispatch.message(makePaneWorkerInstall(productChannel.port1, 1));
+			productPort.postMessage(makeBootstrapRequest('bootstrap-before-telemetry'));
+			await productPort.waitForCount(1);
+			productPort.postMessage(fileActiveViewerModeUpdate('mode-before-telemetry', 1));
+			await productPort.waitForCount(2);
+			globalPort.dispatch.message({
+				type: 'bridgePaneCommWorker.telemetryProducer.install',
+				enabledScopes: ['web'],
+				preReadyRequiredSampleCapacity: 1,
+				preReadyRequiredSampleMaxEncodedBytes: 64 * 1024,
+				producerPort: telemetryChannel.port1,
+			});
+			telemetryChannel.port2.postMessage({
+				type: 'producer.ready',
+				generation: 1,
+				initialSampleCredits: 128,
+				initialControlCredits: 4,
+			});
+			telemetryChannel.port2.postMessage({
+				type: 'producer.barrier.request',
+				barrierId: 'pre-install-barrier',
+				generation: 1,
+			});
+			await barrierReceived;
+			expect(
+				received.some(
+					(message) =>
+						typeof message === 'object' &&
+						message !== null &&
+						Reflect.get(message, 'type') === 'sample',
+				),
+			).toBe(true);
+			expect(received).toContainEqual(
+				expect.objectContaining({
+					type: 'loss.summary',
+					reason: 'queue_saturated',
+					requiredCount: expect.any(Number),
+				}),
+			);
+		} finally {
+			productPort.close();
+			productChannel.port1.close();
+			telemetryChannel.port1.close();
+			telemetryChannel.port2.close();
+		}
+	});
+
 	test('production entry opens Review content through product transport without legacy fetchContent', async () => {
-		// Arrange
 		const openedContentKinds: string[] = [];
 		const reviewProductSource = createBridgeCommWorkerReviewProductTestSource();
 		const productTransport: BridgeProductTransportSession = {
@@ -805,7 +873,10 @@ function createRecordingBridgeCommWorkerPort(): {
 	};
 }
 
-function makePaneWorkerInstall(productPort: MessagePort): BridgePaneCommWorkerInstall {
+function makePaneWorkerInstall(
+	productPort: MessagePort,
+	telemetryPreReadyBufferMaxSamples = 128,
+): BridgePaneCommWorkerInstall {
 	return bridgePaneCommWorkerInstallSchema.parse({
 		bootstrap: {
 			kind: 'productSession.bootstrap',
@@ -816,6 +887,8 @@ function makePaneWorkerInstall(productPort: MessagePort): BridgePaneCommWorkerIn
 				maximumMetadataFrameBytes: BRIDGE_PRODUCT_MAXIMUM_METADATA_FRAME_BYTES,
 				maximumQueuedStreamBytes: BRIDGE_PRODUCT_MAXIMUM_QUEUED_STREAM_BYTES,
 				admissionRetryCount: 2,
+				telemetryPreReadyBufferMaxBytes: 64 * 1024,
+				telemetryPreReadyBufferMaxSamples,
 				workerSettlementDeadlineMilliseconds: 5_000,
 				maximumQueuedStreamFrames: BRIDGE_PRODUCT_MAXIMUM_QUEUED_STREAM_FRAMES,
 				terminalFrameReserve: BRIDGE_PRODUCT_TERMINAL_FRAME_RESERVE,
@@ -827,22 +900,6 @@ function makePaneWorkerInstall(productPort: MessagePort): BridgePaneCommWorkerIn
 		productCapability: new ArrayBuffer(BRIDGE_PRODUCT_CAPABILITY_BYTE_LENGTH),
 		productPort,
 	});
-}
-
-function makeRenderSemantics(
-	overrides: Partial<BridgeWorkerReviewRenderSemantics> = {},
-): BridgeWorkerReviewRenderSemantics {
-	return {
-		itemId: 'item-1',
-		itemKind: 'diff',
-		changeKind: 'modified',
-		displayPath: 'Sources/App/item-1.swift',
-		basePath: 'Sources/App/item-1.swift',
-		headPath: 'Sources/App/item-1.swift',
-		language: 'swift',
-		contentLineCountsByRole: { base: 100, head: 80 },
-		...overrides,
-	};
 }
 
 function makeBootstrapRequest(requestId: string): BridgeCommWorkerBootstrapRequest {
