@@ -834,7 +834,7 @@ struct GhosttyActionRouterTests {
                 routingLookup: lookup
             )
         )
-        await Task.yield()
+        await Ghostty.ActionRouter.drainTraceRuntimeForActionRouting()
 
         let outputFileURL = traceFixture.outputFileURL
         #expect(FileManager.default.fileExists(atPath: outputFileURL.path) == false)
