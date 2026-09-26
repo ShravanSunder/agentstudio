@@ -47,6 +47,9 @@ const sceneRootAttributes = { [sceneRootAttribute]: "chapter-review" };
     overflow: hidden;
   }
   .scene-review .kit-pane__content { display: flex; }
+  .scene-review .kit-diff-view__line[data-diff-kind="added"] .kit-diff-view__number {
+    color: rgb(165 171 181);
+  }
   .scene-review [data-scene-part="review-changed-line"] {
     box-shadow: inset 0 0 0 1px rgb(137 180 250 / 80%);
   }
