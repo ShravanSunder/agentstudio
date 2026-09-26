@@ -111,6 +111,9 @@ package enum OcticonSymbol: String, CaseIterable, Equatable, Sendable {
     case codeSquare = "octicon-code-square"
     case gitPullRequest = "octicon-git-pull-request"
     case gitPullRequestDraft = "octicon-git-pull-request-draft"
+    case gitWorktree = "octicon-git-worktree"
+    case gitBranch = "octicon-git-branch"
+    case repoForked = "octicon-repo-forked"
     case vscode = "octicon-vscode"
 }
 
