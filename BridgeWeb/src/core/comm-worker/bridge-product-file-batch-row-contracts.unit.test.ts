@@ -11,12 +11,19 @@ describe('Bridge product File batch row', () => {
 			expect(bridgeProductFileBatchRowSchema.parse(row)).toEqual(row);
 			if (row.kind === 'file') {
 				expect(row.fileClass).toBe('source');
+				expect(row.fileId).toBe('file-1');
+				expect(row.name).toBe('a.ts');
+				expect(row.depth).toBe(1);
 				expect(row.sizeBytes).toBe(3);
 				expect(row.lineCount).toBe(1);
+				expect(row.descriptorOutcome?.rowId).toBe(row.rowId);
+				expect(row.descriptorOutcome?.path).toBe(row.displayKey);
 			} else {
 				expect(row.fileClass).toBeNull();
+				expect(row.fileId).toBeNull();
 				expect(row.sizeBytes).toBeNull();
 				expect(row.lineCount).toBeNull();
+				expect(row.descriptorOutcome).toBeNull();
 			}
 			if (row.kind === 'deleted') {
 				expect(row.readDescriptor).toBeNull();
@@ -37,6 +44,12 @@ describe('Bridge product File batch row', () => {
 		expect(bridgeProductFileBatchRowSchema.safeParse({ ...ghostRow, sizeBytes: 3 }).success).toBe(
 			false,
 		);
+		expect(
+			bridgeProductFileBatchRowSchema.safeParse({
+				...fileRow,
+				descriptorOutcome: { ...fileRow.descriptorOutcome, rowId: 'other-row' },
+			}).success,
+		).toBe(false);
 	});
 
 	test('rejects a read descriptor on a deleted ghost', () => {

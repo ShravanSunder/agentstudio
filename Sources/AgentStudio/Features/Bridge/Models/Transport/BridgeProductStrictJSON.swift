@@ -124,6 +124,7 @@ enum BridgeProductStrictJSON {
             "defaultTarget",
             "delta",
             "depth",
+            "descriptorOutcome",
             "decision",
             "descriptor",
             "descriptorId",
