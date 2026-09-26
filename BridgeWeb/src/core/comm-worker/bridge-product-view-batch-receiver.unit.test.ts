@@ -68,6 +68,7 @@ function begin(props: {
 		kind: 'subscription.batchBegin',
 		mode: props.mode ?? 'snapshot',
 		partCount: props.partCount,
+		publicationId: '00000000-0000-7000-8000-000000000011',
 		...(props.requiresCollection === undefined
 			? {}
 			: { requiresCollection: props.requiresCollection }),
@@ -203,6 +204,9 @@ describe('Bridge product W4 per-domain batch receiver', () => {
 					baseRevision: 0,
 					mode: 'snapshot',
 					partCount: 1,
+					...(entry.kind === 'review.metadata'
+						? { publicationId: '00000000-0000-7000-8000-000000000011' }
+						: {}),
 					targetRevision: 1,
 					streamSequence: 1,
 				},

@@ -88,6 +88,22 @@ describe('Bridge product v2 kind-agnostic wire envelopes', () => {
 			false,
 		);
 		expect(
+			bridgeProductBatchFrameSchema.safeParse({ ...batchBegin, publicationId: undefined }).success,
+		).toBe(false);
+		const fileBegin = transport.batchFrames.find(
+			(frame) =>
+				frame.kind === 'subscription.batchBegin' && frame.subscriptionKind === 'file.metadata',
+		);
+		expect(fileBegin).toBeDefined();
+		if (fileBegin !== undefined) {
+			expect(
+				bridgeProductBatchFrameSchema.safeParse({
+					...fileBegin,
+					publicationId: '00000000-0000-7000-8000-000000000011',
+				}).success,
+			).toBe(false);
+		}
+		expect(
 			bridgeProductBatchFrameSchema.safeParse({ ...batchPart, deliverySequence: 0 }).success,
 		).toBe(false);
 		expect(

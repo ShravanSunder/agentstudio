@@ -8,6 +8,7 @@ import {
 	bridgeProductPositiveSequenceSchema,
 } from './bridge-product-contract-primitives.js';
 import { bridgeProductMetadataApplicationKindSchema } from './bridge-product-metadata-application-protocol.js';
+import { bridgeProductReviewPublicationIdSchema } from './bridge-product-review-primitives.js';
 import { bridgeProductViewScopeSchema } from './bridge-product-view-control-wire-contracts.js';
 
 const batchIdentityShape = {
@@ -55,6 +56,7 @@ const bridgeProductBatchBeginFrameSchema = z
 		kind: z.literal('subscription.batchBegin'),
 		mode: bridgeProductBatchModeSchema,
 		partCount: bridgeProductNonnegativeSequenceSchema,
+		publicationId: bridgeProductReviewPublicationIdSchema.optional(),
 		requiresCollection: bridgeProductNonnegativeSequenceSchema.optional(),
 		scope: bridgeProductViewScopeSchema,
 		targetRevision: bridgeProductNonnegativeSequenceSchema,
@@ -63,6 +65,12 @@ const bridgeProductBatchBeginFrameSchema = z
 	.superRefine((frame, context): void => {
 		if (frame.targetRevision < frame.baseRevision) {
 			context.addIssue({ code: 'custom', message: 'Batch target revision precedes its base.' });
+		}
+		if (frame.subscriptionKind === 'review.metadata' && frame.publicationId === undefined) {
+			context.addIssue({ code: 'custom', message: 'Review batch requires publicationId.' });
+		}
+		if (frame.subscriptionKind !== 'review.metadata' && frame.publicationId !== undefined) {
+			context.addIssue({ code: 'custom', message: 'Only Review batches name a publication.' });
 		}
 	});
 

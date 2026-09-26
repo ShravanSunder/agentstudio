@@ -201,7 +201,8 @@
         "scope": { "kind": "review" },
         "baseRevision": 0,
         "targetRevision": 4,
-        "partCount": 3
+        "partCount": 3,
+        "publicationId": "00000000-0000-7000-8000-000000000011"
       },
       {
         "kind": "subscription.batchPart",
@@ -296,7 +297,8 @@
         "scope": { "kind": "review" },
         "baseRevision": 4,
         "targetRevision": 4,
-        "partCount": 0
+        "partCount": 0,
+        "publicationId": "00000000-0000-7000-8000-000000000011"
       },
       {
         "kind": "subscription.batchComplete",

@@ -99,6 +99,17 @@ struct BridgeProductTransportV2ContractTests {
         var batch = try #require(fixtureArray(named: "batchFrames", in: transport).first)
         batch["scope"] = NSNull()
         #expect(decodingFails(BridgeProductBatchFrame.self, object: batch))
+
+        var reviewBegin = try #require(fixtureArray(named: "batchFrames", in: transport).first)
+        reviewBegin.removeValue(forKey: "publicationId")
+        #expect(decodingFails(BridgeProductBatchFrame.self, object: reviewBegin))
+
+        var fileBegin = try #require(
+            fixtureArray(named: "batchFrames", in: transport).last(where: {
+                ($0["kind"] as? String) == "subscription.batchBegin"
+            }))
+        fileBegin["publicationId"] = "00000000-0000-7000-8000-000000000011"
+        #expect(decodingFails(BridgeProductBatchFrame.self, object: fileBegin))
     }
 
     @Test("File batch rows retain canonical identity and deleted ghosts have no read capability")
@@ -169,6 +180,37 @@ struct BridgeProductTransportV2ContractTests {
             let records = try decodeAndVerifyRoundTrips(BridgeProductCommentCatalogRecord.self, from: [recordObject])
             #expect(records.first?.recordKey == expectedKey)
         }
+    }
+
+    @Test("Review batch records retain item order and explicit role capability")
+    func reviewBatchRecordsRoundTrip() throws {
+        let corpus = try fixtureJSONObject(
+            relativePath: "Tests/BridgeContractFixtures/valid/bridge-product-review-batch-record-corpus.json"
+        )
+        let entries = try fixtureArray(named: "records", in: corpus)
+        #expect(entries.count == 3)
+        for entry in entries {
+            let recordKey = try #require(entry["recordKey"] as? String)
+            let recordObject = try #require(entry["record"] as? [String: Any])
+            let records = try decodeAndVerifyRoundTrips(BridgeProductReviewBatchRecord.self, from: [recordObject])
+            switch try #require(records.first) {
+            case .item(let item):
+                #expect(item.itemId == recordKey)
+                #expect(item.sortKey == 0)
+            case .publication:
+                #expect(recordKey == "publication")
+            }
+        }
+
+        var item = try #require(entries.first?["record"] as? [String: Any])
+        var contentByRole = try #require(item["contentByRole"] as? [String: Any])
+        var head = try #require(contentByRole["head"] as? [String: Any])
+        var source = try #require(head["source"] as? [String: Any])
+        source["itemId"] = "another-item"
+        head["source"] = source
+        contentByRole["head"] = head
+        item["contentByRole"] = contentByRole
+        #expect(decodingFails(BridgeProductReviewBatchRecord.self, object: item))
     }
 
     @Test("revision-aware mutation observation has distinct unknown and late evidence")

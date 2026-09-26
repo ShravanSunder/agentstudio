@@ -181,6 +181,7 @@ struct BridgeProductBatchBeginFrame: Codable, Equatable, Sendable {
         case kind
         case mode
         case partCount
+        case publicationId
         case requiresCollection
         case scope
         case targetRevision
@@ -190,6 +191,7 @@ struct BridgeProductBatchBeginFrame: Codable, Equatable, Sendable {
     let baseRevision: Int
     let mode: BridgeProductBatchMode
     let partCount: Int
+    let publicationId: UUID?
     let requiresCollection: Int?
     let scope: BridgeProductJSONValue
     let targetRevision: Int
@@ -199,6 +201,7 @@ struct BridgeProductBatchBeginFrame: Codable, Equatable, Sendable {
         baseRevision: Int,
         mode: BridgeProductBatchMode,
         partCount: Int,
+        publicationId: UUID? = nil,
         requiresCollection: Int?,
         scope: BridgeProductJSONValue,
         targetRevision: Int
@@ -213,11 +216,18 @@ struct BridgeProductBatchBeginFrame: Codable, Equatable, Sendable {
         guard targetRevision >= baseRevision else {
             throw BridgeProductContractDecoding.invalidValue("Batch target precedes base", codingPath: [])
         }
+        if identity.subscriptionKind == .reviewMetadata, publicationId == nil {
+            throw BridgeProductContractDecoding.invalidValue("Review batch requires publicationId", codingPath: [])
+        }
+        if identity.subscriptionKind != .reviewMetadata, publicationId != nil {
+            throw BridgeProductContractDecoding.invalidValue("Only Review batches name a publication", codingPath: [])
+        }
         try BridgeProductViewScopeContract.validate(scope, codingPath: [])
         self.identity = identity
         self.baseRevision = baseRevision
         self.mode = mode
         self.partCount = partCount
+        self.publicationId = publicationId
         self.requiresCollection = requiresCollection
         self.scope = scope
         self.targetRevision = targetRevision
@@ -242,6 +252,9 @@ struct BridgeProductBatchBeginFrame: Codable, Equatable, Sendable {
         baseRevision = try container.decode(Int.self, forKey: .baseRevision)
         mode = try container.decode(BridgeProductBatchMode.self, forKey: .mode)
         partCount = try container.decode(Int.self, forKey: .partCount)
+        publicationId = try container.decodeIfPresent(String.self, forKey: .publicationId).map {
+            try BridgeProductReviewPublicationIdContract.decode($0, codingPath: decoder.codingPath)
+        }
         requiresCollection = try container.decodeIfPresent(Int.self, forKey: .requiresCollection)
         if let requiresCollection {
             try BridgeProductContractDecoding.validateNonnegative(
@@ -274,6 +287,16 @@ struct BridgeProductBatchBeginFrame: Codable, Equatable, Sendable {
                 codingPath: decoder.codingPath
             )
         }
+        if identity.subscriptionKind == .reviewMetadata, publicationId == nil {
+            throw BridgeProductContractDecoding.invalidValue(
+                "Review batch requires publicationId", codingPath: decoder.codingPath
+            )
+        }
+        if identity.subscriptionKind != .reviewMetadata, publicationId != nil {
+            throw BridgeProductContractDecoding.invalidValue(
+                "Only Review batches name a publication", codingPath: decoder.codingPath
+            )
+        }
     }
 
     func encode(to encoder: Encoder) throws {
@@ -283,6 +306,8 @@ struct BridgeProductBatchBeginFrame: Codable, Equatable, Sendable {
         try container.encode("subscription.batchBegin", forKey: .kind)
         try container.encode(mode, forKey: .mode)
         try container.encode(partCount, forKey: .partCount)
+        try container.encodeIfPresent(
+            publicationId.map(BridgeProductReviewPublicationIdContract.encode), forKey: .publicationId)
         try container.encodeIfPresent(requiresCollection, forKey: .requiresCollection)
         try container.encode(scope, forKey: .scope)
         try container.encode(targetRevision, forKey: .targetRevision)
