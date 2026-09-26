@@ -62,15 +62,12 @@ final class WorkspaceStoreTests {
             workspaceName: "Installed Composition",
             createdAt: Date(timeIntervalSince1970: 1)
         )
-        await Task.yield()
-
         #expect(!unarmedStore.isAutosaveObservationActive)
         #expect(!unarmedStore.isDirty)
 
         unarmedStore.startObserving()
         unarmedStore.startObserving()
         unarmedStore.identityAtom.setWorkspaceName("User Rename")
-        await Task.yield()
 
         #expect(unarmedStore.isAutosaveObservationActive)
         #expect(unarmedStore.isDirty)
@@ -1034,11 +1031,6 @@ final class WorkspaceStoreTests {
         #expect(!(store.isDirty))
 
         _ = store.paneAtom.createPane(zmxSessionID: .generateUUIDv7())
-
-        for _ in 0..<10 where !store.isDirty {
-            await Task.yield()
-        }
-
         #expect(store.isDirty)
     }
 
@@ -1051,13 +1043,11 @@ final class WorkspaceStoreTests {
         #expect(!store.isDirty)
 
         store.paneAtom.updatePaneTitle(pane.id, title: "Accepted title")
-        await waitForDirtyObservation()
         #expect(store.isDirty)
         #expect((await store.flushAsync()).succeeded)
         #expect(!store.isDirty)
 
         store.paneAtom.updatePaneTitle(pane.id, title: "Accepted title")
-        await Task.yield()
         #expect(!store.isDirty)
 
         let missingPaneID = UUIDv7.generate()
@@ -1067,7 +1057,6 @@ final class WorkspaceStoreTests {
             store.paneAtom.graphAtom.paneStateSnapshot()
         )
         store.paneAtom.graphAtom.replacePaneStates(unchangedReplacement)
-        await Task.yield()
         #expect(!store.isDirty)
 
         var replacementStates = store.paneAtom.graphAtom.paneStateSnapshot()
@@ -1075,7 +1064,6 @@ final class WorkspaceStoreTests {
         store.paneAtom.graphAtom.replacePaneStates(
             try requirePaneGraphReplacement(replacementStates)
         )
-        await waitForDirtyObservation()
         #expect(store.isDirty)
     }
 
@@ -1122,11 +1110,6 @@ final class WorkspaceStoreTests {
         let nextSleepGeneration = clock.scheduledSleepGeneration
         topologyAtom.replaceTopology(replacement)
         await clock.waitForPendingSleepGeneration(nextSleepGeneration)
-
-        for _ in 0..<10 where !topologyStore.isDirty {
-            await Task.yield()
-        }
-
         #expect(topologyStore.isDirty)
         clock.advance(by: .milliseconds(10))
 
@@ -1141,12 +1124,6 @@ final class WorkspaceStoreTests {
 
         #expect(snapshot.repos.map(\.id) == [repositoryID])
         #expect(!topologyStore.isDirty)
-    }
-
-    private func waitForDirtyObservation() async {
-        for _ in 0..<20 where !store.isDirty {
-            await Task.yield()
-        }
     }
 
     private func requirePaneGraphReplacement(
@@ -1175,11 +1152,6 @@ final class WorkspaceStoreTests {
             sourcePaneId: pane.id,
             viewerPresentation: .unavailable
         )
-
-        for _ in 0..<10 where store.isDirty {
-            await Task.yield()
-        }
-
         #expect(!store.isDirty)
     }
 
@@ -1193,11 +1165,6 @@ final class WorkspaceStoreTests {
         #expect(!store.isDirty)
 
         store.tabGraphAtom.replaceStates([])
-
-        for _ in 0..<10 where !store.isDirty {
-            await Task.yield()
-        }
-
         #expect(store.isDirty)
     }
 
@@ -1215,11 +1182,6 @@ final class WorkspaceStoreTests {
         #expect(!store.isDirty)
 
         store.setActiveTab(firstTab.id)
-
-        for _ in 0..<10 where !store.isDirty {
-            await Task.yield()
-        }
-
         #expect(store.isDirty)
     }
 
@@ -1245,11 +1207,6 @@ final class WorkspaceStoreTests {
         #expect(!store.isDirty)
 
         store.switchArrangement(to: customArrangementId, inTab: tab.id)
-
-        for _ in 0..<10 where !store.isDirty {
-            await Task.yield()
-        }
-
         #expect(store.isDirty)
     }
 
@@ -1274,11 +1231,6 @@ final class WorkspaceStoreTests {
         #expect(!store.isDirty)
 
         store.setActivePane(firstPane.id, inTab: tab.id)
-
-        for _ in 0..<10 where !store.isDirty {
-            await Task.yield()
-        }
-
         #expect(store.isDirty)
     }
 
@@ -1295,11 +1247,6 @@ final class WorkspaceStoreTests {
         #expect(!store.isDirty)
 
         store.setActiveDrawerPane(firstDrawerPane.id, in: parentPane.id)
-
-        for _ in 0..<10 where !store.isDirty {
-            await Task.yield()
-        }
-
         #expect(store.isDirty)
     }
 
