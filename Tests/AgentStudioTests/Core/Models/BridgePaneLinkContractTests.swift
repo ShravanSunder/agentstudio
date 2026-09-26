@@ -6,6 +6,16 @@ import Testing
 
 @Suite("Bridge pane link contract")
 struct BridgePaneLinkContractTests {
+    @Test("link port failures preserve no-effect and uncertain-effect meanings")
+    func linkPortFailuresAreDistinct() {
+        let noEffect: any Error = BridgeLinkPortFailure.unavailable
+        let uncertainEffect: any Error = BridgeLinkPortFailure.outcomeUnknown
+
+        #expect(noEffect as? BridgeLinkPortFailure == .unavailable)
+        #expect(uncertainEffect as? BridgeLinkPortFailure == .outcomeUnknown)
+        #expect(noEffect as? BridgeLinkPortFailure != uncertainEffect as? BridgeLinkPortFailure)
+    }
+
     private struct Fixture<Outcome: Codable>: Codable {
         let union: String
         let value: Outcome
