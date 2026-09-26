@@ -57,8 +57,8 @@ struct AgentStudioIPCOwnPaneEffectRecheckTests {
             return true
         }
         _ = try await gate.firstArrival()
-        let detach = executor.submit(.detachDrawerPane(parentPaneId: parent.id, drawerPaneId: child.id))
-        let agentClose = executor.submit(
+        let detach = executor.submitAction(.detachDrawerPane(parentPaneId: parent.id, drawerPaneId: child.id))
+        let agentClose = executor.submitScopedAction(
             .removeDrawerPane(parentPaneId: parent.id, drawerPaneId: child.id),
             ownPaneAssertion: WorkspaceOwnPaneAssertion(boundPaneId: parent.id)
         )
