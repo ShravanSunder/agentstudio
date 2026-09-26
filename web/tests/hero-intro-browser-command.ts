@@ -53,12 +53,13 @@ export const verifyHeroIntroLayout = defineBrowserCommand(
     viewports: readonly { readonly width: number; readonly height: number }[],
   ): Promise<HeroLayoutObservation[]> => {
     const observations: HeroLayoutObservation[] = [];
-    for (const viewport of viewports) {
-      const applicationPage = await context.newPage();
-      try {
-        await applicationPage.emulateMedia({ reducedMotion: "reduce" });
+    const applicationPage = await context.newPage();
+    try {
+      await applicationPage.emulateMedia({ reducedMotion: "reduce" });
+      await applicationPage.goto(pageUrl, { waitUntil: "domcontentloaded" });
+      await applicationPage.evaluate(async () => await document.fonts.ready);
+      for (const viewport of viewports) {
         await applicationPage.setViewportSize(viewport);
-        await applicationPage.goto(pageUrl, { waitUntil: "networkidle" });
         observations.push(
           await applicationPage.evaluate(
             async ({ width, height }): Promise<HeroLayoutObservation> => {
@@ -96,10 +97,21 @@ export const verifyHeroIntroLayout = defineBrowserCommand(
                 return Math.atan2(transform.b, transform.a) * (180 / Math.PI);
               };
               const fanPlanes = [frontPlane, ...[...rearPlanes].reverse()];
-              const visibleRows = [
+              const paintedRows = [
                 ...windowNode.querySelectorAll<HTMLElement>("[data-transcript-tier]"),
-              ].filter((row) => row.getClientRects().length > 0);
-              const bashArgs = visibleRows
+              ].filter((row) => {
+                if (row.getClientRects().length === 0) return false;
+                for (
+                  let element: HTMLElement | null = row;
+                  element !== windowNode;
+                  element = element.parentElement
+                ) {
+                  if (element === null || Number(getComputedStyle(element).opacity) === 0)
+                    return false;
+                }
+                return true;
+              });
+              const bashArgs = paintedRows
                 .find((row) => row.textContent?.includes("Bash("))
                 ?.querySelector<HTMLElement>(".hero-terminal-muted");
               const bashSplitTokens: string[] = [];
@@ -122,7 +134,7 @@ export const verifyHeroIntroLayout = defineBrowserCommand(
               );
               return {
                 viewport: `${width}x${height}`,
-                rowsInsideWindow: visibleRows.every((row) => {
+                rowsInsideWindow: paintedRows.every((row) => {
                   const rect = row.getBoundingClientRect();
                   return (
                     rect.top >= windowRect.top + padding - 1 &&
@@ -193,12 +205,12 @@ export const verifyHeroIntroLayout = defineBrowserCommand(
                 viewportWidth: document.documentElement.clientWidth,
                 codexVisible: getComputedStyle(codex).display !== "none",
                 canvasColor: getComputedStyle(document.body).backgroundColor,
-                visibleBashRows: visibleRows.filter((row) => row.textContent?.includes("Bash("))
+                visibleBashRows: paintedRows.filter((row) => row.textContent?.includes("Bash("))
                   .length,
                 bashSplitTokens,
                 codexPassedColor:
                   codexPassed === undefined ? undefined : getComputedStyle(codexPassed).color,
-                earlierExchangeVisible: visibleRows.some((row) =>
+                earlierExchangeVisible: paintedRows.some((row) =>
                   row.textContent?.includes("sidebar filter ordering"),
                 ),
                 overflowElements: [...document.querySelectorAll<HTMLElement>("body *")]
@@ -213,9 +225,9 @@ export const verifyHeroIntroLayout = defineBrowserCommand(
             viewport,
           ),
         );
-      } finally {
-        await applicationPage.close();
       }
+    } finally {
+      await applicationPage.close();
     }
     return observations;
   },

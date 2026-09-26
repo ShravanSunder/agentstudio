@@ -48,6 +48,11 @@ export function initializeHeroIntroPlayback(root: HTMLElement): HeroIntroPlaybac
       target.removeAttribute("style");
     }
     root.querySelector(`[${heroIntroFourthPlaneAttribute}]`)?.remove();
+    const rail = root.ownerDocument.querySelector<SVGSVGElement>("[data-full-page-topology]");
+    if (rail !== null) {
+      gsap.set(rail, { clearProps: "clipPath" }).kill();
+      if (rail.getAttribute("style") === "") rail.removeAttribute("style");
+    }
     root.querySelector<HTMLElement>("[data-hero-intro-typed-input]")?.replaceChildren();
     root.setAttribute(heroIntroStateAttribute, "settled");
     root.setAttribute("data-hero-intro-progress", "1");

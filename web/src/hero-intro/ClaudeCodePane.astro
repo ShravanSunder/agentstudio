@@ -1,14 +1,11 @@
 ---
-import { claudeTranscript } from "./hero-terminal-transcripts";
-import {
-  heroIntroSpinnerAttribute,
-  heroIntroReadyAttribute,
-  heroIntroReadyArrowAttribute,
-  heroIntroTypedInputAttribute,
-  heroTranscriptTierAttribute,
-} from "./hero-intro-dom-contract";
+import { claudeFinaleTranscript, claudeTranscript } from "./hero-terminal-transcripts";
+import { heroIntroTypedInputAttribute } from "./hero-intro-dom-contract";
+import ClaudeTranscriptRows from "./ClaudeTranscriptRows.astro";
 
 const transcriptRows = claudeTranscript.filter((row) => row.kind !== "cursor");
+const preludeRows = transcriptRows.slice(0, 7);
+const currentRows = transcriptRows.slice(7);
 ---
 
 <section class="hero-terminal-pane hero-terminal-pane--claude" aria-hidden="true">
@@ -46,37 +43,11 @@ const transcriptRows = claudeTranscript.filter((row) => row.kind !== "cursor");
         <div class="hero-terminal-muted hero-desktop-only">~/agent-studio</div>
       </div>
     </div>
-    {
-      transcriptRows.map((row) => {
-        const toolCall = row.kind === "tool-call" ? /^● (Bash|Update)(.*)$/u.exec(row.text) : null;
-        const toolArguments = toolCall?.[2] ?? "";
-        const resultCheckIndex = row.kind === "tool-result" ? row.text.indexOf("✓") : -1;
-        const readyArrowIndex = row.text.includes("Ready. Copy it below") ? row.text.lastIndexOf("↓") : -1;
-        const rowContent = (
-          <div
-            class={`hero-transcript-row hero-transcript-row--${row.kind}`}
-            {...{ [heroTranscriptTierAttribute]: row.tiers.join(" ") }}
-            {...(row.text.includes("Ready. Copy it below") ? { [heroIntroReadyAttribute]: "" } : {})}
-          >
-            {toolCall === null ? (
-              resultCheckIndex < 0 ? (
-                row.kind === "assistant-text" ? <><span class="hero-terminal-white">●</span>{row.text.slice(1)}</> : row.text
-              ) : (
-                <><span class="hero-terminal-muted">{row.text.slice(0, resultCheckIndex)}</span><span class="hero-terminal-green">✓</span><span class="hero-terminal-muted">{row.text.slice(resultCheckIndex + 1, readyArrowIndex < 0 ? undefined : readyArrowIndex)}</span>{readyArrowIndex >= 0 && <span {...{ [heroIntroReadyArrowAttribute]: "" }}>↓</span>}</>
-              )
-            ) : (
-              <><span class="hero-terminal-green">●</span>{" "}<span class={toolCall[1] === "Bash" ? "hero-tool-name--bash" : undefined}>{toolCall[1]}</span><span class="hero-terminal-muted">{toolArguments.split(/(\s+)/u).map((token) => /^\s+$/u.test(token) ? token : <span class="hero-command-token">{token}</span>)}</span></>
-            )}
-          </div>
-        );
-        return row.text.includes("Ready. Copy it below") ? (
-          <div class="hero-status-slot">
-            {rowContent}
-            <div class="hero-brewing" {...{ [heroIntroSpinnerAttribute]: "" }}>✶ Brewing… (esc to interrupt)</div>
-          </div>
-        ) : rowContent;
-      })
-    }
+    <div class="hero-claude-prelude-rows"><ClaudeTranscriptRows rows={preludeRows} /></div>
+    <div class="hero-claude-swap-slot">
+      <div class="hero-claude-current-rows"><ClaudeTranscriptRows rows={currentRows} /></div>
+      <div class="hero-claude-finale-rows"><ClaudeTranscriptRows rows={claudeFinaleTranscript} finale /></div>
+    </div>
   </div>
   <div class="hero-claude-footer">
     <div class="hero-terminal-rule"></div>

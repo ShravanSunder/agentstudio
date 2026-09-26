@@ -17,6 +17,7 @@ import {
   verifyHeroIntroPlayback,
   verifyHeroIntroShift,
 } from "./tests/hero-intro-browser-command.ts";
+import { verifyHeroIntroFinale } from "./tests/hero-intro-finale-browser-command.ts";
 import { verifyRailViewportBands } from "./tests/rail-band-browser-command.ts";
 import { buildSceneBundlesForBrowserTest } from "./tests/scene-bundle-browser-command.ts";
 import { verifySiteFooterResponsiveLayout } from "./tests/site-footer-browser-command.ts";
@@ -53,6 +54,7 @@ export default defineConfig({
               verifyHeroIntroLayout,
               verifyHeroIntroPlayback,
               verifyHeroIntroShift,
+              verifyHeroIntroFinale,
               verifyChapterStepRow,
               verifySingleStepChapter,
               verifyChapterTitleAnchors,

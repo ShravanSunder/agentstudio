@@ -6,6 +6,14 @@ import {
   heroIconStackAttribute,
   heroIntroContentAttribute,
   heroIntroCopyAttribute,
+  heroIntroEyebrowCursorAttribute,
+  heroIntroEyebrowSettledAttribute,
+  heroIntroEyebrowTypedAttribute,
+  heroIntroFinaleRowAttribute,
+  heroIntroHeadlineFirstAttribute,
+  heroIntroHeadlineSecondAttribute,
+  heroIntroPayoffFirstAttribute,
+  heroIntroPayoffSecondAttribute,
   heroIntroFourthPlaneAttribute,
   heroIntroGlowAttribute,
   heroIntroInstallAttribute,
@@ -25,8 +33,18 @@ function requiredTarget(root: HTMLElement, attribute: string): HTMLElement {
 }
 
 export function collectHeroIntroTargets(root: HTMLElement): HTMLElement[] {
+  const eyebrowLayer = requiredTarget(root, heroIntroEyebrowTypedAttribute).parentElement;
+  if (eyebrowLayer === null) throw new Error("Hero intro eyebrow typing layer is missing");
   return [
     requiredTarget(root, heroIntroCopyAttribute),
+    requiredTarget(root, heroIntroEyebrowSettledAttribute),
+    requiredTarget(root, heroIntroEyebrowTypedAttribute),
+    requiredTarget(root, heroIntroEyebrowCursorAttribute),
+    requiredTarget(root, heroIntroHeadlineFirstAttribute),
+    requiredTarget(root, heroIntroHeadlineSecondAttribute),
+    requiredTarget(root, heroIntroPayoffFirstAttribute),
+    requiredTarget(root, heroIntroPayoffSecondAttribute),
+    eyebrowLayer,
     requiredTarget(root, heroIconStackAttribute),
     requiredTarget(root, heroIconFrontAttribute),
     ...root.querySelectorAll<HTMLElement>(`[${heroIconRearAttribute}]`),
@@ -40,6 +58,7 @@ export function collectHeroIntroTargets(root: HTMLElement): HTMLElement[] {
     requiredTarget(root, heroIntroSpinnerAttribute),
     ...root.querySelectorAll<HTMLElement>(".hero-codex-footer"),
     ...root.querySelectorAll<HTMLElement>(".hero-transcript-row"),
+    ...root.querySelectorAll<HTMLElement>(".hero-codex-current-rows, .hero-claude-current-rows"),
   ];
 }
 
@@ -66,7 +85,16 @@ export function buildHeroIntroScene(
   timeline: SceneTimeline,
   options: SceneBuildOptions,
 ): void {
-  const copy = requiredTarget(root, heroIntroCopyAttribute);
+  const eyebrowSettled = requiredTarget(root, heroIntroEyebrowSettledAttribute);
+  const eyebrowTyped = requiredTarget(root, heroIntroEyebrowTypedAttribute);
+  const eyebrowCursor = requiredTarget(root, heroIntroEyebrowCursorAttribute);
+  const eyebrowLayer = eyebrowTyped.parentElement;
+  if (eyebrowLayer === null) throw new Error("Hero intro eyebrow typing layer is missing");
+  const eyebrowText = eyebrowSettled.textContent?.replace(/\s+/gu, " ").trim() ?? "";
+  const headlineFirst = requiredTarget(root, heroIntroHeadlineFirstAttribute);
+  const headlineSecond = requiredTarget(root, heroIntroHeadlineSecondAttribute);
+  const payoffFirst = requiredTarget(root, heroIntroPayoffFirstAttribute);
+  const payoffSecond = requiredTarget(root, heroIntroPayoffSecondAttribute);
   const iconStack = requiredTarget(root, heroIconStackAttribute);
   const sceneContainer = iconStack.parentElement;
   if (sceneContainer === null) {
@@ -92,6 +120,15 @@ export function buildHeroIntroScene(
   const ready = requiredTarget(root, heroIntroReadyAttribute);
   const readyArrow = requiredTarget(root, heroIntroReadyArrowAttribute);
   const codexFooter = root.querySelector<HTMLElement>(".hero-codex-footer");
+  const codexCurrentRows = root.querySelector<HTMLElement>(".hero-codex-current-rows");
+  const claudeCurrentRows = root.querySelector<HTMLElement>(".hero-claude-current-rows");
+  const finalePane = options.width < 1024 ? "claude" : "codex";
+  const finaleRows = [
+    ...root.querySelectorAll<HTMLElement>(
+      `.hero-terminal-pane--${finalePane} [${heroIntroFinaleRowAttribute}]`,
+    ),
+  ];
+  const rail = root.ownerDocument.querySelector<SVGSVGElement>("[data-full-page-topology]");
 
   // Read the three layout rects once. Every following value is derived from them.
   const sceneRect = sceneContainer.getBoundingClientRect();
@@ -125,7 +162,54 @@ export function buildHeroIntroScene(
   const frontEntranceX = options.width - windowRect.left + startWidth;
   const glassRadius = getComputedStyle(windowNode).borderTopLeftRadius;
 
-  timeline.fromTo(copy, { y: 20, opacity: 0 }, { y: 0, opacity: 1, duration: 0.6 }, 0);
+  timeline.set(eyebrowSettled, { opacity: 0 }, 0);
+  timeline.set(eyebrowLayer, { autoAlpha: 1 }, 0);
+  timeline.set(eyebrowCursor, { opacity: 1 }, 0);
+  const eyebrowTyping = { fraction: 0 };
+  timeline.to(
+    eyebrowTyping,
+    {
+      fraction: 1,
+      duration: 0.45,
+      ease: "none",
+      onUpdate: () => {
+        eyebrowTyped.textContent = eyebrowText.slice(
+          0,
+          Math.round(eyebrowTyping.fraction * eyebrowText.length),
+        );
+      },
+    },
+    0,
+  );
+  timeline.set(eyebrowTyped, { textContent: eyebrowText }, 0.45);
+  timeline.set(eyebrowCursor, { opacity: 0 }, 0.45);
+  timeline.set(eyebrowLayer, { autoAlpha: 0 }, 0.45);
+  timeline.set(eyebrowSettled, { opacity: 1 }, 0.45);
+  timeline.fromTo(headlineFirst, { y: 10, opacity: 0 }, { y: 0, opacity: 1, duration: 0.3 }, 0.45);
+  timeline.fromTo(headlineSecond, { y: 10, opacity: 0 }, { y: 0, opacity: 1, duration: 0.3 }, 0.65);
+  timeline.fromTo(payoffFirst, { opacity: 0 }, { opacity: 1, duration: 0.3 }, 3.4);
+  timeline.fromTo(payoffSecond, { opacity: 0 }, { opacity: 1, duration: 0.3 }, 7.8);
+  if (codexCurrentRows !== null) timeline.set(codexCurrentRows, { opacity: 1 }, 0);
+  if (claudeCurrentRows !== null && options.width < 1024)
+    timeline.set(claudeCurrentRows, { opacity: 1 }, 0);
+  if (finaleRows.length > 0) timeline.set(finaleRows, { opacity: 0 }, 0);
+  if (rail !== null) {
+    const appFrame = root.querySelector<HTMLElement>("[data-hero-app-frame]");
+    if (appFrame === null) throw new Error("Hero intro rail draw is missing the first app frame");
+    const railRect = rail.getBoundingClientRect();
+    const drawEndY = appFrame.getBoundingClientRect().top - railRect.top + 80;
+    const bottomInset = 100 - Math.min(100, Math.max(0, (drawEndY / railRect.height) * 100));
+    timeline.set(rail, { clipPath: "inset(0 0 100% 0)" }, 0);
+    timeline.to(
+      rail,
+      {
+        clipPath: `inset(0 0 ${bottomInset}% 0)`,
+        duration: 1,
+        ease: (progress: number): number => 1 - (1 - progress) ** 2.5,
+      },
+      6.8,
+    );
+  }
   timeline.set(iconStack, { zIndex: 4 }, 0);
   timeline.fromTo(
     iconStack,
@@ -206,11 +290,34 @@ export function buildHeroIntroScene(
   timeline.to(fourthPlane, { opacity: 0, duration: 0.01 }, 3.4);
   timeline.fromTo(windowContent, { opacity: 0 }, { opacity: 1, duration: 0.14 }, 3.4);
 
-  const currentRows = root.querySelectorAll<HTMLElement>(
-    ".hero-transcript-row--user-band, .hero-transcript-row--assistant-text, .hero-transcript-row--tool-call, .hero-transcript-row--tool-result:not([data-hero-intro-ready]), .hero-transcript-row--codex-action, .hero-transcript-row--codex-detail, .hero-transcript-row--codex-prose",
-  );
+  const currentRows = [
+    ...root.querySelectorAll<HTMLElement>(
+      ".hero-transcript-row--user-band, .hero-transcript-row--assistant-text, .hero-transcript-row--tool-call, .hero-transcript-row--tool-result:not([data-hero-intro-ready]), .hero-transcript-row--codex-action, .hero-transcript-row--codex-detail, .hero-transcript-row--codex-prose",
+    ),
+  ].filter((row) => !row.hasAttribute(heroIntroFinaleRowAttribute));
   currentRows.forEach((row, index) => {
     timeline.fromTo(row, { opacity: 0 }, { opacity: 1, duration: 0.08 }, 3.65 + index * 0.055);
+  });
+  const currentFinaleRows = options.width < 1024 ? claudeCurrentRows : codexCurrentRows;
+  if (currentFinaleRows !== null)
+    timeline.to(currentFinaleRows, { opacity: 0, duration: 0.08 }, 6.02);
+  finaleRows.forEach((row, index) => {
+    const appearance =
+      index === 0
+        ? 6.02
+        : index <= 2 && options.width >= 1024
+          ? 6.32
+          : index === 1
+            ? 6.32
+            : index === finaleRows.length - 1
+              ? 7.8
+              : 6.72;
+    timeline.fromTo(
+      row,
+      { opacity: 0 },
+      { opacity: 1, duration: index === finaleRows.length - 1 ? 0.3 : 0.08 },
+      appearance,
+    );
   });
 
   const inputText = "set up Agent Studio for me";

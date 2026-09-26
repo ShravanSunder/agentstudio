@@ -17,7 +17,8 @@ describe("hero intro scene contract", () => {
     const fixture = document.createElement("section");
     fixture.setAttribute("data-hero-intro-fixture", "");
     fixture.innerHTML = `
-      <h1 data-hero-intro-copy>One window</h1>
+      <p><span data-hero-intro-eyebrow-settled>Native macOS.</span><span><span data-hero-intro-eyebrow-typed></span><span data-hero-intro-eyebrow-cursor></span></span></p>
+      <h1 data-hero-intro-copy><span data-hero-intro-headline-first>One</span><span data-hero-intro-headline-second>window</span><span data-hero-intro-payoff-first>Stay oriented.</span><span data-hero-intro-payoff-second> Miss nothing.</span></h1>
       <div data-hero-icon-stack>
         <div data-hero-icon-rear="one"></div><div data-hero-icon-rear="two"></div>
         <div data-hero-icon-front><span data-hero-icon-cursor>_</span></div>

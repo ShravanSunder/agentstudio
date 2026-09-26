@@ -31,6 +31,10 @@ import HeroIconStack from "./HeroIconStack.astro";
   :global(.hero-terminal-pane) { display: flex; flex: 1 1 50%; flex-direction: column; min-width: 0; }
   :global(.hero-terminal-pane--codex) { border-left: 1px solid rgb(255 255 255 / 10%); }
   :global(.hero-terminal-transcript) { position: relative; flex: 1 1 auto; min-width: 0; padding: 12px 16px 8px; }
+  :global(.hero-codex-swap-slot), :global(.hero-claude-swap-slot) { display: grid; }
+  :global(.hero-codex-swap-slot > *), :global(.hero-claude-swap-slot > *) { grid-area: 1 / 1; min-width: 0; }
+  :global(.hero-codex-current-rows) { opacity: 0; }
+  :global(.hero-claude-finale-rows) { display: none; }
   :global(.hero-claude-startup) { display: flex; align-items: flex-start; gap: 13px; min-height: 59px; }
   :global(.hero-claude-mascot) { flex: none; width: 47px; height: 43px; margin-top: 2px; fill: #e6714e; }
   :global(.hero-claude-eye) { fill: #1c1d21; }
@@ -68,11 +72,16 @@ import HeroIconStack from "./HeroIconStack.astro";
   :global(.hero-codex-footer) { flex: none; }
   :global(.hero-codex-input) { display: flex; align-items: center; min-height: 45px; gap: 10px; padding: 8px 16px; background: #44474e; color: #a9aab0; }
   :global(.hero-codex-status) { padding: 3px 16px 8px; color: #9ba1ad; font-size: 11px; white-space: nowrap; }
-  @media (width < 64rem) { :global(.hero-terminal-pane--codex) { display: none; } }
+  @media (width < 64rem) {
+    :global(.hero-terminal-pane--codex) { display: none; }
+    :global(.hero-claude-current-rows) { opacity: 0; }
+    :global(.hero-claude-finale-rows) { display: block; }
+  }
   :global(.hero-transcript-row:not([data-transcript-tier~="full"])) { display: none; }
   @media (width >= 64rem) and (height < 56.25rem) {
     :global(.hero-transcript-row:not([data-transcript-tier~="compact"])) { display: none; }
     :global(.hero-transcript-row[data-transcript-tier~="compact"]) { display: block; }
+    :global(.hero-codex-finale-rows .hero-transcript-row) { min-height: 17px; font-size: 12px; line-height: 17px; }
   }
   @media (width < 38.75rem) {
     .hero-intro-root { --hero-stack-position-step: calc(var(--hero-stack-position-base) * 170 / 260); --hero-stack-anchor-x: 2px; --hero-stack-anchor-y: 14px; }
