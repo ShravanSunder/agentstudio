@@ -28,7 +28,7 @@ struct WorktreeCreationCommandSpecTests {
         #expect(defaultDefinition.targeting == .targeted([.repo]))
         #expect(defaultDefinition.surfacePolicy == .notPresented)
         #expect(definition.label == "Fork…")
-        #expect(definition.icon == .octicon(.repoClone))
+        #expect(definition.icon == .octicon(.repoForked))
         #expect(definition.helpText == "Fork a worktree with its uncommitted, untracked, and ignored files")
         #expect(definition.surfacePolicy == .notPresented)
         #expect(definition.targeting == .targeted([.worktree]))

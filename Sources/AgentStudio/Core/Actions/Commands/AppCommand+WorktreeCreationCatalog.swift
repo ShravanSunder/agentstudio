@@ -15,7 +15,7 @@ extension AppCommand {
     func newWorktreeFromDefaultDefinition() -> AppCommandSpec {
         worktreeDefinition(
             label: "From Default",
-            icon: .octicon(.gitWorktree),
+            icon: .octicon(.gitBranch),
             helpText: "Create a new worktree from the repository's default branch",
             surfacePolicy: .notPresented,
             targetTypes: [.repo]
@@ -25,7 +25,7 @@ extension AppCommand {
     func forkWorktreeDefinition() -> AppCommandSpec {
         worktreeDefinition(
             label: "Fork…",
-            icon: .octicon(.repoClone),
+            icon: .octicon(.repoForked),
             helpText: "Fork a worktree with its uncommitted, untracked, and ignored files",
             surfacePolicy: .notPresented
         )

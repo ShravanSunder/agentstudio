@@ -141,7 +141,7 @@ package enum LocalActionSpec {
             return ActionSpec(
                 label: "Fork This Worktree",
                 helpText: "Fork this worktree with its uncommitted, untracked, and ignored files",
-                icon: .octicon(.repoClone))
+                icon: .octicon(.repoForked))
         case .commandPalette:
             return ActionSpec(
                 label: "Command Palette", helpText: "Show the command palette", icon: .system(.command))
