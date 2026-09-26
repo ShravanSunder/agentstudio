@@ -1506,16 +1506,13 @@ wait_for_process_global_suite_batch() {
 # The fast concurrent phase is the default lane minus the exact inventory rows
 # that belong to another lane or to one of fast's isolated execution modes.
 fast_non_webkit_skip_pattern() {
-  local fast_lane_skip_filters aggregate_serial_filters aggregate_serial_skip_filters
+  local fast_lane_skip_filters aggregate_serial_skip_filters
 
   if ! fast_lane_skip_filters="$(swift_test_lane_fast_concurrent_skip_pattern)"; then
     printf '[test] failed to generate fast-lane concurrent skip filters\n' >&2
     return 1
   fi
-  if ! aggregate_serial_filters="$(aggregate_serial_non_webkit_filter_pattern)"; then
-    return 1
-  fi
-  if ! aggregate_serial_skip_filters="$(swift_test_isolated_suite_skip_pattern "$aggregate_serial_filters")"; then
+  if ! aggregate_serial_skip_filters="$(aggregate_serial_non_webkit_filter_pattern)"; then
     return 1
   fi
   if ! printf '%s|%s' "$fast_lane_skip_filters" "$aggregate_serial_skip_filters"; then

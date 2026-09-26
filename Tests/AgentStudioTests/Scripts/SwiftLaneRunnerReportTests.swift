@@ -3,6 +3,102 @@ import AgentStudioTestSupport
 import Foundation
 import Testing
 
+private let generatedLaneFilterBehaviorProbe = #"""
+    source scripts/swift-test-helpers.sh
+
+    assert_match_pair() {
+      local generator="$1"
+      local pattern="$2"
+      local expected_match="$3"
+      local expected_nonmatch="$4"
+
+      if [[ "$expected_match" =~ $pattern ]]; then
+        printf 'MATCH_OK %s\n' "$generator"
+      else
+        printf 'missing expected match generator=%s test_id=%s\n' \
+          "$generator" "$expected_match" >&2
+        return 1
+      fi
+      if [[ "$expected_nonmatch" =~ $pattern ]]; then
+        printf 'unexpected match generator=%s test_id=%s\n' \
+          "$generator" "$expected_nonmatch" >&2
+        return 1
+      fi
+      return 0
+    }
+
+    assert_single_escaped_entries() {
+      local generator="$1"
+      local pattern_list="$2"
+      local remainder anchor_count=0 closing_count=0
+      remainder="$pattern_list"
+      while [[ "$remainder" == *'\.'* ]]; do
+        anchor_count=$((anchor_count + 1))
+        remainder="${remainder#*'\.'}"
+      done
+      remainder="$pattern_list"
+      while [[ "$remainder" == *'(/|$)'* ]]; do
+        closing_count=$((closing_count + 1))
+        remainder="${remainder#*'(/|$)'}"
+      done
+      if [ "$anchor_count" -eq 0 ] || [ "$anchor_count" -ne "$closing_count" ]; then
+        printf 'invalid anchor count generator=%s anchors=%s closings=%s\n' \
+          "$generator" "$anchor_count" "$closing_count" >&2
+        return 1
+      fi
+      if [[ "$pattern_list" == *'\\.'* || "$pattern_list" == *'\\/'* \
+        || "$pattern_list" == *'\\('* || "$pattern_list" == *'\\$'* ]]; then
+        printf 'double-escaped entry generator=%s pattern=%s\n' \
+          "$generator" "$pattern_list" >&2
+        return 1
+      fi
+      printf 'SINGLE_ESCAPE_OK %s entries=%s\n' "$generator" "$anchor_count"
+    }
+
+    fast_concurrent_id='AgentStudioTests.AgentStudioFileViewStartupDiagnosticTests/smokeRenderProofRequiresStreamedTreeAndSelectedContent()'
+    fast_isolated_id='AgentStudioSharedComponentsTests.AccessibilityPressBridgeTests/disabledAccessibilityPressBridgeRejectsPress()'
+    large_concurrent_id='AgentStudioTests.AgentStudioGitDependencyTests/agentStudioGitUsesRemotePackageAndHostedArtifact()'
+    large_serial_id='AgentStudioTests.BridgePackagedProductJourneyScriptTests/runnerDryRunDeclaresStrictLaunchAndFixtureContract()'
+    large_process_global_id='AgentStudioInfrastructureTests.AgentStudioOTLPBootstrapSmokeTests/otelConfigurationAppliesExplicitLogBatchBackpressurePolicy()'
+    fast_process_global_id='AgentStudioInfrastructureTests.SQLiteDatabaseFactoryProcessTests/bytePreservingStartupReaderSeesCommittedWALWithoutChangingDatabaseFiles()'
+    webkit_id='AgentStudioTests.WebKitSerializedTests/BridgePaneControllerTests/handleBridgeReady_setsReadyAndTeardownResets()'
+
+    fast_skip_pattern="$(fast_non_webkit_skip_pattern)" || exit 2
+    fast_concurrent_pattern="$(swift_test_lane_filter_pattern fast concurrent)" || exit 2
+    fast_concurrent_skip_pattern="$(swift_test_lane_fast_concurrent_skip_pattern)" || exit 2
+    fast_process_global_pattern="$(fast_serial_process_filter_pattern)" || exit 2
+    large_concurrent_pattern="$(large_non_webkit_filter_pattern)" || exit 2
+    large_serial_pattern="$(large_serial_non_webkit_filter_pattern)" || exit 2
+    large_process_global_pattern="$(large_process_global_filter_pattern)" || exit 2
+    aggregate_serial_pattern="$(aggregate_serial_non_webkit_filter_pattern)" || exit 2
+    webkit_filters="$(webkit_suite_filters)" || exit 2
+    webkit_pattern='WebKitSerializedTests/BridgePaneControllerTests'
+
+    assert_match_pair fast-skip "$fast_skip_pattern" "$fast_isolated_id" "$fast_concurrent_id" || exit 1
+    assert_match_pair fast-concurrent-filter "$fast_concurrent_pattern" "$fast_concurrent_id" "$fast_isolated_id" || exit 1
+    assert_match_pair fast-concurrent-skip "$fast_concurrent_skip_pattern" "$large_concurrent_id" "$fast_concurrent_id" || exit 1
+    assert_match_pair fast-process-global "$fast_process_global_pattern" "$fast_process_global_id" "$fast_concurrent_id" || exit 1
+    assert_match_pair large-concurrent "$large_concurrent_pattern" "$large_concurrent_id" "$fast_concurrent_id" || exit 1
+    assert_match_pair large-serial "$large_serial_pattern" "$large_serial_id" "$large_concurrent_id" || exit 1
+    assert_match_pair large-process-global "$large_process_global_pattern" "$large_process_global_id" "$large_concurrent_id" || exit 1
+    assert_match_pair aggregate-serial "$aggregate_serial_pattern" "$fast_isolated_id" "$fast_concurrent_id" || exit 1
+    if ! printf '%s\n' "$webkit_filters" | /usr/bin/grep -Fxq "$webkit_pattern"; then
+      printf 'missing WebKit selector from generated list: %s\n' "$webkit_pattern" >&2
+      exit 1
+    fi
+    assert_match_pair webkit-list "$webkit_pattern" "$webkit_id" "$fast_concurrent_id" || exit 1
+
+    assert_single_escaped_entries fast-skip "$fast_skip_pattern" || exit 1
+    assert_single_escaped_entries fast-concurrent-filter "$fast_concurrent_pattern" || exit 1
+    assert_single_escaped_entries fast-concurrent-skip "$fast_concurrent_skip_pattern" || exit 1
+    assert_single_escaped_entries fast-process-global "$fast_process_global_pattern" || exit 1
+    assert_single_escaped_entries large-concurrent "$large_concurrent_pattern" || exit 1
+    assert_single_escaped_entries large-serial "$large_serial_pattern" || exit 1
+    assert_single_escaped_entries large-process-global "$large_process_global_pattern" || exit 1
+    assert_single_escaped_entries aggregate-serial "$aggregate_serial_pattern" || exit 1
+    printf 'LANE_FILTER_BEHAVIOR_OK generators=9\n'
+    """#
+
 @Suite("Swift lane runner load reporting")
 struct SwiftLaneRunnerReportTests {
     @Test("every Swift test invocation takes its parallelization width from the one helper")
@@ -407,12 +503,28 @@ struct SwiftLaneRunnerReportTests {
         #expect(skipBuilder.contains("$(swift_test_lane_fast_concurrent_skip_pattern)"))
         #expect(
             skipBuilder.contains(
-                "if ! aggregate_serial_filters=\"$(aggregate_serial_non_webkit_filter_pattern)\"; then"))
+                "if ! aggregate_serial_skip_filters=\"$(aggregate_serial_non_webkit_filter_pattern)\"; then"))
         #expect(
             skipBuilder.contains(
-                "swift_test_isolated_suite_skip_pattern \"$aggregate_serial_filters\""
+                "printf '%s|%s' \"$fast_lane_skip_filters\" \"$aggregate_serial_skip_filters\""
             ))
+        #expect(!skipBuilder.contains("swift_test_isolated_suite_skip_pattern"))
         #expect(!skipBuilder.contains("large_non_webkit_filter_pattern"))
+    }
+
+    @Test("generated lane filters match only real test IDs in their lane")
+    func generatedLaneFiltersMatchOnlyRealTestIds() async throws {
+        let output = try await runBash(generatedLaneFilterBehaviorProbe)
+
+        // The probe uses Swift Testing-shaped IDs from the real targets and Bash
+        // ERE matching, the same regex dialect the lane filters are consumed as.
+        guard output.contains("LANE_FILTER_BEHAVIOR_OK generators=9") else { return }
+        #expect(output.contains("MATCH_OK fast-skip"))
+        #expect(output.contains("MATCH_OK fast-concurrent-filter"))
+        #expect(output.contains("MATCH_OK large-process-global"))
+        #expect(output.contains("MATCH_OK aggregate-serial"))
+        #expect(output.contains("MATCH_OK webkit-list"))
+        #expect(output.contains("LANE_FILTER_BEHAVIOR_OK generators=9"))
     }
 
     @Test("a clean lane reports zero failed isolated suites")
