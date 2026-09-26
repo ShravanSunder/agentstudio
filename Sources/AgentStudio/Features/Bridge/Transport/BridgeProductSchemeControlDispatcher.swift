@@ -218,6 +218,10 @@ struct BridgeProductSchemeControlDispatcher: Sendable {
             code = .invalidRequest
             nextExpectedRequestSequence = nil
             retryable = false
+        case .unknownSubscription:
+            code = .unknownSubscription
+            nextExpectedRequestSequence = request.requestSequence
+            retryable = false
         case .payloadTooLarge:
             code = .payloadTooLarge
             nextExpectedRequestSequence = nil

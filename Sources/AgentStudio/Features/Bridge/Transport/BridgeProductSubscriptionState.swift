@@ -320,10 +320,10 @@ struct BridgeProductSubscriptionState: Sendable {
 
     mutating func cancel(
         _ request: BridgeProductSubscriptionCancelRequest
-    ) throws -> BridgeProductSubscriptionSnapshot {
+    ) throws -> BridgeProductSubscriptionSnapshot? {
         let subscriptionIdentity = ExactUTF8Identity(request.subscriptionId)
         guard let record = recordsBySubscriptionId[subscriptionIdentity] else {
-            throw BridgeProductSubscriptionStateError.unknownSubscriptionId
+            return nil
         }
         guard record.subscriptionKind == request.subscriptionKind else {
             throw BridgeProductSubscriptionStateError.subscriptionKindMismatch

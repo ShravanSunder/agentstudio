@@ -155,7 +155,8 @@ enum BridgeProductSessionControlTransitionBuilder {
             }
             return .init(
                 subscriptionState: candidateSubscriptions,
-                effect: .subscriptionCancelled(cancelledSubscription)
+                effect: cancelledSubscription.map(BridgeProductSessionCompletionEffect.subscriptionCancelled)
+                    ?? .noEffect
             )
 
         case (.workerSessionResync(let resyncRequest), .resyncAccepted(let resyncResponse)):

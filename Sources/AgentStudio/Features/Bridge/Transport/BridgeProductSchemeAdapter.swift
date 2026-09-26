@@ -8,6 +8,8 @@ private let bridgeProductSchemeAdapterLogger = Logger(
 )
 
 enum BridgeProductSchemeAdapterError: Error, Sendable {
+    case containedRouteFailure
+    case routeCancelled
     case frameAcknowledgementRejected
     case frameDeliveryRejected
     case invalidRequestURL
@@ -43,6 +45,10 @@ struct BridgeProductSchemeAdapter: Sendable {
     ) async {
         guard productAdmission.wasMinted(by: productAdmissionGate) else {
             continuation.finish(throwing: CancellationError())
+            return
+        }
+        guard !Task.isCancelled else {
+            continuation.finish(throwing: BridgeProductSchemeAdapterError.routeCancelled)
             return
         }
         do {
@@ -88,14 +94,15 @@ struct BridgeProductSchemeAdapter: Sendable {
             }
         } catch is CancellationError {
             bridgeProductSchemeAdapterLogger.debug("Product request routing cancelled")
-            continuation.finish(throwing: CancellationError())
+            // Keep pre-response cancellation a typed scheme-task failure.
+            continuation.finish(throwing: BridgeProductSchemeAdapterError.routeCancelled)
         } catch {
             let failureReason = BridgeProductSchemeContainedFailureReason(error: error)
             bridgeProductSchemeAdapterLogger.error(
                 "Product request routing failed reason=\(failureReason.rawValue, privacy: .public)"
             )
             await recordContainedFailure(reason: failureReason)
-            continuation.finish()
+            continuation.finish(throwing: BridgeProductSchemeAdapterError.containedRouteFailure)
         }
     }
 
@@ -758,13 +765,15 @@ struct BridgeProductSchemeAdapter: Sendable {
         case .inactiveSession, .requestInFlight, .resultCapacityExhausted,
             .mutationWatchCapacityExhausted, .revoked, .sequenceConflict,
             .sequenceExhausted, .staleDerivationEpoch, .staleWorker,
-            .streamSequenceConflict:
+            .streamSequenceConflict, .unknownSubscription:
             409
         }
     }
 }
 
 private enum BridgeProductSchemeContainedFailureReason: String {
+    case containedRouteFailure = "contained_route_failure"
+    case routeCancelled = "route_cancelled"
     case frameAcknowledgementRejected = "frame_acknowledgement_rejected"
     case frameDeliveryRejected = "frame_delivery_rejected"
     case invalidRequestURL = "invalid_request_url"
@@ -774,6 +783,10 @@ private enum BridgeProductSchemeContainedFailureReason: String {
 
     init(error: any Error) {
         switch error as? BridgeProductSchemeAdapterError {
+        case .containedRouteFailure:
+            self = .containedRouteFailure
+        case .routeCancelled:
+            self = .routeCancelled
         case .frameAcknowledgementRejected:
             self = .frameAcknowledgementRejected
         case .frameDeliveryRejected:

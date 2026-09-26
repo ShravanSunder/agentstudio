@@ -5,6 +5,28 @@ import Testing
 
 @Suite("Bridge product session lifecycle integration")
 struct BridgeProductSessionLifecycleTests {
+    @Test("cancelling an already retired subscription accepts without a second effect")
+    func unknownSubscriptionCancelIsIdempotent() async throws {
+        let harness = try await BridgeProductSessionLifecycleHarness.opened()
+        let cancelRequest = try bridgeProductLifecycleControlRequest(
+            bridgeProductLifecycleSubscriptionCancelObject(requestSequence: 2, epoch: 7)
+        )
+        let cancelToken = try #require(try await harness.begin(cancelRequest).executionToken)
+        let response = try BridgeProductControlResponse.subscriptionCancelAccepted(
+            correlating: cancelRequest
+        )
+
+        let effect = try await harness.session.completeEscapeControl(
+            token: cancelToken,
+            response: response
+        )
+
+        #expect(effect == .noEffect)
+        #expect(
+            await harness.session.subscriptionSnapshot(subscriptionId: "review-subscription-1") == nil
+        )
+    }
+
     @Test("subscription responses must match exact request identity before mutation")
     func subscriptionResponseCorrelationGuardsMutation() async throws {
         // Arrange

@@ -511,6 +511,12 @@ actor BridgeProductSession {
                 )
             )
         case .execute(let token):
+            if case .subscriptionUpdateBatch(let updateRequest) = request,
+                subscriptionState.snapshot(subscriptionId: updateRequest.subscriptionId) == nil
+            {
+                try? controlReplay.abandon(token: token)
+                return .rejected(.init(reason: .unknownSubscription, request: request))
+            }
             if let streamProgressRejection = streamProgressRejection(for: request) {
                 try? controlReplay.abandon(token: token)
                 return .rejected(

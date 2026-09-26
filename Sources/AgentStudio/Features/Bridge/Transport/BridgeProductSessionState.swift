@@ -17,6 +17,7 @@ struct BridgeProductSessionPendingControl: Sendable {
 enum BridgeProductSessionControlRejection: Equatable, Sendable {
     case inactiveSession
     case invalidRequest
+    case unknownSubscription
     case payloadTooLarge
     case requestInFlight(nextExpectedRequestSequence: Int)
     case resultCapacityExhausted

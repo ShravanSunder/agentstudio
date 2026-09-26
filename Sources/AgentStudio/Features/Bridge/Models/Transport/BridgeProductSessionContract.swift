@@ -58,6 +58,7 @@ enum BridgeProductRequestErrorCode: String, Codable, Equatable, Sendable {
     case payloadTooLarge = "payload_too_large"
     case unsupportedCall = "unsupported_call"
     case unsupportedSubscription = "unsupported_subscription"
+    case unknownSubscription = "unknown_subscription"
     case unsupportedContent = "unsupported_content"
     case `internal`
 }

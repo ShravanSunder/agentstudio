@@ -7,6 +7,33 @@ import Testing
 
 @Suite("Bridge product session control mutation boundary")
 struct BridgeProductSessionControlMutationTests {
+    @Test("an update for a retired subscription is refused before execution")
+    func unknownSubscriptionUpdateIsTypedRefusal() async throws {
+        let interestFixture = try ReviewInterestFixture.make()
+        let harness = try await RawControlSessionHarness.opened()
+        defer { harness.metadataProducer.release() }
+        let requestBytes = try jsonData(
+            reviewUpdateBatchObject(
+                requestSequence: 2,
+                batchIndex: 0,
+                itemId: "review-item-1",
+                lane: "foreground",
+                interestFixture: interestFixture
+            )
+        )
+
+        let admission = await harness.begin(requestBytes)
+
+        guard case .rejected(let rejection) = admission else {
+            Issue.record("Unknown subscription update was admitted")
+            return
+        }
+        #expect(rejection.reason == .unknownSubscription)
+        #expect(
+            await harness.session.subscriptionSnapshot(subscriptionId: reviewSubscriptionId) == nil
+        )
+    }
+
     @Test("raw subscription controls stage then commit once with a barrier")
     func successfulMultiBatchUpdateCommitsOnce() async throws {
         // Arrange

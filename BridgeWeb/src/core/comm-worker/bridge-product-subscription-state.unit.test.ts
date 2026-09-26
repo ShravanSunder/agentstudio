@@ -30,6 +30,65 @@ type ReviewAnnotationOpen = BridgeProductMetadataApplicationOpen<
 const annotationInterestSha256 = 'a'.repeat(64);
 
 describe('Bridge product subscription state', () => {
+	test('unknown-subscription update refusal ends that subscription and permits a new open', async () => {
+		const terminalErrors: unknown[] = [];
+		let openCount = 0;
+		const controlMux = {
+			cancelSubscription: async (): Promise<void> => {},
+			openSubscription: async (): Promise<{
+				readonly interestRevision: number;
+				readonly interestSha256: string;
+			}> => {
+				openCount += 1;
+				return {
+					interestRevision: 0,
+					interestSha256: emptyInterestHash('review.metadata'),
+				};
+			},
+			updateSubscriptionBatch: async (): Promise<never> => {
+				throw new BridgeProductControlRequestError({
+					code: 'unknown_subscription',
+					message: 'Subscription ended.',
+					retryAfterMilliseconds: null,
+					retryable: false,
+				});
+			},
+		};
+		const first = new BridgeProductSubscriptionState({
+			controlMux,
+			createIdentifier: (): string => 'unknown-subscription-update',
+			ensureMetadataStream: async (): Promise<void> => {},
+			initialOptions: { interests: [] },
+			onTerminal: (_subscriptionId, error): void => {
+				terminalErrors.push(error);
+			},
+			protocol: bridgeProductReviewMetadataApplicationProtocol,
+			readWorkerDerivationEpochAtAdmission: (): number => 0,
+			subscriptionId: 'retired-review-subscription',
+		});
+		first.start();
+		await first.update({ interests: [] });
+
+		await expect(
+			first.update({ interests: [{ itemIds: ['item-1'], lane: 'foreground' }] }),
+		).rejects.toMatchObject({ code: 'unknown_subscription' });
+		expect(terminalErrors).toMatchObject([{ code: 'unknown_subscription' }]);
+		const successor = new BridgeProductSubscriptionState({
+			controlMux,
+			createIdentifier: (): string => 'replacement-subscription-update',
+			ensureMetadataStream: async (): Promise<void> => {},
+			initialOptions: { interests: [] },
+			onTerminal: (): void => {},
+			protocol: bridgeProductReviewMetadataApplicationProtocol,
+			readWorkerDerivationEpochAtAdmission: (): number => 0,
+			subscriptionId: 'replacement-review-subscription',
+		});
+		successor.start();
+		await successor.update({ interests: [] });
+		expect(openCount).toBe(2);
+		successor.fail(new Error('Test cleanup.'));
+	});
+
 	test('reconciles an older subscription against the current surface epoch without retagging its admission', async () => {
 		// Arrange: an annotation subscription opens before its surface metadata
 		// advances the shared epoch, as in the real four-subscription startup.

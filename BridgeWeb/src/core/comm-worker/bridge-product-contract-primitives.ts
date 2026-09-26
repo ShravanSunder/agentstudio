@@ -128,6 +128,7 @@ export const bridgeProductRequestErrorCodeSchema = z.enum([
 	'payload_too_large',
 	'unsupported_call',
 	'unsupported_subscription',
+	'unknown_subscription',
 	'unsupported_content',
 	'internal',
 ]);
