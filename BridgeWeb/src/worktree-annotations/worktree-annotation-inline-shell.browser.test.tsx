@@ -160,11 +160,7 @@ describe('worktree annotation inline shell', () => {
 			await userEvent.unhover(collapseButton);
 		});
 		await settleThreadMotion(historyPanel, 'Expected thread collapse motion to settle.');
-		await settleBrowserCondition(
-			(): boolean => !document.body.textContent?.includes('Root message.'),
-			'Expected thread collapse motion to settle.',
-			30,
-		);
+		await expect.element(rendered.getByText('Root message.')).not.toBeInTheDocument();
 		await expect.element(visibleLatestMessage).toBeVisible();
 		expect(followingDiffRow.getBoundingClientRect().top).toBeCloseTo(followingDiffRowTop, 1);
 	});
@@ -304,10 +300,9 @@ describe('worktree annotation inline shell', () => {
 			await userEvent.unhover(expandButton);
 		});
 		const historyPanel = rendered.getByTestId('worktree-annotation-thread-history').element();
-		await settleBrowserCondition(
-			(): boolean => !historyPanel.hasAttribute('data-starting-style'),
-			'Expected grouped history entrance to start.',
-		);
+		await expect
+			.element(rendered.getByTestId('worktree-annotation-thread-history'))
+			.not.toHaveAttribute('data-starting-style');
 		const historyGroup = rendered.getByTestId('worktree-annotation-thread-history-group').element();
 		expect(
 			historyGroup.querySelectorAll('[data-testid="worktree-annotation-message"]'),
@@ -384,12 +379,8 @@ describe('worktree annotation inline shell', () => {
 		document.body.append(externalFocusTarget);
 		await act(async (): Promise<void> => {
 			externalFocusTarget.focus();
-			await new Promise<void>((resolve): void => {
-				requestAnimationFrame((): void => {
-					requestAnimationFrame((): void => resolve());
-				});
-			});
 		});
+		expect(document.activeElement).toBe(externalFocusTarget);
 		expect(
 			rendered
 				.getByTestId('worktree-annotation-thread')
@@ -404,11 +395,7 @@ describe('worktree annotation inline shell', () => {
 			rendered.getByTestId('worktree-annotation-thread-history').element(),
 			'Expected Collapse transition to settle.',
 		);
-		await settleBrowserCondition(
-			(): boolean => !document.body.textContent?.includes('Root message.'),
-			'Expected Collapse to restore compact presentation.',
-			30,
-		);
+		await expect.element(rendered.getByText('Root message.')).not.toBeInTheDocument();
 	});
 
 	test('keeps permanent local Edit and outlined thread actions at their exact owners', async () => {
@@ -726,18 +713,3 @@ const locatedContext: WorktreeAnnotationThreadContext = {
 	subject: annotationSubject,
 	threadId,
 };
-
-async function settleBrowserCondition(
-	predicate: () => boolean,
-	failureMessage: string,
-	remainingFrames: number = 10,
-): Promise<void> {
-	await act(async (): Promise<void> => {
-		await new Promise<void>((resolve): void => {
-			requestAnimationFrame((): void => resolve());
-		});
-	});
-	if (predicate()) return;
-	if (remainingFrames <= 0) throw new Error(failureMessage);
-	await settleBrowserCondition(predicate, failureMessage, remainingFrames - 1);
-}
