@@ -9,10 +9,8 @@ export function topologyRectCenterY(rect: TopologyRect): number {
   return rect.top + rect.height / 2;
 }
 
-/** The mainline ends at the last chapter glass's vertical center. */
+/** The rail's reveal ends at the DOM-declared terminal target's center. */
 export function topologyEndY(page: TopologyPageMeasurement): number {
-  const lastGlass = page.anchors
-    .toReversed()
-    .find((anchor) => anchor.surface !== undefined)?.surface;
-  return lastGlass === undefined ? page.height - topologyRowUnit : topologyRectCenterY(lastGlass);
+  const target = page.anchors.find((anchor) => anchor.terminalTarget)?.surface;
+  return target === undefined ? page.height - topologyRowUnit : topologyRectCenterY(target);
 }

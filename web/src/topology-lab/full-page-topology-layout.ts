@@ -9,6 +9,7 @@ import {
   railStepLineTargetAttribute,
   railSurfaceTargetAttribute,
   railTargetEdgeAttribute,
+  railTerminalTargetAttribute,
 } from "../chapters/chapter-dom-contract";
 import {
   composeFullPageTopology,
@@ -116,6 +117,7 @@ function measureAnchors(artwork: SVGSVGElement): readonly TopologyAnchorMeasurem
       rect: measure(anchor),
       surface: surface === undefined ? undefined : measure(surface),
       targetEdge: declaredEdge === "top" || declaredEdge === "left" ? declaredEdge : undefined,
+      terminalTarget: surface?.hasAttribute(railTerminalTargetAttribute) === true,
       media: media === undefined ? undefined : measure(media),
       stepLine: stepLine === undefined ? undefined : measure(stepLine),
       copyBlock: media === undefined ? undefined : measure(findCopyBlock(anchor, media)),
@@ -337,6 +339,7 @@ export function layoutFullPageTopology(artwork: SVGSVGElement): boolean {
     if (group === undefined) {
       continue;
     }
+    group.toggleAttribute("data-topology-terminal-route", route.terminal === true);
     for (const path of group.querySelectorAll<SVGPathElement>("[data-route]")) {
       setAttributeIfChanged(path, "d", route.pathData);
       setAttributeIfChanged(

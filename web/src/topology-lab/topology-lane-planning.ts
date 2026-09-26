@@ -32,14 +32,13 @@ export interface WorktreeLane {
 export interface LanePlan {
   readonly lanes: readonly WorktreeLane[];
   readonly reserved: ReadonlyMap<number, Omit<TopologyRowDot, "row" | "y">>;
-  readonly terminalMerge: boolean;
 }
 
 /**
  * Worktree lanes open as a one-column staircase (lane k forks from lane k-1 on
  * consecutive rows) starting at `openRow`, in the gutter beside the hero copy,
- * and close in reverse into the final row. A lane count that cannot leave one
- * free row after the last attach returns undefined; composition retries with
+ * and close in reverse below the last glass. A lane count that cannot leave
+ * free rows after the last glass returns undefined; composition retries with
  * fewer columns rather than routing a branch across already-merged lanes.
  */
 export function planWorktreeLanes(props: {
@@ -52,7 +51,7 @@ export function planWorktreeLanes(props: {
 }): LanePlan | undefined {
   const laneCount = props.laneXs.length;
   if (laneCount === 0) {
-    return { lanes: [], reserved: new Map(), terminalMerge: false };
+    return { lanes: [], reserved: new Map() };
   }
   const openRow = props.openRow;
   const finalMergeStart = props.endRow - laneCount + 1;
@@ -101,7 +100,7 @@ export function planWorktreeLanes(props: {
       incomingAccent: lane.accent,
     });
   }
-  return { lanes, reserved, terminalMerge: true };
+  return { lanes, reserved };
 }
 
 /** Wide hero lanes fork from the middle of the copy, then reach the frame. */
@@ -129,9 +128,11 @@ export function heroLaneOpenRow(props: {
   const bandTop = heroTarget.top + Math.min(topologyAttachBandInset, heroTarget.height / 2);
   const bandStartRow = rowYs.findIndex((rowY) => rowY >= bandTop);
   const latestTravelOpenRow = bandStartRow - laneCount - topologyHeroLaneMaximumTravel;
+  const latestOpenForMinimumTravel = bandStartRow - laneCount - topologyHeroLaneMinimumTravel;
   // The visible outer lane opens after the inner lanes. Keep that outer fork
   // near the copy's middle without shortening its run into the hero branch.
-  return Math.max(heroRow + 1, middleRow - (laneCount - 1), latestTravelOpenRow);
+  const preferredOpenRow = Math.max(heroRow + 1, middleRow - (laneCount - 1), latestTravelOpenRow);
+  return Math.max(heroRow + 1, Math.min(preferredOpenRow, latestOpenForMinimumTravel));
 }
 
 export function worktreePath(lane: WorktreeLane, rowYs: readonly number[]): string {

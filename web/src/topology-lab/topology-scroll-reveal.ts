@@ -254,10 +254,18 @@ export function initializeTopologyScrollReveal(
     for (const node of revealNodes) {
       const revealed = Number(node.dataset["topologyNodeProgress"]) <= revealProgress + 1e-6;
       node.toggleAttribute(topologyNodeRevealedAttribute, revealed);
-      if (revealed && node.hasAttribute("data-topology-terminal") && !endReachedDispatched) {
-        endReachedDispatched = true;
-        artwork.ownerDocument.dispatchEvent(new Event("topology-end-reached"));
-      }
+    }
+    const terminalPath = artwork.querySelector<SVGPathElement>(
+      '[data-topology-terminal-route] [data-topology-path-role="core"]',
+    );
+    if (
+      !endReachedDispatched &&
+      terminalPath !== null &&
+      revealProgress >= Number(terminalPath.dataset["topologyPathEnd"]) - 1e-6
+    ) {
+      endReachedDispatched = true;
+      artwork.setAttribute("data-topology-end-reached", "");
+      artwork.ownerDocument.dispatchEvent(new Event("topology-end-reached"));
     }
     updateCurrentNodes(revealProgress, !reducedMotionQuery.matches);
   };

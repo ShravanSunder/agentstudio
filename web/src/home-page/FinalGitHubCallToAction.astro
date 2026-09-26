@@ -1,6 +1,7 @@
 ---
 import appLogo from "@/assets/brand/app-logo-transparent.svg";
 import { marketingCopy } from "@/marketing-copy";
+import { railAnchorAttribute, railSurfaceTargetAttribute, railTargetEdgeAttribute, railTerminalTargetAttribute } from "@/chapters/chapter-dom-contract";
 
 import InstallCommand from "./InstallCommand.astro";
 
@@ -30,6 +31,7 @@ import InstallCommand from "./InstallCommand.astro";
   <div class="mt-4 flex w-full max-w-[560px] flex-col items-stretch gap-3 text-left">
     <a
       class="final-star-button relative mx-auto inline-flex min-h-12 items-center justify-center rounded-xl px-6 font-semibold"
+      {...{ [railAnchorAttribute]: "final-cta", [railSurfaceTargetAttribute]: "final-cta", [railTargetEdgeAttribute]: "left", [railTerminalTargetAttribute]: "" }}
       data-final-star-button
       href={marketingCopy.githubUrl}
       target="_blank"
@@ -54,6 +56,9 @@ import InstallCommand from "./InstallCommand.astro";
       starButton.setAttribute("data-pulsed", "");
     };
     document.addEventListener("topology-end-reached", markPulse, { once: true });
+    if (document.querySelector("[data-full-page-topology][data-topology-end-reached]") !== null) {
+      markPulse();
+    }
   }
 </script>
 

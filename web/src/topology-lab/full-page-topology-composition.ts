@@ -27,6 +27,7 @@ import {
   heroLaneOpenRow,
   mainlineOwnerId,
   planWorktreeLanes,
+  topologyHeroLaneMinimumTravel,
   worktreePath,
   type LanePlan,
 } from "./topology-lane-planning";
@@ -60,6 +61,8 @@ export interface TopologyAnchorMeasurement {
   readonly surface: TopologyRect | undefined;
   /** Surface-declared preferred edge on wide layouts; stacked layouts enter the top. */
   readonly targetEdge?: TopologyTargetEdge | undefined;
+  /** A DOM-declared final target receives a branch with no endpoint dot. */
+  readonly terminalTarget?: boolean;
   /** `data-rail-media-target`: the stage inside the glass. */
   readonly media: TopologyRect | undefined;
   /** `data-rail-step-line-target`: the line's start before its first dot. */
@@ -104,6 +107,8 @@ export interface TopologyRoute {
   readonly targetPoint: { readonly x: number; readonly y: number } | undefined;
   /** Attach branches only: the accent of the lane the port leaves, where its gradient starts. */
   readonly sourceAccent: TopologyAccent | undefined;
+  /** The reveal fires the final CTA event when this branch reaches its target. */
+  readonly terminal?: boolean;
 }
 
 export type TopologyDotKind = "chapter" | "commit" | "fork" | "merge" | "end";
@@ -161,14 +166,26 @@ export function composeFullPageTopology(
           : (anchor.surface?.left ?? anchor.rect.left),
     ),
   );
+  const terminalAnchor = page.anchors.find(
+    (anchor) => anchor.terminalTarget && anchor.surface !== undefined,
+  );
   const { rowYs, anchorRows } = measureTopologyRows({
     anchorYs: page.anchors.map((anchor) => anchor.lineY ?? topologyRectCenterY(anchor.rect)),
-    forcedYs: page.anchors.flatMap((anchor) =>
-      anchor.stepLine === undefined ? [] : [topologyRectCenterY(anchor.stepLine)],
-    ),
+    forcedYs: [
+      ...page.anchors.flatMap((anchor) =>
+        anchor.stepLine === undefined ? [] : [topologyRectCenterY(anchor.stepLine)],
+      ),
+      ...(terminalAnchor?.surface === undefined ? [] : [terminalAnchor.surface.top - 16]),
+    ],
     endY: topologyEndY(page),
   });
   const finalRow = rowYs.length - 1;
+  const finalMainlineRow = terminalAnchor === undefined ? finalRow : Math.max(finalRow - 1, 0);
+  const closingEndRow = terminalAnchor === undefined ? finalMainlineRow : finalMainlineRow - 1;
+  const lastChapterGlass = page.anchors.filter((anchor) => !anchor.terminalTarget).at(-1)?.surface;
+  const lastGlassBottom =
+    lastChapterGlass === undefined ? 0 : lastChapterGlass.top + lastChapterGlass.height;
+  const lastGlassRow = rowYs.findLastIndex((rowY) => rowY <= lastGlassBottom);
   const firstAnchor = page.anchors[0];
 
   // Fewer lanes when the page has too few rows to open and close them all.
@@ -191,9 +208,15 @@ export function composeFullPageTopology(
         heroTarget: firstAnchor?.surface,
         laneCount: columns.laneXs.length,
       }),
-      endRow: finalRow,
-      lastAttachRow: anchorRows.at(-1) ?? 0,
+      endRow: closingEndRow,
+      lastAttachRow: terminalAnchor === undefined ? (anchorRows.at(-1) ?? 0) : lastGlassRow,
     });
+    const heroTop = firstAnchor?.surface?.top;
+    const heroForkRow = heroTop === undefined ? -1 : rowYs.findLastIndex((rowY) => rowY < heroTop);
+    const outerForkRow = lanePlan?.lanes.at(-1)?.forkRow;
+    if (outerForkRow !== undefined && heroForkRow - outerForkRow < topologyHeroLaneMinimumTravel) {
+      lanePlan = undefined;
+    }
     if (lanePlan !== undefined || columns.laneXs.length === 0) {
       break;
     }
@@ -208,6 +231,7 @@ export function composeFullPageTopology(
 
   const reserved = new Map<number, Omit<TopologyRowDot, "row" | "y">>();
   for (const [index, anchor] of page.anchors.entries()) {
+    if (anchor.terminalTarget) continue;
     const row = anchorRows[index];
     if (row !== undefined) {
       reserved.set(row, {
@@ -224,20 +248,14 @@ export function composeFullPageTopology(
       reserved.set(row, dot);
     }
   }
-  if (!reserved.has(finalRow)) {
-    reserved.set(finalRow, {
+  if (!reserved.has(finalMainlineRow)) {
+    reserved.set(finalMainlineRow, {
       x: columns.mainlineX,
       ownerId: mainlineOwnerId,
       accent: "main",
-      kind: "end",
+      kind: terminalAnchor === undefined ? "end" : "fork",
       anchorId: undefined,
     });
-  }
-  if (lanePlan?.terminalMerge === true) {
-    const finalMerge = lanePlan.reserved.get(finalRow);
-    if (finalMerge !== undefined) {
-      reserved.set(finalRow, { ...finalMerge, terminal: true });
-    }
   }
 
   const attachRoutes = planAttachRoutes({
@@ -248,6 +266,8 @@ export function composeFullPageTopology(
     reserved,
     mainlineX: columns.mainlineX,
     outermostLane,
+    columnUnit: columns.columnUnit,
+    finalMainlineRow,
   });
 
   const worktrees: TopologyRowWorktree[] = lanes.map((lane) => ({
@@ -258,12 +278,12 @@ export function composeFullPageTopology(
   }));
   const owners = assignTopologyRowOwners({
     reservedRows: new Set(reserved.keys()),
-    rowCount: rowYs.length,
+    rowCount: finalMainlineRow + 1,
     worktrees,
   });
   const ownerByRow = new Map(owners.map((owner) => [owner.row, owner.ownerId]));
   const laneById = new Map(lanes.map((lane) => [lane.id, lane]));
-  const rows = rowYs.map((y, row): TopologyRowDot => {
+  const rows = rowYs.slice(0, finalMainlineRow + 1).map((y, row): TopologyRowDot => {
     const reservedDot = reserved.get(row);
     if (reservedDot !== undefined) {
       return { row, y, ...reservedDot };
@@ -312,6 +332,6 @@ export function composeFullPageTopology(
     rowYs,
     rows,
     routes: [...worktreeRoutes, ...attachRoutes],
-    mainlinePath: `M ${columns.mainlineX} 0 L ${columns.mainlineX} ${rowYs.at(-1) ?? 0}`,
+    mainlinePath: `M ${columns.mainlineX} 0 L ${columns.mainlineX} ${rowYs[finalMainlineRow] ?? 0}`,
   };
 }

@@ -26,26 +26,29 @@ describe("where the rail ends on the home page", () => {
     expect(observation.animationName).toBe("final-star-pulse");
     expect(observation.reducedMotionAnimationName).toBe("none");
   });
-  it("ends at the final glass center with no path below the terminal node", async () => {
+  it("ends at the Star button after the lanes close below the final glass", async () => {
     const observations = await commands.verifyTopologyEnd(
       inject("siteHeaderBrowserTestUrl"),
       [390, 1280, 1920],
     );
     for (const observation of observations) {
-      expect(observation.endNodeY, String(observation.width)).toBeCloseTo(
-        observation.lastGlassCenterY,
+      expect(observation.branchEndX, String(observation.width)).toBeCloseTo(
+        observation.buttonLeft,
         0,
       );
-      expect(observation.lowestRailY).toBeLessThanOrEqual(observation.endNodeY + 0.01);
-      expect(observation.ctaEndMarkers).toBe(0);
-      expect(observation.terminalHalo).toBe(true);
-      expect(observation.haloAnimationCount).toBe("1");
-      if (observation.laneCount > 0) {
-        expect(observation.endKind).toBe("merge");
-        expect(observation.mergeRing).toBe(true);
-        expect(observation.mergeCore).toBe(true);
-      } else {
-        expect(observation.endKind).toBe("end");
+      expect(observation.branchEndY, String(observation.width)).toBeCloseTo(
+        observation.buttonCenterY,
+        0,
+      );
+      expect(observation.lowestRailY).toBeLessThanOrEqual(observation.buttonCenterY + 0.01);
+      expect(observation.terminalNodeCount).toBe(0);
+      expect(observation.terminalRouteCount).toBe(1);
+      expect(observation.branchViewportMaxFraction).toBeLessThan(0.75);
+      expect(observation.minimumCopyClearance).toBeGreaterThanOrEqual(12);
+      expect(observation.laneMergeYs).toHaveLength(observation.laneCount);
+      for (const mergeY of observation.laneMergeYs) {
+        expect(mergeY).toBeGreaterThan(observation.lastGlassBottomY);
+        expect(mergeY).toBeLessThan(observation.branchStartY);
       }
     }
   });

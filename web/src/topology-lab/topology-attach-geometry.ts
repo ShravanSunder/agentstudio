@@ -61,11 +61,23 @@ interface AttachRoutePlanProps {
   readonly reserved: Map<number, Omit<TopologyRowDot, "row" | "y">>;
   readonly mainlineX: number;
   readonly outermostLane: WorktreeLane | undefined;
+  readonly columnUnit: number;
+  readonly finalMainlineRow: number;
 }
 
 /** Choose one fork and attach path for every measured target. */
 export function planAttachRoutes(props: AttachRoutePlanProps): TopologyRoute[] {
-  const { page, stacked, rowYs, anchorRows, reserved, mainlineX, outermostLane } = props;
+  const {
+    page,
+    stacked,
+    rowYs,
+    anchorRows,
+    reserved,
+    mainlineX,
+    outermostLane,
+    columnUnit,
+    finalMainlineRow,
+  } = props;
   const attachRoutes: TopologyRoute[] = [];
   for (const [index, anchor] of page.anchors.entries()) {
     const anchorRow = anchorRows[index] ?? 0;
@@ -85,6 +97,32 @@ export function planAttachRoutes(props: AttachRoutePlanProps): TopologyRoute[] {
             accent: outermostLane.accent,
           }
         : { id: mainlineOwnerId, x: mainlineX, column: 0, accent: "main" };
+
+    if (anchor.terminalTarget) {
+      const forkY = rowYs[finalMainlineRow];
+      if (forkY === undefined) continue;
+      const centerY = target.top + target.height / 2;
+      const cornerX = Math.max(mainlineX, target.left - columnUnit);
+      attachRoutes.push({
+        id: `attach-${anchor.id}`,
+        kind: "attach",
+        accent: "port",
+        pathData: [
+          `M ${mainlineX} ${forkY}`,
+          ...localMergePath(target.left, cornerX, forkY, centerY),
+        ].join(" "),
+        parentColumn: 0,
+        column: 1,
+        startY: forkY,
+        endY: centerY,
+        anchorId: anchor.id,
+        targetEdge: "left",
+        targetPoint: { x: target.left, y: centerY },
+        sourceAccent: "main",
+        terminal: true,
+      });
+      continue;
+    }
 
     if (anchor.stepLine !== undefined) {
       const centerY = anchor.stepLine.top + anchor.stepLine.height / 2;
