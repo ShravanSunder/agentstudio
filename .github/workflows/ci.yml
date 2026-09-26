@@ -92,6 +92,11 @@ jobs:
       - name: Install lint tools
         run: bash scripts/install-ci-lint-tools.sh
 
+      - name: Verify lint tools on PATH
+        run: |
+          swift-format --version
+          swiftlint version
+
       - name: Restore architecture lint build cache
         id: architecture-cache-restore
         uses: actions/cache/restore@v4
@@ -326,6 +331,12 @@ jobs:
 
       - name: Install lint tools for Swift test contracts
         run: bash scripts/install-ci-lint-tools.sh
+
+      - name: Verify lint tools on PATH
+        run: |
+          test "$(command -v swiftlint)" = "$(mise where swiftlint@0.65.1)/swiftlint"
+          swift-format --version
+          swiftlint version
 
       # --- Submodule SHAs for cache keys ---
 

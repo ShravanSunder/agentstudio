@@ -53,6 +53,7 @@ struct CITopologyWorkflowTests {
         #expect(!qualityJob.contains("swift-actions/setup-swift"))
         #expect(qualityJob.contains("name: Install Linux CI prerequisites"))
         #expect(qualityJob.contains("name: Trust checkout for Git"))
+        #expect(qualityJob.contains("name: Verify lint tools on PATH"))
         #expect(qualityJob.contains("shell: bash"))
         #expect(marketingJob.contains("runs-on: ubuntu-24.04"))
         #expect(bridgeWebJob.contains("runs-on: macos-26"))
@@ -73,11 +74,13 @@ struct CITopologyWorkflowTests {
         #expect(swiftJob.contains("run: mise run lint:release-scripts"))
         #expect(swiftJob.contains("bash scripts/install-ci-lint-tools.sh"))
         #expect(qualityJob.contains("bash scripts/install-ci-lint-tools.sh"))
+        #expect(swiftJob.contains("test \"$(command -v swiftlint)\" = \"$(mise where swiftlint@0.65.1)/swiftlint\""))
         #expect(lintInstaller.contains("--branch 603.0.0"))
         #expect(lintInstaller.contains("mise install swiftlint@0.65.1"))
         #expect(lintInstaller.contains("swiftlint_linux_${swiftlint_arch}.zip"))
         #expect(lintInstaller.contains("sha256sum --check"))
         #expect(lintInstaller.contains("find /usr/lib -name libsourcekitdInProc.so"))
+        #expect(lintInstaller.contains("echo \"PATH=$tool_bin:$swiftlint_bin:$PATH\" >> \"$GITHUB_ENV\""))
         #expect(lintInstaller.contains("swiftlint\" rules --enabled --config .swiftlint.yml"))
     }
 }

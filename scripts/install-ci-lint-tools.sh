@@ -52,6 +52,9 @@ echo "$tool_bin" >> "$GITHUB_PATH"
 if [[ "$swiftlint_bin" != "$tool_bin" ]]; then
   echo "$swiftlint_bin" >> "$GITHUB_PATH"
 fi
+# mise-action exports PATH through GITHUB_ENV, which otherwise hides GITHUB_PATH
+# additions in later steps. Preserve its toolchain paths and prepend these pins.
+echo "PATH=$tool_bin:$swiftlint_bin:$PATH" >> "$GITHUB_ENV"
 "$tool_bin/swift-format" --version
 "$swiftlint_bin/swiftlint" version
 "$swiftlint_bin/swiftlint" rules --enabled --config .swiftlint.yml
