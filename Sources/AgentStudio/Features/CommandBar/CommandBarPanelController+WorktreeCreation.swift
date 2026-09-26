@@ -2,82 +2,161 @@ import AgentStudioCore
 import AgentStudioInfrastructure
 import Foundation
 
-/// One in-flight fork-eligibility query, owned by the bar session that issued it. A query
-/// from an earlier session never answers, or stands in for, a query of the current one.
+/// One in-flight query belongs to the command bar session that issued it.
 struct InFlightForkEligibilityQuery {
     let rootSessionGeneration: Int
     let token: UUID
     let task: Task<Void, Never>
 }
 
+struct InFlightDefaultStartPointQuery {
+    let rootSessionGeneration: Int
+    let token: UUID
+    let task: Task<Void, Never>
+}
+
 extension CommandBarPanelController {
-    /// Asks the fork-eligibility port about a text-entry level's source once per bar session,
-    /// off the main actor, and records the answer as bar-local state. The row shows Fork
-    /// while pending.
-    func requestForkEligibilityIfNeeded(for level: CommandBarLevel) -> Task<Void, Never>? {
-        guard
-            let query = level.textEntry?.forkEligibilityQuery,
-            let worktreeForkEligibility,
-            state.forkEligibilityBySourceWorktreeId[query.sourceWorktreeId] == nil,
-            currentSessionForkEligibilityQuery(for: query.sourceWorktreeId) == nil
-        else { return nil }
-        let rootSessionGeneration = state.rootSessionGeneration
-        let token = UUIDv7.generate()
-        let queryTask = Task { @MainActor [weak self] in
-            let eligibility = await worktreeForkEligibility.forkEligibility(
-                sourceWorktreePath: query.sourceWorktreePath,
-                destinationDirectory: query.destinationDirectory
-            )
-            guard let self else { return }
-            if self.forkEligibilityQueriesBySourceWorktreeId[query.sourceWorktreeId]?.token == token {
-                self.forkEligibilityQueriesBySourceWorktreeId.removeValue(forKey: query.sourceWorktreeId)
-            }
-            guard self.state.rootSessionGeneration == rootSessionGeneration else { return }
-            self.state.recordForkEligibility(eligibility, forSourceWorktreeId: query.sourceWorktreeId)
+    func requestCreationQueriesIfNeeded(for level: CommandBarLevel) {
+        switch level.creationQuery {
+        case .defaultStartPoint(let repository):
+            requestDefaultStartPointIfNeeded(for: repository)
+        case .forkEligibility(let repository):
+            requestForkPickerEligibilityIfNeeded(for: repository)
+        case .worktreeEligibility(let repository, let worktree):
+            requestForkPickerEligibilityIfNeeded(for: repository, worktrees: [worktree])
+        case nil:
+            break
         }
-        forkEligibilityQueriesBySourceWorktreeId[query.sourceWorktreeId] = InFlightForkEligibilityQuery(
-            rootSessionGeneration: rootSessionGeneration,
-            token: token,
-            task: queryTask
-        )
-        return queryTask
+        if case .some(.defaultStartPoint(let repository)) = level.creationQuery,
+            state.defaultStartPointByRepositoryId[repository.id] != nil
+        {
+            refreshCreationLevel(for: repository)
+        }
+        if case .some(.forkEligibility(let repository)) = level.creationQuery {
+            refreshCreationLevel(for: repository)
+        }
+        if case .some(.worktreeEligibility(let repository, _)) = level.creationQuery {
+            refreshCreationLevel(for: repository)
+        }
     }
 
-    /// A Fork Return that arrived before the eligibility answer waits for it (milliseconds)
-    /// with the bar still open, then re-executes the row with the answer: fork where it is
-    /// available, the clean fallback where it is not. Nothing runs without a query in flight,
-    /// or once the user has left the level the Return was pressed on.
-    func resumeWorktreeCreationAfterForkEligibility(
-        item: CommandBarItem,
-        draft: CommandBarWorktreeCreationDraft,
-        modifier: EnterModifier
-    ) {
-        guard
-            CommandBarWorktreeCreationResolver.resolve(draft: draft, modifier: modifier) == .awaitingForkEligibility,
-            let query = currentSessionForkEligibilityQuery(for: draft.sourceWorktreeId)
+    private func requestDefaultStartPointIfNeeded(for repository: Repo) {
+        let generation = state.rootSessionGeneration
+        guard let defaultStartPointResolver,
+            state.defaultStartPointByRepositoryId[repository.id] == nil,
+            defaultStartPointQueriesByRepositoryId[repository.id]?.rootSessionGeneration != generation
         else { return }
-        let rootSessionGeneration = state.rootSessionGeneration
-        let levelVisitRevision = state.levelVisitRevision
-        pendingWorktreeCreation = Task { @MainActor [weak self] in
-            await query.task.value
-            guard
-                let self,
-                self.state.rootSessionGeneration == rootSessionGeneration,
-                self.state.levelVisitRevision == levelVisitRevision,
-                let eligibility = self.state.forkEligibilityBySourceWorktreeId[draft.sourceWorktreeId]
-            else { return }
-            let answeredItem = item.projected(
-                group: item.group,
-                groupPriority: item.groupPriority,
-                action: .createWorktree(draft.answering(eligibility))
-            )
-            self.executeItem(answeredItem, modifier: modifier)
+        let token = UUIDv7.generate()
+        let task = Task { @MainActor [weak self] in
+            do {
+                let resolution = try await defaultStartPointResolver.resolveDefaultStartPoint(
+                    repositoryPath: repository.repoPath)
+                guard let self, self.state.rootSessionGeneration == generation else { return }
+                if self.defaultStartPointQueriesByRepositoryId[repository.id]?.token == token {
+                    self.defaultStartPointQueriesByRepositoryId.removeValue(forKey: repository.id)
+                }
+                self.state.recordDefaultStartPoint(resolution, forRepositoryId: repository.id)
+                self.refreshCreationLevel(for: repository)
+            } catch {
+                guard let self, self.state.rootSessionGeneration == generation else { return }
+                if self.defaultStartPointQueriesByRepositoryId[repository.id]?.token == token {
+                    self.defaultStartPointQueriesByRepositoryId.removeValue(forKey: repository.id)
+                }
+                self.state.recordDefaultStartPointQueryFailure(forRepositoryId: repository.id)
+                self.refreshCreationLevel(for: repository)
+            }
         }
+        defaultStartPointQueriesByRepositoryId[repository.id] = InFlightDefaultStartPointQuery(
+            rootSessionGeneration: generation,
+            token: token,
+            task: task
+        )
+    }
+
+    private func requestForkPickerEligibilityIfNeeded(for repository: Repo, worktrees: [Worktree]? = nil) {
+        guard let worktreeForkEligibility else { return }
+        let generation = state.rootSessionGeneration
+        for worktree in worktrees ?? repository.worktrees {
+            guard state.forkEligibilityBySourceWorktreeId[worktree.id] == nil,
+                currentSessionForkEligibilityQuery(for: worktree.id) == nil
+            else { continue }
+            let token = UUIDv7.generate()
+            let task = Task { @MainActor [weak self] in
+                let eligibility = await worktreeForkEligibility.forkEligibility(
+                    sourceWorktreePath: worktree.path,
+                    destinationDirectory: repository.repoPath.standardizedFileURL.deletingLastPathComponent()
+                )
+                guard let self else { return }
+                if self.forkEligibilityQueriesBySourceWorktreeId[worktree.id]?.token == token {
+                    self.forkEligibilityQueriesBySourceWorktreeId.removeValue(forKey: worktree.id)
+                }
+                guard self.state.rootSessionGeneration == generation else { return }
+                self.state.recordForkEligibility(eligibility, forSourceWorktreeId: worktree.id)
+                self.refreshCreationLevel(for: repository)
+            }
+            forkEligibilityQueriesBySourceWorktreeId[worktree.id] = InFlightForkEligibilityQuery(
+                rootSessionGeneration: generation,
+                token: token,
+                task: task
+            )
+        }
+    }
+
+    private func refreshCreationLevel(for repository: Repo) {
+        guard let level = state.currentLevel else { return }
+        switch level.creationQuery {
+        case .defaultStartPoint(let queriedRepository) where queriedRepository.id == repository.id:
+            state.replaceCurrentLevel(
+                CommandBarDataSource.worktreeCreationMenuLevel(
+                    repository: repository,
+                    defaultStartPoint: state.defaultStartPointByRepositoryId[repository.id],
+                    defaultQueryFailed: state.defaultStartPointQueryFailures.contains(repository.id)
+                ))
+        case .forkEligibility(let queriedRepository) where queriedRepository.id == repository.id:
+            let eligibility = state.forkEligibilityBySourceWorktreeId
+            let focusedWorktreeId = focusedWorktreeId(in: repository)
+            state.replaceCurrentLevel(
+                CommandBarDataSource.worktreeCreationForkPickerLevel(
+                    repository: repository,
+                    eligibilityByWorktreeId: eligibility,
+                    focusedWorktreeId: focusedWorktreeId
+                ))
+        case .worktreeEligibility(let queriedRepository, let worktree) where queriedRepository.id == repository.id:
+            let presence = CommandBarDataSource.buildWorktreePresence(
+                worktree: worktree,
+                repo: repository,
+                store: store
+            )
+            state.replaceCurrentLevel(
+                CommandBarDataSource.buildWorktreeActionsLevel(
+                    worktree: worktree,
+                    presence: presence,
+                    canOpenInCurrentTab: store.tabLayoutAtom.activeTabId != nil,
+                    dispatcher: dispatcher,
+                    repository: repository,
+                    forkEligibility: state.forkEligibilityBySourceWorktreeId[worktree.id]
+                ))
+        default:
+            break
+        }
+    }
+
+    private func focusedWorktreeId(in repository: Repo) -> UUID? {
+        let workspaceTab = WorkspaceTabLayoutDerived(
+            shellAtom: store.tabShellAtom,
+            arrangementAtom: store.tabArrangementAtom
+        )
+        let focusedPane = atom(\.workspaceFocusedPane).resolve(
+            workspaceTab: workspaceTab,
+            workspacePane: store.paneAtom,
+            requestedOwner: atom(\.workspaceFocusOwner).owner
+        )
+        guard focusedPane?.repoId == repository.id else { return nil }
+        return focusedPane?.worktreeId
     }
 
     private func currentSessionForkEligibilityQuery(for sourceWorktreeId: UUID) -> InFlightForkEligibilityQuery? {
-        guard
-            let query = forkEligibilityQueriesBySourceWorktreeId[sourceWorktreeId],
+        guard let query = forkEligibilityQueriesBySourceWorktreeId[sourceWorktreeId],
             query.rootSessionGeneration == state.rootSessionGeneration
         else { return nil }
         return query

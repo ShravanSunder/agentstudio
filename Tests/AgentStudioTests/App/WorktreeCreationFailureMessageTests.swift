@@ -18,7 +18,12 @@ struct WorktreeCreationFailureMessageTests {
     @Test(
         "each failure reads as one sentence under a single title",
         arguments: [
-            MessageCase(failure: .sourceUnavailable, detail: "The source worktree is no longer available."),
+            MessageCase(
+                failure: .sourceUnavailable, detail: "The repository or source worktree is no longer available."),
+            MessageCase(
+                failure: .noDefaultBranch,
+                detail: "This repository has no origin/HEAD, local main, or local master branch."
+            ),
             MessageCase(
                 failure: .destinationRejected(.destinationExists(destination)),
                 detail: "/Users/dev/project-dev/repo.topic already exists."

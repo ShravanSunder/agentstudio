@@ -1,5 +1,6 @@
 import AgentStudioCore
 import AgentStudioInfrastructure
+import AgentStudioSharedComponents
 import Foundation
 import SwiftUI
 import os.log
@@ -78,6 +79,8 @@ package final class CommandBarState {
     /// Fork eligibility answers for source worktrees chosen in this session; a missing
     /// entry means the query is still pending.
     private(set) var forkEligibilityBySourceWorktreeId: [UUID: WorktreeForkEligibility] = [:]
+    private(set) var defaultStartPointByRepositoryId: [UUID: WorktreeDefaultStartPoint] = [:]
+    private(set) var defaultStartPointQueryFailures: Set<UUID> = []
 
     // MARK: - Computed — Prefix Parsing
 
@@ -129,7 +132,7 @@ package final class CommandBarState {
 
     var rootScopeLabel: String {
         switch currentScope {
-        case .everything: return "Main"
+        case .everything: return "Home"
         case .quickOpen: return "Quick Open"
         case .commands: return "Commands"
         case .panes: return "Panes"
@@ -145,9 +148,9 @@ package final class CommandBarState {
     var breadcrumbItems: [CommandBarBreadcrumbItem] {
         [
             CommandBarBreadcrumbItem(
-                label: rootScopeLabel,
+                label: currentScope == .everything ? "" : rootScopeLabel,
                 accessibilityLabel: rootScopeLabel,
-                icon: nil
+                icon: currentScope == .everything ? .home : nil
             )
         ]
             + navigationStack.map { level in
@@ -241,6 +244,8 @@ package final class CommandBarState {
         pinnedScope = activeScope
         navigationStack = []
         forkEligibilityBySourceWorktreeId = [:]
+        defaultStartPointByRepositoryId = [:]
+        defaultStartPointQueryFailures = []
         selectedIndex = 0
         isVisible = true
         stateLogger.debug("Command bar shown with prefix: \(prefix ?? "(none)")")
@@ -255,6 +260,8 @@ package final class CommandBarState {
         defaultRootScope = .everything
         navigationStack = []
         forkEligibilityBySourceWorktreeId = [:]
+        defaultStartPointByRepositoryId = [:]
+        defaultStartPointQueryFailures = []
         selectedIndex = 0
         stateLogger.debug("Command bar dismissed")
     }
@@ -263,6 +270,9 @@ package final class CommandBarState {
     func switchPrefix(_ prefix: String) {
         rootSessionGeneration += 1
         navigationStack = []
+        forkEligibilityBySourceWorktreeId = [:]
+        defaultStartPointByRepositoryId = [:]
+        defaultStartPointQueryFailures = []
         defaultRootScope = .everything
         rawInput = prefix.isEmpty ? "" : prefix + " "
         pinnedScope = activeScope
@@ -293,6 +303,20 @@ package final class CommandBarState {
 
     func recordForkEligibility(_ eligibility: WorktreeForkEligibility, forSourceWorktreeId sourceWorktreeId: UUID) {
         forkEligibilityBySourceWorktreeId[sourceWorktreeId] = eligibility
+    }
+
+    func recordDefaultStartPoint(_ startPoint: WorktreeDefaultStartPoint, forRepositoryId repositoryId: UUID) {
+        defaultStartPointByRepositoryId[repositoryId] = startPoint
+        defaultStartPointQueryFailures.remove(repositoryId)
+    }
+
+    func recordDefaultStartPointQueryFailure(forRepositoryId repositoryId: UUID) {
+        defaultStartPointQueryFailures.insert(repositoryId)
+    }
+
+    func replaceCurrentLevel(_ level: CommandBarLevel) {
+        guard !navigationStack.isEmpty, currentLevel?.id == level.id else { return }
+        navigationStack[navigationStack.count - 1] = level
     }
 
     /// Push a nested level onto the navigation stack.

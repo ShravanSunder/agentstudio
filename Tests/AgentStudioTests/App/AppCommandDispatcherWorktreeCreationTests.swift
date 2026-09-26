@@ -12,7 +12,7 @@ struct AppCommandDispatcherWorktreeCreationTests {
     @Test("creation request reaches the shell owner after the targeted preflight for its command")
     func creationRequestRoutesToShellOwner() async throws {
         let shellOwner = RecordingWorktreeCreationShellOwner(outcome: .accepted(operationId: nil))
-        let request = try Self.makeRequest(kind: .cleanCheckout)
+        let request = try Self.makeRequest(kind: .fromDefault)
 
         let accepted = try await withIsolatedCommandDispatcher(
             configure: { AppCommandDispatcher.shared.appCommandRouter = shellOwner },
@@ -22,7 +22,7 @@ struct AppCommandDispatcherWorktreeCreationTests {
         #expect(accepted)
         #expect(
             shellOwner.interactions == [
-                .targetedCapability(command: .newWorktree, target: request.sourceWorktreeId),
+                .targetedCapability(command: .newWorktreeFromDefault, target: request.targetId),
                 .creation(request),
             ])
     }
@@ -43,7 +43,7 @@ struct AppCommandDispatcherWorktreeCreationTests {
         #expect(!accepted)
         #expect(
             shellOwner.interactions == [
-                .targetedCapability(command: .forkWorktree, target: request.sourceWorktreeId)
+                .targetedCapability(command: .forkWorktree, target: request.targetId)
             ])
     }
 
@@ -63,7 +63,7 @@ struct AppCommandDispatcherWorktreeCreationTests {
     private static func makeRequest(kind: WorktreeCreationKind) throws -> WorktreeCreationRequest {
         WorktreeCreationRequest(
             kind: kind,
-            sourceWorktreeId: UUIDv7.generate(),
+            targetId: UUIDv7.generate(),
             branchName: try WorktreeBranchName.validated("feature/dispatch").get()
         )
     }

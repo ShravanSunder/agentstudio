@@ -208,7 +208,7 @@ final class AppCommandDispatcher: AppCommandDispatching {
     @discardableResult
     func dispatchWorktreeCreation(_ request: WorktreeCreationRequest) -> Bool {
         let command = request.kind.command
-        guard canDispatch(command, target: request.sourceWorktreeId, targetType: .worktree) else {
+        guard canDispatch(command, target: request.targetId, targetType: request.targetType) else {
             Self.logger.warning("Worktree creation dispatch rejected: \(command.rawValue, privacy: .public)")
             return false
         }

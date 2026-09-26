@@ -6,6 +6,7 @@ import Foundation
 /// the workspace window; nothing here is retried.
 enum WorktreeCreationFailure: Error, Equatable, Sendable {
     case sourceUnavailable
+    case noDefaultBranch
     case destinationRejected(WorktreeDestinationRejection)
     case alreadyInProgress(destination: URL)
     case gitFailure(GitDataPlaneError)
@@ -22,7 +23,7 @@ extension WorktreeCreationFailure {
         switch self {
         case .forkFailure:
             WorktreeCreationFailureMessage(title: "Worktree Fork not created", detail: detail)
-        case .sourceUnavailable, .destinationRejected, .alreadyInProgress, .gitFailure:
+        case .sourceUnavailable, .noDefaultBranch, .destinationRejected, .alreadyInProgress, .gitFailure:
             WorktreeCreationFailureMessage(title: "Worktree not created", detail: detail)
         }
     }
@@ -30,7 +31,9 @@ extension WorktreeCreationFailure {
     private var detail: String {
         switch self {
         case .sourceUnavailable:
-            "The source worktree is no longer available."
+            "The repository or source worktree is no longer available."
+        case .noDefaultBranch:
+            "This repository has no origin/HEAD, local main, or local master branch."
         case .destinationRejected(.emptyFolderSlug):
             "The branch name has no characters that can name a folder."
         case .destinationRejected(.undiscoverableDestination(let destination)):

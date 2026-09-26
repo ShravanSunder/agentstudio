@@ -16,7 +16,7 @@ struct WorktreeCreationCoordinatorTests {
         installTestCoreAtomsIfNeeded()
     }
 
-    @Test("success holds, creates from the source HEAD, releases, then rescans the owning watched folder")
+    @Test("From Default holds, creates from the resolved reference, releases, then rescans")
     func successOrdersHoldCreateReleaseRefresh() async throws {
         let fixture = try Self.makeFixture()
         let ledger = CreationLedger()
@@ -31,17 +31,69 @@ struct WorktreeCreationCoordinatorTests {
         #expect(
             await ledger.events == [
                 .hold(destination),
-                .headCommit(fixture.worktree.path),
                 .create(
                     GitCreateWorktreeRequest(
                         repositoryPath: fixture.repository.repoPath,
                         destinationPath: destination,
-                        mode: .newBranch(name: "feat/ledger", startPoint: .named(FakeWorktreeCreationGitClient.head))
+                        mode: .newBranch(name: "feat/ledger", startPoint: .named("refs/remotes/origin/main"))
                     )),
                 .release,
                 .refresh(fixture.watchedPath.id),
             ])
         #expect(presented.failures.isEmpty)
+    }
+
+    @Test("a local main reference is passed to the SDK when there is no origin default")
+    func localMainStartPoint() async throws {
+        let fixture = try Self.makeFixture()
+        let ledger = CreationLedger()
+        let coordinator = Self.makeCoordinator(
+            fixture: fixture,
+            ledger: ledger,
+            presented: PresentedFailures(),
+            defaultStartPoint: .resolved(displayRef: "main", startPoint: "refs/heads/main")
+        )
+        let outcome = await coordinator.startCreation(try fixture.request(branch: "feat/local-main")).value
+        #expect(
+            outcome
+                == .created(
+                    destination: fixture.watchedRoot.appending(
+                        path: "repo.feat-local-main", directoryHint: .isDirectory
+                    ).standardizedFileURL))
+        #expect(
+            await ledger.events.contains { event in
+                if case .create(let request) = event,
+                    case .newBranch(_, let startPoint) = request.mode
+                {
+                    return startPoint == .named("refs/heads/main")
+                }
+                return false
+            })
+    }
+
+    @Test("no default branch is a typed failure and still releases publication")
+    func noDefaultBranchFails() async throws {
+        let fixture = try Self.makeFixture()
+        let ledger = CreationLedger()
+        let presented = PresentedFailures()
+        let coordinator = Self.makeCoordinator(
+            fixture: fixture,
+            ledger: ledger,
+            presented: presented,
+            defaultStartPoint: .noDefaultBranch
+        )
+        let outcome = await coordinator.startCreation(try fixture.request(branch: "feat/no-default")).value
+        #expect(outcome == .failed(.noDefaultBranch))
+        #expect(presented.failures == [.noDefaultBranch])
+        #expect(
+            await ledger.events == [
+                .hold(
+                    fixture.watchedRoot.appending(
+                        path: "repo.feat-no-default", directoryHint: .isDirectory
+                    ).standardizedFileURL),
+                .release,
+                .refresh(fixture.watchedPath.id),
+            ])
     }
 
     @Test("an SDK failure releases the hold, still rescans the owning folder, and presents the failure")
@@ -148,10 +200,10 @@ struct WorktreeCreationCoordinatorTests {
         let repository: Repo
         let worktree: Worktree
 
-        func request(branch: String, kind: WorktreeCreationKind = .cleanCheckout) throws -> WorktreeCreationRequest {
+        func request(branch: String, kind: WorktreeCreationKind = .fromDefault) throws -> WorktreeCreationRequest {
             WorktreeCreationRequest(
                 kind: kind,
-                sourceWorktreeId: worktree.id,
+                targetId: kind == .fork ? worktree.id : repository.id,
                 branchName: try WorktreeBranchName.validated(branch).get()
             )
         }
@@ -184,12 +236,15 @@ struct WorktreeCreationCoordinatorTests {
         presented: PresentedFailures,
         createError: GitDataPlaneError? = nil,
         forkError: GitWorktreeForkError? = nil,
+        defaultStartPoint: WorktreeDefaultStartPoint = .resolved(
+            displayRef: "origin/main", startPoint: "refs/remotes/origin/main"),
         existingPaths: Set<URL> = [],
         probeThreads: ProbeThreadRecorder = ProbeThreadRecorder()
     ) -> WorktreeCreationCoordinator {
         WorktreeCreationCoordinator(
             topology: fixture.store.repositoryTopologyAtom,
             gitClient: FakeWorktreeCreationGitClient(ledger: ledger, createError: createError, forkError: forkError),
+            defaultStartPointResolver: FakeDefaultStartPointResolver(resolution: defaultStartPoint),
             publication: FakeWorktreePublication(ledger: ledger),
             destinationProbe: WorktreeDestinationProbe(
                 canonicalWatchedRoot: { root in
@@ -208,7 +263,6 @@ struct WorktreeCreationCoordinatorTests {
 
 private enum CreationEvent: Equatable {
     case hold(URL)
-    case headCommit(URL)
     case create(GitCreateWorktreeRequest)
     case fork(GitForkWorktreeRequest)
     case release
@@ -223,21 +277,23 @@ private actor CreationLedger {
     }
 }
 
+private struct FakeDefaultStartPointResolver: WorktreeDefaultStartPointResolving {
+    let resolution: WorktreeDefaultStartPoint
+
+    func resolveDefaultStartPoint(repositoryPath _: URL) async throws(GitDataPlaneError) -> WorktreeDefaultStartPoint {
+        resolution
+    }
+}
+
 @MainActor
 private final class PresentedFailures {
     var failures: [WorktreeCreationFailure] = []
 }
 
 private struct FakeWorktreeCreationGitClient: WorktreeCreationGitClient {
-    static let head = "0123456789abcdef0123456789abcdef01234567"
     let ledger: CreationLedger
     let createError: GitDataPlaneError?
     let forkError: GitWorktreeForkError?
-
-    func headCommit(ofWorktreeAt worktreePath: URL) async throws(GitDataPlaneError) -> String {
-        await ledger.record(.headCommit(worktreePath))
-        return Self.head
-    }
 
     func createWorktree(_ request: GitCreateWorktreeRequest) async throws(GitDataPlaneError) -> GitWorktreeSnapshot {
         await ledger.record(.create(request))

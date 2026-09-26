@@ -5,8 +5,6 @@ import Foundation
 /// The SDK reads and writes worktree creation needs, narrowed so the coordinator can be
 /// proven with a fake and the production path stays the SDK's serial writer lane.
 protocol WorktreeCreationGitClient: Sendable {
-    /// The commit the source worktree has checked out; new branches start here.
-    func headCommit(ofWorktreeAt worktreePath: URL) async throws(GitDataPlaneError) -> String
     func createWorktree(_ request: GitCreateWorktreeRequest) async throws(GitDataPlaneError) -> GitWorktreeSnapshot
     /// Copy-on-write fork of the source's current files at its captured HEAD.
     func forkWorktree(_ request: GitForkWorktreeRequest) async throws(GitWorktreeForkError) -> GitForkWorktreeResult
@@ -28,20 +26,36 @@ struct LibGit2WorktreeCreationGitClient: WorktreeCreationGitClient {
         self.client = client
     }
 
-    func headCommit(ofWorktreeAt worktreePath: URL) async throws(GitDataPlaneError) -> String {
-        let validation = try await client.validateWorktree(GitValidateWorktreeRequest(worktreePath: worktreePath))
-        guard validation.isValid, let headCommit = validation.snapshot?.head?.oid else {
-            throw GitDataPlaneError.headUnavailable
-        }
-        return headCommit
-    }
-
     func createWorktree(_ request: GitCreateWorktreeRequest) async throws(GitDataPlaneError) -> GitWorktreeSnapshot {
         try await client.createWorktree(request)
     }
 
     func forkWorktree(_ request: GitForkWorktreeRequest) async throws(GitWorktreeForkError) -> GitForkWorktreeResult {
         try await client.forkWorktree(request)
+    }
+}
+
+/// Uses the SDK's origin/HEAD resolution, then local main/master branch facts.
+struct SDKWorktreeDefaultStartPointResolver: WorktreeDefaultStartPointResolving {
+    private let client: any AgentStudioGitLocalClient
+
+    init(client: any AgentStudioGitLocalClient = LibGit2AgentStudioGitLocalClient()) {
+        self.client = client
+    }
+
+    @concurrent
+    func resolveDefaultStartPoint(repositoryPath: URL) async throws(GitDataPlaneError) -> WorktreeDefaultStartPoint {
+        if let originHead = try await client.resolveReviewDefaultTarget(for: repositoryPath),
+            case .remoteTracking(let remoteName, _, _) = originHead,
+            remoteName == "origin"
+        {
+            return .resolved(displayRef: originHead.displayName, startPoint: originHead.referenceName)
+        }
+        let branches = try await client.branches(for: repositoryPath)
+        for branchName in ["main", "master"] where branches.contains(where: { $0.name == branchName }) {
+            return .resolved(displayRef: branchName, startPoint: "refs/heads/\(branchName)")
+        }
+        return .noDefaultBranch
     }
 }
 

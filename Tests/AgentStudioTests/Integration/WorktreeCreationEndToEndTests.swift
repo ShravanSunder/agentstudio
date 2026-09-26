@@ -14,16 +14,17 @@ import Testing
 @MainActor
 @Suite("Worktree creation end to end", .serialized)
 struct WorktreeCreationEndToEndTests {
-    @Test("New Worktree from the dispatcher creates a linked worktree that discovery publishes")
+    @Test("From Default creates at origin/HEAD even when the local worktree has advanced")
     func newWorktreeReachesTopologyThroughDiscovery() async throws {
         try await withAsyncTestCoreAtoms { atoms in
             let fixture = try await EndToEndFixture.make(destinationFolderName: "repo.feat-end-to-end")
             defer { fixture.remove() }
+            try await fixture.seedOriginDefaultAndAdvanceLocalMain()
             let system = EndToEndSystem.make(repoCache: atoms.repoCache)
             do {
                 // Act
                 let result = try await createThroughDispatcher(
-                    kind: .cleanCheckout, branch: "feat/end-to-end", fixture: fixture, system: system)
+                    kind: .fromDefault, branch: "feat/end-to-end", fixture: fixture, system: system)
 
                 // Assert
                 #expect(result.accepted)
@@ -33,7 +34,7 @@ struct WorktreeCreationEndToEndTests {
                 #expect(try await git(fixture.destination, "rev-parse", "--abbrev-ref", "HEAD") == "feat/end-to-end")
                 #expect(
                     try await git(fixture.destination, "rev-parse", "HEAD")
-                        == git(fixture.repositoryPath, "rev-parse", "HEAD"))
+                        == git(fixture.repositoryPath, "rev-parse", "refs/remotes/origin/main"))
             } catch {
                 await system.shutdown()
                 throw error
@@ -52,7 +53,7 @@ struct WorktreeCreationEndToEndTests {
             do {
                 // Act
                 let result = try await createThroughDispatcher(
-                    kind: .cleanCheckout, branch: "feat/through-link", fixture: fixture, system: system)
+                    kind: .fromDefault, branch: "feat/through-link", fixture: fixture, system: system)
 
                 // Assert
                 #expect(result.accepted)
@@ -133,7 +134,7 @@ private func createThroughDispatcher(
     delegate.installWorktreeCreationCoordinator(publication: system.pipeline)
     let request = WorktreeCreationRequest(
         kind: kind,
-        sourceWorktreeId: source.id,
+        targetId: kind == .fork ? source.id : source.repoId,
         branchName: try WorktreeBranchName.validated(branch).get()
     )
 
@@ -287,6 +288,18 @@ private struct EndToEndFixture {
             repositoryPath: repositoryPath,
             destination: realRoot.appending(path: destinationFolderName)
         )
+    }
+
+    func seedOriginDefaultAndAdvanceLocalMain() async throws {
+        let originPath = fixtureRoot.appending(path: "origin.git")
+        try await FilesystemTestGitRepo.runGit(at: repositoryPath, args: ["init", "--bare", originPath.path])
+        try await FilesystemTestGitRepo.runGit(at: repositoryPath, args: ["remote", "add", "origin", originPath.path])
+        try await FilesystemTestGitRepo.runGit(at: repositoryPath, args: ["push", "--set-upstream", "origin", "main"])
+        try await FilesystemTestGitRepo.runGit(at: repositoryPath, args: ["remote", "set-head", "origin", "main"])
+        try "local advance\n".write(
+            to: repositoryPath.appending(path: "local-only.txt"), atomically: true, encoding: .utf8)
+        try await FilesystemTestGitRepo.runGit(at: repositoryPath, args: ["add", "local-only.txt"])
+        try await FilesystemTestGitRepo.runGit(at: repositoryPath, args: ["commit", "-m", "Local advance"])
     }
 
     /// One file per cell of the fork status matrix: modified, staged, untracked, ignored.

@@ -676,6 +676,7 @@ extension AppCommand {
                 targetTypes: [.worktree, .pane]
             )
         case .newWorktree: return newWorktreeDefinition()
+        case .newWorktreeFromDefault: return newWorktreeFromDefaultDefinition()
         case .forkWorktree: return forkWorktreeDefinition()
         case .openPaneLocationInBookmarkedEditor:
             return AppCommandSpec(

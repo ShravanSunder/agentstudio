@@ -19,6 +19,7 @@ final class WorktreeCreationCoordinator {
 
     private let topology: RepositoryTopologyAtom
     private let gitClient: any WorktreeCreationGitClient
+    private let defaultStartPointResolver: any WorktreeDefaultStartPointResolving
     private let publication: any WorktreePublicationHolding
     private let destinationProbe: WorktreeDestinationProbe
     private let presentFailure: @MainActor (WorktreeCreationFailure) -> Void
@@ -28,12 +29,14 @@ final class WorktreeCreationCoordinator {
     init(
         topology: RepositoryTopologyAtom,
         gitClient: any WorktreeCreationGitClient,
+        defaultStartPointResolver: any WorktreeDefaultStartPointResolving = SDKWorktreeDefaultStartPointResolver(),
         publication: any WorktreePublicationHolding,
         destinationProbe: WorktreeDestinationProbe = .live,
         presentFailure: @escaping @MainActor (WorktreeCreationFailure) -> Void
     ) {
         self.topology = topology
         self.gitClient = gitClient
+        self.defaultStartPointResolver = defaultStartPointResolver
         self.publication = publication
         self.destinationProbe = destinationProbe
         self.presentFailure = presentFailure
@@ -41,6 +44,10 @@ final class WorktreeCreationCoordinator {
 
     func canCreate(fromWorktree worktreeId: UUID) -> Bool {
         resolveSource(worktreeId) != nil
+    }
+
+    func canCreate(inRepository repositoryId: UUID) -> Bool {
+        resolveRepository(repositoryId) != nil
     }
 
     /// Accepts a creation; the returned task finishes once the worktree is published or
@@ -71,10 +78,23 @@ final class WorktreeCreationCoordinator {
     }
 
     private func performCreation(_ request: WorktreeCreationRequest) async -> WorktreeCreationOutcome {
-        guard let source = resolveSource(request.sourceWorktreeId) else { return .failed(.sourceUnavailable) }
+        let repository: Repo
+        let source: (worktree: Worktree, repository: Repo)?
+        switch request.kind {
+        case .fromDefault:
+            guard let resolvedRepository = resolveRepository(request.targetId) else {
+                return .failed(.sourceUnavailable)
+            }
+            repository = resolvedRepository
+            source = nil
+        case .fork:
+            guard let resolvedSource = resolveSource(request.targetId) else { return .failed(.sourceUnavailable) }
+            repository = resolvedSource.repository
+            source = resolvedSource
+        }
         let destination: WorktreeCreationDestination
         switch await Self.resolveDestination(
-            repositoryPath: source.repository.repoPath,
+            repositoryPath: repository.repoPath,
             branchName: request.branchName,
             watchedPaths: topology.watchedPaths,
             probe: destinationProbe
@@ -92,10 +112,15 @@ final class WorktreeCreationCoordinator {
         let holdID = await publication.holdPublication(of: destination.path)
         let failure: WorktreeCreationFailure? =
             switch request.kind {
-            case .cleanCheckout:
-                await createCleanCheckout(source: source, destination: destination.path, branchName: request.branchName)
+            case .fromDefault:
+                await createFromDefault(
+                    repository: repository, destination: destination.path, branchName: request.branchName)
             case .fork:
-                await forkSource(source: source, destination: destination.path, branchName: request.branchName)
+                if let source {
+                    await forkSource(source: source, destination: destination.path, branchName: request.branchName)
+                } else {
+                    .sourceUnavailable
+                }
             }
         await publication.releasePublicationHold(holdID)
         // Rescan after failure too: fresh discovery reconciles whatever a rolled-back or
@@ -108,19 +133,21 @@ final class WorktreeCreationCoordinator {
         return .created(destination: destination.path)
     }
 
-    /// `git worktree add` on a new branch that starts at the source worktree's HEAD.
-    private func createCleanCheckout(
-        source: (worktree: Worktree, repository: Repo),
+    /// `git worktree add` on a new branch from the resolved default reference.
+    private func createFromDefault(
+        repository: Repo,
         destination: URL,
         branchName: WorktreeBranchName
     ) async -> WorktreeCreationFailure? {
         do throws(GitDataPlaneError) {
-            let headCommit = try await gitClient.headCommit(ofWorktreeAt: source.worktree.path)
+            let startPoint = try await defaultStartPointResolver.resolveDefaultStartPoint(
+                repositoryPath: repository.repoPath)
+            guard case .resolved(_, let referenceName) = startPoint else { return .noDefaultBranch }
             _ = try await gitClient.createWorktree(
                 GitCreateWorktreeRequest(
-                    repositoryPath: source.repository.repoPath,
+                    repositoryPath: repository.repoPath,
                     destinationPath: destination,
-                    mode: .newBranch(name: branchName.rawValue, startPoint: .named(headCommit))
+                    mode: .newBranch(name: branchName.rawValue, startPoint: .named(referenceName))
                 ))
             return nil
         } catch {
@@ -177,5 +204,12 @@ final class WorktreeCreationCoordinator {
             !topology.isRepoUnavailable(repository.id)
         else { return nil }
         return (worktree, repository)
+    }
+
+    private func resolveRepository(_ repositoryId: UUID) -> Repo? {
+        guard let repository = topology.repo(repositoryId), !topology.isRepoUnavailable(repositoryId) else {
+            return nil
+        }
+        return repository
     }
 }

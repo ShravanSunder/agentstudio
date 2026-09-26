@@ -445,7 +445,7 @@ enum CommandBarDataSource {
         let targetTypes = def.targeting.targetTypes
 
         if def.command == .newWorktree {
-            return buildWorktreeCreationSourceLevel(for: def, store: store)
+            return buildWorktreeCreationRepoLevel(for: def, store: store)
         }
 
         if def.command == .movePaneToTab, targetTypes.contains(.pane) {

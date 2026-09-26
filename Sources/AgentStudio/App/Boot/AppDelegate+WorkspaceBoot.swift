@@ -526,7 +526,8 @@ extension AppDelegate {
             },
             commandBarSurface: atomStore.core.commandBarSurface,
             performanceTraceRecorder: performanceTraceRecorder,
-            worktreeForkEligibility: SDKWorktreeForkEligibilityChecker()
+            worktreeForkEligibility: SDKWorktreeForkEligibilityChecker(),
+            defaultStartPointResolver: SDKWorktreeDefaultStartPointResolver()
         )
     }
 

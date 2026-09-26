@@ -99,7 +99,7 @@ struct AgentStudioIPCCommandRealOwnerCoverageTests {
         .showCommandBarEverything, .showCommandBarQuickOpen, .showCommandBarCommands,
         .showCommandBarPanes, .showCommandBarRepos,
         .signInGitHub, .signInGoogle,
-        .watchFolder, .updateRepositoryFacts, .newWorktree, .forkWorktree,
+        .watchFolder, .updateRepositoryFacts, .newWorktree, .newWorktreeFromDefault, .forkWorktree,
         .showInboxNotifications, .toggleInboxNotificationSort,
         .clearReadInboxNotifications, .clearAllInboxNotifications,
         .showPaneInboxNotifications, .clearPaneInboxNotifications,

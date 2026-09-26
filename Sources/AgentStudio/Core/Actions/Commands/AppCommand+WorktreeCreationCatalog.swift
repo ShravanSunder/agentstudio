@@ -1,20 +1,30 @@
 extension AppCommand {
-    /// The single command-bar entry for worktree creation. Its source-worktree level
-    /// ends in one Create row whose Return modifier picks this clean checkout or a fork.
     func newWorktreeDefinition() -> AppCommandSpec {
-        worktreeDefinition(
-            label: "New Worktree...",
+        AppCommandSpec(
+            command: self,
+            label: "New Worktree",
             icon: .octicon(.gitWorktree),
-            helpText: "Create a worktree on a new branch from a worktree's HEAD, checked out clean",
-            surfacePolicy: .exposed([.commandBar])
+            helpText: "Choose a repository and create a new worktree",
+            surfacePolicy: .exposed([.commandBar]),
+            targeting: .contextualAndTargeted([.repo], preferredInvocation: .targetSelection),
+            commandBarGroupName: "Repo",
+            commandBarGroupPriority: CommandBarGroupPriority.repo
         )
     }
 
-    /// Reached only through the New Worktree Create row's Return modifier, so it is a
-    /// distinct identity without a second root command-bar row.
+    func newWorktreeFromDefaultDefinition() -> AppCommandSpec {
+        worktreeDefinition(
+            label: "From Default",
+            icon: .octicon(.gitWorktree),
+            helpText: "Create a new worktree from the repository's default branch",
+            surfacePolicy: .notPresented,
+            targetTypes: [.repo]
+        )
+    }
+
     func forkWorktreeDefinition() -> AppCommandSpec {
         worktreeDefinition(
-            label: "Fork Worktree...",
+            label: "Fork…",
             icon: .octicon(.repoClone),
             helpText: "Fork a worktree with its uncommitted, untracked, and ignored files",
             surfacePolicy: .notPresented

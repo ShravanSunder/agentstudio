@@ -56,7 +56,7 @@ extension AppDelegate: ShellCommandHandling {
             .openPaneLocationInBookmarkedEditor, .openPaneLocationInFinder, .openPaneLocationInEditorMenu,
             .editPaneNote, .copyCurrentPanePath, .openPullRequest,
             .updateRepositoryFacts, .removeRepo, .pinRepo, .unpinRepo, .pinPane, .unpinPane,
-            .openWorktree, .openWorktreeInPane, .newWorktree, .forkWorktree,
+            .openWorktree, .openWorktreeInPane, .newWorktree, .newWorktreeFromDefault, .forkWorktree,
             .toggleManagementLayer,
             .managementLayerFocusLeft, .managementLayerFocusRight,
             .managementLayerEnterDrawer, .managementLayerExitDrawer,
@@ -170,7 +170,7 @@ extension AppDelegate: ShellCommandHandling {
             .openPaneLocationInBookmarkedEditor, .openPaneLocationInFinder, .openPaneLocationInEditorMenu,
             .editPaneNote, .copyCurrentPanePath, .openPullRequest,
             .removeRepo, .pinRepo, .unpinRepo, .pinPane, .unpinPane, .openWorktree, .openWorktreeInPane,
-            .newWorktree, .forkWorktree,
+            .newWorktree, .newWorktreeFromDefault, .forkWorktree,
             .toggleManagementLayer,
             .managementLayerFocusLeft, .managementLayerFocusRight,
             .managementLayerEnterDrawer, .managementLayerExitDrawer,
@@ -220,7 +220,7 @@ extension AppDelegate: ShellCommandHandling {
             .openPaneLocationInBookmarkedEditor, .openPaneLocationInFinder, .openPaneLocationInEditorMenu,
             .editPaneNote, .copyCurrentPanePath, .openPullRequest,
             .watchFolder, .removeRepo, .pinRepo, .unpinRepo, .pinPane, .unpinPane,
-            .openWorktree, .openWorktreeInPane, .newWorktree, .forkWorktree,
+            .openWorktree, .openWorktreeInPane, .newWorktree, .newWorktreeFromDefault, .forkWorktree,
             .toggleManagementLayer,
             .managementLayerFocusLeft, .managementLayerFocusRight,
             .managementLayerEnterDrawer, .managementLayerExitDrawer,
@@ -250,7 +250,7 @@ extension AppDelegate: ShellCommandHandling {
 
     func canExecute(_ command: AppCommand, target: UUID, targetType: SearchItemType) -> Bool {
         if WorktreeCreationKind(command: command) != nil {
-            return canExecuteWorktreeCreation(command, sourceWorktreeId: target, targetType: targetType)
+            return canExecuteWorktreeCreation(command, targetId: target, targetType: targetType)
         }
         guard command == .updateRepositoryFacts else {
             return canExecute(command)

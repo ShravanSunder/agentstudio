@@ -6,24 +6,28 @@ import Testing
 
 @Suite("Worktree creation command specs")
 struct WorktreeCreationCommandSpecTests {
-    @Test("New Worktree is the one command-bar root entry, targeted at a source worktree")
+    @Test("New Worktree is the one command-bar root entry, targeted at a repository")
     func newWorktreeIsTheCommandBarEntry() {
         let definition = AppCommand.newWorktree.definition
 
-        #expect(definition.label == "New Worktree...")
+        #expect(definition.label == "New Worktree")
         #expect(definition.icon == .octicon(.gitWorktree))
-        #expect(definition.helpText == "Create a worktree on a new branch from a worktree's HEAD, checked out clean")
+        #expect(definition.helpText == "Choose a repository and create a new worktree")
         #expect(definition.surfacePolicy == .exposed([.commandBar]))
-        #expect(definition.targeting == .targeted([.worktree]))
+        #expect(definition.targeting == .contextualAndTargeted([.repo], preferredInvocation: .targetSelection))
         #expect(definition.shortcut == nil)
         #expect(definition.commandBarGroupName == "Repo")
     }
 
-    @Test("Fork Worktree is a distinct identity reached only through the Create row")
+    @Test("From Default and Fork are distinct submenu identities")
     func forkWorktreeIsNotPresentedAsASecondRoot() {
+        let defaultDefinition = AppCommand.newWorktreeFromDefault.definition
         let definition = AppCommand.forkWorktree.definition
 
-        #expect(definition.label == "Fork Worktree...")
+        #expect(defaultDefinition.label == "From Default")
+        #expect(defaultDefinition.targeting == .targeted([.repo]))
+        #expect(defaultDefinition.surfacePolicy == .notPresented)
+        #expect(definition.label == "Fork…")
         #expect(definition.icon == .octicon(.repoClone))
         #expect(definition.helpText == "Fork a worktree with its uncommitted, untracked, and ignored files")
         #expect(definition.surfacePolicy == .notPresented)
@@ -33,7 +37,7 @@ struct WorktreeCreationCommandSpecTests {
 
     @Test("both creation commands are unexposed over typed IPC until a parameterized contract exists")
     func creationCommandsAreUnexposedOverIPC() {
-        for command in [AppCommand.newWorktree, .forkWorktree] {
+        for command in [AppCommand.newWorktree, .newWorktreeFromDefault, .forkWorktree] {
             let ipcSpec = command.ipcSpec
             #expect(ipcSpec.exposure == .debugTesting)
             #expect(ipcSpec.argumentVariants == [.noArguments])
@@ -44,10 +48,11 @@ struct WorktreeCreationCommandSpecTests {
 
     @Test("creation kinds round-trip through their AppCommand identities")
     func creationKindsMapToCommands() {
-        #expect(WorktreeCreationKind(command: .newWorktree) == .cleanCheckout)
+        #expect(WorktreeCreationKind(command: .newWorktree) == nil)
+        #expect(WorktreeCreationKind(command: .newWorktreeFromDefault) == .fromDefault)
         #expect(WorktreeCreationKind(command: .forkWorktree) == .fork)
         #expect(WorktreeCreationKind(command: .openWorktree) == nil)
-        #expect(WorktreeCreationKind.cleanCheckout.command == .newWorktree)
+        #expect(WorktreeCreationKind.fromDefault.command == .newWorktreeFromDefault)
         #expect(WorktreeCreationKind.fork.command == .forkWorktree)
     }
 }

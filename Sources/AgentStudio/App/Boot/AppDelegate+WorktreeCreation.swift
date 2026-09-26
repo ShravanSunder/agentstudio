@@ -2,8 +2,8 @@ import AgentStudioCore
 import AppKit
 import Foundation
 
-/// Shell execution owner for New Worktree and Worktree Fork. Creation is a Git and
-/// filesystem side effect on a source worktree, not a pane action, so it needs no
+/// Shell execution owner for From Default and Fork. Creation is a Git and
+/// filesystem side effect on a repository, not a pane action, so it needs no
 /// pane focus; topology still changes only through watched-folder discovery.
 extension AppDelegate {
     func installWorktreeCreationCoordinator(publication: any WorktreePublicationHolding) {
@@ -19,25 +19,24 @@ extension AppDelegate {
 
     func canExecuteWorktreeCreation(
         _ command: AppCommand,
-        sourceWorktreeId: UUID,
+        targetId: UUID,
         targetType: SearchItemType
     ) -> Bool {
-        // Fork eligibility is not a capability check here: the SDK's fork preflight is
-        // authoritative, and the command bar already falls back to a clean checkout where
-        // the eligibility port says fork is unavailable.
-        guard targetType == .worktree,
-            WorktreeCreationKind(command: command) != nil,
-            let worktreeCreationCoordinator
-        else { return false }
-        return worktreeCreationCoordinator.canCreate(fromWorktree: sourceWorktreeId)
+        guard let kind = WorktreeCreationKind(command: command), let worktreeCreationCoordinator else { return false }
+        switch kind {
+        case .fromDefault:
+            return targetType == .repo && worktreeCreationCoordinator.canCreate(inRepository: targetId)
+        case .fork:
+            return targetType == .worktree && worktreeCreationCoordinator.canCreate(fromWorktree: targetId)
+        }
     }
 
     func executeWorktreeCreation(_ request: WorktreeCreationRequest) -> AppCommandExecutionOutcome {
         guard
             canExecuteWorktreeCreation(
                 request.kind.command,
-                sourceWorktreeId: request.sourceWorktreeId,
-                targetType: .worktree
+                targetId: request.targetId,
+                targetType: request.targetType
             ),
             let worktreeCreationCoordinator
         else {

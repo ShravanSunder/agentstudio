@@ -73,6 +73,7 @@ package enum AppCommand: String, CaseIterable {
     case openWorktree
     case openWorktreeInPane
     case newWorktree
+    case newWorktreeFromDefault
     case forkWorktree
     // Management layer
     case toggleManagementLayer

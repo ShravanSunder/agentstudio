@@ -56,10 +56,10 @@ package final class CommandBarPanelController {
 
     // MARK: - Dependencies
 
-    private let store: WorkspaceStore
+    let store: WorkspaceStore
     private let octiconLoader: OcticonLoader
     private let repoCache: RepoCacheAtom
-    private let dispatcher: any AppCommandDispatching
+    let dispatcher: any AppCommandDispatching
     private let targetedSpecResolver: CommandBarTargetedSpecResolver
     private let quickOpenDirectoryHandler: @MainActor @Sendable (URL, QuickOpenDirectoryPlacement) -> Void
     private let notificationInboxCommands: InboxNotificationCommands?
@@ -68,8 +68,9 @@ package final class CommandBarPanelController {
     private let interactionProbe: AgentStudioInteractionPerformanceProbe?
     private let animatePanelDismissal: Bool
     let worktreeForkEligibility: (any WorktreeForkEligibilityChecking)?
+    let defaultStartPointResolver: (any WorktreeDefaultStartPointResolving)?
     var forkEligibilityQueriesBySourceWorktreeId: [UUID: InFlightForkEligibilityQuery] = [:]
-    var pendingWorktreeCreation: Task<Void, Never>?
+    var defaultStartPointQueriesByRepositoryId: [UUID: InFlightDefaultStartPointQuery] = [:]
     private let resultSession: CommandBarResultSession
     private var activationGenerationGate = CommandBarActivationGenerationGate()
     private var pendingOpenAcknowledgement: PendingOpenAcknowledgement?
@@ -110,7 +111,8 @@ package final class CommandBarPanelController {
         interactionProbe: AgentStudioInteractionPerformanceProbe? = nil,
         animatePanelDismissal: Bool = true,
         recentsDefaults: UserDefaults = .standard,
-        worktreeForkEligibility: (any WorktreeForkEligibilityChecking)? = nil
+        worktreeForkEligibility: (any WorktreeForkEligibilityChecking)? = nil,
+        defaultStartPointResolver: (any WorktreeDefaultStartPointResolving)? = nil
     ) {
         self.state = CommandBarState(defaults: recentsDefaults)
         self.store = store
@@ -129,6 +131,7 @@ package final class CommandBarPanelController {
             }
         self.animatePanelDismissal = animatePanelDismissal
         self.worktreeForkEligibility = worktreeForkEligibility
+        self.defaultStartPointResolver = defaultStartPointResolver
         self.resultSession = CommandBarResultSession(
             store: store,
             repoCache: repoCache,
@@ -397,6 +400,7 @@ package final class CommandBarPanelController {
     }
 
     func executeItem(_ item: CommandBarItem, modifier: EnterModifier = .plain) {
+        guard item.isEnabled else { return }
         switch item.action {
         case .dispatch(let command):
             guard dispatcher.canDispatch(command) else { return }
@@ -414,8 +418,7 @@ package final class CommandBarPanelController {
             dispatcher.dispatch(command, target: target, targetType: targetType)
         case .navigate(let level):
             state.pushLevel(level)
-            // fire-and-forget: the bar retains the query until it completes; session generation rejects stale answers.
-            _ = requestForkEligibilityIfNeeded(for: level)
+            requestCreationQueriesIfNeeded(for: level)
         case .navigateRepo(let repositoryID):
             guard
                 let repository = store.repositoryTopologyAtom.repo(repositoryID),
@@ -457,9 +460,8 @@ package final class CommandBarPanelController {
         case .createWorktree(let draft):
             guard
                 let request = CommandBarWorktreeCreationResolver.dispatchableRequest(
-                    draft: draft, modifier: modifier, dispatcher: dispatcher)
+                    draft: draft, dispatcher: dispatcher)
             else {
-                resumeWorktreeCreationAfterForkEligibility(item: item, draft: draft, modifier: modifier)
                 return
             }
             dismiss(measureNonExecutingClose: false)
@@ -508,9 +510,11 @@ package final class CommandBarPanelController {
                     worktree: worktree,
                     presence: presence,
                     canOpenInCurrentTab: resultSession.snapshot(state: state).canOpenWorktreeInCurrentTab,
-                    dispatcher: dispatcher
+                    dispatcher: dispatcher,
+                    repository: repository
                 )
             )
+            if let level = state.currentLevel { requestCreationQueriesIfNeeded(for: level) }
         case .directory:
             return
         }
@@ -661,9 +665,11 @@ package final class CommandBarPanelController {
                     worktree: worktree,
                     presence: presence,
                     canOpenInCurrentTab: store.tabLayoutAtom.activeTabId != nil,
-                    dispatcher: dispatcher
+                    dispatcher: dispatcher,
+                    repository: repository
                 )
             )
+            if let level = state.currentLevel { requestCreationQueriesIfNeeded(for: level) }
         case .pane(let paneID, let workspaceID):
             guard
                 workspaceID == store.identityAtom.workspaceId,
@@ -741,15 +747,19 @@ package final class CommandBarPanelController {
             dismiss(measureNonExecutingClose: false)
             dispatcher.dispatch(command, target: target, targetType: targetType)
         case .showActionsMenu:
-            guard let worktree = store.repositoryTopologyAtom.worktree(presence.worktreeId) else { return }
+            guard let worktree = store.repositoryTopologyAtom.worktree(presence.worktreeId),
+                let repository = store.repositoryTopologyAtom.repo(containing: worktree.id)
+            else { return }
             state.pushLevel(
                 CommandBarDataSource.buildWorktreeActionsLevel(
                     worktree: worktree,
                     presence: presence,
                     canOpenInCurrentTab: canOpenInCurrentTab,
-                    dispatcher: dispatcher
+                    dispatcher: dispatcher,
+                    repository: repository
                 )
             )
+            if let level = state.currentLevel { requestCreationQueriesIfNeeded(for: level) }
         }
     }
 

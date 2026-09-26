@@ -123,10 +123,7 @@ final class CommandBarResultSession {
                 items: level.textEntry.map { textEntry in
                     textEntry.rowsForInput(
                         CommandBarTextEntryInput(
-                            text: state.searchQuery,
-                            forkEligibility: textEntry.forkEligibilityQuery.flatMap {
-                                state.forkEligibilityBySourceWorktreeId[$0.sourceWorktreeId]
-                            }
+                            text: state.searchQuery
                         ))
                 } ?? level.items
             )
@@ -246,7 +243,7 @@ final class CommandBarResultSession {
                 case .navigate, .navigateRepo, .custom, .worktreeAction, .quickOpen, .activateRecent:
                     true
                 }
-            if !isAvailable {
+            if !isAvailable || !item.isEnabled {
                 ids.insert(item.id)
             }
         }

@@ -73,7 +73,7 @@ package enum CommandBarAction {
     case quickOpen(CommandBarQuickOpenTarget)
     /// Re-resolve a typed recent entity against live state immediately before dispatch.
     case activateRecent(CommandBarRecentActivation)
-    /// Create a worktree from typed branch input; the Return modifier picks fork or clean checkout.
+    /// Create a worktree from the selected repository default or source worktree.
     case createWorktree(CommandBarWorktreeCreationDraft)
 }
 
@@ -111,6 +111,7 @@ package struct CommandBarItem: Identifiable {
     package let action: CommandBarAction
     /// The underlying command, if any. Used for dimming navigate items whose command is unavailable.
     package let command: AppCommand?
+    package let isEnabled: Bool
     package let accessibilityLabel: String
     package let accessibilityHint: String
 
@@ -130,6 +131,7 @@ package struct CommandBarItem: Identifiable {
         showsActionsButton: Bool = false,
         action: CommandBarAction,
         command: AppCommand? = nil,
+        isEnabled: Bool = true,
         accessibilityLabel: String? = nil,
         accessibilityHint: String? = nil
     ) {
@@ -148,6 +150,7 @@ package struct CommandBarItem: Identifiable {
         self.showsActionsButton = showsActionsButton
         self.action = action
         self.command = command
+        self.isEnabled = isEnabled
         self.accessibilityLabel =
             accessibilityLabel
             ?? [title, subtitle, secondaryLine?.text].compactMap(\.self).joined(separator: ", ")
@@ -216,6 +219,7 @@ package struct CommandBarItem: Identifiable {
             showsActionsButton: showsActionsButton ?? self.showsActionsButton,
             action: action ?? self.action,
             command: command,
+            isEnabled: isEnabled,
             accessibilityLabel: accessibilityLabel ?? self.accessibilityLabel,
             accessibilityHint: accessibilityHint ?? self.accessibilityHint
         )
@@ -307,35 +311,28 @@ struct CommandBarBreadcrumbItem: Equatable {
     let icon: AppEntityIcon?
 }
 
-/// The source a worktree-creation text entry asks the fork-eligibility port about when
-/// its level is pushed.
-package struct CommandBarForkEligibilityQuery: Equatable, Sendable {
-    package let sourceWorktreeId: UUID
-    package let sourceWorktreePath: URL
-    package let destinationDirectory: URL
-}
-
-/// What a text-entry level's rows are derived from: the typed text plus any answer to the
-/// level's fork-eligibility query (`nil` while pending).
+/// What a text-entry level's rows are derived from.
 package struct CommandBarTextEntryInput: Equatable, Sendable {
     package let text: String
-    package let forkEligibility: WorktreeForkEligibility?
+}
+
+package enum CommandBarCreationQuery {
+    case defaultStartPoint(Repo)
+    case forkEligibility(Repo)
+    case worktreeEligibility(Repo, Worktree)
 }
 
 /// A nested level whose field is typed input rather than a filter: its rows derive
 /// from the current input and are shown unfiltered.
 package struct CommandBarTextEntry {
     package let placeholder: String
-    package let forkEligibilityQuery: CommandBarForkEligibilityQuery?
     package let rowsForInput: @MainActor (CommandBarTextEntryInput) -> [CommandBarItem]
 
     package init(
         placeholder: String,
-        forkEligibilityQuery: CommandBarForkEligibilityQuery? = nil,
         rowsForInput: @escaping @MainActor (CommandBarTextEntryInput) -> [CommandBarItem]
     ) {
         self.placeholder = placeholder
-        self.forkEligibilityQuery = forkEligibilityQuery
         self.rowsForInput = rowsForInput
     }
 }
@@ -351,6 +348,7 @@ package struct CommandBarLevel: Identifiable {
     package let breadcrumbIcon: AppEntityIcon?
     package let items: [CommandBarItem]
     package let textEntry: CommandBarTextEntry?
+    package let creationQuery: CommandBarCreationQuery?
 
     package init(
         id: String,
@@ -359,7 +357,8 @@ package struct CommandBarLevel: Identifiable {
         scopeLabel: String? = nil,
         breadcrumbIcon: AppEntityIcon? = nil,
         items: [CommandBarItem],
-        textEntry: CommandBarTextEntry? = nil
+        textEntry: CommandBarTextEntry? = nil,
+        creationQuery: CommandBarCreationQuery? = nil
     ) {
         self.id = id
         self.title = title
@@ -368,6 +367,7 @@ package struct CommandBarLevel: Identifiable {
         self.breadcrumbIcon = breadcrumbIcon
         self.items = items
         self.textEntry = textEntry
+        self.creationQuery = creationQuery
     }
 }
 

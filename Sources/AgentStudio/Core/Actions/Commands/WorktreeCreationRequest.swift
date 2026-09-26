@@ -1,16 +1,15 @@
 import Foundation
 
-/// Which of the two worktree-creation commands a request executes. Both are distinct
-/// `AppCommand` identities; this is the typed argument-bearing form of the pair.
+/// The two creation operations reached from the New Worktree submenu.
 package enum WorktreeCreationKind: Equatable, Sendable {
-    /// `git worktree add` on a new branch, checked out clean.
-    case cleanCheckout
+    /// `git worktree add` from the repository's default branch.
+    case fromDefault
     /// APFS copy-on-write fork carrying uncommitted, untracked, and ignored files.
     case fork
 
     package init?(command: AppCommand) {
         switch command {
-        case .newWorktree: self = .cleanCheckout
+        case .newWorktreeFromDefault: self = .fromDefault
         case .forkWorktree: self = .fork
         default: return nil
         }
@@ -18,22 +17,28 @@ package enum WorktreeCreationKind: Equatable, Sendable {
 
     package var command: AppCommand {
         switch self {
-        case .cleanCheckout: .newWorktree
+        case .fromDefault: .newWorktreeFromDefault
         case .fork: .forkWorktree
         }
     }
 }
 
-/// The interactive creation request the command bar hands to the dispatcher. Both
-/// kinds branch from the source worktree's HEAD.
+/// The target is a repository for From Default and a source worktree for Fork.
 package struct WorktreeCreationRequest: Equatable, Sendable {
     package let kind: WorktreeCreationKind
-    package let sourceWorktreeId: UUID
+    package let targetId: UUID
     package let branchName: WorktreeBranchName
 
-    package init(kind: WorktreeCreationKind, sourceWorktreeId: UUID, branchName: WorktreeBranchName) {
+    package init(kind: WorktreeCreationKind, targetId: UUID, branchName: WorktreeBranchName) {
         self.kind = kind
-        self.sourceWorktreeId = sourceWorktreeId
+        self.targetId = targetId
         self.branchName = branchName
+    }
+
+    package var targetType: SearchItemType {
+        switch kind {
+        case .fromDefault: .repo
+        case .fork: .worktree
+        }
     }
 }
