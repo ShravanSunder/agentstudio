@@ -402,9 +402,14 @@ struct CIFastLaneWorkflowTests {
         #expect(!fastRunner.contains("app_ipc_live_socket_suite_filter"))
         #expect(largeRunner.contains("--parallel"))
         #expect(!largeRunner.contains("--num-workers"))
-        #expect(largeRunner.contains("--filter \"$(large_non_webkit_filter_pattern)\""))
+        #expect(
+            largeRunner.contains("if ! large_concurrent_filter_pattern=\"$(large_non_webkit_filter_pattern)\"; then"))
+        #expect(largeRunner.contains("--filter \"$large_concurrent_filter_pattern\""))
         #expect(largeRunner.contains("serial large process suites"))
-        #expect(largeRunner.contains("--filter \"$(large_serial_non_webkit_filter_pattern)\""))
+        #expect(
+            largeRunner.contains("if ! large_serial_filter_pattern=\"$(large_serial_non_webkit_filter_pattern)\"; then")
+        )
+        #expect(largeRunner.contains("--filter \"$large_serial_filter_pattern\""))
         #expect(!largeSerialFilter.contains("AgentStudioAppIPCServiceCommandTests"))
         #expect(testHelperScript.contains("swift_test_lane_filter_pattern large concurrent"))
         #expect(!ciWorkflow.contains("SWIFT_BUILD_DIR: .build-ci-fast"))
@@ -445,12 +450,10 @@ struct CIFastLaneWorkflowTests {
         #expect(largeSerialFilter.contains("GitRefreshPerformanceWorkloadScriptTests"))
         #expect(largeSerialFilter.contains("SidebarPerformanceWorkloadScriptTests"))
         #expect(largeSerialFilter.contains("SidebarPerformanceWorkloadSettlementScriptTests"))
-        #expect(
-            largeRunner.contains(
-                "--skip \"$(large_serial_non_webkit_filter_pattern)|$(large_process_global_filter_pattern)\""
-            )
-        )
-        #expect(largeRunner.contains("--filter \"$(large_serial_non_webkit_filter_pattern)\""))
+        #expect(largeRunner.contains("--skip \"$large_serial_filter_pattern|$large_process_global_filter_pattern\""))
+        #expect(largeRunner.contains("--filter \"$large_serial_filter_pattern\""))
+        #expect(largeRunner.contains("--filter \"$large_concurrent_filter_pattern|$large_serial_filter_pattern\""))
+        #expect(largeRunner.contains("failed to prepare large serial filter; no large suites were started"))
     }
 
     @Test("SQLite crash fixture stays in the serial fast process lane")
@@ -506,7 +509,9 @@ struct CIFastLaneWorkflowTests {
         )
 
         #expect(timeoutRunner.contains("output_size=$(wc -c <\"$output_file\" | tr -d '[:space:]')"))
-        #expect(timeoutRunner.contains("read -r last_output_size last_progress_epoch < <("))
+        #expect(timeoutRunner.contains("watchdog_state=\"$("))
+        #expect(timeoutRunner.contains("read -r last_output_size last_progress_epoch <<<\"$watchdog_state\""))
+        #expect(!timeoutRunner.contains("read -r last_output_size last_progress_epoch < <("))
         #expect(timeoutRunner.contains("swift_test_watchdog_state"))
         #expect(watchdogState.contains("if [ \"$current_output_size\" -gt \"$previous_output_size\" ]; then"))
         #expect(watchdogState.contains("printf '%s %s\\n' \"$current_output_size\" \"$current_epoch\""))
@@ -649,9 +654,14 @@ struct CIFastLaneWorkflowTests {
             discoveredSuiteNames.isDisjoint(with: webKitLeafSuiteNames),
             "Process-global non-WebKit discovery must exclude every suite owned by the WebKit lane"
         )
-        #expect(fastRunner.contains("--skip \"$(fast_non_webkit_skip_pattern)\""))
+        #expect(fastRunner.contains("if ! fast_lane_skip_pattern=\"$(fast_non_webkit_skip_pattern)\"; then"))
+        #expect(fastRunner.contains("--skip \"$fast_lane_skip_pattern\""))
         #expect(fastRunner.contains("run_aggregate_serial_non_webkit_swift_tests"))
         #expect(aggregateRunner.contains("while IFS= read -r aggregate_serial_suite_filter"))
+        #expect(aggregateRunner.contains("done <<<\"$aggregate_serial_suite_filters\""))
+        #expect(
+            aggregateRunner.contains(
+                "if ! aggregate_serial_suite_filters=\"$(aggregate_serial_non_webkit_suite_filters)\"; then"))
         #expect(aggregateRunner.contains("swift_test_isolated_process_concurrency"))
         #expect(!aggregateRunner.contains("local process_global_concurrency=4"))
         // Pid AND filter, so a crashed child can be named rather than swallowed.
@@ -672,12 +682,12 @@ struct CIFastLaneWorkflowTests {
         #expect(aggregateRunner.contains("\"$swift_testing_helper\" --test-bundle-path \"$swift_test_bundle\""))
         #expect(aggregateRunner.contains("DYLD_FRAMEWORK_PATH=\"$testing_framework_path\""))
         #expect(aggregateRunner.contains("--testing-library swift-testing"))
-        #expect(aggregateRunner.contains("done < <(aggregate_serial_non_webkit_suite_filters)"))
+        #expect(!aggregateRunner.contains("< <("))
         #expect(aggregateBatchWaiter.contains("swift_test_record_failed_isolated_suite"))
         #expect(aggregateBatchWaiter.contains("return \"$batch_status\""))
         // The skip moved into one builder so the exact suite names can be
         // anchored without anchoring the substring families beside them.
-        #expect(fastRunner.contains("--skip \"$(fast_non_webkit_skip_pattern)\""))
+        #expect(fastRunner.contains("failed to prepare fast-lane skip pattern; no fast suites were started"))
         #expect(fastRunner.contains("run_aggregate_serial_non_webkit_swift_tests"))
         #expect(fastRunner.contains("run_fast_serial_process_swift_tests"))
     }
@@ -697,14 +707,12 @@ struct CIFastLaneWorkflowTests {
         )
 
         #expect(
-            largeRunner.contains(
-                "--skip \"$(large_serial_non_webkit_filter_pattern)|$(large_process_global_filter_pattern)\""
-            )
-        )
+            largeRunner.contains("if ! large_concurrent_filter_pattern=\"$(large_non_webkit_filter_pattern)\"; then"))
+        #expect(largeRunner.contains("--skip \"$large_serial_filter_pattern|$large_process_global_filter_pattern\""))
         #expect(
             largeRunner.components(
-                separatedBy: "--skip \"$(large_process_global_filter_pattern)\""
-            ).count - 1 == 1
+                separatedBy: "--skip \"$large_process_global_filter_pattern\""
+            ).count - 1 == 2
         )
         #expect(largeRunner.contains("fi\n\n  run_large_process_global_swift_tests"))
         #expect(

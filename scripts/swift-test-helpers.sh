@@ -779,41 +779,128 @@ EOF
 swift_test_lane_suite_types() {
   local requested_lane="${1:-}"
   local requested_mode="${2:-}"
+  local inventory="${3:-}"
   local lane suite_type mode
+  local matching_inventory_rows=0
+  local -a suite_types=()
+
+  if [ "$#" -lt 3 ]; then
+    if ! inventory="$(swift_test_suite_lane_inventory)"; then
+      printf '[test] failed to generate suite inventory for lane=%s\n' "$requested_lane" >&2
+      return 1
+    fi
+  fi
 
   while IFS='|' read -r lane suite_type mode; do
     [ "$lane" = "$requested_lane" ] || continue
     [ -z "$requested_mode" ] || [ "$mode" = "$requested_mode" ] || continue
-    printf '%s\n' "$suite_type"
-  done < <(swift_test_suite_lane_inventory)
+    matching_inventory_rows=$((matching_inventory_rows + 1))
+    suite_types+=("$suite_type")
+  done <<<"$inventory"
+
+  if [ "${#suite_types[@]}" -ne "$matching_inventory_rows" ]; then
+    printf '[test] lane suite inventory mismatch lane=%s mode=%s expected_suite_types=%s emitted_suite_types=%s\n' \
+      "$requested_lane" "${requested_mode:-all}" "$matching_inventory_rows" "${#suite_types[@]}" >&2
+    return 1
+  fi
+
+  if [ "${#suite_types[@]}" -gt 0 ]; then
+    if ! printf '%s\n' "${suite_types[@]}"; then
+      printf '[test] failed to write complete suite list for lane=%s mode=%s\n' \
+        "$requested_lane" "${requested_mode:-all}" >&2
+      return 1
+    fi
+  fi
+  return 0
+}
+
+swift_test_lane_suite_types_match_inventory() {
+  local requested_lane="${1:-}"
+  local requested_mode="${2:-}"
+  local inventory="${3:-}"
+  local suite_types_output="${4:-}"
+  local lane suite_type mode
+  local matching_inventory_rows=0
+  local emitted_suite_type_count=0
+
+  while IFS='|' read -r lane suite_type mode; do
+    [ "$lane" = "$requested_lane" ] || continue
+    [ -z "$requested_mode" ] || [ "$mode" = "$requested_mode" ] || continue
+    matching_inventory_rows=$((matching_inventory_rows + 1))
+  done <<<"$inventory"
+
+  while IFS= read -r suite_type; do
+    [ -n "$suite_type" ] || continue
+    emitted_suite_type_count=$((emitted_suite_type_count + 1))
+  done <<<"$suite_types_output"
+
+  if [ "$emitted_suite_type_count" -ne "$matching_inventory_rows" ]; then
+    printf '[test] lane suite inventory mismatch lane=%s mode=%s expected_suite_types=%s emitted_suite_types=%s\n' \
+      "$requested_lane" "${requested_mode:-all}" "$matching_inventory_rows" "$emitted_suite_type_count" >&2
+    return 1
+  fi
+  return 0
 }
 
 swift_test_lane_filter_pattern() {
   local requested_lane="${1:-}"
   local requested_mode="${2:-}"
-  local suite_type
-  local -a suite_type_filters=()
+  local inventory suite_type
+  local suite_type_output
+  local suite_type_filters=""
+  local filter_separator=""
+
+  if ! inventory="$(swift_test_suite_lane_inventory)"; then
+    printf '[test] failed to generate suite inventory for lane=%s\n' "$requested_lane" >&2
+    return 1
+  fi
+
+  if ! suite_type_output="$(swift_test_lane_suite_types "$requested_lane" "$requested_mode" "$inventory")"; then
+    return 1
+  fi
+  if ! swift_test_lane_suite_types_match_inventory \
+    "$requested_lane" "$requested_mode" "$inventory" "$suite_type_output"; then
+    return 1
+  fi
 
   while IFS= read -r suite_type; do
     [ -n "$suite_type" ] || continue
-    suite_type_filters+=("$(swift_test_isolated_suite_filter_pattern "$suite_type")")
-  done < <(swift_test_lane_suite_types "$requested_lane" "$requested_mode")
+    suite_type_filters="$suite_type_filters$filter_separator$(swift_test_isolated_suite_filter_pattern "$suite_type")"
+    filter_separator='|'
+  done <<<"$suite_type_output"
 
-  local IFS='|'
-  printf '%s' "${suite_type_filters[*]}"
+  if [ -n "$suite_type_filters" ] && ! printf '%s' "$suite_type_filters"; then
+    printf '[test] failed to write complete filter pattern for lane=%s mode=%s\n' \
+      "$requested_lane" "${requested_mode:-all}" >&2
+    return 1
+  fi
 }
 
 swift_test_lane_filter_exclusion_pattern() {
   local requested_lane="${1:-}"
+  local inventory requested_suite_types_output
   local lane suite_type mode requested_suite_type
   local is_ancestor
   local -a requested_suite_types=()
   local -a excluded_suite_filters=()
 
+  if ! inventory="$(swift_test_suite_lane_inventory)"; then
+    printf '[test] failed to generate exclusions for lane=%s\n' "$requested_lane" >&2
+    return 1
+  fi
+
+  if ! requested_suite_types_output="$(swift_test_lane_suite_types "$requested_lane" "" "$inventory")"; then
+    return 1
+  fi
+  if ! swift_test_lane_suite_types_match_inventory \
+    "$requested_lane" "" "$inventory" "$requested_suite_types_output"; then
+    return 1
+  fi
+
   while IFS= read -r requested_suite_type; do
     [ -n "$requested_suite_type" ] || continue
     requested_suite_types+=("$requested_suite_type")
-  done < <(swift_test_lane_suite_types "$requested_lane")
+  done <<<"$requested_suite_types_output"
 
   while IFS='|' read -r lane suite_type mode; do
     [ "$lane" = "$requested_lane" ] && continue
@@ -828,7 +915,7 @@ swift_test_lane_filter_exclusion_pattern() {
     done
     [ "$is_ancestor" -eq 1 ] && continue
     excluded_suite_filters+=("$(swift_test_isolated_suite_filter_pattern "$suite_type")")
-  done < <(swift_test_suite_lane_inventory)
+  done <<<"$inventory"
 
   local IFS='|'
   printf '%s' "${excluded_suite_filters[*]}"
@@ -836,53 +923,110 @@ swift_test_lane_filter_exclusion_pattern() {
 
 swift_test_lane_for_suite_type() {
   local requested_suite_type="${1:-}"
+  local inventory
   local lane suite_type mode
+
+  if ! inventory="$(swift_test_suite_lane_inventory)"; then
+    printf '[test] failed to generate suite inventory while routing suite=%s\n' "$requested_suite_type" >&2
+    return 1
+  fi
 
   while IFS='|' read -r lane suite_type mode; do
     if [ "$suite_type" = "$requested_suite_type" ]; then
-      printf '%s\n' "$lane"
+      if ! printf '%s\n' "$lane"; then
+        printf '[test] failed to emit lane for suite=%s\n' "$requested_suite_type" >&2
+        return 1
+      fi
       return 0
     fi
-  done < <(swift_test_suite_lane_inventory)
+  done <<<"$inventory"
 
-  printf '%s\n' fast
+  if ! printf '%s\n' fast; then
+    printf '[test] failed to emit default lane for unlisted suite=%s\n' "$requested_suite_type" >&2
+    return 1
+  fi
+  return 0
 }
 
 swift_test_lane_mode_for_suite_type() {
   local requested_suite_type="${1:-}"
+  local inventory
   local lane suite_type mode
+
+  if ! inventory="$(swift_test_suite_lane_inventory)"; then
+    printf '[test] failed to generate suite inventory while finding mode for suite=%s\n' \
+      "$requested_suite_type" >&2
+    return 1
+  fi
 
   while IFS='|' read -r lane suite_type mode; do
     if [ "$suite_type" = "$requested_suite_type" ]; then
-      printf '%s\n' "$mode"
+      if ! printf '%s\n' "$mode"; then
+        printf '[test] failed to emit lane mode for suite=%s\n' "$requested_suite_type" >&2
+        return 1
+      fi
       return 0
     fi
-  done < <(swift_test_suite_lane_inventory)
+  done <<<"$inventory"
 
   return 1
 }
 
 swift_test_lane_is_fast_serial_or_unlisted() {
-  local suite_type="${1:-}"
-  local lane mode
+  local requested_suite_type="${1:-}"
+  local inventory
+  local lane suite_type mode
+  local suite_was_listed=0
 
-  lane="$(swift_test_lane_for_suite_type "$suite_type")"
-  mode="$(swift_test_lane_mode_for_suite_type "$suite_type" || true)"
-  [ "$lane" = fast ] && { [ -z "$mode" ] || [ "$mode" = serial ]; }
+  if ! inventory="$(swift_test_suite_lane_inventory)"; then
+    printf '[test] failed to classify suite lane=%s\n' "$requested_suite_type" >&2
+    return 2
+  fi
+
+  while IFS='|' read -r lane suite_type mode; do
+    [ "$suite_type" = "$requested_suite_type" ] || continue
+    suite_was_listed=1
+    break
+  done <<<"$inventory"
+
+  if [ "$suite_was_listed" -eq 0 ]; then
+    return 0
+  fi
+  [ "$lane" = fast ] && [ "$mode" = serial ]
 }
 
 swift_test_lane_fast_concurrent_skip_pattern() {
+  local inventory
   local lane suite_type mode
   local -a suite_type_filters=()
+  local expected_suite_count=0
+  local emitted_suite_count=0
+
+  if ! inventory="$(swift_test_suite_lane_inventory)"; then
+    printf '[test] failed to generate fast-lane skip inventory\n' >&2
+    return 1
+  fi
 
   while IFS='|' read -r lane suite_type mode; do
     if [ "$lane" != fast ] || [ "$mode" != concurrent ]; then
+      expected_suite_count=$((expected_suite_count + 1))
       suite_type_filters+=("$(swift_test_isolated_suite_filter_pattern "$suite_type")")
+      emitted_suite_count=$((emitted_suite_count + 1))
     fi
-  done < <(swift_test_suite_lane_inventory)
+  done <<<"$inventory"
+
+  if [ "$emitted_suite_count" -ne "$expected_suite_count" ]; then
+    printf '[test] fast-lane skip inventory mismatch expected_suite_types=%s emitted_suite_types=%s\n' \
+      "$expected_suite_count" "$emitted_suite_count" >&2
+    return 1
+  fi
 
   local IFS='|'
-  printf '%s' "${suite_type_filters[*]}"
+  if ! printf '%s' "${suite_type_filters[*]}"; then
+    printf '[test] failed to emit fast-lane skip filters\n' >&2
+    return 1
+  fi
+  return 0
 }
 
 large_non_webkit_filter_pattern() {
@@ -894,7 +1038,11 @@ large_serial_non_webkit_filter_pattern() {
 }
 
 large_process_global_suite_filters() {
-  swift_test_lane_suite_types large process-global
+  if [ "$#" -gt 0 ]; then
+    swift_test_lane_suite_types large process-global "$1"
+  else
+    swift_test_lane_suite_types large process-global
+  fi
 }
 
 large_process_global_filter_pattern() {
@@ -963,11 +1111,29 @@ aggregate_serial_non_webkit_suite_filters() {
   # Permit formatted multiline Suite arguments, but never cross into the next
   # attribute or type declaration while searching for the serialized trait.
   local webkit_leaf_suite_pattern
-  webkit_leaf_suite_pattern="$(webkit_leaf_suite_filters | /usr/bin/paste -sd'|' -)"
+  local main_actor_first_suite_pairs
+  local suite_first_suite_pairs
+  local additional_suite_pairs
+  local suite_pairs
+  local source_file suite_name
+  local selected_suite_names=""
+  local selected_suite_separator=""
+  local selected_suite_output
+  local classification_status
 
-  {
-    serialized_main_actor_suite_matches main-actor-first
-    serialized_main_actor_suite_matches suite-first
+  if ! webkit_leaf_suite_pattern="$(webkit_leaf_suite_filters | /usr/bin/paste -sd'|' -)"; then
+    echo "[test] failed to generate WebKit suite exclusions" >&2
+    return 1
+  fi
+  if ! main_actor_first_suite_pairs="$(serialized_main_actor_suite_matches main-actor-first)"; then
+    echo "[test] failed to discover MainActor-first serialized suites" >&2
+    return 1
+  fi
+  if ! suite_first_suite_pairs="$(serialized_main_actor_suite_matches suite-first)"; then
+    echo "[test] failed to discover Suite-first MainActor serialized suites" >&2
+    return 1
+  fi
+  if ! additional_suite_pairs="$(
     printf '%s:%s\n' \
       'Tests/AgentStudioTests/Features/Terminal/State/TerminalActivityProjectorTests.swift' \
       'TerminalActivityProjectorTests'
@@ -1001,7 +1167,17 @@ aggregate_serial_non_webkit_suite_filters() {
     printf '%s:%s\n' \
       'Tests/AgentStudioAppIPCTests/AppIPCErrorCorrectionTests.swift' \
       'AppIPCErrorCorrectionTests'
-  } | while IFS=: read -r source_file suite_name; do
+  )"; then
+    echo "[test] failed to create explicit serialized-suite candidates" >&2
+    return 1
+  fi
+
+  suite_pairs="$main_actor_first_suite_pairs
+$suite_first_suite_pairs
+$additional_suite_pairs"
+
+  while IFS=: read -r source_file suite_name; do
+    [ -n "$source_file" ] || continue
     case "$source_file" in
       *"/App/WebKit/"*) continue ;;
     esac
@@ -1011,15 +1187,59 @@ aggregate_serial_non_webkit_suite_filters() {
     if printf '%s\n' "$suite_name" | grep -Eq "^(${webkit_leaf_suite_pattern})$"; then
       continue
     fi
-    if ! swift_test_lane_is_fast_serial_or_unlisted "$suite_name"; then
-      continue
+    if swift_test_lane_is_fast_serial_or_unlisted "$suite_name"; then
+      :
+    else
+      classification_status=$?
+      if [ "$classification_status" -eq 1 ]; then
+        continue
+      fi
+      printf '[test] failed to classify suite for isolated non-WebKit lane suite=%s status=%s\n' \
+        "$suite_name" "$classification_status" >&2
+      return "$classification_status"
     fi
-    printf '%s\n' "$suite_name"
-  done | sort -u
+    selected_suite_names="$selected_suite_names$selected_suite_separator$suite_name"
+    selected_suite_separator='
+'
+  done <<<"$suite_pairs"
+
+  if ! selected_suite_output="$(printf '%s\n' "$selected_suite_names" | /usr/bin/sort -u)"; then
+    echo "[test] failed to sort isolated non-WebKit suite membership" >&2
+    return 1
+  fi
+  if [ -n "$selected_suite_output" ] && ! printf '%s\n' "$selected_suite_output"; then
+    echo "[test] failed to emit isolated non-WebKit suite membership" >&2
+    return 1
+  fi
+  return 0
 }
 
 aggregate_serial_non_webkit_filter_pattern() {
-  aggregate_serial_non_webkit_suite_filters | /usr/bin/paste -sd'|' -
+  local suite_types_output suite_type suite_filter
+  local joined_filters=""
+  local filter_separator=""
+
+  if ! suite_types_output="$(aggregate_serial_non_webkit_suite_filters)"; then
+    printf '[test] failed to generate aggregate serial non-WebKit suite filters\n' >&2
+    return 1
+  fi
+  while IFS= read -r suite_type; do
+    [ -n "$suite_type" ] || continue
+    if ! suite_filter="$(swift_test_isolated_suite_filter_pattern "$suite_type")"; then
+      printf '[test] failed to anchor aggregate serial suite filter suite=%s\n' "$suite_type" >&2
+      return 1
+    fi
+    joined_filters="$joined_filters$filter_separator$suite_filter"
+    filter_separator='|'
+  done <<<"$suite_types_output"
+
+  if [ -n "$joined_filters" ]; then
+    if ! printf '%s' "$joined_filters"; then
+      printf '[test] failed to emit aggregate serial non-WebKit suite filters\n' >&2
+      return 1
+    fi
+  fi
+  return 0
 }
 
 fast_serial_process_filter_pattern() {
@@ -1061,12 +1281,17 @@ swift_test_isolated_suite_skip_pattern() {
   local joined_type_names="${1:-}"
   local anchored_patterns=()
   local type_name
+  local anchored_pattern
   local IFS='|'
 
   [ -n "$joined_type_names" ] || return 0
   for type_name in $joined_type_names; do
     [ -n "$type_name" ] || continue
-    anchored_patterns+=("$(swift_test_isolated_suite_filter_pattern "$type_name")")
+    if ! anchored_pattern="$(swift_test_isolated_suite_filter_pattern "$type_name")"; then
+      printf '[test] failed to anchor isolated suite skip filter suite=%s\n' "$type_name" >&2
+      return 1
+    fi
+    anchored_patterns+=("$anchored_pattern")
   done
   printf '%s' "${anchored_patterns[*]}"
 }
@@ -1078,10 +1303,28 @@ run_fast_serial_process_swift_tests() {
   swift_testing_helper="$(swift_testing_helper_path)"
   local testing_framework_path
   testing_framework_path="$(swift_testing_framework_path)"
-  local fast_process_global_suite_filter
+  local lane_inventory fast_process_global_suite_output fast_process_global_suite_filter
+  local lane suite_type mode
+  local -a fast_process_global_suite_filters=()
 
+  if ! lane_inventory="$(swift_test_suite_lane_inventory)"; then
+    printf '[test] failed to generate fast process-global suite inventory\n' >&2
+    return 1
+  fi
+  if ! fast_process_global_suite_output="$(swift_test_lane_suite_types fast process-global "$lane_inventory")"; then
+    printf '[test] failed to generate fast process-global suite list\n' >&2
+    return 1
+  fi
+  if ! swift_test_lane_suite_types_match_inventory \
+    fast process-global "$lane_inventory" "$fast_process_global_suite_output"; then
+    return 1
+  fi
   while IFS= read -r fast_process_global_suite_filter; do
     [ -n "$fast_process_global_suite_filter" ] || continue
+    fast_process_global_suite_filters+=("$fast_process_global_suite_filter")
+  done <<<"$fast_process_global_suite_output"
+
+  for fast_process_global_suite_filter in "${fast_process_global_suite_filters[@]}"; do
     run_swift_with_timeout \
       "isolated fast process-global suite: $fast_process_global_suite_filter" \
       "$TIMEOUT_SECONDS" \
@@ -1090,7 +1333,7 @@ run_fast_serial_process_swift_tests() {
       "$swift_testing_helper" --test-bundle-path "$swift_test_bundle" \
       --filter "$(swift_test_isolated_suite_filter_pattern "$fast_process_global_suite_filter")" \
       "$swift_test_bundle" --testing-library swift-testing
-  done < <(swift_test_lane_suite_types fast process-global)
+  done
 }
 
 prebuild_swift_tests() {
@@ -1112,8 +1355,15 @@ run_aggregate_serial_non_webkit_swift_tests() {
   local testing_framework_path
   testing_framework_path="$(swift_testing_framework_path)"
   local aggregate_serial_suite_filter
+  local aggregate_serial_suite_filters
   local -a process_global_batch_pids=()
   local inventory_status=0
+
+  if ! aggregate_serial_suite_filters="$(aggregate_serial_non_webkit_suite_filters)"; then
+    printf '[test] failed to generate aggregate serial non-WebKit suite list\n' >&2
+    return 1
+  fi
+
   while IFS= read -r aggregate_serial_suite_filter; do
     [ -n "$aggregate_serial_suite_filter" ] || continue
     (
@@ -1134,7 +1384,7 @@ run_aggregate_serial_non_webkit_swift_tests() {
       wait_for_process_global_suite_batch "${process_global_batch_pids[@]}" || inventory_status=1
       process_global_batch_pids=()
     fi
-  done < <(aggregate_serial_non_webkit_suite_filters)
+  done <<<"$aggregate_serial_suite_filters"
 
   if [ "${#process_global_batch_pids[@]}" -gt 0 ]; then
     wait_for_process_global_suite_batch "${process_global_batch_pids[@]}" || inventory_status=1
@@ -1149,9 +1399,27 @@ run_large_process_global_swift_tests() {
   swift_testing_helper="$(swift_testing_helper_path)"
   local testing_framework_path
   testing_framework_path="$(swift_testing_framework_path)"
-  local large_process_global_suite_filter
+  local lane_inventory large_process_global_suite_filter large_process_global_suite_output
+  local -a large_process_global_suite_filters=()
+
+  if ! lane_inventory="$(swift_test_suite_lane_inventory)"; then
+    printf '[test] failed to generate large process-global suite inventory\n' >&2
+    return 1
+  fi
+  if ! large_process_global_suite_output="$(large_process_global_suite_filters "$lane_inventory")"; then
+    printf '[test] failed to generate large process-global suite list\n' >&2
+    return 1
+  fi
+  if ! swift_test_lane_suite_types_match_inventory \
+    large process-global "$lane_inventory" "$large_process_global_suite_output"; then
+    return 1
+  fi
   while IFS= read -r large_process_global_suite_filter; do
     [ -n "$large_process_global_suite_filter" ] || continue
+    large_process_global_suite_filters+=("$large_process_global_suite_filter")
+  done <<<"$large_process_global_suite_output"
+
+  for large_process_global_suite_filter in "${large_process_global_suite_filters[@]}"; do
     run_swift_with_timeout \
       "isolated large process-global suite: $large_process_global_suite_filter" \
       "$TIMEOUT_SECONDS" \
@@ -1160,7 +1428,7 @@ run_large_process_global_swift_tests() {
       "$swift_testing_helper" --test-bundle-path "$swift_test_bundle" \
       --filter "$(swift_test_isolated_suite_filter_pattern "$large_process_global_suite_filter")" \
       "$swift_test_bundle" --testing-library swift-testing
-  done < <(large_process_global_suite_filters)
+  done
 }
 
 swift_testing_bundle_path() {
@@ -1238,9 +1506,23 @@ wait_for_process_global_suite_batch() {
 # The fast concurrent phase is the default lane minus the exact inventory rows
 # that belong to another lane or to one of fast's isolated execution modes.
 fast_non_webkit_skip_pattern() {
-  printf '%s|%s' \
-    "$(swift_test_lane_fast_concurrent_skip_pattern)" \
-    "$(swift_test_isolated_suite_skip_pattern "$(aggregate_serial_non_webkit_filter_pattern)")"
+  local fast_lane_skip_filters aggregate_serial_filters aggregate_serial_skip_filters
+
+  if ! fast_lane_skip_filters="$(swift_test_lane_fast_concurrent_skip_pattern)"; then
+    printf '[test] failed to generate fast-lane concurrent skip filters\n' >&2
+    return 1
+  fi
+  if ! aggregate_serial_filters="$(aggregate_serial_non_webkit_filter_pattern)"; then
+    return 1
+  fi
+  if ! aggregate_serial_skip_filters="$(swift_test_isolated_suite_skip_pattern "$aggregate_serial_filters")"; then
+    return 1
+  fi
+  if ! printf '%s|%s' "$fast_lane_skip_filters" "$aggregate_serial_skip_filters"; then
+    printf '[test] failed to emit fast-lane skip filter pattern\n' >&2
+    return 1
+  fi
+  return 0
 }
 
 run_fast_non_webkit_swift_tests() {
@@ -1248,17 +1530,38 @@ run_fast_non_webkit_swift_tests() {
   # SWT_EXPERIMENTAL_MAXIMUM_PARALLELIZATION_WIDTH exported below. SwiftPM's
   # --parallel harness is not used for the fast inventory; suites that need a
   # process of their own get one from the isolated phases that follow.
+  local fast_lane_skip_pattern
+  if ! fast_lane_skip_pattern="$(fast_non_webkit_skip_pattern)"; then
+    printf '[test] failed to prepare fast-lane skip pattern; no fast suites were started\n' >&2
+    return 1
+  fi
+
   run_swift_with_timeout \
     "native-concurrent fast non-WebKit suites" \
     "$TIMEOUT_SECONDS" \
     env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" $(swift_test_parallelization_env_word) swift test ${EXTRA_SWIFT_TEST_ARGS:-} --skip-build \
-    --skip "$(fast_non_webkit_skip_pattern)" --build-path "$BUILD_PATH"
+    --skip "$fast_lane_skip_pattern" --build-path "$BUILD_PATH"
 
   run_aggregate_serial_non_webkit_swift_tests
   run_fast_serial_process_swift_tests
 }
 
 run_large_non_webkit_swift_tests() {
+  local large_concurrent_filter_pattern large_serial_filter_pattern large_process_global_filter_pattern
+
+  if ! large_concurrent_filter_pattern="$(large_non_webkit_filter_pattern)"; then
+    printf '[test] failed to prepare large concurrent filter; no large suites were started\n' >&2
+    return 1
+  fi
+  if ! large_serial_filter_pattern="$(large_serial_non_webkit_filter_pattern)"; then
+    printf '[test] failed to prepare large serial filter; no large suites were started\n' >&2
+    return 1
+  fi
+  if ! large_process_global_filter_pattern="$(large_process_global_filter_pattern)"; then
+    printf '[test] failed to prepare large process-global filter; no large suites were started\n' >&2
+    return 1
+  fi
+
   if [ "${SWIFT_TEST_PARALLEL:-1}" = "1" ]; then
     local parallel_args=(--parallel)
     run_swift_with_timeout \
@@ -1266,23 +1569,23 @@ run_large_non_webkit_swift_tests() {
       "$TIMEOUT_SECONDS" \
       env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" $(swift_test_parallelization_env_word) swift test ${EXTRA_SWIFT_TEST_ARGS:-} --skip-build \
       "${parallel_args[@]}" \
-      --filter "$(large_non_webkit_filter_pattern)" \
-      --skip "$(large_serial_non_webkit_filter_pattern)|$(large_process_global_filter_pattern)" \
+      --filter "$large_concurrent_filter_pattern" \
+      --skip "$large_serial_filter_pattern|$large_process_global_filter_pattern" \
       --build-path "$BUILD_PATH"
 
     run_swift_with_timeout \
       "serial large process suites" \
       "$TIMEOUT_SECONDS" \
       env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" $(swift_test_parallelization_env_word) swift test ${EXTRA_SWIFT_TEST_ARGS:-} --skip-build \
-      --filter "$(large_serial_non_webkit_filter_pattern)" \
+      --filter "$large_serial_filter_pattern" \
       --build-path "$BUILD_PATH"
   else
     run_swift_with_timeout \
       "serial large non-WebKit suites" \
       "$TIMEOUT_SECONDS" \
       env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" $(swift_test_parallelization_env_word) swift test ${EXTRA_SWIFT_TEST_ARGS:-} --skip-build \
-      --filter "$(large_non_webkit_filter_pattern)|$(large_serial_non_webkit_filter_pattern)" \
-      --skip "$(large_process_global_filter_pattern)" \
+      --filter "$large_concurrent_filter_pattern|$large_serial_filter_pattern" \
+      --skip "$large_process_global_filter_pattern" \
       --build-path "$BUILD_PATH"
   fi
 
@@ -1338,10 +1641,16 @@ webkit_leaf_suite_filters() {
 
 run_webkit_suites() {
   echo "--- WebKit serialized tests (serial) ---"
+  local webkit_filters
+  if ! webkit_filters="$(webkit_suite_filters)"; then
+    echo "[test] failed to generate WebKit suite list" >&2
+    return 1
+  fi
+
   while IFS= read -r filter; do
     [ -n "$filter" ] || continue
     run_webkit_suite "$filter" || return $?
-  done < <(webkit_suite_filters)
+  done <<<"$webkit_filters"
 }
 
 swift_test_watchdog_state() {
@@ -1381,6 +1690,7 @@ run_swift_with_timeout() {
   local last_heartbeat="$start_epoch"
   local last_progress_epoch="$start_epoch"
   local last_output_size=0
+  local watchdog_state
   local timed_out=0
 
   local xcb_pipe
@@ -1428,13 +1738,17 @@ run_swift_with_timeout() {
     local elapsed_seconds=$((now_epoch - start_epoch))
     local output_size
     output_size=$(wc -c <"$output_file" | tr -d '[:space:]')
-    read -r last_output_size last_progress_epoch < <(
+    if ! watchdog_state="$(
       swift_test_watchdog_state \
         "$last_output_size" \
         "$output_size" \
         "$last_progress_epoch" \
         "$now_epoch"
-    )
+    )"; then
+      echo "[$LOG_PREFIX] lane-report watchdog state generation failed" >&2
+      return 1
+    fi
+    read -r last_output_size last_progress_epoch <<<"$watchdog_state"
     local inactive_seconds=$((now_epoch - last_progress_epoch))
 
     if ! swift_test_watchdog_timeout_status \
