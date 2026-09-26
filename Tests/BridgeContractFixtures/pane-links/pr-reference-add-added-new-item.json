@@ -1,0 +1,7 @@
+{
+  "union": "BridgePullRequestReferenceAddResult",
+  "value": {
+    "kind": "added",
+    "effect": "newItem"
+  }
+}

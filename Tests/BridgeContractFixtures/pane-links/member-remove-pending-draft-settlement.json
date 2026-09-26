@@ -1,0 +1,7 @@
+{
+  "union": "BridgeMemberRemoveResult",
+  "value": {
+    "kind": "pendingDraftSettlement",
+    "operationId": "019d1f16-ef70-7111-8db1-7681f9f87710"
+  }
+}

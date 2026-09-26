@@ -1,0 +1,7 @@
+{
+  "union": "BridgeHumanOpenSettlement",
+  "value": {
+    "kind": "draftKept",
+    "reason": "refused"
+  }
+}
