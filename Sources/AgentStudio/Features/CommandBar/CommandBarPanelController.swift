@@ -72,6 +72,11 @@ package final class CommandBarPanelController {
     var forkEligibilityQueriesBySourceWorktreeId: [UUID: InFlightForkEligibilityQuery] = [:]
     var defaultStartPointQueriesByRepositoryId: [UUID: InFlightDefaultStartPointQuery] = [:]
     private let resultSession: CommandBarResultSession
+
+    /// The same open-in-current-tab capability every worktree level is first built with.
+    var canOpenWorktreeInCurrentTab: Bool {
+        resultSession.snapshot(state: state).canOpenWorktreeInCurrentTab
+    }
     private var activationGenerationGate = CommandBarActivationGenerationGate()
     private var pendingOpenAcknowledgement: PendingOpenAcknowledgement?
 

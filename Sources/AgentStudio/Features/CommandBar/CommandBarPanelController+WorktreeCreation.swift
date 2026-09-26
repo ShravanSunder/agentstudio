@@ -136,7 +136,7 @@ extension CommandBarPanelController {
                 CommandBarDataSource.buildWorktreeActionsLevel(
                     worktree: worktree,
                     presence: presence,
-                    canOpenInCurrentTab: resultSession.snapshot(state: state).canOpenWorktreeInCurrentTab,
+                    canOpenInCurrentTab: canOpenWorktreeInCurrentTab,
                     dispatcher: dispatcher,
                     repository: repository,
                     forkEligibility: state.forkEligibilityBySourceWorktreeId[worktree.id]
