@@ -8,6 +8,10 @@ on:
   # still has to pass the same gates before the stack merges.
   pull_request:
 
+concurrency:
+  group: "${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}"
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 permissions:
   contents: read
   # The first-attempt gate reads a pull request's live labels.
@@ -17,9 +21,14 @@ permissions:
 jobs:
   code-quality:
     name: Code quality
-    runs-on: macos-26
+    runs-on: ubuntu-24.04
+    container: swift@sha256:8de8ea332a61e961ead4ef41029c2552b18e1a70dd5942d25ecf7d8de2eec5b5
+    defaults:
+      run:
+        shell: bash
     env:
       SWIFT_BUILD_DIR: .build-ci
+      CI_CONTAINER_TOOLS: "1"
 
     steps:
       # First step of every job, before checkout: a re-run attempt fails here unless
@@ -45,6 +54,10 @@ jobs:
             echo "::error::Re-run attempt $RUN_ATTEMPT of a $EVENT_NAME run is refused: only a pull request carrying the '$override_label' label may be re-run. Diagnose the red run and start a new one instead."
             exit 1
           fi
+          if [ "${CI_CONTAINER_TOOLS:-}" = "1" ] && ! command -v gh >/dev/null 2>&1; then
+            apt-get update
+            DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends gh
+          fi
           if ! labels="$(gh api --paginate "repos/$REPOSITORY/issues/$PULL_REQUEST_NUMBER/labels" --jq '.[].name' 2>&1)"; then
             echo "::error::Re-run attempt $RUN_ATTEMPT refused: the labels of PR #$PULL_REQUEST_NUMBER could not be read, and the gate fails closed. $labels"
             exit 1
@@ -63,42 +76,48 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Select Xcode
-        id: select-xcode
-        uses: maxim-lobanov/setup-xcode@v1
-        with:
-          xcode-version: "26.6"
+      - name: Install Linux CI prerequisites
+        run: |
+          export DEBIAN_FRONTEND=noninteractive
+          apt-get update
+          apt-get install -y --no-install-recommends gh jq perl curl lsof
+          perl -MJSON::PP -MTime::HiRes -e 1
+
+      - name: Trust checkout for Git
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       - name: Setup mise
         uses: jdx/mise-action@v3
 
       - name: Install lint tools
-        env:
-          HOMEBREW_NO_AUTO_UPDATE: 1
-          HOMEBREW_NO_INSTALL_CLEANUP: 1
-        run: brew install swift-format swiftlint
+        run: bash scripts/install-ci-lint-tools.sh
+
+      - name: Verify lint tools on PATH
+        run: |
+          swift-format --version
+          swiftlint version
 
       - name: Restore architecture lint build cache
         id: architecture-cache-restore
         uses: actions/cache/restore@v4
         with:
           path: .build-ci/architecture-lint
-          key: architecture-lint-${{ runner.os }}-${{ runner.arch }}-xcode-26.6-${{ hashFiles('Tools/AgentStudioArchitectureLint/Package.swift', 'Tools/AgentStudioArchitectureLint/Package.resolved') }}
+          key: architecture-lint-linux-${{ runner.arch }}-swift-6.3.3-image-8de8ea332a61-${{ hashFiles('Tools/AgentStudioArchitectureLint/Package.swift', 'Tools/AgentStudioArchitectureLint/Package.resolved') }}
           restore-keys: |
-            architecture-lint-${{ runner.os }}-${{ runner.arch }}-xcode-26.6-
+            architecture-lint-linux-${{ runner.arch }}-swift-6.3.3-image-8de8ea332a61-
 
       - name: AgentStudio architecture lint tool tests
         run: mise run test:architecture
 
       - name: Save architecture lint build cache
-        if: steps.architecture-cache-restore.outputs.cache-hit != 'true'
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.architecture-cache-restore.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
           path: .build-ci/architecture-lint
           key: ${{ steps.architecture-cache-restore.outputs.cache-primary-key }}
 
       - name: Lint
-        run: mise run lint
+        run: mise run lint:portable
 
       - name: Debt ledger ratchet
         env:
@@ -107,7 +126,7 @@ jobs:
 
   marketing-site-validation:
     name: Marketing site validation
-    runs-on: macos-26
+    runs-on: ubuntu-24.04
 
     steps:
       - *first-attempt-gate
@@ -130,6 +149,13 @@ jobs:
           cache: pnpm
           cache-dependency-path: web/pnpm-lock.yaml
 
+      - name: Install Google Chrome
+        run: |
+          npx --yes playwright@1.61.0 install --with-deps chrome
+          chrome_binary="$(command -v google-chrome || command -v google-chrome-stable)"
+          test -x "$chrome_binary"
+          echo "CHROME_BIN=$chrome_binary" >> "$GITHUB_ENV"
+
       - name: Install marketing site dependencies
         run: pnpm --dir web install --frozen-lockfile
 
@@ -142,49 +168,8 @@ jobs:
           pnpm --dir web exec cf build
           pnpm --dir web run verify:cloudflare-discovery
 
-  bridge-web-validation:
-    name: BridgeWeb validation
-    runs-on: macos-26
-
-    steps:
-      - *first-attempt-gate
-
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 11.14.0
-
-      - name: Setup Node for BridgeWeb
-        uses: actions/setup-node@v4
-        with:
-          node-version: "26.5.0"
-          cache: pnpm
-          cache-dependency-path: BridgeWeb/pnpm-lock.yaml
-
-      - name: Install BridgeWeb dependencies
-        run: pnpm --dir BridgeWeb install --frozen-lockfile
-
-      - name: Verify BridgeWeb fixtures
-        run: bash scripts/bridge-web-sync-fixtures.sh
-
-      - name: Run BridgeWeb lanes
-        run: |
-          # Keep the CPU-heavy unit lane separate from browser integration/E2E.
-          # They already run concurrently with the code-quality and Swift test jobs; sharing
-          # this runner causes Vitest's per-test timeout to become load-dependent.
-          pnpm --dir BridgeWeb run check
-          pnpm --dir BridgeWeb run test:unit
-          pnpm --dir BridgeWeb run test:browser:integration
-          pnpm --dir BridgeWeb run build
-          test -f Sources/AgentStudio/Resources/BridgeWeb/app/index.html
-
-  bridge-web-swift-backend:
-    name: BridgeWeb Swift backend
+  bridge-web:
+    name: BridgeWeb
     runs-on: macos-26
     env:
       SWIFT_BUILD_DIR: .build-ci
@@ -207,17 +192,7 @@ jobs:
       - name: Setup mise
         uses: jdx/mise-action@v3
         with:
-          # Restore the shared mise tool cache without adding another competing saver
-          # from this new runner.
           cache_save: false
-
-      - name: Get submodule SHAs
-        id: submodules
-        run: |
-          GHOSTTY_SHA=$(git -C vendor/ghostty rev-parse HEAD)
-          ZMX_SHA=$(git -C vendor/zmx rev-parse HEAD)
-          echo "ghostty_sha=$GHOSTTY_SHA" >> "$GITHUB_OUTPUT"
-          echo "zmx_sha=$ZMX_SHA" >> "$GITHUB_OUTPUT"
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -228,6 +203,16 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "26.5.0"
+          cache: pnpm
+          cache-dependency-path: BridgeWeb/pnpm-lock.yaml
+
+      - name: Get submodule SHAs
+        id: submodules
+        run: |
+          GHOSTTY_SHA=$(git -C vendor/ghostty rev-parse HEAD)
+          ZMX_SHA=$(git -C vendor/zmx rev-parse HEAD)
+          echo "ghostty_sha=$GHOSTTY_SHA" >> "$GITHUB_OUTPUT"
+          echo "zmx_sha=$ZMX_SHA" >> "$GITHUB_OUTPUT"
 
       - parallel:
           - name: Install BridgeWeb dependencies
@@ -261,6 +246,16 @@ jobs:
               path: vendor/zmx/zig-out
               key: zmx-${{ runner.os }}-${{ steps.submodules.outputs.zmx_sha }}
 
+      - name: Verify BridgeWeb fixtures
+        run: bash scripts/bridge-web-sync-fixtures.sh
+
+      - name: Run BridgeWeb lanes
+        run: |
+          # Keep CPU-heavy test lanes sequential on this runner.
+          pnpm --dir BridgeWeb run check
+          pnpm --dir BridgeWeb run test:unit
+          pnpm --dir BridgeWeb run test:browser:integration
+
       - parallel:
           - name: BridgeWeb packaged build
             run: pnpm --dir BridgeWeb run build
@@ -273,13 +268,14 @@ jobs:
 
           - name: Build zmx
             if: steps.cache-zmx.outputs.cache-hit != 'true'
-            run: |
-              mise run --skip-deps build-zmx
+            run: mise run --skip-deps build-zmx
+
+      - name: Verify packaged BridgeWeb build
+        run: test -f Sources/AgentStudio/Resources/BridgeWeb/app/index.html
 
       - parallel:
           - name: Copy XCFramework
-            run: |
-              mise run --skip-deps copy-xcframework
+            run: mise run --skip-deps copy-xcframework
 
           - name: Setup dev resources
             run: |
@@ -336,10 +332,13 @@ jobs:
         uses: jdx/mise-action@v3
 
       - name: Install lint tools for Swift test contracts
-        env:
-          HOMEBREW_NO_AUTO_UPDATE: 1
-          HOMEBREW_NO_INSTALL_CLEANUP: 1
-        run: brew install swiftlint
+        run: bash scripts/install-ci-lint-tools.sh
+
+      - name: Verify lint tools on PATH
+        run: |
+          test "$(command -v swiftlint)" = "$(mise where swiftlint@0.65.1)/swiftlint"
+          swift-format --version
+          swiftlint version
 
       # --- Submodule SHAs for cache keys ---
 
@@ -467,6 +466,9 @@ jobs:
           SWIFT_TEST_TIMEOUT_SECONDS: "600"
           XCB_EXTRA_ARGS: "--renderer github-actions"
         run: mise run --skip-deps test:swift:webkit
+
+      - name: Verify release-script contract
+        run: mise run lint:release-scripts
 
       - name: Upload test results
         if: always()
