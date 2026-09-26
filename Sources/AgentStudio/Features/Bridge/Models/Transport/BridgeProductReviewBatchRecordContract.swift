@@ -315,11 +315,15 @@ struct BridgeProductReviewBatchDesiredPublication: Codable, Equatable, Sendable 
 }
 
 struct BridgeProductReviewBatchPublicationRecord: Codable, Equatable, Sendable {
-    private enum CodingKeys: String, CodingKey, CaseIterable { case desired, displayed, recordKind }
+    private enum CodingKeys: String, CodingKey, CaseIterable {
+        case desired, displayed, publicationId, recordKind, revision
+    }
 
     let desired: BridgeProductReviewBatchDesiredPublication
     let displayed: BridgeProductReviewBatchDisplayedPublication?
+    let publicationId: UUID
     let recordKind: String
+    let revision: Int
 
     init(from decoder: Decoder) throws {
         try BridgeProductContractDecoding.rejectUnknownKeys(
@@ -330,18 +334,27 @@ struct BridgeProductReviewBatchPublicationRecord: Codable, Equatable, Sendable {
         displayed = try BridgeProductContractDecoding.decodeRequiredNullable(
             BridgeProductReviewBatchDisplayedPublication.self, forKey: .displayed, from: container,
             codingPath: decoder.codingPath)
+        publicationId = try BridgeProductReviewPublicationIdContract.decode(
+            container.decode(String.self, forKey: .publicationId), codingPath: decoder.codingPath
+        )
         recordKind = try container.decode(String.self, forKey: .recordKind)
+        revision = try container.decode(Int.self, forKey: .revision)
         guard recordKind == "publication" else {
             throw BridgeProductContractDecoding.invalidValue(
                 "Invalid Review publication record kind", codingPath: decoder.codingPath)
         }
+        try BridgeProductContractDecoding.validatePositive(
+            revision, name: "Review publication revision", codingPath: decoder.codingPath
+        )
     }
 
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(desired, forKey: .desired)
         try container.encode(displayed, forKey: .displayed)
+        try container.encode(BridgeProductReviewPublicationIdContract.encode(publicationId), forKey: .publicationId)
         try container.encode(recordKind, forKey: .recordKind)
+        try container.encode(revision, forKey: .revision)
     }
 }
 

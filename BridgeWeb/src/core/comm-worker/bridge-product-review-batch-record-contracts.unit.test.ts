@@ -14,11 +14,24 @@ describe('Bridge product Review batch records', () => {
 				expect(parsed.sortKey).toBe(0);
 			} else {
 				expect(recordKey).toBe('publication');
+				expect(parsed.revision).toBeGreaterThan(0);
 				if (parsed.displayed !== null) {
 					expect(parsed.displayed.revision).toBe(11);
+					expect(parsed.publicationId).not.toBe(parsed.displayed.publicationId);
+					expect(parsed.desired.status).toBe('failedRetryable');
 				}
 			}
 		}
+	});
+
+	test('requires an identity even for a status-only publication', () => {
+		const statusOnly = recordCorpus.records[1]?.record;
+		expect(statusOnly).toBeDefined();
+		if (statusOnly === undefined) return;
+		expect(
+			bridgeProductReviewBatchRecordSchema.safeParse({ ...statusOnly, publicationId: undefined })
+				.success,
+		).toBe(false);
 	});
 
 	test('rejects a content source assigned to another item or role', () => {

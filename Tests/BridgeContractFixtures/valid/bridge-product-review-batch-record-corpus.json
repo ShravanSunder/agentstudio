@@ -77,7 +77,9 @@
           "reviewComparison": null,
           "status": "ready"
         },
-        "displayed": null
+        "displayed": null,
+        "publicationId": "00000000-0000-7000-8000-000000000012",
+        "revision": 1
       }
     },
     {
@@ -85,9 +87,21 @@
       "record": {
         "recordKind": "publication",
         "desired": {
-          "reviewComparison": null,
-          "status": "ready"
+          "reviewComparison": {
+            "activeTarget": { "basis": "commonCommit", "kind": "branch", "name": "origin/feature" },
+            "attempt": { "failureKind": "sourceUnavailable", "retryable": true, "status": "unavailable" },
+            "displayedSnapshot": {
+              "packageId": "review-package-1",
+              "reviewGeneration": 7,
+              "revision": 11,
+              "status": "stale"
+            },
+            "repositoryDefaultTarget": null
+          },
+          "status": "failedRetryable"
         },
+        "publicationId": "00000000-0000-7000-8000-000000000013",
+        "revision": 12,
         "displayed": {
           "baseEndpoint": {
             "createdAtUnixMilliseconds": 1,

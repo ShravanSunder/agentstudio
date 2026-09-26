@@ -99,7 +99,9 @@ const reviewBatchPublicationSchema = z
 	.object({
 		desired: reviewDesiredPublicationSchema,
 		displayed: reviewDisplayedPublicationSchema.nullable(),
+		publicationId: bridgeProductReviewPublicationIdSchema,
 		recordKind: z.literal('publication'),
+		revision: bridgeProductPositiveSequenceSchema,
 	})
 	.strict();
 

@@ -197,8 +197,13 @@ struct BridgeProductTransportV2ContractTests {
             case .item(let item):
                 #expect(item.itemId == recordKey)
                 #expect(item.sortKey == 0)
-            case .publication:
+            case .publication(let publication):
                 #expect(recordKey == "publication")
+                #expect(publication.revision > 0)
+                if let displayed = publication.displayed {
+                    #expect(publication.publicationId != displayed.publicationId)
+                    #expect(publication.desired.status == .failedRetryable)
+                }
             }
         }
 
@@ -211,6 +216,10 @@ struct BridgeProductTransportV2ContractTests {
         contentByRole["head"] = head
         item["contentByRole"] = contentByRole
         #expect(decodingFails(BridgeProductReviewBatchRecord.self, object: item))
+
+        var publication = try #require(entries[1]["record"] as? [String: Any])
+        publication.removeValue(forKey: "publicationId")
+        #expect(decodingFails(BridgeProductReviewBatchRecord.self, object: publication))
     }
 
     @Test("revision-aware mutation observation has distinct unknown and late evidence")
